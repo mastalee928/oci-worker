@@ -26,20 +26,6 @@
         <a-menu-item key="backup"><i class="ri-database-2-line menu-ri"></i><span>备份恢复</span></a-menu-item>
       </a-menu>
 
-      <div class="sidebar-footer">
-        <div class="user-card">
-          <div class="avatar">{{ avatarLetter }}</div>
-          <template v-if="!collapsed || (isMobile && mobileMenuOpen)">
-            <div class="user-info">
-              <div class="user-name">Admin</div>
-              <div class="user-status">管理员在线</div>
-            </div>
-          </template>
-        </div>
-        <button v-if="!collapsed || (isMobile && mobileMenuOpen)" class="btn-logout" @click="handleLogout">
-          <i class="ri-logout-box-r-line"></i> 安全退出
-        </button>
-      </div>
     </a-layout-sider>
 
     <a-layout class="content-layout">
@@ -69,6 +55,19 @@
         <router-view />
       </div>
     </a-layout>
+
+    <div class="fixed-user-panel">
+      <div class="user-card">
+        <div class="avatar">{{ avatarLetter }}</div>
+        <div class="user-info">
+          <div class="user-name">Admin</div>
+          <div class="user-status">管理员在线</div>
+        </div>
+      </div>
+      <button class="btn-logout" @click="handleLogout">
+        <i class="ri-logout-box-r-line"></i> 安全退出
+      </button>
+    </div>
   </a-layout>
 </template>
 
@@ -202,21 +201,26 @@ function handleLogout() {
   vertical-align: -0.15em;
 }
 
-.sidebar-footer {
-  padding: 16px;
-  border-top: 1px solid var(--border);
-  flex-shrink: 0;
+.fixed-user-panel {
+  position: fixed;
+  bottom: 24px;
+  left: 24px;
+  z-index: 999;
+  width: 220px;
 }
 .user-card {
   display: flex;
   align-items: center;
   gap: 12px;
   padding: 12px;
-  background: var(--input-bg);
+  background: var(--bg-card);
   border-radius: 16px;
   border: 1px solid var(--border);
-  margin-bottom: 12px;
+  margin-bottom: 10px;
   cursor: default;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow: var(--shadow-card);
 }
 .avatar {
   width: 42px;
@@ -251,6 +255,9 @@ function handleLogout() {
   gap: 6px;
   transition: var(--trans);
   font-family: inherit;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
+  box-shadow: var(--shadow-card);
 }
 .btn-logout:hover {
   background: rgba(239, 68, 68, 0.1);
@@ -342,6 +349,11 @@ function handleLogout() {
   }
   .app-content {
     padding: 0 16px 24px;
+  }
+  .fixed-user-panel {
+    bottom: 16px;
+    left: 16px;
+    width: 200px;
   }
 }
 </style>
