@@ -18,46 +18,46 @@ public class UserController {
 
     @PostMapping("/list")
     public ResponseData<?> listUsers(@RequestBody Map<String, String> params) {
-        return ResponseData.success(userManagementService.listUsers(params.get("tenantId")));
+        return ResponseData.ok(userManagementService.listUsers(params.get("tenantId")));
     }
 
     @PostMapping("/groups")
     public ResponseData<?> listGroups(@RequestBody Map<String, String> params) {
-        return ResponseData.success(userManagementService.listGroups(params.get("tenantId")));
+        return ResponseData.ok(userManagementService.listGroups(params.get("tenantId")));
     }
 
     @PostMapping("/create")
     public ResponseData<?> createUser(@RequestBody UserParams params) {
-        return ResponseData.success(userManagementService.createUser(params));
+        return ResponseData.ok(userManagementService.createUser(params));
     }
 
     @PostMapping("/resetPassword")
     public ResponseData<?> resetPassword(@RequestBody UserParams params) {
         String newPassword = userManagementService.getResetPasswordResult(params);
-        return ResponseData.success(newPassword);
+        return ResponseData.ok(newPassword);
     }
 
     @PostMapping("/clearMfa")
     public ResponseData<?> clearMfa(@RequestBody UserParams params) {
         userManagementService.clearMfa(params);
-        return ResponseData.success("MFA 已清除");
+        return ResponseData.ok("MFA 已清除");
     }
 
     @PostMapping("/addToAdmin")
     public ResponseData<?> addToAdmin(@RequestBody UserParams params) {
         userManagementService.addUserToGroup(params);
-        return ResponseData.success("已加入管理员组");
+        return ResponseData.ok("已加入管理员组");
     }
 
     @PostMapping("/removeFromAdmin")
     public ResponseData<?> removeFromAdmin(@RequestBody UserParams params) {
         userManagementService.removeUserFromGroup(params);
-        return ResponseData.success("已移出管理员组");
+        return ResponseData.ok("已移出管理员组");
     }
 
     @PostMapping("/userGroups")
     public ResponseData<?> getUserGroups(@RequestBody Map<String, String> params) {
         List<String> groups = userManagementService.getUserGroupNames(params.get("tenantId"), params.get("userId"));
-        return ResponseData.success(groups);
+        return ResponseData.ok(groups);
     }
 }
