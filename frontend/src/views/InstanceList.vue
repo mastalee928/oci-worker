@@ -404,6 +404,47 @@
             <a-descriptions-item label="出站流量">{{ formatBytes(trafficData.outbound) }}</a-descriptions-item>
           </a-descriptions>
         </a-tab-pane>
+
+        <a-tab-pane key="console" tab="串行控制台">
+          <a-alert type="info" show-icon style="margin-bottom: 16px">
+            <template #message>用于实例网络异常时的紧急救援，通过 OCI 内部通道连接实例串口</template>
+          </a-alert>
+
+          <template v-if="!consoleData">
+            <a-button type="primary" @click="handleCreateConsole" :loading="consoleLoading">
+              <i class="ri-terminal-line" style="margin-right: 6px"></i>创建控制台连接
+            </a-button>
+            <div style="margin-top: 8px; color: var(--text-sub); font-size: 12px">
+              创建后会生成一个一键连接链接，通过 WebSSH 直接进入串口终端
+            </div>
+          </template>
+
+          <template v-else>
+            <a-descriptions :column="1" bordered size="small">
+              <a-descriptions-item label="连接状态">
+                <a-badge status="success" text="已就绪" />
+              </a-descriptions-item>
+              <a-descriptions-item label="一键连接">
+                <a-button type="primary" @click="openConsoleWebSSH">
+                  <i class="ri-external-link-line" style="margin-right: 6px"></i>打开串行控制台
+                </a-button>
+              </a-descriptions-item>
+              <a-descriptions-item label="SSH 命令">
+                <a-typography-text copyable :content="consoleData.sshCommand" style="font-size: 11px; word-break: break-all">
+                  {{ consoleData.sshCommand?.substring(0, 80) }}...
+                </a-typography-text>
+              </a-descriptions-item>
+            </a-descriptions>
+            <div style="margin-top: 12px">
+              <a-popconfirm title="确定断开控制台连接？" @confirm="handleDeleteConsole">
+                <a-button danger :loading="consoleLoading">断开连接</a-button>
+              </a-popconfirm>
+            </div>
+            <div style="margin-top: 8px; color: var(--text-sub); font-size: 12px">
+              提示：断开后临时用户将自动清理。进入控制台后按 Ctrl+] 或 ~. 退出。
+            </div>
+          </template>
+        </a-tab-pane>
       </a-tabs>
     </a-drawer>
 
@@ -563,6 +604,7 @@ import {
   createReservedIp, listReservedIps, deleteReservedIp,
   assignReservedIp, unassignReservedIp,
   updateInstance,
+  createConsoleConnection, deleteConsoleConnection,
 } from '../api/instance'
 import { getTenantList } from '../api/tenant'
 import { createTask, hasRunningTask } from '../api/task'
@@ -695,6 +737,45 @@ const quickTaskForm = reactive({
   ocpus: 1, memory: 6, disk: 50, createNumbers: 1, interval: 60, rootPassword: '', customScript: '',
 })
 
+const consoleLoading = ref(false)
+const consoleData = ref<any>(null)
+
+async function handleCreateConsole() {
+  if (!currentInstance.value || !currentTenant.value) return
+  consoleLoading.value = true
+  try {
+    const res = await createConsoleConnection({ id: currentTenant.value.id, instanceId: currentInstance.value.instanceId })
+    consoleData.value = res.data
+    message.success('控制台连接已创建')
+  } catch (e: any) {
+    message.error(e?.message || '创建控制台连接失败')
+  } finally {
+    consoleLoading.value = false
+  }
+}
+
+function openConsoleWebSSH() {
+  if (!consoleData.value) return
+  const host = window.location.hostname
+  const { tempUser, tempPassword } = consoleData.value
+  const url = `https://webssh.oci.ee/${host}/22/${tempUser}/${tempPassword}`
+  window.open(url, '_blank')
+}
+
+async function handleDeleteConsole() {
+  if (!consoleData.value || !currentTenant.value) return
+  consoleLoading.value = true
+  try {
+    await deleteConsoleConnection({ id: currentTenant.value.id, connectionId: consoleData.value.connectionId })
+    consoleData.value = null
+    message.success('控制台连接已断开')
+  } catch (e: any) {
+    message.error(e?.message || '断开连接失败')
+  } finally {
+    consoleLoading.value = false
+  }
+}
+
 const vcnVisible = ref(false)
 const vcnListLoading = ref(false)
 const vcnTenant = ref<any>(null)
@@ -762,6 +843,7 @@ function openDetail(tenant: any, record: any) {
   trafficData.value = null
   networkDetail.value = null
   reservedIps.value = []
+  consoleData.value = null
   drawerVisible.value = true
   loadNetworkDetail()
   loadReservedIps()

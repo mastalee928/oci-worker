@@ -79,3 +79,11 @@ export function assignReservedIp(data: { id: string; publicIpId: string; instanc
 export function unassignReservedIp(data: { id: string; publicIpId: string }) {
   return request.post('/oci/instance/unassignReservedIp', data)
 }
+
+export function createConsoleConnection(data: { id: string; instanceId: string }) {
+  return request.post('/oci/instance/createConsole', data)
+}
+
+export function deleteConsoleConnection(data: { id: string; connectionId: string }) {
+  return request.post('/oci/instance/deleteConsole', data)
+}

@@ -1,6 +1,7 @@
 package com.ociworker.controller;
 
 import com.ociworker.model.vo.ResponseData;
+import com.ociworker.service.ConsoleService;
 import com.ociworker.service.InstanceService;
 import com.ociworker.service.VerifyCodeService;
 import jakarta.annotation.Resource;
@@ -16,6 +17,8 @@ public class InstanceController {
     private InstanceService instanceService;
     @Resource
     private VerifyCodeService verifyCodeService;
+    @Resource
+    private ConsoleService consoleService;
 
     @PostMapping("/list")
     public ResponseData<?> list(@RequestBody Map<String, String> params) {
@@ -101,6 +104,17 @@ public class InstanceController {
     @PostMapping("/unassignReservedIp")
     public ResponseData<?> unassignReservedIp(@RequestBody Map<String, String> params) {
         instanceService.unassignReservedIp(params.get("id"), params.get("publicIpId"));
+        return ResponseData.ok();
+    }
+
+    @PostMapping("/createConsole")
+    public ResponseData<?> createConsole(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(consoleService.createConsoleConnection(params.get("id"), params.get("instanceId")));
+    }
+
+    @PostMapping("/deleteConsole")
+    public ResponseData<?> deleteConsole(@RequestBody Map<String, String> params) {
+        consoleService.deleteConsoleConnection(params.get("id"), params.get("connectionId"));
         return ResponseData.ok();
     }
 }
