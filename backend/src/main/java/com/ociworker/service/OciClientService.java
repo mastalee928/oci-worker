@@ -123,7 +123,7 @@ public class OciClientService implements Closeable {
                             .tenancyId(tenantId).build()).getTenancy();
             Compartment root = Compartment.builder()
                     .id(tenantId)
-                    .name(tenancy.getName() != null ? tenancy.getName() : "root")
+                    .name("root")
                     .compartmentId(tenantId)
                     .lifecycleState(Compartment.LifecycleState.Active)
                     .build();

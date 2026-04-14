@@ -42,11 +42,11 @@
           <a-button type="primary" block @click="selectTenant(td)" :loading="td.loading">
             <i class="ri-server-line" style="margin-right: 6px"></i>实例管理
           </a-button>
-          <a-button block @click="openQuickTask(td.tenant)">
-            <i class="ri-play-circle-line" style="margin-right: 6px"></i>开机任务
-          </a-button>
           <a-button block @click="openVcnPanel(td.tenant)">
             <i class="ri-share-line" style="margin-right: 6px"></i>虚拟云网络
+          </a-button>
+          <a-button block @click="openQuickTask(td.tenant)">
+            <i class="ri-play-circle-line" style="margin-right: 6px"></i>开机任务
           </a-button>
         </div>
       </div>
@@ -84,8 +84,8 @@
           <template #default="{ record }">
             <a-space>
               <a-button type="primary" size="small" @click="selectTenant(record)" :loading="record.loading">实例管理</a-button>
-              <a-button size="small" @click="openQuickTask(record.tenant)">开机任务</a-button>
               <a-button size="small" @click="openVcnPanel(record.tenant)">VCN</a-button>
+              <a-button size="small" @click="openQuickTask(record.tenant)">开机任务</a-button>
             </a-space>
           </template>
         </a-table-column>
