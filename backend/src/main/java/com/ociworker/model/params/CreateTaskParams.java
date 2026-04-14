@@ -16,4 +16,6 @@ public class CreateTaskParams {
     private String rootPassword;
     private String operationSystem = "Ubuntu";
     private String customScript;
+    private Boolean assignPublicIp = true;
+    private Boolean assignIpv6 = false;
 }

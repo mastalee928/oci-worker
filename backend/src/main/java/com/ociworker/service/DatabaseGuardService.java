@@ -61,6 +61,8 @@ public class DatabaseGuardService {
                 root_password VARCHAR(64),
                 operation_system VARCHAR(64) DEFAULT 'Ubuntu',
                 custom_script TEXT,
+                assign_public_ip TINYINT(1) DEFAULT 1,
+                assign_ipv6 TINYINT(1) DEFAULT 0,
                 status VARCHAR(16) DEFAULT 'RUNNING',
                 attempt_count INT DEFAULT 0,
                 create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -270,6 +272,8 @@ public class DatabaseGuardService {
 
     private void migrateColumns(Connection conn) {
         addColumnIfMissing(conn, "oci_create_task", "custom_script", "TEXT DEFAULT NULL AFTER operation_system");
+        addColumnIfMissing(conn, "oci_create_task", "assign_public_ip", "TINYINT(1) DEFAULT 1 AFTER custom_script");
+        addColumnIfMissing(conn, "oci_create_task", "assign_ipv6", "TINYINT(1) DEFAULT 0 AFTER assign_public_ip");
     }
 
     private void addColumnIfMissing(Connection conn, String table, String column, String definition) {

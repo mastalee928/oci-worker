@@ -22,6 +22,8 @@ public class OciCreateTask {
     private String rootPassword;
     private String operationSystem;
     private String customScript;
+    private Boolean assignPublicIp;
+    private Boolean assignIpv6;
     private String status;
     private Integer attemptCount;
     private LocalDateTime createTime;

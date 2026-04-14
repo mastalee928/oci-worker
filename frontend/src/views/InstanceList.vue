@@ -248,6 +248,18 @@
             </a-form-item>
           </a-col>
         </a-row>
+        <a-row :gutter="12">
+          <a-col :span="12">
+            <a-form-item>
+              <a-checkbox v-model:checked="quickTaskForm.assignPublicIp">分配公网 IPv4</a-checkbox>
+            </a-form-item>
+          </a-col>
+          <a-col :span="12">
+            <a-form-item>
+              <a-checkbox v-model:checked="quickTaskForm.assignIpv6">分配 IPv6</a-checkbox>
+            </a-form-item>
+          </a-col>
+        </a-row>
         <a-form-item label="自定义开机脚本">
           <a-textarea v-model:value="quickTaskForm.customScript" placeholder="可选，留空不执行" :auto-size="{ minRows: 2, maxRows: 5 }" />
         </a-form-item>
@@ -754,6 +766,7 @@ const quickTaskTenant = ref<any>(null)
 const quickTaskForm = reactive({
   architecture: 'ARM', operationSystem: 'Ubuntu',
   ocpus: 1, memory: 6, disk: 50, createNumbers: 1, interval: 60, rootPassword: '', customScript: '',
+  assignPublicIp: true, assignIpv6: false,
 })
 
 const consoleLoading = ref(false)
@@ -1214,6 +1227,7 @@ function openQuickTask(tenant: any) {
   Object.assign(quickTaskForm, {
     architecture: 'ARM', operationSystem: 'Ubuntu',
     ocpus: 1, memory: 6, disk: 50, createNumbers: 1, interval: 60, rootPassword: '', customScript: '',
+    assignPublicIp: true, assignIpv6: false,
   })
   quickTaskVisible.value = true
 }

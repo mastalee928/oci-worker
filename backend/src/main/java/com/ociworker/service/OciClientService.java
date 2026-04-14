@@ -388,6 +388,16 @@ public class OciClientService implements Closeable {
                     Instance instance = launchInstance(launchDetails);
 
                     String publicIp = getInstancePublicIp(instance);
+
+                    if (Boolean.TRUE.equals(user.getAssignIpv6())) {
+                        try {
+                            assignIpv6ToInstance(instance, subnet);
+                            log.info("【开机任务】用户:[{}] - IPv6 已分配", user.getUsername());
+                        } catch (Exception e) {
+                            log.warn("【开机任务】用户:[{}] - IPv6 分配失败: {}", user.getUsername(), e.getMessage());
+                        }
+                    }
+
                     result.setSuccess(true);
                     result.setInstanceId(instance.getId());
                     result.setInstanceName(instance.getDisplayName());
@@ -468,7 +478,7 @@ public class OciClientService implements Closeable {
                         .build())
                 .createVnicDetails(CreateVnicDetails.builder()
                         .subnetId(subnet.getId())
-                        .assignPublicIp(true)
+                        .assignPublicIp(user.getAssignPublicIp() != null ? user.getAssignPublicIp() : true)
                         .build())
                 .metadata(cloudInitScript != null && !cloudInitScript.isEmpty()
                         ? Map.of("user_data", Base64.getEncoder().encodeToString(cloudInitScript.getBytes()))
@@ -497,6 +507,70 @@ public class OciClientService implements Closeable {
                         .build(),
                 Instance.LifecycleState.Running
         ).execute().getInstance();
+    }
+
+    private void assignIpv6ToInstance(Instance instance, Subnet subnet) {
+        List<VnicAttachment> attachments = computeClient.listVnicAttachments(
+                ListVnicAttachmentsRequest.builder()
+                        .compartmentId(compartmentId)
+                        .instanceId(instance.getId())
+                        .build()
+        ).getItems();
+        if (attachments.isEmpty()) return;
+
+        String vnicId = attachments.get(0).getVnicId();
+        String subnetId = subnet.getId();
+        Vcn vcn = virtualNetworkClient.getVcn(
+                GetVcnRequest.builder().vcnId(subnet.getVcnId()).build()
+        ).getVcn();
+
+        if (vcn.getIpv6CidrBlocks() == null || vcn.getIpv6CidrBlocks().isEmpty()) {
+            try {
+                virtualNetworkClient.addIpv6VcnCidr(
+                        AddIpv6VcnCidrRequest.builder()
+                                .vcnId(vcn.getId())
+                                .addVcnIpv6CidrDetails(AddVcnIpv6CidrDetails.builder()
+                                        .isOracleGuaAllocationEnabled(true)
+                                        .build())
+                                .build());
+                Thread.sleep(8000);
+            } catch (Exception e) {
+                if (!e.getMessage().contains("already exists") && !e.getMessage().contains("already has")) {
+                    log.warn("VCN IPv6 CIDR 添加失败: {}", e.getMessage());
+                    return;
+                }
+            }
+            vcn = virtualNetworkClient.getVcn(GetVcnRequest.builder().vcnId(vcn.getId()).build()).getVcn();
+        }
+
+        Subnet freshSubnet = virtualNetworkClient.getSubnet(
+                GetSubnetRequest.builder().subnetId(subnetId).build()).getSubnet();
+        if (freshSubnet.getIpv6CidrBlocks() == null || freshSubnet.getIpv6CidrBlocks().isEmpty()) {
+            String vcnIpv6Cidr = vcn.getIpv6CidrBlocks() != null && !vcn.getIpv6CidrBlocks().isEmpty()
+                    ? vcn.getIpv6CidrBlocks().get(0) : null;
+            if (vcnIpv6Cidr == null) return;
+            String subnetIpv6Cidr = vcnIpv6Cidr.replaceAll("/\\d+$", "/64");
+            try {
+                virtualNetworkClient.updateSubnet(UpdateSubnetRequest.builder()
+                        .subnetId(subnetId)
+                        .updateSubnetDetails(UpdateSubnetDetails.builder()
+                                .ipv6CidrBlocks(List.of(subnetIpv6Cidr))
+                                .build())
+                        .build());
+                Thread.sleep(3000);
+            } catch (Exception e) {
+                if (!e.getMessage().contains("already exists") && !e.getMessage().contains("already has")) {
+                    log.warn("子网 IPv6 CIDR 添加失败: {}", e.getMessage());
+                    return;
+                }
+            }
+        }
+
+        virtualNetworkClient.createIpv6(CreateIpv6Request.builder()
+                .createIpv6Details(CreateIpv6Details.builder()
+                        .vnicId(vnicId)
+                        .build())
+                .build());
     }
 
     public String getInstancePublicIp(Instance instance) {

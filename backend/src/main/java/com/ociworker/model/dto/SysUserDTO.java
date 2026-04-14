@@ -23,6 +23,8 @@ public class SysUserDTO {
     private String rootPassword;
     private String operationSystem;
     private String customScript;
+    private Boolean assignPublicIp;
+    private Boolean assignIpv6;
     private OciCfg ociCfg;
 
     @Data

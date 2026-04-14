@@ -34,7 +34,8 @@ public class TaskController {
                 params.getOcpus(), params.getMemory(), params.getDisk(),
                 params.getCreateNumbers(), params.getInterval(),
                 params.getRootPassword(), params.getOperationSystem(),
-                params.getCustomScript());
+                params.getCustomScript(),
+                params.getAssignPublicIp(), params.getAssignIpv6());
         return ResponseData.ok();
     }
 
