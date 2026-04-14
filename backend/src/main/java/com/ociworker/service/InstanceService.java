@@ -261,21 +261,24 @@ public class InstanceService {
             if (vcn.getIpv6CidrBlocks() == null || vcn.getIpv6CidrBlocks().isEmpty()) {
                 log.info("VCN {} has no IPv6 CIDR, adding Oracle-assigned IPv6...", vcn.getDisplayName());
                 try {
-                    client.getVirtualNetworkClient().addVcnCidr(
-                            AddVcnCidrRequest.builder()
+                    client.getVirtualNetworkClient().addIpv6VcnCidr(
+                            AddIpv6VcnCidrRequest.builder()
                                     .vcnId(vcn.getId())
-                                    .addVcnCidrDetails(AddVcnCidrDetails.builder()
-                                            .isIpv6Cidr(true)
+                                    .addVcnIpv6CidrDetails(AddVcnIpv6CidrDetails.builder()
+                                            .isOracleGuaAllocationEnabled(true)
                                             .build())
                                     .build());
-                    Thread.sleep(5000);
+                    Thread.sleep(8000);
                     vcn = client.getVirtualNetworkClient().getVcn(
                             GetVcnRequest.builder().vcnId(vcn.getId()).build()
                     ).getVcn();
                 } catch (com.oracle.bmc.model.BmcException e) {
-                    if (!e.getMessage().contains("already exists")) {
+                    if (!e.getMessage().contains("already exists") && !e.getMessage().contains("already has")) {
                         throw new OciException("VCN 添加 IPv6 CIDR 失败: " + extractOciErrorMessage(e));
                     }
+                    vcn = client.getVirtualNetworkClient().getVcn(
+                            GetVcnRequest.builder().vcnId(vcn.getId()).build()
+                    ).getVcn();
                 }
             }
 
@@ -284,20 +287,20 @@ public class InstanceService {
                 String vcnIpv6Cidr = vcn.getIpv6CidrBlocks() != null && !vcn.getIpv6CidrBlocks().isEmpty()
                         ? vcn.getIpv6CidrBlocks().get(0) : null;
                 if (vcnIpv6Cidr == null) {
-                    throw new OciException("VCN 没有 IPv6 CIDR，无法为子网添加 IPv6");
+                    throw new OciException("VCN 没有 IPv6 CIDR，无法为子网添加 IPv6。请先在OCI控制台手动为VCN启用IPv6。");
                 }
                 String subnetIpv6Cidr = vcnIpv6Cidr.replaceAll("/\\d+$", "/64");
                 try {
-                    client.getVirtualNetworkClient().addSubnetIpv6Cidr(
-                            AddSubnetIpv6CidrRequest.builder()
+                    client.getVirtualNetworkClient().updateSubnet(
+                            UpdateSubnetRequest.builder()
                                     .subnetId(subnetId)
-                                    .addSubnetIpv6CidrDetails(AddSubnetIpv6CidrDetails.builder()
-                                            .ipv6CidrBlock(subnetIpv6Cidr)
+                                    .updateSubnetDetails(UpdateSubnetDetails.builder()
+                                            .ipv6CidrBlocks(List.of(subnetIpv6Cidr))
                                             .build())
                                     .build());
                     Thread.sleep(3000);
                 } catch (com.oracle.bmc.model.BmcException e) {
-                    if (!e.getMessage().contains("already exists")) {
+                    if (!e.getMessage().contains("already exists") && !e.getMessage().contains("already has")) {
                         throw new OciException("子网添加 IPv6 CIDR 失败: " + extractOciErrorMessage(e));
                     }
                 }
