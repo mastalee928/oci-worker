@@ -64,7 +64,7 @@ public class InstanceController {
 
     @PostMapping("/createReservedIp")
     public ResponseData<?> createReservedIp(@RequestBody Map<String, String> params) {
-        return ResponseData.ok(instanceService.createReservedIp(params.get("id"), params.get("instanceId")));
+        return ResponseData.ok(instanceService.createReservedIp(params.get("id"), params.get("displayName")));
     }
 
     @PostMapping("/listReservedIps")
@@ -75,6 +75,18 @@ public class InstanceController {
     @PostMapping("/deleteReservedIp")
     public ResponseData<?> deleteReservedIp(@RequestBody Map<String, String> params) {
         instanceService.deleteReservedIp(params.get("id"), params.get("publicIpId"));
+        return ResponseData.ok();
+    }
+
+    @PostMapping("/assignReservedIp")
+    public ResponseData<?> assignReservedIp(@RequestBody Map<String, String> params) {
+        instanceService.assignReservedIp(params.get("id"), params.get("publicIpId"), params.get("instanceId"));
+        return ResponseData.ok();
+    }
+
+    @PostMapping("/unassignReservedIp")
+    public ResponseData<?> unassignReservedIp(@RequestBody Map<String, String> params) {
+        instanceService.unassignReservedIp(params.get("id"), params.get("publicIpId"));
         return ResponseData.ok();
     }
 }

@@ -56,7 +56,7 @@ export function addIpv6(data: { id: string; instanceId: string }) {
   return request.post('/oci/instance/addIpv6', data)
 }
 
-export function createReservedIp(data: { id: string; instanceId: string }) {
+export function createReservedIp(data: { id: string; displayName?: string }) {
   return request.post('/oci/instance/createReservedIp', data)
 }
 
@@ -66,4 +66,12 @@ export function listReservedIps(data: { id: string }) {
 
 export function deleteReservedIp(data: { id: string; publicIpId: string }) {
   return request.post('/oci/instance/deleteReservedIp', data)
+}
+
+export function assignReservedIp(data: { id: string; publicIpId: string; instanceId: string }) {
+  return request.post('/oci/instance/assignReservedIp', data)
+}
+
+export function unassignReservedIp(data: { id: string; publicIpId: string }) {
+  return request.post('/oci/instance/unassignReservedIp', data)
 }

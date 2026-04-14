@@ -78,13 +78,23 @@
           <template v-if="networkDetail">
             <div v-for="(vnic, vi) in networkDetail.vnics" :key="vi" style="margin-bottom: 16px">
               <a-descriptions :column="1" bordered size="small" :title="'VNIC: ' + (vnic.displayName || vnic.vnicId)">
-                <a-descriptions-item label="内网 IP">
-                  <a-typography-text copyable v-if="vnic.privateIp">{{ vnic.privateIp }}</a-typography-text>
-                  <span v-else style="color: #999">无</span>
-                </a-descriptions-item>
-                <a-descriptions-item label="公网 IP">
-                  <a-typography-text copyable v-if="vnic.publicIp">{{ vnic.publicIp }}</a-typography-text>
-                  <span v-else style="color: #999">无</span>
+                <a-descriptions-item v-for="(ipd, idx) in vnic.ipDetails" :key="idx"
+                  :label="ipd.isPrimary ? '主IP' : '辅助IP'">
+                  <div style="display: flex; align-items: center; flex-wrap: wrap; gap: 8px;">
+                    <template v-if="ipd.publicIpAddress">
+                      <span>公网IP</span>
+                      <a-tag :color="ipd.publicIpLifetime === 'RESERVED' ? 'green' : 'orange'">
+                        {{ ipd.publicIpLifetime === 'RESERVED' ? '预留' : '临时' }}
+                      </a-tag>
+                      <a-typography-text copyable>{{ ipd.publicIpAddress }}</a-typography-text>
+                      <span style="color: #999">( {{ ipd.privateIpAddress }} )</span>
+                    </template>
+                    <template v-else>
+                      <span>内网IP:</span>
+                      <a-typography-text copyable>{{ ipd.privateIpAddress }}</a-typography-text>
+                      <span style="color: #999">（无公网IP）</span>
+                    </template>
+                  </div>
                 </a-descriptions-item>
                 <a-descriptions-item label="IPv6 地址">
                   <template v-if="vnic.ipv6Addresses && vnic.ipv6Addresses.length > 0">
@@ -96,30 +106,6 @@
                     无
                     <a-button type="link" size="small" @click="handleAddIpv6" :loading="ipv6Loading">添加 IPv6</a-button>
                   </span>
-                </a-descriptions-item>
-                <a-descriptions-item label="IP 详情">
-                  <div v-for="(ipd, idx) in vnic.ipDetails" :key="idx" style="margin-bottom: 8px; padding: 8px; background: #fafafa; border-radius: 4px;">
-                    <div>
-                      <b>内网 IP:</b>
-                      <a-typography-text copyable>{{ ipd.privateIpAddress }}</a-typography-text>
-                      <a-tag v-if="ipd.isPrimary" color="blue" style="margin-left: 8px">主IP</a-tag>
-                    </div>
-                    <div v-if="ipd.publicIpAddress">
-                      <b>公网 IP:</b>
-                      <a-typography-text copyable>{{ ipd.publicIpAddress }}</a-typography-text>
-                      <a-tag :color="ipd.publicIpLifetime === 'RESERVED' ? 'green' : 'orange'" style="margin-left: 8px">
-                        {{ ipd.publicIpLifetime === 'RESERVED' ? '预留IP' : '临时IP' }}
-                      </a-tag>
-                    </div>
-                    <div v-else>
-                      <b>公网 IP:</b> <span style="color: #999">无</span>
-                    </div>
-                    <div v-if="ipd.isPrimary && (!ipd.publicIpAddress || ipd.publicIpLifetime !== 'RESERVED')" style="margin-top: 4px">
-                      <a-popconfirm title="将临时IP替换为预留IP？" @confirm="handleCreateReservedIp">
-                        <a-button type="link" size="small" :loading="reservedIpLoading">创建预留IP</a-button>
-                      </a-popconfirm>
-                    </div>
-                  </div>
                 </a-descriptions-item>
               </a-descriptions>
             </div>
@@ -177,13 +163,33 @@
         </a-tab-pane>
 
         <a-tab-pane key="reservedIp" tab="预留IP">
-          <a-button @click="loadReservedIps" :loading="reservedIpListLoading" style="margin-bottom: 12px">加载预留IP</a-button>
+          <div style="margin-bottom: 12px">
+            <a-space>
+              <a-button @click="loadReservedIps" :loading="reservedIpListLoading">加载预留IP</a-button>
+              <a-button type="primary" @click="showCreateReservedIpModal">新建预留IP</a-button>
+            </a-space>
+          </div>
           <a-table :data-source="reservedIps" :columns="reservedIpColumns" size="small" :pagination="false" row-key="id">
             <template #bodyCell="{ column, record }">
+              <template v-if="column.key === 'ripStatus'">
+                <a-tag :color="record.isAssigned ? 'green' : 'default'">
+                  {{ record.isAssigned ? '已绑定' : '未绑定' }}
+                </a-tag>
+              </template>
               <template v-if="column.key === 'ripAction'">
-                <a-popconfirm title="确定删除此预留IP？" @confirm="handleDeleteReservedIp(record.id)">
-                  <a-button type="link" danger size="small">删除</a-button>
-                </a-popconfirm>
+                <a-space>
+                  <a-button v-if="!record.isAssigned && currentInstance" type="link" size="small"
+                    @click="handleAssignReservedIp(record.id)">
+                    绑定到当前实例
+                  </a-button>
+                  <a-button v-if="record.isAssigned" type="link" size="small"
+                    @click="handleUnassignReservedIp(record.id)">
+                    解绑
+                  </a-button>
+                  <a-popconfirm title="确定删除此预留IP？" @confirm="handleDeleteReservedIp(record.id)">
+                    <a-button type="link" danger size="small" :disabled="record.isAssigned">删除</a-button>
+                  </a-popconfirm>
+                </a-space>
               </template>
             </template>
           </a-table>
@@ -269,6 +275,19 @@
         </a-form-item>
       </a-form>
     </a-modal>
+
+    <!-- 新建预留IP弹窗 -->
+    <a-modal v-model:open="createRipVisible" title="新建预留IP" @ok="handleCreateReservedIp"
+      :confirm-loading="createRipLoading" :mask-closable="false">
+      <a-form layout="vertical">
+        <a-form-item label="名称（可选）">
+          <a-input v-model:value="createRipName" placeholder="reserved-ip" />
+        </a-form-item>
+        <div style="color: #999; font-size: 12px">
+          创建一个未绑定的预留IP。创建后可在列表中绑定到实例。
+        </div>
+      </a-form>
+    </a-modal>
   </div>
 </template>
 
@@ -281,8 +300,9 @@ import {
   getSecurityRules, releaseAllPorts, addSecurityRule,
   getBootVolumes, updateBootVolume, getVcns,
   getTrafficData, changeIp,
-  getInstanceNetworkDetail, addIpv6, createReservedIp,
-  listReservedIps, deleteReservedIp,
+  getInstanceNetworkDetail, addIpv6,
+  createReservedIp, listReservedIps, deleteReservedIp,
+  assignReservedIp, unassignReservedIp,
 } from '../api/instance'
 import { getTenantList } from '../api/tenant'
 
@@ -327,11 +347,10 @@ const vcnColumns = [
 ]
 
 const reservedIpColumns = [
-  { title: 'IP 地址', dataIndex: 'ipAddress', key: 'ipAddress', width: 160 },
+  { title: 'IP 地址', dataIndex: 'ipAddress', key: 'ipAddress', width: 150 },
   { title: '名称', dataIndex: 'displayName', key: 'displayName' },
-  { title: '状态', dataIndex: 'lifecycleState', key: 'lifecycleState', width: 100 },
-  { title: '关联实体', dataIndex: 'assignedEntityId', key: 'assignedEntityId', ellipsis: true },
-  { title: '操作', key: 'ripAction', width: 80 },
+  { title: '绑定状态', key: 'ripStatus', width: 100 },
+  { title: '操作', key: 'ripAction', width: 250 },
 ]
 
 const loading = ref(false)
@@ -362,9 +381,7 @@ const changeIpLoading = ref(false)
 
 const netDetailLoading = ref(false)
 const networkDetail = ref<any>(null)
-
 const ipv6Loading = ref(false)
-const reservedIpLoading = ref(false)
 
 const addRuleVisible = ref(false)
 const addRuleLoading = ref(false)
@@ -388,6 +405,9 @@ const editVolForm = reactive({
 
 const reservedIps = ref<any[]>([])
 const reservedIpListLoading = ref(false)
+const createRipVisible = ref(false)
+const createRipLoading = ref(false)
+const createRipName = ref('')
 
 function formatBytes(bytes: number) {
   if (!bytes || bytes === 0) return '0 B'
@@ -494,20 +514,6 @@ async function handleAddIpv6() {
     message.error(e?.message || '添加 IPv6 失败')
   } finally {
     ipv6Loading.value = false
-  }
-}
-
-async function handleCreateReservedIp() {
-  if (!currentInstance.value) return
-  reservedIpLoading.value = true
-  try {
-    const res = await createReservedIp({ id: selectedTenant.value, instanceId: currentInstance.value.instanceId })
-    message.success('预留IP已创建: ' + (res.data?.ipAddress || ''))
-    loadNetworkDetail()
-  } catch (e: any) {
-    message.error(e?.message || '创建预留IP失败')
-  } finally {
-    reservedIpLoading.value = false
   }
 }
 
@@ -622,6 +628,25 @@ async function handleEditVolume() {
 }
 
 // --- 预留IP ---
+function showCreateReservedIpModal() {
+  createRipName.value = ''
+  createRipVisible.value = true
+}
+
+async function handleCreateReservedIp() {
+  createRipLoading.value = true
+  try {
+    const res = await createReservedIp({ id: selectedTenant.value, displayName: createRipName.value || undefined })
+    message.success('预留IP已创建: ' + (res.data?.ipAddress || ''))
+    createRipVisible.value = false
+    loadReservedIps()
+  } catch (e: any) {
+    message.error(e?.message || '创建预留IP失败')
+  } finally {
+    createRipLoading.value = false
+  }
+}
+
 async function loadReservedIps() {
   reservedIpListLoading.value = true
   try {
@@ -641,6 +666,29 @@ async function handleDeleteReservedIp(publicIpId: string) {
     loadReservedIps()
   } catch (e: any) {
     message.error(e?.message || '删除预留IP失败')
+  }
+}
+
+async function handleAssignReservedIp(publicIpId: string) {
+  if (!currentInstance.value) return
+  try {
+    await assignReservedIp({ id: selectedTenant.value, publicIpId, instanceId: currentInstance.value.instanceId })
+    message.success('预留IP已绑定到当前实例')
+    loadReservedIps()
+    loadNetworkDetail()
+  } catch (e: any) {
+    message.error(e?.message || '绑定预留IP失败')
+  }
+}
+
+async function handleUnassignReservedIp(publicIpId: string) {
+  try {
+    await unassignReservedIp({ id: selectedTenant.value, publicIpId })
+    message.success('预留IP已解绑')
+    loadReservedIps()
+    loadNetworkDetail()
+  } catch (e: any) {
+    message.error(e?.message || '解绑预留IP失败')
   }
 }
 

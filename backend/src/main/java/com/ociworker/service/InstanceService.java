@@ -262,58 +262,22 @@ public class InstanceService {
         }
     }
 
-    public Map<String, String> createReservedIp(String userId, String instanceId) {
+    public Map<String, String> createReservedIp(String userId, String displayName) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
 
         SysUserDTO dto = buildBasicDTO(ociUser);
         try (OciClientService client = new OciClientService(dto)) {
-            List<VnicAttachment> attachments = client.getComputeClient().listVnicAttachments(
-                    ListVnicAttachmentsRequest.builder()
-                            .compartmentId(client.getCompartmentId())
-                            .instanceId(instanceId)
-                            .build()
-            ).getItems();
-            if (attachments.isEmpty()) throw new OciException("未找到实例的 VNIC");
-
-            Vnic vnic = client.getVirtualNetworkClient().getVnic(
-                    GetVnicRequest.builder().vnicId(attachments.get(0).getVnicId()).build()
-            ).getVnic();
-
-            List<PrivateIp> privateIps = client.getVirtualNetworkClient().listPrivateIps(
-                    ListPrivateIpsRequest.builder().vnicId(vnic.getId()).build()
-            ).getItems();
-            if (privateIps.isEmpty()) throw new OciException("未找到私有 IP");
-
-            PrivateIp primaryPip = privateIps.stream()
-                    .filter(p -> Boolean.TRUE.equals(p.getIsPrimary()))
-                    .findFirst().orElse(privateIps.get(0));
-
-            // Delete existing ephemeral public IP if any
-            try {
-                PublicIp existing = client.getVirtualNetworkClient().getPublicIpByPrivateIpId(
-                        GetPublicIpByPrivateIpIdRequest.builder()
-                                .getPublicIpByPrivateIpIdDetails(
-                                        GetPublicIpByPrivateIpIdDetails.builder()
-                                                .privateIpId(primaryPip.getId()).build())
-                                .build()
-                ).getPublicIp();
-                if (existing != null && existing.getLifetime() == PublicIp.Lifetime.Ephemeral) {
-                    client.getVirtualNetworkClient().deletePublicIp(
-                            DeletePublicIpRequest.builder().publicIpId(existing.getId()).build());
-                    Thread.sleep(3000);
-                }
-            } catch (com.oracle.bmc.model.BmcException ignored) {
+            CreatePublicIpDetails.Builder builder = CreatePublicIpDetails.builder()
+                    .compartmentId(client.getCompartmentId())
+                    .lifetime(CreatePublicIpDetails.Lifetime.Reserved);
+            if (displayName != null && !displayName.isBlank()) {
+                builder.displayName(displayName);
             }
 
             PublicIp reservedIp = client.getVirtualNetworkClient().createPublicIp(
                     CreatePublicIpRequest.builder()
-                            .createPublicIpDetails(CreatePublicIpDetails.builder()
-                                    .compartmentId(client.getCompartmentId())
-                                    .lifetime(CreatePublicIpDetails.Lifetime.Reserved)
-                                    .privateIpId(primaryPip.getId())
-                                    .displayName("reserved-" + vnic.getDisplayName())
-                                    .build())
+                            .createPublicIpDetails(builder.build())
                             .build()
             ).getPublicIp();
 
@@ -321,8 +285,6 @@ public class InstanceService {
                     "publicIpId", reservedIp.getId(),
                     "ipAddress", reservedIp.getIpAddress()
             );
-        } catch (OciException e) {
-            throw e;
         } catch (Exception e) {
             throw new OciException("创建预留 IP 失败: " + e.getMessage());
         }
@@ -350,6 +312,8 @@ public class InstanceService {
                 map.put("lifecycleState", ip.getLifecycleState().getValue());
                 map.put("lifetime", ip.getLifetime().getValue());
                 map.put("assignedEntityId", ip.getAssignedEntityId());
+                map.put("privateIpId", ip.getPrivateIpId());
+                map.put("isAssigned", ip.getAssignedEntityId() != null);
                 map.put("timeCreated", ip.getTimeCreated() != null ? ip.getTimeCreated().toString() : null);
                 return map;
             }).collect(Collectors.toList());
@@ -369,6 +333,67 @@ public class InstanceService {
             log.info("Reserved IP deleted: {}", publicIpId);
         } catch (Exception e) {
             throw new OciException("删除预留 IP 失败: " + e.getMessage());
+        }
+    }
+
+    public void assignReservedIp(String userId, String publicIpId, String instanceId) {
+        OciUser ociUser = userMapper.selectById(userId);
+        if (ociUser == null) throw new OciException("租户配置不存在");
+
+        SysUserDTO dto = buildBasicDTO(ociUser);
+        try (OciClientService client = new OciClientService(dto)) {
+            List<VnicAttachment> attachments = client.getComputeClient().listVnicAttachments(
+                    ListVnicAttachmentsRequest.builder()
+                            .compartmentId(client.getCompartmentId())
+                            .instanceId(instanceId)
+                            .build()
+            ).getItems();
+            if (attachments.isEmpty()) throw new OciException("未找到实例的 VNIC");
+
+            Vnic vnic = client.getVirtualNetworkClient().getVnic(
+                    GetVnicRequest.builder().vnicId(attachments.get(0).getVnicId()).build()
+            ).getVnic();
+
+            List<PrivateIp> privateIps = client.getVirtualNetworkClient().listPrivateIps(
+                    ListPrivateIpsRequest.builder().vnicId(vnic.getId()).build()
+            ).getItems();
+            if (privateIps.isEmpty()) throw new OciException("未找到私有 IP");
+
+            PrivateIp primaryPip = privateIps.stream()
+                    .filter(p -> Boolean.TRUE.equals(p.getIsPrimary()))
+                    .findFirst().orElse(privateIps.get(0));
+
+            client.getVirtualNetworkClient().updatePublicIp(
+                    UpdatePublicIpRequest.builder()
+                            .publicIpId(publicIpId)
+                            .updatePublicIpDetails(UpdatePublicIpDetails.builder()
+                                    .privateIpId(primaryPip.getId())
+                                    .build())
+                            .build());
+            log.info("Reserved IP {} assigned to instance {}", publicIpId, instanceId);
+        } catch (OciException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new OciException("绑定预留 IP 失败: " + e.getMessage());
+        }
+    }
+
+    public void unassignReservedIp(String userId, String publicIpId) {
+        OciUser ociUser = userMapper.selectById(userId);
+        if (ociUser == null) throw new OciException("租户配置不存在");
+
+        SysUserDTO dto = buildBasicDTO(ociUser);
+        try (OciClientService client = new OciClientService(dto)) {
+            client.getVirtualNetworkClient().updatePublicIp(
+                    UpdatePublicIpRequest.builder()
+                            .publicIpId(publicIpId)
+                            .updatePublicIpDetails(UpdatePublicIpDetails.builder()
+                                    .privateIpId("")
+                                    .build())
+                            .build());
+            log.info("Reserved IP {} unassigned", publicIpId);
+        } catch (Exception e) {
+            throw new OciException("解绑预留 IP 失败: " + e.getMessage());
         }
     }
 
