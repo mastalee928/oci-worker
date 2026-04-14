@@ -31,11 +31,7 @@
           <span v-else style="color: #999">无开机任务</span>
         </template>
         <template v-if="column.key === 'planType'">
-          <a-space>
-            <a-tag :color="record.planType === 'PAYG' ? 'green' : record.planType === 'FREE' ? 'orange' : 'default'">{{ record.planType || '未知' }}</a-tag>
-            <a-button v-if="!record.planType || record.planType === 'UNKNOWN'" type="link" size="small"
-              @click="handleRefreshPlan(record)" :loading="refreshLoading[record.id]">刷新</a-button>
-          </a-space>
+          <a-tag :color="record.planType === 'PAYG' ? 'green' : record.planType === 'FREE' ? 'orange' : 'default'">{{ record.planType || '获取中...' }}</a-tag>
         </template>
         <template v-if="column.key === 'action'">
           <a-space>
@@ -50,7 +46,7 @@
     </a-table>
 
     <!-- 新增/编辑弹窗（内嵌快速导入） -->
-    <a-modal v-model:open="modalVisible" :title="editingId ? '编辑配置' : '新增配置'" width="680px" @ok="handleSubmit" :confirm-loading="submitLoading" :mask-closable="false">
+    <a-modal v-model:open="modalVisible" :title="editingId ? '编辑配置' : '新增配置'" :width="isMobile ? '100%' : 680" @ok="handleSubmit" :confirm-loading="submitLoading" :mask-closable="false">
       <a-form :model="formState" layout="vertical">
         <!-- 快速导入区域（仅新增时显示） -->
         <a-collapse v-if="!editingId" :bordered="false" :active-key="['import']" style="margin-bottom: 16px; background: #f6f8fa; border-radius: 8px">
@@ -110,12 +106,12 @@ region=ap-tokyo-1"
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { PlusOutlined, ThunderboltOutlined, InboxOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
 import type { UploadFile } from 'ant-design-vue'
-import { getTenantList, addTenant, updateTenant, removeTenant, uploadKey, refreshPlanType } from '../api/tenant'
+import { getTenantList, addTenant, updateTenant, removeTenant, uploadKey } from '../api/tenant'
 
 const router = useRouter()
 
@@ -161,8 +157,9 @@ const formState = reactive({
   ociFingerprint: '', ociRegion: '', ociKeyPath: '',
 })
 
-const refreshLoading = reactive<Record<string, boolean>>({})
 let pendingFile: File | null = null
+const isMobile = ref(window.innerWidth < 768)
+function checkMobile() { isMobile.value = window.innerWidth < 768 }
 
 function parseAndFill() {
   if (!importText.value.trim()) {
@@ -330,20 +327,11 @@ function handleBatchDelete() {
   })
 }
 
-async function handleRefreshPlan(record: any) {
-  refreshLoading[record.id] = true
-  try {
-    await refreshPlanType({ id: record.id })
-    message.success('正在获取账户类型...')
-    setTimeout(loadData, 2000)
-  } catch (e: any) {
-    message.error(e?.message || '获取失败')
-  } finally {
-    refreshLoading[record.id] = false
-  }
-}
-
-onMounted(() => loadData())
+onMounted(() => {
+  loadData()
+  window.addEventListener('resize', checkMobile)
+})
+onUnmounted(() => window.removeEventListener('resize', checkMobile))
 </script>
 
 <style scoped>
@@ -355,6 +343,16 @@ onMounted(() => loadData())
   gap: 8px;
 }
 @media (max-width: 768px) {
-  .table-toolbar { flex-direction: column; }
+  .table-toolbar {
+    flex-direction: column;
+  }
+  .table-toolbar :deep(.ant-space) {
+    flex-wrap: wrap;
+    width: 100%;
+    gap: 8px !important;
+  }
+  .table-toolbar :deep(.ant-input-search) {
+    width: 100% !important;
+  }
 }
 </style>

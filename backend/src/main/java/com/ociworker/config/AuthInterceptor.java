@@ -1,6 +1,7 @@
 package com.ociworker.config;
 
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.crypto.digest.DigestUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ociworker.mapper.OciKvMapper;
@@ -18,7 +19,7 @@ import org.springframework.web.servlet.HandlerInterceptor;
 public class AuthInterceptor implements HandlerInterceptor {
 
     @Value("${web.account}")
-    private String account;
+    private String defaultAccount;
     @Value("${web.password}")
     private String defaultPassword;
 
@@ -27,22 +28,35 @@ public class AuthInterceptor implements HandlerInterceptor {
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    private String getEffectivePassword() {
+    private String getKv(String code) {
         try {
             OciKv kv = kvMapper.selectOne(new LambdaQueryWrapper<OciKv>()
-                    .eq(OciKv::getCode, "web_password")
-                    .eq(OciKv::getType, "sys_config"));
-            return kv != null ? kv.getValue() : defaultPassword;
+                    .eq(OciKv::getCode, code).eq(OciKv::getType, "sys_config"));
+            return kv != null ? kv.getValue() : null;
         } catch (Exception e) {
-            return defaultPassword;
+            return null;
         }
+    }
+
+    private String getEffectiveAccount() {
+        String stored = getKv("web_account");
+        return stored != null ? stored : defaultAccount;
+    }
+
+    private String getEffectivePasswordHash() {
+        String stored = getKv("web_password");
+        if (stored != null) return stored;
+        return DigestUtil.sha256Hex(defaultPassword);
     }
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
         String uri = request.getRequestURI();
 
-        if (uri.startsWith("/api/auth/login") || uri.startsWith("/ws/")
+        if (uri.startsWith("/api/auth/login")
+                || uri.startsWith("/api/auth/needSetup")
+                || uri.startsWith("/api/auth/setup")
+                || uri.startsWith("/ws/")
                 || uri.equals("/") || uri.startsWith("/assets/")
                 || uri.endsWith(".html") || uri.endsWith(".js")
                 || uri.endsWith(".css") || uri.endsWith(".ico")
@@ -55,8 +69,10 @@ public class AuthInterceptor implements HandlerInterceptor {
             token = request.getParameter("token");
         }
 
-        String effectivePwd = getEffectivePassword();
-        if (StrUtil.isBlank(token) || !CommonUtils.validateToken(token, account, effectivePwd)) {
+        String effectiveAccount = getEffectiveAccount();
+        String effectivePwdHash = getEffectivePasswordHash();
+
+        if (StrUtil.isBlank(token) || !CommonUtils.validateToken(token, effectiveAccount, effectivePwdHash)) {
             response.setContentType("application/json;charset=UTF-8");
             response.setStatus(401);
             response.getWriter().write(objectMapper.writeValueAsString(ResponseData.error(401, "Unauthorized")));

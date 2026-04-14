@@ -188,6 +188,7 @@ onUnmounted(() => disconnect())
   border-radius: 8px;
   height: calc(100vh - 280px);
   overflow-y: auto;
+  overflow-x: hidden;
 }
 .log-line { white-space: pre-wrap; word-break: break-all; }
 .log-error { color: #f56c6c; }
@@ -200,5 +201,24 @@ onUnmounted(() => disconnect())
   padding: 0 2px;
   border-radius: 2px;
   font-weight: bold;
+}
+
+@media (max-width: 768px) {
+  .log-toolbar :deep(.ant-space) {
+    flex-wrap: wrap;
+    gap: 6px !important;
+  }
+  .log-toolbar :deep(.ant-input-search) {
+    width: 100% !important;
+  }
+  .log-toolbar :deep(.ant-divider-vertical) {
+    display: none;
+  }
+  .log-container {
+    font-size: 11px;
+    line-height: 1.5;
+    padding: 10px;
+    height: calc(100vh - 220px);
+  }
 }
 </style>

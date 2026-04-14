@@ -1,7 +1,7 @@
 <template>
   <div>
-    <a-row :gutter="24">
-      <a-col :span="12">
+    <a-row :gutter="[16, 16]">
+      <a-col :xs="24" :md="12">
         <a-card title="备份">
           <a-form layout="vertical">
             <a-form-item label="加密密码">
@@ -13,7 +13,7 @@
           </a-form>
         </a-card>
       </a-col>
-      <a-col :span="12">
+      <a-col :xs="24" :md="12">
         <a-card title="恢复">
           <a-form layout="vertical">
             <a-form-item label="备份文件">

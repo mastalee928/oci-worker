@@ -487,6 +487,50 @@ public class InstanceService {
         }
     }
 
+    public Map<String, Object> updateInstance(String userId, String instanceId,
+                                               String displayName, Float ocpus, Float memoryInGBs) {
+        OciUser ociUser = userMapper.selectById(userId);
+        if (ociUser == null) throw new OciException("租户配置不存在");
+
+        SysUserDTO dto = buildBasicDTO(ociUser);
+        try (OciClientService client = new OciClientService(dto)) {
+            UpdateInstanceDetails.Builder detailsBuilder = UpdateInstanceDetails.builder();
+
+            if (displayName != null && !displayName.isBlank()) {
+                detailsBuilder.displayName(displayName);
+            }
+
+            if (ocpus != null || memoryInGBs != null) {
+                UpdateInstanceShapeConfigDetails.Builder shapeBuilder =
+                        UpdateInstanceShapeConfigDetails.builder();
+                if (ocpus != null) shapeBuilder.ocpus(ocpus);
+                if (memoryInGBs != null) shapeBuilder.memoryInGBs(memoryInGBs);
+                detailsBuilder.shapeConfig(shapeBuilder.build());
+            }
+
+            Instance updated = client.getComputeClient().updateInstance(
+                    UpdateInstanceRequest.builder()
+                            .instanceId(instanceId)
+                            .updateInstanceDetails(detailsBuilder.build())
+                            .build()
+            ).getInstance();
+
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("instanceId", updated.getId());
+            result.put("name", updated.getDisplayName());
+            result.put("shape", updated.getShape());
+            if (updated.getShapeConfig() != null) {
+                result.put("ocpus", updated.getShapeConfig().getOcpus());
+                result.put("memoryInGBs", updated.getShapeConfig().getMemoryInGBs());
+            }
+            return result;
+        } catch (com.oracle.bmc.model.BmcException e) {
+            throw new OciException("修改实例失败: " + extractOciErrorMessage(e));
+        } catch (Exception e) {
+            throw new OciException("修改实例失败: " + e.getMessage());
+        }
+    }
+
     public List<Map<String, Object>> listAvailableShapes(String userId) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");

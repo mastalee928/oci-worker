@@ -31,6 +31,16 @@ public class InstanceController {
         return ResponseData.ok();
     }
 
+    @PostMapping("/updateInstance")
+    public ResponseData<?> updateInstance(@RequestBody Map<String, Object> params) {
+        return ResponseData.ok(instanceService.updateInstance(
+                (String) params.get("id"),
+                (String) params.get("instanceId"),
+                (String) params.get("displayName"),
+                params.get("ocpus") != null ? ((Number) params.get("ocpus")).floatValue() : null,
+                params.get("memoryInGBs") != null ? ((Number) params.get("memoryInGBs")).floatValue() : null));
+    }
+
     @PostMapping("/shapes")
     public ResponseData<?> listShapes(@RequestBody Map<String, String> params) {
         return ResponseData.ok(instanceService.listAvailableShapes(params.get("id")));

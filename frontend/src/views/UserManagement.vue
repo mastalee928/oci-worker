@@ -204,7 +204,12 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.table-toolbar {
-  margin-bottom: 16px;
+.table-toolbar { margin-bottom: 16px; }
+@media (max-width: 768px) {
+  .table-toolbar :deep(.ant-space) {
+    flex-wrap: wrap;
+    width: 100%;
+    gap: 8px !important;
+  }
 }
 </style>

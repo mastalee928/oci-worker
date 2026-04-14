@@ -16,6 +16,10 @@ export function changeIp(data: any) {
   return request.post('/oci/network/changeIp', data)
 }
 
+export function updateInstance(data: { id: string; instanceId: string; displayName?: string; ocpus?: number; memoryInGBs?: number }) {
+  return request.post('/oci/instance/updateInstance', data)
+}
+
 export function getAvailableShapes(data: { id: string }) {
   return request.post('/oci/instance/shapes', data)
 }

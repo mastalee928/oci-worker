@@ -51,7 +51,7 @@
       </template>
     </a-table>
 
-    <a-modal v-model:open="createVisible" title="创建开机任务" width="600px" @ok="handleCreate"
+    <a-modal v-model:open="createVisible" title="创建开机任务" :width="isMobile ? '100%' : 600" @ok="handleCreate"
       :confirm-loading="createLoading" :mask-closable="false">
       <a-form :model="createForm" layout="vertical">
         <a-form-item label="选择租户" required>
@@ -74,46 +74,42 @@
             查询到 {{ availableShapes.length }} 个可用 Shape
           </div>
         </a-form-item>
-        <a-row :gutter="16">
-          <a-col :span="12">
-            <a-form-item label="操作系统">
-              <a-select v-model:value="createForm.operationSystem">
-                <a-select-option value="Ubuntu">Ubuntu</a-select-option>
-                <a-select-option value="Oracle Linux">Oracle Linux</a-select-option>
-                <a-select-option value="CentOS">CentOS</a-select-option>
-              </a-select>
-            </a-form-item>
-          </a-col>
-        </a-row>
-        <a-row :gutter="16">
-          <a-col :span="8">
+        <a-form-item label="操作系统">
+          <a-select v-model:value="createForm.operationSystem">
+            <a-select-option value="Ubuntu">Ubuntu</a-select-option>
+            <a-select-option value="Oracle Linux">Oracle Linux</a-select-option>
+            <a-select-option value="CentOS">CentOS</a-select-option>
+          </a-select>
+        </a-form-item>
+        <a-row :gutter="12">
+          <a-col :xs="12" :sm="8">
             <a-form-item label="OCPU 数量">
               <a-input-number v-model:value="createForm.ocpus" :min="1" :max="4" :step="1" style="width: 100%" />
             </a-form-item>
           </a-col>
-          <a-col :span="8">
+          <a-col :xs="12" :sm="8">
             <a-form-item label="内存 (GB)">
               <a-input-number v-model:value="createForm.memory" :min="1" :max="24" :step="1" style="width: 100%" />
             </a-form-item>
           </a-col>
-          <a-col :span="8">
+          <a-col :xs="12" :sm="8">
             <a-form-item label="磁盘 (GB)">
               <a-input-number v-model:value="createForm.disk" :min="47" :max="200" :step="1" style="width: 100%" />
             </a-form-item>
           </a-col>
         </a-row>
-        <a-row :gutter="16">
-          <a-col :span="8">
+        <a-row :gutter="12">
+          <a-col :xs="12" :sm="8">
             <a-form-item label="开机数量">
               <a-input-number v-model:value="createForm.createNumbers" :min="1" :max="5" style="width: 100%" />
             </a-form-item>
           </a-col>
-          <a-col :span="8">
+          <a-col :xs="12" :sm="8">
             <a-form-item label="重试间隔 (秒)">
               <a-input-number v-model:value="createForm.interval" :min="10" :max="600" style="width: 100%" />
             </a-form-item>
           </a-col>
-          <a-col :span="8">
+          <a-col :xs="24" :sm="8">
             <a-form-item label="Root 密码">
               <a-input-password v-model:value="createForm.rootPassword" placeholder="留空=随机生成" />
               <a-button type="link" size="small" @click="generateRandomPwd" style="padding: 0">随机生成</a-button>
@@ -126,7 +122,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, onUnmounted } from 'vue'
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
 import { getTaskList, createTask, stopTask, hasRunningTask, resumeTask, deleteTask } from '../api/task'
@@ -164,6 +160,10 @@ const searchKeyword = ref('')
 const filterStatus = ref('')
 const pagination = reactive({ current: 1, pageSize: 10, total: 0 })
 const actionLoading = reactive<Record<string, boolean>>({})
+const isMobile = ref(window.innerWidth < 768)
+function checkMobile() { isMobile.value = window.innerWidth < 768 }
+onMounted(() => window.addEventListener('resize', checkMobile))
+onUnmounted(() => window.removeEventListener('resize', checkMobile))
 
 const createForm = reactive({
   userId: '', architecture: 'ARM', operationSystem: 'Ubuntu',
@@ -318,7 +318,24 @@ onMounted(() => loadData())
 <style scoped>
 .table-toolbar { margin-bottom: 16px; }
 @media (max-width: 768px) {
-  .table-toolbar :deep(.ant-space) { flex-wrap: wrap; }
+  .table-toolbar :deep(.ant-space) {
+    flex-wrap: wrap;
+    width: 100%;
+    gap: 8px !important;
+  }
+  .table-toolbar :deep(.ant-space-item) {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+  .table-toolbar :deep(.ant-input-search) {
+    width: 100% !important;
+  }
+  .table-toolbar :deep(.ant-select) {
+    width: 100% !important;
+  }
+  .table-toolbar :deep(.ant-btn) {
+    width: auto;
+  }
 }
 </style>
 <style>

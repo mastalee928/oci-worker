@@ -8,6 +8,12 @@ const routes: RouteRecordRaw[] = [
     meta: { title: '登录', public: true },
   },
   {
+    path: '/setup',
+    name: 'Setup',
+    component: () => import('../views/Setup.vue'),
+    meta: { title: '初始化设置', public: true },
+  },
+  {
     path: '/',
     component: () => import('../layouts/MainLayout.vue'),
     redirect: '/dashboard',
@@ -69,7 +75,7 @@ const router = createRouter({
   routes,
 })
 
-router.beforeEach((to, _from, next) => {
+router.beforeEach(async (to, _from, next) => {
   const token = localStorage.getItem('token')
   if (!to.meta.public && !token) {
     next('/login')

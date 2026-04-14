@@ -1,63 +1,130 @@
 <template>
   <div>
-    <div class="table-toolbar">
-      <a-space>
-        <a-select v-model:value="selectedTenant" placeholder="选择租户查看实例" style="width: 300px" show-search
-          option-filter-prop="label" @change="loadInstances">
+    <!-- 顶部工具栏 -->
+    <div class="instance-toolbar">
+      <div class="toolbar-left">
+        <a-select v-model:value="selectedTenant" placeholder="选择租户" style="width: 240px" show-search
+          option-filter-prop="label" @change="loadInstances" allow-clear>
           <a-select-option v-for="t in tenants" :key="t.id" :value="t.id" :label="t.username">
             {{ t.username }} ({{ t.ociRegion }})
           </a-select-option>
         </a-select>
+        <a-input-search
+          v-model:value="searchKeyword"
+          placeholder="搜索实例（名称/IP/Shape）"
+          style="width: 260px"
+          allow-clear
+          @search="onSearch"
+          @change="onSearch"
+        />
+      </div>
+      <div class="toolbar-right">
         <a-button @click="loadInstances" :disabled="!selectedTenant" :loading="loading">
           <template #icon><ReloadOutlined /></template>刷新
         </a-button>
-      </a-space>
+        <a-segmented v-model:value="viewMode" :options="[{ label: '卡片', value: 'card' }, { label: '列表', value: 'table' }]" />
+      </div>
     </div>
 
     <a-empty v-if="!selectedTenant" description="请先选择租户" style="margin-top: 80px" />
 
-    <a-table v-else :columns="columns" :data-source="instances" :loading="loading" row-key="instanceId" size="middle">
-      <template #bodyCell="{ column, record }">
-        <template v-if="column.key === 'state'">
-          <a-badge :status="stateColorMap[record.state] || 'default'" :text="record.state" />
-        </template>
-        <template v-if="column.key === 'shape'">
-          <a-tooltip :title="`${record.ocpus} OCPU / ${record.memoryInGBs} GB`">
-            <a-tag>{{ record.shape }}</a-tag>
-          </a-tooltip>
-        </template>
-        <template v-if="column.key === 'action'">
-          <a-space>
-            <a-button type="link" size="small" @click="openDetail(record)">详情</a-button>
-            <a-popconfirm v-if="record.state === 'STOPPED'" title="确定启动实例？" @confirm="handleAction(record, 'START')">
-              <a-button type="link" size="small" :loading="actionLoading[record.instanceId]">启动</a-button>
+    <a-spin :spinning="loading" v-else>
+      <!-- 卡片视图 -->
+      <div v-if="viewMode === 'card'" class="instance-grid">
+        <div v-for="inst in filteredInstances" :key="inst.instanceId" class="instance-card" @click="openDetail(inst)">
+          <div class="card-header">
+            <div class="card-title">
+              <CloudServerOutlined class="card-icon" />
+              <span class="card-name">{{ inst.name }}</span>
+            </div>
+            <a-badge :status="stateColorMap[inst.state] || 'default'" :text="inst.state" />
+          </div>
+          <div class="card-body">
+            <div class="card-info-row">
+              <span class="info-label">Region</span>
+              <a-tag color="blue" size="small">{{ inst.region }}</a-tag>
+            </div>
+            <div class="card-info-row">
+              <span class="info-label">Shape</span>
+              <span class="info-value">{{ inst.shape }}</span>
+            </div>
+            <div class="card-info-row">
+              <span class="info-label">配置</span>
+              <span class="info-value">{{ inst.ocpus }} OCPU / {{ inst.memoryInGBs }} GB</span>
+            </div>
+            <div class="card-info-row">
+              <span class="info-label">公网 IP</span>
+              <span class="info-value ip-text">{{ inst.publicIp || '—' }}</span>
+            </div>
+          </div>
+          <div class="card-actions" @click.stop>
+            <a-popconfirm v-if="inst.state === 'STOPPED'" title="确定启动实例？" @confirm="handleAction(inst, 'START')">
+              <a-button type="link" size="small" :loading="actionLoading[inst.instanceId]">启动</a-button>
             </a-popconfirm>
-            <a-popconfirm v-if="record.state === 'RUNNING'" title="确定停止实例？" @confirm="handleAction(record, 'STOP')">
-              <a-button type="link" size="small" :loading="actionLoading[record.instanceId]">停止</a-button>
+            <a-popconfirm v-if="inst.state === 'RUNNING'" title="确定停止实例？" @confirm="handleAction(inst, 'STOP')">
+              <a-button type="link" size="small" :loading="actionLoading[inst.instanceId]">停止</a-button>
             </a-popconfirm>
-            <a-popconfirm v-if="record.state === 'RUNNING'" title="确定重启实例？" @confirm="handleAction(record, 'RESET')">
-              <a-button type="link" size="small" :loading="actionLoading[record.instanceId]">重启</a-button>
+            <a-popconfirm v-if="inst.state === 'RUNNING'" title="确定重启实例？" @confirm="handleAction(inst, 'RESET')">
+              <a-button type="link" size="small" :loading="actionLoading[inst.instanceId]">重启</a-button>
             </a-popconfirm>
-            <a-popconfirm title="确定终止实例？此操作不可逆！" @confirm="handleTerminate(record)">
+            <a-popconfirm title="确定终止实例？此操作不可逆！" @confirm="handleTerminate(inst)">
               <a-button type="link" danger size="small">终止</a-button>
             </a-popconfirm>
-          </a-space>
+          </div>
+        </div>
+        <a-empty v-if="filteredInstances.length === 0 && !loading" description="无匹配实例" />
+      </div>
+
+      <!-- 列表视图 -->
+      <a-table v-else :columns="columns" :data-source="filteredInstances" :loading="loading"
+        row-key="instanceId" size="middle">
+        <template #bodyCell="{ column, record }">
+          <template v-if="column.key === 'state'">
+            <a-badge :status="stateColorMap[record.state] || 'default'" :text="record.state" />
+          </template>
+          <template v-if="column.key === 'shape'">
+            <a-tooltip :title="`${record.ocpus} OCPU / ${record.memoryInGBs} GB`">
+              <a-tag>{{ record.shape }}</a-tag>
+            </a-tooltip>
+          </template>
+          <template v-if="column.key === 'action'">
+            <a-space>
+              <a-button type="link" size="small" @click="openDetail(record)">详情</a-button>
+              <a-popconfirm v-if="record.state === 'STOPPED'" title="确定启动实例？" @confirm="handleAction(record, 'START')">
+                <a-button type="link" size="small" :loading="actionLoading[record.instanceId]">启动</a-button>
+              </a-popconfirm>
+              <a-popconfirm v-if="record.state === 'RUNNING'" title="确定停止实例？" @confirm="handleAction(record, 'STOP')">
+                <a-button type="link" size="small" :loading="actionLoading[record.instanceId]">停止</a-button>
+              </a-popconfirm>
+              <a-popconfirm v-if="record.state === 'RUNNING'" title="确定重启实例？" @confirm="handleAction(record, 'RESET')">
+                <a-button type="link" size="small" :loading="actionLoading[record.instanceId]">重启</a-button>
+              </a-popconfirm>
+              <a-popconfirm title="确定终止实例？不可逆！" @confirm="handleTerminate(record)">
+                <a-button type="link" danger size="small">终止</a-button>
+              </a-popconfirm>
+            </a-space>
+          </template>
         </template>
-      </template>
-    </a-table>
+      </a-table>
+    </a-spin>
 
     <!-- 实例详情抽屉 -->
     <a-drawer
       v-model:open="drawerVisible"
       :title="currentInstance?.name || '实例详情'"
-      width="780"
+      :width="isMobile ? '100%' : 780"
       placement="right"
       :mask-closable="false"
     >
       <a-tabs v-model:activeKey="activeTab">
         <a-tab-pane key="info" tab="基本信息">
           <a-descriptions :column="1" bordered size="small" v-if="currentInstance">
-            <a-descriptions-item label="实例名称">{{ currentInstance.name }}</a-descriptions-item>
+            <a-descriptions-item label="实例名称">
+              {{ currentInstance.name }}
+              <a-button type="link" size="small" @click="openEditInstance" style="margin-left: 8px">
+                <template #icon><EditOutlined /></template>修改
+              </a-button>
+            </a-descriptions-item>
             <a-descriptions-item label="实例 ID">
               <a-typography-text copyable style="font-size: 12px">{{ currentInstance.instanceId }}</a-typography-text>
             </a-descriptions-item>
@@ -267,12 +334,43 @@
         </div>
       </a-form>
     </a-modal>
+
+    <!-- 修改实例弹窗 -->
+    <a-modal v-model:open="editInstanceVisible" title="修改实例" @ok="handleEditInstance"
+      :confirm-loading="editInstanceLoading" :mask-closable="false" :width="isMobile ? '100%' : 480">
+      <a-form layout="vertical" v-if="currentInstance">
+        <a-form-item label="实例名称">
+          <a-input v-model:value="editInstanceForm.displayName" placeholder="输入新名称" />
+        </a-form-item>
+        <template v-if="isFlexShape">
+          <a-divider orientation="left" plain>配置调整（Flex Shape）</a-divider>
+          <a-row :gutter="12">
+            <a-col :span="12">
+              <a-form-item label="OCPU 数量">
+                <a-input-number v-model:value="editInstanceForm.ocpus" :min="1" :max="80" :step="1" style="width: 100%" />
+              </a-form-item>
+            </a-col>
+            <a-col :span="12">
+              <a-form-item label="内存 (GB)">
+                <a-input-number v-model:value="editInstanceForm.memoryInGBs" :min="1" :max="512" :step="1" style="width: 100%" />
+              </a-form-item>
+            </a-col>
+          </a-row>
+          <div style="color: #999; font-size: 12px">
+            仅 Flex 类型的 Shape 支持调整 OCPU 和内存。修改后实例可能需要重启生效。
+          </div>
+        </template>
+        <div v-else style="color: #999; font-size: 12px; margin-top: 8px">
+          当前 Shape（{{ currentInstance.shape }}）为固定规格，不支持在线调整 OCPU/内存。
+        </div>
+      </a-form>
+    </a-modal>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
-import { ReloadOutlined } from '@ant-design/icons-vue'
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
+import { ReloadOutlined, CloudServerOutlined, EditOutlined } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
 import {
   getInstanceList, updateInstanceState, terminateInstance,
@@ -282,6 +380,7 @@ import {
   getInstanceNetworkDetail, addIpv6,
   createReservedIp, listReservedIps, deleteReservedIp,
   assignReservedIp, unassignReservedIp,
+  updateInstance,
 } from '../api/instance'
 import { getTenantList } from '../api/tenant'
 
@@ -325,11 +424,28 @@ const vcnColumns = [
   { title: '状态', dataIndex: 'lifecycleState', key: 'lifecycleState', width: 100 },
 ]
 
+const isMobile = ref(window.innerWidth < 768)
+function checkMobile() { isMobile.value = window.innerWidth < 768 }
+
+const viewMode = ref<'card' | 'table'>('card')
+const searchKeyword = ref('')
 const loading = ref(false)
 const instances = ref<any[]>([])
 const tenants = ref<any[]>([])
 const selectedTenant = ref('')
 const actionLoading = reactive<Record<string, boolean>>({})
+
+const filteredInstances = computed(() => {
+  if (!searchKeyword.value) return instances.value
+  const kw = searchKeyword.value.toLowerCase()
+  return instances.value.filter((inst: any) =>
+    (inst.name || '').toLowerCase().includes(kw) ||
+    (inst.publicIp || '').toLowerCase().includes(kw) ||
+    (inst.shape || '').toLowerCase().includes(kw) ||
+    (inst.region || '').toLowerCase().includes(kw) ||
+    (inst.state || '').toLowerCase().includes(kw)
+  )
+})
 
 const drawerVisible = ref(false)
 const activeTab = ref('info')
@@ -381,12 +497,23 @@ const createRipVisible = ref(false)
 const createRipLoading = ref(false)
 const createRipName = ref('')
 
+const editInstanceVisible = ref(false)
+const editInstanceLoading = ref(false)
+const editInstanceForm = reactive({
+  displayName: '',
+  ocpus: 1,
+  memoryInGBs: 6,
+})
+const isFlexShape = computed(() => currentInstance.value?.shape?.includes('Flex') ?? false)
+
 function formatBytes(bytes: number) {
   if (!bytes || bytes === 0) return '0 B'
   const units = ['B', 'KB', 'MB', 'GB', 'TB']
   const i = Math.floor(Math.log(bytes) / Math.log(1024))
   return (bytes / Math.pow(1024, i)).toFixed(2) + ' ' + units[i]
 }
+
+function onSearch() {}
 
 async function loadTenants() {
   try {
@@ -464,7 +591,6 @@ async function handleChangeIp() {
   }
 }
 
-// --- 网络详情 ---
 async function loadNetworkDetail() {
   if (!currentInstance.value) return
   netDetailLoading.value = true
@@ -492,7 +618,6 @@ async function handleAddIpv6() {
   }
 }
 
-// --- 安全列表 ---
 async function loadSecurityRules() {
   if (!currentInstance.value) return
   secLoading.value = true
@@ -560,7 +685,6 @@ async function handleAddRule() {
   }
 }
 
-// --- 引导卷 ---
 async function loadBootVolumes() {
   if (!currentInstance.value) return
   volLoading.value = true
@@ -602,7 +726,6 @@ async function handleEditVolume() {
   }
 }
 
-// --- 预留IP ---
 function showCreateReservedIpModal() {
   createRipName.value = ''
   createRipVisible.value = true
@@ -667,7 +790,52 @@ async function handleUnassignReservedIp(publicIpId: string) {
   }
 }
 
-// --- VCN / 流量 ---
+function openEditInstance() {
+  if (!currentInstance.value) return
+  editInstanceForm.displayName = currentInstance.value.name || ''
+  editInstanceForm.ocpus = currentInstance.value.ocpus || 1
+  editInstanceForm.memoryInGBs = currentInstance.value.memoryInGBs || 6
+  editInstanceVisible.value = true
+}
+
+async function handleEditInstance() {
+  if (!currentInstance.value) return
+  editInstanceLoading.value = true
+  try {
+    const payload: any = {
+      id: selectedTenant.value,
+      instanceId: currentInstance.value.instanceId,
+    }
+    if (editInstanceForm.displayName && editInstanceForm.displayName !== currentInstance.value.name) {
+      payload.displayName = editInstanceForm.displayName
+    }
+    if (isFlexShape.value) {
+      if (editInstanceForm.ocpus !== currentInstance.value.ocpus) {
+        payload.ocpus = editInstanceForm.ocpus
+      }
+      if (editInstanceForm.memoryInGBs !== currentInstance.value.memoryInGBs) {
+        payload.memoryInGBs = editInstanceForm.memoryInGBs
+      }
+    }
+    if (!payload.displayName && !payload.ocpus && !payload.memoryInGBs) {
+      message.info('未检测到修改')
+      editInstanceLoading.value = false
+      return
+    }
+    const res = await updateInstance(payload)
+    message.success('实例已更新')
+    if (res.data?.name) currentInstance.value.name = res.data.name
+    if (res.data?.ocpus) currentInstance.value.ocpus = res.data.ocpus
+    if (res.data?.memoryInGBs) currentInstance.value.memoryInGBs = res.data.memoryInGBs
+    editInstanceVisible.value = false
+    loadInstances()
+  } catch (e: any) {
+    message.error(e?.message || '修改实例失败')
+  } finally {
+    editInstanceLoading.value = false
+  }
+}
+
 async function loadVcns() {
   vcnLoading.value = true
   try {
@@ -697,9 +865,145 @@ async function loadTraffic() {
   }
 }
 
-onMounted(() => loadTenants())
+onMounted(() => {
+  loadTenants()
+  window.addEventListener('resize', checkMobile)
+})
+onUnmounted(() => window.removeEventListener('resize', checkMobile))
 </script>
 
 <style scoped>
-.table-toolbar { margin-bottom: 16px; }
+.instance-toolbar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.toolbar-left, .toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.instance-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: 16px;
+}
+.instance-card {
+  background: #fff;
+  border: 1px solid rgba(0, 0, 0, 0.06);
+  border-radius: 16px;
+  padding: 20px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: flex;
+  flex-direction: column;
+}
+.instance-card:hover {
+  border-color: #18E299;
+  box-shadow: 0 4px 16px rgba(24, 226, 153, 0.12);
+  transform: translateY(-2px);
+}
+.card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+.card-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+.card-icon {
+  font-size: 20px;
+  color: #18E299;
+  flex-shrink: 0;
+}
+.card-name {
+  font-size: 15px;
+  font-weight: 600;
+  color: #0d0d0d;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.card-body {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 16px;
+}
+.card-info-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+}
+.info-label {
+  color: #888;
+  flex-shrink: 0;
+}
+.info-value {
+  color: #333;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ip-text {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 12px;
+}
+.card-actions {
+  display: flex;
+  gap: 4px;
+  border-top: 1px solid rgba(0, 0, 0, 0.04);
+  padding-top: 12px;
+  flex-wrap: wrap;
+}
+
+@media (max-width: 768px) {
+  .instance-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .toolbar-left, .toolbar-right {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+  .toolbar-left :deep(.ant-select) {
+    width: 100% !important;
+    flex: 1 1 100%;
+  }
+  .toolbar-left :deep(.ant-input-search) {
+    width: 100% !important;
+    flex: 1 1 100%;
+  }
+  .toolbar-right {
+    justify-content: space-between;
+  }
+  .instance-grid {
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+  .instance-card {
+    padding: 16px;
+    border-radius: 12px;
+  }
+  .card-name {
+    font-size: 14px;
+  }
+  .card-info-row {
+    font-size: 12px;
+  }
+  .card-actions {
+    gap: 0;
+  }
+}
 </style>

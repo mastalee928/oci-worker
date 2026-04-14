@@ -24,6 +24,9 @@ request.interceptors.response.use(
         localStorage.removeItem('token')
         router.push('/login')
       }
+      if (res.code === 403 && res.message?.includes('初始化')) {
+        router.push('/setup')
+      }
       return Promise.reject(new Error(res.message))
     }
     return res

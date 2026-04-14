@@ -29,17 +29,26 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
+import { reactive, ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { UserOutlined, LockOutlined } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
 import { useUserStore } from '../stores/user'
-import { login } from '../api/auth'
+import { login, needSetup } from '../api/auth'
 
 const router = useRouter()
 const userStore = useUserStore()
 const loading = ref(false)
 const form = reactive({ account: '', password: '' })
+
+onMounted(async () => {
+  try {
+    const res = await needSetup()
+    if (res.data) {
+      router.replace('/setup')
+    }
+  } catch {}
+})
 
 async function handleLogin() {
   loading.value = true

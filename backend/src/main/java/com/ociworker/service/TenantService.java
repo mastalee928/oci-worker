@@ -154,7 +154,6 @@ public class TenantService {
                                 ? items.get(0).getPlanType().getValue() : "UNKNOWN";
                         user.setPlanType(planType);
                         userMapper.updateById(user);
-                        log.info("Tenant {} planType: {}", user.getUsername(), planType);
                     }
                 } finally {
                     ospClient.close();

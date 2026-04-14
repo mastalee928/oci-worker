@@ -29,6 +29,7 @@ body {
   background: var(--bg-subtle);
   margin: 0;
   -webkit-font-smoothing: antialiased;
+  -webkit-text-size-adjust: 100%;
 }
 
 /* Ant Design overrides */
@@ -127,16 +128,134 @@ body {
   border-color: var(--brand) !important;
 }
 
-/* Mobile responsive */
+/* ── Mobile responsive ── */
 @media (max-width: 768px) {
-  .ant-layout-content { margin: 8px !important; padding: 12px !important; }
-  .ant-card { padding: 12px !important; }
-  .table-toolbar { flex-direction: column; gap: 8px; }
-  .table-toolbar .ant-space { flex-wrap: wrap; }
-  .ant-table { font-size: 13px; }
-  .ant-drawer { max-width: 100vw !important; }
-  .ant-drawer-content-wrapper { width: 100vw !important; }
-  .ant-col-6 { flex: 0 0 50% !important; max-width: 50% !important; margin-bottom: 8px; }
-  .ant-col-12 { flex: 0 0 100% !important; max-width: 100% !important; margin-bottom: 8px; }
-  .ant-modal { max-width: calc(100vw - 32px) !important; margin: 16px auto !important; }
+  .ant-layout-content {
+    margin: 8px !important;
+    padding: 12px !important;
+  }
+
+  .ant-card {
+    padding: 12px !important;
+  }
+
+  /* Toolbar auto-wrap */
+  .table-toolbar {
+    flex-direction: column;
+    gap: 8px;
+  }
+  .table-toolbar .ant-space {
+    flex-wrap: wrap;
+    width: 100%;
+  }
+  .table-toolbar .ant-space .ant-space-item {
+    flex: 1 1 auto;
+    min-width: 0;
+  }
+
+  /* Table: horizontal scroll + smaller text */
+  .ant-table {
+    font-size: 13px;
+  }
+  .ant-table-wrapper {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .ant-table-content {
+    overflow-x: auto !important;
+    -webkit-overflow-scrolling: touch;
+  }
+  .ant-table-content > table {
+    min-width: 600px;
+  }
+
+  /* Drawer: full-width on mobile */
+  .ant-drawer {
+    max-width: 100vw !important;
+  }
+  .ant-drawer-content-wrapper {
+    width: 100vw !important;
+  }
+  .ant-drawer-content {
+    border-radius: 0 !important;
+  }
+  .ant-drawer-body {
+    padding: 12px !important;
+  }
+
+  /* Modal: near full-width on mobile */
+  .ant-modal {
+    max-width: calc(100vw - 24px) !important;
+    margin: 12px auto !important;
+    top: 12px !important;
+  }
+  .ant-modal-body {
+    padding: 16px !important;
+  }
+
+  /* Dashboard stat columns */
+  .ant-col-6 {
+    flex: 0 0 50% !important;
+    max-width: 50% !important;
+    margin-bottom: 8px;
+  }
+  .ant-col-12 {
+    flex: 0 0 100% !important;
+    max-width: 100% !important;
+    margin-bottom: 8px;
+  }
+
+  /* Descriptions: stack labels on mobile */
+  .ant-descriptions-item-label {
+    font-size: 12px !important;
+    padding: 6px 8px !important;
+  }
+  .ant-descriptions-item-content {
+    font-size: 13px !important;
+    padding: 6px 8px !important;
+  }
+
+  /* Tabs: scrollable on mobile */
+  .ant-tabs-nav {
+    flex-wrap: nowrap;
+  }
+  .ant-tabs-nav-list {
+    flex-wrap: nowrap;
+  }
+  .ant-tabs-tab {
+    padding: 8px 12px !important;
+    font-size: 13px !important;
+  }
+
+  /* Segmented: smaller on mobile */
+  .ant-segmented {
+    font-size: 12px !important;
+  }
+  .ant-segmented-item-label {
+    padding: 0 8px !important;
+  }
+
+  /* Select: full width inside toolbar on mobile */
+  .ant-select {
+    min-width: 0 !important;
+  }
+
+  /* Space: auto wrap */
+  .ant-space {
+    flex-wrap: wrap;
+  }
+
+  /* Popconfirm: adjust positioning */
+  .ant-popover {
+    max-width: calc(100vw - 24px) !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .ant-statistic-content-value {
+    font-size: 20px !important;
+  }
+  .ant-statistic-title {
+    font-size: 12px !important;
+  }
 }

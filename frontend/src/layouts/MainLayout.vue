@@ -49,7 +49,7 @@
       </a-menu>
     </a-layout-sider>
 
-    <a-layout>
+    <a-layout class="content-layout">
       <header class="app-header">
         <div class="header-left">
           <MenuOutlined v-if="isMobile" class="trigger" @click="mobileMenuOpen = !mobileMenuOpen" />
@@ -130,6 +130,7 @@ function handleLogout() {
 
 <style scoped>
 .main-layout { min-height: 100vh; }
+.content-layout { min-width: 0; }
 
 .sider {
   background: #0d0d0d !important;
@@ -178,9 +179,9 @@ function handleLogout() {
 }
 
 .app-header {
-  height: 64px;
+  height: 56px;
   background: #fff !important;
-  padding: 0 24px;
+  padding: 0 20px;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -190,15 +191,18 @@ function handleLogout() {
   z-index: 100;
   backdrop-filter: blur(12px);
 }
-.header-left { display: flex; align-items: center; gap: 16px; }
-.trigger { font-size: 18px; cursor: pointer; color: #666; transition: color 0.2s; }
+.header-left { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.trigger { font-size: 18px; cursor: pointer; color: #666; transition: color 0.2s; flex-shrink: 0; }
 .trigger:hover { color: #18E299; }
 .page-title {
-  font-size: 17px;
+  font-size: 16px;
   font-weight: 600;
   color: #0d0d0d;
   letter-spacing: -0.2px;
   margin: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .app-content {
@@ -207,7 +211,8 @@ function handleLogout() {
   background: #fff;
   border-radius: 16px;
   border: 1px solid rgba(0,0,0,0.05);
-  min-height: calc(100vh - 96px);
+  min-height: calc(100vh - 88px);
+  overflow-x: hidden;
 }
 
 .mobile-overlay {
@@ -218,8 +223,16 @@ function handleLogout() {
 }
 
 @media (max-width: 768px) {
-  .app-header { padding: 0 12px; }
-  .page-title { font-size: 15px; }
-  .app-content { margin: 8px; padding: 12px; border-radius: 12px; min-height: calc(100vh - 80px); }
+  .app-header {
+    padding: 0 12px;
+    height: 48px;
+  }
+  .page-title { font-size: 14px; }
+  .app-content {
+    margin: 8px;
+    padding: 12px;
+    border-radius: 12px;
+    min-height: calc(100vh - 64px);
+  }
 }
 </style>

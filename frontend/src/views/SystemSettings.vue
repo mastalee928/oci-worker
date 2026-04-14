@@ -2,13 +2,13 @@
   <div>
     <a-tabs v-model:active-key="activeTab">
       <a-tab-pane key="security" tab="安全设置">
-        <a-card title="修改登录密码" style="max-width: 480px">
+        <a-card title="修改登录密码" class="settings-card">
           <a-form :model="pwdForm" layout="vertical">
             <a-form-item label="原密码" required>
               <a-input-password v-model:value="pwdForm.oldPassword" placeholder="输入当前密码" />
             </a-form-item>
             <a-form-item label="新密码" required>
-              <a-input-password v-model:value="pwdForm.newPassword" placeholder="至少 6 位" />
+              <a-input-password v-model:value="pwdForm.newPassword" placeholder="至少8位，含大小写、数字和特殊字符" />
             </a-form-item>
             <a-form-item label="确认新密码" required>
               <a-input-password v-model:value="pwdForm.confirmPassword" placeholder="再次输入新密码" />
@@ -17,7 +17,7 @@
           </a-form>
         </a-card>
 
-        <a-card title="登录安全说明" style="max-width: 480px; margin-top: 16px">
+        <a-card title="登录安全说明" class="settings-card" style="margin-top: 16px">
           <a-descriptions :column="1" bordered size="small">
             <a-descriptions-item label="Token 有效期">24 小时</a-descriptions-item>
             <a-descriptions-item label="关闭浏览器">Token 保持有效，直到过期</a-descriptions-item>
@@ -30,7 +30,7 @@
       </a-tab-pane>
 
       <a-tab-pane key="notify" tab="消息通知">
-        <a-card title="Telegram 通知" style="max-width: 560px">
+        <a-card title="Telegram 通知" class="settings-card-wide">
           <a-form layout="vertical">
             <a-form-item label="Bot Token">
               <a-input v-model:value="tgConfig.botToken" placeholder="输入 Telegram Bot Token" />
@@ -48,7 +48,7 @@
           </a-form>
         </a-card>
 
-        <a-card title="通知说明" style="max-width: 560px; margin-top: 16px">
+        <a-card title="通知说明" class="settings-card-wide" style="margin-top: 16px">
           <a-descriptions :column="1" bordered size="small">
             <a-descriptions-item label="登录通知">登录成功/失败时发送，包含IP地址、账号、时间</a-descriptions-item>
             <a-descriptions-item label="创建任务">创建开机任务时通知</a-descriptions-item>
@@ -97,8 +97,13 @@ async function handleChangePassword() {
     message.warning('请填写密码')
     return
   }
-  if (pwdForm.newPassword.length < 6) {
-    message.warning('新密码不能少于 6 位')
+  if (pwdForm.newPassword.length < 8) {
+    message.warning('新密码不能少于 8 位')
+    return
+  }
+  if (!/[A-Z]/.test(pwdForm.newPassword) || !/[a-z]/.test(pwdForm.newPassword)
+      || !/\d/.test(pwdForm.newPassword) || !/[!@#$%^&*]/.test(pwdForm.newPassword)) {
+    message.warning('密码需包含大写、小写、数字和特殊字符(!@#$%^&*)')
     return
   }
   if (pwdForm.newPassword !== pwdForm.confirmPassword) {
@@ -160,3 +165,15 @@ async function testTgNotify() {
 
 onMounted(() => loadNotifyConfig())
 </script>
+
+<style scoped>
+.settings-card { max-width: 480px; }
+.settings-card-wide { max-width: 560px; }
+
+@media (max-width: 768px) {
+  .settings-card,
+  .settings-card-wide {
+    max-width: 100% !important;
+  }
+}
+</style>
