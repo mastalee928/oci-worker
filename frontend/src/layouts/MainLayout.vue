@@ -161,6 +161,12 @@ function handleLogout() {
   left: 0;
   top: 0;
 }
+.sider-mobile-open {
+  width: 260px !important;
+  min-width: 260px !important;
+  max-width: 260px !important;
+  flex: 0 0 260px !important;
+}
 
 .brand {
   height: 80px;
