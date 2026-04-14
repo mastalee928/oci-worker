@@ -68,18 +68,6 @@
       </div>
     </a-layout>
 
-    <div class="fixed-user-panel">
-      <div class="user-card">
-        <div class="avatar">{{ avatarLetter }}</div>
-        <div class="user-info">
-          <div class="user-name">Admin</div>
-          <div class="user-status">管理员在线</div>
-        </div>
-      </div>
-      <button class="btn-logout" @click="handleLogout">
-        <i class="ri-logout-box-r-line"></i> 安全退出
-      </button>
-    </div>
   </a-layout>
 </template>
 
@@ -220,16 +208,8 @@ function handleLogout() {
 .sidebar-footer {
   flex-shrink: 0;
   padding: 12px 16px 16px;
-  display: none;
 }
 
-.fixed-user-panel {
-  position: fixed;
-  bottom: 24px;
-  left: 24px;
-  z-index: 999;
-  width: 220px;
-}
 .user-card {
   display: flex;
   align-items: center;
@@ -371,12 +351,6 @@ function handleLogout() {
   }
   .app-content {
     padding: 0 16px 24px;
-  }
-  .fixed-user-panel {
-    display: none;
-  }
-  .sidebar-footer {
-    display: block;
   }
 }
 </style>
