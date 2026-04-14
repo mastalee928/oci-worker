@@ -16,22 +16,19 @@
 
       <a-form :model="form" @finish="handleSetup" layout="vertical" class="setup-form">
         <a-form-item name="account" :rules="[{ required: true, message: '请设置用户名' }]">
-          <div class="input-box">
-            <a-input v-model:value="form.account" placeholder="设置用户名" size="large" class="setup-input" />
-            <i class="ri-user-3-line input-icon"></i>
-          </div>
+          <a-input v-model:value="form.account" placeholder="设置用户名" size="large" class="setup-input">
+            <template #prefix><i class="ri-user-3-line input-prefix-icon"></i></template>
+          </a-input>
         </a-form-item>
         <a-form-item name="password" :rules="passwordRules">
-          <div class="input-box">
-            <a-input-password v-model:value="form.password" placeholder="设置密码" size="large" class="setup-input" />
-            <i class="ri-lock-2-line input-icon"></i>
-          </div>
+          <a-input-password v-model:value="form.password" placeholder="设置密码" size="large" class="setup-input">
+            <template #prefix><i class="ri-lock-2-line input-prefix-icon"></i></template>
+          </a-input-password>
         </a-form-item>
         <a-form-item name="confirmPassword" :rules="confirmRules">
-          <div class="input-box">
-            <a-input-password v-model:value="form.confirmPassword" placeholder="确认密码" size="large" class="setup-input" />
-            <i class="ri-lock-2-line input-icon"></i>
-          </div>
+          <a-input-password v-model:value="form.confirmPassword" placeholder="确认密码" size="large" class="setup-input">
+            <template #prefix><i class="ri-lock-2-line input-prefix-icon"></i></template>
+          </a-input-password>
         </a-form-item>
 
         <div class="password-strength" v-if="form.password">
@@ -216,34 +213,36 @@ async function handleSetup() {
   color: #94a3b8;
   margin-bottom: 24px;
 }
-.input-box {
-  position: relative;
-}
-.input-icon {
-  position: absolute;
-  left: 16px;
-  top: 50%;
-  transform: translateY(-50%);
+.input-prefix-icon {
   color: #94a3b8;
   font-size: 18px;
-  z-index: 1;
-  pointer-events: none;
 }
 .setup-input {
-  height: 48px;
-}
-.setup-input :deep(input) {
-  padding-left: 44px !important;
+  height: 48px !important;
   background: rgba(15, 23, 42, 0.5) !important;
   border: 1px solid rgba(255, 255, 255, 0.1) !important;
   border-radius: 12px !important;
-  color: #fff !important;
   font-size: 15px !important;
+  padding: 4px 16px !important;
 }
-.setup-input :deep(input:focus) {
+.setup-input:hover {
+  border-color: rgba(255, 255, 255, 0.2) !important;
+}
+.setup-input:where(.ant-input-affix-wrapper-focused),
+.setup-input:focus {
   border-color: #6366f1 !important;
   background: rgba(15, 23, 42, 0.8) !important;
   box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.15) !important;
+}
+.setup-input :deep(input) {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  color: #fff !important;
+  font-size: 15px !important;
+}
+.setup-input :deep(.ant-input-prefix) {
+  margin-inline-end: 12px;
 }
 .setup-input :deep(.ant-input-suffix) {
   color: #94a3b8;

@@ -283,6 +283,13 @@ body::after {
 }
 .ant-tabs-ink-bar { background: var(--primary) !important; }
 
+.ant-modal-wrap {
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+.ant-modal-mask {
+  background: rgba(0, 0, 0, 0.45) !important;
+}
 .ant-modal-content {
   background: var(--bg-sidebar) !important;
   border: 1px solid var(--border) !important;
@@ -304,6 +311,11 @@ body::after {
   border-top: 1px solid var(--border) !important;
 }
 
+.ant-drawer-mask {
+  background: rgba(0, 0, 0, 0.45) !important;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
 .ant-drawer-content {
   background: var(--bg-sidebar) !important;
   border-radius: var(--radius-lg) 0 0 var(--radius-lg) !important;
@@ -383,6 +395,8 @@ body::after {
   background: var(--bg-sidebar) !important;
   border: 1px solid var(--border) !important;
   color: var(--text-main) !important;
+  backdrop-filter: blur(20px);
+  -webkit-backdrop-filter: blur(20px);
 }
 .ant-popconfirm-message-title {
   color: var(--text-main) !important;

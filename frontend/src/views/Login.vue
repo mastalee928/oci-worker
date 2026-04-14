@@ -10,16 +10,14 @@
       </div>
       <a-form :model="form" @finish="handleLogin" layout="vertical" class="login-form">
         <a-form-item name="account" :rules="[{ required: true, message: '请输入账号' }]">
-          <div class="input-box">
-            <a-input v-model:value="form.account" placeholder="管理员账号" size="large" class="login-input" />
-            <i class="ri-user-3-line input-icon"></i>
-          </div>
+          <a-input v-model:value="form.account" placeholder="管理员账号" size="large" class="login-input">
+            <template #prefix><i class="ri-user-3-line input-prefix-icon"></i></template>
+          </a-input>
         </a-form-item>
         <a-form-item name="password" :rules="[{ required: true, message: '请输入密码' }]">
-          <div class="input-box">
-            <a-input-password v-model:value="form.password" placeholder="登录密码" size="large" class="login-input" />
-            <i class="ri-lock-2-line input-icon"></i>
-          </div>
+          <a-input-password v-model:value="form.password" placeholder="登录密码" size="large" class="login-input">
+            <template #prefix><i class="ri-lock-2-line input-prefix-icon"></i></template>
+          </a-input-password>
         </a-form-item>
         <a-form-item>
           <button type="submit" :disabled="loading" class="submit-btn">
@@ -135,34 +133,36 @@ async function handleLogin() {
   color: #94a3b8;
   font-size: 14px;
 }
-.input-box {
-  position: relative;
-}
-.input-icon {
-  position: absolute;
-  left: 16px;
-  top: 50%;
-  transform: translateY(-50%);
+.input-prefix-icon {
   color: #94a3b8;
   font-size: 18px;
-  z-index: 1;
-  pointer-events: none;
 }
 .login-input {
-  height: 48px;
-}
-.login-input :deep(input) {
-  padding-left: 44px !important;
+  height: 48px !important;
   background: rgba(15, 23, 42, 0.5) !important;
   border: 1px solid rgba(255, 255, 255, 0.1) !important;
   border-radius: 12px !important;
-  color: #fff !important;
   font-size: 15px !important;
+  padding: 4px 16px !important;
 }
-.login-input :deep(input:focus) {
+.login-input:hover {
+  border-color: rgba(255, 255, 255, 0.2) !important;
+}
+.login-input:where(.ant-input-affix-wrapper-focused),
+.login-input:focus {
   border-color: #6366f1 !important;
   background: rgba(15, 23, 42, 0.8) !important;
   box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.15) !important;
+}
+.login-input :deep(input) {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  color: #fff !important;
+  font-size: 15px !important;
+}
+.login-input :deep(.ant-input-prefix) {
+  margin-inline-end: 12px;
 }
 .login-input :deep(.ant-input-suffix) {
   color: #94a3b8;
