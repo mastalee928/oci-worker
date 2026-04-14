@@ -21,9 +21,7 @@ services:
       retries: 5
 
   oci-worker:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    image: ghcr.io/mastalee928/oci-worker:latest
     container_name: oci-worker
     restart: always
     ports:

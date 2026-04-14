@@ -45,27 +45,63 @@ npm run dev
 
 访问 http://localhost:5173，默认账号密码：`admin` / `admin123`
 
-### Docker 部署
+### Docker 部署（推荐）
+
+镜像由 GitHub Actions 自动构建，服务器上无需安装 JDK/Maven/Node.js。
 
 ```bash
-# 创建数据目录
+# 1. 克隆项目（只需要 docker-compose.yml 和配置文件）
+git clone https://github.com/mastalee928/oci-worker.git
+cd oci-worker
+
+# 2. 创建数据目录
 mkdir -p data/keys data/mysql
 
-# 复制配置文件
-cp backend/src/main/resources/application.yml data/application.yml
+# 3. 创建配置文件
+cat > data/application.yml << 'EOF'
+server:
+  port: 8818
 
-# 修改 data/application.yml 中的配置：
-#   - web 账号密码
-#   - MySQL 连接地址改为: jdbc:mysql://mysql:3306/oci_worker?...
-#     (Docker 容器间通过服务名 mysql 连接)
+web:
+  account: admin
+  password: admin123
 
-# 构建并启动
-docker-compose up -d
+spring:
+  threads:
+    virtual:
+      enabled: true
+  datasource:
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://mysql:3306/oci_worker?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: ociworker
+    password: ociworker123
+  sql:
+    init:
+      mode: always
+      platform: mysql
+
+mybatis-plus:
+  mapper-locations: classpath*:com/ociworker/mapper/xml/*.xml,classpath*:mapper/*.xml
+
+logging:
+  pattern:
+    console: "%d{yyyy-MM-dd HH:mm:ss} %-5level %msg%n"
+  level:
+    com.oracle.bmc: error
+
+oci-cfg:
+  key-dir-path: ./keys
+EOF
+
+# 4. 修改 data/application.yml 中的账号密码
+
+# 5. 启动
+docker compose up -d
 ```
 
 访问 http://your-ip:8818
 
-> **注意**：Docker 部署时，`application.yml` 中的数据库地址应使用容器服务名 `mysql` 而非 `localhost`。
+> **注意**：Docker 部署时，数据库地址使用容器服务名 `mysql`（已在默认配置中设置好）。
 
 ### 生产构建
 
