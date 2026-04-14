@@ -32,24 +32,30 @@
       </template>
     </a-table>
 
-    <a-modal v-model:open="createVisible" title="创建开机任务" width="600px" @ok="handleCreate" :confirm-loading="createLoading">
+    <a-modal v-model:open="createVisible" title="创建开机任务" width="600px" @ok="handleCreate"
+      :confirm-loading="createLoading" :mask-closable="false">
       <a-form :model="createForm" layout="vertical">
         <a-form-item label="选择租户" required>
-          <a-select v-model:value="createForm.userId" placeholder="选择租户" show-search option-filter-prop="label">
+          <a-select v-model:value="createForm.userId" placeholder="选择租户" show-search option-filter-prop="label"
+            @change="onTenantChange">
             <a-select-option v-for="t in tenants" :key="t.id" :value="t.id" :label="t.username">
               {{ t.username }} ({{ t.ociRegion }})
             </a-select-option>
           </a-select>
         </a-form-item>
+        <a-form-item label="机器规格 (Shape)">
+          <a-select v-model:value="createForm.architecture" placeholder="选择 Shape" :loading="shapesLoading">
+            <a-select-option value="ARM">ARM (A1.Flex)</a-select-option>
+            <a-select-option value="AMD">AMD (E2.1.Micro)</a-select-option>
+            <a-select-option v-for="s in availableShapes" :key="s.shape" :value="s.shape">
+              {{ s.shape }} ({{ s.processorDescription || '' }})
+            </a-select-option>
+          </a-select>
+          <div v-if="availableShapes.length" style="color: #888; font-size: 12px; margin-top: 4px">
+            查询到 {{ availableShapes.length }} 个可用 Shape
+          </div>
+        </a-form-item>
         <a-row :gutter="16">
-          <a-col :span="12">
-            <a-form-item label="CPU 架构">
-              <a-select v-model:value="createForm.architecture">
-                <a-select-option value="ARM">ARM (A1.Flex)</a-select-option>
-                <a-select-option value="AMD">AMD (E2.1.Micro)</a-select-option>
-              </a-select>
-            </a-form-item>
-          </a-col>
           <a-col :span="12">
             <a-form-item label="操作系统">
               <a-select v-model:value="createForm.operationSystem">
@@ -90,7 +96,8 @@
           </a-col>
           <a-col :span="8">
             <a-form-item label="Root 密码">
-              <a-input-password v-model:value="createForm.rootPassword" placeholder="留空则不设置" />
+              <a-input-password v-model:value="createForm.rootPassword" placeholder="留空=随机生成" />
+              <a-button type="link" size="small" @click="generateRandomPwd" style="padding: 0">随机生成</a-button>
             </a-form-item>
           </a-col>
         </a-row>
@@ -105,6 +112,7 @@ import { PlusOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
 import { getTaskList, createTask, stopTask } from '../api/task'
 import { getTenantList } from '../api/tenant'
+import { getAvailableShapes } from '../api/instance'
 
 const statusMap: Record<string, string> = {
   RUNNING: '运行中', STOPPED: '已停止', COMPLETED: '已完成', FAILED: '已失败',
@@ -125,8 +133,10 @@ const columns = [
 
 const loading = ref(false)
 const createLoading = ref(false)
+const shapesLoading = ref(false)
 const tableData = ref<any[]>([])
 const tenants = ref<any[]>([])
+const availableShapes = ref<any[]>([])
 const createVisible = ref(false)
 const pagination = reactive({ current: 1, pageSize: 10, total: 0 })
 const stopLoading = reactive<Record<string, boolean>>({})
@@ -135,6 +145,27 @@ const createForm = reactive({
   userId: '', architecture: 'ARM', operationSystem: 'Ubuntu',
   ocpus: 1, memory: 6, disk: 50, createNumbers: 1, interval: 60, rootPassword: '',
 })
+
+function generateRandomPwd() {
+  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$%'
+  let pwd = ''
+  for (let i = 0; i < 16; i++) pwd += chars[Math.floor(Math.random() * chars.length)]
+  createForm.rootPassword = pwd
+  message.success('已生成随机密码')
+}
+
+async function onTenantChange(tenantId: string) {
+  if (!tenantId) { availableShapes.value = []; return }
+  shapesLoading.value = true
+  try {
+    const res = await getAvailableShapes({ id: tenantId })
+    availableShapes.value = (res.data || []).filter((s: any) => s.shape !== 'VM.Standard.A1.Flex' && s.shape !== 'VM.Standard.E2.1.Micro')
+  } catch {
+    availableShapes.value = []
+  } finally {
+    shapesLoading.value = false
+  }
+}
 
 async function loadData() {
   loading.value = true
@@ -165,6 +196,7 @@ function handleTableChange(pag: any) {
 
 function showCreateModal() {
   loadTenants()
+  availableShapes.value = []
   Object.assign(createForm, {
     userId: '', architecture: 'ARM', operationSystem: 'Ubuntu',
     ocpus: 1, memory: 6, disk: 50, createNumbers: 1, interval: 60, rootPassword: '',
@@ -174,6 +206,7 @@ function showCreateModal() {
 
 async function handleCreate() {
   if (!createForm.userId) { message.warning('请选择租户'); return }
+  if (!createForm.rootPassword) generateRandomPwd()
   createLoading.value = true
   try {
     await createTask(createForm)

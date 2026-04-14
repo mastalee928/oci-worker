@@ -8,6 +8,8 @@ import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 
 import java.io.IOException;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.Set;
 import java.util.concurrent.CopyOnWriteArraySet;
 
@@ -21,6 +23,10 @@ public class LogWebSocketHandler extends TextWebSocketHandler {
     public void afterConnectionEstablished(WebSocketSession session) {
         SESSIONS.add(session);
         log.info("Log WebSocket connected: {}", session.getId());
+        try {
+            String ts = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+            session.sendMessage(new TextMessage(ts + " INFO  WebSocket 连接成功，等待日志输出..."));
+        } catch (IOException ignored) {}
     }
 
     @Override

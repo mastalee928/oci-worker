@@ -31,8 +31,13 @@ public class InstanceController {
         return ResponseData.ok();
     }
 
+    @PostMapping("/shapes")
+    public ResponseData<?> listShapes(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(instanceService.listAvailableShapes(params.get("id")));
+    }
+
     @PostMapping("/bootVolumes")
     public ResponseData<?> bootVolumes(@RequestBody Map<String, String> params) {
-        return ResponseData.ok(instanceService.listBootVolumes(params.get("id")));
+        return ResponseData.ok(instanceService.listBootVolumesByInstance(params.get("id"), params.get("instanceId")));
     }
 }

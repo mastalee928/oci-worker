@@ -22,18 +22,26 @@ public class CommonUtils {
             "开机数量：%s\n" +
             "root密码：%s";
 
+    private static final long TOKEN_EXPIRE_HOURS = 24;
+
     public static String generateId() {
         return IdUtil.fastSimpleUUID();
     }
 
     public static String generateToken(String account, String password) {
-        String raw = account + ":" + password + ":" + System.currentTimeMillis() / (1000 * 60 * 60 * 24);
+        long expireSlot = System.currentTimeMillis() / (1000 * 60 * 60 * TOKEN_EXPIRE_HOURS);
+        String raw = account + ":" + password + ":" + expireSlot;
         return Base64.getEncoder().encodeToString(DigestUtil.sha256(raw));
     }
 
     public static boolean validateToken(String token, String account, String password) {
-        String expected = generateToken(account, password);
-        return expected.equals(token);
+        long currentSlot = System.currentTimeMillis() / (1000 * 60 * 60 * TOKEN_EXPIRE_HOURS);
+        for (int i = 0; i <= 1; i++) {
+            String raw = account + ":" + password + ":" + (currentSlot - i);
+            String expected = Base64.getEncoder().encodeToString(DigestUtil.sha256(raw));
+            if (expected.equals(token)) return true;
+        }
+        return false;
     }
 
     public static String getPwdShell(String password) {

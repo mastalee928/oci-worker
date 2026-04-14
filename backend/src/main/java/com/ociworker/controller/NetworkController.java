@@ -22,12 +22,12 @@ public class NetworkController {
 
     @PostMapping("/securityRules")
     public ResponseData<?> listSecurityRules(@RequestBody Map<String, String> params) {
-        return ResponseData.ok(networkService.listSecurityRules(params.get("id"), params.get("subnetId")));
+        return ResponseData.ok(networkService.listSecurityRulesByInstance(params.get("id"), params.get("instanceId")));
     }
 
     @PostMapping("/releaseAllPorts")
     public ResponseData<?> releaseAllPorts(@RequestBody Map<String, String> params) {
-        networkService.releaseAllPorts(params.get("id"), params.get("subnetId"));
+        networkService.releaseAllPortsByInstance(params.get("id"), params.get("instanceId"));
         return ResponseData.ok();
     }
 

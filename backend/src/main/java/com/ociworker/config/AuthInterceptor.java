@@ -1,9 +1,13 @@
 package com.ociworker.config;
 
 import cn.hutool.core.util.StrUtil;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.ociworker.mapper.OciKvMapper;
+import com.ociworker.model.entity.OciKv;
 import com.ociworker.model.vo.ResponseData;
 import com.ociworker.util.CommonUtils;
+import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Value;
@@ -16,9 +20,23 @@ public class AuthInterceptor implements HandlerInterceptor {
     @Value("${web.account}")
     private String account;
     @Value("${web.password}")
-    private String password;
+    private String defaultPassword;
+
+    @Resource
+    private OciKvMapper kvMapper;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    private String getEffectivePassword() {
+        try {
+            OciKv kv = kvMapper.selectOne(new LambdaQueryWrapper<OciKv>()
+                    .eq(OciKv::getCode, "web_password")
+                    .eq(OciKv::getType, "sys_config"));
+            return kv != null ? kv.getValue() : defaultPassword;
+        } catch (Exception e) {
+            return defaultPassword;
+        }
+    }
 
     @Override
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
@@ -37,7 +55,8 @@ public class AuthInterceptor implements HandlerInterceptor {
             token = request.getParameter("token");
         }
 
-        if (StrUtil.isBlank(token) || !CommonUtils.validateToken(token, account, password)) {
+        String effectivePwd = getEffectivePassword();
+        if (StrUtil.isBlank(token) || !CommonUtils.validateToken(token, account, effectivePwd)) {
             response.setContentType("application/json;charset=UTF-8");
             response.setStatus(401);
             response.getWriter().write(objectMapper.writeValueAsString(ResponseData.error(401, "Unauthorized")));

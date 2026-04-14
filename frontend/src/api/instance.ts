@@ -16,6 +16,10 @@ export function changeIp(data: any) {
   return request.post('/oci/network/changeIp', data)
 }
 
+export function getAvailableShapes(data: { id: string }) {
+  return request.post('/oci/instance/shapes', data)
+}
+
 export function getSecurityRules(data: { id: string; instanceId: string }) {
   return request.post('/oci/network/securityRules', data)
 }
@@ -24,7 +28,7 @@ export function releaseAllPorts(data: { id: string; instanceId: string }) {
   return request.post('/oci/network/releaseAllPorts', data)
 }
 
-export function getBootVolumes(data: { id: string }) {
+export function getBootVolumes(data: { id: string; instanceId: string }) {
   return request.post('/oci/instance/bootVolumes', data)
 }
 

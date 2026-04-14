@@ -22,10 +22,6 @@
           <ThunderboltOutlined />
           <span>开机任务</span>
         </a-menu-item>
-        <a-menu-item key="cloudflare">
-          <CloudOutlined />
-          <span>Cloudflare</span>
-        </a-menu-item>
         <a-menu-item key="log">
           <FileTextOutlined />
           <span>日志查看</span>
@@ -77,7 +73,7 @@ import { ref, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import {
   DashboardOutlined, UserOutlined, CloudServerOutlined,
-  ThunderboltOutlined, CloudOutlined,
+  ThunderboltOutlined,
   FileTextOutlined, SettingOutlined, SaveOutlined,
   MenuUnfoldOutlined, MenuFoldOutlined, LogoutOutlined,
 } from '@ant-design/icons-vue'

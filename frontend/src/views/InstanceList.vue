@@ -29,15 +29,15 @@
         <template v-if="column.key === 'action'">
           <a-space>
             <a-button type="link" size="small" @click="openDetail(record)">详情</a-button>
-            <a-button v-if="record.state === 'STOPPED'" type="link" size="small"
-              :loading="actionLoading[record.instanceId]"
-              @click="handleAction(record, 'START')">启动</a-button>
-            <a-button v-if="record.state === 'RUNNING'" type="link" size="small"
-              :loading="actionLoading[record.instanceId]"
-              @click="handleAction(record, 'STOP')">停止</a-button>
-            <a-button v-if="record.state === 'RUNNING'" type="link" size="small"
-              :loading="actionLoading[record.instanceId]"
-              @click="handleAction(record, 'RESET')">重启</a-button>
+            <a-popconfirm v-if="record.state === 'STOPPED'" title="确定启动实例？" @confirm="handleAction(record, 'START')">
+              <a-button type="link" size="small" :loading="actionLoading[record.instanceId]">启动</a-button>
+            </a-popconfirm>
+            <a-popconfirm v-if="record.state === 'RUNNING'" title="确定停止实例？" @confirm="handleAction(record, 'STOP')">
+              <a-button type="link" size="small" :loading="actionLoading[record.instanceId]">停止</a-button>
+            </a-popconfirm>
+            <a-popconfirm v-if="record.state === 'RUNNING'" title="确定重启实例？" @confirm="handleAction(record, 'RESET')">
+              <a-button type="link" size="small" :loading="actionLoading[record.instanceId]">重启</a-button>
+            </a-popconfirm>
             <a-popconfirm title="确定终止实例？此操作不可逆！" @confirm="handleTerminate(record)">
               <a-button type="link" danger size="small">终止</a-button>
             </a-popconfirm>
@@ -52,9 +52,9 @@
       :title="currentInstance?.name || '实例详情'"
       width="720"
       placement="right"
+      :mask-closable="false"
     >
       <a-tabs v-model:activeKey="activeTab">
-        <!-- 基本信息 -->
         <a-tab-pane key="info" tab="基本信息">
           <a-descriptions :column="1" bordered size="small" v-if="currentInstance">
             <a-descriptions-item label="实例名称">{{ currentInstance.name }}</a-descriptions-item>
@@ -74,24 +74,24 @@
           </a-descriptions>
           <a-divider />
           <a-space>
-            <a-button v-if="currentInstance?.state === 'STOPPED'" type="primary"
-              :loading="actionLoading[currentInstance?.instanceId]"
-              @click="handleAction(currentInstance!, 'START')">启动</a-button>
-            <a-button v-if="currentInstance?.state === 'RUNNING'"
-              :loading="actionLoading[currentInstance?.instanceId]"
-              @click="handleAction(currentInstance!, 'STOP')">停止</a-button>
-            <a-button v-if="currentInstance?.state === 'RUNNING'"
-              :loading="actionLoading[currentInstance?.instanceId]"
-              @click="handleAction(currentInstance!, 'RESET')">重启</a-button>
-            <a-button @click="handleChangeIp" :loading="changeIpLoading"
-              :disabled="currentInstance?.state !== 'RUNNING'">换 IP</a-button>
-            <a-popconfirm title="确定终止实例？" @confirm="handleTerminate(currentInstance!)">
+            <a-popconfirm v-if="currentInstance?.state === 'STOPPED'" title="确定启动？" @confirm="handleAction(currentInstance!, 'START')">
+              <a-button type="primary" :loading="actionLoading[currentInstance?.instanceId]">启动</a-button>
+            </a-popconfirm>
+            <a-popconfirm v-if="currentInstance?.state === 'RUNNING'" title="确定停止？" @confirm="handleAction(currentInstance!, 'STOP')">
+              <a-button :loading="actionLoading[currentInstance?.instanceId]">停止</a-button>
+            </a-popconfirm>
+            <a-popconfirm v-if="currentInstance?.state === 'RUNNING'" title="确定重启？" @confirm="handleAction(currentInstance!, 'RESET')">
+              <a-button :loading="actionLoading[currentInstance?.instanceId]">重启</a-button>
+            </a-popconfirm>
+            <a-popconfirm title="确定换 IP？" @confirm="handleChangeIp">
+              <a-button :loading="changeIpLoading" :disabled="currentInstance?.state !== 'RUNNING'">换 IP</a-button>
+            </a-popconfirm>
+            <a-popconfirm title="确定终止实例？此操作不可逆！" @confirm="handleTerminate(currentInstance!)">
               <a-button danger>终止</a-button>
             </a-popconfirm>
           </a-space>
         </a-tab-pane>
 
-        <!-- 安全列表 -->
         <a-tab-pane key="security" tab="安全列表">
           <div style="margin-bottom: 12px">
             <a-space>
@@ -103,27 +103,24 @@
           </div>
           <a-tabs size="small">
             <a-tab-pane key="ingress" tab="入站规则">
-              <a-table :data-source="ingressRules" :columns="secColumns" size="small" :pagination="false" row-key="id" />
+              <a-table :data-source="ingressRules" :columns="secColumns" size="small" :pagination="false" />
             </a-tab-pane>
             <a-tab-pane key="egress" tab="出站规则">
-              <a-table :data-source="egressRules" :columns="secColumns" size="small" :pagination="false" row-key="id" />
+              <a-table :data-source="egressRules" :columns="secColumns" size="small" :pagination="false" />
             </a-tab-pane>
           </a-tabs>
         </a-tab-pane>
 
-        <!-- 引导卷 -->
         <a-tab-pane key="volume" tab="引导卷">
           <a-button @click="loadBootVolumes" :loading="volLoading" style="margin-bottom: 12px">加载引导卷</a-button>
           <a-table :data-source="bootVolumes" :columns="volColumns" size="small" :pagination="false" row-key="id" />
         </a-tab-pane>
 
-        <!-- 网络 -->
         <a-tab-pane key="network" tab="网络">
           <a-button @click="loadVcns" :loading="vcnLoading" style="margin-bottom: 12px">加载 VCN</a-button>
           <a-table :data-source="vcns" :columns="vcnColumns" size="small" :pagination="false" row-key="id" />
         </a-tab-pane>
 
-        <!-- 流量统计 -->
         <a-tab-pane key="traffic" tab="流量统计">
           <a-space style="margin-bottom: 12px">
             <a-select v-model:value="trafficMinutes" style="width: 140px">
@@ -166,7 +163,7 @@ const columns = [
   { title: 'Shape', key: 'shape', width: 200 },
   { title: '公网 IP', dataIndex: 'publicIp', key: 'publicIp', width: 140 },
   { title: '状态', dataIndex: 'state', key: 'state', width: 100 },
-  { title: '操作', key: 'action', width: 280 },
+  { title: '操作', key: 'action', width: 300 },
 ]
 
 const secColumns = [
@@ -297,8 +294,9 @@ async function loadSecurityRules() {
   secLoading.value = true
   try {
     const res = await getSecurityRules({ id: selectedTenant.value, instanceId: currentInstance.value.instanceId })
-    ingressRules.value = res.data?.ingress || []
-    egressRules.value = res.data?.egress || []
+    const data = res.data || []
+    ingressRules.value = data.filter((r: any) => r.direction === 'ingress')
+    egressRules.value = data.filter((r: any) => r.direction === 'egress')
   } catch (e: any) {
     message.error(e?.message || '加载安全规则失败')
   } finally {
@@ -321,9 +319,10 @@ async function handleReleaseAll() {
 }
 
 async function loadBootVolumes() {
+  if (!currentInstance.value) return
   volLoading.value = true
   try {
-    const res = await getBootVolumes({ id: selectedTenant.value })
+    const res = await getBootVolumes({ id: selectedTenant.value, instanceId: currentInstance.value.instanceId })
     bootVolumes.value = res.data || []
   } catch (e: any) {
     message.error(e?.message || '加载引导卷失败')

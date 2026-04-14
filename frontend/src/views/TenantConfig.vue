@@ -42,10 +42,10 @@
     </a-table>
 
     <!-- 新增/编辑弹窗（内嵌快速导入） -->
-    <a-modal v-model:open="modalVisible" :title="editingId ? '编辑配置' : '新增配置'" width="680px" @ok="handleSubmit" :confirm-loading="submitLoading">
+    <a-modal v-model:open="modalVisible" :title="editingId ? '编辑配置' : '新增配置'" width="680px" @ok="handleSubmit" :confirm-loading="submitLoading" :mask-closable="false">
       <a-form :model="formState" layout="vertical">
         <!-- 快速导入区域（仅新增时显示） -->
-        <a-collapse v-if="!editingId" :bordered="false" style="margin-bottom: 16px; background: #f6f8fa; border-radius: 8px">
+        <a-collapse v-if="!editingId" :bordered="false" :active-key="['import']" style="margin-bottom: 16px; background: #f6f8fa; border-radius: 8px">
           <a-collapse-panel key="import" header="⚡ 快速导入 — 粘贴 OCI 配置自动填充">
             <a-textarea
               v-model:value="importText"

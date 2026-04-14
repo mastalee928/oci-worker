@@ -48,11 +48,12 @@ public class NetworkService {
         }
     }
 
-    public List<Map<String, Object>> listSecurityRules(String userId, String subnetId) {
+    public List<Map<String, Object>> listSecurityRulesByInstance(String userId, String instanceId) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
 
         try (OciClientService client = new OciClientService(buildDTO(ociUser))) {
+            String subnetId = getSubnetIdFromInstance(client, instanceId);
             Subnet subnet = client.getVirtualNetworkClient().getSubnet(
                     GetSubnetRequest.builder().subnetId(subnetId).build()
             ).getSubnet();
@@ -93,11 +94,12 @@ public class NetworkService {
         }
     }
 
-    public void releaseAllPorts(String userId, String subnetId) {
+    public void releaseAllPortsByInstance(String userId, String instanceId) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
 
         try (OciClientService client = new OciClientService(buildDTO(ociUser))) {
+            String subnetId = getSubnetIdFromInstance(client, instanceId);
             Subnet subnet = client.getVirtualNetworkClient().getSubnet(
                     GetSubnetRequest.builder().subnetId(subnetId).build()
             ).getSubnet();
@@ -189,6 +191,17 @@ public class NetworkService {
         } catch (Exception e) {
             throw new OciException("更换IP失败: " + e.getMessage());
         }
+    }
+
+    private String getSubnetIdFromInstance(OciClientService client, String instanceId) {
+        List<VnicAttachment> attachments = client.getComputeClient().listVnicAttachments(
+                ListVnicAttachmentsRequest.builder()
+                        .compartmentId(client.getCompartmentId())
+                        .instanceId(instanceId)
+                        .build()
+        ).getItems();
+        if (attachments.isEmpty()) throw new OciException("未找到实例的 VNIC");
+        return attachments.get(0).getSubnetId();
     }
 
     private SysUserDTO buildDTO(OciUser ociUser) {

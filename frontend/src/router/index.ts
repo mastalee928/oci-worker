@@ -43,12 +43,6 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '开机任务', icon: 'ThunderboltOutlined' },
       },
       {
-        path: 'cloudflare',
-        name: 'CloudflareDns',
-        component: () => import('../views/CloudflareDns.vue'),
-        meta: { title: 'Cloudflare', icon: 'CloudOutlined' },
-      },
-      {
         path: 'log',
         name: 'LogViewer',
         component: () => import('../views/LogViewer.vue'),

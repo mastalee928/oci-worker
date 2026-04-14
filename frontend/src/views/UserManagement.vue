@@ -41,7 +41,7 @@
     </a-table>
 
     <!-- 新增用户弹窗 -->
-    <a-modal v-model:open="createVisible" title="新增用户" @ok="handleCreate" :confirm-loading="createLoading">
+    <a-modal v-model:open="createVisible" title="新增用户" @ok="handleCreate" :confirm-loading="createLoading" :mask-closable="false">
       <a-form :model="createForm" layout="vertical">
         <a-form-item label="用户名" required>
           <a-input v-model:value="createForm.userName" placeholder="登录用户名" />
@@ -56,7 +56,7 @@
     </a-modal>
 
     <!-- 密码结果弹窗 -->
-    <a-modal v-model:open="pwdResultVisible" title="新密码" :footer="null">
+    <a-modal v-model:open="pwdResultVisible" title="新密码" :footer="null" :mask-closable="false">
       <a-alert type="success" show-icon>
         <template #message>密码已重置</template>
         <template #description>
