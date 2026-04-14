@@ -11,6 +11,7 @@
         />
       </div>
       <div class="toolbar-right">
+        <a-segmented v-model:value="tenantViewMode" size="small" :options="[{ label: '卡片', value: 'card' }, { label: '列表', value: 'table' }]" />
         <a-button @click="loadAllTenants" :loading="globalLoading">
           <template #icon><ReloadOutlined /></template>刷新
         </a-button>
@@ -22,7 +23,8 @@
       <a-empty description="无租户数据" />
     </div>
 
-    <div class="tenant-grid">
+    <!-- 租户卡片视图 -->
+    <div v-if="tenantViewMode === 'card'" class="tenant-grid">
       <div v-for="td in filteredTenants" :key="td.tenant.id"
         class="tenant-card" :class="{ 'tenant-card-active': activeTenantId === td.tenant.id }">
         <div class="tc-header">
@@ -45,6 +47,45 @@
           </a-button>
         </div>
       </div>
+    </div>
+
+    <!-- 租户列表视图 -->
+    <div v-else class="tenant-table-wrap">
+      <a-table :data-source="filteredTenants" row-key="tenant.id" size="middle" :pagination="false"
+        :row-class-name="(record: any) => record.tenant.id === activeTenantId ? 'tenant-row-active' : ''">
+        <a-table-column title="名称" data-index="tenant.username" key="username">
+          <template #default="{ record }">
+            <div style="display: flex; align-items: center; gap: 8px">
+              <i class="ri-cloud-line" style="font-size: 18px; color: var(--primary)"></i>
+              <span style="font-weight: 600">{{ record.tenant.username }}</span>
+            </div>
+          </template>
+        </a-table-column>
+        <a-table-column title="租户名" key="tenantName">
+          <template #default="{ record }">
+            <span>{{ record.tenant.tenantName || '—' }}</span>
+          </template>
+        </a-table-column>
+        <a-table-column title="区域" key="region">
+          <template #default="{ record }">
+            <a-tag>{{ record.tenant.ociRegion }}</a-tag>
+          </template>
+        </a-table-column>
+        <a-table-column title="类型" key="planType" :width="100">
+          <template #default="{ record }">
+            <a-tag v-if="record.tenant.planType" :color="record.tenant.planType === 'FREE' ? 'default' : 'green'">{{ record.tenant.planType }}</a-tag>
+            <span v-else style="color: var(--text-sub)">—</span>
+          </template>
+        </a-table-column>
+        <a-table-column title="操作" key="action" :width="200">
+          <template #default="{ record }">
+            <a-space>
+              <a-button type="primary" size="small" @click="selectTenant(record)" :loading="record.loading">实例管理</a-button>
+              <a-button size="small" @click="openQuickTask(record.tenant)">开机任务</a-button>
+            </a-space>
+          </template>
+        </a-table-column>
+      </a-table>
     </div>
 
     <!-- 选中租户的实例区域 -->
@@ -534,6 +575,7 @@ const vcnColumns = [
 const isMobile = ref(window.innerWidth < 768)
 function checkMobile() { isMobile.value = window.innerWidth < 768 }
 
+const tenantViewMode = ref<'card' | 'table'>('card')
 const viewMode = ref<'card' | 'table'>('card')
 const searchKeyword = ref('')
 const globalLoading = ref(false)
@@ -1225,6 +1267,21 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   border-top: 1px solid var(--border);
   padding-top: 10px;
   flex-wrap: wrap;
+}
+
+.tenant-table-wrap {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 12px;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: var(--shadow-card);
+  margin-bottom: 24px;
+  overflow-x: auto;
+}
+.tenant-table-wrap :deep(.tenant-row-active) {
+  background: rgba(99, 102, 241, 0.08) !important;
 }
 
 @media (max-width: 768px) {
