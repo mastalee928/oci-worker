@@ -25,6 +25,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '租户配置', icon: 'UserOutlined' },
       },
       {
+        path: 'tenant/:tenantId/users',
+        name: 'UserManagement',
+        component: () => import('../views/UserManagement.vue'),
+        meta: { title: '用户管理', icon: 'TeamOutlined', hidden: true },
+      },
+      {
         path: 'instance',
         name: 'InstanceList',
         component: () => import('../views/InstanceList.vue'),
@@ -35,30 +41,6 @@ const routes: RouteRecordRaw[] = [
         name: 'TaskManager',
         component: () => import('../views/TaskManager.vue'),
         meta: { title: '开机任务', icon: 'ThunderboltOutlined' },
-      },
-      {
-        path: 'security',
-        name: 'SecurityRules',
-        component: () => import('../views/SecurityRules.vue'),
-        meta: { title: '安全列表', icon: 'SafetyOutlined' },
-      },
-      {
-        path: 'network',
-        name: 'NetworkManager',
-        component: () => import('../views/NetworkManager.vue'),
-        meta: { title: '网络管理', icon: 'GlobalOutlined' },
-      },
-      {
-        path: 'volume',
-        name: 'VolumeManager',
-        component: () => import('../views/VolumeManager.vue'),
-        meta: { title: '引导卷', icon: 'DatabaseOutlined' },
-      },
-      {
-        path: 'traffic',
-        name: 'TrafficStats',
-        component: () => import('../views/TrafficStats.vue'),
-        meta: { title: '流量统计', icon: 'LineChartOutlined' },
       },
       {
         path: 'cloudflare',

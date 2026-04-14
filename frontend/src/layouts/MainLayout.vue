@@ -22,22 +22,6 @@
           <ThunderboltOutlined />
           <span>开机任务</span>
         </a-menu-item>
-        <a-menu-item key="security">
-          <SafetyOutlined />
-          <span>安全列表</span>
-        </a-menu-item>
-        <a-menu-item key="network">
-          <GlobalOutlined />
-          <span>网络管理</span>
-        </a-menu-item>
-        <a-menu-item key="volume">
-          <DatabaseOutlined />
-          <span>引导卷</span>
-        </a-menu-item>
-        <a-menu-item key="traffic">
-          <LineChartOutlined />
-          <span>流量统计</span>
-        </a-menu-item>
         <a-menu-item key="cloudflare">
           <CloudOutlined />
           <span>Cloudflare</span>
@@ -93,8 +77,7 @@ import { ref, computed } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import {
   DashboardOutlined, UserOutlined, CloudServerOutlined,
-  ThunderboltOutlined, SafetyOutlined, GlobalOutlined,
-  DatabaseOutlined, LineChartOutlined, CloudOutlined,
+  ThunderboltOutlined, CloudOutlined,
   FileTextOutlined, SettingOutlined, SaveOutlined,
   MenuUnfoldOutlined, MenuFoldOutlined, LogoutOutlined,
 } from '@ant-design/icons-vue'

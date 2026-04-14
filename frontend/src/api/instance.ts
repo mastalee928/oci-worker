@@ -13,21 +13,25 @@ export function terminateInstance(data: { id: string; instanceId: string }) {
 }
 
 export function changeIp(data: any) {
-  return request.post('/oci/instance/changeIp', data)
+  return request.post('/oci/network/changeIp', data)
 }
 
-export function stopChangeIp(data: { taskId: string }) {
-  return request.post('/oci/instance/stopChangeIp', data)
+export function getSecurityRules(data: { id: string; instanceId: string }) {
+  return request.post('/oci/network/securityRules', data)
 }
 
-export function getInstanceCfg(data: { id: string; instanceId: string }) {
-  return request.post('/oci/instance/getCfg', data)
+export function releaseAllPorts(data: { id: string; instanceId: string }) {
+  return request.post('/oci/network/releaseAllPorts', data)
 }
 
-export function updateInstanceCfg(data: any) {
-  return request.post('/oci/instance/updateCfg', data)
+export function getBootVolumes(data: { id: string }) {
+  return request.post('/oci/instance/bootVolumes', data)
 }
 
-export function createIpv6(data: { id: string; instanceId: string }) {
-  return request.post('/oci/instance/createIpv6', data)
+export function getVcns(data: { id: string }) {
+  return request.post('/oci/network/vcns', data)
+}
+
+export function getTrafficData(data: { id: string; instanceId: string; minutes?: number }) {
+  return request.post('/oci/traffic/data', data)
 }

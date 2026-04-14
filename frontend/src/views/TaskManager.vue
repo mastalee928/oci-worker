@@ -5,7 +5,7 @@
         <a-button type="primary" @click="showCreateModal">
           <template #icon><PlusOutlined /></template>创建开机任务
         </a-button>
-        <a-button @click="loadData">
+        <a-button @click="loadData" :loading="loading">
           <template #icon><ReloadOutlined /></template>刷新
         </a-button>
       </a-space>
@@ -26,7 +26,7 @@
         </template>
         <template v-if="column.key === 'action'">
           <a-popconfirm v-if="record.status === 'RUNNING'" title="确定停止任务?" @confirm="handleStop(record)">
-            <a-button type="link" danger size="small">停止</a-button>
+            <a-button type="link" danger size="small" :loading="stopLoading[record.id]">停止</a-button>
           </a-popconfirm>
         </template>
       </template>
@@ -129,6 +129,7 @@ const tableData = ref<any[]>([])
 const tenants = ref<any[]>([])
 const createVisible = ref(false)
 const pagination = reactive({ current: 1, pageSize: 10, total: 0 })
+const stopLoading = reactive<Record<string, boolean>>({})
 
 const createForm = reactive({
   userId: '', architecture: 'ARM', operationSystem: 'Ubuntu',
@@ -141,7 +142,9 @@ async function loadData() {
     const res = await getTaskList({ current: pagination.current, size: pagination.pageSize })
     tableData.value = res.data.records || []
     pagination.total = res.data.total || 0
-  } catch { /* ignore */ } finally {
+  } catch (e: any) {
+    message.error(e?.message || '加载任务列表失败')
+  } finally {
     loading.value = false
   }
 }
@@ -150,7 +153,9 @@ async function loadTenants() {
   try {
     const res = await getTenantList({ current: 1, size: 1000 })
     tenants.value = res.data.records || []
-  } catch { /* ignore */ }
+  } catch (e: any) {
+    message.error(e?.message || '加载租户失败')
+  }
 }
 
 function handleTableChange(pag: any) {
@@ -175,15 +180,24 @@ async function handleCreate() {
     message.success('任务创建成功')
     createVisible.value = false
     loadData()
-  } catch { /* ignore */ } finally {
+  } catch (e: any) {
+    message.error(e?.message || '创建任务失败')
+  } finally {
     createLoading.value = false
   }
 }
 
 async function handleStop(record: any) {
-  await stopTask({ taskId: record.id, userId: record.userId })
-  message.success('任务已停止')
-  loadData()
+  stopLoading[record.id] = true
+  try {
+    await stopTask({ taskId: record.id, userId: record.userId })
+    message.success('任务已停止')
+    loadData()
+  } catch (e: any) {
+    message.error(e?.message || '停止任务失败')
+  } finally {
+    stopLoading[record.id] = false
+  }
 }
 
 onMounted(() => loadData())

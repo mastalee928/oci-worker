@@ -12,35 +12,44 @@
       <div v-for="(line, i) in logLines" :key="i" class="log-line" :class="getLogClass(line)">
         {{ line }}
       </div>
-      <div v-if="!logLines.length" class="log-empty">暂无日志，请连接 WebSocket...</div>
+      <div v-if="!logLines.length" class="log-empty">等待日志数据...</div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, nextTick, onUnmounted } from 'vue'
+import { ref, nextTick, onMounted, onUnmounted } from 'vue'
 
 const logLines = ref<string[]>([])
 const connected = ref(false)
 const autoScroll = ref(true)
 const logContainer = ref<HTMLElement>()
 let ws: WebSocket | null = null
+let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+let manualDisconnect = false
 
-function toggleConnection() {
-  if (connected.value) {
-    ws?.close()
-    connected.value = false
-  } else {
-    connect()
-  }
+function getWsUrl() {
+  const protocol = location.protocol === 'https:' ? 'wss' : 'ws'
+  const host = import.meta.env.DEV ? 'localhost:8818' : location.host
+  return `${protocol}://${host}/ws/log`
 }
 
 function connect() {
-  const protocol = location.protocol === 'https:' ? 'wss' : 'ws'
-  const host = import.meta.env.DEV ? 'localhost:8818' : location.host
-  ws = new WebSocket(`${protocol}://${host}/ws/log`)
-  ws.onopen = () => { connected.value = true }
-  ws.onclose = () => { connected.value = false }
+  if (ws && ws.readyState <= WebSocket.OPEN) return
+  manualDisconnect = false
+
+  ws = new WebSocket(getWsUrl())
+  ws.onopen = () => {
+    connected.value = true
+    stopReconnect()
+  }
+  ws.onclose = () => {
+    connected.value = false
+    if (!manualDisconnect) scheduleReconnect()
+  }
+  ws.onerror = () => {
+    connected.value = false
+  }
   ws.onmessage = (e) => {
     logLines.value.push(e.data)
     if (logLines.value.length > 5000) logLines.value.splice(0, 1000)
@@ -49,6 +58,34 @@ function connect() {
         logContainer.value?.scrollTo(0, logContainer.value.scrollHeight)
       })
     }
+  }
+}
+
+function disconnect() {
+  manualDisconnect = true
+  stopReconnect()
+  ws?.close()
+  ws = null
+  connected.value = false
+}
+
+function toggleConnection() {
+  if (connected.value) {
+    disconnect()
+  } else {
+    connect()
+  }
+}
+
+function scheduleReconnect() {
+  stopReconnect()
+  reconnectTimer = setTimeout(() => connect(), 3000)
+}
+
+function stopReconnect() {
+  if (reconnectTimer) {
+    clearTimeout(reconnectTimer)
+    reconnectTimer = null
   }
 }
 
@@ -63,7 +100,8 @@ function getLogClass(line: string) {
   return ''
 }
 
-onUnmounted(() => { ws?.close() })
+onMounted(() => connect())
+onUnmounted(() => disconnect())
 </script>
 
 <style scoped>
