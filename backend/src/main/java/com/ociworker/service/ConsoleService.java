@@ -16,9 +16,6 @@ import org.springframework.stereotype.Service;
 
 import java.io.*;
 import java.nio.file.*;
-import java.security.KeyPair;
-import java.security.KeyPairGenerator;
-import java.security.interfaces.RSAPublicKey;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -57,12 +54,24 @@ public class ConsoleService {
             Path pubPath = keyDir.resolve(PUBLIC_KEY_FILE);
             privateKeyPath = privPath.toAbsolutePath().toString();
 
-            if (Files.exists(privPath) && Files.exists(pubPath)) {
-                publicKeyContent = Files.readString(pubPath).trim();
-                log.info("【串行控制台】已加载 SSH 密钥: {}", pubPath.toAbsolutePath());
-            } else {
+            boolean needRegenerate = !Files.exists(privPath) || !Files.exists(pubPath);
+
+            if (!needRegenerate) {
+                String privContent = Files.readString(privPath);
+                if (!privContent.contains("-----BEGIN OPENSSH PRIVATE KEY-----")
+                        && !privContent.contains("-----BEGIN RSA PRIVATE KEY-----\nMII")) {
+                    // Old Java-generated PKCS#8 key with wrong header, regenerate
+                    log.warn("【串行控制台】检测到旧格式密钥，重新生成...");
+                    needRegenerate = true;
+                }
+            }
+
+            if (needRegenerate) {
                 generateSshKeyPair(privPath, pubPath);
                 log.info("【串行控制台】已生成 SSH 密钥: {}", pubPath.toAbsolutePath());
+            } else {
+                publicKeyContent = Files.readString(pubPath).trim();
+                log.info("【串行控制台】已加载 SSH 密钥: {}", pubPath.toAbsolutePath());
             }
         } catch (Exception e) {
             log.error("【串行控制台】SSH 密钥初始化失败: {}", e.getMessage());
@@ -72,50 +81,21 @@ public class ConsoleService {
     }
 
     private void generateSshKeyPair(Path privPath, Path pubPath) throws Exception {
-        KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
-        kpg.initialize(2048);
-        KeyPair kp = kpg.generateKeyPair();
+        // Delete old keys if exist
+        Files.deleteIfExists(privPath);
+        Files.deleteIfExists(pubPath);
 
-        // Write private key in PEM format
-        StringBuilder privPem = new StringBuilder();
-        privPem.append("-----BEGIN RSA PRIVATE KEY-----\n");
-        String b64 = Base64.getEncoder().encodeToString(kp.getPrivate().getEncoded());
-        for (int i = 0; i < b64.length(); i += 64) {
-            privPem.append(b64, i, Math.min(i + 64, b64.length())).append("\n");
+        Process p = Runtime.getRuntime().exec(new String[]{
+                "ssh-keygen", "-t", "rsa", "-b", "2048", "-f", privPath.toAbsolutePath().toString(),
+                "-N", "", "-C", "oci-worker-console"
+        });
+        p.waitFor();
+        if (p.exitValue() != 0) {
+            String err = new String(p.getErrorStream().readAllBytes());
+            throw new RuntimeException("ssh-keygen failed: " + err);
         }
-        privPem.append("-----END RSA PRIVATE KEY-----\n");
-        Files.writeString(privPath, privPem.toString());
 
-        // Set permission 600
-        try {
-            Runtime.getRuntime().exec(new String[]{"chmod", "600", privPath.toAbsolutePath().toString()});
-        } catch (Exception ignored) {}
-
-        // Write public key in OpenSSH format
-        RSAPublicKey rsaPub = (RSAPublicKey) kp.getPublic();
-        publicKeyContent = encodePublicKeyOpenSSH(rsaPub);
-        Files.writeString(pubPath, publicKeyContent + "\n");
-    }
-
-    private String encodePublicKeyOpenSSH(RSAPublicKey key) {
-        ByteArrayOutputStream buf = new ByteArrayOutputStream();
-        try {
-            byte[] sshRsa = "ssh-rsa".getBytes();
-            writeBytes(buf, sshRsa);
-            writeBytes(buf, key.getPublicExponent().toByteArray());
-            writeBytes(buf, key.getModulus().toByteArray());
-        } catch (IOException e) {
-            throw new RuntimeException(e);
-        }
-        return "ssh-rsa " + Base64.getEncoder().encodeToString(buf.toByteArray()) + " oci-worker-console";
-    }
-
-    private void writeBytes(ByteArrayOutputStream buf, byte[] data) throws IOException {
-        buf.write((data.length >> 24) & 0xFF);
-        buf.write((data.length >> 16) & 0xFF);
-        buf.write((data.length >> 8) & 0xFF);
-        buf.write(data.length & 0xFF);
-        buf.write(data);
+        publicKeyContent = Files.readString(pubPath).trim();
     }
 
     public Map<String, String> createConsoleConnection(String userId, String instanceId) {
