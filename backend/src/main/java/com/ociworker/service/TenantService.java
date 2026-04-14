@@ -75,6 +75,21 @@ public class TenantService {
     }
 
     public void add(TenantParams params) {
+        long duplicateCount = userMapper.selectCount(
+                new LambdaQueryWrapper<OciUser>()
+                        .eq(OciUser::getOciTenantId, params.getOciTenantId())
+                        .eq(OciUser::getOciUserId, params.getOciUserId())
+                        .eq(OciUser::getOciRegion, params.getOciRegion()));
+        if (duplicateCount > 0) {
+            throw new OciException("该租户配置已存在（相同 Tenant ID + User ID + Region），请勿重复添加");
+        }
+
+        long nameCount = userMapper.selectCount(
+                new LambdaQueryWrapper<OciUser>().eq(OciUser::getUsername, params.getUsername()));
+        if (nameCount > 0) {
+            throw new OciException("名称「" + params.getUsername() + "」已被使用，请更换名称");
+        }
+
         OciUser user = new OciUser();
         user.setId(CommonUtils.generateId());
         user.setUsername(params.getUsername());
