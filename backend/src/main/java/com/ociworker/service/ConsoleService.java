@@ -11,6 +11,7 @@ import com.ociworker.model.entity.OciUser;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.io.*;
@@ -235,20 +236,18 @@ public class ConsoleService {
         try {
             Path scriptDir = Path.of(KEY_DIR);
             Path scriptPath = scriptDir.resolve("console_" + userName + ".sh");
-            String sshCmd = sshCommand.replace("ssh ", "ssh -tt -i " + privateKeyPath + " -o StrictHostKeyChecking=no -o ServerAliveInterval=15 -o ServerAliveCountMax=3 ");
+            String sshCmd = sshCommand.replace("ssh ",
+                    "ssh -tt -i " + privateKeyPath +
+                    " -o StrictHostKeyChecking=no" +
+                    " -o ServerAliveInterval=15" +
+                    " -o ServerAliveCountMax=3" +
+                    " -o ExitOnForwardFailure=yes ");
             String script = "#!/bin/bash\n" +
-                    "trap 'kill 0 2>/dev/null; exit' EXIT INT TERM HUP\n" +
-                    "# Kill other sessions of this user\n" +
-                    "for p in $(pgrep -u \"$(whoami)\" ssh 2>/dev/null); do\n" +
-                    "  [ \"$p\" != \"$$\" ] && kill \"$p\" 2>/dev/null\n" +
-                    "done\n" +
+                    "pkill -9 -u \"$(whoami)\" -f console_rsa 2>/dev/null\n" +
                     "echo '正在连接串行控制台...'\n" +
-                    "echo '按 Ctrl+] 或 ~. 退出'\n" +
+                    "echo '退出方式: ~. 或关闭窗口'\n" +
                     "echo ''\n" +
-                    sshCmd + "\n" +
-                    "echo '串行控制台已断开'\n" +
-                    "sleep 1\n" +
-                    "exit 0\n";
+                    "exec " + sshCmd + "\n";
             Files.writeString(scriptPath, script);
             Runtime.getRuntime().exec(new String[]{"chmod", "+x", scriptPath.toAbsolutePath().toString()}).waitFor();
             return scriptPath.toAbsolutePath().toString();
@@ -293,7 +292,6 @@ public class ConsoleService {
 
     private void cleanupStaleSessions() {
         try {
-            // Kill any leftover oci_console_ processes and users from previous runs
             Process p = Runtime.getRuntime().exec(new String[]{"bash", "-c",
                     "grep -o 'oci_console_[0-9]*' /etc/passwd 2>/dev/null"});
             String output = new String(p.getInputStream().readAllBytes()).trim();
@@ -301,7 +299,7 @@ public class ConsoleService {
             if (!output.isEmpty()) {
                 for (String user : output.split("\n")) {
                     user = user.trim();
-                    if (!user.isEmpty()) {
+                    if (!user.isEmpty() && !hasActiveSession(user)) {
                         log.info("【串行控制台】清理残留用户: {}", user);
                         cleanupTempUser(user);
                     }
@@ -310,6 +308,29 @@ public class ConsoleService {
         } catch (Exception e) {
             log.warn("【串行控制台】清理残留用户失败: {}", e.getMessage());
         }
+    }
+
+    private boolean hasActiveSession(String userName) {
+        return activeSessions.values().stream().anyMatch(s -> userName.equals(s.tempUser));
+    }
+
+    @Scheduled(fixedRate = 300_000)
+    public void periodicCleanup() {
+        // Clean up sessions older than 2 hours
+        long cutoff = System.currentTimeMillis() - 7200_000;
+        List<String> expired = new ArrayList<>();
+        activeSessions.forEach((id, session) -> {
+            if (session.createdAt < cutoff) expired.add(id);
+        });
+        for (String id : expired) {
+            ConsoleSession session = activeSessions.remove(id);
+            if (session != null) {
+                cleanupTempUser(session.tempUser);
+                log.info("【串行控制台】清理过期会话: {}", id);
+            }
+        }
+        // Also kill any orphaned oci_console SSH processes without a valid user session
+        cleanupStaleSessions();
     }
 
     private String generateRandomPassword() {
