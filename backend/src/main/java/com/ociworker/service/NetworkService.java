@@ -26,23 +26,36 @@ public class NetworkService {
         if (ociUser == null) throw new OciException("租户配置不存在");
 
         try (OciClientService client = new OciClientService(buildDTO(ociUser))) {
-            return client.listVcn().stream().map(vcn -> {
-                Map<String, Object> map = new LinkedHashMap<>();
-                map.put("id", vcn.getId());
-                map.put("displayName", vcn.getDisplayName());
-                map.put("cidrBlocks", vcn.getCidrBlocks());
-                map.put("state", vcn.getLifecycleState().getValue());
-                map.put("timeCreated", vcn.getTimeCreated() != null ? vcn.getTimeCreated().toString() : null);
+            var compartments = client.listAllCompartments();
+            Map<String, String> compartmentNameMap = new LinkedHashMap<>();
+            for (var c : compartments) {
+                compartmentNameMap.put(c.getId(), c.getName());
+            }
 
-                List<Subnet> subnets = client.listSubnets(vcn.getId());
-                map.put("subnets", subnets.stream().map(s -> Map.of(
-                        "id", s.getId(),
-                        "displayName", s.getDisplayName(),
-                        "cidrBlock", s.getCidrBlock(),
-                        "isPublic", !s.getProhibitInternetIngress()
-                )).toList());
-                return map;
-            }).collect(Collectors.toList());
+            List<Map<String, Object>> result = new ArrayList<>();
+            for (var compartment : compartments) {
+                List<Vcn> vcns = client.listVcnInCompartment(compartment.getId());
+                for (Vcn vcn : vcns) {
+                    Map<String, Object> map = new LinkedHashMap<>();
+                    map.put("id", vcn.getId());
+                    map.put("displayName", vcn.getDisplayName());
+                    map.put("cidrBlocks", vcn.getCidrBlocks());
+                    map.put("state", vcn.getLifecycleState().getValue());
+                    map.put("compartmentId", vcn.getCompartmentId());
+                    map.put("compartmentName", compartmentNameMap.getOrDefault(vcn.getCompartmentId(), "unknown"));
+                    map.put("timeCreated", vcn.getTimeCreated() != null ? vcn.getTimeCreated().toString() : null);
+
+                    List<Subnet> subnets = client.listSubnets(vcn.getId());
+                    map.put("subnets", subnets.stream().map(s -> Map.of(
+                            "id", s.getId(),
+                            "displayName", s.getDisplayName(),
+                            "cidrBlock", s.getCidrBlock(),
+                            "isPublic", !s.getProhibitInternetIngress()
+                    )).toList());
+                    result.add(map);
+                }
+            }
+            return result;
         } catch (Exception e) {
             throw new OciException("获取VCN列表失败: " + e.getMessage());
         }

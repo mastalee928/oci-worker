@@ -45,6 +45,9 @@
           <a-button block @click="openQuickTask(td.tenant)">
             <i class="ri-play-circle-line" style="margin-right: 6px"></i>开机任务
           </a-button>
+          <a-button block @click="openVcnPanel(td.tenant)">
+            <i class="ri-share-line" style="margin-right: 6px"></i>虚拟云网络
+          </a-button>
         </div>
       </div>
     </div>
@@ -82,6 +85,7 @@
             <a-space>
               <a-button type="primary" size="small" @click="selectTenant(record)" :loading="record.loading">实例管理</a-button>
               <a-button size="small" @click="openQuickTask(record.tenant)">开机任务</a-button>
+              <a-button size="small" @click="openVcnPanel(record.tenant)">VCN</a-button>
             </a-space>
           </template>
         </a-table-column>
@@ -133,6 +137,10 @@
               <div class="card-info-row">
                 <span class="info-label">公网 IP</span>
                 <span class="info-value ip-text">{{ inst.publicIp || '—' }}</span>
+              </div>
+              <div class="card-info-row">
+                <span class="info-label">区间</span>
+                <span class="info-value">{{ inst.compartmentName || '—' }}</span>
               </div>
             </div>
             <div class="card-actions" @click.stop>
@@ -269,6 +277,7 @@
             <a-descriptions-item label="Region">{{ currentInstance.region }}</a-descriptions-item>
             <a-descriptions-item label="Shape">{{ currentInstance.shape }}</a-descriptions-item>
             <a-descriptions-item label="配置">{{ currentInstance.ocpus }} OCPU / {{ currentInstance.memoryInGBs }} GB</a-descriptions-item>
+            <a-descriptions-item label="区间 (Compartment)">{{ currentInstance.compartmentName || '—' }}</a-descriptions-item>
             <a-descriptions-item label="状态">
               <a-badge :status="stateColorMap[currentInstance.state] || 'default'" :text="currentInstance.state" />
             </a-descriptions-item>
@@ -507,6 +516,37 @@
         <a-button type="link" size="small" :loading="verifySending" @click="resendVerifyCode('terminate')">重新发送</a-button>
       </div>
     </a-modal>
+
+    <!-- 虚拟云网络弹窗 -->
+    <a-modal v-model:open="vcnVisible" :title="'虚拟云网络 — ' + (vcnTenant?.username || '')"
+      :width="isMobile ? '100%' : 800" :footer="null" :mask-closable="false">
+      <a-spin :spinning="vcnListLoading">
+        <a-empty v-if="!vcnListLoading && vcnList.length === 0" description="无 VCN 数据" />
+        <div v-else>
+          <div v-for="vcn in vcnList" :key="vcn.id" class="vcn-item">
+            <div class="vcn-item-header">
+              <div style="display: flex; align-items: center; gap: 8px">
+                <i class="ri-share-line" style="font-size: 18px; color: var(--primary)"></i>
+                <span style="font-weight: 700">{{ vcn.displayName }}</span>
+              </div>
+              <a-tag color="purple">{{ vcn.compartmentName }}</a-tag>
+            </div>
+            <div class="vcn-item-body">
+              <div class="vcn-info-row"><span class="info-label">CIDR</span><span>{{ (vcn.cidrBlocks || []).join(', ') }}</span></div>
+              <div class="vcn-info-row"><span class="info-label">状态</span><a-badge :status="vcn.state === 'AVAILABLE' ? 'success' : 'default'" :text="vcn.state" /></div>
+            </div>
+            <div v-if="vcn.subnets && vcn.subnets.length > 0" style="margin-top: 8px">
+              <div style="font-size: 12px; color: var(--text-sub); margin-bottom: 4px">子网：</div>
+              <div v-for="sub in vcn.subnets" :key="sub.id" class="vcn-subnet-row">
+                <span>{{ sub.displayName }}</span>
+                <a-tag size="small">{{ sub.cidrBlock }}</a-tag>
+                <a-tag :color="sub.isPublic ? 'green' : 'default'" size="small">{{ sub.isPublic ? '公有' : '私有' }}</a-tag>
+              </div>
+            </div>
+          </div>
+        </div>
+      </a-spin>
+    </a-modal>
   </div>
 </template>
 
@@ -654,6 +694,26 @@ const quickTaskForm = reactive({
   architecture: 'ARM', operationSystem: 'Ubuntu',
   ocpus: 1, memory: 6, disk: 50, createNumbers: 1, interval: 60, rootPassword: '', customScript: '',
 })
+
+const vcnVisible = ref(false)
+const vcnListLoading = ref(false)
+const vcnTenant = ref<any>(null)
+const vcnList = ref<any[]>([])
+
+async function openVcnPanel(tenant: any) {
+  vcnTenant.value = tenant
+  vcnList.value = []
+  vcnVisible.value = true
+  vcnListLoading.value = true
+  try {
+    const res = await getVcns({ id: tenant.id })
+    vcnList.value = res.data || []
+  } catch (e: any) {
+    message.error(e?.message || '加载 VCN 失败')
+  } finally {
+    vcnListLoading.value = false
+  }
+}
 
 function formatBytes(bytes: number) {
   if (!bytes || bytes === 0) return '0 B'
@@ -1267,6 +1327,38 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   border-top: 1px solid var(--border);
   padding-top: 10px;
   flex-wrap: wrap;
+}
+
+.vcn-item {
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 12px;
+}
+.vcn-item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.vcn-item-body {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 13px;
+}
+.vcn-info-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.vcn-subnet-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 0;
+  font-size: 12px;
 }
 
 .tenant-table-wrap {

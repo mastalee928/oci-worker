@@ -113,6 +113,67 @@ public class OciClientService implements Closeable {
         return tenantId;
     }
 
+    public List<Compartment> listAllCompartments() {
+        String tenantId = provider.getTenantId();
+        List<Compartment> all = new ArrayList<>();
+        // Root compartment (tenancy itself)
+        try {
+            var tenancy = identityClient.getTenancy(
+                    com.oracle.bmc.identity.requests.GetTenancyRequest.builder()
+                            .tenancyId(tenantId).build()).getTenancy();
+            Compartment root = Compartment.builder()
+                    .id(tenantId)
+                    .name(tenancy.getName() != null ? tenancy.getName() : "root")
+                    .compartmentId(tenantId)
+                    .lifecycleState(Compartment.LifecycleState.Active)
+                    .build();
+            all.add(root);
+        } catch (Exception e) {
+            Compartment root = Compartment.builder()
+                    .id(tenantId).name("root").compartmentId(tenantId)
+                    .lifecycleState(Compartment.LifecycleState.Active).build();
+            all.add(root);
+        }
+        try {
+            all.addAll(identityClient.listCompartments(
+                    ListCompartmentsRequest.builder()
+                            .compartmentId(tenantId)
+                            .accessLevel(ListCompartmentsRequest.AccessLevel.Accessible)
+                            .compartmentIdInSubtree(true)
+                            .lifecycleState(Compartment.LifecycleState.Active)
+                            .build()
+            ).getItems());
+        } catch (Exception e) {
+            log.warn("Failed to list compartments: {}", e.getMessage());
+        }
+        return all;
+    }
+
+    public List<Instance> listAllInstancesInCompartment(String cid) {
+        List<Instance> all = new ArrayList<>();
+        for (Instance.LifecycleState state : List.of(
+                Instance.LifecycleState.Running, Instance.LifecycleState.Stopped,
+                Instance.LifecycleState.Starting, Instance.LifecycleState.Stopping)) {
+            try {
+                all.addAll(computeClient.listInstances(
+                        ListInstancesRequest.builder().compartmentId(cid).lifecycleState(state).build()
+                ).getItems());
+            } catch (Exception ignored) {}
+        }
+        return all;
+    }
+
+    public List<Vcn> listVcnInCompartment(String cid) {
+        try {
+            return virtualNetworkClient.listVcns(
+                    ListVcnsRequest.builder().compartmentId(cid)
+                            .lifecycleState(Vcn.LifecycleState.Available).build()
+            ).getItems();
+        } catch (Exception e) {
+            return List.of();
+        }
+    }
+
     public List<AvailabilityDomain> getAvailabilityDomains() {
         return identityClient.listAvailabilityDomains(
                 ListAvailabilityDomainsRequest.builder()

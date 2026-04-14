@@ -27,26 +27,38 @@ public class InstanceService {
 
         SysUserDTO dto = buildBasicDTO(ociUser);
         try (OciClientService client = new OciClientService(dto)) {
-            List<Instance> instances = client.listAllInstances();
-            return instances.stream().map(inst -> {
-                Map<String, Object> map = new LinkedHashMap<>();
-                map.put("instanceId", inst.getId());
-                map.put("name", inst.getDisplayName());
-                map.put("region", inst.getRegion());
-                map.put("shape", inst.getShape());
-                map.put("state", inst.getLifecycleState().getValue());
-                map.put("timeCreated", inst.getTimeCreated() != null ? inst.getTimeCreated().toString() : null);
-                map.put("availabilityDomain", inst.getAvailabilityDomain());
+            var compartments = client.listAllCompartments();
+            Map<String, String> compartmentNameMap = new LinkedHashMap<>();
+            for (var c : compartments) {
+                compartmentNameMap.put(c.getId(), c.getName());
+            }
 
-                if (inst.getShapeConfig() != null) {
-                    map.put("ocpus", inst.getShapeConfig().getOcpus());
-                    map.put("memoryInGBs", inst.getShapeConfig().getMemoryInGBs());
+            List<Map<String, Object>> result = new ArrayList<>();
+            for (var compartment : compartments) {
+                List<Instance> instances = client.listAllInstancesInCompartment(compartment.getId());
+                for (Instance inst : instances) {
+                    Map<String, Object> map = new LinkedHashMap<>();
+                    map.put("instanceId", inst.getId());
+                    map.put("name", inst.getDisplayName());
+                    map.put("region", inst.getRegion());
+                    map.put("shape", inst.getShape());
+                    map.put("state", inst.getLifecycleState().getValue());
+                    map.put("timeCreated", inst.getTimeCreated() != null ? inst.getTimeCreated().toString() : null);
+                    map.put("availabilityDomain", inst.getAvailabilityDomain());
+                    map.put("compartmentId", inst.getCompartmentId());
+                    map.put("compartmentName", compartmentNameMap.getOrDefault(inst.getCompartmentId(), "unknown"));
+
+                    if (inst.getShapeConfig() != null) {
+                        map.put("ocpus", inst.getShapeConfig().getOcpus());
+                        map.put("memoryInGBs", inst.getShapeConfig().getMemoryInGBs());
+                    }
+
+                    String publicIp = client.getInstancePublicIp(inst);
+                    map.put("publicIp", publicIp);
+                    result.add(map);
                 }
-
-                String publicIp = client.getInstancePublicIp(inst);
-                map.put("publicIp", publicIp);
-                return map;
-            }).collect(Collectors.toList());
+            }
+            return result;
         } catch (Exception e) {
             log.error("Failed to list instances: {}", e.getMessage());
             throw new OciException("获取实例列表失败: " + e.getMessage());
