@@ -81,7 +81,7 @@ After=network.target docker.service
 [Service]
 Type=simple
 WorkingDirectory=/opt/oci-worker
-ExecStart=/usr/local/bin/java -Xmx256m -jar oci-worker.jar --spring.config.additional-location=file:./application.yml
+ExecStart=/usr/local/bin/java -Xmx256m -Duser.dir=/opt/oci-worker -jar oci-worker.jar --spring.config.additional-location=file:/opt/oci-worker/application.yml
 Restart=on-failure
 RestartSec=10
 

@@ -18,6 +18,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.file.Path;
 import java.time.LocalDateTime;
 
 @Slf4j
@@ -91,7 +92,8 @@ public class TenantService {
     }
 
     public String uploadKey(MultipartFile file) throws IOException {
-        File dir = new File(keyDirPath);
+        Path dirPath = Path.of(System.getProperty("user.dir"), keyDirPath).normalize();
+        File dir = dirPath.toFile();
         if (!dir.exists()) {
             dir.mkdirs();
         }
