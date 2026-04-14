@@ -2,6 +2,7 @@ package com.ociworker.controller;
 
 import com.ociworker.model.vo.ResponseData;
 import com.ociworker.service.InstanceService;
+import com.ociworker.service.VerifyCodeService;
 import jakarta.annotation.Resource;
 import org.springframework.web.bind.annotation.*;
 
@@ -13,6 +14,8 @@ public class InstanceController {
 
     @Resource
     private InstanceService instanceService;
+    @Resource
+    private VerifyCodeService verifyCodeService;
 
     @PostMapping("/list")
     public ResponseData<?> list(@RequestBody Map<String, String> params) {
@@ -27,6 +30,7 @@ public class InstanceController {
 
     @PostMapping("/terminate")
     public ResponseData<?> terminate(@RequestBody Map<String, String> params) {
+        verifyCodeService.verifyCode("terminate", params.get("verifyCode"));
         instanceService.terminateInstance(params.get("id"), params.get("instanceId"));
         return ResponseData.ok();
     }

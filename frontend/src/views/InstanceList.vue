@@ -67,9 +67,7 @@
             <a-popconfirm v-if="inst.state === 'RUNNING'" title="确定重启实例？" @confirm="handleAction(inst, 'RESET')">
               <a-button type="link" size="small" :loading="actionLoading[inst.instanceId]">重启</a-button>
             </a-popconfirm>
-            <a-popconfirm title="确定终止实例？此操作不可逆！" @confirm="handleTerminate(inst)">
-              <a-button type="link" danger size="small">终止</a-button>
-            </a-popconfirm>
+            <a-button type="link" danger size="small" @click="openTerminateVerify(inst)">终止</a-button>
           </div>
         </div>
         <a-empty v-if="filteredInstances.length === 0 && !loading" description="无匹配实例" />
@@ -99,9 +97,7 @@
               <a-popconfirm v-if="record.state === 'RUNNING'" title="确定重启实例？" @confirm="handleAction(record, 'RESET')">
                 <a-button type="link" size="small" :loading="actionLoading[record.instanceId]">重启</a-button>
               </a-popconfirm>
-              <a-popconfirm title="确定终止实例？不可逆！" @confirm="handleTerminate(record)">
-                <a-button type="link" danger size="small">终止</a-button>
-              </a-popconfirm>
+              <a-button type="link" danger size="small" @click="openTerminateVerify(record)">终止</a-button>
             </a-space>
           </template>
         </template>
@@ -204,9 +200,7 @@
             <a-popconfirm title="确定换 IP？" @confirm="handleChangeIp">
               <a-button :loading="changeIpLoading" :disabled="currentInstance?.state !== 'RUNNING'">换 IP</a-button>
             </a-popconfirm>
-            <a-popconfirm title="确定终止实例？此操作不可逆！" @confirm="handleTerminate(currentInstance!)">
-              <a-button danger>终止</a-button>
-            </a-popconfirm>
+            <a-button danger @click="openTerminateVerify(currentInstance!)">终止</a-button>
           </a-space>
         </a-tab-pane>
 
@@ -365,6 +359,20 @@
         </div>
       </a-form>
     </a-modal>
+
+    <!-- 终止实例验证码弹窗 -->
+    <a-modal v-model:open="verifyModalVisible" title="安全验证 — 终止实例" :width="400"
+      @ok="handleTerminateWithCode" :confirm-loading="verifyLoading" ok-text="确认终止" ok-type="primary"
+      :ok-button-props="{ danger: true }">
+      <a-alert type="warning" show-icon style="margin-bottom: 16px">
+        <template #message>终止实例不可逆，验证码已发送至 Telegram</template>
+      </a-alert>
+      <a-input v-model:value="verifyCode" placeholder="请输入6位验证码" size="large" :maxlength="6" allow-clear />
+      <div style="margin-top: 12px; display: flex; justify-content: space-between; align-items: center">
+        <span style="color: var(--text-sub); font-size: 12px">验证码有效期 5 分钟</span>
+        <a-button type="link" size="small" :loading="verifySending" @click="resendVerifyCode('terminate')">重新发送</a-button>
+      </div>
+    </a-modal>
   </div>
 </template>
 
@@ -383,6 +391,7 @@ import {
   updateInstance,
 } from '../api/instance'
 import { getTenantList } from '../api/tenant'
+import { sendVerifyCode } from '../api/system'
 
 const stateColorMap: Record<string, string> = {
   RUNNING: 'success', STOPPED: 'error', STARTING: 'processing',
@@ -566,14 +575,59 @@ async function handleAction(record: any, action: string) {
   }
 }
 
-async function handleTerminate(record: any) {
+const verifyModalVisible = ref(false)
+const verifyCode = ref('')
+const verifyLoading = ref(false)
+const verifySending = ref(false)
+const terminateTarget = ref<any>(null)
+
+async function openTerminateVerify(record: any) {
+  terminateTarget.value = record
+  verifyCode.value = ''
+  verifySending.value = true
   try {
-    await terminateInstance({ id: selectedTenant.value, instanceId: record.instanceId })
+    await sendVerifyCode('terminate')
+    message.success('验证码已发送至 Telegram')
+    verifyModalVisible.value = true
+  } catch (e: any) {
+    message.error(e?.message || '发送验证码失败')
+  } finally {
+    verifySending.value = false
+  }
+}
+
+async function resendVerifyCode(action: string) {
+  verifySending.value = true
+  try {
+    await sendVerifyCode(action)
+    message.success('验证码已重新发送')
+  } catch (e: any) {
+    message.error(e?.message || '发送失败')
+  } finally {
+    verifySending.value = false
+  }
+}
+
+async function handleTerminateWithCode() {
+  if (!verifyCode.value || verifyCode.value.length !== 6) {
+    message.warning('请输入6位验证码')
+    return
+  }
+  verifyLoading.value = true
+  try {
+    await terminateInstance({
+      id: selectedTenant.value,
+      instanceId: terminateTarget.value.instanceId,
+      verifyCode: verifyCode.value,
+    })
     message.success('实例已终止')
+    verifyModalVisible.value = false
     drawerVisible.value = false
     setTimeout(loadInstances, 3000)
   } catch (e: any) {
     message.error(e?.message || '终止失败')
+  } finally {
+    verifyLoading.value = false
   }
 }
 

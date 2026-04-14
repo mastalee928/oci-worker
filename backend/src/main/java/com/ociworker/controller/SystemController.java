@@ -4,6 +4,7 @@ import com.ociworker.enums.SysCfgEnum;
 import com.ociworker.model.vo.ResponseData;
 import com.ociworker.service.NotificationService;
 import com.ociworker.service.SystemService;
+import com.ociworker.service.VerifyCodeService;
 import jakarta.annotation.Resource;
 import org.springframework.web.bind.annotation.*;
 
@@ -18,6 +19,8 @@ public class SystemController {
     private SystemService systemService;
     @Resource
     private NotificationService notificationService;
+    @Resource
+    private VerifyCodeService verifyCodeService;
 
     @GetMapping("/glance")
     public ResponseData<?> glance() {
@@ -51,5 +54,16 @@ public class SystemController {
     public ResponseData<?> testNotify() {
         notificationService.sendMessage("【测试通知】🔔 Telegram 通知配置正常！");
         return ResponseData.ok();
+    }
+
+    @PostMapping("/sendVerifyCode")
+    public ResponseData<?> sendVerifyCode(@RequestBody Map<String, String> params) {
+        verifyCodeService.sendCode(params.get("action"));
+        return ResponseData.ok();
+    }
+
+    @GetMapping("/tgStatus")
+    public ResponseData<?> tgStatus() {
+        return ResponseData.ok(Map.of("configured", verifyCodeService.isTgConfigured()));
     }
 }
