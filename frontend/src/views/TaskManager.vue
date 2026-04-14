@@ -119,18 +119,16 @@
             </a-form-item>
           </a-col>
         </a-row>
-        <a-row :gutter="12">
-          <a-col :span="12">
-            <a-form-item>
-              <a-checkbox v-model:checked="createForm.assignPublicIp">分配公网 IPv4</a-checkbox>
-            </a-form-item>
-          </a-col>
-          <a-col :span="12">
-            <a-form-item>
-              <a-checkbox v-model:checked="createForm.assignIpv6">分配 IPv6</a-checkbox>
-            </a-form-item>
-          </a-col>
-        </a-row>
+        <div style="display: flex; align-items: center; gap: 32px; margin-bottom: 16px">
+          <span style="display: inline-flex; align-items: center; gap: 8px">
+            <a-switch v-model:checked="createForm.assignPublicIp" />
+            <span>公网IP</span>
+          </span>
+          <span style="display: inline-flex; align-items: center; gap: 8px">
+            <a-switch v-model:checked="createForm.assignIpv6" />
+            <span>IPv6</span>
+          </span>
+        </div>
         <a-form-item label="自定义开机脚本（cloud-init）">
           <a-textarea v-model:value="createForm.customScript" placeholder="开机后自动执行的 Shell 脚本，留空则不执行&#10;&#10;示例：&#10;apt update && apt install -y docker.io&#10;ufw disable" :auto-size="{ minRows: 3, maxRows: 8 }" />
           <div style="color: var(--text-sub); font-size: 12px; margin-top: 4px">
