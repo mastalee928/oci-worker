@@ -90,6 +90,8 @@ public class TenantService {
             throw new OciException("名称「" + params.getUsername() + "」已被使用，请更换名称");
         }
 
+        validateOciCredentials(params);
+
         OciUser user = new OciUser();
         user.setId(CommonUtils.generateId());
         user.setUsername(params.getUsername());
@@ -103,6 +105,35 @@ public class TenantService {
         log.info("Added tenant config: {}", params.getUsername());
 
         Thread.ofVirtual().start(() -> fetchTenantInfo(user));
+    }
+
+    private void validateOciCredentials(TenantParams params) {
+        com.ociworker.model.dto.SysUserDTO dto = com.ociworker.model.dto.SysUserDTO.builder()
+                .username(params.getUsername())
+                .ociCfg(com.ociworker.model.dto.SysUserDTO.OciCfg.builder()
+                        .tenantId(params.getOciTenantId())
+                        .userId(params.getOciUserId())
+                        .fingerprint(params.getOciFingerprint())
+                        .region(params.getOciRegion())
+                        .privateKeyPath(params.getOciKeyPath())
+                        .build())
+                .build();
+        try (OciClientService client = new OciClientService(dto)) {
+            client.getIdentityClient().getTenancy(
+                    com.oracle.bmc.identity.requests.GetTenancyRequest.builder()
+                            .tenancyId(params.getOciTenantId())
+                            .build());
+        } catch (Exception e) {
+            String msg = e.getMessage();
+            if (msg != null && msg.contains("NotAuthenticated")) {
+                throw new OciException("API 配置验证失败：认证不通过，请检查 Tenant ID、User ID、Fingerprint 和密钥文件");
+            } else if (msg != null && msg.contains("not found")) {
+                throw new OciException("API 配置验证失败：Tenant ID 不存在");
+            } else if (e instanceof java.io.IOException || (msg != null && msg.contains("key"))) {
+                throw new OciException("API 配置验证失败：密钥文件无效或不存在");
+            }
+            throw new OciException("API 配置验证失败：" + (msg != null ? msg.substring(0, Math.min(msg.length(), 120)) : "未知错误"));
+        }
     }
 
     public void update(TenantParams params) {
