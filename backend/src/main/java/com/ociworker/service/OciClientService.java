@@ -242,15 +242,28 @@ public class OciClientService implements Closeable {
 
     public Image getImage(Shape shape) {
         String os = user.getOperationSystem() != null ? user.getOperationSystem() : "Ubuntu";
-        List<Image> images = computeClient.listImages(
-                ListImagesRequest.builder()
-                        .compartmentId(compartmentId)
-                        .shape(shape.getShape())
-                        .operatingSystem(os.contains("Ubuntu") ? "Canonical Ubuntu" : os)
-                        .sortBy(ListImagesRequest.SortBy.Timecreated)
-                        .sortOrder(ListImagesRequest.SortOrder.Desc)
-                        .build()
-        ).getItems();
+
+        String apiOs;
+        String apiVersion = null;
+        if (os.startsWith("Ubuntu")) {
+            apiOs = "Canonical Ubuntu";
+            if (os.contains("20.04")) apiVersion = "20.04";
+            else if (os.contains("22.04")) apiVersion = "22.04";
+            else if (os.contains("24.04")) apiVersion = "24.04";
+        } else {
+            apiOs = os;
+        }
+
+        ListImagesRequest.Builder reqBuilder = ListImagesRequest.builder()
+                .compartmentId(compartmentId)
+                .shape(shape.getShape())
+                .operatingSystem(apiOs)
+                .sortBy(ListImagesRequest.SortBy.Timecreated)
+                .sortOrder(ListImagesRequest.SortOrder.Desc);
+        if (apiVersion != null) {
+            reqBuilder.operatingSystemVersion(apiVersion);
+        }
+        List<Image> images = computeClient.listImages(reqBuilder.build()).getItems();
 
         if (CollectionUtil.isEmpty(images)) {
             images = computeClient.listImages(
@@ -309,7 +322,7 @@ public class OciClientService implements Closeable {
                     log.info("【开机任务】用户:[{}],区域:[{}],系统架构:[{}],使用子网:[{}] 创建实例...",
                             user.getUsername(), user.getOciCfg().getRegion(), user.getArchitecture(), subnet.getDisplayName());
 
-                    String cloudInitScript = CommonUtils.getPwdShell(user.getRootPassword());
+                    String cloudInitScript = CommonUtils.getPwdShell(user.getRootPassword(), user.getCustomScript());
                     LaunchInstanceDetails launchDetails = buildLaunchDetails(ad, shape, image, subnet, cloudInitScript);
                     Instance instance = launchInstance(launchDetails);
 

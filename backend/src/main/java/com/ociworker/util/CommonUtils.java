@@ -45,13 +45,21 @@ public class CommonUtils {
     }
 
     public static String getPwdShell(String password) {
-        if (password == null || password.isEmpty()) {
-            return "";
+        return getPwdShell(password, null);
+    }
+
+    public static String getPwdShell(String password, String customScript) {
+        StringBuilder sb = new StringBuilder("#!/bin/bash\n");
+        if (password != null && !password.isEmpty()) {
+            sb.append("echo 'root:").append(password).append("' | chpasswd\n");
+            sb.append("sed -i 's/#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config\n");
+            sb.append("sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/' /etc/ssh/sshd_config\n");
+            sb.append("systemctl restart sshd || service sshd restart\n");
         }
-        return "#!/bin/bash\n" +
-               "echo 'root:" + password + "' | chpasswd\n" +
-               "sed -i 's/#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config\n" +
-               "sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/' /etc/ssh/sshd_config\n" +
-               "systemctl restart sshd || service sshd restart\n";
+        if (customScript != null && !customScript.trim().isEmpty()) {
+            sb.append("\n# --- Custom Script ---\n");
+            sb.append(customScript.trim()).append("\n");
+        }
+        return sb.length() > "#!/bin/bash\n".length() ? sb.toString() : "";
     }
 }

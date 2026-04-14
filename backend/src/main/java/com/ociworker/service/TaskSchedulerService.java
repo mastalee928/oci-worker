@@ -126,7 +126,7 @@ public class TaskSchedulerService {
 
     public void createTask(String userId, String architecture, Double ocpus, Double memory,
                            Integer disk, Integer createNumbers, Integer interval,
-                           String rootPassword, String operationSystem) {
+                           String rootPassword, String operationSystem, String customScript) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
 
@@ -142,6 +142,7 @@ public class TaskSchedulerService {
         task.setIntervalSeconds(interval);
         task.setRootPassword(rootPassword);
         task.setOperationSystem(operationSystem);
+        task.setCustomScript(customScript);
         task.setStatus(TaskStatusEnum.RUNNING.getStatus());
         task.setAttemptCount(0);
         task.setCreateTime(LocalDateTime.now());
@@ -307,6 +308,7 @@ public class TaskSchedulerService {
                 .createNumbers(task.getCreateNumbers())
                 .rootPassword(task.getRootPassword())
                 .operationSystem(task.getOperationSystem())
+                .customScript(task.getCustomScript())
                 .ociCfg(SysUserDTO.OciCfg.builder()
                         .tenantId(ociUser.getOciTenantId())
                         .userId(ociUser.getOciUserId())

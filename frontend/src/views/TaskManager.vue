@@ -76,7 +76,10 @@
         </a-form-item>
         <a-form-item label="操作系统">
           <a-select v-model:value="createForm.operationSystem">
-            <a-select-option value="Ubuntu">Ubuntu</a-select-option>
+            <a-select-option value="Ubuntu">Ubuntu（最新版）</a-select-option>
+            <a-select-option value="Ubuntu 24.04">Ubuntu 24.04 LTS</a-select-option>
+            <a-select-option value="Ubuntu 22.04">Ubuntu 22.04 LTS</a-select-option>
+            <a-select-option value="Ubuntu 20.04">Ubuntu 20.04 LTS</a-select-option>
             <a-select-option value="Oracle Linux">Oracle Linux</a-select-option>
             <a-select-option value="CentOS">CentOS</a-select-option>
           </a-select>
@@ -116,6 +119,12 @@
             </a-form-item>
           </a-col>
         </a-row>
+        <a-form-item label="自定义开机脚本（cloud-init）">
+          <a-textarea v-model:value="createForm.customScript" placeholder="开机后自动执行的 Shell 脚本，留空则不执行&#10;&#10;示例：&#10;apt update && apt install -y docker.io&#10;ufw disable" :auto-size="{ minRows: 3, maxRows: 8 }" />
+          <div style="color: var(--text-sub); font-size: 12px; margin-top: 4px">
+            脚本会追加在密码设置之后执行，以 root 身份运行
+          </div>
+        </a-form-item>
       </a-form>
     </a-modal>
   </div>
@@ -168,6 +177,7 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
 const createForm = reactive({
   userId: '', architecture: 'ARM', operationSystem: 'Ubuntu',
   ocpus: 1, memory: 6, disk: 50, createNumbers: 1, interval: 60, rootPassword: '',
+  customScript: '',
 })
 
 function generateRandomPwd() {
@@ -234,6 +244,7 @@ function showCreateModal() {
   Object.assign(createForm, {
     userId: '', architecture: 'ARM', operationSystem: 'Ubuntu',
     ocpus: 1, memory: 6, disk: 50, createNumbers: 1, interval: 60, rootPassword: '',
+    customScript: '',
   })
   createVisible.value = true
 }

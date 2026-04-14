@@ -3,106 +3,207 @@
     <!-- 顶部工具栏 -->
     <div class="instance-toolbar">
       <div class="toolbar-left">
-        <a-select v-model:value="selectedTenant" placeholder="选择租户" style="width: 240px" show-search
-          option-filter-prop="label" @change="loadInstances" allow-clear>
-          <a-select-option v-for="t in tenants" :key="t.id" :value="t.id" :label="t.username">
-            {{ t.username }} ({{ t.ociRegion }})
-          </a-select-option>
-        </a-select>
         <a-input-search
           v-model:value="searchKeyword"
-          placeholder="搜索实例（名称/IP/Shape）"
-          style="width: 260px"
+          placeholder="搜索租户（名称/区域）"
+          style="width: 300px"
           allow-clear
-          @search="onSearch"
-          @change="onSearch"
         />
       </div>
       <div class="toolbar-right">
-        <a-button @click="loadInstances" :disabled="!selectedTenant" :loading="loading">
+        <a-button @click="loadAllTenants" :loading="globalLoading">
           <template #icon><ReloadOutlined /></template>刷新
         </a-button>
-        <a-segmented v-model:value="viewMode" :options="[{ label: '卡片', value: 'card' }, { label: '列表', value: 'table' }]" />
       </div>
     </div>
 
-    <a-empty v-if="!selectedTenant" description="请先选择租户" style="margin-top: 80px" />
+    <!-- 租户卡片网格 -->
+    <div v-if="filteredTenants.length === 0 && !globalLoading" style="margin-top: 60px">
+      <a-empty description="无租户数据" />
+    </div>
 
-    <a-spin :spinning="loading" v-else>
-      <!-- 卡片视图 -->
-      <div v-if="viewMode === 'card'" class="instance-grid">
-        <div v-for="inst in filteredInstances" :key="inst.instanceId" class="instance-card" @click="openDetail(inst)">
-          <div class="card-header">
-            <div class="card-title">
-              <CloudServerOutlined class="card-icon" />
-              <span class="card-name">{{ inst.name }}</span>
-            </div>
-            <a-badge :status="stateColorMap[inst.state] || 'default'" :text="inst.state" />
-          </div>
-          <div class="card-body">
-            <div class="card-info-row">
-              <span class="info-label">Region</span>
-              <a-tag color="blue" size="small">{{ inst.region }}</a-tag>
-            </div>
-            <div class="card-info-row">
-              <span class="info-label">Shape</span>
-              <span class="info-value">{{ inst.shape }}</span>
-            </div>
-            <div class="card-info-row">
-              <span class="info-label">配置</span>
-              <span class="info-value">{{ inst.ocpus }} OCPU / {{ inst.memoryInGBs }} GB</span>
-            </div>
-            <div class="card-info-row">
-              <span class="info-label">公网 IP</span>
-              <span class="info-value ip-text">{{ inst.publicIp || '—' }}</span>
-            </div>
-          </div>
-          <div class="card-actions" @click.stop>
-            <a-popconfirm v-if="inst.state === 'STOPPED'" title="确定启动实例？" @confirm="handleAction(inst, 'START')">
-              <a-button type="link" size="small" :loading="actionLoading[inst.instanceId]">启动</a-button>
-            </a-popconfirm>
-            <a-popconfirm v-if="inst.state === 'RUNNING'" title="确定停止实例？" @confirm="handleAction(inst, 'STOP')">
-              <a-button type="link" size="small" :loading="actionLoading[inst.instanceId]">停止</a-button>
-            </a-popconfirm>
-            <a-popconfirm v-if="inst.state === 'RUNNING'" title="确定重启实例？" @confirm="handleAction(inst, 'RESET')">
-              <a-button type="link" size="small" :loading="actionLoading[inst.instanceId]">重启</a-button>
-            </a-popconfirm>
-            <a-button type="link" danger size="small" @click="openTerminateVerify(inst)">终止</a-button>
+    <div class="tenant-grid">
+      <div v-for="td in filteredTenants" :key="td.tenant.id"
+        class="tenant-card" :class="{ 'tenant-card-active': activeTenantId === td.tenant.id }">
+        <div class="tc-header">
+          <i class="ri-cloud-line tc-icon"></i>
+          <div class="tc-info">
+            <div class="tc-name">{{ td.tenant.username }}</div>
+            <div class="tc-region">{{ td.tenant.ociRegion }}</div>
           </div>
         </div>
-        <a-empty v-if="filteredInstances.length === 0 && !loading" description="无匹配实例" />
+        <div class="tc-tags">
+          <a-tag v-if="td.tenant.planType" :color="td.tenant.planType === 'FREE' ? 'default' : 'green'" size="small">{{ td.tenant.planType }}</a-tag>
+          <a-tag v-if="td.tenant.tenantName" size="small" color="blue">{{ td.tenant.tenantName }}</a-tag>
+        </div>
+        <div class="tc-actions">
+          <a-button type="primary" block @click="selectTenant(td)" :loading="td.loading">
+            <i class="ri-server-line" style="margin-right: 6px"></i>实例管理
+          </a-button>
+          <a-button block @click="openQuickTask(td.tenant)">
+            <i class="ri-play-circle-line" style="margin-right: 6px"></i>开机任务
+          </a-button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 选中租户的实例区域 -->
+    <div v-if="activeTenantData" class="instance-panel">
+      <div class="instance-panel-header">
+        <div class="panel-title">
+          <i class="ri-server-line" style="margin-right: 8px; color: var(--primary)"></i>
+          <span>{{ activeTenantData.tenant.username }}</span>
+          <a-tag color="blue" style="margin-left: 8px">{{ activeTenantData.tenant.ociRegion }}</a-tag>
+          <a-badge :count="activeTenantData.instances.length" :number-style="{ backgroundColor: 'var(--primary)' }" :show-zero="true" style="margin-left: 8px" />
+        </div>
+        <div class="panel-actions">
+          <a-button size="small" @click="loadTenantInstances(activeTenantData)" :loading="activeTenantData.loading">
+            <template #icon><ReloadOutlined /></template>刷新
+          </a-button>
+          <a-segmented v-model:value="viewMode" size="small" :options="[{ label: '卡片', value: 'card' }, { label: '列表', value: 'table' }]" />
+          <a-button size="small" type="text" @click="activeTenantId = ''">
+            <i class="ri-close-line"></i>
+          </a-button>
+        </div>
       </div>
 
-      <!-- 列表视图 -->
-      <a-table v-else :columns="columns" :data-source="filteredInstances" :loading="loading"
-        row-key="instanceId" size="middle">
-        <template #bodyCell="{ column, record }">
-          <template v-if="column.key === 'state'">
-            <a-badge :status="stateColorMap[record.state] || 'default'" :text="record.state" />
-          </template>
-          <template v-if="column.key === 'shape'">
-            <a-tooltip :title="`${record.ocpus} OCPU / ${record.memoryInGBs} GB`">
-              <a-tag>{{ record.shape }}</a-tag>
-            </a-tooltip>
-          </template>
-          <template v-if="column.key === 'action'">
-            <a-space>
-              <a-button type="link" size="small" @click="openDetail(record)">详情</a-button>
-              <a-popconfirm v-if="record.state === 'STOPPED'" title="确定启动实例？" @confirm="handleAction(record, 'START')">
-                <a-button type="link" size="small" :loading="actionLoading[record.instanceId]">启动</a-button>
+      <a-spin :spinning="activeTenantData.loading">
+        <a-empty v-if="!activeTenantData.loading && activeTenantData.instances.length === 0" description="暂无实例" />
+
+        <!-- 实例卡片视图 -->
+        <div v-else-if="viewMode === 'card'" class="instance-grid">
+          <div v-for="inst in activeTenantData.instances" :key="inst.instanceId" class="instance-card" @click="openDetail(activeTenantData.tenant, inst)">
+            <div class="card-header">
+              <div class="card-title">
+                <CloudServerOutlined class="card-icon" />
+                <span class="card-name">{{ inst.name }}</span>
+              </div>
+              <a-badge :status="stateColorMap[inst.state] || 'default'" :text="inst.state" />
+            </div>
+            <div class="card-body">
+              <div class="card-info-row">
+                <span class="info-label">Shape</span>
+                <span class="info-value">{{ inst.shape }}</span>
+              </div>
+              <div class="card-info-row">
+                <span class="info-label">配置</span>
+                <span class="info-value">{{ inst.ocpus }} OCPU / {{ inst.memoryInGBs }} GB</span>
+              </div>
+              <div class="card-info-row">
+                <span class="info-label">公网 IP</span>
+                <span class="info-value ip-text">{{ inst.publicIp || '—' }}</span>
+              </div>
+            </div>
+            <div class="card-actions" @click.stop>
+              <a-popconfirm v-if="inst.state === 'STOPPED'" title="确定启动实例？" @confirm="handleAction(activeTenantData.tenant, inst, 'START')">
+                <a-button type="link" size="small" :loading="actionLoading[inst.instanceId]">启动</a-button>
               </a-popconfirm>
-              <a-popconfirm v-if="record.state === 'RUNNING'" title="确定停止实例？" @confirm="handleAction(record, 'STOP')">
-                <a-button type="link" size="small" :loading="actionLoading[record.instanceId]">停止</a-button>
+              <a-popconfirm v-if="inst.state === 'RUNNING'" title="确定停止实例？" @confirm="handleAction(activeTenantData.tenant, inst, 'STOP')">
+                <a-button type="link" size="small" :loading="actionLoading[inst.instanceId]">停止</a-button>
               </a-popconfirm>
-              <a-popconfirm v-if="record.state === 'RUNNING'" title="确定重启实例？" @confirm="handleAction(record, 'RESET')">
-                <a-button type="link" size="small" :loading="actionLoading[record.instanceId]">重启</a-button>
+              <a-popconfirm v-if="inst.state === 'RUNNING'" title="确定重启实例？" @confirm="handleAction(activeTenantData.tenant, inst, 'RESET')">
+                <a-button type="link" size="small" :loading="actionLoading[inst.instanceId]">重启</a-button>
               </a-popconfirm>
-              <a-button type="link" danger size="small" @click="openTerminateVerify(record)">终止</a-button>
-            </a-space>
+              <a-button type="link" danger size="small" @click="openTerminateVerify(activeTenantData.tenant, inst)">终止</a-button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 实例列表视图 -->
+        <a-table v-else :columns="columns" :data-source="activeTenantData.instances" :loading="activeTenantData.loading"
+          row-key="instanceId" size="middle" :pagination="false">
+          <template #bodyCell="{ column, record }">
+            <template v-if="column.key === 'state'">
+              <a-badge :status="stateColorMap[record.state] || 'default'" :text="record.state" />
+            </template>
+            <template v-if="column.key === 'shape'">
+              <a-tooltip :title="`${record.ocpus} OCPU / ${record.memoryInGBs} GB`">
+                <a-tag>{{ record.shape }}</a-tag>
+              </a-tooltip>
+            </template>
+            <template v-if="column.key === 'action'">
+              <a-space>
+                <a-button type="link" size="small" @click="openDetail(activeTenantData!.tenant, record)">详情</a-button>
+                <a-popconfirm v-if="record.state === 'STOPPED'" title="确定启动？" @confirm="handleAction(activeTenantData!.tenant, record, 'START')">
+                  <a-button type="link" size="small" :loading="actionLoading[record.instanceId]">启动</a-button>
+                </a-popconfirm>
+                <a-popconfirm v-if="record.state === 'RUNNING'" title="确定停止？" @confirm="handleAction(activeTenantData!.tenant, record, 'STOP')">
+                  <a-button type="link" size="small" :loading="actionLoading[record.instanceId]">停止</a-button>
+                </a-popconfirm>
+                <a-popconfirm v-if="record.state === 'RUNNING'" title="确定重启？" @confirm="handleAction(activeTenantData!.tenant, record, 'RESET')">
+                  <a-button type="link" size="small" :loading="actionLoading[record.instanceId]">重启</a-button>
+                </a-popconfirm>
+                <a-button type="link" danger size="small" @click="openTerminateVerify(activeTenantData!.tenant, record)">终止</a-button>
+              </a-space>
+            </template>
           </template>
-        </template>
-      </a-table>
-    </a-spin>
+        </a-table>
+      </a-spin>
+    </div>
+
+    <!-- 快捷开机任务弹窗 -->
+    <a-modal v-model:open="quickTaskVisible" title="快捷开机任务" :width="isMobile ? '100%' : 600"
+      @ok="handleQuickTask" :confirm-loading="quickTaskLoading" :mask-closable="false">
+      <div style="margin-bottom: 12px">
+        <a-tag color="blue">{{ quickTaskTenant?.username }}</a-tag>
+        <a-tag>{{ quickTaskTenant?.ociRegion }}</a-tag>
+      </div>
+      <a-form :model="quickTaskForm" layout="vertical">
+        <a-form-item label="机器规格">
+          <a-select v-model:value="quickTaskForm.architecture">
+            <a-select-option value="ARM">ARM (A1.Flex)</a-select-option>
+            <a-select-option value="AMD">AMD (E2.1.Micro)</a-select-option>
+          </a-select>
+        </a-form-item>
+        <a-form-item label="操作系统">
+          <a-select v-model:value="quickTaskForm.operationSystem">
+            <a-select-option value="Ubuntu">Ubuntu（最新版）</a-select-option>
+            <a-select-option value="Ubuntu 24.04">Ubuntu 24.04 LTS</a-select-option>
+            <a-select-option value="Ubuntu 22.04">Ubuntu 22.04 LTS</a-select-option>
+            <a-select-option value="Ubuntu 20.04">Ubuntu 20.04 LTS</a-select-option>
+            <a-select-option value="Oracle Linux">Oracle Linux</a-select-option>
+            <a-select-option value="CentOS">CentOS</a-select-option>
+          </a-select>
+        </a-form-item>
+        <a-row :gutter="12">
+          <a-col :xs="12" :sm="8">
+            <a-form-item label="OCPU">
+              <a-input-number v-model:value="quickTaskForm.ocpus" :min="1" :max="4" style="width: 100%" />
+            </a-form-item>
+          </a-col>
+          <a-col :xs="12" :sm="8">
+            <a-form-item label="内存 (GB)">
+              <a-input-number v-model:value="quickTaskForm.memory" :min="1" :max="24" style="width: 100%" />
+            </a-form-item>
+          </a-col>
+          <a-col :xs="12" :sm="8">
+            <a-form-item label="磁盘 (GB)">
+              <a-input-number v-model:value="quickTaskForm.disk" :min="47" :max="200" style="width: 100%" />
+            </a-form-item>
+          </a-col>
+        </a-row>
+        <a-row :gutter="12">
+          <a-col :xs="12" :sm="8">
+            <a-form-item label="数量">
+              <a-input-number v-model:value="quickTaskForm.createNumbers" :min="1" :max="5" style="width: 100%" />
+            </a-form-item>
+          </a-col>
+          <a-col :xs="12" :sm="8">
+            <a-form-item label="间隔 (秒)">
+              <a-input-number v-model:value="quickTaskForm.interval" :min="10" :max="600" style="width: 100%" />
+            </a-form-item>
+          </a-col>
+          <a-col :xs="24" :sm="8">
+            <a-form-item label="Root 密码">
+              <a-input-password v-model:value="quickTaskForm.rootPassword" placeholder="留空=随机" />
+            </a-form-item>
+          </a-col>
+        </a-row>
+        <a-form-item label="自定义开机脚本">
+          <a-textarea v-model:value="quickTaskForm.customScript" placeholder="可选，留空不执行" :auto-size="{ minRows: 2, maxRows: 5 }" />
+        </a-form-item>
+      </a-form>
+    </a-modal>
 
     <!-- 实例详情抽屉 -->
     <a-drawer
@@ -132,13 +233,11 @@
             </a-descriptions-item>
           </a-descriptions>
 
-          <!-- 网络详情 -->
           <a-divider orientation="left">网络信息</a-divider>
           <a-spin :spinning="netDetailLoading">
             <a-button size="small" @click="loadNetworkDetail" :loading="netDetailLoading" style="margin-bottom: 12px">
               刷新网络信息
             </a-button>
-
             <template v-if="networkDetail">
               <div v-for="(vnic, vi) in networkDetail.vnics" :key="vi" style="margin-bottom: 16px">
                 <a-descriptions :column="1" bordered size="small">
@@ -188,19 +287,19 @@
 
           <a-divider />
           <a-space>
-            <a-popconfirm v-if="currentInstance?.state === 'STOPPED'" title="确定启动？" @confirm="handleAction(currentInstance!, 'START')">
+            <a-popconfirm v-if="currentInstance?.state === 'STOPPED'" title="确定启动？" @confirm="handleAction(currentTenant!, currentInstance!, 'START')">
               <a-button type="primary" :loading="actionLoading[currentInstance?.instanceId]">启动</a-button>
             </a-popconfirm>
-            <a-popconfirm v-if="currentInstance?.state === 'RUNNING'" title="确定停止？" @confirm="handleAction(currentInstance!, 'STOP')">
+            <a-popconfirm v-if="currentInstance?.state === 'RUNNING'" title="确定停止？" @confirm="handleAction(currentTenant!, currentInstance!, 'STOP')">
               <a-button :loading="actionLoading[currentInstance?.instanceId]">停止</a-button>
             </a-popconfirm>
-            <a-popconfirm v-if="currentInstance?.state === 'RUNNING'" title="确定重启？" @confirm="handleAction(currentInstance!, 'RESET')">
+            <a-popconfirm v-if="currentInstance?.state === 'RUNNING'" title="确定重启？" @confirm="handleAction(currentTenant!, currentInstance!, 'RESET')">
               <a-button :loading="actionLoading[currentInstance?.instanceId]">重启</a-button>
             </a-popconfirm>
             <a-popconfirm title="确定换 IP？" @confirm="handleChangeIp">
               <a-button :loading="changeIpLoading" :disabled="currentInstance?.state !== 'RUNNING'">换 IP</a-button>
             </a-popconfirm>
-            <a-button danger @click="openTerminateVerify(currentInstance!)">终止</a-button>
+            <a-button danger @click="openTerminateVerify(currentTenant!, currentInstance!)">终止</a-button>
           </a-space>
         </a-tab-pane>
 
@@ -323,9 +422,7 @@
         <a-form-item label="名称（可选）">
           <a-input v-model:value="createRipName" placeholder="reserved-ip" />
         </a-form-item>
-        <div style="color: #999; font-size: 12px">
-          创建一个未绑定的预留IP。创建后可在列表中绑定到实例。
-        </div>
+        <div style="color: #999; font-size: 12px">创建一个未绑定的预留IP。创建后可在列表中绑定到实例。</div>
       </a-form>
     </a-modal>
 
@@ -350,13 +447,9 @@
               </a-form-item>
             </a-col>
           </a-row>
-          <div style="color: #999; font-size: 12px">
-            仅 Flex 类型的 Shape 支持调整 OCPU 和内存。修改后实例可能需要重启生效。
-          </div>
+          <div style="color: #999; font-size: 12px">仅 Flex 类型支持调整 OCPU 和内存。修改后实例可能需要重启生效。</div>
         </template>
-        <div v-else style="color: #999; font-size: 12px; margin-top: 8px">
-          当前 Shape（{{ currentInstance.shape }}）为固定规格，不支持在线调整 OCPU/内存。
-        </div>
+        <div v-else style="color: #999; font-size: 12px; margin-top: 8px">当前 Shape（{{ currentInstance.shape }}）为固定规格，不支持在线调整。</div>
       </a-form>
     </a-modal>
 
@@ -379,7 +472,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { ReloadOutlined, CloudServerOutlined, EditOutlined } from '@ant-design/icons-vue'
-import { message } from 'ant-design-vue'
+import { message, Modal } from 'ant-design-vue'
 import {
   getInstanceList, updateInstanceState, terminateInstance,
   getSecurityRules, releaseAllPorts, addSecurityRule,
@@ -391,7 +484,15 @@ import {
   updateInstance,
 } from '../api/instance'
 import { getTenantList } from '../api/tenant'
+import { createTask, hasRunningTask } from '../api/task'
 import { sendVerifyCode } from '../api/system'
+
+interface TenantData {
+  tenant: any
+  instances: any[]
+  loading: boolean
+  collapsed: boolean
+}
 
 const stateColorMap: Record<string, string> = {
   RUNNING: 'success', STOPPED: 'error', STARTING: 'processing',
@@ -400,7 +501,6 @@ const stateColorMap: Record<string, string> = {
 
 const columns = [
   { title: '名称', dataIndex: 'name', key: 'name' },
-  { title: 'Region', dataIndex: 'region', key: 'region', width: 140 },
   { title: 'Shape', key: 'shape', width: 200 },
   { title: '公网 IP', dataIndex: 'publicIp', key: 'publicIp', width: 140 },
   { title: '状态', dataIndex: 'state', key: 'state', width: 100 },
@@ -418,15 +518,13 @@ const secColumns = [
   { title: '端口范围', dataIndex: 'portRange', key: 'portRange', width: 120 },
   { title: '描述', dataIndex: 'description', key: 'description', ellipsis: true },
 ]
-
 const volColumns = [
   { title: '名称', dataIndex: 'displayName', key: 'displayName' },
   { title: '大小 (GB)', dataIndex: 'sizeInGBs', key: 'sizeInGBs', width: 100 },
-  { title: '性能 (VPUs/GB)', dataIndex: 'vpusPerGB', key: 'vpusPerGB', width: 130 },
+  { title: '性能', dataIndex: 'vpusPerGB', key: 'vpusPerGB', width: 130 },
   { title: '状态', dataIndex: 'lifecycleState', key: 'lifecycleState', width: 100 },
   { title: '操作', key: 'volAction', width: 80 },
 ]
-
 const vcnColumns = [
   { title: '名称', dataIndex: 'displayName', key: 'displayName' },
   { title: 'CIDR', dataIndex: 'cidrBlock', key: 'cidrBlock', width: 160 },
@@ -438,27 +536,36 @@ function checkMobile() { isMobile.value = window.innerWidth < 768 }
 
 const viewMode = ref<'card' | 'table'>('card')
 const searchKeyword = ref('')
-const loading = ref(false)
-const instances = ref<any[]>([])
-const tenants = ref<any[]>([])
-const selectedTenant = ref('')
+const globalLoading = ref(false)
+const tenantDataList = ref<TenantData[]>([])
 const actionLoading = reactive<Record<string, boolean>>({})
+const activeTenantId = ref('')
 
-const filteredInstances = computed(() => {
-  if (!searchKeyword.value) return instances.value
+const currentTenant = ref<any>(null)
+const currentInstance = ref<any>(null)
+
+const filteredTenants = computed(() => {
+  if (!searchKeyword.value) return tenantDataList.value
   const kw = searchKeyword.value.toLowerCase()
-  return instances.value.filter((inst: any) =>
-    (inst.name || '').toLowerCase().includes(kw) ||
-    (inst.publicIp || '').toLowerCase().includes(kw) ||
-    (inst.shape || '').toLowerCase().includes(kw) ||
-    (inst.region || '').toLowerCase().includes(kw) ||
-    (inst.state || '').toLowerCase().includes(kw)
+  return tenantDataList.value.filter(td =>
+    (td.tenant.username || '').toLowerCase().includes(kw) ||
+    (td.tenant.ociRegion || '').toLowerCase().includes(kw) ||
+    (td.tenant.tenantName || '').toLowerCase().includes(kw)
   )
 })
 
+const activeTenantData = computed(() => {
+  if (!activeTenantId.value) return null
+  return tenantDataList.value.find(td => td.tenant.id === activeTenantId.value) || null
+})
+
+function selectTenant(td: TenantData) {
+  activeTenantId.value = td.tenant.id
+  loadTenantInstances(td)
+}
+
 const drawerVisible = ref(false)
 const activeTab = ref('info')
-const currentInstance = ref<any>(null)
 
 const secLoading = ref(false)
 const releaseLoading = ref(false)
@@ -467,7 +574,6 @@ const egressRules = ref<any[]>([])
 
 const volLoading = ref(false)
 const bootVolumes = ref<any[]>([])
-
 const vcnLoading = ref(false)
 const vcns = ref<any[]>([])
 
@@ -482,23 +588,11 @@ const ipv6Loading = ref(false)
 
 const addRuleVisible = ref(false)
 const addRuleLoading = ref(false)
-const ruleForm = reactive({
-  direction: 'ingress',
-  protocol: 'TCP',
-  source: '0.0.0.0/0',
-  portMin: null as number | null,
-  portMax: null as number | null,
-  description: '',
-})
+const ruleForm = reactive({ direction: 'ingress', protocol: 'TCP', source: '0.0.0.0/0', portMin: null as number | null, portMax: null as number | null, description: '' })
 
 const editVolVisible = ref(false)
 const editVolLoading = ref(false)
-const editVolForm = reactive({
-  bootVolumeId: '',
-  displayName: '',
-  sizeInGBs: 50,
-  vpusPerGB: 10,
-})
+const editVolForm = reactive({ bootVolumeId: '', displayName: '', sizeInGBs: 50, vpusPerGB: 10 })
 
 const reservedIps = ref<any[]>([])
 const reservedIpListLoading = ref(false)
@@ -508,12 +602,16 @@ const createRipName = ref('')
 
 const editInstanceVisible = ref(false)
 const editInstanceLoading = ref(false)
-const editInstanceForm = reactive({
-  displayName: '',
-  ocpus: 1,
-  memoryInGBs: 6,
-})
+const editInstanceForm = reactive({ displayName: '', ocpus: 1, memoryInGBs: 6 })
 const isFlexShape = computed(() => currentInstance.value?.shape?.includes('Flex') ?? false)
+
+const quickTaskVisible = ref(false)
+const quickTaskLoading = ref(false)
+const quickTaskTenant = ref<any>(null)
+const quickTaskForm = reactive({
+  architecture: 'ARM', operationSystem: 'Ubuntu',
+  ocpus: 1, memory: 6, disk: 50, createNumbers: 1, interval: 60, rootPassword: '', customScript: '',
+})
 
 function formatBytes(bytes: number) {
   if (!bytes || bytes === 0) return '0 B'
@@ -522,31 +620,37 @@ function formatBytes(bytes: number) {
   return (bytes / Math.pow(1024, i)).toFixed(2) + ' ' + units[i]
 }
 
-function onSearch() {}
-
-async function loadTenants() {
+async function loadAllTenants() {
+  globalLoading.value = true
   try {
     const res = await getTenantList({ current: 1, size: 1000 })
-    tenants.value = res.data.records || []
+    const records = res.data.records || []
+    const existingMap = new Map(tenantDataList.value.map(td => [td.tenant.id, td]))
+    tenantDataList.value = records.map((t: any) => {
+      const existing = existingMap.get(t.id)
+      return existing ? { ...existing, tenant: t } : { tenant: t, instances: [], loading: false, collapsed: false }
+    })
   } catch (e: any) {
     message.error(e?.message || '加载租户失败')
-  }
-}
-
-async function loadInstances() {
-  if (!selectedTenant.value) return
-  loading.value = true
-  try {
-    const res = await getInstanceList({ id: selectedTenant.value })
-    instances.value = res.data || []
-  } catch (e: any) {
-    message.error(e?.message || '加载实例失败')
   } finally {
-    loading.value = false
+    globalLoading.value = false
   }
 }
 
-function openDetail(record: any) {
+async function loadTenantInstances(td: TenantData) {
+  td.loading = true
+  try {
+    const res = await getInstanceList({ id: td.tenant.id })
+    td.instances = res.data || []
+  } catch {
+    td.instances = []
+  } finally {
+    td.loading = false
+  }
+}
+
+function openDetail(tenant: any, record: any) {
+  currentTenant.value = tenant
   currentInstance.value = record
   activeTab.value = 'info'
   ingressRules.value = []
@@ -562,12 +666,13 @@ function openDetail(record: any) {
   loadSecurityRules()
 }
 
-async function handleAction(record: any, action: string) {
+async function handleAction(tenant: any, record: any, action: string) {
   actionLoading[record.instanceId] = true
   try {
-    await updateInstanceState({ id: selectedTenant.value, instanceId: record.instanceId, action })
+    await updateInstanceState({ id: tenant.id, instanceId: record.instanceId, action })
     message.success('操作已提交')
-    setTimeout(loadInstances, 3000)
+    const td = tenantDataList.value.find(t => t.tenant.id === tenant.id)
+    if (td) setTimeout(() => loadTenantInstances(td), 3000)
   } catch (e: any) {
     message.error(e?.message || '操作失败')
   } finally {
@@ -579,10 +684,10 @@ const verifyModalVisible = ref(false)
 const verifyCode = ref('')
 const verifyLoading = ref(false)
 const verifySending = ref(false)
-const terminateTarget = ref<any>(null)
 
-async function openTerminateVerify(record: any) {
-  terminateTarget.value = record
+async function openTerminateVerify(tenant: any, record: any) {
+  currentTenant.value = tenant
+  currentInstance.value = record
   verifyCode.value = ''
   verifySending.value = true
   try {
@@ -616,14 +721,15 @@ async function handleTerminateWithCode() {
   verifyLoading.value = true
   try {
     await terminateInstance({
-      id: selectedTenant.value,
-      instanceId: terminateTarget.value.instanceId,
+      id: currentTenant.value.id,
+      instanceId: currentInstance.value.instanceId,
       verifyCode: verifyCode.value,
     })
     message.success('实例已终止')
     verifyModalVisible.value = false
     drawerVisible.value = false
-    setTimeout(loadInstances, 3000)
+    const td = tenantDataList.value.find(t => t.tenant.id === currentTenant.value.id)
+    if (td) setTimeout(() => loadTenantInstances(td), 3000)
   } catch (e: any) {
     message.error(e?.message || '终止失败')
   } finally {
@@ -632,12 +738,11 @@ async function handleTerminateWithCode() {
 }
 
 async function handleChangeIp() {
-  if (!currentInstance.value) return
+  if (!currentInstance.value || !currentTenant.value) return
   changeIpLoading.value = true
   try {
-    await changeIp({ id: selectedTenant.value, instanceId: currentInstance.value.instanceId })
+    await changeIp({ id: currentTenant.value.id, instanceId: currentInstance.value.instanceId })
     message.success('换 IP 请求已提交')
-    setTimeout(loadInstances, 5000)
   } catch (e: any) {
     message.error(e?.message || '换 IP 失败')
   } finally {
@@ -646,10 +751,10 @@ async function handleChangeIp() {
 }
 
 async function loadNetworkDetail() {
-  if (!currentInstance.value) return
+  if (!currentInstance.value || !currentTenant.value) return
   netDetailLoading.value = true
   try {
-    const res = await getInstanceNetworkDetail({ id: selectedTenant.value, instanceId: currentInstance.value.instanceId })
+    const res = await getInstanceNetworkDetail({ id: currentTenant.value.id, instanceId: currentInstance.value.instanceId })
     networkDetail.value = res.data || null
   } catch (e: any) {
     message.error(e?.message || '加载网络详情失败')
@@ -659,10 +764,10 @@ async function loadNetworkDetail() {
 }
 
 async function handleAddIpv6() {
-  if (!currentInstance.value) return
+  if (!currentInstance.value || !currentTenant.value) return
   ipv6Loading.value = true
   try {
-    const res = await addIpv6({ id: selectedTenant.value, instanceId: currentInstance.value.instanceId })
+    const res = await addIpv6({ id: currentTenant.value.id, instanceId: currentInstance.value.instanceId })
     message.success('IPv6 已添加: ' + (res.data?.ipv6Address || ''))
     loadNetworkDetail()
   } catch (e: any) {
@@ -673,10 +778,10 @@ async function handleAddIpv6() {
 }
 
 async function loadSecurityRules() {
-  if (!currentInstance.value) return
+  if (!currentInstance.value || !currentTenant.value) return
   secLoading.value = true
   try {
-    const res = await getSecurityRules({ id: selectedTenant.value, instanceId: currentInstance.value.instanceId })
+    const res = await getSecurityRules({ id: currentTenant.value.id, instanceId: currentInstance.value.instanceId })
     const data = res.data || []
     ingressRules.value = data.filter((r: any) => r.direction === 'ingress')
     egressRules.value = data.filter((r: any) => r.direction === 'egress')
@@ -688,10 +793,10 @@ async function loadSecurityRules() {
 }
 
 async function handleReleaseAll() {
-  if (!currentInstance.value) return
+  if (!currentInstance.value || !currentTenant.value) return
   releaseLoading.value = true
   try {
-    await releaseAllPorts({ id: selectedTenant.value, instanceId: currentInstance.value.instanceId })
+    await releaseAllPorts({ id: currentTenant.value.id, instanceId: currentInstance.value.instanceId })
     message.success('已放行所有端口')
     loadSecurityRules()
   } catch (e: any) {
@@ -702,17 +807,12 @@ async function handleReleaseAll() {
 }
 
 function showAddRuleModal() {
-  ruleForm.direction = 'ingress'
-  ruleForm.protocol = 'TCP'
-  ruleForm.source = '0.0.0.0/0'
-  ruleForm.portMin = null
-  ruleForm.portMax = null
-  ruleForm.description = ''
+  Object.assign(ruleForm, { direction: 'ingress', protocol: 'TCP', source: '0.0.0.0/0', portMin: null, portMax: null, description: '' })
   addRuleVisible.value = true
 }
 
 async function handleAddRule() {
-  if (!currentInstance.value) return
+  if (!currentInstance.value || !currentTenant.value) return
   if ((ruleForm.protocol === 'TCP' || ruleForm.protocol === 'UDP') && (!ruleForm.portMin || !ruleForm.portMax)) {
     message.warning('TCP/UDP 协议需要填写端口范围')
     return
@@ -720,14 +820,9 @@ async function handleAddRule() {
   addRuleLoading.value = true
   try {
     await addSecurityRule({
-      id: selectedTenant.value,
-      instanceId: currentInstance.value.instanceId,
-      direction: ruleForm.direction,
-      protocol: ruleForm.protocol,
-      source: ruleForm.source,
-      portMin: ruleForm.portMin?.toString(),
-      portMax: ruleForm.portMax?.toString(),
-      description: ruleForm.description,
+      id: currentTenant.value.id, instanceId: currentInstance.value.instanceId,
+      direction: ruleForm.direction, protocol: ruleForm.protocol, source: ruleForm.source,
+      portMin: ruleForm.portMin?.toString(), portMax: ruleForm.portMax?.toString(), description: ruleForm.description,
     })
     message.success('规则已添加')
     addRuleVisible.value = false
@@ -740,10 +835,10 @@ async function handleAddRule() {
 }
 
 async function loadBootVolumes() {
-  if (!currentInstance.value) return
+  if (!currentInstance.value || !currentTenant.value) return
   volLoading.value = true
   try {
-    const res = await getBootVolumes({ id: selectedTenant.value, instanceId: currentInstance.value.instanceId })
+    const res = await getBootVolumes({ id: currentTenant.value.id, instanceId: currentInstance.value.instanceId })
     bootVolumes.value = res.data || []
   } catch (e: any) {
     message.error(e?.message || '加载引导卷失败')
@@ -753,23 +848,14 @@ async function loadBootVolumes() {
 }
 
 function openEditVolume(record: any) {
-  editVolForm.bootVolumeId = record.id
-  editVolForm.displayName = record.displayName
-  editVolForm.sizeInGBs = record.sizeInGBs
-  editVolForm.vpusPerGB = record.vpusPerGB ?? 10
+  Object.assign(editVolForm, { bootVolumeId: record.id, displayName: record.displayName, sizeInGBs: record.sizeInGBs, vpusPerGB: record.vpusPerGB ?? 10 })
   editVolVisible.value = true
 }
 
 async function handleEditVolume() {
   editVolLoading.value = true
   try {
-    await updateBootVolume({
-      id: selectedTenant.value,
-      bootVolumeId: editVolForm.bootVolumeId,
-      displayName: editVolForm.displayName,
-      sizeInGBs: editVolForm.sizeInGBs,
-      vpusPerGB: editVolForm.vpusPerGB,
-    })
+    await updateBootVolume({ id: currentTenant.value.id, ...editVolForm })
     message.success('引导卷已更新')
     editVolVisible.value = false
     loadBootVolumes()
@@ -780,15 +866,12 @@ async function handleEditVolume() {
   }
 }
 
-function showCreateReservedIpModal() {
-  createRipName.value = ''
-  createRipVisible.value = true
-}
+function showCreateReservedIpModal() { createRipName.value = ''; createRipVisible.value = true }
 
 async function handleCreateReservedIp() {
   createRipLoading.value = true
   try {
-    const res = await createReservedIp({ id: selectedTenant.value, displayName: createRipName.value || undefined })
+    const res = await createReservedIp({ id: currentTenant.value.id, displayName: createRipName.value || undefined })
     message.success('预留IP已创建: ' + (res.data?.ipAddress || ''))
     createRipVisible.value = false
     loadReservedIps()
@@ -800,9 +883,10 @@ async function handleCreateReservedIp() {
 }
 
 async function loadReservedIps() {
+  if (!currentTenant.value) return
   reservedIpListLoading.value = true
   try {
-    const res = await listReservedIps({ id: selectedTenant.value })
+    const res = await listReservedIps({ id: currentTenant.value.id })
     reservedIps.value = res.data || []
   } catch (e: any) {
     message.error(e?.message || '加载预留IP失败')
@@ -813,35 +897,27 @@ async function loadReservedIps() {
 
 async function handleDeleteReservedIp(publicIpId: string) {
   try {
-    await deleteReservedIp({ id: selectedTenant.value, publicIpId })
+    await deleteReservedIp({ id: currentTenant.value.id, publicIpId })
     message.success('预留IP已删除')
     loadReservedIps()
-  } catch (e: any) {
-    message.error(e?.message || '删除预留IP失败')
-  }
+  } catch (e: any) { message.error(e?.message || '删除预留IP失败') }
 }
 
 async function handleAssignReservedIp(publicIpId: string) {
   if (!currentInstance.value) return
   try {
-    await assignReservedIp({ id: selectedTenant.value, publicIpId, instanceId: currentInstance.value.instanceId })
-    message.success('预留IP已绑定到当前实例')
-    loadReservedIps()
-    loadNetworkDetail()
-  } catch (e: any) {
-    message.error(e?.message || '绑定预留IP失败')
-  }
+    await assignReservedIp({ id: currentTenant.value.id, publicIpId, instanceId: currentInstance.value.instanceId })
+    message.success('预留IP已绑定')
+    loadReservedIps(); loadNetworkDetail()
+  } catch (e: any) { message.error(e?.message || '绑定失败') }
 }
 
 async function handleUnassignReservedIp(publicIpId: string) {
   try {
-    await unassignReservedIp({ id: selectedTenant.value, publicIpId })
+    await unassignReservedIp({ id: currentTenant.value.id, publicIpId })
     message.success('预留IP已解绑')
-    loadReservedIps()
-    loadNetworkDetail()
-  } catch (e: any) {
-    message.error(e?.message || '解绑预留IP失败')
-  }
+    loadReservedIps(); loadNetworkDetail()
+  } catch (e: any) { message.error(e?.message || '解绑失败') }
 }
 
 function openEditInstance() {
@@ -853,36 +929,24 @@ function openEditInstance() {
 }
 
 async function handleEditInstance() {
-  if (!currentInstance.value) return
+  if (!currentInstance.value || !currentTenant.value) return
   editInstanceLoading.value = true
   try {
-    const payload: any = {
-      id: selectedTenant.value,
-      instanceId: currentInstance.value.instanceId,
-    }
-    if (editInstanceForm.displayName && editInstanceForm.displayName !== currentInstance.value.name) {
-      payload.displayName = editInstanceForm.displayName
-    }
+    const payload: any = { id: currentTenant.value.id, instanceId: currentInstance.value.instanceId }
+    if (editInstanceForm.displayName && editInstanceForm.displayName !== currentInstance.value.name) payload.displayName = editInstanceForm.displayName
     if (isFlexShape.value) {
-      if (editInstanceForm.ocpus !== currentInstance.value.ocpus) {
-        payload.ocpus = editInstanceForm.ocpus
-      }
-      if (editInstanceForm.memoryInGBs !== currentInstance.value.memoryInGBs) {
-        payload.memoryInGBs = editInstanceForm.memoryInGBs
-      }
+      if (editInstanceForm.ocpus !== currentInstance.value.ocpus) payload.ocpus = editInstanceForm.ocpus
+      if (editInstanceForm.memoryInGBs !== currentInstance.value.memoryInGBs) payload.memoryInGBs = editInstanceForm.memoryInGBs
     }
-    if (!payload.displayName && !payload.ocpus && !payload.memoryInGBs) {
-      message.info('未检测到修改')
-      editInstanceLoading.value = false
-      return
-    }
+    if (!payload.displayName && !payload.ocpus && !payload.memoryInGBs) { message.info('未检测到修改'); editInstanceLoading.value = false; return }
     const res = await updateInstance(payload)
     message.success('实例已更新')
     if (res.data?.name) currentInstance.value.name = res.data.name
     if (res.data?.ocpus) currentInstance.value.ocpus = res.data.ocpus
     if (res.data?.memoryInGBs) currentInstance.value.memoryInGBs = res.data.memoryInGBs
     editInstanceVisible.value = false
-    loadInstances()
+    const td = tenantDataList.value.find(t => t.tenant.id === currentTenant.value.id)
+    if (td) loadTenantInstances(td)
   } catch (e: any) {
     message.error(e?.message || '修改实例失败')
   } finally {
@@ -893,34 +957,73 @@ async function handleEditInstance() {
 async function loadVcns() {
   vcnLoading.value = true
   try {
-    const res = await getVcns({ id: selectedTenant.value })
+    const res = await getVcns({ id: currentTenant.value.id })
     vcns.value = res.data || []
-  } catch (e: any) {
-    message.error(e?.message || '加载 VCN 失败')
-  } finally {
-    vcnLoading.value = false
-  }
+  } catch (e: any) { message.error(e?.message || '加载 VCN 失败') }
+  finally { vcnLoading.value = false }
 }
 
 async function loadTraffic() {
-  if (!currentInstance.value) return
+  if (!currentInstance.value || !currentTenant.value) return
   trafficLoading.value = true
   try {
-    const res = await getTrafficData({
-      id: selectedTenant.value,
-      instanceId: currentInstance.value.instanceId,
-      minutes: trafficMinutes.value,
-    })
+    const res = await getTrafficData({ id: currentTenant.value.id, instanceId: currentInstance.value.instanceId, minutes: trafficMinutes.value })
     trafficData.value = res.data || { inbound: 0, outbound: 0 }
+  } catch (e: any) { message.error(e?.message || '加载流量数据失败') }
+  finally { trafficLoading.value = false }
+}
+
+function openQuickTask(tenant: any) {
+  quickTaskTenant.value = tenant
+  Object.assign(quickTaskForm, {
+    architecture: 'ARM', operationSystem: 'Ubuntu',
+    ocpus: 1, memory: 6, disk: 50, createNumbers: 1, interval: 60, rootPassword: '', customScript: '',
+  })
+  quickTaskVisible.value = true
+}
+
+async function handleQuickTask() {
+  if (!quickTaskTenant.value) return
+
+  if (!quickTaskForm.rootPassword) {
+    const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$%'
+    let pwd = ''
+    for (let i = 0; i < 16; i++) pwd += chars[Math.floor(Math.random() * chars.length)]
+    quickTaskForm.rootPassword = pwd
+  }
+
+  try {
+    const checkRes = await hasRunningTask({ userId: quickTaskTenant.value.id })
+    if (checkRes.data === true) {
+      Modal.confirm({
+        title: '重复任务提醒',
+        content: '该账户已有正在运行的开机任务，是否仍要重复提交？',
+        okText: '继续创建',
+        cancelText: '取消',
+        onOk: () => doQuickTask(),
+      })
+      return
+    }
+  } catch {}
+
+  doQuickTask()
+}
+
+async function doQuickTask() {
+  quickTaskLoading.value = true
+  try {
+    await createTask({ userId: quickTaskTenant.value.id, ...quickTaskForm })
+    message.success('开机任务已创建')
+    quickTaskVisible.value = false
   } catch (e: any) {
-    message.error(e?.message || '加载流量数据失败')
+    message.error(e?.message || '创建任务失败')
   } finally {
-    trafficLoading.value = false
+    quickTaskLoading.value = false
   }
 }
 
 onMounted(() => {
-  loadTenants()
+  loadAllTenants()
   window.addEventListener('resize', checkMobile)
 })
 onUnmounted(() => window.removeEventListener('resize', checkMobile))
@@ -941,25 +1044,127 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   gap: 12px;
   flex-wrap: wrap;
 }
-.instance-grid {
+.tenant-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   gap: 16px;
+  margin-bottom: 24px;
 }
-.instance-card {
+.tenant-card {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 16px;
   padding: 20px;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: var(--shadow-card);
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  position: relative;
+  overflow: hidden;
+}
+.tenant-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--primary), #8b5cf6);
+  transform: scaleX(0);
+  transition: transform 0.3s;
+  transform-origin: left;
+}
+.tenant-card:hover::before { transform: scaleX(1); }
+.tenant-card:hover {
+  border-color: rgba(129, 140, 248, 0.5);
+  transform: translateY(-3px);
+  box-shadow: 0 8px 24px -6px rgba(99, 102, 241, 0.25);
+}
+.tenant-card-active {
+  border-color: var(--primary) !important;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2), var(--shadow-card);
+}
+.tenant-card-active::before { transform: scaleX(1); }
+.tc-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.tc-icon {
+  font-size: 28px;
+  color: var(--primary);
+  flex-shrink: 0;
+}
+.tc-info { min-width: 0; flex: 1; }
+.tc-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-main);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tc-region {
+  font-size: 12px;
+  color: var(--text-sub);
+  margin-top: 2px;
+}
+.tc-tags {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+  min-height: 22px;
+}
+.tc-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.instance-panel {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 20px;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: var(--shadow-card);
+}
+.instance-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.panel-title {
+  display: flex;
+  align-items: center;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+.panel-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.instance-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 14px;
+}
+.instance-card {
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 18px;
   cursor: pointer;
   transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
   display: flex;
   flex-direction: column;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
   position: relative;
   overflow: hidden;
-  box-shadow: var(--shadow-card);
 }
 .instance-card::before {
   content: '';
@@ -971,33 +1176,27 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
   transform-origin: left;
 }
-.instance-card:hover::before {
-  transform: scaleX(1);
-}
+.instance-card:hover::before { transform: scaleX(1); }
 .instance-card:hover {
   border-color: rgba(129, 140, 248, 0.5);
-  transform: translateY(-4px);
-  box-shadow: 0 12px 32px -8px rgba(99, 102, 241, 0.3);
+  transform: translateY(-3px);
+  box-shadow: 0 8px 24px -6px rgba(99, 102, 241, 0.25);
 }
 .card-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 16px;
+  margin-bottom: 14px;
 }
 .card-title {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 8px;
   min-width: 0;
 }
-.card-icon {
-  font-size: 20px;
-  color: var(--primary);
-  flex-shrink: 0;
-}
+.card-icon { font-size: 18px; color: var(--primary); flex-shrink: 0; }
 .card-name {
-  font-size: 15px;
+  font-size: 14px;
   font-weight: 700;
   color: var(--text-main);
   overflow: hidden;
@@ -1008,8 +1207,8 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  margin-bottom: 16px;
+  gap: 6px;
+  margin-bottom: 14px;
 }
 .card-info-row {
   display: flex;
@@ -1017,66 +1216,29 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   align-items: center;
   font-size: 13px;
 }
-.info-label {
-  color: var(--text-sub);
-  flex-shrink: 0;
-}
-.info-value {
-  color: var(--text-main);
-  text-align: right;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.ip-text {
-  font-family: 'JetBrains Mono', 'SF Mono', monospace;
-  font-size: 12px;
-  color: var(--primary);
-}
+.info-label { color: var(--text-sub); flex-shrink: 0; }
+.info-value { color: var(--text-main); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.ip-text { font-family: 'JetBrains Mono', 'SF Mono', monospace; font-size: 12px; color: var(--primary); }
 .card-actions {
   display: flex;
   gap: 4px;
   border-top: 1px solid var(--border);
-  padding-top: 12px;
+  padding-top: 10px;
   flex-wrap: wrap;
 }
 
 @media (max-width: 768px) {
-  .instance-toolbar {
-    flex-direction: column;
-    align-items: stretch;
-  }
-  .toolbar-left, .toolbar-right {
-    width: 100%;
-    flex-wrap: wrap;
-  }
-  .toolbar-left :deep(.ant-select) {
-    width: 100% !important;
-    flex: 1 1 100%;
-  }
-  .toolbar-left :deep(.ant-input-search) {
-    width: 100% !important;
-    flex: 1 1 100%;
-  }
-  .toolbar-right {
-    justify-content: space-between;
-  }
-  .instance-grid {
-    grid-template-columns: 1fr;
-    gap: 12px;
-  }
-  .instance-card {
-    padding: 16px;
-    border-radius: 12px;
-  }
-  .card-name {
-    font-size: 14px;
-  }
-  .card-info-row {
-    font-size: 12px;
-  }
-  .card-actions {
-    gap: 0;
-  }
+  .instance-toolbar { flex-direction: column; align-items: stretch; }
+  .toolbar-left, .toolbar-right { width: 100%; flex-wrap: wrap; }
+  .toolbar-left :deep(.ant-input-search) { width: 100% !important; flex: 1 1 100%; }
+  .toolbar-right { justify-content: space-between; }
+  .tenant-grid { grid-template-columns: 1fr 1fr; gap: 10px; }
+  .tenant-card { padding: 14px; border-radius: 12px; }
+  .tc-icon { font-size: 22px; }
+  .tc-name { font-size: 13px; }
+  .instance-panel { padding: 14px; border-radius: 12px; }
+  .instance-panel-header { flex-direction: column; align-items: flex-start; }
+  .instance-grid { grid-template-columns: 1fr; gap: 10px; }
+  .instance-card { padding: 14px; border-radius: 12px; }
 }
 </style>

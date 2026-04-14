@@ -33,7 +33,8 @@ public class TaskController {
                 params.getUserId(), params.getArchitecture(),
                 params.getOcpus(), params.getMemory(), params.getDisk(),
                 params.getCreateNumbers(), params.getInterval(),
-                params.getRootPassword(), params.getOperationSystem());
+                params.getRootPassword(), params.getOperationSystem(),
+                params.getCustomScript());
         return ResponseData.ok();
     }
 

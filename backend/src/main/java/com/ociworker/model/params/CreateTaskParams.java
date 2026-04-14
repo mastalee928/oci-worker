@@ -15,4 +15,5 @@ public class CreateTaskParams {
     private Integer interval = 60;
     private String rootPassword;
     private String operationSystem = "Ubuntu";
+    private String customScript;
 }

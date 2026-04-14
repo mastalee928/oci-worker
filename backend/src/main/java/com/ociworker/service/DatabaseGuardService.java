@@ -60,6 +60,7 @@ public class DatabaseGuardService {
                 create_numbers INT DEFAULT 1,
                 root_password VARCHAR(64),
                 operation_system VARCHAR(64) DEFAULT 'Ubuntu',
+                custom_script TEXT,
                 status VARCHAR(16) DEFAULT 'RUNNING',
                 attempt_count INT DEFAULT 0,
                 create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -127,6 +128,8 @@ public class DatabaseGuardService {
                     log.info("【数据库守护】表 {} 已自动创建", table);
                 }
             }
+
+            migrateColumns(conn);
         } catch (Exception e) {
             log.error("【数据库守护】启动自检失败: {}", e.getMessage(), e);
             sendAlert("启动自检失败", "数据库连接异常: " + e.getMessage());
@@ -262,6 +265,23 @@ public class DatabaseGuardService {
                             log.info("【数据库守护】清理过期备份: {}", p.getFileName());
                         } catch (IOException ignored) {}
                     });
+        }
+    }
+
+    private void migrateColumns(Connection conn) {
+        addColumnIfMissing(conn, "oci_create_task", "custom_script", "TEXT DEFAULT NULL AFTER operation_system");
+    }
+
+    private void addColumnIfMissing(Connection conn, String table, String column, String definition) {
+        try (ResultSet rs = conn.getMetaData().getColumns(conn.getCatalog(), null, table, column)) {
+            if (!rs.next()) {
+                try (Statement stmt = conn.createStatement()) {
+                    stmt.execute("ALTER TABLE `" + table + "` ADD COLUMN `" + column + "` " + definition);
+                    log.info("【数据库守护】自动添加字段 {}.{}", table, column);
+                }
+            }
+        } catch (SQLException e) {
+            log.warn("【数据库守护】检查/添加字段 {}.{} 失败: {}", table, column, e.getMessage());
         }
     }
 

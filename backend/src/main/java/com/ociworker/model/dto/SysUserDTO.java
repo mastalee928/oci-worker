@@ -22,6 +22,7 @@ public class SysUserDTO {
     private Integer createNumbers;
     private String rootPassword;
     private String operationSystem;
+    private String customScript;
     private OciCfg ociCfg;
 
     @Data

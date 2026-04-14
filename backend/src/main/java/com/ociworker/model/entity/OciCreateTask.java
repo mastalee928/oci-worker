@@ -21,6 +21,7 @@ public class OciCreateTask {
     private Integer createNumbers;
     private String rootPassword;
     private String operationSystem;
+    private String customScript;
     private String status;
     private Integer attemptCount;
     private LocalDateTime createTime;
