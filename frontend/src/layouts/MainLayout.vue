@@ -143,6 +143,11 @@ function handleLogout() {
   -webkit-backdrop-filter: blur(20px);
   transition: background 0.3s;
 }
+.sider :deep(.ant-layout-sider-children) {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
 .wallpaper-active .sider {
   background: rgba(15, 23, 42, 0.85) !important;
 }
