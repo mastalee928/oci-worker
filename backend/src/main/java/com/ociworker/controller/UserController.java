@@ -10,7 +10,7 @@ import java.util.List;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api/oci/user")
+@RequestMapping("/api/oci/identity")
 public class UserController {
 
     @Resource
