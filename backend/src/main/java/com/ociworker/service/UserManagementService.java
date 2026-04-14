@@ -74,7 +74,15 @@ public class UserManagementService {
                 map.put("description", user.getDescription());
                 map.put("state", user.getLifecycleState().getValue());
                 map.put("timeCreated", user.getTimeCreated() != null ? user.getTimeCreated().toString() : null);
-                map.put("isMfaActivated", user.getIsMfaActivated());
+
+                boolean hasMfa = false;
+                try {
+                    var mfaResp = client.listMfaTotpDevices(
+                            ListMfaTotpDevicesRequest.builder().userId(user.getId()).build());
+                    hasMfa = mfaResp.getItems() != null && !mfaResp.getItems().isEmpty();
+                } catch (Exception ignored) {}
+                map.put("isMfaActivated", hasMfa);
+
                 result.add(map);
             }
             return result;
