@@ -341,6 +341,17 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   justify-content: space-between;
   flex-wrap: wrap;
   gap: 8px;
+  transition: var(--trans);
+}
+/* 快速导入折叠区：覆盖内联浅色背景，随主题切换 */
+:deep(.ant-collapse) {
+  background: var(--bg-card) !important;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius-sm) !important;
+  box-shadow: var(--shadow-card) !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transition: var(--trans);
 }
 @media (max-width: 768px) {
   .table-toolbar {

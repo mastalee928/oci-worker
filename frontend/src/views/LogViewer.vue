@@ -177,27 +177,32 @@ onUnmounted(() => disconnect())
 </script>
 
 <style scoped>
-.log-toolbar { margin-bottom: 12px; }
+.log-toolbar { margin-bottom: 12px; transition: var(--trans); }
 .log-container {
-  background: #1e1e1e;
-  color: #d4d4d4;
+  background: var(--input-bg);
+  color: var(--text-main);
   font-family: 'Consolas', 'Monaco', monospace;
   font-size: 13px;
   line-height: 1.6;
   padding: 16px;
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   height: calc(100vh - 280px);
   overflow-y: auto;
   overflow-x: hidden;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-card);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transition: var(--trans);
 }
 .log-line { white-space: pre-wrap; word-break: break-all; }
-.log-error { color: #f56c6c; }
-.log-warn { color: #e6a23c; }
-.log-success { color: #67c23a; }
-.log-empty { color: #666; text-align: center; padding: 40px; }
+.log-error { color: var(--danger-text); }
+.log-warn { color: var(--warning-text); }
+.log-success { color: var(--success-text); }
+.log-empty { color: var(--text-sub); text-align: center; padding: 40px; }
 :deep(.log-highlight) {
-  background: #e6a23c;
-  color: #1e1e1e;
+  background: var(--warning-bg);
+  color: var(--text-main);
   padding: 0 2px;
   border-radius: 2px;
   font-weight: bold;

@@ -893,19 +893,37 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   gap: 16px;
 }
 .instance-card {
-  background: #fff;
-  border: 1px solid rgba(0, 0, 0, 0.06);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
   border-radius: 16px;
   padding: 20px;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
   display: flex;
   flex-direction: column;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  position: relative;
+  overflow: hidden;
+  box-shadow: var(--shadow-card);
+}
+.instance-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--primary), #8b5cf6);
+  transform: scaleX(0);
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transform-origin: left;
+}
+.instance-card:hover::before {
+  transform: scaleX(1);
 }
 .instance-card:hover {
-  border-color: #18E299;
-  box-shadow: 0 4px 16px rgba(24, 226, 153, 0.12);
-  transform: translateY(-2px);
+  border-color: rgba(129, 140, 248, 0.5);
+  transform: translateY(-4px);
+  box-shadow: 0 12px 32px -8px rgba(99, 102, 241, 0.3);
 }
 .card-header {
   display: flex;
@@ -921,13 +939,13 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
 }
 .card-icon {
   font-size: 20px;
-  color: #18E299;
+  color: var(--primary);
   flex-shrink: 0;
 }
 .card-name {
   font-size: 15px;
-  font-weight: 600;
-  color: #0d0d0d;
+  font-weight: 700;
+  color: var(--text-main);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -946,24 +964,25 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   font-size: 13px;
 }
 .info-label {
-  color: #888;
+  color: var(--text-sub);
   flex-shrink: 0;
 }
 .info-value {
-  color: #333;
+  color: var(--text-main);
   text-align: right;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .ip-text {
-  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-family: 'JetBrains Mono', 'SF Mono', monospace;
   font-size: 12px;
+  color: var(--primary);
 }
 .card-actions {
   display: flex;
   gap: 4px;
-  border-top: 1px solid rgba(0, 0, 0, 0.04);
+  border-top: 1px solid var(--border);
   padding-top: 12px;
   flex-wrap: wrap;
 }

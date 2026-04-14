@@ -48,3 +48,14 @@ function handleBackup() { message.info('备份功能将在后续版本实现') }
 function handleFileSelect() { return false }
 function handleRestore() { message.info('恢复功能将在后续版本实现') }
 </script>
+
+<style scoped>
+:deep(.ant-card) {
+  border-radius: var(--radius-lg) !important;
+  border-color: var(--border) !important;
+  box-shadow: var(--shadow-card) !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transition: var(--trans);
+}
+</style>

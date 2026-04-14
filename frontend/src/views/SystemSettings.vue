@@ -162,8 +162,24 @@ onMounted(() => loadNotifyConfig())
 </script>
 
 <style scoped>
-.settings-card { max-width: 480px; }
-.settings-card-wide { max-width: 560px; }
+.settings-card {
+  max-width: 480px;
+  border-radius: var(--radius-lg) !important;
+  box-shadow: var(--shadow-card) !important;
+  border-color: var(--border) !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transition: var(--trans);
+}
+.settings-card-wide {
+  max-width: 560px;
+  border-radius: var(--radius-lg) !important;
+  box-shadow: var(--shadow-card) !important;
+  border-color: var(--border) !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transition: var(--trans);
+}
 
 @media (max-width: 768px) {
   .settings-card,

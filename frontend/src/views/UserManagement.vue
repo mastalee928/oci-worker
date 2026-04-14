@@ -204,7 +204,14 @@ onMounted(() => {
 </script>
 
 <style scoped>
-.table-toolbar { margin-bottom: 16px; }
+.table-toolbar {
+  margin-bottom: 16px;
+  transition: var(--trans);
+}
+/* 密码结果弹窗内提示文案（模板内联色由主题变量接管） */
+:deep(.ant-modal .ant-alert-description > div:last-child) {
+  color: var(--text-sub) !important;
+}
 @media (max-width: 768px) {
   .table-toolbar :deep(.ant-space) {
     flex-wrap: wrap;

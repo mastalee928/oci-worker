@@ -1,33 +1,37 @@
 <template>
   <div class="setup-page">
-    <div class="setup-glow" />
+    <div class="bg-glow" />
+    <div class="bg-glow-2" />
     <div class="setup-card">
-      <div class="setup-brand">
-        <div class="brand-icon">⚡</div>
-        <h1>OCI Worker</h1>
+      <div class="setup-header">
+        <i class="ri-server-line logo-icon"></i>
+        <h2>OCI Worker</h2>
         <p>首次使用，请设置管理员账户</p>
       </div>
 
       <div class="security-notice">
-        <SafetyCertificateOutlined style="color: #18E299; font-size: 16px" />
+        <i class="ri-shield-check-line" style="color: #818cf8; font-size: 18px; flex-shrink: 0"></i>
         <span>请设置管理员账户，密码至少6位</span>
       </div>
 
       <a-form :model="form" @finish="handleSetup" layout="vertical" class="setup-form">
         <a-form-item name="account" :rules="[{ required: true, message: '请设置用户名' }]">
-          <a-input v-model:value="form.account" placeholder="设置用户名" size="large" class="setup-input">
-            <template #prefix><UserOutlined style="color: #888" /></template>
-          </a-input>
+          <div class="input-box">
+            <a-input v-model:value="form.account" placeholder="设置用户名" size="large" class="setup-input" />
+            <i class="ri-user-3-line input-icon"></i>
+          </div>
         </a-form-item>
         <a-form-item name="password" :rules="passwordRules">
-          <a-input-password v-model:value="form.password" placeholder="设置密码" size="large" class="setup-input">
-            <template #prefix><LockOutlined style="color: #888" /></template>
-          </a-input-password>
+          <div class="input-box">
+            <a-input-password v-model:value="form.password" placeholder="设置密码" size="large" class="setup-input" />
+            <i class="ri-lock-2-line input-icon"></i>
+          </div>
         </a-form-item>
         <a-form-item name="confirmPassword" :rules="confirmRules">
-          <a-input-password v-model:value="form.confirmPassword" placeholder="确认密码" size="large" class="setup-input">
-            <template #prefix><LockOutlined style="color: #888" /></template>
-          </a-input-password>
+          <div class="input-box">
+            <a-input-password v-model:value="form.confirmPassword" placeholder="确认密码" size="large" class="setup-input" />
+            <i class="ri-lock-2-line input-icon"></i>
+          </div>
         </a-form-item>
 
         <div class="password-strength" v-if="form.password">
@@ -38,9 +42,13 @@
         </div>
 
         <a-form-item>
-          <a-button type="primary" html-type="submit" :loading="loading" block size="large" class="setup-btn">
-            完成初始化
-          </a-button>
+          <button type="submit" :disabled="loading" class="submit-btn">
+            <span v-if="loading">初始化中...</span>
+            <template v-else>
+              完成初始化
+              <i class="ri-arrow-right-line"></i>
+            </template>
+          </button>
         </a-form-item>
       </a-form>
     </div>
@@ -48,13 +56,11 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, computed } from 'vue'
+import { reactive, ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { UserOutlined, LockOutlined, SafetyCertificateOutlined } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
 import { useUserStore } from '../stores/user'
 import { setupAccount, needSetup } from '../api/auth'
-import { onMounted } from 'vue'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -64,9 +70,7 @@ const form = reactive({ account: '', password: '', confirmPassword: '' })
 onMounted(async () => {
   try {
     const res = await needSetup()
-    if (!res.data) {
-      router.replace('/login')
-    }
+    if (!res.data) router.replace('/login')
   } catch {
     router.replace('/login')
   }
@@ -104,9 +108,9 @@ const passwordStrength = computed(() => {
 const strengthPercent = computed(() => Math.min(100, (passwordStrength.value / 6) * 100))
 const strengthColor = computed(() => {
   const s = passwordStrength.value
-  if (s <= 2) return '#ff4d4f'
-  if (s <= 4) return '#faad14'
-  return '#18E299'
+  if (s <= 2) return '#ef4444'
+  if (s <= 4) return '#f59e0b'
+  return '#10b981'
 })
 const strengthLabel = computed(() => {
   const s = passwordStrength.value
@@ -139,78 +143,110 @@ async function handleSetup() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #fafafa;
+  background: #020617;
   position: relative;
   overflow: hidden;
 }
-.setup-glow {
+.bg-glow {
   position: absolute;
-  top: -200px;
-  left: 50%;
-  transform: translateX(-50%);
-  width: 800px;
-  height: 600px;
-  background: radial-gradient(ellipse, rgba(24, 226, 153, 0.12) 0%, rgba(24, 226, 153, 0.03) 50%, transparent 70%);
-  pointer-events: none;
+  width: 600px; height: 600px;
+  background: radial-gradient(circle, rgba(99, 102, 241, 0.1) 0%, transparent 70%);
+  top: -10%; left: -10%;
+  z-index: 0;
+  animation: float 10s infinite ease-in-out;
+}
+.bg-glow-2 {
+  position: absolute;
+  width: 500px; height: 500px;
+  background: radial-gradient(circle, rgba(168, 85, 247, 0.1) 0%, transparent 70%);
+  bottom: -10%; right: -10%;
+  z-index: 0;
+  animation: float 10s infinite ease-in-out reverse;
+}
+@keyframes float {
+  0%, 100% { transform: translate(0, 0); }
+  50% { transform: translate(30px, 30px); }
 }
 .setup-card {
-  width: 460px;
-  max-width: calc(100vw - 32px);
+  background: rgba(30, 41, 59, 0.4);
+  backdrop-filter: blur(24px);
+  -webkit-backdrop-filter: blur(24px);
   padding: 48px 40px;
-  background: #fff;
   border-radius: 24px;
-  border: 1px solid rgba(0,0,0,0.05);
-  box-shadow: 0 4px 24px rgba(0,0,0,0.06);
+  width: 100%;
+  max-width: 420px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
   position: relative;
   z-index: 1;
 }
-.setup-brand {
+.setup-header {
   text-align: center;
   margin-bottom: 24px;
 }
-.brand-icon {
-  width: 56px;
-  height: 56px;
-  margin: 0 auto 16px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 28px;
-  background: linear-gradient(135deg, #18E299, #0fa76e);
-  border-radius: 16px;
-  box-shadow: 0 4px 16px rgba(24, 226, 153, 0.25);
+.logo-icon {
+  font-size: 48px;
+  display: inline-block;
+  background: linear-gradient(135deg, #818cf8, #c084fc);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  filter: drop-shadow(0 0 10px rgba(99, 102, 241, 0.3));
+  margin-bottom: 10px;
 }
-.setup-brand h1 {
-  font-size: 26px;
-  font-weight: 600;
-  color: #0d0d0d;
-  letter-spacing: -0.5px;
-  margin: 0 0 4px;
-}
-.setup-brand p {
-  color: #888;
-  font-size: 14px;
+.setup-header h2 {
   margin: 0;
+  font-size: 24px;
+  font-weight: 700;
+  color: #fff;
+}
+.setup-header p {
+  margin: 8px 0 0;
+  color: #94a3b8;
+  font-size: 14px;
 }
 .security-notice {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
   padding: 12px 16px;
-  background: rgba(24, 226, 153, 0.06);
-  border: 1px solid rgba(24, 226, 153, 0.15);
+  background: rgba(99, 102, 241, 0.08);
+  border: 1px solid rgba(99, 102, 241, 0.2);
   border-radius: 12px;
   font-size: 13px;
-  color: #555;
+  color: #94a3b8;
   margin-bottom: 24px;
 }
-.setup-input { border-radius: 12px !important; height: 48px; }
-.setup-btn {
-  height: 48px !important;
-  font-size: 16px !important;
-  font-weight: 600 !important;
-  border-radius: 9999px !important;
-  margin-top: 8px;
+.input-box {
+  position: relative;
+}
+.input-icon {
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  color: #94a3b8;
+  font-size: 18px;
+  z-index: 1;
+  pointer-events: none;
+}
+.setup-input {
+  height: 48px;
+}
+.setup-input :deep(input) {
+  padding-left: 44px !important;
+  background: rgba(15, 23, 42, 0.5) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 12px !important;
+  color: #fff !important;
+  font-size: 15px !important;
+}
+.setup-input :deep(input:focus) {
+  border-color: #6366f1 !important;
+  background: rgba(15, 23, 42, 0.8) !important;
+  box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.15) !important;
+}
+.setup-input :deep(.ant-input-suffix) {
+  color: #94a3b8;
 }
 .password-strength {
   display: flex;
@@ -221,7 +257,7 @@ async function handleSetup() {
 .strength-bar {
   flex: 1;
   height: 4px;
-  background: #eee;
+  background: rgba(255, 255, 255, 0.1);
   border-radius: 2px;
   overflow: hidden;
 }
@@ -230,8 +266,38 @@ async function handleSetup() {
   border-radius: 2px;
   transition: width 0.3s, background 0.3s;
 }
+.submit-btn {
+  width: 100%;
+  padding: 14px;
+  background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);
+  color: #fff;
+  border: none;
+  border-radius: 12px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: 0.3s;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-family: inherit;
+  margin-top: 8px;
+}
+.submit-btn:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 15px -3px rgba(99, 102, 241, 0.4);
+}
+.submit-btn:disabled {
+  opacity: 0.7;
+  cursor: not-allowed;
+}
+.setup-form :deep(.ant-form-item) {
+  margin-bottom: 20px;
+}
 @media (max-width: 480px) {
-  .setup-card { padding: 32px 24px; border-radius: 20px; }
-  .setup-brand h1 { font-size: 22px; }
+  .setup-card { padding: 36px 24px; margin: 0 16px; }
+  .setup-header h2 { font-size: 20px; }
 }
 </style>

@@ -316,7 +316,10 @@ onMounted(() => loadData())
 </script>
 
 <style scoped>
-.table-toolbar { margin-bottom: 16px; }
+.table-toolbar { margin-bottom: 16px; transition: var(--trans); }
+:deep(.row-inactive td) {
+  color: var(--text-sub) !important;
+}
 @media (max-width: 768px) {
   .table-toolbar :deep(.ant-space) {
     flex-wrap: wrap;
@@ -336,10 +339,5 @@ onMounted(() => loadData())
   .table-toolbar :deep(.ant-btn) {
     width: auto;
   }
-}
-</style>
-<style>
-.row-inactive td {
-  color: #bbb !important;
 }
 </style>
