@@ -203,6 +203,12 @@ body::after {
   color: var(--text-main) !important;
   caret-color: var(--text-main) !important;
 }
+.ant-input-affix-wrapper {
+  padding-left: 14px !important;
+}
+.ant-input-affix-wrapper .ant-input {
+  padding-left: 0 !important;
+}
 .ant-input::placeholder, .ant-input-number-input::placeholder {
   color: var(--text-sub) !important;
 }
