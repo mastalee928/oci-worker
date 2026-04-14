@@ -3,8 +3,9 @@ set -e
 
 INSTALL_DIR="/opt/oci-worker"
 JAR_NAME="oci-worker.jar"
-JAR_URL="https://github.com/mastalee928/oci-worker/releases/download/latest/oci-worker-1.0.0.jar"
 SERVICE_NAME="oci-worker"
+REPO="mastalee928/oci-worker"
+ASSET_NAME="oci-worker-1.0.0.jar"
 
 echo "=== OCI Worker 一键更新 ==="
 echo ""
@@ -17,16 +18,27 @@ fi
 OLD_SIZE=$(stat -c%s "$INSTALL_DIR/$JAR_NAME" 2>/dev/null || echo "0")
 echo "📦 当前 JAR 大小: $(numfmt --to=iec $OLD_SIZE 2>/dev/null || echo "${OLD_SIZE} bytes")"
 
+echo "🔍 获取最新版本下载地址..."
+JAR_URL=$(curl -sL "https://api.github.com/repos/${REPO}/releases/latest" \
+  | grep -o "https://github.com/${REPO}/releases/download/[^\"]*${ASSET_NAME}" \
+  | head -1)
+
+if [ -z "$JAR_URL" ]; then
+    JAR_URL="https://github.com/${REPO}/releases/download/latest/${ASSET_NAME}"
+    echo "⚠  API 获取失败，使用默认地址"
+fi
+echo "📎 下载地址: $JAR_URL"
+
 echo "⏹  停止服务..."
 sudo systemctl stop "$SERVICE_NAME" 2>/dev/null || true
 sleep 1
 
 echo "⬇  下载最新版本..."
-sudo curl -fSL -o "$INSTALL_DIR/$JAR_NAME.tmp" "$JAR_URL"
+sudo curl -fSL --retry 3 --retry-delay 5 -o "$INSTALL_DIR/$JAR_NAME.tmp" "$JAR_URL"
 
 NEW_SIZE=$(stat -c%s "$INSTALL_DIR/$JAR_NAME.tmp" 2>/dev/null || echo "0")
 if [ "$NEW_SIZE" -lt 1000 ]; then
-    echo "❌ 下载失败：文件大小异常 (${NEW_SIZE} bytes)，可能是 404"
+    echo "❌ 下载失败：文件大小异常 (${NEW_SIZE} bytes)"
     sudo rm -f "$INSTALL_DIR/$JAR_NAME.tmp"
     echo "▶  恢复启动旧版本..."
     sudo systemctl start "$SERVICE_NAME"

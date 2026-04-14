@@ -38,13 +38,17 @@ jobs:
         working-directory: backend
         run: mvn clean package -DskipTests -q
 
-      - name: Upload JAR to Release
-        uses: softprops/action-gh-release@v2
-        with:
-          tag_name: latest
-          name: Latest Build
-          body: "Auto-built from commit ${{ github.sha }}"
-          make_latest: true
-          files: backend/target/oci-worker-1.0.0.jar
+      - name: Delete old release
+        run: gh release delete latest --yes --cleanup-tag 2>/dev/null || true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Create release with JAR
+        run: |
+          gh release create latest \
+            --title "Latest Build" \
+            --notes "Auto-built from commit ${{ github.sha }}" \
+            --latest \
+            backend/target/oci-worker-1.0.0.jar
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
