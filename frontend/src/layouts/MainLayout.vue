@@ -32,13 +32,13 @@
           <template v-if="!collapsed || (isMobile && mobileMenuOpen)">
             <div class="user-info">
               <div class="user-name">Admin</div>
-              <div class="user-status"><span class="status-dot"></span>管理员在线</div>
+              <div class="user-status">管理员在线</div>
             </div>
-            <button class="btn-logout-icon" @click="handleLogout" title="安全退出">
-              <i class="ri-logout-box-r-line"></i>
-            </button>
           </template>
         </div>
+        <button v-if="!collapsed || (isMobile && mobileMenuOpen)" class="btn-logout" @click="handleLogout">
+          <i class="ri-logout-box-r-line"></i> 安全退出
+        </button>
       </div>
     </a-layout-sider>
 
@@ -192,7 +192,7 @@ function handleLogout() {
 }
 
 .sidebar-footer {
-  padding: 12px;
+  padding: 16px;
   border-top: 1px solid var(--border);
   flex-shrink: 0;
 }
@@ -200,64 +200,49 @@ function handleLogout() {
   display: flex;
   align-items: center;
   gap: 12px;
-  padding: 10px 12px;
-  background: rgba(15, 23, 42, 0.4);
-  border-radius: 14px;
+  padding: 12px;
+  background: var(--input-bg);
+  border-radius: 16px;
   border: 1px solid var(--border);
+  margin-bottom: 12px;
   cursor: default;
 }
-[data-theme="light"] .user-card {
-  background: rgba(241, 245, 249, 0.6);
-}
 .avatar {
-  width: 36px;
-  height: 36px;
+  width: 42px;
+  height: 42px;
   background: linear-gradient(135deg, #818cf8, #4f46e5);
-  border-radius: 10px;
+  border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
   color: #fff;
   font-weight: 700;
-  font-size: 15px;
+  font-size: 18px;
   box-shadow: 0 4px 10px rgba(99, 102, 241, 0.3);
   flex-shrink: 0;
 }
 .user-info { flex: 1; min-width: 0; }
-.user-name { font-weight: 700; font-size: 13px; color: var(--text-main); }
-.user-status {
-  font-size: 11px;
-  color: var(--text-sub);
-  margin-top: 1px;
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-.status-dot {
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: #10b981;
-  display: inline-block;
-  box-shadow: 0 0 6px rgba(16, 185, 129, 0.5);
-}
-.btn-logout-icon {
-  width: 32px;
-  height: 32px;
-  border-radius: 8px;
-  border: 1px solid rgba(239, 68, 68, 0.15);
-  background: rgba(239, 68, 68, 0.06);
+.user-name { font-weight: 700; font-size: 14px; color: var(--text-main); }
+.user-status { font-size: 12px; color: var(--text-sub); margin-top: 2px; }
+.btn-logout {
+  width: 100%;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid rgba(239, 68, 68, 0.2);
+  background: rgba(239, 68, 68, 0.05);
   color: #ef4444;
   cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 16px;
+  gap: 6px;
   transition: var(--trans);
-  flex-shrink: 0;
+  font-family: inherit;
 }
-.btn-logout-icon:hover {
-  background: rgba(239, 68, 68, 0.15);
+.btn-logout:hover {
+  background: rgba(239, 68, 68, 0.1);
   transform: translateY(-1px);
 }
 
