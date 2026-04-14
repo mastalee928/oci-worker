@@ -43,9 +43,18 @@ public class AuthInterceptor implements HandlerInterceptor {
         return stored != null ? stored : defaultAccount;
     }
 
+    private boolean isHashedPassword(String pwd) {
+        return pwd != null && pwd.length() == 64 && pwd.matches("[0-9a-f]+");
+    }
+
     private String getEffectivePasswordHash() {
         String stored = getKv("web_password");
-        if (stored != null) return stored;
+        if (stored != null) {
+            if (isHashedPassword(stored)) {
+                return stored;
+            }
+            return DigestUtil.sha256Hex(stored);
+        }
         return DigestUtil.sha256Hex(defaultPassword);
     }
 

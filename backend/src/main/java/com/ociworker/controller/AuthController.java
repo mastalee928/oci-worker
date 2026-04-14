@@ -59,7 +59,7 @@ public class AuthController {
     }
 
     private boolean isSetupDone() {
-        return getKv(CODE_ACCOUNT) != null;
+        return getKv(CODE_ACCOUNT) != null || getKv(CODE_PASSWORD) != null;
     }
 
     public String getEffectiveAccount() {
@@ -67,9 +67,20 @@ public class AuthController {
         return stored != null ? stored : defaultAccount;
     }
 
+    private boolean isHashedPassword(String pwd) {
+        return pwd != null && pwd.length() == 64 && pwd.matches("[0-9a-f]+");
+    }
+
     public String getEffectivePasswordHash() {
         String stored = getKv(CODE_PASSWORD);
-        if (stored != null) return stored;
+        if (stored != null) {
+            if (isHashedPassword(stored)) {
+                return stored;
+            }
+            String hashed = DigestUtil.sha256Hex(stored);
+            setKv(CODE_PASSWORD, hashed);
+            return hashed;
+        }
         return DigestUtil.sha256Hex(defaultPassword);
     }
 
@@ -88,12 +99,8 @@ public class AuthController {
         if (account == null || account.length() < 3) {
             return ResponseData.error("用户名至少3个字符");
         }
-        if (password == null || password.length() < 8) {
-            return ResponseData.error("密码至少8个字符");
-        }
-        if (!password.matches(".*[A-Z].*") || !password.matches(".*[a-z].*")
-                || !password.matches(".*\\d.*") || !password.matches(".*[!@#$%^&*].*")) {
-            return ResponseData.error("密码需包含大写、小写、数字和特殊字符(!@#$%^&*)");
+        if (password == null || password.length() < 6) {
+            return ResponseData.error("密码至少6个字符");
         }
 
         setKv(CODE_ACCOUNT, account);
@@ -133,12 +140,8 @@ public class AuthController {
     public ResponseData<?> changePassword(@RequestBody Map<String, String> params) {
         String oldPwd = params.get("oldPassword");
         String newPwd = params.get("newPassword");
-        if (oldPwd == null || newPwd == null || newPwd.length() < 8) {
-            return ResponseData.error("新密码不能少于8位");
-        }
-        if (!newPwd.matches(".*[A-Z].*") || !newPwd.matches(".*[a-z].*")
-                || !newPwd.matches(".*\\d.*") || !newPwd.matches(".*[!@#$%^&*].*")) {
-            return ResponseData.error("密码需包含大写、小写、数字和特殊字符(!@#$%^&*)");
+        if (oldPwd == null || newPwd == null || newPwd.length() < 6) {
+            return ResponseData.error("新密码不能少于6位");
         }
 
         String effectivePwdHash = getEffectivePasswordHash();

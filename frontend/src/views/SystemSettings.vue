@@ -8,7 +8,7 @@
               <a-input-password v-model:value="pwdForm.oldPassword" placeholder="输入当前密码" />
             </a-form-item>
             <a-form-item label="新密码" required>
-              <a-input-password v-model:value="pwdForm.newPassword" placeholder="至少8位，含大小写、数字和特殊字符" />
+              <a-input-password v-model:value="pwdForm.newPassword" placeholder="至少6位" />
             </a-form-item>
             <a-form-item label="确认新密码" required>
               <a-input-password v-model:value="pwdForm.confirmPassword" placeholder="再次输入新密码" />
@@ -97,13 +97,8 @@ async function handleChangePassword() {
     message.warning('请填写密码')
     return
   }
-  if (pwdForm.newPassword.length < 8) {
-    message.warning('新密码不能少于 8 位')
-    return
-  }
-  if (!/[A-Z]/.test(pwdForm.newPassword) || !/[a-z]/.test(pwdForm.newPassword)
-      || !/\d/.test(pwdForm.newPassword) || !/[!@#$%^&*]/.test(pwdForm.newPassword)) {
-    message.warning('密码需包含大写、小写、数字和特殊字符(!@#$%^&*)')
+  if (pwdForm.newPassword.length < 6) {
+    message.warning('新密码不能少于 6 位')
     return
   }
   if (pwdForm.newPassword !== pwdForm.confirmPassword) {
