@@ -306,6 +306,9 @@ public class OciClientService implements Closeable {
                         continue;
                     }
 
+                    log.info("【开机任务】用户:[{}],区域:[{}],系统架构:[{}],使用子网:[{}] 创建实例...",
+                            user.getUsername(), user.getOciCfg().getRegion(), user.getArchitecture(), subnet.getDisplayName());
+
                     String cloudInitScript = CommonUtils.getPwdShell(user.getRootPassword());
                     LaunchInstanceDetails launchDetails = buildLaunchDetails(ad, shape, image, subnet, cloudInitScript);
                     Instance instance = launchInstance(launchDetails);
@@ -322,28 +325,23 @@ public class OciClientService implements Closeable {
                     result.setImage(image.getId());
                     result.setRootPassword(user.getRootPassword());
                     result.setRegion(user.getOciCfg().getRegion());
-
-                    log.info("[CreateTask] User:[{}], Region:[{}], Arch:[{}] - Instance created successfully! IP: {}",
-                            user.getUsername(), user.getOciCfg().getRegion(), user.getArchitecture(), publicIp);
                     return result;
                 }
             }
         } catch (com.oracle.bmc.model.BmcException e) {
             if (e.getStatusCode() == 401) {
                 result.setDie(true);
-                log.error("[CreateTask] User:[{}] - Auth failed (401)", user.getUsername());
-            } else if (e.getStatusCode() == 500 || e.getMessage().contains("Out of host capacity")) {
+            } else if (e.getStatusCode() == 500 || e.getMessage().contains("Out of host capacity")
+                    || (e.getStatusCode() == 400 && e.getMessage().contains("LimitExceeded"))
+                    || e.getStatusCode() == 429) {
                 result.setOutOfCapacity(true);
-                log.warn("[CreateTask] User:[{}] - Out of capacity", user.getUsername());
-            } else if (e.getStatusCode() == 400 && e.getMessage().contains("LimitExceeded")) {
-                result.setOutOfCapacity(true);
-                log.warn("[CreateTask] User:[{}] - Limit exceeded", user.getUsername());
             } else {
-                log.error("[CreateTask] User:[{}] - OCI Error: {} ({})",
-                        user.getUsername(), e.getMessage(), e.getStatusCode());
+                log.error("【开机任务】用户:[{}],区域:[{}] - OCI 错误: {} ({})",
+                        user.getUsername(), user.getOciCfg().getRegion(), e.getMessage(), e.getStatusCode());
             }
         } catch (Exception e) {
-            log.error("[CreateTask] User:[{}] - Error: {}", user.getUsername(), e.getMessage());
+            log.error("【开机任务】用户:[{}],区域:[{}] - 异常: {}",
+                    user.getUsername(), user.getOciCfg().getRegion(), e.getMessage());
         }
         return result;
     }
@@ -351,7 +349,7 @@ public class OciClientService implements Closeable {
     private Subnet findOrCreateSubnet(String availabilityDomain) {
         List<Vcn> vcnList = listVcn();
         if (CollectionUtil.isEmpty(vcnList)) {
-            log.info("[CreateTask] No VCN found, creating...");
+            log.info("【开机任务】用户:[{}],区域:[{}] - 未找到 VCN，正在创建...", user.getUsername(), user.getOciCfg().getRegion());
             Vcn vcn = createVcn(CIDR_BLOCK);
             InternetGateway igw = createInternetGateway(vcn);
             addInternetGatewayToDefaultRouteTable(vcn, igw);

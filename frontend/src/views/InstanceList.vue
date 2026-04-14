@@ -50,7 +50,7 @@
     <a-drawer
       v-model:open="drawerVisible"
       :title="currentInstance?.name || '实例详情'"
-      width="720"
+      width="780"
       placement="right"
       :mask-closable="false"
     >
@@ -64,14 +64,67 @@
             <a-descriptions-item label="Region">{{ currentInstance.region }}</a-descriptions-item>
             <a-descriptions-item label="Shape">{{ currentInstance.shape }}</a-descriptions-item>
             <a-descriptions-item label="配置">{{ currentInstance.ocpus }} OCPU / {{ currentInstance.memoryInGBs }} GB</a-descriptions-item>
-            <a-descriptions-item label="公网 IP">
-              <a-typography-text copyable v-if="currentInstance.publicIp">{{ currentInstance.publicIp }}</a-typography-text>
-              <span v-else style="color: #999">无</span>
-            </a-descriptions-item>
             <a-descriptions-item label="状态">
               <a-badge :status="stateColorMap[currentInstance.state] || 'default'" :text="currentInstance.state" />
             </a-descriptions-item>
           </a-descriptions>
+
+          <!-- 网络详情 -->
+          <a-divider orientation="left">网络信息</a-divider>
+          <a-button size="small" @click="loadNetworkDetail" :loading="netDetailLoading" style="margin-bottom: 12px">
+            {{ networkDetail ? '刷新网络信息' : '加载网络信息' }}
+          </a-button>
+
+          <template v-if="networkDetail">
+            <div v-for="(vnic, vi) in networkDetail.vnics" :key="vi" style="margin-bottom: 16px">
+              <a-descriptions :column="1" bordered size="small" :title="'VNIC: ' + (vnic.displayName || vnic.vnicId)">
+                <a-descriptions-item label="内网 IP">
+                  <a-typography-text copyable v-if="vnic.privateIp">{{ vnic.privateIp }}</a-typography-text>
+                  <span v-else style="color: #999">无</span>
+                </a-descriptions-item>
+                <a-descriptions-item label="公网 IP">
+                  <a-typography-text copyable v-if="vnic.publicIp">{{ vnic.publicIp }}</a-typography-text>
+                  <span v-else style="color: #999">无</span>
+                </a-descriptions-item>
+                <a-descriptions-item label="IPv6 地址">
+                  <template v-if="vnic.ipv6Addresses && vnic.ipv6Addresses.length > 0">
+                    <div v-for="(ip6, i6) in vnic.ipv6Addresses" :key="i6">
+                      <a-typography-text copyable>{{ ip6 }}</a-typography-text>
+                    </div>
+                  </template>
+                  <span v-else style="color: #999">
+                    无
+                    <a-button type="link" size="small" @click="handleAddIpv6" :loading="ipv6Loading">添加 IPv6</a-button>
+                  </span>
+                </a-descriptions-item>
+                <a-descriptions-item label="IP 详情">
+                  <div v-for="(ipd, idx) in vnic.ipDetails" :key="idx" style="margin-bottom: 8px; padding: 8px; background: #fafafa; border-radius: 4px;">
+                    <div>
+                      <b>内网 IP:</b>
+                      <a-typography-text copyable>{{ ipd.privateIpAddress }}</a-typography-text>
+                      <a-tag v-if="ipd.isPrimary" color="blue" style="margin-left: 8px">主IP</a-tag>
+                    </div>
+                    <div v-if="ipd.publicIpAddress">
+                      <b>公网 IP:</b>
+                      <a-typography-text copyable>{{ ipd.publicIpAddress }}</a-typography-text>
+                      <a-tag :color="ipd.publicIpLifetime === 'RESERVED' ? 'green' : 'orange'" style="margin-left: 8px">
+                        {{ ipd.publicIpLifetime === 'RESERVED' ? '预留IP' : '临时IP' }}
+                      </a-tag>
+                    </div>
+                    <div v-else>
+                      <b>公网 IP:</b> <span style="color: #999">无</span>
+                    </div>
+                    <div v-if="ipd.isPrimary && (!ipd.publicIpAddress || ipd.publicIpLifetime !== 'RESERVED')" style="margin-top: 4px">
+                      <a-popconfirm title="将临时IP替换为预留IP？" @confirm="handleCreateReservedIp">
+                        <a-button type="link" size="small" :loading="reservedIpLoading">创建预留IP</a-button>
+                      </a-popconfirm>
+                    </div>
+                  </div>
+                </a-descriptions-item>
+              </a-descriptions>
+            </div>
+          </template>
+
           <a-divider />
           <a-space>
             <a-popconfirm v-if="currentInstance?.state === 'STOPPED'" title="确定启动？" @confirm="handleAction(currentInstance!, 'START')">
@@ -96,6 +149,7 @@
           <div style="margin-bottom: 12px">
             <a-space>
               <a-button @click="loadSecurityRules" :loading="secLoading">加载规则</a-button>
+              <a-button type="primary" @click="showAddRuleModal">添加规则</a-button>
               <a-popconfirm title="确定一键放行所有端口？" @confirm="handleReleaseAll">
                 <a-button type="primary" danger :loading="releaseLoading">一键放行</a-button>
               </a-popconfirm>
@@ -113,7 +167,26 @@
 
         <a-tab-pane key="volume" tab="引导卷">
           <a-button @click="loadBootVolumes" :loading="volLoading" style="margin-bottom: 12px">加载引导卷</a-button>
-          <a-table :data-source="bootVolumes" :columns="volColumns" size="small" :pagination="false" row-key="id" />
+          <a-table :data-source="bootVolumes" :columns="volColumns" size="small" :pagination="false" row-key="id">
+            <template #bodyCell="{ column, record }">
+              <template v-if="column.key === 'volAction'">
+                <a-button type="link" size="small" @click="openEditVolume(record)">编辑</a-button>
+              </template>
+            </template>
+          </a-table>
+        </a-tab-pane>
+
+        <a-tab-pane key="reservedIp" tab="预留IP">
+          <a-button @click="loadReservedIps" :loading="reservedIpListLoading" style="margin-bottom: 12px">加载预留IP</a-button>
+          <a-table :data-source="reservedIps" :columns="reservedIpColumns" size="small" :pagination="false" row-key="id">
+            <template #bodyCell="{ column, record }">
+              <template v-if="column.key === 'ripAction'">
+                <a-popconfirm title="确定删除此预留IP？" @confirm="handleDeleteReservedIp(record.id)">
+                  <a-button type="link" danger size="small">删除</a-button>
+                </a-popconfirm>
+              </template>
+            </template>
+          </a-table>
         </a-tab-pane>
 
         <a-tab-pane key="network" tab="网络">
@@ -138,6 +211,64 @@
         </a-tab-pane>
       </a-tabs>
     </a-drawer>
+
+    <!-- 添加安全规则弹窗 -->
+    <a-modal v-model:open="addRuleVisible" title="添加安全规则" @ok="handleAddRule"
+      :confirm-loading="addRuleLoading" :mask-closable="false">
+      <a-form layout="vertical">
+        <a-form-item label="方向">
+          <a-radio-group v-model:value="ruleForm.direction">
+            <a-radio value="ingress">入站</a-radio>
+            <a-radio value="egress">出站</a-radio>
+          </a-radio-group>
+        </a-form-item>
+        <a-form-item label="协议">
+          <a-select v-model:value="ruleForm.protocol">
+            <a-select-option value="TCP">TCP</a-select-option>
+            <a-select-option value="UDP">UDP</a-select-option>
+            <a-select-option value="ICMP">ICMP</a-select-option>
+            <a-select-option value="ICMPV6">ICMPv6</a-select-option>
+            <a-select-option value="ALL">全部协议</a-select-option>
+          </a-select>
+        </a-form-item>
+        <a-form-item label="来源/目的 CIDR">
+          <a-input v-model:value="ruleForm.source" placeholder="0.0.0.0/0" />
+        </a-form-item>
+        <a-form-item label="端口范围" v-if="ruleForm.protocol === 'TCP' || ruleForm.protocol === 'UDP'">
+          <a-space>
+            <a-input-number v-model:value="ruleForm.portMin" placeholder="起始端口" :min="1" :max="65535" style="width: 140px" />
+            <span>-</span>
+            <a-input-number v-model:value="ruleForm.portMax" placeholder="结束端口" :min="1" :max="65535" style="width: 140px" />
+          </a-space>
+        </a-form-item>
+        <a-form-item label="描述">
+          <a-input v-model:value="ruleForm.description" placeholder="可选" />
+        </a-form-item>
+      </a-form>
+    </a-modal>
+
+    <!-- 编辑引导卷弹窗 -->
+    <a-modal v-model:open="editVolVisible" title="编辑引导卷" @ok="handleEditVolume"
+      :confirm-loading="editVolLoading" :mask-closable="false">
+      <a-form layout="vertical">
+        <a-form-item label="名称">
+          <a-input v-model:value="editVolForm.displayName" />
+        </a-form-item>
+        <a-form-item label="大小 (GB)">
+          <a-input-number v-model:value="editVolForm.sizeInGBs" :min="50" :max="32768" style="width: 100%" />
+          <div style="color: #999; font-size: 12px; margin-top: 4px">只能增大，不能缩小。最小 50 GB</div>
+        </a-form-item>
+        <a-form-item label="性能 (VPUs/GB)">
+          <a-select v-model:value="editVolForm.vpusPerGB">
+            <a-select-option :value="0">最低成本 (0)</a-select-option>
+            <a-select-option :value="10">均衡 (10)</a-select-option>
+            <a-select-option :value="20">较高性能 (20)</a-select-option>
+            <a-select-option :value="30">高性能 (30)</a-select-option>
+            <a-select-option :value="120">超高性能 (120)</a-select-option>
+          </a-select>
+        </a-form-item>
+      </a-form>
+    </a-modal>
   </div>
 </template>
 
@@ -147,8 +278,11 @@ import { ReloadOutlined } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
 import {
   getInstanceList, updateInstanceState, terminateInstance,
-  getSecurityRules, releaseAllPorts, getBootVolumes, getVcns,
+  getSecurityRules, releaseAllPorts, addSecurityRule,
+  getBootVolumes, updateBootVolume, getVcns,
   getTrafficData, changeIp,
+  getInstanceNetworkDetail, addIpv6, createReservedIp,
+  listReservedIps, deleteReservedIp,
 } from '../api/instance'
 import { getTenantList } from '../api/tenant'
 
@@ -167,7 +301,12 @@ const columns = [
 ]
 
 const secColumns = [
-  { title: '协议', dataIndex: 'protocol', key: 'protocol', width: 80 },
+  { title: '协议', dataIndex: 'protocol', key: 'protocol', width: 80,
+    customRender: ({ text }: any) => {
+      const map: Record<string, string> = { '6': 'TCP', '17': 'UDP', '1': 'ICMP', '58': 'ICMPv6', 'all': '全部' }
+      return map[text] || text
+    }
+  },
   { title: '来源/目的', dataIndex: 'source', key: 'source' },
   { title: '端口范围', dataIndex: 'portRange', key: 'portRange', width: 120 },
   { title: '描述', dataIndex: 'description', key: 'description', ellipsis: true },
@@ -176,13 +315,23 @@ const secColumns = [
 const volColumns = [
   { title: '名称', dataIndex: 'displayName', key: 'displayName' },
   { title: '大小 (GB)', dataIndex: 'sizeInGBs', key: 'sizeInGBs', width: 100 },
+  { title: '性能 (VPUs/GB)', dataIndex: 'vpusPerGB', key: 'vpusPerGB', width: 130 },
   { title: '状态', dataIndex: 'lifecycleState', key: 'lifecycleState', width: 100 },
+  { title: '操作', key: 'volAction', width: 80 },
 ]
 
 const vcnColumns = [
   { title: '名称', dataIndex: 'displayName', key: 'displayName' },
   { title: 'CIDR', dataIndex: 'cidrBlock', key: 'cidrBlock', width: 160 },
   { title: '状态', dataIndex: 'lifecycleState', key: 'lifecycleState', width: 100 },
+]
+
+const reservedIpColumns = [
+  { title: 'IP 地址', dataIndex: 'ipAddress', key: 'ipAddress', width: 160 },
+  { title: '名称', dataIndex: 'displayName', key: 'displayName' },
+  { title: '状态', dataIndex: 'lifecycleState', key: 'lifecycleState', width: 100 },
+  { title: '关联实体', dataIndex: 'assignedEntityId', key: 'assignedEntityId', ellipsis: true },
+  { title: '操作', key: 'ripAction', width: 80 },
 ]
 
 const loading = ref(false)
@@ -210,6 +359,35 @@ const trafficLoading = ref(false)
 const trafficMinutes = ref(60)
 const trafficData = ref<any>(null)
 const changeIpLoading = ref(false)
+
+const netDetailLoading = ref(false)
+const networkDetail = ref<any>(null)
+
+const ipv6Loading = ref(false)
+const reservedIpLoading = ref(false)
+
+const addRuleVisible = ref(false)
+const addRuleLoading = ref(false)
+const ruleForm = reactive({
+  direction: 'ingress',
+  protocol: 'TCP',
+  source: '0.0.0.0/0',
+  portMin: null as number | null,
+  portMax: null as number | null,
+  description: '',
+})
+
+const editVolVisible = ref(false)
+const editVolLoading = ref(false)
+const editVolForm = reactive({
+  bootVolumeId: '',
+  displayName: '',
+  sizeInGBs: 50,
+  vpusPerGB: 10,
+})
+
+const reservedIps = ref<any[]>([])
+const reservedIpListLoading = ref(false)
 
 function formatBytes(bytes: number) {
   if (!bytes || bytes === 0) return '0 B'
@@ -248,6 +426,8 @@ function openDetail(record: any) {
   bootVolumes.value = []
   vcns.value = []
   trafficData.value = null
+  networkDetail.value = null
+  reservedIps.value = []
   drawerVisible.value = true
 }
 
@@ -289,6 +469,49 @@ async function handleChangeIp() {
   }
 }
 
+// --- 网络详情 ---
+async function loadNetworkDetail() {
+  if (!currentInstance.value) return
+  netDetailLoading.value = true
+  try {
+    const res = await getInstanceNetworkDetail({ id: selectedTenant.value, instanceId: currentInstance.value.instanceId })
+    networkDetail.value = res.data || null
+  } catch (e: any) {
+    message.error(e?.message || '加载网络详情失败')
+  } finally {
+    netDetailLoading.value = false
+  }
+}
+
+async function handleAddIpv6() {
+  if (!currentInstance.value) return
+  ipv6Loading.value = true
+  try {
+    const res = await addIpv6({ id: selectedTenant.value, instanceId: currentInstance.value.instanceId })
+    message.success('IPv6 已添加: ' + (res.data?.ipv6Address || ''))
+    loadNetworkDetail()
+  } catch (e: any) {
+    message.error(e?.message || '添加 IPv6 失败')
+  } finally {
+    ipv6Loading.value = false
+  }
+}
+
+async function handleCreateReservedIp() {
+  if (!currentInstance.value) return
+  reservedIpLoading.value = true
+  try {
+    const res = await createReservedIp({ id: selectedTenant.value, instanceId: currentInstance.value.instanceId })
+    message.success('预留IP已创建: ' + (res.data?.ipAddress || ''))
+    loadNetworkDetail()
+  } catch (e: any) {
+    message.error(e?.message || '创建预留IP失败')
+  } finally {
+    reservedIpLoading.value = false
+  }
+}
+
+// --- 安全列表 ---
 async function loadSecurityRules() {
   if (!currentInstance.value) return
   secLoading.value = true
@@ -318,6 +541,45 @@ async function handleReleaseAll() {
   }
 }
 
+function showAddRuleModal() {
+  ruleForm.direction = 'ingress'
+  ruleForm.protocol = 'TCP'
+  ruleForm.source = '0.0.0.0/0'
+  ruleForm.portMin = null
+  ruleForm.portMax = null
+  ruleForm.description = ''
+  addRuleVisible.value = true
+}
+
+async function handleAddRule() {
+  if (!currentInstance.value) return
+  if ((ruleForm.protocol === 'TCP' || ruleForm.protocol === 'UDP') && (!ruleForm.portMin || !ruleForm.portMax)) {
+    message.warning('TCP/UDP 协议需要填写端口范围')
+    return
+  }
+  addRuleLoading.value = true
+  try {
+    await addSecurityRule({
+      id: selectedTenant.value,
+      instanceId: currentInstance.value.instanceId,
+      direction: ruleForm.direction,
+      protocol: ruleForm.protocol,
+      source: ruleForm.source,
+      portMin: ruleForm.portMin?.toString(),
+      portMax: ruleForm.portMax?.toString(),
+      description: ruleForm.description,
+    })
+    message.success('规则已添加')
+    addRuleVisible.value = false
+    loadSecurityRules()
+  } catch (e: any) {
+    message.error(e?.message || '添加规则失败')
+  } finally {
+    addRuleLoading.value = false
+  }
+}
+
+// --- 引导卷 ---
 async function loadBootVolumes() {
   if (!currentInstance.value) return
   volLoading.value = true
@@ -331,6 +593,58 @@ async function loadBootVolumes() {
   }
 }
 
+function openEditVolume(record: any) {
+  editVolForm.bootVolumeId = record.id
+  editVolForm.displayName = record.displayName
+  editVolForm.sizeInGBs = record.sizeInGBs
+  editVolForm.vpusPerGB = record.vpusPerGB ?? 10
+  editVolVisible.value = true
+}
+
+async function handleEditVolume() {
+  editVolLoading.value = true
+  try {
+    await updateBootVolume({
+      id: selectedTenant.value,
+      bootVolumeId: editVolForm.bootVolumeId,
+      displayName: editVolForm.displayName,
+      sizeInGBs: editVolForm.sizeInGBs,
+      vpusPerGB: editVolForm.vpusPerGB,
+    })
+    message.success('引导卷已更新')
+    editVolVisible.value = false
+    loadBootVolumes()
+  } catch (e: any) {
+    message.error(e?.message || '更新引导卷失败')
+  } finally {
+    editVolLoading.value = false
+  }
+}
+
+// --- 预留IP ---
+async function loadReservedIps() {
+  reservedIpListLoading.value = true
+  try {
+    const res = await listReservedIps({ id: selectedTenant.value })
+    reservedIps.value = res.data || []
+  } catch (e: any) {
+    message.error(e?.message || '加载预留IP失败')
+  } finally {
+    reservedIpListLoading.value = false
+  }
+}
+
+async function handleDeleteReservedIp(publicIpId: string) {
+  try {
+    await deleteReservedIp({ id: selectedTenant.value, publicIpId })
+    message.success('预留IP已删除')
+    loadReservedIps()
+  } catch (e: any) {
+    message.error(e?.message || '删除预留IP失败')
+  }
+}
+
+// --- VCN / 流量 ---
 async function loadVcns() {
   vcnLoading.value = true
   try {

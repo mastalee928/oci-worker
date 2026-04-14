@@ -132,6 +132,80 @@ public class NetworkService {
         }
     }
 
+    public void addSecurityRule(String userId, String instanceId, String direction,
+                               String protocol, String source, String portMin, String portMax, String description) {
+        OciUser ociUser = userMapper.selectById(userId);
+        if (ociUser == null) throw new OciException("租户配置不存在");
+
+        try (OciClientService client = new OciClientService(buildDTO(ociUser))) {
+            String subnetId = getSubnetIdFromInstance(client, instanceId);
+            Subnet subnet = client.getVirtualNetworkClient().getSubnet(
+                    GetSubnetRequest.builder().subnetId(subnetId).build()
+            ).getSubnet();
+
+            String secListId = subnet.getSecurityListIds().get(0);
+            SecurityList secList = client.getVirtualNetworkClient().getSecurityList(
+                    GetSecurityListRequest.builder().securityListId(secListId).build()
+            ).getSecurityList();
+
+            String proto = switch (protocol.toUpperCase()) {
+                case "TCP" -> "6";
+                case "UDP" -> "17";
+                case "ICMP" -> "1";
+                case "ICMPV6", "ICMP-IPV6" -> "58";
+                default -> "all";
+            };
+
+            if ("ingress".equalsIgnoreCase(direction)) {
+                List<IngressSecurityRule> rules = new ArrayList<>(secList.getIngressSecurityRules());
+                IngressSecurityRule.Builder ruleBuilder = IngressSecurityRule.builder()
+                        .source(source != null ? source : "0.0.0.0/0")
+                        .protocol(proto)
+                        .description(description);
+
+                if ("6".equals(proto) || "17".equals(proto)) {
+                    if (portMin != null && portMax != null) {
+                        PortRange range = PortRange.builder()
+                                .min(Integer.parseInt(portMin)).max(Integer.parseInt(portMax)).build();
+                        if ("6".equals(proto)) {
+                            ruleBuilder.tcpOptions(TcpOptions.builder().destinationPortRange(range).build());
+                        } else {
+                            ruleBuilder.udpOptions(UdpOptions.builder().destinationPortRange(range).build());
+                        }
+                    }
+                }
+                rules.add(ruleBuilder.build());
+                client.getVirtualNetworkClient().updateSecurityList(
+                        UpdateSecurityListRequest.builder()
+                                .securityListId(secListId)
+                                .updateSecurityListDetails(UpdateSecurityListDetails.builder()
+                                        .ingressSecurityRules(rules)
+                                        .egressSecurityRules(secList.getEgressSecurityRules())
+                                        .build())
+                                .build());
+            } else {
+                List<EgressSecurityRule> rules = new ArrayList<>(secList.getEgressSecurityRules());
+                rules.add(EgressSecurityRule.builder()
+                        .destination(source != null ? source : "0.0.0.0/0")
+                        .protocol(proto)
+                        .description(description)
+                        .build());
+                client.getVirtualNetworkClient().updateSecurityList(
+                        UpdateSecurityListRequest.builder()
+                                .securityListId(secListId)
+                                .updateSecurityListDetails(UpdateSecurityListDetails.builder()
+                                        .ingressSecurityRules(secList.getIngressSecurityRules())
+                                        .egressSecurityRules(rules)
+                                        .build())
+                                .build());
+            }
+        } catch (OciException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new OciException("添加安全规则失败: " + e.getMessage());
+        }
+    }
+
     public void changePublicIp(String userId, String instanceId, List<String> cidrFilters) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");

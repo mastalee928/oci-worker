@@ -1,6 +1,5 @@
 package com.ociworker.service;
 
-import cn.hutool.core.date.DatePattern;
 import cn.hutool.core.thread.ThreadFactoryBuilder;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -21,7 +20,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -64,7 +62,8 @@ public class TaskSchedulerService {
                     }
                     SysUserDTO dto = buildSysUserDTO(ociUser, task);
                     scheduleTask(task.getId(), dto, task.getIntervalSeconds());
-                    log.info("Restored task: user={}, region={}", ociUser.getUsername(), ociUser.getOciRegion());
+                    broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s] - 服务重启，恢复任务执行",
+                            ociUser.getUsername(), ociUser.getOciRegion(), task.getArchitecture()));
                 } catch (Exception e) {
                     log.error("Failed to restore task {}: {}", task.getId(), e.getMessage());
                     task.setStatus(TaskStatusEnum.FAILED.getStatus());
@@ -132,10 +131,9 @@ public class TaskSchedulerService {
         SysUserDTO dto = buildSysUserDTO(ociUser, task);
         scheduleTask(task.getId(), dto, interval);
 
-        String msg = String.format(CommonUtils.BEGIN_CREATE_MESSAGE_TEMPLATE,
-                ociUser.getUsername(),
-                LocalDateTime.now().format(DateTimeFormatter.ofPattern(DatePattern.NORM_DATETIME_PATTERN)),
-                ociUser.getOciRegion(), architecture, ocpus, memory, disk, createNumbers, rootPassword);
+        String msg = String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s],开机数量:[%d],CPU:[%s],内存:[%sGB],磁盘:[%sGB],root密码:[%s] - 任务已创建",
+                ociUser.getUsername(), ociUser.getOciRegion(), architecture, createNumbers,
+                ocpus, memory, disk, rootPassword != null ? rootPassword : "随机");
         broadcastLog(msg);
         notificationService.sendMessage(msg);
     }
@@ -151,28 +149,37 @@ public class TaskSchedulerService {
         if (task != null) {
             task.setStatus(TaskStatusEnum.STOPPED.getStatus());
             taskMapper.updateById(task);
+            OciUser user = userMapper.selectById(task.getUserId());
+            String name = user != null ? user.getUsername() : "unknown";
+            broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s] - 任务已手动停止",
+                    name, task.getOciRegion()));
         }
-        log.info("Task stopped: {}", taskId);
     }
 
     private void scheduleTask(String taskId, SysUserDTO dto, int intervalSeconds) {
         ScheduledFuture<?> future = taskPool.scheduleWithFixedDelay(
-                () -> VIRTUAL_EXECUTOR.execute(() -> executeCreate(taskId, dto)),
+                () -> VIRTUAL_EXECUTOR.execute(() -> executeCreate(taskId, dto, intervalSeconds)),
                 0, intervalSeconds, TimeUnit.SECONDS);
         taskMap.put(taskId, future);
     }
 
-    private void executeCreate(String taskId, SysUserDTO dto) {
+    private void executeCreate(String taskId, SysUserDTO dto, int intervalSeconds) {
         if (!runningTasks.add(taskId)) return;
+
+        String user = dto.getUsername();
+        String region = dto.getOciCfg().getRegion();
+        String arch = dto.getArchitecture();
+        int attempt = incrementAttempt(taskId);
+
+        broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s],开机数量:[%d],开始执行第 [%d] 次创建实例操作...",
+                user, region, arch, dto.getCreateNumbers(), attempt));
 
         try (OciClientService client = new OciClientService(dto)) {
             InstanceDetailDTO result = client.createInstanceData();
-            incrementAttempt(taskId);
 
             if (result.isDie()) {
                 completeTask(taskId, TaskStatusEnum.FAILED);
-                String msg = String.format("[CreateTask] User:[%s], Region:[%s] - Auth failed, task stopped",
-                        dto.getUsername(), dto.getOciCfg().getRegion());
+                String msg = String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s] - ❌ 认证失败(401)，任务已停止", user, region, arch);
                 broadcastLog(msg);
                 notificationService.sendMessage(msg);
                 return;
@@ -180,37 +187,53 @@ public class TaskSchedulerService {
 
             if (result.isNoShape()) {
                 completeTask(taskId, TaskStatusEnum.FAILED);
-                broadcastLog(String.format("[CreateTask] User:[%s] - Shape not available, task stopped",
-                        dto.getUsername()));
+                broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s] - ❌ Shape 不可用，任务已停止", user, region, arch));
+                return;
+            }
+
+            if (result.isOutOfCapacity()) {
+                broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s] - 容量不足，[%d]秒后将重试...",
+                        user, region, arch, intervalSeconds));
+                return;
+            }
+
+            if (result.isNoPubVcn()) {
+                broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s] - 未找到可用公有子网，正在尝试创建...",
+                        user, region, arch));
                 return;
             }
 
             if (result.isSuccess()) {
                 completeTask(taskId, TaskStatusEnum.COMPLETED);
                 String msg = String.format(
-                        "🎉 [CreateTask] User:[%s] Instance created!\n" +
-                        "Region: %s\nArch: %s\nShape: %s\n" +
-                        "CPU: %s, Memory: %sGB, Disk: %sGB\n" +
-                        "Public IP: %s\nPassword: %s",
-                        dto.getUsername(), result.getRegion(), result.getArchitecture(),
-                        result.getShape(), result.getOcpus(), result.getMemory(), result.getDisk(),
-                        result.getPublicIp(), result.getRootPassword());
+                        "【开机任务】用户:[%s],区域:[%s],系统架构:[%s] - 🎉 实例创建成功！\n" +
+                        "  Shape: %s | CPU: %s | 内存: %sGB | 磁盘: %sGB\n" +
+                        "  公网IP: %s\n" +
+                        "  Root密码: %s",
+                        user, region, arch, result.getShape(), result.getOcpus(),
+                        result.getMemory(), result.getDisk(), result.getPublicIp(), result.getRootPassword());
                 broadcastLog(msg);
                 notificationService.sendMessage(msg);
+            } else {
+                broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s] - 创建未成功，[%d]秒后将重试...",
+                        user, region, arch, intervalSeconds));
             }
         } catch (Exception e) {
-            log.error("[CreateTask] User:[{}] - Error: {}", dto.getUsername(), e.getMessage());
+            broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s] - 错误: %s，[%d]秒后将重试...",
+                    user, region, arch, e.getMessage(), intervalSeconds));
         } finally {
             runningTasks.remove(taskId);
         }
     }
 
-    private void incrementAttempt(String taskId) {
+    private int incrementAttempt(String taskId) {
         OciCreateTask task = taskMapper.selectById(taskId);
         if (task != null) {
             task.setAttemptCount(task.getAttemptCount() + 1);
             taskMapper.updateById(task);
+            return task.getAttemptCount();
         }
+        return 0;
     }
 
     private void completeTask(String taskId, TaskStatusEnum status) {

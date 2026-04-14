@@ -40,4 +40,41 @@ public class InstanceController {
     public ResponseData<?> bootVolumes(@RequestBody Map<String, String> params) {
         return ResponseData.ok(instanceService.listBootVolumesByInstance(params.get("id"), params.get("instanceId")));
     }
+
+    @PostMapping("/updateBootVolume")
+    public ResponseData<?> updateBootVolume(@RequestBody Map<String, Object> params) {
+        instanceService.updateBootVolume(
+                (String) params.get("id"),
+                (String) params.get("bootVolumeId"),
+                params.get("sizeInGBs") != null ? ((Number) params.get("sizeInGBs")).longValue() : null,
+                (String) params.get("displayName"),
+                params.get("vpusPerGB") != null ? ((Number) params.get("vpusPerGB")).longValue() : null);
+        return ResponseData.ok();
+    }
+
+    @PostMapping("/instanceDetail")
+    public ResponseData<?> instanceDetail(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(instanceService.getInstanceNetworkDetail(params.get("id"), params.get("instanceId")));
+    }
+
+    @PostMapping("/addIpv6")
+    public ResponseData<?> addIpv6(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(instanceService.addIpv6(params.get("id"), params.get("instanceId")));
+    }
+
+    @PostMapping("/createReservedIp")
+    public ResponseData<?> createReservedIp(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(instanceService.createReservedIp(params.get("id"), params.get("instanceId")));
+    }
+
+    @PostMapping("/listReservedIps")
+    public ResponseData<?> listReservedIps(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(instanceService.listReservedIps(params.get("id")));
+    }
+
+    @PostMapping("/deleteReservedIp")
+    public ResponseData<?> deleteReservedIp(@RequestBody Map<String, String> params) {
+        instanceService.deleteReservedIp(params.get("id"), params.get("publicIpId"));
+        return ResponseData.ok();
+    }
 }
