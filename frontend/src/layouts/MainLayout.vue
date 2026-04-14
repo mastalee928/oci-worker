@@ -26,6 +26,18 @@
         <a-menu-item key="backup"><i class="ri-database-2-line menu-ri"></i><span>备份恢复</span></a-menu-item>
       </a-menu>
 
+      <div class="sidebar-footer">
+        <div class="user-card">
+          <div class="avatar">{{ avatarLetter }}</div>
+          <div class="user-info">
+            <div class="user-name">Admin</div>
+            <div class="user-status">管理员在线</div>
+          </div>
+        </div>
+        <button class="btn-logout" @click="handleLogout">
+          <i class="ri-logout-box-r-line"></i> 安全退出
+        </button>
+      </div>
     </a-layout-sider>
 
     <a-layout class="content-layout">
@@ -195,10 +207,20 @@ function handleLogout() {
   background: transparent !important;
   border: none !important;
 }
+.nav-menu :deep(.ant-menu-item) {
+  text-align: left !important;
+  padding-left: 24px !important;
+}
 .menu-ri {
   font-size: 20px;
   margin-right: 12px;
   vertical-align: -0.15em;
+}
+
+.sidebar-footer {
+  flex-shrink: 0;
+  padding: 12px 16px 16px;
+  display: none;
 }
 
 .fixed-user-panel {
@@ -351,9 +373,10 @@ function handleLogout() {
     padding: 0 16px 24px;
   }
   .fixed-user-panel {
-    bottom: 16px;
-    left: 16px;
-    width: 200px;
+    display: none;
+  }
+  .sidebar-footer {
+    display: block;
   }
 }
 </style>
