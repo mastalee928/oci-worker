@@ -1,4 +1,25 @@
 services:
+  mysql:
+    image: mysql:8.0
+    container_name: oci-worker-mysql
+    restart: always
+    ports:
+      - "3306:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=root123
+      - MYSQL_DATABASE=oci_worker
+      - MYSQL_USER=ociworker
+      - MYSQL_PASSWORD=ociworker123
+      - TZ=Asia/Shanghai
+    volumes:
+      - ./data/mysql:/var/lib/mysql
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   oci-worker:
     build:
       context: ./backend
@@ -9,7 +30,9 @@ services:
       - "8818:8818"
     volumes:
       - ./data/application.yml:/app/oci-worker/application.yml
-      - ./data/oci-worker.db:/app/oci-worker/oci-worker.db
       - ./data/keys:/app/oci-worker/keys
     environment:
       - TZ=Asia/Shanghai
+    depends_on:
+      mysql:
+        condition: service_healthy

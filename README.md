@@ -19,7 +19,7 @@
 
 ## 技术栈
 
-- **后端**：Spring Boot 3.5 + JDK 21 (虚拟线程) + MyBatis-Plus + SQLite
+- **后端**：Spring Boot 3.5 + JDK 21 (虚拟线程) + MyBatis-Plus + MySQL 8.0
 - **前端**：Vue 3 + Vite + Ant Design Vue 4 + Pinia + Vue Router 4
 - **OCI SDK**：oci-java-sdk 3.83+
 - **部署**：Docker + docker-compose
@@ -49,18 +49,23 @@ npm run dev
 
 ```bash
 # 创建数据目录
-mkdir -p data/keys
+mkdir -p data/keys data/mysql
 
 # 复制配置文件
 cp backend/src/main/resources/application.yml data/application.yml
 
-# 修改 data/application.yml 中的账号密码
+# 修改 data/application.yml 中的配置：
+#   - web 账号密码
+#   - MySQL 连接地址改为: jdbc:mysql://mysql:3306/oci_worker?...
+#     (Docker 容器间通过服务名 mysql 连接)
 
 # 构建并启动
 docker-compose up -d
 ```
 
 访问 http://your-ip:8818
+
+> **注意**：Docker 部署时，`application.yml` 中的数据库地址应使用容器服务名 `mysql` 而非 `localhost`。
 
 ### 生产构建
 
@@ -99,9 +104,31 @@ web:
   account: admin        # 登录账号
   password: admin123    # 登录密码
 
+spring:
+  datasource:
+    url: jdbc:mysql://localhost:3306/oci_worker?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: ociworker
+    password: ociworker123
+
 oci-cfg:
   key-dir-path: ./keys  # PEM 密钥存放目录
 ```
+
+### MySQL 准备
+
+本地开发时需要先创建数据库：
+
+```sql
+CREATE DATABASE IF NOT EXISTS oci_worker
+  DEFAULT CHARACTER SET utf8mb4
+  COLLATE utf8mb4_unicode_ci;
+
+CREATE USER IF NOT EXISTS 'ociworker'@'%' IDENTIFIED BY 'ociworker123';
+GRANT ALL PRIVILEGES ON oci_worker.* TO 'ociworker'@'%';
+FLUSH PRIVILEGES;
+```
+
+Docker 部署时会自动创建。
 
 ## 免责声明
 

@@ -10,11 +10,14 @@ spring:
     virtual:
       enabled: true
   datasource:
-    driver-class-name: org.sqlite.JDBC
-    url: jdbc:sqlite:oci-worker.db
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    url: jdbc:mysql://localhost:3306/oci_worker?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: ociworker
+    password: ociworker123
   sql:
     init:
       mode: always
+      platform: mysql
   ai:
     openai:
       api-key: sk-xxx
