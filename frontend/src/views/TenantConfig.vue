@@ -6,6 +6,9 @@
         <a-button type="primary" @click="showAddModal">
           <template #icon><PlusOutlined /></template>新增配置
         </a-button>
+        <a-button @click="showQuickImport">
+          <template #icon><ThunderboltOutlined /></template>快速导入
+        </a-button>
         <a-button danger :disabled="!selectedRowKeys.length" @click="handleBatchDelete">
           批量删除
         </a-button>
@@ -40,6 +43,35 @@
       </template>
     </a-table>
 
+    <!-- 快速导入弹窗 -->
+    <a-modal v-model:open="quickImportVisible" title="⚡ 快速导入配置" width="640px" :footer="null">
+      <a-alert message="粘贴你的 OCI 配置，支持以下格式" type="info" show-icon style="margin-bottom: 16px">
+        <template #description>
+          <pre style="margin: 8px 0 0; font-size: 12px; color: #666">[Profile-Name]
+user=ocid1.user.oc1...
+fingerprint=a5:48:75:06...
+tenancy=ocid1.tenancy.oc1...
+region=ap-tokyo-1
+key_file=~/.oci/oci_api_key.pem</pre>
+        </template>
+      </a-alert>
+      <a-textarea
+        v-model:value="importText"
+        :rows="8"
+        placeholder="粘贴 OCI 配置内容..."
+        style="font-family: monospace"
+      />
+      <div style="margin-top: 16px; text-align: right">
+        <a-space>
+          <a-button @click="quickImportVisible = false">取消</a-button>
+          <a-button type="primary" @click="parseAndFill">
+            <template #icon><ThunderboltOutlined /></template>解析配置
+          </a-button>
+        </a-space>
+      </div>
+    </a-modal>
+
+    <!-- 新增/编辑弹窗 -->
     <a-modal v-model:open="modalVisible" :title="editingId ? '编辑配置' : '新增配置'" width="640px" @ok="handleSubmit" :confirm-loading="submitLoading">
       <a-form :model="formState" layout="vertical">
         <a-form-item label="自定义名称" required>
@@ -74,7 +106,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
-import { PlusOutlined, UploadOutlined } from '@ant-design/icons-vue'
+import { PlusOutlined, UploadOutlined, ThunderboltOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
 import { getTenantList, addTenant, updateTenant, removeTenant, uploadKey } from '../api/tenant'
 
@@ -112,6 +144,8 @@ const selectedRowKeys = ref<string[]>([])
 const modalVisible = ref(false)
 const editingId = ref('')
 const pagination = reactive({ current: 1, pageSize: 10, total: 0 })
+const quickImportVisible = ref(false)
+const importText = ref('')
 
 const formState = reactive({
   username: '', ociTenantId: '', ociUserId: '',
@@ -119,6 +153,93 @@ const formState = reactive({
 })
 
 let pendingFile: File | null = null
+
+function parseOciConfig(text: string) {
+  const results: Array<{
+    name: string; user: string; fingerprint: string;
+    tenancy: string; region: string;
+  }> = []
+
+  const lines = text.split('\n').map(l => l.trim()).filter(l => l)
+  let current: any = null
+
+  for (const line of lines) {
+    const sectionMatch = line.match(/^\[(.+)\]$/)
+    if (sectionMatch) {
+      if (current) results.push(current)
+      current = { name: sectionMatch[1], user: '', fingerprint: '', tenancy: '', region: '' }
+      continue
+    }
+
+    if (!current) {
+      current = { name: '', user: '', fingerprint: '', tenancy: '', region: '' }
+    }
+
+    const kvMatch = line.match(/^(\w+)\s*=\s*(.+)$/)
+    if (kvMatch) {
+      const [, key, value] = kvMatch
+      const v = value.trim()
+      switch (key.toLowerCase()) {
+        case 'user': current.user = v; break
+        case 'fingerprint': current.fingerprint = v; break
+        case 'tenancy': current.tenancy = v; break
+        case 'region': current.region = v; break
+      }
+    }
+  }
+  if (current) results.push(current)
+  return results
+}
+
+function showQuickImport() {
+  importText.value = ''
+  quickImportVisible.value = true
+}
+
+function parseAndFill() {
+  if (!importText.value.trim()) {
+    message.warning('请粘贴 OCI 配置内容')
+    return
+  }
+
+  const configs = parseOciConfig(importText.value)
+  if (configs.length === 0) {
+    message.error('未能解析出有效配置，请检查格式')
+    return
+  }
+
+  if (configs.length === 1) {
+    const c = configs[0]
+    editingId.value = ''
+    Object.assign(formState, {
+      username: c.name || '',
+      ociTenantId: c.tenancy,
+      ociUserId: c.user,
+      ociFingerprint: c.fingerprint,
+      ociRegion: c.region,
+      ociKeyPath: '',
+    })
+    pendingFile = null
+    quickImportVisible.value = false
+    modalVisible.value = true
+    message.success('已解析 1 条配置，请上传私钥后提交')
+  } else {
+    const c = configs[0]
+    editingId.value = ''
+    Object.assign(formState, {
+      username: c.name || '',
+      ociTenantId: c.tenancy,
+      ociUserId: c.user,
+      ociFingerprint: c.fingerprint,
+      ociRegion: c.region,
+      ociKeyPath: '',
+    })
+    pendingFile = null
+    quickImportVisible.value = false
+    modalVisible.value = true
+    message.success(`已解析 ${configs.length} 条配置，当前显示第 1 条，请逐条上传私钥后提交`)
+  }
+}
 
 async function loadData() {
   loading.value = true
