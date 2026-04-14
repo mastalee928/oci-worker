@@ -46,6 +46,12 @@ public class TenantController {
         return ResponseData.ok(tenantService.getById(params.getId()));
     }
 
+    @PostMapping("/refreshPlanType")
+    public ResponseData<?> refreshPlanType(@RequestBody java.util.Map<String, String> params) {
+        tenantService.refreshPlanType(params.get("id"));
+        return ResponseData.ok();
+    }
+
     @PostMapping("/uploadKey")
     public ResponseData<?> uploadKey(@RequestParam("file") MultipartFile file) throws Exception {
         return ResponseData.ok(tenantService.uploadKey(file));

@@ -1,9 +1,14 @@
 package com.ociworker.controller;
 
+import com.ociworker.enums.SysCfgEnum;
 import com.ociworker.model.vo.ResponseData;
+import com.ociworker.service.NotificationService;
 import com.ociworker.service.SystemService;
 import jakarta.annotation.Resource;
 import org.springframework.web.bind.annotation.*;
+
+import java.util.LinkedHashMap;
+import java.util.Map;
 
 @RestController
 @RequestMapping("/api/sys")
@@ -11,9 +16,40 @@ public class SystemController {
 
     @Resource
     private SystemService systemService;
+    @Resource
+    private NotificationService notificationService;
 
     @GetMapping("/glance")
     public ResponseData<?> glance() {
         return ResponseData.ok(systemService.getGlance());
+    }
+
+    @GetMapping("/notifyConfig")
+    public ResponseData<?> getNotifyConfig() {
+        Map<String, String> config = new LinkedHashMap<>();
+        config.put("botToken", notificationService.getKvValue(SysCfgEnum.TG_BOT_TOKEN));
+        config.put("chatId", notificationService.getKvValue(SysCfgEnum.TG_CHAT_ID));
+        config.put("notifyTypes", notificationService.getKvValue(SysCfgEnum.TG_NOTIFY_TYPES));
+        return ResponseData.ok(config);
+    }
+
+    @PostMapping("/notifyConfig")
+    public ResponseData<?> saveNotifyConfig(@RequestBody Map<String, String> params) {
+        if (params.containsKey("botToken")) {
+            notificationService.saveKvValue(SysCfgEnum.TG_BOT_TOKEN, params.get("botToken"));
+        }
+        if (params.containsKey("chatId")) {
+            notificationService.saveKvValue(SysCfgEnum.TG_CHAT_ID, params.get("chatId"));
+        }
+        if (params.containsKey("notifyTypes")) {
+            notificationService.saveKvValue(SysCfgEnum.TG_NOTIFY_TYPES, params.get("notifyTypes"));
+        }
+        return ResponseData.ok();
+    }
+
+    @PostMapping("/testNotify")
+    public ResponseData<?> testNotify() {
+        notificationService.sendMessage("【测试通知】🔔 Telegram 通知配置正常！");
+        return ResponseData.ok();
     }
 }

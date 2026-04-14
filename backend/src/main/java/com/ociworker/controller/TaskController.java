@@ -42,4 +42,16 @@ public class TaskController {
         taskSchedulerService.stopTask(params.get("taskId"));
         return ResponseData.ok();
     }
+
+    @PostMapping("/resume")
+    public ResponseData<?> resume(@RequestBody Map<String, String> params) {
+        taskSchedulerService.resumeTask(params.get("taskId"));
+        return ResponseData.ok();
+    }
+
+    @PostMapping("/delete")
+    public ResponseData<?> delete(@RequestBody Map<String, String> params) {
+        taskSchedulerService.deleteTask(params.get("taskId"));
+        return ResponseData.ok();
+    }
 }

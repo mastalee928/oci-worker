@@ -26,8 +26,16 @@
         <template v-if="column.key === 'ociRegion'">
           <a-tag color="blue">{{ record.ociRegion }}</a-tag>
         </template>
+        <template v-if="column.key === 'taskStatus'">
+          <a-badge v-if="record.hasRunningTask" status="processing" text="执行开机任务中" />
+          <span v-else style="color: #999">无开机任务</span>
+        </template>
         <template v-if="column.key === 'planType'">
-          <a-tag :color="record.planType === 'PAYG' ? 'green' : 'orange'">{{ record.planType || '未知' }}</a-tag>
+          <a-space>
+            <a-tag :color="record.planType === 'PAYG' ? 'green' : record.planType === 'FREE' ? 'orange' : 'default'">{{ record.planType || '未知' }}</a-tag>
+            <a-button v-if="!record.planType || record.planType === 'UNKNOWN'" type="link" size="small"
+              @click="handleRefreshPlan(record)" :loading="refreshLoading[record.id]">刷新</a-button>
+          </a-space>
         </template>
         <template v-if="column.key === 'action'">
           <a-space>
@@ -107,7 +115,7 @@ import { useRouter } from 'vue-router'
 import { PlusOutlined, ThunderboltOutlined, InboxOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
 import type { UploadFile } from 'ant-design-vue'
-import { getTenantList, addTenant, updateTenant, removeTenant, uploadKey } from '../api/tenant'
+import { getTenantList, addTenant, updateTenant, removeTenant, uploadKey, refreshPlanType } from '../api/tenant'
 
 const router = useRouter()
 
@@ -131,8 +139,8 @@ const regions = [
 const columns = [
   { title: '名称', dataIndex: 'username', key: 'username', ellipsis: true },
   { title: 'Region', dataIndex: 'ociRegion', key: 'ociRegion', width: 160 },
-  { title: 'Fingerprint', dataIndex: 'ociFingerprint', key: 'ociFingerprint', ellipsis: true },
-  { title: '账户类型', dataIndex: 'planType', key: 'planType', width: 100 },
+  { title: '开机任务', key: 'taskStatus', width: 140 },
+  { title: '账户类型', dataIndex: 'planType', key: 'planType', width: 130 },
   { title: '创建时间', dataIndex: 'createTime', key: 'createTime', width: 180 },
   { title: '操作', key: 'action', width: 220 },
 ]
@@ -153,6 +161,7 @@ const formState = reactive({
   ociFingerprint: '', ociRegion: '', ociKeyPath: '',
 })
 
+const refreshLoading = reactive<Record<string, boolean>>({})
 let pendingFile: File | null = null
 
 function parseAndFill() {
@@ -319,6 +328,19 @@ function handleBatchDelete() {
       }
     },
   })
+}
+
+async function handleRefreshPlan(record: any) {
+  refreshLoading[record.id] = true
+  try {
+    await refreshPlanType({ id: record.id })
+    message.success('正在获取账户类型...')
+    setTimeout(loadData, 2000)
+  } catch (e: any) {
+    message.error(e?.message || '获取失败')
+  } finally {
+    refreshLoading[record.id] = false
+  }
 }
 
 onMounted(() => loadData())

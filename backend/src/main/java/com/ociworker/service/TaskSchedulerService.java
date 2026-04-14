@@ -82,10 +82,21 @@ public class TaskSchedulerService {
     }
 
     public Page<Map<String, Object>> listTasks(PageParams params) {
+        cleanExpiredTasks();
+
         Page<OciCreateTask> page = new Page<>(params.getCurrent(), params.getSize());
         LambdaQueryWrapper<OciCreateTask> wrapper = new LambdaQueryWrapper<>();
         if (params.getStatus() != null && !params.getStatus().isEmpty()) {
             wrapper.eq(OciCreateTask::getStatus, params.getStatus());
+        }
+        if (params.getKeyword() != null && !params.getKeyword().isBlank()) {
+            String kw = params.getKeyword();
+            wrapper.and(w -> w
+                    .like(OciCreateTask::getOciRegion, kw)
+                    .or().like(OciCreateTask::getArchitecture, kw)
+                    .or().like(OciCreateTask::getOperationSystem, kw)
+                    .or().inSql(OciCreateTask::getUserId,
+                            "SELECT id FROM oci_user WHERE username LIKE '%" + kw.replace("'", "") + "%'"));
         }
         wrapper.orderByDesc(OciCreateTask::getCreateTime);
         Page<OciCreateTask> result = taskMapper.selectPage(page, wrapper);
@@ -143,7 +154,35 @@ public class TaskSchedulerService {
                 ociUser.getUsername(), ociUser.getOciRegion(), architecture, createNumbers,
                 ocpus, memory, disk, rootPassword != null ? rootPassword : "随机");
         broadcastLog(msg);
-        notificationService.sendMessage(msg);
+        notificationService.sendMessage(NotificationService.TYPE_TASK_CREATE, msg);
+    }
+
+    public void resumeTask(String taskId) {
+        OciCreateTask task = taskMapper.selectById(taskId);
+        if (task == null) throw new OciException("任务不存在");
+        if (TaskStatusEnum.RUNNING.getStatus().equals(task.getStatus())) {
+            throw new OciException("任务已在运行中");
+        }
+        OciUser ociUser = userMapper.selectById(task.getUserId());
+        if (ociUser == null) throw new OciException("租户配置不存在");
+
+        task.setStatus(TaskStatusEnum.RUNNING.getStatus());
+        taskMapper.updateById(task);
+
+        SysUserDTO dto = buildSysUserDTO(ociUser, task);
+        scheduleTask(task.getId(), dto, task.getIntervalSeconds());
+
+        broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s] - 任务已恢复运行",
+                ociUser.getUsername(), ociUser.getOciRegion(), task.getArchitecture()));
+    }
+
+    public void deleteTask(String taskId) {
+        ScheduledFuture<?> future = taskMap.get(taskId);
+        if (future != null) {
+            future.cancel(false);
+            taskMap.remove(taskId);
+        }
+        taskMapper.deleteById(taskId);
     }
 
     public void stopTask(String taskId) {
@@ -189,7 +228,7 @@ public class TaskSchedulerService {
                 completeTask(taskId, TaskStatusEnum.FAILED);
                 String msg = String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s] - ❌ 认证失败(401)，任务已停止", user, region, arch);
                 broadcastLog(msg);
-                notificationService.sendMessage(msg);
+                notificationService.sendMessage(NotificationService.TYPE_TASK_RESULT, msg);
                 return;
             }
 
@@ -221,7 +260,7 @@ public class TaskSchedulerService {
                         user, region, arch, result.getShape(), result.getOcpus(),
                         result.getMemory(), result.getDisk(), result.getPublicIp(), result.getRootPassword());
                 broadcastLog(msg);
-                notificationService.sendMessage(msg);
+                notificationService.sendMessage(NotificationService.TYPE_TASK_RESULT, msg);
             } else {
                 broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s] - 创建未成功，[%d]秒后将重试...",
                         user, region, arch, intervalSeconds));
@@ -276,6 +315,13 @@ public class TaskSchedulerService {
                         .privateKeyPath(ociUser.getOciKeyPath())
                         .build())
                 .build();
+    }
+
+    private void cleanExpiredTasks() {
+        LocalDateTime cutoff = LocalDateTime.now().minusDays(7);
+        taskMapper.delete(new LambdaQueryWrapper<OciCreateTask>()
+                .ne(OciCreateTask::getStatus, TaskStatusEnum.RUNNING.getStatus())
+                .lt(OciCreateTask::getCreateTime, cutoff));
     }
 
     private void broadcastLog(String message) {

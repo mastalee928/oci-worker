@@ -19,3 +19,11 @@ export function stopTask(data: { taskId: string; userId: string }) {
 export function hasRunningTask(data: { userId: string }) {
   return request.post('/oci/task/hasRunning', data)
 }
+
+export function resumeTask(data: { taskId: string }) {
+  return request.post('/oci/task/resume', data)
+}
+
+export function deleteTask(data: { taskId: string }) {
+  return request.post('/oci/task/delete', data)
+}

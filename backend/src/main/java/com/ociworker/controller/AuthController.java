@@ -6,12 +6,16 @@ import com.ociworker.mapper.OciKvMapper;
 import com.ociworker.model.entity.OciKv;
 import com.ociworker.model.params.LoginParams;
 import com.ociworker.model.vo.ResponseData;
+import com.ociworker.service.NotificationService;
 import com.ociworker.util.CommonUtils;
 import jakarta.annotation.Resource;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.Map;
 
 @RestController
@@ -25,6 +29,8 @@ public class AuthController {
 
     @Resource
     private OciKvMapper kvMapper;
+    @Resource
+    private NotificationService notificationService;
 
     private String getStoredPassword() {
         OciKv kv = kvMapper.selectOne(new LambdaQueryWrapper<OciKv>()
@@ -39,13 +45,37 @@ public class AuthController {
     }
 
     @PostMapping("/login")
-    public ResponseData<?> login(@RequestBody @Valid LoginParams params) {
+    public ResponseData<?> login(@RequestBody @Valid LoginParams params, HttpServletRequest request) {
         String effectivePwd = getEffectivePassword();
         if (!defaultAccount.equals(params.getAccount()) || !effectivePwd.equals(params.getPassword())) {
+            String ip = getClientIp(request);
+            notificationService.sendMessage(NotificationService.TYPE_LOGIN,
+                    String.format("【登录通知】⚠️ 登录失败\n账号: %s\nIP: %s\n时间: %s",
+                            params.getAccount(), ip,
+                            LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))));
             return ResponseData.error("账号或密码错误");
         }
         String token = CommonUtils.generateToken(defaultAccount, effectivePwd);
+        String ip = getClientIp(request);
+        notificationService.sendMessage(NotificationService.TYPE_LOGIN,
+                String.format("【登录通知】✅ 登录成功\n账号: %s\nIP: %s\n时间: %s",
+                        params.getAccount(), ip,
+                        LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"))));
         return ResponseData.ok(Map.of("token", token, "expireHours", 24));
+    }
+
+    private String getClientIp(HttpServletRequest request) {
+        String ip = request.getHeader("X-Forwarded-For");
+        if (ip == null || ip.isEmpty() || "unknown".equalsIgnoreCase(ip)) {
+            ip = request.getHeader("X-Real-IP");
+        }
+        if (ip == null || ip.isEmpty() || "unknown".equalsIgnoreCase(ip)) {
+            ip = request.getRemoteAddr();
+        }
+        if (ip != null && ip.contains(",")) {
+            ip = ip.split(",")[0].trim();
+        }
+        return ip;
     }
 
     @PostMapping("/changePassword")

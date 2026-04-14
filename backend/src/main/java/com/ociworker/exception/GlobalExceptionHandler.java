@@ -25,6 +25,11 @@ public class GlobalExceptionHandler {
         return ResponseData.error(message);
     }
 
+    @ExceptionHandler(org.springframework.web.servlet.resource.NoResourceFoundException.class)
+    public ResponseData<?> handleNoResourceFound(org.springframework.web.servlet.resource.NoResourceFoundException e) {
+        return ResponseData.error(404, "资源不存在");
+    }
+
     @ExceptionHandler(Exception.class)
     public ResponseData<?> handleException(Exception e) {
         log.error("Unexpected error: ", e);

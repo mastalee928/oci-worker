@@ -3,8 +3,11 @@ package com.ociworker.service;
 import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.ociworker.enums.TaskStatusEnum;
 import com.ociworker.exception.OciException;
+import com.ociworker.mapper.OciCreateTaskMapper;
 import com.ociworker.mapper.OciUserMapper;
+import com.ociworker.model.entity.OciCreateTask;
 import com.ociworker.model.entity.OciUser;
 import com.ociworker.model.params.IdListParams;
 import com.ociworker.model.params.PageParams;
@@ -20,6 +23,7 @@ import java.io.File;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
+import java.util.*;
 
 @Slf4j
 @Service
@@ -27,21 +31,45 @@ public class TenantService {
 
     @Resource
     private OciUserMapper userMapper;
+    @Resource
+    private OciCreateTaskMapper taskMapper;
 
     @Value("${oci-cfg.key-dir-path}")
     private String keyDirPath;
 
-    public Page<OciUser> list(PageParams params) {
+    public Page<Map<String, Object>> list(PageParams params) {
         Page<OciUser> page = new Page<>(params.getCurrent(), params.getSize());
         LambdaQueryWrapper<OciUser> wrapper = new LambdaQueryWrapper<>();
         if (StrUtil.isNotBlank(params.getKeyword())) {
             wrapper.and(w -> w
                     .like(OciUser::getUsername, params.getKeyword())
-                    .or().like(OciUser::getOciRegion, params.getKeyword())
-                    .or().like(OciUser::getOciFingerprint, params.getKeyword()));
+                    .or().like(OciUser::getOciRegion, params.getKeyword()));
         }
         wrapper.orderByDesc(OciUser::getCreateTime);
-        return userMapper.selectPage(page, wrapper);
+        Page<OciUser> result = userMapper.selectPage(page, wrapper);
+
+        Page<Map<String, Object>> enriched = new Page<>(result.getCurrent(), result.getSize(), result.getTotal());
+        enriched.setRecords(result.getRecords().stream().map(u -> {
+            Map<String, Object> map = new LinkedHashMap<>();
+            map.put("id", u.getId());
+            map.put("username", u.getUsername());
+            map.put("ociTenantId", u.getOciTenantId());
+            map.put("ociUserId", u.getOciUserId());
+            map.put("ociFingerprint", u.getOciFingerprint());
+            map.put("ociRegion", u.getOciRegion());
+            map.put("ociKeyPath", u.getOciKeyPath());
+            map.put("planType", u.getPlanType());
+            map.put("createTime", u.getCreateTime());
+
+            long running = taskMapper.selectCount(
+                    new LambdaQueryWrapper<OciCreateTask>()
+                            .eq(OciCreateTask::getUserId, u.getId())
+                            .eq(OciCreateTask::getStatus, TaskStatusEnum.RUNNING.getStatus()));
+            map.put("taskStatus", running > 0 ? "执行开机任务中" : "无开机任务");
+            map.put("hasRunningTask", running > 0);
+            return map;
+        }).toList());
+        return enriched;
     }
 
     public void add(TenantParams params) {
@@ -56,6 +84,8 @@ public class TenantService {
         user.setCreateTime(LocalDateTime.now());
         userMapper.insert(user);
         log.info("Added tenant config: {}", params.getUsername());
+
+        Thread.ofVirtual().start(() -> fetchAndSavePlanType(user));
     }
 
     public void update(TenantParams params) {
@@ -89,6 +119,50 @@ public class TenantService {
             throw new OciException("配置不存在");
         }
         return user;
+    }
+
+    public void refreshPlanType(String id) {
+        OciUser user = userMapper.selectById(id);
+        if (user == null) throw new OciException("配置不存在");
+        fetchAndSavePlanType(user);
+    }
+
+    private void fetchAndSavePlanType(OciUser user) {
+        try {
+            com.ociworker.model.dto.SysUserDTO dto = com.ociworker.model.dto.SysUserDTO.builder()
+                    .username(user.getUsername())
+                    .ociCfg(com.ociworker.model.dto.SysUserDTO.OciCfg.builder()
+                            .tenantId(user.getOciTenantId())
+                            .userId(user.getOciUserId())
+                            .fingerprint(user.getOciFingerprint())
+                            .region(user.getOciRegion())
+                            .privateKeyPath(user.getOciKeyPath())
+                            .build())
+                    .build();
+            try (OciClientService client = new OciClientService(dto)) {
+                com.oracle.bmc.ospgateway.SubscriptionServiceClient ospClient =
+                        com.oracle.bmc.ospgateway.SubscriptionServiceClient.builder().build(client.getProvider());
+                try {
+                    var resp = ospClient.listSubscriptions(
+                            com.oracle.bmc.ospgateway.requests.ListSubscriptionsRequest.builder()
+                                    .ospHomeRegion(user.getOciRegion())
+                                    .compartmentId(client.getCompartmentId())
+                                    .build());
+                    var items = resp.getSubscriptionCollection().getItems();
+                    if (items != null && !items.isEmpty()) {
+                        String planType = items.get(0).getPlanType() != null
+                                ? items.get(0).getPlanType().getValue() : "UNKNOWN";
+                        user.setPlanType(planType);
+                        userMapper.updateById(user);
+                        log.info("Tenant {} planType: {}", user.getUsername(), planType);
+                    }
+                } finally {
+                    ospClient.close();
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to fetch planType for {}: {}", user.getUsername(), e.getMessage());
+        }
     }
 
     public String uploadKey(MultipartFile file) throws IOException {

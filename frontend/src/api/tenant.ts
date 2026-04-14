@@ -20,6 +20,10 @@ export function getTenantDetails(data: { id: string }) {
   return request.post('/oci/user/details', data)
 }
 
+export function refreshPlanType(data: { id: string }) {
+  return request.post('/oci/user/refreshPlanType', data)
+}
+
 export function uploadKey(formData: FormData) {
   return request.post('/oci/user/uploadKey', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },

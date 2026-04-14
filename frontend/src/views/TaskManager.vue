@@ -8,26 +8,45 @@
         <a-button @click="loadData" :loading="loading">
           <template #icon><ReloadOutlined /></template>刷新
         </a-button>
+        <a-input-search v-model:value="searchKeyword" placeholder="搜索租户/区域/架构..."
+          style="width: 260px" allow-clear @search="handleSearch" enter-button="搜索" />
+        <a-select v-model:value="filterStatus" placeholder="状态筛选" style="width: 130px"
+          allow-clear @change="handleSearch">
+          <a-select-option value="">全部</a-select-option>
+          <a-select-option value="RUNNING">运行中</a-select-option>
+          <a-select-option value="STOPPED">已停止</a-select-option>
+          <a-select-option value="COMPLETED">已完成</a-select-option>
+          <a-select-option value="FAILED">已失败</a-select-option>
+        </a-select>
       </a-space>
     </div>
 
     <a-table :columns="columns" :data-source="tableData" :loading="loading" :pagination="pagination"
-      row-key="id" @change="handleTableChange" size="middle">
+      row-key="id" @change="handleTableChange" size="middle"
+      :row-class-name="(record: any) => record.status !== 'RUNNING' ? 'row-inactive' : ''">
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'architecture'">
           <a-tag :color="record.architecture === 'ARM' ? 'green' : 'blue'">{{ record.architecture }}</a-tag>
         </template>
         <template v-if="column.key === 'status'">
-          <a-badge :status="record.status === 'RUNNING' ? 'processing' : record.status === 'COMPLETED' ? 'success' : 'error'"
+          <a-badge :status="badgeStatusMap[record.status] || 'default'"
             :text="statusMap[record.status] || record.status" />
         </template>
         <template v-if="column.key === 'config'">
           {{ record.ocpus }}C / {{ record.memory }}G / {{ record.disk }}GB
         </template>
         <template v-if="column.key === 'action'">
-          <a-popconfirm v-if="record.status === 'RUNNING'" title="确定停止任务?" @confirm="handleStop(record)">
-            <a-button type="link" danger size="small" :loading="stopLoading[record.id]">停止</a-button>
-          </a-popconfirm>
+          <a-space>
+            <a-popconfirm v-if="record.status === 'RUNNING'" title="确定停止任务?" @confirm="handleStop(record)">
+              <a-button type="link" danger size="small" :loading="actionLoading[record.id]">停止</a-button>
+            </a-popconfirm>
+            <a-popconfirm v-if="record.status === 'STOPPED'" title="确定恢复任务?" @confirm="handleResume(record)">
+              <a-button type="link" size="small" :loading="actionLoading[record.id]">继续</a-button>
+            </a-popconfirm>
+            <a-popconfirm v-if="record.status !== 'RUNNING'" title="确定删除此记录?" @confirm="handleDelete(record)">
+              <a-button type="link" danger size="small" :loading="actionLoading[record.id]">删除</a-button>
+            </a-popconfirm>
+          </a-space>
         </template>
       </template>
     </a-table>
@@ -109,14 +128,16 @@
 <script setup lang="ts">
 import { ref, reactive, onMounted } from 'vue'
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons-vue'
-import { message } from 'ant-design-vue'
-import { getTaskList, createTask, stopTask, hasRunningTask } from '../api/task'
-import { Modal } from 'ant-design-vue'
+import { message, Modal } from 'ant-design-vue'
+import { getTaskList, createTask, stopTask, hasRunningTask, resumeTask, deleteTask } from '../api/task'
 import { getTenantList } from '../api/tenant'
 import { getAvailableShapes } from '../api/instance'
 
 const statusMap: Record<string, string> = {
   RUNNING: '运行中', STOPPED: '已停止', COMPLETED: '已完成', FAILED: '已失败',
+}
+const badgeStatusMap: Record<string, string> = {
+  RUNNING: 'processing', STOPPED: 'default', COMPLETED: 'success', FAILED: 'error',
 }
 
 const columns = [
@@ -129,7 +150,7 @@ const columns = [
   { title: '状态', dataIndex: 'status', key: 'status', width: 100 },
   { title: '尝试次数', dataIndex: 'attemptCount', key: 'attemptCount', width: 90 },
   { title: '创建时间', dataIndex: 'createTime', key: 'createTime', width: 180 },
-  { title: '操作', key: 'action', width: 80 },
+  { title: '操作', key: 'action', width: 160 },
 ]
 
 const loading = ref(false)
@@ -139,8 +160,10 @@ const tableData = ref<any[]>([])
 const tenants = ref<any[]>([])
 const availableShapes = ref<any[]>([])
 const createVisible = ref(false)
+const searchKeyword = ref('')
+const filterStatus = ref('')
 const pagination = reactive({ current: 1, pageSize: 10, total: 0 })
-const stopLoading = reactive<Record<string, boolean>>({})
+const actionLoading = reactive<Record<string, boolean>>({})
 
 const createForm = reactive({
   userId: '', architecture: 'ARM', operationSystem: 'Ubuntu',
@@ -168,10 +191,20 @@ async function onTenantChange(tenantId: string) {
   }
 }
 
+function handleSearch() {
+  pagination.current = 1
+  loadData()
+}
+
 async function loadData() {
   loading.value = true
   try {
-    const res = await getTaskList({ current: pagination.current, size: pagination.pageSize })
+    const res = await getTaskList({
+      current: pagination.current,
+      size: pagination.pageSize,
+      keyword: searchKeyword.value || undefined,
+      status: filterStatus.value || undefined,
+    })
     tableData.value = res.data.records || []
     pagination.total = res.data.total || 0
   } catch (e: any) {
@@ -241,7 +274,7 @@ async function doCreate() {
 }
 
 async function handleStop(record: any) {
-  stopLoading[record.id] = true
+  actionLoading[record.id] = true
   try {
     await stopTask({ taskId: record.id, userId: record.userId })
     message.success('任务已停止')
@@ -249,7 +282,33 @@ async function handleStop(record: any) {
   } catch (e: any) {
     message.error(e?.message || '停止任务失败')
   } finally {
-    stopLoading[record.id] = false
+    actionLoading[record.id] = false
+  }
+}
+
+async function handleResume(record: any) {
+  actionLoading[record.id] = true
+  try {
+    await resumeTask({ taskId: record.id })
+    message.success('任务已恢复运行')
+    loadData()
+  } catch (e: any) {
+    message.error(e?.message || '恢复任务失败')
+  } finally {
+    actionLoading[record.id] = false
+  }
+}
+
+async function handleDelete(record: any) {
+  actionLoading[record.id] = true
+  try {
+    await deleteTask({ taskId: record.id })
+    message.success('记录已删除')
+    loadData()
+  } catch (e: any) {
+    message.error(e?.message || '删除失败')
+  } finally {
+    actionLoading[record.id] = false
   }
 }
 
@@ -258,4 +317,9 @@ onMounted(() => loadData())
 
 <style scoped>
 .table-toolbar { margin-bottom: 16px; }
+</style>
+<style>
+.row-inactive td {
+  color: #bbb !important;
+}
 </style>
