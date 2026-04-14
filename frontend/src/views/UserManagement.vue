@@ -21,7 +21,7 @@
           <a-badge :status="record.state === 'ACTIVE' ? 'success' : 'error'" :text="record.state === 'ACTIVE' ? '正常' : '已禁用'" />
         </template>
         <template v-if="column.key === 'isMfaActivated'">
-          <a-tag :color="record.isMfaActivated ? 'green' : 'default'">{{ record.isMfaActivated ? '已启用' : '未启用' }}</a-tag>
+          <a-tag :color="record.isMfaActivated ? 'default' : 'green'">{{ record.isMfaActivated ? '未启用' : '已启用' }}</a-tag>
         </template>
         <template v-if="column.key === 'action'">
           <a-dropdown :trigger="['click']">
