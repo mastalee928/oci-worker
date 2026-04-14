@@ -238,7 +238,7 @@ public class ConsoleService {
                     "echo '正在连接串行控制台...'\n" +
                     "echo '按 Ctrl+] 或 ~. 退出'\n" +
                     "echo ''\n" +
-                    sshCommand.replace("ssh ", "ssh -i " + privateKeyPath + " -o StrictHostKeyChecking=no ") + "\n" +
+                    sshCommand.replace("ssh ", "ssh -tt -i " + privateKeyPath + " -o StrictHostKeyChecking=no ") + "\n" +
                     "echo '串行控制台已断开'\n" +
                     "sleep 2\n";
             Files.writeString(scriptPath, script);
