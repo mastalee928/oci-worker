@@ -22,6 +22,11 @@ public class TaskController {
         return ResponseData.ok(taskSchedulerService.listTasks(params));
     }
 
+    @PostMapping("/hasRunning")
+    public ResponseData<?> hasRunning(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(taskSchedulerService.hasRunningTask(params.get("userId")));
+    }
+
     @PostMapping("/create")
     public ResponseData<?> create(@RequestBody @Valid CreateTaskParams params) {
         taskSchedulerService.createTask(

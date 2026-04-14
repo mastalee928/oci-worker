@@ -73,6 +73,14 @@ public class TaskSchedulerService {
         }
     }
 
+    public boolean hasRunningTask(String userId) {
+        return taskMapper.selectCount(
+                new LambdaQueryWrapper<OciCreateTask>()
+                        .eq(OciCreateTask::getUserId, userId)
+                        .eq(OciCreateTask::getStatus, TaskStatusEnum.RUNNING.getStatus())
+        ) > 0;
+    }
+
     public Page<Map<String, Object>> listTasks(PageParams params) {
         Page<OciCreateTask> page = new Page<>(params.getCurrent(), params.getSize());
         LambdaQueryWrapper<OciCreateTask> wrapper = new LambdaQueryWrapper<>();

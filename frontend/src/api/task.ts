@@ -15,3 +15,7 @@ export function createBatchTask(data: any) {
 export function stopTask(data: { taskId: string; userId: string }) {
   return request.post('/oci/task/stop', data)
 }
+
+export function hasRunningTask(data: { userId: string }) {
+  return request.post('/oci/task/hasRunning', data)
+}

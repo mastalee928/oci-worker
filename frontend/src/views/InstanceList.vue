@@ -423,6 +423,7 @@ function openDetail(record: any) {
   drawerVisible.value = true
   loadNetworkDetail()
   loadReservedIps()
+  loadSecurityRules()
 }
 
 async function handleAction(record: any, action: string) {

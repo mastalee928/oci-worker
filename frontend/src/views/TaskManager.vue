@@ -110,7 +110,8 @@
 import { ref, reactive, onMounted } from 'vue'
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
-import { getTaskList, createTask, stopTask } from '../api/task'
+import { getTaskList, createTask, stopTask, hasRunningTask } from '../api/task'
+import { Modal } from 'ant-design-vue'
 import { getTenantList } from '../api/tenant'
 import { getAvailableShapes } from '../api/instance'
 
@@ -207,6 +208,25 @@ function showCreateModal() {
 async function handleCreate() {
   if (!createForm.userId) { message.warning('请选择租户'); return }
   if (!createForm.rootPassword) generateRandomPwd()
+
+  try {
+    const checkRes = await hasRunningTask({ userId: createForm.userId })
+    if (checkRes.data === true) {
+      Modal.confirm({
+        title: '重复任务提醒',
+        content: '该账户已有正在运行的开机任务，是否仍要重复提交？',
+        okText: '继续创建',
+        cancelText: '取消',
+        onOk: () => doCreate(),
+      })
+      return
+    }
+  } catch {}
+
+  doCreate()
+}
+
+async function doCreate() {
   createLoading.value = true
   try {
     await createTask(createForm)

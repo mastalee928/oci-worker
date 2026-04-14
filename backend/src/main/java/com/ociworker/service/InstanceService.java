@@ -230,6 +230,9 @@ public class InstanceService {
         }
     }
 
+    /**
+     * Full IPv6 flow: ensure VCN has IPv6 CIDR → ensure subnet has IPv6 CIDR → create IPv6 on VNIC
+     */
     public Map<String, String> addIpv6(String userId, String instanceId) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
@@ -245,6 +248,60 @@ public class InstanceService {
             if (attachments.isEmpty()) throw new OciException("未找到实例的 VNIC");
 
             String vnicId = attachments.get(0).getVnicId();
+            String subnetId = attachments.get(0).getSubnetId();
+
+            Subnet subnet = client.getVirtualNetworkClient().getSubnet(
+                    GetSubnetRequest.builder().subnetId(subnetId).build()
+            ).getSubnet();
+
+            Vcn vcn = client.getVirtualNetworkClient().getVcn(
+                    GetVcnRequest.builder().vcnId(subnet.getVcnId()).build()
+            ).getVcn();
+
+            if (vcn.getIpv6CidrBlocks() == null || vcn.getIpv6CidrBlocks().isEmpty()) {
+                log.info("VCN {} has no IPv6 CIDR, adding Oracle-assigned IPv6...", vcn.getDisplayName());
+                try {
+                    client.getVirtualNetworkClient().addVcnCidr(
+                            AddVcnCidrRequest.builder()
+                                    .vcnId(vcn.getId())
+                                    .addVcnCidrDetails(AddVcnCidrDetails.builder()
+                                            .isIpv6Cidr(true)
+                                            .build())
+                                    .build());
+                    Thread.sleep(5000);
+                    vcn = client.getVirtualNetworkClient().getVcn(
+                            GetVcnRequest.builder().vcnId(vcn.getId()).build()
+                    ).getVcn();
+                } catch (com.oracle.bmc.model.BmcException e) {
+                    if (!e.getMessage().contains("already exists")) {
+                        throw new OciException("VCN 添加 IPv6 CIDR 失败: " + extractOciErrorMessage(e));
+                    }
+                }
+            }
+
+            if (subnet.getIpv6CidrBlocks() == null || subnet.getIpv6CidrBlocks().isEmpty()) {
+                log.info("Subnet {} has no IPv6 CIDR, adding...", subnet.getDisplayName());
+                String vcnIpv6Cidr = vcn.getIpv6CidrBlocks() != null && !vcn.getIpv6CidrBlocks().isEmpty()
+                        ? vcn.getIpv6CidrBlocks().get(0) : null;
+                if (vcnIpv6Cidr == null) {
+                    throw new OciException("VCN 没有 IPv6 CIDR，无法为子网添加 IPv6");
+                }
+                String subnetIpv6Cidr = vcnIpv6Cidr.replaceAll("/\\d+$", "/64");
+                try {
+                    client.getVirtualNetworkClient().addSubnetIpv6Cidr(
+                            AddSubnetIpv6CidrRequest.builder()
+                                    .subnetId(subnetId)
+                                    .addSubnetIpv6CidrDetails(AddSubnetIpv6CidrDetails.builder()
+                                            .ipv6CidrBlock(subnetIpv6Cidr)
+                                            .build())
+                                    .build());
+                    Thread.sleep(3000);
+                } catch (com.oracle.bmc.model.BmcException e) {
+                    if (!e.getMessage().contains("already exists")) {
+                        throw new OciException("子网添加 IPv6 CIDR 失败: " + extractOciErrorMessage(e));
+                    }
+                }
+            }
 
             Ipv6 ipv6 = client.getVirtualNetworkClient().createIpv6(
                     CreateIpv6Request.builder()
@@ -257,6 +314,8 @@ public class InstanceService {
             return Map.of("ipv6Address", ipv6.getIpAddress());
         } catch (OciException e) {
             throw e;
+        } catch (com.oracle.bmc.model.BmcException e) {
+            throw new OciException("添加 IPv6 失败: " + extractOciErrorMessage(e));
         } catch (Exception e) {
             throw new OciException("添加 IPv6 失败: " + e.getMessage());
         }
@@ -285,8 +344,10 @@ public class InstanceService {
                     "publicIpId", reservedIp.getId(),
                     "ipAddress", reservedIp.getIpAddress()
             );
+        } catch (com.oracle.bmc.model.BmcException e) {
+            throw new OciException("创建预留IP失败: " + extractOciErrorMessage(e));
         } catch (Exception e) {
-            throw new OciException("创建预留 IP 失败: " + e.getMessage());
+            throw new OciException("创建预留IP失败: " + e.getMessage());
         }
     }
 
@@ -336,6 +397,10 @@ public class InstanceService {
         }
     }
 
+    /**
+     * Assigns a reserved IP to an instance by creating a secondary private IP on the VNIC,
+     * then binding the reserved public IP to that secondary private IP.
+     */
     public void assignReservedIp(String userId, String publicIpId, String instanceId) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
@@ -350,31 +415,33 @@ public class InstanceService {
             ).getItems();
             if (attachments.isEmpty()) throw new OciException("未找到实例的 VNIC");
 
-            Vnic vnic = client.getVirtualNetworkClient().getVnic(
-                    GetVnicRequest.builder().vnicId(attachments.get(0).getVnicId()).build()
-            ).getVnic();
+            String vnicId = attachments.get(0).getVnicId();
+            String subnetId = attachments.get(0).getSubnetId();
 
-            List<PrivateIp> privateIps = client.getVirtualNetworkClient().listPrivateIps(
-                    ListPrivateIpsRequest.builder().vnicId(vnic.getId()).build()
-            ).getItems();
-            if (privateIps.isEmpty()) throw new OciException("未找到私有 IP");
-
-            PrivateIp primaryPip = privateIps.stream()
-                    .filter(p -> Boolean.TRUE.equals(p.getIsPrimary()))
-                    .findFirst().orElse(privateIps.get(0));
+            PrivateIp secondaryPip = client.getVirtualNetworkClient().createPrivateIp(
+                    CreatePrivateIpRequest.builder()
+                            .createPrivateIpDetails(CreatePrivateIpDetails.builder()
+                                    .vnicId(vnicId)
+                                    .displayName("privateip" + System.currentTimeMillis())
+                                    .build())
+                            .build()
+            ).getPrivateIp();
 
             client.getVirtualNetworkClient().updatePublicIp(
                     UpdatePublicIpRequest.builder()
                             .publicIpId(publicIpId)
                             .updatePublicIpDetails(UpdatePublicIpDetails.builder()
-                                    .privateIpId(primaryPip.getId())
+                                    .privateIpId(secondaryPip.getId())
                                     .build())
                             .build());
-            log.info("Reserved IP {} assigned to instance {}", publicIpId, instanceId);
+            log.info("Reserved IP {} assigned to secondary private IP {} on instance {}",
+                    publicIpId, secondaryPip.getIpAddress(), instanceId);
+        } catch (com.oracle.bmc.model.BmcException e) {
+            throw new OciException("绑定预留IP失败: " + extractOciErrorMessage(e));
         } catch (OciException e) {
             throw e;
         } catch (Exception e) {
-            throw new OciException("绑定预留 IP 失败: " + e.getMessage());
+            throw new OciException("绑定预留IP失败: " + e.getMessage());
         }
     }
 
@@ -384,6 +451,12 @@ public class InstanceService {
 
         SysUserDTO dto = buildBasicDTO(ociUser);
         try (OciClientService client = new OciClientService(dto)) {
+            PublicIp pubIp = client.getVirtualNetworkClient().getPublicIp(
+                    GetPublicIpRequest.builder().publicIpId(publicIpId).build()
+            ).getPublicIp();
+
+            String privateIpId = pubIp.getPrivateIpId();
+
             client.getVirtualNetworkClient().updatePublicIp(
                     UpdatePublicIpRequest.builder()
                             .publicIpId(publicIpId)
@@ -391,9 +464,23 @@ public class InstanceService {
                                     .privateIpId("")
                                     .build())
                             .build());
+
+            if (privateIpId != null) {
+                try {
+                    PrivateIp pip = client.getVirtualNetworkClient().getPrivateIp(
+                            GetPrivateIpRequest.builder().privateIpId(privateIpId).build()
+                    ).getPrivateIp();
+                    if (!Boolean.TRUE.equals(pip.getIsPrimary())) {
+                        client.getVirtualNetworkClient().deletePrivateIp(
+                                DeletePrivateIpRequest.builder().privateIpId(privateIpId).build());
+                    }
+                } catch (Exception ignored) {}
+            }
             log.info("Reserved IP {} unassigned", publicIpId);
+        } catch (com.oracle.bmc.model.BmcException e) {
+            throw new OciException("解绑预留IP失败: " + extractOciErrorMessage(e));
         } catch (Exception e) {
-            throw new OciException("解绑预留 IP 失败: " + e.getMessage());
+            throw new OciException("解绑预留IP失败: " + e.getMessage());
         }
     }
 
@@ -423,6 +510,29 @@ public class InstanceService {
         } catch (Exception e) {
             throw new OciException("获取可用 Shape 列表失败: " + e.getMessage());
         }
+    }
+
+    private String extractOciErrorMessage(com.oracle.bmc.model.BmcException e) {
+        String msg = e.getMessage();
+        if (msg.contains("LimitExceeded")) {
+            return "已超出免费账户限制，无法创建更多资源。请在OCI控制台申请提升配额。";
+        }
+        if (msg.contains("Conflict")) {
+            return "资源冲突，该私有IP已有公网IP绑定。请先解绑现有公网IP。";
+        }
+        if (msg.contains("NotAuthorizedOrNotFound")) {
+            return "权限不足或资源不存在。";
+        }
+        if (msg.contains("InvalidParameter")) {
+            if (msg.contains("IPv6")) {
+                return "子网或VCN未启用IPv6，正在自动配置中，请稍后重试。";
+            }
+            return "参数无效: " + msg.substring(0, Math.min(msg.length(), 100));
+        }
+        if (msg.contains("TooManyRequests")) {
+            return "请求过于频繁，请稍后重试。";
+        }
+        return msg.length() > 150 ? msg.substring(0, 150) + "..." : msg;
     }
 
     private SysUserDTO buildBasicDTO(OciUser ociUser) {
