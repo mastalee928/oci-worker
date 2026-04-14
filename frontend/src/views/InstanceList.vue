@@ -291,8 +291,7 @@
             <template v-if="networkDetail">
               <div v-for="(vnic, vi) in networkDetail.vnics" :key="vi" style="margin-bottom: 16px">
                 <a-descriptions :column="1" bordered size="small">
-                  <a-descriptions-item v-for="(ipd, idx) in vnic.ipDetails" :key="idx"
-                    :label="ipd.isPrimary ? '主IP' : '辅助IP'">
+                  <a-descriptions-item v-for="(ipd, idx) in getPrimaryIps(vnic)" :key="'p'+idx" label="主IP">
                     <div>
                       <template v-if="ipd.publicIpAddress">
                         公网IP<a-tag :color="ipd.publicIpLifetime === 'RESERVED' ? 'green' : 'orange'" style="margin: 0 6px">{{ ipd.publicIpLifetime === 'RESERVED' ? '预留' : '临时' }}</a-tag><a-typography-text copyable>{{ ipd.publicIpAddress }}</a-typography-text>
@@ -315,20 +314,22 @@
                       <a-button type="link" size="small" @click="handleAddIpv6" :loading="ipv6Loading">添加 IPv6</a-button>
                     </span>
                   </a-descriptions-item>
-                  <a-descriptions-item label="预留IP">
-                    <template v-if="reservedIps.length > 0">
-                      <div v-for="rip in reservedIps" :key="rip.id" style="margin-bottom: 4px">
-                        <a-typography-text copyable>{{ rip.ipAddress }}</a-typography-text>
-                        <a-tag :color="rip.isAssigned ? 'green' : 'default'" style="margin-left: 6px">{{ rip.isAssigned ? '已绑定' : '未绑定' }}</a-tag>
-                        <a-button v-if="!rip.isAssigned" type="link" size="small" @click="handleAssignReservedIp(rip.id)">绑定</a-button>
-                        <a-button v-if="rip.isAssigned" type="link" size="small" @click="handleUnassignReservedIp(rip.id)">解绑</a-button>
-                        <a-popconfirm title="确定删除？" @confirm="handleDeleteReservedIp(rip.id)">
-                          <a-button type="link" danger size="small" :disabled="rip.isAssigned">删除</a-button>
-                        </a-popconfirm>
+                  <a-descriptions-item label="辅助IP">
+                    <template v-if="getSecondaryIps(vnic).length > 0">
+                      <div v-for="(ipd, idx) in getSecondaryIps(vnic)" :key="'s'+idx" style="margin-bottom: 4px">
+                        <template v-if="ipd.publicIpAddress">
+                          公网IP<a-tag :color="ipd.publicIpLifetime === 'RESERVED' ? 'green' : 'orange'" style="margin: 0 6px">{{ ipd.publicIpLifetime === 'RESERVED' ? '预留' : '临时' }}</a-tag><a-typography-text copyable>{{ ipd.publicIpAddress }}</a-typography-text>
+                          <span style="color: #999; margin-left: 6px">( {{ ipd.privateIpAddress }} )</span>
+                        </template>
+                        <template v-else>
+                          内网IP: <a-typography-text copyable>{{ ipd.privateIpAddress }}</a-typography-text>
+                        </template>
                       </div>
                     </template>
-                    <span v-else style="color: #999">无预留IP</span>
-                    <a-button type="link" size="small" @click="showCreateReservedIpModal" style="margin-left: 8px">新建预留IP</a-button>
+                    <template v-else>
+                      <span style="color: #999">无</span>
+                      <a-button type="link" size="small" @click="handleAddAuxIp" :loading="auxIpLoading" style="margin-left: 8px">添加辅助IP</a-button>
+                    </template>
                   </a-descriptions-item>
                 </a-descriptions>
               </div>
@@ -585,6 +586,24 @@
               </div>
             </div>
           </div>
+          <a-divider orientation="left" plain>预留IP</a-divider>
+          <a-spin :spinning="reservedIpListLoading">
+            <template v-if="reservedIps.length > 0">
+              <div v-for="rip in reservedIps" :key="rip.id" style="margin-bottom: 6px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap">
+                <a-typography-text copyable>{{ rip.ipAddress }}</a-typography-text>
+                <a-tag :color="rip.isAssigned ? 'green' : 'default'">{{ rip.isAssigned ? '已绑定' : '未绑定' }}</a-tag>
+                <span v-if="rip.assignedInstanceName" style="color: var(--text-sub); font-size: 12px">{{ rip.assignedInstanceName }}</span>
+                <a-popconfirm v-if="!rip.isAssigned" title="确定删除？" @confirm="handleDeleteReservedIp(rip.id)">
+                  <a-button type="link" danger size="small">删除</a-button>
+                </a-popconfirm>
+                <a-button v-if="rip.isAssigned" type="link" size="small" @click="handleUnassignReservedIp(rip.id)">解绑</a-button>
+              </div>
+            </template>
+            <span v-else style="color: #999; font-size: 13px">暂无预留IP</span>
+          </a-spin>
+          <a-button type="link" size="small" @click="showCreateReservedIpModal" style="margin-top: 4px">
+            <i class="ri-add-line" style="margin-right: 4px"></i>新建预留IP
+          </a-button>
         </div>
       </a-spin>
     </a-modal>
@@ -784,6 +803,8 @@ const vcnList = ref<any[]>([])
 async function openVcnPanel(tenant: any) {
   vcnTenant.value = tenant
   vcnList.value = []
+  reservedIps.value = []
+  currentTenant.value = tenant
   vcnVisible.value = true
   vcnListLoading.value = true
   try {
@@ -794,6 +815,7 @@ async function openVcnPanel(tenant: any) {
   } finally {
     vcnListLoading.value = false
   }
+  loadReservedIps()
 }
 
 function formatBytes(bytes: number) {
@@ -842,11 +864,9 @@ function openDetail(tenant: any, record: any) {
   vcns.value = []
   trafficData.value = null
   networkDetail.value = null
-  reservedIps.value = []
   consoleData.value = null
   drawerVisible.value = true
   loadNetworkDetail()
-  loadReservedIps()
   loadSecurityRules()
 }
 
@@ -1047,6 +1067,38 @@ async function handleEditVolume() {
     message.error(e?.message || '更新引导卷失败')
   } finally {
     editVolLoading.value = false
+  }
+}
+
+function getPrimaryIps(vnic: any) {
+  return (vnic.ipDetails || []).filter((ip: any) => ip.isPrimary)
+}
+function getSecondaryIps(vnic: any) {
+  return (vnic.ipDetails || []).filter((ip: any) => !ip.isPrimary)
+}
+
+const auxIpLoading = ref(false)
+async function handleAddAuxIp() {
+  if (!currentTenant.value || !currentInstance.value) return
+  auxIpLoading.value = true
+  try {
+    const res = await createReservedIp({ id: currentTenant.value.id, displayName: 'aux-' + Date.now() })
+    const newIpId = res.data?.id
+    if (!newIpId) throw new Error('创建预留IP失败')
+    message.success('预留IP已创建: ' + (res.data?.ipAddress || ''))
+    try {
+      await assignReservedIp({ id: currentTenant.value.id, publicIpId: newIpId, instanceId: currentInstance.value.instanceId })
+      message.success('辅助IP已附加到实例')
+    } catch (e: any) {
+      const errMsg = e?.message || '绑定失败'
+      message.error('附加辅助IP失败: ' + errMsg)
+    }
+    loadNetworkDetail()
+  } catch (e: any) {
+    const errMsg = e?.message || '创建预留IP失败'
+    message.error(errMsg)
+  } finally {
+    auxIpLoading.value = false
   }
 }
 
