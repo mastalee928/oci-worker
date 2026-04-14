@@ -73,25 +73,15 @@ bash <(curl -sL https://raw.githubusercontent.com/mastalee928/oci-worker/master/
 
 ---
 
-## 更新方法
+## 一键更新
 
 ```bash
-# 停止服务
-sudo systemctl stop oci-worker
-
-# 下载最新版 JAR（覆盖旧文件）
-cd /opt/oci-worker
-sudo curl -L -o oci-worker.jar \
-  https://github.com/mastalee928/oci-worker/releases/download/latest/oci-worker-1.0.0.jar
-
-# 启动服务
-sudo systemctl start oci-worker
-
-# 查看启动日志（确认启动成功）
-sudo journalctl -u oci-worker -f --no-pager
+bash <(curl -sL https://raw.githubusercontent.com/mastalee928/oci-worker/master/update.sh)
 ```
 
-也可以重新运行安装脚本，它会自动跳过已安装的组件并下载最新 JAR：
+脚本会自动完成：停止服务 → 下载最新 JAR（含大小校验） → 启动服务 → 检查运行状态。
+
+也可以重新运行部署脚本（会跳过已安装组件，只更新 JAR）：
 
 ```bash
 bash <(curl -sL https://raw.githubusercontent.com/mastalee928/oci-worker/master/deploy.sh)
@@ -208,6 +198,7 @@ oci-worker/               # 源码目录
 │   ├── package.json
 │   └── src/
 ├── deploy.sh             # 一键部署脚本
+├── update.sh             # 一键更新脚本
 ├── docker-compose.yml    # MySQL Docker 配置
 └── README.md
 ```
