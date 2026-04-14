@@ -351,5 +351,10 @@ onMounted(() => loadData())
   margin-bottom: 16px;
   display: flex;
   justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+@media (max-width: 768px) {
+  .table-toolbar { flex-direction: column; }
 }
 </style>

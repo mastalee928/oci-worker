@@ -317,6 +317,9 @@ onMounted(() => loadData())
 
 <style scoped>
 .table-toolbar { margin-bottom: 16px; }
+@media (max-width: 768px) {
+  .table-toolbar :deep(.ant-space) { flex-wrap: wrap; }
+}
 </style>
 <style>
 .row-inactive td {
