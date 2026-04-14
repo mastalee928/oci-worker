@@ -66,6 +66,8 @@ public class ConsoleService {
         } catch (Exception e) {
             log.error("【串行控制台】SSH 密钥初始化失败: {}", e.getMessage());
         }
+
+        cleanupStaleSessions();
     }
 
     private void generateSshKeyPair(Path privPath, Path pubPath) throws Exception {
@@ -233,13 +235,20 @@ public class ConsoleService {
         try {
             Path scriptDir = Path.of(KEY_DIR);
             Path scriptPath = scriptDir.resolve("console_" + userName + ".sh");
+            String sshCmd = sshCommand.replace("ssh ", "ssh -tt -i " + privateKeyPath + " -o StrictHostKeyChecking=no -o ServerAliveInterval=15 -o ServerAliveCountMax=3 ");
             String script = "#!/bin/bash\n" +
+                    "trap 'kill 0 2>/dev/null; exit' EXIT INT TERM HUP\n" +
+                    "# Kill other sessions of this user\n" +
+                    "for p in $(pgrep -u \"$(whoami)\" ssh 2>/dev/null); do\n" +
+                    "  [ \"$p\" != \"$$\" ] && kill \"$p\" 2>/dev/null\n" +
+                    "done\n" +
                     "echo '正在连接串行控制台...'\n" +
                     "echo '按 Ctrl+] 或 ~. 退出'\n" +
                     "echo ''\n" +
-                    sshCommand.replace("ssh ", "ssh -tt -i " + privateKeyPath + " -o StrictHostKeyChecking=no ") + "\n" +
+                    sshCmd + "\n" +
                     "echo '串行控制台已断开'\n" +
-                    "sleep 2\n";
+                    "sleep 1\n" +
+                    "exit 0\n";
             Files.writeString(scriptPath, script);
             Runtime.getRuntime().exec(new String[]{"chmod", "+x", scriptPath.toAbsolutePath().toString()}).waitFor();
             return scriptPath.toAbsolutePath().toString();
@@ -268,12 +277,38 @@ public class ConsoleService {
 
     private void cleanupTempUser(String user) {
         try {
-            Runtime.getRuntime().exec(new String[]{"userdel", "-r", user}).waitFor();
+            // Kill ALL processes of this user first
+            Process killAll = Runtime.getRuntime().exec(new String[]{"pkill", "-9", "-u", user});
+            killAll.waitFor();
+            Thread.sleep(500);
+
+            Runtime.getRuntime().exec(new String[]{"userdel", "-rf", user}).waitFor();
             Path scriptPath = Path.of(KEY_DIR, "console_" + user + ".sh");
             Files.deleteIfExists(scriptPath);
-            log.info("【串行控制台】清理临时用户: {}", user);
+            log.info("【串行控制台】清理临时用户及进程: {}", user);
         } catch (Exception e) {
             log.warn("【串行控制台】清理临时用户失败: {} - {}", user, e.getMessage());
+        }
+    }
+
+    private void cleanupStaleSessions() {
+        try {
+            // Kill any leftover oci_console_ processes and users from previous runs
+            Process p = Runtime.getRuntime().exec(new String[]{"bash", "-c",
+                    "grep -o 'oci_console_[0-9]*' /etc/passwd 2>/dev/null"});
+            String output = new String(p.getInputStream().readAllBytes()).trim();
+            p.waitFor();
+            if (!output.isEmpty()) {
+                for (String user : output.split("\n")) {
+                    user = user.trim();
+                    if (!user.isEmpty()) {
+                        log.info("【串行控制台】清理残留用户: {}", user);
+                        cleanupTempUser(user);
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("【串行控制台】清理残留用户失败: {}", e.getMessage());
         }
     }
 
