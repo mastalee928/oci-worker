@@ -1,0 +1,15 @@
+services:
+  oci-worker:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: oci-worker
+    restart: always
+    ports:
+      - "8818:8818"
+    volumes:
+      - ./data/application.yml:/app/oci-worker/application.yml
+      - ./data/oci-worker.db:/app/oci-worker/oci-worker.db
+      - ./data/keys:/app/oci-worker/keys
+    environment:
+      - TZ=Asia/Shanghai

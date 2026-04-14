@@ -1,0 +1,40 @@
+# Java
+target/
+*.class
+*.jar
+*.war
+*.log
+oci-worker.db
+
+# Maven
+.mvn/
+mvnw
+mvnw.cmd
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Keys
+keys/
+*.pem
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+
+# Backend built frontend assets
+backend/src/main/resources/dist/
+
+# Docker data
+data/
+
+# Env
+.env
