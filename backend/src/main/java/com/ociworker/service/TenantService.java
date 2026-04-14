@@ -43,6 +43,7 @@ public class TenantService {
         if (StrUtil.isNotBlank(params.getKeyword())) {
             wrapper.and(w -> w
                     .like(OciUser::getUsername, params.getKeyword())
+                    .or().like(OciUser::getTenantName, params.getKeyword())
                     .or().like(OciUser::getOciRegion, params.getKeyword()));
         }
         wrapper.orderByDesc(OciUser::getCreateTime);
@@ -53,6 +54,7 @@ public class TenantService {
             Map<String, Object> map = new LinkedHashMap<>();
             map.put("id", u.getId());
             map.put("username", u.getUsername());
+            map.put("tenantName", u.getTenantName());
             map.put("ociTenantId", u.getOciTenantId());
             map.put("ociUserId", u.getOciUserId());
             map.put("ociFingerprint", u.getOciFingerprint());
@@ -85,7 +87,7 @@ public class TenantService {
         userMapper.insert(user);
         log.info("Added tenant config: {}", params.getUsername());
 
-        Thread.ofVirtual().start(() -> fetchAndSavePlanType(user));
+        Thread.ofVirtual().start(() -> fetchTenantInfo(user));
     }
 
     public void update(TenantParams params) {
@@ -124,10 +126,10 @@ public class TenantService {
     public void refreshPlanType(String id) {
         OciUser user = userMapper.selectById(id);
         if (user == null) throw new OciException("配置不存在");
-        fetchAndSavePlanType(user);
+        fetchTenantInfo(user);
     }
 
-    private void fetchAndSavePlanType(OciUser user) {
+    private void fetchTenantInfo(OciUser user) {
         try {
             com.ociworker.model.dto.SysUserDTO dto = com.ociworker.model.dto.SysUserDTO.builder()
                     .username(user.getUsername())
@@ -140,6 +142,20 @@ public class TenantService {
                             .build())
                     .build();
             try (OciClientService client = new OciClientService(dto)) {
+                // Fetch tenant name
+                try {
+                    var tenancy = client.getIdentityClient().getTenancy(
+                            com.oracle.bmc.identity.requests.GetTenancyRequest.builder()
+                                    .tenancyId(user.getOciTenantId())
+                                    .build()).getTenancy();
+                    if (tenancy != null && StrUtil.isNotBlank(tenancy.getName())) {
+                        user.setTenantName(tenancy.getName());
+                    }
+                } catch (Exception e) {
+                    log.warn("Failed to fetch tenantName for {}: {}", user.getUsername(), e.getMessage());
+                }
+
+                // Fetch plan type
                 com.oracle.bmc.ospgateway.SubscriptionServiceClient ospClient =
                         com.oracle.bmc.ospgateway.SubscriptionServiceClient.builder().build(client.getProvider());
                 try {
@@ -153,14 +169,15 @@ public class TenantService {
                         String planType = items.get(0).getPlanType() != null
                                 ? items.get(0).getPlanType().getValue() : "UNKNOWN";
                         user.setPlanType(planType);
-                        userMapper.updateById(user);
                     }
                 } finally {
                     ospClient.close();
                 }
+
+                userMapper.updateById(user);
             }
         } catch (Exception e) {
-            log.warn("Failed to fetch planType for {}: {}", user.getUsername(), e.getMessage());
+            log.warn("Failed to fetch tenant info for {}: {}", user.getUsername(), e.getMessage());
         }
     }
 

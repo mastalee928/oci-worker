@@ -23,6 +23,10 @@
       size="middle"
     >
       <template #bodyCell="{ column, record }">
+        <template v-if="column.key === 'tenantName'">
+          <span v-if="record.tenantName">{{ record.tenantName }}</span>
+          <span v-else style="color: var(--text-sub); font-size: 12px">获取中...</span>
+        </template>
         <template v-if="column.key === 'ociRegion'">
           <a-tag color="blue">{{ getRegionLabel(record.ociRegion) }}</a-tag>
           <div style="font-size: 11px; color: var(--text-sub); margin-top: 2px">{{ record.ociRegion }}</div>
@@ -174,6 +178,7 @@ function getRegionLabel(code: string) {
 
 const columns = [
   { title: '名称', dataIndex: 'username', key: 'username', ellipsis: true },
+  { title: '租户名', dataIndex: 'tenantName', key: 'tenantName', width: 150, ellipsis: true },
   { title: '区域', dataIndex: 'ociRegion', key: 'ociRegion', width: 220 },
   { title: '开机任务', key: 'taskStatus', width: 140 },
   { title: '账户类型', dataIndex: 'planType', key: 'planType', width: 130 },
