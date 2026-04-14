@@ -160,6 +160,7 @@ async function handleLogin() {
   box-shadow: none !important;
   color: #fff !important;
   font-size: 15px !important;
+  caret-color: #fff !important;
 }
 .login-input :deep(.ant-input-prefix) {
   margin-inline-end: 12px;

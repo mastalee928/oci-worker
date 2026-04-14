@@ -240,6 +240,7 @@ async function handleSetup() {
   box-shadow: none !important;
   color: #fff !important;
   font-size: 15px !important;
+  caret-color: #fff !important;
 }
 .setup-input :deep(.ant-input-prefix) {
   margin-inline-end: 12px;

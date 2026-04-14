@@ -201,6 +201,7 @@ body::after {
   border-color: var(--border) !important;
   border-radius: var(--radius-md) !important;
   color: var(--text-main) !important;
+  caret-color: var(--text-main) !important;
 }
 .ant-input::placeholder, .ant-input-number-input::placeholder {
   color: var(--text-sub) !important;
