@@ -263,6 +263,52 @@ public class UserManagementService {
         }
     }
 
+    public void updateUser(UserParams params) {
+        OciUser tenant = getTenant(params.getTenantId());
+        try (IdentityClient client = buildClient(tenant)) {
+            UpdateUserDetails.Builder builder = UpdateUserDetails.builder();
+            if (StrUtil.isNotBlank(params.getEmail())) builder.email(params.getEmail());
+            if (StrUtil.isNotBlank(params.getUserName())) builder.description(params.getUserName());
+
+            client.updateUser(UpdateUserRequest.builder()
+                    .userId(params.getUserId())
+                    .updateUserDetails(builder.build())
+                    .build());
+            log.info("Updated user: {}", params.getUserId());
+        }
+    }
+
+    public void updateUserState(String tenantId, String userId, boolean blocked) {
+        OciUser tenant = getTenant(tenantId);
+        try (IdentityClient client = buildClient(tenant)) {
+            client.updateUserState(UpdateUserStateRequest.builder()
+                    .userId(userId)
+                    .updateStateDetails(UpdateStateDetails.builder()
+                            .blocked(blocked)
+                            .build())
+                    .build());
+            log.info("User {} state updated, blocked={}", userId, blocked);
+        }
+    }
+
+    public List<Map<String, Object>> listMfaDevices(String tenantId, String userId) {
+        OciUser tenant = getTenant(tenantId);
+        try (IdentityClient client = buildClient(tenant)) {
+            ListMfaTotpDevicesResponse response = client.listMfaTotpDevices(
+                    ListMfaTotpDevicesRequest.builder().userId(userId).build());
+            List<Map<String, Object>> result = new ArrayList<>();
+            for (MfaTotpDeviceSummary device : response.getItems()) {
+                Map<String, Object> map = new LinkedHashMap<>();
+                map.put("id", device.getId());
+                map.put("state", device.getLifecycleState().getValue());
+                map.put("isActivated", device.getIsActivated());
+                map.put("timeCreated", device.getTimeCreated() != null ? device.getTimeCreated().toString() : null);
+                result.add(map);
+            }
+            return result;
+        }
+    }
+
     private String findAdminGroupId(IdentityClient client, String compartmentId) {
         ListGroupsResponse response = client.listGroups(
                 ListGroupsRequest.builder()
