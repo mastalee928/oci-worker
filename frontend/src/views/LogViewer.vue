@@ -24,10 +24,9 @@
       <a-tag>关键词: {{ activeSearchKeyword }}</a-tag>
     </div>
     <div ref="logContainer" class="log-container">
-      <div v-for="(line, i) in displayLines" :key="i" class="log-line" :class="getLogClass(line)"
-           v-html="isSearchMode ? highlightText(line) : undefined">
-        <template v-if="!isSearchMode">{{ line }}</template>
-      </div>
+      <div v-if="isSearchMode" v-for="(line, i) in displayLines" :key="'s'+i" class="log-line" :class="getLogClass(line)"
+           v-html="highlightText(line)"></div>
+      <div v-else v-for="(line, i) in displayLines" :key="'r'+i" class="log-line" :class="getLogClass(line)">{{ line }}</div>
       <div v-if="!displayLines.length" class="log-empty">
         {{ isSearchMode ? '未找到匹配日志' : '等待日志数据...' }}
       </div>
