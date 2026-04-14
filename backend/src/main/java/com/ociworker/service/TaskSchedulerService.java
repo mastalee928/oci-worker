@@ -17,6 +17,7 @@ import com.ociworker.websocket.LogWebSocketHandler;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.DependsOn;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
@@ -29,6 +30,7 @@ import static com.ociworker.config.VirtualThreadConfig.VIRTUAL_EXECUTOR;
 
 @Slf4j
 @Service
+@DependsOn("databaseGuardService")
 public class TaskSchedulerService {
 
     @Resource
