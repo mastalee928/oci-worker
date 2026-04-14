@@ -147,6 +147,10 @@ function handleLogout() {
   flex-direction: column;
   height: 100%;
 }
+.sider :deep(.ant-layout-sider-trigger),
+.sider :deep(.ant-layout-sider-zero-width-trigger) {
+  display: none !important;
+}
 .wallpaper-active .sider {
   background: rgba(15, 23, 42, 0.85) !important;
 }
