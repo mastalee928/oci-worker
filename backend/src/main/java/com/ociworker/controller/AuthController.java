@@ -245,6 +245,18 @@ public class AuthController {
         return ResponseData.ok(verifyCodeService.isTgConfigured());
     }
 
+    @PostMapping("/verifyPassword")
+    public ResponseData<?> verifyPassword(@RequestBody Map<String, String> params) {
+        String pwd = params.get("password");
+        if (pwd == null || pwd.isBlank()) {
+            return ResponseData.error("请输入密码");
+        }
+        if (!getEffectivePasswordHash().equals(DigestUtil.sha256Hex(pwd))) {
+            return ResponseData.error("密码错误");
+        }
+        return ResponseData.ok();
+    }
+
     @PostMapping("/changePassword")
     public ResponseData<?> changePassword(@RequestBody Map<String, String> params) {
         if (verifyCodeService.isTgConfigured()) {

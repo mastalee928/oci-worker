@@ -3,17 +3,21 @@
     <a-tabs v-model:active-key="activeTab">
       <a-tab-pane key="security" tab="安全设置">
         <a-card title="修改登录密码" class="settings-card" style="position: relative; overflow: hidden">
-          <!-- TG 验证码遮罩 -->
-          <div v-if="tgConfigured && !pwdTgVerified" class="overlay-mask">
+          <!-- 安全验证遮罩 -->
+          <div v-if="!pwdTgVerified" class="overlay-mask">
             <div class="overlay-content">
-              <i class="ri-shield-check-line" style="font-size: 32px; color: #818cf8; margin-bottom: 12px"></i>
-              <p style="margin-bottom: 16px; color: #94a3b8">修改密码需要 Telegram 验证码</p>
-              <a-space direction="vertical" style="width: 240px">
+              <i :class="tgConfigured ? 'ri-shield-check-line' : 'ri-lock-2-line'" style="font-size: 32px; color: #818cf8; margin-bottom: 12px"></i>
+              <p style="margin-bottom: 16px; color: #94a3b8">{{ tgConfigured ? '修改密码需要 Telegram 验证码' : '请输入登录密码以继续' }}</p>
+              <a-space v-if="tgConfigured" direction="vertical" style="width: 240px">
                 <a-button block @click="sendPwdVerifyCode" :loading="pwdCodeSending" :disabled="pwdCodeCountdown > 0">
                   {{ pwdCodeCountdown > 0 ? pwdCodeCountdown + '秒后重新发送' : '发送验证码' }}
                 </a-button>
                 <a-input v-model:value="pwdTgCode" placeholder="输入 TG 验证码" @pressEnter="verifyPwdTgCode" />
                 <a-button type="primary" block @click="verifyPwdTgCode" :disabled="!pwdTgCode">验证</a-button>
+              </a-space>
+              <a-space v-else direction="vertical" style="width: 240px">
+                <a-input-password v-model:value="pwdOverlayPwd" placeholder="输入登录密码" @pressEnter="verifyPwdOverlay" />
+                <a-button type="primary" block @click="verifyPwdOverlay" :disabled="!pwdOverlayPwd">验证</a-button>
               </a-space>
             </div>
           </div>
@@ -108,6 +112,8 @@ const pwdCodeSending = ref(false)
 const pwdCodeCountdown = ref(0)
 let pwdCountdownTimer: any = null
 
+const pwdOverlayPwd = ref('')
+
 const notifyPwdVerified = ref(false)
 const notifyPwd = ref('')
 const notifyVerifiedPwd = ref('')
@@ -125,9 +131,6 @@ onMounted(async () => {
     const res = await request.get('/sys/tgStatus')
     tgConfigured.value = res.data?.configured === true
   } catch {}
-  if (!tgConfigured.value) {
-    pwdTgVerified.value = true
-  }
 })
 
 onUnmounted(() => { if (pwdCountdownTimer) clearInterval(pwdCountdownTimer) })
@@ -165,6 +168,17 @@ function verifyPwdTgCode() {
   pwdTgVerifiedCode.value = pwdTgCode.value
   pwdTgVerified.value = true
   message.success('验证通过')
+}
+
+async function verifyPwdOverlay() {
+  if (!pwdOverlayPwd.value) { message.warning('请输入密码'); return }
+  try {
+    await request.post('/auth/verifyPassword', { password: pwdOverlayPwd.value })
+    pwdTgVerified.value = true
+    message.success('验证通过')
+  } catch (e: any) {
+    message.error(e?.message || '密码错误')
+  }
 }
 
 function verifyNotifyPwd() {
