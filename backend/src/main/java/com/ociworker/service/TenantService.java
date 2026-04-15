@@ -6,8 +6,10 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.ociworker.enums.TaskStatusEnum;
 import com.ociworker.exception.OciException;
 import com.ociworker.mapper.OciCreateTaskMapper;
+import com.ociworker.mapper.OciKvMapper;
 import com.ociworker.mapper.OciUserMapper;
 import com.ociworker.model.entity.OciCreateTask;
+import com.ociworker.model.entity.OciKv;
 import com.ociworker.model.entity.OciUser;
 import com.ociworker.model.params.IdListParams;
 import com.ociworker.model.params.PageParams;
@@ -33,6 +35,12 @@ public class TenantService {
     private OciUserMapper userMapper;
     @Resource
     private OciCreateTaskMapper taskMapper;
+    @Resource
+    private OciKvMapper kvMapper;
+
+    private static final String GROUP_TYPE = "group";
+    private static final String GROUP_L1_PREFIX = "group_l1:";
+    private static final String GROUP_L2_PREFIX = "group_l2:";
 
     @Value("${oci-cfg.key-dir-path}")
     private String keyDirPath;
@@ -327,12 +335,61 @@ public class TenantService {
                 }
             }
         }
+        // merge persisted empty groups from oci_kv
+        List<OciKv> kvGroups = kvMapper.selectList(
+                new LambdaQueryWrapper<OciKv>().eq(OciKv::getType, GROUP_TYPE));
+        for (OciKv kv : kvGroups) {
+            String code = kv.getCode();
+            if (code.startsWith(GROUP_L1_PREFIX)) {
+                level1.add(code.substring(GROUP_L1_PREFIX.length()));
+            } else if (code.startsWith(GROUP_L2_PREFIX)) {
+                String val = kv.getValue();
+                if (StrUtil.isNotBlank(val)) {
+                    String parent = code.substring(GROUP_L2_PREFIX.length());
+                    level2Map.computeIfAbsent(parent, k -> new TreeSet<>()).add(val);
+                }
+            }
+        }
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("level1", new ArrayList<>(level1));
         Map<String, List<String>> l2 = new LinkedHashMap<>();
         level2Map.forEach((k, v) -> l2.put(k, new ArrayList<>(v)));
         result.put("level2", l2);
         return result;
+    }
+
+    public void createGroup(String name, String level, String parent) {
+        if (StrUtil.isBlank(name)) throw new OciException("分组名不能为空");
+        if ("1".equals(level)) {
+            String code = GROUP_L1_PREFIX + name;
+            OciKv exist = kvMapper.selectOne(
+                    new LambdaQueryWrapper<OciKv>().eq(OciKv::getType, GROUP_TYPE).eq(OciKv::getCode, code));
+            if (exist == null) {
+                OciKv kv = new OciKv();
+                kv.setId(CommonUtils.generateId());
+                kv.setCode(code);
+                kv.setValue(name);
+                kv.setType(GROUP_TYPE);
+                kv.setCreateTime(LocalDateTime.now());
+                kvMapper.insert(kv);
+            }
+        } else if ("2".equals(level)) {
+            if (StrUtil.isBlank(parent)) throw new OciException("子分组必须指定父分组");
+            String code = GROUP_L2_PREFIX + parent;
+            OciKv exist = kvMapper.selectOne(
+                    new LambdaQueryWrapper<OciKv>().eq(OciKv::getType, GROUP_TYPE)
+                            .eq(OciKv::getCode, code).eq(OciKv::getValue, name));
+            if (exist == null) {
+                OciKv kv = new OciKv();
+                kv.setId(CommonUtils.generateId());
+                kv.setCode(code);
+                kv.setValue(name);
+                kv.setType(GROUP_TYPE);
+                kv.setCreateTime(LocalDateTime.now());
+                kvMapper.insert(kv);
+            }
+        }
+        log.info("Created group [{}] {} parent={}", level, name, parent);
     }
 
     public void renameGroup(String oldName, String newName, String level) {
@@ -352,6 +409,31 @@ public class TenantService {
             }
             if (changed) userMapper.updateById(u);
         }
+        // update oci_kv records
+        if ("1".equals(level)) {
+            OciKv kv = kvMapper.selectOne(new LambdaQueryWrapper<OciKv>()
+                    .eq(OciKv::getType, GROUP_TYPE).eq(OciKv::getCode, GROUP_L1_PREFIX + oldName));
+            if (kv != null) {
+                kv.setCode(GROUP_L1_PREFIX + newName);
+                kv.setValue(newName);
+                kvMapper.updateById(kv);
+            }
+            // rename parent references in level2 records
+            List<OciKv> l2Kvs = kvMapper.selectList(new LambdaQueryWrapper<OciKv>()
+                    .eq(OciKv::getType, GROUP_TYPE).eq(OciKv::getCode, GROUP_L2_PREFIX + oldName));
+            for (OciKv l2 : l2Kvs) {
+                l2.setCode(GROUP_L2_PREFIX + newName);
+                kvMapper.updateById(l2);
+            }
+        } else if ("2".equals(level)) {
+            List<OciKv> kvs = kvMapper.selectList(new LambdaQueryWrapper<OciKv>()
+                    .eq(OciKv::getType, GROUP_TYPE).likeRight(OciKv::getCode, GROUP_L2_PREFIX)
+                    .eq(OciKv::getValue, oldName));
+            for (OciKv kv : kvs) {
+                kv.setValue(newName);
+                kvMapper.updateById(kv);
+            }
+        }
         log.info("Renamed group [{}] {} -> {}", level, oldName, newName);
     }
 
@@ -370,6 +452,17 @@ public class TenantService {
                 changed = true;
             }
             if (changed) userMapper.updateById(u);
+        }
+        // remove oci_kv records
+        if ("1".equals(level)) {
+            kvMapper.delete(new LambdaQueryWrapper<OciKv>()
+                    .eq(OciKv::getType, GROUP_TYPE).eq(OciKv::getCode, GROUP_L1_PREFIX + name));
+            kvMapper.delete(new LambdaQueryWrapper<OciKv>()
+                    .eq(OciKv::getType, GROUP_TYPE).eq(OciKv::getCode, GROUP_L2_PREFIX + name));
+        } else if ("2".equals(level)) {
+            kvMapper.delete(new LambdaQueryWrapper<OciKv>()
+                    .eq(OciKv::getType, GROUP_TYPE).likeRight(OciKv::getCode, GROUP_L2_PREFIX)
+                    .eq(OciKv::getValue, name));
         }
         log.info("Deleted group [{}] {}", level, name);
     }

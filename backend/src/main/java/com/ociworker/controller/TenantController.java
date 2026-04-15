@@ -101,6 +101,12 @@ public class TenantController {
         return ResponseData.ok(tenantService.getDistinctGroups());
     }
 
+    @PostMapping("/createGroup")
+    public ResponseData<?> createGroup(@RequestBody java.util.Map<String, String> params) {
+        tenantService.createGroup(params.get("name"), params.get("level"), params.get("parent"));
+        return ResponseData.ok();
+    }
+
     @PostMapping("/renameGroup")
     public ResponseData<?> renameGroup(@RequestBody java.util.Map<String, String> params) {
         tenantService.renameGroup(params.get("oldName"), params.get("newName"), params.get("level"));

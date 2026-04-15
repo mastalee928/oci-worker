@@ -3,6 +3,9 @@
     <div class="table-toolbar">
       <a-space wrap>
         <a-input-search v-model:value="searchText" placeholder="搜索租户" allow-clear @search="loadData" style="width: 200px" />
+        <a-button @click="openGroupManager">
+          <template #icon><FolderOutlined /></template>管理分组
+        </a-button>
         <a-button type="primary" @click="showAddModal">
           <template #icon><PlusOutlined /></template>新增配置
         </a-button>
@@ -201,6 +204,73 @@
         </div>
       </template>
     </a-spin>
+
+    <!-- 分组管理器弹窗 -->
+    <a-modal v-model:open="groupMgrVisible" title="管理分组" :width="isMobile ? '100%' : 700" :footer="null" centered>
+      <a-button type="primary" block style="margin-bottom: 20px" @click="openCreateGroupForm">
+        <template #icon><PlusOutlined /></template>添加分组
+      </a-button>
+
+      <!-- 新增分组表单（内联） -->
+      <div v-if="createGroupFormVisible" style="margin-bottom: 16px; padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-card);">
+        <a-space direction="vertical" style="width: 100%">
+          <a-input v-model:value="createGroupName" placeholder="分组名称" @press-enter="handleCreateGroup" />
+          <a-select v-model:value="createGroupLevel" style="width: 100%">
+            <a-select-option value="1">一级分组</a-select-option>
+            <a-select-option value="2">二级分组（子分组）</a-select-option>
+          </a-select>
+          <a-select v-if="createGroupLevel === '2'" v-model:value="createGroupParent" placeholder="选择父分组" style="width: 100%">
+            <a-select-option v-for="g in groupData.level1" :key="g" :value="g">{{ g }}</a-select-option>
+          </a-select>
+          <a-space>
+            <a-button type="primary" :loading="createGroupLoading" @click="handleCreateGroup">保存</a-button>
+            <a-button @click="createGroupFormVisible = false">取消</a-button>
+          </a-space>
+        </a-space>
+      </div>
+
+      <!-- 分组列表 -->
+      <div v-if="groupTree.length" style="display: flex; flex-direction: column; gap: 8px;">
+        <div v-for="(group, gi) in groupTree" :key="group.key">
+          <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; display: flex; align-items: center; justify-content: space-between; transition: all 0.2s;">
+            <div style="display: flex; align-items: center; gap: 12px;">
+              <div class="group-dot" :style="{ background: groupColors[gi % groupColors.length] }"></div>
+              <span style="font-weight: 600;">{{ group.label }}</span>
+              <span style="font-size: 13px; color: var(--text-sub);">{{ groupTotalCount(group) }} 个租户</span>
+              <span v-if="group.children?.length" style="font-size: 12px; color: var(--text-sub);">({{ group.children.length }} 个子分组)</span>
+            </div>
+            <div style="display: flex; gap: 8px;">
+              <a-button size="small" @click="handleMgrAddSub(group.label)">
+                <template #icon><PlusOutlined /></template>子分组
+              </a-button>
+              <a-button size="small" @click="openRenameGroup(group.label, '1')">
+                <template #icon><EditOutlined /></template>
+              </a-button>
+              <a-popconfirm title="删除该分组？租户将移至「未分组」" @confirm="handleMgrDeleteGroup(group.label, '1')">
+                <a-button size="small" danger><template #icon><DeleteOutlined /></template></a-button>
+              </a-popconfirm>
+            </div>
+          </div>
+          <!-- 子分组 -->
+          <div v-for="sub in (group.children || [])" :key="sub.key"
+            style="margin-left: 32px; margin-top: 6px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between;">
+            <div style="display: flex; align-items: center; gap: 12px;">
+              <span style="font-weight: 500;">{{ sub.label }}</span>
+              <span style="font-size: 13px; color: var(--text-sub);">{{ sub.tenants.length }} 个租户</span>
+            </div>
+            <div style="display: flex; gap: 8px;">
+              <a-button size="small" @click="openRenameGroup(sub.label, '2')">
+                <template #icon><EditOutlined /></template>
+              </a-button>
+              <a-popconfirm title="删除该子分组？" @confirm="handleMgrDeleteGroup(sub.label, '2')">
+                <a-button size="small" danger><template #icon><DeleteOutlined /></template></a-button>
+              </a-popconfirm>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div v-else style="text-align: center; padding: 40px; color: var(--text-sub);">暂无分组</div>
+    </a-modal>
 
     <!-- 重命名分组弹窗 -->
     <a-modal v-model:open="renameVisible" title="重命名分组" @ok="handleRenameGroup" :confirm-loading="renameLoading" centered>
@@ -426,8 +496,8 @@ import { useRouter } from 'vue-router'
 import { PlusOutlined, ThunderboltOutlined, InboxOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
 import type { UploadFile } from 'ant-design-vue'
-import { getTenantList, addTenant, updateTenant, removeTenant, uploadKey, getTenantFullInfo, getDomainSettings, updateMfa, updatePasswordExpiry, getAuditLogs, getServiceQuotas, getTenantGroups, renameGroup, deleteGroup } from '../api/tenant'
-import { RightOutlined, DownOutlined, SettingOutlined } from '@ant-design/icons-vue'
+import { getTenantList, addTenant, updateTenant, removeTenant, uploadKey, getTenantFullInfo, getDomainSettings, updateMfa, updatePasswordExpiry, getAuditLogs, getServiceQuotas, getTenantGroups, createGroup, renameGroup, deleteGroup } from '../api/tenant'
+import { RightOutlined, DownOutlined, SettingOutlined, FolderOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons-vue'
 
 const router = useRouter()
 
@@ -520,6 +590,13 @@ const renameLevel = ref('1')
 const addSubVisible = ref(false)
 const addSubParent = ref('')
 const addSubName = ref('')
+
+const groupMgrVisible = ref(false)
+const createGroupFormVisible = ref(false)
+const createGroupName = ref('')
+const createGroupLevel = ref('1')
+const createGroupParent = ref('')
+const createGroupLoading = ref(false)
 
 let pendingFile: File | null = null
 const isMobile = ref(window.innerWidth < 768)
@@ -855,15 +932,66 @@ function handleAddSubGroup(parentName: string) {
 async function handleAddSubGroupConfirm() {
   const name = addSubName.value.trim()
   if (!name) { message.warning('子分组名不能为空'); return }
-  if (!groupData.value.level2[addSubParent.value]) {
-    groupData.value.level2[addSubParent.value] = []
+  try {
+    await createGroup({ name, level: '2', parent: addSubParent.value })
+    addSubVisible.value = false
+    message.success('子分组已添加')
+    loadData()
+  } catch (e: any) {
+    message.error(e?.message || '添加子分组失败')
   }
-  if (groupData.value.level2[addSubParent.value].includes(name)) {
-    message.warning('该子分组已存在'); return
+}
+
+function openGroupManager() {
+  groupMgrVisible.value = true
+  createGroupFormVisible.value = false
+}
+
+function openCreateGroupForm() {
+  createGroupName.value = ''
+  createGroupLevel.value = '1'
+  createGroupParent.value = ''
+  createGroupFormVisible.value = true
+}
+
+async function handleCreateGroup() {
+  const name = createGroupName.value.trim()
+  if (!name) { message.warning('分组名不能为空'); return }
+  if (createGroupLevel.value === '2' && !createGroupParent.value) {
+    message.warning('请选择父分组'); return
   }
-  groupData.value.level2[addSubParent.value].push(name)
-  addSubVisible.value = false
-  message.success('子分组已添加')
+  createGroupLoading.value = true
+  try {
+    await createGroup({
+      name,
+      level: createGroupLevel.value,
+      parent: createGroupLevel.value === '2' ? createGroupParent.value : undefined,
+    })
+    message.success('分组已创建')
+    createGroupFormVisible.value = false
+    loadData()
+  } catch (e: any) {
+    message.error(e?.message || '创建分组失败')
+  } finally {
+    createGroupLoading.value = false
+  }
+}
+
+function handleMgrAddSub(parentName: string) {
+  createGroupName.value = ''
+  createGroupLevel.value = '2'
+  createGroupParent.value = parentName
+  createGroupFormVisible.value = true
+}
+
+async function handleMgrDeleteGroup(name: string, level: string) {
+  try {
+    await deleteGroup({ name, level })
+    message.success('分组已删除')
+    loadData()
+  } catch (e: any) {
+    message.error(e?.message || '删除分组失败')
+  }
 }
 
 function goUserManagement(record: any) {

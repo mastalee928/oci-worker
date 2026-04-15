@@ -58,6 +58,10 @@ export function getTenantGroups() {
   return request.get('/oci/user/groups')
 }
 
+export function createGroup(data: { name: string; level: string; parent?: string }) {
+  return request.post('/oci/user/createGroup', data)
+}
+
 export function renameGroup(data: { oldName: string; newName: string; level: string }) {
   return request.post('/oci/user/renameGroup', data)
 }
