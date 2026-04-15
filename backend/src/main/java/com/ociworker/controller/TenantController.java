@@ -100,4 +100,16 @@ public class TenantController {
     public ResponseData<?> groups() {
         return ResponseData.ok(tenantService.getDistinctGroups());
     }
+
+    @PostMapping("/renameGroup")
+    public ResponseData<?> renameGroup(@RequestBody java.util.Map<String, String> params) {
+        tenantService.renameGroup(params.get("oldName"), params.get("newName"), params.get("level"));
+        return ResponseData.ok();
+    }
+
+    @PostMapping("/deleteGroup")
+    public ResponseData<?> deleteGroup(@RequestBody java.util.Map<String, String> params) {
+        tenantService.deleteGroup(params.get("name"), params.get("level"));
+        return ResponseData.ok();
+    }
 }

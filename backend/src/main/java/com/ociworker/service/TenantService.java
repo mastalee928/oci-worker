@@ -102,7 +102,7 @@ public class TenantService {
         user.setOciFingerprint(params.getOciFingerprint());
         user.setOciRegion(params.getOciRegion());
         user.setOciKeyPath(params.getOciKeyPath());
-        user.setGroupLevel1(params.getGroupLevel1());
+        user.setGroupLevel1(StrUtil.isBlank(params.getGroupLevel1()) ? "未分组" : params.getGroupLevel1());
         user.setGroupLevel2(params.getGroupLevel2());
         user.setCreateTime(LocalDateTime.now());
         userMapper.insert(user);
@@ -333,6 +333,45 @@ public class TenantService {
         level2Map.forEach((k, v) -> l2.put(k, new ArrayList<>(v)));
         result.put("level2", l2);
         return result;
+    }
+
+    public void renameGroup(String oldName, String newName, String level) {
+        if (StrUtil.isBlank(oldName) || StrUtil.isBlank(newName)) throw new OciException("分组名不能为空");
+        if (oldName.equals(newName)) return;
+
+        List<OciUser> users = userMapper.selectList(null);
+        for (OciUser u : users) {
+            boolean changed = false;
+            if ("1".equals(level) && oldName.equals(u.getGroupLevel1())) {
+                u.setGroupLevel1(newName);
+                changed = true;
+            }
+            if ("2".equals(level) && oldName.equals(u.getGroupLevel2())) {
+                u.setGroupLevel2(newName);
+                changed = true;
+            }
+            if (changed) userMapper.updateById(u);
+        }
+        log.info("Renamed group [{}] {} -> {}", level, oldName, newName);
+    }
+
+    public void deleteGroup(String name, String level) {
+        if (StrUtil.isBlank(name)) return;
+        List<OciUser> users = userMapper.selectList(null);
+        for (OciUser u : users) {
+            boolean changed = false;
+            if ("1".equals(level) && name.equals(u.getGroupLevel1())) {
+                u.setGroupLevel1("未分组");
+                u.setGroupLevel2(null);
+                changed = true;
+            }
+            if ("2".equals(level) && name.equals(u.getGroupLevel2())) {
+                u.setGroupLevel2(null);
+                changed = true;
+            }
+            if (changed) userMapper.updateById(u);
+        }
+        log.info("Deleted group [{}] {}", level, name);
     }
 
     public String uploadKey(MultipartFile file) throws IOException {

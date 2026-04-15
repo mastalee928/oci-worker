@@ -57,3 +57,11 @@ export function getServiceQuotas(data: { id: string }) {
 export function getTenantGroups() {
   return request.get('/oci/user/groups')
 }
+
+export function renameGroup(data: { oldName: string; newName: string; level: string }) {
+  return request.post('/oci/user/renameGroup', data)
+}
+
+export function deleteGroup(data: { name: string; level: string }) {
+  return request.post('/oci/user/deleteGroup', data)
+}

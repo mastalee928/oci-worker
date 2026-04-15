@@ -3,18 +3,8 @@
     <div class="table-toolbar">
       <a-space wrap>
         <a-input-search v-model:value="searchText" placeholder="搜索租户" allow-clear @search="loadData" style="width: 200px" />
-        <a-select v-model:value="groupFilterL1" placeholder="一级分组" allow-clear style="width: 140px"
-          @change="groupFilterL2 = ''">
-          <a-select-option v-for="g in groupData.level1" :key="g" :value="g">{{ g }}</a-select-option>
-        </a-select>
-        <a-select v-if="groupFilterL1" v-model:value="groupFilterL2" placeholder="二级分组" allow-clear style="width: 140px">
-          <a-select-option v-for="g in filterLevel2Options" :key="g" :value="g">{{ g }}</a-select-option>
-        </a-select>
         <a-button type="primary" @click="showAddModal">
           <template #icon><PlusOutlined /></template>新增配置
-        </a-button>
-        <a-button @click="groupMgmtVisible = true">
-          <template #icon><AppstoreOutlined /></template>分组管理
         </a-button>
         <a-button danger :disabled="!selectedRowKeys.length" @click="handleBatchDelete">
           批量删除
@@ -22,24 +12,80 @@
       </a-space>
     </div>
 
-    <!-- 分组视图：当不做筛选时按分组折叠展示 -->
-    <template v-if="!groupFilterL1 && !searchText">
-      <a-spin :spinning="loading">
-        <div v-for="group in groupTree" :key="group.key" class="group-section">
-          <div class="group-header" @click="toggleGroup(group.key)">
-            <span class="group-expand-icon">
-              <DownOutlined v-if="expandedGroups.has(group.key)" />
-              <RightOutlined v-else />
-            </span>
-            <FolderOutlined style="margin-right: 6px; color: var(--primary)" />
-            <span class="group-title">{{ group.label }}</span>
-            <a-badge :count="group.tenants.length + (group.children?.reduce((s: number, c: GroupNode) => s + c.tenants.length, 0) || 0)"
-              :number-style="{ backgroundColor: 'var(--primary)' }" style="margin-left: 8px" />
+    <a-spin :spinning="loading">
+      <!-- 搜索模式：平铺 -->
+      <template v-if="searchText">
+        <a-table :columns="columns" :data-source="tableData" :loading="loading"
+          :row-selection="{ selectedRowKeys, onChange: onSelectChange }" :pagination="false"
+          row-key="id" size="middle">
+          <template #bodyCell="{ column, record }">
+            <template v-if="column.key === 'tenantName'">
+              <span v-if="record.tenantName">{{ record.tenantName }}</span>
+              <span v-else style="color: var(--text-sub); font-size: 12px">获取中...</span>
+            </template>
+            <template v-if="column.key === 'ociRegion'">
+              <a-tag color="blue">{{ getRegionLabel(record.ociRegion) }}</a-tag>
+              <div style="font-size: 11px; color: var(--text-sub); margin-top: 2px">{{ record.ociRegion }}</div>
+            </template>
+            <template v-if="column.key === 'taskStatus'">
+              <a-badge v-if="record.hasRunningTask" status="processing" text="执行开机任务中" />
+              <span v-else style="color: #999">无开机任务</span>
+            </template>
+            <template v-if="column.key === 'planType'">
+              <a-tag :color="record.planType === 'PAYG' ? 'green' : record.planType === 'FREE' ? 'orange' : 'default'">{{ record.planType || '获取中...' }}</a-tag>
+            </template>
+            <template v-if="column.key === 'action'">
+              <a-space>
+                <a-button type="link" size="small" @click="openTenantInfo(record)">详情</a-button>
+                <a-button type="link" size="small" @click="showEditModal(record)">编辑</a-button>
+                <a-button type="link" size="small" @click="openDomainMgmt(record)">管理</a-button>
+                <a-button type="link" size="small" @click="goUserManagement(record)">用户</a-button>
+                <a-popconfirm title="确定删除?" @confirm="handleDelete(record.id)">
+                  <a-button type="link" danger size="small">删除</a-button>
+                </a-popconfirm>
+              </a-space>
+            </template>
+          </template>
+        </a-table>
+      </template>
+
+      <!-- 分组视图 -->
+      <template v-else>
+        <div v-for="(group, gi) in groupTree" :key="group.key" class="group-section">
+          <!-- 一级分组栏 -->
+          <div class="group-bar">
+            <div class="group-bar-left">
+              <span class="drag-handle" title="拖拽排序">⠿</span>
+              <span class="group-expand-icon" @click="toggleGroup(group.key)">
+                <RightOutlined v-if="!expandedGroups.has(group.key)" />
+                <DownOutlined v-else />
+              </span>
+              <span class="group-dot" :style="{ background: groupColors[gi % groupColors.length] }"></span>
+              <span class="group-name" @click="toggleGroup(group.key)">{{ group.label }}</span>
+              <span class="group-count">{{ groupTotalCount(group) }}</span>
+              <span v-for="t in group.tenants.slice(0, 3)" :key="t.id" class="group-plan-tag">
+                <span :class="['plan-dot', t.planType === 'PAYG' ? 'dot-green' : t.planType === 'FREE' ? 'dot-orange' : 'dot-gray']"></span>
+              </span>
+            </div>
+            <div class="group-bar-right">
+              <a-button type="text" size="small" @click.stop="handleAddSubGroup(group.label)">
+                <template #icon><PlusOutlined /></template>子分组
+              </a-button>
+              <a-dropdown :trigger="['click']" @click.stop>
+                <a-button type="text" size="small"><SettingOutlined /></a-button>
+                <template #overlay>
+                  <a-menu>
+                    <a-menu-item @click="openRenameGroup(group.label, '1')">重命名</a-menu-item>
+                    <a-menu-item danger @click="handleDeleteGroup(group.label, '1')">删除分组</a-menu-item>
+                  </a-menu>
+                </template>
+              </a-dropdown>
+            </div>
           </div>
+
           <div v-show="expandedGroups.has(group.key)" class="group-body">
-            <!-- 直接属于一级分组的租户 -->
             <a-table v-if="group.tenants.length" :columns="columns" :data-source="group.tenants" :pagination="false"
-              row-key="id" size="small" style="margin-bottom: 8px">
+              row-key="id" size="small" style="margin-bottom: 4px">
               <template #bodyCell="{ column, record }">
                 <template v-if="column.key === 'tenantName'">
                   <span v-if="record.tenantName">{{ record.tenantName }}</span>
@@ -70,19 +116,32 @@
               </template>
             </a-table>
 
-            <!-- 二级分组 -->
+            <!-- 二级子分组 -->
             <template v-if="group.children">
               <div v-for="sub in group.children" :key="sub.key" class="subgroup-section">
-                <div class="subgroup-header" @click="toggleGroup(sub.key)">
-                  <span class="group-expand-icon">
-                    <DownOutlined v-if="expandedGroups.has(sub.key)" />
-                    <RightOutlined v-else />
-                  </span>
-                  <FolderOutlined style="margin-right: 4px; font-size: 12px; color: var(--text-sub)" />
-                  <span class="subgroup-title">{{ sub.label }}</span>
-                  <a-badge :count="sub.tenants.length" :number-style="{ backgroundColor: '#8c8c8c' }" style="margin-left: 6px" />
+                <div class="group-bar subgroup-bar">
+                  <div class="group-bar-left">
+                    <span class="drag-handle sub">⠿</span>
+                    <span class="group-expand-icon" @click="toggleGroup(sub.key)">
+                      <RightOutlined v-if="!expandedGroups.has(sub.key)" />
+                      <DownOutlined v-else />
+                    </span>
+                    <span class="subgroup-name" @click="toggleGroup(sub.key)">{{ sub.label }}</span>
+                    <span class="group-count">{{ sub.tenants.length }}</span>
+                  </div>
+                  <div class="group-bar-right">
+                    <a-dropdown :trigger="['click']" @click.stop>
+                      <a-button type="text" size="small"><SettingOutlined /></a-button>
+                      <template #overlay>
+                        <a-menu>
+                          <a-menu-item @click="openRenameGroup(sub.label, '2')">重命名</a-menu-item>
+                          <a-menu-item danger @click="handleDeleteGroup(sub.label, '2')">删除分组</a-menu-item>
+                        </a-menu>
+                      </template>
+                    </a-dropdown>
+                  </div>
                 </div>
-                <div v-show="expandedGroups.has(sub.key)" style="padding-left: 16px">
+                <div v-show="expandedGroups.has(sub.key)" style="padding-left: 20px">
                   <a-table :columns="columns" :data-source="sub.tenants" :pagination="false"
                     row-key="id" size="small">
                     <template #bodyCell="{ column, record }">
@@ -122,81 +181,18 @@
         <div v-if="!groupTree.length && !loading" style="text-align: center; padding: 40px; color: var(--text-sub)">
           暂无租户配置
         </div>
-      </a-spin>
-    </template>
+      </template>
+    </a-spin>
 
-    <!-- 筛选/搜索模式：平铺表格 -->
-    <template v-else>
-      <a-table
-        :columns="columns"
-        :data-source="groupedTableData"
-        :loading="loading"
-        :row-selection="{ selectedRowKeys, onChange: onSelectChange }"
-        :pagination="pagination"
-        row-key="id"
-        @change="handleTableChange"
-        size="middle"
-      >
-        <template #bodyCell="{ column, record }">
-          <template v-if="column.key === 'tenantName'">
-            <span v-if="record.tenantName">{{ record.tenantName }}</span>
-            <span v-else style="color: var(--text-sub); font-size: 12px">获取中...</span>
-          </template>
-          <template v-if="column.key === 'ociRegion'">
-            <a-tag color="blue">{{ getRegionLabel(record.ociRegion) }}</a-tag>
-            <div style="font-size: 11px; color: var(--text-sub); margin-top: 2px">{{ record.ociRegion }}</div>
-          </template>
-          <template v-if="column.key === 'taskStatus'">
-            <a-badge v-if="record.hasRunningTask" status="processing" text="执行开机任务中" />
-            <span v-else style="color: #999">无开机任务</span>
-          </template>
-          <template v-if="column.key === 'planType'">
-            <a-tag :color="record.planType === 'PAYG' ? 'green' : record.planType === 'FREE' ? 'orange' : 'default'">{{ record.planType || '获取中...' }}</a-tag>
-          </template>
-          <template v-if="column.key === 'action'">
-            <a-space>
-              <a-button type="link" size="small" @click="openTenantInfo(record)">详情</a-button>
-              <a-button type="link" size="small" @click="showEditModal(record)">编辑</a-button>
-              <a-button type="link" size="small" @click="openDomainMgmt(record)">管理</a-button>
-              <a-button type="link" size="small" @click="goUserManagement(record)">用户</a-button>
-              <a-popconfirm title="确定删除?" @confirm="handleDelete(record.id)">
-                <a-button type="link" danger size="small">删除</a-button>
-              </a-popconfirm>
-            </a-space>
-          </template>
-        </template>
-      </a-table>
-    </template>
+    <!-- 重命名分组弹窗 -->
+    <a-modal v-model:open="renameVisible" title="重命名分组" @ok="handleRenameGroup" :confirm-loading="renameLoading" centered>
+      <a-input v-model:value="renameNewName" placeholder="输入新分组名" @press-enter="handleRenameGroup" />
+    </a-modal>
 
-    <!-- 分组管理弹窗 -->
-    <a-modal v-model:open="groupMgmtVisible" title="分组管理" :width="isMobile ? '100%' : 520" :footer="null" centered>
-      <a-divider orientation="left" style="font-size: 13px">一级分组</a-divider>
-      <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px">
-        <a-tag v-for="g in groupData.level1" :key="g" closable @close="removeGroupL1(g)" color="blue" style="font-size: 13px; padding: 4px 10px">
-          {{ g }}
-        </a-tag>
-      </div>
-      <a-space style="margin-bottom: 16px">
-        <a-input v-model:value="newGroupL1" placeholder="新一级分组名称" style="width: 200px" @press-enter="addGroupL1" />
-        <a-button type="primary" size="small" @click="addGroupL1">添加</a-button>
-      </a-space>
-
-      <a-divider orientation="left" style="font-size: 13px">二级分组</a-divider>
-      <div v-for="(subs, parent) in groupData.level2" :key="parent" style="margin-bottom: 8px">
-        <div style="font-weight: 500; margin-bottom: 4px; color: var(--primary)">{{ parent }}</div>
-        <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-left: 12px">
-          <a-tag v-for="s in subs" :key="s" closable @close="removeGroupL2(parent as string, s)" style="font-size: 13px; padding: 4px 10px">
-            {{ s }}
-          </a-tag>
-        </div>
-      </div>
-      <a-space style="margin-top: 8px">
-        <a-select v-model:value="newGroupL2Parent" placeholder="所属一级分组" style="width: 140px">
-          <a-select-option v-for="g in groupData.level1" :key="g" :value="g">{{ g }}</a-select-option>
-        </a-select>
-        <a-input v-model:value="newGroupL2" placeholder="新二级分组名称" style="width: 160px" @press-enter="addGroupL2" />
-        <a-button type="primary" size="small" @click="addGroupL2">添加</a-button>
-      </a-space>
+    <!-- 添加子分组弹窗 -->
+    <a-modal v-model:open="addSubVisible" title="添加子分组" @ok="handleAddSubGroupConfirm" centered>
+      <p style="color: var(--text-sub); margin-bottom: 8px">父分组: <a-tag color="blue">{{ addSubParent }}</a-tag></p>
+      <a-input v-model:value="addSubName" placeholder="输入子分组名称" @press-enter="handleAddSubGroupConfirm" />
     </a-modal>
 
     <!-- 新增/编辑弹窗（内嵌快速导入） -->
@@ -261,13 +257,13 @@ region=ap-tokyo-1"
           </span>
         </a-form-item>
         <a-form-item label="一级分组">
-          <a-select v-model:value="formState.groupLevel1" placeholder="选择或留空" allow-clear show-search
+          <a-select v-model:value="formState.groupLevel1" placeholder="不选则归入「未分组」" allow-clear show-search
             @change="formState.groupLevel2 = ''">
-            <a-select-option v-for="g in groupData.level1" :key="g" :value="g">{{ g }}</a-select-option>
+            <a-select-option v-for="g in groupData.level1.filter(n => n !== '未分组')" :key="g" :value="g">{{ g }}</a-select-option>
           </a-select>
         </a-form-item>
-        <a-form-item v-if="formState.groupLevel1" label="二级分组">
-          <a-select v-model:value="formState.groupLevel2" placeholder="选择或留空" allow-clear show-search>
+        <a-form-item v-if="formState.groupLevel1" label="二级分组（可选）">
+          <a-select v-model:value="formState.groupLevel2" placeholder="不选则直接归入一级分组" allow-clear show-search>
             <a-select-option v-for="g in level2Options" :key="g" :value="g">{{ g }}</a-select-option>
           </a-select>
         </a-form-item>
@@ -412,8 +408,8 @@ import { useRouter } from 'vue-router'
 import { PlusOutlined, ThunderboltOutlined, InboxOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
 import type { UploadFile } from 'ant-design-vue'
-import { getTenantList, addTenant, updateTenant, removeTenant, uploadKey, getTenantFullInfo, getDomainSettings, updateMfa, updatePasswordExpiry, getAuditLogs, getServiceQuotas, getTenantGroups } from '../api/tenant'
-import { FolderOutlined, RightOutlined, DownOutlined, EditOutlined, DeleteOutlined, AppstoreOutlined } from '@ant-design/icons-vue'
+import { getTenantList, addTenant, updateTenant, removeTenant, uploadKey, getTenantFullInfo, getDomainSettings, updateMfa, updatePasswordExpiry, getAuditLogs, getServiceQuotas, getTenantGroups, renameGroup, deleteGroup } from '../api/tenant'
+import { RightOutlined, DownOutlined, SettingOutlined } from '@ant-design/icons-vue'
 
 const router = useRouter()
 
@@ -495,12 +491,17 @@ const formState = reactive({
 })
 
 const groupData = ref<{ level1: string[]; level2: Record<string, string[]> }>({ level1: [], level2: {} })
-const groupFilterL1 = ref<string>('')
-const groupFilterL2 = ref<string>('')
-const groupMgmtVisible = ref(false)
-const newGroupL1 = ref('')
-const newGroupL2Parent = ref('')
-const newGroupL2 = ref('')
+const groupColors = ['#1677ff', '#52c41a', '#fa541c', '#722ed1', '#eb2f96', '#faad14', '#13c2c2']
+
+const renameVisible = ref(false)
+const renameLoading = ref(false)
+const renameOldName = ref('')
+const renameNewName = ref('')
+const renameLevel = ref('1')
+
+const addSubVisible = ref(false)
+const addSubParent = ref('')
+const addSubName = ref('')
 
 let pendingFile: File | null = null
 const isMobile = ref(window.innerWidth < 768)
@@ -707,22 +708,6 @@ const level2Options = computed(() => {
   return groupData.value.level2[formState.groupLevel1] || []
 })
 
-const filterLevel2Options = computed(() => {
-  if (!groupFilterL1.value) return []
-  return groupData.value.level2[groupFilterL1.value] || []
-})
-
-const groupedTableData = computed(() => {
-  let data = tableData.value
-  if (groupFilterL1.value) {
-    data = data.filter((r: any) => r.groupLevel1 === groupFilterL1.value)
-    if (groupFilterL2.value) {
-      data = data.filter((r: any) => r.groupLevel2 === groupFilterL2.value)
-    }
-  }
-  return data
-})
-
 interface GroupNode {
   label: string
   key: string
@@ -732,21 +717,19 @@ interface GroupNode {
 
 const groupTree = computed<GroupNode[]>(() => {
   const all = tableData.value
-  const ungrouped = all.filter((r: any) => !r.groupLevel1)
-  const grouped = all.filter((r: any) => !!r.groupLevel1)
-
   const l1Map = new Map<string, any[]>()
-  for (const r of grouped) {
-    const list = l1Map.get(r.groupLevel1) || []
+  for (const r of all) {
+    const g1 = r.groupLevel1 || '未分组'
+    const list = l1Map.get(g1) || []
     list.push(r)
-    l1Map.set(r.groupLevel1, list)
+    l1Map.set(g1, list)
   }
 
   const nodes: GroupNode[] = []
 
   for (const [l1, items] of l1Map) {
-    const withL2 = items.filter(r => !!r.groupLevel2)
-    const withoutL2 = items.filter(r => !r.groupLevel2)
+    const withL2 = items.filter((r: any) => !!r.groupLevel2)
+    const withoutL2 = items.filter((r: any) => !r.groupLevel2)
 
     const l2Map = new Map<string, any[]>()
     for (const r of withL2) {
@@ -768,12 +751,12 @@ const groupTree = computed<GroupNode[]>(() => {
     })
   }
 
-  if (ungrouped.length > 0) {
-    nodes.push({ label: '未分组', key: '__ungrouped__', tenants: ungrouped })
-  }
-
   return nodes
 })
+
+function groupTotalCount(group: GroupNode): number {
+  return group.tenants.length + (group.children?.reduce((s, c) => s + c.tenants.length, 0) || 0)
+}
 
 const expandedGroups = ref<Set<string>>(new Set())
 
@@ -799,47 +782,62 @@ async function openTenantInfo(record: any) {
   }
 }
 
-function addGroupL1() {
-  const name = newGroupL1.value.trim()
-  if (!name) return
-  if (groupData.value.level1.includes(name)) {
-    message.warning('该分组已存在')
-    return
-  }
-  groupData.value.level1.push(name)
-  newGroupL1.value = ''
+function openRenameGroup(name: string, level: string) {
+  renameOldName.value = name
+  renameNewName.value = name
+  renameLevel.value = level
+  renameVisible.value = true
 }
 
-function removeGroupL1(name: string) {
-  groupData.value.level1 = groupData.value.level1.filter(g => g !== name)
-  delete groupData.value.level2[name]
+async function handleRenameGroup() {
+  if (!renameNewName.value.trim()) { message.warning('名称不能为空'); return }
+  renameLoading.value = true
+  try {
+    await renameGroup({ oldName: renameOldName.value, newName: renameNewName.value.trim(), level: renameLevel.value })
+    message.success('分组已重命名')
+    renameVisible.value = false
+    loadData()
+  } catch (e: any) {
+    message.error(e?.message || '重命名失败')
+  } finally {
+    renameLoading.value = false
+  }
 }
 
-function addGroupL2() {
-  if (!newGroupL2Parent.value) {
-    message.warning('请选择所属一级分组')
-    return
-  }
-  const name = newGroupL2.value.trim()
-  if (!name) return
-  if (!groupData.value.level2[newGroupL2Parent.value]) {
-    groupData.value.level2[newGroupL2Parent.value] = []
-  }
-  if (groupData.value.level2[newGroupL2Parent.value].includes(name)) {
-    message.warning('该分组已存在')
-    return
-  }
-  groupData.value.level2[newGroupL2Parent.value].push(name)
-  newGroupL2.value = ''
-}
-
-function removeGroupL2(parent: string, name: string) {
-  if (groupData.value.level2[parent]) {
-    groupData.value.level2[parent] = groupData.value.level2[parent].filter(g => g !== name)
-    if (!groupData.value.level2[parent].length) {
-      delete groupData.value.level2[parent]
+async function handleDeleteGroup(name: string, level: string) {
+  Modal.confirm({
+    title: '删除分组',
+    content: `确定删除分组「${name}」？该分组下的租户将移至「未分组」`,
+    async onOk() {
+      try {
+        await deleteGroup({ name, level })
+        message.success('分组已删除')
+        loadData()
+      } catch (e: any) {
+        message.error(e?.message || '删除分组失败')
+      }
     }
+  })
+}
+
+function handleAddSubGroup(parentName: string) {
+  addSubParent.value = parentName
+  addSubName.value = ''
+  addSubVisible.value = true
+}
+
+async function handleAddSubGroupConfirm() {
+  const name = addSubName.value.trim()
+  if (!name) { message.warning('子分组名不能为空'); return }
+  if (!groupData.value.level2[addSubParent.value]) {
+    groupData.value.level2[addSubParent.value] = []
   }
+  if (groupData.value.level2[addSubParent.value].includes(name)) {
+    message.warning('该子分组已存在'); return
+  }
+  groupData.value.level2[addSubParent.value].push(name)
+  addSubVisible.value = false
+  message.success('子分组已添加')
 }
 
 function goUserManagement(record: any) {
@@ -925,10 +923,12 @@ function handleBatchDelete() {
 
 onMounted(async () => {
   await loadData()
-  groupTree.value.forEach(g => {
+  for (const g of groupTree.value) {
     expandedGroups.value.add(g.key)
-    g.children?.forEach(c => expandedGroups.value.add(c.key))
-  })
+    if (g.children) {
+      for (const c of g.children) expandedGroups.value.add(c.key)
+    }
+  }
   window.addEventListener('resize', checkMobile)
 })
 onUnmounted(() => window.removeEventListener('resize', checkMobile))
@@ -954,61 +954,104 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   transition: var(--trans);
 }
 .group-section {
-  margin-bottom: 4px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm, 8px);
-  overflow: hidden;
-  background: var(--bg-card, #fff);
-  transition: var(--trans);
+  margin-bottom: 2px;
 }
-.group-header {
+.group-bar {
   display: flex;
   align-items: center;
-  padding: 10px 16px;
-  cursor: pointer;
-  user-select: none;
-  background: var(--bg-card, #fafafa);
-  border-bottom: 1px solid var(--border);
-  transition: background 0.2s;
-}
-.group-header:hover {
-  background: var(--bg-hover, #f0f5ff);
-}
-.group-expand-icon {
-  width: 16px;
-  margin-right: 8px;
-  font-size: 12px;
-  color: var(--text-sub);
-}
-.group-title {
-  font-weight: 600;
-  font-size: 14px;
-}
-.group-body {
-  padding: 8px 12px;
-}
-.subgroup-section {
-  margin-bottom: 4px;
+  justify-content: space-between;
+  padding: 6px 12px;
   border: 1px solid var(--border);
   border-radius: 6px;
-  overflow: hidden;
-}
-.subgroup-header {
-  display: flex;
-  align-items: center;
-  padding: 6px 12px;
-  cursor: pointer;
-  user-select: none;
   background: var(--bg-card, #fafbfc);
-  border-bottom: 1px solid var(--border);
-  font-size: 13px;
+  transition: background 0.2s;
+  user-select: none;
 }
-.subgroup-header:hover {
+.group-bar:hover {
   background: var(--bg-hover, #f0f5ff);
 }
-.subgroup-title {
-  font-weight: 500;
+.subgroup-bar {
+  margin-left: 20px;
+  border-color: transparent;
+  background: transparent;
+  padding: 4px 8px;
+}
+.subgroup-bar:hover {
+  background: var(--bg-hover, #f5f5f5);
+}
+.group-bar-left {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 0;
+}
+.group-bar-right {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.drag-handle {
+  cursor: grab;
+  font-size: 14px;
+  color: var(--text-sub, #bbb);
+  line-height: 1;
+  letter-spacing: -1px;
+}
+.drag-handle.sub { font-size: 12px; }
+.group-expand-icon {
+  cursor: pointer;
+  font-size: 11px;
   color: var(--text-sub);
+  width: 14px;
+  display: flex;
+  align-items: center;
+}
+.group-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.group-name {
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.subgroup-name {
+  font-weight: 500;
+  font-size: 13px;
+  cursor: pointer;
+  color: var(--text-sub);
+}
+.group-count {
+  font-size: 12px;
+  color: var(--text-sub, #999);
+  background: var(--bg-hover, #f0f0f0);
+  padding: 0 6px;
+  border-radius: 10px;
+  line-height: 18px;
+  flex-shrink: 0;
+}
+.plan-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 2px;
+  margin-left: 2px;
+}
+.dot-green { background: #52c41a; }
+.dot-orange { background: #faad14; }
+.dot-gray { background: #d9d9d9; }
+.group-body {
+  padding: 4px 0 4px 0;
+}
+.subgroup-section {
+  margin-bottom: 2px;
 }
 @media (max-width: 768px) {
   .table-toolbar {
