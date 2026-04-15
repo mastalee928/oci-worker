@@ -52,131 +52,149 @@
       <!-- 分组视图 -->
       <template v-else>
         <div v-for="(group, gi) in groupTree" :key="group.key" class="group-section">
-          <!-- 一级分组栏 -->
-          <div class="group-bar">
-            <div class="group-bar-left">
-              <span class="drag-handle" title="拖拽排序">⠿</span>
-              <span class="group-expand-icon" @click="toggleGroup(group.key)">
-                <RightOutlined v-if="!expandedGroups.has(group.key)" />
-                <DownOutlined v-else />
-              </span>
-              <span class="group-dot" :style="{ background: groupColors[gi % groupColors.length] }"></span>
+          <!-- 一级分组卡片 -->
+          <div class="group-card">
+            <div style="display: flex; align-items: center; gap: 10px;">
+              <div class="drag-handle" title="拖动排序">
+                <span style="font-size: 14px; line-height: 1;">⠿</span>
+              </div>
+              <div class="collapse-btn" @click="toggleGroup(group.key)">
+                <DownOutlined v-if="expandedGroups.has(group.key)" />
+                <RightOutlined v-else />
+              </div>
+              <div class="group-dot" :style="{ background: groupColors[gi % groupColors.length], boxShadow: '0 0 8px ' + groupColors[gi % groupColors.length] + '80' }"></div>
               <span class="group-name" @click="toggleGroup(group.key)">{{ group.label }}</span>
-              <span class="group-count">{{ groupTotalCount(group) }}</span>
-              <span v-for="t in group.tenants.slice(0, 3)" :key="t.id" class="group-plan-tag">
-                <span :class="['plan-dot', t.planType === 'PAYG' ? 'dot-green' : t.planType === 'FREE' ? 'dot-orange' : 'dot-gray']"></span>
-              </span>
-            </div>
-            <div class="group-bar-right">
-              <a-button type="text" size="small" @click.stop="handleAddSubGroup(group.label)">
-                <template #icon><PlusOutlined /></template>子分组
-              </a-button>
-              <a-dropdown :trigger="['click']" @click.stop>
-                <a-button type="text" size="small"><SettingOutlined /></a-button>
-                <template #overlay>
-                  <a-menu>
-                    <a-menu-item @click="openRenameGroup(group.label, '1')">重命名</a-menu-item>
-                    <a-menu-item danger @click="handleDeleteGroup(group.label, '1')">删除分组</a-menu-item>
-                  </a-menu>
+
+              <div v-if="groupTotalCount(group) > 0" class="group-stats">
+                <div class="stat-item">
+                  <span class="stat-icon">📅</span>
+                  <span>{{ groupTotalCount(group) }}</span>
+                </div>
+                <template v-for="t in getAllGroupTenants(group).slice(0, 4)" :key="t.id">
+                  <span :class="['plan-dot', t.planType === 'PAYG' ? 'dot-green' : t.planType === 'FREE' ? 'dot-orange' : t.hasRunningTask ? 'dot-green' : 'dot-gray']"></span>
                 </template>
-              </a-dropdown>
+              </div>
+
+              <div style="display: flex; gap: 6px; margin-left: auto;">
+                <button class="group-action-btn" @click.stop="handleAddSubGroup(group.label)">
+                  <PlusOutlined /> 子分组
+                </button>
+                <a-dropdown :trigger="['click']" @click.stop>
+                  <button class="group-action-btn" title="编辑分组"><SettingOutlined /></button>
+                  <template #overlay>
+                    <a-menu>
+                      <a-menu-item @click="openRenameGroup(group.label, '1')">重命名</a-menu-item>
+                      <a-menu-item danger @click="handleDeleteGroup(group.label, '1')">删除分组</a-menu-item>
+                    </a-menu>
+                  </template>
+                </a-dropdown>
+              </div>
+            </div>
+
+            <div v-show="expandedGroups.has(group.key)" class="group-body">
+              <a-table v-if="group.tenants.length" :columns="columns" :data-source="group.tenants" :pagination="false"
+                row-key="id" size="small">
+                <template #bodyCell="{ column, record }">
+                  <template v-if="column.key === 'tenantName'">
+                    <span v-if="record.tenantName">{{ record.tenantName }}</span>
+                    <span v-else style="color: var(--text-sub); font-size: 12px">获取中...</span>
+                  </template>
+                  <template v-if="column.key === 'ociRegion'">
+                    <a-tag color="blue">{{ getRegionLabel(record.ociRegion) }}</a-tag>
+                    <div style="font-size: 11px; color: var(--text-sub); margin-top: 2px">{{ record.ociRegion }}</div>
+                  </template>
+                  <template v-if="column.key === 'taskStatus'">
+                    <a-badge v-if="record.hasRunningTask" status="processing" text="执行开机任务中" />
+                    <span v-else style="color: #999">无开机任务</span>
+                  </template>
+                  <template v-if="column.key === 'planType'">
+                    <a-tag :color="record.planType === 'PAYG' ? 'green' : record.planType === 'FREE' ? 'orange' : 'default'">{{ record.planType || '获取中...' }}</a-tag>
+                  </template>
+                  <template v-if="column.key === 'action'">
+                    <a-space>
+                      <a-button type="link" size="small" @click="openTenantInfo(record)">详情</a-button>
+                      <a-button type="link" size="small" @click="showEditModal(record)">编辑</a-button>
+                      <a-button type="link" size="small" @click="openDomainMgmt(record)">管理</a-button>
+                      <a-button type="link" size="small" @click="goUserManagement(record)">用户</a-button>
+                      <a-popconfirm title="确定删除?" @confirm="handleDelete(record.id)">
+                        <a-button type="link" danger size="small">删除</a-button>
+                      </a-popconfirm>
+                    </a-space>
+                  </template>
+                </template>
+              </a-table>
             </div>
           </div>
 
-          <div v-show="expandedGroups.has(group.key)" class="group-body">
-            <a-table v-if="group.tenants.length" :columns="columns" :data-source="group.tenants" :pagination="false"
-              row-key="id" size="small" style="margin-bottom: 4px">
-              <template #bodyCell="{ column, record }">
-                <template v-if="column.key === 'tenantName'">
-                  <span v-if="record.tenantName">{{ record.tenantName }}</span>
-                  <span v-else style="color: var(--text-sub); font-size: 12px">获取中...</span>
-                </template>
-                <template v-if="column.key === 'ociRegion'">
-                  <a-tag color="blue">{{ getRegionLabel(record.ociRegion) }}</a-tag>
-                  <div style="font-size: 11px; color: var(--text-sub); margin-top: 2px">{{ record.ociRegion }}</div>
-                </template>
-                <template v-if="column.key === 'taskStatus'">
-                  <a-badge v-if="record.hasRunningTask" status="processing" text="执行开机任务中" />
-                  <span v-else style="color: #999">无开机任务</span>
-                </template>
-                <template v-if="column.key === 'planType'">
-                  <a-tag :color="record.planType === 'PAYG' ? 'green' : record.planType === 'FREE' ? 'orange' : 'default'">{{ record.planType || '获取中...' }}</a-tag>
-                </template>
-                <template v-if="column.key === 'action'">
-                  <a-space>
-                    <a-button type="link" size="small" @click="openTenantInfo(record)">详情</a-button>
-                    <a-button type="link" size="small" @click="showEditModal(record)">编辑</a-button>
-                    <a-button type="link" size="small" @click="openDomainMgmt(record)">管理</a-button>
-                    <a-button type="link" size="small" @click="goUserManagement(record)">用户</a-button>
-                    <a-popconfirm title="确定删除?" @confirm="handleDelete(record.id)">
-                      <a-button type="link" danger size="small">删除</a-button>
-                    </a-popconfirm>
-                  </a-space>
-                </template>
-              </template>
-            </a-table>
-
-            <!-- 二级子分组 -->
-            <template v-if="group.children">
-              <div v-for="sub in group.children" :key="sub.key" class="subgroup-section">
-                <div class="group-bar subgroup-bar">
-                  <div class="group-bar-left">
-                    <span class="drag-handle sub">⠿</span>
-                    <span class="group-expand-icon" @click="toggleGroup(sub.key)">
-                      <RightOutlined v-if="!expandedGroups.has(sub.key)" />
-                      <DownOutlined v-else />
-                    </span>
-                    <span class="subgroup-name" @click="toggleGroup(sub.key)">{{ sub.label }}</span>
-                    <span class="group-count">{{ sub.tenants.length }}</span>
-                  </div>
-                  <div class="group-bar-right">
-                    <a-dropdown :trigger="['click']" @click.stop>
-                      <a-button type="text" size="small"><SettingOutlined /></a-button>
-                      <template #overlay>
-                        <a-menu>
-                          <a-menu-item @click="openRenameGroup(sub.label, '2')">重命名</a-menu-item>
-                          <a-menu-item danger @click="handleDeleteGroup(sub.label, '2')">删除分组</a-menu-item>
-                        </a-menu>
-                      </template>
-                    </a-dropdown>
+          <!-- 二级子分组卡片 -->
+          <template v-if="group.children && expandedGroups.has(group.key)">
+            <div v-for="sub in group.children" :key="sub.key" class="group-card subgroup-card">
+              <div style="display: flex; align-items: center; gap: 10px;">
+                <div class="drag-handle" title="拖动排序">
+                  <span style="font-size: 12px; line-height: 1;">⠿</span>
+                </div>
+                <div class="collapse-btn" @click="toggleGroup(sub.key)">
+                  <DownOutlined v-if="expandedGroups.has(sub.key)" />
+                  <RightOutlined v-else />
+                </div>
+                <span class="subgroup-name" @click="toggleGroup(sub.key)">{{ sub.label }}</span>
+                <div class="group-stats">
+                  <div class="stat-item">
+                    <span class="stat-icon">📅</span>
+                    <span>{{ sub.tenants.length }}</span>
                   </div>
                 </div>
-                <div v-show="expandedGroups.has(sub.key)" style="padding-left: 20px">
-                  <a-table :columns="columns" :data-source="sub.tenants" :pagination="false"
-                    row-key="id" size="small">
-                    <template #bodyCell="{ column, record }">
-                      <template v-if="column.key === 'tenantName'">
-                        <span v-if="record.tenantName">{{ record.tenantName }}</span>
-                        <span v-else style="color: var(--text-sub); font-size: 12px">获取中...</span>
-                      </template>
-                      <template v-if="column.key === 'ociRegion'">
-                        <a-tag color="blue">{{ getRegionLabel(record.ociRegion) }}</a-tag>
-                        <div style="font-size: 11px; color: var(--text-sub); margin-top: 2px">{{ record.ociRegion }}</div>
-                      </template>
-                      <template v-if="column.key === 'taskStatus'">
-                        <a-badge v-if="record.hasRunningTask" status="processing" text="执行开机任务中" />
-                        <span v-else style="color: #999">无开机任务</span>
-                      </template>
-                      <template v-if="column.key === 'planType'">
-                        <a-tag :color="record.planType === 'PAYG' ? 'green' : record.planType === 'FREE' ? 'orange' : 'default'">{{ record.planType || '获取中...' }}</a-tag>
-                      </template>
-                      <template v-if="column.key === 'action'">
-                        <a-space>
-                          <a-button type="link" size="small" @click="openTenantInfo(record)">详情</a-button>
-                          <a-button type="link" size="small" @click="showEditModal(record)">编辑</a-button>
-                          <a-button type="link" size="small" @click="openDomainMgmt(record)">管理</a-button>
-                          <a-button type="link" size="small" @click="goUserManagement(record)">用户</a-button>
-                          <a-popconfirm title="确定删除?" @confirm="handleDelete(record.id)">
-                            <a-button type="link" danger size="small">删除</a-button>
-                          </a-popconfirm>
-                        </a-space>
-                      </template>
+                <div style="display: flex; gap: 6px; margin-left: auto;">
+                  <a-dropdown :trigger="['click']" @click.stop>
+                    <button class="group-action-btn" title="编辑分组"><SettingOutlined /></button>
+                    <template #overlay>
+                      <a-menu>
+                        <a-menu-item @click="openRenameGroup(sub.label, '2')">重命名</a-menu-item>
+                        <a-menu-item danger @click="handleDeleteGroup(sub.label, '2')">删除分组</a-menu-item>
+                      </a-menu>
                     </template>
-                  </a-table>
+                  </a-dropdown>
                 </div>
               </div>
-            </template>
-          </div>
+
+              <div v-show="expandedGroups.has(sub.key)" class="group-body">
+                <a-table v-if="sub.tenants.length" :columns="columns" :data-source="sub.tenants" :pagination="false"
+                  row-key="id" size="small">
+                  <template #bodyCell="{ column, record }">
+                    <template v-if="column.key === 'tenantName'">
+                      <span v-if="record.tenantName">{{ record.tenantName }}</span>
+                      <span v-else style="color: var(--text-sub); font-size: 12px">获取中...</span>
+                    </template>
+                    <template v-if="column.key === 'ociRegion'">
+                      <a-tag color="blue">{{ getRegionLabel(record.ociRegion) }}</a-tag>
+                      <div style="font-size: 11px; color: var(--text-sub); margin-top: 2px">{{ record.ociRegion }}</div>
+                    </template>
+                    <template v-if="column.key === 'taskStatus'">
+                      <a-badge v-if="record.hasRunningTask" status="processing" text="执行开机任务中" />
+                      <span v-else style="color: #999">无开机任务</span>
+                    </template>
+                    <template v-if="column.key === 'planType'">
+                      <a-tag :color="record.planType === 'PAYG' ? 'green' : record.planType === 'FREE' ? 'orange' : 'default'">{{ record.planType || '获取中...' }}</a-tag>
+                    </template>
+                    <template v-if="column.key === 'action'">
+                      <a-space>
+                        <a-button type="link" size="small" @click="openTenantInfo(record)">详情</a-button>
+                        <a-button type="link" size="small" @click="showEditModal(record)">编辑</a-button>
+                        <a-button type="link" size="small" @click="openDomainMgmt(record)">管理</a-button>
+                        <a-button type="link" size="small" @click="goUserManagement(record)">用户</a-button>
+                        <a-popconfirm title="确定删除?" @confirm="handleDelete(record.id)">
+                          <a-button type="link" danger size="small">删除</a-button>
+                        </a-popconfirm>
+                      </a-space>
+                    </template>
+                  </template>
+                </a-table>
+                <div v-else style="text-align: center; padding: 20px; color: var(--text-sub); font-size: 12px;">
+                  暂无租户
+                </div>
+              </div>
+            </div>
+          </template>
         </div>
         <div v-if="!groupTree.length && !loading" style="text-align: center; padding: 40px; color: var(--text-sub)">
           暂无租户配置
@@ -758,6 +776,14 @@ function groupTotalCount(group: GroupNode): number {
   return group.tenants.length + (group.children?.reduce((s, c) => s + c.tenants.length, 0) || 0)
 }
 
+function getAllGroupTenants(group: GroupNode): any[] {
+  const all = [...group.tenants]
+  if (group.children) {
+    for (const c of group.children) all.push(...c.tenants)
+  }
+  return all
+}
+
 const expandedGroups = ref<Set<string>>(new Set())
 
 function toggleGroup(key: string) {
@@ -954,104 +980,150 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   transition: var(--trans);
 }
 .group-section {
-  margin-bottom: 2px;
+  margin-bottom: 12px;
 }
-.group-bar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 6px 12px;
+.group-card {
+  background: var(--bg-card, #fff);
   border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg-card, #fafbfc);
-  transition: background 0.2s;
-  user-select: none;
+  border-radius: 12px;
+  padding: 14px 16px;
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  position: relative;
+  overflow: hidden;
 }
-.group-bar:hover {
-  background: var(--bg-hover, #f0f5ff);
+.group-card::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 3px;
+  background: linear-gradient(90deg, var(--primary, #1677ff), #8b5cf6);
+  transform: scaleX(0);
+  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transform-origin: left;
 }
-.subgroup-bar {
-  margin-left: 20px;
-  border-color: transparent;
-  background: transparent;
-  padding: 4px 8px;
+.group-card:hover::before { transform: scaleX(1); }
+.group-card:hover {
+  border-color: rgba(129, 140, 248, 0.5);
+  box-shadow: 0 8px 24px -4px rgba(99, 102, 241, 0.15);
 }
-.subgroup-bar:hover {
-  background: var(--bg-hover, #f5f5f5);
+.subgroup-card {
+  margin-left: 32px;
+  margin-top: 10px;
 }
 .group-bar-left {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 10px;
   flex: 1;
   min-width: 0;
 }
 .group-bar-right {
   display: flex;
   align-items: center;
-  gap: 2px;
+  gap: 6px;
   flex-shrink: 0;
 }
 .drag-handle {
-  cursor: grab;
+  width: 28px; height: 28px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-sub, #999);
+  cursor: move;
+  transition: all 0.2s;
   font-size: 14px;
-  color: var(--text-sub, #bbb);
-  line-height: 1;
-  letter-spacing: -1px;
+  flex-shrink: 0;
 }
-.drag-handle.sub { font-size: 12px; }
-.group-expand-icon {
+.drag-handle:hover { color: var(--primary, #1677ff); border-color: var(--primary, #1677ff); }
+.collapse-btn {
+  width: 28px; height: 28px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid var(--border);
+  border-radius: 6px;
   cursor: pointer;
-  font-size: 11px;
-  color: var(--text-sub);
-  width: 14px;
-  display: flex;
-  align-items: center;
+  transition: all 0.2s;
+  font-size: 12px;
+  flex-shrink: 0;
 }
+.collapse-btn:hover { border-color: var(--primary, #1677ff); }
 .group-dot {
-  width: 8px;
-  height: 8px;
+  width: 12px; height: 12px;
   border-radius: 50%;
   flex-shrink: 0;
 }
 .group-name {
   font-weight: 600;
-  font-size: 14px;
+  font-size: 16px;
   cursor: pointer;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  margin: 0;
 }
 .subgroup-name {
-  font-weight: 500;
-  font-size: 13px;
+  font-weight: 600;
+  font-size: 15px;
   cursor: pointer;
-  color: var(--text-sub);
 }
-.group-count {
+.group-stats {
+  display: flex;
+  align-items: center;
+  gap: 10px;
   font-size: 12px;
   color: var(--text-sub, #999);
-  background: var(--bg-hover, #f0f0f0);
-  padding: 0 6px;
-  border-radius: 10px;
-  line-height: 18px;
-  flex-shrink: 0;
+  margin-left: 8px;
+}
+.group-stats .stat-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.group-stats .stat-icon { font-size: 14px; }
+.group-action-btn {
+  padding: 5px 10px;
+  background: rgba(255,255,255,0.03);
+  color: var(--text-sub);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.group-action-btn:hover {
+  border-color: var(--primary, #1677ff);
+  color: var(--primary, #1677ff);
 }
 .plan-dot {
   display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 2px;
-  margin-left: 2px;
+  width: 10px; height: 10px;
+  border-radius: 3px;
 }
 .dot-green { background: #52c41a; }
 .dot-orange { background: #faad14; }
+.dot-red { background: #ff4d4f; }
 .dot-gray { background: #d9d9d9; }
 .group-body {
-  padding: 4px 0 4px 0;
+  overflow: hidden;
+  transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
+  margin-top: 12px;
 }
 .subgroup-section {
   margin-bottom: 2px;
+}
+@media (max-width: 768px) {
+  .group-card { padding: 10px 12px; border-radius: 10px; }
+  .group-name { font-size: 13px; max-width: 140px; }
+  .subgroup-card { margin-left: 16px; }
+  .group-bar-right { flex-wrap: wrap; gap: 4px; }
+  .drag-handle, .collapse-btn { width: 32px; height: 32px; }
 }
 @media (max-width: 768px) {
   .table-toolbar {
