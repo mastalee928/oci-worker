@@ -56,4 +56,26 @@ public class TaskController {
         taskSchedulerService.deleteTask(params.get("taskId"));
         return ResponseData.ok();
     }
+
+    @SuppressWarnings("unchecked")
+    @PostMapping("/batchStop")
+    public ResponseData<?> batchStop(@RequestBody Map<String, Object> params) {
+        java.util.List<String> ids = (java.util.List<String>) params.get("taskIds");
+        int count = 0;
+        for (String id : ids) {
+            try { taskSchedulerService.stopTask(id); count++; } catch (Exception ignored) {}
+        }
+        return ResponseData.ok(count);
+    }
+
+    @SuppressWarnings("unchecked")
+    @PostMapping("/batchResume")
+    public ResponseData<?> batchResume(@RequestBody Map<String, Object> params) {
+        java.util.List<String> ids = (java.util.List<String>) params.get("taskIds");
+        int count = 0;
+        for (String id : ids) {
+            try { taskSchedulerService.resumeTask(id); count++; } catch (Exception ignored) {}
+        }
+        return ResponseData.ok(count);
+    }
 }

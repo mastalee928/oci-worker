@@ -27,3 +27,11 @@ export function resumeTask(data: { taskId: string }) {
 export function deleteTask(data: { taskId: string }) {
   return request.post('/oci/task/delete', data)
 }
+
+export function batchStopTask(data: { taskIds: string[] }) {
+  return request.post('/oci/task/batchStop', data)
+}
+
+export function batchResumeTask(data: { taskIds: string[] }) {
+  return request.post('/oci/task/batchResume', data)
+}

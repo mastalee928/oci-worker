@@ -18,11 +18,20 @@
           <a-select-option value="COMPLETED">已完成</a-select-option>
           <a-select-option value="FAILED">已失败</a-select-option>
         </a-select>
+        <a-button :disabled="!selectedRowKeys.length" :loading="batchLoading"
+          @click="handleBatchStop" danger>
+          批量暂停
+        </a-button>
+        <a-button :disabled="!selectedRowKeys.length" :loading="batchLoading"
+          type="primary" @click="handleBatchResume">
+          批量启动
+        </a-button>
       </a-space>
     </div>
 
     <a-table :columns="columns" :data-source="tableData" :loading="loading" :pagination="pagination"
       row-key="id" @change="handleTableChange" size="middle"
+      :row-selection="{ selectedRowKeys, onChange: (keys: string[]) => selectedRowKeys = keys }"
       :row-class-name="(record: any) => record.status !== 'RUNNING' ? 'row-inactive' : ''">
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'architecture'">
@@ -144,7 +153,7 @@
 import { ref, reactive, onMounted, onUnmounted } from 'vue'
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
-import { getTaskList, createTask, stopTask, hasRunningTask, resumeTask, deleteTask } from '../api/task'
+import { getTaskList, createTask, stopTask, hasRunningTask, resumeTask, deleteTask, batchStopTask, batchResumeTask } from '../api/task'
 import { getTenantList } from '../api/tenant'
 import { getAvailableShapes } from '../api/instance'
 
@@ -168,6 +177,8 @@ const columns = [
   { title: '操作', key: 'action', width: 160 },
 ]
 
+const selectedRowKeys = ref<string[]>([])
+const batchLoading = ref(false)
 const loading = ref(false)
 const createLoading = ref(false)
 const shapesLoading = ref(false)
@@ -318,6 +329,48 @@ async function handleResume(record: any) {
   } finally {
     actionLoading[record.id] = false
   }
+}
+
+async function handleBatchStop() {
+  if (!selectedRowKeys.value.length) return
+  Modal.confirm({
+    title: '批量暂停',
+    content: `确定暂停选中的 ${selectedRowKeys.value.length} 个任务？`,
+    async onOk() {
+      batchLoading.value = true
+      try {
+        const res = await batchStopTask({ taskIds: selectedRowKeys.value })
+        message.success(`已暂停 ${res.data} 个任务`)
+        selectedRowKeys.value = []
+        loadData()
+      } catch (e: any) {
+        message.error(e?.message || '批量暂停失败')
+      } finally {
+        batchLoading.value = false
+      }
+    }
+  })
+}
+
+async function handleBatchResume() {
+  if (!selectedRowKeys.value.length) return
+  Modal.confirm({
+    title: '批量启动',
+    content: `确定启动选中的 ${selectedRowKeys.value.length} 个任务？`,
+    async onOk() {
+      batchLoading.value = true
+      try {
+        const res = await batchResumeTask({ taskIds: selectedRowKeys.value })
+        message.success(`已启动 ${res.data} 个任务`)
+        selectedRowKeys.value = []
+        loadData()
+      } catch (e: any) {
+        message.error(e?.message || '批量启动失败')
+      } finally {
+        batchLoading.value = false
+      }
+    }
+  })
 }
 
 async function handleDelete(record: any) {
