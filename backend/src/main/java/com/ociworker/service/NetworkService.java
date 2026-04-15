@@ -21,6 +21,8 @@ public class NetworkService {
     @Resource
     private OciUserMapper userMapper;
 
+    private String tag(OciUser u) { return "[" + u.getUsername() + "] "; }
+
     public List<Map<String, Object>> listVcns(String userId) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
@@ -57,7 +59,7 @@ public class NetworkService {
             }
             return result;
         } catch (Exception e) {
-            throw new OciException("获取VCN列表失败: " + e.getMessage());
+            throw new OciException(tag(ociUser) + "获取VCN列表失败: " + e.getMessage());
         }
     }
 
@@ -103,7 +105,7 @@ public class NetworkService {
             }
             return result;
         } catch (Exception e) {
-            throw new OciException("获取安全规则失败: " + e.getMessage());
+            throw new OciException(tag(ociUser) + "获取安全规则失败: " + e.getMessage());
         }
     }
 
@@ -141,7 +143,7 @@ public class NetworkService {
                             .build());
             log.info("Released all ports for subnet: {}", subnetId);
         } catch (Exception e) {
-            throw new OciException("放行端口失败: " + e.getMessage());
+            throw new OciException(tag(ociUser) + "放行端口失败: " + e.getMessage());
         }
     }
 
@@ -216,7 +218,7 @@ public class NetworkService {
         } catch (OciException e) {
             throw e;
         } catch (Exception e) {
-            throw new OciException("添加安全规则失败: " + e.getMessage());
+            throw new OciException(tag(ociUser) + "添加安全规则失败: " + e.getMessage());
         }
     }
 
@@ -277,7 +279,7 @@ public class NetworkService {
         } catch (OciException e) {
             throw e;
         } catch (Exception e) {
-            throw new OciException("更换IP失败: " + e.getMessage());
+            throw new OciException(tag(ociUser) + "更换IP失败: " + e.getMessage());
         }
     }
 
@@ -301,7 +303,7 @@ public class NetworkService {
         } catch (OciException e) {
             throw e;
         } catch (Exception e) {
-            throw new OciException("删除公网IP失败: " + e.getMessage());
+            throw new OciException(tag(ociUser) + "删除公网IP失败: " + e.getMessage());
         }
     }
 
@@ -331,7 +333,7 @@ public class NetworkService {
         } catch (OciException e) {
             throw e;
         } catch (Exception e) {
-            throw new OciException("删除辅助IP失败: " + e.getMessage());
+            throw new OciException(tag(ociUser) + "删除辅助IP失败: " + e.getMessage());
         }
     }
 
@@ -357,9 +359,9 @@ public class NetworkService {
         } catch (Exception e) {
             String msg = e.getMessage();
             if (msg != null && msg.contains("LimitExceeded")) {
-                throw new OciException("公网 IP 配额已满，无法分配更多公网 IP");
+                throw new OciException(tag(ociUser) + "公网 IP 配额已满，无法分配更多公网 IP");
             }
-            throw new OciException("分配公网IP失败: " + msg);
+            throw new OciException(tag(ociUser) + "分配公网IP失败: " + msg);
         }
     }
 

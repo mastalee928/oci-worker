@@ -21,6 +21,8 @@ public class InstanceService {
     @Resource
     private OciUserMapper userMapper;
 
+    private String tag(OciUser u) { return "[" + u.getUsername() + "] "; }
+
     public List<Map<String, Object>> listInstances(String userId) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
@@ -61,7 +63,7 @@ public class InstanceService {
             return result;
         } catch (Exception e) {
             log.error("Failed to list instances: {}", e.getMessage());
-            throw new OciException("获取实例列表失败: " + e.getMessage());
+            throw new OciException(tag(ociUser) + "获取实例列表失败: " + e.getMessage());
         }
     }
 
@@ -78,7 +80,7 @@ public class InstanceService {
             client.getComputeClient().instanceAction(request);
             log.info("Instance {} action: {}", instanceId, action);
         } catch (Exception e) {
-            throw new OciException("操作失败: " + e.getMessage());
+            throw new OciException(tag(ociUser) + "操作失败: " + e.getMessage());
         }
     }
 
@@ -95,7 +97,7 @@ public class InstanceService {
                             .build());
             log.info("Instance terminated: {}", instanceId);
         } catch (Exception e) {
-            throw new OciException("终止实例失败: " + e.getMessage());
+            throw new OciException(tag(ociUser) + "终止实例失败: " + e.getMessage());
         }
     }
 
@@ -137,7 +139,7 @@ public class InstanceService {
             }
             return result;
         } catch (Exception e) {
-            throw new OciException("获取引导卷列表失败: " + e.getMessage());
+            throw new OciException(tag(ociUser) + "获取引导卷列表失败: " + e.getMessage());
         }
     }
 
@@ -159,7 +161,7 @@ public class InstanceService {
                             .build());
             log.info("Boot volume updated: {}", bootVolumeId);
         } catch (Exception e) {
-            throw new OciException("更新引导卷失败: " + e.getMessage());
+            throw new OciException(tag(ociUser) + "更新引导卷失败: " + e.getMessage());
         }
     }
 
@@ -238,7 +240,7 @@ public class InstanceService {
             result.put("vnics", vnics);
             return result;
         } catch (Exception e) {
-            throw new OciException("获取实例网络详情失败: " + e.getMessage());
+            throw new OciException(tag(ociUser) + "获取实例网络详情失败: " + e.getMessage());
         }
     }
 
@@ -286,7 +288,7 @@ public class InstanceService {
                     ).getVcn();
                 } catch (com.oracle.bmc.model.BmcException e) {
                     if (!e.getMessage().contains("already exists") && !e.getMessage().contains("already has")) {
-                        throw new OciException("VCN 添加 IPv6 CIDR 失败: " + extractOciErrorMessage(e));
+                        throw new OciException(tag(ociUser) + "VCN 添加 IPv6 CIDR 失败: " + extractOciErrorMessage(e));
                     }
                     vcn = client.getVirtualNetworkClient().getVcn(
                             GetVcnRequest.builder().vcnId(vcn.getId()).build()
@@ -313,7 +315,7 @@ public class InstanceService {
                     Thread.sleep(3000);
                 } catch (com.oracle.bmc.model.BmcException e) {
                     if (!e.getMessage().contains("already exists") && !e.getMessage().contains("already has")) {
-                        throw new OciException("子网添加 IPv6 CIDR 失败: " + extractOciErrorMessage(e));
+                        throw new OciException(tag(ociUser) + "子网添加 IPv6 CIDR 失败: " + extractOciErrorMessage(e));
                     }
                 }
             }
@@ -330,9 +332,9 @@ public class InstanceService {
         } catch (OciException e) {
             throw e;
         } catch (com.oracle.bmc.model.BmcException e) {
-            throw new OciException("添加 IPv6 失败: " + extractOciErrorMessage(e));
+            throw new OciException(tag(ociUser) + "添加 IPv6 失败: " + extractOciErrorMessage(e));
         } catch (Exception e) {
-            throw new OciException("添加 IPv6 失败: " + e.getMessage());
+            throw new OciException(tag(ociUser) + "添加 IPv6 失败: " + e.getMessage());
         }
     }
 
@@ -360,9 +362,9 @@ public class InstanceService {
                     "ipAddress", reservedIp.getIpAddress()
             );
         } catch (com.oracle.bmc.model.BmcException e) {
-            throw new OciException("创建预留IP失败: " + extractOciErrorMessage(e));
+            throw new OciException(tag(ociUser) + "创建预留IP失败: " + extractOciErrorMessage(e));
         } catch (Exception e) {
-            throw new OciException("创建预留IP失败: " + e.getMessage());
+            throw new OciException(tag(ociUser) + "创建预留IP失败: " + e.getMessage());
         }
     }
 
@@ -394,7 +396,7 @@ public class InstanceService {
                 return map;
             }).collect(Collectors.toList());
         } catch (Exception e) {
-            throw new OciException("获取预留 IP 列表失败: " + e.getMessage());
+            throw new OciException(tag(ociUser) + "获取预留 IP 列表失败: " + e.getMessage());
         }
     }
 
@@ -408,7 +410,7 @@ public class InstanceService {
                     DeletePublicIpRequest.builder().publicIpId(publicIpId).build());
             log.info("Reserved IP deleted: {}", publicIpId);
         } catch (Exception e) {
-            throw new OciException("删除预留 IP 失败: " + e.getMessage());
+            throw new OciException(tag(ociUser) + "删除预留 IP 失败: " + e.getMessage());
         }
     }
 
@@ -452,11 +454,11 @@ public class InstanceService {
             log.info("Reserved IP {} assigned to secondary private IP {} on instance {}",
                     publicIpId, secondaryPip.getIpAddress(), instanceId);
         } catch (com.oracle.bmc.model.BmcException e) {
-            throw new OciException("绑定预留IP失败: " + extractOciErrorMessage(e));
+            throw new OciException(tag(ociUser) + "绑定预留IP失败: " + extractOciErrorMessage(e));
         } catch (OciException e) {
             throw e;
         } catch (Exception e) {
-            throw new OciException("绑定预留IP失败: " + e.getMessage());
+            throw new OciException(tag(ociUser) + "绑定预留IP失败: " + e.getMessage());
         }
     }
 
@@ -493,9 +495,9 @@ public class InstanceService {
             }
             log.info("Reserved IP {} unassigned", publicIpId);
         } catch (com.oracle.bmc.model.BmcException e) {
-            throw new OciException("解绑预留IP失败: " + extractOciErrorMessage(e));
+            throw new OciException(tag(ociUser) + "解绑预留IP失败: " + extractOciErrorMessage(e));
         } catch (Exception e) {
-            throw new OciException("解绑预留IP失败: " + e.getMessage());
+            throw new OciException(tag(ociUser) + "解绑预留IP失败: " + e.getMessage());
         }
     }
 
@@ -537,9 +539,9 @@ public class InstanceService {
             }
             return result;
         } catch (com.oracle.bmc.model.BmcException e) {
-            throw new OciException("修改实例失败: " + extractOciErrorMessage(e));
+            throw new OciException(tag(ociUser) + "修改实例失败: " + extractOciErrorMessage(e));
         } catch (Exception e) {
-            throw new OciException("修改实例失败: " + e.getMessage());
+            throw new OciException(tag(ociUser) + "修改实例失败: " + e.getMessage());
         }
     }
 
@@ -567,7 +569,7 @@ public class InstanceService {
             }
             return result;
         } catch (Exception e) {
-            throw new OciException("获取可用 Shape 列表失败: " + e.getMessage());
+            throw new OciException(tag(ociUser) + "获取可用 Shape 列表失败: " + e.getMessage());
         }
     }
 
