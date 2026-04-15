@@ -55,7 +55,7 @@ public class DomainManagementService {
                     var items = mfaResp.getAuthenticationFactorSettings().getResources();
                     if (items != null && !items.isEmpty()) {
                         var mfa = items.get(0);
-                        result.put("mfaEnabled", Boolean.TRUE.equals(mfa.getMfaEnabledCategory()));
+                        result.put("mfaEnabled", "true".equalsIgnoreCase(String.valueOf(mfa.getMfaEnabledCategory())));
                         result.put("mfaSettingId", mfa.getId());
                     }
                 } catch (Exception e) {
