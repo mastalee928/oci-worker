@@ -42,7 +42,8 @@
           <a-space>
             <a-button type="link" size="small" @click="openTenantInfo(record)">详情</a-button>
             <a-button type="link" size="small" @click="showEditModal(record)">编辑</a-button>
-            <a-button type="link" size="small" @click="goUserManagement(record)">用户管理</a-button>
+            <a-button type="link" size="small" @click="goUserManagement(record)">用户</a-button>
+            <a-button type="link" size="small" @click="openDomainMgmt(record)">管理</a-button>
             <a-popconfirm title="确定删除?" @confirm="handleDelete(record.id)">
               <a-button type="link" danger size="small">删除</a-button>
             </a-popconfirm>
@@ -164,16 +165,62 @@ region=ap-tokyo-1"
         </a-descriptions>
       </a-spin>
     </a-modal>
+
+    <!-- 域管理弹窗 -->
+    <a-modal v-model:open="domainMgmtVisible" :title="'域管理 — ' + (domainMgmtTenant?.username || '')"
+      :width="isMobile ? '100%' : 780" :footer="null" centered :bodyStyle="{ maxHeight: '75vh', overflow: 'auto' }">
+      <a-tabs v-model:activeKey="domainTab">
+        <a-tab-pane key="security" tab="安全策略">
+          <a-spin :spinning="domainSettingsLoading">
+            <a-descriptions :column="1" bordered size="small">
+              <a-descriptions-item label="MFA 多因素认证">
+                <a-switch v-model:checked="domainMfaEnabled"
+                  :loading="mfaUpdating"
+                  checked-children="已启用" un-checked-children="已关闭"
+                  @change="handleMfaChange" />
+              </a-descriptions-item>
+              <a-descriptions-item label="密码过期天数">
+                <a-space>
+                  <a-input-number v-model:value="domainPwdExpiryDays" :min="0" :max="365" style="width: 120px" />
+                  <span style="color: var(--text-sub); font-size: 12px">0 = 永不过期</span>
+                  <a-button type="primary" size="small" @click="handlePwdExpiryChange" :loading="pwdExpiryUpdating">保存</a-button>
+                </a-space>
+              </a-descriptions-item>
+            </a-descriptions>
+          </a-spin>
+        </a-tab-pane>
+        <a-tab-pane key="logs" tab="登录日志">
+          <a-button @click="loadAuditLogs" :loading="auditLogsLoading" style="margin-bottom: 12px">
+            <template #icon><ReloadOutlined /></template>加载最近7天登录日志
+          </a-button>
+          <a-table :data-source="auditLogs" :loading="auditLogsLoading" size="small" :pagination="{ pageSize: 20 }" row-key="eventTime">
+            <a-table-column title="时间" data-index="eventTime" key="eventTime" :width="180">
+              <template #default="{ text }">
+                <span style="font-size: 12px">{{ text ? text.replace('T', ' ').substring(0, 19) : '—' }}</span>
+              </template>
+            </a-table-column>
+            <a-table-column title="用户" data-index="principalName" key="principalName" :ellipsis="true" />
+            <a-table-column title="IP" data-index="ipAddress" key="ipAddress" :width="140" />
+            <a-table-column title="事件" data-index="eventName" key="eventName" :ellipsis="true" />
+            <a-table-column title="状态" data-index="responseStatus" key="responseStatus" :width="80">
+              <template #default="{ text }">
+                <a-tag :color="text === '200' ? 'green' : 'red'">{{ text || '—' }}</a-tag>
+              </template>
+            </a-table-column>
+          </a-table>
+        </a-tab-pane>
+      </a-tabs>
+    </a-modal>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, reactive, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { PlusOutlined, ThunderboltOutlined, InboxOutlined } from '@ant-design/icons-vue'
+import { PlusOutlined, ThunderboltOutlined, InboxOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
 import type { UploadFile } from 'ant-design-vue'
-import { getTenantList, addTenant, updateTenant, removeTenant, uploadKey, getTenantFullInfo } from '../api/tenant'
+import { getTenantList, addTenant, updateTenant, removeTenant, uploadKey, getTenantFullInfo, getDomainSettings, updateMfa, updatePasswordExpiry, getAuditLogs } from '../api/tenant'
 
 const router = useRouter()
 
@@ -344,6 +391,76 @@ function showEditModal(record: any) {
   fileList.value = []
   importText.value = ''
   modalVisible.value = true
+}
+
+const domainMgmtVisible = ref(false)
+const domainMgmtTenant = ref<any>(null)
+const domainTab = ref('security')
+const domainSettingsLoading = ref(false)
+const domainMfaEnabled = ref(false)
+const mfaUpdating = ref(false)
+const domainPwdExpiryDays = ref(0)
+const pwdExpiryUpdating = ref(false)
+const auditLogsLoading = ref(false)
+const auditLogs = ref<any[]>([])
+
+async function openDomainMgmt(record: any) {
+  domainMgmtTenant.value = record
+  domainTab.value = 'security'
+  domainMfaEnabled.value = false
+  domainPwdExpiryDays.value = 0
+  auditLogs.value = []
+  domainMgmtVisible.value = true
+  domainSettingsLoading.value = true
+  try {
+    const res = await getDomainSettings({ id: record.id })
+    domainMfaEnabled.value = res.data?.mfaEnabled === true
+    domainPwdExpiryDays.value = res.data?.passwordExpiresAfterDays ?? 0
+  } catch (e: any) {
+    message.error(e?.message || '获取域设置失败')
+  } finally {
+    domainSettingsLoading.value = false
+  }
+}
+
+async function handleMfaChange(checked: boolean) {
+  mfaUpdating.value = true
+  try {
+    await updateMfa({ id: domainMgmtTenant.value.id, enabled: checked })
+    message.success(checked ? 'MFA 已启用' : 'MFA 已关闭')
+  } catch (e: any) {
+    domainMfaEnabled.value = !checked
+    message.error(e?.message || '更新 MFA 失败')
+  } finally {
+    mfaUpdating.value = false
+  }
+}
+
+async function handlePwdExpiryChange() {
+  pwdExpiryUpdating.value = true
+  try {
+    await updatePasswordExpiry({ id: domainMgmtTenant.value.id, days: domainPwdExpiryDays.value })
+    message.success('密码过期策略已更新')
+  } catch (e: any) {
+    message.error(e?.message || '更新密码策略失败')
+  } finally {
+    pwdExpiryUpdating.value = false
+  }
+}
+
+async function loadAuditLogs() {
+  auditLogsLoading.value = true
+  try {
+    const res = await getAuditLogs({ id: domainMgmtTenant.value.id })
+    auditLogs.value = res.data || []
+    if (!auditLogs.value.length) {
+      message.info('未找到登录相关日志')
+    }
+  } catch (e: any) {
+    message.error(e?.message || '获取登录日志失败')
+  } finally {
+    auditLogsLoading.value = false
+  }
 }
 
 async function openTenantInfo(record: any) {

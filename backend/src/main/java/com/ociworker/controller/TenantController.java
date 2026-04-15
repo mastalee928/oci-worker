@@ -5,6 +5,7 @@ import com.ociworker.model.params.IdParams;
 import com.ociworker.model.params.PageParams;
 import com.ociworker.model.params.TenantParams;
 import com.ociworker.model.vo.ResponseData;
+import com.ociworker.service.DomainManagementService;
 import com.ociworker.service.TenantService;
 import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
@@ -17,6 +18,8 @@ public class TenantController {
 
     @Resource
     private TenantService tenantService;
+    @Resource
+    private DomainManagementService domainManagementService;
 
     @PostMapping("/list")
     public ResponseData<?> list(@RequestBody PageParams params) {
@@ -60,5 +63,31 @@ public class TenantController {
     @PostMapping("/uploadKey")
     public ResponseData<?> uploadKey(@RequestParam("file") MultipartFile file) throws Exception {
         return ResponseData.ok(tenantService.uploadKey(file));
+    }
+
+    @PostMapping("/domainSettings")
+    public ResponseData<?> domainSettings(@RequestBody java.util.Map<String, String> params) {
+        return ResponseData.ok(domainManagementService.getDomainSettings(params.get("id")));
+    }
+
+    @PostMapping("/updateMfa")
+    public ResponseData<?> updateMfa(@RequestBody java.util.Map<String, Object> params) {
+        domainManagementService.updateMfaSetting(
+                (String) params.get("id"),
+                Boolean.TRUE.equals(params.get("enabled")));
+        return ResponseData.ok();
+    }
+
+    @PostMapping("/updatePasswordExpiry")
+    public ResponseData<?> updatePasswordExpiry(@RequestBody java.util.Map<String, Object> params) {
+        domainManagementService.updatePasswordExpiry(
+                (String) params.get("id"),
+                ((Number) params.get("days")).intValue());
+        return ResponseData.ok();
+    }
+
+    @PostMapping("/auditLogs")
+    public ResponseData<?> auditLogs(@RequestBody java.util.Map<String, String> params) {
+        return ResponseData.ok(domainManagementService.getAuditLogs(params.get("id")));
     }
 }
