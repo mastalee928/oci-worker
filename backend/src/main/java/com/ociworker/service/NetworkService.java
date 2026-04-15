@@ -244,31 +244,31 @@ public class NetworkService {
             ).getItems();
             if (privateIps.isEmpty()) throw new OciException("未找到私有IP");
 
-            List<PublicIp> publicIps = new ArrayList<>();
-            for (PrivateIp pip : privateIps) {
-                try {
-                    PublicIp pubIp = client.getVirtualNetworkClient().getPublicIpByPrivateIpId(
-                            GetPublicIpByPrivateIpIdRequest.builder()
-                                    .getPublicIpByPrivateIpIdDetails(
-                                            GetPublicIpByPrivateIpIdDetails.builder()
-                                                    .privateIpId(pip.getId()).build())
-                                    .build()
-                    ).getPublicIp();
-                    if (pubIp != null) publicIps.add(pubIp);
-                } catch (Exception ignored) {}
-            }
+            PrivateIp primaryPrivateIp = privateIps.stream()
+                    .filter(p -> Boolean.TRUE.equals(p.getIsPrimary()))
+                    .findFirst()
+                    .orElse(privateIps.get(0));
 
-            for (PublicIp pubIp : publicIps) {
-                client.getVirtualNetworkClient().deletePublicIp(
-                        DeletePublicIpRequest.builder().publicIpId(pubIp.getId()).build());
-            }
+            try {
+                PublicIp oldPubIp = client.getVirtualNetworkClient().getPublicIpByPrivateIpId(
+                        GetPublicIpByPrivateIpIdRequest.builder()
+                                .getPublicIpByPrivateIpIdDetails(
+                                        GetPublicIpByPrivateIpIdDetails.builder()
+                                                .privateIpId(primaryPrivateIp.getId()).build())
+                                .build()
+                ).getPublicIp();
+                if (oldPubIp != null) {
+                    client.getVirtualNetworkClient().deletePublicIp(
+                            DeletePublicIpRequest.builder().publicIpId(oldPubIp.getId()).build());
+                }
+            } catch (Exception ignored) {}
 
             PublicIp newPubIp = client.getVirtualNetworkClient().createPublicIp(
                     CreatePublicIpRequest.builder()
                             .createPublicIpDetails(CreatePublicIpDetails.builder()
                                     .compartmentId(client.getCompartmentId())
                                     .lifetime(CreatePublicIpDetails.Lifetime.Ephemeral)
-                                    .privateIpId(privateIps.get(0).getId())
+                                    .privateIpId(primaryPrivateIp.getId())
                                     .build())
                             .build()
             ).getPublicIp();
