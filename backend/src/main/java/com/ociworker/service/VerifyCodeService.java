@@ -44,6 +44,7 @@ public class VerifyCodeService {
             case "removeFromAdmin" -> "移出管理员组";
             case "clearMfa" -> "清理 MFA";
             case "disableUser" -> "禁用用户";
+            case "changePassword" -> "修改登录密码";
             default -> action;
         };
         String msg = String.format("【OCI Worker 安全验证】\n操作：%s\n验证码：%s\n有效期：5分钟\n\n如非本人操作，请检查账户安全。", actionName, code);

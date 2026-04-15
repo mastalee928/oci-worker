@@ -1,5 +1,7 @@
 package com.ociworker.controller;
 
+import cn.hutool.core.util.StrUtil;
+import cn.hutool.crypto.digest.DigestUtil;
 import com.ociworker.enums.SysCfgEnum;
 import com.ociworker.model.vo.ResponseData;
 import com.ociworker.service.NotificationService;
@@ -21,6 +23,8 @@ public class SystemController {
     private NotificationService notificationService;
     @Resource
     private VerifyCodeService verifyCodeService;
+    @Resource
+    private AuthController authController;
 
     @GetMapping("/glance")
     public ResponseData<?> glance() {
@@ -38,6 +42,15 @@ public class SystemController {
 
     @PostMapping("/notifyConfig")
     public ResponseData<?> saveNotifyConfig(@RequestBody Map<String, String> params) {
+        String pwd = params.get("password");
+        if (StrUtil.isBlank(pwd)) {
+            return ResponseData.error("请输入登录密码进行验证");
+        }
+        String inputHash = DigestUtil.sha256Hex(pwd);
+        if (!inputHash.equals(authController.getEffectivePasswordHash())) {
+            return ResponseData.error("密码错误");
+        }
+
         if (params.containsKey("botToken")) {
             notificationService.saveKvValue(SysCfgEnum.TG_BOT_TOKEN, params.get("botToken"));
         }

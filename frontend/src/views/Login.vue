@@ -136,7 +136,7 @@ async function handleTgSendCode() {
 }
 
 function startCountdown() {
-  tgCountdown.value = 60
+  tgCountdown.value = 30
   if (countdownTimer) clearInterval(countdownTimer)
   countdownTimer = setInterval(() => {
     tgCountdown.value--

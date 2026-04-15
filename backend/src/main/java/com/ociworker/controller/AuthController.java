@@ -37,7 +37,7 @@ public class AuthController {
     @Resource
     private VerifyCodeService verifyCodeService;
 
-    private static final long TG_CODE_EXPIRE_MS = 3 * 60 * 1000;
+    private static final long TG_CODE_EXPIRE_MS = 30 * 1000;
     private static final int TG_CODE_MAX_ATTEMPTS = 3;
     private volatile String tgLoginCode;
     private volatile long tgLoginCodeExpireAt;
@@ -158,8 +158,8 @@ public class AuthController {
         }
 
         long now = System.currentTimeMillis();
-        if (tgLoginCodeSentAt > 0 && now - tgLoginCodeSentAt < 60_000) {
-            long wait = (60_000 - (now - tgLoginCodeSentAt)) / 1000;
+        if (tgLoginCodeSentAt > 0 && now - tgLoginCodeSentAt < 30_000) {
+            long wait = (30_000 - (now - tgLoginCodeSentAt)) / 1000;
             return ResponseData.error("请求过于频繁，请 " + wait + " 秒后重试");
         }
 
@@ -173,7 +173,7 @@ public class AuthController {
 
         String ip = getClientIp(request);
         String html = String.format(
-                "Your token: <code>%s</code>\n\n请在 <b>3</b> 分钟内使用该验证码登录\n\n<i>IP: %s</i>",
+                "Your token: <code>%s</code>\n\n请在 <b>30</b> 秒内使用该验证码登录\n\n<i>IP: %s</i>",
                 code, ip);
         notificationService.sendTelegramHtml(html, null);
 
@@ -247,6 +247,14 @@ public class AuthController {
 
     @PostMapping("/changePassword")
     public ResponseData<?> changePassword(@RequestBody Map<String, String> params) {
+        if (verifyCodeService.isTgConfigured()) {
+            String code = params.get("verifyCode");
+            if (code == null || code.isBlank()) {
+                return ResponseData.error("请输入 TG 验证码");
+            }
+            verifyCodeService.verifyCode("changePassword", code);
+        }
+
         String oldPwd = params.get("oldPassword");
         String newPwd = params.get("newPassword");
         if (oldPwd == null || newPwd == null || newPwd.length() < 6) {
