@@ -120,11 +120,36 @@ public class ConsoleService {
             ).getItems();
 
             for (var conn : existing) {
-                if (conn.getLifecycleState() == InstanceConsoleConnection.LifecycleState.Active) {
+                var state = conn.getLifecycleState();
+                if (state == InstanceConsoleConnection.LifecycleState.Active
+                        || state == InstanceConsoleConnection.LifecycleState.Creating) {
                     computeClient.deleteInstanceConsoleConnection(
                             DeleteInstanceConsoleConnectionRequest.builder()
                                     .instanceConsoleConnectionId(conn.getId()).build());
-                    log.info("【串行控制台】删除旧连接: {}", conn.getId());
+                    log.info("【串行控制台】删除旧连接: {} (状态: {})", conn.getId(), state);
+                }
+            }
+
+            if (!existing.isEmpty()) {
+                boolean cleared = false;
+                for (int i = 0; i < 15; i++) {
+                    Thread.sleep(2000);
+                    var check = computeClient.listInstanceConsoleConnections(
+                            ListInstanceConsoleConnectionsRequest.builder()
+                                    .compartmentId(compartmentId)
+                                    .instanceId(instanceId)
+                                    .build()
+                    ).getItems();
+                    boolean allGone = check.stream().allMatch(c ->
+                            c.getLifecycleState() == InstanceConsoleConnection.LifecycleState.Deleted
+                                    || c.getLifecycleState() == InstanceConsoleConnection.LifecycleState.Faulty);
+                    if (allGone || check.isEmpty()) {
+                        cleared = true;
+                        break;
+                    }
+                }
+                if (!cleared) {
+                    throw new OciException("旧连接尚未完全删除，请稍后再试");
                 }
             }
 
