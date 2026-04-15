@@ -54,19 +54,19 @@
 
       <!-- 分组视图 -->
       <template v-else>
-        <div v-for="(group, gi) in groupTree" :key="group.key" class="group-section"
-          draggable="true"
-          @dragstart="onDragStart($event, gi)"
+        <div v-for="(group, gi) in displayGroups" :key="group.key" class="group-section"
+          :data-group-idx="gi"
           @dragover.prevent="onDragOver($event, gi)"
-          @dragleave="onDragLeave($event)"
           @drop="onDrop($event, gi)"
-          @dragend="onDragEnd"
-          :class="{ 'drag-over': dragOverIndex === gi && dragFromIndex !== gi }">
+          :class="{ 'drag-over-top': dragOverIndex === gi && dragOverPos === 'top' && dragFromIndex !== gi,
+                     'drag-over-bottom': dragOverIndex === gi && dragOverPos === 'bottom' && dragFromIndex !== gi,
+                     'dragging': dragFromIndex === gi }">
           <!-- 一级分组卡片 -->
           <div class="group-card">
             <div style="display: flex; align-items: center; gap: 10px;">
-              <div class="drag-handle" title="拖动排序"
-                @mousedown="dragEnabled = true" @mouseup="dragEnabled = false">
+              <div class="drag-handle" title="拖动排序" draggable="true"
+                @dragstart="onDragStart($event, gi)"
+                @dragend="onDragEnd">
                 <span style="font-size: 14px; line-height: 1;">⠿</span>
               </div>
               <div class="collapse-btn" @click="toggleGroup(group.key)">
@@ -907,52 +907,65 @@ function getPlanCounts(group: GroupNode): Record<string, number> {
 
 const expandedGroups = ref<Set<string>>(new Set())
 
-const dragEnabled = ref(false)
 const dragFromIndex = ref(-1)
 const dragOverIndex = ref(-1)
+const dragOverPos = ref<'top' | 'bottom'>('top')
+const localOrder = ref<string[]>([])
+
+const displayGroups = computed(() => {
+  if (localOrder.value.length === 0) return groupTree.value
+  const map = new Map<string, any>()
+  for (const g of groupTree.value) map.set(g.label, g)
+  const result: any[] = []
+  for (const name of localOrder.value) {
+    const g = map.get(name)
+    if (g) { result.push(g); map.delete(name) }
+  }
+  for (const g of map.values()) result.push(g)
+  return result
+})
 
 function onDragStart(e: DragEvent, idx: number) {
-  if (!dragEnabled.value) { e.preventDefault(); return }
   dragFromIndex.value = idx
   if (e.dataTransfer) {
     e.dataTransfer.effectAllowed = 'move'
     e.dataTransfer.setData('text/plain', String(idx))
+    e.dataTransfer.setDragImage(e.target as HTMLElement, 0, 0)
   }
+  localOrder.value = displayGroups.value.map(g => g.label)
 }
 
 function onDragOver(e: DragEvent, idx: number) {
   if (dragFromIndex.value < 0) return
+  const target = (e.currentTarget as HTMLElement)
+  const rect = target.getBoundingClientRect()
+  const mid = rect.top + rect.height / 2
+  dragOverPos.value = e.clientY < mid ? 'top' : 'bottom'
   dragOverIndex.value = idx
 }
 
-function onDragLeave(_e: DragEvent) {
-  dragOverIndex.value = -1
-}
-
-async function onDrop(_e: DragEvent, toIdx: number) {
+function onDrop(_e: DragEvent, toIdx: number) {
   const fromIdx = dragFromIndex.value
-  dragOverIndex.value = -1
-  dragFromIndex.value = -1
-  dragEnabled.value = false
-  if (fromIdx < 0 || fromIdx === toIdx) return
+  if (fromIdx < 0 || fromIdx === toIdx) { resetDrag(); return }
 
-  const tree = groupTree.value
-  const names = tree.map(g => g.label)
+  const names = [...localOrder.value]
   const [moved] = names.splice(fromIdx, 1)
-  names.splice(toIdx, 0, moved)
+  const insertIdx = dragOverPos.value === 'bottom' ? toIdx : toIdx
+  const actualIdx = fromIdx < toIdx ? insertIdx : insertIdx
+  names.splice(actualIdx, 0, moved)
+  localOrder.value = names
 
-  try {
-    await saveGroupOrder({ order: names })
-    await loadGroups()
-  } catch (e: any) {
-    message.error(e?.message || '排序保存失败')
-  }
+  resetDrag()
+  saveGroupOrder({ order: names }).then(() => loadGroups()).catch(() => {})
 }
 
 function onDragEnd() {
+  resetDrag()
+}
+
+function resetDrag() {
   dragFromIndex.value = -1
   dragOverIndex.value = -1
-  dragEnabled.value = false
 }
 
 function toggleGroup(key: string) {
@@ -1201,14 +1214,29 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
 }
 .group-section {
   margin-bottom: 12px;
-  transition: transform 0.2s, opacity 0.2s;
+  transition: transform 0.15s ease, opacity 0.15s ease;
+  position: relative;
 }
-.group-section.drag-over {
-  border-top: 3px solid var(--primary, #1677ff);
-  padding-top: 4px;
+.group-section.dragging {
+  opacity: 0.4;
 }
-.group-section[draggable="true"] {
-  cursor: default;
+.group-section.drag-over-top::before {
+  content: '';
+  position: absolute;
+  top: -6px; left: 0; right: 0;
+  height: 3px;
+  background: var(--primary, #1677ff);
+  border-radius: 2px;
+  box-shadow: 0 0 8px var(--primary, #1677ff);
+}
+.group-section.drag-over-bottom::after {
+  content: '';
+  position: absolute;
+  bottom: -6px; left: 0; right: 0;
+  height: 3px;
+  background: var(--primary, #1677ff);
+  border-radius: 2px;
+  box-shadow: 0 0 8px var(--primary, #1677ff);
 }
 .group-card {
   background: var(--bg-card, #fff);
@@ -1260,11 +1288,13 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   border: 1px solid var(--border);
   border-radius: 6px;
   color: var(--text-sub, #999);
-  cursor: move;
+  cursor: grab;
   transition: all 0.2s;
   font-size: 14px;
   flex-shrink: 0;
+  user-select: none;
 }
+.drag-handle:active { cursor: grabbing; }
 .drag-handle:hover { color: var(--primary, #1677ff); border-color: var(--primary, #1677ff); }
 .collapse-btn {
   width: 28px; height: 28px;
