@@ -40,6 +40,7 @@
         </template>
         <template v-if="column.key === 'action'">
           <a-space>
+            <a-button type="link" size="small" @click="openTenantInfo(record)">详情</a-button>
             <a-button type="link" size="small" @click="showEditModal(record)">编辑</a-button>
             <a-button type="link" size="small" @click="goUserManagement(record)">用户管理</a-button>
             <a-popconfirm title="确定删除?" @confirm="handleDelete(record.id)">
@@ -113,6 +114,56 @@ region=ap-tokyo-1"
         </a-form-item>
       </a-form>
     </a-modal>
+
+    <!-- 租户详情弹窗 -->
+    <a-modal v-model:open="tenantInfoVisible" title="租户信息" :width="isMobile ? '100%' : 680"
+      :footer="null" centered :bodyStyle="{ maxHeight: '70vh', overflow: 'auto' }">
+      <a-spin :spinning="tenantInfoLoading">
+        <a-descriptions :column="1" bordered size="small" style="margin-top: 8px">
+          <a-descriptions-item label="当前配置">
+            <span style="color: var(--primary); font-weight: 600">{{ tenantInfoData.configName || '—' }}</span>
+          </a-descriptions-item>
+          <a-descriptions-item label="租户名称">{{ tenantInfoData.tenantName || '—' }}</a-descriptions-item>
+          <a-descriptions-item label="homeRegionKey">{{ tenantInfoData.homeRegionKey || '—' }}</a-descriptions-item>
+          <a-descriptions-item label="upiIdcsCompatibilityLayerEndpoint">
+            <span style="word-break: break-all">{{ tenantInfoData.upiIdcsCompatibilityLayerEndpoint || '—' }}</span>
+          </a-descriptions-item>
+          <a-descriptions-item label="租户 ID">
+            <span style="word-break: break-all; font-size: 12px">{{ tenantInfoData.tenantId || '—' }}</span>
+          </a-descriptions-item>
+          <a-descriptions-item label="描述">{{ tenantInfoData.description || '—' }}</a-descriptions-item>
+          <a-descriptions-item label="已订阅的区域">
+            <template v-if="tenantInfoData.subscribedRegions?.length">
+              <a-tag v-for="r in tenantInfoData.subscribedRegions" :key="r" color="blue" style="margin: 2px">{{ r }}</a-tag>
+            </template>
+            <span v-else>—</span>
+          </a-descriptions-item>
+          <a-descriptions-item label="订阅套餐">
+            <a-tag v-if="tenantInfoData.planType" :color="tenantInfoData.planType === 'FREE' ? 'default' : 'green'">
+              {{ tenantInfoData.planType === 'FREE' ? '免费套餐 (Free Tier)' : tenantInfoData.planType }}
+            </a-tag>
+            <span v-else>—</span>
+          </a-descriptions-item>
+          <a-descriptions-item label="账户类型">
+            <a-tag v-if="tenantInfoData.accountType" color="orange">{{ tenantInfoData.accountType }}</a-tag>
+            <span v-else>—</span>
+          </a-descriptions-item>
+          <a-descriptions-item label="升级状态">
+            <a-tag v-if="tenantInfoData.upgradeState" color="purple">{{ tenantInfoData.upgradeState }}</a-tag>
+            <span v-else>—</span>
+          </a-descriptions-item>
+          <a-descriptions-item label="货币">{{ tenantInfoData.currencyCode || '—' }}</a-descriptions-item>
+          <a-descriptions-item label="已完成付款意向">
+            <a-tag v-if="tenantInfoData.isIntentToPay !== undefined && tenantInfoData.isIntentToPay !== null"
+              :color="tenantInfoData.isIntentToPay ? 'green' : 'red'">
+              {{ tenantInfoData.isIntentToPay ? '是' : '否' }}
+            </a-tag>
+            <span v-else>—</span>
+          </a-descriptions-item>
+          <a-descriptions-item label="订阅开始时间">{{ tenantInfoData.subscriptionStartTime || '—' }}</a-descriptions-item>
+        </a-descriptions>
+      </a-spin>
+    </a-modal>
   </div>
 </template>
 
@@ -122,7 +173,7 @@ import { useRouter } from 'vue-router'
 import { PlusOutlined, ThunderboltOutlined, InboxOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
 import type { UploadFile } from 'ant-design-vue'
-import { getTenantList, addTenant, updateTenant, removeTenant, uploadKey } from '../api/tenant'
+import { getTenantList, addTenant, updateTenant, removeTenant, uploadKey, getTenantFullInfo } from '../api/tenant'
 
 const router = useRouter()
 
@@ -183,7 +234,7 @@ const columns = [
   { title: '开机任务', key: 'taskStatus', width: 140 },
   { title: '账户类型', dataIndex: 'planType', key: 'planType', width: 130 },
   { title: '创建时间', dataIndex: 'createTime', key: 'createTime', width: 180 },
-  { title: '操作', key: 'action', width: 220 },
+  { title: '操作', key: 'action', width: 270 },
 ]
 
 const loading = ref(false)
@@ -204,6 +255,10 @@ const formState = reactive({
 
 let pendingFile: File | null = null
 const isMobile = ref(window.innerWidth < 768)
+
+const tenantInfoVisible = ref(false)
+const tenantInfoLoading = ref(false)
+const tenantInfoData = ref<any>({})
 function checkMobile() { isMobile.value = window.innerWidth < 768 }
 
 function parseAndFill() {
@@ -289,6 +344,20 @@ function showEditModal(record: any) {
   fileList.value = []
   importText.value = ''
   modalVisible.value = true
+}
+
+async function openTenantInfo(record: any) {
+  tenantInfoData.value = { configName: record.username }
+  tenantInfoVisible.value = true
+  tenantInfoLoading.value = true
+  try {
+    const res = await getTenantFullInfo({ id: record.id })
+    tenantInfoData.value = res.data || {}
+  } catch (e: any) {
+    message.error(e?.message || '获取租户详情失败')
+  } finally {
+    tenantInfoLoading.value = false
+  }
 }
 
 function goUserManagement(record: any) {
