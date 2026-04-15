@@ -1152,21 +1152,34 @@ async function handleAddAuxIp() {
   if (!currentTenant.value || !currentInstance.value) return
   auxIpLoading.value = true
   try {
-    const res = await createReservedIp({ id: currentTenant.value.id, displayName: 'aux-' + Date.now() })
-    const newIpId = res.data?.id
-    if (!newIpId) throw new Error('创建预留IP失败')
-    message.success('预留IP已创建: ' + (res.data?.ipAddress || ''))
+    let ipId = ''
+    let ipAddr = ''
+
+    // 先查找未绑定的预留IP
     try {
-      await assignReservedIp({ id: currentTenant.value.id, publicIpId: newIpId, instanceId: currentInstance.value.instanceId })
-      message.success('辅助IP已附加到实例')
-    } catch (e: any) {
-      const errMsg = e?.message || '绑定失败'
-      message.error('附加辅助IP失败: ' + errMsg)
+      const listRes = await listReservedIps({ id: currentTenant.value.id })
+      const unbound = (listRes.data || []).find((ip: any) => !ip.isAssigned)
+      if (unbound) {
+        ipId = unbound.id
+        ipAddr = unbound.ipAddress
+        message.info('使用已有预留IP: ' + ipAddr)
+      }
+    } catch {}
+
+    // 没有未绑定的预留IP，才创建新的
+    if (!ipId) {
+      const res = await createReservedIp({ id: currentTenant.value.id, displayName: 'aux-' + Date.now() })
+      ipId = res.data?.id
+      ipAddr = res.data?.ipAddress || ''
+      if (!ipId) throw new Error('创建预留IP失败')
+      message.success('预留IP已创建: ' + ipAddr)
     }
+
+    await assignReservedIp({ id: currentTenant.value.id, publicIpId: ipId, instanceId: currentInstance.value.instanceId })
+    message.success('辅助IP已附加到实例: ' + ipAddr)
     loadNetworkDetail()
   } catch (e: any) {
-    const errMsg = e?.message || '创建预留IP失败'
-    message.error(errMsg)
+    message.error(e?.message || '添加辅助IP失败')
   } finally {
     auxIpLoading.value = false
   }
