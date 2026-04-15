@@ -212,6 +212,7 @@ async function handleChangePassword() {
     pwdTgVerified.value = false
     pwdTgCode.value = ''
     pwdTgVerifiedCode.value = ''
+    pwdOverlayPwd.value = ''
   } catch (e: any) {
     message.error(e?.message || '修改密码失败')
   } finally {
@@ -234,6 +235,9 @@ async function saveTgConfig() {
       password: notifyVerifiedPwd.value,
     })
     message.success('保存成功')
+    notifyPwdVerified.value = false
+    notifyPwd.value = ''
+    notifyVerifiedPwd.value = ''
   } catch (e: any) {
     message.error(e?.message || '保存失败')
   } finally {
