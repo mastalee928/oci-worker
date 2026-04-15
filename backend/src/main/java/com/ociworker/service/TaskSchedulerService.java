@@ -156,11 +156,19 @@ public class TaskSchedulerService {
         SysUserDTO dto = buildSysUserDTO(ociUser, task);
         scheduleTask(task.getId(), dto, interval);
 
-        String msg = String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s],开机数量:[%d],CPU:[%s],内存:[%sGB],磁盘:[%sGB],root密码:[%s] - 任务已创建",
-                ociUser.getUsername(), ociUser.getOciRegion(), architecture, createNumbers,
-                ocpus, memory, disk, rootPassword != null ? rootPassword : "随机");
-        broadcastLog(msg);
-        notificationService.sendMessage(NotificationService.TYPE_TASK_CREATE, msg);
+        String logMsg = String.format("【开机任务】用户:[%s],区域:[%s],架构:[%s],数量:[%d] - 任务已创建",
+                ociUser.getUsername(), ociUser.getOciRegion(), architecture, createNumbers);
+        broadcastLog(logMsg);
+
+        String pwd = rootPassword != null ? rootPassword : "随机";
+        String html = "📋 <b>开机任务已创建</b>\n\n"
+                + "👤 <b>租户：</b>" + ociUser.getUsername() + "\n"
+                + "🌍 <b>区域：</b>" + ociUser.getOciRegion() + "\n"
+                + "⚙️ <b>架构：</b>" + architecture + "\n"
+                + "📊 <b>配置：</b>" + ocpus + "C / " + memory + "GB / " + disk + "GB\n"
+                + "🔢 <b>数量：</b>" + createNumbers + "\n"
+                + "🔑 <b>密码：</b><code>" + pwd + "</code>";
+        notificationService.sendHtmlWithType(NotificationService.TYPE_TASK_CREATE, html);
     }
 
     public void resumeTask(String taskId) {
@@ -232,9 +240,13 @@ public class TaskSchedulerService {
 
             if (result.isDie()) {
                 completeTask(taskId, TaskStatusEnum.FAILED);
-                String msg = String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s] - ❌ 认证失败(401)，任务已停止", user, region, arch);
-                broadcastLog(msg);
-                notificationService.sendMessage(NotificationService.TYPE_TASK_RESULT, msg);
+                broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],架构:[%s] - 认证失败(401)，任务已停止", user, region, arch));
+                String html = "❌ <b>开机任务失败</b>\n\n"
+                        + "👤 <b>租户：</b>" + user + "\n"
+                        + "🌍 <b>区域：</b>" + region + "\n"
+                        + "⚙️ <b>架构：</b>" + arch + "\n"
+                        + "📛 <b>原因：</b>认证失败 (401)，任务已停止";
+                notificationService.sendHtmlWithType(NotificationService.TYPE_TASK_RESULT, html);
                 return;
             }
 
@@ -258,15 +270,17 @@ public class TaskSchedulerService {
 
             if (result.isSuccess()) {
                 completeTask(taskId, TaskStatusEnum.COMPLETED);
-                String msg = String.format(
-                        "【开机任务】用户:[%s],区域:[%s],系统架构:[%s] - 🎉 实例创建成功！\n" +
-                        "  Shape: %s | CPU: %s | 内存: %sGB | 磁盘: %sGB\n" +
-                        "  公网IP: %s\n" +
-                        "  Root密码: %s",
-                        user, region, arch, result.getShape(), result.getOcpus(),
-                        result.getMemory(), result.getDisk(), result.getPublicIp(), result.getRootPassword());
-                broadcastLog(msg);
-                notificationService.sendMessage(NotificationService.TYPE_TASK_RESULT, msg);
+                broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],架构:[%s] - 实例创建成功！IP:%s",
+                        user, region, arch, result.getPublicIp()));
+                String html = "🎉 <b>实例创建成功！</b>\n\n"
+                        + "👤 <b>租户：</b>" + user + "\n"
+                        + "🌍 <b>区域：</b>" + region + "\n"
+                        + "⚙️ <b>架构：</b>" + arch + "\n"
+                        + "💻 <b>Shape：</b>" + result.getShape() + "\n"
+                        + "📊 <b>配置：</b>" + result.getOcpus() + "C / " + result.getMemory() + "GB / " + result.getDisk() + "GB\n"
+                        + "🌐 <b>公网IP：</b><code>" + result.getPublicIp() + "</code>\n"
+                        + "🔑 <b>密码：</b><code>" + result.getRootPassword() + "</code>";
+                notificationService.sendHtmlWithType(NotificationService.TYPE_TASK_RESULT, html);
             } else {
                 broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s] - 创建未成功，[%d]秒后将重试...",
                         user, region, arch, intervalSeconds));

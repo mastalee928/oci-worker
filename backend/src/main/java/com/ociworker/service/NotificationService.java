@@ -60,6 +60,11 @@ public class NotificationService {
         }
     }
 
+    public void sendHtmlWithType(String notifyType, String html) {
+        if (!isTypeEnabled(notifyType)) return;
+        sendTelegramHtml(html, null);
+    }
+
     public void sendTelegramHtml(String html, String copyText) {
         try {
             String botToken = getKvValue(SysCfgEnum.TG_BOT_TOKEN);
