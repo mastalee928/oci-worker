@@ -483,9 +483,9 @@
         </a-form-item>
         <a-form-item label="端口范围" v-if="ruleForm.protocol === 'TCP' || ruleForm.protocol === 'UDP'">
           <a-space>
-            <a-input-number v-model:value="ruleForm.portMin" placeholder="起始端口" :min="1" :max="65535" style="width: 140px" />
+            <a-input-number v-model:value="ruleForm.portMin" placeholder="留空=全部" :min="1" :max="65535" style="width: 140px" />
             <span>-</span>
-            <a-input-number v-model:value="ruleForm.portMax" placeholder="结束端口" :min="1" :max="65535" style="width: 140px" />
+            <a-input-number v-model:value="ruleForm.portMax" placeholder="留空=全部" :min="1" :max="65535" style="width: 140px" />
           </a-space>
         </a-form-item>
         <a-form-item label="描述">
@@ -1029,9 +1029,14 @@ function showAddRuleModal() {
 
 async function handleAddRule() {
   if (!currentInstance.value || !currentTenant.value) return
-  if ((ruleForm.protocol === 'TCP' || ruleForm.protocol === 'UDP') && (!ruleForm.portMin || !ruleForm.portMax)) {
-    message.warning('TCP/UDP 协议需要填写端口范围')
-    return
+  if (ruleForm.protocol === 'TCP' || ruleForm.protocol === 'UDP') {
+    if (!ruleForm.portMin && !ruleForm.portMax) {
+      ruleForm.portMin = 1
+      ruleForm.portMax = 65535
+    } else if (!ruleForm.portMin || !ruleForm.portMax) {
+      message.warning('请填写完整的端口范围，或留空表示全部端口')
+      return
+    }
   }
   addRuleLoading.value = true
   try {
