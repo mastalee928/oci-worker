@@ -194,7 +194,6 @@ public class DomainManagementService {
                     entry.put("eventTime", event.getEventTime() != null ? event.getEventTime().toString() : null);
                     entry.put("eventName", eventName);
                     entry.put("source", data.getResourceName());
-                    entry.put("message", data.getMessage());
 
                     if (data.getIdentity() != null) {
                         entry.put("principalName", data.getIdentity().getPrincipalName());
