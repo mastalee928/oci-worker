@@ -47,23 +47,19 @@
             </button>
           </div>
           <template v-else>
-            <a-form @finish="handleTgLogin" layout="vertical">
-              <a-form-item>
-                <a-input v-model:value="tgCode" placeholder="输入验证码 例: 123456:AbCdEfGhJkm" size="large" class="login-input"
-                  :maxlength="18" @pressEnter="handleTgLogin">
-                  <template #prefix><i class="ri-shield-keyhole-line input-prefix-icon"></i></template>
-                </a-input>
-              </a-form-item>
-              <a-form-item>
-                <button type="submit" :disabled="tgLoginLoading || tgCode.length < 17" class="submit-btn">
-                  <span v-if="tgLoginLoading">验证中...</span>
-                  <template v-else>
-                    验证并登录
-                    <i class="ri-arrow-right-line"></i>
-                  </template>
-                </button>
-              </a-form-item>
-            </a-form>
+            <div style="margin-bottom: 20px">
+              <a-input v-model:value="tgCode" placeholder="输入验证码" size="large" class="login-input"
+                :maxlength="18" @pressEnter="handleTgLogin">
+                <template #prefix><i class="ri-shield-keyhole-line input-prefix-icon"></i></template>
+              </a-input>
+            </div>
+            <button :disabled="tgLoginLoading || tgCode.length < 17" class="submit-btn" @click="handleTgLogin">
+              <span v-if="tgLoginLoading">验证中...</span>
+              <template v-else>
+                验证并登录
+                <i class="ri-arrow-right-line"></i>
+              </template>
+            </button>
             <div class="tg-countdown" v-if="tgCountdown > 0">
               {{ tgCountdown }}秒后可重新发送
             </div>

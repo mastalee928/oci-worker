@@ -173,9 +173,9 @@ public class AuthController {
 
         String ip = getClientIp(request);
         String html = String.format(
-                "Your token: <b>%s</b>\n\nThe token is valid for <b>3.0</b> minutes. Use it to log in on website.\n\n<i>IP: %s</i>",
+                "Your token: <code>%s</code>\n\n请在 <b>3</b> 分钟内使用该验证码登录\n\n<i>IP: %s</i>",
                 code, ip);
-        notificationService.sendTelegramHtml(html, code);
+        notificationService.sendTelegramHtml(html, null);
 
         return ResponseData.ok(Map.of("message", "验证码已发送到 Telegram"));
     }
