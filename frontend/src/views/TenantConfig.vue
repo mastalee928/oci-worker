@@ -96,6 +96,7 @@
 
             <div v-show="expandedGroups.has(group.key)" class="group-body">
               <a-table v-if="group.tenants.length" :columns="columns" :data-source="group.tenants" :pagination="false"
+                :row-selection="{ selectedRowKeys, onChange: onSelectChange }"
                 row-key="id" size="small">
                 <template #bodyCell="{ column, record }">
                   <template v-if="column.key === 'tenantName'">
@@ -162,6 +163,7 @@
 
               <div v-show="expandedGroups.has(sub.key)" class="group-body">
                 <a-table v-if="sub.tenants.length" :columns="columns" :data-source="sub.tenants" :pagination="false"
+                  :row-selection="{ selectedRowKeys, onChange: onSelectChange }"
                   row-key="id" size="small">
                   <template #bodyCell="{ column, record }">
                     <template v-if="column.key === 'tenantName'">
@@ -686,7 +688,7 @@ function showEditModal(record: any) {
     ociRegion: record.ociRegion,
     ociKeyPath: record.ociKeyPath,
     groupLevel1: record.groupLevel1 || '',
-    groupLevel2: record.groupLevel2 || '',
+    groupLevel2: record.groupLevel2 || undefined,
   })
   pendingFile = null
   fileList.value = []
@@ -812,12 +814,20 @@ interface GroupNode {
 
 const groupTree = computed<GroupNode[]>(() => {
   const all = tableData.value
+  const gd = groupData.value
+
+  // 从租户数据聚合
   const l1Map = new Map<string, any[]>()
   for (const r of all) {
     const g1 = r.groupLevel1 || '未分组'
     const list = l1Map.get(g1) || []
     list.push(r)
     l1Map.set(g1, list)
+  }
+
+  // 合并 groupData 中的空一级分组（确保没有租户的分组也显示）
+  for (const g1 of gd.level1) {
+    if (!l1Map.has(g1)) l1Map.set(g1, [])
   }
 
   const nodes: GroupNode[] = []
@@ -831,6 +841,12 @@ const groupTree = computed<GroupNode[]>(() => {
       const list = l2Map.get(r.groupLevel2) || []
       list.push(r)
       l2Map.set(r.groupLevel2, list)
+    }
+
+    // 合并 groupData 中的空二级分组
+    const l2Names = gd.level2[l1] || []
+    for (const l2 of l2Names) {
+      if (!l2Map.has(l2)) l2Map.set(l2, [])
     }
 
     const children: GroupNode[] = []

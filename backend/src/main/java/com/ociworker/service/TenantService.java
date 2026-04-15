@@ -111,7 +111,7 @@ public class TenantService {
         user.setOciRegion(params.getOciRegion());
         user.setOciKeyPath(params.getOciKeyPath());
         user.setGroupLevel1(StrUtil.isBlank(params.getGroupLevel1()) ? "未分组" : params.getGroupLevel1());
-        user.setGroupLevel2(params.getGroupLevel2());
+        user.setGroupLevel2(StrUtil.isBlank(params.getGroupLevel2()) ? null : params.getGroupLevel2());
         user.setCreateTime(LocalDateTime.now());
         userMapper.insert(user);
         log.info("Added tenant config: {}", params.getUsername());
@@ -164,8 +164,8 @@ public class TenantService {
         if (StrUtil.isNotBlank(params.getOciKeyPath())) {
             user.setOciKeyPath(params.getOciKeyPath());
         }
-        user.setGroupLevel1(params.getGroupLevel1());
-        user.setGroupLevel2(params.getGroupLevel2());
+        user.setGroupLevel1(StrUtil.isBlank(params.getGroupLevel1()) ? null : params.getGroupLevel1());
+        user.setGroupLevel2(StrUtil.isBlank(params.getGroupLevel2()) ? null : params.getGroupLevel2());
         userMapper.updateById(user);
         log.info("Updated tenant config: {}", params.getUsername());
     }
