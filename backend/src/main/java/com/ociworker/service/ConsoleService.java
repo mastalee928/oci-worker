@@ -141,8 +141,7 @@ public class ConsoleService {
                                     .build()
                     ).getItems();
                     boolean allGone = check.stream().allMatch(c ->
-                            c.getLifecycleState() == InstanceConsoleConnection.LifecycleState.Deleted
-                                    || c.getLifecycleState() == InstanceConsoleConnection.LifecycleState.Faulty);
+                            c.getLifecycleState() == InstanceConsoleConnection.LifecycleState.Deleted);
                     if (allGone || check.isEmpty()) {
                         cleared = true;
                         break;
