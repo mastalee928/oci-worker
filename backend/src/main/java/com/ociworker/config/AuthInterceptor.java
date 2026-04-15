@@ -65,6 +65,8 @@ public class AuthInterceptor implements HandlerInterceptor {
         if (uri.startsWith("/api/auth/login")
                 || uri.startsWith("/api/auth/needSetup")
                 || uri.startsWith("/api/auth/setup")
+                || uri.startsWith("/api/auth/tgLogin")
+                || uri.startsWith("/api/auth/tgLoginAvailable")
                 || uri.startsWith("/ws/")
                 || uri.equals("/") || uri.startsWith("/assets/")
                 || uri.endsWith(".html") || uri.endsWith(".js")

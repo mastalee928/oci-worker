@@ -11,3 +11,15 @@ export function needSetup() {
 export function setupAccount(data: { account: string; password: string }) {
   return request.post('/auth/setup', data)
 }
+
+export function tgLoginAvailable() {
+  return request.get('/auth/tgLoginAvailable')
+}
+
+export function tgLoginSendCode() {
+  return request.post('/auth/tgLoginSendCode')
+}
+
+export function tgLogin(data: { code: string }) {
+  return request.post('/auth/tgLogin', data)
+}

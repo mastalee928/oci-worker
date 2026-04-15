@@ -8,49 +8,109 @@
         <h2>OCI Worker</h2>
         <p>Oracle Cloud 实例管理面板</p>
       </div>
-      <a-form :model="form" @finish="handleLogin" layout="vertical" class="login-form">
-        <a-form-item name="account" :rules="[{ required: true, message: '请输入账号' }]">
-          <a-input v-model:value="form.account" placeholder="管理员账号" size="large" class="login-input">
-            <template #prefix><i class="ri-user-3-line input-prefix-icon"></i></template>
-          </a-input>
-        </a-form-item>
-        <a-form-item name="password" :rules="[{ required: true, message: '请输入密码' }]">
-          <a-input-password v-model:value="form.password" placeholder="登录密码" size="large" class="login-input">
-            <template #prefix><i class="ri-lock-2-line input-prefix-icon"></i></template>
-          </a-input-password>
-        </a-form-item>
-        <a-form-item>
-          <button type="submit" :disabled="loading" class="submit-btn">
-            <span v-if="loading">登录中...</span>
-            <template v-else>
-              立即登录
-              <i class="ri-arrow-right-line"></i>
-            </template>
-          </button>
-        </a-form-item>
-      </a-form>
+      <template v-if="loginMode === 'password'">
+        <a-form :model="form" @finish="handleLogin" layout="vertical" class="login-form">
+          <a-form-item name="account" :rules="[{ required: true, message: '请输入账号' }]">
+            <a-input v-model:value="form.account" placeholder="管理员账号" size="large" class="login-input">
+              <template #prefix><i class="ri-user-3-line input-prefix-icon"></i></template>
+            </a-input>
+          </a-form-item>
+          <a-form-item name="password" :rules="[{ required: true, message: '请输入密码' }]">
+            <a-input-password v-model:value="form.password" placeholder="登录密码" size="large" class="login-input">
+              <template #prefix><i class="ri-lock-2-line input-prefix-icon"></i></template>
+            </a-input-password>
+          </a-form-item>
+          <a-form-item>
+            <button type="submit" :disabled="loading" class="submit-btn">
+              <span v-if="loading">登录中...</span>
+              <template v-else>
+                立即登录
+                <i class="ri-arrow-right-line"></i>
+              </template>
+            </button>
+          </a-form-item>
+        </a-form>
+        <div v-if="tgAvailable" class="tg-switch" @click="loginMode = 'tg'">
+          <i class="ri-telegram-line"></i> Telegram 验证码登录
+        </div>
+      </template>
+
+      <template v-else>
+        <div class="login-form">
+          <div v-if="!tgCodeSent" style="text-align: center">
+            <p class="tg-desc">将向绑定的 Telegram Bot 发送 12 位验证码</p>
+            <button class="submit-btn" :disabled="tgSendLoading" @click="handleTgSendCode">
+              <span v-if="tgSendLoading">发送中...</span>
+              <template v-else>
+                <i class="ri-send-plane-line"></i> 发送验证码
+              </template>
+            </button>
+          </div>
+          <template v-else>
+            <a-form @finish="handleTgLogin" layout="vertical">
+              <a-form-item>
+                <a-input v-model:value="tgCode" placeholder="输入 12 位验证码" size="large" class="login-input"
+                  :maxlength="12" @pressEnter="handleTgLogin">
+                  <template #prefix><i class="ri-shield-keyhole-line input-prefix-icon"></i></template>
+                </a-input>
+              </a-form-item>
+              <a-form-item>
+                <button type="submit" :disabled="tgLoginLoading || tgCode.length < 12" class="submit-btn">
+                  <span v-if="tgLoginLoading">验证中...</span>
+                  <template v-else>
+                    验证并登录
+                    <i class="ri-arrow-right-line"></i>
+                  </template>
+                </button>
+              </a-form-item>
+            </a-form>
+            <div class="tg-countdown" v-if="tgCountdown > 0">
+              {{ tgCountdown }}秒后可重新发送
+            </div>
+            <div v-else class="tg-resend" @click="handleTgSendCode">重新发送</div>
+          </template>
+          <div class="tg-switch" @click="loginMode = 'password'; tgCodeSent = false">
+            <i class="ri-lock-2-line"></i> 账号密码登录
+          </div>
+        </div>
+      </template>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, onMounted } from 'vue'
+import { reactive, ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { useUserStore } from '../stores/user'
-import { login, needSetup } from '../api/auth'
+import { login, needSetup, tgLoginAvailable, tgLoginSendCode, tgLogin } from '../api/auth'
 
 const router = useRouter()
 const userStore = useUserStore()
 const loading = ref(false)
 const form = reactive({ account: '', password: '' })
 
+const loginMode = ref<'password' | 'tg'>('password')
+const tgAvailable = ref(false)
+const tgCodeSent = ref(false)
+const tgSendLoading = ref(false)
+const tgLoginLoading = ref(false)
+const tgCode = ref('')
+const tgCountdown = ref(0)
+let countdownTimer: any = null
+
 onMounted(async () => {
   try {
     const res = await needSetup()
-    if (res.data) router.replace('/setup')
+    if (res.data) { router.replace('/setup'); return }
+  } catch {}
+  try {
+    const res = await tgLoginAvailable()
+    tgAvailable.value = res.data === true
   } catch {}
 })
+
+onUnmounted(() => { if (countdownTimer) clearInterval(countdownTimer) })
 
 async function handleLogin() {
   loading.value = true
@@ -62,6 +122,43 @@ async function handleLogin() {
   } catch {
   } finally {
     loading.value = false
+  }
+}
+
+async function handleTgSendCode() {
+  tgSendLoading.value = true
+  try {
+    await tgLoginSendCode()
+    message.success('验证码已发送到 Telegram')
+    tgCodeSent.value = true
+    tgCode.value = ''
+    startCountdown()
+  } catch {
+  } finally {
+    tgSendLoading.value = false
+  }
+}
+
+function startCountdown() {
+  tgCountdown.value = 60
+  if (countdownTimer) clearInterval(countdownTimer)
+  countdownTimer = setInterval(() => {
+    tgCountdown.value--
+    if (tgCountdown.value <= 0) clearInterval(countdownTimer)
+  }, 1000)
+}
+
+async function handleTgLogin() {
+  if (tgCode.value.length < 12) { message.warning('请输入完整的 12 位验证码'); return }
+  tgLoginLoading.value = true
+  try {
+    const res = await tgLogin({ code: tgCode.value })
+    userStore.setToken(res.data.token)
+    message.success('登录成功')
+    router.push('/')
+  } catch {
+  } finally {
+    tgLoginLoading.value = false
   }
 }
 </script>
@@ -196,6 +293,43 @@ async function handleLogin() {
 }
 .login-form :deep(.ant-form-item) {
   margin-bottom: 20px;
+}
+
+.tg-switch {
+  text-align: center;
+  margin-top: 16px;
+  color: #818cf8;
+  font-size: 13px;
+  cursor: pointer;
+  transition: 0.2s;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+.tg-switch:hover {
+  color: #a5b4fc;
+}
+.tg-desc {
+  color: #94a3b8;
+  font-size: 14px;
+  margin-bottom: 24px;
+}
+.tg-countdown {
+  text-align: center;
+  color: #64748b;
+  font-size: 12px;
+  margin-top: 8px;
+}
+.tg-resend {
+  text-align: center;
+  color: #818cf8;
+  font-size: 13px;
+  cursor: pointer;
+  margin-top: 8px;
+}
+.tg-resend:hover {
+  color: #a5b4fc;
 }
 
 @media (max-width: 480px) {

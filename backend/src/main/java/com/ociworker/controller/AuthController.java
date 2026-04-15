@@ -1,5 +1,6 @@
 package com.ociworker.controller;
 
+import cn.hutool.core.util.RandomUtil;
 import cn.hutool.crypto.digest.DigestUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.ociworker.mapper.OciKvMapper;
@@ -7,6 +8,7 @@ import com.ociworker.model.entity.OciKv;
 import com.ociworker.model.params.LoginParams;
 import com.ociworker.model.vo.ResponseData;
 import com.ociworker.service.NotificationService;
+import com.ociworker.service.VerifyCodeService;
 import com.ociworker.util.CommonUtils;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
@@ -17,6 +19,7 @@ import org.springframework.web.bind.annotation.*;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -31,6 +34,15 @@ public class AuthController {
     private OciKvMapper kvMapper;
     @Resource
     private NotificationService notificationService;
+    @Resource
+    private VerifyCodeService verifyCodeService;
+
+    private static final long TG_CODE_EXPIRE_MS = 3 * 60 * 1000;
+    private static final int TG_CODE_MAX_ATTEMPTS = 3;
+    private volatile String tgLoginCode;
+    private volatile long tgLoginCodeExpireAt;
+    private volatile long tgLoginCodeSentAt;
+    private final AtomicInteger tgLoginFailCount = new AtomicInteger(0);
 
     private static final String CODE_ACCOUNT = "web_account";
     private static final String CODE_PASSWORD = "web_password";
@@ -134,6 +146,101 @@ public class AuthController {
                 String.format("【登录通知】✅ 登录成功\n账号: %s\nIP: %s\n时间: %s",
                         params.getAccount(), ip, nowStr()));
         return ResponseData.ok(Map.of("token", token, "expireHours", 24));
+    }
+
+    @PostMapping("/tgLoginSendCode")
+    public ResponseData<?> tgLoginSendCode(HttpServletRequest request) {
+        if (!verifyCodeService.isTgConfigured()) {
+            return ResponseData.error("未绑定 Telegram Bot，无法使用此登录方式");
+        }
+        if (!isSetupDone()) {
+            return ResponseData.error(403, "请先完成初始化设置");
+        }
+
+        long now = System.currentTimeMillis();
+        if (tgLoginCodeSentAt > 0 && now - tgLoginCodeSentAt < 60_000) {
+            long wait = (60_000 - (now - tgLoginCodeSentAt)) / 1000;
+            return ResponseData.error("请求过于频繁，请 " + wait + " 秒后重试");
+        }
+
+        String code = RandomUtil.randomNumbers(12);
+        tgLoginCode = code;
+        tgLoginCodeExpireAt = now + TG_CODE_EXPIRE_MS;
+        tgLoginCodeSentAt = now;
+        tgLoginFailCount.set(0);
+
+        String ip = getClientIp(request);
+        String msg = String.format(
+                "【OCI Worker 登录验证】\n验证码：%s\n有效期：3分钟\n请求IP：%s\n时间：%s\n\n⚠️ 如非本人操作，请立即检查服务器安全！",
+                code, ip, nowStr());
+        notificationService.sendMessage(msg);
+
+        return ResponseData.ok(Map.of("message", "验证码已发送到 Telegram"));
+    }
+
+    @PostMapping("/tgLogin")
+    public ResponseData<?> tgLogin(@RequestBody Map<String, String> params, HttpServletRequest request) {
+        if (!verifyCodeService.isTgConfigured()) {
+            return ResponseData.error("未绑定 Telegram Bot");
+        }
+        if (!isSetupDone()) {
+            return ResponseData.error(403, "请先完成初始化设置");
+        }
+
+        String inputCode = params.get("code");
+        if (inputCode == null || inputCode.isBlank()) {
+            return ResponseData.error("请输入验证码");
+        }
+
+        String ip = getClientIp(request);
+
+        if (tgLoginCode == null) {
+            return ResponseData.error("请先获取验证码");
+        }
+
+        if (System.currentTimeMillis() > tgLoginCodeExpireAt) {
+            tgLoginCode = null;
+            return ResponseData.error("验证码已过期，请重新获取");
+        }
+
+        if (tgLoginFailCount.get() >= TG_CODE_MAX_ATTEMPTS) {
+            tgLoginCode = null;
+            notificationService.sendMessage(String.format(
+                    "【登录通知】🚨 TG验证码登录被锁定\n连续错误 %d 次\nIP: %s\n时间: %s",
+                    TG_CODE_MAX_ATTEMPTS, ip, nowStr()));
+            return ResponseData.error("验证码错误次数过多，已失效，请重新获取");
+        }
+
+        if (!tgLoginCode.equals(inputCode)) {
+            int fails = tgLoginFailCount.incrementAndGet();
+            int remaining = TG_CODE_MAX_ATTEMPTS - fails;
+            if (remaining <= 0) {
+                tgLoginCode = null;
+                notificationService.sendMessage(String.format(
+                        "【登录通知】🚨 TG验证码登录被锁定\n连续错误 %d 次\nIP: %s\n时间: %s",
+                        TG_CODE_MAX_ATTEMPTS, ip, nowStr()));
+                return ResponseData.error("验证码错误次数过多，已失效");
+            }
+            return ResponseData.error("验证码错误，剩余 " + remaining + " 次尝试机会");
+        }
+
+        // Success
+        tgLoginCode = null;
+        tgLoginFailCount.set(0);
+
+        String effectiveAccount = getEffectiveAccount();
+        String effectivePwdHash = getEffectivePasswordHash();
+        String token = CommonUtils.generateToken(effectiveAccount, effectivePwdHash);
+
+        notificationService.sendMessage(NotificationService.TYPE_LOGIN,
+                String.format("【登录通知】✅ TG验证码登录成功\nIP: %s\n时间: %s", ip, nowStr()));
+
+        return ResponseData.ok(Map.of("token", token, "expireHours", 24));
+    }
+
+    @GetMapping("/tgLoginAvailable")
+    public ResponseData<?> tgLoginAvailable() {
+        return ResponseData.ok(verifyCodeService.isTgConfigured());
     }
 
     @PostMapping("/changePassword")
