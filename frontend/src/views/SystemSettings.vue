@@ -2,37 +2,39 @@
   <div>
     <a-tabs v-model:active-key="activeTab">
       <a-tab-pane key="security" tab="安全设置">
-        <a-card title="修改登录密码" class="settings-card" style="position: relative; overflow: hidden">
-          <!-- 安全验证遮罩 -->
-          <div v-if="!pwdTgVerified" class="overlay-mask">
-            <div class="overlay-content">
-              <i :class="tgConfigured ? 'ri-shield-check-line' : 'ri-lock-2-line'" style="font-size: 32px; color: #818cf8; margin-bottom: 12px"></i>
-              <p style="margin-bottom: 16px; color: #94a3b8">{{ tgConfigured ? '修改密码需要 Telegram 验证码' : '请输入登录密码以继续' }}</p>
-              <a-space v-if="tgConfigured" direction="vertical" style="width: 240px">
-                <a-button block @click="sendPwdVerifyCode" :loading="pwdCodeSending" :disabled="pwdCodeCountdown > 0">
-                  {{ pwdCodeCountdown > 0 ? pwdCodeCountdown + '秒后重新发送' : '发送验证码' }}
-                </a-button>
-                <a-input v-model:value="pwdTgCode" placeholder="输入 TG 验证码" @pressEnter="verifyPwdTgCode" />
-                <a-button type="primary" block @click="verifyPwdTgCode" :disabled="!pwdTgCode">验证</a-button>
-              </a-space>
-              <a-space v-else direction="vertical" style="width: 240px">
-                <a-input-password v-model:value="pwdOverlayPwd" placeholder="输入登录密码" @pressEnter="verifyPwdOverlay" />
-                <a-button type="primary" block @click="verifyPwdOverlay" :disabled="!pwdOverlayPwd">验证</a-button>
-              </a-space>
+        <a-card title="修改登录密码" class="settings-card">
+          <div style="position: relative; overflow: hidden; min-height: 200px">
+            <!-- 安全验证遮罩 -->
+            <div v-if="!pwdTgVerified" class="overlay-mask">
+              <div class="overlay-content">
+                <i :class="tgConfigured ? 'ri-shield-check-line' : 'ri-lock-2-line'" style="font-size: 32px; color: #818cf8; margin-bottom: 12px"></i>
+                <p style="margin-bottom: 16px; color: #94a3b8">{{ tgConfigured ? '修改密码需要 Telegram 验证码' : '请输入登录密码以继续' }}</p>
+                <a-space v-if="tgConfigured" direction="vertical" style="width: 240px">
+                  <a-button block @click="sendPwdVerifyCode" :loading="pwdCodeSending" :disabled="pwdCodeCountdown > 0">
+                    {{ pwdCodeCountdown > 0 ? pwdCodeCountdown + '秒后重新发送' : '发送验证码' }}
+                  </a-button>
+                  <a-input v-model:value="pwdTgCode" placeholder="输入 TG 验证码" @pressEnter="verifyPwdTgCode" />
+                  <a-button type="primary" block @click="verifyPwdTgCode" :disabled="!pwdTgCode">验证</a-button>
+                </a-space>
+                <a-space v-else direction="vertical" style="width: 240px">
+                  <a-input-password v-model:value="pwdOverlayPwd" placeholder="输入登录密码" @pressEnter="verifyPwdOverlay" />
+                  <a-button type="primary" block @click="verifyPwdOverlay" :disabled="!pwdOverlayPwd">验证</a-button>
+                </a-space>
+              </div>
             </div>
+            <a-form :model="pwdForm" layout="vertical">
+              <a-form-item label="原密码" required>
+                <a-input-password v-model:value="pwdForm.oldPassword" placeholder="输入当前密码" />
+              </a-form-item>
+              <a-form-item label="新密码" required>
+                <a-input-password v-model:value="pwdForm.newPassword" placeholder="至少6位" />
+              </a-form-item>
+              <a-form-item label="确认新密码" required>
+                <a-input-password v-model:value="pwdForm.confirmPassword" placeholder="再次输入新密码" />
+              </a-form-item>
+              <a-button type="primary" @click="handleChangePassword" :loading="pwdLoading">修改密码</a-button>
+            </a-form>
           </div>
-          <a-form :model="pwdForm" layout="vertical">
-            <a-form-item label="原密码" required>
-              <a-input-password v-model:value="pwdForm.oldPassword" placeholder="输入当前密码" />
-            </a-form-item>
-            <a-form-item label="新密码" required>
-              <a-input-password v-model:value="pwdForm.newPassword" placeholder="至少6位" />
-            </a-form-item>
-            <a-form-item label="确认新密码" required>
-              <a-input-password v-model:value="pwdForm.confirmPassword" placeholder="再次输入新密码" />
-            </a-form-item>
-            <a-button type="primary" @click="handleChangePassword" :loading="pwdLoading">修改密码</a-button>
-          </a-form>
         </a-card>
 
         <a-card title="登录安全说明" class="settings-card" style="margin-top: 16px">
@@ -48,19 +50,20 @@
       </a-tab-pane>
 
       <a-tab-pane key="notify" tab="消息通知">
-        <a-card title="Telegram 通知" class="settings-card-wide" style="position: relative; overflow: hidden">
-          <!-- 密码验证遮罩 -->
-          <div v-if="!notifyPwdVerified" class="overlay-mask">
-            <div class="overlay-content">
-              <i class="ri-lock-2-line" style="font-size: 32px; color: #818cf8; margin-bottom: 12px"></i>
-              <p style="margin-bottom: 16px; color: #94a3b8">请输入登录密码进行配置</p>
-              <a-space direction="vertical" style="width: 240px">
-                <a-input-password v-model:value="notifyPwd" placeholder="输入登录密码" @pressEnter="verifyNotifyPwd" />
-                <a-button type="primary" block @click="verifyNotifyPwd" :disabled="!notifyPwd">验证</a-button>
-              </a-space>
+        <a-card title="Telegram 通知" class="settings-card-wide">
+          <div style="position: relative; overflow: hidden; min-height: 200px">
+            <!-- 密码验证遮罩 -->
+            <div v-if="!notifyPwdVerified" class="overlay-mask">
+              <div class="overlay-content">
+                <i class="ri-lock-2-line" style="font-size: 32px; color: #818cf8; margin-bottom: 12px"></i>
+                <p style="margin-bottom: 16px; color: #94a3b8">请输入登录密码进行配置</p>
+                <a-space direction="vertical" style="width: 240px">
+                  <a-input-password v-model:value="notifyPwd" placeholder="输入登录密码" @pressEnter="verifyNotifyPwd" />
+                  <a-button type="primary" block @click="verifyNotifyPwd" :disabled="!notifyPwd">验证</a-button>
+                </a-space>
+              </div>
             </div>
-          </div>
-          <a-form layout="vertical">
+            <a-form layout="vertical">
             <a-form-item label="Bot Token">
               <a-input v-model:value="tgConfig.botToken" placeholder="输入 Telegram Bot Token" />
             </a-form-item>
@@ -74,7 +77,8 @@
               <a-button type="primary" @click="saveTgConfig" :loading="saveLoading">保存</a-button>
               <a-button @click="testTgNotify" :loading="testLoading">测试发送</a-button>
             </a-space>
-          </a-form>
+            </a-form>
+          </div>
         </a-card>
 
         <a-card title="通知说明" class="settings-card-wide" style="margin-top: 16px">
@@ -287,9 +291,7 @@ async function testTgNotify() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(2, 6, 23, 0.92);
-  backdrop-filter: blur(20px) saturate(0.5);
-  -webkit-backdrop-filter: blur(20px) saturate(0.5);
+  background: rgb(15, 23, 42);
   border-radius: inherit;
 }
 
