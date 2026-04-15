@@ -17,4 +17,6 @@ public class TenantParams {
     @NotBlank(message = "Region 不能为空")
     private String ociRegion;
     private String ociKeyPath;
+    private String groupLevel1;
+    private String groupLevel2;
 }

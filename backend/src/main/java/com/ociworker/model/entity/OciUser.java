@@ -20,5 +20,7 @@ public class OciUser {
     private String ociRegion;
     private String ociKeyPath;
     private String planType;
+    private String groupLevel1;
+    private String groupLevel2;
     private LocalDateTime createTime;
 }

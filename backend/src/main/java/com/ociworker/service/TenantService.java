@@ -61,6 +61,8 @@ public class TenantService {
             map.put("ociRegion", u.getOciRegion());
             map.put("ociKeyPath", u.getOciKeyPath());
             map.put("planType", u.getPlanType());
+            map.put("groupLevel1", u.getGroupLevel1());
+            map.put("groupLevel2", u.getGroupLevel2());
             map.put("createTime", u.getCreateTime());
 
             long running = taskMapper.selectCount(
@@ -100,6 +102,8 @@ public class TenantService {
         user.setOciFingerprint(params.getOciFingerprint());
         user.setOciRegion(params.getOciRegion());
         user.setOciKeyPath(params.getOciKeyPath());
+        user.setGroupLevel1(params.getGroupLevel1());
+        user.setGroupLevel2(params.getGroupLevel2());
         user.setCreateTime(LocalDateTime.now());
         userMapper.insert(user);
         log.info("Added tenant config: {}", params.getUsername());
@@ -152,6 +156,8 @@ public class TenantService {
         if (StrUtil.isNotBlank(params.getOciKeyPath())) {
             user.setOciKeyPath(params.getOciKeyPath());
         }
+        user.setGroupLevel1(params.getGroupLevel1());
+        user.setGroupLevel2(params.getGroupLevel2());
         userMapper.updateById(user);
         log.info("Updated tenant config: {}", params.getUsername());
     }
@@ -304,6 +310,28 @@ public class TenantService {
             throw new OciException("获取租户详情失败: " + e.getMessage());
         }
 
+        return result;
+    }
+
+    public Map<String, Object> getDistinctGroups() {
+        List<OciUser> all = userMapper.selectList(null);
+        Set<String> level1 = new TreeSet<>();
+        Map<String, Set<String>> level2Map = new TreeMap<>();
+        for (OciUser u : all) {
+            String g1 = u.getGroupLevel1();
+            if (StrUtil.isNotBlank(g1)) {
+                level1.add(g1);
+                String g2 = u.getGroupLevel2();
+                if (StrUtil.isNotBlank(g2)) {
+                    level2Map.computeIfAbsent(g1, k -> new TreeSet<>()).add(g2);
+                }
+            }
+        }
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("level1", new ArrayList<>(level1));
+        Map<String, List<String>> l2 = new LinkedHashMap<>();
+        level2Map.forEach((k, v) -> l2.put(k, new ArrayList<>(v)));
+        result.put("level2", l2);
         return result;
     }
 

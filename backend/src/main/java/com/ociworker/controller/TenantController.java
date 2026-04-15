@@ -95,4 +95,9 @@ public class TenantController {
     public ResponseData<?> quotas(@RequestBody java.util.Map<String, String> params) {
         return ResponseData.ok(domainManagementService.getServiceQuotas(params.get("id")));
     }
+
+    @GetMapping("/groups")
+    public ResponseData<?> groups() {
+        return ResponseData.ok(tenantService.getDistinctGroups());
+    }
 }

@@ -53,3 +53,7 @@ export function getAuditLogs(data: { id: string }) {
 export function getServiceQuotas(data: { id: string }) {
   return request.post('/oci/user/quotas', data)
 }
+
+export function getTenantGroups() {
+  return request.get('/oci/user/groups')
+}

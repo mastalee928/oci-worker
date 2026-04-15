@@ -1,10 +1,20 @@
 <template>
   <div>
     <div class="table-toolbar">
-      <a-space>
-        <a-input-search v-model:value="searchText" placeholder="搜索租户" allow-clear @search="loadData" style="width: 250px" />
+      <a-space wrap>
+        <a-input-search v-model:value="searchText" placeholder="搜索租户" allow-clear @search="loadData" style="width: 200px" />
+        <a-select v-model:value="groupFilterL1" placeholder="一级分组" allow-clear style="width: 140px"
+          @change="groupFilterL2 = ''">
+          <a-select-option v-for="g in groupData.level1" :key="g" :value="g">{{ g }}</a-select-option>
+        </a-select>
+        <a-select v-if="groupFilterL1" v-model:value="groupFilterL2" placeholder="二级分组" allow-clear style="width: 140px">
+          <a-select-option v-for="g in filterLevel2Options" :key="g" :value="g">{{ g }}</a-select-option>
+        </a-select>
         <a-button type="primary" @click="showAddModal">
           <template #icon><PlusOutlined /></template>新增配置
+        </a-button>
+        <a-button @click="groupMgmtVisible = true">
+          <template #icon><AppstoreOutlined /></template>分组管理
         </a-button>
         <a-button danger :disabled="!selectedRowKeys.length" @click="handleBatchDelete">
           批量删除
@@ -12,45 +22,182 @@
       </a-space>
     </div>
 
-    <a-table
-      :columns="columns"
-      :data-source="tableData"
-      :loading="loading"
-      :row-selection="{ selectedRowKeys, onChange: onSelectChange }"
-      :pagination="pagination"
-      row-key="id"
-      @change="handleTableChange"
-      size="middle"
-    >
-      <template #bodyCell="{ column, record }">
-        <template v-if="column.key === 'tenantName'">
-          <span v-if="record.tenantName">{{ record.tenantName }}</span>
-          <span v-else style="color: var(--text-sub); font-size: 12px">获取中...</span>
+    <!-- 分组视图：当不做筛选时按分组折叠展示 -->
+    <template v-if="!groupFilterL1 && !searchText">
+      <a-spin :spinning="loading">
+        <div v-for="group in groupTree" :key="group.key" class="group-section">
+          <div class="group-header" @click="toggleGroup(group.key)">
+            <span class="group-expand-icon">
+              <DownOutlined v-if="expandedGroups.has(group.key)" />
+              <RightOutlined v-else />
+            </span>
+            <FolderOutlined style="margin-right: 6px; color: var(--primary)" />
+            <span class="group-title">{{ group.label }}</span>
+            <a-badge :count="group.tenants.length + (group.children?.reduce((s: number, c: GroupNode) => s + c.tenants.length, 0) || 0)"
+              :number-style="{ backgroundColor: 'var(--primary)' }" style="margin-left: 8px" />
+          </div>
+          <div v-show="expandedGroups.has(group.key)" class="group-body">
+            <!-- 直接属于一级分组的租户 -->
+            <a-table v-if="group.tenants.length" :columns="columns" :data-source="group.tenants" :pagination="false"
+              row-key="id" size="small" style="margin-bottom: 8px">
+              <template #bodyCell="{ column, record }">
+                <template v-if="column.key === 'tenantName'">
+                  <span v-if="record.tenantName">{{ record.tenantName }}</span>
+                  <span v-else style="color: var(--text-sub); font-size: 12px">获取中...</span>
+                </template>
+                <template v-if="column.key === 'ociRegion'">
+                  <a-tag color="blue">{{ getRegionLabel(record.ociRegion) }}</a-tag>
+                  <div style="font-size: 11px; color: var(--text-sub); margin-top: 2px">{{ record.ociRegion }}</div>
+                </template>
+                <template v-if="column.key === 'taskStatus'">
+                  <a-badge v-if="record.hasRunningTask" status="processing" text="执行开机任务中" />
+                  <span v-else style="color: #999">无开机任务</span>
+                </template>
+                <template v-if="column.key === 'planType'">
+                  <a-tag :color="record.planType === 'PAYG' ? 'green' : record.planType === 'FREE' ? 'orange' : 'default'">{{ record.planType || '获取中...' }}</a-tag>
+                </template>
+                <template v-if="column.key === 'action'">
+                  <a-space>
+                    <a-button type="link" size="small" @click="openTenantInfo(record)">详情</a-button>
+                    <a-button type="link" size="small" @click="showEditModal(record)">编辑</a-button>
+                    <a-button type="link" size="small" @click="openDomainMgmt(record)">管理</a-button>
+                    <a-button type="link" size="small" @click="goUserManagement(record)">用户</a-button>
+                    <a-popconfirm title="确定删除?" @confirm="handleDelete(record.id)">
+                      <a-button type="link" danger size="small">删除</a-button>
+                    </a-popconfirm>
+                  </a-space>
+                </template>
+              </template>
+            </a-table>
+
+            <!-- 二级分组 -->
+            <template v-if="group.children">
+              <div v-for="sub in group.children" :key="sub.key" class="subgroup-section">
+                <div class="subgroup-header" @click="toggleGroup(sub.key)">
+                  <span class="group-expand-icon">
+                    <DownOutlined v-if="expandedGroups.has(sub.key)" />
+                    <RightOutlined v-else />
+                  </span>
+                  <FolderOutlined style="margin-right: 4px; font-size: 12px; color: var(--text-sub)" />
+                  <span class="subgroup-title">{{ sub.label }}</span>
+                  <a-badge :count="sub.tenants.length" :number-style="{ backgroundColor: '#8c8c8c' }" style="margin-left: 6px" />
+                </div>
+                <div v-show="expandedGroups.has(sub.key)" style="padding-left: 16px">
+                  <a-table :columns="columns" :data-source="sub.tenants" :pagination="false"
+                    row-key="id" size="small">
+                    <template #bodyCell="{ column, record }">
+                      <template v-if="column.key === 'tenantName'">
+                        <span v-if="record.tenantName">{{ record.tenantName }}</span>
+                        <span v-else style="color: var(--text-sub); font-size: 12px">获取中...</span>
+                      </template>
+                      <template v-if="column.key === 'ociRegion'">
+                        <a-tag color="blue">{{ getRegionLabel(record.ociRegion) }}</a-tag>
+                        <div style="font-size: 11px; color: var(--text-sub); margin-top: 2px">{{ record.ociRegion }}</div>
+                      </template>
+                      <template v-if="column.key === 'taskStatus'">
+                        <a-badge v-if="record.hasRunningTask" status="processing" text="执行开机任务中" />
+                        <span v-else style="color: #999">无开机任务</span>
+                      </template>
+                      <template v-if="column.key === 'planType'">
+                        <a-tag :color="record.planType === 'PAYG' ? 'green' : record.planType === 'FREE' ? 'orange' : 'default'">{{ record.planType || '获取中...' }}</a-tag>
+                      </template>
+                      <template v-if="column.key === 'action'">
+                        <a-space>
+                          <a-button type="link" size="small" @click="openTenantInfo(record)">详情</a-button>
+                          <a-button type="link" size="small" @click="showEditModal(record)">编辑</a-button>
+                          <a-button type="link" size="small" @click="openDomainMgmt(record)">管理</a-button>
+                          <a-button type="link" size="small" @click="goUserManagement(record)">用户</a-button>
+                          <a-popconfirm title="确定删除?" @confirm="handleDelete(record.id)">
+                            <a-button type="link" danger size="small">删除</a-button>
+                          </a-popconfirm>
+                        </a-space>
+                      </template>
+                    </template>
+                  </a-table>
+                </div>
+              </div>
+            </template>
+          </div>
+        </div>
+        <div v-if="!groupTree.length && !loading" style="text-align: center; padding: 40px; color: var(--text-sub)">
+          暂无租户配置
+        </div>
+      </a-spin>
+    </template>
+
+    <!-- 筛选/搜索模式：平铺表格 -->
+    <template v-else>
+      <a-table
+        :columns="columns"
+        :data-source="groupedTableData"
+        :loading="loading"
+        :row-selection="{ selectedRowKeys, onChange: onSelectChange }"
+        :pagination="pagination"
+        row-key="id"
+        @change="handleTableChange"
+        size="middle"
+      >
+        <template #bodyCell="{ column, record }">
+          <template v-if="column.key === 'tenantName'">
+            <span v-if="record.tenantName">{{ record.tenantName }}</span>
+            <span v-else style="color: var(--text-sub); font-size: 12px">获取中...</span>
+          </template>
+          <template v-if="column.key === 'ociRegion'">
+            <a-tag color="blue">{{ getRegionLabel(record.ociRegion) }}</a-tag>
+            <div style="font-size: 11px; color: var(--text-sub); margin-top: 2px">{{ record.ociRegion }}</div>
+          </template>
+          <template v-if="column.key === 'taskStatus'">
+            <a-badge v-if="record.hasRunningTask" status="processing" text="执行开机任务中" />
+            <span v-else style="color: #999">无开机任务</span>
+          </template>
+          <template v-if="column.key === 'planType'">
+            <a-tag :color="record.planType === 'PAYG' ? 'green' : record.planType === 'FREE' ? 'orange' : 'default'">{{ record.planType || '获取中...' }}</a-tag>
+          </template>
+          <template v-if="column.key === 'action'">
+            <a-space>
+              <a-button type="link" size="small" @click="openTenantInfo(record)">详情</a-button>
+              <a-button type="link" size="small" @click="showEditModal(record)">编辑</a-button>
+              <a-button type="link" size="small" @click="openDomainMgmt(record)">管理</a-button>
+              <a-button type="link" size="small" @click="goUserManagement(record)">用户</a-button>
+              <a-popconfirm title="确定删除?" @confirm="handleDelete(record.id)">
+                <a-button type="link" danger size="small">删除</a-button>
+              </a-popconfirm>
+            </a-space>
+          </template>
         </template>
-        <template v-if="column.key === 'ociRegion'">
-          <a-tag color="blue">{{ getRegionLabel(record.ociRegion) }}</a-tag>
-          <div style="font-size: 11px; color: var(--text-sub); margin-top: 2px">{{ record.ociRegion }}</div>
-        </template>
-        <template v-if="column.key === 'taskStatus'">
-          <a-badge v-if="record.hasRunningTask" status="processing" text="执行开机任务中" />
-          <span v-else style="color: #999">无开机任务</span>
-        </template>
-        <template v-if="column.key === 'planType'">
-          <a-tag :color="record.planType === 'PAYG' ? 'green' : record.planType === 'FREE' ? 'orange' : 'default'">{{ record.planType || '获取中...' }}</a-tag>
-        </template>
-        <template v-if="column.key === 'action'">
-          <a-space>
-            <a-button type="link" size="small" @click="openTenantInfo(record)">详情</a-button>
-            <a-button type="link" size="small" @click="showEditModal(record)">编辑</a-button>
-            <a-button type="link" size="small" @click="openDomainMgmt(record)">管理</a-button>
-            <a-button type="link" size="small" @click="goUserManagement(record)">用户</a-button>
-            <a-popconfirm title="确定删除?" @confirm="handleDelete(record.id)">
-              <a-button type="link" danger size="small">删除</a-button>
-            </a-popconfirm>
-          </a-space>
-        </template>
-      </template>
-    </a-table>
+      </a-table>
+    </template>
+
+    <!-- 分组管理弹窗 -->
+    <a-modal v-model:open="groupMgmtVisible" title="分组管理" :width="isMobile ? '100%' : 520" :footer="null" centered>
+      <a-divider orientation="left" style="font-size: 13px">一级分组</a-divider>
+      <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px">
+        <a-tag v-for="g in groupData.level1" :key="g" closable @close="removeGroupL1(g)" color="blue" style="font-size: 13px; padding: 4px 10px">
+          {{ g }}
+        </a-tag>
+      </div>
+      <a-space style="margin-bottom: 16px">
+        <a-input v-model:value="newGroupL1" placeholder="新一级分组名称" style="width: 200px" @press-enter="addGroupL1" />
+        <a-button type="primary" size="small" @click="addGroupL1">添加</a-button>
+      </a-space>
+
+      <a-divider orientation="left" style="font-size: 13px">二级分组</a-divider>
+      <div v-for="(subs, parent) in groupData.level2" :key="parent" style="margin-bottom: 8px">
+        <div style="font-weight: 500; margin-bottom: 4px; color: var(--primary)">{{ parent }}</div>
+        <div style="display: flex; flex-wrap: wrap; gap: 6px; margin-left: 12px">
+          <a-tag v-for="s in subs" :key="s" closable @close="removeGroupL2(parent as string, s)" style="font-size: 13px; padding: 4px 10px">
+            {{ s }}
+          </a-tag>
+        </div>
+      </div>
+      <a-space style="margin-top: 8px">
+        <a-select v-model:value="newGroupL2Parent" placeholder="所属一级分组" style="width: 140px">
+          <a-select-option v-for="g in groupData.level1" :key="g" :value="g">{{ g }}</a-select-option>
+        </a-select>
+        <a-input v-model:value="newGroupL2" placeholder="新二级分组名称" style="width: 160px" @press-enter="addGroupL2" />
+        <a-button type="primary" size="small" @click="addGroupL2">添加</a-button>
+      </a-space>
+    </a-modal>
 
     <!-- 新增/编辑弹窗（内嵌快速导入） -->
     <a-modal v-model:open="modalVisible" :title="editingId ? '编辑配置' : '新增配置'" :width="isMobile ? '100%' : 680" @ok="handleSubmit" :confirm-loading="submitLoading" :mask-closable="false">
@@ -112,6 +259,17 @@ region=ap-tokyo-1"
           <span v-if="formState.ociKeyPath && !fileList.length" style="color: #888; font-size: 12px; margin-top: 4px; display: block">
             已有密钥：{{ formState.ociKeyPath }}
           </span>
+        </a-form-item>
+        <a-form-item label="一级分组">
+          <a-select v-model:value="formState.groupLevel1" placeholder="选择或留空" allow-clear show-search
+            @change="formState.groupLevel2 = ''">
+            <a-select-option v-for="g in groupData.level1" :key="g" :value="g">{{ g }}</a-select-option>
+          </a-select>
+        </a-form-item>
+        <a-form-item v-if="formState.groupLevel1" label="二级分组">
+          <a-select v-model:value="formState.groupLevel2" placeholder="选择或留空" allow-clear show-search>
+            <a-select-option v-for="g in level2Options" :key="g" :value="g">{{ g }}</a-select-option>
+          </a-select>
         </a-form-item>
       </a-form>
     </a-modal>
@@ -254,7 +412,8 @@ import { useRouter } from 'vue-router'
 import { PlusOutlined, ThunderboltOutlined, InboxOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
 import type { UploadFile } from 'ant-design-vue'
-import { getTenantList, addTenant, updateTenant, removeTenant, uploadKey, getTenantFullInfo, getDomainSettings, updateMfa, updatePasswordExpiry, getAuditLogs, getServiceQuotas } from '../api/tenant'
+import { getTenantList, addTenant, updateTenant, removeTenant, uploadKey, getTenantFullInfo, getDomainSettings, updateMfa, updatePasswordExpiry, getAuditLogs, getServiceQuotas, getTenantGroups } from '../api/tenant'
+import { FolderOutlined, RightOutlined, DownOutlined, EditOutlined, DeleteOutlined, AppstoreOutlined } from '@ant-design/icons-vue'
 
 const router = useRouter()
 
@@ -332,7 +491,16 @@ const fileList = ref<UploadFile[]>([])
 const formState = reactive({
   username: '', ociTenantId: '', ociUserId: '',
   ociFingerprint: '', ociRegion: '', ociKeyPath: '',
+  groupLevel1: '' as string, groupLevel2: '' as string,
 })
+
+const groupData = ref<{ level1: string[]; level2: Record<string, string[]> }>({ level1: [], level2: {} })
+const groupFilterL1 = ref<string>('')
+const groupFilterL2 = ref<string>('')
+const groupMgmtVisible = ref(false)
+const newGroupL1 = ref('')
+const newGroupL2Parent = ref('')
+const newGroupL2 = ref('')
 
 let pendingFile: File | null = null
 const isMobile = ref(window.innerWidth < 768)
@@ -375,8 +543,8 @@ async function loadData() {
   loading.value = true
   try {
     const res = await getTenantList({
-      current: pagination.current,
-      size: pagination.pageSize,
+      current: 1,
+      size: 9999,
       keyword: searchText.value,
     })
     tableData.value = res.data.records || []
@@ -386,6 +554,7 @@ async function loadData() {
   } finally {
     loading.value = false
   }
+  loadGroups()
 }
 
 function handleTableChange(pag: any) {
@@ -399,7 +568,7 @@ function onSelectChange(keys: string[]) {
 }
 
 function resetForm() {
-  Object.assign(formState, { username: '', ociTenantId: '', ociUserId: '', ociFingerprint: '', ociRegion: '', ociKeyPath: '' })
+  Object.assign(formState, { username: '', ociTenantId: '', ociUserId: '', ociFingerprint: '', ociRegion: '', ociKeyPath: '', groupLevel1: '', groupLevel2: '' })
   pendingFile = null
   fileList.value = []
   importText.value = ''
@@ -420,6 +589,8 @@ function showEditModal(record: any) {
     ociFingerprint: record.ociFingerprint,
     ociRegion: record.ociRegion,
     ociKeyPath: record.ociKeyPath,
+    groupLevel1: record.groupLevel1 || '',
+    groupLevel2: record.groupLevel2 || '',
   })
   pendingFile = null
   fileList.value = []
@@ -524,6 +695,96 @@ const filteredQuotas = computed(() => {
   )
 })
 
+async function loadGroups() {
+  try {
+    const res = await getTenantGroups()
+    groupData.value = res.data || { level1: [], level2: {} }
+  } catch {}
+}
+
+const level2Options = computed(() => {
+  if (!formState.groupLevel1) return []
+  return groupData.value.level2[formState.groupLevel1] || []
+})
+
+const filterLevel2Options = computed(() => {
+  if (!groupFilterL1.value) return []
+  return groupData.value.level2[groupFilterL1.value] || []
+})
+
+const groupedTableData = computed(() => {
+  let data = tableData.value
+  if (groupFilterL1.value) {
+    data = data.filter((r: any) => r.groupLevel1 === groupFilterL1.value)
+    if (groupFilterL2.value) {
+      data = data.filter((r: any) => r.groupLevel2 === groupFilterL2.value)
+    }
+  }
+  return data
+})
+
+interface GroupNode {
+  label: string
+  key: string
+  children?: GroupNode[]
+  tenants: any[]
+}
+
+const groupTree = computed<GroupNode[]>(() => {
+  const all = tableData.value
+  const ungrouped = all.filter((r: any) => !r.groupLevel1)
+  const grouped = all.filter((r: any) => !!r.groupLevel1)
+
+  const l1Map = new Map<string, any[]>()
+  for (const r of grouped) {
+    const list = l1Map.get(r.groupLevel1) || []
+    list.push(r)
+    l1Map.set(r.groupLevel1, list)
+  }
+
+  const nodes: GroupNode[] = []
+
+  for (const [l1, items] of l1Map) {
+    const withL2 = items.filter(r => !!r.groupLevel2)
+    const withoutL2 = items.filter(r => !r.groupLevel2)
+
+    const l2Map = new Map<string, any[]>()
+    for (const r of withL2) {
+      const list = l2Map.get(r.groupLevel2) || []
+      list.push(r)
+      l2Map.set(r.groupLevel2, list)
+    }
+
+    const children: GroupNode[] = []
+    for (const [l2, l2Items] of l2Map) {
+      children.push({ label: l2, key: `${l1}/${l2}`, tenants: l2Items })
+    }
+
+    nodes.push({
+      label: l1,
+      key: l1,
+      children: children.length > 0 ? children : undefined,
+      tenants: withoutL2,
+    })
+  }
+
+  if (ungrouped.length > 0) {
+    nodes.push({ label: '未分组', key: '__ungrouped__', tenants: ungrouped })
+  }
+
+  return nodes
+})
+
+const expandedGroups = ref<Set<string>>(new Set())
+
+function toggleGroup(key: string) {
+  if (expandedGroups.value.has(key)) {
+    expandedGroups.value.delete(key)
+  } else {
+    expandedGroups.value.add(key)
+  }
+}
+
 async function openTenantInfo(record: any) {
   tenantInfoData.value = { configName: record.username }
   tenantInfoVisible.value = true
@@ -535,6 +796,49 @@ async function openTenantInfo(record: any) {
     message.error(e?.message || '获取租户详情失败')
   } finally {
     tenantInfoLoading.value = false
+  }
+}
+
+function addGroupL1() {
+  const name = newGroupL1.value.trim()
+  if (!name) return
+  if (groupData.value.level1.includes(name)) {
+    message.warning('该分组已存在')
+    return
+  }
+  groupData.value.level1.push(name)
+  newGroupL1.value = ''
+}
+
+function removeGroupL1(name: string) {
+  groupData.value.level1 = groupData.value.level1.filter(g => g !== name)
+  delete groupData.value.level2[name]
+}
+
+function addGroupL2() {
+  if (!newGroupL2Parent.value) {
+    message.warning('请选择所属一级分组')
+    return
+  }
+  const name = newGroupL2.value.trim()
+  if (!name) return
+  if (!groupData.value.level2[newGroupL2Parent.value]) {
+    groupData.value.level2[newGroupL2Parent.value] = []
+  }
+  if (groupData.value.level2[newGroupL2Parent.value].includes(name)) {
+    message.warning('该分组已存在')
+    return
+  }
+  groupData.value.level2[newGroupL2Parent.value].push(name)
+  newGroupL2.value = ''
+}
+
+function removeGroupL2(parent: string, name: string) {
+  if (groupData.value.level2[parent]) {
+    groupData.value.level2[parent] = groupData.value.level2[parent].filter(g => g !== name)
+    if (!groupData.value.level2[parent].length) {
+      delete groupData.value.level2[parent]
+    }
   }
 }
 
@@ -619,8 +923,12 @@ function handleBatchDelete() {
   })
 }
 
-onMounted(() => {
-  loadData()
+onMounted(async () => {
+  await loadData()
+  groupTree.value.forEach(g => {
+    expandedGroups.value.add(g.key)
+    g.children?.forEach(c => expandedGroups.value.add(c.key))
+  })
   window.addEventListener('resize', checkMobile)
 })
 onUnmounted(() => window.removeEventListener('resize', checkMobile))
@@ -645,6 +953,63 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   -webkit-backdrop-filter: blur(12px);
   transition: var(--trans);
 }
+.group-section {
+  margin-bottom: 4px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 8px);
+  overflow: hidden;
+  background: var(--bg-card, #fff);
+  transition: var(--trans);
+}
+.group-header {
+  display: flex;
+  align-items: center;
+  padding: 10px 16px;
+  cursor: pointer;
+  user-select: none;
+  background: var(--bg-card, #fafafa);
+  border-bottom: 1px solid var(--border);
+  transition: background 0.2s;
+}
+.group-header:hover {
+  background: var(--bg-hover, #f0f5ff);
+}
+.group-expand-icon {
+  width: 16px;
+  margin-right: 8px;
+  font-size: 12px;
+  color: var(--text-sub);
+}
+.group-title {
+  font-weight: 600;
+  font-size: 14px;
+}
+.group-body {
+  padding: 8px 12px;
+}
+.subgroup-section {
+  margin-bottom: 4px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.subgroup-header {
+  display: flex;
+  align-items: center;
+  padding: 6px 12px;
+  cursor: pointer;
+  user-select: none;
+  background: var(--bg-card, #fafbfc);
+  border-bottom: 1px solid var(--border);
+  font-size: 13px;
+}
+.subgroup-header:hover {
+  background: var(--bg-hover, #f0f5ff);
+}
+.subgroup-title {
+  font-weight: 500;
+  color: var(--text-sub);
+}
 @media (max-width: 768px) {
   .table-toolbar {
     flex-direction: column;
@@ -657,5 +1022,7 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   .table-toolbar :deep(.ant-input-search) {
     width: 100% !important;
   }
+  .group-header { padding: 8px 10px; }
+  .group-body { padding: 4px 4px; }
 }
 </style>
