@@ -306,6 +306,9 @@
                       <template v-if="ipd.publicIpAddress">
                         公网IP<a-tag :color="ipd.publicIpLifetime === 'RESERVED' ? 'green' : 'orange'" style="margin: 0 6px">{{ ipd.publicIpLifetime === 'RESERVED' ? '预留' : '临时' }}</a-tag><a-typography-text copyable>{{ ipd.publicIpAddress }}</a-typography-text>
                         <span style="color: #999; margin-left: 6px">( {{ ipd.privateIpAddress }} )</span>
+                        <a-popconfirm title="确定删除该公网IP？" @confirm="handleDeletePublicIp(ipd)">
+                          <a-button type="link" danger size="small">删除</a-button>
+                        </a-popconfirm>
                       </template>
                       <template v-else>
                         内网IP: <a-typography-text copyable>{{ ipd.privateIpAddress }}</a-typography-text>
@@ -331,9 +334,15 @@
                         <template v-if="ipd.publicIpAddress">
                           公网IP<a-tag :color="ipd.publicIpLifetime === 'RESERVED' ? 'green' : 'orange'" style="margin: 0 6px">{{ ipd.publicIpLifetime === 'RESERVED' ? '预留' : '临时' }}</a-tag><a-typography-text copyable>{{ ipd.publicIpAddress }}</a-typography-text>
                           <span style="color: #999; margin-left: 6px">( {{ ipd.privateIpAddress }} )</span>
+                          <a-popconfirm title="将同时删除公网IP和内网IP，确定？" @confirm="handleDeleteSecondaryIp(ipd)">
+                            <a-button type="link" danger size="small">删除</a-button>
+                          </a-popconfirm>
                         </template>
                         <template v-else>
                           内网IP: <a-typography-text copyable>{{ ipd.privateIpAddress }}</a-typography-text>
+                          <a-popconfirm title="确定删除该辅助IP？" @confirm="handleDeleteSecondaryIp(ipd)">
+                            <a-button type="link" danger size="small">删除</a-button>
+                          </a-popconfirm>
                         </template>
                       </div>
                     </template>
@@ -635,7 +644,7 @@ import {
   createReservedIp, listReservedIps, deleteReservedIp,
   assignReservedIp, unassignReservedIp,
   updateInstance,
-  assignEphemeralIp,
+  assignEphemeralIp, deletePublicIp, deleteSecondaryIp,
   createConsoleConnection, deleteConsoleConnection,
 } from '../api/instance'
 import { getTenantList } from '../api/tenant'
@@ -1106,6 +1115,28 @@ async function handleAssignEphemeralIp(ipd: any) {
     message.error(e?.message || '分配公网IP失败')
   } finally {
     ephemeralIpLoading.value = false
+  }
+}
+
+async function handleDeletePublicIp(ipd: any) {
+  if (!currentTenant.value) return
+  try {
+    await deletePublicIp({ id: currentTenant.value.id, privateIpId: ipd.privateIpId })
+    message.success('公网IP已删除')
+    loadNetworkDetail()
+  } catch (e: any) {
+    message.error(e?.message || '删除公网IP失败')
+  }
+}
+
+async function handleDeleteSecondaryIp(ipd: any) {
+  if (!currentTenant.value) return
+  try {
+    await deleteSecondaryIp({ id: currentTenant.value.id, privateIpId: ipd.privateIpId })
+    message.success('辅助IP已删除')
+    loadNetworkDetail()
+  } catch (e: any) {
+    message.error(e?.message || '删除辅助IP失败')
   }
 }
 

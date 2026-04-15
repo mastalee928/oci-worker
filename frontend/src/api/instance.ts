@@ -84,6 +84,14 @@ export function assignEphemeralIp(data: { id: string; instanceId: string; privat
   return request.post('/oci/network/assignEphemeralIp', data)
 }
 
+export function deletePublicIp(data: { id: string; privateIpId: string }) {
+  return request.post('/oci/network/deletePublicIp', data)
+}
+
+export function deleteSecondaryIp(data: { id: string; privateIpId: string }) {
+  return request.post('/oci/network/deleteSecondaryIp', data)
+}
+
 export function createConsoleConnection(data: { id: string; instanceId: string }) {
   return request.post('/oci/instance/createConsole', data)
 }

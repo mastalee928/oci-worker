@@ -55,4 +55,16 @@ public class NetworkController {
         return ResponseData.ok(networkService.assignEphemeralPublicIp(
                 params.get("id"), params.get("instanceId"), params.get("privateIpId")));
     }
+
+    @PostMapping("/deletePublicIp")
+    public ResponseData<?> deletePublicIp(@RequestBody Map<String, String> params) {
+        networkService.deletePublicIpByPrivateIpId(params.get("id"), params.get("privateIpId"));
+        return ResponseData.ok();
+    }
+
+    @PostMapping("/deleteSecondaryIp")
+    public ResponseData<?> deleteSecondaryIp(@RequestBody Map<String, String> params) {
+        networkService.deleteSecondaryIp(params.get("id"), params.get("privateIpId"));
+        return ResponseData.ok();
+    }
 }

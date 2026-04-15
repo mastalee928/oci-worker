@@ -281,6 +281,60 @@ public class NetworkService {
         }
     }
 
+    public void deletePublicIpByPrivateIpId(String userId, String privateIpId) {
+        OciUser ociUser = userMapper.selectById(userId);
+        if (ociUser == null) throw new OciException("租户配置不存在");
+
+        try (OciClientService client = new OciClientService(buildDTO(ociUser))) {
+            PublicIp pubIp = client.getVirtualNetworkClient().getPublicIpByPrivateIpId(
+                    GetPublicIpByPrivateIpIdRequest.builder()
+                            .getPublicIpByPrivateIpIdDetails(
+                                    GetPublicIpByPrivateIpIdDetails.builder()
+                                            .privateIpId(privateIpId).build())
+                            .build()
+            ).getPublicIp();
+            if (pubIp != null) {
+                client.getVirtualNetworkClient().deletePublicIp(
+                        DeletePublicIpRequest.builder().publicIpId(pubIp.getId()).build());
+                log.info("Deleted public IP {} from private IP {}", pubIp.getIpAddress(), privateIpId);
+            }
+        } catch (OciException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new OciException("删除公网IP失败: " + e.getMessage());
+        }
+    }
+
+    public void deleteSecondaryIp(String userId, String privateIpId) {
+        OciUser ociUser = userMapper.selectById(userId);
+        if (ociUser == null) throw new OciException("租户配置不存在");
+
+        try (OciClientService client = new OciClientService(buildDTO(ociUser))) {
+            try {
+                PublicIp pubIp = client.getVirtualNetworkClient().getPublicIpByPrivateIpId(
+                        GetPublicIpByPrivateIpIdRequest.builder()
+                                .getPublicIpByPrivateIpIdDetails(
+                                        GetPublicIpByPrivateIpIdDetails.builder()
+                                                .privateIpId(privateIpId).build())
+                                .build()
+                ).getPublicIp();
+                if (pubIp != null) {
+                    client.getVirtualNetworkClient().deletePublicIp(
+                            DeletePublicIpRequest.builder().publicIpId(pubIp.getId()).build());
+                    log.info("Deleted public IP {} before removing secondary private IP", pubIp.getIpAddress());
+                }
+            } catch (Exception ignored) {}
+
+            client.getVirtualNetworkClient().deletePrivateIp(
+                    DeletePrivateIpRequest.builder().privateIpId(privateIpId).build());
+            log.info("Deleted secondary private IP {}", privateIpId);
+        } catch (OciException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new OciException("删除辅助IP失败: " + e.getMessage());
+        }
+    }
+
     public Map<String, String> assignEphemeralPublicIp(String userId, String instanceId, String privateIpId) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
