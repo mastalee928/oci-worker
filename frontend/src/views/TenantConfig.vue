@@ -42,8 +42,8 @@
           <a-space>
             <a-button type="link" size="small" @click="openTenantInfo(record)">详情</a-button>
             <a-button type="link" size="small" @click="showEditModal(record)">编辑</a-button>
-            <a-button type="link" size="small" @click="goUserManagement(record)">用户</a-button>
             <a-button type="link" size="small" @click="openDomainMgmt(record)">管理</a-button>
+            <a-button type="link" size="small" @click="goUserManagement(record)">用户</a-button>
             <a-popconfirm title="确定删除?" @confirm="handleDelete(record.id)">
               <a-button type="link" danger size="small">删除</a-button>
             </a-popconfirm>
@@ -209,18 +209,52 @@ region=ap-tokyo-1"
             </a-table-column>
           </a-table>
         </a-tab-pane>
+        <a-tab-pane key="quotas" tab="账户配额">
+          <a-space style="margin-bottom: 12px">
+            <a-button @click="loadQuotas" :loading="quotasLoading">
+              <template #icon><ReloadOutlined /></template>查询配额
+            </a-button>
+            <a-input-search v-model:value="quotaSearch" placeholder="搜索服务/配额名" allow-clear style="width: 220px" />
+          </a-space>
+          <a-table :data-source="filteredQuotas" :loading="quotasLoading" size="small"
+            :pagination="{ pageSize: 20 }" row-key="(r: any) => r.serviceName + r.limitName + r.availabilityDomain">
+            <a-table-column title="服务" data-index="serviceName" key="serviceName" :width="140">
+              <template #default="{ text }">
+                <a-tag>{{ text }}</a-tag>
+              </template>
+            </a-table-column>
+            <a-table-column title="配额名称" data-index="limitName" key="limitName" :ellipsis="true" />
+            <a-table-column title="AD" data-index="availabilityDomain" key="ad" :width="120" :ellipsis="true">
+              <template #default="{ text }">
+                <span style="font-size: 12px">{{ text || '全局' }}</span>
+              </template>
+            </a-table-column>
+            <a-table-column title="上限" data-index="limit" key="limit" :width="80" />
+            <a-table-column title="已用" data-index="used" key="used" :width="80">
+              <template #default="{ text }">
+                <span>{{ text ?? '—' }}</span>
+              </template>
+            </a-table-column>
+            <a-table-column title="可用" data-index="available" key="available" :width="80">
+              <template #default="{ text, record }">
+                <a-tag v-if="text !== null && text !== undefined" :color="text === 0 ? 'red' : 'green'">{{ text }}</a-tag>
+                <span v-else>—</span>
+              </template>
+            </a-table-column>
+          </a-table>
+        </a-tab-pane>
       </a-tabs>
     </a-modal>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { PlusOutlined, ThunderboltOutlined, InboxOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
 import type { UploadFile } from 'ant-design-vue'
-import { getTenantList, addTenant, updateTenant, removeTenant, uploadKey, getTenantFullInfo, getDomainSettings, updateMfa, updatePasswordExpiry, getAuditLogs } from '../api/tenant'
+import { getTenantList, addTenant, updateTenant, removeTenant, uploadKey, getTenantFullInfo, getDomainSettings, updateMfa, updatePasswordExpiry, getAuditLogs, getServiceQuotas } from '../api/tenant'
 
 const router = useRouter()
 
@@ -403,6 +437,9 @@ const domainPwdExpiryDays = ref(0)
 const pwdExpiryUpdating = ref(false)
 const auditLogsLoading = ref(false)
 const auditLogs = ref<any[]>([])
+const quotasLoading = ref(false)
+const quotasList = ref<any[]>([])
+const quotaSearch = ref('')
 
 async function openDomainMgmt(record: any) {
   domainMgmtTenant.value = record
@@ -462,6 +499,30 @@ async function loadAuditLogs() {
     auditLogsLoading.value = false
   }
 }
+
+async function loadQuotas() {
+  quotasLoading.value = true
+  try {
+    const res = await getServiceQuotas({ id: domainMgmtTenant.value.id })
+    quotasList.value = res.data || []
+    if (!quotasList.value.length) {
+      message.info('未获取到配额信息')
+    }
+  } catch (e: any) {
+    message.error(e?.message || '获取配额失败')
+  } finally {
+    quotasLoading.value = false
+  }
+}
+
+const filteredQuotas = computed(() => {
+  if (!quotaSearch.value) return quotasList.value
+  const kw = quotaSearch.value.toLowerCase()
+  return quotasList.value.filter((q: any) =>
+    (q.serviceName || '').toLowerCase().includes(kw) ||
+    (q.limitName || '').toLowerCase().includes(kw)
+  )
+})
 
 async function openTenantInfo(record: any) {
   tenantInfoData.value = { configName: record.username }

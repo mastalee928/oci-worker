@@ -90,4 +90,9 @@ public class TenantController {
     public ResponseData<?> auditLogs(@RequestBody java.util.Map<String, String> params) {
         return ResponseData.ok(domainManagementService.getAuditLogs(params.get("id")));
     }
+
+    @PostMapping("/quotas")
+    public ResponseData<?> quotas(@RequestBody java.util.Map<String, String> params) {
+        return ResponseData.ok(domainManagementService.getServiceQuotas(params.get("id")));
+    }
 }

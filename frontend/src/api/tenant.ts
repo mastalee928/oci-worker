@@ -49,3 +49,7 @@ export function updatePasswordExpiry(data: { id: string; days: number }) {
 export function getAuditLogs(data: { id: string }) {
   return request.post('/oci/user/auditLogs', data)
 }
+
+export function getServiceQuotas(data: { id: string }) {
+  return request.post('/oci/user/quotas', data)
+}

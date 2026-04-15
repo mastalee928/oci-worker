@@ -223,6 +223,76 @@ public class DomainManagementService {
         return logs;
     }
 
+    public List<Map<String, Object>> getServiceQuotas(String tenantId) {
+        OciUser user = userMapper.selectById(tenantId);
+        if (user == null) throw new OciException("租户配置不存在");
+
+        List<Map<String, Object>> quotaList = new ArrayList<>();
+        try (OciClientService client = buildClient(tenantId)) {
+            var limitsClient = com.oracle.bmc.limits.LimitsClient.builder()
+                    .build(client.getProvider());
+            try {
+                var servicesResp = limitsClient.listServices(
+                        com.oracle.bmc.limits.requests.ListServicesRequest.builder()
+                                .compartmentId(user.getOciTenantId())
+                                .build());
+
+                List<String> targetServices = List.of("compute", "vcn", "block-storage", "load-balancer", "network-load-balancer");
+
+                for (var svc : servicesResp.getItems()) {
+                    String svcName = svc.getName();
+                    if (!targetServices.contains(svcName)) continue;
+
+                    String nextPage = null;
+                    do {
+                        var reqBuilder = com.oracle.bmc.limits.requests.ListLimitValuesRequest.builder()
+                                .compartmentId(user.getOciTenantId())
+                                .serviceName(svcName);
+                        if (nextPage != null) reqBuilder.page(nextPage);
+                        var limitsResp = limitsClient.listLimitValues(reqBuilder.build());
+
+                        for (var lv : limitsResp.getItems()) {
+                            if (lv.getValue() == null || lv.getValue() == 0) continue;
+
+                            Map<String, Object> entry = new LinkedHashMap<>();
+                            entry.put("serviceName", svcName);
+                            entry.put("limitName", lv.getName());
+                            entry.put("availabilityDomain", lv.getAvailabilityDomain());
+                            entry.put("limit", lv.getValue());
+
+                            try {
+                                var usageResp = limitsClient.getResourceAvailability(
+                                        com.oracle.bmc.limits.requests.GetResourceAvailabilityRequest.builder()
+                                                .compartmentId(user.getOciTenantId())
+                                                .serviceName(svcName)
+                                                .limitName(lv.getName())
+                                                .availabilityDomain(lv.getAvailabilityDomain())
+                                                .build());
+                                entry.put("used", usageResp.getResourceAvailability().getUsed());
+                                entry.put("available", usageResp.getResourceAvailability().getAvailable());
+                            } catch (Exception ignored) {
+                                entry.put("used", null);
+                                entry.put("available", null);
+                            }
+
+                            quotaList.add(entry);
+                        }
+
+                        nextPage = limitsResp.getOpcNextPage();
+                    } while (nextPage != null);
+                }
+            } finally {
+                limitsClient.close();
+            }
+        } catch (OciException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new OciException("获取配额信息失败: " + e.getMessage());
+        }
+
+        return quotaList;
+    }
+
     private String getDomainEndpoint(OciClientService client) {
         try {
             var identityClient = client.getIdentityClient();
