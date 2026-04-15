@@ -38,7 +38,7 @@
       <template v-else>
         <div class="login-form">
           <div v-if="!tgCodeSent" style="text-align: center">
-            <p class="tg-desc">将向绑定的 Telegram Bot 发送 12 位混合验证码</p>
+            <p class="tg-desc">将向绑定的 Telegram Bot 发送登录验证码</p>
             <button class="submit-btn" :disabled="tgSendLoading" @click="handleTgSendCode">
               <span v-if="tgSendLoading">发送中...</span>
               <template v-else>
@@ -49,13 +49,13 @@
           <template v-else>
             <a-form @finish="handleTgLogin" layout="vertical">
               <a-form-item>
-                <a-input v-model:value="tgCode" placeholder="输入 12 位验证码" size="large" class="login-input"
-                  :maxlength="12" @pressEnter="handleTgLogin">
+                <a-input v-model:value="tgCode" placeholder="输入验证码 例: 123456:AbCdEfGhJkm" size="large" class="login-input"
+                  :maxlength="18" @pressEnter="handleTgLogin">
                   <template #prefix><i class="ri-shield-keyhole-line input-prefix-icon"></i></template>
                 </a-input>
               </a-form-item>
               <a-form-item>
-                <button type="submit" :disabled="tgLoginLoading || tgCode.length < 12" class="submit-btn">
+                <button type="submit" :disabled="tgLoginLoading || tgCode.length < 17" class="submit-btn">
                   <span v-if="tgLoginLoading">验证中...</span>
                   <template v-else>
                     验证并登录
@@ -149,7 +149,7 @@ function startCountdown() {
 }
 
 async function handleTgLogin() {
-  if (tgCode.value.length < 12) { message.warning('请输入完整的 12 位验证码'); return }
+  if (!tgCode.value.includes(':') || tgCode.value.length < 17) { message.warning('请输入完整的验证码'); return }
   tgLoginLoading.value = true
   try {
     const res = await tgLogin({ code: tgCode.value })

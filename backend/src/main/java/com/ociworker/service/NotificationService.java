@@ -60,6 +60,34 @@ public class NotificationService {
         }
     }
 
+    public void sendTelegramHtml(String html, String copyText) {
+        try {
+            String botToken = getKvValue(SysCfgEnum.TG_BOT_TOKEN);
+            String chatId = getKvValue(SysCfgEnum.TG_CHAT_ID);
+            if (StrUtil.isBlank(botToken) || StrUtil.isBlank(chatId)) return;
+
+            String url = String.format("https://api.telegram.org/bot%s/sendMessage", botToken);
+            Map<String, Object> body = new java.util.LinkedHashMap<>();
+            body.put("chat_id", chatId);
+            body.put("text", html);
+            body.put("parse_mode", "HTML");
+            if (StrUtil.isNotBlank(copyText)) {
+                body.put("reply_markup", Map.of("inline_keyboard",
+                        java.util.List.of(java.util.List.of(
+                                Map.of("text", "📋 复制验证码", "callback_data", "copy_noop",
+                                        "copy_text", copyText)
+                        ))));
+            }
+            HttpRequest.post(url)
+                    .header("Content-Type", "application/json")
+                    .body(JSONUtil.toJsonStr(body))
+                    .timeout(10000)
+                    .execute();
+        } catch (Exception e) {
+            log.warn("Failed to send Telegram HTML message: {}", e.getMessage());
+        }
+    }
+
     public String getKvValue(SysCfgEnum cfg) {
         OciKv kv = kvMapper.selectOne(
                 new LambdaQueryWrapper<OciKv>()

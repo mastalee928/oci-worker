@@ -163,17 +163,19 @@ public class AuthController {
             return ResponseData.error("请求过于频繁，请 " + wait + " 秒后重试");
         }
 
-        String code = RandomUtil.randomString("ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789", 12);
+        String numPart = RandomUtil.randomNumbers(6);
+        String mixPart = RandomUtil.randomString("ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789", 11);
+        String code = numPart + ":" + mixPart;
         tgLoginCode = code;
         tgLoginCodeExpireAt = now + TG_CODE_EXPIRE_MS;
         tgLoginCodeSentAt = now;
         tgLoginFailCount.set(0);
 
         String ip = getClientIp(request);
-        String msg = String.format(
-                "【OCI Worker 登录验证】\n验证码：%s\n有效期：3分钟\n请求IP：%s\n时间：%s\n\n⚠️ 如非本人操作，请立即检查服务器安全！",
-                code, ip, nowStr());
-        notificationService.sendMessage(msg);
+        String html = String.format(
+                "Your token: <b>%s</b>\n\nThe token is valid for <b>3.0</b> minutes. Use it to log in on website.\n\n<i>IP: %s</i>",
+                code, ip);
+        notificationService.sendTelegramHtml(html, code);
 
         return ResponseData.ok(Map.of("message", "验证码已发送到 Telegram"));
     }
