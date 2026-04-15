@@ -41,6 +41,7 @@ public class TenantService {
     private static final String GROUP_TYPE = "group";
     private static final String GROUP_L1_PREFIX = "group_l1:";
     private static final String GROUP_L2_PREFIX = "group_l2:";
+    private static final String GROUP_ORDER_CODE = "group_order_l1";
 
     @Value("${oci-cfg.key-dir-path}")
     private String keyDirPath;
@@ -350,12 +351,44 @@ public class TenantService {
                 }
             }
         }
+        // apply saved order for level1
+        List<String> ordered = new ArrayList<>();
+        OciKv orderKv = kvMapper.selectOne(new LambdaQueryWrapper<OciKv>()
+                .eq(OciKv::getType, GROUP_TYPE).eq(OciKv::getCode, GROUP_ORDER_CODE));
+        if (orderKv != null && StrUtil.isNotBlank(orderKv.getValue())) {
+            for (String name : orderKv.getValue().split(",")) {
+                String n = name.trim();
+                if (level1.remove(n)) ordered.add(n);
+            }
+        }
+        ordered.addAll(level1);
+
         Map<String, Object> result = new LinkedHashMap<>();
-        result.put("level1", new ArrayList<>(level1));
+        result.put("level1", ordered);
         Map<String, List<String>> l2 = new LinkedHashMap<>();
         level2Map.forEach((k, v) -> l2.put(k, new ArrayList<>(v)));
         result.put("level2", l2);
         return result;
+    }
+
+    public void saveGroupOrder(List<String> order) {
+        if (order == null || order.isEmpty()) return;
+        String value = String.join(",", order);
+        OciKv kv = kvMapper.selectOne(new LambdaQueryWrapper<OciKv>()
+                .eq(OciKv::getType, GROUP_TYPE).eq(OciKv::getCode, GROUP_ORDER_CODE));
+        if (kv != null) {
+            kv.setValue(value);
+            kvMapper.updateById(kv);
+        } else {
+            kv = new OciKv();
+            kv.setId(CommonUtils.generateId());
+            kv.setCode(GROUP_ORDER_CODE);
+            kv.setValue(value);
+            kv.setType(GROUP_TYPE);
+            kv.setCreateTime(LocalDateTime.now());
+            kvMapper.insert(kv);
+        }
+        log.info("Saved group order: {}", value);
     }
 
     public void createGroup(String name, String level, String parent) {

@@ -54,11 +54,19 @@
 
       <!-- 分组视图 -->
       <template v-else>
-        <div v-for="(group, gi) in groupTree" :key="group.key" class="group-section">
+        <div v-for="(group, gi) in groupTree" :key="group.key" class="group-section"
+          draggable="true"
+          @dragstart="onDragStart($event, gi)"
+          @dragover.prevent="onDragOver($event, gi)"
+          @dragleave="onDragLeave($event)"
+          @drop="onDrop($event, gi)"
+          @dragend="onDragEnd"
+          :class="{ 'drag-over': dragOverIndex === gi && dragFromIndex !== gi }">
           <!-- 一级分组卡片 -->
           <div class="group-card">
             <div style="display: flex; align-items: center; gap: 10px;">
-              <div class="drag-handle" title="拖动排序">
+              <div class="drag-handle" title="拖动排序"
+                @mousedown="dragEnabled = true" @mouseup="dragEnabled = false">
                 <span style="font-size: 14px; line-height: 1;">⠿</span>
               </div>
               <div class="collapse-btn" @click="toggleGroup(group.key)">
@@ -498,7 +506,7 @@ import { useRouter } from 'vue-router'
 import { PlusOutlined, ThunderboltOutlined, InboxOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
 import type { UploadFile } from 'ant-design-vue'
-import { getTenantList, addTenant, updateTenant, removeTenant, uploadKey, getTenantFullInfo, getDomainSettings, updateMfa, updatePasswordExpiry, getAuditLogs, getServiceQuotas, getTenantGroups, createGroup, renameGroup, deleteGroup } from '../api/tenant'
+import { getTenantList, addTenant, updateTenant, removeTenant, uploadKey, getTenantFullInfo, getDomainSettings, updateMfa, updatePasswordExpiry, getAuditLogs, getServiceQuotas, getTenantGroups, createGroup, renameGroup, deleteGroup, saveGroupOrder } from '../api/tenant'
 import { RightOutlined, DownOutlined, SettingOutlined, FolderOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons-vue'
 
 const router = useRouter()
@@ -832,7 +840,17 @@ const groupTree = computed<GroupNode[]>(() => {
 
   const nodes: GroupNode[] = []
 
-  for (const [l1, items] of l1Map) {
+  // 按后端返回的 level1 顺序构建，未在顺序中的排最后
+  const orderedKeys: string[] = []
+  for (const g1 of gd.level1) {
+    if (l1Map.has(g1) && !orderedKeys.includes(g1)) orderedKeys.push(g1)
+  }
+  for (const k of l1Map.keys()) {
+    if (!orderedKeys.includes(k)) orderedKeys.push(k)
+  }
+
+  for (const l1 of orderedKeys) {
+    const items = l1Map.get(l1) || []
     const withL2 = items.filter((r: any) => !!r.groupLevel2)
     const withoutL2 = items.filter((r: any) => !r.groupLevel2)
 
@@ -888,6 +906,54 @@ function getPlanCounts(group: GroupNode): Record<string, number> {
 }
 
 const expandedGroups = ref<Set<string>>(new Set())
+
+const dragEnabled = ref(false)
+const dragFromIndex = ref(-1)
+const dragOverIndex = ref(-1)
+
+function onDragStart(e: DragEvent, idx: number) {
+  if (!dragEnabled.value) { e.preventDefault(); return }
+  dragFromIndex.value = idx
+  if (e.dataTransfer) {
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', String(idx))
+  }
+}
+
+function onDragOver(e: DragEvent, idx: number) {
+  if (dragFromIndex.value < 0) return
+  dragOverIndex.value = idx
+}
+
+function onDragLeave(_e: DragEvent) {
+  dragOverIndex.value = -1
+}
+
+async function onDrop(_e: DragEvent, toIdx: number) {
+  const fromIdx = dragFromIndex.value
+  dragOverIndex.value = -1
+  dragFromIndex.value = -1
+  dragEnabled.value = false
+  if (fromIdx < 0 || fromIdx === toIdx) return
+
+  const tree = groupTree.value
+  const names = tree.map(g => g.label)
+  const [moved] = names.splice(fromIdx, 1)
+  names.splice(toIdx, 0, moved)
+
+  try {
+    await saveGroupOrder({ order: names })
+    await loadGroups()
+  } catch (e: any) {
+    message.error(e?.message || '排序保存失败')
+  }
+}
+
+function onDragEnd() {
+  dragFromIndex.value = -1
+  dragOverIndex.value = -1
+  dragEnabled.value = false
+}
 
 function toggleGroup(key: string) {
   if (expandedGroups.value.has(key)) {
@@ -1135,6 +1201,14 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
 }
 .group-section {
   margin-bottom: 12px;
+  transition: transform 0.2s, opacity 0.2s;
+}
+.group-section.drag-over {
+  border-top: 3px solid var(--primary, #1677ff);
+  padding-top: 4px;
+}
+.group-section[draggable="true"] {
+  cursor: default;
 }
 .group-card {
   background: var(--bg-card, #fff);

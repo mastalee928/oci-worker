@@ -62,6 +62,10 @@ export function createGroup(data: { name: string; level: string; parent?: string
   return request.post('/oci/user/createGroup', data)
 }
 
+export function saveGroupOrder(data: { order: string[] }) {
+  return request.post('/oci/user/saveGroupOrder', data)
+}
+
 export function renameGroup(data: { oldName: string; newName: string; level: string }) {
   return request.post('/oci/user/renameGroup', data)
 }

@@ -101,6 +101,14 @@ public class TenantController {
         return ResponseData.ok(tenantService.getDistinctGroups());
     }
 
+    @PostMapping("/saveGroupOrder")
+    public ResponseData<?> saveGroupOrder(@RequestBody java.util.Map<String, Object> params) {
+        @SuppressWarnings("unchecked")
+        java.util.List<String> order = (java.util.List<String>) params.get("order");
+        tenantService.saveGroupOrder(order);
+        return ResponseData.ok();
+    }
+
     @PostMapping("/createGroup")
     public ResponseData<?> createGroup(@RequestBody java.util.Map<String, String> params) {
         tenantService.createGroup(params.get("name"), params.get("level"), params.get("parent"));
