@@ -147,6 +147,7 @@ public class NetworkService {
 
     public void addSecurityRule(String userId, String instanceId, String direction,
                                String protocol, String source, String portMin, String portMax, String description) {
+        if (description != null && description.isBlank()) description = null;
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
 
