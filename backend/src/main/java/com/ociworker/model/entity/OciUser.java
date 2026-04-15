@@ -1,5 +1,7 @@
 package com.ociworker.model.entity;
 
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
@@ -20,7 +22,9 @@ public class OciUser {
     private String ociRegion;
     private String ociKeyPath;
     private String planType;
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private String groupLevel1;
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private String groupLevel2;
     private LocalDateTime createTime;
 }
