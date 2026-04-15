@@ -73,8 +73,8 @@
                   <span class="stat-icon">📅</span>
                   <span>{{ groupTotalCount(group) }}</span>
                 </div>
-                <template v-for="t in getAllGroupTenants(group).slice(0, 4)" :key="t.id">
-                  <span :class="['plan-dot', t.planType === 'PAYG' ? 'dot-green' : t.planType === 'FREE' ? 'dot-orange' : t.hasRunningTask ? 'dot-green' : 'dot-gray']"></span>
+                <template v-for="(pc, pt) in getPlanCounts(group)" :key="pt">
+                  <span :class="['plan-tag', pt === 'PAYG' ? 'tag-green' : pt === 'FREE' ? 'tag-orange' : 'tag-gray']">{{ pt }}×{{ pc }}</span>
                 </template>
               </div>
 
@@ -877,6 +877,16 @@ function getAllGroupTenants(group: GroupNode): any[] {
   return all
 }
 
+function getPlanCounts(group: GroupNode): Record<string, number> {
+  const all = getAllGroupTenants(group)
+  const counts: Record<string, number> = {}
+  for (const t of all) {
+    const key = t.planType === 'PAYG' ? 'PAYG' : t.planType === 'FREE_TIER' || t.planType === 'FREE' ? 'FREE' : 'UNKNOWN'
+    counts[key] = (counts[key] || 0) + 1
+  }
+  return counts
+}
+
 const expandedGroups = ref<Set<string>>(new Set())
 
 function toggleGroup(key: string) {
@@ -1245,15 +1255,17 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   border-color: var(--primary, #1677ff);
   color: var(--primary, #1677ff);
 }
-.plan-dot {
-  display: inline-block;
-  width: 10px; height: 10px;
-  border-radius: 3px;
+.plan-tag {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 4px;
+  line-height: 18px;
+  white-space: nowrap;
 }
-.dot-green { background: #52c41a; }
-.dot-orange { background: #faad14; }
-.dot-red { background: #ff4d4f; }
-.dot-gray { background: #d9d9d9; }
+.tag-green { background: rgba(82, 196, 26, 0.15); color: #52c41a; }
+.tag-orange { background: rgba(250, 173, 20, 0.15); color: #faad14; }
+.tag-gray { background: rgba(150, 150, 150, 0.15); color: #999; }
 .group-body {
   overflow: hidden;
   transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
