@@ -287,9 +287,9 @@ async function testTgNotify() {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: rgba(2, 6, 23, 0.85);
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
+  background: rgba(2, 6, 23, 0.92);
+  backdrop-filter: blur(20px) saturate(0.5);
+  -webkit-backdrop-filter: blur(20px) saturate(0.5);
   border-radius: inherit;
 }
 
