@@ -49,4 +49,10 @@ public class NetworkController {
                 (List<String>) params.get("cidrFilters"));
         return ResponseData.ok();
     }
+
+    @PostMapping("/assignEphemeralIp")
+    public ResponseData<?> assignEphemeralIp(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(networkService.assignEphemeralPublicIp(
+                params.get("id"), params.get("instanceId"), params.get("privateIpId")));
+    }
 }

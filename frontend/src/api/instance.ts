@@ -80,6 +80,10 @@ export function unassignReservedIp(data: { id: string; publicIpId: string }) {
   return request.post('/oci/instance/unassignReservedIp', data)
 }
 
+export function assignEphemeralIp(data: { id: string; instanceId: string; privateIpId: string }) {
+  return request.post('/oci/network/assignEphemeralIp', data)
+}
+
 export function createConsoleConnection(data: { id: string; instanceId: string }) {
   return request.post('/oci/instance/createConsole', data)
 }

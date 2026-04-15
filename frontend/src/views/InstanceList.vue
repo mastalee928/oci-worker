@@ -310,6 +310,7 @@
                       <template v-else>
                         内网IP: <a-typography-text copyable>{{ ipd.privateIpAddress }}</a-typography-text>
                         <span style="color: #999; margin-left: 6px">（无公网IP）</span>
+                        <a-button type="link" size="small" @click="handleAssignEphemeralIp(ipd)" :loading="ephemeralIpLoading">附加 IPv4</a-button>
                       </template>
                     </div>
                   </a-descriptions-item>
@@ -634,6 +635,7 @@ import {
   createReservedIp, listReservedIps, deleteReservedIp,
   assignReservedIp, unassignReservedIp,
   updateInstance,
+  assignEphemeralIp,
   createConsoleConnection, deleteConsoleConnection,
 } from '../api/instance'
 import { getTenantList } from '../api/tenant'
@@ -739,6 +741,7 @@ const changeIpLoading = ref(false)
 const netDetailLoading = ref(false)
 const networkDetail = ref<any>(null)
 const ipv6Loading = ref(false)
+const ephemeralIpLoading = ref(false)
 
 const addRuleVisible = ref(false)
 const addRuleLoading = ref(false)
@@ -959,6 +962,7 @@ async function handleChangeIp() {
   try {
     await changeIp({ id: currentTenant.value.id, instanceId: currentInstance.value.instanceId })
     message.success('换 IP 请求已提交')
+    setTimeout(() => loadNetworkDetail(), 3000)
   } catch (e: any) {
     message.error(e?.message || '换 IP 失败')
   } finally {
@@ -1084,6 +1088,24 @@ async function handleEditVolume() {
     message.error(e?.message || '更新引导卷失败')
   } finally {
     editVolLoading.value = false
+  }
+}
+
+async function handleAssignEphemeralIp(ipd: any) {
+  if (!currentInstance.value || !currentTenant.value) return
+  ephemeralIpLoading.value = true
+  try {
+    await assignEphemeralIp({
+      id: currentTenant.value.id,
+      instanceId: currentInstance.value.instanceId,
+      privateIpId: ipd.privateIpId,
+    })
+    message.success('公网 IPv4 已分配')
+    loadNetworkDetail()
+  } catch (e: any) {
+    message.error(e?.message || '分配公网IP失败')
+  } finally {
+    ephemeralIpLoading.value = false
   }
 }
 

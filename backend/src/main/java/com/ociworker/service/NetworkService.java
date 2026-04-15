@@ -281,6 +281,34 @@ public class NetworkService {
         }
     }
 
+    public Map<String, String> assignEphemeralPublicIp(String userId, String instanceId, String privateIpId) {
+        OciUser ociUser = userMapper.selectById(userId);
+        if (ociUser == null) throw new OciException("租户配置不存在");
+
+        try (OciClientService client = new OciClientService(buildDTO(ociUser))) {
+            PublicIp newPubIp = client.getVirtualNetworkClient().createPublicIp(
+                    CreatePublicIpRequest.builder()
+                            .createPublicIpDetails(CreatePublicIpDetails.builder()
+                                    .compartmentId(client.getCompartmentId())
+                                    .lifetime(CreatePublicIpDetails.Lifetime.Ephemeral)
+                                    .privateIpId(privateIpId)
+                                    .build())
+                            .build()
+            ).getPublicIp();
+
+            log.info("Assigned ephemeral IP {} to private IP {}", newPubIp.getIpAddress(), privateIpId);
+            return Map.of("publicIp", newPubIp.getIpAddress());
+        } catch (OciException e) {
+            throw e;
+        } catch (Exception e) {
+            String msg = e.getMessage();
+            if (msg != null && msg.contains("LimitExceeded")) {
+                throw new OciException("公网 IP 配额已满，无法分配更多公网 IP");
+            }
+            throw new OciException("分配公网IP失败: " + msg);
+        }
+    }
+
     private String getSubnetIdFromInstance(OciClientService client, String instanceId) {
         List<VnicAttachment> attachments = client.getComputeClient().listVnicAttachments(
                 ListVnicAttachmentsRequest.builder()
