@@ -38,7 +38,7 @@
       <template v-else>
         <div class="login-form">
           <div v-if="!tgCodeSent" style="text-align: center">
-            <p class="tg-desc">将向绑定的 Telegram Bot 发送 12 位验证码</p>
+            <p class="tg-desc">将向绑定的 Telegram Bot 发送 12 位混合验证码</p>
             <button class="submit-btn" :disabled="tgSendLoading" @click="handleTgSendCode">
               <span v-if="tgSendLoading">发送中...</span>
               <template v-else>

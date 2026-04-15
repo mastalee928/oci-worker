@@ -163,7 +163,7 @@ public class AuthController {
             return ResponseData.error("请求过于频繁，请 " + wait + " 秒后重试");
         }
 
-        String code = RandomUtil.randomNumbers(12);
+        String code = RandomUtil.randomString("ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789", 12);
         tgLoginCode = code;
         tgLoginCodeExpireAt = now + TG_CODE_EXPIRE_MS;
         tgLoginCodeSentAt = now;
