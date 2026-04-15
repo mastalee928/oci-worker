@@ -216,12 +216,16 @@ public class ConsoleService {
         try {
             Path scriptDir = Path.of(KEY_DIR);
             Path scriptPath = scriptDir.resolve("console_" + userName + ".sh");
-            String sshCmd = sshCommand.replace("ssh ",
+            // Add key to ProxyCommand SSH (tunnel only, no -tt)
+            String sshCmd = sshCommand.replace(
+                    "ProxyCommand='ssh ",
+                    "ProxyCommand='ssh -i " + privateKeyPath + " -o StrictHostKeyChecking=no ");
+            // Add flags to outer SSH only (first occurrence)
+            sshCmd = sshCmd.replaceFirst("^ssh ",
                     "ssh -tt -i " + privateKeyPath +
                     " -o StrictHostKeyChecking=no" +
                     " -o ServerAliveInterval=15" +
-                    " -o ServerAliveCountMax=3" +
-                    " -o ExitOnForwardFailure=yes ");
+                    " -o ServerAliveCountMax=3 ");
             String script = "#!/bin/bash\n" +
                     "pkill -9 -u \"$(whoami)\" -f console_rsa 2>/dev/null\n" +
                     "echo '正在连接串行控制台...'\n" +
