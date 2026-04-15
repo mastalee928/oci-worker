@@ -48,6 +48,9 @@
           <a-button block @click="openQuickTask(td.tenant)">
             <i class="ri-play-circle-line" style="margin-right: 6px"></i>开机任务
           </a-button>
+          <a-button block @click="openTenantInfo(td.tenant)">
+            <i class="ri-information-line" style="margin-right: 6px"></i>详情
+          </a-button>
         </div>
       </div>
     </div>
@@ -86,6 +89,7 @@
               <a-button type="primary" size="small" @click="selectTenant(record)" :loading="record.loading">实例管理</a-button>
               <a-button size="small" @click="openVcnPanel(record.tenant)">VCN</a-button>
               <a-button size="small" @click="openQuickTask(record.tenant)">开机任务</a-button>
+              <a-button size="small" @click="openTenantInfo(record.tenant)">详情</a-button>
             </a-space>
           </template>
         </a-table-column>
@@ -617,6 +621,56 @@
         </div>
       </a-spin>
     </a-modal>
+
+    <!-- 租户详情弹窗 -->
+    <a-modal v-model:open="tenantInfoVisible" :title="'租户信息'" :width="isMobile ? '100%' : 680"
+      :footer="null" centered :bodyStyle="{ maxHeight: '70vh', overflow: 'auto' }">
+      <a-spin :spinning="tenantInfoLoading">
+        <a-descriptions :column="1" bordered size="small" style="margin-top: 8px">
+          <a-descriptions-item label="当前配置">
+            <span style="color: var(--primary); font-weight: 600">{{ tenantInfoData.configName || '—' }}</span>
+          </a-descriptions-item>
+          <a-descriptions-item label="租户名称">{{ tenantInfoData.tenantName || '—' }}</a-descriptions-item>
+          <a-descriptions-item label="homeRegionKey">{{ tenantInfoData.homeRegionKey || '—' }}</a-descriptions-item>
+          <a-descriptions-item label="upiIdcsCompatibilityLayerEndpoint">
+            <span style="word-break: break-all">{{ tenantInfoData.upiIdcsCompatibilityLayerEndpoint || '—' }}</span>
+          </a-descriptions-item>
+          <a-descriptions-item label="租户 ID">
+            <span style="word-break: break-all; font-size: 12px">{{ tenantInfoData.tenantId || '—' }}</span>
+          </a-descriptions-item>
+          <a-descriptions-item label="描述">{{ tenantInfoData.description || '—' }}</a-descriptions-item>
+          <a-descriptions-item label="已订阅的区域">
+            <template v-if="tenantInfoData.subscribedRegions?.length">
+              <a-tag v-for="r in tenantInfoData.subscribedRegions" :key="r" color="blue" style="margin: 2px">{{ r }}</a-tag>
+            </template>
+            <span v-else>—</span>
+          </a-descriptions-item>
+          <a-descriptions-item label="订阅套餐">
+            <a-tag v-if="tenantInfoData.planType" :color="tenantInfoData.planType === 'FREE' ? 'default' : 'green'">
+              {{ tenantInfoData.planType === 'FREE' ? '免费套餐 (Free Tier)' : tenantInfoData.planType }}
+            </a-tag>
+            <span v-else>—</span>
+          </a-descriptions-item>
+          <a-descriptions-item label="账户类型">
+            <a-tag v-if="tenantInfoData.accountType" color="orange">{{ tenantInfoData.accountType }}</a-tag>
+            <span v-else>—</span>
+          </a-descriptions-item>
+          <a-descriptions-item label="升级状态">
+            <a-tag v-if="tenantInfoData.upgradeState" color="purple">{{ tenantInfoData.upgradeState }}</a-tag>
+            <span v-else>—</span>
+          </a-descriptions-item>
+          <a-descriptions-item label="货币">{{ tenantInfoData.currencyCode || '—' }}</a-descriptions-item>
+          <a-descriptions-item label="已完成付款意向">
+            <a-tag v-if="tenantInfoData.isIntentToPay !== undefined && tenantInfoData.isIntentToPay !== null"
+              :color="tenantInfoData.isIntentToPay ? 'green' : 'red'">
+              {{ tenantInfoData.isIntentToPay ? '是' : '否' }}
+            </a-tag>
+            <span v-else>—</span>
+          </a-descriptions-item>
+          <a-descriptions-item label="订阅开始时间">{{ tenantInfoData.subscriptionStartTime || '—' }}</a-descriptions-item>
+        </a-descriptions>
+      </a-spin>
+    </a-modal>
   </div>
 </template>
 
@@ -635,7 +689,7 @@ import {
   updateInstance,
   createConsoleConnection, deleteConsoleConnection,
 } from '../api/instance'
-import { getTenantList } from '../api/tenant'
+import { getTenantList, getTenantFullInfo } from '../api/tenant'
 import { createTask, hasRunningTask } from '../api/task'
 import { sendVerifyCode } from '../api/system'
 
@@ -729,6 +783,10 @@ const volLoading = ref(false)
 const bootVolumes = ref<any[]>([])
 const vcnLoading = ref(false)
 const vcns = ref<any[]>([])
+
+const tenantInfoVisible = ref(false)
+const tenantInfoLoading = ref(false)
+const tenantInfoData = ref<any>({})
 
 const trafficLoading = ref(false)
 const trafficMinutes = ref(60)
@@ -827,6 +885,20 @@ async function openVcnPanel(tenant: any) {
     vcnListLoading.value = false
   }
   loadReservedIps()
+}
+
+async function openTenantInfo(tenant: any) {
+  tenantInfoData.value = { configName: tenant.username }
+  tenantInfoVisible.value = true
+  tenantInfoLoading.value = true
+  try {
+    const res = await getTenantFullInfo({ id: tenant.id })
+    tenantInfoData.value = res.data || {}
+  } catch (e: any) {
+    message.error(e?.message || '获取租户详情失败')
+  } finally {
+    tenantInfoLoading.value = false
+  }
 }
 
 function formatBytes(bytes: number) {

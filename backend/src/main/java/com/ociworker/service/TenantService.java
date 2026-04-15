@@ -227,6 +227,86 @@ public class TenantService {
         }
     }
 
+    public Map<String, Object> getTenantFullInfo(String id) {
+        OciUser user = userMapper.selectById(id);
+        if (user == null) throw new OciException("配置不存在");
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("configName", user.getUsername());
+        result.put("id", user.getId());
+
+        com.ociworker.model.dto.SysUserDTO dto = com.ociworker.model.dto.SysUserDTO.builder()
+                .username(user.getUsername())
+                .ociCfg(com.ociworker.model.dto.SysUserDTO.OciCfg.builder()
+                        .tenantId(user.getOciTenantId())
+                        .userId(user.getOciUserId())
+                        .fingerprint(user.getOciFingerprint())
+                        .region(user.getOciRegion())
+                        .privateKeyPath(user.getOciKeyPath())
+                        .build())
+                .build();
+
+        try (OciClientService client = new OciClientService(dto)) {
+            var identityClient = client.getIdentityClient();
+
+            try {
+                var tenancy = identityClient.getTenancy(
+                        com.oracle.bmc.identity.requests.GetTenancyRequest.builder()
+                                .tenancyId(user.getOciTenantId()).build()).getTenancy();
+                result.put("tenantName", tenancy.getName());
+                result.put("homeRegionKey", tenancy.getHomeRegionKey());
+                result.put("tenantId", tenancy.getId());
+                result.put("description", tenancy.getDescription());
+                result.put("upiIdcsCompatibilityLayerEndpoint", tenancy.getUpiIdcsCompatibilityLayerEndpoint());
+            } catch (Exception e) {
+                log.warn("Failed to get tenancy info: {}", e.getMessage());
+            }
+
+            try {
+                var regions = identityClient.listRegionSubscriptions(
+                        com.oracle.bmc.identity.requests.ListRegionSubscriptionsRequest.builder()
+                                .tenancyId(user.getOciTenantId()).build()).getItems();
+                List<String> regionNames = new ArrayList<>();
+                for (var r : regions) {
+                    regionNames.add(r.getRegionName());
+                }
+                result.put("subscribedRegions", regionNames);
+            } catch (Exception e) {
+                log.warn("Failed to get subscribed regions: {}", e.getMessage());
+            }
+
+            com.oracle.bmc.ospgateway.SubscriptionServiceClient ospClient = null;
+            try {
+                ospClient = com.oracle.bmc.ospgateway.SubscriptionServiceClient.builder().build(client.getProvider());
+                var resp = ospClient.listSubscriptions(
+                        com.oracle.bmc.ospgateway.requests.ListSubscriptionsRequest.builder()
+                                .ospHomeRegion(user.getOciRegion())
+                                .compartmentId(client.getCompartmentId()).build());
+                var items = resp.getSubscriptionCollection().getItems();
+                if (items != null && !items.isEmpty()) {
+                    var sub = items.get(0);
+                    result.put("planType", sub.getPlanType() != null ? sub.getPlanType().getValue() : null);
+                    result.put("accountType", sub.getAccountType() != null ? sub.getAccountType().getValue() : null);
+                    result.put("upgradeState", sub.getUpgradeState() != null ? sub.getUpgradeState().getValue() : null);
+                    result.put("currencyCode", sub.getCurrencyCode());
+                    result.put("isIntentToPay", sub.getIsIntentToPay());
+                    result.put("subscriptionStartTime", sub.getTimeStart() != null ? sub.getTimeStart().toString() : null);
+                }
+            } catch (Exception e) {
+                log.warn("Failed to get subscription info: {}", e.getMessage());
+            } finally {
+                if (ospClient != null) ospClient.close();
+            }
+
+        } catch (OciException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new OciException("获取租户详情失败: " + e.getMessage());
+        }
+
+        return result;
+    }
+
     public String uploadKey(MultipartFile file) throws IOException {
         Path dirPath = Path.of(System.getProperty("user.dir"), keyDirPath).normalize();
         File dir = dirPath.toFile();

@@ -46,6 +46,11 @@ public class TenantController {
         return ResponseData.ok(tenantService.getById(params.getId()));
     }
 
+    @PostMapping("/fullInfo")
+    public ResponseData<?> fullInfo(@RequestBody java.util.Map<String, String> params) {
+        return ResponseData.ok(tenantService.getTenantFullInfo(params.get("id")));
+    }
+
     @PostMapping("/refreshPlanType")
     public ResponseData<?> refreshPlanType(@RequestBody java.util.Map<String, String> params) {
         tenantService.refreshPlanType(params.get("id"));
