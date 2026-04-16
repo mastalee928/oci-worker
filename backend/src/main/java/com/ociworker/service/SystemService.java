@@ -14,7 +14,11 @@ import oshi.hardware.CentralProcessor;
 import oshi.hardware.GlobalMemory;
 
 import java.io.File;
+import java.io.IOException;
 import java.lang.management.ManagementFactory;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.attribute.PosixFilePermissions;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -94,22 +98,38 @@ public class SystemService {
         }
 
         try {
-            String script = String.join(" && ",
-                    "JAR_URL=$(curl -sL 'https://api.github.com/repos/" + REPO + "/releases/latest' " +
-                            "| grep -o 'https://github.com/" + REPO + "/releases/download/[^\"]*" + ASSET_NAME + "' | head -1)",
-                    "[ -z \"$JAR_URL\" ] && JAR_URL='https://github.com/" + REPO + "/releases/download/latest/" + ASSET_NAME + "'",
-                    "curl -fSL --retry 3 --retry-delay 5 -o '" + JAR_PATH + ".tmp' \"$JAR_URL\"",
-                    "NEW_SIZE=$(stat -c%s '" + JAR_PATH + ".tmp' 2>/dev/null || echo 0)",
-                    "[ \"$NEW_SIZE\" -lt 1000 ] && rm -f '" + JAR_PATH + ".tmp' && exit 1",
-                    "mv '" + JAR_PATH + ".tmp' '" + JAR_PATH + "'",
-                    "systemctl restart oci-worker"
-            );
-            ProcessBuilder pb = new ProcessBuilder("bash", "-c", "nohup bash -c '" +
-                    script.replace("'", "'\\''") + "' > /tmp/oci-worker-update.log 2>&1 &");
-            pb.redirectErrorStream(true);
-            pb.start();
+            String script = """
+                    #!/bin/bash
+                    set -e
+                    REPO="%s"
+                    ASSET="%s"
+                    JAR="%s"
+                    sleep 2
+                    JAR_URL=$(curl -sL "https://api.github.com/repos/${REPO}/releases/latest" \
+                      | grep -o "https://github.com/${REPO}/releases/download/[^\\"]*${ASSET}" | head -1)
+                    [ -z "$JAR_URL" ] && JAR_URL="https://github.com/${REPO}/releases/download/latest/${ASSET}"
+                    curl -fSL --retry 3 --retry-delay 5 -o "${JAR}.tmp" "$JAR_URL"
+                    NEW_SIZE=$(stat -c%%s "${JAR}.tmp" 2>/dev/null || echo 0)
+                    if [ "$NEW_SIZE" -lt 1000 ]; then
+                      rm -f "${JAR}.tmp"
+                      echo "Download failed: file too small (${NEW_SIZE} bytes)"
+                      exit 1
+                    fi
+                    mv "${JAR}.tmp" "$JAR"
+                    systemctl restart oci-worker
+                    """.formatted(REPO, ASSET_NAME, JAR_PATH);
+
+            Path scriptFile = Path.of("/tmp/oci-worker-update.sh");
+            Files.writeString(scriptFile, script);
+            try {
+                Files.setPosixFilePermissions(scriptFile, PosixFilePermissions.fromString("rwxr-xr-x"));
+            } catch (UnsupportedOperationException ignored) {}
+
+            new ProcessBuilder("bash", "-c",
+                    "nohup bash /tmp/oci-worker-update.sh > /tmp/oci-worker-update.log 2>&1 &")
+                    .redirectErrorStream(true).start();
             log.info("Update process started in background");
-        } catch (Exception e) {
+        } catch (IOException e) {
             throw new OciException("启动更新失败: " + e.getMessage());
         }
     }
