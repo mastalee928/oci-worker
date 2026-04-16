@@ -26,5 +26,6 @@ public class OciCreateTask {
     private Boolean assignIpv6;
     private String status;
     private Integer attemptCount;
+    private Integer successCount;
     private LocalDateTime createTime;
 }

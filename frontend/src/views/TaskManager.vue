@@ -37,6 +37,10 @@
         <template v-if="column.key === 'architecture'">
           <a-tag :color="record.architecture === 'ARM' ? 'green' : 'blue'">{{ record.architecture }}</a-tag>
         </template>
+        <template v-if="column.key === 'progress'">
+          <span style="font-weight: 600">{{ record.successCount || 0 }}</span>
+          <span style="color: var(--text-sub)"> / {{ record.createNumbers }}</span>
+        </template>
         <template v-if="column.key === 'status'">
           <a-badge :status="badgeStatusMap[record.status] || 'default'"
             :text="statusMap[record.status] || record.status" />
@@ -75,7 +79,7 @@
         <div class="mobile-card-body">
           <div class="mobile-card-row"><span class="label">区域</span><span class="value">{{ task.ociRegion }}</span></div>
           <div class="mobile-card-row"><span class="label">配置</span><span class="value">{{ task.ocpus }}C / {{ task.memory }}G / {{ task.disk }}GB</span></div>
-          <div class="mobile-card-row"><span class="label">数量</span><span class="value">{{ task.createNumbers }}</span></div>
+          <div class="mobile-card-row"><span class="label">进度</span><span class="value">{{ task.successCount || 0 }} / {{ task.createNumbers }}</span></div>
           <div class="mobile-card-row"><span class="label">间隔</span><span class="value">{{ task.intervalSeconds }}s</span></div>
           <div class="mobile-card-row"><span class="label">尝试</span><span class="value">{{ task.attemptCount }} 次</span></div>
           <div class="mobile-card-row"><span class="label">创建</span><span class="value">{{ task.createTime }}</span></div>
@@ -203,7 +207,7 @@ const columns = [
   { title: 'Region', dataIndex: 'ociRegion', key: 'ociRegion', width: 140 },
   { title: '架构', dataIndex: 'architecture', key: 'architecture', width: 80 },
   { title: '配置', key: 'config', width: 160 },
-  { title: '数量', dataIndex: 'createNumbers', key: 'createNumbers', width: 60 },
+  { title: '进度', key: 'progress', width: 90 },
   { title: '间隔(s)', dataIndex: 'intervalSeconds', key: 'intervalSeconds', width: 80 },
   { title: '状态', dataIndex: 'status', key: 'status', width: 100 },
   { title: '尝试次数', dataIndex: 'attemptCount', key: 'attemptCount', width: 90 },

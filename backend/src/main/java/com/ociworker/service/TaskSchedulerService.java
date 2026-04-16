@@ -120,6 +120,7 @@ public class TaskSchedulerService {
             map.put("operationSystem", task.getOperationSystem());
             map.put("status", task.getStatus());
             map.put("attemptCount", task.getAttemptCount());
+            map.put("successCount", task.getSuccessCount() != null ? task.getSuccessCount() : 0);
             map.put("createTime", task.getCreateTime());
             return map;
         }).toList());
@@ -150,6 +151,7 @@ public class TaskSchedulerService {
         task.setAssignIpv6(assignIpv6 != null ? assignIpv6 : false);
         task.setStatus(TaskStatusEnum.RUNNING.getStatus());
         task.setAttemptCount(0);
+        task.setSuccessCount(0);
         task.setCreateTime(LocalDateTime.now());
         taskMapper.insert(task);
 
@@ -269,10 +271,11 @@ public class TaskSchedulerService {
             }
 
             if (result.isSuccess()) {
-                completeTask(taskId, TaskStatusEnum.COMPLETED);
-                broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],架构:[%s] - 实例创建成功！IP:%s",
-                        user, region, arch, result.getPublicIp()));
-                String html = "🎉 <b>实例创建成功！</b>\n\n"
+                int successCount = incrementSuccessCount(taskId);
+                int targetCount = dto.getCreateNumbers() != null ? dto.getCreateNumbers() : 1;
+                broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],架构:[%s] - 实例创建成功(%d/%d)！IP:%s",
+                        user, region, arch, successCount, targetCount, result.getPublicIp()));
+                String html = "🎉 <b>实例创建成功！</b>（" + successCount + "/" + targetCount + "）\n\n"
                         + "👤 <b>租户：</b>" + user + "\n"
                         + "🌍 <b>区域：</b>" + region + "\n"
                         + "⚙️ <b>架构：</b>" + arch + "\n"
@@ -281,6 +284,15 @@ public class TaskSchedulerService {
                         + "🌐 <b>公网IP：</b><code>" + result.getPublicIp() + "</code>\n"
                         + "🔑 <b>密码：</b><code>" + result.getRootPassword() + "</code>";
                 notificationService.sendHtmlWithType(NotificationService.TYPE_TASK_RESULT, html);
+
+                if (successCount >= targetCount) {
+                    completeTask(taskId, TaskStatusEnum.COMPLETED);
+                    broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],架构:[%s] - 已达到目标数量(%d台)，任务完成！",
+                            user, region, arch, targetCount));
+                } else {
+                    broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],架构:[%s] - 还需创建 %d 台，[%d]秒后继续...",
+                            user, region, arch, targetCount - successCount, intervalSeconds));
+                }
             } else {
                 broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s] - 创建未成功，[%d]秒后将重试...",
                         user, region, arch, intervalSeconds));
@@ -301,6 +313,17 @@ public class TaskSchedulerService {
             return task.getAttemptCount();
         }
         return 0;
+    }
+
+    private int incrementSuccessCount(String taskId) {
+        OciCreateTask task = taskMapper.selectById(taskId);
+        if (task != null) {
+            int count = (task.getSuccessCount() != null ? task.getSuccessCount() : 0) + 1;
+            task.setSuccessCount(count);
+            taskMapper.updateById(task);
+            return count;
+        }
+        return 1;
     }
 
     private void completeTask(String taskId, TaskStatusEnum status) {
