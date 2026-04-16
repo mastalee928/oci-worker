@@ -388,9 +388,9 @@ async function performUpdate() {
         try {
           await request.get('/sys/glance')
           clearInterval(poll)
-          message.success({ content: '更新完成，3秒后刷新页面...', key: 'update' })
+          message.success({ content: '更新完成，3秒后跳转首页...', key: 'update' })
           updatePerforming.value = false
-          setTimeout(() => { window.location.reload() }, 3000)
+          setTimeout(() => { window.location.href = '/' }, 3000)
         } catch {
           if (attempts >= maxAttempts) {
             clearInterval(poll)
