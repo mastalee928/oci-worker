@@ -717,7 +717,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { ReloadOutlined, CloudServerOutlined, EditOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
 import {
@@ -815,6 +815,11 @@ const activeTenantData = computed(() => {
 function selectTenant(td: TenantData) {
   activeTenantId.value = td.tenant.id
   loadTenantInstances(td)
+  if (isMobile.value) {
+    nextTick(() => {
+      document.querySelector('.instance-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    })
+  }
 }
 
 const drawerVisible = ref(false)
