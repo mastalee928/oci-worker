@@ -2,6 +2,7 @@ package com.ociworker.service;
 
 import cn.hutool.core.collection.CollectionUtil;
 import cn.hutool.core.util.StrUtil;
+import com.oracle.bmc.ClientConfiguration;
 import com.oracle.bmc.Region;
 import com.oracle.bmc.auth.SimpleAuthenticationDetailsProvider;
 import com.oracle.bmc.core.BlockstorageClient;
@@ -82,13 +83,17 @@ public class OciClientService implements Closeable {
                 .region(Region.valueOf(ociCfg.getRegion()))
                 .build();
 
-        identityClient = IdentityClient.builder().build(provider);
-        computeClient = ComputeClient.builder().build(provider);
-        blockstorageClient = BlockstorageClient.builder().build(provider);
-        workRequestClient = WorkRequestClient.builder().build(provider);
-        virtualNetworkClient = VirtualNetworkClient.builder().build(provider);
-        monitoringClient = MonitoringClient.builder().build(provider);
-        networkLoadBalancerClient = NetworkLoadBalancerClient.builder().build(provider);
+        ClientConfiguration clientConfig = ClientConfiguration.builder()
+                .connectionTimeoutMillis(10_000)
+                .readTimeoutMillis(30_000)
+                .build();
+        identityClient = IdentityClient.builder().configuration(clientConfig).build(provider);
+        computeClient = ComputeClient.builder().configuration(clientConfig).build(provider);
+        blockstorageClient = BlockstorageClient.builder().configuration(clientConfig).build(provider);
+        workRequestClient = WorkRequestClient.builder().configuration(clientConfig).build(provider);
+        virtualNetworkClient = VirtualNetworkClient.builder().configuration(clientConfig).build(provider);
+        monitoringClient = MonitoringClient.builder().configuration(clientConfig).build(provider);
+        networkLoadBalancerClient = NetworkLoadBalancerClient.builder().configuration(clientConfig).build(provider);
         this.provider = provider;
         compartmentId = StrUtil.isBlank(ociCfg.getCompartmentId())
                 ? findRootCompartment(identityClient, provider.getTenantId())

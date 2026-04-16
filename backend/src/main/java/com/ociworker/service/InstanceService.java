@@ -11,6 +11,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
+import java.util.concurrent.*;
 import java.util.stream.Collectors;
 import java.util.LinkedHashSet;
 
@@ -35,30 +36,46 @@ public class InstanceService {
                 compartmentNameMap.put(c.getId(), c.getName());
             }
 
-            List<Map<String, Object>> result = new ArrayList<>();
+            List<Instance> allInstances = new ArrayList<>();
             for (var compartment : compartments) {
-                List<Instance> instances = client.listAllInstancesInCompartment(compartment.getId());
-                for (Instance inst : instances) {
-                    Map<String, Object> map = new LinkedHashMap<>();
-                    map.put("instanceId", inst.getId());
-                    map.put("name", inst.getDisplayName());
-                    map.put("region", inst.getRegion());
-                    map.put("shape", inst.getShape());
-                    map.put("state", inst.getLifecycleState().getValue());
-                    map.put("timeCreated", inst.getTimeCreated() != null ? inst.getTimeCreated().toString() : null);
-                    map.put("availabilityDomain", inst.getAvailabilityDomain());
-                    map.put("compartmentId", inst.getCompartmentId());
-                    map.put("compartmentName", compartmentNameMap.getOrDefault(inst.getCompartmentId(), "unknown"));
+                allInstances.addAll(client.listAllInstancesInCompartment(compartment.getId()));
+            }
 
-                    if (inst.getShapeConfig() != null) {
-                        map.put("ocpus", inst.getShapeConfig().getOcpus());
-                        map.put("memoryInGBs", inst.getShapeConfig().getMemoryInGBs());
-                    }
+            // Fetch public IPs in parallel
+            ExecutorService executor = Executors.newFixedThreadPool(Math.min(allInstances.size(), 8));
+            Map<String, Future<String>> ipFutures = new LinkedHashMap<>();
+            for (Instance inst : allInstances) {
+                ipFutures.put(inst.getId(), executor.submit(() -> {
+                    try { return client.getInstancePublicIp(inst); }
+                    catch (Exception e) { return null; }
+                }));
+            }
+            executor.shutdown();
 
-                    String publicIp = client.getInstancePublicIp(inst);
-                    map.put("publicIp", publicIp);
-                    result.add(map);
+            List<Map<String, Object>> result = new ArrayList<>();
+            for (Instance inst : allInstances) {
+                Map<String, Object> map = new LinkedHashMap<>();
+                map.put("instanceId", inst.getId());
+                map.put("name", inst.getDisplayName());
+                map.put("region", inst.getRegion());
+                map.put("shape", inst.getShape());
+                map.put("state", inst.getLifecycleState().getValue());
+                map.put("timeCreated", inst.getTimeCreated() != null ? inst.getTimeCreated().toString() : null);
+                map.put("availabilityDomain", inst.getAvailabilityDomain());
+                map.put("compartmentId", inst.getCompartmentId());
+                map.put("compartmentName", compartmentNameMap.getOrDefault(inst.getCompartmentId(), "unknown"));
+
+                if (inst.getShapeConfig() != null) {
+                    map.put("ocpus", inst.getShapeConfig().getOcpus());
+                    map.put("memoryInGBs", inst.getShapeConfig().getMemoryInGBs());
                 }
+
+                try {
+                    map.put("publicIp", ipFutures.get(inst.getId()).get(15, TimeUnit.SECONDS));
+                } catch (Exception e) {
+                    map.put("publicIp", null);
+                }
+                result.add(map);
             }
             return result;
         } catch (Exception e) {
