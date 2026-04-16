@@ -48,7 +48,7 @@ curl -fsSL https://get.docker.com | sh
 docker run -d \
   --name oci-worker-mysql \
   --restart always \
-  -p 3306:3306 \
+  -p 127.0.0.1:3306:3306 \
   -v /opt/oci-worker/data/mysql:/var/lib/mysql \
   -e MYSQL_ROOT_PASSWORD=root123 \
   -e MYSQL_DATABASE=oci_worker \
@@ -218,4 +218,5 @@ oci-worker/               # 源码目录
 - 因开机、换 IP 频率过高而导致的封号，使用者自行承担
 - 建议使用 Nginx 反向代理配置 HTTPS 访问
 - 建议使用密钥登录服务器，防止 SSH 爆破
+- MySQL 端口务必绑定 `127.0.0.1`，切勿暴露到公网，否则可能被勒索攻击清空数据
 - 首次安装会引导设置管理员账户，密码至少 6 位

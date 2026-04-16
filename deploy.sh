@@ -52,8 +52,7 @@ spring:
     password: ociworker123
   sql:
     init:
-      mode: always
-      platform: mysql
+      mode: never
 
 mybatis-plus:
   mapper-locations: classpath*:com/ociworker/mapper/xml/*.xml,classpath*:mapper/*.xml
