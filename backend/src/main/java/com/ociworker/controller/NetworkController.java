@@ -40,6 +40,13 @@ public class NetworkController {
         return ResponseData.ok();
     }
 
+    @PostMapping("/deleteSecurityRule")
+    public ResponseData<?> deleteSecurityRule(@RequestBody Map<String, String> params) {
+        networkService.deleteSecurityRule(params.get("id"), params.get("instanceId"),
+                params.get("direction"), Integer.parseInt(params.get("ruleIndex")));
+        return ResponseData.ok();
+    }
+
     @SuppressWarnings("unchecked")
     @PostMapping("/changeIp")
     public ResponseData<?> changeIp(@RequestBody Map<String, Object> params) {

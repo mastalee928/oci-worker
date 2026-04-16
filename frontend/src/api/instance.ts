@@ -36,6 +36,10 @@ export function addSecurityRule(data: any) {
   return request.post('/oci/network/addSecurityRule', data)
 }
 
+export function deleteSecurityRule(data: { id: string; instanceId: string; direction: string; ruleIndex: number }) {
+  return request.post('/oci/network/deleteSecurityRule', data)
+}
+
 export function getBootVolumes(data: { id: string; instanceId: string }) {
   return request.post('/oci/instance/bootVolumes', data)
 }

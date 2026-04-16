@@ -386,10 +386,26 @@
           </div>
           <a-tabs size="small">
             <a-tab-pane key="ingress" tab="入站规则">
-              <a-table :data-source="ingressRules" :columns="secColumns" size="small" :pagination="false" />
+              <a-table :data-source="ingressRules" :columns="secColumns" size="small" :pagination="false">
+                <template #bodyCell="{ column, index }">
+                  <template v-if="column.key === 'secAction'">
+                    <a-popconfirm title="确定删除该规则？" @confirm="handleDeleteSecurityRule('ingress', index)">
+                      <a-button type="link" danger size="small" :loading="deleteRuleLoading">删除</a-button>
+                    </a-popconfirm>
+                  </template>
+                </template>
+              </a-table>
             </a-tab-pane>
             <a-tab-pane key="egress" tab="出站规则">
-              <a-table :data-source="egressRules" :columns="secColumns" size="small" :pagination="false" />
+              <a-table :data-source="egressRules" :columns="secColumns" size="small" :pagination="false">
+                <template #bodyCell="{ column, index }">
+                  <template v-if="column.key === 'secAction'">
+                    <a-popconfirm title="确定删除该规则？" @confirm="handleDeleteSecurityRule('egress', index)">
+                      <a-button type="link" danger size="small" :loading="deleteRuleLoading">删除</a-button>
+                    </a-popconfirm>
+                  </template>
+                </template>
+              </a-table>
             </a-tab-pane>
           </a-tabs>
         </a-tab-pane>
@@ -637,7 +653,7 @@ import { ReloadOutlined, CloudServerOutlined, EditOutlined } from '@ant-design/i
 import { message, Modal } from 'ant-design-vue'
 import {
   getInstanceList, updateInstanceState, terminateInstance,
-  getSecurityRules, releaseAllPorts, addSecurityRule,
+  getSecurityRules, releaseAllPorts, addSecurityRule, deleteSecurityRule,
   getBootVolumes, updateBootVolume, getVcns,
   getTrafficData, changeIp,
   getInstanceNetworkDetail, addIpv6,
@@ -681,6 +697,7 @@ const secColumns = [
   { title: '来源/目的', dataIndex: 'source', key: 'source' },
   { title: '端口范围', dataIndex: 'portRange', key: 'portRange', width: 120 },
   { title: '描述', dataIndex: 'description', key: 'description', ellipsis: true },
+  { title: '操作', key: 'secAction', width: 80 },
 ]
 const volColumns = [
   { title: '名称', dataIndex: 'displayName', key: 'displayName' },
@@ -752,6 +769,7 @@ const networkDetail = ref<any>(null)
 const ipv6Loading = ref(false)
 const ephemeralIpLoading = ref(false)
 
+const deleteRuleLoading = ref(false)
 const addRuleVisible = ref(false)
 const addRuleLoading = ref(false)
 const ruleForm = reactive({ direction: 'ingress', protocol: 'TCP', source: '0.0.0.0/0', portMin: null as number | null, portMax: null as number | null, description: '' })
@@ -1065,6 +1083,25 @@ async function handleAddRule() {
     message.error(e?.message || '添加规则失败')
   } finally {
     addRuleLoading.value = false
+  }
+}
+
+async function handleDeleteSecurityRule(direction: string, ruleIndex: number) {
+  if (!currentInstance.value || !currentTenant.value) return
+  deleteRuleLoading.value = true
+  try {
+    await deleteSecurityRule({
+      id: currentTenant.value.id,
+      instanceId: currentInstance.value.instanceId,
+      direction,
+      ruleIndex,
+    })
+    message.success('规则已删除')
+    loadSecurityRules()
+  } catch (e: any) {
+    message.error(e?.message || '删除规则失败')
+  } finally {
+    deleteRuleLoading.value = false
   }
 }
 

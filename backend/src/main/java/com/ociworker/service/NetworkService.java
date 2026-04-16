@@ -222,6 +222,54 @@ public class NetworkService {
         }
     }
 
+    public void deleteSecurityRule(String userId, String instanceId, String direction, int ruleIndex) {
+        OciUser ociUser = userMapper.selectById(userId);
+        if (ociUser == null) throw new OciException("租户配置不存在");
+
+        try (OciClientService client = new OciClientService(buildDTO(ociUser))) {
+            String subnetId = getSubnetIdFromInstance(client, instanceId);
+            Subnet subnet = client.getVirtualNetworkClient().getSubnet(
+                    GetSubnetRequest.builder().subnetId(subnetId).build()
+            ).getSubnet();
+
+            String secListId = subnet.getSecurityListIds().get(0);
+            SecurityList secList = client.getVirtualNetworkClient().getSecurityList(
+                    GetSecurityListRequest.builder().securityListId(secListId).build()
+            ).getSecurityList();
+
+            if ("ingress".equalsIgnoreCase(direction)) {
+                List<IngressSecurityRule> rules = new ArrayList<>(secList.getIngressSecurityRules());
+                if (ruleIndex < 0 || ruleIndex >= rules.size()) throw new OciException("规则索引无效");
+                rules.remove(ruleIndex);
+                client.getVirtualNetworkClient().updateSecurityList(
+                        UpdateSecurityListRequest.builder()
+                                .securityListId(secListId)
+                                .updateSecurityListDetails(UpdateSecurityListDetails.builder()
+                                        .ingressSecurityRules(rules)
+                                        .egressSecurityRules(secList.getEgressSecurityRules())
+                                        .build())
+                                .build());
+            } else {
+                List<EgressSecurityRule> rules = new ArrayList<>(secList.getEgressSecurityRules());
+                if (ruleIndex < 0 || ruleIndex >= rules.size()) throw new OciException("规则索引无效");
+                rules.remove(ruleIndex);
+                client.getVirtualNetworkClient().updateSecurityList(
+                        UpdateSecurityListRequest.builder()
+                                .securityListId(secListId)
+                                .updateSecurityListDetails(UpdateSecurityListDetails.builder()
+                                        .ingressSecurityRules(secList.getIngressSecurityRules())
+                                        .egressSecurityRules(rules)
+                                        .build())
+                                .build());
+            }
+            log.info("Deleted {} security rule at index {} for instance {}", direction, ruleIndex, instanceId);
+        } catch (OciException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new OciException(tag(ociUser) + "删除安全规则失败: " + e.getMessage());
+        }
+    }
+
     public void changePublicIp(String userId, String instanceId, List<String> cidrFilters) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
