@@ -41,7 +41,7 @@
     </a-layout-sider>
 
     <a-layout class="content-layout">
-      <header class="app-header">
+      <header v-if="!isWebSSH" class="app-header">
         <div class="header-left">
           <button v-if="isMobile" class="header-btn trigger" @click="mobileMenuOpen = !mobileMenuOpen">
             <i class="ri-menu-line"></i>
@@ -99,6 +99,7 @@ onMounted(() => {
 onUnmounted(() => window.removeEventListener('resize', checkMobile))
 
 const currentRoute = computed(() => route.path.split('/')[1] || 'dashboard')
+const isWebSSH = computed(() => currentRoute.value === 'webssh')
 const currentTitle = computed(() => {
   const r = router.getRoutes().find(r => r.name === route.name)
   return (r?.meta?.title as string) || 'OCI Worker'

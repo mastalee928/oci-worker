@@ -1199,6 +1199,7 @@ function parseUrlLogin() {
 }
 
 function tryAutoLogin() {
+    if (location.pathname.indexOf('/webssh/') !== -1) return;
     var info = parseUrlLogin();
     if (!info) return;
 
