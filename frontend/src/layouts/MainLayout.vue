@@ -22,6 +22,7 @@
         <a-menu-item key="instance"><i class="ri-server-line menu-ri"></i><span>实例管理</span></a-menu-item>
         <a-menu-item key="task"><i class="ri-flashlight-line menu-ri"></i><span>开机任务</span></a-menu-item>
         <a-menu-item key="log"><i class="ri-file-list-3-line menu-ri"></i><span>日志查看</span></a-menu-item>
+        <a-menu-item key="webssh"><i class="ri-terminal-box-line menu-ri"></i><span>WebSSH</span></a-menu-item>
         <a-menu-item key="settings"><i class="ri-settings-4-line menu-ri"></i><span>系统设置</span></a-menu-item>
       </a-menu>
 
@@ -110,6 +111,7 @@ const pageTitleIcon = computed(() => {
     instance: 'ri-server-line',
     task: 'ri-flashlight-line',
     log: 'ri-file-list-3-line',
+    webssh: 'ri-terminal-box-line',
     settings: 'ri-settings-4-line',
     user: 'ri-group-line',
   }

@@ -55,6 +55,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '日志查看', icon: 'FileTextOutlined' },
       },
       {
+        path: 'webssh',
+        name: 'WebSSH',
+        component: () => import('../views/WebSSH.vue'),
+        meta: { title: 'WebSSH', icon: 'CodeOutlined' },
+      },
+      {
         path: 'settings',
         name: 'SystemSettings',
         component: () => import('../views/SystemSettings.vue'),

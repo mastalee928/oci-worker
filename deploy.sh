@@ -93,10 +93,30 @@ systemctl daemon-reload
 systemctl enable oci-worker
 systemctl restart oci-worker
 
+# 部署 WebSSH（需要 Docker）
+if command -v docker &>/dev/null; then
+    echo "[5/5] 部署 WebSSH..."
+    WEBSSH_DIR="/opt/oci-worker/webssh"
+    if [ -d "$WEBSSH_DIR" ] && [ -f "$WEBSSH_DIR/Dockerfile" ]; then
+        cd "$WEBSSH_DIR"
+        docker compose down 2>/dev/null || true
+        docker compose up -d --build
+        echo "WebSSH 已启动（端口 8008）"
+    else
+        echo "未找到 webssh 目录，跳过 WebSSH 部署"
+        echo "可手动部署: 将项目中 webssh/ 目录复制到 $WEBSSH_DIR 后运行 docker compose up -d --build"
+    fi
+else
+    echo "[5/5] 未安装 Docker，跳过 WebSSH 部署"
+    echo "如需 WebSSH，请先安装 Docker: curl -fsSL https://get.docker.com | sh"
+fi
+
+PUBLIC_IP=$(curl -s ifconfig.me)
 echo ""
 echo "=== 部署完成 ==="
-echo "应用地址: http://$(curl -s ifconfig.me):8818"
-echo "默认账号: admin / admin123"
+echo "OCI Worker: http://$PUBLIC_IP:8818"
+echo "默认账号:   admin / admin123"
+echo "WebSSH:     http://$PUBLIC_IP:8008"
 echo ""
 echo "常用命令:"
 echo "  查看状态: systemctl status oci-worker"
