@@ -1753,7 +1753,7 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   .instance-panel {
     position: fixed; inset: 0; z-index: 1000;
     background: var(--bg-main); border: none; border-radius: 0;
-    padding: 14px; padding-top: 56px; overflow-y: auto;
+    padding: 14px; padding-top: 96px; overflow-y: auto;
   }
   .instance-panel > .instance-panel-header {
     position: fixed; top: 0; left: 0; right: 0; z-index: 1001;
@@ -1763,15 +1763,14 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   }
   .instance-panel > .instance-panel-header .panel-title {
     display: flex; align-items: center;
-    padding: 10px 14px 6px;
+    padding: 12px 50px 6px 14px;
     font-size: 15px; font-weight: 600;
-    padding-right: 50px;
   }
   .instance-panel > .instance-panel-header .panel-actions {
-    padding: 0 14px 8px; gap: 6px;
+    padding: 0 14px 10px; gap: 6px;
   }
   .instance-panel > .instance-panel-header .panel-actions .ant-btn:last-child {
-    position: fixed; top: 8px; right: 10px; z-index: 1002;
+    position: fixed; top: 10px; right: 10px; z-index: 1002;
     width: 36px; height: 36px; font-size: 22px;
     display: flex; align-items: center; justify-content: center;
     color: #fff; background: rgba(255,255,255,0.12);
