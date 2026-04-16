@@ -34,6 +34,8 @@ public class ConsoleService {
     private String privateKeyPath;
 
     private final Map<String, ConsoleSession> activeSessions = new ConcurrentHashMap<>();
+    private volatile String cachedPublicIp;
+    private volatile long publicIpFetchedAt;
 
     public static class ConsoleSession {
         public String consoleConnectionId;
@@ -201,6 +203,10 @@ public class ConsoleService {
             result.put("tempPassword", tempPassword);
             result.put("sshCommand", sshCommand);
             result.put("state", active.getLifecycleState().getValue());
+            String publicIp = detectPublicIp();
+            if (publicIp != null) {
+                result.put("sshHost", publicIp);
+            }
 
             log.info("【串行控制台】连接已创建: {} 临时用户: {}", active.getId(), tempUser);
             return result;
@@ -374,6 +380,34 @@ public class ConsoleService {
             sb.append(chars.charAt(r.nextInt(chars.length())));
         }
         return sb.toString();
+    }
+
+    private String detectPublicIp() {
+        if (cachedPublicIp != null && System.currentTimeMillis() - publicIpFetchedAt < 3600_000) {
+            return cachedPublicIp;
+        }
+        String[] services = {"https://ifconfig.me/ip", "https://api.ipify.org", "https://checkip.amazonaws.com"};
+        for (String svc : services) {
+            try {
+                var client = java.net.http.HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(5)).build();
+                var req = java.net.http.HttpRequest.newBuilder().uri(java.net.URI.create(svc))
+                        .timeout(java.time.Duration.ofSeconds(5)).GET().build();
+                var resp = client.send(req, java.net.http.HttpResponse.BodyHandlers.ofString());
+                if (resp.statusCode() == 200) {
+                    String ip = resp.body().trim();
+                    if (ip.matches("^[0-9.:]+$")) {
+                        cachedPublicIp = ip;
+                        publicIpFetchedAt = System.currentTimeMillis();
+                        log.info("【串行控制台】检测到服务器公网IP: {}", ip);
+                        return ip;
+                    }
+                }
+            } catch (Exception e) {
+                log.debug("【串行控制台】从 {} 获取IP失败: {}", svc, e.getMessage());
+            }
+        }
+        log.warn("【串行控制台】无法检测服务器公网IP");
+        return null;
     }
 
     private ComputeClient buildComputeClient(OciUser ociUser) {
