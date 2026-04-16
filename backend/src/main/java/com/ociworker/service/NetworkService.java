@@ -89,6 +89,9 @@ public class NetworkService {
                 if (rule.getTcpOptions() != null && rule.getTcpOptions().getDestinationPortRange() != null) {
                     map.put("portRange", rule.getTcpOptions().getDestinationPortRange().getMin()
                             + "-" + rule.getTcpOptions().getDestinationPortRange().getMax());
+                } else if (rule.getUdpOptions() != null && rule.getUdpOptions().getDestinationPortRange() != null) {
+                    map.put("portRange", rule.getUdpOptions().getDestinationPortRange().getMin()
+                            + "-" + rule.getUdpOptions().getDestinationPortRange().getMax());
                 } else {
                     map.put("portRange", "all");
                 }
@@ -100,7 +103,15 @@ public class NetworkService {
                 map.put("protocol", rule.getProtocol());
                 map.put("source", rule.getDestination());
                 map.put("description", rule.getDescription());
-                map.put("portRange", "all");
+                if (rule.getTcpOptions() != null && rule.getTcpOptions().getDestinationPortRange() != null) {
+                    map.put("portRange", rule.getTcpOptions().getDestinationPortRange().getMin()
+                            + "-" + rule.getTcpOptions().getDestinationPortRange().getMax());
+                } else if (rule.getUdpOptions() != null && rule.getUdpOptions().getDestinationPortRange() != null) {
+                    map.put("portRange", rule.getUdpOptions().getDestinationPortRange().getMin()
+                            + "-" + rule.getUdpOptions().getDestinationPortRange().getMax());
+                } else {
+                    map.put("portRange", "all");
+                }
                 result.add(map);
             }
             return result;
@@ -124,13 +135,25 @@ public class NetworkService {
                     IngressSecurityRule.builder()
                             .source("0.0.0.0/0")
                             .protocol("all")
-                            .description("Allow all ingress")
+                            .description("Allow all IPv4 ingress")
+                            .build(),
+                    IngressSecurityRule.builder()
+                            .source("::/0")
+                            .sourceType(IngressSecurityRule.SourceType.CidrBlock)
+                            .protocol("all")
+                            .description("Allow all IPv6 ingress")
                             .build());
             List<EgressSecurityRule> egressRules = List.of(
                     EgressSecurityRule.builder()
                             .destination("0.0.0.0/0")
                             .protocol("all")
-                            .description("Allow all egress")
+                            .description("Allow all IPv4 egress")
+                            .build(),
+                    EgressSecurityRule.builder()
+                            .destination("::/0")
+                            .destinationType(EgressSecurityRule.DestinationType.CidrBlock)
+                            .protocol("all")
+                            .description("Allow all IPv6 egress")
                             .build());
 
             client.getVirtualNetworkClient().updateSecurityList(
@@ -201,11 +224,20 @@ public class NetworkService {
                                 .build());
             } else {
                 List<EgressSecurityRule> rules = new ArrayList<>(secList.getEgressSecurityRules());
-                rules.add(EgressSecurityRule.builder()
+                EgressSecurityRule.Builder egressBuilder = EgressSecurityRule.builder()
                         .destination(source != null ? source : "0.0.0.0/0")
                         .protocol(proto)
-                        .description(description)
-                        .build());
+                        .description(description);
+                if (("6".equals(proto) || "17".equals(proto)) && portMin != null && portMax != null) {
+                    PortRange range = PortRange.builder()
+                            .min(Integer.parseInt(portMin)).max(Integer.parseInt(portMax)).build();
+                    if ("6".equals(proto)) {
+                        egressBuilder.tcpOptions(TcpOptions.builder().destinationPortRange(range).build());
+                    } else {
+                        egressBuilder.udpOptions(UdpOptions.builder().destinationPortRange(range).build());
+                    }
+                }
+                rules.add(egressBuilder.build());
                 client.getVirtualNetworkClient().updateSecurityList(
                         UpdateSecurityListRequest.builder()
                                 .securityListId(secListId)
