@@ -23,7 +23,6 @@
         <a-menu-item key="task"><i class="ri-flashlight-line menu-ri"></i><span>开机任务</span></a-menu-item>
         <a-menu-item key="log"><i class="ri-file-list-3-line menu-ri"></i><span>日志查看</span></a-menu-item>
         <a-menu-item key="settings"><i class="ri-settings-4-line menu-ri"></i><span>系统设置</span></a-menu-item>
-        <a-menu-item key="backup"><i class="ri-database-2-line menu-ri"></i><span>备份恢复</span></a-menu-item>
       </a-menu>
 
       <div class="sidebar-footer">
@@ -112,7 +111,6 @@ const pageTitleIcon = computed(() => {
     task: 'ri-flashlight-line',
     log: 'ri-file-list-3-line',
     settings: 'ri-settings-4-line',
-    backup: 'ri-database-2-line',
     user: 'ri-group-line',
   }
   return icons[currentRoute.value] || 'ri-dashboard-3-line'

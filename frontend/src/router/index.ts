@@ -60,12 +60,6 @@ const routes: RouteRecordRaw[] = [
         component: () => import('../views/SystemSettings.vue'),
         meta: { title: '系统设置', icon: 'SettingOutlined' },
       },
-      {
-        path: 'backup',
-        name: 'BackupRestore',
-        component: () => import('../views/BackupRestore.vue'),
-        meta: { title: '备份恢复', icon: 'SaveOutlined' },
-      },
     ],
   },
 ]
