@@ -13,8 +13,7 @@
 
 <style scoped>
 .webssh-container {
-  height: calc(100vh - 64px);
-  margin: -24px;
+  height: 100%;
 }
 
 .webssh-iframe {
@@ -23,10 +22,4 @@
   border: none;
 }
 
-@media (max-width: 768px) {
-  .webssh-container {
-    height: calc(100vh - 56px);
-    margin: -16px;
-  }
-}
 </style>

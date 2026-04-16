@@ -63,7 +63,7 @@
           </button>
         </div>
       </header>
-      <div class="app-content">
+      <div :class="['app-content', { 'no-padding': isWebSSH }]">
         <router-view />
       </div>
     </a-layout>
@@ -336,6 +336,10 @@ function handleLogout() {
   overflow-y: auto;
   overflow-x: hidden;
   scroll-behavior: smooth;
+}
+.app-content.no-padding {
+  padding: 0;
+  overflow: hidden;
 }
 
 .mobile-overlay {

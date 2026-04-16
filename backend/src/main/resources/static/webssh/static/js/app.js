@@ -1199,24 +1199,17 @@ function parseUrlLogin() {
 }
 
 function tryAutoLogin() {
-    if (location.pathname.indexOf('/webssh/') !== -1) return;
+    if (window.self !== window.top) return;
+    if (location.pathname.indexOf('/webssh') !== -1) return;
     var info = parseUrlLogin();
     if (!info) return;
-
-    // Fill form
     document.getElementById('hostname').value = info.host;
     document.getElementById('port').value = info.port;
     document.getElementById('username').value = info.user;
     switchAuthTab('password');
     document.getElementById('password').value = info.pass;
-
-    // Clean URL without reload
     history.replaceState(null, '', '/');
-
-    // Auto connect after short delay
-    setTimeout(function () {
-        connectFromLogin();
-    }, 500);
+    setTimeout(function () { connectFromLogin(); }, 500);
 }
 
 // ==================== Init ====================
