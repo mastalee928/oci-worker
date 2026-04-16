@@ -1141,9 +1141,37 @@ function initSettings() {
     if (s.edgeScale && s.edgeScale !== 100) applyEdgeScale(s.edgeScale);
 }
 
+// ==================== Console Auto-Connect (via URL hash) ====================
+function tryConsoleConnect() {
+    var hash = window.location.hash;
+    if (!hash || hash.indexOf('console=1') === -1) return;
+    var params = {};
+    hash.replace(/^#/, '').split('&').forEach(function (p) {
+        var kv = p.split('=');
+        if (kv.length === 2) params[decodeURIComponent(kv[0])] = decodeURIComponent(kv[1]);
+    });
+    if (!params.host || !params.user) return;
+    window.location.hash = '';
+    var host = params.host;
+    var port = parseInt(params.port) || 22;
+    var user = params.user;
+    var pass = params.pass || '';
+    var sshInfo = buildSSHInfoDirect(host, port, user, pass);
+    var session = createSession(host, port, user, sshInfo);
+    showView('terminalView');
+    switchTab(sessions.length - 1);
+    setTimeout(function () {
+        try { session.fitAddon.fit(); } catch (e) {}
+        connectSession(session);
+        setStatus('', '就绪');
+        renderScriptBookmarks();
+    }, 300);
+}
+
 // ==================== Init ====================
 initTheme();
 initSettings();
 initSysInterval();
 renderConnBookmarks();
 loadProxyConfig();
+tryConsoleConnect();

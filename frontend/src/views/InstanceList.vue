@@ -889,10 +889,9 @@ async function handleCreateConsole() {
 
 function openConsoleWebSSH() {
   if (!consoleData.value) return
-  const { tempUser, tempPassword, sshHost } = consoleData.value
-  const host = sshHost || window.location.hostname
-  const url = `https://webssh.oci.ee/${host}/22/${tempUser}/${tempPassword}`
-  window.open(url, '_blank')
+  const { tempUser, tempPassword } = consoleData.value
+  const hash = `#console=1&host=127.0.0.1&port=22&user=${encodeURIComponent(tempUser)}&pass=${encodeURIComponent(tempPassword)}`
+  window.open('/webssh/index.html' + hash, '_blank')
 }
 
 async function handleDeleteConsole() {
