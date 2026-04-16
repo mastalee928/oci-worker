@@ -32,6 +32,8 @@ public class WebMvcConfig implements WebMvcConfigurer {
 
     @Override
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
+        registry.addResourceHandler("/webssh/**")
+                .addResourceLocations("classpath:/static/webssh/");
         registry.addResourceHandler("/**")
                 .addResourceLocations("classpath:/dist/");
     }
