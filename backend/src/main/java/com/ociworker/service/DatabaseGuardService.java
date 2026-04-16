@@ -183,9 +183,9 @@ public class DatabaseGuardService {
     }
 
     /**
-     * 每天凌晨3点自动备份
+     * 每6小时自动备份（00:00, 06:00, 12:00, 18:00）
      */
-    @Scheduled(cron = "0 0 3 * * ?")
+    @Scheduled(cron = "0 0 */6 * * ?")
     public void autoBackup() {
         log.info("【数据库守护】开始自动备份...");
         try {
@@ -212,6 +212,7 @@ public class DatabaseGuardService {
         StringBuilder sb = new StringBuilder();
         sb.append("-- OCI Worker Auto Backup\n");
         sb.append("-- Generated: ").append(LocalDateTime.now()).append("\n\n");
+        sb.append("SET NAMES utf8mb4;\n");
         sb.append("SET FOREIGN_KEY_CHECKS=0;\n\n");
 
         try (Connection conn = dataSource.getConnection()) {

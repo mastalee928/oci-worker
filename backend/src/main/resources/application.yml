@@ -16,8 +16,7 @@ spring:
     password: ociworker123
   sql:
     init:
-      mode: always
-      platform: mysql
+      mode: never
   ai:
     openai:
       api-key: sk-xxx
