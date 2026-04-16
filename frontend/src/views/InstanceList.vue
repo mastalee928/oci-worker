@@ -1753,9 +1753,19 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   .instance-panel {
     position: fixed; inset: 0; z-index: 1000;
     background: var(--bg-main); border: none; border-radius: 0;
-    padding: 14px; overflow-y: auto;
+    padding: 50px 14px 14px; overflow-y: auto;
   }
-  .instance-panel-header { flex-direction: row; align-items: center; }
+  .instance-panel > .instance-panel-header {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 1001;
+    background: var(--bg-card); border-bottom: 1px solid var(--border);
+    padding: 10px 14px; margin-bottom: 0;
+    flex-direction: row; align-items: center;
+  }
+  .instance-panel > .instance-panel-header .panel-actions .ant-btn:last-child {
+    width: 32px; height: 32px; font-size: 20px;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--text-main); border: 1px solid var(--border); border-radius: 8px;
+  }
   .instance-grid { grid-template-columns: 1fr; gap: 10px; }
   .instance-card { padding: 14px; border-radius: 12px; }
 }
