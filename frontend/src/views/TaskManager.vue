@@ -50,6 +50,7 @@
         </template>
         <template v-if="column.key === 'action'">
           <a-space>
+            <a-button v-if="record.status === 'RUNNING' || record.status === 'STOPPED'" type="link" size="small" @click="showEditModal(record)">修改</a-button>
             <a-popconfirm v-if="record.status === 'RUNNING'" title="确定停止任务?" @confirm="handleStop(record)">
               <a-button type="link" danger size="small" :loading="actionLoading[record.id]">停止</a-button>
             </a-popconfirm>
@@ -85,6 +86,7 @@
           <div class="mobile-card-row"><span class="label">创建</span><span class="value">{{ task.createTime }}</span></div>
         </div>
         <div class="mobile-card-actions">
+          <a-button v-if="task.status === 'RUNNING' || task.status === 'STOPPED'" type="link" size="small" @click="showEditModal(task)">修改</a-button>
           <a-popconfirm v-if="task.status === 'RUNNING'" title="确定停止？" @confirm="handleStop(task)">
             <a-button type="link" danger size="small" :loading="actionLoading[task.id]">停止</a-button>
           </a-popconfirm>
@@ -184,6 +186,76 @@
         </a-form-item>
       </a-form>
     </a-modal>
+
+    <!-- 编辑任务弹窗 -->
+    <a-modal v-model:open="editVisible" title="编辑开机任务" :width="isMobile ? '100%' : 600" @ok="handleEdit"
+      :confirm-loading="editLoading" :mask-closable="false">
+      <a-form :model="editForm" layout="vertical">
+        <a-form-item label="机器规格 (Shape)">
+          <a-select v-model:value="editForm.architecture">
+            <a-select-option value="ARM">ARM (A1.Flex)</a-select-option>
+            <a-select-option value="AMD">AMD (E2.1.Micro)</a-select-option>
+          </a-select>
+        </a-form-item>
+        <a-form-item label="操作系统">
+          <a-select v-model:value="editForm.operationSystem">
+            <a-select-option value="Ubuntu">Ubuntu（最新版）</a-select-option>
+            <a-select-option value="Ubuntu 24.04">Ubuntu 24.04 LTS</a-select-option>
+            <a-select-option value="Ubuntu 22.04">Ubuntu 22.04 LTS</a-select-option>
+            <a-select-option value="Ubuntu 20.04">Ubuntu 20.04 LTS</a-select-option>
+            <a-select-option value="Oracle Linux">Oracle Linux</a-select-option>
+            <a-select-option value="CentOS">CentOS</a-select-option>
+          </a-select>
+        </a-form-item>
+        <a-row :gutter="12">
+          <a-col :xs="12" :sm="8">
+            <a-form-item label="OCPU 数量">
+              <a-input-number v-model:value="editForm.ocpus" :min="1" :max="4" :step="1" style="width: 100%" />
+            </a-form-item>
+          </a-col>
+          <a-col :xs="12" :sm="8">
+            <a-form-item label="内存 (GB)">
+              <a-input-number v-model:value="editForm.memory" :min="1" :max="24" :step="1" style="width: 100%" />
+            </a-form-item>
+          </a-col>
+          <a-col :xs="12" :sm="8">
+            <a-form-item label="磁盘 (GB)">
+              <a-input-number v-model:value="editForm.disk" :min="47" :max="200" :step="1" style="width: 100%" />
+            </a-form-item>
+          </a-col>
+        </a-row>
+        <a-row :gutter="12">
+          <a-col :xs="12" :sm="8">
+            <a-form-item label="开机数量">
+              <a-input-number v-model:value="editForm.createNumbers" :min="1" :max="5" style="width: 100%" />
+            </a-form-item>
+          </a-col>
+          <a-col :xs="12" :sm="8">
+            <a-form-item label="重试间隔 (秒)">
+              <a-input-number v-model:value="editForm.interval" :min="10" :max="600" style="width: 100%" />
+            </a-form-item>
+          </a-col>
+          <a-col :xs="24" :sm="8">
+            <a-form-item label="Root 密码">
+              <a-input-password v-model:value="editForm.rootPassword" placeholder="留空=保持不变" />
+            </a-form-item>
+          </a-col>
+        </a-row>
+        <div style="display: flex; align-items: center; gap: 32px; margin-bottom: 16px">
+          <span style="display: inline-flex; align-items: center; gap: 8px">
+            <a-switch v-model:checked="editForm.assignPublicIp" />
+            <span>公网IP</span>
+          </span>
+          <span style="display: inline-flex; align-items: center; gap: 8px">
+            <a-switch v-model:checked="editForm.assignIpv6" />
+            <span>IPv6</span>
+          </span>
+        </div>
+        <a-form-item label="自定义开机脚本（cloud-init）">
+          <a-textarea v-model:value="editForm.customScript" placeholder="开机后自动执行的 Shell 脚本，留空则不执行" :auto-size="{ minRows: 3, maxRows: 8 }" />
+        </a-form-item>
+      </a-form>
+    </a-modal>
   </div>
 </template>
 
@@ -191,7 +263,7 @@
 import { ref, reactive, onMounted, onUnmounted } from 'vue'
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
-import { getTaskList, createTask, stopTask, hasRunningTask, resumeTask, deleteTask, batchStopTask, batchResumeTask } from '../api/task'
+import { getTaskList, createTask, updateTask, stopTask, hasRunningTask, resumeTask, deleteTask, batchStopTask, batchResumeTask } from '../api/task'
 import { getTenantList } from '../api/tenant'
 import { getAvailableShapes } from '../api/instance'
 
@@ -212,7 +284,7 @@ const columns = [
   { title: '状态', dataIndex: 'status', key: 'status', width: 100 },
   { title: '尝试次数', dataIndex: 'attemptCount', key: 'attemptCount', width: 90 },
   { title: '创建时间', dataIndex: 'createTime', key: 'createTime', width: 180 },
-  { title: '操作', key: 'action', width: 160 },
+  { title: '操作', key: 'action', width: 200 },
 ]
 
 const selectedRowKeys = ref<string[]>([])
@@ -238,6 +310,47 @@ const createForm = reactive({
   ocpus: 1, memory: 6, disk: 50, createNumbers: 1, interval: 60, rootPassword: '',
   customScript: '', assignPublicIp: true, assignIpv6: false,
 })
+
+const editVisible = ref(false)
+const editLoading = ref(false)
+const editForm = reactive({
+  taskId: '',
+  architecture: 'ARM', operationSystem: 'Ubuntu',
+  ocpus: 1, memory: 6, disk: 50, createNumbers: 1, interval: 60, rootPassword: '',
+  customScript: '', assignPublicIp: true, assignIpv6: false,
+})
+
+function showEditModal(record: any) {
+  Object.assign(editForm, {
+    taskId: record.id,
+    architecture: record.architecture,
+    operationSystem: record.operationSystem || 'Ubuntu',
+    ocpus: record.ocpus,
+    memory: record.memory,
+    disk: record.disk,
+    createNumbers: record.createNumbers,
+    interval: record.intervalSeconds,
+    rootPassword: '',
+    customScript: record.customScript || '',
+    assignPublicIp: record.assignPublicIp ?? true,
+    assignIpv6: record.assignIpv6 ?? false,
+  })
+  editVisible.value = true
+}
+
+async function handleEdit() {
+  editLoading.value = true
+  try {
+    await updateTask(editForm)
+    message.success('任务已更新')
+    editVisible.value = false
+    loadData()
+  } catch (e: any) {
+    message.error(e?.message || '更新任务失败')
+  } finally {
+    editLoading.value = false
+  }
+}
 
 function generateRandomPwd() {
   const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$%'

@@ -2,6 +2,7 @@ package com.ociworker.controller;
 
 import com.ociworker.model.params.CreateTaskParams;
 import com.ociworker.model.params.PageParams;
+import com.ociworker.model.params.UpdateTaskParams;
 import com.ociworker.model.vo.ResponseData;
 import com.ociworker.service.TaskSchedulerService;
 import jakarta.annotation.Resource;
@@ -31,6 +32,18 @@ public class TaskController {
     public ResponseData<?> create(@RequestBody @Valid CreateTaskParams params) {
         taskSchedulerService.createTask(
                 params.getUserId(), params.getArchitecture(),
+                params.getOcpus(), params.getMemory(), params.getDisk(),
+                params.getCreateNumbers(), params.getInterval(),
+                params.getRootPassword(), params.getOperationSystem(),
+                params.getCustomScript(),
+                params.getAssignPublicIp(), params.getAssignIpv6());
+        return ResponseData.ok();
+    }
+
+    @PostMapping("/update")
+    public ResponseData<?> update(@RequestBody @Valid UpdateTaskParams params) {
+        taskSchedulerService.updateTask(
+                params.getTaskId(), params.getArchitecture(),
                 params.getOcpus(), params.getMemory(), params.getDisk(),
                 params.getCreateNumbers(), params.getInterval(),
                 params.getRootPassword(), params.getOperationSystem(),

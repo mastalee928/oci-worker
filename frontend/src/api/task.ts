@@ -12,6 +12,10 @@ export function createBatchTask(data: any) {
   return request.post('/oci/task/createBatch', data)
 }
 
+export function updateTask(data: any) {
+  return request.post('/oci/task/update', data)
+}
+
 export function stopTask(data: { taskId: string; userId: string }) {
   return request.post('/oci/task/stop', data)
 }

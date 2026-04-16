@@ -118,6 +118,9 @@ public class TaskSchedulerService {
             map.put("intervalSeconds", task.getIntervalSeconds());
             map.put("createNumbers", task.getCreateNumbers());
             map.put("operationSystem", task.getOperationSystem());
+            map.put("customScript", task.getCustomScript());
+            map.put("assignPublicIp", task.getAssignPublicIp() != null ? task.getAssignPublicIp() : true);
+            map.put("assignIpv6", task.getAssignIpv6() != null ? task.getAssignIpv6() : false);
             map.put("status", task.getStatus());
             map.put("attemptCount", task.getAttemptCount());
             map.put("successCount", task.getSuccessCount() != null ? task.getSuccessCount() : 0);
@@ -190,6 +193,49 @@ public class TaskSchedulerService {
 
         broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s] - 任务已恢复运行",
                 ociUser.getUsername(), ociUser.getOciRegion(), task.getArchitecture()));
+    }
+
+    public void updateTask(String taskId, String architecture, Double ocpus, Double memory,
+                           Integer disk, Integer createNumbers, Integer interval,
+                           String rootPassword, String operationSystem, String customScript,
+                           Boolean assignPublicIp, Boolean assignIpv6) {
+        OciCreateTask task = taskMapper.selectById(taskId);
+        if (task == null) throw new OciException("任务不存在");
+
+        boolean wasRunning = TaskStatusEnum.RUNNING.getStatus().equals(task.getStatus());
+        if (wasRunning) {
+            ScheduledFuture<?> future = taskMap.get(taskId);
+            if (future != null) {
+                future.cancel(false);
+                taskMap.remove(taskId);
+            }
+        }
+
+        if (architecture != null) task.setArchitecture(architecture);
+        if (ocpus != null) task.setOcpus(ocpus);
+        if (memory != null) task.setMemory(memory);
+        if (disk != null) task.setDisk(disk);
+        if (createNumbers != null) task.setCreateNumbers(createNumbers);
+        if (interval != null) task.setIntervalSeconds(interval);
+        if (rootPassword != null && !rootPassword.isBlank()) task.setRootPassword(rootPassword);
+        if (operationSystem != null) task.setOperationSystem(operationSystem);
+        if (customScript != null) task.setCustomScript(customScript);
+        if (assignPublicIp != null) task.setAssignPublicIp(assignPublicIp);
+        if (assignIpv6 != null) task.setAssignIpv6(assignIpv6);
+        taskMapper.updateById(task);
+
+        if (wasRunning) {
+            OciUser ociUser = userMapper.selectById(task.getUserId());
+            if (ociUser != null) {
+                SysUserDTO dto = buildSysUserDTO(ociUser, task);
+                scheduleTask(task.getId(), dto, task.getIntervalSeconds());
+            }
+        }
+
+        OciUser user = userMapper.selectById(task.getUserId());
+        String name = user != null ? user.getUsername() : "unknown";
+        broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s] - 任务已编辑%s",
+                name, task.getOciRegion(), wasRunning ? "（自动重启调度）" : ""));
     }
 
     public void deleteTask(String taskId) {
