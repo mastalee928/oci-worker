@@ -34,6 +34,10 @@ jobs:
           distribution: 'temurin'
           cache: 'maven'
 
+      - name: Embed build info
+        run: |
+          echo "${{ github.sha }}" > backend/src/main/resources/build-commit.txt
+
       - name: Build Backend JAR
         working-directory: backend
         run: mvn clean package -DskipTests -q

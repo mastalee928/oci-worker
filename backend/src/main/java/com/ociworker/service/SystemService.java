@@ -42,8 +42,25 @@ public class SystemService {
     private static final String JAR_PATH = "/opt/oci-worker/oci-worker.jar";
     private static final String ASSET_NAME = "oci-worker-1.0.0.jar";
 
+    private String currentCommit;
+
+    @jakarta.annotation.PostConstruct
+    public void init() {
+        try (var is = getClass().getClassLoader().getResourceAsStream("build-commit.txt")) {
+            if (is != null) {
+                currentCommit = new String(is.readAllBytes()).trim();
+                if (currentCommit.length() > 7) currentCommit = currentCommit.substring(0, 7);
+                log.info("Current build commit: {}", currentCommit);
+            }
+        } catch (Exception e) {
+            log.warn("Could not read build-commit.txt: {}", e.getMessage());
+        }
+    }
+
     public Map<String, Object> checkUpdate() {
         Map<String, Object> result = new LinkedHashMap<>();
+
+        result.put("currentCommit", currentCommit != null ? currentCommit : "dev");
 
         File jarFile = new File(JAR_PATH);
         if (jarFile.exists()) {
@@ -68,16 +85,18 @@ public class SystemService {
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
             String body = response.body();
 
-            Matcher sizeMatcher = Pattern.compile("\"name\"\\s*:\\s*\"" + Pattern.quote(ASSET_NAME) + "\"[^}]*\"size\"\\s*:\\s*(\\d+)").matcher(body);
-            if (sizeMatcher.find()) {
-                long remoteSize = Long.parseLong(sizeMatcher.group(1));
-                result.put("latestSize", remoteSize);
-                result.put("latestSizeHuman", humanReadableSize(remoteSize));
-                result.put("hasUpdate", jarFile.exists() && remoteSize != jarFile.length());
+            Matcher sizeMatcher = Pattern.compile("\"size\"\\s*:\\s*(\\d+)").matcher(body);
+            long maxSize = 0;
+            while (sizeMatcher.find()) {
+                long s = Long.parseLong(sizeMatcher.group(1));
+                if (s > maxSize) maxSize = s;
+            }
+            if (maxSize > 0) {
+                result.put("latestSize", maxSize);
+                result.put("latestSizeHuman", humanReadableSize(maxSize));
             } else {
                 result.put("latestSize", -1);
                 result.put("latestSizeHuman", "未知");
-                result.put("hasUpdate", false);
             }
 
             Matcher dateMatcher = Pattern.compile("\"published_at\"\\s*:\\s*\"([^\"]+)\"").matcher(body);
@@ -85,17 +104,26 @@ public class SystemService {
                 result.put("publishedAt", dateMatcher.group(1));
             }
 
-            // Extract commit hash from release body: "Auto-built from commit <sha>"
+            String latestCommit = null;
             Matcher commitMatcher = Pattern.compile("commit\\s+([0-9a-f]{7,40})").matcher(body);
             if (commitMatcher.find()) {
                 String fullHash = commitMatcher.group(1);
-                result.put("latestCommit", fullHash.length() > 7 ? fullHash.substring(0, 7) : fullHash);
+                latestCommit = fullHash.length() > 7 ? fullHash.substring(0, 7) : fullHash;
+                result.put("latestCommit", latestCommit);
             }
 
-            // Extract release tag_name as version
             Matcher tagMatcher = Pattern.compile("\"tag_name\"\\s*:\\s*\"([^\"]+)\"").matcher(body);
             if (tagMatcher.find()) {
                 result.put("latestTag", tagMatcher.group(1));
+            }
+
+            if (currentCommit != null && latestCommit != null) {
+                result.put("hasUpdate", !currentCommit.equals(latestCommit));
+            } else {
+                result.put("hasUpdate", false);
+                if (currentCommit == null) {
+                    result.put("notice", "当前为开发版本，无法对比commit");
+                }
             }
         } catch (Exception e) {
             log.warn("Failed to check update: {}", e.getMessage());

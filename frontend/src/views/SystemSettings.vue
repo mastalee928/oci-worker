@@ -86,19 +86,19 @@
           <a-spin :spinning="updateChecking">
             <a-descriptions :column="1" bordered size="small" v-if="updateInfo">
               <a-descriptions-item label="当前版本">
-                <span style="font-weight: 600; color: var(--primary)">{{ updateInfo.currentBuildTime || '—' }}</span>
-                <span style="margin-left: 8px; color: var(--text-sub); font-size: 12px">({{ updateInfo.currentSizeHuman }})</span>
+                <a-tag :color="updateInfo.currentCommit === 'dev' ? 'orange' : 'green'" style="margin-right: 6px">{{ updateInfo.currentCommit }}</a-tag>
+                <span v-if="updateInfo.currentBuildTime" style="color: var(--text-sub); font-size: 12px">{{ updateInfo.currentBuildTime }}</span>
+                <span v-if="updateInfo.currentSizeHuman" style="margin-left: 8px; color: var(--text-sub); font-size: 12px">({{ updateInfo.currentSizeHuman }})</span>
               </a-descriptions-item>
               <a-descriptions-item label="最新版本">
-                <span v-if="updateInfo.latestCommit" style="font-weight: 600">
-                  <a-tag color="blue" style="margin-right: 6px">{{ updateInfo.latestCommit }}</a-tag>
-                </span>
-                <span v-if="updateInfo.publishedAt">{{ formatPublishDate(updateInfo.publishedAt) }}</span>
-                <span style="margin-left: 8px; color: var(--text-sub); font-size: 12px">({{ updateInfo.latestSizeHuman }})</span>
+                <a-tag v-if="updateInfo.latestCommit" color="blue" style="margin-right: 6px">{{ updateInfo.latestCommit }}</a-tag>
+                <span v-if="updateInfo.publishedAt" style="font-size: 12px">{{ formatPublishDate(updateInfo.publishedAt) }}</span>
+                <span v-if="updateInfo.latestSizeHuman" style="margin-left: 8px; color: var(--text-sub); font-size: 12px">({{ updateInfo.latestSizeHuman }})</span>
               </a-descriptions-item>
               <a-descriptions-item label="状态">
                 <a-badge v-if="updateInfo.hasUpdate" status="warning" text="有新版本可用" />
                 <a-badge v-else-if="updateInfo.error" status="error" :text="'检查失败: ' + updateInfo.error" />
+                <a-badge v-else-if="updateInfo.notice" status="processing" :text="updateInfo.notice" />
                 <a-badge v-else status="success" text="已是最新版本" />
               </a-descriptions-item>
             </a-descriptions>
