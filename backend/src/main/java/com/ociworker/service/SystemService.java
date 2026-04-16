@@ -49,6 +49,10 @@ public class SystemService {
         if (jarFile.exists()) {
             result.put("currentSize", jarFile.length());
             result.put("currentSizeHuman", humanReadableSize(jarFile.length()));
+            long lastModified = jarFile.lastModified();
+            var ldt = java.time.Instant.ofEpochMilli(lastModified)
+                    .atZone(java.time.ZoneId.of("Asia/Shanghai"));
+            result.put("currentBuildTime", ldt.format(java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")));
         } else {
             result.put("currentSize", -1);
             result.put("currentSizeHuman", "未找到");
@@ -79,6 +83,19 @@ public class SystemService {
             Matcher dateMatcher = Pattern.compile("\"published_at\"\\s*:\\s*\"([^\"]+)\"").matcher(body);
             if (dateMatcher.find()) {
                 result.put("publishedAt", dateMatcher.group(1));
+            }
+
+            // Extract commit hash from release body: "Auto-built from commit <sha>"
+            Matcher commitMatcher = Pattern.compile("commit\\s+([0-9a-f]{7,40})").matcher(body);
+            if (commitMatcher.find()) {
+                String fullHash = commitMatcher.group(1);
+                result.put("latestCommit", fullHash.length() > 7 ? fullHash.substring(0, 7) : fullHash);
+            }
+
+            // Extract release tag_name as version
+            Matcher tagMatcher = Pattern.compile("\"tag_name\"\\s*:\\s*\"([^\"]+)\"").matcher(body);
+            if (tagMatcher.find()) {
+                result.put("latestTag", tagMatcher.group(1));
             }
         } catch (Exception e) {
             log.warn("Failed to check update: {}", e.getMessage());

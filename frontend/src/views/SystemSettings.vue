@@ -85,9 +85,17 @@
         <a-card title="一键更新" class="settings-card-wide">
           <a-spin :spinning="updateChecking">
             <a-descriptions :column="1" bordered size="small" v-if="updateInfo">
-              <a-descriptions-item label="当前版本大小">{{ updateInfo.currentSizeHuman }}</a-descriptions-item>
-              <a-descriptions-item label="最新版本大小">{{ updateInfo.latestSizeHuman }}</a-descriptions-item>
-              <a-descriptions-item label="发布时间" v-if="updateInfo.publishedAt">{{ formatPublishDate(updateInfo.publishedAt) }}</a-descriptions-item>
+              <a-descriptions-item label="当前版本">
+                <span style="font-weight: 600; color: var(--primary)">{{ updateInfo.currentBuildTime || '—' }}</span>
+                <span style="margin-left: 8px; color: var(--text-sub); font-size: 12px">({{ updateInfo.currentSizeHuman }})</span>
+              </a-descriptions-item>
+              <a-descriptions-item label="最新版本">
+                <span v-if="updateInfo.latestCommit" style="font-weight: 600">
+                  <a-tag color="blue" style="margin-right: 6px">{{ updateInfo.latestCommit }}</a-tag>
+                </span>
+                <span v-if="updateInfo.publishedAt">{{ formatPublishDate(updateInfo.publishedAt) }}</span>
+                <span style="margin-left: 8px; color: var(--text-sub); font-size: 12px">({{ updateInfo.latestSizeHuman }})</span>
+              </a-descriptions-item>
               <a-descriptions-item label="状态">
                 <a-badge v-if="updateInfo.hasUpdate" status="warning" text="有新版本可用" />
                 <a-badge v-else-if="updateInfo.error" status="error" :text="'检查失败: ' + updateInfo.error" />
