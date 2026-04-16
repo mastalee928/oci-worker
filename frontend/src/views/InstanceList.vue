@@ -419,6 +419,16 @@
               </template>
             </template>
           </a-table>
+          <div v-if="bootVolumes.length > 0" style="margin-top: 20px">
+            <div style="font-size: 13px; color: var(--text-sub); margin-bottom: 10px">快捷预设（性能 120 VPUs/GB）</div>
+            <a-space wrap>
+              <a-popconfirm v-for="size in [50, 100, 150, 200]" :key="size"
+                :title="`确定将引导卷调整为 ${size} GB / 120 VPUs？`"
+                @confirm="applyVolumePreset(size)">
+                <a-button :loading="editVolLoading">{{ size }} GB</a-button>
+              </a-popconfirm>
+            </a-space>
+          </div>
         </a-tab-pane>
 
         <a-tab-pane key="network" tab="网络">
@@ -1136,6 +1146,27 @@ async function handleEditVolume() {
     loadBootVolumes()
   } catch (e: any) {
     message.error(e?.message || '更新引导卷失败')
+  } finally {
+    editVolLoading.value = false
+  }
+}
+
+async function applyVolumePreset(size: number) {
+  if (bootVolumes.value.length === 0) return
+  const vol = bootVolumes.value[0]
+  editVolLoading.value = true
+  try {
+    await updateBootVolume({
+      id: currentTenant.value.id,
+      bootVolumeId: vol.id,
+      displayName: vol.displayName,
+      sizeInGBs: size,
+      vpusPerGB: 120,
+    })
+    message.success(`引导卷已调整为 ${size} GB / 120 VPUs`)
+    loadBootVolumes()
+  } catch (e: any) {
+    message.error(e?.message || '调整引导卷失败')
   } finally {
     editVolLoading.value = false
   }
