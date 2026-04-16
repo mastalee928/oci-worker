@@ -717,7 +717,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
 import { ReloadOutlined, CloudServerOutlined, EditOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
 import {
@@ -815,11 +815,6 @@ const activeTenantData = computed(() => {
 function selectTenant(td: TenantData) {
   activeTenantId.value = td.tenant.id
   loadTenantInstances(td)
-  if (isMobile.value) {
-    nextTick(() => {
-      document.querySelector('.instance-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-    })
-  }
 }
 
 const drawerVisible = ref(false)
@@ -1755,8 +1750,12 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   .tenant-card { padding: 14px; border-radius: 12px; }
   .tc-icon { font-size: 22px; }
   .tc-name { font-size: 13px; }
-  .instance-panel { padding: 14px; border-radius: 12px; }
-  .instance-panel-header { flex-direction: column; align-items: flex-start; }
+  .instance-panel {
+    position: fixed; inset: 0; z-index: 1000;
+    background: var(--bg-main); border: none; border-radius: 0;
+    padding: 14px; overflow-y: auto;
+  }
+  .instance-panel-header { flex-direction: row; align-items: center; }
   .instance-grid { grid-template-columns: 1fr; gap: 10px; }
   .instance-card { padding: 14px; border-radius: 12px; }
 }
