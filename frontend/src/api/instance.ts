@@ -32,6 +32,10 @@ export function releaseAllPorts(data: { id: string; instanceId: string }) {
   return request.post('/oci/network/releaseAllPorts', data)
 }
 
+export function releaseOciPreset(data: { id: string; instanceId: string }) {
+  return request.post('/oci/network/releaseOciPreset', data)
+}
+
 export function addSecurityRule(data: any) {
   return request.post('/oci/network/addSecurityRule', data)
 }

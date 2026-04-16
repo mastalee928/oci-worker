@@ -131,30 +131,41 @@ public class NetworkService {
             ).getSubnet();
 
             String secListId = subnet.getSecurityListIds().get(0);
-            List<IngressSecurityRule> ingressRules = List.of(
-                    IngressSecurityRule.builder()
-                            .source("0.0.0.0/0")
-                            .protocol("all")
-                            .description("Allow all IPv4 ingress")
-                            .build(),
-                    IngressSecurityRule.builder()
-                            .source("::/0")
-                            .sourceType(IngressSecurityRule.SourceType.CidrBlock)
-                            .protocol("all")
-                            .description("Allow all IPv6 ingress")
-                            .build());
-            List<EgressSecurityRule> egressRules = List.of(
-                    EgressSecurityRule.builder()
-                            .destination("0.0.0.0/0")
-                            .protocol("all")
-                            .description("Allow all IPv4 egress")
-                            .build(),
-                    EgressSecurityRule.builder()
-                            .destination("::/0")
-                            .destinationType(EgressSecurityRule.DestinationType.CidrBlock)
-                            .protocol("all")
-                            .description("Allow all IPv6 egress")
-                            .build());
+            SecurityList secList = client.getVirtualNetworkClient().getSecurityList(
+                    GetSecurityListRequest.builder().securityListId(secListId).build()
+            ).getSecurityList();
+
+            List<IngressSecurityRule> ingressRules = new ArrayList<>(secList.getIngressSecurityRules());
+            boolean hasIpv4Ingress = ingressRules.stream().anyMatch(r ->
+                    "0.0.0.0/0".equals(r.getSource()) && "all".equals(r.getProtocol()));
+            boolean hasIpv6Ingress = ingressRules.stream().anyMatch(r ->
+                    "::/0".equals(r.getSource()) && "all".equals(r.getProtocol()));
+            if (!hasIpv4Ingress) {
+                ingressRules.add(IngressSecurityRule.builder()
+                        .source("0.0.0.0/0").protocol("all")
+                        .description("Allow all IPv4 ingress").build());
+            }
+            if (!hasIpv6Ingress) {
+                ingressRules.add(IngressSecurityRule.builder()
+                        .source("::/0").sourceType(IngressSecurityRule.SourceType.CidrBlock)
+                        .protocol("all").description("Allow all IPv6 ingress").build());
+            }
+
+            List<EgressSecurityRule> egressRules = new ArrayList<>(secList.getEgressSecurityRules());
+            boolean hasIpv4Egress = egressRules.stream().anyMatch(r ->
+                    "0.0.0.0/0".equals(r.getDestination()) && "all".equals(r.getProtocol()));
+            boolean hasIpv6Egress = egressRules.stream().anyMatch(r ->
+                    "::/0".equals(r.getDestination()) && "all".equals(r.getProtocol()));
+            if (!hasIpv4Egress) {
+                egressRules.add(EgressSecurityRule.builder()
+                        .destination("0.0.0.0/0").protocol("all")
+                        .description("Allow all IPv4 egress").build());
+            }
+            if (!hasIpv6Egress) {
+                egressRules.add(EgressSecurityRule.builder()
+                        .destination("::/0").destinationType(EgressSecurityRule.DestinationType.CidrBlock)
+                        .protocol("all").description("Allow all IPv6 egress").build());
+            }
 
             client.getVirtualNetworkClient().updateSecurityList(
                     UpdateSecurityListRequest.builder()
@@ -167,6 +178,58 @@ public class NetworkService {
             log.info("Released all ports for subnet: {}", subnetId);
         } catch (Exception e) {
             throw new OciException(tag(ociUser) + "放行端口失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 纯TCP预设：替换为 TCP全端口 + ICMP + ICMPv6（入站5条 + 出站2条），清除其他规则
+     */
+    public void releaseOciPresetByInstance(String userId, String instanceId) {
+        OciUser ociUser = userMapper.selectById(userId);
+        if (ociUser == null) throw new OciException("租户配置不存在");
+
+        try (OciClientService client = new OciClientService(buildDTO(ociUser))) {
+            String subnetId = getSubnetIdFromInstance(client, instanceId);
+            Subnet subnet = client.getVirtualNetworkClient().getSubnet(
+                    GetSubnetRequest.builder().subnetId(subnetId).build()
+            ).getSubnet();
+
+            String secListId = subnet.getSecurityListIds().get(0);
+            List<IngressSecurityRule> ingressRules = List.of(
+                    IngressSecurityRule.builder()
+                            .source("0.0.0.0/0").protocol("6")
+                            .description("TCP traffic for ports: All").build(),
+                    IngressSecurityRule.builder()
+                            .source("0.0.0.0/0").protocol("1")
+                            .description("ICMP traffic for: All").build(),
+                    IngressSecurityRule.builder()
+                            .source("::/0").sourceType(IngressSecurityRule.SourceType.CidrBlock)
+                            .protocol("6").description("TCP traffic for ports: All").build(),
+                    IngressSecurityRule.builder()
+                            .source("::/0").sourceType(IngressSecurityRule.SourceType.CidrBlock)
+                            .protocol("1").description("ICMP traffic for: All").build(),
+                    IngressSecurityRule.builder()
+                            .source("::/0").sourceType(IngressSecurityRule.SourceType.CidrBlock)
+                            .protocol("58").description("IPv6-ICMP traffic for: All").build());
+            List<EgressSecurityRule> egressRules = List.of(
+                    EgressSecurityRule.builder()
+                            .destination("0.0.0.0/0").protocol("all")
+                            .description("Allow all egress").build(),
+                    EgressSecurityRule.builder()
+                            .destination("::/0").destinationType(EgressSecurityRule.DestinationType.CidrBlock)
+                            .protocol("all").description("Allow all egress").build());
+
+            client.getVirtualNetworkClient().updateSecurityList(
+                    UpdateSecurityListRequest.builder()
+                            .securityListId(secListId)
+                            .updateSecurityListDetails(UpdateSecurityListDetails.builder()
+                                    .ingressSecurityRules(ingressRules)
+                                    .egressSecurityRules(egressRules)
+                                    .build())
+                            .build());
+            log.info("Applied TCP preset rules for subnet: {}", subnetId);
+        } catch (Exception e) {
+            throw new OciException(tag(ociUser) + "应用预设规则失败: " + e.getMessage());
         }
     }
 

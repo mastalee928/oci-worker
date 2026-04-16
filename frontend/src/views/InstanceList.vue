@@ -381,6 +381,9 @@
             <a-popconfirm title="确定一键放行所有端口？" @confirm="handleReleaseAll">
               <a-button type="primary" danger :loading="releaseLoading">一键放行</a-button>
             </a-popconfirm>
+            <a-popconfirm title="将替换为纯TCP预设规则（TCP+ICMP+ICMPv6），其他规则将被删除" @confirm="handleOciPreset">
+              <a-button :loading="presetLoading">纯TCP放行</a-button>
+            </a-popconfirm>
           </div>
           <a-tabs size="small">
             <a-tab-pane key="ingress" tab="入站规则">
@@ -719,7 +722,7 @@ import { ReloadOutlined, CloudServerOutlined, EditOutlined } from '@ant-design/i
 import { message, Modal } from 'ant-design-vue'
 import {
   getInstanceList, updateInstanceState, terminateInstance,
-  getSecurityRules, releaseAllPorts, addSecurityRule, deleteSecurityRule,
+  getSecurityRules, releaseAllPorts, releaseOciPreset, addSecurityRule, deleteSecurityRule,
   getBootVolumes, updateBootVolume, getVcns,
   getTrafficData, changeIp,
   getInstanceNetworkDetail, addIpv6,
@@ -819,6 +822,7 @@ const activeTab = ref('info')
 
 const secLoading = ref(false)
 const releaseLoading = ref(false)
+const presetLoading = ref(false)
 const ingressRules = ref<any[]>([])
 const egressRules = ref<any[]>([])
 
@@ -1122,6 +1126,20 @@ async function handleReleaseAll() {
     message.error(e?.message || '放行失败')
   } finally {
     releaseLoading.value = false
+  }
+}
+
+async function handleOciPreset() {
+  if (!currentInstance.value || !currentTenant.value) return
+  presetLoading.value = true
+  try {
+    await releaseOciPreset({ id: currentTenant.value.id, instanceId: currentInstance.value.instanceId })
+    message.success('已应用纯TCP预设规则')
+    loadSecurityRules()
+  } catch (e: any) {
+    message.error(e?.message || '应用预设失败')
+  } finally {
+    presetLoading.value = false
   }
 }
 

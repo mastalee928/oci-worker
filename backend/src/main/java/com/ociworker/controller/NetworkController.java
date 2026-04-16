@@ -31,6 +31,12 @@ public class NetworkController {
         return ResponseData.ok();
     }
 
+    @PostMapping("/releaseOciPreset")
+    public ResponseData<?> releaseOciPreset(@RequestBody Map<String, String> params) {
+        networkService.releaseOciPresetByInstance(params.get("id"), params.get("instanceId"));
+        return ResponseData.ok();
+    }
+
     @PostMapping("/addSecurityRule")
     public ResponseData<?> addSecurityRule(@RequestBody Map<String, String> params) {
         networkService.addSecurityRule(params.get("id"), params.get("instanceId"),
