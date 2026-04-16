@@ -3,13 +3,10 @@ services:
     build: .
     container_name: webssh
     restart: unless-stopped
-    ports:
-      - "${PORT:-8008}:${PORT:-8008}"
+    network_mode: host
     environment:
       - port=${PORT:-8008}
       - savePass=${SAVE_PASS:-true}
-      # Uncomment to enable basic auth for the web UI:
-      # - authInfo=admin:your_password
     healthcheck:
       test: ["CMD", "wget", "--spider", "-q", "http://localhost:${PORT:-8008}/"]
       interval: 30s
