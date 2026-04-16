@@ -375,18 +375,16 @@
         </a-tab-pane>
 
         <a-tab-pane key="security" tab="安全列表">
-          <div style="margin-bottom: 12px">
-            <a-space>
-              <a-button @click="loadSecurityRules" :loading="secLoading">加载规则</a-button>
-              <a-button type="primary" @click="showAddRuleModal">添加规则</a-button>
-              <a-popconfirm title="确定一键放行所有端口？" @confirm="handleReleaseAll">
-                <a-button type="primary" danger :loading="releaseLoading">一键放行</a-button>
-              </a-popconfirm>
-            </a-space>
+          <div class="mobile-toolbar" style="margin-bottom: 12px">
+            <a-button @click="loadSecurityRules" :loading="secLoading">加载规则</a-button>
+            <a-button type="primary" @click="showAddRuleModal">添加规则</a-button>
+            <a-popconfirm title="确定一键放行所有端口？" @confirm="handleReleaseAll">
+              <a-button type="primary" danger :loading="releaseLoading">一键放行</a-button>
+            </a-popconfirm>
           </div>
           <a-tabs size="small">
             <a-tab-pane key="ingress" tab="入站规则">
-              <a-table :data-source="ingressRules" :columns="secColumns" size="small" :pagination="false">
+              <a-table v-if="!isMobile" :data-source="ingressRules" :columns="secColumns" size="small" :pagination="false">
                 <template #bodyCell="{ column, index }">
                   <template v-if="column.key === 'secAction'">
                     <a-popconfirm title="确定删除该规则？" @confirm="handleDeleteSecurityRule('ingress', index)">
@@ -395,9 +393,25 @@
                   </template>
                 </template>
               </a-table>
+              <template v-else>
+                <a-empty v-if="ingressRules.length === 0" description="无入站规则" />
+                <div v-for="(rule, idx) in ingressRules" :key="idx" class="mobile-card">
+                  <div class="mobile-card-header">
+                    <span class="mobile-card-title">{{ protoMap[rule.protocol] || rule.protocol }}</span>
+                    <a-popconfirm title="确定删除？" @confirm="handleDeleteSecurityRule('ingress', idx)">
+                      <a-button type="link" danger size="small" :loading="deleteRuleLoading">删除</a-button>
+                    </a-popconfirm>
+                  </div>
+                  <div class="mobile-card-body">
+                    <div class="mobile-card-row"><span class="label">来源</span><span class="value">{{ rule.source }}</span></div>
+                    <div class="mobile-card-row"><span class="label">端口</span><span class="value">{{ rule.portRange }}</span></div>
+                    <div class="mobile-card-row" v-if="rule.description"><span class="label">描述</span><span class="value">{{ rule.description }}</span></div>
+                  </div>
+                </div>
+              </template>
             </a-tab-pane>
             <a-tab-pane key="egress" tab="出站规则">
-              <a-table :data-source="egressRules" :columns="secColumns" size="small" :pagination="false">
+              <a-table v-if="!isMobile" :data-source="egressRules" :columns="secColumns" size="small" :pagination="false">
                 <template #bodyCell="{ column, index }">
                   <template v-if="column.key === 'secAction'">
                     <a-popconfirm title="确定删除该规则？" @confirm="handleDeleteSecurityRule('egress', index)">
@@ -406,19 +420,49 @@
                   </template>
                 </template>
               </a-table>
+              <template v-else>
+                <a-empty v-if="egressRules.length === 0" description="无出站规则" />
+                <div v-for="(rule, idx) in egressRules" :key="idx" class="mobile-card">
+                  <div class="mobile-card-header">
+                    <span class="mobile-card-title">{{ protoMap[rule.protocol] || rule.protocol }}</span>
+                    <a-popconfirm title="确定删除？" @confirm="handleDeleteSecurityRule('egress', idx)">
+                      <a-button type="link" danger size="small" :loading="deleteRuleLoading">删除</a-button>
+                    </a-popconfirm>
+                  </div>
+                  <div class="mobile-card-body">
+                    <div class="mobile-card-row"><span class="label">目的</span><span class="value">{{ rule.source }}</span></div>
+                    <div class="mobile-card-row"><span class="label">端口</span><span class="value">{{ rule.portRange }}</span></div>
+                    <div class="mobile-card-row" v-if="rule.description"><span class="label">描述</span><span class="value">{{ rule.description }}</span></div>
+                  </div>
+                </div>
+              </template>
             </a-tab-pane>
           </a-tabs>
         </a-tab-pane>
 
         <a-tab-pane key="volume" tab="引导卷">
           <a-button @click="loadBootVolumes" :loading="volLoading" style="margin-bottom: 12px">加载引导卷</a-button>
-          <a-table :data-source="bootVolumes" :columns="volColumns" size="small" :pagination="false" row-key="id">
+          <a-table v-if="!isMobile" :data-source="bootVolumes" :columns="volColumns" size="small" :pagination="false" row-key="id">
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'volAction'">
                 <a-button type="link" size="small" @click="openEditVolume(record)">编辑</a-button>
               </template>
             </template>
           </a-table>
+          <template v-else>
+            <a-empty v-if="bootVolumes.length === 0" description="暂无引导卷" />
+            <div v-for="vol in bootVolumes" :key="vol.id" class="mobile-card">
+              <div class="mobile-card-header">
+                <span class="mobile-card-title">{{ vol.displayName }}</span>
+                <a-button type="link" size="small" @click="openEditVolume(vol)">编辑</a-button>
+              </div>
+              <div class="mobile-card-body">
+                <div class="mobile-card-row"><span class="label">大小</span><span class="value">{{ vol.sizeInGBs }} GB</span></div>
+                <div class="mobile-card-row"><span class="label">性能</span><span class="value">{{ vol.vpusPerGB }} VPUs/GB</span></div>
+                <div class="mobile-card-row"><span class="label">状态</span><span class="value">{{ vol.lifecycleState }}</span></div>
+              </div>
+            </div>
+          </template>
           <div v-if="bootVolumes.length > 0" style="margin-top: 20px">
             <div style="font-size: 13px; color: var(--text-sub); margin-bottom: 10px">快捷预设（性能 120 VPUs/GB）</div>
             <a-space wrap>
@@ -433,7 +477,19 @@
 
         <a-tab-pane key="network" tab="网络">
           <a-button @click="loadVcns" :loading="vcnLoading" style="margin-bottom: 12px">加载 VCN</a-button>
-          <a-table :data-source="vcns" :columns="vcnColumns" size="small" :pagination="false" row-key="id" />
+          <a-table v-if="!isMobile" :data-source="vcns" :columns="vcnColumns" size="small" :pagination="false" row-key="id" />
+          <template v-else>
+            <a-empty v-if="vcns.length === 0" description="暂无 VCN" />
+            <div v-for="v in vcns" :key="v.id" class="mobile-card">
+              <div class="mobile-card-header">
+                <span class="mobile-card-title">{{ v.displayName }}</span>
+              </div>
+              <div class="mobile-card-body">
+                <div class="mobile-card-row"><span class="label">CIDR</span><span class="value">{{ v.cidrBlock }}</span></div>
+                <div class="mobile-card-row"><span class="label">状态</span><span class="value">{{ v.lifecycleState }}</span></div>
+              </div>
+            </div>
+          </template>
         </a-tab-pane>
 
         <a-tab-pane key="traffic" tab="流量统计">
@@ -696,6 +752,8 @@ const columns = [
   { title: '状态', dataIndex: 'state', key: 'state', width: 100 },
   { title: '操作', key: 'action', width: 300 },
 ]
+
+const protoMap: Record<string, string> = { '6': 'TCP', '17': 'UDP', '1': 'ICMP', '58': 'ICMPv6', 'all': '全部' }
 
 const secColumns = [
   { title: '协议', dataIndex: 'protocol', key: 'protocol', width: 80,

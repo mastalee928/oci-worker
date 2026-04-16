@@ -15,7 +15,7 @@
       </a-space>
     </div>
 
-    <a-table :columns="columns" :data-source="users" :loading="loading" row-key="id" size="middle">
+    <a-table v-if="!isMobile" :columns="columns" :data-source="users" :loading="loading" row-key="id" size="middle">
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'state'">
           <a-badge :status="record.state === 'ACTIVE' ? 'success' : 'error'" :text="record.state === 'ACTIVE' ? '正常' : '已禁用'" />
@@ -52,8 +52,49 @@
       </template>
     </a-table>
 
+    <!-- 移动端卡片列表 -->
+    <a-spin v-else :spinning="loading">
+      <a-empty v-if="!loading && users.length === 0" description="暂无用户" />
+      <div v-for="u in users" :key="u.id" class="mobile-card">
+        <div class="mobile-card-header">
+          <span class="mobile-card-title">{{ u.name }}</span>
+          <a-dropdown :trigger="['click']">
+            <a-button size="small" :loading="!!currentActionLoading[u.id]">
+              操作 <i class="ri-arrow-down-s-line" style="margin-left: 4px"></i>
+            </a-button>
+            <template #overlay>
+              <a-menu @click="({ key }: any) => handleMenuAction(key, u)">
+                <a-menu-item key="resetPassword"><i class="ri-lock-password-line menu-icon"></i>重置密码</a-menu-item>
+                <a-menu-item key="editUser"><i class="ri-edit-line menu-icon"></i>修改信息</a-menu-item>
+                <a-menu-divider />
+                <a-menu-item key="addToAdmin"><i class="ri-shield-user-line menu-icon"></i>加入管理员组</a-menu-item>
+                <a-menu-item key="removeFromAdmin"><i class="ri-shield-cross-line menu-icon"></i>移出管理员组</a-menu-item>
+                <a-menu-divider />
+                <a-menu-item key="listMfa"><i class="ri-smartphone-line menu-icon"></i>MFA 设备列表</a-menu-item>
+                <a-menu-item key="clearMfa"><i class="ri-delete-bin-line menu-icon"></i>清理 MFA</a-menu-item>
+                <a-menu-divider />
+                <a-menu-item v-if="u.state === 'ACTIVE'" key="disableUser" class="danger-item"><i class="ri-forbid-line menu-icon"></i>禁用用户</a-menu-item>
+                <a-menu-item v-else key="enableUser"><i class="ri-checkbox-circle-line menu-icon"></i>启用用户</a-menu-item>
+              </a-menu>
+            </template>
+          </a-dropdown>
+        </div>
+        <div class="mobile-card-body">
+          <div class="mobile-card-row"><span class="label">邮箱</span><span class="value">{{ u.email || '—' }}</span></div>
+          <div class="mobile-card-row">
+            <span class="label">状态</span>
+            <a-badge :status="u.state === 'ACTIVE' ? 'success' : 'error'" :text="u.state === 'ACTIVE' ? '正常' : '已禁用'" />
+          </div>
+          <div class="mobile-card-row">
+            <span class="label">MFA</span>
+            <a-tag :color="u.isMfaActivated ? 'green' : 'default'" style="margin: 0">{{ u.isMfaActivated ? '已启用' : '未启用' }}</a-tag>
+          </div>
+        </div>
+      </div>
+    </a-spin>
+
     <!-- TG 验证码弹窗（统一） -->
-    <a-modal v-model:open="verifyVisible" :title="'安全验证 — ' + verifyActionLabel" :mask-closable="false"
+    <a-modal v-model:open="verifyVisible" :title="'安全验证 — ' + verifyActionLabel" :width="isMobile ? '100%' : 520" :mask-closable="false"
       @ok="handleVerifyConfirm" :confirm-loading="verifyConfirmLoading" ok-text="确认" cancel-text="取消">
       <div style="margin-bottom: 16px; color: var(--text-sub)">验证码已发送至 Telegram，请查收后输入：</div>
       <a-input v-model:value="verifyCode" placeholder="请输入6位验证码" :maxlength="6" size="large"
@@ -64,7 +105,7 @@
     </a-modal>
 
     <!-- 新增用户弹窗 -->
-    <a-modal v-model:open="createVisible" title="新增用户" @ok="handleCreate" :confirm-loading="createLoading" :mask-closable="false">
+    <a-modal v-model:open="createVisible" title="新增用户" :width="isMobile ? '100%' : 520" @ok="handleCreate" :confirm-loading="createLoading" :mask-closable="false">
       <a-form :model="createForm" layout="vertical">
         <a-form-item label="用户名" required>
           <a-input v-model:value="createForm.userName" placeholder="登录用户名" />
@@ -92,7 +133,7 @@
     </a-modal>
 
     <!-- 修改用户信息弹窗 -->
-    <a-modal v-model:open="editVisible" title="修改用户信息" @ok="handleUpdateUser" :confirm-loading="editLoading" :mask-closable="false">
+    <a-modal v-model:open="editVisible" title="修改用户信息" :width="isMobile ? '100%' : 520" @ok="handleUpdateUser" :confirm-loading="editLoading" :mask-closable="false">
       <a-form :model="editForm" layout="vertical">
         <a-form-item label="用户名">
           <a-input :value="editingUser?.name" disabled />
@@ -107,7 +148,7 @@
     </a-modal>
 
     <!-- MFA 设备列表弹窗 -->
-    <a-modal v-model:open="mfaVisible" title="MFA 设备列表" :footer="null" :width="500">
+    <a-modal v-model:open="mfaVisible" title="MFA 设备列表" :footer="null" :width="isMobile ? '100%' : 500">
       <a-spin :spinning="mfaLoading">
         <a-empty v-if="!mfaLoading && mfaDevices.length === 0" description="无 MFA 设备" />
         <a-list v-else :data-source="mfaDevices" size="small">
@@ -133,7 +174,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted } from 'vue'
+import { ref, reactive, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ArrowLeftOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
@@ -146,6 +187,9 @@ import { sendVerifyCode, getTgStatus } from '../api/system'
 
 const route = useRoute()
 const tenantId = route.params.tenantId as string
+
+const isMobile = ref(window.innerWidth < 768)
+function checkMobile() { isMobile.value = window.innerWidth < 768 }
 
 const loading = ref(false)
 const users = ref<any[]>([])
@@ -438,7 +482,9 @@ async function handleListMfa(record: any) {
 onMounted(() => {
   loadTenantInfo()
   loadUsers()
+  window.addEventListener('resize', checkMobile)
 })
+onUnmounted(() => window.removeEventListener('resize', checkMobile))
 </script>
 
 <style scoped>

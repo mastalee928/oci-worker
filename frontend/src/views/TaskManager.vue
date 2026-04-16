@@ -29,7 +29,7 @@
       </a-space>
     </div>
 
-    <a-table :columns="columns" :data-source="tableData" :loading="loading" :pagination="pagination"
+    <a-table v-if="!isMobile" :columns="columns" :data-source="tableData" :loading="loading" :pagination="pagination"
       row-key="id" @change="handleTableChange" size="middle"
       :row-selection="{ selectedRowKeys, onChange: (keys: string[]) => selectedRowKeys = keys }"
       :row-class-name="(record: any) => record.status !== 'RUNNING' ? 'row-inactive' : ''">
@@ -59,6 +59,40 @@
         </template>
       </template>
     </a-table>
+
+    <!-- 移动端卡片列表 -->
+    <a-spin v-else :spinning="loading">
+      <a-empty v-if="!loading && tableData.length === 0" description="暂无任务" />
+      <div v-for="task in tableData" :key="task.id" class="mobile-card"
+        :style="{ opacity: task.status !== 'RUNNING' ? 0.65 : 1 }">
+        <div class="mobile-card-header">
+          <span class="mobile-card-title">
+            <a-tag :color="task.architecture === 'ARM' ? 'green' : 'blue'" style="margin-right: 6px">{{ task.architecture }}</a-tag>
+            {{ task.username }}
+          </span>
+          <a-badge :status="badgeStatusMap[task.status] || 'default'" :text="statusMap[task.status] || task.status" />
+        </div>
+        <div class="mobile-card-body">
+          <div class="mobile-card-row"><span class="label">区域</span><span class="value">{{ task.ociRegion }}</span></div>
+          <div class="mobile-card-row"><span class="label">配置</span><span class="value">{{ task.ocpus }}C / {{ task.memory }}G / {{ task.disk }}GB</span></div>
+          <div class="mobile-card-row"><span class="label">数量</span><span class="value">{{ task.createNumbers }}</span></div>
+          <div class="mobile-card-row"><span class="label">间隔</span><span class="value">{{ task.intervalSeconds }}s</span></div>
+          <div class="mobile-card-row"><span class="label">尝试</span><span class="value">{{ task.attemptCount }} 次</span></div>
+          <div class="mobile-card-row"><span class="label">创建</span><span class="value">{{ task.createTime }}</span></div>
+        </div>
+        <div class="mobile-card-actions">
+          <a-popconfirm v-if="task.status === 'RUNNING'" title="确定停止？" @confirm="handleStop(task)">
+            <a-button type="link" danger size="small" :loading="actionLoading[task.id]">停止</a-button>
+          </a-popconfirm>
+          <a-popconfirm v-if="task.status === 'STOPPED'" title="确定恢复？" @confirm="handleResume(task)">
+            <a-button type="link" size="small" :loading="actionLoading[task.id]">继续</a-button>
+          </a-popconfirm>
+          <a-popconfirm v-if="task.status !== 'RUNNING'" title="确定删除？" @confirm="handleDelete(task)">
+            <a-button type="link" danger size="small" :loading="actionLoading[task.id]">删除</a-button>
+          </a-popconfirm>
+        </div>
+      </div>
+    </a-spin>
 
     <a-modal v-model:open="createVisible" title="创建开机任务" :width="isMobile ? '100%' : 600" @ok="handleCreate"
       :confirm-loading="createLoading" :mask-closable="false">
