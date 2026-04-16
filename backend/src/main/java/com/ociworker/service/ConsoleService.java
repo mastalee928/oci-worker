@@ -251,8 +251,8 @@ public class ConsoleService {
             String sshCmd = sshCommand;
             // Handle both single-quote and double-quote ProxyCommand formats
             sshCmd = sshCmd
-                    .replace("ProxyCommand='ssh ", "ProxyCommand='ssh -i " + userKeyPath + " -o StrictHostKeyChecking=no ")
-                    .replace("ProxyCommand=\"ssh ", "ProxyCommand=\"ssh -i " + userKeyPath + " -o StrictHostKeyChecking=no ");
+                    .replace("ProxyCommand='ssh ", "ProxyCommand='ssh -i " + userKeyPath + " -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ")
+                    .replace("ProxyCommand=\"ssh ", "ProxyCommand=\"ssh -i " + userKeyPath + " -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ");
             // Add flags to outer SSH
             sshCmd = sshCmd.replaceFirst("^ssh ",
                     "ssh -tt -i " + userKeyPath +
@@ -262,12 +262,10 @@ public class ConsoleService {
                     " -o ServerAliveCountMax=3 ");
 
             String script = "#!/bin/bash\n" +
-                    "pkill -9 -u \"$(whoami)\" -f console_rsa 2>/dev/null\n" +
-                    "trap 'kill %1 2>/dev/null; exit' EXIT INT TERM HUP\n" +
                     "echo '正在连接串行控制台...'\n" +
                     "echo '退出方式: ~. 或关闭窗口'\n" +
                     "echo ''\n" +
-                    sshCmd + " 2>&1\n" +
+                    sshCmd + "\n" +
                     "RC=$?\n" +
                     "echo ''\n" +
                     "echo \"连接已断开 (exit: $RC)\"\n" +
