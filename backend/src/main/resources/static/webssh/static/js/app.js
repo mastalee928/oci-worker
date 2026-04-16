@@ -1218,4 +1218,3 @@ initSettings();
 initSysInterval();
 renderConnBookmarks();
 loadProxyConfig();
-tryAutoLogin();
