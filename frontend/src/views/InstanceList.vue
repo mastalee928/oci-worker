@@ -272,7 +272,7 @@
       placement="right"
       :mask-closable="false"
     >
-      <a-tabs v-model:activeKey="activeTab">
+      <a-tabs v-model:activeKey="activeTab" @change="onTabChange">
         <a-tab-pane key="info" tab="基本信息">
           <a-descriptions :column="1" bordered size="small" v-if="currentInstance">
             <a-descriptions-item label="实例名称">
@@ -894,6 +894,10 @@ async function loadTenantInstances(td: TenantData) {
   } finally {
     td.loading = false
   }
+}
+
+function onTabChange(key: string) {
+  if (key === 'volume') loadBootVolumes()
 }
 
 function openDetail(tenant: any, record: any) {
