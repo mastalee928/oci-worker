@@ -178,6 +178,7 @@ public class ConsoleService {
             }
 
             String sshCommand = active.getConnectionString();
+            log.info("【串行控制台】OCI connectionString: {}", sshCommand);
 
             String tempUser = "oci_console_" + System.currentTimeMillis();
             String tempPassword = generateRandomPassword();
@@ -239,16 +240,21 @@ public class ConsoleService {
         try {
             Path scriptDir = Path.of(KEY_DIR);
             Path scriptPath = scriptDir.resolve("console_" + userName + ".sh");
-            // Add key to ProxyCommand SSH (tunnel only, no -tt)
-            String sshCmd = sshCommand.replace(
-                    "ProxyCommand='ssh ",
-                    "ProxyCommand='ssh -i " + privateKeyPath + " -o StrictHostKeyChecking=no ");
-            // Add flags to outer SSH only (first occurrence)
+            String userKeyPath = "/home/" + userName + "/.ssh/console_rsa";
+
+            String sshCmd = sshCommand;
+            // Handle both single-quote and double-quote ProxyCommand formats
+            sshCmd = sshCmd
+                    .replace("ProxyCommand='ssh ", "ProxyCommand='ssh -i " + userKeyPath + " -o StrictHostKeyChecking=no ")
+                    .replace("ProxyCommand=\"ssh ", "ProxyCommand=\"ssh -i " + userKeyPath + " -o StrictHostKeyChecking=no ");
+            // Add flags to outer SSH
             sshCmd = sshCmd.replaceFirst("^ssh ",
-                    "ssh -tt -i " + privateKeyPath +
+                    "ssh -tt -i " + userKeyPath +
                     " -o StrictHostKeyChecking=no" +
+                    " -o UserKnownHostsFile=/dev/null" +
                     " -o ServerAliveInterval=15" +
                     " -o ServerAliveCountMax=3 ");
+
             String script = "#!/bin/bash\n" +
                     "pkill -9 -u \"$(whoami)\" -f console_rsa 2>/dev/null\n" +
                     "trap 'kill %1 2>/dev/null; exit' EXIT INT TERM HUP\n" +
@@ -274,13 +280,28 @@ public class ConsoleService {
                     "useradd", "-m", "-s", shell, user
             });
             p1.waitFor();
+            if (p1.exitValue() != 0) {
+                String err = new String(p1.getErrorStream().readAllBytes());
+                throw new RuntimeException("useradd failed: " + err);
+            }
 
             Process p2 = Runtime.getRuntime().exec(new String[]{"chpasswd"});
             p2.getOutputStream().write((user + ":" + password).getBytes());
             p2.getOutputStream().close();
             p2.waitFor();
 
-            log.info("【串行控制台】创建临时用户: {}", user);
+            // Copy private key to user's home with correct ownership
+            String userSshDir = "/home/" + user + "/.ssh";
+            String userKeyPath = userSshDir + "/console_rsa";
+            Runtime.getRuntime().exec(new String[]{"mkdir", "-p", userSshDir}).waitFor();
+            Runtime.getRuntime().exec(new String[]{"cp", privateKeyPath, userKeyPath}).waitFor();
+            Runtime.getRuntime().exec(new String[]{"chown", "-R", user + ":" + user, userSshDir}).waitFor();
+            Runtime.getRuntime().exec(new String[]{"chmod", "700", userSshDir}).waitFor();
+            Runtime.getRuntime().exec(new String[]{"chmod", "600", userKeyPath}).waitFor();
+
+            log.info("【串行控制台】创建临时用户: {} (密钥已复制到 {})", user, userKeyPath);
+        } catch (OciException e) {
+            throw e;
         } catch (Exception e) {
             throw new OciException("创建临时用户失败: " + e.getMessage());
         }
