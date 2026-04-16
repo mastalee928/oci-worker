@@ -80,6 +80,48 @@
           </a-descriptions>
         </a-card>
       </a-tab-pane>
+
+      <a-tab-pane key="update" tab="系统更新">
+        <a-card title="一键更新" class="settings-card-wide">
+          <a-spin :spinning="updateChecking">
+            <a-descriptions :column="1" bordered size="small" v-if="updateInfo">
+              <a-descriptions-item label="当前版本大小">{{ updateInfo.currentSizeHuman }}</a-descriptions-item>
+              <a-descriptions-item label="最新版本大小">{{ updateInfo.latestSizeHuman }}</a-descriptions-item>
+              <a-descriptions-item label="发布时间" v-if="updateInfo.publishedAt">{{ formatPublishDate(updateInfo.publishedAt) }}</a-descriptions-item>
+              <a-descriptions-item label="状态">
+                <a-badge v-if="updateInfo.hasUpdate" status="warning" text="有新版本可用" />
+                <a-badge v-else-if="updateInfo.error" status="error" :text="'检查失败: ' + updateInfo.error" />
+                <a-badge v-else status="success" text="已是最新版本" />
+              </a-descriptions-item>
+            </a-descriptions>
+            <a-empty v-else description="点击检查更新" />
+          </a-spin>
+          <div style="margin-top: 16px">
+            <a-space>
+              <a-button @click="checkUpdate" :loading="updateChecking">检查更新</a-button>
+              <a-popconfirm title="确定执行更新？更新过程中服务将短暂重启。" @confirm="performUpdate" ok-text="确定更新" cancel-text="取消">
+                <a-button type="primary" :loading="updatePerforming" :disabled="!updateInfo?.hasUpdate && !updateForce">
+                  <i class="ri-download-2-line" style="margin-right: 6px"></i>一键更新
+                </a-button>
+              </a-popconfirm>
+            </a-space>
+            <div style="margin-top: 8px">
+              <a-checkbox v-model:checked="updateForce" size="small">
+                <span style="font-size: 12px; color: var(--text-sub)">强制更新（即使版本相同）</span>
+              </a-checkbox>
+            </div>
+          </div>
+        </a-card>
+
+        <a-card title="更新说明" class="settings-card-wide" style="margin-top: 16px">
+          <a-descriptions :column="1" bordered size="small">
+            <a-descriptions-item label="更新来源">GitHub Releases (mastalee928/oci-worker)</a-descriptions-item>
+            <a-descriptions-item label="更新流程">下载最新 JAR → 替换本地文件 → 重启服务</a-descriptions-item>
+            <a-descriptions-item label="预计耗时">10 ~ 30 秒（取决于网络）</a-descriptions-item>
+            <a-descriptions-item label="注意事项">更新期间页面将短暂无法访问，完成后自动恢复</a-descriptions-item>
+          </a-descriptions>
+        </a-card>
+      </a-tab-pane>
     </a-tabs>
   </div>
 </template>
@@ -254,6 +296,63 @@ async function testTgNotify() {
     message.error(e?.message || '发送失败')
   } finally {
     testLoading.value = false
+  }
+}
+
+const updateChecking = ref(false)
+const updatePerforming = ref(false)
+const updateInfo = ref<any>(null)
+const updateForce = ref(false)
+
+async function checkUpdate() {
+  updateChecking.value = true
+  try {
+    const res = await request.get('/sys/checkUpdate')
+    updateInfo.value = res.data
+  } catch (e: any) {
+    message.error(e?.message || '检查更新失败')
+  } finally {
+    updateChecking.value = false
+  }
+}
+
+async function performUpdate() {
+  updatePerforming.value = true
+  try {
+    await request.post('/sys/performUpdate')
+    message.success('更新已启动，服务即将重启...')
+    setTimeout(() => {
+      message.loading({ content: '等待服务重启...', duration: 0, key: 'update' })
+      let attempts = 0
+      const maxAttempts = 30
+      const poll = setInterval(async () => {
+        attempts++
+        try {
+          await request.get('/sys/glance')
+          clearInterval(poll)
+          message.success({ content: '更新完成，服务已恢复！', key: 'update' })
+          updatePerforming.value = false
+          checkUpdate()
+        } catch {
+          if (attempts >= maxAttempts) {
+            clearInterval(poll)
+            message.warning({ content: '服务重启超时，请手动刷新页面', key: 'update' })
+            updatePerforming.value = false
+          }
+        }
+      }, 3000)
+    }, 3000)
+  } catch (e: any) {
+    message.error(e?.message || '启动更新失败')
+    updatePerforming.value = false
+  }
+}
+
+function formatPublishDate(isoStr: string) {
+  try {
+    return new Date(isoStr).toLocaleString('zh-CN', { timeZone: 'Asia/Shanghai' })
+  } catch {
+    return isoStr
   }
 }
 </script>

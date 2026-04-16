@@ -79,4 +79,15 @@ public class SystemController {
     public ResponseData<?> tgStatus() {
         return ResponseData.ok(Map.of("configured", verifyCodeService.isTgConfigured()));
     }
+
+    @GetMapping("/checkUpdate")
+    public ResponseData<?> checkUpdate() {
+        return ResponseData.ok(systemService.checkUpdate());
+    }
+
+    @PostMapping("/performUpdate")
+    public ResponseData<?> performUpdate() {
+        systemService.performUpdate();
+        return ResponseData.ok("更新已启动，服务将在几秒后重启");
+    }
 }
