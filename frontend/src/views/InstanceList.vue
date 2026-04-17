@@ -131,10 +131,10 @@
               <template #icon><ReloadOutlined /></template>刷新
             </a-button>
             <a-segmented v-model:value="viewMode" size="small" :options="[{ label: '卡片', value: 'card' }, { label: '列表', value: 'table' }]" />
-            <a-button size="small" type="text" @click="instancePanelVisible = false">
-              <i class="ri-close-line"></i>
-            </a-button>
           </div>
+          <button class="instance-modal-close" type="button" @click="instancePanelVisible = false" aria-label="关闭实例管理">
+            <i class="ri-close-line"></i>
+          </button>
         </div>
 
         <a-spin :spinning="activeTenantData.loading">
@@ -1743,8 +1743,9 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   margin-bottom: 14px;
   flex-wrap: wrap;
   gap: 12px;
-  padding: 0 2px 10px;
+  padding: 0 44px 10px 2px;
   border-bottom: 1px solid var(--border);
+  position: relative;
 }
 .panel-title {
   display: flex;
@@ -1768,6 +1769,36 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   color: var(--text-sub);
   font-size: 12px;
   white-space: nowrap;
+}
+.instance-modal-close {
+  position: absolute;
+  top: -4px;
+  right: 0;
+  width: 30px;
+  height: 30px;
+  border: 1px solid rgba(129, 140, 248, 0.35);
+  border-radius: 999px;
+  background: rgba(99, 102, 241, 0.14);
+  color: #dbe3ff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22);
+}
+.instance-modal-close i {
+  font-size: 18px;
+  line-height: 1;
+}
+.instance-modal-close:hover {
+  background: rgba(99, 102, 241, 0.28);
+  border-color: rgba(129, 140, 248, 0.65);
+  color: #ffffff;
+  transform: translateY(-1px) scale(1.03);
+}
+.instance-modal-close:active {
+  transform: scale(0.95);
 }
 .instance-grid {
   display: grid;
@@ -1927,7 +1958,7 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   .instance-panel > .instance-panel-header {
     position: fixed; top: 0; left: 0; right: 0; z-index: 1001;
     background: var(--bg-card); border-bottom: 1px solid var(--border);
-    padding: 0; margin-bottom: 0;
+    padding: 0 50px 0 0; margin-bottom: 0;
     flex-direction: column; align-items: stretch;
   }
   .instance-panel > .instance-panel-header .panel-title {
@@ -1939,12 +1970,16 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
     padding: 0 14px 10px; gap: 6px;
     flex-wrap: wrap;
   }
-  .instance-panel > .instance-panel-header .panel-actions .ant-btn:last-child {
-    position: fixed; top: 10px; right: 10px; z-index: 1002;
-    width: 36px; height: 36px; font-size: 22px;
-    display: flex; align-items: center; justify-content: center;
-    color: #fff; background: rgba(255,255,255,0.12);
-    border: none; border-radius: 50%;
+  .instance-modal-close {
+    position: fixed;
+    top: 10px;
+    right: 10px;
+    width: 36px;
+    height: 36px;
+    border-width: 1px;
+  }
+  .instance-modal-close i {
+    font-size: 22px;
   }
   .instance-grid,
   .instance-grid.instance-grid-1,
