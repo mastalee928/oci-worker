@@ -571,11 +571,69 @@ public class OciClientService implements Closeable {
             }
         }
 
+        ensureIpv6InternetRoute(vcn, freshSubnet);
+
         virtualNetworkClient.createIpv6(CreateIpv6Request.builder()
                 .createIpv6Details(CreateIpv6Details.builder()
                         .vnicId(vnicId)
                         .build())
                 .build());
+    }
+
+    private void ensureIpv6InternetRoute(Vcn vcn, Subnet subnet) {
+        List<InternetGateway> igws = virtualNetworkClient.listInternetGateways(
+                ListInternetGatewaysRequest.builder()
+                        .compartmentId(compartmentId)
+                        .vcnId(vcn.getId())
+                        .build()
+        ).getItems();
+
+        InternetGateway igw;
+        if (CollectionUtil.isEmpty(igws)) {
+            igw = createInternetGateway(vcn);
+        } else {
+            igw = igws.stream()
+                    .filter(gw -> Boolean.TRUE.equals(gw.getIsEnabled()))
+                    .findFirst()
+                    .orElse(igws.get(0));
+        }
+
+        String routeTableId = subnet.getRouteTableId() != null ? subnet.getRouteTableId() : vcn.getDefaultRouteTableId();
+        if (StrUtil.isBlank(routeTableId)) {
+            return;
+        }
+
+        RouteTable routeTable = virtualNetworkClient.getRouteTable(
+                GetRouteTableRequest.builder().rtId(routeTableId).build()
+        ).getRouteTable();
+
+        List<RouteRule> rules = new ArrayList<>();
+        if (routeTable.getRouteRules() != null) {
+            rules.addAll(routeTable.getRouteRules());
+        }
+
+        boolean hasIpv6DefaultRoute = rules.stream().anyMatch(rule ->
+                "::/0".equals(rule.getDestination())
+                        && RouteRule.DestinationType.CidrBlock.equals(rule.getDestinationType())
+        );
+
+        if (!hasIpv6DefaultRoute) {
+            rules.add(RouteRule.builder()
+                    .destination("::/0")
+                    .destinationType(RouteRule.DestinationType.CidrBlock)
+                    .networkEntityId(igw.getId())
+                    .description("oci-worker auto add IPv6 default route")
+                    .build());
+
+            virtualNetworkClient.updateRouteTable(
+                    UpdateRouteTableRequest.builder()
+                            .rtId(routeTableId)
+                            .updateRouteTableDetails(UpdateRouteTableDetails.builder()
+                                    .routeRules(rules)
+                                    .build())
+                            .build()
+            );
+        }
     }
 
     public String getInstancePublicIp(Instance instance) {

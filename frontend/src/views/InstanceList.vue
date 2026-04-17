@@ -92,103 +92,114 @@
       </a-table>
     </div>
 
-    <!-- 选中租户的实例区域 -->
-    <div v-if="activeTenantData" class="instance-panel">
-      <div class="instance-panel-header">
-        <div class="panel-title">
-          <i class="ri-server-line" style="margin-right: 8px; color: var(--primary)"></i>
-          <span>{{ activeTenantData.tenant.username }}</span>
-          <a-tag color="blue" style="margin-left: 8px">{{ activeTenantData.tenant.ociRegion }}</a-tag>
-          <a-badge :count="activeTenantData.instances.length" :number-style="{ backgroundColor: 'var(--primary)' }" :show-zero="true" style="margin-left: 8px" />
-        </div>
-        <div class="panel-actions">
-          <a-button size="small" @click="loadTenantInstances(activeTenantData)" :loading="activeTenantData.loading">
-            <template #icon><ReloadOutlined /></template>刷新
-          </a-button>
-          <a-segmented v-model:value="viewMode" size="small" :options="[{ label: '卡片', value: 'card' }, { label: '列表', value: 'table' }]" />
-          <a-button size="small" type="text" @click="activeTenantId = ''">
-            <i class="ri-close-line"></i>
-          </a-button>
-        </div>
-      </div>
-
-      <a-spin :spinning="activeTenantData.loading">
-        <a-empty v-if="!activeTenantData.loading && activeTenantData.instances.length === 0" description="暂无实例" />
-
-        <!-- 实例卡片视图 -->
-        <div v-else-if="viewMode === 'card'" class="instance-grid">
-          <div v-for="inst in activeTenantData.instances" :key="inst.instanceId" class="instance-card" @click="openDetail(activeTenantData.tenant, inst)">
-            <div class="card-header">
-              <div class="card-title">
-                <CloudServerOutlined class="card-icon" />
-                <span class="card-name">{{ inst.name }}</span>
-              </div>
-              <a-badge :status="stateColorMap[inst.state] || 'default'" :text="inst.state" />
-            </div>
-            <div class="card-body">
-              <div class="card-info-row">
-                <span class="info-label">Shape</span>
-                <span class="info-value">{{ inst.shape }}</span>
-              </div>
-              <div class="card-info-row">
-                <span class="info-label">配置</span>
-                <span class="info-value">{{ inst.ocpus }} OCPU / {{ inst.memoryInGBs }} GB</span>
-              </div>
-              <div class="card-info-row">
-                <span class="info-label">公网 IP</span>
-                <span class="info-value ip-text">{{ inst.publicIp || '—' }}</span>
-              </div>
-              <div class="card-info-row">
-                <span class="info-label">区间</span>
-                <span class="info-value">{{ inst.compartmentName || '—' }}</span>
-              </div>
-            </div>
-            <div class="card-actions" @click.stop>
-              <a-popconfirm v-if="inst.state === 'STOPPED'" title="确定启动实例？" @confirm="handleAction(activeTenantData.tenant, inst, 'START')">
-                <a-button type="link" size="small" :loading="actionLoading[inst.instanceId]">启动</a-button>
-              </a-popconfirm>
-              <a-popconfirm v-if="inst.state === 'RUNNING'" title="确定停止实例？" @confirm="handleAction(activeTenantData.tenant, inst, 'STOP')">
-                <a-button type="link" size="small" :loading="actionLoading[inst.instanceId]">停止</a-button>
-              </a-popconfirm>
-              <a-popconfirm v-if="inst.state === 'RUNNING'" title="确定重启实例？" @confirm="handleAction(activeTenantData.tenant, inst, 'RESET')">
-                <a-button type="link" size="small" :loading="actionLoading[inst.instanceId]">重启</a-button>
-              </a-popconfirm>
-              <a-button type="link" danger size="small" @click="openTerminateVerify(activeTenantData.tenant, inst)">终止</a-button>
-            </div>
+    <!-- 实例管理弹窗（避免租户多时挤到页面底部） -->
+    <a-modal
+      v-model:open="instancePanelVisible"
+      :title="null"
+      :footer="null"
+      :width="isMobile ? '100%' : '92vw'"
+      :mask-closable="false"
+      :closable="false"
+      :style="isMobile ? { top: 0, paddingBottom: 0 } : { top: '18px' }"
+      :bodyStyle="{ maxHeight: isMobile ? '100vh' : '82vh', overflowY: 'auto', padding: isMobile ? '12px' : '20px' }"
+    >
+      <div v-if="activeTenantData" class="instance-panel">
+        <div class="instance-panel-header">
+          <div class="panel-title">
+            <i class="ri-server-line" style="margin-right: 8px; color: var(--primary)"></i>
+            <span>{{ activeTenantData.tenant.username }}</span>
+            <a-tag color="blue" style="margin-left: 8px">{{ activeTenantData.tenant.ociRegion }}</a-tag>
+            <a-badge :count="activeTenantData.instances.length" :number-style="{ backgroundColor: 'var(--primary)' }" :show-zero="true" style="margin-left: 8px" />
+          </div>
+          <div class="panel-actions">
+            <a-button size="small" @click="loadTenantInstances(activeTenantData)" :loading="activeTenantData.loading">
+              <template #icon><ReloadOutlined /></template>刷新
+            </a-button>
+            <a-segmented v-model:value="viewMode" size="small" :options="[{ label: '卡片', value: 'card' }, { label: '列表', value: 'table' }]" />
+            <a-button size="small" type="text" @click="instancePanelVisible = false">
+              <i class="ri-close-line"></i>
+            </a-button>
           </div>
         </div>
 
-        <!-- 实例列表视图 -->
-        <a-table v-else :columns="columns" :data-source="activeTenantData.instances" :loading="activeTenantData.loading"
-          row-key="instanceId" size="middle" :pagination="false">
-          <template #bodyCell="{ column, record }">
-            <template v-if="column.key === 'state'">
-              <a-badge :status="stateColorMap[record.state] || 'default'" :text="record.state" />
-            </template>
-            <template v-if="column.key === 'shape'">
-              <a-tooltip :title="`${record.ocpus} OCPU / ${record.memoryInGBs} GB`">
-                <a-tag>{{ record.shape }}</a-tag>
-              </a-tooltip>
-            </template>
-            <template v-if="column.key === 'action'">
-              <a-space>
-                <a-button type="link" size="small" @click="openDetail(activeTenantData!.tenant, record)">详情</a-button>
-                <a-popconfirm v-if="record.state === 'STOPPED'" title="确定启动？" @confirm="handleAction(activeTenantData!.tenant, record, 'START')">
-                  <a-button type="link" size="small" :loading="actionLoading[record.instanceId]">启动</a-button>
+        <a-spin :spinning="activeTenantData.loading">
+          <a-empty v-if="!activeTenantData.loading && activeTenantData.instances.length === 0" description="暂无实例" />
+
+          <!-- 实例卡片视图 -->
+          <div v-else-if="viewMode === 'card'" class="instance-grid">
+            <div v-for="inst in activeTenantData.instances" :key="inst.instanceId" class="instance-card" @click="openDetail(activeTenantData.tenant, inst)">
+              <div class="card-header">
+                <div class="card-title">
+                  <CloudServerOutlined class="card-icon" />
+                  <span class="card-name">{{ inst.name }}</span>
+                </div>
+                <a-badge :status="stateColorMap[inst.state] || 'default'" :text="inst.state" />
+              </div>
+              <div class="card-body">
+                <div class="card-info-row">
+                  <span class="info-label">Shape</span>
+                  <span class="info-value">{{ inst.shape }}</span>
+                </div>
+                <div class="card-info-row">
+                  <span class="info-label">配置</span>
+                  <span class="info-value">{{ inst.ocpus }} OCPU / {{ inst.memoryInGBs }} GB</span>
+                </div>
+                <div class="card-info-row">
+                  <span class="info-label">公网 IP</span>
+                  <span class="info-value ip-text">{{ inst.publicIp || '—' }}</span>
+                </div>
+                <div class="card-info-row">
+                  <span class="info-label">区间</span>
+                  <span class="info-value">{{ inst.compartmentName || '—' }}</span>
+                </div>
+              </div>
+              <div class="card-actions" @click.stop>
+                <a-popconfirm v-if="inst.state === 'STOPPED'" title="确定启动实例？" @confirm="handleAction(activeTenantData.tenant, inst, 'START')">
+                  <a-button type="link" size="small" :loading="actionLoading[inst.instanceId]">启动</a-button>
                 </a-popconfirm>
-                <a-popconfirm v-if="record.state === 'RUNNING'" title="确定停止？" @confirm="handleAction(activeTenantData!.tenant, record, 'STOP')">
-                  <a-button type="link" size="small" :loading="actionLoading[record.instanceId]">停止</a-button>
+                <a-popconfirm v-if="inst.state === 'RUNNING'" title="确定停止实例？" @confirm="handleAction(activeTenantData.tenant, inst, 'STOP')">
+                  <a-button type="link" size="small" :loading="actionLoading[inst.instanceId]">停止</a-button>
                 </a-popconfirm>
-                <a-popconfirm v-if="record.state === 'RUNNING'" title="确定重启？" @confirm="handleAction(activeTenantData!.tenant, record, 'RESET')">
-                  <a-button type="link" size="small" :loading="actionLoading[record.instanceId]">重启</a-button>
+                <a-popconfirm v-if="inst.state === 'RUNNING'" title="确定重启实例？" @confirm="handleAction(activeTenantData.tenant, inst, 'RESET')">
+                  <a-button type="link" size="small" :loading="actionLoading[inst.instanceId]">重启</a-button>
                 </a-popconfirm>
-                <a-button type="link" danger size="small" @click="openTerminateVerify(activeTenantData!.tenant, record)">终止</a-button>
-              </a-space>
+                <a-button type="link" danger size="small" @click="openTerminateVerify(activeTenantData.tenant, inst)">终止</a-button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 实例列表视图 -->
+          <a-table v-else :columns="columns" :data-source="activeTenantData.instances" :loading="activeTenantData.loading"
+            row-key="instanceId" size="middle" :pagination="false">
+            <template #bodyCell="{ column, record }">
+              <template v-if="column.key === 'state'">
+                <a-badge :status="stateColorMap[record.state] || 'default'" :text="record.state" />
+              </template>
+              <template v-if="column.key === 'shape'">
+                <a-tooltip :title="`${record.ocpus} OCPU / ${record.memoryInGBs} GB`">
+                  <a-tag>{{ record.shape }}</a-tag>
+                </a-tooltip>
+              </template>
+              <template v-if="column.key === 'action'">
+                <a-space>
+                  <a-button type="link" size="small" @click="openDetail(activeTenantData!.tenant, record)">详情</a-button>
+                  <a-popconfirm v-if="record.state === 'STOPPED'" title="确定启动？" @confirm="handleAction(activeTenantData!.tenant, record, 'START')">
+                    <a-button type="link" size="small" :loading="actionLoading[record.instanceId]">启动</a-button>
+                  </a-popconfirm>
+                  <a-popconfirm v-if="record.state === 'RUNNING'" title="确定停止？" @confirm="handleAction(activeTenantData!.tenant, record, 'STOP')">
+                    <a-button type="link" size="small" :loading="actionLoading[record.instanceId]">停止</a-button>
+                  </a-popconfirm>
+                  <a-popconfirm v-if="record.state === 'RUNNING'" title="确定重启？" @confirm="handleAction(activeTenantData!.tenant, record, 'RESET')">
+                    <a-button type="link" size="small" :loading="actionLoading[record.instanceId]">重启</a-button>
+                  </a-popconfirm>
+                  <a-button type="link" danger size="small" @click="openTerminateVerify(activeTenantData!.tenant, record)">终止</a-button>
+                </a-space>
+              </template>
             </template>
-          </template>
-        </a-table>
-      </a-spin>
-    </div>
+          </a-table>
+        </a-spin>
+      </div>
+    </a-modal>
 
     <!-- 快捷开机任务弹窗 -->
     <a-modal v-model:open="quickTaskVisible" title="快捷开机任务" :width="isMobile ? '100%' : 600"
@@ -811,6 +822,12 @@ const activeTenantData = computed(() => {
   if (!activeTenantId.value) return null
   return tenantDataList.value.find(td => td.tenant.id === activeTenantId.value) || null
 })
+const instancePanelVisible = computed({
+  get: () => !!activeTenantData.value,
+  set: (val: boolean) => {
+    if (!val) activeTenantId.value = ''
+  },
+})
 
 function selectTenant(td: TenantData) {
   activeTenantId.value = td.tenant.id
@@ -1092,10 +1109,46 @@ async function handleAddIpv6() {
     const res = await addIpv6({ id: currentTenant.value.id, instanceId: currentInstance.value.instanceId })
     message.success('IPv6 已添加: ' + (res.data?.ipv6Address || ''))
     loadNetworkDetail()
+    await checkIpv6SecurityHealth()
   } catch (e: any) {
     message.error(e?.message || '添加 IPv6 失败')
   } finally {
     ipv6Loading.value = false
+  }
+}
+
+function isIpv6Cidr(cidr: string | undefined) {
+  if (!cidr) return false
+  return cidr.includes(':')
+}
+
+async function checkIpv6SecurityHealth() {
+  if (!currentInstance.value || !currentTenant.value) return
+  try {
+    const res = await getSecurityRules({
+      id: currentTenant.value.id,
+      instanceId: currentInstance.value.instanceId,
+    })
+    const data = res.data || []
+    const ingress = data.filter((r: any) => r.direction === 'ingress')
+    const egress = data.filter((r: any) => r.direction === 'egress')
+
+    const hasIpv6Ingress = ingress.some((r: any) => isIpv6Cidr(r.source))
+    const hasIpv6Egress = egress.some((r: any) => isIpv6Cidr(r.source))
+
+    if (hasIpv6Ingress && hasIpv6Egress) return
+
+    const missing: string[] = []
+    if (!hasIpv6Ingress) missing.push('IPv6 入站规则')
+    if (!hasIpv6Egress) missing.push('IPv6 出站规则')
+
+    Modal.warning({
+      title: 'IPv6 连通性自检提醒',
+      content: `检测到当前安全列表缺少 ${missing.join('、')}，可能出现“有 IPv6 地址但不通”。建议前往“安全列表”补充对应 IPv6 规则（如 ::/0）。`,
+      okText: '知道了',
+    })
+  } catch {
+    // 忽略自检失败，不影响主流程
   }
 }
 

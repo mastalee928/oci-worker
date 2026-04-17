@@ -337,6 +337,8 @@ public class InstanceService {
                 }
             }
 
+            ensureIpv6InternetRoute(client, vcn, subnet);
+
             Ipv6 ipv6 = client.getVirtualNetworkClient().createIpv6(
                     CreateIpv6Request.builder()
                             .createIpv6Details(CreateIpv6Details.builder()
@@ -352,6 +354,65 @@ public class InstanceService {
             throw new OciException(tag(ociUser) + "添加 IPv6 失败: " + extractOciErrorMessage(e));
         } catch (Exception e) {
             throw new OciException(tag(ociUser) + "添加 IPv6 失败: " + e.getMessage());
+        }
+    }
+
+    private void ensureIpv6InternetRoute(OciClientService client, Vcn vcn, Subnet subnet) {
+        List<InternetGateway> igws = client.getVirtualNetworkClient().listInternetGateways(
+                ListInternetGatewaysRequest.builder()
+                        .compartmentId(client.getCompartmentId())
+                        .vcnId(vcn.getId())
+                        .build()
+        ).getItems();
+
+        InternetGateway igw;
+        if (igws == null || igws.isEmpty()) {
+            log.info("VCN {} has no Internet Gateway, creating one...", vcn.getDisplayName());
+            igw = client.createInternetGateway(vcn);
+        } else {
+            igw = igws.stream()
+                    .filter(gw -> Boolean.TRUE.equals(gw.getIsEnabled()))
+                    .findFirst()
+                    .orElse(igws.get(0));
+        }
+
+        String routeTableId = subnet.getRouteTableId() != null ? subnet.getRouteTableId() : vcn.getDefaultRouteTableId();
+        if (routeTableId == null) {
+            log.warn("No route table found for subnet {}, skip IPv6 default route setup", subnet.getId());
+            return;
+        }
+
+        RouteTable routeTable = client.getVirtualNetworkClient().getRouteTable(
+                GetRouteTableRequest.builder().rtId(routeTableId).build()
+        ).getRouteTable();
+
+        List<RouteRule> rules = new ArrayList<>();
+        if (routeTable.getRouteRules() != null) {
+            rules.addAll(routeTable.getRouteRules());
+        }
+
+        boolean hasIpv6DefaultRoute = rules.stream().anyMatch(rule ->
+                "::/0".equals(rule.getDestination())
+                        && RouteRule.DestinationType.CidrBlock.equals(rule.getDestinationType())
+        );
+
+        if (!hasIpv6DefaultRoute) {
+            rules.add(RouteRule.builder()
+                    .destination("::/0")
+                    .destinationType(RouteRule.DestinationType.CidrBlock)
+                    .networkEntityId(igw.getId())
+                    .description("oci-worker auto add IPv6 default route")
+                    .build());
+
+            client.getVirtualNetworkClient().updateRouteTable(
+                    UpdateRouteTableRequest.builder()
+                            .rtId(routeTableId)
+                            .updateRouteTableDetails(UpdateRouteTableDetails.builder()
+                                    .routeRules(rules)
+                                    .build())
+                            .build()
+            );
+            log.info("Added IPv6 default route (::/0 -> IGW) to route table {}", routeTableId);
         }
     }
 
