@@ -97,11 +97,13 @@
       v-model:open="instancePanelVisible"
       :title="null"
       :footer="null"
-      :width="isMobile ? '100%' : '92vw'"
+      :width="isMobile ? '100%' : 1080"
+      centered
       :mask-closable="false"
       :closable="false"
+      wrap-class-name="instance-manager-modal"
       :style="isMobile ? { top: 0, paddingBottom: 0 } : { top: '18px' }"
-      :bodyStyle="{ maxHeight: isMobile ? '100vh' : '82vh', overflowY: 'auto', padding: isMobile ? '12px' : '20px' }"
+      :bodyStyle="{ maxHeight: isMobile ? '100vh' : '76vh', overflowY: 'auto', padding: isMobile ? '10px' : '14px' }"
     >
       <div v-if="activeTenantData" class="instance-panel">
         <div class="instance-panel-header">
@@ -1641,21 +1643,23 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   gap: 8px;
 }
 .instance-panel {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 16px;
-  padding: 20px;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  box-shadow: var(--shadow-card);
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  padding: 0;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  box-shadow: none;
 }
 .instance-panel-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 16px;
+  margin-bottom: 14px;
   flex-wrap: wrap;
   gap: 12px;
+  padding: 0 2px 10px;
+  border-bottom: 1px solid var(--border);
 }
 .panel-title {
   display: flex;
@@ -1671,8 +1675,9 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
 }
 .instance-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 14px;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 340px));
+  gap: 12px;
+  justify-content: flex-start;
 }
 .instance-card {
   background: var(--bg-sidebar);
@@ -1831,5 +1836,25 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   }
   .instance-grid { grid-template-columns: 1fr; gap: 10px; }
   .instance-card { padding: 14px; border-radius: 12px; }
+}
+
+.instance-manager-modal :deep(.ant-modal) {
+  max-width: 1080px;
+}
+.instance-manager-modal :deep(.ant-modal-content) {
+  border-radius: 14px;
+  border: 1px solid var(--border);
+  background: rgba(15, 23, 42, 0.72);
+  backdrop-filter: blur(10px) saturate(120%);
+  -webkit-backdrop-filter: blur(10px) saturate(120%);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
+}
+.instance-manager-modal :deep(.ant-modal-mask) {
+  background: rgba(3, 8, 22, 0.45);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+}
+.instance-manager-modal :deep(.ant-modal-body) {
+  scrollbar-width: thin;
 }
 </style>
