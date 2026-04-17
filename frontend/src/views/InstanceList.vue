@@ -97,7 +97,7 @@
       v-model:open="instancePanelVisible"
       :title="null"
       :footer="null"
-      :width="isMobile ? '100%' : 1080"
+      :width="instancePanelWidth"
       centered
       :mask-closable="false"
       :closable="false"
@@ -114,6 +114,19 @@
             <a-badge :count="activeTenantData.instances.length" :number-style="{ backgroundColor: 'var(--primary)' }" :show-zero="true" style="margin-left: 8px" />
           </div>
           <div class="panel-actions">
+            <div class="region-switch" v-if="regionTenantOptions.length > 1">
+              <span class="region-switch-label">区域</span>
+              <a-select
+                v-model:value="activeTenantId"
+                size="small"
+                style="width: 170px"
+                @change="handleRegionSwitch"
+              >
+                <a-select-option v-for="opt in regionTenantOptions" :key="opt.id" :value="opt.id">
+                  {{ opt.regionLabel }}
+                </a-select-option>
+              </a-select>
+            </div>
             <a-button size="small" @click="loadTenantInstances(activeTenantData)" :loading="activeTenantData.loading">
               <template #icon><ReloadOutlined /></template>刷新
             </a-button>
@@ -128,7 +141,7 @@
           <a-empty v-if="!activeTenantData.loading && activeTenantData.instances.length === 0" description="暂无实例" />
 
           <!-- 实例卡片视图 -->
-          <div v-else-if="viewMode === 'card'" class="instance-grid">
+          <div v-else-if="viewMode === 'card'" class="instance-grid" :class="instanceGridClass">
             <div v-for="inst in activeTenantData.instances" :key="inst.instanceId" class="instance-card" @click="openDetail(activeTenantData.tenant, inst)">
               <div class="card-header">
                 <div class="card-title">
@@ -756,6 +769,12 @@ interface TenantData {
   collapsed: boolean
 }
 
+interface RegionTenantOption {
+  id: string
+  region: string
+  regionLabel: string
+}
+
 const stateColorMap: Record<string, string> = {
   RUNNING: 'success', STOPPED: 'error', STARTING: 'processing',
   STOPPING: 'warning', TERMINATED: 'default',
@@ -824,16 +843,82 @@ const activeTenantData = computed(() => {
   if (!activeTenantId.value) return null
   return tenantDataList.value.find(td => td.tenant.id === activeTenantId.value) || null
 })
+const regionTenantOptions = ref<RegionTenantOption[]>([])
 const instancePanelVisible = computed({
   get: () => !!activeTenantData.value,
   set: (val: boolean) => {
     if (!val) activeTenantId.value = ''
   },
 })
+const instanceCount = computed(() => activeTenantData.value?.instances?.length || 0)
+const instancePanelWidth = computed(() => {
+  if (isMobile.value) return '100%'
+  if (viewMode.value === 'table') return 1080
+  if (instanceCount.value <= 1) return 460
+  if (instanceCount.value === 2) return 760
+  if (instanceCount.value === 3) return 1080
+  if (instanceCount.value === 4) return 860
+  return 1080
+})
+const instanceGridClass = computed(() => {
+  if (instanceCount.value <= 1) return 'instance-grid-1'
+  if (instanceCount.value === 2) return 'instance-grid-2'
+  if (instanceCount.value === 3) return 'instance-grid-3'
+  if (instanceCount.value === 4) return 'instance-grid-4'
+  return 'instance-grid-many'
+})
+
+function getRegionMemoryKey(tenant: any) {
+  const tenantId = tenant?.ociTenantId || 'unknown-tenant'
+  const userId = tenant?.ociUserId || 'unknown-user'
+  return `instance-region:${tenantId}:${userId}`
+}
+
+function savePreferredRegion(tenant: any, region: string) {
+  try {
+    localStorage.setItem(getRegionMemoryKey(tenant), region || '')
+  } catch {}
+}
+
+function getPreferredRegion(tenant: any) {
+  try {
+    return localStorage.getItem(getRegionMemoryKey(tenant)) || ''
+  } catch {
+    return ''
+  }
+}
 
 function selectTenant(td: TenantData) {
-  activeTenantId.value = td.tenant.id
-  loadTenantInstances(td)
+  const sameAccountTenants = getSameAccountTenants(td.tenant)
+  regionTenantOptions.value = sameAccountTenants.map(item => ({
+    id: item.tenant.id,
+    region: item.tenant.ociRegion,
+    regionLabel: item.tenant.ociRegion || '未设置',
+  }))
+
+  const preferredRegion = getPreferredRegion(td.tenant)
+  const targetTenant = sameAccountTenants.find(item => item.tenant.ociRegion === preferredRegion) || td
+
+  activeTenantId.value = targetTenant.tenant.id
+  savePreferredRegion(targetTenant.tenant, targetTenant.tenant.ociRegion || '')
+  loadTenantInstances(targetTenant)
+}
+
+function getSameAccountTenants(tenant: any) {
+  const sameAccount = tenantDataList.value.filter(item =>
+    item.tenant.ociTenantId === tenant.ociTenantId &&
+    item.tenant.ociUserId === tenant.ociUserId,
+  )
+  return sameAccount.sort((a, b) =>
+    (a.tenant.ociRegion || '').localeCompare(b.tenant.ociRegion || ''),
+  )
+}
+
+async function handleRegionSwitch(targetTenantId: string) {
+  const td = tenantDataList.value.find(item => item.tenant.id === targetTenantId)
+  if (!td) return
+  savePreferredRegion(td.tenant, td.tenant.ociRegion || '')
+  await loadTenantInstances(td)
 }
 
 const drawerVisible = ref(false)
@@ -1673,11 +1758,37 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   align-items: center;
   gap: 8px;
 }
+.region-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 4px;
+}
+.region-switch-label {
+  color: var(--text-sub);
+  font-size: 12px;
+  white-space: nowrap;
+}
 .instance-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(280px, 340px));
+  grid-template-columns: repeat(3, minmax(260px, 320px));
   gap: 12px;
-  justify-content: flex-start;
+  justify-content: center;
+}
+.instance-grid.instance-grid-1 {
+  grid-template-columns: minmax(300px, 360px);
+}
+.instance-grid.instance-grid-2 {
+  grid-template-columns: repeat(2, minmax(280px, 340px));
+}
+.instance-grid.instance-grid-3 {
+  grid-template-columns: repeat(3, minmax(250px, 320px));
+}
+.instance-grid.instance-grid-4 {
+  grid-template-columns: repeat(2, minmax(280px, 340px));
+}
+.instance-grid.instance-grid-many {
+  grid-template-columns: repeat(3, minmax(250px, 320px));
 }
 .instance-card {
   background: var(--bg-sidebar);
@@ -1826,6 +1937,7 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   }
   .instance-panel > .instance-panel-header .panel-actions {
     padding: 0 14px 10px; gap: 6px;
+    flex-wrap: wrap;
   }
   .instance-panel > .instance-panel-header .panel-actions .ant-btn:last-child {
     position: fixed; top: 10px; right: 10px; z-index: 1002;
@@ -1834,7 +1946,15 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
     color: #fff; background: rgba(255,255,255,0.12);
     border: none; border-radius: 50%;
   }
-  .instance-grid { grid-template-columns: 1fr; gap: 10px; }
+  .instance-grid,
+  .instance-grid.instance-grid-1,
+  .instance-grid.instance-grid-2,
+  .instance-grid.instance-grid-3,
+  .instance-grid.instance-grid-4,
+  .instance-grid.instance-grid-many {
+    grid-template-columns: 1fr;
+    gap: 10px;
+  }
   .instance-card { padding: 14px; border-radius: 12px; }
 }
 
