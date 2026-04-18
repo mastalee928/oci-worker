@@ -142,11 +142,17 @@ function handleLogout() {
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
   transition: background 0.3s;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  align-self: flex-start;
+  z-index: 10;
 }
 .sider :deep(.ant-layout-sider-children) {
   display: flex;
   flex-direction: column;
   height: 100%;
+  overflow: hidden;
 }
 .sider :deep(.ant-layout-sider-trigger),
 .sider :deep(.ant-layout-sider-zero-width-trigger) {
