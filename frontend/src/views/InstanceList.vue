@@ -1111,6 +1111,11 @@ const instancePanelVisible = computed({
 const instanceCount = computed(() => activeTenantData.value?.instances?.length || 0)
 const instancePanelWidth = computed(() => {
   if (isMobile.value) return '100%'
+  if (viewMode.value === 'table') return 1120
+  const n = instanceCount.value
+  if (n <= 1) return 560
+  if (n === 2) return 820
+  if (n === 4) return 820
   return 1120
 })
 const instanceGridClass = computed(() => {
