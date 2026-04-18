@@ -113,6 +113,31 @@ public class TenantController {
         return ResponseData.ok(domainManagementService.getServiceQuotas(params.get("id")));
     }
 
+    @PostMapping("/authFactorsUnlock")
+    public ResponseData<?> authFactorsUnlock(@RequestBody java.util.Map<String, String> params) {
+        String code = params == null ? null : params.get("verifyCode");
+        String token = domainManagementService.unlockAuthFactors(code);
+        return ResponseData.ok(java.util.Map.of("accessToken", token));
+    }
+
+    @PostMapping("/authFactors")
+    public ResponseData<?> authFactors(@RequestBody java.util.Map<String, String> params) {
+        return ResponseData.ok(domainManagementService.listAuthFactorSettings(
+                params.get("id"), params.get("accessToken")));
+    }
+
+    @PostMapping("/updateAuthFactors")
+    @SuppressWarnings("unchecked")
+    public ResponseData<?> updateAuthFactors(@RequestBody java.util.Map<String, Object> params) {
+        return ResponseData.ok(domainManagementService.updateAuthFactorSettings(
+                (String) params.get("id"),
+                (String) params.get("domainId"),
+                (String) params.get("accessToken"),
+                (java.util.Map<String, Object>) params.get("factors"),
+                (java.util.Map<String, Object>) params.get("limits"),
+                (java.util.Map<String, Object>) params.get("trustedDevice")));
+    }
+
     @GetMapping("/groups")
     public ResponseData<?> groups() {
         return ResponseData.ok(tenantService.getDistinctGroups());

@@ -35,6 +35,34 @@ public class DomainManagementService {
     @Resource
     private OciUserMapper userMapper;
 
+    @Resource
+    private VerifyCodeService verifyCodeService;
+
+    /** token -> expireAt（验证因素 Tab 解锁后 10 分钟内可读写） */
+    private static final java.util.Map<String, Long> AUTH_FACTOR_TOKENS = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final long AUTH_FACTOR_TOKEN_TTL_MS = 10 * 60 * 1000L;
+
+    /** 以 TG 验证码换取短期 accessToken */
+    public String unlockAuthFactors(String inputCode) {
+        if (inputCode == null || inputCode.isBlank()) throw new OciException("请输入验证码");
+        verifyCodeService.verifyCode("authFactors", inputCode);
+        long now = System.currentTimeMillis();
+        AUTH_FACTOR_TOKENS.entrySet().removeIf(e -> e.getValue() < now);
+        String token = java.util.UUID.randomUUID().toString();
+        AUTH_FACTOR_TOKENS.put(token, now + AUTH_FACTOR_TOKEN_TTL_MS);
+        return token;
+    }
+
+    private void requireAuthFactorToken(String token) {
+        if (token == null || token.isBlank()) throw new OciException("会话未解锁，请先通过 TG 验证码解锁");
+        Long exp = AUTH_FACTOR_TOKENS.get(token);
+        if (exp == null) throw new OciException("会话已失效，请重新解锁");
+        if (System.currentTimeMillis() > exp) {
+            AUTH_FACTOR_TOKENS.remove(token);
+            throw new OciException("会话已过期，请重新解锁");
+        }
+    }
+
     private OciClientService buildClient(String tenantId) {
         OciUser user = userMapper.selectById(tenantId);
         if (user == null) throw new OciException("租户配置不存在");
@@ -367,6 +395,215 @@ public class DomainManagementService {
             throw new OciException("获取登录日志失败: " + (e.getMessage() == null ? "未知错误" : e.getMessage()));
         }
         return result;
+    }
+
+    // ---------------- Authentication Factor Settings ----------------
+
+    /** 因素开关在 AuthenticationFactorSetting 顶层的布尔字段名 */
+    private static final Map<String, String> FACTOR_PATH = new LinkedHashMap<>();
+    static {
+        FACTOR_PATH.put("totp", "totpEnabled");
+        FACTOR_PATH.put("push", "pushEnabled");
+        FACTOR_PATH.put("sms", "smsEnabled");
+        FACTOR_PATH.put("phoneCall", "phoneCallEnabled");
+        FACTOR_PATH.put("email", "emailEnabled");
+        FACTOR_PATH.put("securityQuestions", "securityQuestionsEnabled");
+        FACTOR_PATH.put("fido", "fidoAuthenticatorEnabled");
+        FACTOR_PATH.put("yubico", "yubicoOtpEnabled");
+        FACTOR_PATH.put("bypassCode", "bypassCodeEnabled");
+        FACTOR_PATH.put("duoSecurity", "thirdPartyFactor.duoSecurity");
+    }
+
+    /**
+     * 读取所有域的 AuthenticationFactorSetting。要求已解锁。
+     */
+    public Map<String, Object> listAuthFactorSettings(String tenantId, String token) {
+        requireAuthFactorToken(token);
+        Map<String, Object> result = new LinkedHashMap<>();
+        List<Map<String, Object>> domainResults = new ArrayList<>();
+        try (OciClientService client = buildClient(tenantId)) {
+            var domains = listDomains(client);
+            if (domains.isEmpty()) throw new OciException("未找到 Identity Domain");
+            for (var d : domains) {
+                Map<String, Object> r = new LinkedHashMap<>();
+                r.put("domainId", d.get("id"));
+                r.put("displayName", d.get("displayName"));
+                r.put("type", d.get("type"));
+                try (IdentityDomainsClient dc = newDomainClient(client, (String) d.get("url"))) {
+                    AuthenticationFactorSetting s = firstAuthFactorSetting(dc);
+                    r.put("settingId", s.getId());
+                    Map<String, Object> factors = new LinkedHashMap<>();
+                    factors.put("totp", bool(s.getTotpEnabled()));
+                    factors.put("push", bool(s.getPushEnabled()));
+                    factors.put("sms", bool(s.getSmsEnabled()));
+                    factors.put("phoneCall", bool(s.getPhoneCallEnabled()));
+                    factors.put("email", bool(s.getEmailEnabled()));
+                    factors.put("securityQuestions", bool(s.getSecurityQuestionsEnabled()));
+                    factors.put("fido", bool(s.getFidoAuthenticatorEnabled()));
+                    factors.put("yubico", bool(s.getYubicoOtpEnabled()));
+                    factors.put("bypassCode", bool(s.getBypassCodeEnabled()));
+                    factors.put("duoSecurity", s.getThirdPartyFactor() != null && Boolean.TRUE.equals(s.getThirdPartyFactor().getDuoSecurity()));
+                    r.put("factors", factors);
+
+                    Map<String, Object> limits = new LinkedHashMap<>();
+                    Map<String, Object> trusted = new LinkedHashMap<>();
+                    int maxIncorrect = 0;
+                    var er = s.getEndpointRestrictions();
+                    if (er != null) {
+                        limits.put("maxEnrolledDevices", er.getMaxEnrolledDevices());
+                        trusted.put("enabled", bool(er.getTrustedEndpointsEnabled()));
+                        trusted.put("maxTrustedEndpoints", er.getMaxTrustedEndpoints());
+                        trusted.put("maxEndpointTrustDurationInDays", er.getMaxEndpointTrustDurationInDays());
+                        if (er.getMaxIncorrectAttempts() != null) maxIncorrect = er.getMaxIncorrectAttempts();
+                    }
+                    limits.put("maxIncorrectAttempts", maxIncorrect);
+                    r.put("limits", limits);
+                    r.put("trustedDevice", trusted);
+                } catch (Exception e) {
+                    log.warn("list auth factor for domain {} failed: {}", d.get("displayName"), e.getMessage());
+                    r.put("error", e.getMessage() == null ? "查询失败" : e.getMessage());
+                }
+                domainResults.add(r);
+            }
+        } catch (OciException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new OciException("读取验证因素设置失败: " + (e.getMessage() == null ? "未知错误" : e.getMessage()));
+        }
+        result.put("domains", domainResults);
+        return result;
+    }
+
+    /**
+     * 保存某一个域的 AuthenticationFactorSetting，只 patch 发生变化的字段。
+     */
+    public Map<String, Object> updateAuthFactorSettings(String tenantId, String domainId, String token,
+                                                        Map<String, Object> desiredFactors,
+                                                        Map<String, Object> desiredLimits,
+                                                        Map<String, Object> desiredTrustedDevice) {
+        requireAuthFactorToken(token);
+        try (OciClientService client = buildClient(tenantId)) {
+            var domains = listDomains(client);
+            var target = findDomain(domains, domainId);
+            try (IdentityDomainsClient dc = newDomainClient(client, (String) target.get("url"))) {
+                AuthenticationFactorSetting current = firstAuthFactorSetting(dc);
+
+                List<Operations> ops = new ArrayList<>();
+
+                // factors
+                if (desiredFactors != null) {
+                    for (var en : FACTOR_PATH.entrySet()) {
+                        if (!desiredFactors.containsKey(en.getKey())) continue;
+                        boolean want = Boolean.TRUE.equals(desiredFactors.get(en.getKey()));
+                        boolean now = currentFactorValue(current, en.getKey());
+                        if (want != now) {
+                            ops.add(Operations.builder()
+                                    .op(Operations.Op.Replace)
+                                    .path(en.getValue())
+                                    .value(want).build());
+                        }
+                    }
+                }
+
+                // limits
+                var er = current.getEndpointRestrictions();
+                if (desiredLimits != null) {
+                    Integer want = asInt(desiredLimits.get("maxEnrolledDevices"));
+                    Integer now = er == null ? null : er.getMaxEnrolledDevices();
+                    if (want != null && !java.util.Objects.equals(want, now)) {
+                        ops.add(Operations.builder().op(Operations.Op.Replace)
+                                .path("endpointRestrictions.maxEnrolledDevices").value(want).build());
+                    }
+                    Integer wantInc = asInt(desiredLimits.get("maxIncorrectAttempts"));
+                    Integer nowInc = er == null ? null : er.getMaxIncorrectAttempts();
+                    if (wantInc != null && !java.util.Objects.equals(wantInc, nowInc)) {
+                        ops.add(Operations.builder().op(Operations.Op.Replace)
+                                .path("endpointRestrictions.maxIncorrectAttempts").value(wantInc).build());
+                    }
+                }
+
+                // trusted device
+                if (desiredTrustedDevice != null) {
+                    if (desiredTrustedDevice.containsKey("enabled")) {
+                        boolean want = Boolean.TRUE.equals(desiredTrustedDevice.get("enabled"));
+                        boolean now = er != null && Boolean.TRUE.equals(er.getTrustedEndpointsEnabled());
+                        if (want != now) {
+                            ops.add(Operations.builder().op(Operations.Op.Replace)
+                                    .path("endpointRestrictions.trustedEndpointsEnabled").value(want).build());
+                        }
+                    }
+                    Integer wantMax = asInt(desiredTrustedDevice.get("maxTrustedEndpoints"));
+                    Integer nowMax = er == null ? null : er.getMaxTrustedEndpoints();
+                    if (wantMax != null && !java.util.Objects.equals(wantMax, nowMax)) {
+                        ops.add(Operations.builder().op(Operations.Op.Replace)
+                                .path("endpointRestrictions.maxTrustedEndpoints").value(wantMax).build());
+                    }
+                    Integer wantDays = asInt(desiredTrustedDevice.get("maxEndpointTrustDurationInDays"));
+                    Integer nowDays = er == null ? null : er.getMaxEndpointTrustDurationInDays();
+                    if (wantDays != null && !java.util.Objects.equals(wantDays, nowDays)) {
+                        ops.add(Operations.builder().op(Operations.Op.Replace)
+                                .path("endpointRestrictions.maxEndpointTrustDurationInDays").value(wantDays).build());
+                    }
+                }
+
+                Map<String, Object> resp = new LinkedHashMap<>();
+                resp.put("domainId", target.get("id"));
+                resp.put("displayName", target.get("displayName"));
+                resp.put("changedOps", ops.size());
+                if (ops.isEmpty()) {
+                    resp.put("skipped", true);
+                    return resp;
+                }
+
+                PatchOp patch = PatchOp.builder()
+                        .schemas(List.of("urn:ietf:params:scim:api:messages:2.0:PatchOp"))
+                        .operations(ops).build();
+
+                dc.patchAuthenticationFactorSetting(PatchAuthenticationFactorSettingRequest.builder()
+                        .authenticationFactorSettingId(current.getId())
+                        .patchOp(patch).build());
+
+                log.info("AuthFactorSetting patched: tenant={} domain={} ops={}",
+                        tenantId, target.get("displayName"), ops.size());
+                return resp;
+            }
+        } catch (OciException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new OciException("更新验证因素设置失败: " + (e.getMessage() == null ? "未知错误" : e.getMessage()));
+        }
+    }
+
+    private boolean currentFactorValue(AuthenticationFactorSetting s, String key) {
+        switch (key) {
+            case "totp": return Boolean.TRUE.equals(s.getTotpEnabled());
+            case "push": return Boolean.TRUE.equals(s.getPushEnabled());
+            case "sms": return Boolean.TRUE.equals(s.getSmsEnabled());
+            case "phoneCall": return Boolean.TRUE.equals(s.getPhoneCallEnabled());
+            case "email": return Boolean.TRUE.equals(s.getEmailEnabled());
+            case "securityQuestions": return Boolean.TRUE.equals(s.getSecurityQuestionsEnabled());
+            case "fido": return Boolean.TRUE.equals(s.getFidoAuthenticatorEnabled());
+            case "yubico": return Boolean.TRUE.equals(s.getYubicoOtpEnabled());
+            case "bypassCode": return Boolean.TRUE.equals(s.getBypassCodeEnabled());
+            case "duoSecurity": return s.getThirdPartyFactor() != null && Boolean.TRUE.equals(s.getThirdPartyFactor().getDuoSecurity());
+            default: return false;
+        }
+    }
+
+    private AuthenticationFactorSetting firstAuthFactorSetting(IdentityDomainsClient dc) {
+        var resp = dc.listAuthenticationFactorSettings(ListAuthenticationFactorSettingsRequest.builder().build());
+        var items = resp.getAuthenticationFactorSettings() == null
+                ? null : resp.getAuthenticationFactorSettings().getResources();
+        if (items == null || items.isEmpty()) throw new OciException("未找到 AuthenticationFactorSetting");
+        return items.get(0);
+    }
+
+    private boolean bool(Boolean b) { return Boolean.TRUE.equals(b); }
+
+    private Integer asInt(Object v) {
+        if (v == null) return null;
+        if (v instanceof Number n) return n.intValue();
+        try { return Integer.parseInt(String.valueOf(v)); } catch (Exception ignored) { return null; }
     }
 
     // ---------------- Quotas (unchanged) ----------------

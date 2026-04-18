@@ -554,6 +554,87 @@ region=ap-tokyo-1"
             </div>
           </a-spin>
         </a-tab-pane>
+        <a-tab-pane key="factors" tab="验证因素">
+          <!-- TG 验证门 -->
+          <div v-if="!authFactorToken" class="factor-lock">
+            <i class="ri-shield-keyhole-line factor-lock-icon"></i>
+            <div class="factor-lock-title">修改验证因素需要 Telegram 二次验证</div>
+            <div class="factor-lock-desc">
+              该设置对应「身份域 → 安全 → 验证因素」。改动将影响域内所有用户的 MFA 登录方式，请确认后再操作。
+            </div>
+            <a-space style="margin-top: 14px" wrap>
+              <a-button @click="sendFactorCode" :loading="factorCodeSending">
+                <template #icon><i class="ri-send-plane-line"></i></template>
+                获取验证码
+              </a-button>
+              <a-input v-model:value="factorCodeInput" placeholder="6 位验证码" :maxlength="6" style="width: 140px" />
+              <a-button type="primary" :loading="factorUnlocking" @click="doUnlockFactors">解锁</a-button>
+            </a-space>
+          </div>
+          <div v-else>
+            <a-alert type="success" show-icon style="margin-bottom: 12px"
+              message="已通过 TG 验证，10 分钟内可在本 Tab 自由保存；关闭弹窗将自动注销。" />
+            <a-spin :spinning="authFactorLoading">
+              <a-empty v-if="!authFactorLoading && authFactorDomains.length === 0" description="无数据" />
+              <div v-for="d in authFactorDomains" :key="d.domainId" class="domain-card">
+                <div class="domain-card-header">
+                  <a-tag color="purple">{{ d.displayName || '—' }}</a-tag>
+                  <a-tag v-if="d.type" color="blue">{{ d.type }}</a-tag>
+                </div>
+                <a-alert v-if="d.error" type="warning" show-icon :message="d.error" style="margin-bottom: 10px" />
+                <template v-else>
+                  <div class="factor-section-title">因素</div>
+                  <div class="factor-grid">
+                    <a-checkbox v-for="f in FACTOR_OPTIONS" :key="f.key"
+                      :checked="!!d.factors?.[f.key]"
+                      @change="(e: any) => (d.factors[f.key] = e.target.checked)">
+                      {{ f.label }}
+                    </a-checkbox>
+                  </div>
+
+                  <div class="factor-section-title">参数</div>
+                  <a-space wrap>
+                    <span class="factor-label">最大注册设备数</span>
+                    <a-input-number :value="d.limits?.maxEnrolledDevices"
+                      @update:value="(v: any) => (d.limits.maxEnrolledDevices = v)"
+                      :min="1" :max="20" style="width: 110px" />
+                    <span class="factor-hint">maxEnrolledDevices</span>
+                  </a-space>
+
+                  <div class="factor-section-title">可信设备</div>
+                  <a-space wrap>
+                    <a-switch :checked="!!d.trustedDevice?.enabled"
+                      @change="(v: any) => (d.trustedDevice.enabled = v)"
+                      checked-children="启用" un-checked-children="禁用" />
+                    <span class="factor-label">最大可信设备数</span>
+                    <a-input-number :value="d.trustedDevice?.maxTrustedEndpoints"
+                      @update:value="(v: any) => (d.trustedDevice.maxTrustedEndpoints = v)"
+                      :min="1" :max="50" style="width: 110px" />
+                    <span class="factor-label">信任天数</span>
+                    <a-input-number :value="d.trustedDevice?.maxEndpointTrustDurationInDays"
+                      @update:value="(v: any) => (d.trustedDevice.maxEndpointTrustDurationInDays = v)"
+                      :min="1" :max="365" style="width: 110px" />
+                  </a-space>
+
+                  <div class="factor-section-title">登录规则</div>
+                  <a-space wrap>
+                    <span class="factor-label">最大 MFA 失败次数</span>
+                    <a-input-number :value="d.limits?.maxIncorrectAttempts"
+                      @update:value="(v: any) => (d.limits.maxIncorrectAttempts = v)"
+                      :min="1" :max="50" style="width: 110px" />
+                    <span class="factor-hint">endpointRestrictions.maxIncorrectAttempts</span>
+                  </a-space>
+
+                  <div style="margin-top: 12px; display: flex; justify-content: flex-end; gap: 8px">
+                    <a-button size="small" @click="reloadFactors">重置</a-button>
+                    <a-button size="small" type="primary" :loading="factorSavingId === d.domainId"
+                      @click="saveFactors(d)">保存</a-button>
+                  </div>
+                </template>
+              </div>
+            </a-spin>
+          </div>
+        </a-tab-pane>
         <a-tab-pane key="logs" tab="登录日志">
           <a-space style="margin-bottom: 12px" wrap>
             <a-button @click="loadAuditLogs" :loading="auditLogsLoading">
@@ -640,12 +721,13 @@ region=ap-tokyo-1"
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { PlusOutlined, ThunderboltOutlined, InboxOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
 import type { UploadFile } from 'ant-design-vue'
-import { getTenantList, addTenant, updateTenant, removeTenant, uploadKey, getTenantFullInfo, getDomainSettings, updateMfa, updatePasswordExpiry, getAuditLogs, getServiceQuotas, getTenantGroups, createGroup, renameGroup, deleteGroup, saveGroupOrder } from '../api/tenant'
+import { getTenantList, addTenant, updateTenant, removeTenant, uploadKey, getTenantFullInfo, getDomainSettings, updateMfa, updatePasswordExpiry, getAuditLogs, getServiceQuotas, getTenantGroups, createGroup, renameGroup, deleteGroup, saveGroupOrder, unlockAuthFactors, getAuthFactors, updateAuthFactors } from '../api/tenant'
+import { sendVerifyCode } from '../api/system'
 import { RightOutlined, DownOutlined, SettingOutlined, FolderOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons-vue'
 import AuditLogTable from '../components/AuditLogTable.vue'
 
@@ -859,15 +941,127 @@ const quotasLoading = ref(false)
 const quotasList = ref<any[]>([])
 const quotaSearch = ref('')
 
+// ------- 验证因素 -------
+const FACTOR_OPTIONS: { key: string; label: string }[] = [
+  { key: 'totp', label: '移动应用程序验证码 (TOTP)' },
+  { key: 'push', label: '移动应用程序通知 (Push)' },
+  { key: 'phoneCall', label: '电话' },
+  { key: 'sms', label: '短信 (SMS)' },
+  { key: 'email', label: '电子邮件' },
+  { key: 'securityQuestions', label: '安全问题' },
+  { key: 'fido', label: 'FIDO 通行密钥' },
+  { key: 'yubico', label: 'Yubico OTP' },
+  { key: 'bypassCode', label: '绕过码' },
+  { key: 'duoSecurity', label: 'Duo Security' },
+]
+const factorCodeSending = ref(false)
+const factorCodeInput = ref('')
+const factorUnlocking = ref(false)
+const authFactorToken = ref('')
+const authFactorLoading = ref(false)
+const authFactorDomains = ref<any[]>([])
+const factorSavingId = ref('')
+
+function resetAuthFactorState() {
+  factorCodeInput.value = ''
+  authFactorToken.value = ''
+  authFactorDomains.value = []
+}
+
+async function sendFactorCode() {
+  factorCodeSending.value = true
+  try {
+    await sendVerifyCode('authFactors')
+    message.success('验证码已发送至 Telegram')
+  } catch (e: any) {
+    message.error(e?.message || '发送验证码失败')
+  } finally {
+    factorCodeSending.value = false
+  }
+}
+
+async function doUnlockFactors() {
+  if (!factorCodeInput.value || factorCodeInput.value.length !== 6) {
+    return message.warning('请输入 6 位验证码')
+  }
+  factorUnlocking.value = true
+  try {
+    const r = await unlockAuthFactors({ verifyCode: factorCodeInput.value })
+    authFactorToken.value = r.data?.accessToken || ''
+    factorCodeInput.value = ''
+    if (!authFactorToken.value) throw new Error('未获取到访问令牌')
+    await reloadFactors()
+    message.success('已解锁')
+  } catch (e: any) {
+    message.error(e?.message || '解锁失败')
+  } finally {
+    factorUnlocking.value = false
+  }
+}
+
+async function reloadFactors() {
+  if (!authFactorToken.value) return
+  authFactorLoading.value = true
+  try {
+    const r = await getAuthFactors({ id: domainMgmtTenant.value.id, accessToken: authFactorToken.value })
+    const raw = (r.data && typeof r.data === 'object' && 'domains' in r.data) ? r.data.domains : r.data
+    authFactorDomains.value = (Array.isArray(raw) ? raw : []).map((d: any) => ({
+      ...d,
+      factors: { ...(d.factors || {}) },
+      limits: { ...(d.limits || {}) },
+      trustedDevice: { ...(d.trustedDevice || {}) },
+    }))
+  } catch (e: any) {
+    message.error(e?.message || '读取验证因素失败')
+    if (String(e?.message || '').includes('解锁') || String(e?.message || '').includes('失效') || String(e?.message || '').includes('过期')) {
+      resetAuthFactorState()
+    }
+  } finally {
+    authFactorLoading.value = false
+  }
+}
+
+async function saveFactors(d: any) {
+  factorSavingId.value = d.domainId
+  try {
+    const r = await updateAuthFactors({
+      id: domainMgmtTenant.value.id,
+      domainId: d.domainId,
+      accessToken: authFactorToken.value,
+      factors: d.factors,
+      limits: d.limits,
+      trustedDevice: d.trustedDevice,
+    })
+    if (r.data?.skipped) {
+      message.info('未检测到变更')
+    } else {
+      message.success(`已保存 ${r.data?.changedOps || 0} 项变更`)
+    }
+    await reloadFactors()
+  } catch (e: any) {
+    message.error(e?.message || '保存失败')
+    if (String(e?.message || '').includes('解锁') || String(e?.message || '').includes('失效') || String(e?.message || '').includes('过期')) {
+      resetAuthFactorState()
+    }
+  } finally {
+    factorSavingId.value = ''
+  }
+}
+
 async function openDomainMgmt(record: any) {
   domainMgmtTenant.value = record
   domainTab.value = 'security'
   domainList.value = []
   auditLogs.value = []
   activeAuditDomain.value = ''
+  resetAuthFactorState()
   domainMgmtVisible.value = true
   await loadDomainSettings()
 }
+
+watch(() => domainMgmtVisible.value, (v) => {
+  if (!v) resetAuthFactorState()
+})
 
 async function loadDomainSettings() {
   domainSettingsLoading.value = true
@@ -1363,6 +1557,34 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   margin-bottom: 10px;
   flex-wrap: wrap;
 }
+.factor-lock {
+  padding: 36px 20px;
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-sm, 8px);
+  text-align: center;
+  background: var(--bg-card);
+}
+.factor-lock-icon {
+  font-size: 36px;
+  color: var(--primary, #1677ff);
+  display: block;
+  margin-bottom: 8px;
+}
+.factor-lock-title { font-size: 15px; font-weight: 600; margin-bottom: 6px; }
+.factor-lock-desc { font-size: 12px; color: var(--text-sub); max-width: 520px; margin: 0 auto; line-height: 1.6; }
+.factor-section-title {
+  font-weight: 600;
+  font-size: 13px;
+  margin: 12px 0 8px;
+  color: var(--text-main);
+}
+.factor-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px 12px;
+}
+.factor-label { font-size: 12px; color: var(--text-sub); }
+.factor-hint { font-size: 11px; color: var(--text-sub); opacity: 0.7; font-family: monospace; }
 .table-toolbar {
   margin-bottom: 16px;
   display: flex;

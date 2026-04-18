@@ -54,6 +54,25 @@ export function getServiceQuotas(data: { id: string }) {
   return request.post('/oci/user/quotas', data)
 }
 
+export function unlockAuthFactors(data: { verifyCode: string }) {
+  return request.post('/oci/user/authFactorsUnlock', data)
+}
+
+export function getAuthFactors(data: { id: string; accessToken: string }) {
+  return request.post('/oci/user/authFactors', data)
+}
+
+export function updateAuthFactors(data: {
+  id: string
+  domainId: string
+  accessToken: string
+  factors?: Record<string, boolean>
+  limits?: Record<string, number>
+  trustedDevice?: Record<string, any>
+}) {
+  return request.post('/oci/user/updateAuthFactors', data)
+}
+
 export function getTenantGroups() {
   return request.get('/oci/user/groups')
 }
