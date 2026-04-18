@@ -2126,6 +2126,9 @@ onUnmounted(() => {
   transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
   position: relative;
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
 }
 .tenant-card::before {
   content: '';
@@ -2184,6 +2187,7 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  margin-top: auto;
 }
 .instance-panel {
   background: transparent;
