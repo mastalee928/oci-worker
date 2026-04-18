@@ -238,7 +238,7 @@
                     </a-button>
                     <template #overlay>
                       <a-menu class="instance-action-menu" @click="(info: any) => onInstanceMenuClick(record, info.key)">
-                        <a-menu-item key="START" :disabled="record.state !== 'STOPPED'">
+                        <a-menu-item key="START">
                           <i class="ri-play-fill" style="color: #52c41a; margin-right: 8px"></i>启动
                         </a-menu-item>
                         <a-menu-item key="SOFTRESET" :disabled="record.state !== 'RUNNING'">
