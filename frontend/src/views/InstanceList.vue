@@ -18,11 +18,88 @@
       </div>
     </div>
 
-    <!-- 租户卡片网格 -->
+    <!-- 空状态 -->
     <div v-if="filteredTenants.length === 0 && !globalLoading" style="margin-top: 60px">
       <a-empty description="无租户数据" />
     </div>
 
+    <!-- 分组折叠展示 -->
+    <template v-else-if="hasGroups">
+      <a-collapse v-model:activeKey="activeGroupKeys" @change="onCollapseChange" class="group-collapse">
+        <a-collapse-panel v-for="g1 in groupedTenants" :key="g1.key" :collapsible="groupTenantCount(g1) === 0 ? 'disabled' : undefined">
+          <template #header>
+            <span class="group-header-label">{{ g1.label }}</span>
+            <a-badge :count="groupTenantCount(g1)" :number-style="{ backgroundColor: 'var(--primary)', fontSize: '11px' }" :show-zero="true" style="margin-left: 8px" />
+          </template>
+          <!-- 二级分组 -->
+          <template v-if="g1.children && g1.children.length > 0">
+            <div v-if="g1.tenants.length > 0" class="group-section">
+              <component :is="tenantViewMode === 'card' ? 'div' : 'div'">
+                <div v-if="tenantViewMode === 'card'" class="tenant-grid">
+                  <template v-for="td in g1.tenants" :key="td.tenant.id">
+                    <div class="tenant-card" :class="{ 'tenant-card-active': activeTenantId === td.tenant.id }">
+                      <div class="tc-header"><i class="ri-cloud-line tc-icon"></i><div class="tc-info"><div class="tc-name">{{ td.tenant.username }}</div><div class="tc-region">{{ td.tenant.ociRegion }}</div></div></div>
+                      <div class="tc-tags"><a-tag v-if="td.tenant.planType" :color="td.tenant.planType === 'FREE' ? 'default' : 'green'" size="small">{{ td.tenant.planType }}</a-tag><a-tag v-if="td.tenant.tenantName" size="small" color="blue">{{ td.tenant.tenantName }}</a-tag></div>
+                      <div class="tc-actions"><a-button type="primary" block @click="selectTenant(td)" :loading="td.loading"><i class="ri-server-line" style="margin-right:6px"></i>实例管理</a-button><a-button block @click="openVcnPanel(td.tenant)"><i class="ri-share-line" style="margin-right:6px"></i>虚拟云网络</a-button><a-button block @click="openQuickTask(td.tenant)"><i class="ri-play-circle-line" style="margin-right:6px"></i>开机任务</a-button></div>
+                    </div>
+                  </template>
+                </div>
+                <div v-else>
+                  <component :is="'div'" v-for="td in g1.tenants" :key="td.tenant.id" class="group-table-row" :class="{ 'tenant-row-active': td.tenant.id === activeTenantId }">
+                    <span style="font-weight:600">{{ td.tenant.username }}</span> <a-tag style="margin-left:8px">{{ td.tenant.ociRegion }}</a-tag>
+                    <a-space style="float:right"><a-button type="primary" size="small" @click="selectTenant(td)" :loading="td.loading">实例管理</a-button><a-button size="small" @click="openVcnPanel(td.tenant)">VCN</a-button><a-button size="small" @click="openQuickTask(td.tenant)">开机任务</a-button></a-space>
+                  </component>
+                </div>
+              </component>
+            </div>
+            <a-collapse class="group-collapse-l2">
+              <a-collapse-panel v-for="l2 in g1.children" :key="l2.key" :collapsible="l2.tenants.length === 0 ? 'disabled' : undefined">
+                <template #header>
+                  <span class="group-header-label">{{ l2.label }}</span>
+                  <a-badge :count="l2.tenants.length" :number-style="{ backgroundColor: 'var(--primary)', fontSize: '11px' }" :show-zero="true" style="margin-left: 8px" />
+                </template>
+                <div v-if="tenantViewMode === 'card'" class="tenant-grid">
+                  <template v-for="td in l2.tenants" :key="td.tenant.id">
+                    <div class="tenant-card" :class="{ 'tenant-card-active': activeTenantId === td.tenant.id }">
+                      <div class="tc-header"><i class="ri-cloud-line tc-icon"></i><div class="tc-info"><div class="tc-name">{{ td.tenant.username }}</div><div class="tc-region">{{ td.tenant.ociRegion }}</div></div></div>
+                      <div class="tc-tags"><a-tag v-if="td.tenant.planType" :color="td.tenant.planType === 'FREE' ? 'default' : 'green'" size="small">{{ td.tenant.planType }}</a-tag><a-tag v-if="td.tenant.tenantName" size="small" color="blue">{{ td.tenant.tenantName }}</a-tag></div>
+                      <div class="tc-actions"><a-button type="primary" block @click="selectTenant(td)" :loading="td.loading"><i class="ri-server-line" style="margin-right:6px"></i>实例管理</a-button><a-button block @click="openVcnPanel(td.tenant)"><i class="ri-share-line" style="margin-right:6px"></i>虚拟云网络</a-button><a-button block @click="openQuickTask(td.tenant)"><i class="ri-play-circle-line" style="margin-right:6px"></i>开机任务</a-button></div>
+                    </div>
+                  </template>
+                </div>
+                <div v-else>
+                  <div v-for="td in l2.tenants" :key="td.tenant.id" class="group-table-row" :class="{ 'tenant-row-active': td.tenant.id === activeTenantId }">
+                    <span style="font-weight:600">{{ td.tenant.username }}</span> <a-tag style="margin-left:8px">{{ td.tenant.ociRegion }}</a-tag>
+                    <a-space style="float:right"><a-button type="primary" size="small" @click="selectTenant(td)" :loading="td.loading">实例管理</a-button><a-button size="small" @click="openVcnPanel(td.tenant)">VCN</a-button><a-button size="small" @click="openQuickTask(td.tenant)">开机任务</a-button></a-space>
+                  </div>
+                </div>
+              </a-collapse-panel>
+            </a-collapse>
+          </template>
+          <!-- 无二级分组时直接平铺 -->
+          <template v-else>
+            <div v-if="tenantViewMode === 'card'" class="tenant-grid">
+              <template v-for="td in g1.tenants" :key="td.tenant.id">
+                <div class="tenant-card" :class="{ 'tenant-card-active': activeTenantId === td.tenant.id }">
+                  <div class="tc-header"><i class="ri-cloud-line tc-icon"></i><div class="tc-info"><div class="tc-name">{{ td.tenant.username }}</div><div class="tc-region">{{ td.tenant.ociRegion }}</div></div></div>
+                  <div class="tc-tags"><a-tag v-if="td.tenant.planType" :color="td.tenant.planType === 'FREE' ? 'default' : 'green'" size="small">{{ td.tenant.planType }}</a-tag><a-tag v-if="td.tenant.tenantName" size="small" color="blue">{{ td.tenant.tenantName }}</a-tag></div>
+                  <div class="tc-actions"><a-button type="primary" block @click="selectTenant(td)" :loading="td.loading"><i class="ri-server-line" style="margin-right:6px"></i>实例管理</a-button><a-button block @click="openVcnPanel(td.tenant)"><i class="ri-share-line" style="margin-right:6px"></i>虚拟云网络</a-button><a-button block @click="openQuickTask(td.tenant)"><i class="ri-play-circle-line" style="margin-right:6px"></i>开机任务</a-button></div>
+                </div>
+              </template>
+            </div>
+            <div v-else>
+              <div v-for="td in g1.tenants" :key="td.tenant.id" class="group-table-row" :class="{ 'tenant-row-active': td.tenant.id === activeTenantId }">
+                <span style="font-weight:600">{{ td.tenant.username }}</span> <a-tag style="margin-left:8px">{{ td.tenant.ociRegion }}</a-tag>
+                <a-space style="float:right"><a-button type="primary" size="small" @click="selectTenant(td)" :loading="td.loading">实例管理</a-button><a-button size="small" @click="openVcnPanel(td.tenant)">VCN</a-button><a-button size="small" @click="openQuickTask(td.tenant)">开机任务</a-button></a-space>
+              </div>
+            </div>
+          </template>
+        </a-collapse-panel>
+      </a-collapse>
+    </template>
+
+    <!-- 无分组时保持原有卡片/列表展示 -->
+    <template v-else>
     <!-- 租户卡片视图 -->
     <div v-if="tenantViewMode === 'card'" class="tenant-grid">
       <div v-for="td in filteredTenants" :key="td.tenant.id"
@@ -91,6 +168,7 @@
         </a-table-column>
       </a-table>
     </div>
+    </template>
 
     <!-- 实例管理弹窗（避免租户多时挤到页面底部） -->
     <a-modal
@@ -504,9 +582,57 @@
           </div>
         </a-tab-pane>
 
+        <a-tab-pane key="allVolumes" tab="卷管理">
+          <a-button @click="loadAllVolumes" :loading="allVolLoading" style="margin-bottom: 12px">加载卷列表</a-button>
+          <a-tabs v-model:activeKey="volSubTab" size="small">
+            <a-tab-pane key="BOOT" tab="引导卷">
+              <a-table :data-source="volumesByType('BOOT')" :columns="allVolColumns" size="small" :pagination="false" row-key="id">
+                <template #bodyCell="{ column, record }">
+                  <template v-if="column.key === 'delAction'">
+                    <a-button type="link" danger size="small" @click="openDeleteVolume(record)">删除</a-button>
+                  </template>
+                </template>
+              </a-table>
+            </a-tab-pane>
+            <a-tab-pane key="BLOCK" tab="块存储卷">
+              <a-table :data-source="volumesByType('BLOCK')" :columns="allVolColumns" size="small" :pagination="false" row-key="id">
+                <template #bodyCell="{ column, record }">
+                  <template v-if="column.key === 'delAction'">
+                    <a-button type="link" danger size="small" @click="openDeleteVolume(record)">删除</a-button>
+                  </template>
+                </template>
+              </a-table>
+            </a-tab-pane>
+            <a-tab-pane key="BOOT_BACKUP" tab="引导卷备份">
+              <a-table :data-source="volumesByType('BOOT_BACKUP')" :columns="allVolColumns" size="small" :pagination="false" row-key="id">
+                <template #bodyCell="{ column, record }">
+                  <template v-if="column.key === 'delAction'">
+                    <a-button type="link" danger size="small" @click="openDeleteVolume(record)">删除</a-button>
+                  </template>
+                </template>
+              </a-table>
+            </a-tab-pane>
+            <a-tab-pane key="BLOCK_BACKUP" tab="块存储备份">
+              <a-table :data-source="volumesByType('BLOCK_BACKUP')" :columns="allVolColumns" size="small" :pagination="false" row-key="id">
+                <template #bodyCell="{ column, record }">
+                  <template v-if="column.key === 'delAction'">
+                    <a-button type="link" danger size="small" @click="openDeleteVolume(record)">删除</a-button>
+                  </template>
+                </template>
+              </a-table>
+            </a-tab-pane>
+          </a-tabs>
+        </a-tab-pane>
+
         <a-tab-pane key="network" tab="网络">
           <a-button @click="loadVcns" :loading="vcnLoading" style="margin-bottom: 12px">加载 VCN</a-button>
-          <a-table v-if="!isMobile" :data-source="vcns" :columns="vcnColumns" size="small" :pagination="false" row-key="id" />
+          <a-table v-if="!isMobile" :data-source="vcns" :columns="vcnColumns" size="small" :pagination="false" row-key="id">
+            <template #bodyCell="{ column, record }">
+              <template v-if="column.key === 'vcnAction'">
+                <a-button size="small" type="primary" @click="openVcnManager(currentTenant?.id, record)">管理</a-button>
+              </template>
+            </template>
+          </a-table>
           <template v-else>
             <a-empty v-if="vcns.length === 0" description="暂无 VCN" />
             <div v-for="v in vcns" :key="v.id" class="mobile-card">
@@ -516,6 +642,9 @@
               <div class="mobile-card-body">
                 <div class="mobile-card-row"><span class="label">CIDR</span><span class="value">{{ v.cidrBlock }}</span></div>
                 <div class="mobile-card-row"><span class="label">状态</span><span class="value">{{ v.lifecycleState }}</span></div>
+              </div>
+              <div style="margin-top: 8px">
+                <a-button block size="small" type="primary" @click="openVcnManager(currentTenant?.id, v)">管理</a-button>
               </div>
             </div>
           </template>
@@ -684,9 +813,31 @@
         <template #message>终止实例不可逆，验证码已发送至 Telegram</template>
       </a-alert>
       <a-input v-model:value="verifyCode" placeholder="请输入6位验证码" size="large" :maxlength="6" allow-clear />
+      <div style="margin-top: 12px">
+        <a-checkbox v-model:checked="deleteBootVolume">同时删除引导卷（不可恢复）</a-checkbox>
+      </div>
       <div style="margin-top: 12px; display: flex; justify-content: space-between; align-items: center">
         <span style="color: var(--text-sub); font-size: 12px">验证码有效期 5 分钟</span>
         <a-button type="link" size="small" :loading="verifySending" @click="resendVerifyCode('terminate')">重新发送</a-button>
+      </div>
+    </a-modal>
+
+    <!-- 删除卷验证码弹窗 -->
+    <a-modal v-model:open="deleteVolModalVisible" title="安全验证 — 删除卷" :width="400"
+      @ok="handleDeleteVolume" :confirm-loading="deleteVolVerifyLoading" ok-text="确认删除" ok-type="primary"
+      :ok-button-props="{ danger: true }">
+      <a-alert type="warning" show-icon style="margin-bottom: 16px">
+        <template #message>删除卷不可恢复，验证码已发送至 Telegram</template>
+      </a-alert>
+      <div style="margin-bottom: 12px; color: var(--text-main)">
+        <b>{{ deleteVolTarget?.displayName }}</b>
+        <a-tag style="margin-left: 8px">{{ deleteVolTarget?.type }}</a-tag>
+        <span v-if="deleteVolTarget?.sizeInGBs" style="margin-left: 8px">{{ deleteVolTarget?.sizeInGBs }} GB</span>
+      </div>
+      <a-input v-model:value="deleteVolCode" placeholder="请输入6位验证码" size="large" :maxlength="6" allow-clear />
+      <div style="margin-top: 12px; display: flex; justify-content: space-between; align-items: center">
+        <span style="color: var(--text-sub); font-size: 12px">验证码有效期 5 分钟</span>
+        <a-button type="link" size="small" :loading="verifySending" @click="resendVerifyCode('deleteVolume')">重新发送</a-button>
       </div>
     </a-modal>
 
@@ -702,7 +853,10 @@
                 <i class="ri-share-line" style="font-size: 18px; color: var(--primary)"></i>
                 <span style="font-weight: 700">{{ vcn.displayName }}</span>
               </div>
-              <a-tag color="purple">{{ vcn.compartmentName }}</a-tag>
+              <a-space>
+                <a-tag color="purple">{{ vcn.compartmentName }}</a-tag>
+                <a-button size="small" type="primary" @click="openVcnManager(vcnTenant?.id, vcn)">管理</a-button>
+              </a-space>
             </div>
             <div class="vcn-item-body">
               <div class="vcn-info-row"><span class="info-label">CIDR</span><span>{{ (vcn.cidrBlocks || []).join(', ') }}</span></div>
@@ -739,11 +893,18 @@
       </a-spin>
     </a-modal>
 
+    <VcnManager
+      v-model:open="vcnManagerOpen"
+      :user-id="vcnManagerUserId"
+      :vcn="vcnManagerVcn"
+      @changed="loadVcns"
+    />
+
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { ReloadOutlined, CloudServerOutlined, EditOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
 import {
@@ -758,7 +919,9 @@ import {
   assignEphemeralIp, deletePublicIp, deleteSecondaryIp,
   createConsoleConnection, deleteConsoleConnection,
 } from '../api/instance'
-import { getTenantList } from '../api/tenant'
+import { getTenantList, getTenantGroups } from '../api/tenant'
+import { listAllVolumes, deleteVolume } from '../api/volume'
+import VcnManager from './VcnManager.vue'
 import { createTask, hasRunningTask } from '../api/task'
 import { sendVerifyCode } from '../api/system'
 
@@ -813,6 +976,7 @@ const vcnColumns = [
   { title: '名称', dataIndex: 'displayName', key: 'displayName' },
   { title: 'CIDR', dataIndex: 'cidrBlock', key: 'cidrBlock', width: 160 },
   { title: '状态', dataIndex: 'lifecycleState', key: 'lifecycleState', width: 100 },
+  { title: '操作', key: 'vcnAction', width: 100 },
 ]
 
 const isMobile = ref(window.innerWidth < 768)
@@ -837,6 +1001,94 @@ const filteredTenants = computed(() => {
     (td.tenant.ociRegion || '').toLowerCase().includes(kw) ||
     (td.tenant.tenantName || '').toLowerCase().includes(kw)
   )
+})
+
+interface GroupNode {
+  label: string
+  key: string
+  children?: GroupNode[]
+  tenants: TenantData[]
+}
+const groupData = ref<{ level1: string[]; level2: Record<string, string[]> }>({ level1: [], level2: {} })
+
+const COLLAPSE_KEY = 'instanceList.groupCollapse'
+function loadCollapseState(): string[] {
+  try { return JSON.parse(localStorage.getItem(COLLAPSE_KEY) || '[]') } catch { return [] }
+}
+function saveCollapseState(keys: string[]) {
+  try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify(keys)) } catch {}
+}
+const activeGroupKeys = ref<string[]>(loadCollapseState())
+function onCollapseChange(keys: string | string[]) {
+  const arr = Array.isArray(keys) ? keys : [keys]
+  activeGroupKeys.value = arr
+  saveCollapseState(arr)
+}
+
+const groupedTenants = computed<GroupNode[]>(() => {
+  const all = filteredTenants.value
+  const gd = groupData.value
+  const l1Map = new Map<string, TenantData[]>()
+  for (const td of all) {
+    const g1 = td.tenant.groupLevel1 || '未分组'
+    const list = l1Map.get(g1) || []
+    list.push(td)
+    l1Map.set(g1, list)
+  }
+  for (const g1 of gd.level1) {
+    if (!l1Map.has(g1)) l1Map.set(g1, [])
+  }
+  const orderedKeys: string[] = []
+  for (const g1 of gd.level1) { if (l1Map.has(g1) && !orderedKeys.includes(g1)) orderedKeys.push(g1) }
+  for (const k of l1Map.keys()) { if (!orderedKeys.includes(k)) orderedKeys.push(k) }
+
+  const nodes: GroupNode[] = []
+  for (const l1 of orderedKeys) {
+    const items = l1Map.get(l1) || []
+    const withL2 = items.filter(td => !!td.tenant.groupLevel2)
+    const withoutL2 = items.filter(td => !td.tenant.groupLevel2)
+    const l2Map = new Map<string, TenantData[]>()
+    for (const td of withL2) {
+      const list = l2Map.get(td.tenant.groupLevel2) || []
+      list.push(td)
+      l2Map.set(td.tenant.groupLevel2, list)
+    }
+    const l2Names = gd.level2[l1] || []
+    for (const l2 of l2Names) { if (!l2Map.has(l2)) l2Map.set(l2, []) }
+    const children: GroupNode[] = []
+    for (const [l2, l2Items] of l2Map) {
+      children.push({ label: l2, key: `${l1}/${l2}`, tenants: l2Items })
+    }
+    nodes.push({ label: l1, key: l1, children: children.length > 0 ? children : undefined, tenants: withoutL2 })
+  }
+  return nodes
+})
+
+const hasGroups = computed(() => {
+  const gd = groupData.value
+  return gd.level1.length > 0 && !(gd.level1.length === 1 && gd.level1[0] === '未分组')
+})
+
+function groupTenantCount(g: GroupNode): number {
+  return g.tenants.length + (g.children?.reduce((s, c) => s + c.tenants.length, 0) || 0)
+}
+
+async function loadGroups() {
+  try {
+    const res = await getTenantGroups()
+    groupData.value = res.data || { level1: [], level2: {} }
+  } catch {}
+}
+
+watch(searchKeyword, (kw) => {
+  if (kw && hasGroups.value) {
+    const matchedKeys: string[] = []
+    for (const g of groupedTenants.value) {
+      if (groupTenantCount(g) > 0) matchedKeys.push(g.key)
+    }
+    activeGroupKeys.value = matchedKeys
+    saveCollapseState(matchedKeys)
+  }
 })
 
 const activeTenantData = computed(() => {
@@ -935,6 +1187,73 @@ const bootVolumes = ref<any[]>([])
 const vcnLoading = ref(false)
 const vcns = ref<any[]>([])
 
+const allVolLoading = ref(false)
+const allVolumes = ref<any[]>([])
+const volSubTab = ref('BOOT')
+const allVolColumns = [
+  { title: '名称', dataIndex: 'displayName', key: 'displayName', ellipsis: true },
+  { title: '大小 (GB)', dataIndex: 'sizeInGBs', key: 'sizeInGBs', width: 100 },
+  { title: '状态', dataIndex: 'lifecycleState', key: 'lifecycleState', width: 100 },
+  { title: '创建时间', dataIndex: 'timeCreated', key: 'timeCreated', width: 180 },
+  { title: '操作', key: 'delAction', width: 80 },
+]
+function volumesByType(type: string) {
+  return allVolumes.value.filter(v => v.type === type)
+}
+async function loadAllVolumes() {
+  if (!currentTenant.value) return
+  allVolLoading.value = true
+  try {
+    const res = await listAllVolumes({ id: currentTenant.value.id })
+    allVolumes.value = res.data || []
+  } catch (e: any) {
+    message.error(e?.message || '加载卷列表失败')
+  } finally {
+    allVolLoading.value = false
+  }
+}
+
+const deleteVolModalVisible = ref(false)
+const deleteVolTarget = ref<any>(null)
+const deleteVolCode = ref('')
+const deleteVolVerifyLoading = ref(false)
+
+async function openDeleteVolume(record: any) {
+  deleteVolTarget.value = record
+  deleteVolCode.value = ''
+  verifySending.value = true
+  try {
+    await sendVerifyCode('deleteVolume')
+    message.success('验证码已发送至 Telegram')
+    deleteVolModalVisible.value = true
+  } catch (e: any) {
+    message.error(e?.message || '发送验证码失败')
+  } finally {
+    verifySending.value = false
+  }
+}
+async function handleDeleteVolume() {
+  if (!deleteVolCode.value || deleteVolCode.value.length !== 6) {
+    message.warning('请输入6位验证码'); return
+  }
+  deleteVolVerifyLoading.value = true
+  try {
+    await deleteVolume({
+      id: currentTenant.value.id,
+      type: deleteVolTarget.value.type,
+      volumeId: deleteVolTarget.value.id,
+      verifyCode: deleteVolCode.value,
+    })
+    message.success('卷已删除')
+    deleteVolModalVisible.value = false
+    loadAllVolumes()
+  } catch (e: any) {
+    message.error(e?.message || '删除失败')
+  } finally {
+    deleteVolVerifyLoading.value = false
+  }
+}
+
 const trafficLoading = ref(false)
 const trafficMinutes = ref(60)
 const trafficData = ref<any>(null)
@@ -1017,6 +1336,15 @@ const vcnListLoading = ref(false)
 const vcnTenant = ref<any>(null)
 const vcnList = ref<any[]>([])
 
+const vcnManagerOpen = ref(false)
+const vcnManagerUserId = ref('')
+const vcnManagerVcn = ref<any>(null)
+function openVcnManager(tenantId: string, vcn: any) {
+  vcnManagerUserId.value = tenantId
+  vcnManagerVcn.value = vcn
+  vcnManagerOpen.value = true
+}
+
 async function openVcnPanel(tenant: any) {
   vcnTenant.value = tenant
   vcnList.value = []
@@ -1073,6 +1401,7 @@ async function loadTenantInstances(td: TenantData) {
 
 function onTabChange(key: string) {
   if (key === 'volume') loadBootVolumes()
+  if (key === 'allVolumes') loadAllVolumes()
 }
 
 function openDetail(tenant: any, record: any) {
@@ -1118,11 +1447,13 @@ const verifyModalVisible = ref(false)
 const verifyCode = ref('')
 const verifyLoading = ref(false)
 const verifySending = ref(false)
+const deleteBootVolume = ref(true)
 
 async function openTerminateVerify(tenant: any, record: any) {
   currentTenant.value = tenant
   currentInstance.value = record
   verifyCode.value = ''
+  deleteBootVolume.value = true
   verifySending.value = true
   try {
     await sendVerifyCode('terminate')
@@ -1158,6 +1489,7 @@ async function handleTerminateWithCode() {
       id: currentTenant.value.id,
       instanceId: currentInstance.value.instanceId,
       verifyCode: verifyCode.value,
+      preserveBootVolume: !deleteBootVolume.value,
     })
     message.success('实例已终止')
     verifyModalVisible.value = false
@@ -1639,6 +1971,7 @@ async function doQuickTask() {
 }
 
 onMounted(() => {
+  loadGroups()
   loadAllTenants()
   window.addEventListener('resize', checkMobile)
 })
@@ -1664,6 +1997,14 @@ onUnmounted(() => {
   gap: 12px;
   flex-wrap: wrap;
 }
+.group-collapse { margin-bottom: 16px; }
+.group-collapse :deep(.ant-collapse-header) { font-weight: 600; font-size: 14px; }
+.group-collapse-l2 { margin-top: 8px; }
+.group-collapse-l2 :deep(.ant-collapse-header) { font-weight: 500; font-size: 13px; padding-left: 12px !important; }
+.group-header-label { vertical-align: middle; }
+.group-section { margin-bottom: 8px; }
+.group-table-row { padding: 8px 12px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+.group-table-row:last-child { border-bottom: none; }
 .tenant-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));

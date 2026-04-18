@@ -8,7 +8,7 @@ export function updateInstanceState(data: { id: string; instanceId: string; acti
   return request.post('/oci/instance/updateState', data)
 }
 
-export function terminateInstance(data: { id: string; instanceId: string; verifyCode: string }) {
+export function terminateInstance(data: { id: string; instanceId: string; verifyCode: string; preserveBootVolume?: boolean }) {
   return request.post('/oci/instance/terminate', data)
 }
 

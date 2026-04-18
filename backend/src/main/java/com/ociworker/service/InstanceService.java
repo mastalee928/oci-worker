@@ -110,7 +110,7 @@ public class InstanceService {
         }
     }
 
-    public void terminateInstance(String userId, String instanceId) {
+    public void terminateInstance(String userId, String instanceId, boolean preserveBootVolume) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
 
@@ -119,9 +119,9 @@ public class InstanceService {
             client.getComputeClient().terminateInstance(
                     TerminateInstanceRequest.builder()
                             .instanceId(instanceId)
-                            .preserveBootVolume(false)
+                            .preserveBootVolume(preserveBootVolume)
                             .build());
-            log.info("Instance terminated: {}", instanceId);
+            log.info("Instance terminated: {}, preserveBootVolume={}", instanceId, preserveBootVolume);
         } catch (Exception e) {
             throw new OciException(tag(ociUser) + "终止实例失败: " + e.getMessage());
         }

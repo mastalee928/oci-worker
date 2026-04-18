@@ -32,9 +32,13 @@ public class InstanceController {
     }
 
     @PostMapping("/terminate")
-    public ResponseData<?> terminate(@RequestBody Map<String, String> params) {
-        verifyCodeService.verifyCode("terminate", params.get("verifyCode"));
-        instanceService.terminateInstance(params.get("id"), params.get("instanceId"));
+    public ResponseData<?> terminate(@RequestBody Map<String, Object> params) {
+        verifyCodeService.verifyCode("terminate", params.get("verifyCode") == null ? null : String.valueOf(params.get("verifyCode")));
+        boolean preserveBootVolume = Boolean.TRUE.equals(params.get("preserveBootVolume"));
+        instanceService.terminateInstance(
+                params.get("id") == null ? null : String.valueOf(params.get("id")),
+                params.get("instanceId") == null ? null : String.valueOf(params.get("instanceId")),
+                preserveBootVolume);
         return ResponseData.ok();
     }
 
