@@ -38,15 +38,15 @@ export function getDomainSettings(data: { id: string }) {
   return request.post('/oci/user/domainSettings', data)
 }
 
-export function updateMfa(data: { id: string; enabled: boolean }) {
+export function updateMfa(data: { id: string; domainId?: string; enabled: boolean }) {
   return request.post('/oci/user/updateMfa', data)
 }
 
-export function updatePasswordExpiry(data: { id: string; days: number }) {
+export function updatePasswordExpiry(data: { id: string; domainId?: string; days: number }) {
   return request.post('/oci/user/updatePasswordExpiry', data)
 }
 
-export function getAuditLogs(data: { id: string }) {
+export function getAuditLogs(data: { id: string; days?: number }) {
   return request.post('/oci/user/auditLogs', data)
 }
 

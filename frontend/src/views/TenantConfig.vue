@@ -503,58 +503,85 @@ region=ap-tokyo-1"
 
     <!-- 域管理弹窗 -->
     <a-modal v-model:open="domainMgmtVisible" :title="'域管理 — ' + (domainMgmtTenant?.username || '')"
-      :width="isMobile ? '100%' : 780" :footer="null" centered :bodyStyle="{ maxHeight: '75vh', overflow: 'auto' }">
+      :width="isMobile ? '100%' : 840" :footer="null" centered :bodyStyle="{ maxHeight: '75vh', overflow: 'auto' }">
       <a-tabs v-model:activeKey="domainTab">
         <a-tab-pane key="security" tab="安全策略">
           <a-spin :spinning="domainSettingsLoading">
-            <a-descriptions :column="1" bordered size="small">
-              <a-descriptions-item label="MFA 多因素认证">
-                <a-switch v-model:checked="domainMfaEnabled"
-                  :loading="mfaUpdating"
-                  checked-children="已启用" un-checked-children="已关闭"
-                  @change="handleMfaChange" />
-              </a-descriptions-item>
-              <a-descriptions-item label="密码过期天数">
-                <a-space>
-                  <a-input-number v-model:value="domainPwdExpiryDays" :min="0" :max="365" style="width: 120px" />
-                  <span style="color: var(--text-sub); font-size: 12px">0 = 永不过期</span>
-                  <a-button type="primary" size="small" @click="handlePwdExpiryChange" :loading="pwdExpiryUpdating">保存</a-button>
-                </a-space>
-              </a-descriptions-item>
-            </a-descriptions>
+            <a-alert v-if="!domainSettingsLoading && domainList.length === 0" type="warning"
+              message="未读取到 Identity Domain 信息" show-icon style="margin-bottom: 12px" />
+            <div v-for="d in domainList" :key="d.domainId" class="domain-card">
+              <div class="domain-card-header">
+                <a-tag color="purple">{{ d.displayName || '—' }}</a-tag>
+                <a-tag v-if="d.type" color="blue">{{ d.type }}</a-tag>
+                <span v-if="d.consolePolicyName" style="font-size: 12px; color: var(--text-sub)">
+                  策略：{{ d.consolePolicyName }}
+                </span>
+              </div>
+              <a-alert v-if="d.mfaError" type="warning" show-icon :message="d.mfaError" style="margin: 8px 0" />
+              <a-descriptions :column="1" bordered size="small">
+                <a-descriptions-item label="MFA 多因素认证（Security Policy for OCI Console）">
+                  <a-space align="center" wrap>
+                    <a-switch :checked="!!d.mfaEnabled"
+                      :loading="mfaUpdatingId === d.domainId"
+                      :disabled="d.mfaEnabled === null || d.mfaEnabled === undefined"
+                      checked-children="已启用" un-checked-children="已关闭"
+                      @change="(v: any) => handleMfaChange(d, v as boolean)" />
+                    <span style="font-size: 12px; color: var(--text-sub)">
+                      对应 OCI：身份域 → 安全 → 登录策略 → Security Policy for OCI Console 的「激活」状态
+                    </span>
+                  </a-space>
+                </a-descriptions-item>
+                <a-descriptions-item label="密码过期天数（defaultPasswordPolicy）">
+                  <a-space wrap>
+                    <a-input-number :value="d.passwordExpiresAfterDays ?? 0"
+                      @update:value="(v: any) => (d.passwordExpiresAfterDays = v as number)"
+                      :min="0" :max="999" style="width: 120px" />
+                    <span style="color: var(--text-sub); font-size: 12px">
+                      在 N 天后失效；0 = 永不过期
+                    </span>
+                    <a-button type="primary" size="small"
+                      :loading="pwdExpiryUpdatingId === d.domainId"
+                      @click="handlePwdExpiryChange(d)">保存</a-button>
+                    <span v-if="d.passwordPolicyName" style="font-size: 12px; color: var(--text-sub)">
+                      策略：{{ d.passwordPolicyName }}（priority={{ d.passwordPolicyPriority ?? '-' }}）
+                    </span>
+                  </a-space>
+                  <div v-if="d.passwordPolicyError" style="color: #faad14; font-size: 12px; margin-top: 4px">
+                    {{ d.passwordPolicyError }}
+                  </div>
+                </a-descriptions-item>
+              </a-descriptions>
+            </div>
           </a-spin>
         </a-tab-pane>
         <a-tab-pane key="logs" tab="登录日志">
-          <a-button @click="loadAuditLogs" :loading="auditLogsLoading" style="margin-bottom: 12px">
-            <template #icon><ReloadOutlined /></template>加载最近7天登录日志
-          </a-button>
-          <a-table v-if="!isMobile" :data-source="auditLogs" :loading="auditLogsLoading" size="small" :pagination="{ pageSize: 20 }" row-key="eventTime">
-            <a-table-column title="时间" data-index="eventTime" key="eventTime" :width="180">
-              <template #default="{ text }">
-                <span style="font-size: 12px">{{ text ? text.replace('T', ' ').substring(0, 19) : '—' }}</span>
-              </template>
-            </a-table-column>
-            <a-table-column title="用户" data-index="principalName" key="principalName" :ellipsis="true" />
-            <a-table-column title="IP" data-index="ipAddress" key="ipAddress" :width="140" />
-            <a-table-column title="事件" data-index="eventName" key="eventName" :ellipsis="true" />
-            <a-table-column title="状态" data-index="responseStatus" key="responseStatus" :width="80">
-              <template #default="{ text }">
-                <a-tag :color="text === '200' ? 'green' : 'red'">{{ text || '—' }}</a-tag>
-              </template>
-            </a-table-column>
-          </a-table>
-          <a-spin v-else :spinning="auditLogsLoading">
-            <a-empty v-if="!auditLogsLoading && auditLogs.length === 0" description="无日志" />
-            <div v-for="(log, li) in auditLogs" :key="li" class="mobile-card">
-              <div class="mobile-card-header">
-                <span class="mobile-card-title" style="font-size: 12px">{{ log.eventTime ? log.eventTime.replace('T', ' ').substring(0, 19) : '—' }}</span>
-                <a-tag :color="log.responseStatus === '200' ? 'green' : 'red'" style="margin:0">{{ log.responseStatus || '—' }}</a-tag>
+          <a-space style="margin-bottom: 12px" wrap>
+            <a-button @click="loadAuditLogs" :loading="auditLogsLoading">
+              <template #icon><ReloadOutlined /></template>加载最近{{ auditDays }}天登录日志
+            </a-button>
+            <a-select v-model:value="auditDays" style="width: 120px" @change="loadAuditLogs">
+              <a-select-option :value="1">最近 1 天</a-select-option>
+              <a-select-option :value="3">最近 3 天</a-select-option>
+              <a-select-option :value="7">最近 7 天</a-select-option>
+              <a-select-option :value="14">最近 14 天</a-select-option>
+              <a-select-option :value="30">最近 30 天</a-select-option>
+            </a-select>
+            <span style="font-size: 12px; color: var(--text-sub)">
+              来源：身份域 → 报告 → 审计日志（IdentityDomains.listAuditEvents）
+            </span>
+          </a-space>
+          <a-spin :spinning="auditLogsLoading">
+            <a-empty v-if="!auditLogsLoading && auditLogs.length === 0" description="暂无数据" />
+            <a-tabs v-else-if="auditLogs.length > 1" v-model:activeKey="activeAuditDomain" type="card" size="small">
+              <a-tab-pane v-for="dom in auditLogs" :key="dom.domainId" :tab="dom.displayName + ' (' + (dom.logs?.length || 0) + ')'">
+                <AuditLogTable :rows="dom.logs || []" :error="dom.error" :is-mobile="isMobile" />
+              </a-tab-pane>
+            </a-tabs>
+            <div v-else-if="auditLogs.length === 1">
+              <div style="margin-bottom: 8px">
+                <a-tag color="purple">{{ auditLogs[0].displayName }}</a-tag>
               </div>
-              <div class="mobile-card-body">
-                <div class="mobile-card-row"><span class="label">用户</span><span class="value">{{ log.principalName }}</span></div>
-                <div class="mobile-card-row"><span class="label">IP</span><span class="value">{{ log.ipAddress }}</span></div>
-                <div class="mobile-card-row"><span class="label">事件</span><span class="value">{{ log.eventName }}</span></div>
-              </div>
+              <AuditLogTable :rows="auditLogs[0].logs || []" :error="auditLogs[0].error" :is-mobile="isMobile" />
             </div>
           </a-spin>
         </a-tab-pane>
@@ -620,6 +647,7 @@ import { message, Modal } from 'ant-design-vue'
 import type { UploadFile } from 'ant-design-vue'
 import { getTenantList, addTenant, updateTenant, removeTenant, uploadKey, getTenantFullInfo, getDomainSettings, updateMfa, updatePasswordExpiry, getAuditLogs, getServiceQuotas, getTenantGroups, createGroup, renameGroup, deleteGroup, saveGroupOrder } from '../api/tenant'
 import { RightOutlined, DownOutlined, SettingOutlined, FolderOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons-vue'
+import AuditLogTable from '../components/AuditLogTable.vue'
 
 const router = useRouter()
 
@@ -820,12 +848,13 @@ const domainMgmtVisible = ref(false)
 const domainMgmtTenant = ref<any>(null)
 const domainTab = ref('security')
 const domainSettingsLoading = ref(false)
-const domainMfaEnabled = ref(false)
-const mfaUpdating = ref(false)
-const domainPwdExpiryDays = ref(0)
-const pwdExpiryUpdating = ref(false)
+const domainList = ref<any[]>([])
+const mfaUpdatingId = ref('')
+const pwdExpiryUpdatingId = ref('')
 const auditLogsLoading = ref(false)
 const auditLogs = ref<any[]>([])
+const activeAuditDomain = ref('')
+const auditDays = ref(7)
 const quotasLoading = ref(false)
 const quotasList = ref<any[]>([])
 const quotaSearch = ref('')
@@ -833,15 +862,19 @@ const quotaSearch = ref('')
 async function openDomainMgmt(record: any) {
   domainMgmtTenant.value = record
   domainTab.value = 'security'
-  domainMfaEnabled.value = false
-  domainPwdExpiryDays.value = 0
+  domainList.value = []
   auditLogs.value = []
+  activeAuditDomain.value = ''
   domainMgmtVisible.value = true
+  await loadDomainSettings()
+}
+
+async function loadDomainSettings() {
   domainSettingsLoading.value = true
   try {
-    const res = await getDomainSettings({ id: record.id })
-    domainMfaEnabled.value = res.data?.mfaEnabled === true
-    domainPwdExpiryDays.value = res.data?.passwordExpiresAfterDays ?? 0
+    const res = await getDomainSettings({ id: domainMgmtTenant.value.id })
+    const raw = (res.data && typeof res.data === 'object' && 'domains' in res.data) ? res.data.domains : res.data
+    domainList.value = Array.isArray(raw) ? raw : []
   } catch (e: any) {
     message.error(e?.message || '获取域设置失败')
   } finally {
@@ -849,39 +882,47 @@ async function openDomainMgmt(record: any) {
   }
 }
 
-async function handleMfaChange(checked: boolean) {
-  mfaUpdating.value = true
+async function handleMfaChange(domain: any, checked: boolean) {
+  const prev = domain.mfaEnabled
+  mfaUpdatingId.value = domain.domainId
   try {
-    await updateMfa({ id: domainMgmtTenant.value.id, enabled: checked })
+    await updateMfa({ id: domainMgmtTenant.value.id, domainId: domain.domainId, enabled: checked })
+    domain.mfaEnabled = checked
     message.success(checked ? 'MFA 已启用' : 'MFA 已关闭')
   } catch (e: any) {
-    domainMfaEnabled.value = !checked
-    message.error(e?.message || '更新 MFA 失败')
+    domain.mfaEnabled = prev
+    message.error(e?.message || '更新 MFA 策略失败')
   } finally {
-    mfaUpdating.value = false
+    mfaUpdatingId.value = ''
   }
 }
 
-async function handlePwdExpiryChange() {
-  pwdExpiryUpdating.value = true
+async function handlePwdExpiryChange(domain: any) {
+  pwdExpiryUpdatingId.value = domain.domainId
   try {
-    await updatePasswordExpiry({ id: domainMgmtTenant.value.id, days: domainPwdExpiryDays.value })
+    await updatePasswordExpiry({
+      id: domainMgmtTenant.value.id,
+      domainId: domain.domainId,
+      days: domain.passwordExpiresAfterDays ?? 0,
+    })
     message.success('密码过期策略已更新')
   } catch (e: any) {
     message.error(e?.message || '更新密码策略失败')
   } finally {
-    pwdExpiryUpdating.value = false
+    pwdExpiryUpdatingId.value = ''
   }
 }
 
 async function loadAuditLogs() {
   auditLogsLoading.value = true
   try {
-    const res = await getAuditLogs({ id: domainMgmtTenant.value.id })
-    auditLogs.value = res.data || []
-    if (!auditLogs.value.length) {
-      message.info('未找到登录相关日志')
+    const res = await getAuditLogs({ id: domainMgmtTenant.value.id, days: auditDays.value })
+    auditLogs.value = Array.isArray(res.data) ? res.data : []
+    if (auditLogs.value.length) {
+      activeAuditDomain.value = auditLogs.value[0].domainId
     }
+    const total = auditLogs.value.reduce((s: number, d: any) => s + (d.logs?.length || 0), 0)
+    if (!total) message.info('最近时间窗口内未检索到登录相关日志')
   } catch (e: any) {
     message.error(e?.message || '获取登录日志失败')
   } finally {
@@ -1308,6 +1349,20 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
 </script>
 
 <style scoped>
+.domain-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 8px);
+  padding: 12px 14px;
+  margin-bottom: 12px;
+}
+.domain-card-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+  flex-wrap: wrap;
+}
 .table-toolbar {
   margin-bottom: 16px;
   display: flex;

@@ -74,6 +74,7 @@ public class TenantController {
     public ResponseData<?> updateMfa(@RequestBody java.util.Map<String, Object> params) {
         domainManagementService.updateMfaSetting(
                 (String) params.get("id"),
+                (String) params.get("domainId"),
                 Boolean.TRUE.equals(params.get("enabled")));
         return ResponseData.ok();
     }
@@ -91,13 +92,20 @@ public class TenantController {
             try { days = Integer.parseInt(String.valueOf(daysRaw)); }
             catch (NumberFormatException e) { return ResponseData.error("days 格式非法"); }
         }
-        domainManagementService.updatePasswordExpiry((String) params.get("id"), days);
+        domainManagementService.updatePasswordExpiry((String) params.get("id"), (String) params.get("domainId"), days);
         return ResponseData.ok();
     }
 
     @PostMapping("/auditLogs")
-    public ResponseData<?> auditLogs(@RequestBody java.util.Map<String, String> params) {
-        return ResponseData.ok(domainManagementService.getAuditLogs(params.get("id")));
+    public ResponseData<?> auditLogs(@RequestBody java.util.Map<String, Object> params) {
+        int days = 7;
+        Object raw = params == null ? null : params.get("days");
+        if (raw instanceof Number n) days = n.intValue();
+        else if (raw != null) {
+            try { days = Integer.parseInt(String.valueOf(raw)); } catch (Exception ignored) {}
+        }
+        String id = params == null ? null : String.valueOf(params.get("id"));
+        return ResponseData.ok(domainManagementService.getAuditLogs(id, days));
     }
 
     @PostMapping("/quotas")
