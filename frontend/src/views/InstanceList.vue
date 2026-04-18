@@ -219,20 +219,29 @@
           <a-table v-else :columns="columns" :data-source="activeTenantData.instances" :loading="activeTenantData.loading"
             row-key="instanceId" size="middle" :pagination="false">
             <template #bodyCell="{ column, record }">
+              <template v-if="column.key === 'name'">
+                <a-tooltip :title="record.name" placement="topLeft">
+                  <span class="instance-name-cell">{{ record.name }}</span>
+                </a-tooltip>
+              </template>
               <template v-if="column.key === 'state'">
                 <a-badge :status="stateColorMap[record.state] || 'default'" :text="record.state" />
               </template>
               <template v-if="column.key === 'shape'">
-                <a-tooltip :title="`${record.ocpus} OCPU / ${record.memoryInGBs} GB`">
-                  <a-tag>{{ record.shape }}</a-tag>
-                </a-tooltip>
+                <div class="shape-cell">
+                  <div class="shape-main">{{ record.ocpus }}C / {{ record.memoryInGBs }}G</div>
+                  <div class="shape-sub" :title="record.shape">{{ record.shape }}</div>
+                </div>
+              </template>
+              <template v-if="column.key === 'publicIp'">
+                <a-typography-text v-if="record.publicIp" copyable class="ip-copy">{{ record.publicIp }}</a-typography-text>
+                <span v-else style="color: var(--text-sub)">—</span>
               </template>
               <template v-if="column.key === 'action'">
-                <a-space :size="4">
+                <a-space :size="2">
                   <a-button type="link" size="small" @click="openDetail(activeTenantData!.tenant, record)">详情</a-button>
                   <a-dropdown :trigger="['click']">
-                    <a-button size="small" :loading="actionLoading[record.instanceId]">
-                      <template #icon><SettingOutlined /></template>
+                    <a-button type="link" size="small" class="instance-action-trigger" :loading="actionLoading[record.instanceId]">
                       实例操作
                       <DownOutlined style="font-size: 10px; margin-left: 2px" />
                     </a-button>
@@ -882,7 +891,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
-import { ReloadOutlined, EditOutlined, SettingOutlined, DownOutlined } from '@ant-design/icons-vue'
+import { ReloadOutlined, EditOutlined, DownOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
 import {
   getInstanceList, updateInstanceState, terminateInstance,
@@ -922,11 +931,11 @@ const stateColorMap: Record<string, string> = {
 }
 
 const columns = [
-  { title: '名称', dataIndex: 'name', key: 'name' },
-  { title: 'Shape', key: 'shape', width: 200 },
-  { title: '公网 IP', dataIndex: 'publicIp', key: 'publicIp', width: 140 },
-  { title: '状态', dataIndex: 'state', key: 'state', width: 100 },
-  { title: '操作', key: 'action', width: 300 },
+  { title: '名称', dataIndex: 'name', key: 'name', width: 180, ellipsis: true },
+  { title: '规格', key: 'shape', width: 180 },
+  { title: '公网 IP', dataIndex: 'publicIp', key: 'publicIp', width: 150 },
+  { title: '状态', dataIndex: 'state', key: 'state', width: 110 },
+  { title: '操作', key: 'action', width: 180 },
 ]
 
 const protoMap: Record<string, string> = { '6': 'TCP', '17': 'UDP', '1': 'ICMP', '58': 'ICMPv6', 'all': '全部' }
@@ -2193,5 +2202,39 @@ onUnmounted(() => {
 .instance-action-menu .ri-close-circle-line {
   font-size: 14px;
   vertical-align: -2px;
+}
+.instance-name-cell {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: middle;
+  font-weight: 600;
+}
+.shape-cell {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.25;
+}
+.shape-main {
+  font-weight: 600;
+  color: var(--text-main);
+  font-size: 13px;
+}
+.shape-sub {
+  font-size: 11px;
+  color: var(--text-sub);
+  font-family: 'JetBrains Mono', 'SF Mono', monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 160px;
+}
+.ip-copy :deep(.ant-typography-copy) {
+  margin-inline-start: 4px;
+}
+.instance-action-trigger {
+  padding-inline: 4px;
 }
 </style>
