@@ -136,31 +136,34 @@
     <div v-else class="tenant-table-wrap">
       <a-table :data-source="filteredTenants" :row-key="(r: any) => r.tenant.id" size="middle" :pagination="false"
         :row-class-name="(record: any) => record.tenant.id === activeTenantId ? 'tenant-row-active' : ''">
-        <a-table-column title="名称" data-index="tenant.username" key="username">
+        <a-table-column title="名称" data-index="tenant.username" key="username" :ellipsis="true">
           <template #default="{ record }">
-            <div style="display: flex; align-items: center; gap: 8px">
-              <i class="ri-cloud-line" style="font-size: 18px; color: var(--primary)"></i>
-              <span style="font-weight: 600">{{ record.tenant.username }}</span>
+            <div style="display: flex; align-items: center; gap: 8px; min-width: 0">
+              <i class="ri-cloud-line" style="font-size: 18px; color: var(--primary); flex-shrink: 0"></i>
+              <span style="font-weight: 600; overflow: hidden; text-overflow: ellipsis; white-space: nowrap">{{ record.tenant.username }}</span>
             </div>
           </template>
         </a-table-column>
-        <a-table-column title="租户名" key="tenantName">
+        <a-table-column title="租户名" key="tenantName" :width="200" :ellipsis="true">
           <template #default="{ record }">
-            <span>{{ record.tenant.tenantName || '—' }}</span>
+            <a-tooltip v-if="record.tenant.tenantName" :title="record.tenant.tenantName">
+              <span>{{ record.tenant.tenantName }}</span>
+            </a-tooltip>
+            <span v-else style="color: var(--text-sub)">—</span>
           </template>
         </a-table-column>
-        <a-table-column title="区域" key="region">
+        <a-table-column title="区域" key="region" :width="150" align="left">
           <template #default="{ record }">
             <a-tag>{{ record.tenant.ociRegion }}</a-tag>
           </template>
         </a-table-column>
-        <a-table-column title="类型" key="planType" :width="100">
+        <a-table-column title="类型" key="planType" :width="90" align="left">
           <template #default="{ record }">
             <a-tag v-if="record.tenant.planType" :color="record.tenant.planType === 'FREE' ? 'default' : 'green'">{{ record.tenant.planType }}</a-tag>
             <span v-else style="color: var(--text-sub)">—</span>
           </template>
         </a-table-column>
-        <a-table-column title="操作" key="action" :width="200">
+        <a-table-column title="操作" key="action" :width="260" align="right">
           <template #default="{ record }">
             <a-space>
               <a-button type="primary" size="small" @click="selectTenant(record)" :loading="record.loading">实例管理</a-button>
