@@ -41,41 +41,50 @@ public class InstanceService {
                 allInstances.addAll(client.listAllInstancesInCompartment(compartment.getId()));
             }
 
-            // Fetch public IPs in parallel
-            ExecutorService executor = Executors.newFixedThreadPool(Math.min(allInstances.size(), 8));
-            Map<String, Future<String>> ipFutures = new LinkedHashMap<>();
-            for (Instance inst : allInstances) {
-                ipFutures.put(inst.getId(), executor.submit(() -> {
-                    try { return client.getInstancePublicIp(inst); }
-                    catch (Exception e) { return null; }
-                }));
+            if (allInstances.isEmpty()) {
+                return new ArrayList<>();
             }
-            executor.shutdown();
 
+            // Fetch public IPs in parallel; OCI SDK clients are not thread-safe, so use separate clients per thread is ideal.
+            // Here we reuse the read-only VirtualNetworkClient via getInstancePublicIp which is usually safe for list ops;
+            // guarded by a bounded pool and always shut down in finally.
+            ExecutorService executor = Executors.newFixedThreadPool(Math.min(Math.max(allInstances.size(), 1), 8));
+            Map<String, Future<String>> ipFutures = new LinkedHashMap<>();
             List<Map<String, Object>> result = new ArrayList<>();
-            for (Instance inst : allInstances) {
-                Map<String, Object> map = new LinkedHashMap<>();
-                map.put("instanceId", inst.getId());
-                map.put("name", inst.getDisplayName());
-                map.put("region", inst.getRegion());
-                map.put("shape", inst.getShape());
-                map.put("state", inst.getLifecycleState().getValue());
-                map.put("timeCreated", inst.getTimeCreated() != null ? inst.getTimeCreated().toString() : null);
-                map.put("availabilityDomain", inst.getAvailabilityDomain());
-                map.put("compartmentId", inst.getCompartmentId());
-                map.put("compartmentName", compartmentNameMap.getOrDefault(inst.getCompartmentId(), "unknown"));
-
-                if (inst.getShapeConfig() != null) {
-                    map.put("ocpus", inst.getShapeConfig().getOcpus());
-                    map.put("memoryInGBs", inst.getShapeConfig().getMemoryInGBs());
+            try {
+                for (Instance inst : allInstances) {
+                    ipFutures.put(inst.getId(), executor.submit(() -> {
+                        try { return client.getInstancePublicIp(inst); }
+                        catch (Exception e) { return null; }
+                    }));
                 }
 
-                try {
-                    map.put("publicIp", ipFutures.get(inst.getId()).get(15, TimeUnit.SECONDS));
-                } catch (Exception e) {
-                    map.put("publicIp", null);
+                for (Instance inst : allInstances) {
+                    Map<String, Object> map = new LinkedHashMap<>();
+                    map.put("instanceId", inst.getId());
+                    map.put("name", inst.getDisplayName());
+                    map.put("region", inst.getRegion());
+                    map.put("shape", inst.getShape());
+                    map.put("state", inst.getLifecycleState().getValue());
+                    map.put("timeCreated", inst.getTimeCreated() != null ? inst.getTimeCreated().toString() : null);
+                    map.put("availabilityDomain", inst.getAvailabilityDomain());
+                    map.put("compartmentId", inst.getCompartmentId());
+                    map.put("compartmentName", compartmentNameMap.getOrDefault(inst.getCompartmentId(), "unknown"));
+
+                    if (inst.getShapeConfig() != null) {
+                        map.put("ocpus", inst.getShapeConfig().getOcpus());
+                        map.put("memoryInGBs", inst.getShapeConfig().getMemoryInGBs());
+                    }
+
+                    try {
+                        map.put("publicIp", ipFutures.get(inst.getId()).get(15, TimeUnit.SECONDS));
+                    } catch (Exception e) {
+                        map.put("publicIp", null);
+                    }
+                    result.add(map);
                 }
-                result.add(map);
+            } finally {
+                executor.shutdownNow();
             }
             return result;
         } catch (Exception e) {
@@ -304,7 +313,8 @@ public class InstanceService {
                             GetVcnRequest.builder().vcnId(vcn.getId()).build()
                     ).getVcn();
                 } catch (com.oracle.bmc.model.BmcException e) {
-                    if (!e.getMessage().contains("already exists") && !e.getMessage().contains("already has")) {
+                    String em = e.getMessage() == null ? "" : e.getMessage();
+                    if (!em.contains("already exists") && !em.contains("already has")) {
                         throw new OciException(tag(ociUser) + "VCN 添加 IPv6 CIDR 失败: " + extractOciErrorMessage(e));
                     }
                     vcn = client.getVirtualNetworkClient().getVcn(
@@ -331,7 +341,8 @@ public class InstanceService {
                                     .build());
                     Thread.sleep(3000);
                 } catch (com.oracle.bmc.model.BmcException e) {
-                    if (!e.getMessage().contains("already exists") && !e.getMessage().contains("already has")) {
+                    String em = e.getMessage() == null ? "" : e.getMessage();
+                    if (!em.contains("already exists") && !em.contains("already has")) {
                         throw new OciException(tag(ociUser) + "子网添加 IPv6 CIDR 失败: " + extractOciErrorMessage(e));
                     }
                 }
@@ -653,6 +664,9 @@ public class InstanceService {
 
     private String extractOciErrorMessage(com.oracle.bmc.model.BmcException e) {
         String msg = e.getMessage();
+        if (msg == null || msg.isEmpty()) {
+            return "OCI 调用失败（无详细信息）";
+        }
         if (msg.contains("LimitExceeded")) {
             return "已超出免费账户限制，无法创建更多资源。请在OCI控制台申请提升配额。";
         }

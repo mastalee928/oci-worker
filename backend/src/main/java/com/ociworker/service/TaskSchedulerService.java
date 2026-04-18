@@ -2,6 +2,7 @@ package com.ociworker.service;
 
 import cn.hutool.core.thread.ThreadFactoryBuilder;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.ociworker.enums.TaskStatusEnum;
 import com.ociworker.exception.OciException;
@@ -15,6 +16,7 @@ import com.ociworker.model.params.PageParams;
 import com.ociworker.util.CommonUtils;
 import com.ociworker.websocket.LogWebSocketHandler;
 import jakarta.annotation.PostConstruct;
+import jakarta.annotation.PreDestroy;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.DependsOn;
@@ -45,6 +47,19 @@ public class TaskSchedulerService {
     private final ScheduledThreadPoolExecutor taskPool = new ScheduledThreadPoolExecutor(
             Math.min(4, Runtime.getRuntime().availableProcessors()),
             ThreadFactoryBuilder.create().setNamePrefix("oci-task-").build());
+
+    @PreDestroy
+    public void shutdown() {
+        try {
+            taskPool.shutdown();
+            if (!taskPool.awaitTermination(5, TimeUnit.SECONDS)) {
+                taskPool.shutdownNow();
+            }
+        } catch (InterruptedException e) {
+            taskPool.shutdownNow();
+            Thread.currentThread().interrupt();
+        }
+    }
 
     @PostConstruct
     public void init() {
@@ -93,12 +108,17 @@ public class TaskSchedulerService {
         }
         if (params.getKeyword() != null && !params.getKeyword().isBlank()) {
             String kw = params.getKeyword();
-            wrapper.and(w -> w
-                    .like(OciCreateTask::getOciRegion, kw)
-                    .or().like(OciCreateTask::getArchitecture, kw)
-                    .or().like(OciCreateTask::getOperationSystem, kw)
-                    .or().inSql(OciCreateTask::getUserId,
-                            "SELECT id FROM oci_user WHERE username LIKE '%" + kw.replace("'", "") + "%'"));
+            List<OciUser> matchedUsers = userMapper.selectList(
+                    new LambdaQueryWrapper<OciUser>().like(OciUser::getUsername, kw));
+            List<String> matchedUserIds = matchedUsers.stream().map(OciUser::getId).toList();
+            wrapper.and(w -> {
+                w.like(OciCreateTask::getOciRegion, kw)
+                        .or().like(OciCreateTask::getArchitecture, kw)
+                        .or().like(OciCreateTask::getOperationSystem, kw);
+                if (!matchedUserIds.isEmpty()) {
+                    w.or().in(OciCreateTask::getUserId, matchedUserIds);
+                }
+            });
         }
         wrapper.orderByDesc(OciCreateTask::getCreateTime);
         Page<OciCreateTask> result = taskMapper.selectPage(page, wrapper);
@@ -352,24 +372,19 @@ public class TaskSchedulerService {
     }
 
     private int incrementAttempt(String taskId) {
+        UpdateWrapper<OciCreateTask> wrapper = new UpdateWrapper<>();
+        wrapper.eq("id", taskId).setSql("attempt_count = COALESCE(attempt_count, 0) + 1");
+        taskMapper.update(null, wrapper);
         OciCreateTask task = taskMapper.selectById(taskId);
-        if (task != null) {
-            task.setAttemptCount(task.getAttemptCount() + 1);
-            taskMapper.updateById(task);
-            return task.getAttemptCount();
-        }
-        return 0;
+        return task != null && task.getAttemptCount() != null ? task.getAttemptCount() : 0;
     }
 
     private int incrementSuccessCount(String taskId) {
+        UpdateWrapper<OciCreateTask> wrapper = new UpdateWrapper<>();
+        wrapper.eq("id", taskId).setSql("success_count = COALESCE(success_count, 0) + 1");
+        taskMapper.update(null, wrapper);
         OciCreateTask task = taskMapper.selectById(taskId);
-        if (task != null) {
-            int count = (task.getSuccessCount() != null ? task.getSuccessCount() : 0) + 1;
-            task.setSuccessCount(count);
-            taskMapper.updateById(task);
-            return count;
-        }
-        return 1;
+        return task != null && task.getSuccessCount() != null ? task.getSuccessCount() : 1;
     }
 
     private void completeTask(String taskId, TaskStatusEnum status) {

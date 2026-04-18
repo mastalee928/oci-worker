@@ -123,12 +123,12 @@ public class UserManagementService {
     public void resetPassword(UserParams params) {
         OciUser tenant = getTenant(params.getTenantId());
         try (IdentityClient client = buildClient(tenant)) {
-            CreateOrResetUIPasswordResponse response = client.createOrResetUIPassword(
+            client.createOrResetUIPassword(
                     CreateOrResetUIPasswordRequest.builder()
                             .userId(params.getUserId())
                             .build()
             );
-            log.info("Password reset for user: {}, new password: {}", params.getUserId(), response.getUIPassword().getPassword());
+            log.info("Password reset for user: {}", params.getUserId());
         }
     }
 

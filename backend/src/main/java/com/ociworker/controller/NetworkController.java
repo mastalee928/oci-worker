@@ -1,10 +1,13 @@
 package com.ociworker.controller;
 
+import com.ociworker.exception.OciException;
 import com.ociworker.model.vo.ResponseData;
 import com.ociworker.service.NetworkService;
 import jakarta.annotation.Resource;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -48,19 +51,37 @@ public class NetworkController {
 
     @PostMapping("/deleteSecurityRule")
     public ResponseData<?> deleteSecurityRule(@RequestBody Map<String, String> params) {
+        String idxStr = params.get("ruleIndex");
+        if (idxStr == null || idxStr.isBlank()) {
+            throw new OciException("ruleIndex 不能为空");
+        }
+        int idx;
+        try {
+            idx = Integer.parseInt(idxStr);
+        } catch (NumberFormatException e) {
+            throw new OciException("ruleIndex 格式非法");
+        }
         networkService.deleteSecurityRule(params.get("id"), params.get("instanceId"),
-                params.get("direction"), Integer.parseInt(params.get("ruleIndex")));
+                params.get("direction"), idx);
         return ResponseData.ok();
     }
 
-    @SuppressWarnings("unchecked")
     @PostMapping("/changeIp")
     public ResponseData<?> changeIp(@RequestBody Map<String, Object> params) {
         networkService.changePublicIp(
-                (String) params.get("id"),
-                (String) params.get("instanceId"),
-                (List<String>) params.get("cidrFilters"));
+                params.get("id") == null ? null : String.valueOf(params.get("id")),
+                params.get("instanceId") == null ? null : String.valueOf(params.get("instanceId")),
+                extractStringList(params.get("cidrFilters")));
         return ResponseData.ok();
+    }
+
+    private static List<String> extractStringList(Object raw) {
+        if (!(raw instanceof List<?> list) || list.isEmpty()) return Collections.emptyList();
+        List<String> out = new ArrayList<>(list.size());
+        for (Object o : list) {
+            if (o != null) out.add(String.valueOf(o));
+        }
+        return out;
     }
 
     @PostMapping("/assignEphemeralIp")

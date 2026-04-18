@@ -79,6 +79,9 @@ public class AuthInterceptor implements HandlerInterceptor {
         if (StrUtil.isBlank(token)) {
             token = request.getParameter("token");
         }
+        if (token != null && token.startsWith("Bearer ")) {
+            token = token.substring(7).trim();
+        }
 
         String effectiveAccount = getEffectiveAccount();
         String effectivePwdHash = getEffectivePasswordHash();

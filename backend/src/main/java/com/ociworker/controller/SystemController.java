@@ -33,11 +33,23 @@ public class SystemController {
 
     @GetMapping("/notifyConfig")
     public ResponseData<?> getNotifyConfig() {
-        Map<String, String> config = new LinkedHashMap<>();
-        config.put("botToken", notificationService.getKvValue(SysCfgEnum.TG_BOT_TOKEN));
-        config.put("chatId", notificationService.getKvValue(SysCfgEnum.TG_CHAT_ID));
+        Map<String, Object> config = new LinkedHashMap<>();
+        String botToken = notificationService.getKvValue(SysCfgEnum.TG_BOT_TOKEN);
+        String chatId = notificationService.getKvValue(SysCfgEnum.TG_CHAT_ID);
+        config.put("botToken", maskSecret(botToken));
+        config.put("chatId", maskSecret(chatId));
+        config.put("botTokenConfigured", botToken != null && !botToken.isBlank());
+        config.put("chatIdConfigured", chatId != null && !chatId.isBlank());
         config.put("notifyTypes", notificationService.getKvValue(SysCfgEnum.TG_NOTIFY_TYPES));
         return ResponseData.ok(config);
+    }
+
+    private String maskSecret(String value) {
+        if (value == null || value.isBlank()) return "";
+        int len = value.length();
+        if (len <= 4) return "****";
+        if (len <= 10) return value.substring(0, 2) + "****" + value.substring(len - 2);
+        return value.substring(0, 4) + "********" + value.substring(len - 4);
     }
 
     @PostMapping("/notifyConfig")
@@ -52,10 +64,16 @@ public class SystemController {
         }
 
         if (params.containsKey("botToken")) {
-            notificationService.saveKvValue(SysCfgEnum.TG_BOT_TOKEN, params.get("botToken"));
+            String v = params.get("botToken");
+            if (v != null && !v.contains("****")) {
+                notificationService.saveKvValue(SysCfgEnum.TG_BOT_TOKEN, v);
+            }
         }
         if (params.containsKey("chatId")) {
-            notificationService.saveKvValue(SysCfgEnum.TG_CHAT_ID, params.get("chatId"));
+            String v = params.get("chatId");
+            if (v != null && !v.contains("****")) {
+                notificationService.saveKvValue(SysCfgEnum.TG_CHAT_ID, v);
+            }
         }
         if (params.containsKey("notifyTypes")) {
             notificationService.saveKvValue(SysCfgEnum.TG_NOTIFY_TYPES, params.get("notifyTypes"));

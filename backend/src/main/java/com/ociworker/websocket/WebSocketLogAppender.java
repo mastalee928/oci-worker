@@ -20,6 +20,9 @@ public class WebSocketLogAppender extends AppenderBase<ILoggingEvent> {
             ).format(FMT);
             String msg = ts + " " + event.getLevel() + "  " + event.getFormattedMessage();
             LogWebSocketHandler.broadcast(msg);
-        } catch (Exception ignored) {}
+        } catch (Exception e) {
+            // Avoid recursive logging; write to stderr so the failure is still visible.
+            System.err.println("[WebSocketLogAppender] broadcast failed: " + e.getMessage());
+        }
     }
 }

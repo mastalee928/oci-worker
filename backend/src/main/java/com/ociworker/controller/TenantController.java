@@ -80,9 +80,18 @@ public class TenantController {
 
     @PostMapping("/updatePasswordExpiry")
     public ResponseData<?> updatePasswordExpiry(@RequestBody java.util.Map<String, Object> params) {
-        domainManagementService.updatePasswordExpiry(
-                (String) params.get("id"),
-                ((Number) params.get("days")).intValue());
+        Object daysRaw = params == null ? null : params.get("days");
+        if (daysRaw == null) {
+            return ResponseData.error("days 不能为空");
+        }
+        int days;
+        if (daysRaw instanceof Number n) {
+            days = n.intValue();
+        } else {
+            try { days = Integer.parseInt(String.valueOf(daysRaw)); }
+            catch (NumberFormatException e) { return ResponseData.error("days 格式非法"); }
+        }
+        domainManagementService.updatePasswordExpiry((String) params.get("id"), days);
         return ResponseData.ok();
     }
 
@@ -103,8 +112,13 @@ public class TenantController {
 
     @PostMapping("/saveGroupOrder")
     public ResponseData<?> saveGroupOrder(@RequestBody java.util.Map<String, Object> params) {
-        @SuppressWarnings("unchecked")
-        java.util.List<String> order = (java.util.List<String>) params.get("order");
+        Object raw = params == null ? null : params.get("order");
+        java.util.List<String> order = new java.util.ArrayList<>();
+        if (raw instanceof java.util.List<?> list) {
+            for (Object o : list) {
+                if (o != null) order.add(String.valueOf(o));
+            }
+        }
         tenantService.saveGroupOrder(order);
         return ResponseData.ok();
     }

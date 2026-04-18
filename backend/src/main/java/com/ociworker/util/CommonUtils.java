@@ -3,6 +3,8 @@ package com.ociworker.util;
 import cn.hutool.core.util.IdUtil;
 import cn.hutool.crypto.digest.DigestUtil;
 
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.util.Base64;
 
 public class CommonUtils {
@@ -35,11 +37,14 @@ public class CommonUtils {
     }
 
     public static boolean validateToken(String token, String account, String password) {
+        if (token == null || account == null || password == null) return false;
         long currentSlot = System.currentTimeMillis() / (1000 * 60 * 60 * TOKEN_EXPIRE_HOURS);
+        byte[] tokenBytes = token.getBytes(StandardCharsets.UTF_8);
         for (int i = 0; i <= 1; i++) {
             String raw = account + ":" + password + ":" + (currentSlot - i);
             String expected = Base64.getEncoder().encodeToString(DigestUtil.sha256(raw));
-            if (expected.equals(token)) return true;
+            byte[] expectedBytes = expected.getBytes(StandardCharsets.UTF_8);
+            if (MessageDigest.isEqual(tokenBytes, expectedBytes)) return true;
         }
         return false;
     }

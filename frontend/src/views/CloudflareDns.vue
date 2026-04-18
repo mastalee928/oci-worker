@@ -48,6 +48,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 import { PlusOutlined } from '@ant-design/icons-vue'
+import { message } from 'ant-design-vue'
 
 const activeTab = ref('config')
 const cfgLoading = ref(false)
@@ -66,10 +67,10 @@ const cfgColumns = [
 ]
 
 function showAddCfg() {
-  // Will be implemented in phase 7
+  message.info('该功能暂未开放')
 }
 
 function handleDeleteCfg(_id: string) {
-  // Will be implemented in phase 7
+  message.info('该功能暂未开放')
 }
 </script>

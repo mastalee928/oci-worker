@@ -1,15 +1,20 @@
 package core
 
 import (
+	"io"
+	"log"
+	"sync"
+	"unicode/utf8"
+
 	"github.com/gorilla/websocket"
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
-	"io"
-	"log"
-	"unicode/utf8"
 )
 
-var WcList []*WriteCounter
+var (
+	wcMu   sync.RWMutex
+	WcList []*WriteCounter
+)
 
 type WriteCounter struct {
 	Total int
@@ -18,12 +23,43 @@ type WriteCounter struct {
 
 func (wc *WriteCounter) Write(p []byte) (int, error) {
 	n := len(p)
+	wcMu.Lock()
 	wc.Total += n
+	wcMu.Unlock()
 	return n, nil
+}
+
+func AddCounter(wc *WriteCounter) {
+	wcMu.Lock()
+	WcList = append(WcList, wc)
+	wcMu.Unlock()
+}
+
+func RemoveCounter(id string) {
+	wcMu.Lock()
+	defer wcMu.Unlock()
+	for i := 0; i < len(WcList); i++ {
+		if WcList[i].Id == id {
+			WcList = append(WcList[:i], WcList[i+1:]...)
+			return
+		}
+	}
+}
+
+func FindCounter(id string) (int, bool) {
+	wcMu.RLock()
+	defer wcMu.RUnlock()
+	for _, v := range WcList {
+		if v.Id == id {
+			return v.Total, true
+		}
+	}
+	return 0, false
 }
 
 type wsOutput struct {
 	ws *websocket.Conn
+	mu sync.Mutex
 }
 
 func (w *wsOutput) Write(p []byte) (int, error) {
@@ -39,7 +75,9 @@ func (w *wsOutput) Write(p []byte) (int, error) {
 		}
 		p = []byte(string(buf))
 	}
+	w.mu.Lock()
 	err := w.ws.WriteMessage(websocket.TextMessage, p)
+	w.mu.Unlock()
 	return len(p), err
 }
 

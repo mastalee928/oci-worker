@@ -361,6 +361,9 @@ const updateChecking = ref(false)
 const updatePerforming = ref(false)
 const updateInfo = ref<any>(null)
 const updateForce = ref(false)
+let updatePollTimer: any = null
+let updateStartTimer: any = null
+let updateRedirectTimer: any = null
 
 async function checkUpdate() {
   updateChecking.value = true
@@ -379,21 +382,24 @@ async function performUpdate() {
   try {
     await request.post('/sys/performUpdate')
     message.success('更新已启动，服务即将重启...')
-    setTimeout(() => {
+    if (updateStartTimer) clearTimeout(updateStartTimer)
+    updateStartTimer = setTimeout(() => {
       message.loading({ content: '等待服务重启...', duration: 0, key: 'update' })
       let attempts = 0
       const maxAttempts = 30
-      const poll = setInterval(async () => {
+      if (updatePollTimer) clearInterval(updatePollTimer)
+      updatePollTimer = setInterval(async () => {
         attempts++
         try {
           await request.get('/sys/glance')
-          clearInterval(poll)
+          if (updatePollTimer) { clearInterval(updatePollTimer); updatePollTimer = null }
           message.success({ content: '更新完成，3秒后跳转首页...', key: 'update' })
           updatePerforming.value = false
-          setTimeout(() => { window.location.href = '/' }, 3000)
+          if (updateRedirectTimer) clearTimeout(updateRedirectTimer)
+          updateRedirectTimer = setTimeout(() => { window.location.href = '/' }, 3000)
         } catch {
           if (attempts >= maxAttempts) {
-            clearInterval(poll)
+            if (updatePollTimer) { clearInterval(updatePollTimer); updatePollTimer = null }
             message.warning({ content: '服务重启超时，请手动刷新页面', key: 'update' })
             updatePerforming.value = false
           }
@@ -417,7 +423,13 @@ function formatPublishDate(isoStr: string) {
 const isMobile = ref(window.innerWidth < 768)
 function checkMobile() { isMobile.value = window.innerWidth < 768 }
 onMounted(() => window.addEventListener('resize', checkMobile))
-onUnmounted(() => { window.removeEventListener('resize', checkMobile); if (pwdCountdownTimer) clearInterval(pwdCountdownTimer) })
+onUnmounted(() => {
+  window.removeEventListener('resize', checkMobile)
+  if (pwdCountdownTimer) clearInterval(pwdCountdownTimer)
+  if (updatePollTimer) clearInterval(updatePollTimer)
+  if (updateStartTimer) clearTimeout(updateStartTimer)
+  if (updateRedirectTimer) clearTimeout(updateRedirectTimer)
+})
 
 const backupPassword = ref('')
 const restorePassword = ref('')
@@ -464,9 +476,16 @@ async function handleBackupWithCode() {
   backupVerifyLoading.value = true
   backupLoading.value = true
   try {
-    const params = new URLSearchParams({ password: backupPassword.value, verifyCode: backupVerifyCode.value })
-    const resp = await fetch(`/api/sys/backup/create?${params}`, {
-      method: 'POST', headers: { Authorization: userStore.token || '' },
+    const rawToken = (userStore.token || '').trim()
+    const authHeader = rawToken ? (rawToken.startsWith('Bearer ') ? rawToken : `Bearer ${rawToken}`) : ''
+    const body = new URLSearchParams({ password: backupPassword.value, verifyCode: backupVerifyCode.value })
+    const resp = await fetch('/api/sys/backup/create', {
+      method: 'POST',
+      headers: {
+        Authorization: authHeader,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body,
     })
     if (!resp.ok) {
       const text = await resp.text()

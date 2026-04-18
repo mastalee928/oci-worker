@@ -159,8 +159,14 @@ func (sclient *SSHClient) Connect(ws *websocket.Conn, timeout time.Duration, clo
 			}
 			if strings.Contains(string(p), "resize") {
 				resizeSlice := strings.Split(string(p), ":")
-				rows, _ := strconv.Atoi(resizeSlice[1])
-				cols, _ := strconv.Atoi(resizeSlice[2])
+				if len(resizeSlice) < 3 {
+					continue
+				}
+				rows, rerr := strconv.Atoi(resizeSlice[1])
+				cols, cerr := strconv.Atoi(resizeSlice[2])
+				if rerr != nil || cerr != nil || rows <= 0 || cols <= 0 {
+					continue
+				}
 				err := sclient.Session.WindowChange(rows, cols)
 				if err != nil {
 					log.Println(err)

@@ -566,7 +566,7 @@ region=ap-tokyo-1"
             <a-input-search v-model:value="quotaSearch" placeholder="搜索服务/配额名" allow-clear style="width: 220px" />
           </a-space>
           <a-table v-if="!isMobile" :data-source="filteredQuotas" :loading="quotasLoading" size="small"
-            :pagination="{ pageSize: 20 }" row-key="(r: any) => r.serviceName + r.limitName + r.availabilityDomain">
+            :pagination="{ pageSize: 20 }" :row-key="(r: any) => r.serviceName + r.limitName + r.availabilityDomain">
             <a-table-column title="服务" data-index="serviceName" key="serviceName" :width="140">
               <template #default="{ text }">
                 <a-tag>{{ text }}</a-tag>
@@ -1062,9 +1062,11 @@ function onDrop(_e: DragEvent, toIdx: number) {
 
   const names = [...localOrder.value]
   const [moved] = names.splice(fromIdx, 1)
-  const insertIdx = dragOverPos.value === 'bottom' ? toIdx : toIdx
-  const actualIdx = fromIdx < toIdx ? insertIdx : insertIdx
-  names.splice(actualIdx, 0, moved)
+  let insertIdx = dragOverPos.value === 'bottom' ? toIdx + 1 : toIdx
+  if (fromIdx < insertIdx) insertIdx -= 1
+  if (insertIdx < 0) insertIdx = 0
+  if (insertIdx > names.length) insertIdx = names.length
+  names.splice(insertIdx, 0, moved)
   localOrder.value = names
 
   resetDrag()

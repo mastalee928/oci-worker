@@ -8,12 +8,19 @@ if ! java -version 2>&1 | grep -q "21"; then
     echo "[1/4] 安装 JDK 21..."
     apt-get update -qq
     apt-get install -y -qq wget
-    wget -q https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.7%2B6/OpenJDK21U-jre_aarch64_linux_hotspot_21.0.7_6.tar.gz -O /tmp/jdk21.tar.gz
+    ARCH_RAW=$(uname -m)
+    case "$ARCH_RAW" in
+        aarch64|arm64) ARCH=aarch64 ;;
+        x86_64|amd64)  ARCH=x64 ;;
+        *) echo "不支持的架构: $ARCH_RAW"; exit 1 ;;
+    esac
+    wget -q "https://github.com/adoptium/temurin21-binaries/releases/download/jdk-21.0.7%2B6/OpenJDK21U-jre_${ARCH}_linux_hotspot_21.0.7_6.tar.gz" -O /tmp/jdk21.tar.gz
     mkdir -p /opt/java
     tar -xzf /tmp/jdk21.tar.gz -C /opt/java
-    ln -sf /opt/java/jdk-21.0.7+6-jre/bin/java /usr/local/bin/java
+    JDK_DIR=$(ls -d /opt/java/jdk-21* | head -n 1)
+    ln -sf "$JDK_DIR/bin/java" /usr/local/bin/java
     rm -f /tmp/jdk21.tar.gz
-    echo "JDK 21 安装完成"
+    echo "JDK 21 安装完成 ($ARCH)"
 else
     echo "[1/4] JDK 21 已安装，跳过"
 fi
@@ -110,7 +117,7 @@ else
     echo "如需 WebSSH，请先安装 Docker: curl -fsSL https://get.docker.com | sh"
 fi
 
-PUBLIC_IP=$(curl -s ifconfig.me)
+PUBLIC_IP=$(curl -s --max-time 5 ifconfig.me || echo "<your-server-ip>")
 echo ""
 echo "=== 部署完成 ==="
 echo "OCI Worker: http://$PUBLIC_IP:8818"

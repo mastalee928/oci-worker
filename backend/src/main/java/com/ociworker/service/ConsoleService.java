@@ -82,18 +82,20 @@ public class ConsoleService {
     }
 
     private void generateSshKeyPair(Path privPath, Path pubPath) throws Exception {
-        // Delete old keys if exist
         Files.deleteIfExists(privPath);
         Files.deleteIfExists(pubPath);
 
-        Process p = Runtime.getRuntime().exec(new String[]{
+        ProcessBuilder pb = new ProcessBuilder(
                 "ssh-keygen", "-t", "rsa", "-b", "2048", "-f", privPath.toAbsolutePath().toString(),
-                "-N", "", "-C", "oci-worker-console"
-        });
+                "-N", "", "-C", "oci-worker-console").redirectErrorStream(true);
+        Process p = pb.start();
+        String output;
+        try (InputStream in = p.getInputStream()) {
+            output = new String(in.readAllBytes());
+        }
         p.waitFor();
         if (p.exitValue() != 0) {
-            String err = new String(p.getErrorStream().readAllBytes());
-            throw new RuntimeException("ssh-keygen failed: " + err);
+            throw new RuntimeException("ssh-keygen failed: " + output);
         }
 
         publicKeyContent = Files.readString(pubPath).trim();
@@ -280,34 +282,44 @@ public class ConsoleService {
 
     private void createTempSystemUser(String user, String password, String shell) {
         try {
-            Process p1 = Runtime.getRuntime().exec(new String[]{
-                    "useradd", "-m", "-s", shell, user
-            });
-            p1.waitFor();
-            if (p1.exitValue() != 0) {
-                String err = new String(p1.getErrorStream().readAllBytes());
-                throw new RuntimeException("useradd failed: " + err);
-            }
+            runProcess(new String[]{"useradd", "-m", "-s", shell, user});
 
-            Process p2 = Runtime.getRuntime().exec(new String[]{"chpasswd"});
-            p2.getOutputStream().write((user + ":" + password).getBytes());
-            p2.getOutputStream().close();
+            ProcessBuilder pb2 = new ProcessBuilder("chpasswd").redirectErrorStream(true);
+            Process p2 = pb2.start();
+            try (OutputStream os = p2.getOutputStream()) {
+                os.write((user + ":" + password).getBytes());
+            }
+            try (InputStream in = p2.getInputStream()) {
+                in.readAllBytes();
+            }
             p2.waitFor();
 
-            // Copy private key to user's home with correct ownership
             String userSshDir = "/home/" + user + "/.ssh";
             String userKeyPath = userSshDir + "/console_rsa";
-            Runtime.getRuntime().exec(new String[]{"mkdir", "-p", userSshDir}).waitFor();
-            Runtime.getRuntime().exec(new String[]{"cp", privateKeyPath, userKeyPath}).waitFor();
-            Runtime.getRuntime().exec(new String[]{"chown", "-R", user + ":" + user, userSshDir}).waitFor();
-            Runtime.getRuntime().exec(new String[]{"chmod", "700", userSshDir}).waitFor();
-            Runtime.getRuntime().exec(new String[]{"chmod", "600", userKeyPath}).waitFor();
+            runProcess(new String[]{"mkdir", "-p", userSshDir});
+            runProcess(new String[]{"cp", privateKeyPath, userKeyPath});
+            runProcess(new String[]{"chown", "-R", user + ":" + user, userSshDir});
+            runProcess(new String[]{"chmod", "700", userSshDir});
+            runProcess(new String[]{"chmod", "600", userKeyPath});
 
             log.info("【串行控制台】创建临时用户: {} (密钥已复制到 {})", user, userKeyPath);
         } catch (OciException e) {
             throw e;
         } catch (Exception e) {
             throw new OciException("创建临时用户失败: " + e.getMessage());
+        }
+    }
+
+    private void runProcess(String[] cmd) throws Exception {
+        ProcessBuilder pb = new ProcessBuilder(cmd).redirectErrorStream(true);
+        Process p = pb.start();
+        String output;
+        try (InputStream in = p.getInputStream()) {
+            output = new String(in.readAllBytes());
+        }
+        p.waitFor();
+        if (p.exitValue() != 0) {
+            throw new RuntimeException(cmd[0] + " failed: " + output);
         }
     }
 
@@ -329,9 +341,13 @@ public class ConsoleService {
 
     private void cleanupStaleSessions() {
         try {
-            Process p = Runtime.getRuntime().exec(new String[]{"bash", "-c",
-                    "grep -o 'oci_console_[0-9]*' /etc/passwd 2>/dev/null"});
-            String output = new String(p.getInputStream().readAllBytes()).trim();
+            ProcessBuilder pb = new ProcessBuilder("bash", "-c",
+                    "grep -o 'oci_console_[0-9]*' /etc/passwd 2>/dev/null").redirectErrorStream(true);
+            Process p = pb.start();
+            String output;
+            try (InputStream in = p.getInputStream()) {
+                output = new String(in.readAllBytes()).trim();
+            }
             p.waitFor();
             if (!output.isEmpty()) {
                 for (String user : output.split("\n")) {
@@ -415,9 +431,10 @@ public class ConsoleService {
                 .fingerprint(ociUser.getOciFingerprint())
                 .privateKeySupplier(() -> {
                     try {
-                        return new FileInputStream(ociUser.getOciKeyPath());
+                        byte[] bytes = Files.readAllBytes(Path.of(ociUser.getOciKeyPath()));
+                        return new ByteArrayInputStream(bytes);
                     } catch (Exception e) {
-                        throw new RuntimeException("Failed to read private key");
+                        throw new RuntimeException("Failed to read private key: " + e.getMessage());
                     }
                 })
                 .region(Region.valueOf(ociUser.getOciRegion()))

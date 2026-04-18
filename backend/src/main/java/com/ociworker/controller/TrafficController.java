@@ -16,9 +16,16 @@ public class TrafficController {
 
     @PostMapping("/data")
     public ResponseData<?> getData(@RequestBody Map<String, Object> params) {
+        Object minutesRaw = params == null ? null : params.get("minutes");
+        int minutes = 60;
+        if (minutesRaw instanceof Number n) {
+            minutes = n.intValue();
+        } else if (minutesRaw != null) {
+            try { minutes = Integer.parseInt(String.valueOf(minutesRaw)); } catch (NumberFormatException ignored) {}
+        }
         return ResponseData.ok(trafficService.getTrafficData(
-                (String) params.get("id"),
-                (String) params.get("instanceId"),
-                params.containsKey("minutes") ? (Integer) params.get("minutes") : 60));
+                params == null ? null : (String) params.get("id"),
+                params == null ? null : (String) params.get("instanceId"),
+                minutes));
     }
 }

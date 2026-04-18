@@ -67,7 +67,7 @@ type fileSplice []File
 
 func (f fileSplice) Len() int           { return len(f) }
 func (f fileSplice) Swap(i, j int)      { f[i], f[j] = f[j], f[i] }
-func (f fileSplice) Less(i, j int) bool { return f[i].IsDir }
+func (f fileSplice) Less(i, j int) bool { return f[i].IsDir && !f[j].IsDir }
 
 func UploadFile(c *gin.Context) *ResponseBody {
 	var (
@@ -164,27 +164,23 @@ func UploadProgressWs(c *gin.Context) *ResponseBody {
 	id := c.Query("id")
 	var ready, find bool
 	for {
-		if !ready && core.WcList == nil {
-			continue
-		}
-		for _, v := range core.WcList {
-			if v.Id == id {
-				wsConn.WriteMessage(1, []byte(strconv.Itoa(v.Total)))
-				find = true
-				if !ready {
-					ready = true
-				}
+		find = false
+		total, found := core.FindCounter(id)
+		if found {
+			if err := wsConn.WriteMessage(1, []byte(strconv.Itoa(total))); err != nil {
+				wsConn.Close()
 				break
+			}
+			find = true
+			if !ready {
+				ready = true
 			}
 		}
 		if ready && !find {
 			wsConn.Close()
 			break
 		}
-		if ready {
-			time.Sleep(300 * time.Millisecond)
-			find = false
-		}
+		time.Sleep(300 * time.Millisecond)
 	}
 	return &responseBody
 }

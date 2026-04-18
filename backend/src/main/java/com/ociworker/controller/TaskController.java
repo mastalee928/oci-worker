@@ -7,10 +7,15 @@ import com.ociworker.model.vo.ResponseData;
 import com.ociworker.service.TaskSchedulerService;
 import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 
+@Slf4j
 @RestController
 @RequestMapping("/api/oci/task")
 public class TaskController {
@@ -70,25 +75,43 @@ public class TaskController {
         return ResponseData.ok();
     }
 
-    @SuppressWarnings("unchecked")
     @PostMapping("/batchStop")
     public ResponseData<?> batchStop(@RequestBody Map<String, Object> params) {
-        java.util.List<String> ids = (java.util.List<String>) params.get("taskIds");
+        List<String> ids = extractStringList(params, "taskIds");
         int count = 0;
         for (String id : ids) {
-            try { taskSchedulerService.stopTask(id); count++; } catch (Exception ignored) {}
+            try {
+                taskSchedulerService.stopTask(id);
+                count++;
+            } catch (Exception e) {
+                log.warn("batchStop failed for taskId={}: {}", id, e.getMessage());
+            }
         }
         return ResponseData.ok(count);
     }
 
-    @SuppressWarnings("unchecked")
     @PostMapping("/batchResume")
     public ResponseData<?> batchResume(@RequestBody Map<String, Object> params) {
-        java.util.List<String> ids = (java.util.List<String>) params.get("taskIds");
+        List<String> ids = extractStringList(params, "taskIds");
         int count = 0;
         for (String id : ids) {
-            try { taskSchedulerService.resumeTask(id); count++; } catch (Exception ignored) {}
+            try {
+                taskSchedulerService.resumeTask(id);
+                count++;
+            } catch (Exception e) {
+                log.warn("batchResume failed for taskId={}: {}", id, e.getMessage());
+            }
         }
         return ResponseData.ok(count);
+    }
+
+    private List<String> extractStringList(Map<String, Object> params, String key) {
+        Object raw = params == null ? null : params.get(key);
+        if (!(raw instanceof List<?> list) || list.isEmpty()) return Collections.emptyList();
+        List<String> ids = new ArrayList<>(list.size());
+        for (Object o : list) {
+            if (o != null) ids.add(String.valueOf(o));
+        }
+        return ids;
     }
 }

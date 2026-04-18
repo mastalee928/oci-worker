@@ -41,11 +41,11 @@ public class InstanceController {
     @PostMapping("/updateInstance")
     public ResponseData<?> updateInstance(@RequestBody Map<String, Object> params) {
         return ResponseData.ok(instanceService.updateInstance(
-                (String) params.get("id"),
-                (String) params.get("instanceId"),
-                (String) params.get("displayName"),
-                params.get("ocpus") != null ? ((Number) params.get("ocpus")).floatValue() : null,
-                params.get("memoryInGBs") != null ? ((Number) params.get("memoryInGBs")).floatValue() : null));
+                asString(params.get("id")),
+                asString(params.get("instanceId")),
+                asString(params.get("displayName")),
+                asFloat(params.get("ocpus")),
+                asFloat(params.get("memoryInGBs"))));
     }
 
     @PostMapping("/shapes")
@@ -61,12 +61,28 @@ public class InstanceController {
     @PostMapping("/updateBootVolume")
     public ResponseData<?> updateBootVolume(@RequestBody Map<String, Object> params) {
         instanceService.updateBootVolume(
-                (String) params.get("id"),
-                (String) params.get("bootVolumeId"),
-                params.get("sizeInGBs") != null ? ((Number) params.get("sizeInGBs")).longValue() : null,
-                (String) params.get("displayName"),
-                params.get("vpusPerGB") != null ? ((Number) params.get("vpusPerGB")).longValue() : null);
+                asString(params.get("id")),
+                asString(params.get("bootVolumeId")),
+                asLong(params.get("sizeInGBs")),
+                asString(params.get("displayName")),
+                asLong(params.get("vpusPerGB")));
         return ResponseData.ok();
+    }
+
+    private static String asString(Object v) {
+        return v == null ? null : String.valueOf(v);
+    }
+
+    private static Float asFloat(Object v) {
+        if (v == null) return null;
+        if (v instanceof Number n) return n.floatValue();
+        try { return Float.parseFloat(String.valueOf(v)); } catch (NumberFormatException e) { return null; }
+    }
+
+    private static Long asLong(Object v) {
+        if (v == null) return null;
+        if (v instanceof Number n) return n.longValue();
+        try { return Long.parseLong(String.valueOf(v)); } catch (NumberFormatException e) { return null; }
     }
 
     @PostMapping("/instanceDetail")

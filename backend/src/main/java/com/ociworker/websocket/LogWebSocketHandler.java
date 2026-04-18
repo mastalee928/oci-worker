@@ -6,19 +6,23 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
+import org.springframework.web.socket.handler.ConcurrentWebSocketSessionDecorator;
 import org.springframework.web.socket.handler.TextWebSocketHandler;
 
 import java.io.IOException;
 import java.util.List;
-import java.util.Set;
-import java.util.concurrent.CopyOnWriteArraySet;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 @Slf4j
 @Component
 public class LogWebSocketHandler extends TextWebSocketHandler {
 
-    private static final Set<WebSocketSession> SESSIONS = new CopyOnWriteArraySet<>();
-    private static LogPersistService logPersistService;
+    /**
+     * Maps raw session id -> wrapped (thread-safe) decorator to avoid concurrent sendMessage.
+     */
+    private static final Map<String, ConcurrentWebSocketSessionDecorator> SESSIONS = new ConcurrentHashMap<>();
+    private static volatile LogPersistService logPersistService;
 
     public LogWebSocketHandler(LogPersistService persistService) {
         logPersistService = persistService;
@@ -26,12 +30,17 @@ public class LogWebSocketHandler extends TextWebSocketHandler {
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session) {
-        SESSIONS.add(session);
+        ConcurrentWebSocketSessionDecorator decorated =
+                new ConcurrentWebSocketSessionDecorator(session, 2000, 64 * 1024);
+        SESSIONS.put(session.getId(), decorated);
         log.info("Log WebSocket connected: {}", session.getId());
         try {
-            List<String> history = logPersistService.readLastLines(500);
-            for (String line : history) {
-                session.sendMessage(new TextMessage(line));
+            LogPersistService persist = logPersistService;
+            if (persist != null) {
+                List<String> history = persist.readLastLines(500);
+                for (String line : history) {
+                    decorated.sendMessage(new TextMessage(line));
+                }
             }
         } catch (IOException e) {
             log.warn("Failed to send history logs: {}", e.getMessage());
@@ -40,23 +49,26 @@ public class LogWebSocketHandler extends TextWebSocketHandler {
 
     @Override
     public void afterConnectionClosed(WebSocketSession session, CloseStatus status) {
-        SESSIONS.remove(session);
+        SESSIONS.remove(session.getId());
     }
 
     public static void broadcast(String message) {
-        if (logPersistService != null) {
-            logPersistService.appendLog(message);
+        LogPersistService persist = logPersistService;
+        if (persist != null) {
+            persist.appendLog(message);
         }
 
         TextMessage textMessage = new TextMessage(message);
-        for (WebSocketSession session : SESSIONS) {
-            if (session.isOpen()) {
+        for (Map.Entry<String, ConcurrentWebSocketSessionDecorator> entry : SESSIONS.entrySet()) {
+            ConcurrentWebSocketSessionDecorator decorated = entry.getValue();
+            if (decorated.isOpen()) {
                 try {
-                    session.sendMessage(textMessage);
+                    decorated.sendMessage(textMessage);
                 } catch (IOException e) {
-                    // remove broken session
-                    SESSIONS.remove(session);
+                    SESSIONS.remove(entry.getKey());
                 }
+            } else {
+                SESSIONS.remove(entry.getKey());
             }
         }
     }

@@ -76,7 +76,7 @@ const router = createRouter({
 })
 
 router.beforeEach(async (to, _from, next) => {
-  const token = localStorage.getItem('token')
+  const token = (localStorage.getItem('token') || '').trim()
   if (!to.meta.public && !token) {
     next('/login')
   } else {

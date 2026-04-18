@@ -23,6 +23,13 @@ public class NetworkService {
 
     private String tag(OciUser u) { return "[" + u.getUsername() + "] "; }
 
+    private String firstSecurityListId(Subnet subnet) {
+        if (subnet.getSecurityListIds() == null || subnet.getSecurityListIds().isEmpty()) {
+            throw new OciException("子网未关联安全列表");
+        }
+        return subnet.getSecurityListIds().get(0);
+    }
+
     public List<Map<String, Object>> listVcns(String userId) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
@@ -75,7 +82,7 @@ public class NetworkService {
 
             SecurityList secList = client.getVirtualNetworkClient().getSecurityList(
                     GetSecurityListRequest.builder()
-                            .securityListId(subnet.getSecurityListIds().get(0))
+                            .securityListId(firstSecurityListId(subnet))
                             .build()
             ).getSecurityList();
 
@@ -130,7 +137,7 @@ public class NetworkService {
                     GetSubnetRequest.builder().subnetId(subnetId).build()
             ).getSubnet();
 
-            String secListId = subnet.getSecurityListIds().get(0);
+            String secListId = firstSecurityListId(subnet);
             SecurityList secList = client.getVirtualNetworkClient().getSecurityList(
                     GetSecurityListRequest.builder().securityListId(secListId).build()
             ).getSecurityList();
@@ -194,7 +201,7 @@ public class NetworkService {
                     GetSubnetRequest.builder().subnetId(subnetId).build()
             ).getSubnet();
 
-            String secListId = subnet.getSecurityListIds().get(0);
+            String secListId = firstSecurityListId(subnet);
             List<IngressSecurityRule> ingressRules = List.of(
                     IngressSecurityRule.builder()
                             .source("0.0.0.0/0").protocol("6")
@@ -245,12 +252,12 @@ public class NetworkService {
                     GetSubnetRequest.builder().subnetId(subnetId).build()
             ).getSubnet();
 
-            String secListId = subnet.getSecurityListIds().get(0);
+            String secListId = firstSecurityListId(subnet);
             SecurityList secList = client.getVirtualNetworkClient().getSecurityList(
                     GetSecurityListRequest.builder().securityListId(secListId).build()
             ).getSecurityList();
 
-            String proto = switch (protocol.toUpperCase()) {
+            String proto = switch (protocol == null ? "" : protocol.toUpperCase()) {
                 case "TCP" -> "6";
                 case "UDP" -> "17";
                 case "ICMP" -> "1";
@@ -327,7 +334,7 @@ public class NetworkService {
                     GetSubnetRequest.builder().subnetId(subnetId).build()
             ).getSubnet();
 
-            String secListId = subnet.getSecurityListIds().get(0);
+            String secListId = firstSecurityListId(subnet);
             SecurityList secList = client.getVirtualNetworkClient().getSecurityList(
                     GetSecurityListRequest.builder().securityListId(secListId).build()
             ).getSecurityList();

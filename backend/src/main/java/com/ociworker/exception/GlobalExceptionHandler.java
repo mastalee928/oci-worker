@@ -33,6 +33,6 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(Exception.class)
     public ResponseData<?> handleException(Exception e) {
         log.error("Unexpected error: ", e);
-        return ResponseData.error("Internal server error: " + e.getMessage());
+        return ResponseData.error("服务器内部错误，请查看日志");
     }
 }

@@ -38,20 +38,9 @@ func (sclient *SSHClient) Upload(file multipart.File, id, dstPath string) error 
 		return err
 	}
 	defer dstFile.Close()
-	defer func() {
-		if len(WcList) < 2 {
-			WcList = nil
-		} else {
-			for i := 0; i < len(WcList); i++ {
-				if WcList[i].Id == id {
-					WcList = append(WcList[:i], WcList[i+1:]...)
-					break
-				}
-			}
-		}
-	}()
-	wc := WriteCounter{Id: id}
-	WcList = append(WcList, &wc)
-	_, err = io.Copy(dstFile, io.TeeReader(file, &wc))
+	wc := &WriteCounter{Id: id}
+	AddCounter(wc)
+	defer RemoveCounter(id)
+	_, err = io.Copy(dstFile, io.TeeReader(file, wc))
 	return err
 }

@@ -355,7 +355,8 @@ public class OciClientService implements Closeable {
         List<AvailabilityDomain> availabilityDomains = getAvailabilityDomains();
         String targetShape = ArchitectureEnum.getShape(user.getArchitecture());
 
-        List<String> shapeList = availabilityDomains.parallelStream()
+        // Use sequential stream: OCI SDK ComputeClient is not thread-safe, and this method is @synchronized.
+        List<String> shapeList = availabilityDomains.stream()
                 .flatMap(ad -> getShapes(ad.getName()).stream())
                 .map(Shape::getShape)
                 .distinct()
@@ -418,15 +419,16 @@ public class OciClientService implements Closeable {
                 }
             }
         } catch (com.oracle.bmc.model.BmcException e) {
+            String em = e.getMessage() == null ? "" : e.getMessage();
             if (e.getStatusCode() == 401) {
                 result.setDie(true);
-            } else if (e.getStatusCode() == 500 || e.getMessage().contains("Out of host capacity")
-                    || (e.getStatusCode() == 400 && e.getMessage().contains("LimitExceeded"))
+            } else if (e.getStatusCode() == 500 || em.contains("Out of host capacity")
+                    || (e.getStatusCode() == 400 && em.contains("LimitExceeded"))
                     || e.getStatusCode() == 429) {
                 result.setOutOfCapacity(true);
             } else {
                 log.error("【开机任务】用户:[{}],区域:[{}] - OCI 错误: {} ({})",
-                        user.getUsername(), user.getOciCfg().getRegion(), e.getMessage(), e.getStatusCode());
+                        user.getUsername(), user.getOciCfg().getRegion(), em, e.getStatusCode());
             }
         } catch (Exception e) {
             log.error("【开机任务】用户:[{}],区域:[{}] - 异常: {}",
@@ -540,8 +542,9 @@ public class OciClientService implements Closeable {
                                 .build());
                 Thread.sleep(8000);
             } catch (Exception e) {
-                if (!e.getMessage().contains("already exists") && !e.getMessage().contains("already has")) {
-                    log.warn("VCN IPv6 CIDR 添加失败: {}", e.getMessage());
+                String em = e.getMessage() == null ? "" : e.getMessage();
+                if (!em.contains("already exists") && !em.contains("already has")) {
+                    log.warn("VCN IPv6 CIDR 添加失败: {}", em);
                     return;
                 }
             }
@@ -564,8 +567,9 @@ public class OciClientService implements Closeable {
                         .build());
                 Thread.sleep(3000);
             } catch (Exception e) {
-                if (!e.getMessage().contains("already exists") && !e.getMessage().contains("already has")) {
-                    log.warn("子网 IPv6 CIDR 添加失败: {}", e.getMessage());
+                String em = e.getMessage() == null ? "" : e.getMessage();
+                if (!em.contains("already exists") && !em.contains("already has")) {
+                    log.warn("子网 IPv6 CIDR 添加失败: {}", em);
                     return;
                 }
             }

@@ -54,7 +54,7 @@
 
     <!-- 租户列表视图 -->
     <div v-else class="tenant-table-wrap">
-      <a-table :data-source="filteredTenants" row-key="tenant.id" size="middle" :pagination="false"
+      <a-table :data-source="filteredTenants" :row-key="(r: any) => r.tenant.id" size="middle" :pagination="false"
         :row-class-name="(record: any) => record.tenant.id === activeTenantId ? 'tenant-row-active' : ''">
         <a-table-column title="名称" data-index="tenant.username" key="username">
           <template #default="{ record }">
@@ -1097,12 +1097,21 @@ async function handleAction(tenant: any, record: any, action: string) {
     await updateInstanceState({ id: tenant.id, instanceId: record.instanceId, action })
     message.success('操作已提交')
     const td = tenantDataList.value.find(t => t.tenant.id === tenant.id)
-    if (td) setTimeout(() => loadTenantInstances(td), 3000)
+    if (td) scheduleReload(() => loadTenantInstances(td), 3000)
   } catch (e: any) {
     message.error(e?.message || '操作失败')
   } finally {
     actionLoading[record.instanceId] = false
   }
+}
+
+const pendingTimers = new Set<any>()
+function scheduleReload(fn: () => void, delay: number) {
+  const t = setTimeout(() => {
+    pendingTimers.delete(t)
+    try { fn() } catch {}
+  }, delay)
+  pendingTimers.add(t)
 }
 
 const verifyModalVisible = ref(false)
@@ -1154,7 +1163,7 @@ async function handleTerminateWithCode() {
     verifyModalVisible.value = false
     drawerVisible.value = false
     const td = tenantDataList.value.find(t => t.tenant.id === currentTenant.value.id)
-    if (td) setTimeout(() => loadTenantInstances(td), 3000)
+    if (td) scheduleReload(() => loadTenantInstances(td), 3000)
   } catch (e: any) {
     message.error(e?.message || '终止失败')
   } finally {
@@ -1168,7 +1177,7 @@ async function handleChangeIp() {
   try {
     await changeIp({ id: currentTenant.value.id, instanceId: currentInstance.value.instanceId })
     message.success('换 IP 请求已提交')
-    setTimeout(() => loadNetworkDetail(), 3000)
+    scheduleReload(() => loadNetworkDetail(), 3000)
   } catch (e: any) {
     message.error(e?.message || '换 IP 失败')
   } finally {
@@ -1633,7 +1642,11 @@ onMounted(() => {
   loadAllTenants()
   window.addEventListener('resize', checkMobile)
 })
-onUnmounted(() => window.removeEventListener('resize', checkMobile))
+onUnmounted(() => {
+  window.removeEventListener('resize', checkMobile)
+  pendingTimers.forEach((t: any) => clearTimeout(t))
+  pendingTimers.clear()
+})
 </script>
 
 <style scoped>
