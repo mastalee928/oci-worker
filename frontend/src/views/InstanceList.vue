@@ -40,14 +40,14 @@
                     <div class="tenant-card" :class="{ 'tenant-card-active': activeTenantId === td.tenant.id }">
                       <div class="tc-header"><i class="ri-cloud-line tc-icon"></i><div class="tc-info"><div class="tc-name">{{ td.tenant.username }}</div><div class="tc-region">{{ td.tenant.ociRegion }}</div></div></div>
                       <div class="tc-tags"><a-tag v-if="td.tenant.planType" :color="td.tenant.planType === 'FREE' ? 'default' : 'green'" size="small">{{ td.tenant.planType }}</a-tag><a-tag v-if="td.tenant.tenantName" size="small" color="blue">{{ td.tenant.tenantName }}</a-tag></div>
-                      <div class="tc-actions"><a-button type="primary" block @click="selectTenant(td)" :loading="td.loading"><i class="ri-server-line" style="margin-right:6px"></i>实例管理</a-button><a-button block @click="openVcnPanel(td.tenant)"><i class="ri-share-line" style="margin-right:6px"></i>虚拟云网络</a-button><a-button block @click="openVolumePanel(td.tenant)"><i class="ri-hard-drive-2-line" style="margin-right:6px"></i>卷组</a-button><a-button block @click="openQuickTask(td.tenant)"><i class="ri-play-circle-line" style="margin-right:6px"></i>开机任务</a-button></div>
+                      <div class="tc-actions"><a-button type="primary" block @click="selectTenant(td)" :loading="td.loading"><i class="ri-server-line" style="margin-right:6px"></i>实例管理</a-button><a-button block @click="openVcnPanel(td.tenant)"><i class="ri-share-line" style="margin-right:6px"></i>虚拟云网络</a-button><a-button block @click="openVolumePanel(td.tenant)"><i class="ri-hard-drive-2-line" style="margin-right:6px"></i>卷组</a-button><a-button block @click="openQuickTask(td.tenant)"><i class="ri-play-circle-line" style="margin-right:6px"></i>快捷开机</a-button></div>
                     </div>
                   </template>
                 </div>
                 <div v-else>
                   <component :is="'div'" v-for="td in g1.tenants" :key="td.tenant.id" class="group-table-row" :class="{ 'tenant-row-active': td.tenant.id === activeTenantId }">
                     <span style="font-weight:600">{{ td.tenant.username }}</span> <a-tag style="margin-left:8px">{{ td.tenant.ociRegion }}</a-tag>
-                    <a-space style="float:right"><a-button type="primary" size="small" @click="selectTenant(td)" :loading="td.loading">实例管理</a-button><a-button size="small" @click="openVcnPanel(td.tenant)">VCN</a-button><a-button size="small" @click="openVolumePanel(td.tenant)">卷组</a-button><a-button size="small" @click="openQuickTask(td.tenant)">开机任务</a-button></a-space>
+                    <a-space style="float:right"><a-button type="primary" size="small" @click="selectTenant(td)" :loading="td.loading">实例管理</a-button><a-button size="small" @click="openVcnPanel(td.tenant)">VCN</a-button><a-button size="small" @click="openVolumePanel(td.tenant)">卷组</a-button><a-button size="small" @click="openQuickTask(td.tenant)">快捷开机</a-button></a-space>
                   </component>
                 </div>
               </component>
@@ -63,14 +63,14 @@
                     <div class="tenant-card" :class="{ 'tenant-card-active': activeTenantId === td.tenant.id }">
                       <div class="tc-header"><i class="ri-cloud-line tc-icon"></i><div class="tc-info"><div class="tc-name">{{ td.tenant.username }}</div><div class="tc-region">{{ td.tenant.ociRegion }}</div></div></div>
                       <div class="tc-tags"><a-tag v-if="td.tenant.planType" :color="td.tenant.planType === 'FREE' ? 'default' : 'green'" size="small">{{ td.tenant.planType }}</a-tag><a-tag v-if="td.tenant.tenantName" size="small" color="blue">{{ td.tenant.tenantName }}</a-tag></div>
-                      <div class="tc-actions"><a-button type="primary" block @click="selectTenant(td)" :loading="td.loading"><i class="ri-server-line" style="margin-right:6px"></i>实例管理</a-button><a-button block @click="openVcnPanel(td.tenant)"><i class="ri-share-line" style="margin-right:6px"></i>虚拟云网络</a-button><a-button block @click="openVolumePanel(td.tenant)"><i class="ri-hard-drive-2-line" style="margin-right:6px"></i>卷组</a-button><a-button block @click="openQuickTask(td.tenant)"><i class="ri-play-circle-line" style="margin-right:6px"></i>开机任务</a-button></div>
+                      <div class="tc-actions"><a-button type="primary" block @click="selectTenant(td)" :loading="td.loading"><i class="ri-server-line" style="margin-right:6px"></i>实例管理</a-button><a-button block @click="openVcnPanel(td.tenant)"><i class="ri-share-line" style="margin-right:6px"></i>虚拟云网络</a-button><a-button block @click="openVolumePanel(td.tenant)"><i class="ri-hard-drive-2-line" style="margin-right:6px"></i>卷组</a-button><a-button block @click="openQuickTask(td.tenant)"><i class="ri-play-circle-line" style="margin-right:6px"></i>快捷开机</a-button></div>
                     </div>
                   </template>
                 </div>
                 <div v-else>
                   <div v-for="td in l2.tenants" :key="td.tenant.id" class="group-table-row" :class="{ 'tenant-row-active': td.tenant.id === activeTenantId }">
                     <span style="font-weight:600">{{ td.tenant.username }}</span> <a-tag style="margin-left:8px">{{ td.tenant.ociRegion }}</a-tag>
-                    <a-space style="float:right"><a-button type="primary" size="small" @click="selectTenant(td)" :loading="td.loading">实例管理</a-button><a-button size="small" @click="openVcnPanel(td.tenant)">VCN</a-button><a-button size="small" @click="openVolumePanel(td.tenant)">卷组</a-button><a-button size="small" @click="openQuickTask(td.tenant)">开机任务</a-button></a-space>
+                    <a-space style="float:right"><a-button type="primary" size="small" @click="selectTenant(td)" :loading="td.loading">实例管理</a-button><a-button size="small" @click="openVcnPanel(td.tenant)">VCN</a-button><a-button size="small" @click="openVolumePanel(td.tenant)">卷组</a-button><a-button size="small" @click="openQuickTask(td.tenant)">快捷开机</a-button></a-space>
                   </div>
                 </div>
               </a-collapse-panel>
@@ -83,14 +83,14 @@
                 <div class="tenant-card" :class="{ 'tenant-card-active': activeTenantId === td.tenant.id }">
                   <div class="tc-header"><i class="ri-cloud-line tc-icon"></i><div class="tc-info"><div class="tc-name">{{ td.tenant.username }}</div><div class="tc-region">{{ td.tenant.ociRegion }}</div></div></div>
                   <div class="tc-tags"><a-tag v-if="td.tenant.planType" :color="td.tenant.planType === 'FREE' ? 'default' : 'green'" size="small">{{ td.tenant.planType }}</a-tag><a-tag v-if="td.tenant.tenantName" size="small" color="blue">{{ td.tenant.tenantName }}</a-tag></div>
-                  <div class="tc-actions"><a-button type="primary" block @click="selectTenant(td)" :loading="td.loading"><i class="ri-server-line" style="margin-right:6px"></i>实例管理</a-button><a-button block @click="openVcnPanel(td.tenant)"><i class="ri-share-line" style="margin-right:6px"></i>虚拟云网络</a-button><a-button block @click="openVolumePanel(td.tenant)"><i class="ri-hard-drive-2-line" style="margin-right:6px"></i>卷组</a-button><a-button block @click="openQuickTask(td.tenant)"><i class="ri-play-circle-line" style="margin-right:6px"></i>开机任务</a-button></div>
+                  <div class="tc-actions"><a-button type="primary" block @click="selectTenant(td)" :loading="td.loading"><i class="ri-server-line" style="margin-right:6px"></i>实例管理</a-button><a-button block @click="openVcnPanel(td.tenant)"><i class="ri-share-line" style="margin-right:6px"></i>虚拟云网络</a-button><a-button block @click="openVolumePanel(td.tenant)"><i class="ri-hard-drive-2-line" style="margin-right:6px"></i>卷组</a-button><a-button block @click="openQuickTask(td.tenant)"><i class="ri-play-circle-line" style="margin-right:6px"></i>快捷开机</a-button></div>
                 </div>
               </template>
             </div>
             <div v-else>
               <div v-for="td in g1.tenants" :key="td.tenant.id" class="group-table-row" :class="{ 'tenant-row-active': td.tenant.id === activeTenantId }">
                 <span style="font-weight:600">{{ td.tenant.username }}</span> <a-tag style="margin-left:8px">{{ td.tenant.ociRegion }}</a-tag>
-                <a-space style="float:right"><a-button type="primary" size="small" @click="selectTenant(td)" :loading="td.loading">实例管理</a-button><a-button size="small" @click="openVcnPanel(td.tenant)">VCN</a-button><a-button size="small" @click="openVolumePanel(td.tenant)">卷组</a-button><a-button size="small" @click="openQuickTask(td.tenant)">开机任务</a-button></a-space>
+                <a-space style="float:right"><a-button type="primary" size="small" @click="selectTenant(td)" :loading="td.loading">实例管理</a-button><a-button size="small" @click="openVcnPanel(td.tenant)">VCN</a-button><a-button size="small" @click="openVolumePanel(td.tenant)">卷组</a-button><a-button size="small" @click="openQuickTask(td.tenant)">快捷开机</a-button></a-space>
               </div>
             </div>
           </template>
@@ -126,7 +126,7 @@
             <i class="ri-hard-drive-2-line" style="margin-right: 6px"></i>卷组
           </a-button>
           <a-button block @click="openQuickTask(td.tenant)">
-            <i class="ri-play-circle-line" style="margin-right: 6px"></i>开机任务
+            <i class="ri-play-circle-line" style="margin-right: 6px"></i>快捷开机
           </a-button>
         </div>
       </div>
@@ -166,7 +166,7 @@
               <a-button type="primary" size="small" @click="selectTenant(record)" :loading="record.loading">实例管理</a-button>
               <a-button size="small" @click="openVcnPanel(record.tenant)">VCN</a-button>
               <a-button size="small" @click="openVolumePanel(record.tenant)">卷组</a-button>
-              <a-button size="small" @click="openQuickTask(record.tenant)">开机任务</a-button>
+              <a-button size="small" @click="openQuickTask(record.tenant)">快捷开机</a-button>
             </a-space>
           </template>
         </a-table-column>
@@ -174,50 +174,45 @@
     </div>
     </template>
 
-    <!-- 实例管理弹窗（避免租户多时挤到页面底部） -->
-    <a-modal
+    <!-- 实例管理抽屉 -->
+    <a-drawer
       v-model:open="instancePanelVisible"
-      :title="null"
-      :footer="null"
       :width="instancePanelWidth"
-      centered
       :mask-closable="false"
-      :closable="false"
-      wrap-class-name="instance-manager-modal"
-      :style="isMobile ? { top: 0, paddingBottom: 0 } : { top: '18px' }"
-      :bodyStyle="{ maxHeight: isMobile ? '100vh' : '76vh', overflowY: 'auto', padding: isMobile ? '10px' : '14px' }"
+      destroy-on-close
+      wrap-class-name="instance-manager-drawer"
+      :body-style="{ padding: isMobile ? '10px' : '16px' }"
     >
-      <div v-if="activeTenantData" class="instance-panel">
-        <div class="instance-panel-header">
-          <div class="panel-title">
-            <i class="ri-server-line" style="margin-right: 8px; color: var(--primary)"></i>
-            <span>{{ activeTenantData.tenant.username }}</span>
-            <a-tag color="blue" style="margin-left: 8px">{{ activeTenantData.tenant.ociRegion }}</a-tag>
-            <a-badge :count="activeTenantData.instances.length" :number-style="{ backgroundColor: 'var(--primary)' }" :show-zero="true" style="margin-left: 8px" />
-          </div>
-          <div class="panel-actions">
-            <div class="region-switch" v-if="regionTenantOptions.length > 1">
-              <span class="region-switch-label">区域</span>
-              <a-select
-                v-model:value="activeTenantId"
-                size="small"
-                style="width: 170px"
-                @change="handleRegionSwitch"
-              >
-                <a-select-option v-for="opt in regionTenantOptions" :key="opt.id" :value="opt.id">
-                  {{ opt.regionLabel }}
-                </a-select-option>
-              </a-select>
-            </div>
-            <a-button size="small" @click="loadTenantInstances(activeTenantData)" :loading="activeTenantData.loading">
-              <template #icon><ReloadOutlined /></template>刷新
-            </a-button>
-            <a-segmented v-model:value="viewMode" size="small" :options="[{ label: '卡片', value: 'card' }, { label: '列表', value: 'table' }]" />
-          </div>
-          <button class="instance-modal-close" type="button" @click="instancePanelVisible = false" aria-label="关闭实例管理">
-            <i class="ri-close-line"></i>
-          </button>
+      <template #title>
+        <div v-if="activeTenantData" class="instance-drawer-title">
+          <i class="ri-server-line" style="margin-right: 8px; color: var(--primary)"></i>
+          <span>{{ activeTenantData.tenant.username }}</span>
+          <a-tag color="blue" style="margin-left: 8px">{{ activeTenantData.tenant.ociRegion }}</a-tag>
+          <a-badge :count="activeTenantData.instances.length" :number-style="{ backgroundColor: 'var(--primary)' }" :show-zero="true" style="margin-left: 8px" />
         </div>
+      </template>
+      <template #extra>
+        <div v-if="activeTenantData" class="panel-actions">
+          <div class="region-switch" v-if="regionTenantOptions.length > 1">
+            <span class="region-switch-label">区域</span>
+            <a-select
+              v-model:value="activeTenantId"
+              size="small"
+              style="width: 170px"
+              @change="handleRegionSwitch"
+            >
+              <a-select-option v-for="opt in regionTenantOptions" :key="opt.id" :value="opt.id">
+                {{ opt.regionLabel }}
+              </a-select-option>
+            </a-select>
+          </div>
+          <a-button size="small" @click="loadTenantInstances(activeTenantData)" :loading="activeTenantData.loading">
+            <template #icon><ReloadOutlined /></template>刷新
+          </a-button>
+          <a-segmented v-model:value="viewMode" size="small" :options="[{ label: '卡片', value: 'card' }, { label: '列表', value: 'table' }]" />
+        </div>
+      </template>
+      <div v-if="activeTenantData" class="instance-panel">
 
         <a-spin :spinning="activeTenantData.loading">
           <a-empty v-if="!activeTenantData.loading && activeTenantData.instances.length === 0" description="暂无实例" />
@@ -296,7 +291,7 @@
           </a-table>
         </a-spin>
       </div>
-    </a-modal>
+    </a-drawer>
 
     <!-- 快捷开机任务弹窗 -->
     <a-modal v-model:open="quickTaskVisible" title="快捷开机任务" :width="isMobile ? '100%' : 600"
@@ -845,9 +840,9 @@
       </div>
     </a-modal>
 
-    <!-- 虚拟云网络弹窗 -->
-    <a-modal v-model:open="vcnVisible" :title="'虚拟云网络 — ' + (vcnTenant?.username || '')"
-      :width="isMobile ? '100%' : 800" :footer="null" :mask-closable="false">
+    <!-- 虚拟云网络抽屉 -->
+    <a-drawer v-model:open="vcnVisible" :title="'虚拟云网络 — ' + (vcnTenant?.username || '')"
+      :width="isMobile ? '100%' : 960" :mask-closable="false" destroy-on-close>
       <a-spin :spinning="vcnListLoading">
         <a-empty v-if="!vcnListLoading && vcnList.length === 0" description="无 VCN 数据" />
         <div v-else>
@@ -895,7 +890,7 @@
           </a-button>
         </div>
       </a-spin>
-    </a-modal>
+    </a-drawer>
 
     <VcnManager
       v-model:open="vcnManagerOpen"
@@ -1116,12 +1111,7 @@ const instancePanelVisible = computed({
 const instanceCount = computed(() => activeTenantData.value?.instances?.length || 0)
 const instancePanelWidth = computed(() => {
   if (isMobile.value) return '100%'
-  if (viewMode.value === 'table') return 1080
-  if (instanceCount.value <= 1) return 460
-  if (instanceCount.value === 2) return 760
-  if (instanceCount.value === 3) return 1080
-  if (instanceCount.value === 4) return 860
-  return 1080
+  return 1120
 })
 const instanceGridClass = computed(() => {
   if (instanceCount.value <= 1) return 'instance-grid-1'
@@ -2110,21 +2100,10 @@ onUnmounted(() => {
   -webkit-backdrop-filter: none;
   box-shadow: none;
 }
-.instance-panel-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 14px;
-  flex-wrap: wrap;
-  gap: 12px;
-  padding: 0 44px 10px 2px;
-  border-bottom: 1px solid var(--border);
-  position: relative;
-}
-.panel-title {
+.instance-drawer-title {
   display: flex;
   align-items: center;
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 700;
   color: var(--text-main);
 }
@@ -2132,6 +2111,7 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   gap: 8px;
+  flex-wrap: wrap;
 }
 .region-switch {
   display: inline-flex;
@@ -2143,36 +2123,6 @@ onUnmounted(() => {
   color: var(--text-sub);
   font-size: 12px;
   white-space: nowrap;
-}
-.instance-modal-close {
-  position: absolute;
-  top: -4px;
-  right: 0;
-  width: 30px;
-  height: 30px;
-  border: 1px solid rgba(129, 140, 248, 0.35);
-  border-radius: 999px;
-  background: rgba(99, 102, 241, 0.14);
-  color: #dbe3ff;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: all 0.2s ease;
-  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.22);
-}
-.instance-modal-close i {
-  font-size: 18px;
-  line-height: 1;
-}
-.instance-modal-close:hover {
-  background: rgba(99, 102, 241, 0.28);
-  border-color: rgba(129, 140, 248, 0.65);
-  color: #ffffff;
-  transform: translateY(-1px) scale(1.03);
-}
-.instance-modal-close:active {
-  transform: scale(0.95);
 }
 .instance-grid {
   display: grid;
@@ -2324,37 +2274,6 @@ onUnmounted(() => {
   .tenant-card { padding: 14px; border-radius: 12px; }
   .tc-icon { font-size: 22px; }
   .tc-name { font-size: 13px; }
-  .instance-panel {
-    position: fixed; inset: 0; z-index: 1000;
-    background: var(--bg-main); border: none; border-radius: 0;
-    padding: 14px; padding-top: 96px; overflow-y: auto;
-  }
-  .instance-panel > .instance-panel-header {
-    position: fixed; top: 0; left: 0; right: 0; z-index: 1001;
-    background: var(--bg-card); border-bottom: 1px solid var(--border);
-    padding: 0 50px 0 0; margin-bottom: 0;
-    flex-direction: column; align-items: stretch;
-  }
-  .instance-panel > .instance-panel-header .panel-title {
-    display: flex; align-items: center;
-    padding: 12px 50px 6px 14px;
-    font-size: 15px; font-weight: 600;
-  }
-  .instance-panel > .instance-panel-header .panel-actions {
-    padding: 0 14px 10px; gap: 6px;
-    flex-wrap: wrap;
-  }
-  .instance-modal-close {
-    position: fixed;
-    top: 10px;
-    right: 10px;
-    width: 36px;
-    height: 36px;
-    border-width: 1px;
-  }
-  .instance-modal-close i {
-    font-size: 22px;
-  }
   .instance-grid,
   .instance-grid.instance-grid-1,
   .instance-grid.instance-grid-2,
@@ -2365,25 +2284,19 @@ onUnmounted(() => {
     gap: 10px;
   }
   .instance-card { padding: 14px; border-radius: 12px; }
+  .panel-actions {
+    gap: 4px;
+  }
+  .panel-actions .region-switch {
+    margin-right: 0;
+  }
 }
 
-.instance-manager-modal :deep(.ant-modal) {
-  max-width: 1080px;
-}
-.instance-manager-modal :deep(.ant-modal-content) {
-  border-radius: 14px;
-  border: 1px solid var(--border);
-  background: rgba(15, 23, 42, 0.72);
-  backdrop-filter: blur(10px) saturate(120%);
-  -webkit-backdrop-filter: blur(10px) saturate(120%);
-  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.35);
-}
-.instance-manager-modal :deep(.ant-modal-mask) {
-  background: rgba(3, 8, 22, 0.45);
-  backdrop-filter: blur(2px);
-  -webkit-backdrop-filter: blur(2px);
-}
-.instance-manager-modal :deep(.ant-modal-body) {
+.instance-manager-drawer :deep(.ant-drawer-body) {
   scrollbar-width: thin;
+  padding-top: 10px;
+}
+.instance-manager-drawer :deep(.ant-drawer-header) {
+  padding: 12px 16px;
 }
 </style>
