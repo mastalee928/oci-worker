@@ -46,8 +46,9 @@
                 </div>
                 <div v-else>
                   <component :is="'div'" v-for="td in g1.tenants" :key="td.tenant.id" class="group-table-row" :class="{ 'tenant-row-active': td.tenant.id === activeTenantId }">
-                    <span style="font-weight:600">{{ td.tenant.username }}</span> <a-tag style="margin-left:8px">{{ td.tenant.ociRegion }}</a-tag>
-                    <a-space style="float:right"><a-button type="primary" size="small" @click="selectTenant(td)" :loading="td.loading">实例管理</a-button><a-button size="small" @click="openVcnPanel(td.tenant)">VCN</a-button><a-button size="small" @click="openVolumePanel(td.tenant)">卷组</a-button><a-button size="small" @click="openQuickTask(td.tenant)">快捷开机</a-button></a-space>
+                    <span class="gtr-name">{{ td.tenant.username }}</span>
+                    <span class="gtr-region"><a-tag>{{ td.tenant.ociRegion }}</a-tag></span>
+                    <a-space class="gtr-actions"><a-button type="primary" size="small" @click="selectTenant(td)" :loading="td.loading">实例管理</a-button><a-button size="small" @click="openVcnPanel(td.tenant)">VCN</a-button><a-button size="small" @click="openVolumePanel(td.tenant)">卷组</a-button><a-button size="small" @click="openQuickTask(td.tenant)">快捷开机</a-button></a-space>
                   </component>
                 </div>
               </component>
@@ -69,8 +70,9 @@
                 </div>
                 <div v-else>
                   <div v-for="td in l2.tenants" :key="td.tenant.id" class="group-table-row" :class="{ 'tenant-row-active': td.tenant.id === activeTenantId }">
-                    <span style="font-weight:600">{{ td.tenant.username }}</span> <a-tag style="margin-left:8px">{{ td.tenant.ociRegion }}</a-tag>
-                    <a-space style="float:right"><a-button type="primary" size="small" @click="selectTenant(td)" :loading="td.loading">实例管理</a-button><a-button size="small" @click="openVcnPanel(td.tenant)">VCN</a-button><a-button size="small" @click="openVolumePanel(td.tenant)">卷组</a-button><a-button size="small" @click="openQuickTask(td.tenant)">快捷开机</a-button></a-space>
+                    <span class="gtr-name">{{ td.tenant.username }}</span>
+                    <span class="gtr-region"><a-tag>{{ td.tenant.ociRegion }}</a-tag></span>
+                    <a-space class="gtr-actions"><a-button type="primary" size="small" @click="selectTenant(td)" :loading="td.loading">实例管理</a-button><a-button size="small" @click="openVcnPanel(td.tenant)">VCN</a-button><a-button size="small" @click="openVolumePanel(td.tenant)">卷组</a-button><a-button size="small" @click="openQuickTask(td.tenant)">快捷开机</a-button></a-space>
                   </div>
                 </div>
               </a-collapse-panel>
@@ -89,8 +91,9 @@
             </div>
             <div v-else>
               <div v-for="td in g1.tenants" :key="td.tenant.id" class="group-table-row" :class="{ 'tenant-row-active': td.tenant.id === activeTenantId }">
-                <span style="font-weight:600">{{ td.tenant.username }}</span> <a-tag style="margin-left:8px">{{ td.tenant.ociRegion }}</a-tag>
-                <a-space style="float:right"><a-button type="primary" size="small" @click="selectTenant(td)" :loading="td.loading">实例管理</a-button><a-button size="small" @click="openVcnPanel(td.tenant)">VCN</a-button><a-button size="small" @click="openVolumePanel(td.tenant)">卷组</a-button><a-button size="small" @click="openQuickTask(td.tenant)">快捷开机</a-button></a-space>
+                <span class="gtr-name">{{ td.tenant.username }}</span>
+                <span class="gtr-region"><a-tag>{{ td.tenant.ociRegion }}</a-tag></span>
+                <a-space class="gtr-actions"><a-button type="primary" size="small" @click="selectTenant(td)" :loading="td.loading">实例管理</a-button><a-button size="small" @click="openVcnPanel(td.tenant)">VCN</a-button><a-button size="small" @click="openVolumePanel(td.tenant)">卷组</a-button><a-button size="small" @click="openQuickTask(td.tenant)">快捷开机</a-button></a-space>
               </div>
             </div>
           </template>
@@ -2084,8 +2087,28 @@ onUnmounted(() => {
 .group-collapse-l2 :deep(.ant-collapse-header) { font-weight: 500; font-size: 13px; padding-left: 12px !important; }
 .group-header-label { vertical-align: middle; }
 .group-section { margin-bottom: 8px; }
-.group-table-row { padding: 8px 12px; border-bottom: 1px solid var(--border); display: flex; align-items: center; justify-content: space-between; }
+.group-table-row {
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 160px auto;
+  column-gap: 12px;
+  align-items: center;
+}
 .group-table-row:last-child { border-bottom: none; }
+.gtr-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.gtr-region {
+  justify-self: start;
+}
+.gtr-actions {
+  justify-self: end;
+}
 .tenant-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
