@@ -1,9 +1,13 @@
 package com.ociworker.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ociworker.exception.OciException;
 import com.ociworker.mapper.OciUserMapper;
 import com.ociworker.model.dto.SysUserDTO;
 import com.ociworker.model.entity.OciUser;
+import com.oracle.bmc.http.signing.DefaultRequestSigner;
+import com.oracle.bmc.http.signing.RequestSigner;
 import com.oracle.bmc.identity.requests.ListDomainsRequest;
 import com.oracle.bmc.identitydomains.IdentityDomainsClient;
 import com.oracle.bmc.identitydomains.model.*;
@@ -12,16 +16,51 @@ import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.net.URI;
+import java.net.URLEncoder;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.*;
 
 @Slf4j
 @Service
 public class DomainManagementService {
 
+    static {
+        // 允许 JDK HttpClient 设置 OCI 签名需要的受限请求头（host/date）
+        String key = "jdk.httpclient.allowRestrictedHeaders";
+        String need = "host,date";
+        String cur = System.getProperty(key);
+        if (cur == null || cur.isBlank()) {
+            System.setProperty(key, need);
+        } else {
+            StringBuilder sb = new StringBuilder(cur);
+            for (String k : need.split(",")) {
+                if (!cur.toLowerCase().contains(k)) sb.append(',').append(k);
+            }
+            System.setProperty(key, sb.toString());
+        }
+    }
+
     private static final String OCI_CONSOLE_POLICY_ID = "OciConsolePolicy";
     private static final String DEFAULT_PASSWORD_POLICY_NAME = "DefaultPasswordPolicy";
     private static final String CONSENT_SCHEMA =
             "urn:ietf:params:scim:schemas:oracle:idcs:extension:ociconsolesignonpolicyconsent:Policy";
+    private static final List<String> LOGIN_EVENT_IDS = List.of(
+            "sso.session.create.success",
+            "sso.session.create.failure",
+            "sso.authentication.failure",
+            "admin.authentication.success",
+            "admin.authentication.failure",
+            "sso.app.access.success",
+            "sso.app.access.failure"
+    );
+    private static final ObjectMapper JSON = new ObjectMapper();
+    private static final HttpClient HTTP = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(10)).build();
     @Resource
     private OciUserMapper userMapper;
 
@@ -69,31 +108,56 @@ public class DomainManagementService {
     }
 
     /**
-     * List all Identity Domains of the tenancy.
-     * Returns list of {id, displayName, type, url, lifecycleState, isHiddenOnLogin}
+     * List all Identity Domains of the tenancy（含分页），按 Default → OracleIdentityCloudService → 其它 排序。
      */
     private List<Map<String, Object>> listDomains(OciClientService client) {
         List<Map<String, Object>> domains = new ArrayList<>();
         try {
             var identityClient = client.getIdentityClient();
             String tenancyId = client.getProvider().getTenantId();
-            var resp = identityClient.listDomains(
-                    ListDomainsRequest.builder().compartmentId(tenancyId).build());
-            for (var d : resp.getItems()) {
-                if (d.getUrl() == null) continue;
-                Map<String, Object> m = new LinkedHashMap<>();
-                m.put("id", d.getId());
-                m.put("displayName", d.getDisplayName());
-                m.put("type", d.getType());
-                m.put("url", d.getUrl());
-                m.put("lifecycleState", d.getLifecycleState() == null ? null : d.getLifecycleState().getValue());
-                m.put("isHiddenOnLogin", d.getIsHiddenOnLogin());
-                domains.add(m);
+            String page = null;
+            do {
+                var req = ListDomainsRequest.builder()
+                        .compartmentId(tenancyId)
+                        .limit(1000);
+                if (page != null) req.page(page);
+                var resp = identityClient.listDomains(req.build());
+                for (var d : resp.getItems()) {
+                    if (d.getUrl() == null) continue;
+                    String state = d.getLifecycleState() == null ? null : d.getLifecycleState().getValue();
+                    // 跳过删除中/已删除的域，但保留 INACTIVE（仍可查阅配置）
+                    if ("DELETING".equalsIgnoreCase(state) || "DELETED".equalsIgnoreCase(state)) continue;
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("id", d.getId());
+                    m.put("displayName", d.getDisplayName());
+                    m.put("type", d.getType());
+                    m.put("url", d.getUrl());
+                    m.put("lifecycleState", state);
+                    m.put("isHiddenOnLogin", d.getIsHiddenOnLogin());
+                    domains.add(m);
+                }
+                page = resp.getOpcNextPage();
+            } while (page != null && !page.isEmpty());
+            // 排序：Default → OracleIdentityCloudService → 其它（按名字）
+            domains.sort((a, b) -> domainRank(a) - domainRank(b) != 0
+                    ? domainRank(a) - domainRank(b)
+                    : String.valueOf(a.get("displayName")).compareToIgnoreCase(String.valueOf(b.get("displayName"))));
+            if (log.isInfoEnabled()) {
+                StringBuilder sb = new StringBuilder();
+                for (var d : domains) sb.append("[").append(d.get("displayName")).append("/").append(d.get("type")).append("] ");
+                log.info("Identity Domains found: {}", sb);
             }
         } catch (Exception e) {
             log.warn("Failed to list domains: {}", e.getMessage());
         }
         return domains;
+    }
+
+    private int domainRank(Map<String, Object> d) {
+        String name = String.valueOf(d.get("displayName"));
+        if ("Default".equals(name)) return 0;
+        if ("OracleIdentityCloudService".equalsIgnoreCase(name)) return 1;
+        return 2;
     }
 
     private IdentityDomainsClient newDomainClient(OciClientService client, String domainUrl) {
@@ -322,21 +386,71 @@ public class DomainManagementService {
         return getAuditLogs(tenantId, 7);
     }
 
+    /**
+     * 通过 OCI 签名直接调用 Identity Domain SCIM REST 接口 /admin/v1/AuditEvents
+     * （Java SDK 未提供对应客户端方法）。按域分开返回。
+     */
     public List<Map<String, Object>> getAuditLogs(String tenantId, int days) {
-        // Identity Domain 的 AuditEvents 接口 Oracle Java SDK 目前未开放，
-        // 仅通过 REST API（/admin/v1/AuditEvents）可访问。这里返回带 notice 的占位数据，
-        // 保留 UI 结构；后续可通过 REST + 签名器实现。
         List<Map<String, Object>> result = new ArrayList<>();
         try (OciClientService client = buildClient(tenantId)) {
             var domains = listDomains(client);
             if (domains.isEmpty()) throw new OciException("未找到 Identity Domain");
+
+            int window = Math.max(1, days);
+            String startIso = java.time.Instant.now().minus(Duration.ofDays(window)).toString();
+            StringBuilder evFilter = new StringBuilder("(");
+            for (int i = 0; i < LOGIN_EVENT_IDS.size(); i++) {
+                if (i > 0) evFilter.append(" or ");
+                evFilter.append("eventId eq \"").append(LOGIN_EVENT_IDS.get(i)).append("\"");
+            }
+            evFilter.append(")");
+            String filter = "timestamp ge \"" + startIso + "\" and " + evFilter;
+            String query = "?filter=" + URLEncoder.encode(filter, StandardCharsets.UTF_8)
+                    + "&count=200&sortBy=timestamp&sortOrder=descending";
+
+            RequestSigner signer = DefaultRequestSigner.createRequestSigner(client.getProvider());
+
             for (var d : domains) {
                 Map<String, Object> entry = new LinkedHashMap<>();
                 entry.put("domainId", d.get("id"));
                 entry.put("displayName", d.get("displayName"));
                 entry.put("type", d.get("type"));
-                entry.put("logs", new ArrayList<>());
-                entry.put("notice", "Oracle Java SDK 暂未开放 Identity Domain 审计日志接口，请前往 OCI 控制台「身份域 → 报告 → 审计日志」查看（查询窗口: 近 " + Math.max(1, days) + " 天）");
+                List<Map<String, Object>> logs = new ArrayList<>();
+                try {
+                    String base = String.valueOf(d.get("url")).replaceAll("/+$", "");
+                    URI uri = URI.create(base + "/admin/v1/AuditEvents" + query);
+                    HttpRequest req = buildSignedGet(signer, uri);
+                    HttpResponse<String> resp = HTTP.send(req, HttpResponse.BodyHandlers.ofString());
+
+                    if (resp.statusCode() < 200 || resp.statusCode() >= 300) {
+                        entry.put("error", "HTTP " + resp.statusCode() + ": " + truncate(resp.body(), 300));
+                    } else {
+                        JsonNode root = JSON.readTree(resp.body());
+                        JsonNode resources = root.path("Resources");
+                        if (resources.isArray()) {
+                            for (JsonNode ev : resources) {
+                                Map<String, Object> row = new LinkedHashMap<>();
+                                row.put("eventTime", textOrNull(ev, "timestamp"));
+                                row.put("eventId", textOrNull(ev, "eventId"));
+                                row.put("actorName", textOrNull(ev, "actorName"));
+                                row.put("actorType", textOrNull(ev, "actorType"));
+                                row.put("actorDisplayName", textOrNull(ev, "actorDisplayName"));
+                                row.put("ssoIdentityProvider", textOrNull(ev, "ssoIdentityProvider"));
+                                row.put("ssoApplicationType", textOrNull(ev, "ssoApplicationType"));
+                                row.put("ssoUserAgent", textOrNull(ev, "ssoUserAgent"));
+                                row.put("ssoProtectedResource", textOrNull(ev, "ssoProtectedResource"));
+                                row.put("clientIp", textOrNull(ev, "clientIp"));
+                                row.put("ssoAuthFactor", textOrNull(ev, "ssoAuthFactor"));
+                                row.put("message", textOrNull(ev, "message"));
+                                logs.add(row);
+                            }
+                        }
+                    }
+                } catch (Exception e) {
+                    log.warn("audit log fetch failed for domain {}: {}", d.get("displayName"), e.toString());
+                    entry.put("error", e.getMessage() == null ? e.toString() : e.getMessage());
+                }
+                entry.put("logs", logs);
                 result.add(entry);
             }
         } catch (OciException e) {
@@ -345,6 +459,42 @@ public class DomainManagementService {
             throw new OciException("获取登录日志失败: " + (e.getMessage() == null ? "未知错误" : e.getMessage()));
         }
         return result;
+    }
+
+    private HttpRequest buildSignedGet(RequestSigner signer, URI uri) {
+        Map<String, List<String>> signingHeaders = new HashMap<>();
+        signingHeaders.put("accept", List.of("application/scim+json"));
+        Map<String, String> signed = signer.signRequest(uri, "GET", signingHeaders, null);
+
+        HttpRequest.Builder rb = HttpRequest.newBuilder(uri)
+                .GET()
+                .timeout(Duration.ofSeconds(30))
+                .header("accept", "application/scim+json");
+        for (var h : signed.entrySet()) {
+            String k = h.getKey();
+            if (k == null) continue;
+            String lk = k.toLowerCase(Locale.ROOT);
+            // 跳过伪头部及 HttpClient 会自动填充的 host；accept 已添加
+            if (lk.startsWith("(") || lk.equals("host") || lk.equals("accept")) continue;
+            try {
+                rb.header(k, h.getValue());
+            } catch (IllegalArgumentException ignore) {
+                // HttpClient 拒绝某些受限头，静态初始化已放开 host/date，剩余的忽略即可
+            }
+        }
+        return rb.build();
+    }
+
+    private String textOrNull(JsonNode n, String field) {
+        JsonNode v = n.path(field);
+        if (v.isMissingNode() || v.isNull()) return null;
+        String s = v.asText(null);
+        return (s == null || s.isEmpty()) ? null : s;
+    }
+
+    private String truncate(String s, int n) {
+        if (s == null) return null;
+        return s.length() <= n ? s : s.substring(0, n) + "...";
     }
 
     // ---------------- Authentication Factor Settings ----------------

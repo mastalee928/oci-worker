@@ -648,7 +648,7 @@ region=ap-tokyo-1"
               <a-select-option :value="30">最近 30 天</a-select-option>
             </a-select>
             <span style="font-size: 12px; color: var(--text-sub)">
-              来源：身份域 → 报告 → 审计日志（IdentityDomains.listAuditEvents）
+              来源：身份域 → 报告 → 审计日志（SCIM /admin/v1/AuditEvents）
             </span>
           </a-space>
           <a-spin :spinning="auditLogsLoading">
