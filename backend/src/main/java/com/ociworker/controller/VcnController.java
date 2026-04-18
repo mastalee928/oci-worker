@@ -135,6 +135,13 @@ public class VcnController {
         return ResponseData.ok();
     }
 
+    @PostMapping("/igw/setupDefaultRoutes")
+    public ResponseData<?> setupIgwDefaultRoutes(@RequestBody Map<String, Object> params) {
+        vcnService.setupIgwDefaultRoutes(str(params, "id"), str(params, "vcnId"),
+                str(params, "igwId"), bool(params, "addIpv6", true));
+        return ResponseData.ok();
+    }
+
     // ---------- NAT Gateway ----------
 
     @PostMapping("/nat/list")
@@ -241,6 +248,25 @@ public class VcnController {
     @PostMapping("/sl/detail")
     public ResponseData<?> slDetail(@RequestBody Map<String, Object> params) {
         return ResponseData.ok(vcnService.getSecurityList(str(params, "id"), str(params, "slId")));
+    }
+
+    @PostMapping("/sl/addRule")
+    public ResponseData<?> slAddRule(@RequestBody Map<String, Object> params) {
+        vcnService.addSecurityListRule(
+                str(params, "id"), str(params, "slId"), str(params, "direction"),
+                str(params, "protocol"), str(params, "source"),
+                str(params, "portMin"), str(params, "portMax"), str(params, "description"));
+        return ResponseData.ok();
+    }
+
+    @PostMapping("/sl/deleteRule")
+    public ResponseData<?> slDeleteRule(@RequestBody Map<String, Object> params) {
+        Object idx = params.get("ruleIndex");
+        int i;
+        try { i = Integer.parseInt(String.valueOf(idx)); }
+        catch (Exception e) { throw new com.ociworker.exception.OciException("ruleIndex 非法"); }
+        vcnService.deleteSecurityListRule(str(params, "id"), str(params, "slId"), str(params, "direction"), i);
+        return ResponseData.ok();
     }
 
     // ---------- DRG ----------

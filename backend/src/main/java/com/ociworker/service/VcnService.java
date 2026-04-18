@@ -473,7 +473,18 @@ public class VcnService {
                 Map<String, Object> m = new LinkedHashMap<>();
                 m.put("id", rt.getId());
                 m.put("displayName", rt.getDisplayName());
-                m.put("routeRules", rt.getRouteRules());
+                List<Map<String, Object>> rules = new ArrayList<>();
+                if (rt.getRouteRules() != null) {
+                    for (RouteRule r : rt.getRouteRules()) {
+                        Map<String, Object> rr = new LinkedHashMap<>();
+                        rr.put("destination", r.getDestination());
+                        rr.put("destinationType", r.getDestinationType() != null ? r.getDestinationType().getValue() : null);
+                        rr.put("networkEntityId", r.getNetworkEntityId());
+                        rr.put("description", r.getDescription());
+                        rules.add(rr);
+                    }
+                }
+                m.put("routeRules", rules);
                 m.put("lifecycleState", rt.getLifecycleState() != null ? rt.getLifecycleState().getValue() : null);
                 m.put("timeCreated", rt.getTimeCreated() != null ? rt.getTimeCreated().toString() : null);
                 list.add(m);
@@ -595,12 +606,164 @@ public class VcnService {
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("id", sl.getId());
             m.put("displayName", sl.getDisplayName());
-            m.put("ingressSecurityRules", sl.getIngressSecurityRules());
-            m.put("egressSecurityRules", sl.getEgressSecurityRules());
             m.put("lifecycleState", sl.getLifecycleState() != null ? sl.getLifecycleState().getValue() : null);
+
+            List<Map<String, Object>> ingress = new ArrayList<>();
+            int idx = 0;
+            if (sl.getIngressSecurityRules() != null) {
+                for (IngressSecurityRule r : sl.getIngressSecurityRules()) {
+                    Map<String, Object> map = new LinkedHashMap<>();
+                    map.put("index", idx++);
+                    map.put("direction", "ingress");
+                    map.put("protocol", r.getProtocol());
+                    map.put("source", r.getSource());
+                    map.put("sourceType", r.getSourceType() != null ? r.getSourceType().getValue() : null);
+                    map.put("isStateless", r.getIsStateless());
+                    map.put("description", r.getDescription());
+                    map.put("portRange", portRangeLabel(r.getTcpOptions(), r.getUdpOptions()));
+                    ingress.add(map);
+                }
+            }
+            List<Map<String, Object>> egress = new ArrayList<>();
+            idx = 0;
+            if (sl.getEgressSecurityRules() != null) {
+                for (EgressSecurityRule r : sl.getEgressSecurityRules()) {
+                    Map<String, Object> map = new LinkedHashMap<>();
+                    map.put("index", idx++);
+                    map.put("direction", "egress");
+                    map.put("protocol", r.getProtocol());
+                    map.put("destination", r.getDestination());
+                    map.put("destinationType", r.getDestinationType() != null ? r.getDestinationType().getValue() : null);
+                    map.put("isStateless", r.getIsStateless());
+                    map.put("description", r.getDescription());
+                    map.put("portRange", portRangeLabel(r.getTcpOptions(), r.getUdpOptions()));
+                    egress.add(map);
+                }
+            }
+            m.put("ingressSecurityRules", ingress);
+            m.put("egressSecurityRules", egress);
             return m;
         } catch (OciException e) { throw e; }
         catch (Exception e) { throw new OciException("查询安全列表失败: " + e.getMessage()); }
+    }
+
+    private String portRangeLabel(TcpOptions tcp, UdpOptions udp) {
+        if (tcp != null && tcp.getDestinationPortRange() != null) {
+            return tcp.getDestinationPortRange().getMin() + "-" + tcp.getDestinationPortRange().getMax();
+        }
+        if (udp != null && udp.getDestinationPortRange() != null) {
+            return udp.getDestinationPortRange().getMin() + "-" + udp.getDestinationPortRange().getMax();
+        }
+        return "all";
+    }
+
+    public void addSecurityListRule(String userId, String slId, String direction, String protocol,
+                                    String source, String portMin, String portMax, String description) {
+        OciUser ociUser = userMapper.selectById(userId);
+        if (ociUser == null) throw new OciException("租户配置不存在");
+        SysUserDTO dto = buildBasicDTO(ociUser);
+        if (description != null && description.isBlank()) description = null;
+        boolean ingress = !"egress".equalsIgnoreCase(direction);
+        try (OciClientService client = new OciClientService(dto)) {
+            SecurityList sl = client.getVirtualNetworkClient().getSecurityList(
+                    GetSecurityListRequest.builder().securityListId(slId).build()).getSecurityList();
+
+            List<IngressSecurityRule> ingressRules = new ArrayList<>(sl.getIngressSecurityRules());
+            List<EgressSecurityRule> egressRules = new ArrayList<>(sl.getEgressSecurityRules());
+
+            TcpOptions tcpOpt = null;
+            UdpOptions udpOpt = null;
+            if (("6".equals(protocol) || "17".equals(protocol)) && portMin != null && !portMin.isBlank()) {
+                int min = Integer.parseInt(portMin);
+                int max = portMax == null || portMax.isBlank() ? min : Integer.parseInt(portMax);
+                PortRange pr = PortRange.builder().min(min).max(max).build();
+                if ("6".equals(protocol)) tcpOpt = TcpOptions.builder().destinationPortRange(pr).build();
+                else udpOpt = UdpOptions.builder().destinationPortRange(pr).build();
+            }
+            String src = source == null || source.isBlank() ? "0.0.0.0/0" : source;
+            boolean isIpv6 = src.contains(":");
+            if (ingress) {
+                IngressSecurityRule.Builder b = IngressSecurityRule.builder()
+                        .source(src).protocol(protocol == null || protocol.isBlank() ? "all" : protocol)
+                        .description(description);
+                if (isIpv6) b.sourceType(IngressSecurityRule.SourceType.CidrBlock);
+                if (tcpOpt != null) b.tcpOptions(tcpOpt);
+                if (udpOpt != null) b.udpOptions(udpOpt);
+                ingressRules.add(b.build());
+            } else {
+                EgressSecurityRule.Builder b = EgressSecurityRule.builder()
+                        .destination(src).protocol(protocol == null || protocol.isBlank() ? "all" : protocol)
+                        .description(description);
+                if (isIpv6) b.destinationType(EgressSecurityRule.DestinationType.CidrBlock);
+                if (tcpOpt != null) b.tcpOptions(tcpOpt);
+                if (udpOpt != null) b.udpOptions(udpOpt);
+                egressRules.add(b.build());
+            }
+            client.getVirtualNetworkClient().updateSecurityList(
+                    UpdateSecurityListRequest.builder().securityListId(slId)
+                            .updateSecurityListDetails(UpdateSecurityListDetails.builder()
+                                    .ingressSecurityRules(ingressRules)
+                                    .egressSecurityRules(egressRules).build()).build());
+        } catch (OciException e) { throw e; }
+        catch (Exception e) { throw new OciException("添加安全规则失败: " + e.getMessage()); }
+    }
+
+    public void deleteSecurityListRule(String userId, String slId, String direction, int ruleIndex) {
+        OciUser ociUser = userMapper.selectById(userId);
+        if (ociUser == null) throw new OciException("租户配置不存在");
+        SysUserDTO dto = buildBasicDTO(ociUser);
+        boolean ingress = !"egress".equalsIgnoreCase(direction);
+        try (OciClientService client = new OciClientService(dto)) {
+            SecurityList sl = client.getVirtualNetworkClient().getSecurityList(
+                    GetSecurityListRequest.builder().securityListId(slId).build()).getSecurityList();
+            List<IngressSecurityRule> ingressRules = new ArrayList<>(sl.getIngressSecurityRules());
+            List<EgressSecurityRule> egressRules = new ArrayList<>(sl.getEgressSecurityRules());
+            if (ingress) {
+                if (ruleIndex < 0 || ruleIndex >= ingressRules.size()) throw new OciException("入站规则索引越界");
+                ingressRules.remove(ruleIndex);
+            } else {
+                if (ruleIndex < 0 || ruleIndex >= egressRules.size()) throw new OciException("出站规则索引越界");
+                egressRules.remove(ruleIndex);
+            }
+            client.getVirtualNetworkClient().updateSecurityList(
+                    UpdateSecurityListRequest.builder().securityListId(slId)
+                            .updateSecurityListDetails(UpdateSecurityListDetails.builder()
+                                    .ingressSecurityRules(ingressRules)
+                                    .egressSecurityRules(egressRules).build()).build());
+        } catch (OciException e) { throw e; }
+        catch (Exception e) { throw new OciException("删除安全规则失败: " + e.getMessage()); }
+    }
+
+    /** 在 VCN 的默认路由表中加入 0.0.0.0/0 与 ::/0 两条规则指向该 IGW（已存在则跳过） */
+    public void setupIgwDefaultRoutes(String userId, String vcnId, String igwId, boolean addIpv6) {
+        OciUser ociUser = userMapper.selectById(userId);
+        if (ociUser == null) throw new OciException("租户配置不存在");
+        SysUserDTO dto = buildBasicDTO(ociUser);
+        try (OciClientService client = new OciClientService(dto)) {
+            Vcn vcn = client.getVirtualNetworkClient().getVcn(GetVcnRequest.builder().vcnId(vcnId).build()).getVcn();
+            String defaultRtId = vcn.getDefaultRouteTableId();
+            if (defaultRtId == null) throw new OciException("未找到 VCN 的默认路由表");
+            RouteTable rt = client.getVirtualNetworkClient().getRouteTable(
+                    GetRouteTableRequest.builder().rtId(defaultRtId).build()).getRouteTable();
+            List<RouteRule> rules = rt.getRouteRules() == null ? new ArrayList<>() : new ArrayList<>(rt.getRouteRules());
+            boolean hasIpv4 = rules.stream().anyMatch(r -> "0.0.0.0/0".equals(r.getDestination()) && igwId.equals(r.getNetworkEntityId()));
+            boolean hasIpv6 = rules.stream().anyMatch(r -> "::/0".equals(r.getDestination()) && igwId.equals(r.getNetworkEntityId()));
+            if (!hasIpv4) {
+                rules.add(RouteRule.builder().destination("0.0.0.0/0")
+                        .destinationType(RouteRule.DestinationType.CidrBlock)
+                        .networkEntityId(igwId).description("Default IPv4 route via IGW").build());
+            }
+            if (addIpv6 && !hasIpv6) {
+                rules.add(RouteRule.builder().destination("::/0")
+                        .destinationType(RouteRule.DestinationType.CidrBlock)
+                        .networkEntityId(igwId).description("Default IPv6 route via IGW").build());
+            }
+            client.getVirtualNetworkClient().updateRouteTable(
+                    UpdateRouteTableRequest.builder().rtId(defaultRtId)
+                            .updateRouteTableDetails(UpdateRouteTableDetails.builder()
+                                    .routeRules(rules).build()).build());
+        } catch (OciException e) { throw e; }
+        catch (Exception e) { throw new OciException("配置 IGW 默认路由失败: " + e.getMessage()); }
     }
 
     // ---------------- Security List ----------------

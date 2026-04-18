@@ -7,7 +7,12 @@
     destroy-on-close
   >
     <a-descriptions :column="2" size="small" bordered style="margin-bottom: 16px">
-      <a-descriptions-item label="VCN 名称">{{ vcn?.displayName }}</a-descriptions-item>
+      <a-descriptions-item label="VCN 名称">
+        <span>{{ vcn?.displayName }}</span>
+        <a-button type="link" size="small" @click="openRename('vcn', vcn)" title="改名">
+          <i class="ri-edit-line"></i>
+        </a-button>
+      </a-descriptions-item>
       <a-descriptions-item label="CIDR">{{ (vcn?.cidrBlocks || [vcn?.cidrBlock]).filter(Boolean).join(', ') }}</a-descriptions-item>
       <a-descriptions-item label="DNS Label">{{ vcn?.dnsLabel || '-' }}</a-descriptions-item>
       <a-descriptions-item label="状态">
@@ -29,7 +34,13 @@
         </div>
         <a-table size="small" :loading="loading.subnet" :data-source="data.subnet" :columns="cols.subnet" :pagination="false" row-key="id">
           <template #bodyCell="{ column, record }">
-            <template v-if="column.key === 'action'">
+            <template v-if="column.key === 'displayName'">
+              <span>{{ record.displayName }}</span>
+              <a-button type="link" size="small" @click="openRename('subnet', record)" title="改名">
+                <i class="ri-edit-line"></i>
+              </a-button>
+            </template>
+            <template v-else-if="column.key === 'action'">
               <a-space>
                 <a-button size="small" @click="openEditSubnet(record)">编辑</a-button>
                 <a-button size="small" danger @click="askDelete('subnet', record)">删除</a-button>
@@ -46,12 +57,18 @@
         </div>
         <a-table size="small" :loading="loading.igw" :data-source="data.igw" :columns="cols.igw" :pagination="false" row-key="id">
           <template #bodyCell="{ column, record }">
-            <template v-if="column.key === 'action'">
+            <template v-if="column.key === 'displayName'">
+              <span>{{ record.displayName }}</span>
+              <a-button type="link" size="small" @click="openRename('igw', record)" title="改名">
+                <i class="ri-edit-line"></i>
+              </a-button>
+            </template>
+            <template v-else-if="column.key === 'action'">
               <a-space>
+                <a-button size="small" type="primary" @click="openEditIgw(record)">编辑</a-button>
                 <a-button size="small" @click="toggleIgw(record)" :loading="togglingId === record.id">
                   {{ record.isEnabled ? '禁用' : '启用' }}
                 </a-button>
-                <a-button size="small" @click="openRename('igw', record)">改名</a-button>
                 <a-button size="small" danger @click="askDelete('igw', record)">删除</a-button>
               </a-space>
             </template>
@@ -66,12 +83,17 @@
         </div>
         <a-table size="small" :loading="loading.nat" :data-source="data.nat" :columns="cols.nat" :pagination="false" row-key="id">
           <template #bodyCell="{ column, record }">
-            <template v-if="column.key === 'action'">
+            <template v-if="column.key === 'displayName'">
+              <span>{{ record.displayName }}</span>
+              <a-button type="link" size="small" @click="openRename('nat', record)" title="改名">
+                <i class="ri-edit-line"></i>
+              </a-button>
+            </template>
+            <template v-else-if="column.key === 'action'">
               <a-space>
                 <a-button size="small" @click="toggleNat(record)" :loading="togglingId === record.id">
                   {{ record.blockTraffic ? '放行流量' : '阻断流量' }}
                 </a-button>
-                <a-button size="small" @click="openRename('nat', record)">改名</a-button>
                 <a-button size="small" danger @click="askDelete('nat', record)">删除</a-button>
               </a-space>
             </template>
@@ -86,12 +108,17 @@
         </div>
         <a-table size="small" :loading="loading.sg" :data-source="data.sg" :columns="cols.sg" :pagination="false" row-key="id">
           <template #bodyCell="{ column, record }">
-            <template v-if="column.key === 'action'">
+            <template v-if="column.key === 'displayName'">
+              <span>{{ record.displayName }}</span>
+              <a-button type="link" size="small" @click="openRename('sg', record)" title="改名">
+                <i class="ri-edit-line"></i>
+              </a-button>
+            </template>
+            <template v-else-if="column.key === 'action'">
               <a-space>
                 <a-button size="small" @click="toggleSg(record)" :loading="togglingId === record.id">
                   {{ record.blockTraffic ? '放行流量' : '阻断流量' }}
                 </a-button>
-                <a-button size="small" @click="openRename('sg', record)">改名</a-button>
                 <a-button size="small" danger @click="askDelete('sg', record)">删除</a-button>
               </a-space>
             </template>
@@ -106,10 +133,15 @@
         </div>
         <a-table size="small" :loading="loading.lpg" :data-source="data.lpg" :columns="cols.lpg" :pagination="false" row-key="id">
           <template #bodyCell="{ column, record }">
-            <template v-if="column.key === 'action'">
+            <template v-if="column.key === 'displayName'">
+              <span>{{ record.displayName }}</span>
+              <a-button type="link" size="small" @click="openRename('lpg', record)" title="改名">
+                <i class="ri-edit-line"></i>
+              </a-button>
+            </template>
+            <template v-else-if="column.key === 'action'">
               <a-space>
                 <a-button size="small" @click="openConnectLpg(record)">连接对端</a-button>
-                <a-button size="small" @click="openRename('lpg', record)">改名</a-button>
                 <a-button size="small" danger @click="askDelete('lpg', record)">删除</a-button>
               </a-space>
             </template>
@@ -123,9 +155,12 @@
         </div>
         <a-table size="small" :loading="loading.rt" :data-source="data.rt" :columns="cols.rt" :pagination="false" row-key="id">
           <template #bodyCell="{ column, record }">
-            <template v-if="column.key === 'action'">
+            <template v-if="column.key === 'displayName'">
+              {{ record.displayName }}
+            </template>
+            <template v-else-if="column.key === 'action'">
               <a-space>
-                <a-button size="small" @click="openEditRt(record)">编辑规则</a-button>
+                <a-button size="small" type="primary" @click="openEditRt(record)">编辑规则</a-button>
                 <a-button size="small" danger @click="askDelete('rt', record)">删除</a-button>
               </a-space>
             </template>
@@ -139,9 +174,12 @@
         </div>
         <a-table size="small" :loading="loading.sl" :data-source="data.sl" :columns="cols.sl" :pagination="false" row-key="id">
           <template #bodyCell="{ column, record }">
-            <template v-if="column.key === 'action'">
+            <template v-if="column.key === 'displayName'">
+              {{ record.displayName }}
+            </template>
+            <template v-else-if="column.key === 'action'">
               <a-space>
-                <a-button size="small" @click="openViewSl(record)">查看规则</a-button>
+                <a-button size="small" type="primary" @click="openEditSl(record)">编辑规则</a-button>
                 <a-button size="small" danger @click="askDelete('sl', record)">删除</a-button>
               </a-space>
             </template>
@@ -263,15 +301,95 @@
       </a-spin>
     </a-modal>
 
-    <!-- View security list rules -->
-    <a-modal v-model:open="showViewSl" :title="'安全列表规则 — ' + (slDetail?.displayName || '')" :footer="null" width="900px">
+    <!-- Edit security list rules -->
+    <a-modal v-model:open="showEditSl" :title="'安全规则 — ' + (slDetail?.displayName || '')" :footer="null" width="1000px" :mask-closable="false">
       <a-spin :spinning="slDetailLoading">
-        <a-alert type="info" message="如需添加/删除规则，请到「实例管理」里对应实例的「网络」Tab 使用「安全规则」操作" show-icon style="margin-bottom: 12px" />
+        <div style="margin-bottom: 12px; display: flex; gap: 8px; flex-wrap: wrap">
+          <a-button type="primary" size="small" @click="openAddSlRule('ingress')">添加入站规则</a-button>
+          <a-button type="primary" size="small" @click="openAddSlRule('egress')">添加出站规则</a-button>
+          <a-button size="small" @click="reloadSl">刷新</a-button>
+        </div>
         <a-divider orientation="left" plain>入站规则 ({{ (slDetail?.ingressSecurityRules || []).length }})</a-divider>
-        <a-table size="small" :data-source="slDetail?.ingressSecurityRules || []" :columns="slCols" :pagination="false" row-key="source" />
+        <a-table size="small" :data-source="slDetail?.ingressSecurityRules || []" :columns="slIngressCols" :pagination="false" row-key="index">
+          <template #bodyCell="{ column, record }">
+            <template v-if="column.key === 'protocol'">{{ protocolLabel(record.protocol) }}</template>
+            <template v-else-if="column.key === 'isStateless'">{{ record.isStateless ? '无状态' : '有状态' }}</template>
+            <template v-else-if="column.key === 'ruleAction'">
+              <a-popconfirm title="确定删除？" @confirm="doDeleteSlRule('ingress', record.index)">
+                <a-button size="small" danger type="link">删除</a-button>
+              </a-popconfirm>
+            </template>
+          </template>
+        </a-table>
         <a-divider orientation="left" plain>出站规则 ({{ (slDetail?.egressSecurityRules || []).length }})</a-divider>
-        <a-table size="small" :data-source="slDetail?.egressSecurityRules || []" :columns="slEgressCols" :pagination="false" row-key="destination" />
+        <a-table size="small" :data-source="slDetail?.egressSecurityRules || []" :columns="slEgressCols" :pagination="false" row-key="index">
+          <template #bodyCell="{ column, record }">
+            <template v-if="column.key === 'protocol'">{{ protocolLabel(record.protocol) }}</template>
+            <template v-else-if="column.key === 'isStateless'">{{ record.isStateless ? '无状态' : '有状态' }}</template>
+            <template v-else-if="column.key === 'ruleAction'">
+              <a-popconfirm title="确定删除？" @confirm="doDeleteSlRule('egress', record.index)">
+                <a-button size="small" danger type="link">删除</a-button>
+              </a-popconfirm>
+            </template>
+          </template>
+        </a-table>
       </a-spin>
+    </a-modal>
+
+    <!-- Add security list rule -->
+    <a-modal v-model:open="showAddSlRule" :title="(addSlForm.direction === 'ingress' ? '添加入站规则' : '添加出站规则')"
+      @ok="doAddSlRule" :confirm-loading="editing">
+      <a-form layout="vertical">
+        <a-form-item label="协议" required>
+          <a-select v-model:value="addSlForm.protocol">
+            <a-select-option value="all">全部</a-select-option>
+            <a-select-option value="6">TCP (6)</a-select-option>
+            <a-select-option value="17">UDP (17)</a-select-option>
+            <a-select-option value="1">ICMP (1)</a-select-option>
+            <a-select-option value="58">ICMPv6 (58)</a-select-option>
+          </a-select>
+        </a-form-item>
+        <a-form-item :label="addSlForm.direction === 'ingress' ? '来源 CIDR' : '目的 CIDR'" required>
+          <a-input v-model:value="addSlForm.source" placeholder="0.0.0.0/0 或 ::/0" />
+        </a-form-item>
+        <a-row :gutter="12" v-if="addSlForm.protocol === '6' || addSlForm.protocol === '17'">
+          <a-col :span="12">
+            <a-form-item label="端口起 (可空=全部)">
+              <a-input v-model:value="addSlForm.portMin" placeholder="如 22" />
+            </a-form-item>
+          </a-col>
+          <a-col :span="12">
+            <a-form-item label="端口止 (空=等于起)">
+              <a-input v-model:value="addSlForm.portMax" placeholder="如 80" />
+            </a-form-item>
+          </a-col>
+        </a-row>
+        <a-form-item label="描述">
+          <a-input v-model:value="addSlForm.description" />
+        </a-form-item>
+      </a-form>
+    </a-modal>
+
+    <!-- Edit IGW: setup default routes -->
+    <a-modal v-model:open="showEditIgw" :title="'编辑 IGW — ' + (editIgwTarget?.displayName || '')" @ok="doSetupIgwRoutes"
+      :confirm-loading="editing" ok-text="应用到默认路由表">
+      <a-alert type="info" show-icon style="margin-bottom: 12px"
+        message="将在该 VCN 的默认路由表中添加指向此 IGW 的默认路由；已存在的规则会自动跳过" />
+      <a-form layout="vertical">
+        <a-form-item label="目标网关 (Internet Gateway)">
+          <a-input :value="editIgwTarget?.displayName" disabled />
+        </a-form-item>
+        <a-form-item>
+          <a-checkbox v-model:checked="igwRouteIpv4" disabled>
+            0.0.0.0/0 → 该 IGW （IPv4 默认路由）
+          </a-checkbox>
+        </a-form-item>
+        <a-form-item>
+          <a-checkbox v-model:checked="igwRouteIpv6">
+            ::/0 → 该 IGW （IPv6 默认路由）
+          </a-checkbox>
+        </a-form-item>
+      </a-form>
     </a-modal>
 
     <!-- Delete verify -->
@@ -305,13 +423,13 @@ import { ref, reactive, watch } from 'vue'
 import { message, Modal } from 'ant-design-vue'
 import {
   listSubnets, createSubnet, deleteSubnet, updateSubnet,
-  listInternetGateways, createInternetGateway, deleteInternetGateway, updateInternetGateway,
+  listInternetGateways, createInternetGateway, deleteInternetGateway, updateInternetGateway, setupIgwDefaultRoutes,
   listNatGateways, createNatGateway, deleteNatGateway, updateNatGateway,
   listServiceGateways, createServiceGateway, deleteServiceGateway, updateServiceGateway,
   listRouteTables, deleteRouteTable, getRouteTable, updateRouteTable,
-  listSecurityLists, deleteSecurityList, getSecurityList,
+  listSecurityLists, deleteSecurityList, getSecurityList, addSecurityListRule, deleteSecurityListRule,
   listLocalPeeringGateways, createLocalPeeringGateway, connectLocalPeeringGateway, deleteLocalPeeringGateway, updateLocalPeeringGateway,
-  previewVcnDelete, deleteVcn, listVcnGateways,
+  previewVcnDelete, deleteVcn, listVcnGateways, updateVcn,
 } from '../api/vcn'
 import { sendVerifyCode } from '../api/system'
 
@@ -324,53 +442,53 @@ const data = reactive<Record<string, any[]>>({ subnet: [], igw: [], nat: [], sg:
 
 const cols = {
   subnet: [
-    { title: '名称', dataIndex: 'displayName', key: 'displayName', ellipsis: true },
+    { title: '名称', key: 'displayName', ellipsis: true },
     { title: 'CIDR', dataIndex: 'cidrBlock', key: 'cidrBlock', width: 140 },
     { title: '可用域', dataIndex: 'availabilityDomain', key: 'availabilityDomain', ellipsis: true },
     { title: '禁公网', dataIndex: 'prohibitPublicIpOnVnic', key: 'ppip', width: 80,
       customRender: ({ text }: any) => text ? '是' : '否' },
     { title: '状态', dataIndex: 'lifecycleState', key: 'lifecycleState', width: 100 },
-    { title: '操作', key: 'action', width: 90 },
+    { title: '操作', key: 'action', width: 150 },
   ],
   igw: [
-    { title: '名称', dataIndex: 'displayName', key: 'displayName' },
+    { title: '名称', key: 'displayName' },
     { title: '启用', dataIndex: 'isEnabled', key: 'isEnabled', width: 80,
       customRender: ({ text }: any) => text ? '是' : '否' },
     { title: '状态', dataIndex: 'lifecycleState', key: 'lifecycleState', width: 100 },
-    { title: '操作', key: 'action', width: 90 },
+    { title: '操作', key: 'action', width: 220 },
   ],
   nat: [
-    { title: '名称', dataIndex: 'displayName', key: 'displayName' },
+    { title: '名称', key: 'displayName' },
     { title: 'NAT IP', dataIndex: 'natIp', key: 'natIp', width: 140 },
     { title: '阻断流量', dataIndex: 'blockTraffic', key: 'blockTraffic', width: 90,
       customRender: ({ text }: any) => text ? '是' : '否' },
     { title: '状态', dataIndex: 'lifecycleState', key: 'lifecycleState', width: 100 },
-    { title: '操作', key: 'action', width: 90 },
+    { title: '操作', key: 'action', width: 180 },
   ],
   sg: [
-    { title: '名称', dataIndex: 'displayName', key: 'displayName' },
+    { title: '名称', key: 'displayName' },
     { title: '状态', dataIndex: 'lifecycleState', key: 'lifecycleState', width: 100 },
-    { title: '操作', key: 'action', width: 90 },
+    { title: '操作', key: 'action', width: 180 },
   ],
   lpg: [
-    { title: '名称', dataIndex: 'displayName', key: 'displayName' },
+    { title: '名称', key: 'displayName' },
     { title: '对等状态', dataIndex: 'peeringStatus', key: 'peeringStatus', width: 110 },
     { title: '对端 CIDR', dataIndex: 'peerAdvertisedCidr', key: 'peerAdvertisedCidr', width: 140 },
     { title: '操作', key: 'action', width: 170 },
   ],
   rt: [
-    { title: '名称', dataIndex: 'displayName', key: 'displayName' },
+    { title: '名称', key: 'displayName' },
     { title: '路由规则数', key: 'rules', width: 100,
       customRender: ({ record }: any) => (record.routeRules || []).length },
     { title: '状态', dataIndex: 'lifecycleState', key: 'lifecycleState', width: 100 },
-    { title: '操作', key: 'action', width: 90 },
+    { title: '操作', key: 'action', width: 150 },
   ],
   sl: [
-    { title: '名称', dataIndex: 'displayName', key: 'displayName' },
+    { title: '名称', key: 'displayName' },
     { title: '入站规则', dataIndex: 'ingressRulesCount', key: 'ingressRulesCount', width: 90 },
     { title: '出站规则', dataIndex: 'egressRulesCount', key: 'egressRulesCount', width: 90 },
     { title: '状态', dataIndex: 'lifecycleState', key: 'lifecycleState', width: 100 },
-    { title: '操作', key: 'action', width: 90 },
+    { title: '操作', key: 'action', width: 170 },
   ],
 }
 
@@ -588,8 +706,8 @@ const renameLabel = ref('')
 function openRename(type: string, row: any) {
   renameType.value = type
   renameTarget.value = row
-  renameValue.value = row.displayName || ''
-  renameLabel.value = ({ igw: 'IGW', nat: 'NAT', sg: 'SG', lpg: 'LPG' } as any)[type] || type
+  renameValue.value = row?.displayName || ''
+  renameLabel.value = ({ vcn: 'VCN', subnet: '子网', igw: 'IGW', nat: 'NAT', sg: 'SG', lpg: 'LPG' } as any)[type] || type
   showRename.value = true
 }
 
@@ -600,15 +718,43 @@ async function doRename() {
   const t = renameTarget.value
   try {
     switch (renameType.value) {
-      case 'igw': await updateInternetGateway({ id, igwId: t.id, displayName: renameValue.value }); break
-      case 'nat': await updateNatGateway({ id, natId: t.id, displayName: renameValue.value }); break
-      case 'sg': await updateServiceGateway({ id, sgId: t.id, displayName: renameValue.value }); break
-      case 'lpg': await updateLocalPeeringGateway({ id, lpgId: t.id, displayName: renameValue.value }); break
+      case 'vcn': await updateVcn({ id, vcnId: t.id, displayName: renameValue.value }); emit('changed'); break
+      case 'subnet': await updateSubnet({ id, subnetId: t.id, displayName: renameValue.value }); loadSubnets(); break
+      case 'igw': await updateInternetGateway({ id, igwId: t.id, displayName: renameValue.value }); loadIgw(); break
+      case 'nat': await updateNatGateway({ id, natId: t.id, displayName: renameValue.value }); loadNat(); break
+      case 'sg': await updateServiceGateway({ id, sgId: t.id, displayName: renameValue.value }); loadSg(); break
+      case 'lpg': await updateLocalPeeringGateway({ id, lpgId: t.id, displayName: renameValue.value }); loadLpg(); break
     }
     message.success('已更新')
     showRename.value = false
-    onTab(activeTab.value)
   } catch (e: any) { message.error(e?.message || '更新失败') }
+  finally { editing.value = false }
+}
+
+// ---- IGW edit (setup default routes) ----
+const showEditIgw = ref(false)
+const editIgwTarget = ref<any>(null)
+const igwRouteIpv4 = ref(true)
+const igwRouteIpv6 = ref(true)
+function openEditIgw(row: any) {
+  editIgwTarget.value = row
+  igwRouteIpv4.value = true
+  igwRouteIpv6.value = true
+  showEditIgw.value = true
+}
+async function doSetupIgwRoutes() {
+  editing.value = true
+  try {
+    await setupIgwDefaultRoutes({
+      id: props.userId,
+      vcnId: props.vcn.id,
+      igwId: editIgwTarget.value.id,
+      addIpv6: igwRouteIpv6.value,
+    })
+    message.success('已写入默认路由表')
+    showEditIgw.value = false
+    loadRt()
+  } catch (e: any) { message.error(e?.message || '配置失败') }
   finally { editing.value = false }
 }
 
@@ -742,36 +888,76 @@ async function doEditRt() {
   finally { editing.value = false }
 }
 
-// ---- View SL ----
-const showViewSl = ref(false)
+// ---- Edit SL ----
+const showEditSl = ref(false)
 const slDetail = ref<any>(null)
 const slDetailLoading = ref(false)
-const slCols = [
-  { title: '协议', dataIndex: 'protocol', key: 'protocol', width: 70 },
+const editingSlId = ref('')
+const slIngressCols = [
+  { title: '协议', dataIndex: 'protocol', key: 'protocol', width: 100 },
   { title: '来源', dataIndex: 'source', key: 'source', width: 160 },
-  { title: '来源类型', dataIndex: 'sourceType', key: 'sourceType', width: 130 },
-  { title: '状态', dataIndex: 'isStateless', key: 'isStateless', width: 70,
-    customRender: ({ text }: any) => text ? '无状态' : '有状态' },
+  { title: '端口', dataIndex: 'portRange', key: 'portRange', width: 110 },
+  { title: '状态', dataIndex: 'isStateless', key: 'isStateless', width: 80 },
   { title: '描述', dataIndex: 'description', key: 'description', ellipsis: true },
+  { title: '操作', key: 'ruleAction', width: 70 },
 ]
 const slEgressCols = [
-  { title: '协议', dataIndex: 'protocol', key: 'protocol', width: 70 },
+  { title: '协议', dataIndex: 'protocol', key: 'protocol', width: 100 },
   { title: '目的', dataIndex: 'destination', key: 'destination', width: 160 },
-  { title: '目的类型', dataIndex: 'destinationType', key: 'destinationType', width: 130 },
-  { title: '状态', dataIndex: 'isStateless', key: 'isStateless', width: 70,
-    customRender: ({ text }: any) => text ? '无状态' : '有状态' },
+  { title: '端口', dataIndex: 'portRange', key: 'portRange', width: 110 },
+  { title: '状态', dataIndex: 'isStateless', key: 'isStateless', width: 80 },
   { title: '描述', dataIndex: 'description', key: 'description', ellipsis: true },
+  { title: '操作', key: 'ruleAction', width: 70 },
 ]
-
-async function openViewSl(row: any) {
+function protocolLabel(p: string) {
+  return ({ all: '全部', '6': 'TCP', '17': 'UDP', '1': 'ICMP', '58': 'ICMPv6' } as any)[p] || p
+}
+async function openEditSl(row: any) {
+  editingSlId.value = row.id
   slDetail.value = null
-  showViewSl.value = true
+  showEditSl.value = true
+  reloadSl()
+}
+async function reloadSl() {
   slDetailLoading.value = true
   try {
-    const r = await getSecurityList({ id: props.userId, slId: row.id })
+    const r = await getSecurityList({ id: props.userId, slId: editingSlId.value })
     slDetail.value = r.data
   } catch (e: any) { message.error(e?.message || '加载失败') }
   finally { slDetailLoading.value = false }
+}
+
+// ---- Add SL rule ----
+const showAddSlRule = ref(false)
+const addSlForm = reactive({ direction: 'ingress', protocol: '6', source: '0.0.0.0/0', portMin: '', portMax: '', description: '' })
+function openAddSlRule(direction: string) {
+  Object.assign(addSlForm, { direction, protocol: '6', source: '0.0.0.0/0', portMin: '', portMax: '', description: '' })
+  showAddSlRule.value = true
+}
+async function doAddSlRule() {
+  if (!addSlForm.source.trim()) return message.warning('请填写 CIDR')
+  editing.value = true
+  try {
+    await addSecurityListRule({
+      id: props.userId, slId: editingSlId.value,
+      direction: addSlForm.direction, protocol: addSlForm.protocol, source: addSlForm.source,
+      portMin: addSlForm.portMin || undefined, portMax: addSlForm.portMax || undefined,
+      description: addSlForm.description || undefined,
+    })
+    message.success('已添加')
+    showAddSlRule.value = false
+    reloadSl()
+    loadSl()
+  } catch (e: any) { message.error(e?.message || '添加失败') }
+  finally { editing.value = false }
+}
+async function doDeleteSlRule(direction: string, index: number) {
+  try {
+    await deleteSecurityListRule({ id: props.userId, slId: editingSlId.value, direction, ruleIndex: index })
+    message.success('已删除')
+    reloadSl()
+    loadSl()
+  } catch (e: any) { message.error(e?.message || '删除失败') }
 }
 
 async function doDeleteVcn() {

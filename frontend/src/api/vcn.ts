@@ -64,6 +64,9 @@ export function deleteInternetGateway(data: { id: string; igwId: string; verifyC
 export function updateInternetGateway(data: { id: string; igwId: string; displayName?: string; isEnabled?: boolean }) {
   return request.post('/oci/vcn/igw/update', data)
 }
+export function setupIgwDefaultRoutes(data: { id: string; vcnId: string; igwId: string; addIpv6?: boolean }) {
+  return request.post('/oci/vcn/igw/setupDefaultRoutes', data)
+}
 
 // NAT Gateway
 export function listNatGateways(data: { id: string; vcnId: string }) {
@@ -116,6 +119,12 @@ export function deleteSecurityList(data: { id: string; slId: string; verifyCode:
 }
 export function getSecurityList(data: { id: string; slId: string }) {
   return request.post('/oci/vcn/sl/detail', data)
+}
+export function addSecurityListRule(data: { id: string; slId: string; direction: string; protocol: string; source: string; portMin?: string; portMax?: string; description?: string }) {
+  return request.post('/oci/vcn/sl/addRule', data)
+}
+export function deleteSecurityListRule(data: { id: string; slId: string; direction: string; ruleIndex: number }) {
+  return request.post('/oci/vcn/sl/deleteRule', data)
 }
 
 // DRG
