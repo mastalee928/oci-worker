@@ -228,18 +228,35 @@
                 </a-tooltip>
               </template>
               <template v-if="column.key === 'action'">
-                <a-space>
+                <a-space :size="4">
                   <a-button type="link" size="small" @click="openDetail(activeTenantData!.tenant, record)">详情</a-button>
-                  <a-popconfirm v-if="record.state === 'STOPPED'" title="确定启动？" @confirm="handleAction(activeTenantData!.tenant, record, 'START')">
-                    <a-button type="link" size="small" :loading="actionLoading[record.instanceId]">启动</a-button>
-                  </a-popconfirm>
-                  <a-popconfirm v-if="record.state === 'RUNNING'" title="确定停止？" @confirm="handleAction(activeTenantData!.tenant, record, 'STOP')">
-                    <a-button type="link" size="small" :loading="actionLoading[record.instanceId]">停止</a-button>
-                  </a-popconfirm>
-                  <a-popconfirm v-if="record.state === 'RUNNING'" title="确定重启？" @confirm="handleAction(activeTenantData!.tenant, record, 'RESET')">
-                    <a-button type="link" size="small" :loading="actionLoading[record.instanceId]">重启</a-button>
-                  </a-popconfirm>
-                  <a-button type="link" danger size="small" @click="openTerminateVerify(activeTenantData!.tenant, record)">终止</a-button>
+                  <a-dropdown :trigger="['click']">
+                    <a-button size="small" :loading="actionLoading[record.instanceId]">
+                      <template #icon><SettingOutlined /></template>
+                      实例操作
+                      <DownOutlined style="font-size: 10px; margin-left: 2px" />
+                    </a-button>
+                    <template #overlay>
+                      <a-menu class="instance-action-menu" @click="(info: any) => onInstanceMenuClick(record, info.key)">
+                        <a-menu-item key="START" :disabled="record.state !== 'STOPPED'">
+                          <i class="ri-play-fill" style="color: #52c41a; margin-right: 8px"></i>启动
+                        </a-menu-item>
+                        <a-menu-item key="SOFTRESET" :disabled="record.state !== 'RUNNING'">
+                          <i class="ri-restart-line" style="color: #faad14; margin-right: 8px"></i>重启
+                        </a-menu-item>
+                        <a-menu-item key="RESET" :disabled="record.state !== 'RUNNING'">
+                          <i class="ri-shut-down-line" style="color: #ff7a45; margin-right: 8px"></i>断电重启
+                        </a-menu-item>
+                        <a-menu-item key="SOFTSTOP" :disabled="record.state !== 'RUNNING'">
+                          <i class="ri-stop-fill" style="color: #8c8c8c; margin-right: 8px"></i>暂停
+                        </a-menu-item>
+                        <a-menu-divider />
+                        <a-menu-item key="TERMINATE" danger>
+                          <i class="ri-close-circle-line" style="color: #ff4d4f; margin-right: 8px"></i>终止
+                        </a-menu-item>
+                      </a-menu>
+                    </template>
+                  </a-dropdown>
                 </a-space>
               </template>
             </template>
@@ -865,7 +882,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
-import { ReloadOutlined, EditOutlined } from '@ant-design/icons-vue'
+import { ReloadOutlined, EditOutlined, SettingOutlined, DownOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
 import {
   getInstanceList, updateInstanceState, terminateInstance,
@@ -1385,6 +1402,32 @@ async function handleAction(tenant: any, record: any, action: string) {
   } finally {
     actionLoading[record.instanceId] = false
   }
+}
+
+const INSTANCE_ACTION_LABELS: Record<string, string> = {
+  START: '启动',
+  SOFTRESET: '重启',
+  RESET: '断电重启',
+  SOFTSTOP: '暂停',
+}
+
+function onInstanceMenuClick(record: any, key: string) {
+  if (!activeTenantData.value) return
+  const tenant = activeTenantData.value.tenant
+  if (key === 'TERMINATE') {
+    openTerminateVerify(tenant, record)
+    return
+  }
+  const label = INSTANCE_ACTION_LABELS[key] || key
+  const danger = key === 'RESET' || key === 'SOFTSTOP'
+  Modal.confirm({
+    title: `确定${label}实例？`,
+    content: `目标实例：${record.name || record.instanceId}`,
+    okText: '确定',
+    okButtonProps: danger ? { danger: true } : undefined,
+    cancelText: '取消',
+    onOk: () => handleAction(tenant, record, key),
+  })
 }
 
 const pendingTimers = new Set<any>()
@@ -2139,5 +2182,16 @@ onUnmounted(() => {
 }
 .instance-manager-drawer :deep(.ant-drawer-header) {
   padding: 12px 16px;
+}
+.instance-action-menu {
+  min-width: 150px;
+}
+.instance-action-menu .ri-play-fill,
+.instance-action-menu .ri-restart-line,
+.instance-action-menu .ri-shut-down-line,
+.instance-action-menu .ri-stop-fill,
+.instance-action-menu .ri-close-circle-line {
+  font-size: 14px;
+  vertical-align: -2px;
 }
 </style>
