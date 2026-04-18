@@ -209,7 +209,6 @@
           <a-button size="small" @click="loadTenantInstances(activeTenantData)" :loading="activeTenantData.loading">
             <template #icon><ReloadOutlined /></template>刷新
           </a-button>
-          <a-segmented v-model:value="viewMode" size="small" :options="[{ label: '卡片', value: 'card' }, { label: '列表', value: 'table' }]" />
         </div>
       </template>
       <div v-if="activeTenantData" class="instance-panel">
@@ -217,50 +216,6 @@
         <a-spin :spinning="activeTenantData.loading">
           <a-empty v-if="!activeTenantData.loading && activeTenantData.instances.length === 0" description="暂无实例" />
 
-          <!-- 实例卡片视图 -->
-          <div v-else-if="viewMode === 'card'" class="instance-grid" :class="instanceGridClass">
-            <div v-for="inst in activeTenantData.instances" :key="inst.instanceId" class="instance-card" @click="openDetail(activeTenantData.tenant, inst)">
-              <div class="card-header">
-                <div class="card-title">
-                  <CloudServerOutlined class="card-icon" />
-                  <span class="card-name">{{ inst.name }}</span>
-                </div>
-                <a-badge :status="stateColorMap[inst.state] || 'default'" :text="inst.state" />
-              </div>
-              <div class="card-body">
-                <div class="card-info-row">
-                  <span class="info-label">Shape</span>
-                  <span class="info-value">{{ inst.shape }}</span>
-                </div>
-                <div class="card-info-row">
-                  <span class="info-label">配置</span>
-                  <span class="info-value">{{ inst.ocpus }} OCPU / {{ inst.memoryInGBs }} GB</span>
-                </div>
-                <div class="card-info-row">
-                  <span class="info-label">公网 IP</span>
-                  <span class="info-value ip-text">{{ inst.publicIp || '—' }}</span>
-                </div>
-                <div class="card-info-row">
-                  <span class="info-label">区间</span>
-                  <span class="info-value">{{ inst.compartmentName || '—' }}</span>
-                </div>
-              </div>
-              <div class="card-actions" @click.stop>
-                <a-popconfirm v-if="inst.state === 'STOPPED'" title="确定启动实例？" @confirm="handleAction(activeTenantData.tenant, inst, 'START')">
-                  <a-button type="link" size="small" :loading="actionLoading[inst.instanceId]">启动</a-button>
-                </a-popconfirm>
-                <a-popconfirm v-if="inst.state === 'RUNNING'" title="确定停止实例？" @confirm="handleAction(activeTenantData.tenant, inst, 'STOP')">
-                  <a-button type="link" size="small" :loading="actionLoading[inst.instanceId]">停止</a-button>
-                </a-popconfirm>
-                <a-popconfirm v-if="inst.state === 'RUNNING'" title="确定重启实例？" @confirm="handleAction(activeTenantData.tenant, inst, 'RESET')">
-                  <a-button type="link" size="small" :loading="actionLoading[inst.instanceId]">重启</a-button>
-                </a-popconfirm>
-                <a-button type="link" danger size="small" @click="openTerminateVerify(activeTenantData.tenant, inst)">终止</a-button>
-              </div>
-            </div>
-          </div>
-
-          <!-- 实例列表视图 -->
           <a-table v-else :columns="columns" :data-source="activeTenantData.instances" :loading="activeTenantData.loading"
             row-key="instanceId" size="middle" :pagination="false">
             <template #bodyCell="{ column, record }">
@@ -910,7 +865,7 @@
 
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
-import { ReloadOutlined, CloudServerOutlined, EditOutlined } from '@ant-design/icons-vue'
+import { ReloadOutlined, EditOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
 import {
   getInstanceList, updateInstanceState, terminateInstance,
@@ -989,7 +944,6 @@ const isMobile = ref(window.innerWidth < 768)
 function checkMobile() { isMobile.value = window.innerWidth < 768 }
 
 const tenantViewMode = ref<'card' | 'table'>('card')
-const viewMode = ref<'card' | 'table'>('card')
 const searchKeyword = ref('')
 const globalLoading = ref(false)
 const tenantDataList = ref<TenantData[]>([])
@@ -1108,23 +1062,7 @@ const instancePanelVisible = computed({
     if (!val) activeTenantId.value = ''
   },
 })
-const instanceCount = computed(() => activeTenantData.value?.instances?.length || 0)
-const instancePanelWidth = computed(() => {
-  if (isMobile.value) return '100%'
-  if (viewMode.value === 'table') return 1120
-  const n = instanceCount.value
-  if (n <= 1) return 560
-  if (n === 2) return 820
-  if (n === 4) return 820
-  return 1120
-})
-const instanceGridClass = computed(() => {
-  if (instanceCount.value <= 1) return 'instance-grid-1'
-  if (instanceCount.value === 2) return 'instance-grid-2'
-  if (instanceCount.value === 3) return 'instance-grid-3'
-  if (instanceCount.value === 4) return 'instance-grid-4'
-  return 'instance-grid-many'
-})
+const instancePanelWidth = computed(() => (isMobile.value ? '100%' : 960))
 
 function getRegionMemoryKey(tenant: any) {
   const tenantId = tenant?.ociTenantId || 'unknown-tenant'
@@ -2129,99 +2067,7 @@ onUnmounted(() => {
   font-size: 12px;
   white-space: nowrap;
 }
-.instance-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(260px, 320px));
-  gap: 12px;
-  justify-content: center;
-}
-.instance-grid.instance-grid-1 {
-  grid-template-columns: minmax(300px, 360px);
-}
-.instance-grid.instance-grid-2 {
-  grid-template-columns: repeat(2, minmax(280px, 340px));
-}
-.instance-grid.instance-grid-3 {
-  grid-template-columns: repeat(3, minmax(250px, 320px));
-}
-.instance-grid.instance-grid-4 {
-  grid-template-columns: repeat(2, minmax(280px, 340px));
-}
-.instance-grid.instance-grid-many {
-  grid-template-columns: repeat(3, minmax(250px, 320px));
-}
-.instance-card {
-  background: var(--bg-sidebar);
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  padding: 18px;
-  cursor: pointer;
-  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-  display: flex;
-  flex-direction: column;
-  position: relative;
-  overflow: hidden;
-}
-.instance-card::before {
-  content: '';
-  position: absolute;
-  top: 0; left: 0; right: 0;
-  height: 3px;
-  background: linear-gradient(90deg, var(--primary), #8b5cf6);
-  transform: scaleX(0);
-  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-  transform-origin: left;
-}
-.instance-card:hover::before { transform: scaleX(1); }
-.instance-card:hover {
-  border-color: rgba(129, 140, 248, 0.5);
-  transform: translateY(-3px);
-  box-shadow: 0 8px 24px -6px rgba(99, 102, 241, 0.25);
-}
-.card-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 14px;
-}
-.card-title {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-.card-icon { font-size: 18px; color: var(--primary); flex-shrink: 0; }
-.card-name {
-  font-size: 14px;
-  font-weight: 700;
-  color: var(--text-main);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.card-body {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  margin-bottom: 14px;
-}
-.card-info-row {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 13px;
-}
 .info-label { color: var(--text-sub); flex-shrink: 0; }
-.info-value { color: var(--text-main); text-align: right; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.ip-text { font-family: 'JetBrains Mono', 'SF Mono', monospace; font-size: 12px; color: var(--primary); }
-.card-actions {
-  display: flex;
-  gap: 4px;
-  border-top: 1px solid var(--border);
-  padding-top: 10px;
-  flex-wrap: wrap;
-}
 
 .vcn-item {
   background: var(--bg-sidebar);
@@ -2279,16 +2125,6 @@ onUnmounted(() => {
   .tenant-card { padding: 14px; border-radius: 12px; }
   .tc-icon { font-size: 22px; }
   .tc-name { font-size: 13px; }
-  .instance-grid,
-  .instance-grid.instance-grid-1,
-  .instance-grid.instance-grid-2,
-  .instance-grid.instance-grid-3,
-  .instance-grid.instance-grid-4,
-  .instance-grid.instance-grid-many {
-    grid-template-columns: 1fr;
-    gap: 10px;
-  }
-  .instance-card { padding: 14px; border-radius: 12px; }
   .panel-actions {
     gap: 4px;
   }
