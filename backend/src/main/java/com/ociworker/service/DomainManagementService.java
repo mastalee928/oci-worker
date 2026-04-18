@@ -1,13 +1,12 @@
 package com.ociworker.service;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ociworker.exception.OciException;
 import com.ociworker.mapper.OciUserMapper;
 import com.ociworker.model.dto.SysUserDTO;
 import com.ociworker.model.entity.OciUser;
-import com.oracle.bmc.http.signing.DefaultRequestSigner;
-import com.oracle.bmc.http.signing.RequestSigner;
+import com.oracle.bmc.audit.AuditClient;
+import com.oracle.bmc.audit.model.AuditEvent;
+import com.oracle.bmc.audit.requests.ListEventsRequest;
 import com.oracle.bmc.identity.requests.ListDomainsRequest;
 import com.oracle.bmc.identitydomains.IdentityDomainsClient;
 import com.oracle.bmc.identitydomains.model.*;
@@ -16,12 +15,6 @@ import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-import java.net.URI;
-import java.net.URLEncoder;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.*;
 
@@ -29,38 +22,11 @@ import java.util.*;
 @Service
 public class DomainManagementService {
 
-    static {
-        // 允许 JDK HttpClient 设置 OCI 签名需要的受限请求头（host/date）
-        String key = "jdk.httpclient.allowRestrictedHeaders";
-        String need = "host,date";
-        String cur = System.getProperty(key);
-        if (cur == null || cur.isBlank()) {
-            System.setProperty(key, need);
-        } else {
-            StringBuilder sb = new StringBuilder(cur);
-            for (String k : need.split(",")) {
-                if (!cur.toLowerCase().contains(k)) sb.append(',').append(k);
-            }
-            System.setProperty(key, sb.toString());
-        }
-    }
-
     private static final String OCI_CONSOLE_POLICY_ID = "OciConsolePolicy";
     private static final String DEFAULT_PASSWORD_POLICY_NAME = "DefaultPasswordPolicy";
     private static final String CONSENT_SCHEMA =
             "urn:ietf:params:scim:schemas:oracle:idcs:extension:ociconsolesignonpolicyconsent:Policy";
-    private static final List<String> LOGIN_EVENT_IDS = List.of(
-            "sso.session.create.success",
-            "sso.session.create.failure",
-            "sso.authentication.failure",
-            "admin.authentication.success",
-            "admin.authentication.failure",
-            "sso.app.access.success",
-            "sso.app.access.failure"
-    );
-    private static final ObjectMapper JSON = new ObjectMapper();
-    private static final HttpClient HTTP = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(10)).build();
+
     @Resource
     private OciUserMapper userMapper;
 
@@ -387,8 +353,11 @@ public class DomainManagementService {
     }
 
     /**
-     * 通过 OCI 签名直接调用 Identity Domain SCIM REST 接口 /admin/v1/AuditEvents
-     * （Java SDK 未提供对应客户端方法）。按域分开返回。
+     * 身份域登录审计日志。
+     * 注意：OCI 于 2024-12-15 弃用了 Identity Domain SCIM /admin/v1/AuditEvents 端点，
+     * 所有身份域审计事件已迁移到 OCI Audit 服务。改用 AuditClient.listEvents。
+     * 过滤前缀 "com.oraclecloud.identitydomain." 且只保留登录相关类别（sso / session / authentication / appaccess / signin）；
+     * 再按 additionalDetails 中的 domain 字段聚合到对应域。
      */
     public List<Map<String, Object>> getAuditLogs(String tenantId, int days) {
         List<Map<String, Object>> result = new ArrayList<>();
@@ -396,60 +365,131 @@ public class DomainManagementService {
             var domains = listDomains(client);
             if (domains.isEmpty()) throw new OciException("未找到 Identity Domain");
 
-            int window = Math.max(1, days);
-            String startIso = java.time.Instant.now().minus(Duration.ofDays(window)).toString();
-            StringBuilder evFilter = new StringBuilder("(");
-            for (int i = 0; i < LOGIN_EVENT_IDS.size(); i++) {
-                if (i > 0) evFilter.append(" or ");
-                evFilter.append("eventId eq \"").append(LOGIN_EVENT_IDS.get(i)).append("\"");
-            }
-            evFilter.append(")");
-            String filter = "timestamp ge \"" + startIso + "\" and " + evFilter;
-            String query = "?filter=" + URLEncoder.encode(filter, StandardCharsets.UTF_8)
-                    + "&count=200&sortBy=timestamp&sortOrder=descending";
+            int window = Math.max(1, Math.min(days, 30));
+            Date endTime = new Date();
+            Date startTime = Date.from(java.time.Instant.now().minus(Duration.ofDays(window)));
 
-            RequestSigner signer = DefaultRequestSigner.createRequestSigner(client.getProvider());
+            List<AuditEvent> events = new ArrayList<>();
+            try (AuditClient auditClient = AuditClient.builder().build(client.getProvider())) {
+                String tenancyId = client.getProvider().getTenantId();
+                String page = null;
+                int maxEvents = 5000; // 兜底，避免历史过长导致拉取过多
+                do {
+                    var reqB = ListEventsRequest.builder()
+                            .compartmentId(tenancyId)
+                            .startTime(startTime)
+                            .endTime(endTime);
+                    if (page != null) reqB.page(page);
+                    var resp = auditClient.listEvents(reqB.build());
+                    if (resp.getItems() != null) events.addAll(resp.getItems());
+                    page = resp.getOpcNextPage();
+                } while (page != null && !page.isEmpty() && events.size() < maxEvents);
+                log.info("OCI Audit listEvents total={} windowDays={}", events.size(), window);
+            }
+
+            // 按域聚合
+            Map<String, List<Map<String, Object>>> grouped = new LinkedHashMap<>();
+            for (var d : domains) grouped.put((String) d.get("id"), new ArrayList<>());
+            List<Map<String, Object>> unknown = new ArrayList<>();
+
+            // 预建 displayName -> domainId 映射（OCI Audit 事件里通常含 domainDisplayName，有的含 domainId/domainOcid）
+            Map<String, String> nameToId = new HashMap<>();
+            for (var d : domains) {
+                Object n = d.get("displayName");
+                if (n != null) nameToId.put(String.valueOf(n).toLowerCase(Locale.ROOT), (String) d.get("id"));
+            }
+
+            for (AuditEvent ev : events) {
+                String et = ev.getEventType();
+                if (et == null) continue;
+                String etl = et.toLowerCase(Locale.ROOT);
+                // 只保留身份域相关
+                if (!etl.contains("identitydomain") && !etl.contains("idcs")) continue;
+                // 只保留登录类
+                if (!(etl.contains("session") || etl.contains("authentication") || etl.contains("appaccess") || etl.contains("signin") || etl.contains("sso"))) continue;
+
+                String domainId = null;
+                String actorName = null;
+                String principalId = null;
+                String clientIp = null;
+                String userAgent = null;
+                String ssoApp = null;
+                String ssoIdp = null;
+                String ssoFactor = null;
+                String msg = null;
+                var data = ev.getData();
+                if (data != null) {
+                    var identity = data.getIdentity();
+                    if (identity != null) {
+                        actorName = identity.getPrincipalName();
+                        principalId = identity.getPrincipalId();
+                        clientIp = identity.getIpAddress();
+                        userAgent = identity.getUserAgent();
+                    }
+                    String rid = data.getResourceId();
+                    if (rid != null && rid.contains("ocid1.domain.")) {
+                        domainId = rid;
+                    }
+                    var addl = data.getAdditionalDetails();
+                    if (addl != null) {
+                        if (domainId == null) {
+                            Object did = addl.getOrDefault("domainOcid", addl.getOrDefault("domainId", null));
+                            if (did != null && String.valueOf(did).startsWith("ocid1.domain.")) domainId = String.valueOf(did);
+                        }
+                        if (domainId == null) {
+                            Object dn = addl.get("domainDisplayName");
+                            if (dn != null) domainId = nameToId.get(String.valueOf(dn).toLowerCase(Locale.ROOT));
+                        }
+                        Object a = addl.get("ssoApplicationType");
+                        if (a != null) ssoApp = String.valueOf(a);
+                        Object ip = addl.get("ssoIdentityProvider");
+                        if (ip != null) ssoIdp = String.valueOf(ip);
+                        Object f = addl.get("ssoAuthFactor");
+                        if (f != null) ssoFactor = String.valueOf(f);
+                    }
+                    if (data.getResponse() != null && data.getResponse().getMessage() != null) {
+                        msg = data.getResponse().getMessage();
+                    }
+                    if (msg == null && data.getEventName() != null) msg = data.getEventName();
+                }
+
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("eventTime", ev.getEventTime() == null ? null : ev.getEventTime().toInstant().toString());
+                row.put("eventId", et);
+                row.put("actorName", actorName);
+                row.put("actorType", principalId);
+                row.put("actorDisplayName", actorName);
+                row.put("ssoIdentityProvider", ssoIdp);
+                row.put("ssoApplicationType", ssoApp);
+                row.put("ssoUserAgent", userAgent);
+                row.put("clientIp", clientIp);
+                row.put("ssoAuthFactor", ssoFactor);
+                row.put("message", msg);
+
+                if (domainId != null && grouped.containsKey(domainId)) {
+                    grouped.get(domainId).add(row);
+                } else {
+                    unknown.add(row);
+                }
+            }
 
             for (var d : domains) {
                 Map<String, Object> entry = new LinkedHashMap<>();
                 entry.put("domainId", d.get("id"));
                 entry.put("displayName", d.get("displayName"));
                 entry.put("type", d.get("type"));
-                List<Map<String, Object>> logs = new ArrayList<>();
-                try {
-                    String base = String.valueOf(d.get("url")).replaceAll("/+$", "");
-                    URI uri = URI.create(base + "/admin/v1/AuditEvents" + query);
-                    HttpRequest req = buildSignedGet(signer, uri);
-                    HttpResponse<String> resp = HTTP.send(req, HttpResponse.BodyHandlers.ofString());
-
-                    if (resp.statusCode() < 200 || resp.statusCode() >= 300) {
-                        entry.put("error", "HTTP " + resp.statusCode() + ": " + truncate(resp.body(), 300));
-                    } else {
-                        JsonNode root = JSON.readTree(resp.body());
-                        JsonNode resources = root.path("Resources");
-                        if (resources.isArray()) {
-                            for (JsonNode ev : resources) {
-                                Map<String, Object> row = new LinkedHashMap<>();
-                                row.put("eventTime", textOrNull(ev, "timestamp"));
-                                row.put("eventId", textOrNull(ev, "eventId"));
-                                row.put("actorName", textOrNull(ev, "actorName"));
-                                row.put("actorType", textOrNull(ev, "actorType"));
-                                row.put("actorDisplayName", textOrNull(ev, "actorDisplayName"));
-                                row.put("ssoIdentityProvider", textOrNull(ev, "ssoIdentityProvider"));
-                                row.put("ssoApplicationType", textOrNull(ev, "ssoApplicationType"));
-                                row.put("ssoUserAgent", textOrNull(ev, "ssoUserAgent"));
-                                row.put("ssoProtectedResource", textOrNull(ev, "ssoProtectedResource"));
-                                row.put("clientIp", textOrNull(ev, "clientIp"));
-                                row.put("ssoAuthFactor", textOrNull(ev, "ssoAuthFactor"));
-                                row.put("message", textOrNull(ev, "message"));
-                                logs.add(row);
-                            }
-                        }
-                    }
-                } catch (Exception e) {
-                    log.warn("audit log fetch failed for domain {}: {}", d.get("displayName"), e.toString());
-                    entry.put("error", e.getMessage() == null ? e.toString() : e.getMessage());
+                List<Map<String, Object>> logs = grouped.getOrDefault((String) d.get("id"), new ArrayList<>());
+                // 无法识别域归属的事件，记到 Default 域下（通常是旧事件缺少 domainDisplayName）
+                if ("Default".equals(d.get("displayName")) && !unknown.isEmpty()) {
+                    logs.addAll(unknown);
+                    unknown.clear();
                 }
+                // 按时间倒序
+                logs.sort((a, b) -> {
+                    String ta = String.valueOf(a.getOrDefault("eventTime", ""));
+                    String tb = String.valueOf(b.getOrDefault("eventTime", ""));
+                    return tb.compareTo(ta);
+                });
                 entry.put("logs", logs);
                 result.add(entry);
             }
@@ -459,42 +499,6 @@ public class DomainManagementService {
             throw new OciException("获取登录日志失败: " + (e.getMessage() == null ? "未知错误" : e.getMessage()));
         }
         return result;
-    }
-
-    private HttpRequest buildSignedGet(RequestSigner signer, URI uri) {
-        Map<String, List<String>> signingHeaders = new HashMap<>();
-        signingHeaders.put("accept", List.of("application/scim+json"));
-        Map<String, String> signed = signer.signRequest(uri, "GET", signingHeaders, null);
-
-        HttpRequest.Builder rb = HttpRequest.newBuilder(uri)
-                .GET()
-                .timeout(Duration.ofSeconds(30))
-                .header("accept", "application/scim+json");
-        for (var h : signed.entrySet()) {
-            String k = h.getKey();
-            if (k == null) continue;
-            String lk = k.toLowerCase(Locale.ROOT);
-            // 跳过伪头部及 HttpClient 会自动填充的 host；accept 已添加
-            if (lk.startsWith("(") || lk.equals("host") || lk.equals("accept")) continue;
-            try {
-                rb.header(k, h.getValue());
-            } catch (IllegalArgumentException ignore) {
-                // HttpClient 拒绝某些受限头，静态初始化已放开 host/date，剩余的忽略即可
-            }
-        }
-        return rb.build();
-    }
-
-    private String textOrNull(JsonNode n, String field) {
-        JsonNode v = n.path(field);
-        if (v.isMissingNode() || v.isNull()) return null;
-        String s = v.asText(null);
-        return (s == null || s.isEmpty()) ? null : s;
-    }
-
-    private String truncate(String s, int n) {
-        if (s == null) return null;
-        return s.length() <= n ? s : s.substring(0, n) + "...";
     }
 
     // ---------------- Authentication Factor Settings ----------------

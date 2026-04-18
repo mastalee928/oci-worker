@@ -507,22 +507,18 @@ region=ap-tokyo-1"
       <!-- 域选择器（Tab 之外，全局） -->
       <div class="domain-switcher" v-if="domainList.length > 0 || domainSettingsLoading">
         <span class="domain-switcher-label">当前域：</span>
-        <a-segmented
-          v-if="!useDomainDropdown && domainList.length > 0"
-          :value="selectedDomainId"
-          @change="(v: any) => handleDomainChange(String(v))"
-          :options="segmentedDomainOptions"
-          :disabled="domainList.length <= 1"
-        />
         <a-select
-          v-else-if="useDomainDropdown && domainList.length > 0"
+          v-if="domainList.length > 0"
           :value="selectedDomainId"
-          style="min-width: 240px"
+          style="min-width: 280px"
+          :disabled="domainList.length <= 1"
           @change="(v: any) => handleDomainChange(String(v))"
         >
-          <a-select-option v-for="d in domainList" :key="d.domainId" :value="d.domainId">
-            {{ d.displayName || '—' }}
-            <span class="domain-type-pill">{{ domainTypeCn(d.type) }}</span>
+          <a-select-option v-for="d in domainList" :key="d.domainId" :value="d.domainId" :label="d.displayName">
+            <span class="domain-option">
+              <span class="domain-option-name">{{ d.displayName || '—' }}</span>
+              <span v-if="d.type" class="domain-type-pill">{{ domainTypeCn(d.type) }}</span>
+            </span>
           </a-select-option>
         </a-select>
         <a-spin v-if="domainSettingsLoading && domainList.length === 0" size="small" />
@@ -735,7 +731,7 @@ region=ap-tokyo-1"
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onUnmounted, watch, h } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { PlusOutlined, ThunderboltOutlined, InboxOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
@@ -967,16 +963,6 @@ function domainTypeCn(t: string | null | undefined): string {
   return DOMAIN_TYPE_CN[key] || t
 }
 
-const useDomainDropdown = computed(() => domainList.value.length > 3)
-const segmentedDomainOptions = computed(() =>
-  domainList.value.map((d: any) => ({
-    label: h('span', { class: 'domain-segmented-label' }, [
-      d.displayName || '—',
-      d.type ? h('span', { class: 'domain-type-pill' }, domainTypeCn(d.type)) : null,
-    ]),
-    value: d.domainId,
-  })),
-)
 const selectedDomain = computed<any | null>(() =>
   domainList.value.find((d: any) => d.domainId === selectedDomainId.value) || null,
 )
@@ -1621,11 +1607,12 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   color: var(--text-sub);
   white-space: nowrap;
 }
-.domain-segmented-label {
+.domain-option {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
 }
+.domain-option-name { font-weight: 500; }
 .domain-type-pill {
   display: inline-block;
   font-size: 11px;
