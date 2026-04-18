@@ -57,7 +57,7 @@
             <a-popconfirm v-if="record.status === 'STOPPED'" title="确定恢复任务?" @confirm="handleResume(record)">
               <a-button type="link" size="small" :loading="actionLoading[record.id]">继续</a-button>
             </a-popconfirm>
-            <a-button v-if="record.status !== 'RUNNING' && (record.successCount || 0) > 0" type="link" size="small" @click="showDetailModal(record)">详情</a-button>
+            <a-button v-if="record.status !== 'RUNNING'" type="link" size="small" @click="showDetailModal(record)">详情</a-button>
             <a-popconfirm v-if="record.status !== 'RUNNING'" title="确定删除此记录?" @confirm="handleDelete(record)">
               <a-button type="link" danger size="small" :loading="actionLoading[record.id]">删除</a-button>
             </a-popconfirm>
@@ -94,7 +94,7 @@
           <a-popconfirm v-if="task.status === 'STOPPED'" title="确定恢复？" @confirm="handleResume(task)">
             <a-button type="link" size="small" :loading="actionLoading[task.id]">继续</a-button>
           </a-popconfirm>
-          <a-button v-if="task.status !== 'RUNNING' && (task.successCount || 0) > 0" type="link" size="small" @click="showDetailModal(task)">详情</a-button>
+          <a-button v-if="task.status !== 'RUNNING'" type="link" size="small" @click="showDetailModal(task)">详情</a-button>
           <a-popconfirm v-if="task.status !== 'RUNNING'" title="确定删除？" @confirm="handleDelete(task)">
             <a-button type="link" danger size="small" :loading="actionLoading[task.id]">删除</a-button>
           </a-popconfirm>
