@@ -186,14 +186,14 @@
       <template #title>
         <div v-if="activeTenantData" class="instance-drawer-title">
           <i class="ri-server-line" style="margin-right: 8px; color: var(--primary)"></i>
-          <span>{{ activeTenantData.tenant.username }}</span>
-          <a-tag color="blue" style="margin-left: 8px">{{ activeTenantData.tenant.ociRegion }}</a-tag>
+          <span class="drawer-username">{{ activeTenantData.tenant.username }}</span>
+          <a-tag v-if="!isMobile" color="blue" style="margin-left: 8px">{{ activeTenantData.tenant.ociRegion }}</a-tag>
           <a-badge :count="activeTenantData.instances.length" :number-style="{ backgroundColor: 'var(--primary)' }" :show-zero="true" style="margin-left: 8px" />
         </div>
       </template>
       <template #extra>
         <div v-if="activeTenantData" class="panel-actions">
-          <div class="region-switch" v-if="regionTenantOptions.length > 1">
+          <div v-if="!isMobile" class="region-switch" v-show="regionTenantOptions.length > 1">
             <span class="region-switch-label">区域</span>
             <a-select
               v-model:value="activeTenantId"
@@ -207,15 +207,88 @@
             </a-select>
           </div>
           <a-button size="small" @click="loadTenantInstances(activeTenantData)" :loading="activeTenantData.loading">
-            <template #icon><ReloadOutlined /></template>刷新
+            <template #icon><ReloadOutlined /></template>{{ isMobile ? '' : '刷新' }}
           </a-button>
         </div>
       </template>
       <div v-if="activeTenantData" class="instance-panel">
+        <!-- 移动端：区域切换条 + 当前区域 tag -->
+        <div v-if="isMobile" class="mobile-drawer-meta">
+          <a-tag color="blue">{{ activeTenantData.tenant.ociRegion }}</a-tag>
+          <div v-if="regionTenantOptions.length > 1" class="mobile-region-bar">
+            <span class="region-switch-label">区域</span>
+            <a-select
+              v-model:value="activeTenantId"
+              size="small"
+              style="flex: 1"
+              @change="handleRegionSwitch"
+            >
+              <a-select-option v-for="opt in regionTenantOptions" :key="opt.id" :value="opt.id">
+                {{ opt.regionLabel }}
+              </a-select-option>
+            </a-select>
+          </div>
+        </div>
 
         <a-spin :spinning="activeTenantData.loading">
           <a-empty v-if="!activeTenantData.loading && activeTenantData.instances.length === 0" description="暂无实例" />
 
+          <!-- 移动端：卡片流 -->
+          <div v-else-if="isMobile" class="instance-mobile-list">
+            <div v-for="record in activeTenantData.instances" :key="record.instanceId" class="instance-mobile-card">
+              <div class="imc-header">
+                <span class="imc-name" :title="record.name">{{ record.name }}</span>
+                <a-badge :status="stateColorMap[record.state] || 'default'" :text="record.state" />
+              </div>
+              <div class="imc-body">
+                <div class="imc-row">
+                  <span class="imc-label">规格</span>
+                  <div class="imc-value-group">
+                    <span class="imc-value-main">{{ record.ocpus }}C / {{ record.memoryInGBs }}G</span>
+                    <span class="imc-value-sub">{{ record.shape }}</span>
+                  </div>
+                </div>
+                <div class="imc-row">
+                  <span class="imc-label">公网 IP</span>
+                  <a-typography-text v-if="record.publicIp" copyable class="ip-copy imc-value-main">{{ record.publicIp }}</a-typography-text>
+                  <span v-else class="imc-value-sub">—</span>
+                </div>
+              </div>
+              <div class="imc-footer">
+                <a-button type="link" size="small" @click="openDetail(activeTenantData!.tenant, record)">
+                  <i class="ri-information-line" style="margin-right: 4px"></i>详情
+                </a-button>
+                <a-dropdown :trigger="['click']">
+                  <a-button type="link" size="small" class="instance-action-trigger" :loading="actionLoading[record.instanceId]">
+                    实例操作
+                    <DownOutlined style="font-size: 10px; margin-left: 2px" />
+                  </a-button>
+                  <template #overlay>
+                    <a-menu class="instance-action-menu" @click="(info: any) => onInstanceMenuClick(record, info.key)">
+                      <a-menu-item key="START">
+                        <i class="ri-play-fill" style="color: #52c41a; margin-right: 8px"></i>启动
+                      </a-menu-item>
+                      <a-menu-item key="SOFTRESET" :disabled="record.state !== 'RUNNING'">
+                        <i class="ri-restart-line" style="color: #faad14; margin-right: 8px"></i>重启
+                      </a-menu-item>
+                      <a-menu-item key="RESET" :disabled="record.state !== 'RUNNING'">
+                        <i class="ri-shut-down-line" style="color: #ff7a45; margin-right: 8px"></i>断电重启
+                      </a-menu-item>
+                      <a-menu-item key="SOFTSTOP" :disabled="record.state !== 'RUNNING'">
+                        <i class="ri-stop-fill" style="color: #8c8c8c; margin-right: 8px"></i>暂停
+                      </a-menu-item>
+                      <a-menu-divider />
+                      <a-menu-item key="TERMINATE" danger>
+                        <i class="ri-close-circle-line" style="color: #ff4d4f; margin-right: 8px"></i>终止
+                      </a-menu-item>
+                    </a-menu>
+                  </template>
+                </a-dropdown>
+              </div>
+            </div>
+          </div>
+
+          <!-- 桌面端：表格 -->
           <a-table v-else :columns="columns" :data-source="activeTenantData.instances" :loading="activeTenantData.loading"
             row-key="instanceId" size="middle" :pagination="false">
             <template #bodyCell="{ column, record }">
@@ -2236,5 +2309,114 @@ onUnmounted(() => {
 }
 .instance-action-trigger {
   padding-inline: 4px;
+}
+
+/* 移动端：抽屉头部名称省略 */
+.drawer-username {
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+/* 移动端：抽屉内容区顶部的区域 meta */
+.mobile-drawer-meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+  border-bottom: 1px dashed var(--border);
+}
+.mobile-region-bar {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 1;
+  min-width: 200px;
+}
+
+/* 移动端：实例卡片流 */
+.instance-mobile-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.instance-mobile-card {
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.imc-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.imc-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-main);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+  min-width: 0;
+}
+.imc-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.imc-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  font-size: 13px;
+}
+.imc-label {
+  color: var(--text-sub);
+  flex-shrink: 0;
+  width: 60px;
+  padding-top: 2px;
+}
+.imc-value-group {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+.imc-value-main {
+  color: var(--text-main);
+  font-weight: 600;
+}
+.imc-value-sub {
+  font-size: 11px;
+  color: var(--text-sub);
+  font-family: 'JetBrains Mono', 'SF Mono', monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.imc-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+.imc-footer :deep(.ant-btn-link) {
+  font-size: 14px;
+  height: 32px;
+  padding-inline: 10px;
 }
 </style>
