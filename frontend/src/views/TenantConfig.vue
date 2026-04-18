@@ -504,54 +504,78 @@ region=ap-tokyo-1"
     <!-- 域管理弹窗 -->
     <a-modal v-model:open="domainMgmtVisible" :title="'域管理 — ' + (domainMgmtTenant?.username || '')"
       :width="isMobile ? '100%' : 840" :footer="null" centered :bodyStyle="{ maxHeight: '75vh', overflow: 'auto' }">
+      <!-- 域选择器（Tab 之外，全局） -->
+      <div class="domain-switcher" v-if="domainList.length > 0 || domainSettingsLoading">
+        <span class="domain-switcher-label">当前域：</span>
+        <a-segmented
+          v-if="!useDomainDropdown && domainList.length > 0"
+          :value="selectedDomainId"
+          @change="(v: any) => handleDomainChange(String(v))"
+          :options="segmentedDomainOptions"
+          :disabled="domainList.length <= 1"
+        />
+        <a-select
+          v-else-if="useDomainDropdown && domainList.length > 0"
+          :value="selectedDomainId"
+          style="min-width: 240px"
+          @change="(v: any) => handleDomainChange(String(v))"
+        >
+          <a-select-option v-for="d in domainList" :key="d.domainId" :value="d.domainId">
+            {{ d.displayName || '—' }}
+            <span class="domain-type-pill">{{ domainTypeCn(d.type) }}</span>
+          </a-select-option>
+        </a-select>
+        <a-spin v-if="domainSettingsLoading && domainList.length === 0" size="small" />
+        <a-tag v-if="selectedDomain?.error || selectedDomain?.mfaError || selectedDomain?.passwordPolicyError" color="error" style="margin-left: 6px">异常</a-tag>
+        <a-tooltip v-if="domainList.length === 1" title="当前租户仅一个域，无需切换">
+          <i class="ri-information-line" style="color: var(--text-sub); font-size: 14px; margin-left: 6px"></i>
+        </a-tooltip>
+      </div>
+      <a-alert v-if="!domainSettingsLoading && domainList.length === 0" type="warning"
+        message="未读取到 Identity Domain 信息" show-icon style="margin-bottom: 12px" />
+
       <a-tabs v-model:activeKey="domainTab">
         <a-tab-pane key="security" tab="安全策略">
           <a-spin :spinning="domainSettingsLoading">
-            <a-alert v-if="!domainSettingsLoading && domainList.length === 0" type="warning"
-              message="未读取到 Identity Domain 信息" show-icon style="margin-bottom: 12px" />
-            <div v-for="d in domainList" :key="d.domainId" class="domain-card">
-              <div class="domain-card-header">
-                <a-tag color="purple">{{ d.displayName || '—' }}</a-tag>
-                <a-tag v-if="d.type" color="blue">{{ d.type }}</a-tag>
-                <span v-if="d.consolePolicyName" style="font-size: 12px; color: var(--text-sub)">
-                  策略：{{ d.consolePolicyName }}
-                </span>
-              </div>
-              <a-alert v-if="d.mfaError" type="warning" show-icon :message="d.mfaError" style="margin: 8px 0" />
+            <template v-if="selectedDomain">
+              <a-alert v-if="selectedDomain.mfaError" type="warning" show-icon :message="selectedDomain.mfaError" style="margin-bottom: 8px" />
               <a-descriptions :column="1" bordered size="small">
                 <a-descriptions-item label="MFA 多因素认证（Security Policy for OCI Console）">
                   <a-space align="center" wrap>
-                    <a-switch :checked="!!d.mfaEnabled"
-                      :loading="mfaUpdatingId === d.domainId"
-                      :disabled="d.mfaEnabled === null || d.mfaEnabled === undefined"
+                    <a-switch :checked="!!selectedDomain.mfaEnabled"
+                      :loading="mfaUpdatingId === selectedDomain.domainId"
+                      :disabled="selectedDomain.mfaEnabled === null || selectedDomain.mfaEnabled === undefined"
                       checked-children="已启用" un-checked-children="已关闭"
-                      @change="(v: any) => handleMfaChange(d, v as boolean)" />
+                      @change="(v: any) => handleMfaChange(selectedDomain, v as boolean)" />
                     <span style="font-size: 12px; color: var(--text-sub)">
                       对应 OCI：身份域 → 安全 → 登录策略 → Security Policy for OCI Console 的「激活」状态
+                    </span>
+                    <span v-if="selectedDomain.consolePolicyName" style="font-size: 12px; color: var(--text-sub)">
+                      · 策略：{{ selectedDomain.consolePolicyName }}
                     </span>
                   </a-space>
                 </a-descriptions-item>
                 <a-descriptions-item label="密码过期天数（defaultPasswordPolicy）">
                   <a-space wrap>
-                    <a-input-number :value="d.passwordExpiresAfterDays ?? 0"
-                      @update:value="(v: any) => (d.passwordExpiresAfterDays = v as number)"
+                    <a-input-number :value="selectedDomain.passwordExpiresAfterDays ?? 0"
+                      @update:value="(v: any) => (selectedDomain.passwordExpiresAfterDays = v as number)"
                       :min="0" :max="999" style="width: 120px" />
                     <span style="color: var(--text-sub); font-size: 12px">
                       在 N 天后失效；0 = 永不过期
                     </span>
                     <a-button type="primary" size="small"
-                      :loading="pwdExpiryUpdatingId === d.domainId"
-                      @click="handlePwdExpiryChange(d)">保存</a-button>
-                    <span v-if="d.passwordPolicyName" style="font-size: 12px; color: var(--text-sub)">
-                      策略：{{ d.passwordPolicyName }}（priority={{ d.passwordPolicyPriority ?? '-' }}）
+                      :loading="pwdExpiryUpdatingId === selectedDomain.domainId"
+                      @click="handlePwdExpiryChange(selectedDomain)">保存</a-button>
+                    <span v-if="selectedDomain.passwordPolicyName" style="font-size: 12px; color: var(--text-sub)">
+                      策略：{{ selectedDomain.passwordPolicyName }}（priority={{ selectedDomain.passwordPolicyPriority ?? '-' }}）
                     </span>
                   </a-space>
-                  <div v-if="d.passwordPolicyError" style="color: #faad14; font-size: 12px; margin-top: 4px">
-                    {{ d.passwordPolicyError }}
+                  <div v-if="selectedDomain.passwordPolicyError" style="color: #faad14; font-size: 12px; margin-top: 4px">
+                    {{ selectedDomain.passwordPolicyError }}
                   </div>
                 </a-descriptions-item>
               </a-descriptions>
-            </div>
+            </template>
           </a-spin>
         </a-tab-pane>
         <a-tab-pane key="factors" tab="验证因素">
@@ -573,21 +597,16 @@ region=ap-tokyo-1"
           </div>
           <div v-else>
             <a-alert type="success" show-icon style="margin-bottom: 12px"
-              message="已通过 TG 验证，10 分钟内可在本 Tab 自由保存；关闭弹窗将自动注销。" />
+              message="已通过 TG 验证，10 分钟内可在本 Tab 自由保存；切换域不需要重新验证。" />
             <a-spin :spinning="authFactorLoading">
-              <a-empty v-if="!authFactorLoading && authFactorDomains.length === 0" description="无数据" />
-              <div v-for="d in authFactorDomains" :key="d.domainId" class="domain-card">
-                <div class="domain-card-header">
-                  <a-tag color="purple">{{ d.displayName || '—' }}</a-tag>
-                  <a-tag v-if="d.type" color="blue">{{ d.type }}</a-tag>
-                </div>
-                <a-alert v-if="d.error" type="warning" show-icon :message="d.error" style="margin-bottom: 10px" />
+              <template v-if="selectedFactorDomain">
+                <a-alert v-if="selectedFactorDomain.error" type="warning" show-icon :message="selectedFactorDomain.error" style="margin-bottom: 10px" />
                 <template v-else>
                   <div class="factor-section-title">因素</div>
                   <div class="factor-grid">
                     <a-checkbox v-for="f in FACTOR_OPTIONS" :key="f.key"
-                      :checked="!!d.factors?.[f.key]"
-                      @change="(e: any) => (d.factors[f.key] = e.target.checked)">
+                      :checked="!!selectedFactorDomain.factors?.[f.key]"
+                      @change="(e: any) => (selectedFactorDomain.factors[f.key] = e.target.checked)">
                       {{ f.label }}
                     </a-checkbox>
                   </div>
@@ -595,52 +614,52 @@ region=ap-tokyo-1"
                   <div class="factor-section-title">参数</div>
                   <a-space wrap>
                     <span class="factor-label">最大注册设备数</span>
-                    <a-input-number :value="d.limits?.maxEnrolledDevices"
-                      @update:value="(v: any) => (d.limits.maxEnrolledDevices = v)"
+                    <a-input-number :value="selectedFactorDomain.limits?.maxEnrolledDevices"
+                      @update:value="(v: any) => (selectedFactorDomain.limits.maxEnrolledDevices = v)"
                       :min="1" :max="20" style="width: 110px" />
                     <span class="factor-hint">maxEnrolledDevices</span>
                   </a-space>
 
                   <div class="factor-section-title">可信设备</div>
                   <a-space wrap>
-                    <a-switch :checked="!!d.trustedDevice?.enabled"
-                      @change="(v: any) => (d.trustedDevice.enabled = v)"
+                    <a-switch :checked="!!selectedFactorDomain.trustedDevice?.enabled"
+                      @change="(v: any) => (selectedFactorDomain.trustedDevice.enabled = v)"
                       checked-children="启用" un-checked-children="禁用" />
                     <span class="factor-label">最大可信设备数</span>
-                    <a-input-number :value="d.trustedDevice?.maxTrustedEndpoints"
-                      @update:value="(v: any) => (d.trustedDevice.maxTrustedEndpoints = v)"
+                    <a-input-number :value="selectedFactorDomain.trustedDevice?.maxTrustedEndpoints"
+                      @update:value="(v: any) => (selectedFactorDomain.trustedDevice.maxTrustedEndpoints = v)"
                       :min="1" :max="50" style="width: 110px" />
                     <span class="factor-label">信任天数</span>
-                    <a-input-number :value="d.trustedDevice?.maxEndpointTrustDurationInDays"
-                      @update:value="(v: any) => (d.trustedDevice.maxEndpointTrustDurationInDays = v)"
+                    <a-input-number :value="selectedFactorDomain.trustedDevice?.maxEndpointTrustDurationInDays"
+                      @update:value="(v: any) => (selectedFactorDomain.trustedDevice.maxEndpointTrustDurationInDays = v)"
                       :min="1" :max="365" style="width: 110px" />
                   </a-space>
 
                   <div class="factor-section-title">登录规则</div>
                   <a-space wrap>
                     <span class="factor-label">最大 MFA 失败次数</span>
-                    <a-input-number :value="d.limits?.maxIncorrectAttempts"
-                      @update:value="(v: any) => (d.limits.maxIncorrectAttempts = v)"
+                    <a-input-number :value="selectedFactorDomain.limits?.maxIncorrectAttempts"
+                      @update:value="(v: any) => (selectedFactorDomain.limits.maxIncorrectAttempts = v)"
                       :min="1" :max="50" style="width: 110px" />
                     <span class="factor-hint">endpointRestrictions.maxIncorrectAttempts</span>
                   </a-space>
 
                   <div style="margin-top: 12px; display: flex; justify-content: flex-end; gap: 8px">
                     <a-button size="small" @click="reloadFactors">重置</a-button>
-                    <a-button size="small" type="primary" :loading="factorSavingId === d.domainId"
-                      @click="saveFactors(d)">保存</a-button>
+                    <a-button size="small" type="primary" :loading="factorSavingId === selectedFactorDomain.domainId"
+                      @click="saveFactors(selectedFactorDomain)">保存</a-button>
                   </div>
                 </template>
-              </div>
+              </template>
             </a-spin>
           </div>
         </a-tab-pane>
         <a-tab-pane key="logs" tab="登录日志">
           <a-space style="margin-bottom: 12px" wrap>
-            <a-button @click="loadAuditLogs" :loading="auditLogsLoading">
+            <a-button type="primary" @click="loadAuditLogs" :loading="auditLogsLoading" :disabled="!selectedDomainId">
               <template #icon><ReloadOutlined /></template>加载最近{{ auditDays }}天登录日志
             </a-button>
-            <a-select v-model:value="auditDays" style="width: 120px" @change="loadAuditLogs">
+            <a-select v-model:value="auditDays" style="width: 120px" @change="onAuditDaysChange">
               <a-select-option :value="1">最近 1 天</a-select-option>
               <a-select-option :value="3">最近 3 天</a-select-option>
               <a-select-option :value="7">最近 7 天</a-select-option>
@@ -652,21 +671,16 @@ region=ap-tokyo-1"
             </span>
           </a-space>
           <a-spin :spinning="auditLogsLoading">
-            <a-empty v-if="!auditLogsLoading && auditLogs.length === 0" description="暂无数据" />
-            <a-tabs v-else-if="auditLogs.length > 1" v-model:activeKey="activeAuditDomain" type="card" size="small">
-              <a-tab-pane v-for="dom in auditLogs" :key="dom.domainId" :tab="dom.displayName + ' (' + (dom.logs?.length || 0) + ')'">
-                <AuditLogTable :rows="dom.logs || []" :error="dom.error || dom.notice" :is-mobile="isMobile" />
-              </a-tab-pane>
-            </a-tabs>
-            <div v-else-if="auditLogs.length === 1">
-              <div style="margin-bottom: 8px">
-                <a-tag color="purple">{{ auditLogs[0].displayName }}</a-tag>
-              </div>
-              <AuditLogTable :rows="auditLogs[0].logs || []" :error="auditLogs[0].error || auditLogs[0].notice" :is-mobile="isMobile" />
+            <a-empty v-if="!auditLogsLoading && !selectedAuditDomain" description="请点击「加载」按钮拉取当前域的登录日志" />
+            <div v-else-if="selectedAuditDomain">
+              <AuditLogTable :rows="selectedAuditDomain.logs || []"
+                :error="selectedAuditDomain.error || selectedAuditDomain.notice" :is-mobile="isMobile" />
             </div>
           </a-spin>
         </a-tab-pane>
         <a-tab-pane key="quotas" tab="账户配额">
+          <a-alert type="info" show-icon style="margin-bottom: 10px"
+            message="账户配额为租户级数据，与域选择无关" />
           <a-space style="margin-bottom: 12px">
             <a-button @click="loadQuotas" :loading="quotasLoading">
               <template #icon><ReloadOutlined /></template>查询配额
@@ -721,7 +735,7 @@ region=ap-tokyo-1"
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, watch, h } from 'vue'
 import { useRouter } from 'vue-router'
 import { PlusOutlined, ThunderboltOutlined, InboxOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
@@ -931,15 +945,56 @@ const domainMgmtTenant = ref<any>(null)
 const domainTab = ref('security')
 const domainSettingsLoading = ref(false)
 const domainList = ref<any[]>([])
+const selectedDomainId = ref('')
 const mfaUpdatingId = ref('')
 const pwdExpiryUpdatingId = ref('')
 const auditLogsLoading = ref(false)
 const auditLogs = ref<any[]>([])
-const activeAuditDomain = ref('')
 const auditDays = ref(7)
 const quotasLoading = ref(false)
 const quotasList = ref<any[]>([])
 const quotaSearch = ref('')
+
+const DOMAIN_TYPE_CN: Record<string, string> = {
+  DEFAULT: '默认域',
+  PRIMARY: '主域',
+  SECONDARY: '辅助域',
+  EXTERNAL: '外部域',
+}
+function domainTypeCn(t: string | null | undefined): string {
+  if (!t) return ''
+  const key = String(t).toUpperCase()
+  return DOMAIN_TYPE_CN[key] || t
+}
+
+const useDomainDropdown = computed(() => domainList.value.length > 3)
+const segmentedDomainOptions = computed(() =>
+  domainList.value.map((d: any) => ({
+    label: h('span', { class: 'domain-segmented-label' }, [
+      d.displayName || '—',
+      d.type ? h('span', { class: 'domain-type-pill' }, domainTypeCn(d.type)) : null,
+    ]),
+    value: d.domainId,
+  })),
+)
+const selectedDomain = computed<any | null>(() =>
+  domainList.value.find((d: any) => d.domainId === selectedDomainId.value) || null,
+)
+const selectedFactorDomain = computed<any | null>(() =>
+  authFactorDomains.value.find((d: any) => d.domainId === selectedDomainId.value) || null,
+)
+const selectedAuditDomain = computed<any | null>(() =>
+  auditLogs.value.find((d: any) => d.domainId === selectedDomainId.value) || null,
+)
+
+function handleDomainChange(domainId: string) {
+  if (!domainId || domainId === selectedDomainId.value) return
+  selectedDomainId.value = domainId
+}
+
+function onAuditDaysChange() {
+  auditLogs.value = []
+}
 
 // ------- 验证因素 -------
 const FACTOR_OPTIONS: { key: string; label: string }[] = [
@@ -1052,8 +1107,8 @@ async function openDomainMgmt(record: any) {
   domainMgmtTenant.value = record
   domainTab.value = 'security'
   domainList.value = []
+  selectedDomainId.value = ''
   auditLogs.value = []
-  activeAuditDomain.value = ''
   resetAuthFactorState()
   domainMgmtVisible.value = true
   await loadDomainSettings()
@@ -1069,6 +1124,9 @@ async function loadDomainSettings() {
     const res = await getDomainSettings({ id: domainMgmtTenant.value.id })
     const raw = (res.data && typeof res.data === 'object' && 'domains' in res.data) ? res.data.domains : res.data
     domainList.value = Array.isArray(raw) ? raw : []
+    if (domainList.value.length > 0 && !selectedDomainId.value) {
+      selectedDomainId.value = domainList.value[0].domainId
+    }
   } catch (e: any) {
     message.error(e?.message || '获取域设置失败')
   } finally {
@@ -1108,15 +1166,19 @@ async function handlePwdExpiryChange(domain: any) {
 }
 
 async function loadAuditLogs() {
+  if (!selectedDomainId.value) {
+    message.warning('请先选择域')
+    return
+  }
   auditLogsLoading.value = true
   try {
     const res = await getAuditLogs({ id: domainMgmtTenant.value.id, days: auditDays.value })
     auditLogs.value = Array.isArray(res.data) ? res.data : []
-    if (auditLogs.value.length) {
-      activeAuditDomain.value = auditLogs.value[0].domainId
+    const cur = auditLogs.value.find((d: any) => d.domainId === selectedDomainId.value)
+    const count = cur?.logs?.length || 0
+    if (!count && !cur?.error && !cur?.notice) {
+      message.info('最近时间窗口内未检索到登录相关日志')
     }
-    const total = auditLogs.value.reduce((s: number, d: any) => s + (d.logs?.length || 0), 0)
-    if (!total) message.info('最近时间窗口内未检索到登录相关日志')
   } catch (e: any) {
     message.error(e?.message || '获取登录日志失败')
   } finally {
@@ -1543,6 +1605,36 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
 </script>
 
 <style scoped>
+.domain-switcher {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 10px 12px;
+  margin-bottom: 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 8px);
+}
+.domain-switcher-label {
+  font-size: 13px;
+  color: var(--text-sub);
+  white-space: nowrap;
+}
+.domain-segmented-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.domain-type-pill {
+  display: inline-block;
+  font-size: 11px;
+  line-height: 1.5;
+  padding: 0 6px;
+  border-radius: 10px;
+  background: rgba(22, 119, 255, 0.12);
+  color: var(--primary, #1677ff);
+}
 .domain-card {
   background: var(--bg-card);
   border: 1px solid var(--border);
