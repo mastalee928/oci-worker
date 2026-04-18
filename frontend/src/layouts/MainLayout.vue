@@ -202,6 +202,7 @@ function handleLogout() {
 .nav-menu {
   flex: 1;
   padding: 12px 8px !important;
+  overflow-x: hidden;
   overflow-y: auto;
   background: transparent !important;
   border: none !important;
