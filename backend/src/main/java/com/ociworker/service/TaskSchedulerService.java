@@ -4,6 +4,8 @@ import cn.hutool.core.thread.ThreadFactoryBuilder;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ociworker.enums.TaskStatusEnum;
 import com.ociworker.exception.OciException;
 import com.ociworker.mapper.OciCreateTaskMapper;
@@ -23,6 +25,9 @@ import org.springframework.context.annotation.DependsOn;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -47,6 +52,7 @@ public class TaskSchedulerService {
     private final ScheduledThreadPoolExecutor taskPool = new ScheduledThreadPoolExecutor(
             Math.min(4, Runtime.getRuntime().availableProcessors()),
             ThreadFactoryBuilder.create().setNamePrefix("oci-task-").build());
+    private static final ObjectMapper JSON = new ObjectMapper();
 
     @PreDestroy
     public void shutdown() {
@@ -339,6 +345,7 @@ public class TaskSchedulerService {
             if (result.isSuccess()) {
                 int successCount = incrementSuccessCount(taskId);
                 int targetCount = dto.getCreateNumbers() != null ? dto.getCreateNumbers() : 1;
+                appendCreatedInstance(taskId, result);
                 broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],架构:[%s] - 实例创建成功(%d/%d)！IP:%s",
                         user, region, arch, successCount, targetCount, result.getPublicIp()));
                 String html = "🎉 <b>实例创建成功！</b>（" + successCount + "/" + targetCount + "）\n\n"
@@ -385,6 +392,72 @@ public class TaskSchedulerService {
         taskMapper.update(null, wrapper);
         OciCreateTask task = taskMapper.selectById(taskId);
         return task != null && task.getSuccessCount() != null ? task.getSuccessCount() : 1;
+    }
+
+    private synchronized void appendCreatedInstance(String taskId, InstanceDetailDTO result) {
+        try {
+            OciCreateTask task = taskMapper.selectById(taskId);
+            if (task == null) return;
+
+            List<Map<String, Object>> list = parseCreatedInstances(task.getCreatedInstances());
+
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("instanceId", result.getInstanceId());
+            item.put("instanceName", result.getInstanceName());
+            item.put("shape", result.getShape());
+            item.put("ocpus", result.getOcpus());
+            item.put("memory", result.getMemory());
+            item.put("disk", result.getDisk());
+            item.put("publicIp", result.getPublicIp());
+            item.put("privateIp", result.getPrivateIp());
+            item.put("image", result.getImage());
+            item.put("createdAt", LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
+            list.add(item);
+
+            UpdateWrapper<OciCreateTask> wrapper = new UpdateWrapper<>();
+            wrapper.eq("id", taskId).set("created_instances", JSON.writeValueAsString(list));
+            taskMapper.update(null, wrapper);
+        } catch (Exception e) {
+            log.warn("Failed to append created instance record for task {}: {}", taskId, e.getMessage());
+        }
+    }
+
+    private List<Map<String, Object>> parseCreatedInstances(String json) {
+        if (json == null || json.isBlank()) return new ArrayList<>();
+        try {
+            return JSON.readValue(json, new TypeReference<List<Map<String, Object>>>() {});
+        } catch (Exception e) {
+            log.warn("Failed to parse created_instances: {}", e.getMessage());
+            return new ArrayList<>();
+        }
+    }
+
+    public Map<String, Object> getTaskDetail(String taskId) {
+        OciCreateTask task = taskMapper.selectById(taskId);
+        if (task == null) throw new OciException("任务不存在");
+        OciUser user = userMapper.selectById(task.getUserId());
+
+        Map<String, Object> data = new LinkedHashMap<>();
+        data.put("id", task.getId());
+        data.put("userId", task.getUserId());
+        data.put("username", user != null ? user.getUsername() : "unknown");
+        data.put("ociRegion", task.getOciRegion());
+        data.put("architecture", task.getArchitecture());
+        data.put("ocpus", task.getOcpus());
+        data.put("memory", task.getMemory());
+        data.put("disk", task.getDisk());
+        data.put("createNumbers", task.getCreateNumbers());
+        data.put("operationSystem", task.getOperationSystem());
+        data.put("customScript", task.getCustomScript());
+        data.put("assignPublicIp", task.getAssignPublicIp() != null ? task.getAssignPublicIp() : true);
+        data.put("assignIpv6", task.getAssignIpv6() != null ? task.getAssignIpv6() : false);
+        data.put("status", task.getStatus());
+        data.put("attemptCount", task.getAttemptCount());
+        data.put("successCount", task.getSuccessCount() != null ? task.getSuccessCount() : 0);
+        data.put("createTime", task.getCreateTime());
+        data.put("rootPassword", task.getRootPassword());
+        data.put("instances", parseCreatedInstances(task.getCreatedInstances()));
+        return data;
     }
 
     private void completeTask(String taskId, TaskStatusEnum status) {

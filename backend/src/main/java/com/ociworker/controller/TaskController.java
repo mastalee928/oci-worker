@@ -75,6 +75,11 @@ public class TaskController {
         return ResponseData.ok();
     }
 
+    @PostMapping("/detail")
+    public ResponseData<?> detail(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(taskSchedulerService.getTaskDetail(params.get("taskId")));
+    }
+
     @PostMapping("/batchStop")
     public ResponseData<?> batchStop(@RequestBody Map<String, Object> params) {
         List<String> ids = extractStringList(params, "taskIds");

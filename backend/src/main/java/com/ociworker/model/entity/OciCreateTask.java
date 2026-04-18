@@ -27,5 +27,6 @@ public class OciCreateTask {
     private String status;
     private Integer attemptCount;
     private Integer successCount;
+    private String createdInstances;
     private LocalDateTime createTime;
 }

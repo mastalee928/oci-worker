@@ -29,6 +29,7 @@ CREATE TABLE IF NOT EXISTS oci_create_task (
     status VARCHAR(16) DEFAULT 'RUNNING',
     attempt_count INT DEFAULT 0,
     success_count INT DEFAULT 0,
+    created_instances TEXT DEFAULT NULL,
     create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_oci_create_task_create_time (create_time DESC)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

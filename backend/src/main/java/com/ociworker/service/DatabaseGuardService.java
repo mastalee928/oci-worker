@@ -68,6 +68,7 @@ public class DatabaseGuardService {
                 status VARCHAR(16) DEFAULT 'RUNNING',
                 attempt_count INT DEFAULT 0,
                 success_count INT DEFAULT 0,
+                created_instances TEXT DEFAULT NULL,
                 create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 INDEX idx_oci_create_task_create_time (create_time DESC)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
@@ -281,6 +282,7 @@ public class DatabaseGuardService {
         addColumnIfMissing(conn, "oci_create_task", "assign_public_ip", "TINYINT(1) DEFAULT 1 AFTER custom_script");
         addColumnIfMissing(conn, "oci_create_task", "assign_ipv6", "TINYINT(1) DEFAULT 0 AFTER assign_public_ip");
         addColumnIfMissing(conn, "oci_create_task", "success_count", "INT DEFAULT 0 AFTER attempt_count");
+        addColumnIfMissing(conn, "oci_create_task", "created_instances", "TEXT DEFAULT NULL AFTER success_count");
     }
 
     private void addColumnIfMissing(Connection conn, String table, String column, String definition) {

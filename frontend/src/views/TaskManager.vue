@@ -57,6 +57,7 @@
             <a-popconfirm v-if="record.status === 'STOPPED'" title="确定恢复任务?" @confirm="handleResume(record)">
               <a-button type="link" size="small" :loading="actionLoading[record.id]">继续</a-button>
             </a-popconfirm>
+            <a-button v-if="record.status !== 'RUNNING' && (record.successCount || 0) > 0" type="link" size="small" @click="showDetailModal(record)">详情</a-button>
             <a-popconfirm v-if="record.status !== 'RUNNING'" title="确定删除此记录?" @confirm="handleDelete(record)">
               <a-button type="link" danger size="small" :loading="actionLoading[record.id]">删除</a-button>
             </a-popconfirm>
@@ -93,6 +94,7 @@
           <a-popconfirm v-if="task.status === 'STOPPED'" title="确定恢复？" @confirm="handleResume(task)">
             <a-button type="link" size="small" :loading="actionLoading[task.id]">继续</a-button>
           </a-popconfirm>
+          <a-button v-if="task.status !== 'RUNNING' && (task.successCount || 0) > 0" type="link" size="small" @click="showDetailModal(task)">详情</a-button>
           <a-popconfirm v-if="task.status !== 'RUNNING'" title="确定删除？" @confirm="handleDelete(task)">
             <a-button type="link" danger size="small" :loading="actionLoading[task.id]">删除</a-button>
           </a-popconfirm>
@@ -256,6 +258,81 @@
         </a-form-item>
       </a-form>
     </a-modal>
+
+    <!-- 任务详情弹窗 -->
+    <a-modal v-model:open="detailVisible" title="开机任务详情" :width="isMobile ? '100%' : 720" :footer="null" :mask-closable="true">
+      <a-spin :spinning="detailLoading">
+        <div v-if="detailData" class="task-detail">
+          <!-- 任务元信息 -->
+          <div class="detail-section">
+            <div class="detail-section-title">任务信息</div>
+            <a-descriptions :column="isMobile ? 1 : 2" size="small" bordered>
+              <a-descriptions-item label="租户">{{ detailData.username }}</a-descriptions-item>
+              <a-descriptions-item label="区域">{{ detailData.ociRegion }}</a-descriptions-item>
+              <a-descriptions-item label="架构">
+                <a-tag :color="detailData.architecture === 'ARM' ? 'green' : 'blue'">{{ detailData.architecture }}</a-tag>
+              </a-descriptions-item>
+              <a-descriptions-item label="操作系统">{{ detailData.operationSystem || '—' }}</a-descriptions-item>
+              <a-descriptions-item label="配置">{{ detailData.ocpus }}C / {{ detailData.memory }}G / {{ detailData.disk }}GB</a-descriptions-item>
+              <a-descriptions-item label="进度">
+                <span style="font-weight:600">{{ detailData.successCount || 0 }}</span> / {{ detailData.createNumbers }}
+              </a-descriptions-item>
+              <a-descriptions-item label="公网IP">{{ detailData.assignPublicIp ? '启用' : '禁用' }}</a-descriptions-item>
+              <a-descriptions-item label="IPv6">{{ detailData.assignIpv6 ? '启用' : '禁用' }}</a-descriptions-item>
+              <a-descriptions-item label="状态">
+                <a-badge :status="badgeStatusMap[detailData.status] || 'default'" :text="statusMap[detailData.status] || detailData.status" />
+              </a-descriptions-item>
+              <a-descriptions-item label="创建时间">{{ detailData.createTime }}</a-descriptions-item>
+              <a-descriptions-item label="Root 密码" :span="isMobile ? 1 : 2">
+                <a-typography-text v-if="detailData.rootPassword" copyable>
+                  {{ pwdVisible ? detailData.rootPassword : '••••••••' }}
+                </a-typography-text>
+                <a-button type="link" size="small" @click="pwdVisible = !pwdVisible" style="padding:0;margin-left:8px">
+                  {{ pwdVisible ? '隐藏' : '显示' }}
+                </a-button>
+                <span v-if="!detailData.rootPassword" style="color: var(--text-sub)">—</span>
+              </a-descriptions-item>
+              <a-descriptions-item v-if="detailData.customScript" label="自定义脚本" :span="isMobile ? 1 : 2">
+                <pre class="script-block">{{ detailData.customScript }}</pre>
+              </a-descriptions-item>
+            </a-descriptions>
+          </div>
+
+          <!-- 已创建实例 -->
+          <div class="detail-section" style="margin-top:16px">
+            <div class="detail-section-title">
+              已创建实例
+              <a-tag color="green" style="margin-left:8px">{{ detailData.instances?.length || 0 }} 台</a-tag>
+            </div>
+            <a-empty v-if="!detailData.instances || detailData.instances.length === 0" description="暂无成功创建的实例记录" />
+            <a-table v-else :data-source="detailData.instances" :pagination="false" size="small" row-key="instanceId">
+              <a-table-column title="名称" data-index="instanceName" :ellipsis="true">
+                <template #default="{ record }">
+                  <a-tooltip :title="record.instanceName">
+                    <span>{{ record.instanceName || '—' }}</span>
+                  </a-tooltip>
+                </template>
+              </a-table-column>
+              <a-table-column title="规格" key="spec" :width="140">
+                <template #default="{ record }">
+                  <div style="font-weight:600">{{ record.ocpus }}C / {{ record.memory }}G</div>
+                  <div style="font-size:11px;color:var(--text-sub)">{{ record.disk }}GB · {{ record.shape }}</div>
+                </template>
+              </a-table-column>
+              <a-table-column title="公网 IP" data-index="publicIp" :width="160">
+                <template #default="{ record }">
+                  <a-typography-text v-if="record.publicIp" copyable>{{ record.publicIp }}</a-typography-text>
+                  <span v-else style="color: var(--text-sub)">—</span>
+                </template>
+              </a-table-column>
+              <a-table-column title="创建时间" data-index="createdAt" :width="170">
+                <template #default="{ record }">{{ formatDateTime(record.createdAt) }}</template>
+              </a-table-column>
+            </a-table>
+          </div>
+        </div>
+      </a-spin>
+    </a-modal>
   </div>
 </template>
 
@@ -263,7 +340,7 @@
 import { ref, reactive, onMounted, onUnmounted } from 'vue'
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
-import { getTaskList, createTask, updateTask, stopTask, hasRunningTask, resumeTask, deleteTask, batchStopTask, batchResumeTask } from '../api/task'
+import { getTaskList, createTask, updateTask, stopTask, hasRunningTask, resumeTask, deleteTask, batchStopTask, batchResumeTask, getTaskDetail } from '../api/task'
 import { getTenantList } from '../api/tenant'
 import { getAvailableShapes } from '../api/instance'
 
@@ -537,6 +614,33 @@ async function handleDelete(record: any) {
   }
 }
 
+const detailVisible = ref(false)
+const detailLoading = ref(false)
+const detailData = ref<any>(null)
+const pwdVisible = ref(false)
+
+async function showDetailModal(record: any) {
+  detailVisible.value = true
+  detailLoading.value = true
+  pwdVisible.value = false
+  detailData.value = null
+  try {
+    const res = await getTaskDetail({ taskId: record.id })
+    detailData.value = res.data
+  } catch (e: any) {
+    message.error(e?.message || '加载任务详情失败')
+    detailVisible.value = false
+  } finally {
+    detailLoading.value = false
+  }
+}
+
+function formatDateTime(v: any) {
+  if (!v) return '—'
+  const s = String(v).replace('T', ' ')
+  return s.length > 19 ? s.substring(0, 19) : s
+}
+
 onMounted(() => loadData())
 </script>
 
@@ -544,6 +648,23 @@ onMounted(() => loadData())
 .table-toolbar { margin-bottom: 16px; transition: var(--trans); }
 :deep(.row-inactive td) {
   color: var(--text-sub) !important;
+}
+.task-detail .detail-section-title {
+  font-weight: 600;
+  font-size: 14px;
+  margin-bottom: 10px;
+  color: var(--text-main);
+}
+.task-detail .script-block {
+  margin: 0;
+  padding: 8px 10px;
+  background: var(--bg-sub, rgba(255,255,255,0.04));
+  border-radius: 4px;
+  font-size: 12px;
+  white-space: pre-wrap;
+  word-break: break-all;
+  max-height: 200px;
+  overflow: auto;
 }
 @media (max-width: 768px) {
   .table-toolbar :deep(.ant-space) {

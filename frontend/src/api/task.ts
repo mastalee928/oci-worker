@@ -32,6 +32,10 @@ export function deleteTask(data: { taskId: string }) {
   return request.post('/oci/task/delete', data)
 }
 
+export function getTaskDetail(data: { taskId: string }) {
+  return request.post('/oci/task/detail', data)
+}
+
 export function batchStopTask(data: { taskIds: string[] }) {
   return request.post('/oci/task/batchStop', data)
 }
