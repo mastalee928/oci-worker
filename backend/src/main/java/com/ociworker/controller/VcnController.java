@@ -49,6 +49,17 @@ public class VcnController {
         return ResponseData.ok();
     }
 
+    @PostMapping("/update")
+    public ResponseData<?> updateVcn(@RequestBody Map<String, Object> params) {
+        vcnService.updateVcn(str(params, "id"), str(params, "vcnId"), str(params, "displayName"), null);
+        return ResponseData.ok();
+    }
+
+    @PostMapping("/gateways")
+    public ResponseData<?> listVcnGateways(@RequestBody Map<String, Object> params) {
+        return ResponseData.ok(vcnService.listVcnGateways(str(params, "id"), str(params, "vcnId")));
+    }
+
     // ---------- Subnet ----------
 
     @PostMapping("/subnet/list")
@@ -77,6 +88,20 @@ public class VcnController {
         return ResponseData.ok();
     }
 
+    @SuppressWarnings("unchecked")
+    @PostMapping("/subnet/update")
+    public ResponseData<?> updateSubnet(@RequestBody Map<String, Object> params) {
+        Object secIds = params.get("securityListIds");
+        java.util.List<String> sl = null;
+        if (secIds instanceof java.util.List<?> list) {
+            sl = new java.util.ArrayList<>();
+            for (Object o : list) if (o != null) sl.add(String.valueOf(o));
+        }
+        vcnService.updateSubnet(str(params, "id"), str(params, "subnetId"),
+                str(params, "displayName"), str(params, "routeTableId"), sl);
+        return ResponseData.ok();
+    }
+
     // ---------- Internet Gateway ----------
 
     @PostMapping("/igw/list")
@@ -102,6 +127,14 @@ public class VcnController {
         return ResponseData.ok();
     }
 
+    @PostMapping("/igw/update")
+    public ResponseData<?> updateIgw(@RequestBody Map<String, Object> params) {
+        Boolean enabled = params.get("isEnabled") == null ? null : bool(params, "isEnabled", true);
+        vcnService.updateInternetGateway(str(params, "id"), str(params, "igwId"),
+                str(params, "displayName"), enabled);
+        return ResponseData.ok();
+    }
+
     // ---------- NAT Gateway ----------
 
     @PostMapping("/nat/list")
@@ -119,6 +152,14 @@ public class VcnController {
     public ResponseData<?> deleteNat(@RequestBody Map<String, Object> params) {
         verifyCodeService.verifyCode("deleteVcn", str(params, "verifyCode"));
         vcnService.deleteNatGateway(str(params, "id"), str(params, "natId"));
+        return ResponseData.ok();
+    }
+
+    @PostMapping("/nat/update")
+    public ResponseData<?> updateNat(@RequestBody Map<String, Object> params) {
+        Boolean block = params.get("blockTraffic") == null ? null : bool(params, "blockTraffic", false);
+        vcnService.updateNatGateway(str(params, "id"), str(params, "natId"),
+                str(params, "displayName"), block);
         return ResponseData.ok();
     }
 
@@ -142,6 +183,14 @@ public class VcnController {
         return ResponseData.ok();
     }
 
+    @PostMapping("/sg/update")
+    public ResponseData<?> updateSg(@RequestBody Map<String, Object> params) {
+        Boolean block = params.get("blockTraffic") == null ? null : bool(params, "blockTraffic", false);
+        vcnService.updateServiceGateway(str(params, "id"), str(params, "sgId"),
+                str(params, "displayName"), block);
+        return ResponseData.ok();
+    }
+
     // ---------- Route Table ----------
 
     @PostMapping("/rt/list")
@@ -153,6 +202,25 @@ public class VcnController {
     public ResponseData<?> deleteRt(@RequestBody Map<String, Object> params) {
         verifyCodeService.verifyCode("deleteVcn", str(params, "verifyCode"));
         vcnService.deleteRouteTable(str(params, "id"), str(params, "rtId"));
+        return ResponseData.ok();
+    }
+
+    @PostMapping("/rt/detail")
+    public ResponseData<?> rtDetail(@RequestBody Map<String, Object> params) {
+        return ResponseData.ok(vcnService.getRouteTable(str(params, "id"), str(params, "rtId")));
+    }
+
+    @SuppressWarnings("unchecked")
+    @PostMapping("/rt/update")
+    public ResponseData<?> updateRt(@RequestBody Map<String, Object> params) {
+        java.util.List<Map<String, Object>> rules = null;
+        Object rr = params.get("routeRules");
+        if (rr instanceof java.util.List<?> list) {
+            rules = new java.util.ArrayList<>();
+            for (Object o : list) if (o instanceof Map) rules.add((Map<String, Object>) o);
+        }
+        vcnService.updateRouteTable(str(params, "id"), str(params, "rtId"),
+                str(params, "displayName"), rules);
         return ResponseData.ok();
     }
 
@@ -168,6 +236,11 @@ public class VcnController {
         verifyCodeService.verifyCode("deleteVcn", str(params, "verifyCode"));
         vcnService.deleteSecurityList(str(params, "id"), str(params, "slId"));
         return ResponseData.ok();
+    }
+
+    @PostMapping("/sl/detail")
+    public ResponseData<?> slDetail(@RequestBody Map<String, Object> params) {
+        return ResponseData.ok(vcnService.getSecurityList(str(params, "id"), str(params, "slId")));
     }
 
     // ---------- DRG ----------
@@ -213,6 +286,12 @@ public class VcnController {
     public ResponseData<?> deleteLpg(@RequestBody Map<String, Object> params) {
         verifyCodeService.verifyCode("deleteVcn", str(params, "verifyCode"));
         vcnService.deleteLocalPeeringGateway(str(params, "id"), str(params, "lpgId"));
+        return ResponseData.ok();
+    }
+
+    @PostMapping("/lpg/update")
+    public ResponseData<?> updateLpg(@RequestBody Map<String, Object> params) {
+        vcnService.updateLocalPeeringGateway(str(params, "id"), str(params, "lpgId"), str(params, "displayName"));
         return ResponseData.ok();
     }
 

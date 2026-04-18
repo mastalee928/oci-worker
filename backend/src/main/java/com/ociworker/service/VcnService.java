@@ -258,6 +258,22 @@ public class VcnService {
                 client.getVirtualNetworkClient().deleteSubnet(DeleteSubnetRequest.builder().subnetId(subnetId).build()));
     }
 
+    public void updateSubnet(String userId, String subnetId, String displayName, String routeTableId, List<String> securityListIds) {
+        OciUser ociUser = userMapper.selectById(userId);
+        if (ociUser == null) throw new OciException("租户配置不存在");
+        SysUserDTO dto = buildBasicDTO(ociUser);
+        try (OciClientService client = new OciClientService(dto)) {
+            UpdateSubnetDetails.Builder b = UpdateSubnetDetails.builder();
+            if (displayName != null && !displayName.isBlank()) b.displayName(displayName);
+            if (routeTableId != null && !routeTableId.isBlank()) b.routeTableId(routeTableId);
+            if (securityListIds != null && !securityListIds.isEmpty()) b.securityListIds(securityListIds);
+            client.getVirtualNetworkClient().updateSubnet(
+                    UpdateSubnetRequest.builder().subnetId(subnetId)
+                            .updateSubnetDetails(b.build()).build());
+        } catch (OciException e) { throw e; }
+        catch (Exception e) { throw new OciException("更新子网失败: " + e.getMessage()); }
+    }
+
     // ---------------- Internet Gateway ----------------
 
     public List<Map<String, Object>> listInternetGateways(String userId, String vcnId) {
@@ -302,6 +318,21 @@ public class VcnService {
                 client.getVirtualNetworkClient().deleteInternetGateway(DeleteInternetGatewayRequest.builder().igId(igId).build()));
     }
 
+    public void updateInternetGateway(String userId, String igId, String displayName, Boolean isEnabled) {
+        OciUser ociUser = userMapper.selectById(userId);
+        if (ociUser == null) throw new OciException("租户配置不存在");
+        SysUserDTO dto = buildBasicDTO(ociUser);
+        try (OciClientService client = new OciClientService(dto)) {
+            UpdateInternetGatewayDetails.Builder b = UpdateInternetGatewayDetails.builder();
+            if (displayName != null && !displayName.isBlank()) b.displayName(displayName);
+            if (isEnabled != null) b.isEnabled(isEnabled);
+            client.getVirtualNetworkClient().updateInternetGateway(
+                    UpdateInternetGatewayRequest.builder().igId(igId)
+                            .updateInternetGatewayDetails(b.build()).build());
+        } catch (OciException e) { throw e; }
+        catch (Exception e) { throw new OciException("更新 IGW 失败: " + e.getMessage()); }
+    }
+
     // ---------------- NAT Gateway ----------------
 
     public List<Map<String, Object>> listNatGateways(String userId, String vcnId) {
@@ -344,6 +375,21 @@ public class VcnService {
     public void deleteNatGateway(String userId, String natId) {
         deleteResource(userId, () -> "deleteNatGateway", (client) ->
                 client.getVirtualNetworkClient().deleteNatGateway(DeleteNatGatewayRequest.builder().natGatewayId(natId).build()));
+    }
+
+    public void updateNatGateway(String userId, String natId, String displayName, Boolean blockTraffic) {
+        OciUser ociUser = userMapper.selectById(userId);
+        if (ociUser == null) throw new OciException("租户配置不存在");
+        SysUserDTO dto = buildBasicDTO(ociUser);
+        try (OciClientService client = new OciClientService(dto)) {
+            UpdateNatGatewayDetails.Builder b = UpdateNatGatewayDetails.builder();
+            if (displayName != null && !displayName.isBlank()) b.displayName(displayName);
+            if (blockTraffic != null) b.blockTraffic(blockTraffic);
+            client.getVirtualNetworkClient().updateNatGateway(
+                    UpdateNatGatewayRequest.builder().natGatewayId(natId)
+                            .updateNatGatewayDetails(b.build()).build());
+        } catch (OciException e) { throw e; }
+        catch (Exception e) { throw new OciException("更新 NAT 失败: " + e.getMessage()); }
     }
 
     // ---------------- Service Gateway ----------------
@@ -401,6 +447,21 @@ public class VcnService {
                 client.getVirtualNetworkClient().deleteServiceGateway(DeleteServiceGatewayRequest.builder().serviceGatewayId(sgId).build()));
     }
 
+    public void updateServiceGateway(String userId, String sgId, String displayName, Boolean blockTraffic) {
+        OciUser ociUser = userMapper.selectById(userId);
+        if (ociUser == null) throw new OciException("租户配置不存在");
+        SysUserDTO dto = buildBasicDTO(ociUser);
+        try (OciClientService client = new OciClientService(dto)) {
+            UpdateServiceGatewayDetails.Builder b = UpdateServiceGatewayDetails.builder();
+            if (displayName != null && !displayName.isBlank()) b.displayName(displayName);
+            if (blockTraffic != null) b.blockTraffic(blockTraffic);
+            client.getVirtualNetworkClient().updateServiceGateway(
+                    UpdateServiceGatewayRequest.builder().serviceGatewayId(sgId)
+                            .updateServiceGatewayDetails(b.build()).build());
+        } catch (OciException e) { throw e; }
+        catch (Exception e) { throw new OciException("更新 SG 失败: " + e.getMessage()); }
+    }
+
     // ---------------- Route Table ----------------
 
     public List<Map<String, Object>> listRouteTables(String userId, String vcnId) {
@@ -424,6 +485,122 @@ public class VcnService {
     public void deleteRouteTable(String userId, String rtId) {
         deleteResource(userId, () -> "deleteRouteTable", (client) ->
                 client.getVirtualNetworkClient().deleteRouteTable(DeleteRouteTableRequest.builder().rtId(rtId).build()));
+    }
+
+    public void updateRouteTable(String userId, String rtId, String displayName, List<Map<String, Object>> routeRules) {
+        OciUser ociUser = userMapper.selectById(userId);
+        if (ociUser == null) throw new OciException("租户配置不存在");
+        SysUserDTO dto = buildBasicDTO(ociUser);
+        try (OciClientService client = new OciClientService(dto)) {
+            UpdateRouteTableDetails.Builder b = UpdateRouteTableDetails.builder();
+            if (displayName != null && !displayName.isBlank()) b.displayName(displayName);
+            if (routeRules != null) {
+                List<RouteRule> rules = new ArrayList<>();
+                for (Map<String, Object> r : routeRules) {
+                    RouteRule.Builder rb = RouteRule.builder()
+                            .destination(asStr(r.get("destination")))
+                            .networkEntityId(asStr(r.get("networkEntityId")))
+                            .description(asStr(r.get("description")));
+                    String dstType = asStr(r.get("destinationType"));
+                    if (dstType != null && !dstType.isBlank()) {
+                        try { rb.destinationType(RouteRule.DestinationType.create(dstType)); } catch (Exception ignored) {}
+                    }
+                    rules.add(rb.build());
+                }
+                b.routeRules(rules);
+            }
+            client.getVirtualNetworkClient().updateRouteTable(
+                    UpdateRouteTableRequest.builder().rtId(rtId)
+                            .updateRouteTableDetails(b.build()).build());
+        } catch (OciException e) { throw e; }
+        catch (Exception e) { throw new OciException("更新路由表失败: " + e.getMessage()); }
+    }
+
+    public Map<String, Object> getRouteTable(String userId, String rtId) {
+        OciUser ociUser = userMapper.selectById(userId);
+        if (ociUser == null) throw new OciException("租户配置不存在");
+        SysUserDTO dto = buildBasicDTO(ociUser);
+        try (OciClientService client = new OciClientService(dto)) {
+            RouteTable rt = client.getVirtualNetworkClient().getRouteTable(
+                    GetRouteTableRequest.builder().rtId(rtId).build()).getRouteTable();
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", rt.getId());
+            m.put("displayName", rt.getDisplayName());
+            m.put("lifecycleState", rt.getLifecycleState() != null ? rt.getLifecycleState().getValue() : null);
+            List<Map<String, Object>> rules = new ArrayList<>();
+            if (rt.getRouteRules() != null) {
+                for (RouteRule r : rt.getRouteRules()) {
+                    Map<String, Object> rr = new LinkedHashMap<>();
+                    rr.put("destination", r.getDestination());
+                    rr.put("destinationType", r.getDestinationType() != null ? r.getDestinationType().getValue() : null);
+                    rr.put("networkEntityId", r.getNetworkEntityId());
+                    rr.put("description", r.getDescription());
+                    rules.add(rr);
+                }
+            }
+            m.put("routeRules", rules);
+            return m;
+        } catch (OciException e) { throw e; }
+        catch (Exception e) { throw new OciException("查询路由表失败: " + e.getMessage()); }
+    }
+
+    public List<Map<String, Object>> listVcnGateways(String userId, String vcnId) {
+        OciUser ociUser = userMapper.selectById(userId);
+        if (ociUser == null) throw new OciException("租户配置不存在");
+        SysUserDTO dto = buildBasicDTO(ociUser);
+        try (OciClientService client = new OciClientService(dto)) {
+            Vcn vcn = client.getVirtualNetworkClient().getVcn(GetVcnRequest.builder().vcnId(vcnId).build()).getVcn();
+            String cid = vcn.getCompartmentId();
+            List<Map<String, Object>> result = new ArrayList<>();
+            try {
+                for (var ig : client.getVirtualNetworkClient().listInternetGateways(
+                        ListInternetGatewaysRequest.builder().compartmentId(cid).vcnId(vcnId).build()).getItems()) {
+                    if (ig.getLifecycleState() == InternetGateway.LifecycleState.Terminated) continue;
+                    result.add(Map.of("id", ig.getId(), "displayName", ig.getDisplayName(), "type", "internetGateway"));
+                }
+            } catch (Exception ignored) {}
+            try {
+                for (var ng : client.getVirtualNetworkClient().listNatGateways(
+                        ListNatGatewaysRequest.builder().compartmentId(cid).vcnId(vcnId).build()).getItems()) {
+                    if (ng.getLifecycleState() == NatGateway.LifecycleState.Terminated) continue;
+                    result.add(Map.of("id", ng.getId(), "displayName", ng.getDisplayName(), "type", "natGateway"));
+                }
+            } catch (Exception ignored) {}
+            try {
+                for (var sg : client.getVirtualNetworkClient().listServiceGateways(
+                        ListServiceGatewaysRequest.builder().compartmentId(cid).vcnId(vcnId).build()).getItems()) {
+                    if (sg.getLifecycleState() == ServiceGateway.LifecycleState.Terminated) continue;
+                    result.add(Map.of("id", sg.getId(), "displayName", sg.getDisplayName(), "type", "serviceGateway"));
+                }
+            } catch (Exception ignored) {}
+            try {
+                for (var lpg : client.getVirtualNetworkClient().listLocalPeeringGateways(
+                        ListLocalPeeringGatewaysRequest.builder().compartmentId(cid).vcnId(vcnId).build()).getItems()) {
+                    if (lpg.getLifecycleState() == LocalPeeringGateway.LifecycleState.Terminated) continue;
+                    result.add(Map.of("id", lpg.getId(), "displayName", lpg.getDisplayName(), "type", "localPeeringGateway"));
+                }
+            } catch (Exception ignored) {}
+            return result;
+        } catch (OciException e) { throw e; }
+        catch (Exception e) { throw new OciException("查询 VCN 网关失败: " + e.getMessage()); }
+    }
+
+    public Map<String, Object> getSecurityList(String userId, String slId) {
+        OciUser ociUser = userMapper.selectById(userId);
+        if (ociUser == null) throw new OciException("租户配置不存在");
+        SysUserDTO dto = buildBasicDTO(ociUser);
+        try (OciClientService client = new OciClientService(dto)) {
+            SecurityList sl = client.getVirtualNetworkClient().getSecurityList(
+                    GetSecurityListRequest.builder().securityListId(slId).build()).getSecurityList();
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", sl.getId());
+            m.put("displayName", sl.getDisplayName());
+            m.put("ingressSecurityRules", sl.getIngressSecurityRules());
+            m.put("egressSecurityRules", sl.getEgressSecurityRules());
+            m.put("lifecycleState", sl.getLifecycleState() != null ? sl.getLifecycleState().getValue() : null);
+            return m;
+        } catch (OciException e) { throw e; }
+        catch (Exception e) { throw new OciException("查询安全列表失败: " + e.getMessage()); }
     }
 
     // ---------------- Security List ----------------
@@ -611,6 +788,37 @@ public class VcnService {
             list.add(m);
         }
         return list;
+    }
+
+    private String asStr(Object v) {
+        return v == null ? null : String.valueOf(v);
+    }
+
+    public void updateVcn(String userId, String vcnId, String displayName, String dnsLabel) {
+        OciUser ociUser = userMapper.selectById(userId);
+        if (ociUser == null) throw new OciException("租户配置不存在");
+        SysUserDTO dto = buildBasicDTO(ociUser);
+        try (OciClientService client = new OciClientService(dto)) {
+            UpdateVcnDetails.Builder b = UpdateVcnDetails.builder();
+            if (displayName != null && !displayName.isBlank()) b.displayName(displayName);
+            client.getVirtualNetworkClient().updateVcn(
+                    UpdateVcnRequest.builder().vcnId(vcnId).updateVcnDetails(b.build()).build());
+        } catch (OciException e) { throw e; }
+        catch (Exception e) { throw new OciException("更新 VCN 失败: " + e.getMessage()); }
+    }
+
+    public void updateLocalPeeringGateway(String userId, String lpgId, String displayName) {
+        OciUser ociUser = userMapper.selectById(userId);
+        if (ociUser == null) throw new OciException("租户配置不存在");
+        SysUserDTO dto = buildBasicDTO(ociUser);
+        try (OciClientService client = new OciClientService(dto)) {
+            UpdateLocalPeeringGatewayDetails.Builder b = UpdateLocalPeeringGatewayDetails.builder();
+            if (displayName != null && !displayName.isBlank()) b.displayName(displayName);
+            client.getVirtualNetworkClient().updateLocalPeeringGateway(
+                    UpdateLocalPeeringGatewayRequest.builder().localPeeringGatewayId(lpgId)
+                            .updateLocalPeeringGatewayDetails(b.build()).build());
+        } catch (OciException e) { throw e; }
+        catch (Exception e) { throw new OciException("更新 LPG 失败: " + e.getMessage()); }
     }
 
     private SysUserDTO buildBasicDTO(OciUser ociUser) {
