@@ -655,14 +655,14 @@ region=ap-tokyo-1"
             <a-empty v-if="!auditLogsLoading && auditLogs.length === 0" description="暂无数据" />
             <a-tabs v-else-if="auditLogs.length > 1" v-model:activeKey="activeAuditDomain" type="card" size="small">
               <a-tab-pane v-for="dom in auditLogs" :key="dom.domainId" :tab="dom.displayName + ' (' + (dom.logs?.length || 0) + ')'">
-                <AuditLogTable :rows="dom.logs || []" :error="dom.error" :is-mobile="isMobile" />
+                <AuditLogTable :rows="dom.logs || []" :error="dom.error || dom.notice" :is-mobile="isMobile" />
               </a-tab-pane>
             </a-tabs>
             <div v-else-if="auditLogs.length === 1">
               <div style="margin-bottom: 8px">
                 <a-tag color="purple">{{ auditLogs[0].displayName }}</a-tag>
               </div>
-              <AuditLogTable :rows="auditLogs[0].logs || []" :error="auditLogs[0].error" :is-mobile="isMobile" />
+              <AuditLogTable :rows="auditLogs[0].logs || []" :error="auditLogs[0].error || auditLogs[0].notice" :is-mobile="isMobile" />
             </div>
           </a-spin>
         </a-tab-pane>

@@ -22,16 +22,6 @@ public class DomainManagementService {
     private static final String DEFAULT_PASSWORD_POLICY_NAME = "DefaultPasswordPolicy";
     private static final String CONSENT_SCHEMA =
             "urn:ietf:params:scim:schemas:oracle:idcs:extension:ociconsolesignonpolicyconsent:Policy";
-    private static final List<String> LOGIN_EVENT_IDS = List.of(
-            "sso.session.create.success",
-            "sso.authentication.failure",
-            "sso.session.create.failure",
-            "admin.authentication.success",
-            "admin.authentication.failure",
-            "sso.app.access.success",
-            "sso.app.access.failure"
-    );
-
     @Resource
     private OciUserMapper userMapper;
 
@@ -333,60 +323,20 @@ public class DomainManagementService {
     }
 
     public List<Map<String, Object>> getAuditLogs(String tenantId, int days) {
+        // Identity Domain 的 AuditEvents 接口 Oracle Java SDK 目前未开放，
+        // 仅通过 REST API（/admin/v1/AuditEvents）可访问。这里返回带 notice 的占位数据，
+        // 保留 UI 结构；后续可通过 REST + 签名器实现。
         List<Map<String, Object>> result = new ArrayList<>();
         try (OciClientService client = buildClient(tenantId)) {
             var domains = listDomains(client);
             if (domains.isEmpty()) throw new OciException("未找到 Identity Domain");
-
-            java.time.Instant start = java.time.Instant.now().minus(java.time.Duration.ofDays(Math.max(1, days)));
-            String startIso = start.toString();
-
-            StringBuilder filter = new StringBuilder();
-            filter.append("timestamp ge \"").append(startIso).append("\" and (");
-            for (int i = 0; i < LOGIN_EVENT_IDS.size(); i++) {
-                if (i > 0) filter.append(" or ");
-                filter.append("eventId eq \"").append(LOGIN_EVENT_IDS.get(i)).append("\"");
-            }
-            filter.append(")");
-
             for (var d : domains) {
                 Map<String, Object> entry = new LinkedHashMap<>();
                 entry.put("domainId", d.get("id"));
                 entry.put("displayName", d.get("displayName"));
                 entry.put("type", d.get("type"));
-
-                List<Map<String, Object>> logs = new ArrayList<>();
-                try (IdentityDomainsClient dc = newDomainClient(client, (String) d.get("url"))) {
-                    var resp = dc.listAuditEvents(ListAuditEventsRequest.builder()
-                            .filter(filter.toString())
-                            .sortBy("timestamp")
-                            .sortOrder(SortOrder.Descending)
-                            .count(200)
-                            .build());
-                    var items = resp.getAuditEvents() == null ? null : resp.getAuditEvents().getResources();
-                    if (items != null) {
-                        for (AuditEvent ev : items) {
-                            Map<String, Object> row = new LinkedHashMap<>();
-                            row.put("eventTime", ev.getTimestamp());
-                            row.put("eventId", ev.getEventId());
-                            row.put("actorName", ev.getActorName());
-                            row.put("actorType", ev.getActorType());
-                            row.put("actorDisplayName", ev.getActorDisplayName());
-                            row.put("ssoIdentityProvider", ev.getSsoIdentityProvider());
-                            row.put("ssoApplicationType", ev.getSsoApplicationType());
-                            row.put("ssoUserAgent", ev.getSsoUserAgent());
-                            row.put("ssoProtectedResource", ev.getSsoProtectedResource());
-                            row.put("clientIp", ev.getClientIp());
-                            row.put("ssoAuthFactor", ev.getSsoAuthFactor());
-                            row.put("message", ev.getMessage());
-                            logs.add(row);
-                        }
-                    }
-                } catch (Exception e) {
-                    log.warn("listAuditEvents for domain {} failed: {}", d.get("displayName"), e.getMessage());
-                    entry.put("error", e.getMessage() == null ? "查询失败" : e.getMessage());
-                }
-                entry.put("logs", logs);
+                entry.put("logs", new ArrayList<>());
+                entry.put("notice", "Oracle Java SDK 暂未开放 Identity Domain 审计日志接口，请前往 OCI 控制台「身份域 → 报告 → 审计日志」查看（查询窗口: 近 " + Math.max(1, days) + " 天）");
                 result.add(entry);
             }
         } catch (OciException e) {
@@ -475,7 +425,8 @@ public class DomainManagementService {
     }
 
     /**
-     * 保存某一个域的 AuthenticationFactorSetting，只 patch 发生变化的字段。
+     * 保存某一个域的 AuthenticationFactorSetting。
+     * SDK 未开放 PATCH，因此使用 GET → toBuilder 修改 → PUT 整体替换。
      */
     public Map<String, Object> updateAuthFactorSettings(String tenantId, String domainId, String token,
                                                         Map<String, Object> desiredFactors,
@@ -488,83 +439,94 @@ public class DomainManagementService {
             try (IdentityDomainsClient dc = newDomainClient(client, (String) target.get("url"))) {
                 AuthenticationFactorSetting current = firstAuthFactorSetting(dc);
 
-                List<Operations> ops = new ArrayList<>();
+                AuthenticationFactorSetting.Builder b = current.toBuilder();
+                int changed = 0;
 
                 // factors
                 if (desiredFactors != null) {
-                    for (var en : FACTOR_PATH.entrySet()) {
-                        if (!desiredFactors.containsKey(en.getKey())) continue;
-                        boolean want = Boolean.TRUE.equals(desiredFactors.get(en.getKey()));
-                        boolean now = currentFactorValue(current, en.getKey());
-                        if (want != now) {
-                            ops.add(Operations.builder()
-                                    .op(Operations.Op.Replace)
-                                    .path(en.getValue())
-                                    .value(want).build());
+                    for (var key : FACTOR_PATH.keySet()) {
+                        if (!desiredFactors.containsKey(key)) continue;
+                        boolean want = Boolean.TRUE.equals(desiredFactors.get(key));
+                        boolean now = currentFactorValue(current, key);
+                        if (want == now) continue;
+                        changed++;
+                        switch (key) {
+                            case "totp": b.totpEnabled(want); break;
+                            case "push": b.pushEnabled(want); break;
+                            case "sms": b.smsEnabled(want); break;
+                            case "phoneCall": b.phoneCallEnabled(want); break;
+                            case "email": b.emailEnabled(want); break;
+                            case "securityQuestions": b.securityQuestionsEnabled(want); break;
+                            case "fido": b.fidoAuthenticatorEnabled(want); break;
+                            case "yubico": b.yubicoOtpEnabled(want); break;
+                            case "bypassCode": b.bypassCodeEnabled(want); break;
+                            case "duoSecurity":
+                                var tpfBase = current.getThirdPartyFactor() != null
+                                        ? current.getThirdPartyFactor().toBuilder()
+                                        : AuthenticationFactorSettingsThirdPartyFactor.builder();
+                                b.thirdPartyFactor(tpfBase.duoSecurity(want).build());
+                                break;
+                            default: break;
                         }
                     }
                 }
 
-                // limits
+                // endpointRestrictions 子字段（limits + trustedDevice）
                 var er = current.getEndpointRestrictions();
+                AuthenticationFactorSettingsEndpointRestrictions.Builder erBuilder = er != null
+                        ? er.toBuilder() : AuthenticationFactorSettingsEndpointRestrictions.builder();
+                boolean erChanged = false;
+
                 if (desiredLimits != null) {
                     Integer want = asInt(desiredLimits.get("maxEnrolledDevices"));
                     Integer now = er == null ? null : er.getMaxEnrolledDevices();
                     if (want != null && !java.util.Objects.equals(want, now)) {
-                        ops.add(Operations.builder().op(Operations.Op.Replace)
-                                .path("endpointRestrictions.maxEnrolledDevices").value(want).build());
+                        erBuilder.maxEnrolledDevices(want); erChanged = true;
                     }
                     Integer wantInc = asInt(desiredLimits.get("maxIncorrectAttempts"));
                     Integer nowInc = er == null ? null : er.getMaxIncorrectAttempts();
                     if (wantInc != null && !java.util.Objects.equals(wantInc, nowInc)) {
-                        ops.add(Operations.builder().op(Operations.Op.Replace)
-                                .path("endpointRestrictions.maxIncorrectAttempts").value(wantInc).build());
+                        erBuilder.maxIncorrectAttempts(wantInc); erChanged = true;
                     }
                 }
-
-                // trusted device
                 if (desiredTrustedDevice != null) {
                     if (desiredTrustedDevice.containsKey("enabled")) {
                         boolean want = Boolean.TRUE.equals(desiredTrustedDevice.get("enabled"));
                         boolean now = er != null && Boolean.TRUE.equals(er.getTrustedEndpointsEnabled());
-                        if (want != now) {
-                            ops.add(Operations.builder().op(Operations.Op.Replace)
-                                    .path("endpointRestrictions.trustedEndpointsEnabled").value(want).build());
-                        }
+                        if (want != now) { erBuilder.trustedEndpointsEnabled(want); erChanged = true; }
                     }
                     Integer wantMax = asInt(desiredTrustedDevice.get("maxTrustedEndpoints"));
                     Integer nowMax = er == null ? null : er.getMaxTrustedEndpoints();
                     if (wantMax != null && !java.util.Objects.equals(wantMax, nowMax)) {
-                        ops.add(Operations.builder().op(Operations.Op.Replace)
-                                .path("endpointRestrictions.maxTrustedEndpoints").value(wantMax).build());
+                        erBuilder.maxTrustedEndpoints(wantMax); erChanged = true;
                     }
                     Integer wantDays = asInt(desiredTrustedDevice.get("maxEndpointTrustDurationInDays"));
                     Integer nowDays = er == null ? null : er.getMaxEndpointTrustDurationInDays();
                     if (wantDays != null && !java.util.Objects.equals(wantDays, nowDays)) {
-                        ops.add(Operations.builder().op(Operations.Op.Replace)
-                                .path("endpointRestrictions.maxEndpointTrustDurationInDays").value(wantDays).build());
+                        erBuilder.maxEndpointTrustDurationInDays(wantDays); erChanged = true;
                     }
+                }
+                if (erChanged) {
+                    b.endpointRestrictions(erBuilder.build());
+                    changed++;
                 }
 
                 Map<String, Object> resp = new LinkedHashMap<>();
                 resp.put("domainId", target.get("id"));
                 resp.put("displayName", target.get("displayName"));
-                resp.put("changedOps", ops.size());
-                if (ops.isEmpty()) {
+                resp.put("changedOps", changed);
+                if (changed == 0) {
                     resp.put("skipped", true);
                     return resp;
                 }
 
-                PatchOp patch = PatchOp.builder()
-                        .schemas(List.of("urn:ietf:params:scim:api:messages:2.0:PatchOp"))
-                        .operations(ops).build();
-
-                dc.patchAuthenticationFactorSetting(PatchAuthenticationFactorSettingRequest.builder()
+                dc.putAuthenticationFactorSetting(PutAuthenticationFactorSettingRequest.builder()
                         .authenticationFactorSettingId(current.getId())
-                        .patchOp(patch).build());
+                        .authenticationFactorSetting(b.build())
+                        .build());
 
-                log.info("AuthFactorSetting patched: tenant={} domain={} ops={}",
-                        tenantId, target.get("displayName"), ops.size());
+                log.info("AuthFactorSetting put: tenant={} domain={} changedGroups={}",
+                        tenantId, target.get("displayName"), changed);
                 return resp;
             }
         } catch (OciException e) {
