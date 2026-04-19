@@ -1,5 +1,5 @@
 <template>
-  <a-config-provider :locale="zhCN" :theme="antdTheme">
+  <a-config-provider :locale="zhCN" :theme="antdTheme" :get-popup-container="popupContainer">
     <router-view />
   </a-config-provider>
 </template>
@@ -11,6 +11,11 @@ import { theme as antTheme } from 'ant-design-vue'
 import { useThemeStore } from './stores/theme'
 
 const themeStore = useThemeStore()
+
+/** 挂到 body，避免侧栏 backdrop-filter/transform 导致折叠菜单 Tooltip 飘到内容区 */
+function popupContainer() {
+  return document.body
+}
 
 onMounted(() => {
   themeStore.init()
