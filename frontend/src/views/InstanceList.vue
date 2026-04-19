@@ -40,7 +40,7 @@
                     <div class="tenant-card" :class="{ 'tenant-card-active': activeTenantId === td.tenant.id }">
                       <div class="tc-header"><i class="ri-cloud-line tc-icon"></i><div class="tc-info"><div class="tc-name">{{ td.tenant.username }}</div><div class="tc-region">{{ td.tenant.ociRegion }}</div></div></div>
                       <div class="tc-tags"><a-tag v-if="td.tenant.planType" :color="td.tenant.planType === 'FREE' ? 'default' : 'green'" size="small">{{ td.tenant.planType }}</a-tag><a-tag v-if="td.tenant.tenantName" size="small" color="blue">{{ td.tenant.tenantName }}</a-tag></div>
-                      <div class="tc-actions"><a-button type="primary" block @click="selectTenant(td)" :loading="td.loading"><i class="ri-server-line" style="margin-right:6px"></i>{{ tenantPrimaryActionLabel }}</a-button><a-button block @click="openVcnPanel(td.tenant)"><i class="ri-share-line" style="margin-right:6px"></i>虚拟云网络</a-button><a-button block @click="openVolumePanel(td.tenant)"><i class="ri-hard-drive-2-line" style="margin-right:6px"></i>卷组</a-button><a-button block @click="openQuickTask(td.tenant)"><i class="ri-play-circle-line" style="margin-right:6px"></i>快捷开机</a-button></div>
+                      <div class="tc-actions"><a-button type="primary" block @click="selectTenant(td)" :loading="td.loading"><i class="ri-server-line" style="margin-right:6px"></i>实例管理</a-button><a-button block @click="openVcnPanel(td.tenant)"><i class="ri-share-line" style="margin-right:6px"></i>虚拟云网络</a-button><a-button block @click="openVolumePanel(td.tenant)"><i class="ri-hard-drive-2-line" style="margin-right:6px"></i>卷组</a-button><a-button block @click="openQuickTask(td.tenant)"><i class="ri-play-circle-line" style="margin-right:6px"></i>快捷开机</a-button></div>
                     </div>
                   </template>
                 </div>
@@ -54,13 +54,13 @@
                       <span class="gtr-region"><a-tag>{{ td.tenant.ociRegion }}</a-tag></span>
                     </div>
                     <a-space v-if="!isMobile" class="gtr-actions" size="small" wrap>
-                      <a-button type="primary" size="small" @click="selectTenant(td)" :loading="td.loading">{{ tenantPrimaryActionLabel }}</a-button>
+                      <a-button type="primary" size="small" @click="selectTenant(td)" :loading="td.loading">实例管理</a-button>
                       <a-button size="small" @click="openVcnPanel(td.tenant)">VCN</a-button>
                       <a-button size="small" @click="openVolumePanel(td.tenant)">卷组</a-button>
                       <a-button size="small" @click="openQuickTask(td.tenant)">快捷开机</a-button>
                     </a-space>
                     <div v-else class="gtr-actions gtr-actions-mobile">
-                      <a-button type="primary" size="small" @click="selectTenant(td)" :loading="td.loading">{{ tenantPrimaryActionLabel }}</a-button>
+                      <a-button type="primary" size="small" @click="selectTenant(td)" :loading="td.loading">实例管理</a-button>
                       <a-dropdown placement="bottomRight" :trigger="['click']">
                         <a-button size="small">更多 <DownOutlined /></a-button>
                         <template #overlay>
@@ -87,7 +87,7 @@
                     <div class="tenant-card" :class="{ 'tenant-card-active': activeTenantId === td.tenant.id }">
                       <div class="tc-header"><i class="ri-cloud-line tc-icon"></i><div class="tc-info"><div class="tc-name">{{ td.tenant.username }}</div><div class="tc-region">{{ td.tenant.ociRegion }}</div></div></div>
                       <div class="tc-tags"><a-tag v-if="td.tenant.planType" :color="td.tenant.planType === 'FREE' ? 'default' : 'green'" size="small">{{ td.tenant.planType }}</a-tag><a-tag v-if="td.tenant.tenantName" size="small" color="blue">{{ td.tenant.tenantName }}</a-tag></div>
-                      <div class="tc-actions"><a-button type="primary" block @click="selectTenant(td)" :loading="td.loading"><i class="ri-server-line" style="margin-right:6px"></i>{{ tenantPrimaryActionLabel }}</a-button><a-button block @click="openVcnPanel(td.tenant)"><i class="ri-share-line" style="margin-right:6px"></i>虚拟云网络</a-button><a-button block @click="openVolumePanel(td.tenant)"><i class="ri-hard-drive-2-line" style="margin-right:6px"></i>卷组</a-button><a-button block @click="openQuickTask(td.tenant)"><i class="ri-play-circle-line" style="margin-right:6px"></i>快捷开机</a-button></div>
+                      <div class="tc-actions"><a-button type="primary" block @click="selectTenant(td)" :loading="td.loading"><i class="ri-server-line" style="margin-right:6px"></i>实例管理</a-button><a-button block @click="openVcnPanel(td.tenant)"><i class="ri-share-line" style="margin-right:6px"></i>虚拟云网络</a-button><a-button block @click="openVolumePanel(td.tenant)"><i class="ri-hard-drive-2-line" style="margin-right:6px"></i>卷组</a-button><a-button block @click="openQuickTask(td.tenant)"><i class="ri-play-circle-line" style="margin-right:6px"></i>快捷开机</a-button></div>
                     </div>
                   </template>
                 </div>
@@ -101,13 +101,13 @@
                       <span class="gtr-region"><a-tag>{{ td.tenant.ociRegion }}</a-tag></span>
                     </div>
                     <a-space v-if="!isMobile" class="gtr-actions" size="small" wrap>
-                      <a-button type="primary" size="small" @click="selectTenant(td)" :loading="td.loading">{{ tenantPrimaryActionLabel }}</a-button>
+                      <a-button type="primary" size="small" @click="selectTenant(td)" :loading="td.loading">实例管理</a-button>
                       <a-button size="small" @click="openVcnPanel(td.tenant)">VCN</a-button>
                       <a-button size="small" @click="openVolumePanel(td.tenant)">卷组</a-button>
                       <a-button size="small" @click="openQuickTask(td.tenant)">快捷开机</a-button>
                     </a-space>
                     <div v-else class="gtr-actions gtr-actions-mobile">
-                      <a-button type="primary" size="small" @click="selectTenant(td)" :loading="td.loading">{{ tenantPrimaryActionLabel }}</a-button>
+                      <a-button type="primary" size="small" @click="selectTenant(td)" :loading="td.loading">实例管理</a-button>
                       <a-dropdown placement="bottomRight" :trigger="['click']">
                         <a-button size="small">更多 <DownOutlined /></a-button>
                         <template #overlay>
@@ -131,7 +131,7 @@
                 <div class="tenant-card" :class="{ 'tenant-card-active': activeTenantId === td.tenant.id }">
                   <div class="tc-header"><i class="ri-cloud-line tc-icon"></i><div class="tc-info"><div class="tc-name">{{ td.tenant.username }}</div><div class="tc-region">{{ td.tenant.ociRegion }}</div></div></div>
                   <div class="tc-tags"><a-tag v-if="td.tenant.planType" :color="td.tenant.planType === 'FREE' ? 'default' : 'green'" size="small">{{ td.tenant.planType }}</a-tag><a-tag v-if="td.tenant.tenantName" size="small" color="blue">{{ td.tenant.tenantName }}</a-tag></div>
-                  <div class="tc-actions"><a-button type="primary" block @click="selectTenant(td)" :loading="td.loading"><i class="ri-server-line" style="margin-right:6px"></i>{{ tenantPrimaryActionLabel }}</a-button><a-button block @click="openVcnPanel(td.tenant)"><i class="ri-share-line" style="margin-right:6px"></i>虚拟云网络</a-button><a-button block @click="openVolumePanel(td.tenant)"><i class="ri-hard-drive-2-line" style="margin-right:6px"></i>卷组</a-button><a-button block @click="openQuickTask(td.tenant)"><i class="ri-play-circle-line" style="margin-right:6px"></i>快捷开机</a-button></div>
+                  <div class="tc-actions"><a-button type="primary" block @click="selectTenant(td)" :loading="td.loading"><i class="ri-server-line" style="margin-right:6px"></i>实例管理</a-button><a-button block @click="openVcnPanel(td.tenant)"><i class="ri-share-line" style="margin-right:6px"></i>虚拟云网络</a-button><a-button block @click="openVolumePanel(td.tenant)"><i class="ri-hard-drive-2-line" style="margin-right:6px"></i>卷组</a-button><a-button block @click="openQuickTask(td.tenant)"><i class="ri-play-circle-line" style="margin-right:6px"></i>快捷开机</a-button></div>
                 </div>
               </template>
             </div>
@@ -145,13 +145,13 @@
                   <span class="gtr-region"><a-tag>{{ td.tenant.ociRegion }}</a-tag></span>
                 </div>
                 <a-space v-if="!isMobile" class="gtr-actions" size="small" wrap>
-                  <a-button type="primary" size="small" @click="selectTenant(td)" :loading="td.loading">{{ tenantPrimaryActionLabel }}</a-button>
+                  <a-button type="primary" size="small" @click="selectTenant(td)" :loading="td.loading">实例管理</a-button>
                   <a-button size="small" @click="openVcnPanel(td.tenant)">VCN</a-button>
                   <a-button size="small" @click="openVolumePanel(td.tenant)">卷组</a-button>
                   <a-button size="small" @click="openQuickTask(td.tenant)">快捷开机</a-button>
                 </a-space>
                 <div v-else class="gtr-actions gtr-actions-mobile">
-                  <a-button type="primary" size="small" @click="selectTenant(td)" :loading="td.loading">{{ tenantPrimaryActionLabel }}</a-button>
+                  <a-button type="primary" size="small" @click="selectTenant(td)" :loading="td.loading">实例管理</a-button>
                   <a-dropdown placement="bottomRight" :trigger="['click']">
                     <a-button size="small">更多 <DownOutlined /></a-button>
                     <template #overlay>
@@ -189,7 +189,7 @@
         </div>
         <div class="tc-actions">
           <a-button type="primary" block @click="selectTenant(td)" :loading="td.loading">
-            <i class="ri-server-line" style="margin-right: 6px"></i>{{ tenantPrimaryActionLabel }}
+            <i class="ri-server-line" style="margin-right: 6px"></i>实例管理
           </a-button>
           <a-button block @click="openVcnPanel(td.tenant)">
             <i class="ri-share-line" style="margin-right: 6px"></i>虚拟云网络
@@ -238,7 +238,7 @@
         <a-table-column title="操作" key="action" :width="260" align="right">
           <template #default="{ record }">
             <a-space>
-              <a-button type="primary" size="small" @click="selectTenant(record)" :loading="record.loading">{{ tenantPrimaryActionLabel }}</a-button>
+              <a-button type="primary" size="small" @click="selectTenant(record)" :loading="record.loading">实例管理</a-button>
               <a-button size="small" @click="openVcnPanel(record.tenant)">VCN</a-button>
               <a-button size="small" @click="openVolumePanel(record.tenant)">卷组</a-button>
               <a-button size="small" @click="openQuickTask(record.tenant)">快捷开机</a-button>
@@ -1116,9 +1116,6 @@ const vcnColumns = [
 
 const isMobile = ref(window.innerWidth < 768)
 function checkMobile() { isMobile.value = window.innerWidth < 768 }
-
-/** 移动端页面标题已是「实例管理」，主按钮改用「打开」避免重复 */
-const tenantPrimaryActionLabel = computed(() => (isMobile.value ? '打开' : '实例管理'))
 
 const tenantViewMode = ref<'card' | 'table'>('card')
 const searchKeyword = ref('')
