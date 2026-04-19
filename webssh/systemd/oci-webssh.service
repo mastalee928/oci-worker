@@ -1,0 +1,17 @@
+[Unit]
+Description=OCI WebSSH (binary mode, used by oci-worker)
+After=network.target
+PartOf=oci-worker.service
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/oci-worker
+ExecStart=/opt/oci-worker/oci-webssh -p 8008 -s -t 120
+Restart=on-failure
+RestartSec=5
+# Limit resources to keep this lightweight (webssh is just a thin SSH proxy)
+LimitNOFILE=65535
+NoNewPrivileges=true
+
+[Install]
+WantedBy=multi-user.target

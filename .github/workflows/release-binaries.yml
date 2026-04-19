@@ -1,0 +1,128 @@
+name: Release Installer Binaries
+
+# Builds the WebSSH binary (Go) for amd64/arm64 and publishes them, together
+# with install.sh / ociworker / oci-webssh.service, to a SEPARATE release tag
+# named `installer-latest`.
+#
+# This is intentionally decoupled from the JAR build (build.yml) so that:
+#   * The original `latest` release (JAR) is never touched.
+#   * Old `deploy.sh` users keep working exactly as before.
+#   * The new installer (install.sh + ociworker) can iterate independently.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - 'webssh/**'
+      - 'install.sh'
+      - 'ociworker'
+      - '.github/workflows/release-binaries.yml'
+  workflow_dispatch:
+
+jobs:
+  build-webssh:
+    name: Build webssh (${{ matrix.arch }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: true
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.22'
+          cache-dependency-path: webssh/go.sum
+
+      - name: Build webssh binary
+        working-directory: webssh
+        env:
+          CGO_ENABLED: '0'
+          GOOS: linux
+          GOARCH: ${{ matrix.arch }}
+        run: |
+          go build -trimpath -ldflags="-s -w" -o "../oci-webssh-linux-${{ matrix.arch }}" .
+          file "../oci-webssh-linux-${{ matrix.arch }}"
+
+      - name: Upload binary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: webssh-${{ matrix.arch }}
+          path: oci-webssh-linux-${{ matrix.arch }}
+          if-no-files-found: error
+          retention-days: 1
+
+  release:
+    name: Publish installer-latest release
+    needs: build-webssh
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all webssh binaries
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Stage release assets
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          mv artifacts/webssh-amd64/oci-webssh-linux-amd64 release/
+          mv artifacts/webssh-arm64/oci-webssh-linux-arm64 release/
+          cp install.sh release/install.sh
+          cp ociworker release/ociworker
+          cp webssh/systemd/oci-webssh.service release/oci-webssh.service
+          chmod +x release/oci-webssh-linux-amd64 \
+                   release/oci-webssh-linux-arm64 \
+                   release/install.sh \
+                   release/ociworker
+          ls -lh release/
+
+      - name: Compute checksums
+        working-directory: release
+        run: sha256sum * > SHA256SUMS
+
+      - name: Delete previous installer-latest release (if any)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release delete installer-latest --yes --cleanup-tag 2>/dev/null || true
+          # Give GitHub a moment to fully clean up the tag before recreating.
+          sleep 5
+
+      - name: Write release notes
+        env:
+          COMMIT_SHA: ${{ github.sha }}
+        run: |
+          {
+            echo "Auto-built installer assets from commit ${COMMIT_SHA}."
+            echo
+            echo "This release is consumed by install.sh and the ociworker management script."
+            echo "It is independent of the 'latest' release (which holds the application JAR)."
+            echo
+            echo "Assets:"
+            echo "- oci-webssh-linux-amd64 / arm64 - WebSSH binary (replaces Docker version)"
+            echo "- oci-webssh.service              - systemd unit"
+            echo "- install.sh                      - Smart installer / upgrader"
+            echo "- ociworker                       - Management CLI"
+            echo "- SHA256SUMS                      - Integrity checksums"
+          } > release/NOTES.md
+
+      - name: Create installer-latest release
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create installer-latest \
+            --title "Installer Latest" \
+            --notes-file release/NOTES.md \
+            release/oci-webssh-linux-amd64 \
+            release/oci-webssh-linux-arm64 \
+            release/oci-webssh.service \
+            release/install.sh \
+            release/ociworker \
+            release/SHA256SUMS
