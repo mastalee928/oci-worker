@@ -26,16 +26,23 @@
         <a-menu-item key="settings"><i class="ri-settings-4-line menu-ri"></i><span>系统设置</span></a-menu-item>
       </a-menu>
 
-      <div class="sidebar-footer">
+      <div class="sidebar-footer" :class="{ 'sidebar-footer--compact': compactSidebarFooter }">
         <div class="user-card">
           <div class="avatar">{{ avatarLetter }}</div>
-          <div class="user-info">
+          <div v-if="!compactSidebarFooter" class="user-info">
             <div class="user-name">Admin</div>
             <div class="user-status">管理员在线</div>
           </div>
         </div>
-        <button class="btn-logout" @click="handleLogout">
-          <i class="ri-logout-box-r-line"></i> 安全退出
+        <button
+          type="button"
+          class="btn-logout"
+          :class="{ 'btn-logout--icon-only': compactSidebarFooter }"
+          :title="compactSidebarFooter ? '安全退出' : undefined"
+          @click="handleLogout"
+        >
+          <i class="ri-logout-box-r-line"></i>
+          <span v-if="!compactSidebarFooter">安全退出</span>
         </button>
       </div>
     </a-layout-sider>
@@ -86,6 +93,11 @@ const mobileMenuOpen = ref(false)
 const isMobile = ref(false)
 
 const avatarLetter = computed(() => 'A')
+
+/** 桌面窄栏（64px）用紧凑底栏；移动端抽屉展开时仍为全宽，保持完整用户信息 */
+const compactSidebarFooter = computed(
+  () => collapsed.value && !(isMobile.value && mobileMenuOpen.value),
+)
 
 function checkMobile() {
   isMobile.value = window.innerWidth < 768
@@ -220,6 +232,8 @@ function handleLogout() {
 .sidebar-footer {
   flex-shrink: 0;
   padding: 12px 16px 16px;
+  display: flex;
+  flex-direction: column;
 }
 
 .user-card {
@@ -276,6 +290,35 @@ function handleLogout() {
 .btn-logout:hover {
   background: rgba(239, 68, 68, 0.1);
   transform: translateY(-1px);
+}
+
+.sidebar-footer--compact {
+  padding: 8px 6px 12px;
+  align-items: center;
+  overflow: hidden;
+}
+.sidebar-footer--compact .user-card {
+  justify-content: center;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  padding: 8px 4px;
+  margin-bottom: 8px;
+  box-sizing: border-box;
+}
+.sidebar-footer--compact .avatar {
+  margin: 0 auto;
+}
+.btn-logout--icon-only {
+  width: 40px !important;
+  height: 40px;
+  min-width: 40px !important;
+  padding: 0 !important;
+  gap: 0 !important;
+  margin: 0 auto;
+}
+.btn-logout--icon-only .ri-logout-box-r-line {
+  font-size: 18px;
 }
 
 .app-header {
