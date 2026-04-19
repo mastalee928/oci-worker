@@ -40,24 +40,17 @@
 - **数据库自检**：连通性 / 版本 / 字符集 / DDL 权限，失败给出**精确的修复建议**
 - **配置改坏自动回滚**：服务起不来时自动还原上一版 `application.yml`
 - 装完顺便部署 `ociworker` 管理 CLI（一个命令搞定状态/日志/备份/升级/卸载）
-- WebSSH 改用二进制版（无需 Docker），与主面板自动联动启停
 
 ### 一键安装命令
 
-> Debian 默认 root shell 是 dash，不支持 `<()`。**推荐先下载再执行**：
+复制粘贴执行即可（Debian / Ubuntu / CentOS 通用）：
 
 ```bash
 curl -fsSL https://github.com/mastalee928/oci-worker/releases/download/installer-latest/install.sh -o /tmp/install.sh
 sudo bash /tmp/install.sh
 ```
 
-或者 Ubuntu / CentOS 上可以直接管道执行：
-
-```bash
-curl -fsSL https://github.com/mastalee928/oci-worker/releases/download/installer-latest/install.sh | sudo bash
-```
-
-向导会问你：① 数据库使用方式 ② 数据库连接信息 ③ Web 端口。**不在 SSH 里问账号密码**，服务起来后到浏览器 `http://<你的IP>:<端口>` 完成首次设置即可（账号密码以 sha256 哈希存进数据库，不进 yml，更安全）。
+向导会问你：① 数据库使用方式 ② 数据库连接信息 ③ Web 端口。装完后浏览器访问 `http://<你的IP>:<端口>` 设置管理员账号即可登录。
 
 详细文档：[INSTALLER.md](./INSTALLER.md)
 
@@ -101,8 +94,6 @@ ociworker restore <file>   # 从备份恢复
 ociworker version          # 查看版本
 ociworker uninstall        # 卸载（每步都问，给后悔药）
 ```
-
-> WebSSH 是 OCI Worker 的内置组件，与主服务一起自动启停，不需要单独的开关命令。
 
 ---
 
