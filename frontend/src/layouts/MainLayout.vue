@@ -8,7 +8,11 @@
       collapsible
       :width="260"
       :collapsed-width="isMobile ? 0 : 64"
-      :class="['sider', { 'sider-mobile': isMobile, 'sider-mobile-open': mobileMenuOpen && isMobile }]"
+      :class="['sider', {
+        'sider-mobile': isMobile,
+        'sider-mobile-open': mobileMenuOpen && isMobile,
+        'sider-collapsed-desktop': collapsed && !isMobile,
+      }]"
       :style="isMobile && !mobileMenuOpen ? { display: 'none' } : {}"
     >
       <div class="brand">
@@ -198,6 +202,10 @@ function handleLogout() {
   gap: 12px;
   flex-shrink: 0;
 }
+.sider-collapsed-desktop .brand {
+  justify-content: center;
+  padding: 0 8px;
+}
 .brand-icon {
   font-size: 28px;
   color: #818cf8;
@@ -222,6 +230,19 @@ function handleLogout() {
 .nav-menu :deep(.ant-menu-item) {
   text-align: left !important;
   padding-left: 24px !important;
+}
+/* 桌面侧栏收起（64px）：上面两条会盖住 Ant 的居中逻辑，图标会整体偏右，需在 .sider-collapsed-desktop 下覆盖 */
+.sider-collapsed-desktop .nav-menu :deep(.ant-menu-item) {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  padding-left: 0 !important;
+  padding-right: 0 !important;
+  text-align: center !important;
+  margin: 2px 4px !important;
+}
+.sider-collapsed-desktop .menu-ri {
+  margin-right: 0 !important;
 }
 .menu-ri {
   font-size: 20px;
