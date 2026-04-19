@@ -603,7 +603,17 @@ run_db_wizard() {
 # -----------------------------------------------------------------------------
 # Web settings
 # -----------------------------------------------------------------------------
-WEB_PORT=""; WEB_USER=""; WEB_PASS=""
+# 说明：管理员账号/密码不在脚本里设置。
+# 后端 isSetupDone() 只看数据库 oci_kv 表里有没有记录，与 application.yml
+# 里的 web.account / web.password 无关——yml 里的两个值只在数据库被清空、
+# 用户尚未在浏览器完成 Setup 之前作为兜底默认值存在。
+# 因此脚本只需要：
+#   1. 收集 Web 端口
+#   2. 在 yml 里塞一个占位账号 admin + 随机密码（用户永远不会用到）
+#   3. 部署完成后引导用户去 http://ip:port 完成首次设置
+WEB_PORT=""
+WEB_DEFAULT_ACCOUNT="admin"
+WEB_DEFAULT_PASSWORD=""
 prompt_web() {
     section "Web 服务配置"
     while true; do
@@ -618,19 +628,20 @@ prompt_web() {
         warn "端口无效"
     done
 
+    # 32 字节随机十六进制（仅作为 yml 里的占位值，用户实际登录走浏览器 Setup 流程）
+    if command -v openssl >/dev/null 2>&1; then
+        WEB_DEFAULT_PASSWORD="$(openssl rand -hex 16)"
+    else
+        WEB_DEFAULT_PASSWORD="$(head -c 32 /dev/urandom | base64 | tr -dc 'A-Za-z0-9' | head -c 32)"
+    fi
+
     cat >&2 <<EOF
 
-下面设置默认登录账号（首次访问 Web 时也可以再改密码）：
-  * 全新用户：以下账号用于首次登录后引导初始化
-  * 升级用户：从旧 deploy.sh 切换过来时，请填原账号
+[i] 管理员账号和密码不在 SSH 里设置，等服务起来后请到浏览器完成首次设置：
+       http://<your-ip>:${WEB_PORT}
+    （后端将在数据库里安全存储 sha256 哈希后的密码）
 
 EOF
-    WEB_USER="$(ask "默认账号" "admin")"
-    while true; do
-        WEB_PASS="$(ask_password "默认密码（至少 6 位）")"
-        if [ "${#WEB_PASS}" -ge 6 ]; then break; fi
-        warn "密码至少 6 位"
-    done
 }
 
 # -----------------------------------------------------------------------------
@@ -661,8 +672,10 @@ server:
   port: ${WEB_PORT}
 
 web:
-  account: "$(yaml_escape "${WEB_USER}")"
-  password: "$(yaml_escape "${WEB_PASS}")"
+  # 仅作为兜底默认值；真实管理员账号/密码请在首次访问 Web 时设置。
+  # 设置后会以 sha256 哈希存入数据库 oci_kv 表，与此处无关。
+  account: "$(yaml_escape "${WEB_DEFAULT_ACCOUNT}")"
+  password: "$(yaml_escape "${WEB_DEFAULT_PASSWORD}")"
 
 spring:
   threads:
@@ -958,14 +971,21 @@ do_install() {
     section "部署完成"
     cat >&2 <<EOF
 访问地址:    http://${pub_ip}:${WEB_PORT}
-默认账号:    ${WEB_USER} / ${WEB_PASS}
-管理命令:    ociworker
 
-常用：
-  ociworker            进入交互菜单
+下一步（必做）：
+  1. 在浏览器打开上面的访问地址
+  2. 按页面提示设置管理员账号和密码（密码至少 6 位）
+  3. 设置完即可登录使用
+
+防火墙提醒：
+  * 已自动放行本机 ufw / firewalld 的 ${WEB_PORT}/tcp
+  * 云厂商安全组里也要放行 ${WEB_PORT}/tcp（OCI/AWS/腾讯云等）
+  * 不要放行 ${WEBSSH_PORT}/tcp（WebSSH 已通过反向代理嵌入主面板）
+
+常用管理命令（敲 ociworker 进交互菜单）：
   ociworker status     查看状态
   ociworker logs       查看实时日志
-  ociworker config     修改配置（含回滚）
+  ociworker config     修改端口/数据库（含回滚；账号密码请在网页修改）
   ociworker update     更新到最新版本
   ociworker backup     备份数据库 + 配置 + 密钥
 EOF

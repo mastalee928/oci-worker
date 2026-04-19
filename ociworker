@@ -268,22 +268,22 @@ cmd_config() {
     require_installed
     section "修改配置（保存前会自动备份，启动失败自动回滚）"
 
-    local cur_port cur_user cur_db_url cur_db_user cur_db_pass
+    local cur_port cur_db_url cur_db_user
     cur_port="$(yaml_get server.port)"
-    cur_user="$(yaml_get web.account)"
     cur_db_url="$(yaml_get spring.datasource.url)"
     cur_db_user="$(yaml_get spring.datasource.username)"
-    cur_db_pass="$(yaml_get spring.datasource.password)"
 
-    echo "当前端口:    ${cur_port}"
-    echo "当前账号:    ${cur_user}"
-    echo "当前 DB URL: ${cur_db_url}"
+    echo "当前端口:     ${cur_port}"
+    echo "当前 DB URL:  ${cur_db_url}"
     echo "当前 DB 用户: ${cur_db_user}"
+    echo
+    echo "[i] 管理员账号/密码请在 Web 界面里修改（设置 -> 安全）"
+    echo "    yml 里 web.account/web.password 仅作为兜底默认值，改了不会影响实际登录账号。"
     echo
 
     local choice
     PS3="选择要修改的项 (q 退出): "
-    select choice in "Web 端口" "Web 账号" "Web 密码" "数据库地址/端口/库名" "数据库用户名" "数据库密码" "退出"; do
+    select choice in "Web 端口" "数据库地址/端口/库名" "数据库用户名" "数据库密码" "退出"; do
         case "${REPLY}" in
             1)
                 local new_port; new_port="$(ask "新 Web 端口" "${cur_port}")"
@@ -294,15 +294,6 @@ cmd_config() {
                 _backup_and_apply server.port "${new_port}" || true
                 ;;
             2)
-                local v; v="$(ask "新账号" "${cur_user}")"
-                _backup_and_apply web.account "${v}" || true
-                ;;
-            3)
-                local v; v="$(ask_password "新密码（至少 6 位）")"
-                if [ "${#v}" -lt 6 ]; then warn "密码太短"; continue; fi
-                _backup_and_apply web.password "${v}" || true
-                ;;
-            4)
                 local host port db
                 host="$(ask "数据库地址" "127.0.0.1")"
                 port="$(ask "数据库端口" "3306")"
@@ -311,15 +302,15 @@ cmd_config() {
                 new_url="jdbc:mysql://${host}:${port}/${db}?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true"
                 _backup_and_apply spring.datasource.url "${new_url}" || true
                 ;;
-            5)
+            3)
                 local v; v="$(ask "新数据库用户名" "${cur_db_user}")"
                 _backup_and_apply spring.datasource.username "${v}" || true
                 ;;
-            6)
+            4)
                 local v; v="$(ask_password "新数据库密码")"
                 _backup_and_apply spring.datasource.password "${v}" || true
                 ;;
-            7|q|Q)
+            5|q|Q)
                 break
                 ;;
             *) warn "请选择菜单项编号" ;;
