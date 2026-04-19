@@ -85,17 +85,16 @@ ociworker update
 ociworker                  # 进交互菜单
 ociworker status           # 服务状态
 ociworker start/stop/restart
-ociworker logs             # 实时日志（oci-worker）
-ociworker logs-webssh      # 实时日志（webssh）
+ociworker logs             # 实时日志
 ociworker config           # 改端口/数据库（含回滚；账号密码请到 Web 设置）
 ociworker update           # 一键升级
 ociworker backup           # 备份数据库 + 配置 + keys
 ociworker restore <file>   # 从备份恢复
-ociworker webssh-on        # 启用 WebSSH
-ociworker webssh-off       # 停用 WebSSH
 ociworker version          # 查看版本
 ociworker uninstall        # 卸载（每步都问，给后悔药）
 ```
+
+> WebSSH 是 OCI Worker 的内置组件，与主服务一起自动启停，**不需要也不提供单独的开关命令**。
 
 `config` 修改时会**自动备份原 yml**，新配置启动失败时**自动回滚**到上一版，保证不会因为手抖把面板搞登不进去。
 

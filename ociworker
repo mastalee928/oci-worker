@@ -4,18 +4,20 @@
 # -----------------------------------------------------------------------------
 # Usage:
 #   ociworker                  Interactive menu
-#   ociworker status           Show status of oci-worker + oci-webssh
+#   ociworker status           Show status of oci-worker (+ webssh)
 #   ociworker start            Start services
 #   ociworker stop             Stop services
 #   ociworker restart          Restart oci-worker
 #   ociworker logs             Tail oci-worker logs
-#   ociworker logs-webssh      Tail webssh logs
-#   ociworker config           Modify common settings (port / db / web account)
+#   ociworker config           Modify port / database (rollback on failure)
 #   ociworker update           Run install.sh in upgrade mode
 #   ociworker backup           Backup db dump + application.yml + keys
 #   ociworker restore <file>   Restore from a backup tarball
 #   ociworker uninstall        Uninstall everything (asks before each step)
 #   ociworker version          Show installer version + jar info
+#
+# WebSSH is started/stopped together with oci-worker automatically; there are
+# no separate webssh-on / webssh-off / logs-webssh commands by design.
 #
 # This script never modifies the database schema and never edits files outside
 # /opt/oci-worker, /etc/systemd/system/oci-worker*.service.
@@ -258,10 +260,6 @@ cmd_logs() {
     require_installed
     journalctl -u "${SERVICE_NAME}" -f --no-pager
 }
-cmd_logs_webssh() {
-    if [ ! -f "${WEBSSH_SERVICE_FILE}" ]; then die "未安装二进制版 WebSSH"; fi
-    journalctl -u "${WEBSSH_SERVICE_NAME}" -f --no-pager
-}
 
 cmd_config() {
     require_root config
@@ -500,20 +498,6 @@ cmd_version() {
     if command -v java >/dev/null 2>&1; then java -version 2>&1 | head -n 1; fi
 }
 
-cmd_webssh_on() {
-    require_root webssh-on
-    [ -f "${WEBSSH_SERVICE_FILE}" ] || die "未安装二进制版 WebSSH，请重跑 install.sh"
-    systemctl start "${WEBSSH_SERVICE_NAME}"
-    systemctl enable "${WEBSSH_SERVICE_NAME}" >/dev/null 2>&1 || true
-    ok "WebSSH 已启动"
-}
-cmd_webssh_off() {
-    require_root webssh-off
-    systemctl stop "${WEBSSH_SERVICE_NAME}" 2>/dev/null || true
-    systemctl disable "${WEBSSH_SERVICE_NAME}" 2>/dev/null || true
-    ok "WebSSH 已停止"
-}
-
 # -----------------------------------------------------------------------------
 # Interactive menu
 # -----------------------------------------------------------------------------
@@ -524,10 +508,10 @@ menu() {
         section "OCI Worker 管理"
         cat <<EOF
   1) 查看状态        2) 启动        3) 停止        4) 重启
-  5) 看 oci-worker 日志             6) 看 webssh 日志
-  7) 修改配置（含回滚）             8) 备份         9) 恢复
- 10) 升级到最新版                  11) 启用 WebSSH 12) 停用 WebSSH
- 13) 版本信息                      14) 卸载        0) 退出
+  5) 查看实时日志    6) 修改配置（含回滚）
+  7) 备份            8) 恢复
+  9) 升级到最新版   10) 版本信息
+ 11) 卸载            0) 退出
 EOF
         printf "> " >&2
         local c; IFS= read -r c </dev/tty || break
@@ -537,18 +521,15 @@ EOF
             3)  cmd_stop           || true ;;
             4)  cmd_restart        || true ;;
             5)  cmd_logs           || true ;;
-            6)  cmd_logs_webssh    || true ;;
-            7)  cmd_config         || true ;;
-            8)  cmd_backup         || true ;;
-            9)
+            6)  cmd_config         || true ;;
+            7)  cmd_backup         || true ;;
+            8)
                 local f; f="$(ask "备份文件路径")"
                 cmd_restore "${f}" || true
                 ;;
-            10) cmd_update         || true ;;
-            11) cmd_webssh_on      || true ;;
-            12) cmd_webssh_off     || true ;;
-            13) cmd_version        || true ;;
-            14) cmd_uninstall      || true ;;
+            9)  cmd_update         || true ;;
+            10) cmd_version        || true ;;
+            11) cmd_uninstall      || true ;;
             0|q|Q|exit) info "再见"; break ;;
             *) warn "无效选项" ;;
         esac
@@ -574,15 +555,12 @@ main() {
         stop)          cmd_stop ;;
         restart)       cmd_restart ;;
         logs)          cmd_logs ;;
-        logs-webssh)   cmd_logs_webssh ;;
         config)        cmd_config ;;
         update)        cmd_update ;;
         backup)        cmd_backup ;;
         restore)       cmd_restore "$@" ;;
         uninstall)     cmd_uninstall ;;
         version)       cmd_version ;;
-        webssh-on)     cmd_webssh_on ;;
-        webssh-off)    cmd_webssh_off ;;
         menu)          menu ;;
         -h|--help|help) usage ;;
         *) err "未知命令：${sub}"; usage; exit 1 ;;
