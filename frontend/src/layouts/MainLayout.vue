@@ -269,6 +269,23 @@ function handleLogout() {
   padding-right: 0 !important;
   text-align: center !important;
   margin: 2px 4px !important;
+  overflow: visible !important;
+}
+/* flex 居中时标题节点仍会占位，图标默认 flex-shrink:1 会被挤成 0 宽 → 只见紫底不见图标 */
+.sider-collapsed-desktop .nav-menu :deep(.ant-menu-item-icon) {
+  flex-shrink: 0 !important;
+}
+.sider-collapsed-desktop .nav-menu :deep(.ant-menu-title-content) {
+  flex: 0 0 0 !important;
+  min-width: 0 !important;
+  max-width: 0 !important;
+  margin: 0 !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+  opacity: 0 !important;
+}
+.sider-collapsed-desktop .nav-menu :deep(.ant-menu-item-selected .ant-menu-item-icon) {
+  color: #fff !important;
 }
 .sider-collapsed-desktop .menu-ri {
   margin-right: 0 !important;
