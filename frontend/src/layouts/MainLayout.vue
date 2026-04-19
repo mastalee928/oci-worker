@@ -21,13 +21,35 @@
       </div>
       <a-menu mode="inline" :selected-keys="[currentRoute]" @click="handleMenuClick"
         class="nav-menu" theme="dark">
-        <a-menu-item key="dashboard"><i class="ri-dashboard-3-line menu-ri"></i><span>仪表盘</span></a-menu-item>
-        <a-menu-item key="tenant"><i class="ri-user-settings-line menu-ri"></i><span>租户配置</span></a-menu-item>
-        <a-menu-item key="instance"><i class="ri-server-line menu-ri"></i><span>实例管理</span></a-menu-item>
-        <a-menu-item key="task"><i class="ri-flashlight-line menu-ri"></i><span>开机任务</span></a-menu-item>
-        <a-menu-item key="log"><i class="ri-file-list-3-line menu-ri"></i><span>日志查看</span></a-menu-item>
-        <a-menu-item key="webssh"><i class="ri-terminal-box-line menu-ri"></i><span>WebSSH</span></a-menu-item>
-        <a-menu-item key="settings"><i class="ri-settings-4-line menu-ri"></i><span>系统设置</span></a-menu-item>
+        <!-- 图标必须用 #icon 插槽，否则与标题挤在 title-content 里，侧栏折叠时文字无法隐藏 -->
+        <a-menu-item key="dashboard">
+          <template #icon><i class="ri-dashboard-3-line menu-ri"></i></template>
+          仪表盘
+        </a-menu-item>
+        <a-menu-item key="tenant">
+          <template #icon><i class="ri-user-settings-line menu-ri"></i></template>
+          租户配置
+        </a-menu-item>
+        <a-menu-item key="instance">
+          <template #icon><i class="ri-server-line menu-ri"></i></template>
+          实例管理
+        </a-menu-item>
+        <a-menu-item key="task">
+          <template #icon><i class="ri-flashlight-line menu-ri"></i></template>
+          开机任务
+        </a-menu-item>
+        <a-menu-item key="log">
+          <template #icon><i class="ri-file-list-3-line menu-ri"></i></template>
+          日志查看
+        </a-menu-item>
+        <a-menu-item key="webssh">
+          <template #icon><i class="ri-terminal-box-line menu-ri"></i></template>
+          WebSSH
+        </a-menu-item>
+        <a-menu-item key="settings">
+          <template #icon><i class="ri-settings-4-line menu-ri"></i></template>
+          系统设置
+        </a-menu-item>
       </a-menu>
 
       <div class="sidebar-footer" :class="{ 'sidebar-footer--compact': compactSidebarFooter }">
