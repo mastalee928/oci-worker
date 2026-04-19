@@ -264,7 +264,7 @@ cmd_logs() {
 cmd_config() {
     require_root config
     require_installed
-    section "修改配置（保存前会自动备份，启动失败自动回滚）"
+    section "修改配置"
 
     local cur_port cur_db_url cur_db_user
     cur_port="$(yaml_get server.port)"
@@ -275,8 +275,11 @@ cmd_config() {
     echo "当前 DB URL:  ${cur_db_url}"
     echo "当前 DB 用户: ${cur_db_user}"
     echo
-    echo "[i] 管理员账号/密码请在 Web 界面里修改（设置 -> 安全）"
-    echo "    yml 里 web.account/web.password 仅作为兜底默认值，改了不会影响实际登录账号。"
+    echo "[规则] 每改一项会自动重启服务验证新配置。"
+    echo "       启动失败会自动回滚到上一份 application.yml，无需手动停服。"
+    echo "       手动备份历史保存在 /opt/oci-worker/application.yml.bak.*"
+    echo
+    echo "[提示] 管理员账号/密码请在 Web 界面里修改（设置 -> 安全）。"
     echo
 
     local choice

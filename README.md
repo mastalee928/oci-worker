@@ -120,8 +120,7 @@ ociworker backup
 cd /tmp && tar xzf /opt/oci-worker/backups/backup-*.tar.gz
 mysql -h127.0.0.1 -P<面板MySQL端口> -uociworker -p oci_worker < dump.sql
 
-# 3. 改连接（每改一项会自动重启验证，失败会回滚到上一份配置）
-ociworker stop
+# 3. 改连接（每改一项自动重启验证 + 失败自动回滚，不用先停服）
 ociworker config   # 依次选 2) 改地址/端口/库名 → 3) 改用户名 → 4) 改密码
 ```
 
