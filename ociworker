@@ -275,7 +275,7 @@ cmd_config() {
     echo "当前 DB URL:  ${cur_db_url}"
     echo "当前 DB 用户: ${cur_db_user}"
     echo
-    echo "[规则] 每改一项会自动重启服务验证新配置。"
+    echo "[规则] 每次修改会自动重启服务验证新配置。"
     echo "       启动失败会自动回滚到上一份 application.yml，无需手动停服。"
     echo "       手动备份历史保存在 /opt/oci-worker/application.yml.bak.*"
     echo
@@ -284,7 +284,7 @@ cmd_config() {
 
     local choice
     PS3="选择要修改的项 (q 退出): "
-    select choice in "Web 端口" "数据库地址/端口/库名" "数据库用户名" "数据库密码" "退出"; do
+    select choice in "Web 端口" "数据库修改 / 迁移（地址/端口/库名/用户名/密码 一起改）" "退出"; do
         case "${REPLY}" in
             1)
                 local new_port; new_port="$(ask "新 Web 端口" "${cur_port}")"
@@ -295,28 +295,95 @@ cmd_config() {
                 _backup_and_apply server.port "${new_port}" || true
                 ;;
             2)
-                local host port db
-                host="$(ask "数据库地址" "127.0.0.1")"
-                port="$(ask "数据库端口" "3306")"
-                db="$(ask "数据库名"   "$(echo "${cur_db_url}" | sed -n 's#.*/\([^?]*\).*#\1#p')")"
-                local new_url
-                new_url="jdbc:mysql://${host}:${port}/${db}?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true"
-                _backup_and_apply spring.datasource.url "${new_url}" || true
+                _change_database || true
                 ;;
-            3)
-                local v; v="$(ask "新数据库用户名" "${cur_db_user}")"
-                _backup_and_apply spring.datasource.username "${v}" || true
-                ;;
-            4)
-                local v; v="$(ask_password "新数据库密码")"
-                _backup_and_apply spring.datasource.password "${v}" || true
-                ;;
-            5|q|Q)
+            3|q|Q)
                 break
                 ;;
             *) warn "请选择菜单项编号" ;;
         esac
     done
+}
+
+_change_database() {
+    section "数据库修改 / 迁移"
+    cat <<EOF
+[i] 把数据库地址、端口、库名、用户名、密码作为一个整体替换。
+    会一次性写入 application.yml 然后重启 oci-worker 验证。
+    启动失败会自动回滚到上一份配置。
+
+[!] 如果是把数据迁移到新库（比如换到面板自带的 MySQL）：
+    请先 ociworker backup，把 dump.sql 导入新库后再来切连接。
+    否则切到空库后，登录页会变成首次设置（账号/租户/任务等数据
+    看不到，本质是数据库被换走、新库还没数据）。
+
+EOF
+    if [ "$(ask_yes_no "继续修改数据库连接？" "Y")" != "y" ]; then
+        info "已取消"
+        return 1
+    fi
+
+    local cur_url cur_user
+    cur_url="$(yaml_get spring.datasource.url)"
+    cur_user="$(yaml_get spring.datasource.username)"
+
+    # Parse host / port / dbname out of jdbc:mysql://host:port/db?...
+    local cur_host cur_port cur_db
+    cur_host="$(echo "${cur_url}"  | sed -n 's#jdbc:mysql://\([^:/]*\).*#\1#p')"
+    cur_port="$(echo "${cur_url}"  | sed -n 's#jdbc:mysql://[^:/]*:\([0-9]*\)/.*#\1#p')"
+    cur_db="$(echo "${cur_url}"    | sed -n 's#.*/\([^?]*\).*#\1#p')"
+    [ -n "${cur_host}" ] || cur_host="127.0.0.1"
+    [ -n "${cur_port}" ] || cur_port="3306"
+    [ -n "${cur_db}"   ] || cur_db="oci_worker"
+
+    local host port db user pass
+    host="$(ask "数据库地址" "${cur_host}")"
+    port="$(ask "数据库端口" "${cur_port}")"
+    db="$(ask   "数据库名"   "${cur_db}")"
+    user="$(ask "数据库用户名" "${cur_user}")"
+    pass="$(ask_password "数据库密码（直接回车=保持当前密码不变）")"
+
+    local new_url
+    new_url="jdbc:mysql://${host}:${port}/${db}?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true"
+
+    # Atomic backup + multi-write + restart + rollback
+    local bak="${CONFIG_FILE}.bak.$(date +%s)"
+    cp -p "${CONFIG_FILE}" "${bak}"
+    info "已备份当前配置：${bak}"
+
+    if ! yaml_set spring.datasource.url "${new_url}"; then
+        err "url 写入失败，恢复"
+        cp -p "${bak}" "${CONFIG_FILE}"; return 1
+    fi
+    if ! yaml_set spring.datasource.username "${user}"; then
+        err "username 写入失败，恢复"
+        cp -p "${bak}" "${CONFIG_FILE}"; return 1
+    fi
+    if [ -n "${pass}" ]; then
+        if ! yaml_set spring.datasource.password "${pass}"; then
+            err "password 写入失败，恢复"
+            cp -p "${bak}" "${CONFIG_FILE}"; return 1
+        fi
+    fi
+
+    info "新配置已写入，正在重启服务测试连接..."
+    if systemctl restart "${SERVICE_NAME}"; then
+        local i
+        for i in 1 2 3 4 5; do
+            sleep 2
+            systemctl is-active --quiet "${SERVICE_NAME}" || { systemctl is-failed --quiet "${SERVICE_NAME}" && break; }
+        done
+        if systemctl is-active --quiet "${SERVICE_NAME}"; then
+            ok "数据库连接已切换并验证通过（备份保留：${bak}）"
+            return 0
+        fi
+    fi
+
+    warn "服务启动失败，回滚到上一份配置..."
+    cp -p "${bak}" "${CONFIG_FILE}"
+    systemctl restart "${SERVICE_NAME}" || true
+    err "已回滚。请查看：journalctl -u ${SERVICE_NAME} -n 50 --no-pager"
+    return 1
 }
 
 # Backup current yml, apply yaml_set, restart with rollback on failure.
