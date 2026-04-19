@@ -105,7 +105,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUserStore } from '../stores/user'
 import { useThemeStore } from '../stores/theme'
@@ -127,8 +127,15 @@ const compactSidebarFooter = computed(
 
 function checkMobile() {
   isMobile.value = window.innerWidth < 768
-  if (isMobile.value) collapsed.value = true
+  /** 移动端抽屉展开时要走「展开菜单」（图标+完整标题），不能与桌面折叠态混用 */
+  if (isMobile.value && !mobileMenuOpen.value) collapsed.value = true
 }
+
+/** 移动端：抽屉打开 → 收起 Sider 的 collapsed，菜单恢复为内联全文；合上 → 再收起省状态 */
+watch(mobileMenuOpen, open => {
+  if (!isMobile.value) return
+  collapsed.value = open ? false : true
+})
 
 onMounted(() => {
   checkMobile()
