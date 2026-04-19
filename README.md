@@ -97,6 +97,38 @@ ociworker uninstall        # 卸载（每步都问，给后悔药）
 
 ---
 
+## 使用面板自带的 MySQL（1Panel / 宝塔）
+
+### 在面板里准备 3 件事
+
+1. **建库**：库名 `oci_worker`，**字符集 `utf8mb4 / utf8mb4_unicode_ci`**（必须，否则 emoji 乱码）
+2. **建用户**：授权该库所有权限，**访问权限选「所有人(%)」**（重要，选 `localhost` 会报 Access denied）
+3. **MySQL 版本 8.0 或更高**（不支持 5.7）
+
+准备好后跑 `install.sh`，第一步选 **「1) 已有 MySQL」**，把连接信息填进去即可。
+
+### 已经装好了，想把数据库换到面板上
+
+**先迁数据再改连接**，否则账号会丢、需要重新设置：
+
+```bash
+# 1. 备份当前数据
+ociworker backup
+# 输出：/opt/oci-worker/backups/backup-xxxxxxxx-xxxx.tar.gz
+
+# 2. 把 dump.sql 导入面板的新库
+cd /tmp && tar xzf /opt/oci-worker/backups/backup-*.tar.gz
+mysql -h127.0.0.1 -P<面板MySQL端口> -uociworker -p oci_worker < dump.sql
+
+# 3. 改连接（每改一项会自动重启验证，失败会回滚到上一份配置）
+ociworker stop
+ociworker config   # 依次选 2) 改地址/端口/库名 → 3) 改用户名 → 4) 改密码
+```
+
+> 万一连自动回滚都失败：从 `/opt/oci-worker/application.yml.bak.*` 找历史版本手动还原即可。
+
+---
+
 ## 备用：经典脚本（老用户/已部署机器）
 
 > 如果你已经用老脚本部署过，**继续用没问题**——新旧方案 systemd 服务名/路径完全一致，互兼容。  
