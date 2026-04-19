@@ -41,6 +41,7 @@ readonly WEBSSH_PORT=8008
 readonly REPO="mastalee928/oci-worker"
 readonly JAR_RELEASE_TAG="latest"
 readonly INSTALLER_RELEASE_TAG="installer-latest"
+readonly RAW_BASE="https://raw.githubusercontent.com/${REPO}/master"
 
 readonly OCIWORKER_BIN="/usr/local/bin/ociworker"
 readonly TMP_DIR="$(mktemp -d -t oci-worker-installer.XXXXXX)"
@@ -901,15 +902,22 @@ EOF
 # ociworker management script installation
 # -----------------------------------------------------------------------------
 install_ociworker_cli() {
-    # Try to install from the same source we ran from. Fall back to release.
+    # Source priority:
+    #   1. Same dir as install.sh (development / cloned repo)
+    #   2. master branch raw (always up-to-date)
+    #   3. installer-latest release (fallback when raw is unreachable)
     local src=""
-    if [ -f "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")/ociworker" ]; then
-        src="$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")/ociworker"
+    local self_dir
+    self_dir="$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")"
+    if [ -f "${self_dir}/ociworker" ]; then
+        src="${self_dir}/ociworker"
     fi
     if [ -z "${src}" ]; then
-        info "下载管理脚本 ociworker..."
+        info "下载管理脚本 ociworker（优先 master 分支）..."
         local tmp="${TMP_DIR}/ociworker"
-        if download_with_retry "https://github.com/${REPO}/releases/download/${INSTALLER_RELEASE_TAG}/ociworker" "${tmp}"; then
+        if download_with_retry "${RAW_BASE}/ociworker" "${tmp}"; then
+            src="${tmp}"
+        elif download_with_retry "https://github.com/${REPO}/releases/download/${INSTALLER_RELEASE_TAG}/ociworker" "${tmp}"; then
             src="${tmp}"
         else
             warn "无法下载 ociworker（不影响主程序运行），可稍后手动安装"
@@ -1031,7 +1039,8 @@ do_upgrade() {
         rm -f "${INSTALL_DIR}/${JAR_NAME}.bak"
         ok "升级完成"
         local cur_port
-        cur_port="$(awk '/^server:/{f=1;next} f && /^[^ ]/{f=0} f && /port:/{print $2; exit}' "${CONFIG_FILE}" 2>/dev/null || echo "8818")"
+        cur_port="$(awk '/^server:/{f=1;next} f && /^[^ ]/{f=0} f && /port:/{print $2; exit}' "${CONFIG_FILE}" 2>/dev/null | tr -d '"'\''' || true)"
+        cur_port="${cur_port:-8818}"
         local pub_ip
         pub_ip="$(curl -s --max-time 5 ifconfig.me 2>/dev/null || echo "<your-server-ip>")"
         section "升级完成"
