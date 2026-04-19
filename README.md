@@ -2,6 +2,8 @@
 
 基于 Spring Boot 3 + Vue 3 + Ant Design Vue 开发的 Oracle Cloud (OCI) 管理面板。
 
+> **v2 智能安装器** 已上线：5 分钟向导式部署，支持 1Panel / 宝塔已有 MySQL，自动数据库自检 + 配置回滚保护，附赠 `ociworker` 管理 CLI。详见下方"一键安装"。
+
 ## 功能特性
 
 - **多租户配置管理**：批量添加、编辑、删除，快速导入 OCI 配置，PEM 拖拽上传
@@ -27,24 +29,96 @@
 
 ---
 
-## 一键安装（推荐）
+## 一键安装（推荐 · v2 智能安装器）
 
-适用于 Debian / Ubuntu 服务器（支持 ARM64 和 AMD64）。
+适用于 Debian / Ubuntu / CentOS（支持 ARM64 和 AMD64）。**5 分钟搞定**，全程交互式向导，**不需要事后手改任何文件**。
 
-### 前置条件
+### 它做了什么
 
-- 一台 Linux 服务器（Debian 11+ / Ubuntu 20.04+）
-- MySQL 8.0（可通过 Docker 运行，见下方说明）
+- 自动安装 JDK 21、下载最新 JAR、生成 systemd 服务、放行防火墙
+- **数据库三选一**：① 已有 MySQL（1Panel / 宝塔等面板）② Docker 自动装 MySQL 8.0 ③ 我有 root，脚本自动建库建用户
+- **数据库自检**：连通性 / 版本 / 字符集 / DDL 权限，失败给出**精确的修复建议**
+- **配置改坏自动回滚**：服务起不来时自动还原上一版 `application.yml`
+- 装完顺便部署 `ociworker` 管理 CLI（一个命令搞定状态/日志/备份/升级/卸载）
+- WebSSH 改用二进制版（无需 Docker），与主面板自动联动启停
+
+### 一键安装命令
+
+> Debian 默认 root shell 是 dash，不支持 `<()`。**推荐先下载再执行**：
+
+```bash
+curl -fsSL https://github.com/mastalee928/oci-worker/releases/download/installer-latest/install.sh -o /tmp/install.sh
+sudo bash /tmp/install.sh
+```
+
+或者 Ubuntu / CentOS 上可以直接管道执行：
+
+```bash
+curl -fsSL https://github.com/mastalee928/oci-worker/releases/download/installer-latest/install.sh | sudo bash
+```
+
+向导会问你：① 数据库使用方式 ② 数据库连接信息 ③ Web 端口。**不在 SSH 里问账号密码**，服务起来后到浏览器 `http://<你的IP>:<端口>` 完成首次设置即可（账号密码以 sha256 哈希存进数据库，不进 yml，更安全）。
+
+详细文档：[INSTALLER.md](./INSTALLER.md)
+
+---
+
+## 一键更新
+
+### 方式一：管理脚本一键更新（推荐）
+
+```bash
+sudo ociworker update
+```
+
+自动完成：停止服务 → 备份旧 JAR → 下载新 JAR → 启动新版 → **失败自动回滚到旧 JAR**。
+
+### 方式二：Web 页面更新
+
+「系统设置 → 系统更新」中点「检查更新」→「一键更新」，自动下载和重启。
+
+### 方式三：重跑安装脚本
+
+`install.sh` 会自动识别为升级模式，**只换 JAR 和 webssh 二进制，不动 `application.yml` 和数据库**：
+
+```bash
+sudo bash /tmp/install.sh
+```
+
+---
+
+## 日常管理：`ociworker`
+
+```bash
+ociworker                  # 进交互菜单（最常用）
+ociworker status           # 服务状态
+ociworker start/stop/restart
+ociworker logs             # 实时日志
+ociworker config           # 改端口/数据库（含自动回滚；账号密码请到 Web 设置）
+ociworker update           # 一键升级
+ociworker backup           # 备份数据库 + 配置 + keys
+ociworker restore <file>   # 从备份恢复
+ociworker version          # 查看版本
+ociworker uninstall        # 卸载（每步都问，给后悔药）
+```
+
+> WebSSH 是 OCI Worker 的内置组件，与主服务一起自动启停，不需要单独的开关命令。
+
+---
+
+## 备用：经典脚本（老用户/已部署机器）
+
+> 如果你已经用老脚本部署过，**继续用没问题**——新旧方案 systemd 服务名/路径完全一致，互兼容。  
+> 新机器**推荐用上面的 v2 智能安装器**。
+
+<details>
+<summary>展开：经典 deploy.sh / update.sh 用法</summary>
 
 ### 第一步：启动 MySQL
 
-如果服务器上没有 MySQL，使用 Docker 快速启动：
-
 ```bash
-# 安装 Docker（如已安装跳过）
 curl -fsSL https://get.docker.com | sh
 
-# 启动 MySQL 容器
 docker run -d \
   --name oci-worker-mysql \
   --restart always \
@@ -58,65 +132,28 @@ docker run -d \
   mysql:8.0 --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
 ```
 
-### 第二步：一键部署应用
+### 第二步：部署 / 更新
 
 ```bash
+# 部署
 bash <(curl -sL https://raw.githubusercontent.com/mastalee928/oci-worker/master/deploy.sh)
-```
 
-脚本会自动完成：
-1. 安装 JDK 21（如未安装）
-2. 下载最新 JAR 到 `/opt/oci-worker/`
-3. 生成默认配置文件 `application.yml`（已存在则跳过）
-4. 创建 systemd 服务并启动
-
-部署完成后访问 `http://你的IP:8818`：
-
-- **全新安装**：首次访问会进入初始化页面，设置管理员用户名和密码（密码至少 6 位）
-- **从旧版升级**：使用配置文件中的默认账号密码登录（默认 `admin` / `admin123`），可在「系统设置 → 安全设置」修改
-
----
-
-## 一键更新
-
-### 方式一：Web 页面更新（推荐）
-
-在「系统设置 → 系统更新」标签页中，点击「检查更新」查看是否有新版本，确认后点击「一键更新」即可自动完成下载和重启。
-
-### 方式二：命令行更新
-
-```bash
+# 更新
 bash <(curl -sL https://raw.githubusercontent.com/mastalee928/oci-worker/master/update.sh)
 ```
 
-脚本会自动完成：停止服务 → 下载最新 JAR（含大小校验） → 启动服务 → 检查运行状态。
-
-也可以重新运行部署脚本（会跳过已安装组件，只更新 JAR）：
+### 老方案的运维命令
 
 ```bash
-bash <(curl -sL https://raw.githubusercontent.com/mastalee928/oci-worker/master/deploy.sh)
-```
-
----
-
-## 常用运维命令
-
-```bash
-# 查看服务状态
 systemctl status oci-worker
-
-# 查看实时日志
 journalctl -u oci-worker -f
-
-# 重启服务
 systemctl restart oci-worker
-
-# 停止服务
-systemctl stop oci-worker
-
-# 编辑配置（修改后需重启）
 nano /opt/oci-worker/application.yml
 ```
+
+部署完成后访问 `http://你的IP:8818`，**首次访问会进入初始化页面**设置管理员账号密码（至少 6 位）。
+
+</details>
 
 ---
 
@@ -197,18 +234,23 @@ FLUSH PRIVILEGES;
 ```
 /opt/oci-worker/          # 生产部署目录
 ├── oci-worker.jar        # 应用 JAR
-├── application.yml       # 配置文件
-└── keys/                 # PEM 密钥目录
+├── oci-webssh            # WebSSH 二进制（v2 安装器部署）
+├── application.yml       # 配置文件（权限 600）
+├── application.yml.bak.* # 配置自动备份历史
+├── keys/                 # PEM 密钥目录
+└── backups/              # ociworker backup 输出目录
+
+/usr/local/bin/ociworker  # 管理 CLI（v2 安装器部署）
 
 oci-worker/               # 源码目录
-├── backend/              # Spring Boot 后端
-│   ├── pom.xml
-│   └── src/
-├── frontend/             # Vue 3 前端
-│   ├── package.json
-│   └── src/
-├── deploy.sh             # 一键部署脚本
-├── update.sh             # 一键更新脚本
+├── backend/              # Spring Boot 后端（pom.xml + src/）
+├── frontend/             # Vue 3 前端（package.json + src/）
+├── webssh/               # Go 写的 WebSSH 服务（含 systemd unit）
+├── install.sh            # v2 智能安装器（推荐）
+├── ociworker             # v2 管理 CLI 源
+├── INSTALLER.md          # v2 安装器详细文档
+├── deploy.sh             # 经典一键部署脚本（兼容保留）
+├── update.sh             # 经典一键更新脚本（兼容保留）
 ├── docker-compose.yml    # MySQL Docker 配置
 └── README.md
 ```
