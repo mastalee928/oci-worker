@@ -556,6 +556,8 @@
                         <a-popconfirm title="确定取消分配该 IPv6？" @confirm="handleRemoveIpv6(ip6)">
                           <a-button type="link" danger size="small" :loading="ipv6RemoveLoading[ip6.ipv6Id]">取消分配</a-button>
                         </a-popconfirm>
+                      </div>
+                      <div>
                         <a-button type="link" size="small" @click="handleAddIpv6(vnic)" :loading="ipv6AddLoading[vnic.vnicId]">
                           分配 IPv6
                         </a-button>
