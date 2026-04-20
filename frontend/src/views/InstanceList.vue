@@ -550,14 +550,20 @@
                     </div>
                   </a-descriptions-item>
                   <a-descriptions-item label="IPv6">
-                    <template v-if="vnic.ipv6Addresses && vnic.ipv6Addresses.length > 0">
-                      <span v-for="(ip6, i6) in vnic.ipv6Addresses" :key="i6">
-                        <a-typography-text copyable>{{ ip6 }}</a-typography-text>
-                      </span>
+                    <template v-if="vnic.ipv6List && vnic.ipv6List.length > 0">
+                      <div v-for="(ip6, i6) in vnic.ipv6List" :key="ip6.ipv6Id || i6" style="margin-bottom: 4px">
+                        <a-typography-text copyable>{{ ip6.ipAddress }}</a-typography-text>
+                        <a-popconfirm title="确定取消分配该 IPv6？" @confirm="handleRemoveIpv6(ip6)">
+                          <a-button type="link" danger size="small" :loading="ipv6RemoveLoading[ip6.ipv6Id]">取消分配</a-button>
+                        </a-popconfirm>
+                        <a-button type="link" size="small" @click="handleAddIpv6(vnic)" :loading="ipv6AddLoading[vnic.vnicId]">
+                          分配 IPv6
+                        </a-button>
+                      </div>
                     </template>
                     <span v-else style="color: #999">
                       无
-                      <a-button type="link" size="small" @click="handleAddIpv6" :loading="ipv6Loading">添加 IPv6</a-button>
+                      <a-button type="link" size="small" @click="handleAddIpv6(vnic)" :loading="ipv6AddLoading[vnic.vnicId]">添加 IPv6</a-button>
                     </span>
                   </a-descriptions-item>
                   <a-descriptions-item label="辅助IP">
@@ -1046,7 +1052,7 @@ import {
   getSecurityRules, releaseAllPorts, releaseOciPreset, addSecurityRule, deleteSecurityRule,
   getBootVolumes, updateBootVolume, getVcns,
   getTrafficData, changeIp,
-  getInstanceNetworkDetail, addIpv6,
+  getInstanceNetworkDetail, addIpv6, removeIpv6,
   createReservedIp, listReservedIps, deleteReservedIp,
   assignReservedIp, unassignReservedIp,
   updateInstance,
@@ -1379,7 +1385,8 @@ const changeIpLoading = ref(false)
 
 const netDetailLoading = ref(false)
 const networkDetail = ref<any>(null)
-const ipv6Loading = ref(false)
+const ipv6AddLoading = ref<Record<string, boolean>>({})
+const ipv6RemoveLoading = ref<Record<string, boolean>>({})
 const ephemeralIpLoading = ref(false)
 
 const deleteRuleLoading = ref(false)
@@ -1683,18 +1690,38 @@ async function loadNetworkDetail() {
   }
 }
 
-async function handleAddIpv6() {
+async function handleAddIpv6(vnic?: any) {
   if (!currentInstance.value || !currentTenant.value) return
-  ipv6Loading.value = true
+  const vnicId = vnic?.vnicId || 'default'
+  ipv6AddLoading.value[vnicId] = true
   try {
-    const res = await addIpv6({ id: currentTenant.value.id, instanceId: currentInstance.value.instanceId })
-    message.success('IPv6 已添加: ' + (res.data?.ipv6Address || ''))
+    const res = await addIpv6({ id: currentTenant.value.id, instanceId: currentInstance.value.instanceId, vnicId: vnic?.vnicId })
+    message.success('IPv6 已分配: ' + (res.data?.ipv6Address || ''))
     loadNetworkDetail()
     await checkIpv6SecurityHealth()
   } catch (e: any) {
-    message.error(e?.message || '添加 IPv6 失败')
+    message.error(e?.message || '分配 IPv6 失败')
   } finally {
-    ipv6Loading.value = false
+    ipv6AddLoading.value[vnicId] = false
+  }
+}
+
+async function handleRemoveIpv6(ip6: any) {
+  if (!currentTenant.value) return
+  const ipv6Id = ip6?.ipv6Id
+  if (!ipv6Id) {
+    message.error('缺少 ipv6Id，无法取消分配')
+    return
+  }
+  ipv6RemoveLoading.value[ipv6Id] = true
+  try {
+    await removeIpv6({ id: currentTenant.value.id, ipv6Id })
+    message.success('IPv6 已取消分配')
+    loadNetworkDetail()
+  } catch (e: any) {
+    message.error(e?.message || '取消分配 IPv6 失败')
+  } finally {
+    ipv6RemoveLoading.value[ipv6Id] = false
   }
 }
 

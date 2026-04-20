@@ -64,8 +64,12 @@ export function getInstanceNetworkDetail(data: { id: string; instanceId: string 
   return request.post('/oci/instance/instanceDetail', data)
 }
 
-export function addIpv6(data: { id: string; instanceId: string }) {
+export function addIpv6(data: { id: string; instanceId: string; vnicId?: string }) {
   return request.post('/oci/instance/addIpv6', data)
+}
+
+export function removeIpv6(data: { id: string; ipv6Id: string }) {
+  return request.post('/oci/instance/removeIpv6', data)
 }
 
 export function createReservedIp(data: { id: string; displayName?: string }) {

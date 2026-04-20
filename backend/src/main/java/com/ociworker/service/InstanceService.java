@@ -226,7 +226,16 @@ public class InstanceService {
                     List<Ipv6> ipv6List = client.getVirtualNetworkClient().listIpv6s(
                             ListIpv6sRequest.builder().vnicId(vnic.getId()).build()
                     ).getItems();
+                    // Keep old field for backward compatibility, and provide id for per-IPv6 unassign (delete).
                     vnicInfo.put("ipv6Addresses", ipv6List.stream().map(Ipv6::getIpAddress).toList());
+                    List<Map<String, Object>> ipv6Details = new ArrayList<>();
+                    for (Ipv6 ip6 : ipv6List) {
+                        Map<String, Object> m = new LinkedHashMap<>();
+                        m.put("ipv6Id", ip6.getId());
+                        m.put("ipAddress", ip6.getIpAddress());
+                        ipv6Details.add(m);
+                    }
+                    vnicInfo.put("ipv6List", ipv6Details);
 
                     List<PrivateIp> privateIps = client.getVirtualNetworkClient().listPrivateIps(
                             ListPrivateIpsRequest.builder().vnicId(vnic.getId()).build()
@@ -273,7 +282,7 @@ public class InstanceService {
     /**
      * Full IPv6 flow: ensure VCN has IPv6 CIDR → ensure subnet has IPv6 CIDR → create IPv6 on VNIC
      */
-    public Map<String, String> addIpv6(String userId, String instanceId) {
+    public Map<String, String> addIpv6(String userId, String instanceId, String preferredVnicId) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
 
@@ -287,8 +296,18 @@ public class InstanceService {
             ).getItems();
             if (attachments.isEmpty()) throw new OciException("未找到实例的 VNIC");
 
-            String vnicId = attachments.get(0).getVnicId();
-            String subnetId = attachments.get(0).getSubnetId();
+            VnicAttachment target = attachments.get(0);
+            if (preferredVnicId != null && !preferredVnicId.isBlank()) {
+                for (VnicAttachment att : attachments) {
+                    if (preferredVnicId.equals(att.getVnicId())) {
+                        target = att;
+                        break;
+                    }
+                }
+            }
+
+            String vnicId = target.getVnicId();
+            String subnetId = target.getSubnetId();
 
             Subnet subnet = client.getVirtualNetworkClient().getSubnet(
                     GetSubnetRequest.builder().subnetId(subnetId).build()
@@ -365,6 +384,27 @@ public class InstanceService {
             throw new OciException(tag(ociUser) + "添加 IPv6 失败: " + extractOciErrorMessage(e));
         } catch (Exception e) {
             throw new OciException(tag(ociUser) + "添加 IPv6 失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Unassign IPv6 from VNIC by deleting the IPv6 resource (does NOT modify VCN/Subnet route/security config).
+     */
+    public void removeIpv6(String userId, String ipv6Id) {
+        OciUser ociUser = userMapper.selectById(userId);
+        if (ociUser == null) throw new OciException("租户配置不存在");
+        if (ipv6Id == null || ipv6Id.isBlank()) throw new OciException("ipv6Id 不能为空");
+
+        SysUserDTO dto = buildBasicDTO(ociUser);
+        try (OciClientService client = new OciClientService(dto)) {
+            client.getVirtualNetworkClient().deleteIpv6(
+                    DeleteIpv6Request.builder().ipv6Id(ipv6Id).build()
+            );
+            log.info("IPv6 unassigned (deleted): {}", ipv6Id);
+        } catch (com.oracle.bmc.model.BmcException e) {
+            throw new OciException(tag(ociUser) + "取消分配 IPv6 失败: " + extractOciErrorMessage(e));
+        } catch (Exception e) {
+            throw new OciException(tag(ociUser) + "取消分配 IPv6 失败: " + e.getMessage());
         }
     }
 

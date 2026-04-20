@@ -96,7 +96,13 @@ public class InstanceController {
 
     @PostMapping("/addIpv6")
     public ResponseData<?> addIpv6(@RequestBody Map<String, String> params) {
-        return ResponseData.ok(instanceService.addIpv6(params.get("id"), params.get("instanceId")));
+        return ResponseData.ok(instanceService.addIpv6(params.get("id"), params.get("instanceId"), params.get("vnicId")));
+    }
+
+    @PostMapping("/removeIpv6")
+    public ResponseData<?> removeIpv6(@RequestBody Map<String, String> params) {
+        instanceService.removeIpv6(params.get("id"), params.get("ipv6Id"));
+        return ResponseData.ok();
     }
 
     @PostMapping("/createReservedIp")
