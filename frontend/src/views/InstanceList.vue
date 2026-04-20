@@ -549,25 +549,6 @@
                       </template>
                     </div>
                   </a-descriptions-item>
-                  <a-descriptions-item label="IPv6">
-                    <template v-if="vnic.ipv6List && vnic.ipv6List.length > 0">
-                      <div v-for="(ip6, i6) in vnic.ipv6List" :key="ip6.ipv6Id || i6" style="margin-bottom: 4px">
-                        <a-typography-text copyable>{{ ip6.ipAddress }}</a-typography-text>
-                        <a-popconfirm title="确定取消分配该 IPv6？" @confirm="handleRemoveIpv6(ip6)">
-                          <a-button type="link" danger size="small" :loading="ipv6RemoveLoading[ip6.ipv6Id]">取消分配</a-button>
-                        </a-popconfirm>
-                      </div>
-                      <div>
-                        <a-button type="link" size="small" @click="handleAddIpv6(vnic)" :loading="ipv6AddLoading[vnic.vnicId]">
-                          分配 IPv6
-                        </a-button>
-                      </div>
-                    </template>
-                    <span v-else style="color: #999">
-                      无
-                      <a-button type="link" size="small" @click="handleAddIpv6(vnic)" :loading="ipv6AddLoading[vnic.vnicId]">添加 IPv6</a-button>
-                    </span>
-                  </a-descriptions-item>
                   <a-descriptions-item label="辅助IP">
                     <template v-if="getSecondaryIps(vnic).length > 0">
                       <div v-for="(ipd, idx) in getSecondaryIps(vnic)" :key="'s'+idx" style="margin-bottom: 4px">
@@ -590,6 +571,25 @@
                       <span style="color: #999">无</span>
                       <a-button type="link" size="small" @click="handleAddAuxIp" :loading="auxIpLoading" style="margin-left: 8px">添加辅助IP</a-button>
                     </template>
+                  </a-descriptions-item>
+                  <a-descriptions-item label="IPv6">
+                    <template v-if="vnic.ipv6List && vnic.ipv6List.length > 0">
+                      <div v-for="(ip6, i6) in vnic.ipv6List" :key="ip6.ipv6Id || i6" style="margin-bottom: 4px">
+                        <a-typography-text copyable>{{ ip6.ipAddress }}</a-typography-text>
+                        <a-popconfirm title="确定取消分配该 IPv6？" @confirm="handleRemoveIpv6(ip6)">
+                          <a-button type="link" danger size="small" :loading="ipv6RemoveLoading[ip6.ipv6Id]">取消分配</a-button>
+                        </a-popconfirm>
+                      </div>
+                      <div>
+                        <a-button type="link" size="small" @click="handleAddIpv6(vnic)" :loading="ipv6AddLoading[vnic.vnicId]">
+                          分配 IPv6
+                        </a-button>
+                      </div>
+                    </template>
+                    <span v-else style="color: #999">
+                      无
+                      <a-button type="link" size="small" @click="handleAddIpv6(vnic)" :loading="ipv6AddLoading[vnic.vnicId]">添加 IPv6</a-button>
+                    </span>
                   </a-descriptions-item>
                 </a-descriptions>
               </div>
