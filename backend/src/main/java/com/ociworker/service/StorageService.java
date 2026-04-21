@@ -438,11 +438,19 @@ public class StorageService {
                             .subnetId(subnetId)
                             .name(displayName)
                             .build();
-                    yield toMap(client.getObjectStorageClient().createPrivateEndpoint(
+                    // SDK 3.83+: CreatePrivateEndpointResponse 仅返回 opcWorkRequestId（异步创建），无 getPrivateEndpoint()
+                    var resp = client.getObjectStorageClient().createPrivateEndpoint(
                             CreatePrivateEndpointRequest.builder()
                                     .namespaceName(namespace)
                                     .createPrivateEndpointDetails(det)
-                                    .build()).getPrivateEndpoint());
+                                    .build());
+                    Map<String, Object> peOut = new LinkedHashMap<>();
+                    peOut.put("opcWorkRequestId", resp.getOpcWorkRequestId());
+                    peOut.put("namespace", namespace);
+                    peOut.put("name", displayName);
+                    peOut.put("compartmentId", compartmentId);
+                    peOut.put("subnetId", subnetId);
+                    yield peOut;
                 }
                 case "createVolumeBackupPolicyAssignment" -> {
                     String policyId = stringParam(params, "policyId");
@@ -694,7 +702,7 @@ public class StorageService {
                             b.getLifecycleState() != null ? b.getLifecycleState().getValue() : null,
                             b.getTimeCreated() != null ? b.getTimeCreated().toString() : null);
                     m.put("sizeInGBs", b.getSizeInGBs());
-                    m.put("uniqueSizeInGBs", b.getUniqueSizeInGbs());
+                    m.put("uniqueSizeInGBs", b.getUniqueSizeInGBs());
                     m.put("sourceBootVolumeId", b.getBootVolumeId());
                     m.put("sourceType", b.getSourceType() != null ? b.getSourceType().getValue() : null);
                     out.add(m);
@@ -718,7 +726,7 @@ public class StorageService {
                             b.getLifecycleState() != null ? b.getLifecycleState().getValue() : null,
                             b.getTimeCreated() != null ? b.getTimeCreated().toString() : null);
                     m.put("sizeInGBs", b.getSizeInGBs());
-                    m.put("uniqueSizeInGBs", b.getUniqueSizeInGbs());
+                    m.put("uniqueSizeInGBs", b.getUniqueSizeInGBs());
                     m.put("sourceVolumeId", b.getVolumeId());
                     m.put("sourceType", b.getSourceType() != null ? b.getSourceType().getValue() : null);
                     out.add(m);

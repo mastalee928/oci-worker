@@ -1361,7 +1361,7 @@ async function submitCreatePe() {
       displayName: f.displayName.trim(),
       subnetId: f.subnetId.trim(),
     })
-    message.success('已创建专用端点')
+    message.success('已提交创建（OCI 异步），请稍后刷新列表')
     peCreateOpen.value = false
     await loadObject()
   } catch (e: any) {
