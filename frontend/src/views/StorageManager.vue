@@ -403,6 +403,9 @@ const compartmentId = ref<string | undefined>(undefined)
 const regionOptions = ref<{ label: string; value: string }[]>([])
 const compartmentOptions = ref<{ label: string; value: string }[]>([])
 
+/** 程序化选中 root 区间时跳过 watch(compartmentId)，避免重复 loadAll */
+let suppressCompartmentLoadAll = false
+
 const mainTab = ref('block')
 const objectSub = ref('buckets')
 const blockView = ref('bootVolumes')
@@ -570,12 +573,13 @@ watch(
   },
 )
 
-watch(region, (r) => {
+watch(region, async (r) => {
   try {
     localStorage.setItem(`storage.region:${props.userId}`, r || '')
   } catch {}
   if (props.open && r) {
-    void loadCompartments()
+    const raw = await loadCompartments()
+    applyRootCompartmentDefaultIfNeeded(raw)
     void loadAll()
   }
 })
@@ -610,7 +614,8 @@ async function initDrawer() {
       || (cached && ids.includes(cached) ? cached : null)
       || (ids[0] || '')
     if (region.value) {
-      await loadCompartments()
+      const raw = await loadCompartments()
+      applyRootCompartmentDefaultIfNeeded(raw)
       await loadAll()
     }
   } catch (e: any) {
@@ -620,8 +625,9 @@ async function initDrawer() {
   }
 }
 
-async function loadCompartments() {
-  if (!props.userId || !region.value) return
+/** 拉取区间列表；返回原始行（含 isRoot）供默认选中 root */
+async function loadCompartments(): Promise<any[]> {
+  if (!props.userId || !region.value) return []
   compartmentLoading.value = true
   try {
     const res = await listStorageCompartments({ id: props.userId, region: region.value })
@@ -630,10 +636,26 @@ async function loadCompartments() {
       label: `${c.name || c.id} (${(c.id || '').slice(-8)})`,
       value: c.id,
     }))
+    return list
   } catch {
     compartmentOptions.value = []
+    return []
   } finally {
     compartmentLoading.value = false
+  }
+}
+
+/** 未选或当前选中已不在列表中时，默认选中租户 root（后端 isRoot 或列表首项） */
+function applyRootCompartmentDefaultIfNeeded(rawList: any[]) {
+  const rootId = rawList.find((c: any) => c.isRoot)?.id || rawList[0]?.id
+  if (!rootId) return
+  const cur = compartmentId.value
+  if (cur && compartmentOptions.value.some((o) => o.value === cur)) return
+  suppressCompartmentLoadAll = true
+  try {
+    compartmentId.value = rootId
+  } finally {
+    suppressCompartmentLoadAll = false
   }
 }
 
@@ -674,6 +696,7 @@ async function loadObject() {
 }
 
 watch(compartmentId, () => {
+  if (suppressCompartmentLoadAll) return
   if (props.open && region.value) void loadAll()
 })
 

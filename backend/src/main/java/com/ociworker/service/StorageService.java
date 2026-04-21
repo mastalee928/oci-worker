@@ -69,6 +69,7 @@ public class StorageService {
 
     public List<Map<String, Object>> listCompartments(String userId, String region) {
         OciUser ociUser = requireUser(userId);
+        String tenantId = ociUser.getOciTenantId();
         try (OciClientService client = new OciClientService(buildDto(ociUser), region)) {
             return client.listAllCompartments().stream()
                     .map(c -> {
@@ -76,6 +77,8 @@ public class StorageService {
                         m.put("id", c.getId());
                         m.put("name", c.getName());
                         m.put("compartmentId", c.getCompartmentId());
+                        boolean isRoot = tenantId != null && tenantId.equals(c.getId());
+                        m.put("isRoot", isRoot);
                         if (c.getLifecycleState() != null) {
                             m.put("lifecycleState", c.getLifecycleState().getValue());
                         }
@@ -85,7 +88,7 @@ public class StorageService {
         } catch (OciException e) {
             throw e;
         } catch (Exception e) {
-            throw new OciException("列出隔间失败: " + e.getMessage());
+            throw new OciException("列出区间失败: " + e.getMessage());
         }
     }
 
