@@ -40,7 +40,7 @@
                     <div class="tenant-card" :class="{ 'tenant-card-active': activeTenantId === td.tenant.id }">
                       <div class="tc-header"><i class="ri-cloud-line tc-icon"></i><div class="tc-info"><div class="tc-name">{{ td.tenant.username }}</div><div class="tc-region">{{ td.tenant.ociRegion }}</div></div></div>
                       <div class="tc-tags"><a-tag v-if="td.tenant.planType" :color="td.tenant.planType === 'FREE' ? 'default' : 'green'" size="small">{{ td.tenant.planType }}</a-tag><a-tag v-if="td.tenant.tenantName" size="small" color="blue">{{ td.tenant.tenantName }}</a-tag></div>
-                      <div class="tc-actions"><a-button type="primary" block @click="selectTenant(td)" :loading="td.loading"><i class="ri-server-line" style="margin-right:6px"></i>实例管理</a-button><a-button block @click="openVcnPanel(td.tenant)"><i class="ri-share-line" style="margin-right:6px"></i>虚拟云网络</a-button><a-button block @click="openVolumePanel(td.tenant)"><i class="ri-hard-drive-2-line" style="margin-right:6px"></i>卷组</a-button><a-button block @click="openQuickTask(td.tenant)"><i class="ri-play-circle-line" style="margin-right:6px"></i>快捷开机</a-button></div>
+                      <div class="tc-actions"><a-button type="primary" block @click="selectTenant(td)" :loading="td.loading"><i class="ri-server-line" style="margin-right:6px"></i>实例管理</a-button><a-button block @click="openVcnPanel(td.tenant)"><i class="ri-share-line" style="margin-right:6px"></i>虚拟云网络</a-button><a-button block @click="openStoragePanel(td.tenant)"><i class="ri-database-2-line" style="margin-right:6px"></i>存储</a-button><a-button block @click="openQuickTask(td.tenant)"><i class="ri-play-circle-line" style="margin-right:6px"></i>快捷开机</a-button></div>
                     </div>
                   </template>
                 </div>
@@ -56,7 +56,7 @@
                     <a-space v-if="!isMobile" class="gtr-actions" size="small" wrap>
                       <a-button type="primary" size="small" @click="selectTenant(td)" :loading="td.loading">实例管理</a-button>
                       <a-button size="small" @click="openVcnPanel(td.tenant)">VCN</a-button>
-                      <a-button size="small" @click="openVolumePanel(td.tenant)">卷组</a-button>
+                      <a-button size="small" @click="openStoragePanel(td.tenant)">存储</a-button>
                       <a-button size="small" @click="openQuickTask(td.tenant)">快捷开机</a-button>
                     </a-space>
                     <div v-else class="gtr-actions gtr-actions-mobile">
@@ -66,7 +66,7 @@
                         <template #overlay>
                           <a-menu>
                             <a-menu-item key="vcn" @click="openVcnPanel(td.tenant)">VCN</a-menu-item>
-                            <a-menu-item key="vol" @click="openVolumePanel(td.tenant)">卷组</a-menu-item>
+                            <a-menu-item key="storage" @click="openStoragePanel(td.tenant)">存储</a-menu-item>
                             <a-menu-item key="quick" @click="openQuickTask(td.tenant)">快捷开机</a-menu-item>
                           </a-menu>
                         </template>
@@ -87,7 +87,7 @@
                     <div class="tenant-card" :class="{ 'tenant-card-active': activeTenantId === td.tenant.id }">
                       <div class="tc-header"><i class="ri-cloud-line tc-icon"></i><div class="tc-info"><div class="tc-name">{{ td.tenant.username }}</div><div class="tc-region">{{ td.tenant.ociRegion }}</div></div></div>
                       <div class="tc-tags"><a-tag v-if="td.tenant.planType" :color="td.tenant.planType === 'FREE' ? 'default' : 'green'" size="small">{{ td.tenant.planType }}</a-tag><a-tag v-if="td.tenant.tenantName" size="small" color="blue">{{ td.tenant.tenantName }}</a-tag></div>
-                      <div class="tc-actions"><a-button type="primary" block @click="selectTenant(td)" :loading="td.loading"><i class="ri-server-line" style="margin-right:6px"></i>实例管理</a-button><a-button block @click="openVcnPanel(td.tenant)"><i class="ri-share-line" style="margin-right:6px"></i>虚拟云网络</a-button><a-button block @click="openVolumePanel(td.tenant)"><i class="ri-hard-drive-2-line" style="margin-right:6px"></i>卷组</a-button><a-button block @click="openQuickTask(td.tenant)"><i class="ri-play-circle-line" style="margin-right:6px"></i>快捷开机</a-button></div>
+                      <div class="tc-actions"><a-button type="primary" block @click="selectTenant(td)" :loading="td.loading"><i class="ri-server-line" style="margin-right:6px"></i>实例管理</a-button><a-button block @click="openVcnPanel(td.tenant)"><i class="ri-share-line" style="margin-right:6px"></i>虚拟云网络</a-button><a-button block @click="openStoragePanel(td.tenant)"><i class="ri-database-2-line" style="margin-right:6px"></i>存储</a-button><a-button block @click="openQuickTask(td.tenant)"><i class="ri-play-circle-line" style="margin-right:6px"></i>快捷开机</a-button></div>
                     </div>
                   </template>
                 </div>
@@ -103,7 +103,7 @@
                     <a-space v-if="!isMobile" class="gtr-actions" size="small" wrap>
                       <a-button type="primary" size="small" @click="selectTenant(td)" :loading="td.loading">实例管理</a-button>
                       <a-button size="small" @click="openVcnPanel(td.tenant)">VCN</a-button>
-                      <a-button size="small" @click="openVolumePanel(td.tenant)">卷组</a-button>
+                      <a-button size="small" @click="openStoragePanel(td.tenant)">存储</a-button>
                       <a-button size="small" @click="openQuickTask(td.tenant)">快捷开机</a-button>
                     </a-space>
                     <div v-else class="gtr-actions gtr-actions-mobile">
@@ -113,7 +113,7 @@
                         <template #overlay>
                           <a-menu>
                             <a-menu-item key="vcn" @click="openVcnPanel(td.tenant)">VCN</a-menu-item>
-                            <a-menu-item key="vol" @click="openVolumePanel(td.tenant)">卷组</a-menu-item>
+                            <a-menu-item key="storage" @click="openStoragePanel(td.tenant)">存储</a-menu-item>
                             <a-menu-item key="quick" @click="openQuickTask(td.tenant)">快捷开机</a-menu-item>
                           </a-menu>
                         </template>
@@ -131,7 +131,7 @@
                 <div class="tenant-card" :class="{ 'tenant-card-active': activeTenantId === td.tenant.id }">
                   <div class="tc-header"><i class="ri-cloud-line tc-icon"></i><div class="tc-info"><div class="tc-name">{{ td.tenant.username }}</div><div class="tc-region">{{ td.tenant.ociRegion }}</div></div></div>
                   <div class="tc-tags"><a-tag v-if="td.tenant.planType" :color="td.tenant.planType === 'FREE' ? 'default' : 'green'" size="small">{{ td.tenant.planType }}</a-tag><a-tag v-if="td.tenant.tenantName" size="small" color="blue">{{ td.tenant.tenantName }}</a-tag></div>
-                  <div class="tc-actions"><a-button type="primary" block @click="selectTenant(td)" :loading="td.loading"><i class="ri-server-line" style="margin-right:6px"></i>实例管理</a-button><a-button block @click="openVcnPanel(td.tenant)"><i class="ri-share-line" style="margin-right:6px"></i>虚拟云网络</a-button><a-button block @click="openVolumePanel(td.tenant)"><i class="ri-hard-drive-2-line" style="margin-right:6px"></i>卷组</a-button><a-button block @click="openQuickTask(td.tenant)"><i class="ri-play-circle-line" style="margin-right:6px"></i>快捷开机</a-button></div>
+                  <div class="tc-actions"><a-button type="primary" block @click="selectTenant(td)" :loading="td.loading"><i class="ri-server-line" style="margin-right:6px"></i>实例管理</a-button><a-button block @click="openVcnPanel(td.tenant)"><i class="ri-share-line" style="margin-right:6px"></i>虚拟云网络</a-button><a-button block @click="openStoragePanel(td.tenant)"><i class="ri-database-2-line" style="margin-right:6px"></i>存储</a-button><a-button block @click="openQuickTask(td.tenant)"><i class="ri-play-circle-line" style="margin-right:6px"></i>快捷开机</a-button></div>
                 </div>
               </template>
             </div>
@@ -147,7 +147,7 @@
                 <a-space v-if="!isMobile" class="gtr-actions" size="small" wrap>
                   <a-button type="primary" size="small" @click="selectTenant(td)" :loading="td.loading">实例管理</a-button>
                   <a-button size="small" @click="openVcnPanel(td.tenant)">VCN</a-button>
-                  <a-button size="small" @click="openVolumePanel(td.tenant)">卷组</a-button>
+                  <a-button size="small" @click="openStoragePanel(td.tenant)">存储</a-button>
                   <a-button size="small" @click="openQuickTask(td.tenant)">快捷开机</a-button>
                 </a-space>
                 <div v-else class="gtr-actions gtr-actions-mobile">
@@ -157,7 +157,7 @@
                     <template #overlay>
                       <a-menu>
                         <a-menu-item key="vcn" @click="openVcnPanel(td.tenant)">VCN</a-menu-item>
-                        <a-menu-item key="vol" @click="openVolumePanel(td.tenant)">卷组</a-menu-item>
+                        <a-menu-item key="storage" @click="openStoragePanel(td.tenant)">存储</a-menu-item>
                         <a-menu-item key="quick" @click="openQuickTask(td.tenant)">快捷开机</a-menu-item>
                       </a-menu>
                     </template>
@@ -194,8 +194,8 @@
           <a-button block @click="openVcnPanel(td.tenant)">
             <i class="ri-share-line" style="margin-right: 6px"></i>虚拟云网络
           </a-button>
-          <a-button block @click="openVolumePanel(td.tenant)">
-            <i class="ri-hard-drive-2-line" style="margin-right: 6px"></i>卷组
+          <a-button block @click="openStoragePanel(td.tenant)">
+            <i class="ri-database-2-line" style="margin-right: 6px"></i>存储
           </a-button>
           <a-button block @click="openQuickTask(td.tenant)">
             <i class="ri-play-circle-line" style="margin-right: 6px"></i>快捷开机
@@ -240,7 +240,7 @@
             <a-space>
               <a-button type="primary" size="small" @click="selectTenant(record)" :loading="record.loading">实例管理</a-button>
               <a-button size="small" @click="openVcnPanel(record.tenant)">VCN</a-button>
-              <a-button size="small" @click="openVolumePanel(record.tenant)">卷组</a-button>
+              <a-button size="small" @click="openStoragePanel(record.tenant)">存储</a-button>
               <a-button size="small" @click="openQuickTask(record.tenant)">快捷开机</a-button>
             </a-space>
           </template>
@@ -1036,10 +1036,11 @@
       @changed="loadVcns"
     />
 
-    <VolumeManager
-      v-model:open="volumeManagerOpen"
-      :user-id="volumeManagerUserId"
-      :tenant-name="volumeManagerTenantName"
+    <StorageManager
+      v-model:open="storageManagerOpen"
+      :user-id="storageManagerUserId"
+      :tenant-name="storageManagerTenantName"
+      :default-region="storageManagerDefaultRegion"
     />
 
   </div>
@@ -1064,7 +1065,7 @@ import {
 import { getTenantList, getTenantGroups } from '../api/tenant'
 import { listAllVolumes, deleteVolume } from '../api/volume'
 import VcnManager from './VcnManager.vue'
-import VolumeManager from './VolumeManager.vue'
+import StorageManager from './StorageManager.vue'
 import { createTask, hasRunningTask } from '../api/task'
 import { sendVerifyCode } from '../api/system'
 
@@ -1472,13 +1473,15 @@ function openVcnManager(tenantId: string, vcn: any) {
   vcnManagerOpen.value = true
 }
 
-const volumeManagerOpen = ref(false)
-const volumeManagerUserId = ref('')
-const volumeManagerTenantName = ref('')
-function openVolumePanel(tenant: any) {
-  volumeManagerUserId.value = tenant.id
-  volumeManagerTenantName.value = tenant.username || tenant.tenantName || ''
-  volumeManagerOpen.value = true
+const storageManagerOpen = ref(false)
+const storageManagerUserId = ref('')
+const storageManagerTenantName = ref('')
+const storageManagerDefaultRegion = ref('')
+function openStoragePanel(tenant: any) {
+  storageManagerUserId.value = tenant.id
+  storageManagerTenantName.value = tenant.username || tenant.tenantName || ''
+  storageManagerDefaultRegion.value = tenant.ociRegion || ''
+  storageManagerOpen.value = true
 }
 
 async function openVcnPanel(tenant: any) {

@@ -46,6 +46,8 @@ public class VerifyCodeService {
             case "disableUser" -> "禁用用户";
             case "changePassword" -> "修改登录密码";
             case "deleteVolume" -> "删除卷";
+            case "deleteStorage" -> "删除存储资源";
+            case "editBucketPolicy" -> "修改存储桶策略";
             case "deleteVcn" -> "删除 VCN 资源";
             case "authFactors" -> "修改域验证因素设置";
             default -> action;

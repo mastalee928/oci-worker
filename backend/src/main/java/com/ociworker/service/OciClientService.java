@@ -19,8 +19,10 @@ import com.oracle.bmc.identity.requests.ListAvailabilityDomainsRequest;
 import com.oracle.bmc.identity.requests.ListCompartmentsRequest;
 import com.oracle.bmc.monitoring.MonitoringClient;
 import com.oracle.bmc.networkloadbalancer.NetworkLoadBalancerClient;
+import com.oracle.bmc.objectstorage.ObjectStorageClient;
 import com.oracle.bmc.workrequests.WorkRequestClient;
 import com.ociworker.enums.ArchitectureEnum;
+import com.ociworker.exception.OciException;
 import com.ociworker.model.dto.InstanceDetailDTO;
 import com.ociworker.model.dto.SysUserDTO;
 import com.ociworker.util.CommonUtils;
@@ -40,6 +42,7 @@ public class OciClientService implements Closeable {
     private final WorkRequestClient workRequestClient;
     private final VirtualNetworkClient virtualNetworkClient;
     private final BlockstorageClient blockstorageClient;
+    private final ObjectStorageClient objectStorageClient;
     private final MonitoringClient monitoringClient;
     private final NetworkLoadBalancerClient networkLoadBalancerClient;
     private final SimpleAuthenticationDetailsProvider provider;
@@ -56,13 +59,22 @@ public class OciClientService implements Closeable {
         workRequestClient.close();
         virtualNetworkClient.close();
         blockstorageClient.close();
+        objectStorageClient.close();
         monitoringClient.close();
         networkLoadBalancerClient.close();
     }
 
     public OciClientService(SysUserDTO user) {
+        this(user, user.getOciCfg() != null ? user.getOciCfg().getRegion() : null);
+    }
+
+    /**
+     * 使用指定 Region 的端点创建客户端（用于「存储」等跨区查看）。
+     */
+    public OciClientService(SysUserDTO user, String regionId) {
         this.user = user;
         SysUserDTO.OciCfg ociCfg = user.getOciCfg();
+        Region region = resolveRegion(StrUtil.isNotBlank(regionId) ? regionId : ociCfg.getRegion());
         SimpleAuthenticationDetailsProvider provider = SimpleAuthenticationDetailsProvider.builder()
                 .tenantId(ociCfg.getTenantId())
                 .userId(ociCfg.getUserId())
@@ -80,7 +92,7 @@ public class OciClientService implements Closeable {
                         throw new RuntimeException("Failed to read private key");
                     }
                 })
-                .region(Region.valueOf(ociCfg.getRegion()))
+                .region(region)
                 .build();
 
         ClientConfiguration clientConfig = ClientConfiguration.builder()
@@ -90,6 +102,7 @@ public class OciClientService implements Closeable {
         identityClient = IdentityClient.builder().configuration(clientConfig).build(provider);
         computeClient = ComputeClient.builder().configuration(clientConfig).build(provider);
         blockstorageClient = BlockstorageClient.builder().configuration(clientConfig).build(provider);
+        objectStorageClient = ObjectStorageClient.builder().configuration(clientConfig).build(provider);
         workRequestClient = WorkRequestClient.builder().configuration(clientConfig).build(provider);
         virtualNetworkClient = VirtualNetworkClient.builder().configuration(clientConfig).build(provider);
         monitoringClient = MonitoringClient.builder().configuration(clientConfig).build(provider);
@@ -98,6 +111,18 @@ public class OciClientService implements Closeable {
         compartmentId = StrUtil.isBlank(ociCfg.getCompartmentId())
                 ? findRootCompartment(identityClient, provider.getTenantId())
                 : ociCfg.getCompartmentId();
+    }
+
+    private static Region resolveRegion(String regionId) {
+        if (StrUtil.isBlank(regionId)) {
+            throw new OciException("Region 不能为空");
+        }
+        for (Region r : Region.values()) {
+            if (regionId.equalsIgnoreCase(r.getRegionId())) {
+                return r;
+            }
+        }
+        throw new OciException("未知 Region: " + regionId + "（请检查拼写或升级 OCI SDK）");
     }
 
     private String findRootCompartment(IdentityClient identityClient, String tenantId) {
