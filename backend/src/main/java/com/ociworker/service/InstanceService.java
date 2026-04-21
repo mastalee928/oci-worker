@@ -24,12 +24,16 @@ public class InstanceService {
 
     private String tag(OciUser u) { return "[" + u.getUsername() + "] "; }
 
-    public List<Map<String, Object>> listInstances(String userId) {
+    private OciClientService oci(OciUser ociUser, String region) {
+        String r = (region == null || region.isBlank()) ? null : region.trim();
+        return new OciClientService(buildBasicDTO(ociUser), r);
+    }
+
+    public List<Map<String, Object>> listInstances(String userId, String region) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
 
-        SysUserDTO dto = buildBasicDTO(ociUser);
-        try (OciClientService client = new OciClientService(dto)) {
+        try (OciClientService client = oci(ociUser, region)) {
             var compartments = client.listAllCompartments();
             Map<String, String> compartmentNameMap = new LinkedHashMap<>();
             for (var c : compartments) {
@@ -93,12 +97,11 @@ public class InstanceService {
         }
     }
 
-    public void updateInstanceState(String userId, String instanceId, String action) {
+    public void updateInstanceState(String userId, String instanceId, String action, String region) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
 
-        SysUserDTO dto = buildBasicDTO(ociUser);
-        try (OciClientService client = new OciClientService(dto)) {
+        try (OciClientService client = oci(ociUser, region)) {
             InstanceActionRequest request = InstanceActionRequest.builder()
                     .instanceId(instanceId)
                     .action(action)
@@ -110,12 +113,11 @@ public class InstanceService {
         }
     }
 
-    public void terminateInstance(String userId, String instanceId, boolean preserveBootVolume) {
+    public void terminateInstance(String userId, String instanceId, boolean preserveBootVolume, String region) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
 
-        SysUserDTO dto = buildBasicDTO(ociUser);
-        try (OciClientService client = new OciClientService(dto)) {
+        try (OciClientService client = oci(ociUser, region)) {
             client.getComputeClient().terminateInstance(
                     TerminateInstanceRequest.builder()
                             .instanceId(instanceId)
@@ -127,12 +129,11 @@ public class InstanceService {
         }
     }
 
-    public List<Map<String, Object>> listBootVolumesByInstance(String userId, String instanceId) {
+    public List<Map<String, Object>> listBootVolumesByInstance(String userId, String instanceId, String region) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
 
-        SysUserDTO dto = buildBasicDTO(ociUser);
-        try (OciClientService client = new OciClientService(dto)) {
+        try (OciClientService client = oci(ociUser, region)) {
             Instance instance = client.getComputeClient().getInstance(
                     GetInstanceRequest.builder().instanceId(instanceId).build()
             ).getInstance();
@@ -169,12 +170,11 @@ public class InstanceService {
         }
     }
 
-    public void updateBootVolume(String userId, String bootVolumeId, Long sizeInGBs, String displayName, Long vpusPerGB) {
+    public void updateBootVolume(String userId, String bootVolumeId, Long sizeInGBs, String displayName, Long vpusPerGB, String region) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
 
-        SysUserDTO dto = buildBasicDTO(ociUser);
-        try (OciClientService client = new OciClientService(dto)) {
+        try (OciClientService client = oci(ociUser, region)) {
             UpdateBootVolumeDetails.Builder detailsBuilder = UpdateBootVolumeDetails.builder();
             if (sizeInGBs != null) detailsBuilder.sizeInGBs(sizeInGBs);
             if (displayName != null) detailsBuilder.displayName(displayName);
@@ -194,12 +194,11 @@ public class InstanceService {
     /**
      * Gets detailed network info for an instance: private IP, public IP type (reserved/ephemeral), IPv6
      */
-    public Map<String, Object> getInstanceNetworkDetail(String userId, String instanceId) {
+    public Map<String, Object> getInstanceNetworkDetail(String userId, String instanceId, String region) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
 
-        SysUserDTO dto = buildBasicDTO(ociUser);
-        try (OciClientService client = new OciClientService(dto)) {
+        try (OciClientService client = oci(ociUser, region)) {
             Map<String, Object> result = new LinkedHashMap<>();
 
             List<VnicAttachment> attachments = client.getComputeClient().listVnicAttachments(
@@ -282,12 +281,11 @@ public class InstanceService {
     /**
      * Full IPv6 flow: ensure VCN has IPv6 CIDR → ensure subnet has IPv6 CIDR → create IPv6 on VNIC
      */
-    public Map<String, String> addIpv6(String userId, String instanceId, String preferredVnicId) {
+    public Map<String, String> addIpv6(String userId, String instanceId, String preferredVnicId, String region) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
 
-        SysUserDTO dto = buildBasicDTO(ociUser);
-        try (OciClientService client = new OciClientService(dto)) {
+        try (OciClientService client = oci(ociUser, region)) {
             List<VnicAttachment> attachments = client.getComputeClient().listVnicAttachments(
                     ListVnicAttachmentsRequest.builder()
                             .compartmentId(client.getCompartmentId())
@@ -390,13 +388,12 @@ public class InstanceService {
     /**
      * Unassign IPv6 from VNIC by deleting the IPv6 resource (does NOT modify VCN/Subnet route/security config).
      */
-    public void removeIpv6(String userId, String ipv6Id) {
+    public void removeIpv6(String userId, String ipv6Id, String region) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
         if (ipv6Id == null || ipv6Id.isBlank()) throw new OciException("ipv6Id 不能为空");
 
-        SysUserDTO dto = buildBasicDTO(ociUser);
-        try (OciClientService client = new OciClientService(dto)) {
+        try (OciClientService client = oci(ociUser, region)) {
             client.getVirtualNetworkClient().deleteIpv6(
                     DeleteIpv6Request.builder().ipv6Id(ipv6Id).build()
             );
@@ -467,12 +464,11 @@ public class InstanceService {
         }
     }
 
-    public Map<String, String> createReservedIp(String userId, String displayName) {
+    public Map<String, String> createReservedIp(String userId, String displayName, String region) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
 
-        SysUserDTO dto = buildBasicDTO(ociUser);
-        try (OciClientService client = new OciClientService(dto)) {
+        try (OciClientService client = oci(ociUser, region)) {
             CreatePublicIpDetails.Builder builder = CreatePublicIpDetails.builder()
                     .compartmentId(client.getCompartmentId())
                     .lifetime(CreatePublicIpDetails.Lifetime.Reserved);
@@ -497,12 +493,11 @@ public class InstanceService {
         }
     }
 
-    public List<Map<String, Object>> listReservedIps(String userId) {
+    public List<Map<String, Object>> listReservedIps(String userId, String region) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
 
-        SysUserDTO dto = buildBasicDTO(ociUser);
-        try (OciClientService client = new OciClientService(dto)) {
+        try (OciClientService client = oci(ociUser, region)) {
             List<PublicIp> publicIps = client.getVirtualNetworkClient().listPublicIps(
                     ListPublicIpsRequest.builder()
                             .compartmentId(client.getCompartmentId())
@@ -529,12 +524,11 @@ public class InstanceService {
         }
     }
 
-    public void deleteReservedIp(String userId, String publicIpId) {
+    public void deleteReservedIp(String userId, String publicIpId, String region) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
 
-        SysUserDTO dto = buildBasicDTO(ociUser);
-        try (OciClientService client = new OciClientService(dto)) {
+        try (OciClientService client = oci(ociUser, region)) {
             client.getVirtualNetworkClient().deletePublicIp(
                     DeletePublicIpRequest.builder().publicIpId(publicIpId).build());
             log.info("Reserved IP deleted: {}", publicIpId);
@@ -547,12 +541,11 @@ public class InstanceService {
      * Assigns a reserved IP to an instance by creating a secondary private IP on the VNIC,
      * then binding the reserved public IP to that secondary private IP.
      */
-    public void assignReservedIp(String userId, String publicIpId, String instanceId) {
+    public void assignReservedIp(String userId, String publicIpId, String instanceId, String region) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
 
-        SysUserDTO dto = buildBasicDTO(ociUser);
-        try (OciClientService client = new OciClientService(dto)) {
+        try (OciClientService client = oci(ociUser, region)) {
             List<VnicAttachment> attachments = client.getComputeClient().listVnicAttachments(
                     ListVnicAttachmentsRequest.builder()
                             .compartmentId(client.getCompartmentId())
@@ -591,12 +584,11 @@ public class InstanceService {
         }
     }
 
-    public void unassignReservedIp(String userId, String publicIpId) {
+    public void unassignReservedIp(String userId, String publicIpId, String region) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
 
-        SysUserDTO dto = buildBasicDTO(ociUser);
-        try (OciClientService client = new OciClientService(dto)) {
+        try (OciClientService client = oci(ociUser, region)) {
             PublicIp pubIp = client.getVirtualNetworkClient().getPublicIp(
                     GetPublicIpRequest.builder().publicIpId(publicIpId).build()
             ).getPublicIp();
@@ -631,12 +623,11 @@ public class InstanceService {
     }
 
     public Map<String, Object> updateInstance(String userId, String instanceId,
-                                               String displayName, Float ocpus, Float memoryInGBs) {
+                                               String displayName, Float ocpus, Float memoryInGBs, String region) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
 
-        SysUserDTO dto = buildBasicDTO(ociUser);
-        try (OciClientService client = new OciClientService(dto)) {
+        try (OciClientService client = oci(ociUser, region)) {
             UpdateInstanceDetails.Builder detailsBuilder = UpdateInstanceDetails.builder();
 
             if (displayName != null && !displayName.isBlank()) {
@@ -674,12 +665,11 @@ public class InstanceService {
         }
     }
 
-    public List<Map<String, Object>> listAvailableShapes(String userId) {
+    public List<Map<String, Object>> listAvailableShapes(String userId, String region) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
 
-        SysUserDTO dto = buildBasicDTO(ociUser);
-        try (OciClientService client = new OciClientService(dto)) {
+        try (OciClientService client = oci(ociUser, region)) {
             var ads = client.getAvailabilityDomains();
             Set<String> seen = new LinkedHashSet<>();
             List<Map<String, Object>> result = new ArrayList<>();

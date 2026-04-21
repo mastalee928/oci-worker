@@ -262,47 +262,31 @@
         <div v-if="activeTenantData" class="instance-drawer-title">
           <i class="ri-server-line" style="margin-right: 8px; color: var(--primary)"></i>
           <span class="drawer-username">{{ activeTenantData.tenant.username }}</span>
-          <a-tag v-if="!isMobile" color="blue" style="margin-left: 8px">{{ activeTenantData.tenant.ociRegion }}</a-tag>
+          <a-tag v-if="!isMobile" color="blue" style="margin-left: 8px">{{ instancePanelRegion || activeTenantData.tenant.ociRegion }}</a-tag>
           <a-badge :count="activeTenantData.instances.length" :number-style="{ backgroundColor: 'var(--primary)' }" :show-zero="true" style="margin-left: 8px" />
         </div>
       </template>
       <template #extra>
         <div v-if="activeTenantData" class="panel-actions">
-          <div v-if="!isMobile" class="region-switch" v-show="regionTenantOptions.length > 1">
-            <span class="region-switch-label">区域</span>
-            <a-select
-              v-model:value="activeTenantId"
-              size="small"
-              style="width: 170px"
-              @change="handleRegionSwitch"
-            >
-              <a-select-option v-for="opt in regionTenantOptions" :key="opt.id" :value="opt.id">
-                {{ opt.regionLabel }}
-              </a-select-option>
-            </a-select>
-          </div>
           <a-button size="small" @click="loadTenantInstances(activeTenantData)" :loading="activeTenantData.loading">
             <template #icon><ReloadOutlined /></template>{{ isMobile ? '' : '刷新' }}
           </a-button>
         </div>
       </template>
       <div v-if="activeTenantData" class="instance-panel">
-        <!-- 移动端：区域切换条 + 当前区域 tag -->
-        <div v-if="isMobile" class="mobile-drawer-meta">
-          <a-tag color="blue">{{ activeTenantData.tenant.ociRegion }}</a-tag>
-          <div v-if="regionTenantOptions.length > 1" class="mobile-region-bar">
-            <span class="region-switch-label">区域</span>
-            <a-select
-              v-model:value="activeTenantId"
-              size="small"
-              style="flex: 1"
-              @change="handleRegionSwitch"
-            >
-              <a-select-option v-for="opt in regionTenantOptions" :key="opt.id" :value="opt.id">
-                {{ opt.regionLabel }}
-              </a-select-option>
-            </a-select>
-          </div>
+        <div class="instance-panel-toolbar">
+          <span class="instance-panel-toolbar-label">Region</span>
+          <a-select
+            v-model:value="instancePanelRegion"
+            class="instance-panel-region-select"
+            :options="instanceRegionOptions"
+            :loading="instanceSubscribedRegionsLoading"
+            show-search
+            option-filter-prop="label"
+            placeholder="选择区域"
+            @change="onInstancePanelRegionUserChange"
+          />
+          <span v-if="instanceSubscribedRegionsLoading" class="instance-panel-region-hint">正在同步订阅区域…</span>
         </div>
 
         <a-spin :spinning="activeTenantData.loading">
@@ -980,6 +964,20 @@
     <!-- 虚拟云网络抽屉 -->
     <a-drawer v-model:open="vcnVisible" :title="'虚拟云网络 — ' + (vcnTenant?.username || '')"
       :width="isMobile ? '100%' : 960" :mask-closable="false" destroy-on-close>
+      <div v-if="vcnTenant" class="vcn-panel-toolbar">
+        <span class="instance-panel-toolbar-label">Region</span>
+        <a-select
+          v-model:value="vcnPanelRegion"
+          class="instance-panel-region-select"
+          :options="vcnRegionOptions"
+          :loading="vcnSubscribedRegionsLoading"
+          show-search
+          option-filter-prop="label"
+          placeholder="选择区域"
+          @change="onVcnPanelRegionUserChange"
+        />
+        <span v-if="vcnSubscribedRegionsLoading" class="instance-panel-region-hint">正在同步订阅区域…</span>
+      </div>
       <a-spin :spinning="vcnListLoading">
         <a-empty v-if="!vcnListLoading && vcnList.length === 0" description="无 VCN 数据" />
         <div v-else>
@@ -1033,7 +1031,8 @@
       v-model:open="vcnManagerOpen"
       :user-id="vcnManagerUserId"
       :vcn="vcnManagerVcn"
-      @changed="loadVcns"
+      :oci-region="vcnManagerOciRegion"
+      @changed="onVcnManagerChanged"
     />
 
     <StorageManager
@@ -1068,18 +1067,13 @@ import VcnManager from './VcnManager.vue'
 import StorageManager from './StorageManager.vue'
 import { createTask, hasRunningTask } from '../api/task'
 import { sendVerifyCode } from '../api/system'
+import { listStorageRegions } from '../api/storage'
 
 interface TenantData {
   tenant: any
   instances: any[]
   loading: boolean
   collapsed: boolean
-}
-
-interface RegionTenantOption {
-  id: string
-  region: string
-  regionLabel: string
 }
 
 const stateColorMap: Record<string, string> = {
@@ -1238,7 +1232,6 @@ const activeTenantData = computed(() => {
   if (!activeTenantId.value) return null
   return tenantDataList.value.find(td => td.tenant.id === activeTenantId.value) || null
 })
-const regionTenantOptions = ref<RegionTenantOption[]>([])
 const instancePanelVisible = computed({
   get: () => !!activeTenantData.value,
   set: (val: boolean) => {
@@ -1247,57 +1240,100 @@ const instancePanelVisible = computed({
 })
 const instancePanelWidth = computed(() => (isMobile.value ? '100%' : 960))
 
-function getRegionMemoryKey(tenant: any) {
-  const tenantId = tenant?.ociTenantId || 'unknown-tenant'
-  const userId = tenant?.ociUserId || 'unknown-user'
-  return `instance-region:${tenantId}:${userId}`
+const instancePanelRegion = ref('')
+const instanceRegionOptions = ref<{ label: string; value: string }[]>([])
+const instanceSubscribedRegionsLoading = ref(false)
+
+const vcnPanelRegion = ref('')
+const vcnRegionOptions = ref<{ label: string; value: string }[]>([])
+const vcnSubscribedRegionsLoading = ref(false)
+
+function panelRegionMemKey(prefix: string, tenant: any) {
+  return `${prefix}:${tenant?.id || ''}`
 }
 
-function savePreferredRegion(tenant: any, region: string) {
+function loadPanelRegionFromLs(prefix: string, tenant: any, fallback: string) {
   try {
-    localStorage.setItem(getRegionMemoryKey(tenant), region || '')
+    const v = localStorage.getItem(panelRegionMemKey(prefix, tenant)) || ''
+    return v || fallback || ''
+  } catch {
+    return fallback || ''
+  }
+}
+
+function savePanelRegionLs(prefix: string, tenant: any, region: string) {
+  try {
+    if (tenant?.id) localStorage.setItem(panelRegionMemKey(prefix, tenant), region || '')
   } catch {}
 }
 
-function getPreferredRegion(tenant: any) {
+function detailOciRegion(): string | undefined {
+  const r = currentInstance.value?.region
+  return r && String(r).trim() ? String(r).trim() : undefined
+}
+
+function instanceDetailRegionParam(): { region?: string } {
+  const r =
+    (detailOciRegion() || '').trim() ||
+    (currentTenant.value?.ociRegion && String(currentTenant.value.ociRegion).trim()) ||
+    ''
+  return r ? { region: r } : {}
+}
+
+function vcnReservedIpRegionParam(): { region?: string } {
+  const r = (vcnPanelRegion.value?.trim() || vcnTenant.value?.ociRegion || '').trim()
+  return r ? { region: r } : {}
+}
+
+async function prefetchSubscribedRegions(
+  userId: string,
+  current: string,
+  assign: (ids: string[]) => void,
+  loadingRef: { value: boolean },
+) {
+  if (!userId) return
+  loadingRef.value = true
   try {
-    return localStorage.getItem(getRegionMemoryKey(tenant)) || ''
+    const res = await listStorageRegions({ id: userId })
+    const raw = (res.data || []) as string[]
+    const ids = [...new Set(raw)].sort()
+    if (ids.length === 0) {
+      assign(current ? [current] : [])
+      return
+    }
+    if (current && !ids.includes(current)) ids.unshift(current)
+    assign(ids)
   } catch {
-    return ''
+    assign(current ? [current] : [])
+  } finally {
+    loadingRef.value = false
   }
 }
 
 function selectTenant(td: TenantData) {
-  const sameAccountTenants = getSameAccountTenants(td.tenant)
-  regionTenantOptions.value = sameAccountTenants.map(item => ({
-    id: item.tenant.id,
-    region: item.tenant.ociRegion,
-    regionLabel: item.tenant.ociRegion || '未设置',
-  }))
-
-  const preferredRegion = getPreferredRegion(td.tenant)
-  const targetTenant = sameAccountTenants.find(item => item.tenant.ociRegion === preferredRegion) || td
-
-  activeTenantId.value = targetTenant.tenant.id
-  savePreferredRegion(targetTenant.tenant, targetTenant.tenant.ociRegion || '')
-  loadTenantInstances(targetTenant)
-}
-
-function getSameAccountTenants(tenant: any) {
-  const sameAccount = tenantDataList.value.filter(item =>
-    item.tenant.ociTenantId === tenant.ociTenantId &&
-    item.tenant.ociUserId === tenant.ociUserId,
-  )
-  return sameAccount.sort((a, b) =>
-    (a.tenant.ociRegion || '').localeCompare(b.tenant.ociRegion || ''),
+  activeTenantId.value = td.tenant.id
+  const def = td.tenant.ociRegion || ''
+  instancePanelRegion.value = loadPanelRegionFromLs('instancePanel.region', td.tenant, def) || def
+  instanceRegionOptions.value = instancePanelRegion.value
+    ? [{ label: instancePanelRegion.value, value: instancePanelRegion.value }]
+    : []
+  savePanelRegionLs('instancePanel.region', td.tenant, instancePanelRegion.value)
+  loadTenantInstances(td)
+  void prefetchSubscribedRegions(
+    td.tenant.id,
+    instancePanelRegion.value,
+    (ids) => {
+      instanceRegionOptions.value = ids.map((x) => ({ label: x, value: x }))
+    },
+    instanceSubscribedRegionsLoading,
   )
 }
 
-async function handleRegionSwitch(targetTenantId: string) {
-  const td = tenantDataList.value.find(item => item.tenant.id === targetTenantId)
-  if (!td) return
-  savePreferredRegion(td.tenant, td.tenant.ociRegion || '')
-  await loadTenantInstances(td)
+function onInstancePanelRegionUserChange() {
+  const td = activeTenantData.value
+  if (!td?.tenant) return
+  savePanelRegionLs('instancePanel.region', td.tenant, instancePanelRegion.value || '')
+  loadTenantInstances(td)
 }
 
 const drawerVisible = ref(false)
@@ -1428,7 +1464,11 @@ async function handleCreateConsole() {
   if (!currentInstance.value || !currentTenant.value) return
   consoleLoading.value = true
   try {
-    const res = await createConsoleConnection({ id: currentTenant.value.id, instanceId: currentInstance.value.instanceId })
+    const res = await createConsoleConnection({
+      id: currentTenant.value.id,
+      instanceId: currentInstance.value.instanceId,
+      ...instanceDetailRegionParam(),
+    })
     consoleData.value = res.data
     message.success('控制台连接已创建')
   } catch (e: any) {
@@ -1449,7 +1489,11 @@ async function handleDeleteConsole() {
   if (!consoleData.value || !currentTenant.value) return
   consoleLoading.value = true
   try {
-    await deleteConsoleConnection({ id: currentTenant.value.id, connectionId: consoleData.value.connectionId })
+    await deleteConsoleConnection({
+      id: currentTenant.value.id,
+      connectionId: consoleData.value.connectionId,
+      ...instanceDetailRegionParam(),
+    })
     consoleData.value = null
     message.success('控制台连接已断开')
   } catch (e: any) {
@@ -1467,10 +1511,34 @@ const vcnList = ref<any[]>([])
 const vcnManagerOpen = ref(false)
 const vcnManagerUserId = ref('')
 const vcnManagerVcn = ref<any>(null)
+const vcnManagerOciRegion = ref('')
 function openVcnManager(tenantId: string, vcn: any) {
   vcnManagerUserId.value = tenantId
   vcnManagerVcn.value = vcn
+  const fromVcn = vcn?.region && String(vcn.region).trim()
+  const fromInstance = currentInstance.value?.region && String(currentInstance.value.region).trim()
+  vcnManagerOciRegion.value =
+    fromVcn ||
+    fromInstance ||
+    (vcnVisible.value ? (vcnPanelRegion.value?.trim() || '') : '') ||
+    (currentTenant.value?.ociRegion && String(currentTenant.value.ociRegion).trim()) ||
+    ''
   vcnManagerOpen.value = true
+}
+
+async function onVcnManagerChanged() {
+  if (!vcnVisible.value || !vcnTenant.value) return
+  vcnListLoading.value = true
+  try {
+    const reg = (vcnPanelRegion.value?.trim() || vcnTenant.value.ociRegion || '').trim()
+    const res = await getVcns({ id: vcnTenant.value.id, region: reg })
+    vcnList.value = res.data || []
+  } catch (e: any) {
+    message.error(e?.message || '刷新 VCN 列表失败')
+  } finally {
+    vcnListLoading.value = false
+  }
+  void loadReservedIps()
 }
 
 const storageManagerOpen = ref(false)
@@ -1489,10 +1557,41 @@ async function openVcnPanel(tenant: any) {
   vcnList.value = []
   reservedIps.value = []
   currentTenant.value = tenant
+  const def = tenant.ociRegion || ''
+  vcnPanelRegion.value = loadPanelRegionFromLs('vcnPanel.region', tenant, def) || def
+  vcnRegionOptions.value = vcnPanelRegion.value
+    ? [{ label: vcnPanelRegion.value, value: vcnPanelRegion.value }]
+    : []
+  savePanelRegionLs('vcnPanel.region', tenant, vcnPanelRegion.value)
   vcnVisible.value = true
   vcnListLoading.value = true
   try {
-    const res = await getVcns({ id: tenant.id })
+    const reg = (vcnPanelRegion.value?.trim() || tenant.ociRegion || '').trim()
+    const res = await getVcns({ id: tenant.id, region: reg })
+    vcnList.value = res.data || []
+  } catch (e: any) {
+    message.error(e?.message || '加载 VCN 失败')
+  } finally {
+    vcnListLoading.value = false
+  }
+  void prefetchSubscribedRegions(
+    tenant.id,
+    vcnPanelRegion.value,
+    (ids) => {
+      vcnRegionOptions.value = ids.map((x) => ({ label: x, value: x }))
+    },
+    vcnSubscribedRegionsLoading,
+  )
+  loadReservedIps()
+}
+
+async function onVcnPanelRegionUserChange() {
+  if (!vcnVisible.value || !vcnTenant.value) return
+  savePanelRegionLs('vcnPanel.region', vcnTenant.value, vcnPanelRegion.value || '')
+  vcnListLoading.value = true
+  try {
+    const reg = (vcnPanelRegion.value?.trim() || vcnTenant.value.ociRegion || '').trim()
+    const res = await getVcns({ id: vcnTenant.value.id, region: reg })
     vcnList.value = res.data || []
   } catch (e: any) {
     message.error(e?.message || '加载 VCN 失败')
@@ -1529,7 +1628,8 @@ async function loadAllTenants() {
 async function loadTenantInstances(td: TenantData) {
   td.loading = true
   try {
-    const res = await getInstanceList({ id: td.tenant.id })
+    const reg = (instancePanelRegion.value?.trim() || td.tenant.ociRegion || '').trim()
+    const res = await getInstanceList({ id: td.tenant.id, region: reg })
     td.instances = res.data || []
   } catch {
     td.instances = []
@@ -1562,7 +1662,10 @@ function openDetail(tenant: any, record: any) {
 async function handleAction(tenant: any, record: any, action: string) {
   actionLoading[record.instanceId] = true
   try {
-    await updateInstanceState({ id: tenant.id, instanceId: record.instanceId, action })
+    const reg =
+      (record.region && String(record.region).trim()) ||
+      (instancePanelRegion.value?.trim() || tenant.ociRegion || '').trim()
+    await updateInstanceState({ id: tenant.id, instanceId: record.instanceId, action, region: reg })
     message.success('操作已提交')
     const td = tenantDataList.value.find(t => t.tenant.id === tenant.id)
     if (td) scheduleReload(() => loadTenantInstances(td), 3000)
@@ -1655,6 +1758,7 @@ async function handleTerminateWithCode() {
       instanceId: currentInstance.value.instanceId,
       verifyCode: verifyCode.value,
       preserveBootVolume: !deleteBootVolume.value,
+      ...instanceDetailRegionParam(),
     })
     message.success('实例已终止')
     verifyModalVisible.value = false
@@ -1672,7 +1776,11 @@ async function handleChangeIp() {
   if (!currentInstance.value || !currentTenant.value) return
   changeIpLoading.value = true
   try {
-    await changeIp({ id: currentTenant.value.id, instanceId: currentInstance.value.instanceId })
+    await changeIp({
+      id: currentTenant.value.id,
+      instanceId: currentInstance.value.instanceId,
+      ...instanceDetailRegionParam(),
+    })
     message.success('换 IP 请求已提交')
     scheduleReload(() => loadNetworkDetail(), 3000)
   } catch (e: any) {
@@ -1686,7 +1794,11 @@ async function loadNetworkDetail() {
   if (!currentInstance.value || !currentTenant.value) return
   netDetailLoading.value = true
   try {
-    const res = await getInstanceNetworkDetail({ id: currentTenant.value.id, instanceId: currentInstance.value.instanceId })
+    const res = await getInstanceNetworkDetail({
+      id: currentTenant.value.id,
+      instanceId: currentInstance.value.instanceId,
+      ...instanceDetailRegionParam(),
+    })
     networkDetail.value = res.data || null
   } catch (e: any) {
     message.error(e?.message || '加载网络详情失败')
@@ -1700,7 +1812,12 @@ async function handleAddIpv6(vnic?: any) {
   const vnicId = vnic?.vnicId || 'default'
   ipv6AddLoading.value[vnicId] = true
   try {
-    const res = await addIpv6({ id: currentTenant.value.id, instanceId: currentInstance.value.instanceId, vnicId: vnic?.vnicId })
+    const res = await addIpv6({
+      id: currentTenant.value.id,
+      instanceId: currentInstance.value.instanceId,
+      vnicId: vnic?.vnicId,
+      ...instanceDetailRegionParam(),
+    })
     message.success('IPv6 已分配: ' + (res.data?.ipv6Address || ''))
     loadNetworkDetail()
     await checkIpv6SecurityHealth()
@@ -1720,7 +1837,7 @@ async function handleRemoveIpv6(ip6: any) {
   }
   ipv6RemoveLoading.value[ipv6Id] = true
   try {
-    await removeIpv6({ id: currentTenant.value.id, ipv6Id })
+    await removeIpv6({ id: currentTenant.value.id, ipv6Id, ...instanceDetailRegionParam() })
     message.success('IPv6 已取消分配')
     loadNetworkDetail()
   } catch (e: any) {
@@ -1741,6 +1858,7 @@ async function checkIpv6SecurityHealth() {
     const res = await getSecurityRules({
       id: currentTenant.value.id,
       instanceId: currentInstance.value.instanceId,
+      ...instanceDetailRegionParam(),
     })
     const data = res.data || []
     const ingress = data.filter((r: any) => r.direction === 'ingress')
@@ -1769,7 +1887,11 @@ async function loadSecurityRules() {
   if (!currentInstance.value || !currentTenant.value) return
   secLoading.value = true
   try {
-    const res = await getSecurityRules({ id: currentTenant.value.id, instanceId: currentInstance.value.instanceId })
+    const res = await getSecurityRules({
+      id: currentTenant.value.id,
+      instanceId: currentInstance.value.instanceId,
+      ...instanceDetailRegionParam(),
+    })
     const data = res.data || []
     ingressRules.value = data.filter((r: any) => r.direction === 'ingress')
     egressRules.value = data.filter((r: any) => r.direction === 'egress')
@@ -1784,7 +1906,11 @@ async function handleReleaseAll() {
   if (!currentInstance.value || !currentTenant.value) return
   releaseLoading.value = true
   try {
-    await releaseAllPorts({ id: currentTenant.value.id, instanceId: currentInstance.value.instanceId })
+    await releaseAllPorts({
+      id: currentTenant.value.id,
+      instanceId: currentInstance.value.instanceId,
+      ...instanceDetailRegionParam(),
+    })
     message.success('已放行所有端口')
     loadSecurityRules()
   } catch (e: any) {
@@ -1798,7 +1924,11 @@ async function handleOciPreset() {
   if (!currentInstance.value || !currentTenant.value) return
   presetLoading.value = true
   try {
-    await releaseOciPreset({ id: currentTenant.value.id, instanceId: currentInstance.value.instanceId })
+    await releaseOciPreset({
+      id: currentTenant.value.id,
+      instanceId: currentInstance.value.instanceId,
+      ...instanceDetailRegionParam(),
+    })
     message.success('已应用纯TCP预设规则')
     loadSecurityRules()
   } catch (e: any) {
@@ -1830,6 +1960,7 @@ async function handleAddRule() {
       id: currentTenant.value.id, instanceId: currentInstance.value.instanceId,
       direction: ruleForm.direction, protocol: ruleForm.protocol, source: ruleForm.source,
       portMin: ruleForm.portMin?.toString(), portMax: ruleForm.portMax?.toString(), description: ruleForm.description,
+      ...instanceDetailRegionParam(),
     })
     message.success('规则已添加')
     addRuleVisible.value = false
@@ -1850,6 +1981,7 @@ async function handleDeleteSecurityRule(direction: string, ruleIndex: number) {
       instanceId: currentInstance.value.instanceId,
       direction,
       ruleIndex,
+      ...instanceDetailRegionParam(),
     })
     message.success('规则已删除')
     loadSecurityRules()
@@ -1864,7 +1996,11 @@ async function loadBootVolumes() {
   if (!currentInstance.value || !currentTenant.value) return
   volLoading.value = true
   try {
-    const res = await getBootVolumes({ id: currentTenant.value.id, instanceId: currentInstance.value.instanceId })
+    const res = await getBootVolumes({
+      id: currentTenant.value.id,
+      instanceId: currentInstance.value.instanceId,
+      ...instanceDetailRegionParam(),
+    })
     bootVolumes.value = res.data || []
   } catch (e: any) {
     message.error(e?.message || '加载引导卷失败')
@@ -1881,7 +2017,7 @@ function openEditVolume(record: any) {
 async function handleEditVolume() {
   editVolLoading.value = true
   try {
-    await updateBootVolume({ id: currentTenant.value.id, ...editVolForm })
+    await updateBootVolume({ id: currentTenant.value.id, ...editVolForm, ...instanceDetailRegionParam() })
     message.success('引导卷已更新')
     editVolVisible.value = false
     loadBootVolumes()
@@ -1903,6 +2039,7 @@ async function applyVolumePreset(size: number) {
       displayName: vol.displayName,
       sizeInGBs: size,
       vpusPerGB: 120,
+      ...instanceDetailRegionParam(),
     })
     message.success(`引导卷已调整为 ${size} GB / 120 VPUs`)
     loadBootVolumes()
@@ -1921,6 +2058,7 @@ async function handleAssignEphemeralIp(ipd: any) {
       id: currentTenant.value.id,
       instanceId: currentInstance.value.instanceId,
       privateIpId: ipd.privateIpId,
+      ...instanceDetailRegionParam(),
     })
     message.success('公网 IPv4 已分配')
     loadNetworkDetail()
@@ -1934,7 +2072,11 @@ async function handleAssignEphemeralIp(ipd: any) {
 async function handleDeletePublicIp(ipd: any) {
   if (!currentTenant.value) return
   try {
-    await deletePublicIp({ id: currentTenant.value.id, privateIpId: ipd.privateIpId })
+    await deletePublicIp({
+      id: currentTenant.value.id,
+      privateIpId: ipd.privateIpId,
+      ...instanceDetailRegionParam(),
+    })
     message.success('公网IP已删除')
     loadNetworkDetail()
   } catch (e: any) {
@@ -1945,7 +2087,11 @@ async function handleDeletePublicIp(ipd: any) {
 async function handleDeleteSecondaryIp(ipd: any) {
   if (!currentTenant.value) return
   try {
-    await deleteSecondaryIp({ id: currentTenant.value.id, privateIpId: ipd.privateIpId })
+    await deleteSecondaryIp({
+      id: currentTenant.value.id,
+      privateIpId: ipd.privateIpId,
+      ...instanceDetailRegionParam(),
+    })
     message.success('辅助IP已删除')
     loadNetworkDetail()
   } catch (e: any) {
@@ -1970,7 +2116,10 @@ async function handleAddAuxIp() {
 
     // 先查找未绑定的预留IP
     try {
-      const listRes = await listReservedIps({ id: currentTenant.value.id })
+      const listRes = await listReservedIps({
+        id: currentTenant.value.id,
+        ...instanceDetailRegionParam(),
+      })
       const unbound = (listRes.data || []).find((ip: any) => !ip.isAssigned)
       if (unbound) {
         ipId = unbound.id
@@ -1981,14 +2130,23 @@ async function handleAddAuxIp() {
 
     // 没有未绑定的预留IP，才创建新的
     if (!ipId) {
-      const res = await createReservedIp({ id: currentTenant.value.id, displayName: 'aux-' + Date.now() })
+      const res = await createReservedIp({
+        id: currentTenant.value.id,
+        displayName: 'aux-' + Date.now(),
+        ...instanceDetailRegionParam(),
+      })
       ipId = res.data?.id
       ipAddr = res.data?.ipAddress || ''
       if (!ipId) throw new Error('创建预留IP失败')
       message.success('预留IP已创建: ' + ipAddr)
     }
 
-    await assignReservedIp({ id: currentTenant.value.id, publicIpId: ipId, instanceId: currentInstance.value.instanceId })
+    await assignReservedIp({
+      id: currentTenant.value.id,
+      publicIpId: ipId,
+      instanceId: currentInstance.value.instanceId,
+      ...instanceDetailRegionParam(),
+    })
     message.success('辅助IP已附加到实例: ' + ipAddr)
     loadNetworkDetail()
   } catch (e: any) {
@@ -2003,7 +2161,11 @@ function showCreateReservedIpModal() { createRipName.value = ''; createRipVisibl
 async function handleCreateReservedIp() {
   createRipLoading.value = true
   try {
-    const res = await createReservedIp({ id: currentTenant.value.id, displayName: createRipName.value || undefined })
+    const res = await createReservedIp({
+      id: currentTenant.value.id,
+      displayName: createRipName.value || undefined,
+      ...vcnReservedIpRegionParam(),
+    })
     message.success('预留IP已创建: ' + (res.data?.ipAddress || ''))
     createRipVisible.value = false
     loadReservedIps()
@@ -2018,7 +2180,10 @@ async function loadReservedIps() {
   if (!currentTenant.value) return
   reservedIpListLoading.value = true
   try {
-    const res = await listReservedIps({ id: currentTenant.value.id })
+    const res = await listReservedIps({
+      id: currentTenant.value.id,
+      ...vcnReservedIpRegionParam(),
+    })
     reservedIps.value = res.data || []
   } catch (e: any) {
     message.error(e?.message || '加载预留IP失败')
@@ -2029,7 +2194,11 @@ async function loadReservedIps() {
 
 async function handleDeleteReservedIp(publicIpId: string) {
   try {
-    await deleteReservedIp({ id: currentTenant.value.id, publicIpId })
+    await deleteReservedIp({
+      id: currentTenant.value.id,
+      publicIpId,
+      ...vcnReservedIpRegionParam(),
+    })
     message.success('预留IP已删除')
     loadReservedIps()
   } catch (e: any) { message.error(e?.message || '删除预留IP失败') }
@@ -2038,7 +2207,12 @@ async function handleDeleteReservedIp(publicIpId: string) {
 async function handleAssignReservedIp(publicIpId: string) {
   if (!currentInstance.value) return
   try {
-    await assignReservedIp({ id: currentTenant.value.id, publicIpId, instanceId: currentInstance.value.instanceId })
+    await assignReservedIp({
+      id: currentTenant.value.id,
+      publicIpId,
+      instanceId: currentInstance.value.instanceId,
+      ...instanceDetailRegionParam(),
+    })
     message.success('预留IP已绑定')
     loadReservedIps(); loadNetworkDetail()
   } catch (e: any) { message.error(e?.message || '绑定失败') }
@@ -2046,7 +2220,11 @@ async function handleAssignReservedIp(publicIpId: string) {
 
 async function handleUnassignReservedIp(publicIpId: string) {
   try {
-    await unassignReservedIp({ id: currentTenant.value.id, publicIpId })
+    await unassignReservedIp({
+      id: currentTenant.value.id,
+      publicIpId,
+      ...vcnReservedIpRegionParam(),
+    })
     message.success('预留IP已解绑')
     loadReservedIps(); loadNetworkDetail()
   } catch (e: any) { message.error(e?.message || '解绑失败') }
@@ -2064,7 +2242,11 @@ async function handleEditInstance() {
   if (!currentInstance.value || !currentTenant.value) return
   editInstanceLoading.value = true
   try {
-    const payload: any = { id: currentTenant.value.id, instanceId: currentInstance.value.instanceId }
+    const payload: any = {
+      id: currentTenant.value.id,
+      instanceId: currentInstance.value.instanceId,
+      ...instanceDetailRegionParam(),
+    }
     if (editInstanceForm.displayName && editInstanceForm.displayName !== currentInstance.value.name) payload.displayName = editInstanceForm.displayName
     if (isFlexShape.value) {
       if (editInstanceForm.ocpus !== currentInstance.value.ocpus) payload.ocpus = editInstanceForm.ocpus
@@ -2089,7 +2271,10 @@ async function handleEditInstance() {
 async function loadVcns() {
   vcnLoading.value = true
   try {
-    const res = await getVcns({ id: currentTenant.value.id })
+    const res = await getVcns({
+      id: currentTenant.value.id,
+      ...instanceDetailRegionParam(),
+    })
     vcns.value = res.data || []
   } catch (e: any) { message.error(e?.message || '加载 VCN 失败') }
   finally { vcnLoading.value = false }
@@ -2099,7 +2284,12 @@ async function loadTraffic() {
   if (!currentInstance.value || !currentTenant.value) return
   trafficLoading.value = true
   try {
-    const res = await getTrafficData({ id: currentTenant.value.id, instanceId: currentInstance.value.instanceId, minutes: trafficMinutes.value })
+    const res = await getTrafficData({
+      id: currentTenant.value.id,
+      instanceId: currentInstance.value.instanceId,
+      minutes: trafficMinutes.value,
+      ...instanceDetailRegionParam(),
+    })
     trafficData.value = res.data || { inbound: 0, outbound: 0 }
   } catch (e: any) { message.error(e?.message || '加载流量数据失败') }
   finally { trafficLoading.value = false }
@@ -2320,6 +2510,42 @@ onUnmounted(() => {
   -webkit-backdrop-filter: none;
   box-shadow: none;
 }
+.instance-panel-toolbar,
+.vcn-panel-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.vcn-panel-toolbar {
+  margin-top: 0;
+}
+.instance-panel-toolbar-label {
+  color: var(--text-sub);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.instance-panel-region-select {
+  min-width: 200px;
+  flex: 1 1 220px;
+  max-width: 100%;
+}
+.instance-panel-region-hint {
+  font-size: 12px;
+  color: var(--text-sub);
+  line-height: 1.3;
+}
+@media (min-width: 769px) {
+  .instance-panel-region-hint {
+    flex: 0 0 auto;
+    margin-left: auto;
+  }
+}
 .instance-drawer-title {
   display: flex;
   align-items: center;
@@ -2402,6 +2628,22 @@ onUnmounted(() => {
   .tenant-card { padding: 14px; border-radius: 12px; }
   .tc-icon { font-size: 22px; }
   .tc-name { font-size: 13px; }
+  .instance-panel-toolbar,
+  .vcn-panel-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+  .instance-panel-region-select {
+    width: 100% !important;
+    min-width: 0;
+    flex: none;
+    max-width: none;
+  }
+  .instance-panel-region-hint {
+    margin-left: 0;
+    width: 100%;
+  }
   .panel-actions {
     gap: 4px;
   }

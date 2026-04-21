@@ -1,12 +1,11 @@
 package com.ociworker.service;
 
-import com.oracle.bmc.Region;
-import com.oracle.bmc.auth.SimpleAuthenticationDetailsProvider;
 import com.oracle.bmc.core.ComputeClient;
 import com.oracle.bmc.core.model.InstanceConsoleConnection;
 import com.oracle.bmc.core.requests.*;
 import com.ociworker.exception.OciException;
 import com.ociworker.mapper.OciUserMapper;
+import com.ociworker.model.dto.SysUserDTO;
 import com.ociworker.model.entity.OciUser;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
@@ -101,7 +100,7 @@ public class ConsoleService {
         publicKeyContent = Files.readString(pubPath).trim();
     }
 
-    public Map<String, String> createConsoleConnection(String userId, String instanceId) {
+    public Map<String, String> createConsoleConnection(String userId, String instanceId, String region) {
         if (publicKeyContent == null || publicKeyContent.isEmpty()) {
             throw new OciException("SSH 密钥未初始化，无法创建控制台连接");
         }
@@ -109,8 +108,8 @@ public class ConsoleService {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
 
-        ComputeClient computeClient = buildComputeClient(ociUser);
-        try {
+        try (OciClientService env = oci(ociUser, region)) {
+            ComputeClient computeClient = env.getComputeClient();
             var instance = computeClient.getInstance(
                     GetInstanceRequest.builder().instanceId(instanceId).build()
             ).getInstance();
@@ -217,24 +216,22 @@ public class ConsoleService {
             throw e;
         } catch (Exception e) {
             throw new OciException("创建控制台连接失败: " + e.getMessage());
-        } finally {
-            computeClient.close();
         }
     }
 
-    public void deleteConsoleConnection(String userId, String connectionId) {
+    public void deleteConsoleConnection(String userId, String connectionId, String region) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
 
-        ComputeClient computeClient = buildComputeClient(ociUser);
-        try {
-            computeClient.deleteInstanceConsoleConnection(
-                    DeleteInstanceConsoleConnectionRequest.builder()
-                            .instanceConsoleConnectionId(connectionId).build());
-        } catch (Exception e) {
-            log.warn("【串行控制台】删除OCI连接失败: {}", e.getMessage());
-        } finally {
-            computeClient.close();
+        try (OciClientService env = oci(ociUser, region)) {
+            ComputeClient computeClient = env.getComputeClient();
+            try {
+                computeClient.deleteInstanceConsoleConnection(
+                        DeleteInstanceConsoleConnectionRequest.builder()
+                                .instanceConsoleConnectionId(connectionId).build());
+            } catch (Exception e) {
+                log.warn("【串行控制台】删除OCI连接失败: {}", e.getMessage());
+            }
         }
 
         ConsoleSession session = activeSessions.remove(connectionId);
@@ -424,21 +421,21 @@ public class ConsoleService {
         return null;
     }
 
-    private ComputeClient buildComputeClient(OciUser ociUser) {
-        SimpleAuthenticationDetailsProvider provider = SimpleAuthenticationDetailsProvider.builder()
-                .tenantId(ociUser.getOciTenantId())
-                .userId(ociUser.getOciUserId())
-                .fingerprint(ociUser.getOciFingerprint())
-                .privateKeySupplier(() -> {
-                    try {
-                        byte[] bytes = Files.readAllBytes(Path.of(ociUser.getOciKeyPath()));
-                        return new ByteArrayInputStream(bytes);
-                    } catch (Exception e) {
-                        throw new RuntimeException("Failed to read private key: " + e.getMessage());
-                    }
-                })
-                .region(Region.valueOf(ociUser.getOciRegion()))
+    private SysUserDTO buildDto(OciUser ociUser) {
+        return SysUserDTO.builder()
+                .username(ociUser.getUsername())
+                .ociCfg(SysUserDTO.OciCfg.builder()
+                        .tenantId(ociUser.getOciTenantId())
+                        .userId(ociUser.getOciUserId())
+                        .fingerprint(ociUser.getOciFingerprint())
+                        .region(ociUser.getOciRegion())
+                        .privateKeyPath(ociUser.getOciKeyPath())
+                        .build())
                 .build();
-        return ComputeClient.builder().build(provider);
+    }
+
+    private OciClientService oci(OciUser ociUser, String region) {
+        String r = (region == null || region.isBlank()) ? null : region.trim();
+        return new OciClientService(buildDto(ociUser), r);
     }
 }

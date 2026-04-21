@@ -429,8 +429,20 @@ public class StorageService {
                     String volumeId = stringParam(params, "volumeId");
                     String displayName = stringParam(params, "displayName");
                     Long size = longParam(params, "sizeInGBs");
-                    var b = UpdateVolumeDetails.builder().displayName(displayName);
-                    if (size != null) b.sizeInGBs(size);
+                    Long vpusPerGb = longParam(params, "vpusPerGB");
+                    var b = UpdateVolumeDetails.builder();
+                    if (!displayName.isBlank()) {
+                        b.displayName(displayName);
+                    }
+                    if (size != null) {
+                        b.sizeInGBs(size);
+                    }
+                    if (vpusPerGb != null) {
+                        b.vpusPerGB(vpusPerGb);
+                    }
+                    if (displayName.isBlank() && size == null && vpusPerGb == null) {
+                        throw new OciException("至少提供 displayName、sizeInGBs 或 vpusPerGB 之一");
+                    }
                     yield toMap(client.getBlockstorageClient().updateVolume(
                             UpdateVolumeRequest.builder()
                                     .volumeId(volumeId)

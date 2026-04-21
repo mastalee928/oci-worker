@@ -419,7 +419,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, watch } from 'vue'
+import { ref, reactive, watch, computed } from 'vue'
 import { message, Modal } from 'ant-design-vue'
 import {
   listSubnets, createSubnet, deleteSubnet, updateSubnet,
@@ -433,8 +433,13 @@ import {
 } from '../api/vcn'
 import { sendVerifyCode } from '../api/system'
 
-const props = defineProps<{ open: boolean; userId: string; vcn: any }>()
+const props = withDefaults(defineProps<{ open: boolean; userId: string; vcn: any; ociRegion?: string }>(), { ociRegion: '' })
 const emit = defineEmits<{ (e: 'update:open', v: boolean): void; (e: 'changed'): void }>()
+
+const ociBase = computed((): { id: string; region?: string } => {
+  const z = props.ociRegion?.trim()
+  return z ? { id: props.userId, region: z } : { id: props.userId }
+})
 
 const activeTab = ref('subnet')
 const loading = reactive({ subnet: false, igw: false, nat: false, sg: false, lpg: false, rt: false, sl: false })
@@ -517,31 +522,31 @@ async function wrap<T>(k: keyof typeof loading, fn: () => Promise<T>): Promise<T
 }
 
 async function loadSubnets() {
-  const r = await wrap('subnet', () => listSubnets({ id: props.userId, vcnId: props.vcn.id }))
+  const r = await wrap('subnet', () => listSubnets({ ...ociBase.value, vcnId: props.vcn.id }))
   if (r) data.subnet = r.data || []
 }
 async function loadIgw() {
-  const r = await wrap('igw', () => listInternetGateways({ id: props.userId, vcnId: props.vcn.id }))
+  const r = await wrap('igw', () => listInternetGateways({ ...ociBase.value, vcnId: props.vcn.id }))
   if (r) data.igw = r.data || []
 }
 async function loadNat() {
-  const r = await wrap('nat', () => listNatGateways({ id: props.userId, vcnId: props.vcn.id }))
+  const r = await wrap('nat', () => listNatGateways({ ...ociBase.value, vcnId: props.vcn.id }))
   if (r) data.nat = r.data || []
 }
 async function loadSg() {
-  const r = await wrap('sg', () => listServiceGateways({ id: props.userId, vcnId: props.vcn.id }))
+  const r = await wrap('sg', () => listServiceGateways({ ...ociBase.value, vcnId: props.vcn.id }))
   if (r) data.sg = r.data || []
 }
 async function loadLpg() {
-  const r = await wrap('lpg', () => listLocalPeeringGateways({ id: props.userId, vcnId: props.vcn.id }))
+  const r = await wrap('lpg', () => listLocalPeeringGateways({ ...ociBase.value, vcnId: props.vcn.id }))
   if (r) data.lpg = r.data || []
 }
 async function loadRt() {
-  const r = await wrap('rt', () => listRouteTables({ id: props.userId, vcnId: props.vcn.id }))
+  const r = await wrap('rt', () => listRouteTables({ ...ociBase.value, vcnId: props.vcn.id }))
   if (r) data.rt = r.data || []
 }
 async function loadSl() {
-  const r = await wrap('sl', () => listSecurityLists({ id: props.userId, vcnId: props.vcn.id }))
+  const r = await wrap('sl', () => listSecurityLists({ ...ociBase.value, vcnId: props.vcn.id }))
   if (r) data.sl = r.data || []
 }
 
@@ -553,7 +558,7 @@ async function doCreateSubnet() {
   if (!newSubnet.displayName || !newSubnet.cidrBlock) return message.warning('请填写名称与 CIDR')
   creating.value = true
   try {
-    await createSubnet({ id: props.userId, vcnId: props.vcn.id, ...newSubnet })
+    await createSubnet({ ...ociBase.value, vcnId: props.vcn.id, ...newSubnet })
     message.success('创建成功')
     showCreateSubnet.value = false
     Object.assign(newSubnet, { displayName: '', cidrBlock: '', availabilityDomain: '', routeTableId: '', prohibitPublicIp: false })
@@ -569,7 +574,7 @@ async function doCreateIgw() {
   if (!newIgw.displayName) return message.warning('请填写名称')
   creating.value = true
   try {
-    await createInternetGateway({ id: props.userId, vcnId: props.vcn.id, ...newIgw })
+    await createInternetGateway({ ...ociBase.value, vcnId: props.vcn.id, ...newIgw })
     message.success('创建成功')
     showCreateIgw.value = false
     newIgw.displayName = ''; newIgw.isEnabled = true
@@ -585,7 +590,7 @@ async function doCreateNat() {
   if (!newNat.displayName) return message.warning('请填写名称')
   creating.value = true
   try {
-    await createNatGateway({ id: props.userId, vcnId: props.vcn.id, displayName: newNat.displayName })
+    await createNatGateway({ ...ociBase.value, vcnId: props.vcn.id, displayName: newNat.displayName })
     message.success('创建成功'); showCreateNat.value = false; newNat.displayName = ''
     loadNat(); emit('changed')
   } catch (e: any) { message.error(e?.message || '创建失败') }
@@ -598,7 +603,7 @@ async function doCreateSg() {
   if (!newSg.displayName) return message.warning('请填写名称')
   creating.value = true
   try {
-    await createServiceGateway({ id: props.userId, vcnId: props.vcn.id, displayName: newSg.displayName })
+    await createServiceGateway({ ...ociBase.value, vcnId: props.vcn.id, displayName: newSg.displayName })
     message.success('创建成功'); showCreateSg.value = false; newSg.displayName = ''
     loadSg(); emit('changed')
   } catch (e: any) { message.error(e?.message || '创建失败') }
@@ -611,7 +616,7 @@ async function doCreateLpg() {
   if (!newLpg.displayName) return message.warning('请填写名称')
   creating.value = true
   try {
-    await createLocalPeeringGateway({ id: props.userId, vcnId: props.vcn.id, displayName: newLpg.displayName })
+    await createLocalPeeringGateway({ ...ociBase.value, vcnId: props.vcn.id, displayName: newLpg.displayName })
     message.success('创建成功'); showCreateLpg.value = false; newLpg.displayName = ''
     loadLpg(); emit('changed')
   } catch (e: any) { message.error(e?.message || '创建失败') }
@@ -626,7 +631,7 @@ async function doConnectLpg() {
   if (!connectLpgPeerId.value) return message.warning('请输入对端 LPG OCID')
   creating.value = true
   try {
-    await connectLocalPeeringGateway({ id: props.userId, lpgId: connectLpgTarget.value.id, peerId: connectLpgPeerId.value })
+    await connectLocalPeeringGateway({ ...ociBase.value, lpgId: connectLpgTarget.value.id, peerId: connectLpgPeerId.value })
     message.success('已发起连接'); showConnectLpg.value = false
     loadLpg()
   } catch (e: any) { message.error(e?.message || '连接失败') }
@@ -656,18 +661,17 @@ async function askDelete(type: string, row: any) {
 async function doDelete() {
   if (!deleteCode.value) return message.warning('请输入验证码')
   deleting.value = true
-  const id = props.userId
   const code = deleteCode.value
   const t = deleteTarget.value
   try {
     switch (deleteType.value) {
-      case 'subnet': await deleteSubnet({ id, subnetId: t.id, verifyCode: code }); break
-      case 'igw': await deleteInternetGateway({ id, igwId: t.id, verifyCode: code }); break
-      case 'nat': await deleteNatGateway({ id, natId: t.id, verifyCode: code }); break
-      case 'sg': await deleteServiceGateway({ id, sgId: t.id, verifyCode: code }); break
-      case 'lpg': await deleteLocalPeeringGateway({ id, lpgId: t.id, verifyCode: code }); break
-      case 'rt': await deleteRouteTable({ id, rtId: t.id, verifyCode: code }); break
-      case 'sl': await deleteSecurityList({ id, slId: t.id, verifyCode: code }); break
+      case 'subnet': await deleteSubnet({ ...ociBase.value, subnetId: t.id, verifyCode: code }); break
+      case 'igw': await deleteInternetGateway({ ...ociBase.value, igwId: t.id, verifyCode: code }); break
+      case 'nat': await deleteNatGateway({ ...ociBase.value, natId: t.id, verifyCode: code }); break
+      case 'sg': await deleteServiceGateway({ ...ociBase.value, sgId: t.id, verifyCode: code }); break
+      case 'lpg': await deleteLocalPeeringGateway({ ...ociBase.value, lpgId: t.id, verifyCode: code }); break
+      case 'rt': await deleteRouteTable({ ...ociBase.value, rtId: t.id, verifyCode: code }); break
+      case 'sl': await deleteSecurityList({ ...ociBase.value, slId: t.id, verifyCode: code }); break
     }
     message.success('删除成功')
     showDelete.value = false
@@ -689,7 +693,7 @@ async function openDeleteVcn() {
   cascadeDelete.value = true
   showDeleteVcn.value = true
   try {
-    const r = await previewVcnDelete({ id: props.userId, vcnId: props.vcn.id })
+    const r = await previewVcnDelete({ ...ociBase.value, vcnId: props.vcn.id })
     vcnPreview.value = r.data
   } catch (e: any) { message.warning(e?.message || '预览失败，将继续，可直接删除') }
   try { await sendVerifyCode('deleteVcn') } catch {}
@@ -714,16 +718,15 @@ function openRename(type: string, row: any) {
 async function doRename() {
   if (!renameValue.value.trim()) return message.warning('请输入名称')
   editing.value = true
-  const id = props.userId
   const t = renameTarget.value
   try {
     switch (renameType.value) {
-      case 'vcn': await updateVcn({ id, vcnId: t.id, displayName: renameValue.value }); emit('changed'); break
-      case 'subnet': await updateSubnet({ id, subnetId: t.id, displayName: renameValue.value }); loadSubnets(); break
-      case 'igw': await updateInternetGateway({ id, igwId: t.id, displayName: renameValue.value }); loadIgw(); break
-      case 'nat': await updateNatGateway({ id, natId: t.id, displayName: renameValue.value }); loadNat(); break
-      case 'sg': await updateServiceGateway({ id, sgId: t.id, displayName: renameValue.value }); loadSg(); break
-      case 'lpg': await updateLocalPeeringGateway({ id, lpgId: t.id, displayName: renameValue.value }); loadLpg(); break
+      case 'vcn': await updateVcn({ ...ociBase.value, vcnId: t.id, displayName: renameValue.value }); emit('changed'); break
+      case 'subnet': await updateSubnet({ ...ociBase.value, subnetId: t.id, displayName: renameValue.value }); loadSubnets(); break
+      case 'igw': await updateInternetGateway({ ...ociBase.value, igwId: t.id, displayName: renameValue.value }); loadIgw(); break
+      case 'nat': await updateNatGateway({ ...ociBase.value, natId: t.id, displayName: renameValue.value }); loadNat(); break
+      case 'sg': await updateServiceGateway({ ...ociBase.value, sgId: t.id, displayName: renameValue.value }); loadSg(); break
+      case 'lpg': await updateLocalPeeringGateway({ ...ociBase.value, lpgId: t.id, displayName: renameValue.value }); loadLpg(); break
     }
     message.success('已更新')
     showRename.value = false
@@ -746,7 +749,7 @@ async function doSetupIgwRoutes() {
   editing.value = true
   try {
     await setupIgwDefaultRoutes({
-      id: props.userId,
+      ...ociBase.value,
       vcnId: props.vcn.id,
       igwId: editIgwTarget.value.id,
       addIpv6: igwRouteIpv6.value,
@@ -763,7 +766,7 @@ const togglingId = ref('')
 async function toggleIgw(row: any) {
   togglingId.value = row.id
   try {
-    await updateInternetGateway({ id: props.userId, igwId: row.id, isEnabled: !row.isEnabled })
+    await updateInternetGateway({ ...ociBase.value, igwId: row.id, isEnabled: !row.isEnabled })
     message.success(row.isEnabled ? '已禁用' : '已启用')
     loadIgw()
   } catch (e: any) { message.error(e?.message || '切换失败') }
@@ -772,7 +775,7 @@ async function toggleIgw(row: any) {
 async function toggleNat(row: any) {
   togglingId.value = row.id
   try {
-    await updateNatGateway({ id: props.userId, natId: row.id, blockTraffic: !row.blockTraffic })
+    await updateNatGateway({ ...ociBase.value, natId: row.id, blockTraffic: !row.blockTraffic })
     message.success(row.blockTraffic ? '已放行' : '已阻断')
     loadNat()
   } catch (e: any) { message.error(e?.message || '切换失败') }
@@ -781,7 +784,7 @@ async function toggleNat(row: any) {
 async function toggleSg(row: any) {
   togglingId.value = row.id
   try {
-    await updateServiceGateway({ id: props.userId, sgId: row.id, blockTraffic: !row.blockTraffic })
+    await updateServiceGateway({ ...ociBase.value, sgId: row.id, blockTraffic: !row.blockTraffic })
     message.success(row.blockTraffic ? '已放行' : '已阻断')
     loadSg()
   } catch (e: any) { message.error(e?.message || '切换失败') }
@@ -809,7 +812,7 @@ async function doEditSubnet() {
   editing.value = true
   try {
     await updateSubnet({
-      id: props.userId,
+      ...ociBase.value,
       subnetId: editSubnet.id,
       displayName: editSubnet.displayName,
       routeTableId: editSubnet.routeTableId || undefined,
@@ -850,8 +853,8 @@ async function openEditRt(row: any) {
   rtDetailLoading.value = true
   try {
     const [d, g] = await Promise.all([
-      getRouteTable({ id: props.userId, rtId: row.id }),
-      listVcnGateways({ id: props.userId, vcnId: props.vcn.id }),
+      getRouteTable({ ...ociBase.value, rtId: row.id }),
+      listVcnGateways({ ...ociBase.value, vcnId: props.vcn.id }),
     ])
     editRtRules.value = ((d.data?.routeRules) || []).map((r: any, i: number) => ({ ...r, _k: `k_${i}` }))
     vcnGateways.value = g.data || []
@@ -880,7 +883,7 @@ async function doEditRt() {
       networkEntityId: r.networkEntityId,
       description: r.description,
     }))
-    await updateRouteTable({ id: props.userId, rtId: editingRtId.value, routeRules: rules })
+    await updateRouteTable({ ...ociBase.value, rtId: editingRtId.value, routeRules: rules })
     message.success('路由规则已更新')
     showEditRt.value = false
     loadRt()
@@ -921,7 +924,7 @@ async function openEditSl(row: any) {
 async function reloadSl() {
   slDetailLoading.value = true
   try {
-    const r = await getSecurityList({ id: props.userId, slId: editingSlId.value })
+    const r = await getSecurityList({ ...ociBase.value, slId: editingSlId.value })
     slDetail.value = r.data
   } catch (e: any) { message.error(e?.message || '加载失败') }
   finally { slDetailLoading.value = false }
@@ -939,7 +942,7 @@ async function doAddSlRule() {
   editing.value = true
   try {
     await addSecurityListRule({
-      id: props.userId, slId: editingSlId.value,
+      ...ociBase.value, slId: editingSlId.value,
       direction: addSlForm.direction, protocol: addSlForm.protocol, source: addSlForm.source,
       portMin: addSlForm.portMin || undefined, portMax: addSlForm.portMax || undefined,
       description: addSlForm.description || undefined,
@@ -953,7 +956,7 @@ async function doAddSlRule() {
 }
 async function doDeleteSlRule(direction: string, index: number) {
   try {
-    await deleteSecurityListRule({ id: props.userId, slId: editingSlId.value, direction, ruleIndex: index })
+    await deleteSecurityListRule({ ...ociBase.value, slId: editingSlId.value, direction, ruleIndex: index })
     message.success('已删除')
     reloadSl()
     loadSl()
@@ -970,7 +973,7 @@ async function doDeleteVcn() {
     onOk: async () => {
       deleting.value = true
       try {
-        await deleteVcn({ id: props.userId, vcnId: props.vcn.id, cascade: cascadeDelete.value, verifyCode: deleteVcnCode.value })
+        await deleteVcn({ ...ociBase.value, vcnId: props.vcn.id, cascade: cascadeDelete.value, verifyCode: deleteVcnCode.value })
         message.success('VCN 已删除')
         showDeleteVcn.value = false
         emit('update:open', false)

@@ -21,7 +21,7 @@ public class TrafficService {
     @Resource
     private OciUserMapper userMapper;
 
-    public Map<String, Object> getTrafficData(String userId, String instanceId, int minutes) {
+    public Map<String, Object> getTrafficData(String userId, String instanceId, int minutes, String region) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
 
@@ -36,7 +36,8 @@ public class TrafficService {
                         .build())
                 .build();
 
-        try (OciClientService client = new OciClientService(dto)) {
+        String r = (region == null || region.isBlank()) ? null : region.trim();
+        try (OciClientService client = new OciClientService(dto, r)) {
             MonitoringClient monitoringClient = client.getMonitoringClient();
             Date endTime = new Date();
             Date startTime = new Date(endTime.getTime() - (long) minutes * 60 * 1000);

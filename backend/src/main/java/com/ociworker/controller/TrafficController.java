@@ -23,9 +23,15 @@ public class TrafficController {
         } else if (minutesRaw != null) {
             try { minutes = Integer.parseInt(String.valueOf(minutesRaw)); } catch (NumberFormatException ignored) {}
         }
+        String reg = null;
+        if (params != null && params.get("region") != null) {
+            reg = String.valueOf(params.get("region")).trim();
+            if (reg.isEmpty()) reg = null;
+        }
         return ResponseData.ok(trafficService.getTrafficData(
                 params == null ? null : (String) params.get("id"),
                 params == null ? null : (String) params.get("instanceId"),
-                minutes));
+                minutes,
+                reg));
     }
 }

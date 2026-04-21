@@ -77,7 +77,7 @@
               <a-space size="small" wrap>
                 <a-button v-if="canRenameBlock" type="link" size="small" @click="openRename(record)">改名</a-button>
                 <a-button v-if="canResizeBoot" type="link" size="small" @click="openResizeBoot(record)">编辑</a-button>
-                <a-button v-if="canResizeBlock" type="link" size="small" @click="openResizeBlock(record)">扩容</a-button>
+                <a-button v-if="canResizeBlock" type="link" size="small" @click="openResizeBlock(record)">编辑</a-button>
                 <a-button v-if="canEnableBootReplication" type="link" size="small" @click="openEnableBootReplication(record)">启用复制</a-button>
                 <a-button v-if="canEnableBlockReplication" type="link" size="small" @click="openEnableBlockReplication(record)">启用复制</a-button>
                 <a-button v-if="canActivateBootReplica" type="link" size="small" @click="openActivateBootReplica(record)">激活为引导卷</a-button>
@@ -132,14 +132,21 @@
         <a-form-item label="容量 (GB)" extra="仅改性能时可与当前值相同">
           <a-input-number v-model:value="resizeBootGb" :min="1" style="width: 100%" placeholder="大小 GB" />
         </a-form-item>
-        <a-form-item label="VPUs/GB" extra="OCI 块存储性能单位，常见如 10、20、30…">
-          <a-input-number v-model:value="resizeBootVpus" :min="1" :max="120" style="width: 100%" placeholder="VPUs per GB" />
+        <a-form-item label="VPUs/GB" extra="仅支持 10～120，步进 10（10、20、…、120）；上下键逐档调整">
+          <a-input-number v-model:value="resizeBootVpus" :min="10" :max="120" :step="10" style="width: 100%" placeholder="VPUs per GB" />
         </a-form-item>
       </a-form>
     </a-modal>
 
-    <a-modal v-model:open="resizeBlockOpen" title="块卷扩容 (GB)" @ok="submitResizeBlock" :confirm-loading="resizeBlockLoading">
-      <a-input-number v-model:value="resizeBlockGb" :min="1" style="width: 100%" placeholder="新大小 GB" />
+    <a-modal v-model:open="resizeBlockOpen" title="编辑块卷" width="480px" @ok="submitResizeBlock" :confirm-loading="resizeBlockLoading">
+      <a-form layout="vertical" size="small">
+        <a-form-item label="容量 (GB)" extra="仅改性能时可与当前值相同">
+          <a-input-number v-model:value="resizeBlockGb" :min="1" style="width: 100%" placeholder="大小 GB" />
+        </a-form-item>
+        <a-form-item label="VPUs/GB" extra="仅支持 10～120，步进 10（10、20、…、120）；上下键逐档调整">
+          <a-input-number v-model:value="resizeBlockVpus" :min="10" :max="120" :step="10" style="width: 100%" placeholder="VPUs per GB" />
+        </a-form-item>
+      </a-form>
     </a-modal>
 
     <a-modal
@@ -1004,6 +1011,18 @@ async function submitRename() {
   }
 }
 
+/** OCI 卷 VPUs/GB：合法档位 10～120，步进 10 */
+function snapVpusPerGbToTier(n: number): number {
+  return Math.min(120, Math.max(10, Math.round(n / 10) * 10))
+}
+
+function vpusPerGbInitialFromApi(raw: unknown): number | null {
+  if (raw == null || raw === '') return null
+  const n = Number(raw)
+  if (!Number.isFinite(n)) return null
+  return snapVpusPerGbToTier(n)
+}
+
 const resizeBootOpen = ref(false)
 const resizeBootTarget = ref<any>(null)
 const resizeBootGb = ref<number | null>(null)
@@ -1013,7 +1032,7 @@ const resizeBootLoading = ref(false)
 function openResizeBoot(row: any) {
   resizeBootTarget.value = row
   resizeBootGb.value = row.sizeInGBs != null ? Number(row.sizeInGBs) : null
-  resizeBootVpus.value = row.vpusPerGB != null ? Number(row.vpusPerGB) : null
+  resizeBootVpus.value = vpusPerGbInitialFromApi(row.vpusPerGB)
   resizeBootOpen.value = true
 }
 
@@ -1032,7 +1051,7 @@ async function submitResizeBoot() {
       displayName: resizeBootTarget.value.displayName || 'boot',
     }
     if (resizeBootGb.value != null) payload.sizeInGBs = resizeBootGb.value
-    if (resizeBootVpus.value != null) payload.vpusPerGB = resizeBootVpus.value
+    if (resizeBootVpus.value != null) payload.vpusPerGB = snapVpusPerGbToTier(resizeBootVpus.value)
     await storageMutate(payload)
     message.success('已提交')
     resizeBootOpen.value = false
@@ -1047,33 +1066,38 @@ async function submitResizeBoot() {
 const resizeBlockOpen = ref(false)
 const resizeBlockTarget = ref<any>(null)
 const resizeBlockGb = ref<number | null>(null)
+const resizeBlockVpus = ref<number | null>(null)
 const resizeBlockLoading = ref(false)
 
 function openResizeBlock(row: any) {
   resizeBlockTarget.value = row
-  resizeBlockGb.value = row.sizeInGBs != null ? Number(row.sizeInGBs) + 1 : null
+  resizeBlockGb.value = row.sizeInGBs != null ? Number(row.sizeInGBs) : null
+  resizeBlockVpus.value = vpusPerGbInitialFromApi(row.vpusPerGB)
   resizeBlockOpen.value = true
 }
 
 async function submitResizeBlock() {
-  if (!props.userId || !region.value || !resizeBlockTarget.value?.id || resizeBlockGb.value == null) {
-    return message.warning('请填写新大小')
+  if (!props.userId || !region.value || !resizeBlockTarget.value?.id) return
+  if (resizeBlockGb.value == null && resizeBlockVpus.value == null) {
+    return message.warning('请至少填写容量或 VPUs/GB 之一')
   }
   resizeBlockLoading.value = true
   try {
-    await storageMutate({
+    const payload: Record<string, unknown> = {
       action: 'updateBlockVolume',
       id: props.userId,
       region: region.value,
       volumeId: resizeBlockTarget.value.id,
       displayName: resizeBlockTarget.value.displayName || 'volume',
-      sizeInGBs: resizeBlockGb.value,
-    })
-    message.success('已提交扩容')
+    }
+    if (resizeBlockGb.value != null) payload.sizeInGBs = resizeBlockGb.value
+    if (resizeBlockVpus.value != null) payload.vpusPerGB = snapVpusPerGbToTier(resizeBlockVpus.value)
+    await storageMutate(payload)
+    message.success('已提交')
     resizeBlockOpen.value = false
     await loadAll()
   } catch (e: any) {
-    message.error(e?.message || '扩容失败')
+    message.error(e?.message || '更新失败')
   } finally {
     resizeBlockLoading.value = false
   }
