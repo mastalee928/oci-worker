@@ -619,7 +619,7 @@ public class StorageService {
             ).getCompartment();
             return List.of(c);
         } catch (Exception e) {
-            throw new OciException("读取隔间失败: " + e.getMessage());
+            throw new OciException("读取区间失败: " + e.getMessage());
         }
     }
 

@@ -396,6 +396,8 @@ const emit = defineEmits<{ (e: 'update:open', v: boolean): void }>()
 const regionLoading = ref(false)
 const compartmentLoading = ref(false)
 const loading = ref(false)
+/** 上次完成存储抽屉初始化的租户；与 props.userId 不一致时必须清空筛选与缓存数据，避免跨租户误用 OCID */
+const storageContextUserId = ref('')
 const region = ref('')
 const compartmentId = ref<string | undefined>(undefined)
 const regionOptions = ref<{ label: string; value: string }[]>([])
@@ -558,6 +560,16 @@ watch(
   },
 )
 
+watch(
+  () => props.userId,
+  (newId, oldId) => {
+    if (!newId || newId === oldId) return
+    // 避免与首次挂载的 init 重复；仅在真实切换租户且抽屉已打开时重跑
+    if (oldId === undefined) return
+    if (props.open) void initDrawer()
+  },
+)
+
 watch(region, (r) => {
   try {
     localStorage.setItem(`storage.region:${props.userId}`, r || '')
@@ -568,7 +580,20 @@ watch(region, (r) => {
   }
 })
 
+function clearStorageTenantScopedState() {
+  compartmentId.value = undefined
+  compartmentOptions.value = []
+  blockData.value = {}
+  objectData.value = {}
+  region.value = ''
+  regionOptions.value = []
+}
+
 async function initDrawer() {
+  if (props.userId !== storageContextUserId.value) {
+    clearStorageTenantScopedState()
+    storageContextUserId.value = props.userId
+  }
   regionLoading.value = true
   try {
     const res = await listStorageRegions({ id: props.userId })
