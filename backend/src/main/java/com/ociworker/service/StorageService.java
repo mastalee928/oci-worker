@@ -4,6 +4,7 @@ import com.oracle.bmc.core.model.*;
 import com.oracle.bmc.core.requests.*;
 import com.oracle.bmc.identity.model.Compartment;
 import com.oracle.bmc.identity.requests.GetCompartmentRequest;
+import com.oracle.bmc.identity.requests.ListRegionSubscriptionsRequest;
 import com.oracle.bmc.objectstorage.model.*;
 import com.oracle.bmc.objectstorage.requests.*;
 import com.ociworker.exception.OciException;
@@ -24,11 +25,46 @@ public class StorageService {
     @Resource
     private OciUserMapper userMapper;
 
-    public List<String> listPublicRegionIds() {
-        return Arrays.stream(com.oracle.bmc.Region.values())
-                .map(com.oracle.bmc.Region::getRegionId)
-                .sorted()
-                .toList();
+    /**
+     * 租户在 OCI 中已订阅（可用）的区域，避免枚举 SDK 内全部公有区域导致下拉过长。
+     */
+    public List<String> listSubscribedRegionIds(String userId) {
+        if (userId == null || userId.isBlank()) {
+            throw new OciException("缺少租户 id");
+        }
+        OciUser ociUser = requireUser(userId);
+        try (OciClientService client = new OciClientService(buildDto(ociUser))) {
+            var resp = client.getIdentityClient().listRegionSubscriptions(
+                    ListRegionSubscriptionsRequest.builder()
+                            .tenancyId(ociUser.getOciTenantId())
+                            .build());
+            var items = resp.getItems();
+            if (items == null || items.isEmpty()) {
+                return fallbackRegionList(ociUser);
+            }
+            List<String> out = items.stream()
+                    .map(r -> r.getRegionName())
+                    .filter(Objects::nonNull)
+                    .map(String::trim)
+                    .filter(s -> !s.isEmpty())
+                    .distinct()
+                    .sorted()
+                    .toList();
+            return out.isEmpty() ? fallbackRegionList(ociUser) : out;
+        } catch (OciException e) {
+            throw e;
+        } catch (Exception e) {
+            log.warn("listRegionSubscriptions failed for user {}: {}", userId, e.getMessage());
+            return fallbackRegionList(ociUser);
+        }
+    }
+
+    private static List<String> fallbackRegionList(OciUser ociUser) {
+        String r = ociUser.getOciRegion();
+        if (r != null && !r.isBlank()) {
+            return List.of(r.trim());
+        }
+        return List.of();
     }
 
     public List<Map<String, Object>> listCompartments(String userId, String region) {

@@ -17,11 +17,11 @@
         show-search
         option-filter-prop="label"
       />
-      <span style="color: var(--text-sub); font-size: 12px">隔间</span>
+      <span style="color: var(--text-sub); font-size: 12px">区间</span>
       <a-select
         v-model:value="compartmentId"
         style="width: 260px"
-        placeholder="全部隔间"
+        placeholder="全部区间"
         allow-clear
         show-search
         option-filter-prop="label"
@@ -181,7 +181,7 @@
       :confirm-loading="actBootLoading"
     >
       <a-form layout="vertical" size="small">
-        <a-form-item label="隔间">
+        <a-form-item label="区间">
           <a-select v-model:value="actBootForm.compartmentId" :options="compartmentOptions" show-search option-filter-prop="label" />
         </a-form-item>
         <a-form-item label="可用域">
@@ -201,7 +201,7 @@
       :confirm-loading="actBlockLoading"
     >
       <a-form layout="vertical" size="small">
-        <a-form-item label="隔间">
+        <a-form-item label="区间">
           <a-select v-model:value="actBlockForm.compartmentId" :options="compartmentOptions" show-search option-filter-prop="label" />
         </a-form-item>
         <a-form-item label="可用域">
@@ -224,7 +224,7 @@
       :confirm-loading="vgLoading"
     >
       <a-form layout="vertical" size="small">
-        <a-form-item label="隔间">
+        <a-form-item label="区间">
           <a-select v-model:value="vgForm.compartmentId" :options="compartmentOptions" show-search option-filter-prop="label" />
         </a-form-item>
         <a-form-item label="可用域">
@@ -254,7 +254,7 @@
       :confirm-loading="policyCreateLoading"
     >
       <a-form layout="vertical" size="small">
-        <a-form-item label="隔间">
+        <a-form-item label="区间">
           <a-select v-model:value="policyCreateForm.compartmentId" :options="compartmentOptions" show-search option-filter-prop="label" />
         </a-form-item>
         <a-form-item label="显示名称">
@@ -302,7 +302,7 @@
 
     <a-modal v-model:open="bucketCreateOpen" title="新建存储桶" width="560px" @ok="submitCreateBucket" :confirm-loading="bucketCreateLoading">
       <a-form layout="vertical" size="small">
-        <a-form-item label="隔间">
+        <a-form-item label="区间">
           <a-select v-model:value="bucketCreateForm.compartmentId" :options="compartmentOptions" show-search option-filter-prop="label" />
         </a-form-item>
         <a-form-item label="桶名称（全局唯一）">
@@ -341,7 +341,7 @@
         message="若创建失败，请确认子网与 OCI 控制台要求的 accessTargets 等参数；当前后端为最小字段集。"
       />
       <a-form layout="vertical" size="small">
-        <a-form-item label="隔间">
+        <a-form-item label="区间">
           <a-select v-model:value="peCreateForm.compartmentId" :options="compartmentOptions" show-search option-filter-prop="label" />
         </a-form-item>
         <a-form-item label="显示名称">
@@ -451,7 +451,7 @@ const blockColumnsResolved = computed(() => {
   ) {
     cols.push({ title: '规格 / AD', key: 'spec', width: 200, ellipsis: true })
   }
-  cols.push({ title: '隔间', dataIndex: 'compartmentName', key: 'compartmentName', width: 120, ellipsis: true })
+  cols.push({ title: '区间', dataIndex: 'compartmentName', key: 'compartmentName', width: 120, ellipsis: true })
   if (v === 'bootVolumes' || v === 'blockVolumes') {
     cols.push({ title: '挂载', key: 'attachmentSummary', width: 140, ellipsis: true })
   }
@@ -478,7 +478,7 @@ const bucketColumns = [
   { title: '名称', dataIndex: 'name', key: 'name', ellipsis: true },
   { title: '访问', dataIndex: 'publicAccessType', key: 'publicAccessType', width: 140 },
   { title: '层级', dataIndex: 'storageTier', key: 'storageTier', width: 100 },
-  { title: '隔间', dataIndex: 'compartmentName', key: 'compartmentName', width: 120, ellipsis: true },
+  { title: '区间', dataIndex: 'compartmentName', key: 'compartmentName', width: 120, ellipsis: true },
   { title: '操作', key: 'actions', width: 220 },
 ]
 
@@ -486,7 +486,7 @@ const peColumns = [
   { title: '名称', dataIndex: 'displayName', key: 'displayName', ellipsis: true },
   { title: '状态', dataIndex: 'lifecycleState', key: 'lifecycleState', width: 110 },
   { title: '子网', dataIndex: 'subnetId', key: 'subnetId', ellipsis: true },
-  { title: '隔间', dataIndex: 'compartmentName', key: 'compartmentName', width: 120, ellipsis: true },
+  { title: '区间', dataIndex: 'compartmentName', key: 'compartmentName', width: 120, ellipsis: true },
   { title: '操作', key: 'actions', width: 80 },
 ]
 
@@ -571,7 +571,7 @@ watch(region, (r) => {
 async function initDrawer() {
   regionLoading.value = true
   try {
-    const res = await listStorageRegions()
+    const res = await listStorageRegions({ id: props.userId })
     const ids = (res.data || []) as string[]
     regionOptions.value = ids.map((x) => ({ label: x, value: x }))
     const cached = (() => {
@@ -979,7 +979,7 @@ async function submitActBoot() {
   if (!props.userId || !region.value || !actBootRow.value?.id) return
   const f = actBootForm.value
   if (!f.compartmentId || !f.availabilityDomain.trim() || !f.displayName.trim()) {
-    return message.warning('请填写隔间、AD 与名称')
+    return message.warning('请填写区间、AD 与名称')
   }
   actBootLoading.value = true
   try {
@@ -1022,7 +1022,7 @@ async function submitActBlock() {
   if (!props.userId || !region.value || !actBlockRow.value?.id) return
   const f = actBlockForm.value
   if (!f.compartmentId || !f.availabilityDomain.trim() || !f.displayName.trim()) {
-    return message.warning('请填写隔间、AD 与名称')
+    return message.warning('请填写区间、AD 与名称')
   }
   actBlockLoading.value = true
   try {
@@ -1070,7 +1070,7 @@ async function submitCreateVg() {
   if (!props.userId || !region.value) return
   const f = vgForm.value
   if (!f.compartmentId || !f.availabilityDomain.trim() || !f.displayName.trim() || !f.volumeIds.length) {
-    return message.warning('请填写隔间、AD、名称并至少选一个块卷')
+    return message.warning('请填写区间、AD、名称并至少选一个块卷')
   }
   vgLoading.value = true
   try {
@@ -1119,7 +1119,7 @@ function openCreatePolicy() {
 async function submitCreatePolicy() {
   if (!props.userId || !region.value) return
   const f = policyCreateForm.value
-  if (!f.compartmentId || !f.displayName.trim()) return message.warning('请填写隔间与名称')
+  if (!f.compartmentId || !f.displayName.trim()) return message.warning('请填写区间与名称')
   let schedules: any[] = []
   try {
     schedules = JSON.parse(f.schedulesJson || '[]')
@@ -1246,7 +1246,7 @@ function openCreateBucket() {
 async function submitCreateBucket() {
   if (!props.userId || !region.value || !objectData.value.namespace) return
   const f = bucketCreateForm.value
-  if (!f.compartmentId || !f.name.trim()) return message.warning('请填写隔间与桶名')
+  if (!f.compartmentId || !f.name.trim()) return message.warning('请填写区间与桶名')
   bucketCreateLoading.value = true
   try {
     const payload: Record<string, unknown> = {
@@ -1348,7 +1348,7 @@ async function submitCreatePe() {
   if (!props.userId || !region.value || !objectData.value.namespace) return
   const f = peCreateForm.value
   if (!f.compartmentId || !f.displayName.trim() || !f.subnetId.trim()) {
-    return message.warning('请填写隔间、名称与子网')
+    return message.warning('请填写区间、名称与子网')
   }
   peCreateLoading.value = true
   try {

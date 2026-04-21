@@ -17,9 +17,10 @@ public class StorageController {
     @Resource
     private VerifyCodeService verifyCodeService;
 
+    /** 当前租户在 OCI 已订阅的区域（非 SDK 枚举的全部公有区域） */
     @PostMapping("/regions")
-    public ResponseData<?> regions() {
-        return ResponseData.ok(storageService.listPublicRegionIds());
+    public ResponseData<?> regions(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(storageService.listSubscribedRegionIds(params.get("id")));
     }
 
     @PostMapping("/compartments")

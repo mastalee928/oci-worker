@@ -1,7 +1,7 @@
 import request from '../utils/request'
 
-export function listStorageRegions() {
-  return request.post('/oci/storage/regions', {})
+export function listStorageRegions(data: { id: string }) {
+  return request.post('/oci/storage/regions', data)
 }
 
 export function listStorageCompartments(data: { id: string; region: string }) {
