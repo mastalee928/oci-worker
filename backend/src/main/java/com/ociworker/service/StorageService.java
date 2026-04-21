@@ -92,8 +92,34 @@ public class StorageService {
         }
     }
 
-    public Map<String, Object> blockAggregate(String userId, String region, String compartmentIdOpt) {
+    /**
+     * @param sections 逗号分隔的子集，如 {@code bootVolumes}；空则加载全部（兼容旧客户端与「刷新」全量）。
+     */
+    public Map<String, Object> blockAggregate(String userId, String region, String compartmentIdOpt, String sections) {
         OciUser ociUser = requireUser(userId);
+        boolean loadAllSections = sections == null || sections.isBlank();
+        Set<String> requested = new HashSet<>();
+        if (!loadAllSections) {
+            for (String part : sections.split(",")) {
+                String t = part.trim().toLowerCase(Locale.ROOT);
+                if (!t.isEmpty()) {
+                    requested.add(t);
+                }
+            }
+            if (requested.contains("volumebackuppolicyassignments")) {
+                requested.add("bootvolumes");
+                requested.add("blockvolumes");
+                requested.add("volumegroups");
+                requested.add("volumebackuppolicies");
+            }
+        }
+        java.util.function.Predicate<String> want = key -> {
+            if (loadAllSections) {
+                return true;
+            }
+            return requested.contains(key.toLowerCase(Locale.ROOT));
+        };
+
         try (OciClientService client = new OciClientService(buildDto(ociUser), region)) {
             List<Compartment> compartments = resolveCompartments(client, compartmentIdOpt);
             List<String> availabilityDomains = listAvailabilityDomainNames(client);
@@ -115,52 +141,126 @@ public class StorageService {
             for (Compartment compartment : compartments) {
                 String cid = compartment.getId();
                 String cname = compartment.getName();
-                Map<String, String> instanceNames = loadInstanceNames(client, cid);
-                Map<String, List<Map<String, Object>>> bootAttach =
-                        loadBootVolumeAttachments(client, cid, instanceNames, availabilityDomains);
-                Map<String, List<Map<String, Object>>> volAttach =
-                        loadVolumeAttachments(client, cid, instanceNames, availabilityDomains);
+
+                Map<String, String> instanceNames = Map.of();
+                if (want.test("bootVolumes") || want.test("blockVolumes")) {
+                    instanceNames = loadInstanceNames(client, cid);
+                }
+
+                Map<String, List<Map<String, Object>>> bootAttach = new HashMap<>();
+                if (want.test("bootVolumes")) {
+                    bootAttach = loadBootVolumeAttachments(client, cid, instanceNames, availabilityDomains);
+                }
+
+                Map<String, List<Map<String, Object>>> volAttach = new HashMap<>();
+                if (want.test("blockVolumes")) {
+                    volAttach = loadVolumeAttachments(client, cid, instanceNames, availabilityDomains);
+                }
 
                 int bootStart = bootVolumes.size();
                 int blockStart = blockVolumes.size();
                 int vgStart = volumeGroups.size();
-                listBootVolumes(client, region, cid, cname, bootAttach, bootVolumes, availabilityDomains);
-                listBlockVolumes(client, region, cid, cname, volAttach, blockVolumes, availabilityDomains);
-                listBootBackups(client, region, cid, cname, bootBackups);
-                listBlockBackups(client, region, cid, cname, blockBackups);
-                listBootReplicas(client, region, cid, cname, bootReplicas, availabilityDomains);
-                listBlockReplicas(client, region, cid, cname, blockReplicas, availabilityDomains);
-                listVolumeGroups(client, region, cid, cname, volumeGroups, availabilityDomains);
-                listVolumeGroupBackups(client, region, cid, cname, volumeGroupBackups);
-                listVolumeGroupReplicas(client, region, cid, cname, volumeGroupReplicas, availabilityDomains);
-                listBackupPolicies(client, region, cid, cname, backupPolicies);
-                List<String> policyAssetIds = new ArrayList<>();
-                for (int i = bootStart; i < bootVolumes.size(); i++) {
-                    Object id = bootVolumes.get(i).get("id");
-                    if (id != null) policyAssetIds.add(String.valueOf(id));
+                if (want.test("bootVolumes")) {
+                    listBootVolumes(client, region, cid, cname, bootAttach, bootVolumes, availabilityDomains);
                 }
-                for (int i = blockStart; i < blockVolumes.size(); i++) {
-                    Object id = blockVolumes.get(i).get("id");
-                    if (id != null) policyAssetIds.add(String.valueOf(id));
+                if (want.test("blockVolumes")) {
+                    listBlockVolumes(client, region, cid, cname, volAttach, blockVolumes, availabilityDomains);
                 }
-                for (int i = vgStart; i < volumeGroups.size(); i++) {
-                    Object id = volumeGroups.get(i).get("id");
-                    if (id != null) policyAssetIds.add(String.valueOf(id));
+                if (want.test("bootVolumeBackups")) {
+                    listBootBackups(client, region, cid, cname, bootBackups);
                 }
-                collectVolumeBackupPolicyAssignments(client, region, cid, cname, policyAssetIds, backupPolicyAssignments);
+                if (want.test("blockVolumeBackups")) {
+                    listBlockBackups(client, region, cid, cname, blockBackups);
+                }
+                if (want.test("bootVolumeReplicas")) {
+                    listBootReplicas(client, region, cid, cname, bootReplicas, availabilityDomains);
+                }
+                if (want.test("blockVolumeReplicas")) {
+                    listBlockReplicas(client, region, cid, cname, blockReplicas, availabilityDomains);
+                }
+                if (want.test("volumeGroups")) {
+                    listVolumeGroups(client, region, cid, cname, volumeGroups, availabilityDomains);
+                }
+                if (want.test("volumeGroupBackups")) {
+                    listVolumeGroupBackups(client, region, cid, cname, volumeGroupBackups);
+                }
+                if (want.test("volumeGroupReplicas")) {
+                    listVolumeGroupReplicas(client, region, cid, cname, volumeGroupReplicas, availabilityDomains);
+                }
+                if (want.test("volumeBackupPolicies")) {
+                    listBackupPolicies(client, region, cid, cname, backupPolicies);
+                }
+                if (want.test("volumeBackupPolicyAssignments")) {
+                    List<String> policyAssetIds = new ArrayList<>();
+                    for (int i = bootStart; i < bootVolumes.size(); i++) {
+                        Object id = bootVolumes.get(i).get("id");
+                        if (id != null) {
+                            policyAssetIds.add(String.valueOf(id));
+                        }
+                    }
+                    for (int i = blockStart; i < blockVolumes.size(); i++) {
+                        Object id = blockVolumes.get(i).get("id");
+                        if (id != null) {
+                            policyAssetIds.add(String.valueOf(id));
+                        }
+                    }
+                    for (int i = vgStart; i < volumeGroups.size(); i++) {
+                        Object id = volumeGroups.get(i).get("id");
+                        if (id != null) {
+                            policyAssetIds.add(String.valueOf(id));
+                        }
+                    }
+                    collectVolumeBackupPolicyAssignments(client, region, cid, cname, policyAssetIds, backupPolicyAssignments);
+                }
             }
 
-            out.put("bootVolumes", bootVolumes);
-            out.put("blockVolumes", blockVolumes);
-            out.put("bootVolumeBackups", bootBackups);
-            out.put("blockVolumeBackups", blockBackups);
-            out.put("bootVolumeReplicas", bootReplicas);
-            out.put("blockVolumeReplicas", blockReplicas);
-            out.put("volumeGroups", volumeGroups);
-            out.put("volumeGroupBackups", volumeGroupBackups);
-            out.put("volumeGroupReplicas", volumeGroupReplicas);
-            out.put("volumeBackupPolicies", backupPolicies);
-            out.put("volumeBackupPolicyAssignments", backupPolicyAssignments);
+            if (loadAllSections) {
+                out.put("bootVolumes", bootVolumes);
+                out.put("blockVolumes", blockVolumes);
+                out.put("bootVolumeBackups", bootBackups);
+                out.put("blockVolumeBackups", blockBackups);
+                out.put("bootVolumeReplicas", bootReplicas);
+                out.put("blockVolumeReplicas", blockReplicas);
+                out.put("volumeGroups", volumeGroups);
+                out.put("volumeGroupBackups", volumeGroupBackups);
+                out.put("volumeGroupReplicas", volumeGroupReplicas);
+                out.put("volumeBackupPolicies", backupPolicies);
+                out.put("volumeBackupPolicyAssignments", backupPolicyAssignments);
+            } else {
+                if (want.test("bootVolumes")) {
+                    out.put("bootVolumes", bootVolumes);
+                }
+                if (want.test("blockVolumes")) {
+                    out.put("blockVolumes", blockVolumes);
+                }
+                if (want.test("bootVolumeBackups")) {
+                    out.put("bootVolumeBackups", bootBackups);
+                }
+                if (want.test("blockVolumeBackups")) {
+                    out.put("blockVolumeBackups", blockBackups);
+                }
+                if (want.test("bootVolumeReplicas")) {
+                    out.put("bootVolumeReplicas", bootReplicas);
+                }
+                if (want.test("blockVolumeReplicas")) {
+                    out.put("blockVolumeReplicas", blockReplicas);
+                }
+                if (want.test("volumeGroups")) {
+                    out.put("volumeGroups", volumeGroups);
+                }
+                if (want.test("volumeGroupBackups")) {
+                    out.put("volumeGroupBackups", volumeGroupBackups);
+                }
+                if (want.test("volumeGroupReplicas")) {
+                    out.put("volumeGroupReplicas", volumeGroupReplicas);
+                }
+                if (want.test("volumeBackupPolicies")) {
+                    out.put("volumeBackupPolicies", backupPolicies);
+                }
+                if (want.test("volumeBackupPolicyAssignments")) {
+                    out.put("volumeBackupPolicyAssignments", backupPolicyAssignments);
+                }
+            }
             return out;
         } catch (OciException e) {
             throw e;

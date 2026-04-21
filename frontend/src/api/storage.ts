@@ -8,7 +8,13 @@ export function listStorageCompartments(data: { id: string; region: string }) {
   return request.post('/oci/storage/compartments', data)
 }
 
-export function blockStorageAggregate(data: { id: string; region: string; compartmentId?: string }) {
+export function blockStorageAggregate(data: {
+  id: string
+  region: string
+  compartmentId?: string
+  /** 逗号分隔子集，如 bootVolumes；不传则全量 */
+  sections?: string
+}) {
   return request.post('/oci/storage/block/aggregate', data)
 }
 

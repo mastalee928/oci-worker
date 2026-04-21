@@ -28,7 +28,7 @@
         :options="compartmentOptions"
         :loading="compartmentLoading"
       />
-      <a-button type="primary" @click="loadAll" :loading="loading" :disabled="!region">
+      <a-button type="primary" @click="loadAll" :loading="loading" :disabled="!region" title="拉取全部块存储子类（较慢）">
         <i class="ri-refresh-line" style="margin-right: 4px"></i>刷新
       </a-button>
     </div>
@@ -410,7 +410,23 @@ const mainTab = ref('block')
 const objectSub = ref('buckets')
 const blockView = ref('bootVolumes')
 const blockData = ref<Record<string, any[]>>({})
+/** 已加载的块存储子视图（或 __full__ 表示全量刷新过） */
+const blockDataSectionsLoaded = ref(new Set<string>())
 const objectData = ref<{ namespace?: string; buckets?: any[]; privateEndpoints?: any[] }>({})
+
+const BLOCK_AGGREGATE_MERGE_KEYS = [
+  'bootVolumes',
+  'blockVolumes',
+  'bootVolumeBackups',
+  'blockVolumeBackups',
+  'bootVolumeReplicas',
+  'blockVolumeReplicas',
+  'volumeGroups',
+  'volumeGroupBackups',
+  'volumeGroupReplicas',
+  'volumeBackupPolicies',
+  'volumeBackupPolicyAssignments',
+] as const
 
 const blockViewOptions = [
   { label: '引导卷', value: 'bootVolumes' },
@@ -580,7 +596,7 @@ watch(region, async (r) => {
   if (props.open && r) {
     const raw = await loadCompartments()
     applyRootCompartmentDefaultIfNeeded(raw)
-    void loadAll()
+    void loadBlockQuick()
   }
 })
 
@@ -588,6 +604,7 @@ function clearStorageTenantScopedState() {
   compartmentId.value = undefined
   compartmentOptions.value = []
   blockData.value = {}
+  blockDataSectionsLoaded.value = new Set()
   objectData.value = {}
   region.value = ''
   regionOptions.value = []
@@ -616,7 +633,7 @@ async function initDrawer() {
     if (region.value) {
       const raw = await loadCompartments()
       applyRootCompartmentDefaultIfNeeded(raw)
-      await loadAll()
+      await loadBlockQuick()
     }
   } catch (e: any) {
     message.error(e?.message || '加载 Region 失败')
@@ -663,6 +680,81 @@ function onMainTab() {
   if (mainTab.value === 'object') void loadObject()
 }
 
+function mergeBlockAggregatePayload(incoming: Record<string, any>) {
+  const cur: Record<string, any> = { ...(blockData.value as any) }
+  if (incoming.region != null) cur.region = incoming.region
+  for (const k of BLOCK_AGGREGATE_MERGE_KEYS) {
+    if (incoming[k] !== undefined) cur[k] = incoming[k]
+  }
+  blockData.value = cur
+}
+
+function markBlockSectionLoaded(view: string) {
+  const next = new Set(blockDataSectionsLoaded.value)
+  next.add(view)
+  if (view === 'volumeBackupPolicyAssignments') {
+    for (const x of [
+      'bootVolumes',
+      'blockVolumes',
+      'volumeGroups',
+      'volumeBackupPolicies',
+      'volumeBackupPolicyAssignments',
+    ]) {
+      next.add(x)
+    }
+  }
+  blockDataSectionsLoaded.value = next
+}
+
+/** 首屏 / 换区 / 换区间：只拉引导卷 */
+async function loadBlockQuick() {
+  if (!props.userId || !region.value) return
+  loading.value = true
+  try {
+    const res = await blockStorageAggregate({
+      id: props.userId,
+      region: region.value,
+      compartmentId: compartmentId.value || undefined,
+      sections: 'bootVolumes',
+    })
+    mergeBlockAggregatePayload((res.data || {}) as Record<string, any>)
+    blockDataSectionsLoaded.value = new Set(['bootVolumes'])
+    if (mainTab.value === 'object') await loadObject()
+  } catch (e: any) {
+    message.error(e?.message || '加载块存储失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+/** 切换到某块存储子类时按需补拉（已全量刷新则跳过） */
+async function ensureBlockViewLoaded(view: string) {
+  if (!props.userId || !region.value) return
+  if (blockDataSectionsLoaded.value.has('__full__')) return
+  if (blockDataSectionsLoaded.value.has(view)) return
+  loading.value = true
+  try {
+    const res = await blockStorageAggregate({
+      id: props.userId,
+      region: region.value,
+      compartmentId: compartmentId.value || undefined,
+      sections: view,
+    })
+    mergeBlockAggregatePayload((res.data || {}) as Record<string, any>)
+    markBlockSectionLoaded(view)
+  } catch (e: any) {
+    message.error(e?.message || '加载块存储失败')
+  } finally {
+    loading.value = false
+  }
+}
+
+watch(blockView, (v) => {
+  if (!props.open || !region.value) return
+  void ensureBlockViewLoaded(v)
+})
+
+/** 全量块存储（刷新、增删改后） */
 async function loadAll() {
   if (!props.userId || !region.value) return
   loading.value = true
@@ -671,8 +763,9 @@ async function loadAll() {
       id: props.userId,
       region: region.value,
       compartmentId: compartmentId.value || undefined,
-    } as any)
-    blockData.value = res.data || {}
+    })
+    blockData.value = (res.data || {}) as any
+    blockDataSectionsLoaded.value = new Set(['__full__'])
     if (mainTab.value === 'object') await loadObject()
   } catch (e: any) {
     message.error(e?.message || '加载块存储失败')
@@ -697,7 +790,7 @@ async function loadObject() {
 
 watch(compartmentId, () => {
   if (suppressCompartmentLoadAll) return
-  if (props.open && region.value) void loadAll()
+  if (props.open && region.value) void loadBlockQuick()
 })
 
 function resourceTypeForBlockRow(row: any): string | null {

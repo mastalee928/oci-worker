@@ -34,7 +34,8 @@ public class StorageController {
         return ResponseData.ok(storageService.blockAggregate(
                 params.get("id"),
                 params.get("region"),
-                params.get("compartmentId")));
+                params.get("compartmentId"),
+                params.get("sections")));
     }
 
     /** 对象存储：命名空间、桶、专用端点 */
