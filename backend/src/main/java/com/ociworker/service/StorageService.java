@@ -10,6 +10,7 @@ import com.ociworker.exception.OciException;
 import com.ociworker.mapper.OciUserMapper;
 import com.ociworker.model.dto.SysUserDTO;
 import com.ociworker.model.entity.OciUser;
+import com.ociworker.util.ObjectStorageBucketPolicyHttp;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -237,37 +238,14 @@ public class StorageService {
         }
         OciUser ociUser = requireUser(userId);
         try (OciClientService client = new OciClientService(buildDto(ociUser), region)) {
-            String ifMatch = null;
-            try {
-                var gp = client.getObjectStorageClient().getBucketPolicy(
-                        GetBucketPolicyRequest.builder()
-                                .namespaceName(namespace)
-                                .bucketName(bucketName)
-                                .build());
-                if (gp.getBucketPolicy() != null && gp.getBucketPolicy().getEtag() != null) {
-                    ifMatch = gp.getBucketPolicy().getEtag();
-                }
-            } catch (com.oracle.bmc.model.BmcException e) {
-                if (e.getStatusCode() != 404) {
-                    throw new OciException("读取桶策略失败: " + e.getMessage());
-                }
-            }
-            var b = PutBucketPolicyRequest.builder()
-                    .namespaceName(namespace)
-                    .bucketName(bucketName)
-                    .putBucketPolicyDetails(PutBucketPolicyDetails.builder()
-                            .policy(policy)
-                            .build());
-            if (ifMatch != null) {
-                b.ifMatch(ifMatch);
-            } else {
-                b.opcIfNoneMatch("*");
-            }
-            client.getObjectStorageClient().putBucketPolicy(b.build());
+            ObjectStorageBucketPolicyHttp.putBucketPolicy(
+                    client.getObjectStorageClient(),
+                    client.getProvider(),
+                    namespace,
+                    bucketName,
+                    policy);
         } catch (OciException e) {
             throw e;
-        } catch (com.oracle.bmc.model.BmcException e) {
-            throw new OciException("保存桶策略失败: " + e.getMessage());
         } catch (Exception e) {
             throw new OciException("保存桶策略失败: " + e.getMessage());
         }
