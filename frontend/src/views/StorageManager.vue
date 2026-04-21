@@ -5,6 +5,8 @@
     :title="`存储 — ${tenantName || ''}`"
     width="1280"
     destroy-on-close
+    :mask-closable="false"
+    :keyboard="false"
   >
     <div style="margin-bottom: 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap">
       <span style="color: var(--text-sub); font-size: 12px">Region</span>
@@ -74,7 +76,7 @@
             <template v-else-if="column.key === 'actions'">
               <a-space size="small" wrap>
                 <a-button v-if="canRenameBlock" type="link" size="small" @click="openRename(record)">改名</a-button>
-                <a-button v-if="canResizeBoot" type="link" size="small" @click="openResizeBoot(record)">扩容</a-button>
+                <a-button v-if="canResizeBoot" type="link" size="small" @click="openResizeBoot(record)">编辑</a-button>
                 <a-button v-if="canResizeBlock" type="link" size="small" @click="openResizeBlock(record)">扩容</a-button>
                 <a-button v-if="canEnableBootReplication" type="link" size="small" @click="openEnableBootReplication(record)">启用复制</a-button>
                 <a-button v-if="canEnableBlockReplication" type="link" size="small" @click="openEnableBlockReplication(record)">启用复制</a-button>
@@ -125,8 +127,15 @@
       <a-input v-model:value="renameValue" placeholder="新名称" />
     </a-modal>
 
-    <a-modal v-model:open="resizeBootOpen" title="引导卷扩容 (GB)" @ok="submitResizeBoot" :confirm-loading="resizeBootLoading">
-      <a-input-number v-model:value="resizeBootGb" :min="1" style="width: 100%" placeholder="新大小 GB" />
+    <a-modal v-model:open="resizeBootOpen" title="编辑引导卷" width="480px" @ok="submitResizeBoot" :confirm-loading="resizeBootLoading">
+      <a-form layout="vertical" size="small">
+        <a-form-item label="容量 (GB)" extra="仅改性能时可与当前值相同">
+          <a-input-number v-model:value="resizeBootGb" :min="1" style="width: 100%" placeholder="大小 GB" />
+        </a-form-item>
+        <a-form-item label="VPUs/GB" extra="OCI 块存储性能单位，常见如 10、20、30…">
+          <a-input-number v-model:value="resizeBootVpus" :min="1" :max="120" style="width: 100%" placeholder="VPUs per GB" />
+        </a-form-item>
+      </a-form>
     </a-modal>
 
     <a-modal v-model:open="resizeBlockOpen" title="块卷扩容 (GB)" @ok="submitResizeBlock" :confirm-loading="resizeBlockLoading">
@@ -998,33 +1007,38 @@ async function submitRename() {
 const resizeBootOpen = ref(false)
 const resizeBootTarget = ref<any>(null)
 const resizeBootGb = ref<number | null>(null)
+const resizeBootVpus = ref<number | null>(null)
 const resizeBootLoading = ref(false)
 
 function openResizeBoot(row: any) {
   resizeBootTarget.value = row
-  resizeBootGb.value = row.sizeInGBs != null ? Number(row.sizeInGBs) + 1 : null
+  resizeBootGb.value = row.sizeInGBs != null ? Number(row.sizeInGBs) : null
+  resizeBootVpus.value = row.vpusPerGB != null ? Number(row.vpusPerGB) : null
   resizeBootOpen.value = true
 }
 
 async function submitResizeBoot() {
-  if (!props.userId || !region.value || !resizeBootTarget.value?.id || resizeBootGb.value == null) {
-    return message.warning('请填写新大小')
+  if (!props.userId || !region.value || !resizeBootTarget.value?.id) return
+  if (resizeBootGb.value == null && resizeBootVpus.value == null) {
+    return message.warning('请至少填写容量或 VPUs/GB 之一')
   }
   resizeBootLoading.value = true
   try {
-    await storageMutate({
+    const payload: Record<string, unknown> = {
       action: 'updateBootVolume',
       id: props.userId,
       region: region.value,
       bootVolumeId: resizeBootTarget.value.id,
       displayName: resizeBootTarget.value.displayName || 'boot',
-      sizeInGBs: resizeBootGb.value,
-    })
-    message.success('已提交扩容')
+    }
+    if (resizeBootGb.value != null) payload.sizeInGBs = resizeBootGb.value
+    if (resizeBootVpus.value != null) payload.vpusPerGB = resizeBootVpus.value
+    await storageMutate(payload)
+    message.success('已提交')
     resizeBootOpen.value = false
     await loadAll()
   } catch (e: any) {
-    message.error(e?.message || '扩容失败')
+    message.error(e?.message || '更新失败')
   } finally {
     resizeBootLoading.value = false
   }

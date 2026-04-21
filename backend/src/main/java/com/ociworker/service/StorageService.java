@@ -405,6 +405,7 @@ public class StorageService {
                     String bootVolumeId = stringParam(params, "bootVolumeId");
                     String displayName = stringParam(params, "displayName");
                     Long size = longParam(params, "sizeInGBs");
+                    Long vpusPerGb = longParam(params, "vpusPerGB");
                     var b = UpdateBootVolumeDetails.builder();
                     if (!displayName.isBlank()) {
                         b.displayName(displayName);
@@ -412,8 +413,11 @@ public class StorageService {
                     if (size != null) {
                         b.sizeInGBs(size);
                     }
-                    if (displayName.isBlank() && size == null) {
-                        throw new OciException("至少提供 displayName 或 sizeInGBs");
+                    if (vpusPerGb != null) {
+                        b.vpusPerGB(vpusPerGb);
+                    }
+                    if (displayName.isBlank() && size == null && vpusPerGb == null) {
+                        throw new OciException("至少提供 displayName、sizeInGBs 或 vpusPerGB 之一");
                     }
                     yield toMap(client.getBlockstorageClient().updateBootVolume(
                             UpdateBootVolumeRequest.builder()
