@@ -57,6 +57,7 @@ public class StorageService {
         OciUser ociUser = requireUser(userId);
         try (OciClientService client = new OciClientService(buildDto(ociUser), region)) {
             List<Compartment> compartments = resolveCompartments(client, compartmentIdOpt);
+            List<String> availabilityDomains = listAvailabilityDomainNames(client);
             Map<String, Object> out = new LinkedHashMap<>();
             out.put("region", region);
 
@@ -76,21 +77,23 @@ public class StorageService {
                 String cid = compartment.getId();
                 String cname = compartment.getName();
                 Map<String, String> instanceNames = loadInstanceNames(client, cid);
-                Map<String, List<Map<String, Object>>> bootAttach = loadBootVolumeAttachments(client, cid, instanceNames);
-                Map<String, List<Map<String, Object>>> volAttach = loadVolumeAttachments(client, cid, instanceNames);
+                Map<String, List<Map<String, Object>>> bootAttach =
+                        loadBootVolumeAttachments(client, cid, instanceNames, availabilityDomains);
+                Map<String, List<Map<String, Object>>> volAttach =
+                        loadVolumeAttachments(client, cid, instanceNames, availabilityDomains);
 
                 int bootStart = bootVolumes.size();
                 int blockStart = blockVolumes.size();
                 int vgStart = volumeGroups.size();
-                listBootVolumes(client, region, cid, cname, bootAttach, bootVolumes);
-                listBlockVolumes(client, region, cid, cname, volAttach, blockVolumes);
+                listBootVolumes(client, region, cid, cname, bootAttach, bootVolumes, availabilityDomains);
+                listBlockVolumes(client, region, cid, cname, volAttach, blockVolumes, availabilityDomains);
                 listBootBackups(client, region, cid, cname, bootBackups);
                 listBlockBackups(client, region, cid, cname, blockBackups);
-                listBootReplicas(client, region, cid, cname, bootReplicas);
-                listBlockReplicas(client, region, cid, cname, blockReplicas);
-                listVolumeGroups(client, region, cid, cname, volumeGroups);
+                listBootReplicas(client, region, cid, cname, bootReplicas, availabilityDomains);
+                listBlockReplicas(client, region, cid, cname, blockReplicas, availabilityDomains);
+                listVolumeGroups(client, region, cid, cname, volumeGroups, availabilityDomains);
                 listVolumeGroupBackups(client, region, cid, cname, volumeGroupBackups);
-                listVolumeGroupReplicas(client, region, cid, cname, volumeGroupReplicas);
+                listVolumeGroupReplicas(client, region, cid, cname, volumeGroupReplicas, availabilityDomains);
                 listBackupPolicies(client, region, cid, cname, backupPolicies);
                 List<String> policyAssetIds = new ArrayList<>();
                 for (int i = bootStart; i < bootVolumes.size(); i++) {
@@ -548,6 +551,28 @@ public class StorageService {
         }
     }
 
+    /**
+     * OCI Java SDK 3.83+ 中部分 Core List 请求在 {@code build()} 时强制要求 availabilityDomain，
+     * 需先按当前 Region 枚举 AD 再逐 AD 查询并合并。
+     */
+    private List<String> listAvailabilityDomainNames(OciClientService client) {
+        try {
+            List<String> names = client.getAvailabilityDomains().stream()
+                    .map(ad -> ad.getName())
+                    .filter(n -> n != null && !n.isBlank())
+                    .distinct()
+                    .toList();
+            if (names.isEmpty()) {
+                throw new OciException("当前区域未返回任何可用域（Availability Domain），无法列举块存储资源");
+            }
+            return names;
+        } catch (OciException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new OciException("获取可用域列表失败: " + e.getMessage());
+        }
+    }
+
     private List<Compartment> resolveCompartments(OciClientService client, String compartmentIdOpt) {
         if (compartmentIdOpt == null || compartmentIdOpt.isBlank()) {
             return client.listAllCompartments();
@@ -587,76 +612,92 @@ public class StorageService {
     }
 
     private Map<String, List<Map<String, Object>>> loadBootVolumeAttachments(OciClientService client, String compartmentId,
-                                                                             Map<String, String> instanceNames) {
+                                                                             Map<String, String> instanceNames,
+                                                                             List<String> availabilityDomains) {
         Map<String, List<Map<String, Object>>> map = new HashMap<>();
-        String page = null;
-        do {
-            var resp = client.getComputeClient().listBootVolumeAttachments(
-                    ListBootVolumeAttachmentsRequest.builder()
-                            .compartmentId(compartmentId)
-                            .page(page)
-                            .build());
-            for (BootVolumeAttachment a : resp.getItems()) {
-                if (a.getLifecycleState() == BootVolumeAttachment.LifecycleState.Detached) continue;
-                Map<String, Object> row = new LinkedHashMap<>();
-                row.put("instanceId", a.getInstanceId());
-                row.put("instanceName", instanceNames.getOrDefault(a.getInstanceId(), ""));
-                row.put("lifecycleState", a.getLifecycleState() != null ? a.getLifecycleState().getValue() : null);
-                map.computeIfAbsent(a.getBootVolumeId(), k -> new ArrayList<>()).add(row);
-            }
-            page = resp.getOpcNextPage();
-        } while (page != null);
+        for (String ad : availabilityDomains) {
+            String page = null;
+            do {
+                var resp = client.getComputeClient().listBootVolumeAttachments(
+                        ListBootVolumeAttachmentsRequest.builder()
+                                .compartmentId(compartmentId)
+                                .availabilityDomain(ad)
+                                .page(page)
+                                .build());
+                for (BootVolumeAttachment a : resp.getItems()) {
+                    if (a.getLifecycleState() == BootVolumeAttachment.LifecycleState.Detached) continue;
+                    Map<String, Object> row = new LinkedHashMap<>();
+                    row.put("instanceId", a.getInstanceId());
+                    row.put("instanceName", instanceNames.getOrDefault(a.getInstanceId(), ""));
+                    row.put("lifecycleState", a.getLifecycleState() != null ? a.getLifecycleState().getValue() : null);
+                    map.computeIfAbsent(a.getBootVolumeId(), k -> new ArrayList<>()).add(row);
+                }
+                page = resp.getOpcNextPage();
+            } while (page != null);
+        }
         return map;
     }
 
     private Map<String, List<Map<String, Object>>> loadVolumeAttachments(OciClientService client, String compartmentId,
-                                                                        Map<String, String> instanceNames) {
+                                                                        Map<String, String> instanceNames,
+                                                                        List<String> availabilityDomains) {
         Map<String, List<Map<String, Object>>> map = new HashMap<>();
-        String page = null;
-        do {
-            var resp = client.getComputeClient().listVolumeAttachments(
-                    ListVolumeAttachmentsRequest.builder()
-                            .compartmentId(compartmentId)
-                            .page(page)
-                            .build());
-            for (VolumeAttachment a : resp.getItems()) {
-                if (a.getLifecycleState() == VolumeAttachment.LifecycleState.Detached) continue;
-                String volId = a.getVolumeId();
-                if (volId == null) continue;
-                Map<String, Object> row = new LinkedHashMap<>();
-                row.put("instanceId", a.getInstanceId());
-                row.put("instanceName", instanceNames.getOrDefault(a.getInstanceId(), ""));
-                row.put("lifecycleState", a.getLifecycleState() != null ? a.getLifecycleState().getValue() : null);
-                map.computeIfAbsent(volId, k -> new ArrayList<>()).add(row);
-            }
-            page = resp.getOpcNextPage();
-        } while (page != null);
+        for (String ad : availabilityDomains) {
+            String page = null;
+            do {
+                var resp = client.getComputeClient().listVolumeAttachments(
+                        ListVolumeAttachmentsRequest.builder()
+                                .compartmentId(compartmentId)
+                                .availabilityDomain(ad)
+                                .page(page)
+                                .build());
+                for (VolumeAttachment a : resp.getItems()) {
+                    if (a.getLifecycleState() == VolumeAttachment.LifecycleState.Detached) continue;
+                    String volId = a.getVolumeId();
+                    if (volId == null) continue;
+                    Map<String, Object> row = new LinkedHashMap<>();
+                    row.put("instanceId", a.getInstanceId());
+                    row.put("instanceName", instanceNames.getOrDefault(a.getInstanceId(), ""));
+                    row.put("lifecycleState", a.getLifecycleState() != null ? a.getLifecycleState().getValue() : null);
+                    map.computeIfAbsent(volId, k -> new ArrayList<>()).add(row);
+                }
+                page = resp.getOpcNextPage();
+            } while (page != null);
+        }
         return map;
     }
 
     private void listBootVolumes(OciClientService client, String region, String cid, String cname,
                                  Map<String, List<Map<String, Object>>> bootAttach,
-                                 List<Map<String, Object>> out) {
+                                 List<Map<String, Object>> out, List<String> availabilityDomains) {
         try {
-            String page = null;
-            do {
-                var resp = client.getBlockstorageClient().listBootVolumes(
-                        ListBootVolumesRequest.builder().compartmentId(cid).page(page).build());
-                for (BootVolume v : resp.getItems()) {
-                    if (v.getLifecycleState() == BootVolume.LifecycleState.Terminated) continue;
-                    Map<String, Object> m = baseRow(region, cid, cname, v.getId(), v.getDisplayName(),
-                            v.getLifecycleState() != null ? v.getLifecycleState().getValue() : null,
-                            v.getTimeCreated() != null ? v.getTimeCreated().toString() : null);
-                    m.put("sizeInGBs", v.getSizeInGBs());
-                    m.put("vpusPerGB", v.getVpusPerGB());
-                    m.put("availabilityDomain", v.getAvailabilityDomain());
-                    m.put("imageId", v.getImageId());
-                    m.put("attachments", bootAttach.getOrDefault(v.getId(), List.of()));
-                    m.put("attachmentSummary", summarizeAttachments(bootAttach.get(v.getId())));
-                    out.add(m);
-                }
-                page = resp.getOpcNextPage();
-            } while (page != null);
+            Set<String> seenIds = new HashSet<>();
+            for (String ad : availabilityDomains) {
+                String page = null;
+                do {
+                    var resp = client.getBlockstorageClient().listBootVolumes(
+                            ListBootVolumesRequest.builder()
+                                    .compartmentId(cid)
+                                    .availabilityDomain(ad)
+                                    .page(page)
+                                    .build());
+                    for (BootVolume v : resp.getItems()) {
+                        if (v.getLifecycleState() == BootVolume.LifecycleState.Terminated) continue;
+                        if (!seenIds.add(v.getId())) continue;
+                        Map<String, Object> m = baseRow(region, cid, cname, v.getId(), v.getDisplayName(),
+                                v.getLifecycleState() != null ? v.getLifecycleState().getValue() : null,
+                                v.getTimeCreated() != null ? v.getTimeCreated().toString() : null);
+                        m.put("sizeInGBs", v.getSizeInGBs());
+                        m.put("vpusPerGB", v.getVpusPerGB());
+                        m.put("availabilityDomain", v.getAvailabilityDomain());
+                        m.put("imageId", v.getImageId());
+                        m.put("attachments", bootAttach.getOrDefault(v.getId(), List.of()));
+                        m.put("attachmentSummary", summarizeAttachments(bootAttach.get(v.getId())));
+                        out.add(m);
+                    }
+                    page = resp.getOpcNextPage();
+                } while (page != null);
+            }
         } catch (Exception e) {
             log.debug("listBootVolumes {}: {}", cid, e.getMessage());
         }
@@ -664,27 +705,35 @@ public class StorageService {
 
     private void listBlockVolumes(OciClientService client, String region, String cid, String cname,
                                   Map<String, List<Map<String, Object>>> volAttach,
-                                  List<Map<String, Object>> out) {
+                                  List<Map<String, Object>> out, List<String> availabilityDomains) {
         try {
-            String page = null;
-            do {
-                var resp = client.getBlockstorageClient().listVolumes(
-                        ListVolumesRequest.builder().compartmentId(cid).page(page).build());
-                for (Volume v : resp.getItems()) {
-                    if (v.getLifecycleState() == Volume.LifecycleState.Terminated) continue;
-                    Map<String, Object> m = baseRow(region, cid, cname, v.getId(), v.getDisplayName(),
-                            v.getLifecycleState() != null ? v.getLifecycleState().getValue() : null,
-                            v.getTimeCreated() != null ? v.getTimeCreated().toString() : null);
-                    m.put("sizeInGBs", v.getSizeInGBs());
-                    m.put("vpusPerGB", v.getVpusPerGB());
-                    m.put("availabilityDomain", v.getAvailabilityDomain());
-                    m.put("isHydrated", v.getIsHydrated());
-                    m.put("attachments", volAttach.getOrDefault(v.getId(), List.of()));
-                    m.put("attachmentSummary", summarizeAttachments(volAttach.get(v.getId())));
-                    out.add(m);
-                }
-                page = resp.getOpcNextPage();
-            } while (page != null);
+            Set<String> seenIds = new HashSet<>();
+            for (String ad : availabilityDomains) {
+                String page = null;
+                do {
+                    var resp = client.getBlockstorageClient().listVolumes(
+                            ListVolumesRequest.builder()
+                                    .compartmentId(cid)
+                                    .availabilityDomain(ad)
+                                    .page(page)
+                                    .build());
+                    for (Volume v : resp.getItems()) {
+                        if (v.getLifecycleState() == Volume.LifecycleState.Terminated) continue;
+                        if (!seenIds.add(v.getId())) continue;
+                        Map<String, Object> m = baseRow(region, cid, cname, v.getId(), v.getDisplayName(),
+                                v.getLifecycleState() != null ? v.getLifecycleState().getValue() : null,
+                                v.getTimeCreated() != null ? v.getTimeCreated().toString() : null);
+                        m.put("sizeInGBs", v.getSizeInGBs());
+                        m.put("vpusPerGB", v.getVpusPerGB());
+                        m.put("availabilityDomain", v.getAvailabilityDomain());
+                        m.put("isHydrated", v.getIsHydrated());
+                        m.put("attachments", volAttach.getOrDefault(v.getId(), List.of()));
+                        m.put("attachmentSummary", summarizeAttachments(volAttach.get(v.getId())));
+                        out.add(m);
+                    }
+                    page = resp.getOpcNextPage();
+                } while (page != null);
+            }
         } catch (Exception e) {
             log.debug("listVolumes {}: {}", cid, e.getMessage());
         }
@@ -738,72 +787,99 @@ public class StorageService {
         }
     }
 
-    private void listBootReplicas(OciClientService client, String region, String cid, String cname, List<Map<String, Object>> out) {
+    private void listBootReplicas(OciClientService client, String region, String cid, String cname, List<Map<String, Object>> out,
+                                  List<String> availabilityDomains) {
         try {
-            String page = null;
-            do {
-                var resp = client.getBlockstorageClient().listBootVolumeReplicas(
-                        ListBootVolumeReplicasRequest.builder().compartmentId(cid).page(page).build());
-                for (BootVolumeReplica r : resp.getItems()) {
-                    if (r.getLifecycleState() == BootVolumeReplica.LifecycleState.Terminated) continue;
-                    Map<String, Object> m = baseRow(region, cid, cname, r.getId(), r.getDisplayName(),
-                            r.getLifecycleState() != null ? r.getLifecycleState().getValue() : null,
-                            r.getTimeCreated() != null ? r.getTimeCreated().toString() : null);
-                    m.put("sizeInGBs", r.getSizeInGBs());
-                    m.put("availabilityDomain", r.getAvailabilityDomain());
-                    m.put("sourceBootVolumeId", r.getBootVolumeId());
-                    m.put("timeLastSynced", r.getTimeLastSynced() != null ? r.getTimeLastSynced().toString() : null);
-                    out.add(m);
-                }
-                page = resp.getOpcNextPage();
-            } while (page != null);
+            Set<String> seenIds = new HashSet<>();
+            for (String ad : availabilityDomains) {
+                String page = null;
+                do {
+                    var resp = client.getBlockstorageClient().listBootVolumeReplicas(
+                            ListBootVolumeReplicasRequest.builder()
+                                    .compartmentId(cid)
+                                    .availabilityDomain(ad)
+                                    .page(page)
+                                    .build());
+                    for (BootVolumeReplica r : resp.getItems()) {
+                        if (r.getLifecycleState() == BootVolumeReplica.LifecycleState.Terminated) continue;
+                        if (!seenIds.add(r.getId())) continue;
+                        Map<String, Object> m = baseRow(region, cid, cname, r.getId(), r.getDisplayName(),
+                                r.getLifecycleState() != null ? r.getLifecycleState().getValue() : null,
+                                r.getTimeCreated() != null ? r.getTimeCreated().toString() : null);
+                        m.put("sizeInGBs", r.getSizeInGBs());
+                        m.put("availabilityDomain", r.getAvailabilityDomain());
+                        m.put("sourceBootVolumeId", r.getBootVolumeId());
+                        m.put("timeLastSynced", r.getTimeLastSynced() != null ? r.getTimeLastSynced().toString() : null);
+                        out.add(m);
+                    }
+                    page = resp.getOpcNextPage();
+                } while (page != null);
+            }
         } catch (Exception e) {
             log.debug("listBootVolumeReplicas {}: {}", cid, e.getMessage());
         }
     }
 
-    private void listBlockReplicas(OciClientService client, String region, String cid, String cname, List<Map<String, Object>> out) {
+    private void listBlockReplicas(OciClientService client, String region, String cid, String cname, List<Map<String, Object>> out,
+                                   List<String> availabilityDomains) {
         try {
-            String page = null;
-            do {
-                var resp = client.getBlockstorageClient().listBlockVolumeReplicas(
-                        ListBlockVolumeReplicasRequest.builder().compartmentId(cid).page(page).build());
-                for (BlockVolumeReplica r : resp.getItems()) {
-                    if (r.getLifecycleState() == BlockVolumeReplica.LifecycleState.Terminated) continue;
-                    Map<String, Object> m = baseRow(region, cid, cname, r.getId(), r.getDisplayName(),
-                            r.getLifecycleState() != null ? r.getLifecycleState().getValue() : null,
-                            r.getTimeCreated() != null ? r.getTimeCreated().toString() : null);
-                    m.put("sizeInGBs", r.getSizeInGBs());
-                    m.put("availabilityDomain", r.getAvailabilityDomain());
-                    m.put("sourceVolumeId", r.getBlockVolumeId());
-                    m.put("timeLastSynced", r.getTimeLastSynced() != null ? r.getTimeLastSynced().toString() : null);
-                    m.put("volumeGroupReplicaId", r.getVolumeGroupReplicaId());
-                    out.add(m);
-                }
-                page = resp.getOpcNextPage();
-            } while (page != null);
+            Set<String> seenIds = new HashSet<>();
+            for (String ad : availabilityDomains) {
+                String page = null;
+                do {
+                    var resp = client.getBlockstorageClient().listBlockVolumeReplicas(
+                            ListBlockVolumeReplicasRequest.builder()
+                                    .compartmentId(cid)
+                                    .availabilityDomain(ad)
+                                    .page(page)
+                                    .build());
+                    for (BlockVolumeReplica r : resp.getItems()) {
+                        if (r.getLifecycleState() == BlockVolumeReplica.LifecycleState.Terminated) continue;
+                        if (!seenIds.add(r.getId())) continue;
+                        Map<String, Object> m = baseRow(region, cid, cname, r.getId(), r.getDisplayName(),
+                                r.getLifecycleState() != null ? r.getLifecycleState().getValue() : null,
+                                r.getTimeCreated() != null ? r.getTimeCreated().toString() : null);
+                        m.put("sizeInGBs", r.getSizeInGBs());
+                        m.put("availabilityDomain", r.getAvailabilityDomain());
+                        m.put("sourceVolumeId", r.getBlockVolumeId());
+                        m.put("timeLastSynced", r.getTimeLastSynced() != null ? r.getTimeLastSynced().toString() : null);
+                        m.put("volumeGroupReplicaId", r.getVolumeGroupReplicaId());
+                        out.add(m);
+                    }
+                    page = resp.getOpcNextPage();
+                } while (page != null);
+            }
         } catch (Exception e) {
             log.debug("listBlockVolumeReplicas {}: {}", cid, e.getMessage());
         }
     }
 
-    private void listVolumeGroups(OciClientService client, String region, String cid, String cname, List<Map<String, Object>> out) {
+    private void listVolumeGroups(OciClientService client, String region, String cid, String cname, List<Map<String, Object>> out,
+                                  List<String> availabilityDomains) {
         try {
-            String page = null;
-            do {
-                var resp = client.getBlockstorageClient().listVolumeGroups(
-                        ListVolumeGroupsRequest.builder().compartmentId(cid).page(page).build());
-                for (VolumeGroup g : resp.getItems()) {
-                    if (g.getLifecycleState() == VolumeGroup.LifecycleState.Terminated) continue;
-                    Map<String, Object> m = baseRow(region, cid, cname, g.getId(), g.getDisplayName(),
-                            g.getLifecycleState() != null ? g.getLifecycleState().getValue() : null,
-                            g.getTimeCreated() != null ? g.getTimeCreated().toString() : null);
-                    m.put("availabilityDomain", g.getAvailabilityDomain());
-                    m.put("volumeIds", g.getVolumeIds());
-                    out.add(m);
-                }
-                page = resp.getOpcNextPage();
-            } while (page != null);
+            Set<String> seenIds = new HashSet<>();
+            for (String ad : availabilityDomains) {
+                String page = null;
+                do {
+                    var resp = client.getBlockstorageClient().listVolumeGroups(
+                            ListVolumeGroupsRequest.builder()
+                                    .compartmentId(cid)
+                                    .availabilityDomain(ad)
+                                    .page(page)
+                                    .build());
+                    for (VolumeGroup g : resp.getItems()) {
+                        if (g.getLifecycleState() == VolumeGroup.LifecycleState.Terminated) continue;
+                        if (!seenIds.add(g.getId())) continue;
+                        Map<String, Object> m = baseRow(region, cid, cname, g.getId(), g.getDisplayName(),
+                                g.getLifecycleState() != null ? g.getLifecycleState().getValue() : null,
+                                g.getTimeCreated() != null ? g.getTimeCreated().toString() : null);
+                        m.put("availabilityDomain", g.getAvailabilityDomain());
+                        m.put("volumeIds", g.getVolumeIds());
+                        out.add(m);
+                    }
+                    page = resp.getOpcNextPage();
+                } while (page != null);
+            }
         } catch (Exception e) {
             log.debug("listVolumeGroups {}: {}", cid, e.getMessage());
         }
@@ -832,24 +908,33 @@ public class StorageService {
         }
     }
 
-    private void listVolumeGroupReplicas(OciClientService client, String region, String cid, String cname, List<Map<String, Object>> out) {
+    private void listVolumeGroupReplicas(OciClientService client, String region, String cid, String cname, List<Map<String, Object>> out,
+                                         List<String> availabilityDomains) {
         try {
-            String page = null;
-            do {
-                var resp = client.getBlockstorageClient().listVolumeGroupReplicas(
-                        ListVolumeGroupReplicasRequest.builder().compartmentId(cid).page(page).build());
-                for (VolumeGroupReplica r : resp.getItems()) {
-                    if (r.getLifecycleState() == VolumeGroupReplica.LifecycleState.Terminated) continue;
-                    Map<String, Object> m = baseRow(region, cid, cname, r.getId(), r.getDisplayName(),
-                            r.getLifecycleState() != null ? r.getLifecycleState().getValue() : null,
-                            r.getTimeCreated() != null ? r.getTimeCreated().toString() : null);
-                    m.put("availabilityDomain", r.getAvailabilityDomain());
-                    m.put("sourceVolumeGroupId", r.getVolumeGroupId());
-                    m.put("timeLastSynced", r.getTimeLastSynced() != null ? r.getTimeLastSynced().toString() : null);
-                    out.add(m);
-                }
-                page = resp.getOpcNextPage();
-            } while (page != null);
+            Set<String> seenIds = new HashSet<>();
+            for (String ad : availabilityDomains) {
+                String page = null;
+                do {
+                    var resp = client.getBlockstorageClient().listVolumeGroupReplicas(
+                            ListVolumeGroupReplicasRequest.builder()
+                                    .compartmentId(cid)
+                                    .availabilityDomain(ad)
+                                    .page(page)
+                                    .build());
+                    for (VolumeGroupReplica r : resp.getItems()) {
+                        if (r.getLifecycleState() == VolumeGroupReplica.LifecycleState.Terminated) continue;
+                        if (!seenIds.add(r.getId())) continue;
+                        Map<String, Object> m = baseRow(region, cid, cname, r.getId(), r.getDisplayName(),
+                                r.getLifecycleState() != null ? r.getLifecycleState().getValue() : null,
+                                r.getTimeCreated() != null ? r.getTimeCreated().toString() : null);
+                        m.put("availabilityDomain", r.getAvailabilityDomain());
+                        m.put("sourceVolumeGroupId", r.getVolumeGroupId());
+                        m.put("timeLastSynced", r.getTimeLastSynced() != null ? r.getTimeLastSynced().toString() : null);
+                        out.add(m);
+                    }
+                    page = resp.getOpcNextPage();
+                } while (page != null);
+            }
         } catch (Exception e) {
             log.debug("listVolumeGroupReplicas {}: {}", cid, e.getMessage());
         }

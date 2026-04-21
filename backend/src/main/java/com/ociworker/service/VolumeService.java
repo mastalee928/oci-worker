@@ -26,39 +26,66 @@ public class VolumeService {
         SysUserDTO dto = buildBasicDTO(ociUser);
         try (OciClientService client = new OciClientService(dto)) {
             var compartments = client.listAllCompartments();
+            List<String> ads = client.getAvailabilityDomains().stream()
+                    .map(ad -> ad.getName())
+                    .filter(n -> n != null && !n.isBlank())
+                    .distinct()
+                    .toList();
             List<Map<String, Object>> result = new ArrayList<>();
 
             for (var compartment : compartments) {
                 String cid = compartment.getId();
 
-                // Boot Volumes
-                try {
-                    var bootVolumes = client.getBlockstorageClient().listBootVolumes(
-                            ListBootVolumesRequest.builder().compartmentId(cid).build()
-                    ).getItems();
-                    for (var bv : bootVolumes) {
-                        if (bv.getLifecycleState() == BootVolume.LifecycleState.Terminated) continue;
-                        result.add(volumeMap("BOOT", bv.getId(), bv.getDisplayName(),
-                                bv.getSizeInGBs(), bv.getLifecycleState().getValue(),
-                                bv.getTimeCreated() != null ? bv.getTimeCreated().toString() : null, null));
+                // Boot Volumes（SDK 3.83+ ListBootVolumes 需 availabilityDomain）
+                Set<String> seenBoot = new HashSet<>();
+                for (String ad : ads) {
+                    try {
+                        String page = null;
+                        do {
+                            var bootResp = client.getBlockstorageClient().listBootVolumes(
+                                    ListBootVolumesRequest.builder()
+                                            .compartmentId(cid)
+                                            .availabilityDomain(ad)
+                                            .page(page)
+                                            .build());
+                            for (var bv : bootResp.getItems()) {
+                                if (bv.getLifecycleState() == BootVolume.LifecycleState.Terminated) continue;
+                                if (!seenBoot.add(bv.getId())) continue;
+                                result.add(volumeMap("BOOT", bv.getId(), bv.getDisplayName(),
+                                        bv.getSizeInGBs(), bv.getLifecycleState().getValue(),
+                                        bv.getTimeCreated() != null ? bv.getTimeCreated().toString() : null, null));
+                            }
+                            page = bootResp.getOpcNextPage();
+                        } while (page != null);
+                    } catch (Exception e) {
+                        log.debug("listBootVolumes in {} AD {} failed: {}", cid, ad, e.getMessage());
                     }
-                } catch (Exception e) {
-                    log.debug("listBootVolumes in {} failed: {}", cid, e.getMessage());
                 }
 
                 // Block Volumes
-                try {
-                    var volumes = client.getBlockstorageClient().listVolumes(
-                            ListVolumesRequest.builder().compartmentId(cid).build()
-                    ).getItems();
-                    for (var v : volumes) {
-                        if (v.getLifecycleState() == Volume.LifecycleState.Terminated) continue;
-                        result.add(volumeMap("BLOCK", v.getId(), v.getDisplayName(),
-                                v.getSizeInGBs(), v.getLifecycleState().getValue(),
-                                v.getTimeCreated() != null ? v.getTimeCreated().toString() : null, null));
+                Set<String> seenBlock = new HashSet<>();
+                for (String ad : ads) {
+                    try {
+                        String page = null;
+                        do {
+                            var volResp = client.getBlockstorageClient().listVolumes(
+                                    ListVolumesRequest.builder()
+                                            .compartmentId(cid)
+                                            .availabilityDomain(ad)
+                                            .page(page)
+                                            .build());
+                            for (var v : volResp.getItems()) {
+                                if (v.getLifecycleState() == Volume.LifecycleState.Terminated) continue;
+                                if (!seenBlock.add(v.getId())) continue;
+                                result.add(volumeMap("BLOCK", v.getId(), v.getDisplayName(),
+                                        v.getSizeInGBs(), v.getLifecycleState().getValue(),
+                                        v.getTimeCreated() != null ? v.getTimeCreated().toString() : null, null));
+                            }
+                            page = volResp.getOpcNextPage();
+                        } while (page != null);
+                    } catch (Exception e) {
+                        log.debug("listVolumes in {} AD {} failed: {}", cid, ad, e.getMessage());
                     }
-                } catch (Exception e) {
-                    log.debug("listVolumes in {} failed: {}", cid, e.getMessage());
                 }
 
                 // Boot Volume Backups
