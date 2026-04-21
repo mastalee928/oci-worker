@@ -413,6 +413,10 @@ const blockData = ref<Record<string, any[]>>({})
 /** 已加载的块存储子视图（或 __full__ 表示全量刷新过） */
 const blockDataSectionsLoaded = ref(new Set<string>())
 const objectData = ref<{ namespace?: string; buckets?: any[]; privateEndpoints?: any[] }>({})
+/** 与 objectData 对应的上下文，用于「仅首次点对象存储 Tab 再拉」 */
+const objectDataContextKey = ref('')
+/** 块存储全量后台预取代数；递增可丢弃过期的异步结果 */
+const blockPrefetchGeneration = ref(0)
 
 const BLOCK_AGGREGATE_MERGE_KEYS = [
   'bootVolumes',
@@ -596,7 +600,11 @@ watch(region, async (r) => {
   if (props.open && r) {
     const raw = await loadCompartments()
     applyRootCompartmentDefaultIfNeeded(raw)
-    void loadBlockQuick()
+    objectDataContextKey.value = ''
+    objectData.value = {}
+    await loadBlockQuick()
+    void prefetchRemainingBlockStorage()
+    if (mainTab.value === 'object') await loadObjectIfNeeded()
   }
 })
 
@@ -606,6 +614,7 @@ function clearStorageTenantScopedState() {
   blockData.value = {}
   blockDataSectionsLoaded.value = new Set()
   objectData.value = {}
+  objectDataContextKey.value = ''
   region.value = ''
   regionOptions.value = []
 }
@@ -634,6 +643,7 @@ async function initDrawer() {
       const raw = await loadCompartments()
       applyRootCompartmentDefaultIfNeeded(raw)
       await loadBlockQuick()
+      void prefetchRemainingBlockStorage()
     }
   } catch (e: any) {
     message.error(e?.message || '加载 Region 失败')
@@ -677,7 +687,7 @@ function applyRootCompartmentDefaultIfNeeded(rawList: any[]) {
 }
 
 function onMainTab() {
-  if (mainTab.value === 'object') void loadObject()
+  if (mainTab.value === 'object') void loadObjectIfNeeded()
 }
 
 function mergeBlockAggregatePayload(incoming: Record<string, any>) {
@@ -706,6 +716,27 @@ function markBlockSectionLoaded(view: string) {
   blockDataSectionsLoaded.value = next
 }
 
+/** 引导卷就绪后静默拉全量块存储（不打主 loading）；换区/换区间会递增 generation 丢弃旧请求 */
+async function prefetchRemainingBlockStorage() {
+  const gen = ++blockPrefetchGeneration.value
+  const uid = props.userId
+  const reg = region.value
+  const comp = compartmentId.value ?? ''
+  try {
+    const res = await blockStorageAggregate({
+      id: uid,
+      region: reg,
+      compartmentId: comp || undefined,
+    })
+    if (gen !== blockPrefetchGeneration.value) return
+    if (!props.open || props.userId !== uid || region.value !== reg || (compartmentId.value ?? '') !== comp) return
+    blockData.value = (res.data || {}) as any
+    blockDataSectionsLoaded.value = new Set(['__full__'])
+  } catch {
+    // 静默失败；用户切换子类时仍可由 ensureBlockViewLoaded 补拉
+  }
+}
+
 /** 首屏 / 换区 / 换区间：只拉引导卷 */
 async function loadBlockQuick() {
   if (!props.userId || !region.value) return
@@ -719,7 +750,6 @@ async function loadBlockQuick() {
     })
     mergeBlockAggregatePayload((res.data || {}) as Record<string, any>)
     blockDataSectionsLoaded.value = new Set(['bootVolumes'])
-    if (mainTab.value === 'object') await loadObject()
   } catch (e: any) {
     message.error(e?.message || '加载块存储失败')
   } finally {
@@ -783,15 +813,33 @@ async function loadObject() {
       compartmentId: compartmentId.value || undefined,
     } as any)
     objectData.value = res.data || {}
+    objectDataContextKey.value = `${props.userId}|${region.value}|${compartmentId.value || ''}`
   } catch (e: any) {
+    objectDataContextKey.value = ''
     message.error(e?.message || '加载对象存储失败')
   }
 }
 
+/** 仅在首次进入「对象存储与归档」且上下文未变时拉取桶与专用端点 */
+async function loadObjectIfNeeded() {
+  if (!props.userId || !region.value) return
+  const k = `${props.userId}|${region.value}|${compartmentId.value || ''}`
+  if (objectDataContextKey.value === k) return
+  await loadObject()
+}
+
 watch(compartmentId, () => {
   if (suppressCompartmentLoadAll) return
-  if (props.open && region.value) void loadBlockQuick()
+  if (props.open && region.value) void onCompartmentOrBlockScopeChanged()
 })
+
+async function onCompartmentOrBlockScopeChanged() {
+  objectDataContextKey.value = ''
+  objectData.value = {}
+  await loadBlockQuick()
+  void prefetchRemainingBlockStorage()
+  if (mainTab.value === 'object') await loadObjectIfNeeded()
+}
 
 function resourceTypeForBlockRow(row: any): string | null {
   const map: Record<string, string> = {
