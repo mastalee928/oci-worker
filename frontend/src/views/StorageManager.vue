@@ -707,6 +707,15 @@ async function submitDelete() {
         bucketName: deleteTarget.value.name,
         verifyCode: deleteCode.value,
       })
+    } else if (rt === 'PRIVATE_ENDPOINT') {
+      await deleteStorage({
+        id: props.userId,
+        region: region.value,
+        resourceType: rt,
+        resourceId: deleteTarget.value.id,
+        namespace: deleteTarget.value.namespace || objectData.value.namespace,
+        verifyCode: deleteCode.value,
+      })
     } else {
       await deleteStorage({
         id: props.userId,

@@ -181,21 +181,14 @@ public class StorageService {
                 case "BLOCK_VOLUME_BACKUP" ->
                         client.getBlockstorageClient().deleteVolumeBackup(
                                 DeleteVolumeBackupRequest.builder().volumeBackupId(resourceId).build());
-                case "BOOT_VOLUME_REPLICA" ->
-                        client.getBlockstorageClient().deleteBootVolumeReplica(
-                                DeleteBootVolumeReplicaRequest.builder().bootVolumeReplicaId(resourceId).build());
-                case "BLOCK_VOLUME_REPLICA" ->
-                        client.getBlockstorageClient().deleteBlockVolumeReplica(
-                                DeleteBlockVolumeReplicaRequest.builder().blockVolumeReplicaId(resourceId).build());
+                case "BOOT_VOLUME_REPLICA", "BLOCK_VOLUME_REPLICA", "VOLUME_GROUP_REPLICA" ->
+                        throw new OciException("当前 OCI Java SDK 已不再暴露副本删除接口，请在 OCI 控制台删除副本");
                 case "VOLUME_GROUP" ->
                         client.getBlockstorageClient().deleteVolumeGroup(
                                 DeleteVolumeGroupRequest.builder().volumeGroupId(resourceId).build());
                 case "VOLUME_GROUP_BACKUP" ->
                         client.getBlockstorageClient().deleteVolumeGroupBackup(
                                 DeleteVolumeGroupBackupRequest.builder().volumeGroupBackupId(resourceId).build());
-                case "VOLUME_GROUP_REPLICA" ->
-                        client.getBlockstorageClient().deleteVolumeGroupReplica(
-                                DeleteVolumeGroupReplicaRequest.builder().volumeGroupReplicaId(resourceId).build());
                 case "BUCKET" -> {
                     if (namespace == null || namespace.isBlank() || bucketName == null || bucketName.isBlank()) {
                         throw new OciException("删除桶需要 namespace 与 bucketName");
@@ -215,9 +208,16 @@ public class StorageService {
                                 DeleteVolumeBackupPolicyAssignmentRequest.builder()
                                         .policyAssignmentId(resourceId)
                                         .build());
-                case "PRIVATE_ENDPOINT" ->
-                        client.getObjectStorageClient().deletePrivateEndpoint(
-                                DeletePrivateEndpointRequest.builder().privateEndpointId(resourceId).build());
+                case "PRIVATE_ENDPOINT" -> {
+                    if (namespace == null || namespace.isBlank()) {
+                        throw new OciException("删除专用端点需要 namespace 与端点名称（resourceId 传 peName）");
+                    }
+                    client.getObjectStorageClient().deletePrivateEndpoint(
+                            DeletePrivateEndpointRequest.builder()
+                                    .namespaceName(namespace)
+                                    .peName(resourceId)
+                                    .build());
+                }
                 default -> throw new OciException("未知资源类型: " + resourceType);
             }
         } catch (OciException e) {
@@ -291,28 +291,8 @@ public class StorageService {
                                     .updateVolumeDetails(b.build())
                                     .build()).getVolume());
                 }
-                case "updateBootVolumeReplica" -> {
-                    String id = stringParam(params, "replicaId");
-                    String displayName = stringParam(params, "displayName");
-                    yield toMap(client.getBlockstorageClient().updateBootVolumeReplica(
-                            UpdateBootVolumeReplicaRequest.builder()
-                                    .bootVolumeReplicaId(id)
-                                    .updateBootVolumeReplicaDetails(UpdateBootVolumeReplicaDetails.builder()
-                                            .displayName(displayName)
-                                            .build())
-                                    .build()).getBootVolumeReplica());
-                }
-                case "updateBlockVolumeReplica" -> {
-                    String id = stringParam(params, "replicaId");
-                    String displayName = stringParam(params, "displayName");
-                    yield toMap(client.getBlockstorageClient().updateBlockVolumeReplica(
-                            UpdateBlockVolumeReplicaRequest.builder()
-                                    .blockVolumeReplicaId(id)
-                                    .updateBlockVolumeReplicaDetails(UpdateBlockVolumeReplicaDetails.builder()
-                                            .displayName(displayName)
-                                            .build())
-                                    .build()).getBlockVolumeReplica());
-                }
+                case "updateBootVolumeReplica", "updateBlockVolumeReplica" ->
+                        throw new OciException("当前 OCI Java SDK 已不再暴露副本更新接口，请在 OCI 控制台修改副本显示名称");
                 case "updateVolumeGroup" -> {
                     String id = stringParam(params, "volumeGroupId");
                     String displayName = stringParam(params, "displayName");
@@ -456,7 +436,7 @@ public class StorageService {
                     var det = CreatePrivateEndpointDetails.builder()
                             .compartmentId(compartmentId)
                             .subnetId(subnetId)
-                            .displayName(displayName)
+                            .name(displayName)
                             .build();
                     yield toMap(client.getObjectStorageClient().createPrivateEndpoint(
                             CreatePrivateEndpointRequest.builder()
@@ -714,7 +694,7 @@ public class StorageService {
                             b.getLifecycleState() != null ? b.getLifecycleState().getValue() : null,
                             b.getTimeCreated() != null ? b.getTimeCreated().toString() : null);
                     m.put("sizeInGBs", b.getSizeInGBs());
-                    m.put("uniqueSizeInGBs", b.getUniqueSizeInGBs());
+                    m.put("uniqueSizeInGBs", b.getUniqueSizeInGbs());
                     m.put("sourceBootVolumeId", b.getBootVolumeId());
                     m.put("sourceType", b.getSourceType() != null ? b.getSourceType().getValue() : null);
                     out.add(m);
@@ -738,7 +718,7 @@ public class StorageService {
                             b.getLifecycleState() != null ? b.getLifecycleState().getValue() : null,
                             b.getTimeCreated() != null ? b.getTimeCreated().toString() : null);
                     m.put("sizeInGBs", b.getSizeInGBs());
-                    m.put("uniqueSizeInGBs", b.getUniqueSizeInGBs());
+                    m.put("uniqueSizeInGBs", b.getUniqueSizeInGbs());
                     m.put("sourceVolumeId", b.getVolumeId());
                     m.put("sourceType", b.getSourceType() != null ? b.getSourceType().getValue() : null);
                     out.add(m);
@@ -833,7 +813,7 @@ public class StorageService {
                             b.getLifecycleState() != null ? b.getLifecycleState().getValue() : null,
                             b.getTimeCreated() != null ? b.getTimeCreated().toString() : null);
                     m.put("sizeInGBs", b.getSizeInGBs());
-                    m.put("uniqueSizeInGBs", b.getUniqueSizeInGBs());
+                    m.put("uniqueSizeInGBs", b.getUniqueSizeInGbs());
                     m.put("volumeGroupId", b.getVolumeGroupId());
                     out.add(m);
                 }
@@ -899,8 +879,7 @@ public class StorageService {
                                     .page(page)
                                     .build());
                     for (VolumeBackupPolicyAssignment a : resp.getItems()) {
-                        Map<String, Object> m = baseRow(region, cid, cname, a.getId(), null,
-                                a.getLifecycleState() != null ? a.getLifecycleState().getValue() : null,
+                        Map<String, Object> m = baseRow(region, cid, cname, a.getId(), null, null,
                                 a.getTimeCreated() != null ? a.getTimeCreated().toString() : null);
                         m.put("policyId", a.getPolicyId());
                         m.put("assetId", a.getAssetId());
@@ -975,8 +954,8 @@ public class StorageService {
                     Map<String, Object> m = baseRow(region, cid, cname, null, s.getName(), null, null);
                     m.put("namespace", namespace);
                     m.put("name", s.getName());
-                    m.put("publicAccessType", s.getPublicAccessType() != null ? s.getPublicAccessType().getValue() : null);
-                    m.put("storageTier", s.getStorageTier() != null ? s.getStorageTier().getValue() : null);
+                    m.put("publicAccessType", null);
+                    m.put("storageTier", null);
                     m.put("createdBy", s.getCreatedBy());
                     m.put("timeCreated", s.getTimeCreated() != null ? s.getTimeCreated().toString() : null);
                     out.add(m);
@@ -1000,11 +979,12 @@ public class StorageService {
                                 .page(page)
                                 .build());
                 for (PrivateEndpointSummary pe : resp.getItems()) {
-                    Map<String, Object> m = baseRow(region, cid, cname, pe.getId(), pe.getDisplayName(),
+                    String peName = pe.getName();
+                    Map<String, Object> m = baseRow(region, cid, cname, peName, peName,
                             pe.getLifecycleState() != null ? pe.getLifecycleState().getValue() : null,
                             pe.getTimeCreated() != null ? pe.getTimeCreated().toString() : null);
-                    m.put("subnetId", pe.getSubnetId());
-                    m.put("namespace", namespace);
+                    m.put("subnetId", null);
+                    m.put("namespace", pe.getNamespace() != null ? pe.getNamespace() : namespace);
                     out.add(m);
                 }
                 page = resp.getOpcNextPage();
@@ -1067,7 +1047,7 @@ public class StorageService {
             m.put("namespace", b.getNamespace());
         } else if (model instanceof PrivateEndpoint pe) {
             m.put("id", pe.getId());
-            m.put("displayName", pe.getDisplayName());
+            m.put("displayName", pe.getName());
         } else if (model instanceof VolumeBackupPolicy p) {
             m.put("id", p.getId());
             m.put("displayName", p.getDisplayName());
@@ -1075,9 +1055,6 @@ public class StorageService {
             m.put("id", a.getId());
             m.put("assetId", a.getAssetId());
             m.put("policyId", a.getPolicyId());
-        } else if (model instanceof VolumeBackupPolicy p) {
-            m.put("id", p.getId());
-            m.put("displayName", p.getDisplayName());
         } else {
             m.put("result", String.valueOf(model));
         }
