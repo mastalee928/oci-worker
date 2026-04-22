@@ -265,6 +265,7 @@ public class TenantService {
 
         try (OciClientService client = new OciClientService(dto)) {
             var identityClient = client.getIdentityClient();
+            String ospHomeRegion = resolveOspHomeRegion(identityClient, user.getOciTenantId(), user.getOciRegion());
 
             try {
                 var tenancy = identityClient.getTenancy(
@@ -297,7 +298,7 @@ public class TenantService {
                 ospClient = com.oracle.bmc.ospgateway.SubscriptionServiceClient.builder().build(client.getProvider());
                 var resp = ospClient.listSubscriptions(
                         com.oracle.bmc.ospgateway.requests.ListSubscriptionsRequest.builder()
-                                .ospHomeRegion(user.getOciRegion())
+                                .ospHomeRegion(ospHomeRegion)
                                 .compartmentId(client.getCompartmentId()).build());
                 var items = resp.getSubscriptionCollection().getItems();
                 if (items != null && !items.isEmpty()) {
@@ -389,12 +390,13 @@ public class TenantService {
                 .build();
 
         try (OciClientService client = new OciClientService(dto)) {
+            String ospHomeRegion = resolveOspHomeRegion(client.getIdentityClient(), user.getOciTenantId(), user.getOciRegion());
             com.oracle.bmc.ospgateway.InvoiceServiceClient invoiceClient =
                     com.oracle.bmc.ospgateway.InvoiceServiceClient.builder().build(client.getProvider());
             try {
                 var resp = invoiceClient.listInvoices(
                         com.oracle.bmc.ospgateway.requests.ListInvoicesRequest.builder()
-                                .ospHomeRegion(user.getOciRegion())
+                                .ospHomeRegion(ospHomeRegion)
                                 .compartmentId(client.getCompartmentId())
                                 .limit(limits.get("invoices"))
                                 .build());
@@ -497,6 +499,32 @@ public class TenantService {
         }
     }
 
+    private static String resolveOspHomeRegion(com.oracle.bmc.identity.IdentityClient identityClient,
+                                              String tenancyId,
+                                              String fallbackRegionName) {
+        if (identityClient == null || StrUtil.isBlank(tenancyId)) return fallbackRegionName;
+        try {
+            var tenancy = identityClient.getTenancy(
+                    com.oracle.bmc.identity.requests.GetTenancyRequest.builder()
+                            .tenancyId(tenancyId).build()).getTenancy();
+            String homeKey = tenancy == null ? null : tenancy.getHomeRegionKey();
+            if (StrUtil.isBlank(homeKey)) return fallbackRegionName;
+
+            var regions = identityClient.listRegionSubscriptions(
+                    com.oracle.bmc.identity.requests.ListRegionSubscriptionsRequest.builder()
+                            .tenancyId(tenancyId).build()).getItems();
+            if (regions != null) {
+                for (var r : regions) {
+                    if (homeKey.equalsIgnoreCase(r.getRegionKey())) {
+                        String name = r.getRegionName();
+                        if (StrUtil.isNotBlank(name)) return name;
+                    }
+                }
+            }
+        } catch (Exception ignored) {}
+        return fallbackRegionName;
+    }
+
     public byte[] downloadInvoicePdf(String id, String invoiceId) {
         if (StrUtil.isBlank(id)) throw new OciException("ID不能为空");
         if (StrUtil.isBlank(invoiceId)) throw new OciException("invoiceId不能为空");
@@ -515,12 +543,13 @@ public class TenantService {
                 .build();
 
         try (OciClientService client = new OciClientService(dto)) {
+            String ospHomeRegion = resolveOspHomeRegion(client.getIdentityClient(), user.getOciTenantId(), user.getOciRegion());
             com.oracle.bmc.ospgateway.InvoiceServiceClient invoiceClient =
                     com.oracle.bmc.ospgateway.InvoiceServiceClient.builder().build(client.getProvider());
             try {
                 var resp = invoiceClient.downloadPdfContent(
                         com.oracle.bmc.ospgateway.requests.DownloadPdfContentRequest.builder()
-                                .ospHomeRegion(user.getOciRegion())
+                                .ospHomeRegion(ospHomeRegion)
                                 .compartmentId(client.getCompartmentId())
                                 .internalInvoiceId(invoiceId)
                                 .build());
