@@ -21,8 +21,10 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
+import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.*;
@@ -306,6 +308,19 @@ public class TenantService {
                     result.put("currencyCode", sub.getCurrencyCode());
                     result.put("isIntentToPay", sub.getIsIntentToPay());
                     result.put("subscriptionStartTime", sub.getTimeStart() != null ? sub.getTimeStart().toString() : null);
+                    // 控制台“续订日期”通常对应订阅周期结束/到期时间（不同账号形态字段含义可能有差异）
+                    try {
+                        var end = sub.getTimeEnd();
+                        result.put("subscriptionRenewTime", end != null ? end.toString() : null);
+                    } catch (Exception ignored) {
+                        result.put("subscriptionRenewTime", null);
+                    }
+                    try {
+                        var st = sub.getStatus();
+                        result.put("subscriptionStatus", st != null ? st.getValue() : null);
+                    } catch (Exception ignored) {
+                        result.put("subscriptionStatus", null);
+                    }
                 }
             } catch (Exception e) {
                 log.warn("Failed to get subscription info: {}", e.getMessage());
@@ -320,6 +335,164 @@ public class TenantService {
         }
 
         return result;
+    }
+
+    @SuppressWarnings("unchecked")
+    public Map<String, Object> getTenantBillingSummary(String id, Object limitsRaw) {
+        if (StrUtil.isBlank(id)) throw new OciException("ID不能为空");
+        OciUser user = userMapper.selectById(id);
+        if (user == null) throw new OciException("配置不存在");
+
+        Map<String, Integer> limits = new HashMap<>();
+        limits.put("invoices", 5);
+        limits.put("payments", 5);
+        limits.put("usageStatements", 3);
+        if (limitsRaw instanceof Map<?, ?> m) {
+            Object inv = m.get("invoices");
+            Object pay = m.get("payments");
+            Object us = m.get("usageStatements");
+            if (inv instanceof Number n) limits.put("invoices", Math.max(1, Math.min(50, n.intValue())));
+            if (pay instanceof Number n) limits.put("payments", Math.max(1, Math.min(50, n.intValue())));
+            if (us instanceof Number n) limits.put("usageStatements", Math.max(1, Math.min(50, n.intValue())));
+        }
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("id", user.getId());
+        result.put("configName", user.getUsername());
+        result.put("ociRegion", user.getOciRegion());
+
+        Map<String, Object> links = new LinkedHashMap<>();
+        links.put("billingOverview", "https://cloud.oracle.com/billing/overview?region=" + user.getOciRegion());
+        links.put("invoices", "https://cloud.oracle.com/billing/invoices?region=" + user.getOciRegion());
+        links.put("paymentHistory", "https://cloud.oracle.com/billing/payments?region=" + user.getOciRegion());
+        links.put("upgradeAndPayment", "https://cloud.oracle.com/billing/account?region=" + user.getOciRegion());
+        result.put("links", links);
+
+        Map<String, Object> invoices = new LinkedHashMap<>();
+        invoices.put("available", Boolean.TRUE);
+        invoices.put("items", new ArrayList<>());
+        result.put("invoices", invoices);
+
+        Map<String, Object> payments = new LinkedHashMap<>();
+        payments.put("available", Boolean.FALSE);
+        payments.put("reason", "暂未接入付款历史 API（不同账号形态可用性不一致），请使用控制台查看");
+        payments.put("items", new ArrayList<>());
+        result.put("payments", payments);
+
+        Map<String, Object> usage = new LinkedHashMap<>();
+        usage.put("available", Boolean.FALSE);
+        usage.put("reason", "暂未接入 Cost Analysis/Usage API，后续可扩展；当前请在控制台查看或导出报表");
+        usage.put("summary", null);
+        usage.put("statements", new ArrayList<>());
+        result.put("usage", usage);
+
+        com.ociworker.model.dto.SysUserDTO dto = com.ociworker.model.dto.SysUserDTO.builder()
+                .username(user.getUsername())
+                .ociCfg(com.ociworker.model.dto.SysUserDTO.OciCfg.builder()
+                        .tenantId(user.getOciTenantId())
+                        .userId(user.getOciUserId())
+                        .fingerprint(user.getOciFingerprint())
+                        .region(user.getOciRegion())
+                        .privateKeyPath(user.getOciKeyPath())
+                        .build())
+                .build();
+
+        try (OciClientService client = new OciClientService(dto)) {
+            com.oracle.bmc.ospgateway.InvoiceServiceClient invoiceClient =
+                    com.oracle.bmc.ospgateway.InvoiceServiceClient.builder().build(client.getProvider());
+            try {
+                var resp = invoiceClient.listInvoices(
+                        com.oracle.bmc.ospgateway.requests.ListInvoicesRequest.builder()
+                                .ospHomeRegion(user.getOciRegion())
+                                .compartmentId(client.getCompartmentId())
+                                .limit(limits.get("invoices"))
+                                .sortBy(com.oracle.bmc.ospgateway.model.InvoiceSummary.SortBy.InvoiceDate)
+                                .sortOrder(com.oracle.bmc.ospgateway.model.InvoiceSummary.SortOrder.Desc)
+                                .build());
+                List<Map<String, Object>> items = new ArrayList<>();
+                var col = resp.getInvoiceSummaryCollection();
+                if (col != null && col.getItems() != null) {
+                    for (var inv : col.getItems()) {
+                        Map<String, Object> row = new LinkedHashMap<>();
+                        row.put("invoiceId", inv.getInternalInvoiceId());
+                        row.put("invoiceNo", inv.getInvoiceNo());
+                        row.put("refNo", inv.getRefNo());
+                        row.put("status", inv.getStatus() != null ? inv.getStatus().getValue() : null);
+                        row.put("type", inv.getType() != null ? inv.getType().getValue() : null);
+                        row.put("invoiceDate", inv.getInvoiceDate() != null ? inv.getInvoiceDate().toString() : null);
+                        row.put("dueDate", inv.getDueDate() != null ? inv.getDueDate().toString() : null);
+                        row.put("totalAmount", inv.getTotalAmount());
+                        row.put("currencyCode", inv.getCurrencyCode());
+                        items.add(row);
+                    }
+                }
+                invoices.put("items", items);
+            } catch (Exception e) {
+                invoices.put("available", Boolean.FALSE);
+                invoices.put("reason", "发票接口不可用/权限不足：" + (e.getMessage() == null ? "未知错误" : e.getMessage()));
+            } finally {
+                invoiceClient.close();
+            }
+        } catch (Exception e) {
+            invoices.put("available", Boolean.FALSE);
+            invoices.put("reason", "初始化账务客户端失败：" + (e.getMessage() == null ? "未知错误" : e.getMessage()));
+        }
+
+        Map<String, Object> summary = new LinkedHashMap<>();
+        summary.put("invoiceCount", ((List<?>) invoices.getOrDefault("items", List.of())).size());
+        Map<String, Object> latestInvoice = null;
+        List<?> invItems = (List<?>) invoices.getOrDefault("items", List.of());
+        if (!invItems.isEmpty() && invItems.get(0) instanceof Map<?, ?> m) {
+            latestInvoice = new LinkedHashMap<>();
+            latestInvoice.put("invoiceNo", m.get("invoiceNo"));
+            latestInvoice.put("status", m.get("status"));
+            latestInvoice.put("totalAmount", m.get("totalAmount"));
+            latestInvoice.put("currencyCode", m.get("currencyCode"));
+            latestInvoice.put("dueDate", m.get("dueDate"));
+        }
+        summary.put("latestInvoice", latestInvoice);
+        result.put("summary", summary);
+
+        return result;
+    }
+
+    public byte[] downloadInvoicePdf(String id, String invoiceId) {
+        if (StrUtil.isBlank(id)) throw new OciException("ID不能为空");
+        if (StrUtil.isBlank(invoiceId)) throw new OciException("invoiceId不能为空");
+        OciUser user = userMapper.selectById(id);
+        if (user == null) throw new OciException("配置不存在");
+
+        com.ociworker.model.dto.SysUserDTO dto = com.ociworker.model.dto.SysUserDTO.builder()
+                .username(user.getUsername())
+                .ociCfg(com.ociworker.model.dto.SysUserDTO.OciCfg.builder()
+                        .tenantId(user.getOciTenantId())
+                        .userId(user.getOciUserId())
+                        .fingerprint(user.getOciFingerprint())
+                        .region(user.getOciRegion())
+                        .privateKeyPath(user.getOciKeyPath())
+                        .build())
+                .build();
+
+        try (OciClientService client = new OciClientService(dto)) {
+            com.oracle.bmc.ospgateway.InvoiceServiceClient invoiceClient =
+                    com.oracle.bmc.ospgateway.InvoiceServiceClient.builder().build(client.getProvider());
+            try {
+                var resp = invoiceClient.downloadPdfContent(
+                        com.oracle.bmc.ospgateway.requests.DownloadPdfContentRequest.builder()
+                                .ospHomeRegion(user.getOciRegion())
+                                .compartmentId(client.getCompartmentId())
+                                .internalInvoiceId(invoiceId)
+                                .build());
+                try (InputStream is = resp.getInputStream(); ByteArrayOutputStream out = new ByteArrayOutputStream()) {
+                    is.transferTo(out);
+                    return out.toByteArray();
+                }
+            } finally {
+                invoiceClient.close();
+            }
+        } catch (Exception e) {
+            throw new OciException("下载发票 PDF 失败：" + (e.getMessage() == null ? "未知错误" : e.getMessage()));
+        }
     }
 
     public Map<String, Object> getDistinctGroups() {

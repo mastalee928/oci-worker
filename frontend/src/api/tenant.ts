@@ -28,6 +28,14 @@ export function getTenantFullInfo(data: { id: string }) {
   return request.post('/oci/user/fullInfo', data)
 }
 
+export function getTenantBillingSummary(data: { id: string; limits?: { invoices?: number; payments?: number; usageStatements?: number } }) {
+  return request.post('/oci/user/billingSummary', data)
+}
+
+export function downloadInvoicePdf(data: { id: string; invoiceId: string; fileName?: string }) {
+  return request.post('/oci/user/invoicePdf', data, { responseType: 'blob' as any })
+}
+
 export function uploadKey(formData: FormData) {
   return request.post('/oci/user/uploadKey', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },

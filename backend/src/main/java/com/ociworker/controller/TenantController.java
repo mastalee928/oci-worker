@@ -9,8 +9,14 @@ import com.ociworker.service.DomainManagementService;
 import com.ociworker.service.TenantService;
 import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.multipart.MultipartFile;
+
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 
 @RestController
 @RequestMapping("/api/oci/user")
@@ -58,6 +64,27 @@ public class TenantController {
     public ResponseData<?> refreshPlanType(@RequestBody java.util.Map<String, String> params) {
         tenantService.refreshPlanType(params.get("id"));
         return ResponseData.ok();
+    }
+
+    @PostMapping("/billingSummary")
+    public ResponseData<?> billingSummary(@RequestBody java.util.Map<String, Object> params) {
+        String id = params == null ? null : String.valueOf(params.get("id"));
+        Object limits = params == null ? null : params.get("limits");
+        return ResponseData.ok(tenantService.getTenantBillingSummary(id, limits));
+    }
+
+    @PostMapping("/invoicePdf")
+    public ResponseEntity<byte[]> invoicePdf(@RequestBody java.util.Map<String, String> params) {
+        String id = params == null ? null : params.get("id");
+        String invoiceId = params == null ? null : params.get("invoiceId");
+        String fileName = params == null ? null : params.get("fileName");
+        byte[] pdf = tenantService.downloadInvoicePdf(id, invoiceId);
+        String safeName = (fileName == null || fileName.isBlank()) ? ("invoice-" + (invoiceId == null ? "unknown" : invoiceId) + ".pdf") : fileName;
+        String encoded = URLEncoder.encode(safeName, StandardCharsets.UTF_8).replaceAll("\\+", "%20");
+        return ResponseEntity.ok()
+                .contentType(MediaType.APPLICATION_PDF)
+                .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename*=UTF-8''" + encoded)
+                .body(pdf);
     }
 
     @PostMapping("/uploadKey")

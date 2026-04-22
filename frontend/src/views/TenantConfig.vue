@@ -496,8 +496,121 @@ region=ap-tokyo-1"
             </a-tag>
             <span v-else>—</span>
           </a-descriptions-item>
-          <a-descriptions-item label="订阅开始时间">{{ tenantInfoData.subscriptionStartTime || '—' }}</a-descriptions-item>
+          <a-descriptions-item label="当前租户状态">
+            <a-tag v-if="tenantInfoData.subscriptionStatus" color="blue">{{ tenantInfoData.subscriptionStatus }}</a-tag>
+            <span v-else>—</span>
+          </a-descriptions-item>
+          <a-descriptions-item label="开始日期">{{ formatUtcCnDate(tenantInfoData.subscriptionStartTime) }}</a-descriptions-item>
+          <a-descriptions-item label="续订日期">{{ formatUtcCnDate(tenantInfoData.subscriptionRenewTime) }}</a-descriptions-item>
         </a-descriptions>
+
+        <a-divider style="margin: 14px 0">账务信息</a-divider>
+
+        <a-spin :spinning="billingLoading">
+          <template v-if="billingData">
+            <a-row :gutter="12">
+              <a-col :xs="24" :sm="8">
+                <a-card size="small" :bordered="true">
+                  <div style="font-size: 12px; color: var(--text-sub)">最近发票</div>
+                  <div style="font-weight: 700; font-size: 16px; margin-top: 4px">
+                    <span v-if="billingData.summary?.latestInvoice?.totalAmount !== undefined && billingData.summary?.latestInvoice?.totalAmount !== null">
+                      {{ billingData.summary.latestInvoice.totalAmount }} {{ billingData.summary.latestInvoice.currencyCode || '' }}
+                    </span>
+                    <span v-else>—</span>
+                  </div>
+                  <div style="margin-top: 6px; font-size: 12px; color: var(--text-sub)">
+                    <span v-if="billingData.summary?.latestInvoice?.invoiceNo">No: {{ billingData.summary.latestInvoice.invoiceNo }}</span>
+                    <span v-else>暂无发票数据</span>
+                  </div>
+                </a-card>
+              </a-col>
+              <a-col :xs="24" :sm="8">
+                <a-card size="small" :bordered="true">
+                  <div style="font-size: 12px; color: var(--text-sub)">付款历史</div>
+                  <div style="font-weight: 700; font-size: 16px; margin-top: 4px">—</div>
+                  <div style="margin-top: 6px; font-size: 12px; color: var(--text-sub)">
+                    {{ billingData.payments?.available ? '已接入' : (billingData.payments?.reason || '未接入') }}
+                  </div>
+                </a-card>
+              </a-col>
+              <a-col :xs="24" :sm="8">
+                <a-card size="small" :bordered="true">
+                  <div style="font-size: 12px; color: var(--text-sub)">用量/对账</div>
+                  <div style="font-weight: 700; font-size: 16px; margin-top: 4px">—</div>
+                  <div style="margin-top: 6px; font-size: 12px; color: var(--text-sub)">
+                    {{ billingData.usage?.available ? '已接入' : (billingData.usage?.reason || '未接入') }}
+                  </div>
+                </a-card>
+              </a-col>
+            </a-row>
+
+            <div style="margin-top: 12px; display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap">
+              <a-button size="small" @click="openBillingLink('invoices')" :disabled="!billingData.links?.invoices">打开控制台：发票</a-button>
+              <a-button size="small" @click="openBillingLink('paymentHistory')" :disabled="!billingData.links?.paymentHistory">打开控制台：付款历史</a-button>
+              <a-button size="small" type="primary" @click="openBillingLink('upgradeAndPayment')" :disabled="!billingData.links?.upgradeAndPayment">
+                升级/管理付款方式
+              </a-button>
+            </div>
+
+            <a-alert v-if="billingData.invoices && billingData.invoices.available === false"
+              type="warning" show-icon style="margin-top: 10px"
+              :message="billingData.invoices.reason || '发票接口不可用'" />
+
+            <div style="margin-top: 10px">
+              <div style="font-weight: 600; margin-bottom: 6px">最近发票</div>
+              <a-table
+                v-if="!isMobile"
+                size="small"
+                :data-source="billingData.invoices?.items || []"
+                :pagination="false"
+                row-key="invoiceId"
+              >
+                <a-table-column title="发票号" data-index="invoiceNo" key="invoiceNo" :width="140" />
+                <a-table-column title="状态" data-index="status" key="status" :width="120" />
+                <a-table-column title="开票日期" data-index="invoiceDate" key="invoiceDate" :width="180" />
+                <a-table-column title="到期日" data-index="dueDate" key="dueDate" :width="180" />
+                <a-table-column title="金额" key="amount" :width="140">
+                  <template #default="{ record }">
+                    <span>{{ record.totalAmount ?? '—' }} {{ record.currencyCode || '' }}</span>
+                  </template>
+                </a-table-column>
+                <a-table-column title="操作" key="action" :width="120">
+                  <template #default="{ record }">
+                    <a-button type="link" size="small" @click="handleDownloadInvoice(record)" :disabled="!record.invoiceId">下载PDF</a-button>
+                  </template>
+                </a-table-column>
+              </a-table>
+              <a-spin v-else :spinning="false">
+                <a-empty v-if="(billingData.invoices?.items || []).length === 0" description="暂无发票" />
+                <div v-for="(inv, ii) in (billingData.invoices?.items || [])" :key="inv.invoiceId || ii" class="mobile-card">
+                  <div class="mobile-card-header">
+                    <span class="mobile-card-title">{{ inv.invoiceNo || '—' }}</span>
+                    <a-tag style="margin:0">{{ inv.status || '—' }}</a-tag>
+                  </div>
+                  <div class="mobile-card-body">
+                    <div class="mobile-card-row"><span class="label">金额</span><span class="value">{{ inv.totalAmount ?? '—' }} {{ inv.currencyCode || '' }}</span></div>
+                    <div class="mobile-card-row"><span class="label">开票</span><span class="value">{{ inv.invoiceDate || '—' }}</span></div>
+                    <div class="mobile-card-row"><span class="label">到期</span><span class="value">{{ inv.dueDate || '—' }}</span></div>
+                  </div>
+                  <div class="mobile-card-actions">
+                    <a-button type="link" size="small" @click="handleDownloadInvoice(inv)" :disabled="!inv.invoiceId">下载PDF</a-button>
+                  </div>
+                </div>
+              </a-spin>
+            </div>
+
+            <div style="margin-top: 10px">
+              <div style="font-weight: 600; margin-bottom: 6px">付款历史（占位）</div>
+              <a-alert type="info" show-icon :message="billingData.payments?.reason || '暂未接入付款历史 API，请在控制台查看'" />
+            </div>
+
+            <div style="margin-top: 10px">
+              <div style="font-weight: 600; margin-bottom: 6px">用量/对账（占位）</div>
+              <a-alert type="info" show-icon :message="billingData.usage?.reason || '暂未接入用量对账 API，请在控制台查看或导出报表'" />
+            </div>
+          </template>
+          <a-empty v-else description="未加载账务信息" />
+        </a-spin>
       </a-spin>
     </a-modal>
 
@@ -736,10 +849,14 @@ import { useRouter } from 'vue-router'
 import { PlusOutlined, ThunderboltOutlined, InboxOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
 import type { UploadFile } from 'ant-design-vue'
-import { getTenantList, addTenant, updateTenant, removeTenant, uploadKey, getTenantFullInfo, getDomainSettings, updateMfa, updatePasswordExpiry, getAuditLogs, getServiceQuotas, getTenantGroups, createGroup, renameGroup, deleteGroup, saveGroupOrder, unlockAuthFactors, getAuthFactors, updateAuthFactors } from '../api/tenant'
+import { getTenantList, addTenant, updateTenant, removeTenant, uploadKey, getTenantFullInfo, getTenantBillingSummary, downloadInvoicePdf, getDomainSettings, updateMfa, updatePasswordExpiry, getAuditLogs, getServiceQuotas, getTenantGroups, createGroup, renameGroup, deleteGroup, saveGroupOrder, unlockAuthFactors, getAuthFactors, updateAuthFactors } from '../api/tenant'
 import { sendVerifyCode } from '../api/system'
 import { RightOutlined, DownOutlined, SettingOutlined, FolderOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons-vue'
 import AuditLogTable from '../components/AuditLogTable.vue'
+import dayjs from 'dayjs'
+import utc from 'dayjs/plugin/utc'
+
+dayjs.extend(utc)
 
 const router = useRouter()
 
@@ -791,6 +908,13 @@ const regions = Object.keys(regionMap)
 
 function getRegionLabel(code: string) {
   return regionMap[code] || code
+}
+
+function formatUtcCnDate(v: any): string {
+  if (!v) return '—'
+  const d = dayjs.utc(v)
+  if (!d.isValid()) return '—'
+  return `${d.year()}年${d.month() + 1}月${d.date()}日（UTC）`
 }
 
 const columns = [
@@ -846,6 +970,8 @@ const isMobile = ref(window.innerWidth < 768)
 const tenantInfoVisible = ref(false)
 const tenantInfoLoading = ref(false)
 const tenantInfoData = ref<any>({})
+const billingLoading = ref(false)
+const billingData = ref<any | null>(null)
 function checkMobile() { isMobile.value = window.innerWidth < 768 }
 
 function parseAndFill() {
@@ -1377,13 +1503,47 @@ async function openTenantInfo(record: any) {
   tenantInfoData.value = { configName: record.username }
   tenantInfoVisible.value = true
   tenantInfoLoading.value = true
+  billingLoading.value = true
+  billingData.value = null
   try {
-    const res = await getTenantFullInfo({ id: record.id })
+    const [res, bill] = await Promise.all([
+      getTenantFullInfo({ id: record.id }),
+      getTenantBillingSummary({ id: record.id, limits: { invoices: 5, payments: 5, usageStatements: 3 } }),
+    ])
     tenantInfoData.value = res.data || {}
+    billingData.value = bill.data || null
   } catch (e: any) {
     message.error(e?.message || '获取租户详情失败')
   } finally {
     tenantInfoLoading.value = false
+    billingLoading.value = false
+  }
+}
+
+function openBillingLink(key: 'billingOverview' | 'invoices' | 'paymentHistory' | 'upgradeAndPayment') {
+  const url = billingData.value?.links?.[key]
+  if (!url) return
+  window.open(url, '_blank')
+}
+
+async function handleDownloadInvoice(inv: any) {
+  const invoiceId = inv?.invoiceId
+  const tenantId = tenantInfoData.value?.id
+  if (!tenantId || !invoiceId) return
+  try {
+    const fileName = (inv?.invoiceNo ? `invoice-${inv.invoiceNo}.pdf` : `invoice-${invoiceId}.pdf`)
+    const resp: any = await downloadInvoicePdf({ id: tenantId, invoiceId, fileName })
+    const blob: Blob = resp instanceof Blob ? resp : (resp?.data as Blob)
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = fileName
+    document.body.appendChild(a)
+    a.click()
+    a.remove()
+    URL.revokeObjectURL(url)
+  } catch (e: any) {
+    message.error(e?.message || '下载失败')
   }
 }
 
