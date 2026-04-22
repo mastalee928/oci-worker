@@ -308,19 +308,10 @@ public class TenantService {
                     result.put("currencyCode", sub.getCurrencyCode());
                     result.put("isIntentToPay", sub.getIsIntentToPay());
                     result.put("subscriptionStartTime", sub.getTimeStart() != null ? sub.getTimeStart().toString() : null);
-                    // 控制台“续订日期”通常对应订阅周期结束/到期时间（不同账号形态字段含义可能有差异）
-                    try {
-                        var end = sub.getTimeEnd();
-                        result.put("subscriptionRenewTime", end != null ? end.toString() : null);
-                    } catch (Exception ignored) {
-                        result.put("subscriptionRenewTime", null);
-                    }
-                    try {
-                        var st = sub.getStatus();
-                        result.put("subscriptionStatus", st != null ? st.getValue() : null);
-                    } catch (Exception ignored) {
-                        result.put("subscriptionStatus", null);
-                    }
+                    // 说明：OSP Gateway SubscriptionSummary(oci-sdk 3.83.0) 不提供 timeEnd/status 字段；
+                    // 控制台“状态/续订日期”在不同账号形态下可能来自合同/订单体系，这里先返回 null 供前端降级展示。
+                    result.put("subscriptionRenewTime", null);
+                    result.put("subscriptionStatus", null);
                 }
             } catch (Exception e) {
                 log.warn("Failed to get subscription info: {}", e.getMessage());
@@ -406,8 +397,6 @@ public class TenantService {
                                 .ospHomeRegion(user.getOciRegion())
                                 .compartmentId(client.getCompartmentId())
                                 .limit(limits.get("invoices"))
-                                .sortBy(com.oracle.bmc.ospgateway.model.InvoiceSummary.SortBy.InvoiceDate)
-                                .sortOrder(com.oracle.bmc.ospgateway.model.InvoiceSummary.SortOrder.Desc)
                                 .build());
                 List<Map<String, Object>> items = new ArrayList<>();
                 var col = resp.getInvoiceSummaryCollection();
@@ -426,6 +415,12 @@ public class TenantService {
                         items.add(row);
                     }
                 }
+                // 某些 SDK 版本不支持 sortBy/sortOrder，改为本地按 invoiceDate 降序排序（字符串为 RFC3339 时可比较）
+                items.sort((a, b) -> {
+                    String da = String.valueOf(a.getOrDefault("invoiceDate", ""));
+                    String db = String.valueOf(b.getOrDefault("invoiceDate", ""));
+                    return db.compareTo(da);
+                });
                 invoices.put("items", items);
             } catch (Exception e) {
                 invoices.put("available", Boolean.FALSE);
