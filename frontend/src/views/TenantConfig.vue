@@ -496,13 +496,8 @@ region=ap-tokyo-1"
             </a-tag>
             <span v-else>—</span>
           </a-descriptions-item>
-          <a-descriptions-item label="当前租户状态">
-            <a-tag v-if="tenantInfoData.subscriptionStatus" color="blue">{{ tenantInfoData.subscriptionStatus }}</a-tag>
-            <span v-else>—</span>
-          </a-descriptions-item>
           <a-descriptions-item label="开始日期">{{ formatUtcCnDate(tenantInfoData.subscriptionStartTime) }}</a-descriptions-item>
-          <a-descriptions-item label="续订日期">{{ formatUtcCnDate(tenantInfoData.subscriptionRenewTime) }}</a-descriptions-item>
-          <a-descriptions-item label="注册地">{{ tenantInfoData.registrationLocation || '—' }}</a-descriptions-item>
+          <a-descriptions-item label="注册地">{{ formatCountryCn(tenantInfoData.registrationLocation) }}</a-descriptions-item>
         </a-descriptions>
 
         <a-divider style="margin: 14px 0">账务信息</a-divider>
@@ -884,6 +879,46 @@ function formatUtcCnDate(v: any): string {
   const d = dayjs.utc(v)
   if (!d.isValid()) return '—'
   return `${d.year()}年${d.month() + 1}月${d.date()}日（UTC）`
+}
+
+function formatCountryCn(v: any): string {
+  if (!v) return '—'
+  const raw = String(v).trim()
+  if (!raw) return '—'
+  const key = raw.toUpperCase()
+
+  // 优先按国家/地区码映射
+  const CODE_TO_CN: Record<string, string> = {
+    US: '美国',
+    CN: '中华人民共和国',
+    TR: '土耳其',
+    CZ: '捷克共和国',
+    TW: '中华民国台湾',
+  }
+  if (CODE_TO_CN[key]) return CODE_TO_CN[key]
+
+  // 兼容部分英文名/别名
+  const NAME_TO_CN: Record<string, string> = {
+    'UNITED STATES': '美国',
+    'UNITED STATES OF AMERICA': '美国',
+    'USA': '美国',
+    'CHINA': '中华人民共和国',
+    "PEOPLE'S REPUBLIC OF CHINA": '中华人民共和国',
+    'PRC': '中华人民共和国',
+    'TURKEY': '土耳其',
+    'TÜRKIYE': '土耳其',
+    'TURKIYE': '土耳其',
+    'CZECH REPUBLIC': '捷克共和国',
+    'CZECHIA': '捷克共和国',
+    'TAIWAN': '中华民国台湾',
+    'TAIWAN, PROVINCE OF CHINA': '中华民国台湾',
+  }
+  const upper = key
+  for (const [k, cn] of Object.entries(NAME_TO_CN)) {
+    if (upper === k) return cn
+  }
+
+  return raw
 }
 
 const columns = [
