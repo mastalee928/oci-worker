@@ -522,10 +522,6 @@ region=ap-tokyo-1"
               </a-col>
             </a-row>
 
-            <div style="margin-top: 12px; display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap">
-              <a-button size="small" @click="openBillingLink('invoices')" :disabled="!billingData.links?.invoices">打开控制台：发票</a-button>
-            </div>
-
             <a-alert v-if="billingData.invoices && billingData.invoices.available === false"
               type="warning" show-icon style="margin-top: 10px"
               :message="billingData.invoices.reason || '发票接口不可用'" />
@@ -1530,12 +1526,6 @@ async function openTenantInfo(record: any) {
     tenantInfoLoading.value = false
     billingLoading.value = false
   }
-}
-
-function openBillingLink(key: 'billingOverview' | 'invoices' | 'paymentHistory' | 'upgradeAndPayment') {
-  const url = billingData.value?.links?.[key]
-  if (!url) return
-  window.open(url, '_blank')
 }
 
 async function handleDownloadInvoice(inv: any) {
