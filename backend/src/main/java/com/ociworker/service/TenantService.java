@@ -399,19 +399,42 @@ public class TenantService {
                                 .limit(limits.get("invoices"))
                                 .build());
                 List<Map<String, Object>> items = new ArrayList<>();
-                var col = resp.getInvoiceSummaryCollection();
-                if (col != null && col.getItems() != null) {
-                    for (var inv : col.getItems()) {
+                // 不同 oci-java-sdk-ospgateway 版本 ListInvoicesResponse 的 getter 名称存在差异，这里用反射兼容。
+                Object col = null;
+                try {
+                    col = resp.getClass().getMethod("getInvoiceSummaryCollection").invoke(resp);
+                } catch (Exception ignored) {
+                    try {
+                        col = resp.getClass().getMethod("getInvoiceCollection").invoke(resp);
+                    } catch (Exception ignored2) {
+                        col = null;
+                    }
+                }
+
+                java.util.List<?> summaries = null;
+                if (col != null) {
+                    try {
+                        Object rawItems = col.getClass().getMethod("getItems").invoke(col);
+                        if (rawItems instanceof java.util.List<?> list) {
+                            summaries = list;
+                        }
+                    } catch (Exception ignored) {
+                        summaries = null;
+                    }
+                }
+
+                if (summaries != null) {
+                    for (Object inv : summaries) {
                         Map<String, Object> row = new LinkedHashMap<>();
-                        row.put("invoiceId", inv.getInternalInvoiceId());
-                        row.put("invoiceNo", inv.getInvoiceNo());
-                        row.put("refNo", inv.getRefNo());
-                        row.put("status", inv.getStatus() != null ? inv.getStatus().getValue() : null);
-                        row.put("type", inv.getType() != null ? inv.getType().getValue() : null);
-                        row.put("invoiceDate", inv.getInvoiceDate() != null ? inv.getInvoiceDate().toString() : null);
-                        row.put("dueDate", inv.getDueDate() != null ? inv.getDueDate().toString() : null);
-                        row.put("totalAmount", inv.getTotalAmount());
-                        row.put("currencyCode", inv.getCurrencyCode());
+                        row.put("invoiceId", tryInvoke(inv, "getInternalInvoiceId"));
+                        row.put("invoiceNo", tryInvoke(inv, "getInvoiceNo"));
+                        row.put("refNo", tryInvoke(inv, "getRefNo"));
+                        row.put("status", tryEnumValue(tryInvoke(inv, "getStatus")));
+                        row.put("type", tryEnumValue(tryInvoke(inv, "getType")));
+                        row.put("invoiceDate", tryToString(tryInvoke(inv, "getInvoiceDate")));
+                        row.put("dueDate", tryToString(tryInvoke(inv, "getDueDate")));
+                        row.put("totalAmount", tryInvoke(inv, "getTotalAmount"));
+                        row.put("currencyCode", tryInvoke(inv, "getCurrencyCode"));
                         items.add(row);
                     }
                 }
@@ -449,6 +472,29 @@ public class TenantService {
         result.put("summary", summary);
 
         return result;
+    }
+
+    private static Object tryInvoke(Object target, String method) {
+        if (target == null) return null;
+        try {
+            return target.getClass().getMethod(method).invoke(target);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private static String tryToString(Object v) {
+        return v == null ? null : String.valueOf(v);
+    }
+
+    private static String tryEnumValue(Object v) {
+        if (v == null) return null;
+        try {
+            Object raw = v.getClass().getMethod("getValue").invoke(v);
+            return raw == null ? null : String.valueOf(raw);
+        } catch (Exception ignored) {
+            return String.valueOf(v);
+        }
     }
 
     public byte[] downloadInvoicePdf(String id, String invoiceId) {
