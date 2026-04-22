@@ -502,6 +502,7 @@ region=ap-tokyo-1"
           </a-descriptions-item>
           <a-descriptions-item label="开始日期">{{ formatUtcCnDate(tenantInfoData.subscriptionStartTime) }}</a-descriptions-item>
           <a-descriptions-item label="续订日期">{{ formatUtcCnDate(tenantInfoData.subscriptionRenewTime) }}</a-descriptions-item>
+          <a-descriptions-item label="注册地">{{ tenantInfoData.registrationLocation || '—' }}</a-descriptions-item>
         </a-descriptions>
 
         <a-divider style="margin: 14px 0">账务信息</a-divider>
@@ -509,7 +510,7 @@ region=ap-tokyo-1"
         <a-spin :spinning="billingLoading">
           <template v-if="billingData">
             <a-row :gutter="12">
-              <a-col :xs="24" :sm="8">
+              <a-col :xs="24" :sm="24">
                 <a-card size="small" :bordered="true">
                   <div style="font-size: 12px; color: var(--text-sub)">最近发票</div>
                   <div style="font-weight: 700; font-size: 16px; margin-top: 4px">
@@ -524,32 +525,10 @@ region=ap-tokyo-1"
                   </div>
                 </a-card>
               </a-col>
-              <a-col :xs="24" :sm="8">
-                <a-card size="small" :bordered="true">
-                  <div style="font-size: 12px; color: var(--text-sub)">付款历史</div>
-                  <div style="font-weight: 700; font-size: 16px; margin-top: 4px">—</div>
-                  <div style="margin-top: 6px; font-size: 12px; color: var(--text-sub)">
-                    {{ billingData.payments?.available ? '已接入' : (billingData.payments?.reason || '未接入') }}
-                  </div>
-                </a-card>
-              </a-col>
-              <a-col :xs="24" :sm="8">
-                <a-card size="small" :bordered="true">
-                  <div style="font-size: 12px; color: var(--text-sub)">用量/对账</div>
-                  <div style="font-weight: 700; font-size: 16px; margin-top: 4px">—</div>
-                  <div style="margin-top: 6px; font-size: 12px; color: var(--text-sub)">
-                    {{ billingData.usage?.available ? '已接入' : (billingData.usage?.reason || '未接入') }}
-                  </div>
-                </a-card>
-              </a-col>
             </a-row>
 
             <div style="margin-top: 12px; display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap">
               <a-button size="small" @click="openBillingLink('invoices')" :disabled="!billingData.links?.invoices">打开控制台：发票</a-button>
-              <a-button size="small" @click="openBillingLink('paymentHistory')" :disabled="!billingData.links?.paymentHistory">打开控制台：付款历史</a-button>
-              <a-button size="small" type="primary" @click="openBillingLink('upgradeAndPayment')" :disabled="!billingData.links?.upgradeAndPayment">
-                升级/管理付款方式
-              </a-button>
             </div>
 
             <a-alert v-if="billingData.invoices && billingData.invoices.available === false"
@@ -597,16 +576,6 @@ region=ap-tokyo-1"
                   </div>
                 </div>
               </a-spin>
-            </div>
-
-            <div style="margin-top: 10px">
-              <div style="font-weight: 600; margin-bottom: 6px">付款历史（占位）</div>
-              <a-alert type="info" show-icon :message="billingData.payments?.reason || '暂未接入付款历史 API，请在控制台查看'" />
-            </div>
-
-            <div style="margin-top: 10px">
-              <div style="font-weight: 600; margin-bottom: 6px">用量/对账（占位）</div>
-              <a-alert type="info" show-icon :message="billingData.usage?.reason || '暂未接入用量对账 API，请在控制台查看或导出报表'" />
             </div>
           </template>
           <a-empty v-else description="未加载账务信息" />

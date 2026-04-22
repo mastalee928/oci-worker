@@ -313,6 +313,25 @@ public class TenantService {
                     // 控制台“状态/续订日期”在不同账号形态下可能来自合同/订单体系，这里先返回 null 供前端降级展示。
                     result.put("subscriptionRenewTime", null);
                     result.put("subscriptionStatus", null);
+
+                    // 注册地：尽量从订阅的 bill-to/billing 地址里解析国家名称（不同 SDK 版本字段可能不同）
+                    String countryName = null;
+                    Object addr = tryInvoke(sub, "getBillToAddress");
+                    if (addr == null) addr = tryInvoke(sub, "getBillingAddress");
+                    if (addr == null) addr = tryInvoke(sub, "getAddress");
+                    Object country = addr == null ? null : tryInvoke(addr, "getCountry");
+                    if (country != null) {
+                        Object n = tryInvoke(country, "getName");
+                        if (n == null) n = tryInvoke(country, "getCountryName");
+                        if (n == null) n = tryInvoke(country, "getDisplayName");
+                        if (n != null) countryName = String.valueOf(n);
+                    }
+                    if (StrUtil.isBlank(countryName) && addr != null) {
+                        Object n = tryInvoke(addr, "getCountryName");
+                        if (n == null) n = tryInvoke(addr, "getCountry");
+                        if (n != null) countryName = String.valueOf(n);
+                    }
+                    result.put("registrationLocation", StrUtil.isBlank(countryName) ? null : countryName);
                 }
             } catch (Exception e) {
                 log.warn("Failed to get subscription info: {}", e.getMessage());
