@@ -887,12 +887,20 @@ function formatCountryCn(v: any): string {
   if (!raw) return '—'
   const key = raw.toUpperCase()
 
+  // 优先：如果是 ISO 3166-1 alpha-2 code，使用 Intl.DisplayNames 自动翻译为中文
+  if (/^[A-Z]{2}$/.test(key) && typeof Intl !== 'undefined') {
+    // 业务口径：TW 展示为「中华民国台湾」
+    if (key === 'TW') return '中华民国台湾'
+    try {
+      const dn = new (Intl as any).DisplayNames(['zh-CN'], { type: 'region' })
+      const cn = dn.of(key)
+      if (cn && typeof cn === 'string') return cn
+    } catch {}
+  }
+
   // 优先按国家/地区码映射
   const CODE_TO_CN: Record<string, string> = {
-    US: '美国',
-    CN: '中华人民共和国',
-    TR: '土耳其',
-    CZ: '捷克共和国',
+    // 兜底/特殊口径（避免 DisplayNames 差异）
     TW: '中华民国台湾',
   }
   if (CODE_TO_CN[key]) return CODE_TO_CN[key]
