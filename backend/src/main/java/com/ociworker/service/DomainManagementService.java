@@ -738,7 +738,13 @@ public class DomainManagementService {
                                 .compartmentId(user.getOciTenantId())
                                 .build());
 
-                List<String> targetServices = List.of("compute", "vcn", "block-storage", "load-balancer", "network-load-balancer");
+                // 程序化名须与 ListServices/控制台一致；概述见 https://docs.oracle.com/en-us/iaas/Content/General/Concepts/servicelimits-about.htm
+                // 各产品默认限制与友好名见 https://docs.oracle.com/en-us/iaas/Content/General/service-limits/default.htm
+                //（未单独列 autonomous-data-warehouse 服务名，ADB/ADW 与 Database 文档/配额族为 database。subscribed-region-count 在控制台为 Service「Regions」故含 regions。）
+                List<String> targetServices = Arrays.asList(
+                        "compute", "vcn", "block-storage", "load-balancer", "network-load-balancer",
+                        "identity", "regions", "database", "objectstorage", "file-storage", "container-engine", "generative-ai",
+                        "data-science", "dns");
 
                 for (var svc : servicesResp.getItems()) {
                     String svcName = svc.getName();
