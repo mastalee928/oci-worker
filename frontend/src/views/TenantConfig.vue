@@ -1518,8 +1518,16 @@ async function openTenantInfo(record: any) {
       getTenantFullInfo({ id: record.id }),
       getTenantBillingSummary({ id: record.id, limits: { invoices: 5, payments: 5, usageStatements: 3 } }),
     ])
-    tenantInfoData.value = res.data || {}
+    const d = res.data || {}
+    tenantInfoData.value = d
     billingData.value = bill.data || null
+    if (record?.id) {
+      const row = tableData.value.find((r: any) => r.id === record.id)
+      if (row) {
+        if (d.planType) row.planType = d.planType
+        if (d.tenantName) row.tenantName = d.tenantName
+      }
+    }
   } catch (e: any) {
     message.error(e?.message || '获取租户详情失败')
   } finally {

@@ -272,6 +272,11 @@ public class TenantService {
                         com.oracle.bmc.identity.requests.GetTenancyRequest.builder()
                                 .tenancyId(user.getOciTenantId()).build()).getTenancy();
                 result.put("tenantName", tenancy.getName());
+                if (tenancy != null && StrUtil.isNotBlank(tenancy.getName())
+                        && !tenancy.getName().equals(user.getTenantName())) {
+                    user.setTenantName(tenancy.getName());
+                    userMapper.updateById(user);
+                }
                 result.put("homeRegionKey", tenancy.getHomeRegionKey());
                 result.put("tenantId", tenancy.getId());
                 result.put("description", tenancy.getDescription());
@@ -303,7 +308,12 @@ public class TenantService {
                 var items = resp.getSubscriptionCollection().getItems();
                 if (items != null && !items.isEmpty()) {
                     var sub = items.get(0);
-                    result.put("planType", sub.getPlanType() != null ? sub.getPlanType().getValue() : null);
+                    String planVal = sub.getPlanType() != null ? sub.getPlanType().getValue() : null;
+                    result.put("planType", planVal);
+                    if (StrUtil.isNotBlank(planVal) && !Objects.equals(planVal, user.getPlanType())) {
+                        user.setPlanType(planVal);
+                        userMapper.updateById(user);
+                    }
                     result.put("accountType", sub.getAccountType() != null ? sub.getAccountType().getValue() : null);
                     result.put("upgradeState", sub.getUpgradeState() != null ? sub.getUpgradeState().getValue() : null);
                     result.put("currencyCode", sub.getCurrencyCode());
