@@ -35,7 +35,13 @@ public final class Socks5Tunnel {
         socket.connect(new InetSocketAddress(proxyHost, proxyPort), connectTimeoutMs);
         socket.setSoTimeout(Math.max(connectTimeoutMs, 30_000));
         try {
-            negotiateAndConnect(socket, proxyUser, proxyPass, targetHost, targetPort, remoteDns);
+            negotiateAndConnect(
+                    socket,
+                    normalizeSocksCredential(proxyUser),
+                    normalizeSocksCredential(proxyPass),
+                    targetHost,
+                    targetPort,
+                    remoteDns);
         } catch (IOException e) {
             try {
                 socket.close();
@@ -44,6 +50,21 @@ public final class Socks5Tunnel {
             throw e;
         }
         return socket;
+    }
+
+    /** 去掉首尾空白、BOM、行尾 CR/LF（常见于从 KV/表单粘贴的密码）。 */
+    static String normalizeSocksCredential(String s) {
+        if (s == null) {
+            return "";
+        }
+        String t = s.strip();
+        if (t.startsWith("\uFEFF")) {
+            t = t.substring(1).strip();
+        }
+        while (!t.isEmpty() && (t.endsWith("\r") || t.endsWith("\n"))) {
+            t = t.substring(0, t.length() - 1);
+        }
+        return t;
     }
 
     private static void negotiateAndConnect(
@@ -58,10 +79,10 @@ public final class Socks5Tunnel {
 
         boolean wantUserPass = (proxyUser != null && !proxyUser.isBlank())
                 || (proxyPass != null && !proxyPass.isBlank());
+        // 需要认证时只宣告 0x02，避免部分代理在「无认证 + 用户名密码」并存时的异常选择/错位
         if (wantUserPass) {
             out.writeByte(0x05);
-            out.writeByte(0x02);
-            out.writeByte(0x00);
+            out.writeByte(0x01);
             out.writeByte(0x02);
         } else {
             out.writeByte(0x05);
@@ -168,7 +189,12 @@ public final class Socks5Tunnel {
         int av = in.readUnsignedByte();
         int st = in.readUnsignedByte();
         if (av != 0x01 || st != 0x00) {
-            throw new IOException("SOCKS: 用户名密码认证失败 (RFC1929 status=" + st + ", 请核对账号或完整 URL 中密码是否需百分号编码)");
+            if (av != 0x01) {
+                throw new IOException("SOCKS: RFC1929 响应异常 ver=" + av + " status=" + st
+                        + "（可能非标准代理或协议流错位，请核对代理类型与端口）");
+            }
+            throw new IOException("SOCKS: 用户名密码认证失败 (RFC1929 status=" + st
+                    + ")；请核对用户名/密码、完整 URL 百分号编码，或代理是否要求「仅用户名无密码」等特殊规则");
         }
     }
 }
