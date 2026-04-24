@@ -49,6 +49,15 @@ curl -fsSL https://github.com/mastalee928/oci-worker/releases/download/installer
 
 5 分钟搞定，**不在 SSH 里设置管理员账号密码**——服务起来后到浏览器 `http://<ip>:<端口>` 完成首次设置即可。这是后端的设计：账号密码以 sha256 哈希存进数据库，不进 yml，更安全。
 
+### 动效 / Orbis UI 版
+
+预编译 JAR 发布在独立的 **[ui-latest](https://github.com/mastalee928/oci-worker/releases/tag/ui-latest)**。与上面同一脚本，任选一：
+
+- `env OCI_WORKER_UI=1 bash /tmp/install.sh`
+- `bash /tmp/install.sh --ui`
+
+升级走 `ociworker update` 或重跑 `install.sh` 时，若已存在 `/opt/oci-worker/.use-ui-jar`，会续拉 `ui-latest`。改回与 `master` 一致的 JAR：环境变量 `OCI_USE_MASTER_JAR=1` 同脚本升级，或先删除 `.use-ui-jar` 再升级。
+
 ## 升级
 
 任选其一：

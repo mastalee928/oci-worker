@@ -1,0 +1,59 @@
+# 从 feature/ui-polish 构建前端 + 后端 JAR，发布到 GitHub Release `ui-latest`
+#（供 install.sh + OCI_WORKER_UI=1 与主站相同的「一条命令直装」动效/Orbis UI 版）
+
+name: Build UI JAR (ui-latest)
+
+on:
+  push:
+    branches: [feature/ui-polish]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Build Frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: 'maven'
+
+      - name: Embed build info
+        run: |
+          echo "${{ github.sha }}" > backend/src/main/resources/build-commit.txt
+
+      - name: Build Backend JAR
+        working-directory: backend
+        run: mvn clean package -DskipTests -q
+
+      - name: Create ui-latest release
+        run: |
+          set -euo pipefail
+          gh release delete ui-latest --yes --cleanup-tag 2>/dev/null || true
+          sleep 4
+          gh release create ui-latest \
+            --title "UI / Orbis (feature/ui-polish)" \
+            --notes "与 \`install.sh\` 配合使用：\`OCI_WORKER_UI=1\` 时从本 Release 拉取 JAR。构建提交：${{ github.sha }}。" \
+            --latest false \
+            backend/target/oci-worker-1.0.0.jar
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

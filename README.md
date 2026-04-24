@@ -56,18 +56,18 @@ sudo bash /tmp/install.sh
 
 ### 动效/Orbis UI 版
 
+与上**同一**安装器，JAR 来自 **Release [ui-latest](https://github.com/mastalee928/oci-worker/releases/tag/ui-latest)**（`feature/ui-polish` 的 CI 产物）。`ociworker update` 默认继续用 UI 包。若要改回与 master 一致的包：`OCI_USE_MASTER_JAR=1` 同一条 `install.sh` 升级，或先删 `/opt/oci-worker/.use-ui-jar` 再 `ociworker update`。
+
 ### 一键安装命令
 
 复制粘贴执行即可（Debian / Ubuntu / CentOS 通用）：
 
 ```bash
-# 须已用上一节 install.sh 装过；本机需 Node 18+、JDK 21、Maven。分支见 https://github.com/mastalee928/oci-worker/tree/feature/ui-polish
-git clone -b feature/ui-polish --depth 1 https://github.com/mastalee928/oci-worker.git /tmp/ociw \
-  && (cd /tmp/ociw/frontend && npm ci && npm run build) \
-  && (cd /tmp/ociw/backend && mvn -q clean package -DskipTests) \
-  && sudo cp -a /tmp/ociw/backend/target/oci-worker-1.0.0.jar /opt/oci-worker/oci-worker.jar \
-  && sudo systemctl restart oci-worker
+curl -fsSL https://github.com/mastalee928/oci-worker/releases/download/installer-latest/install.sh -o /tmp/install.sh
+sudo env OCI_WORKER_UI=1 bash /tmp/install.sh
 ```
+
+（等效：`sudo bash /tmp/install.sh --ui`）
 
 ---
 

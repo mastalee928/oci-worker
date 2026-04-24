@@ -16,6 +16,9 @@
 #
 # Run as root:
 #   bash <(curl -fsSL https://github.com/<REPO>/releases/download/installer-latest/install.sh)
+# 动效/Orbis UI 版 JAR（与上相同脚本，加环境变量；见 GitHub Release：ui-latest）：
+#   curl -fsSL https://github.com/mastalee928/oci-worker/releases/download/installer-latest/install.sh -o /tmp/install.sh
+#   sudo env OCI_WORKER_UI=1 bash /tmp/install.sh
 # =============================================================================
 
 set -euo pipefail
@@ -39,7 +42,13 @@ readonly WEBSSH_SERVICE_FILE="/etc/systemd/system/${WEBSSH_SERVICE_NAME}.service
 readonly WEBSSH_PORT=8008
 
 readonly REPO="mastalee928/oci-worker"
-readonly JAR_RELEASE_TAG="latest"
+# 默认从 GitHub Releases 的 `latest` 下 master 构建的 JAR。
+# 动效/Orbis（feature/ui-polish）预编译在 `ui-latest`；用 OCI_WORKER_UI=1 或首参 --ui 选择。
+# 已装用户：/opt/oci-worker/.use-ui-jar 存在则升级也拉 UI 包；OCI_USE_MASTER_JAR=1 覆盖为 master 并取消该标记。
+readonly JAR_TAG_DEFAULT="latest"
+readonly JAR_TAG_UI="ui-latest"
+readonly UI_CHANNEL_FILE="${INSTALL_DIR}/.use-ui-jar"
+JAR_RELEASE_TAG="${JAR_TAG_DEFAULT}"
 readonly INSTALLER_RELEASE_TAG="installer-latest"
 readonly RAW_BASE="https://raw.githubusercontent.com/${REPO}/master"
 
@@ -749,13 +758,20 @@ file_size() {
 # Returns 0 on success, non-zero on failure. NEVER calls die() so callers
 # can decide whether to roll back.
 download_jar() {
-    info "下载最新 JAR..."
+    if [ "${JAR_RELEASE_TAG}" = "${JAR_TAG_UI}" ]; then
+        info "下载动效/Orbis UI 版 JAR（Release：${JAR_RELEASE_TAG}）…"
+    else
+        info "下载 JAR（Release：${JAR_RELEASE_TAG}）…"
+    fi
     local url tmp size
     url="https://github.com/${REPO}/releases/download/${JAR_RELEASE_TAG}/${JAR_ASSET}"
     tmp="${INSTALL_DIR}/${JAR_NAME}.tmp"
     if ! download_with_retry "${url}" "${tmp}"; then
         rm -f "${tmp}"
         err "JAR 下载失败"
+        if [ "${JAR_RELEASE_TAG}" = "${JAR_TAG_UI}" ]; then
+            err "动效/Orbis 需存在 Release「${JAR_TAG_UI}」；由 feature/ui-polish 分支 CI 构建。尚无时可先用默认安装（不设置 OCI_WORKER_UI）。"
+        fi
         return 1
     fi
     size="$(file_size "${tmp}")"
@@ -936,6 +952,33 @@ install_ociworker_cli() {
 # =============================================================================
 # Main entry points
 # =============================================================================
+truthy() {
+    case "${1:-}" in 1|true|yes|y|Y) return 0 ;; *) return 1 ;; esac
+}
+
+# 决定 JAR 来自 `latest`（master）或 `ui-latest`（feature/ui-polish 预构建）
+resolve_jar_release_tag() {
+    JAR_RELEASE_TAG="${JAR_TAG_DEFAULT}"
+    if [ -f "${UI_CHANNEL_FILE}" ]; then
+        JAR_RELEASE_TAG="${JAR_TAG_UI}"
+    fi
+    if [ -n "${OCI_WORKER_UI:-}" ] && truthy "${OCI_WORKER_UI}"; then
+        JAR_RELEASE_TAG="${JAR_TAG_UI}"
+    fi
+    if [ -n "${OCI_USE_MASTER_JAR:-}" ] && truthy "${OCI_USE_MASTER_JAR}"; then
+        JAR_RELEASE_TAG="${JAR_TAG_DEFAULT}"
+    fi
+}
+
+# 在完整安装/升级成功后再落盘，避免起不来时误切渠道
+commit_ui_channel_state() {
+    if [ "${JAR_RELEASE_TAG}" = "${JAR_TAG_UI}" ]; then
+        touch "${UI_CHANNEL_FILE}" 2>/dev/null || true
+    else
+        rm -f "${UI_CHANNEL_FILE}" 2>/dev/null || true
+    fi
+}
+
 do_install() {
     section "OCI Worker 智能安装向导"
     info "系统架构：$(uname -m) (映射为 ${ARCH})"
@@ -971,6 +1014,8 @@ do_install() {
     if ! restart_with_rollback; then
         die "OCI Worker 启动失败，已尝试回滚。请查看日志后再决定是否重试。"
     fi
+
+    commit_ui_channel_state
 
     security_notice
 
@@ -1037,6 +1082,7 @@ do_upgrade() {
     if restart_with_rollback; then
         # On success, drop the JAR backup
         rm -f "${INSTALL_DIR}/${JAR_NAME}.bak"
+        commit_ui_channel_state
         ok "升级完成"
         local cur_port
         cur_port="$(awk '/^server:/{f=1;next} f && /^[^ ]/{f=0} f && /port:/{print $2; exit}' "${CONFIG_FILE}" 2>/dev/null | tr -d '"'\''' || true)"
@@ -1062,6 +1108,7 @@ EOF
 
 main() {
     require_root
+    resolve_jar_release_tag
     require_systemd
     ARCH="$(detect_arch)"
 
@@ -1071,5 +1118,10 @@ main() {
         upgrade) do_upgrade ;;
     esac
 }
+
+if [ "${1:-}" = "--ui" ]; then
+    OCI_WORKER_UI=1
+    shift
+fi
 
 main "$@"
