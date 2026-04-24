@@ -6,6 +6,8 @@ import com.oracle.bmc.http.client.ProxyConfiguration;
 
 import java.net.InetSocketAddress;
 import java.net.Proxy;
+import java.net.URLDecoder;
+import java.nio.charset.StandardCharsets;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
@@ -71,6 +73,21 @@ public record OciProxySnapshot(
         return v == null ? "" : v;
     }
 
+    /**
+     * {@link java.net.URI#getUserInfo()} 为原始百分号编码；SOCKS/HTTP 认证需解码。
+     * 将 {@code +} 先转义，避免 {@link URLDecoder} 把密码中的 {@code +} 误当成空格。
+     */
+    private static String decodeUriUserInfoPart(String s) {
+        if (s == null || s.isEmpty()) {
+            return "";
+        }
+        try {
+            return URLDecoder.decode(s.replace("+", "%2B"), StandardCharsets.UTF_8);
+        } catch (IllegalArgumentException e) {
+            return s;
+        }
+    }
+
     public static OciProxySnapshot fromForm(boolean enabled, String type, String host, int port,
                                             String user, String pass, String fullUrl) {
         String t = StrUtil.isBlank(type) ? OciProxyConstants.TYPE_HTTP : type.trim().toLowerCase();
@@ -108,12 +125,14 @@ public record OciProxySnapshot(
             String userInfo = uri.getUserInfo();
             String nu = nvl(this.proxyUser);
             String np = nvl(this.proxyPass);
-            if (userInfo != null && userInfo.contains(":")) {
-                int idx = userInfo.indexOf(':');
-                nu = userInfo.substring(0, idx);
-                np = userInfo.substring(idx + 1);
-            } else if (StrUtil.isNotBlank(userInfo) && !userInfo.contains(":")) {
-                nu = userInfo;
+            if (StrUtil.isNotBlank(userInfo)) {
+                if (userInfo.contains(":")) {
+                    int idx = userInfo.indexOf(':');
+                    nu = decodeUriUserInfoPart(userInfo.substring(0, idx));
+                    np = decodeUriUserInfoPart(userInfo.substring(idx + 1));
+                } else {
+                    nu = decodeUriUserInfoPart(userInfo);
+                }
             }
             return new OciProxySnapshot(this.enabled, t, h, p, nu, np, u);
         } catch (Exception e) {

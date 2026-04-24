@@ -56,7 +56,8 @@ public final class Socks5Tunnel {
         DataOutputStream out = new DataOutputStream(socket.getOutputStream());
         DataInputStream in = new DataInputStream(socket.getInputStream());
 
-        boolean wantUserPass = proxyUser != null && !proxyUser.isBlank();
+        boolean wantUserPass = (proxyUser != null && !proxyUser.isBlank())
+                || (proxyPass != null && !proxyPass.isBlank());
         if (wantUserPass) {
             out.writeByte(0x05);
             out.writeByte(0x02);
@@ -151,8 +152,10 @@ public final class Socks5Tunnel {
 
     private static void doUsernamePasswordAuth(DataOutputStream out, DataInputStream in, String user, String pass)
             throws IOException {
-        byte[] ub = user.getBytes(StandardCharsets.UTF_8);
-        byte[] pb = (pass == null ? "" : pass).getBytes(StandardCharsets.UTF_8);
+        String u = user == null ? "" : user;
+        String p = pass == null ? "" : pass;
+        byte[] ub = u.getBytes(StandardCharsets.UTF_8);
+        byte[] pb = p.getBytes(StandardCharsets.UTF_8);
         if (ub.length > 255 || pb.length > 255) {
             throw new IOException("SOCKS: 用户名或密码过长");
         }
@@ -165,7 +168,7 @@ public final class Socks5Tunnel {
         int av = in.readUnsignedByte();
         int st = in.readUnsignedByte();
         if (av != 0x01 || st != 0x00) {
-            throw new IOException("SOCKS: 用户名密码认证失败");
+            throw new IOException("SOCKS: 用户名密码认证失败 (RFC1929 status=" + st + ", 请核对账号或完整 URL 中密码是否需百分号编码)");
         }
     }
 }
