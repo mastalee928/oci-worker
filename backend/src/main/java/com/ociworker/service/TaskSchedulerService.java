@@ -134,7 +134,12 @@ public class TaskSchedulerService {
             map.put("assignIpv6", task.getAssignIpv6() != null ? task.getAssignIpv6() : false);
             map.put("status", task.getStatus());
             map.put("attemptCount", task.getAttemptCount());
-            map.put("successCount", task.getSuccessCount() != null ? task.getSuccessCount() : 0);
+            int scL = task.getSuccessCount() != null ? task.getSuccessCount() : 0;
+            int tgtL = task.getCreateNumbers() != null && task.getCreateNumbers() > 0 ? task.getCreateNumbers() : 1;
+            map.put("successCount", scL);
+            int recL = parseCreatedInstances(task.getCreatedInstances()).size();
+            map.put("recordedInstanceCount", recL);
+            map.put("progressOverTarget", scL > tgtL || recL > tgtL);
             map.put("createTime", task.getCreateTime());
             return map;
         }).toList());
@@ -388,10 +393,9 @@ public class TaskSchedulerService {
                     int successCount = t != null && t.getSuccessCount() != null ? t.getSuccessCount() : 0;
                     if (n > 0) {
                         appendCreatedInstance(taskId, result);
-                        int display = Math.min(successCount, targetCount);
                         broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],架构:[%s] - 实例创建成功(%d/%d)！IP:%s",
-                                user, region, arch, display, targetCount, result.getPublicIp()));
-                        String html = "🎉 <b>实例创建成功！</b>（" + display + "/" + targetCount + "）\n\n"
+                                user, region, arch, successCount, targetCount, result.getPublicIp()));
+                        String html = "🎉 <b>实例创建成功！</b>（" + successCount + "/" + targetCount + "）\n\n"
                                 + "👤 <b>租户：</b>" + user + "\n"
                                 + "🌍 <b>区域：</b>" + region + "\n"
                                 + "⚙️ <b>架构：</b>" + arch + "\n"
@@ -407,11 +411,17 @@ public class TaskSchedulerService {
                     }
                     if (successCount >= targetCount) {
                         completeTask(taskId, TaskStatusEnum.COMPLETED);
-                        broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],架构:[%s] - 已达到目标数量(%d台)，任务完成！",
-                                user, region, arch, targetCount));
+                        if (successCount > targetCount) {
+                            broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],架构:[%s] - 任务已结束。⚠ 成功数(%d) 已超过目标(%d) 台，多开的实例可能产生费用，请至 OCI 与实例页核对。",
+                                    user, region, arch, successCount, targetCount));
+                        } else {
+                            broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],架构:[%s] - 已达到目标数量(%d台)，任务完成！",
+                                    user, region, arch, targetCount));
+                        }
                     } else {
+                        int need = Math.max(0, targetCount - successCount);
                         broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],架构:[%s] - 还需创建 %d 台，[%d]秒后继续...",
-                                user, region, arch, targetCount - successCount, intervalSeconds));
+                                user, region, arch, need, intervalSeconds));
                     }
                 } else {
                     broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s] - 创建未成功，[%d]秒后将重试...",
@@ -502,10 +512,16 @@ public class TaskSchedulerService {
         data.put("assignIpv6", task.getAssignIpv6() != null ? task.getAssignIpv6() : false);
         data.put("status", task.getStatus());
         data.put("attemptCount", task.getAttemptCount());
-        data.put("successCount", task.getSuccessCount() != null ? task.getSuccessCount() : 0);
+        int scD = task.getSuccessCount() != null ? task.getSuccessCount() : 0;
+        int tgtD = task.getCreateNumbers() != null && task.getCreateNumbers() > 0 ? task.getCreateNumbers() : 1;
+        data.put("successCount", scD);
+        List<Map<String, Object>> inst = parseCreatedInstances(task.getCreatedInstances());
+        int recD = inst.size();
+        data.put("recordedInstanceCount", recD);
+        data.put("progressOverTarget", scD > tgtD || recD > tgtD);
         data.put("createTime", task.getCreateTime());
         data.put("rootPassword", task.getRootPassword());
-        data.put("instances", parseCreatedInstances(task.getCreatedInstances()));
+        data.put("instances", inst);
         return data;
     }
 
@@ -554,7 +570,7 @@ public class TaskSchedulerService {
     }
 
     /**
-     * 将「计次已达标」但仍为 RUNNING 的任务收口为 COMPLETED，并回写计次不高于目标（修复历史/多机脏数据）
+     * 将「计次已达标或已超开」但仍为 RUNNING 的任务收口为 COMPLETED。不修改 success_count，保留真实计次与计费可核对。
      */
     private void repairInconsistentRunningTasks() {
         List<OciCreateTask> running = taskMapper.selectList(
@@ -567,13 +583,8 @@ public class TaskSchedulerService {
                 continue;
             }
             try {
-                log.info("修复开机任务: id={} 进度{}/{} -> 已完成", t.getId(), sc, target);
+                log.info("修复开机任务: id={} 进度{}/{} -> 已完成（计次不裁剪）", t.getId(), sc, target);
                 completeTask(t.getId(), TaskStatusEnum.COMPLETED);
-                if (sc > target) {
-                    UpdateWrapper<OciCreateTask> uw = new UpdateWrapper<>();
-                    uw.eq("id", t.getId()).set("success_count", target);
-                    taskMapper.update(null, uw);
-                }
             } catch (Exception e) {
                 log.warn("repairInconsistentRunningTasks id={}: {}", t.getId(), e.getMessage());
             }
