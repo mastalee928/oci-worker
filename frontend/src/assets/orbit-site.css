@@ -1,0 +1,447 @@
+/**
+ * Orbis 全站内页：深色下统一 Ant 与自定义工具类（租户/实例/任务/设置/日志 等全部命中）
+ * 作用域：body.orbit-app-shell[data-theme='dark']，内容区 .orbit-page-surface
+ */
+
+/* ========== 内容区舞台 ========== */
+body.orbit-app-shell[data-theme='dark'] .app-content.orbit-page-surface {
+  position: relative;
+  z-index: 4;
+  min-height: 0;
+}
+body.orbit-app-shell[data-theme='dark'] .app-content.orbit-page-surface::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    rgba(111, 255, 0, 0.35) 20%,
+    rgba(111, 255, 0, 0.35) 80%,
+    transparent
+  );
+  pointer-events: none;
+  z-index: 0;
+}
+body.orbit-app-shell[data-theme='dark'] .app-content.orbit-page-surface--bleed {
+  padding: 0 !important;
+  box-shadow: inset 0 0 0 1px rgba(111, 255, 0, 0.12);
+  background: rgba(1, 8, 40, 0.35);
+}
+
+/* ========== Ant Design：表格 ========== */
+body.orbit-app-shell[data-theme='dark'] .ant-table-wrapper .ant-table,
+body.orbit-app-shell[data-theme='dark'] .ant-table {
+  background: rgba(255, 255, 255, 0.03) !important;
+  color: #eff4ff !important;
+  border-radius: 14px !important;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-table-thead > tr > th,
+body.orbit-app-shell[data-theme='dark'] .ant-table-thead > tr > td {
+  background: rgba(111, 255, 0, 0.07) !important;
+  color: rgba(239, 244, 255, 0.78) !important;
+  font-weight: 600 !important;
+  border-color: rgba(111, 255, 0, 0.12) !important;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-table-tbody > tr > td {
+  background: transparent !important;
+  border-color: rgba(255, 255, 255, 0.06) !important;
+  color: #eff4ff !important;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-table-tbody > tr > td a {
+  color: #7fff50 !important;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-table-tbody > tr:hover > td {
+  background: rgba(111, 255, 0, 0.05) !important;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-table-tbody .ant-typography {
+  color: #eff4ff !important;
+}
+
+/* ========== 卡片 / 统计 / 描述列表 ========== */
+body.orbit-app-shell[data-theme='dark'] .ant-card {
+  background: rgba(255, 255, 255, 0.05) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-radius: 16px !important;
+  color: #eff4ff !important;
+  box-shadow: 0 12px 40px -12px rgba(0, 0, 0, 0.45) !important;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-card-head {
+  border-color: rgba(255, 255, 255, 0.08) !important;
+  min-height: 48px;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-card-head-title,
+body.orbit-app-shell[data-theme='dark'] .ant-card-extra {
+  color: #eff4ff !important;
+  font-family: 'Anton', system-ui, sans-serif;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 400;
+  font-size: 0.95rem;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-card-body {
+  color: #eff4ff !important;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-statistic-title {
+  color: rgba(239, 244, 255, 0.55) !important;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-statistic-content,
+body.orbit-app-shell[data-theme='dark'] .ant-statistic-content-value {
+  color: #eff4ff !important;
+  font-weight: 700;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-descriptions-item-label {
+  color: rgba(239, 244, 255, 0.55) !important;
+  background: rgba(1, 8, 40, 0.4) !important;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-descriptions-item-content {
+  color: #eff4ff !important;
+  background: rgba(255, 255, 255, 0.02) !important;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-descriptions-bordered .ant-descriptions-view {
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+
+/* ========== Tabs / Segmented / Collapse ========== */
+body.orbit-app-shell[data-theme='dark'] .ant-tabs {
+  color: #eff4ff;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-tabs-tab {
+  color: rgba(239, 244, 255, 0.5) !important;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-tabs-tab-active .ant-tabs-tab-btn {
+  color: #6fff00 !important;
+  font-weight: 600 !important;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-tabs-ink-bar {
+  background: #6fff00 !important;
+  height: 3px !important;
+  border-radius: 2px;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-tabs-top > .ant-tabs-nav::before {
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-segmented {
+  background: rgba(1, 8, 40, 0.65) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 10px;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-segmented-item {
+  color: rgba(239, 244, 255, 0.6) !important;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-segmented-item-selected {
+  background: rgba(111, 255, 0, 0.2) !important;
+  color: #eff4ff !important;
+  font-weight: 600;
+  box-shadow: 0 0 0 1px rgba(111, 255, 0, 0.3);
+  border-radius: 8px;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-collapse {
+  background: rgba(255, 255, 255, 0.03) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 16px;
+  overflow: hidden;
+  backdrop-filter: blur(8px);
+}
+body.orbit-app-shell[data-theme='dark'] .ant-collapse .ant-collapse-item {
+  border-color: rgba(255, 255, 255, 0.06) !important;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-collapse .ant-collapse-header {
+  color: #eff4ff !important;
+  background: rgba(111, 255, 0, 0.04) !important;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-collapse .ant-collapse-content {
+  color: #eff4ff;
+  background: rgba(0, 0, 0, 0.2) !important;
+}
+
+/* ========== 输入 / 选择 / 页码 ========== */
+body.orbit-app-shell[data-theme='dark'] .ant-input,
+body.orbit-app-shell[data-theme='dark'] .ant-input-password,
+body.orbit-app-shell[data-theme='dark'] .ant-input-number,
+body.orbit-app-shell[data-theme='dark'] .ant-input-number-input,
+body.orbit-app-shell[data-theme='dark'] .ant-select-selector,
+body.orbit-app-shell[data-theme='dark'] .ant-picker,
+body.orbit-app-shell[data-theme='dark'] .ant-input-affix-wrapper {
+  background: rgba(1, 8, 40, 0.55) !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+  color: #eff4ff !important;
+  border-radius: 10px !important;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-input::placeholder,
+body.orbit-app-shell[data-theme='dark'] .ant-select-selection-placeholder {
+  color: rgba(239, 244, 255, 0.35) !important;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-input-affix-wrapper:focus,
+body.orbit-app-shell[data-theme='dark'] .ant-input-affix-wrapper-focused,
+body.orbit-app-shell[data-theme='dark'] .ant-input:focus,
+body.orbit-app-shell[data-theme='dark'] .ant-select-focused .ant-select-selector {
+  border-color: #6fff00 !important;
+  box-shadow: 0 0 0 2px rgba(111, 255, 0, 0.2) !important;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-pagination {
+  color: #eff4ff;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-pagination-item a {
+  color: #eff4ff !important;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-pagination-item-active {
+  background: rgba(111, 255, 0, 0.15) !important;
+  border-color: #6fff00 !important;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-pagination-item-active a {
+  color: #6fff00 !important;
+}
+
+/* ========== 空状态 / 加载 / Tag / Badge ========== */
+body.orbit-app-shell[data-theme='dark'] .ant-empty-description,
+body.orbit-app-shell[data-theme='dark'] .ant-empty {
+  color: rgba(239, 244, 255, 0.5) !important;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-spin-text {
+  color: #eff4ff !important;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-spin-dot-item {
+  background-color: #6fff00 !important;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-tag {
+  border-radius: 6px !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-badge-count {
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.2);
+}
+
+/* ========== Modal / Drawer / Popover / Dropdown ========== */
+body.orbit-app-shell[data-theme='dark'] .ant-modal-content,
+body.orbit-app-shell[data-theme='dark'] .ant-modal-header {
+  background: rgba(1, 8, 40, 0.96) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  color: #eff4ff !important;
+  border-radius: 16px !important;
+  backdrop-filter: blur(20px);
+}
+body.orbit-app-shell[data-theme='dark'] .ant-modal-title {
+  color: #eff4ff !important;
+  font-family: 'Anton', system-ui, sans-serif;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-modal-close,
+body.orbit-app-shell[data-theme='dark'] .ant-modal-footer {
+  color: rgba(239, 244, 255, 0.6) !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-drawer-content,
+body.orbit-app-shell[data-theme='dark'] .ant-drawer-header,
+body.orbit-app-shell[data-theme='dark'] .ant-drawer-body {
+  background: rgba(1, 8, 40, 0.97) !important;
+  color: #eff4ff !important;
+  border-color: rgba(255, 255, 255, 0.08) !important;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-popover .ant-popover-inner {
+  background: rgba(1, 8, 40, 0.95) !important;
+  border: 1px solid rgba(111, 255, 0, 0.2) !important;
+  color: #eff4ff !important;
+  border-radius: 12px !important;
+  backdrop-filter: blur(16px);
+}
+body.orbit-app-shell[data-theme='dark'] .ant-dropdown .ant-dropdown-menu,
+body.orbit-app-shell[data-theme='dark'] .ant-dropdown-menu {
+  background: rgba(1, 8, 40, 0.96) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 12px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5) !important;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-dropdown-menu-item,
+body.orbit-app-shell[data-theme='dark'] .ant-dropdown-menu-item a {
+  color: #eff4ff !important;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-dropdown-menu-item:hover,
+body.orbit-app-shell[data-theme='dark'] .ant-dropdown-menu-item-active {
+  background: rgba(111, 255, 0, 0.12) !important;
+  color: #6fff00 !important;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-popover .ant-table {
+  background: transparent !important;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-popover .ant-list-item {
+  color: #eff4ff !important;
+  border-color: rgba(255, 255, 255, 0.06) !important;
+}
+
+/* ========== Alert / Checkbox / Form label ========== */
+body.orbit-app-shell[data-theme='dark'] .ant-form-item label,
+body.orbit-app-shell[data-theme='dark'] .ant-form-item-label > label {
+  color: #eff4ff !important;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-alert {
+  background: rgba(255, 255, 255, 0.05) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  color: #eff4ff !important;
+  border-radius: 12px;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-checkbox-wrapper,
+body.orbit-app-shell[data-theme='dark'] .ant-radio-wrapper {
+  color: #eff4ff !important;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-checkbox-inner,
+body.orbit-app-shell[data-theme='dark'] .ant-radio-inner {
+  border-color: rgba(255, 255, 255, 0.25) !important;
+  background: rgba(1, 8, 40, 0.6) !important;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-checkbox-checked .ant-checkbox-inner,
+body.orbit-app-shell[data-theme='dark'] .ant-radio-checked .ant-radio-inner {
+  background: #4a8f00 !important;
+  border-color: #6fff00 !important;
+}
+
+/* ========== 本仓库自定义类：工具条 / 折叠 / 卡片 / 手机卡 ========== */
+body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .table-toolbar,
+body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .instance-toolbar,
+body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .table-toolbar a-space {
+  padding: 14px 16px;
+  margin-bottom: 16px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  box-shadow: inset 0 1px 0 rgba(111, 255, 0, 0.12);
+}
+body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .tenant-card {
+  background: rgba(255, 255, 255, 0.05) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  box-shadow: 0 8px 32px -8px rgba(0, 0, 0, 0.45);
+  border-radius: 16px;
+}
+body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .tenant-card-active {
+  border-color: rgba(111, 255, 0, 0.45) !important;
+  box-shadow: 0 0 0 1px rgba(111, 255, 0, 0.25), 0 12px 40px -8px rgba(0, 0, 0, 0.5);
+}
+body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .group-header-label {
+  color: #eff4ff;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .mobile-card {
+  background: rgba(255, 255, 255, 0.05) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  border-radius: 16px;
+  box-shadow: 0 8px 24px -8px rgba(0, 0, 0, 0.4);
+}
+body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .mobile-card-header {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  padding-bottom: 8px;
+  margin-bottom: 8px;
+}
+body.orbit-app-shell[data-theme='dark'] .settings-card,
+body.orbit-app-shell[data-theme='dark'] .settings-card-wide {
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+}
+body.orbit-app-shell[data-theme='dark'] .lock-panel {
+  background: rgba(1, 8, 40, 0.6) !important;
+  border: 1px solid rgba(111, 255, 0, 0.2) !important;
+  border-radius: 16px;
+}
+body.orbit-app-shell[data-theme='dark'] .lock-icon {
+  color: #6fff00 !important;
+  filter: drop-shadow(0 0 8px rgba(111, 255, 0, 0.35));
+}
+body.orbit-app-shell[data-theme='dark'] .lock-text {
+  color: #eff4ff !important;
+}
+
+/* 日志页 */
+body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .log-toolbar {
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  backdrop-filter: blur(10px);
+  box-shadow: inset 0 1px 0 rgba(111, 255, 0, 0.1);
+}
+body.orbit-app-shell[data-theme='dark'] .log-container {
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+  background: rgba(0, 0, 0, 0.35) !important;
+  box-shadow: inset 0 0 40px rgba(0, 0, 0, 0.4);
+}
+body.orbit-app-shell[data-theme='dark'] .log-line {
+  color: #e2f8c8 !important;
+  font-family: ui-monospace, 'Cascadia Code', 'SF Mono', Menlo, Consolas, monospace;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-divider-vertical {
+  border-color: rgba(255, 255, 255, 0.15) !important;
+}
+
+/* ========== 链接按钮：深色下高对比（覆盖原有紫链）========== */
+body.orbit-app-shell[data-theme='dark'] .ant-btn-link {
+  color: #7fff50 !important;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-btn-link:hover {
+  color: #b8ff6a !important;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-btn-default {
+  background: rgba(255, 255, 255, 0.06) !important;
+  border-color: rgba(255, 255, 255, 0.15) !important;
+  color: #eff4ff !important;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-btn-default:hover {
+  border-color: #6fff00 !important;
+  color: #6fff00 !important;
+  background: rgba(111, 255, 0, 0.08) !important;
+}
+
+/* ========== 列表 / 描述（设置页小字）========== */
+body.orbit-app-shell[data-theme='dark'] .ant-list-item {
+  border-color: rgba(255, 255, 255, 0.08) !important;
+  color: #eff4ff !important;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-typography {
+  color: #eff4ff !important;
+}
+
+/* ========== WebSSH 全屏区（仅加框，不抢终端）========== */
+body.orbit-app-shell[data-theme='dark'] .app-content.orbit-page-surface--bleed {
+  min-height: calc(100vh - 0px);
+}
+
+/* 实例/分组 列表行、日志时间轴等 */
+body.orbit-app-shell[data-theme='dark'] .group-table-row,
+body.orbit-app-shell[data-theme='dark'] .gtr-name,
+body.orbit-app-shell[data-theme='dark'] .gtr-tenantnm {
+  color: #eff4ff !important;
+}
+body.orbit-app-shell[data-theme='dark'] .group-table-row {
+  background: rgba(255, 255, 255, 0.03) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 12px;
+  margin-bottom: 8px;
+  padding: 10px 12px;
+  transition: border-color 0.2s, background 0.2s;
+}
+body.orbit-app-shell[data-theme='dark'] .group-table-row:hover,
+body.orbit-app-shell[data-theme='dark'] .tenant-row-active,
+body.orbit-app-shell[data-theme='dark'] .gtr-name:hover {
+  border-color: rgba(111, 255, 0, 0.25) !important;
+  background: rgba(111, 255, 0, 0.04) !important;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-progress-bg {
+  background: linear-gradient(90deg, #4a8f00, #6fff00) !important;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-slider-track {
+  background: linear-gradient(90deg, #4a8f00, #6fff00) !important;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-switch-checked {
+  background: #3d8000 !important;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-switch-checked .ant-switch-handle::before {
+  background: #6fff00 !important;
+}

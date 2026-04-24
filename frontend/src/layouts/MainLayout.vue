@@ -110,7 +110,16 @@
           </button>
         </div>
       </header>
-      <div :class="['app-content', { 'no-padding': isWebSSH }]">
+      <div
+        :class="[
+          'app-content',
+          {
+            'no-padding': isWebSSH,
+            'orbit-page-surface': themeStore.isDark,
+            'orbit-page-surface--bleed': themeStore.isDark && isWebSSH,
+          },
+        ]"
+      >
         <router-view />
       </div>
     </a-layout>

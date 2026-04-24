@@ -5,6 +5,7 @@ import { message } from 'ant-design-vue'
 import 'ant-design-vue/dist/reset.css'
 import './assets/global.css'
 import './assets/orbis-shell.css'
+import './assets/orbit-site.css'
 import App from './App.vue'
 import router from './router'
 
