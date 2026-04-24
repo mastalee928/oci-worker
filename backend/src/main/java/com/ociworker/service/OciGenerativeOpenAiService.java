@@ -3,12 +3,12 @@ package com.ociworker.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import com.oracle.bmc.auth.BasicAuthenticationDetailsProvider;
 import com.oracle.bmc.auth.SimpleAuthenticationDetailsProvider;
 import com.oracle.bmc.http.signing.DefaultRequestSigner;
 import com.oracle.bmc.http.signing.RequestSigner;
 import com.ociworker.exception.OciException;
 import com.ociworker.model.entity.OciUser;
+import com.ociworker.util.OciBasicForSigning;
 import com.ociworker.util.OciRegionUtil;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
@@ -174,11 +174,8 @@ public class OciGenerativeOpenAiService {
      * 当前 OCI Java SDK 中 {@link SimpleAuthenticationDetailsProvider} 在运行时即为此类型。
      */
     private static RequestSigner newRequestSigner(OciUser tenant) {
-        SimpleAuthenticationDetailsProvider p = buildProvider(tenant);
-        if (p instanceof BasicAuthenticationDetailsProvider) {
-            return DefaultRequestSigner.createRequestSigner((BasicAuthenticationDetailsProvider) p);
-        }
-        return DefaultRequestSigner.createRequestSigner((BasicAuthenticationDetailsProvider) (Object) p);
+        return DefaultRequestSigner.createRequestSigner(
+                OciBasicForSigning.from(buildProvider(tenant)));
     }
 
     private static String encodePathSegmentOciModel(String s) {
