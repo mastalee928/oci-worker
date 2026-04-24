@@ -235,8 +235,9 @@ function handleLogout() {
   box-shadow: 6px 0 32px -12px rgba(0, 0, 0, 0.35);
   display: flex;
   flex-direction: column;
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  /* 过大 blur 会与侧栏玻璃、内容区叠成「整屏发糊」，略减以保字口清晰 */
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
   transition: background 0.3s;
   position: sticky;
   top: 0;
@@ -453,8 +454,8 @@ function handleLogout() {
   border: 1px solid var(--border);
   margin-bottom: 10px;
   cursor: default;
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   box-shadow: var(--shadow-card);
 }
 .avatar {
@@ -490,8 +491,8 @@ function handleLogout() {
   gap: 6px;
   transition: var(--trans);
   font-family: inherit;
-  backdrop-filter: blur(20px);
-  -webkit-backdrop-filter: blur(20px);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
   box-shadow: var(--shadow-card);
 }
 .btn-logout:hover {
@@ -538,8 +539,8 @@ function handleLogout() {
   flex-shrink: 0;
   border-bottom: 1px solid var(--border);
   background: color-mix(in srgb, var(--bg-body) 55%, transparent);
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
 }
 .header-left {
   display: flex;
@@ -580,7 +581,7 @@ function handleLogout() {
   cursor: pointer;
   transition: var(--trans);
   font-size: 18px;
-  backdrop-filter: blur(12px);
+  backdrop-filter: blur(6px);
 }
 .header-btn:hover {
   background: var(--input-bg);

@@ -129,8 +129,9 @@ onMounted(async () => {
   border: 1px solid var(--border);
   border-radius: 16px;
   padding: 20px 18px;
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  /* 与主内容区叠层，过大 blur 会让整块发虚 */
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   transition: border-color 0.2s, transform 0.2s, box-shadow 0.2s;
   box-shadow: var(--shadow-card);
 }
@@ -188,8 +189,8 @@ onMounted(async () => {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 24px;
-  backdrop-filter: blur(14px);
-  -webkit-backdrop-filter: blur(14px);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
   box-shadow: var(--shadow-card);
   transition: box-shadow 0.2s, border-color 0.2s;
 }
