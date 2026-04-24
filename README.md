@@ -27,35 +27,6 @@
 - **前端**：Vue 3 + Vite + Ant Design Vue 4 + Pinia + Vue Router 4
 - **OCI SDK**：oci-java-sdk 3.83+
 
-### 动效/Orbis 主题 UI（[feature/ui-polish 分支](https://github.com/mastalee928/oci-worker/tree/feature/ui-polish)）
-
-默认通过下方「一键安装」或 `ociworker update` 从 Release 获取的 JAR 对应 **master** 的常规构建。若你需要使用 `feature/ui-polish` 上的**深色 Orbis 壳、背景动效、页面过渡与毛玻璃**等完整 UI 体验，需**自行从该分支拉代码、构建前端并打 JAR** 后替换本机已部署的 `oci-worker.jar`（不额外提供单独分支的 Release 包）。
-
-在服务器上**全新克隆**并构建（需 **Node 18+**、**JDK 21**、**Maven 3.6+**）：
-
-```bash
-git clone -b feature/ui-polish --depth 1 https://github.com/mastalee928/oci-worker.git
-cd oci-worker/frontend
-npm ci
-npm run build
-cd ../backend
-mvn clean package -DskipTests
-```
-
-构建产物一般为 `backend/target/oci-worker-1.0.0.jar`；覆盖部署目录中的 `oci-worker.jar` 后，执行 `systemctl restart oci-worker` 或 `ociworker restart`。
-
-**已有**本地/服务器上的仓库时，切换到该分支再按同样方式执行 `npm run build` 与 `mvn clean package` 即可：
-
-```bash
-git fetch origin
-git checkout feature/ui-polish
-git pull origin feature/ui-polish
-cd frontend && npm ci && npm run build
-cd ../backend && mvn clean package -DskipTests
-```
-
-> 当该实验性 UI 合并进 `master` 后，使用常规安装/更新即与上述效果一致，无需再单独指定分支。
-
 ---
 
 ## 一键安装（推荐 · v2 智能安装器）
@@ -82,6 +53,22 @@ sudo bash /tmp/install.sh
 向导会问你：① 数据库使用方式 ② 数据库连接信息 ③ Web 端口。装完后浏览器访问 `http://<你的IP>:<端口>` 设置管理员账号即可登录。
 
 详细文档：[INSTALLER.md](./INSTALLER.md)
+
+### 动效/Orbis UI 版（[feature/ui-polish 分支](https://github.com/mastalee928/oci-worker/tree/feature/ui-polish)）
+
+`install.sh` 下载的 JAR 来自 **master**。若要**动效/深色 Orbis 壳**那一套，请**一开始就直接克隆 `feature/ui-polish` 这一支打 JAR**（不是先装 master 再 `git checkout` 换过去）。在已安装 **Node 18+、JDK 21、Maven** 的前提下，一条命令完成前端构建与后端打包：
+
+```bash
+git clone -b feature/ui-polish --depth 1 https://github.com/mastalee928/oci-worker.git /tmp/ociw \
+  && (cd /tmp/ociw/frontend && npm ci && npm run build) \
+  && (cd /tmp/ociw/backend && mvn -q clean package -DskipTests)
+```
+
+生成的 JAR 在 `/tmp/ociw/backend/target/oci-worker-1.0.0.jar`。**若你已通过上方向导装好服务**，覆盖并重启即可：
+
+`sudo cp -a /tmp/ociw/backend/target/oci-worker-1.0.0.jar /opt/oci-worker/oci-worker.jar && sudo systemctl restart oci-worker`（也可用 `sudo ociworker restart`）。
+
+**若还没装过 OCI Worker**，先执行上表 `install.sh` 把数据库、目录、服务装好，再照上面**同一条** `git clone -b feature/ui-polish ...` 出包、覆盖 JAR 即可。合并进 `master` 后，用常规 `install.sh` / `ociworker update` 即与动效版一致，无需再指定分支。
 
 ---
 
