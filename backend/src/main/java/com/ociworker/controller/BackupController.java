@@ -20,7 +20,9 @@ public class BackupController {
     private VerifyCodeService verifyCodeService;
 
     @PostMapping("/create")
-    public void createBackup(@RequestParam String password, @RequestParam String verifyCode, HttpServletResponse response) throws IOException {
+    public void createBackup(@RequestParam("password") String password,
+                             @RequestParam("verifyCode") String verifyCode,
+                             HttpServletResponse response) throws IOException {
         verifyCodeService.verifyCode("backup", verifyCode);
         byte[] data = backupService.createBackup(password);
         response.setContentType("application/zip");
@@ -30,7 +32,7 @@ public class BackupController {
 
     @PostMapping("/restore")
     public ResponseData<?> restore(@RequestParam("file") MultipartFile file,
-                                    @RequestParam String password) throws IOException {
+                                   @RequestParam("password") String password) throws IOException {
         backupService.restoreBackup(file.getBytes(), password);
         return ResponseData.ok();
     }

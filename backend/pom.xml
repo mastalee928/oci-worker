@@ -238,6 +238,8 @@
                     <source>${java.version}</source>
                     <target>${java.version}</target>
                     <encoding>UTF-8</encoding>
+                    <!-- Spring @RequestParam 等默认可用参数名依赖此标志；未开启时须写全 @RequestParam("name") -->
+                    <parameters>true</parameters>
                 </configuration>
             </plugin>
             <plugin>
