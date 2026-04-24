@@ -138,37 +138,45 @@
         </a-card>
       </a-tab-pane>
       <a-tab-pane key="backup" tab="备份恢复">
-        <a-row :gutter="[16, 16]">
-          <a-col :xs="24" :md="12">
-            <a-card title="备份" class="settings-card">
-              <a-form layout="vertical">
-                <a-form-item label="加密密码">
-                  <a-input-password v-model:value="backupPassword" placeholder="设置备份加密密码" />
-                </a-form-item>
-                <a-button type="primary" @click="openBackupVerify" :loading="backupLoading">
-                  创建加密备份
-                </a-button>
-              </a-form>
-            </a-card>
-          </a-col>
-          <a-col :xs="24" :md="12">
-            <a-card title="恢复" class="settings-card">
-              <a-form layout="vertical">
-                <a-form-item label="备份文件">
-                  <a-upload :before-upload="handleFileSelect" :max-count="1" accept=".zip" :file-list="fileList" @remove="() => { restoreFile = null; fileList = [] }">
-                    <a-button><UploadOutlined />选择备份文件</a-button>
-                  </a-upload>
-                </a-form-item>
-                <a-form-item label="解密密码">
-                  <a-input-password v-model:value="restorePassword" placeholder="输入备份加密密码" />
-                </a-form-item>
-                <a-button type="primary" danger @click="handleRestore" :loading="restoreLoading">
-                  恢复备份
-                </a-button>
-              </a-form>
-            </a-card>
-          </a-col>
-        </a-row>
+        <div class="backup-restore-stack">
+          <a-card title="备份" class="settings-card-wide">
+            <a-form layout="vertical">
+              <a-form-item label="加密密码">
+                <a-input-password v-model:value="backupPassword" placeholder="设置备份加密密码" />
+              </a-form-item>
+              <a-button type="primary" @click="openBackupVerify" :loading="backupLoading">
+                创建加密备份
+              </a-button>
+            </a-form>
+          </a-card>
+          <a-card title="恢复" class="settings-card-wide">
+            <a-form layout="vertical">
+              <a-form-item label="备份文件（支持点击或从桌面/文件夹拖拽到下方区域）">
+                <a-upload-dragger
+                  class="backup-restore-dragger"
+                  :before-upload="handleFileSelect"
+                  :max-count="1"
+                  accept=".zip,application/zip,application/x-zip-compressed"
+                  :file-list="fileList"
+                  :show-upload-list="{ showRemoveIcon: true }"
+                  @remove="handleRestoreFileRemove"
+                >
+                  <p class="ant-upload-drag-icon" style="margin-bottom: 8px">
+                    <InboxOutlined style="color: var(--primary); font-size: 40px" />
+                  </p>
+                  <p class="ant-upload-text" style="color: var(--text-main)">点击或拖拽 <strong>oci-worker-backup.zip</strong> 到此处</p>
+                  <p class="ant-upload-hint" style="color: var(--text-sub)">仅支持网页创建下载的 .zip 加密备份</p>
+                </a-upload-dragger>
+              </a-form-item>
+              <a-form-item label="解密密码">
+                <a-input-password v-model:value="restorePassword" placeholder="输入备份加密密码" />
+              </a-form-item>
+              <a-button type="primary" danger @click="handleRestore" :loading="restoreLoading">
+                恢复备份
+              </a-button>
+            </a-form>
+          </a-card>
+        </div>
 
         <a-modal v-model:open="backupVerifyVisible" title="安全验证 — 备份数据" :width="isMobile ? '100%' : 400"
           @ok="handleBackupWithCode" :confirm-loading="backupVerifyLoading" ok-text="确认备份">
@@ -189,7 +197,7 @@
 <script setup lang="ts">
 import { reactive, ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { UploadOutlined } from '@ant-design/icons-vue'
+import { InboxOutlined } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
 import type { UploadFile } from 'ant-design-vue'
 import { useUserStore } from '../stores/user'
@@ -541,8 +549,13 @@ async function handleBackupWithCode() {
 
 function handleFileSelect(file: File) {
   restoreFile.value = file
-  fileList.value = [{ uid: '-1', name: file.name, status: 'done' } as UploadFile]
+  fileList.value = [{ uid: String(file.name + file.size), name: file.name, status: 'done' } as UploadFile]
   return false
+}
+
+function handleRestoreFileRemove() {
+  restoreFile.value = null
+  fileList.value = []
 }
 
 async function handleRestore() {
@@ -564,6 +577,20 @@ async function handleRestore() {
 </script>
 
 <style scoped>
+.backup-restore-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+  max-width: 560px;
+}
+.backup-restore-dragger :deep(.ant-upload) {
+  background: var(--input-bg) !important;
+  border-color: var(--border) !important;
+}
+.backup-restore-dragger :deep(.ant-upload:hover) {
+  border-color: rgba(129, 140, 248, 0.45) !important;
+}
+
 .settings-card {
   max-width: 480px;
   border-radius: var(--radius-lg) !important;
@@ -607,7 +634,8 @@ async function handleRestore() {
 
 @media (max-width: 768px) {
   .settings-card,
-  .settings-card-wide {
+  .settings-card-wide,
+  .backup-restore-stack {
     max-width: 100% !important;
   }
 }
