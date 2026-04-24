@@ -155,9 +155,6 @@ public class SystemController {
 
     @PostMapping("/ociProxy")
     public ResponseData<?> saveOciProxy(@RequestBody Map<String, String> params) {
-        if (!verifyLoginPassword(params.get("password"))) {
-            return ResponseData.error("请输入正确的登录密码");
-        }
         OciProxySnapshot cur = ociProxyConfigService.snapshot();
         boolean en = "true".equalsIgnoreCase(nvl(params.get("enabled")))
                 || "1".equals(nvl(params.get("enabled")));
@@ -181,9 +178,6 @@ public class SystemController {
 
     @PostMapping("/ociProxy/test")
     public ResponseData<?> testOciProxy(@RequestBody Map<String, String> params) {
-        if (!verifyLoginPassword(params.get("password"))) {
-            return ResponseData.error("请输入正确的登录密码");
-        }
         OciProxySnapshot cur = ociProxyConfigService.snapshot();
         boolean en = "true".equalsIgnoreCase(nvl(params.get("enabled")))
                 || "1".equals(nvl(params.get("enabled")));
@@ -218,13 +212,5 @@ public class SystemController {
             return existing;
         }
         return nvl(fromClient);
-    }
-
-    private boolean verifyLoginPassword(String pwd) {
-        if (StrUtil.isBlank(pwd)) {
-            return false;
-        }
-        String inputHash = DigestUtil.sha256Hex(pwd);
-        return inputHash.equals(authController.getEffectivePasswordHash());
     }
 }

@@ -94,23 +94,11 @@
       </a-tab-pane>
 
       <a-tab-pane key="proxy" tab="OCI 代理">
-        <a-card class="settings-card-wide">
+        <a-card class="settings-card-wide settings-card-oci-proxy">
           <template #title>
             <span><i class="ri-server-line" style="margin-right: 8px; vertical-align: middle"></i>OCI 代理配置</span>
           </template>
-          <div v-if="!ociProxyPwdVerified" class="lock-panel">
-            <i class="ri-lock-2-line lock-icon"></i>
-            <p class="lock-text">请输入登录密码以配置出站代理</p>
-            <a-space direction="vertical" style="width: 100%">
-              <a-input-password
-                v-model:value="ociProxyPwd"
-                placeholder="输入登录密码"
-                @pressEnter="verifyOciProxyPwd"
-              />
-              <a-button type="primary" block @click="verifyOciProxyPwd" :disabled="!ociProxyPwd">验证</a-button>
-            </a-space>
-          </div>
-          <a-form v-else layout="vertical">
+          <a-form layout="vertical">
             <a-form-item>
               <a-checkbox v-model:checked="ociProxyForm.enabled">启用 OCI API 代理（HTTP / SOCKS5 / SOCKS5h）</a-checkbox>
             </a-form-item>
@@ -118,7 +106,7 @@
               <a-select
                 v-model:value="ociProxyForm.proxyType"
                 :options="ociProxyTypeOptions"
-                style="max-width: 360px"
+                class="oci-proxy-type-select"
               />
             </a-form-item>
             <a-row v-if="ociProxyForm.enabled" :gutter="[12, 0]">
@@ -154,17 +142,11 @@
             <a-form-item v-if="ociProxyForm.enabled" label="完整代理 URL（可选）">
               <a-input
                 v-model:value="ociProxyForm.fullUrl"
+                class="oci-proxy-url-input"
                 placeholder="留空则使用上方组合；或粘贴完整地址覆盖，如 socks5h://user:pass@host:1080"
                 allow-clear
               />
             </a-form-item>
-            <a-alert
-              v-if="ociProxyForm.enabled"
-              type="info"
-              show-icon
-              style="margin-bottom: 16px"
-              message="与 Telegram 通知相互独立。关闭上方开关后直连 OCI（发现实例、换 IP、监控内 OCI 调用、GitHub 检查、Cloudflare 等），WebSSH 本地上游始终不走本代理。"
-            />
             <a-space>
               <a-button type="primary" @click="saveOciProxy" :loading="ociProxySaveLoading">保存设置</a-button>
               <a-button @click="testOciProxy" :loading="ociProxyTestLoading">测试代理</a-button>
@@ -322,9 +304,6 @@ const notifyPwdVerified = ref(false)
 const notifyPwd = ref('')
 const notifyVerifiedPwd = ref('')
 
-const ociProxyPwdVerified = ref(false)
-const ociProxyPwd = ref('')
-const ociProxyVerifiedPwd = ref('')
 const ociProxySaveLoading = ref(false)
 const ociProxyTestLoading = ref(false)
 const ociProxyForm = reactive({
@@ -375,32 +354,11 @@ async function loadOciProxy() {
   }
 }
 
-async function verifyOciProxyPwd() {
-  if (!ociProxyPwd.value) {
-    message.warning('请输入密码')
-    return
-  }
-  try {
-    await request.post('/auth/verifyPassword', { password: ociProxyPwd.value })
-    ociProxyVerifiedPwd.value = ociProxyPwd.value
-    ociProxyPwdVerified.value = true
-    message.success('验证通过')
-  } catch (e: any) {
-    message.error(e?.message || '密码错误')
-  }
-}
-
 async function saveOciProxy() {
   ociProxySaveLoading.value = true
   try {
-    await request.post('/sys/ociProxy', {
-      ...buildOciProxyPayload(),
-      password: ociProxyVerifiedPwd.value,
-    })
+    await request.post('/sys/ociProxy', buildOciProxyPayload())
     message.success('已保存')
-    ociProxyPwdVerified.value = false
-    ociProxyPwd.value = ''
-    ociProxyVerifiedPwd.value = ''
     await loadOciProxy()
   } catch (e: any) {
     message.error(e?.message || '保存失败')
@@ -412,10 +370,7 @@ async function saveOciProxy() {
 async function testOciProxy() {
   ociProxyTestLoading.value = true
   try {
-    const res = await request.post('/sys/ociProxy/test', {
-      ...buildOciProxyPayload(),
-      password: ociProxyVerifiedPwd.value,
-    })
+    const res = await request.post('/sys/ociProxy/test', buildOciProxyPayload())
     message.success(res.data != null ? String(res.data) : '测试完成')
   } catch (e: any) {
     message.error(e?.message || '测试失败')
@@ -803,6 +758,18 @@ async function handleRestore() {
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   transition: var(--trans);
+}
+.settings-card-oci-proxy {
+  max-width: min(880px, 100%);
+  width: 100%;
+}
+.settings-card-oci-proxy :deep(.oci-proxy-type-select) {
+  max-width: 420px;
+  width: 100%;
+}
+.settings-card-oci-proxy :deep(.oci-proxy-url-input) {
+  max-width: 100%;
+  width: 100%;
 }
 
 .lock-panel {
