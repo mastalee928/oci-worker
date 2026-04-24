@@ -291,10 +291,36 @@ public class TaskSchedulerService {
         }
     }
 
+    /**
+     * 周期调度：首次立即执行；之后每次在上一次 <strong>整次</strong> 创建尝试结束后，再间隔 {@code intervalSeconds} 秒执行下一次。
+     * <p>
+     * 若仅 {@code execute(() -> executeCreate(...))} 而不等待结束，{@link ScheduledExecutorService#scheduleWithFixedDelay}
+     * 会把「外层 Runnable 立即返回」当成一次执行结束，间隔从<strong>提交时刻</strong>起算，表现为「建任务后先空等 60 秒才第一次开机」，
+     * 且可能与仍在进行中的尝试重叠、浪费重试 tick。
+     */
     private void scheduleTask(String taskId, SysUserDTO dto, int intervalSeconds) {
+        int delaySec = Math.max(1, intervalSeconds);
         ScheduledFuture<?> future = taskPool.scheduleWithFixedDelay(
-                () -> VIRTUAL_EXECUTOR.execute(() -> executeCreate(taskId, dto, intervalSeconds)),
-                0, intervalSeconds, TimeUnit.SECONDS);
+                () -> {
+                    CompletableFuture<Void> done = new CompletableFuture<>();
+                    VIRTUAL_EXECUTOR.execute(() -> {
+                        try {
+                            executeCreate(taskId, dto, delaySec);
+                        } finally {
+                            done.complete(null);
+                        }
+                    });
+                    try {
+                        done.get();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    } catch (ExecutionException e) {
+                        log.warn("task {} executeCreate join: {}", taskId, e.getCause() != null ? e.getCause().getMessage() : e.getMessage());
+                    }
+                },
+                0,
+                delaySec,
+                TimeUnit.SECONDS);
         taskMap.put(taskId, future);
     }
 
