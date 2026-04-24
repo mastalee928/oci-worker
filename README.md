@@ -56,7 +56,7 @@ sudo bash /tmp/install.sh
 
 ### 动效/Orbis UI 版
 
-与上**同一**安装器，JAR 来自 **Release [ui-latest](https://github.com/mastalee928/oci-worker/releases/tag/ui-latest)**（`feature/ui-polish` 的 CI 产物）。`ociworker update` 默认继续用 UI 包。若要改回与 master 一致的包：`OCI_USE_MASTER_JAR=1` 同一条 `install.sh` 升级，或先删 `/opt/oci-worker/.use-ui-jar` 再 `ociworker update`。
+与上**同一**安装器，JAR 来自 **Release [ui-latest](https://github.com/mastalee928/oci-worker/releases/tag/ui-latest)**（`feature/ui-polish` 的 CI 产物）。`ociworker update` 默认继续用 UI 包；**切回原版**见下「一键切回原版」。
 
 ### 一键安装命令
 
@@ -68,6 +68,14 @@ sudo env OCI_WORKER_UI=1 bash /tmp/install.sh
 ```
 
 （等效：`sudo bash /tmp/install.sh --ui`）
+
+**一键切回原版**（已装过服务、要改回与 master 一致的 `latest` JAR）：
+
+```bash
+curl -fsSL https://github.com/mastalee928/oci-worker/releases/download/installer-latest/install.sh -o /tmp/install.sh && sudo env OCI_USE_MASTER_JAR=1 bash /tmp/install.sh
+```
+
+（或：`sudo rm -f /opt/oci-worker/.use-ui-jar && sudo ociworker update`）
 
 ---
 
