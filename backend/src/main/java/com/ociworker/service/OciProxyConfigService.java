@@ -10,14 +10,18 @@ import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.io.IOException;
 import java.net.Authenticator;
 import java.net.PasswordAuthentication;
+import java.net.Proxy;
 import java.net.ProxySelector;
+import java.net.SocketAddress;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -77,7 +81,7 @@ public class OciProxyConfigService {
         if (!cache.enabled() || !cache.canConnect()) {
             return b;
         }
-        b.proxy(ProxySelector.of(cache.toJavaNetProxy()));
+        b.proxy(singleProxy(cache.toJavaNetProxy()));
         b.authenticator(authenticatorFor(cache));
         return b;
     }
@@ -120,7 +124,7 @@ public class OciProxyConfigService {
         if (!t.canConnect()) {
             return b;
         }
-        b.proxy(ProxySelector.of(t.toJavaNetProxy()));
+        b.proxy(singleProxy(t.toJavaNetProxy()));
         b.authenticator(authenticatorFor(t));
         return b;
     }
@@ -134,7 +138,7 @@ public class OciProxyConfigService {
         return new Authenticator() {
             @Override
             protected PasswordAuthentication getPasswordAuthentication() {
-                if (getRequestorType() == RequestorType.PROXY) {
+                if (getRequestorType() == Authenticator.RequestorType.PROXY) {
                     return new PasswordAuthentication(s.proxyUser(), pass);
                 }
                 return null;
@@ -152,5 +156,19 @@ public class OciProxyConfigService {
         notificationService.saveKvValue(SysCfgEnum.OCI_PROXY_PASS, m.get("pass"));
         notificationService.saveKvValue(SysCfgEnum.OCI_PROXY_FULL_URL, m.get("fullUrl"));
         reload();
+    }
+
+    /** Java 11+ 兼容（{@link ProxySelector#of(Proxy)} 需 Java 16+） */
+    private static ProxySelector singleProxy(Proxy proxy) {
+        return new ProxySelector() {
+            @Override
+            public List<Proxy> select(URI uri) {
+                return List.of(proxy);
+            }
+
+            @Override
+            public void connectFailed(URI uri, SocketAddress sa, IOException ioe) {
+            }
+        };
     }
 }

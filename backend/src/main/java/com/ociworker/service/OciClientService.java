@@ -107,35 +107,35 @@ public class OciClientService implements Closeable {
                 : ps.getOciProxyConfiguration();
 
         var idb = IdentityClient.builder().configuration(clientConfig);
-        ocx.ifPresent(cfg -> idb.clientConfigurator(c -> c.property(StandardClientProperties.PROXY, cfg)));
+        ocx.ifPresent(cfg -> idb.additionalClientConfigurator(c -> c.property(StandardClientProperties.PROXY, cfg)));
         identityClient = idb.build(provider);
 
         var c1 = ComputeClient.builder().configuration(clientConfig);
-        ocx.ifPresent(cfg -> c1.clientConfigurator(c -> c.property(StandardClientProperties.PROXY, cfg)));
+        ocx.ifPresent(cfg -> c1.additionalClientConfigurator(c -> c.property(StandardClientProperties.PROXY, cfg)));
         computeClient = c1.build(provider);
 
         var c2 = BlockstorageClient.builder().configuration(clientConfig);
-        ocx.ifPresent(cfg -> c2.clientConfigurator(c -> c.property(StandardClientProperties.PROXY, cfg)));
+        ocx.ifPresent(cfg -> c2.additionalClientConfigurator(c -> c.property(StandardClientProperties.PROXY, cfg)));
         blockstorageClient = c2.build(provider);
 
         var c3 = ObjectStorageClient.builder().configuration(clientConfig);
-        ocx.ifPresent(cfg -> c3.clientConfigurator(c -> c.property(StandardClientProperties.PROXY, cfg)));
+        ocx.ifPresent(cfg -> c3.additionalClientConfigurator(c -> c.property(StandardClientProperties.PROXY, cfg)));
         objectStorageClient = c3.build(provider);
 
         var c4 = WorkRequestClient.builder().configuration(clientConfig);
-        ocx.ifPresent(cfg -> c4.clientConfigurator(c -> c.property(StandardClientProperties.PROXY, cfg)));
+        ocx.ifPresent(cfg -> c4.additionalClientConfigurator(c -> c.property(StandardClientProperties.PROXY, cfg)));
         workRequestClient = c4.build(provider);
 
         var c5 = VirtualNetworkClient.builder().configuration(clientConfig);
-        ocx.ifPresent(cfg -> c5.clientConfigurator(c -> c.property(StandardClientProperties.PROXY, cfg)));
+        ocx.ifPresent(cfg -> c5.additionalClientConfigurator(c -> c.property(StandardClientProperties.PROXY, cfg)));
         virtualNetworkClient = c5.build(provider);
 
         var c6 = MonitoringClient.builder().configuration(clientConfig);
-        ocx.ifPresent(cfg -> c6.clientConfigurator(c -> c.property(StandardClientProperties.PROXY, cfg)));
+        ocx.ifPresent(cfg -> c6.additionalClientConfigurator(c -> c.property(StandardClientProperties.PROXY, cfg)));
         monitoringClient = c6.build(provider);
 
         var c7 = NetworkLoadBalancerClient.builder().configuration(clientConfig);
-        ocx.ifPresent(cfg -> c7.clientConfigurator(c -> c.property(StandardClientProperties.PROXY, cfg)));
+        ocx.ifPresent(cfg -> c7.additionalClientConfigurator(c -> c.property(StandardClientProperties.PROXY, cfg)));
         networkLoadBalancerClient = c7.build(provider);
         this.provider = provider;
         compartmentId = StrUtil.isBlank(ociCfg.getCompartmentId())
