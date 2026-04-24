@@ -17,6 +17,7 @@ import javax.net.ssl.SNIHostName;
 import javax.net.ssl.SSLParameters;
 import java.io.IOException;
 import java.net.Socket;
+import java.security.GeneralSecurityException;
 import java.util.Collections;
 
 /**
@@ -119,7 +120,12 @@ public final class OciSocksApacheConnectionManager {
                     p.remoteDns,
                     connectTimeout);
             tunnel.setSoTimeout(120_000);
-            SSLContext ctx = SSLContext.getDefault();
+            SSLContext ctx;
+            try {
+                ctx = SSLContext.getDefault();
+            } catch (GeneralSecurityException e) {
+                throw new IOException("TLS default SSLContext unavailable", e);
+            }
             SSLSocketFactory sf = ctx.getSocketFactory();
             SSLSocket ssl = (SSLSocket) sf.createSocket(tunnel, remoteHost.getHostName(), remoteHost.getPort(), true);
             SSLParameters params = ssl.getSSLParameters();
