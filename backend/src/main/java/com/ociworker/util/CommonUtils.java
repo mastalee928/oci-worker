@@ -63,18 +63,28 @@ public class CommonUtils {
             sb.append("set -e\n");
             sb.append("printf '%s' '").append(chpasswdB64).append("' | base64 -d | chpasswd\n");
             sb.append("set +e\n");
-            // 与 cloud-init 的 50-*.conf 等：用更晚的序号覆盖
+            // Oracle Linux / RHEL：5x-*.conf 里常写死禁止 root/密码；OpenSSH 对多文件重复项的解析
+            // 与 Ubuntu 不同，仅追加 99- 时若「先写优先」会仍不生效。此处原地修改所有已存在的片段并追加 zz- 兜底。
+            sb.append("OL_SSH_FIX() {\n");
+            sb.append("  sed -i -E 's/^[#[:space:]]*PermitRootLogin[[:space:]].*/PermitRootLogin yes/; ");
+            sb.append("s/^[#[:space:]]*PasswordAuthentication[[:space:]].*/PasswordAuthentication yes/' \"$1\" 2>/dev/null || true\n");
+            sb.append("}\n");
+            sb.append("if [ -f /etc/ssh/sshd_config ]; then OL_SSH_FIX /etc/ssh/sshd_config; fi\n");
+            sb.append("if [ -d /etc/ssh/sshd_config.d ]; then shopt -s nullglob; for f in /etc/ssh/sshd_config.d/*.conf; do ");
+            sb.append("OL_SSH_FIX \"$f\"; done; shopt -u nullglob; fi\n");
             sb.append("if [ -d /etc/ssh/sshd_config.d ]; then\n");
             sb.append("  cat > /etc/ssh/sshd_config.d/99-ociworker.conf <<'SSHEOF'\n");
             sb.append("PermitRootLogin yes\n");
             sb.append("PasswordAuthentication yes\n");
-            sb.append("KbdInteractiveAuthentication yes\n");
-            sb.append("PubkeyAuthentication yes\n");
             sb.append("SSHEOF\n");
-            sb.append("  chmod 644 /etc/ssh/sshd_config.d/99-ociworker.conf\n");
+            sb.append("  # 排序在 5x-*.conf/99-ociworker 之后，覆盖 Oracle Linux 等 RHEL 系中仍残留的禁止项\n");
+            sb.append("  cat > /etc/ssh/sshd_config.d/zz-ociworker-override.conf <<'SSHEOF2'\n");
+            sb.append("PermitRootLogin yes\n");
+            sb.append("PasswordAuthentication yes\n");
+            sb.append("SSHEOF2\n");
+            sb.append("  chmod 644 /etc/ssh/sshd_config.d/99-ociworker.conf /etc/ssh/sshd_config.d/zz-ociworker-override.conf 2>/dev/null || true\n");
             sb.append("fi\n");
-            sb.append("sed -i -E 's/^[#[:space:]]*PermitRootLogin[[:space:]].*/PermitRootLogin yes/' /etc/ssh/sshd_config\n");
-            sb.append("sed -i -E 's/^[#[:space:]]*PasswordAuthentication[[:space:]].*/PasswordAuthentication yes/' /etc/ssh/sshd_config\n");
+            sb.append("if getenforce 2>/dev/null | grep -q Enforcing; then restorecon -RFv /etc/ssh /etc/ssh/sshd_config.d 2>/dev/null || true; fi\n");
             // 配置不合法时勿盲目 restart，避免把 sshd 打挂
             sb.append("if sshd -t 2>>/var/log/ociworker-bootstrap.log; then\n");
             sb.append("  systemctl restart sshd 2>/dev/null || systemctl restart ssh 2>/dev/null || ");
