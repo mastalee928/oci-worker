@@ -111,6 +111,21 @@ public class DatabaseGuardService {
                 create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """);
+
+        TABLE_DDL.put("oci_openai_key", """
+            CREATE TABLE IF NOT EXISTS oci_openai_key (
+                id VARCHAR(64) PRIMARY KEY,
+                oci_user_id VARCHAR(64) NOT NULL,
+                key_hash VARCHAR(64) NOT NULL,
+                key_prefix VARCHAR(32) NOT NULL,
+                name VARCHAR(128) DEFAULT NULL,
+                disabled TINYINT(1) NOT NULL DEFAULT 0,
+                create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                last_used DATETIME DEFAULT NULL,
+                UNIQUE KEY uk_oci_openai_key_hash (key_hash),
+                INDEX idx_oci_openai_key_user (oci_user_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            """);
     }
 
     @PostConstruct

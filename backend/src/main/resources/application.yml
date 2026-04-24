@@ -1,6 +1,12 @@
 server:
   port: 8818
 
+# New API / OpenAI 兼容 HTTP：独立端口，与面板(8818)、本机 WebSSH(8008) 分离；Base URL 示例 http://<本机或反代地址>:<openaiApi.port>/v1
+ociworker:
+  openaiApi:
+    # 0 = 不启用第二端口；>0 且与 server.port 不同时，Tomcat 额外监听该口供 /v1 等 OpenAI 路由
+    port: 8080
+
 web:
   account: admin
   password: admin123

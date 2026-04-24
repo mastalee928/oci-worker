@@ -42,6 +42,10 @@
           <template #icon><i class="ri-file-list-3-line menu-ri"></i></template>
           日志查看
         </a-menu-item>
+        <a-menu-item key="oracle-ai">
+          <template #icon><i class="ri-magic-line menu-ri"></i></template>
+          Oracle AI
+        </a-menu-item>
         <a-menu-item key="webssh">
           <template #icon><i class="ri-terminal-box-line menu-ri"></i></template>
           WebSSH
@@ -157,6 +161,7 @@ const pageTitleIcon = computed(() => {
     instance: 'ri-server-line',
     task: 'ri-flashlight-line',
     log: 'ri-file-list-3-line',
+    'oracle-ai': 'ri-magic-line',
     webssh: 'ri-terminal-box-line',
     settings: 'ri-settings-4-line',
     user: 'ri-group-line',

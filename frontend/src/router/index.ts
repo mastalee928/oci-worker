@@ -55,6 +55,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '日志查看', icon: 'FileTextOutlined' },
       },
       {
+        path: 'oracle-ai',
+        name: 'OracleAI',
+        component: () => import('../views/OracleAI.vue'),
+        meta: { title: 'Oracle AI', icon: 'ApiOutlined' },
+      },
+      {
         path: 'webssh',
         name: 'WebSSH',
         component: () => import('../views/WebSSH.vue'),
