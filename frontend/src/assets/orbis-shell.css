@@ -84,7 +84,8 @@ body.orbit-auth[data-theme='dark']::after {
 /* ========== 主应用壳：深色 + 视频时压暗底层栅格 ========== */
 body.orbit-app-shell[data-theme='dark'] {
   --bg-body: #010828;
-  --bg-sidebar: rgba(1, 8, 40, 0.45);
+  /* 更透，主界面才能看到背后全屏视频 */
+  --bg-sidebar: rgba(1, 8, 40, 0.28);
   --bg-card: rgba(255, 255, 255, 0.04);
   --text-main: #eff4ff;
   --text-sub: rgba(239, 244, 255, 0.62);

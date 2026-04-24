@@ -3,11 +3,28 @@
  * 作用域：body.orbit-app-shell[data-theme='dark']，内容区 .orbit-page-surface
  */
 
-/* ========== 内容区舞台 ========== */
+/* ========== 主布局透明：让背后全屏视频可见（否则只有登录页能「看到」视频）========== */
+body.orbit-app-shell[data-theme='dark'] .orbit-main-wrap .main-layout,
+body.orbit-app-shell[data-theme='dark'] .orbit-main-wrap .ant-layout,
+body.orbit-app-shell[data-theme='dark'] .content-layout {
+  background: transparent !important;
+}
+body.orbit-app-shell[data-theme='dark'] .app-header {
+  background: rgba(1, 8, 40, 0.38) !important;
+  backdrop-filter: blur(18px) saturate(1.1) !important;
+  -webkit-backdrop-filter: blur(18px) saturate(1.1) !important;
+  border-color: rgba(255, 255, 255, 0.1) !important;
+}
+body.orbit-app-shell[data-theme='dark'] .app-header .header-btn {
+  background: rgba(255, 255, 255, 0.08) !important;
+  border-color: rgba(255, 255, 255, 0.12) !important;
+}
+/* ========== 内容区舞台（勿整块涂死，避免挡住背后视频）========== */
 body.orbit-app-shell[data-theme='dark'] .app-content.orbit-page-surface {
   position: relative;
   z-index: 4;
   min-height: 0;
+  background: linear-gradient(180deg, rgba(1, 8, 40, 0.12) 0%, rgba(1, 8, 40, 0.42) 100%) !important;
 }
 body.orbit-app-shell[data-theme='dark'] .app-content.orbit-page-surface::before {
   content: '';
