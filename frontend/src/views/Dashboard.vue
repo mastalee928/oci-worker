@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div class="page-dashboard">
     <div class="dash-stats">
       <div class="dash-stat-card">
         <div class="icon-wrap" style="background: var(--primary-light); color: var(--primary)">
@@ -72,11 +72,16 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+/* 主内容区 .app-content 为 overflow: auto 时，:hover 用 translateY 会把整卡上移，顶边/描边在容器顶部被裁切；悬停用阴影即可 */
+.page-dashboard {
+  padding-top: 2px;
+}
 .dash-stats {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
   gap: 16px;
   margin-bottom: 24px;
+  overflow: visible;
 }
 .dash-stat-card {
   background: var(--bg-card);
@@ -85,12 +90,15 @@ onMounted(async () => {
   padding: 20px 18px;
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
-  transition: border-color 0.2s, transform 0.2s;
+  transition: border-color 0.2s, box-shadow 0.2s;
   box-shadow: var(--shadow-card);
 }
 .dash-stat-card:hover {
-  border-color: rgba(129, 140, 248, 0.35);
-  transform: translateY(-2px);
+  border-color: rgba(129, 140, 248, 0.5);
+  box-shadow:
+    var(--shadow-card),
+    0 0 0 1px rgba(129, 140, 248, 0.2),
+    0 10px 28px -12px rgba(99, 102, 241, 0.35);
 }
 .icon-wrap {
   width: 42px; height: 42px;
