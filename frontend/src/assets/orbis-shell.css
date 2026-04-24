@@ -1,0 +1,126 @@
+/**
+ * Orbis 全站壳层：深空底、玻璃、霓虹强调（与 body.orbit-app-shell / .orbit-auth 联用）
+ */
+
+/* ========== Liquid glass（与 spec 一致）========== */
+.liquid-glass {
+  background: rgba(255, 255, 255, 0.01);
+  background-blend-mode: luminosity;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  border: none;
+  box-shadow: inset 0 1px 1px rgba(255, 255, 255, 0.1);
+  position: relative;
+  overflow: hidden;
+}
+.liquid-glass::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: 1.4px;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.45) 0%,
+    rgba(255, 255, 255, 0.15) 20%,
+    rgba(255, 255, 255, 0) 40%,
+    rgba(255, 255, 255, 0) 60%,
+    rgba(255, 255, 255, 0.15) 80%,
+    rgba(255, 255, 255, 0.45) 100%
+  );
+  -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+
+/* ========== 字体工具类 ========== */
+.font-orbit-display {
+  font-family: 'Anton', system-ui, sans-serif;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+}
+.font-orbit-accent {
+  font-family: 'Condiment', cursive;
+  font-weight: 400;
+}
+.font-orbit-mono {
+  font-family: ui-monospace, 'Cascadia Code', 'SF Mono', Menlo, monospace;
+}
+
+/* ========== 全屏视频底（主壳 / 登录共用类名）========== */
+.orbit-bg-video {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  pointer-events: none;
+}
+
+/* SVG 噪点纹理（替代 texture.png，避免缺资源） */
+.orbit-texture-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 3;
+  pointer-events: none;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.5'/%3E%3C/svg%3E");
+  background-size: cover;
+  mix-blend-mode: lighten;
+  opacity: 0.45;
+}
+
+/* ========== 登录/设置：无侧栏时的 body 标记 orbit-auth ========== */
+body.orbit-auth[data-theme='dark'] {
+  background: #010828 !important;
+  background-image: none !important;
+}
+body.orbit-auth[data-theme='dark']::before,
+body.orbit-auth[data-theme='dark']::after {
+  display: none !important;
+}
+
+/* ========== 主应用壳：深色 + 视频时压暗底层栅格 ========== */
+body.orbit-app-shell[data-theme='dark'] {
+  --bg-body: #010828;
+  --bg-sidebar: rgba(1, 8, 40, 0.45);
+  --bg-card: rgba(255, 255, 255, 0.04);
+  --text-main: #eff4ff;
+  --text-sub: rgba(239, 244, 255, 0.62);
+  --border: rgba(255, 255, 255, 0.08);
+  --input-bg: rgba(1, 8, 40, 0.55);
+  --primary: #6fff00;
+  --primary-hover: #5ee600;
+  --primary-light: rgba(111, 255, 0, 0.12);
+  --grid-color: rgba(239, 244, 255, 0.03);
+  background: #010828 !important;
+  background-image: none !important;
+}
+
+body.orbit-app-shell[data-theme='dark']::before,
+body.orbit-app-shell[data-theme='dark']::after {
+  opacity: 0.25;
+}
+
+body.orbit-app-shell.wallpaper-active[data-theme='dark'] {
+  background-image: none !important;
+}
+
+/* Ant 侧栏菜单：深色壳下霓虹选中态 */
+body.orbit-app-shell[data-theme='dark'] .ant-menu-dark .ant-menu-item:hover {
+  background: rgba(111, 255, 0, 0.08) !important;
+  color: #eff4ff !important;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-menu-dark .ant-menu-item-selected {
+  background: linear-gradient(
+    90deg,
+    rgba(111, 255, 0, 0.18) 0%,
+    rgba(111, 255, 0, 0.06) 100%
+  ) !important;
+  color: #eff4ff !important;
+  box-shadow: inset 0 0 0 1px rgba(111, 255, 0, 0.25);
+}
+body.orbit-app-shell[data-theme='dark'] .ant-menu-dark .ant-menu-item-selected .menu-ri {
+  color: #6fff00 !important;
+}

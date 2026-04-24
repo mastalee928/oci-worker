@@ -1,5 +1,21 @@
 <template>
-  <a-layout class="main-layout">
+  <div class="orbit-main-wrap">
+    <video
+      v-if="themeStore.isDark && !themeStore.wallpaperActive"
+      class="orbit-bg-video"
+      :src="orbitVideo"
+      autoplay
+      loop
+      muted
+      playsinline
+    />
+    <div
+      v-if="themeStore.isDark && !themeStore.wallpaperActive"
+      class="orbit-texture-overlay"
+      aria-hidden="true"
+    />
+
+    <a-layout :class="['main-layout', { 'main-layout--orbit': themeStore.isDark }]">
     <div v-if="mobileMenuOpen && isMobile" class="mobile-overlay" @click="mobileMenuOpen = false" />
 
     <a-layout-sider
@@ -8,16 +24,14 @@
       collapsible
       :width="260"
       :collapsed-width="isMobile ? 0 : 64"
-      :class="['sider', {
-        'sider-mobile': isMobile,
-        'sider-mobile-open': mobileMenuOpen && isMobile,
-        'sider-collapsed-desktop': collapsed && !isMobile,
-      }]"
+      :class="['sider', { 'liquid-glass': themeStore.isDark, 'sider-mobile': isMobile, 'sider-mobile-open': mobileMenuOpen && isMobile, 'sider-collapsed-desktop': collapsed && !isMobile }]"
       :style="isMobile && !mobileMenuOpen ? { display: 'none' } : {}"
     >
       <div class="brand">
         <i class="ri-server-line brand-icon"></i>
-        <span v-if="!collapsed || (isMobile && mobileMenuOpen)" class="brand-text">OCI Worker</span>
+        <span v-if="!collapsed || (isMobile && mobileMenuOpen)" class="brand-text font-orbit-display"
+          >OCI <span class="brand-neon">Worker</span></span
+        >
       </div>
       <a-menu mode="inline" :selected-keys="[currentRoute]" @click="handleMenuClick"
         class="nav-menu" theme="dark">
@@ -82,7 +96,7 @@
           <button v-else class="header-btn trigger" @click="collapsed = !collapsed">
             <i :class="collapsed ? 'ri-menu-unfold-line' : 'ri-menu-fold-line'"></i>
           </button>
-          <h2 class="page-title">
+          <h2 class="page-title" :class="{ 'font-orbit-display': themeStore.isDark }">
             <i :class="pageTitleIcon"></i>
             {{ currentTitle }}
           </h2>
@@ -102,6 +116,7 @@
     </a-layout>
 
   </a-layout>
+  </div>
 </template>
 
 <script setup lang="ts">
@@ -109,6 +124,9 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUserStore } from '../stores/user'
 import { useThemeStore } from '../stores/theme'
+import { ORBIT_SHELL_VIDEO } from '../constants/orbit'
+
+const orbitVideo = ORBIT_SHELL_VIDEO
 
 const router = useRouter()
 const route = useRoute()
@@ -176,7 +194,19 @@ function handleLogout() {
 </script>
 
 <style scoped>
-.main-layout { min-height: 100vh; }
+.orbit-main-wrap {
+  position: relative;
+  min-height: 100vh;
+  isolation: isolate;
+}
+.main-layout {
+  min-height: 100vh;
+  position: relative;
+  z-index: 10;
+}
+.main-layout--orbit {
+  min-height: 100vh;
+}
 .content-layout { min-width: 0; }
 
 .sider {
@@ -245,12 +275,27 @@ function handleLogout() {
   color: #818cf8;
 }
 .brand-text {
-  font-size: 20px;
-  font-weight: 800;
+  font-size: 18px;
+  font-weight: 400;
+  text-transform: uppercase;
+  color: #eff4ff;
+  letter-spacing: 0.04em;
+  white-space: nowrap;
+}
+.brand-neon {
+  color: #6fff00;
+  margin-left: 0.2em;
+}
+[data-theme='light'] .brand-text,
+[data-theme='light'] .brand-neon {
   background: linear-gradient(135deg, #a5b4fc 0%, #6366f1 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
-  white-space: nowrap;
+  color: transparent;
+  margin: 0;
+}
+[data-theme='light'] .brand-neon {
+  margin-left: 0.15em;
 }
 
 .nav-menu {

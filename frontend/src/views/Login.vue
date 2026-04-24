@@ -1,12 +1,23 @@
 <template>
-  <div class="login-page">
-    <div class="bg-glow" />
-    <div class="bg-glow-2" />
+  <div class="login-page" :class="{ 'login-page--orbit': themeStore.isDark }">
+    <video
+      v-if="themeStore.isDark"
+      class="orbit-bg-video"
+      :src="orbitVideo"
+      autoplay
+      loop
+      muted
+      playsinline
+    />
+    <div v-if="themeStore.isDark" class="orbit-texture-overlay" aria-hidden="true" />
+    <div class="bg-glow" v-if="!themeStore.isDark" />
+    <div class="bg-glow-2" v-if="!themeStore.isDark" />
     <div class="login-card">
       <div class="login-header">
         <i class="ri-server-line logo-icon"></i>
-        <h2>OCI Worker</h2>
-        <p>Oracle Cloud 实例管理面板</p>
+        <h2 :class="{ 'font-orbit-display': themeStore.isDark }">OCI <span class="login-neon">Worker</span></h2>
+        <p v-if="themeStore.isDark" class="font-orbit-accent login-tagline">Oracle Cloud 控制台</p>
+        <p v-else>Oracle Cloud 实例管理面板</p>
       </div>
       <template v-if="loginMode === 'password'">
         <a-form :model="form" @finish="handleLogin" layout="vertical" class="login-form">
@@ -79,10 +90,14 @@ import { reactive, ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { useUserStore } from '../stores/user'
+import { useThemeStore } from '../stores/theme'
+import { ORBIT_SHELL_VIDEO } from '../constants/orbit'
 import { login, needSetup, tgLoginAvailable, tgLoginSendCode, tgLogin } from '../api/auth'
 
+const orbitVideo = ORBIT_SHELL_VIDEO
 const router = useRouter()
 const userStore = useUserStore()
+const themeStore = useThemeStore()
 const loading = ref(false)
 const form = reactive({ account: '', password: '' })
 
@@ -168,6 +183,61 @@ async function handleTgLogin() {
   background: #020617;
   position: relative;
   overflow: hidden;
+}
+.login-page--orbit {
+  background: #010828;
+  isolation: isolate;
+}
+.login-page--orbit .login-card {
+  z-index: 10;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow:
+    0 0 0 1px rgba(111, 255, 0, 0.06) inset,
+    0 25px 50px -12px rgba(0, 0, 0, 0.6),
+    0 0 100px -24px rgba(111, 255, 0, 0.12);
+}
+.login-neon {
+  color: #6fff00;
+  font-weight: 400;
+}
+.login-page--orbit .login-header h2 {
+  font-size: 28px;
+  text-transform: uppercase;
+  color: #eff4ff;
+  letter-spacing: 0.02em;
+  font-weight: 400;
+}
+.login-tagline {
+  font-size: 1.35rem !important;
+  color: #6fff00 !important;
+  margin-top: 10px !important;
+  mix-blend-mode: exclusion;
+  opacity: 0.9;
+}
+.login-page--orbit .logo-icon {
+  color: #6fff00;
+  -webkit-text-fill-color: #6fff00;
+  filter: drop-shadow(0 0 12px rgba(111, 255, 0, 0.4));
+  background: none;
+}
+.login-page--orbit .submit-btn {
+  background: linear-gradient(135deg, #4a8f00 0%, #2d6600 100%);
+  color: #eff4ff;
+  box-shadow: 0 4px 20px -4px rgba(111, 255, 0, 0.35);
+}
+.login-page--orbit .submit-btn:hover:not(:disabled) {
+  box-shadow: 0 8px 24px -4px rgba(111, 255, 0, 0.5);
+}
+.login-page--orbit .login-input:where(.ant-input-affix-wrapper-focused),
+.login-page--orbit .login-input:focus {
+  border-color: #6fff00 !important;
+  box-shadow: 0 0 0 3px rgba(111, 255, 0, 0.2) !important;
+}
+.login-page--orbit .tg-switch {
+  color: #6fff00;
+}
+.login-page--orbit .tg-switch:hover {
+  color: #9f6;
 }
 .bg-glow {
   position: absolute;

@@ -1,16 +1,27 @@
 <template>
-  <div class="setup-page">
-    <div class="bg-glow" />
-    <div class="bg-glow-2" />
+  <div class="setup-page" :class="{ 'setup-page--orbit': themeStore.isDark }">
+    <video
+      v-if="themeStore.isDark"
+      class="orbit-bg-video"
+      :src="orbitVideo"
+      autoplay
+      loop
+      muted
+      playsinline
+    />
+    <div v-if="themeStore.isDark" class="orbit-texture-overlay" aria-hidden="true" />
+    <div class="bg-glow" v-if="!themeStore.isDark" />
+    <div class="bg-glow-2" v-if="!themeStore.isDark" />
     <div class="setup-card">
       <div class="setup-header">
         <i class="ri-server-line logo-icon"></i>
-        <h2>OCI Worker</h2>
-        <p>首次使用，请设置管理员账户</p>
+        <h2 :class="{ 'font-orbit-display': themeStore.isDark }">OCI <span class="setup-neon">Worker</span></h2>
+        <p v-if="themeStore.isDark" class="font-orbit-accent setup-tagline">首次部署 · 建立管理员</p>
+        <p v-else>首次使用，请设置管理员账户</p>
       </div>
 
       <div class="security-notice">
-        <i class="ri-shield-check-line" style="color: #818cf8; font-size: 18px; flex-shrink: 0"></i>
+        <i class="ri-shield-check-line" :style="securityIconStyle" style="font-size: 18px; flex-shrink: 0"></i>
         <span>请设置管理员账户，密码至少6位</span>
       </div>
 
@@ -57,10 +68,15 @@ import { reactive, ref, computed, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { useUserStore } from '../stores/user'
+import { useThemeStore } from '../stores/theme'
+import { ORBIT_SHELL_VIDEO } from '../constants/orbit'
 import { setupAccount, needSetup } from '../api/auth'
 
+const orbitVideo = ORBIT_SHELL_VIDEO
 const router = useRouter()
 const userStore = useUserStore()
+const themeStore = useThemeStore()
+const securityIconStyle = computed(() => ({ color: themeStore.isDark ? '#6fff00' : '#818cf8' }))
 const loading = ref(false)
 const form = reactive({ account: '', password: '', confirmPassword: '' })
 
@@ -143,6 +159,58 @@ async function handleSetup() {
   background: #020617;
   position: relative;
   overflow: hidden;
+}
+.setup-page--orbit {
+  background: #010828;
+  isolation: isolate;
+}
+.setup-page--orbit .setup-card {
+  z-index: 10;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow:
+    0 0 0 1px rgba(111, 255, 0, 0.06) inset,
+    0 25px 50px -12px rgba(0, 0, 0, 0.6),
+    0 0 100px -24px rgba(111, 255, 0, 0.12);
+}
+.setup-neon {
+  color: #6fff00;
+}
+.setup-page--orbit .setup-header h2 {
+  text-transform: uppercase;
+  color: #eff4ff;
+  font-weight: 400;
+  letter-spacing: 0.02em;
+  font-size: 26px;
+}
+.setup-tagline {
+  font-size: 1.2rem !important;
+  color: #6fff00 !important;
+  margin-top: 10px !important;
+  mix-blend-mode: exclusion;
+  opacity: 0.9;
+}
+.setup-page--orbit .logo-icon {
+  color: #6fff00;
+  -webkit-text-fill-color: #6fff00;
+  filter: drop-shadow(0 0 12px rgba(111, 255, 0, 0.35));
+  background: none;
+}
+.setup-page--orbit .security-notice {
+  background: rgba(111, 255, 0, 0.08);
+  border-color: rgba(111, 255, 0, 0.25);
+}
+.setup-page--orbit .setup-input:where(.ant-input-affix-wrapper-focused),
+.setup-page--orbit .setup-input:focus {
+  border-color: #6fff00 !important;
+  box-shadow: 0 0 0 3px rgba(111, 255, 0, 0.2) !important;
+}
+.setup-page--orbit .submit-btn {
+  background: linear-gradient(135deg, #4a8f00 0%, #2d6600 100%);
+  color: #eff4ff;
+  box-shadow: 0 4px 20px -4px rgba(111, 255, 0, 0.35);
+}
+.setup-page--orbit .submit-btn:hover:not(:disabled) {
+  box-shadow: 0 8px 24px -4px rgba(111, 255, 0, 0.5);
 }
 .bg-glow {
   position: absolute;

@@ -1,8 +1,9 @@
 <template>
-  <div class="dashboard-page">
+  <div class="dashboard-page" :class="{ 'dashboard--orbit': themeStore.isDark }">
     <header class="dash-intro">
-      <h1 class="dash-title">工作概览</h1>
-      <p class="dash-sub">租户、任务与主机资源一屏掌握</p>
+      <h1 class="dash-title" :class="{ 'font-orbit-display': themeStore.isDark }">工作概览</h1>
+      <p v-if="themeStore.isDark" class="dash-sub font-orbit-accent dash-live">Live · Orbit 控制台</p>
+      <p v-else class="dash-sub">租户、任务与主机资源一屏掌握</p>
     </header>
     <div class="dash-stats">
       <div class="dash-stat-card">
@@ -63,8 +64,10 @@
 
 <script setup lang="ts">
 import { ref, onMounted } from 'vue'
+import { useThemeStore } from '../stores/theme'
 import { getGlance } from '../api/system'
 
+const themeStore = useThemeStore()
 const glance = ref<any>({})
 
 onMounted(async () => {
@@ -91,11 +94,27 @@ onMounted(async () => {
   color: var(--text-main);
   line-height: 1.2;
 }
+.font-orbit-display.dash-title {
+  font-size: 1.75rem;
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
 .dash-sub {
   margin: 6px 0 0;
   font-size: 13px;
   color: var(--text-sub);
   font-weight: 500;
+}
+.dash-live {
+  color: #6fff00 !important;
+  font-size: 1.25rem !important;
+  mix-blend-mode: exclusion;
+  opacity: 0.9;
+}
+.dashboard--orbit .dash-stat-card:hover {
+  border-color: rgba(111, 255, 0, 0.45);
+  box-shadow: 0 8px 40px -12px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(111, 255, 0, 0.1);
 }
 .dash-stats {
   display: grid;
