@@ -421,12 +421,27 @@ public class OciGenerativeOpenAiService {
             if (e.getValue() == null) {
                 continue;
             }
+            String name = e.getKey();
+            if (name == null || isDisallowedOnHttpRequestBuilder(name)) {
+                // OCI 签名需含 host 参与计算，但 java.net.http.HttpRequest 禁止手工设置
+                // Host/Connection/Content-Length 等，由客户端根据 URI 与协议自动带齐。
+                continue;
+            }
             for (String v : e.getValue()) {
                 if (v != null) {
-                    b.header(e.getKey(), v);
+                    b.header(name, v);
                 }
             }
         }
+    }
+
+    private static boolean isDisallowedOnHttpRequestBuilder(String name) {
+        String n = name.toLowerCase(java.util.Locale.ROOT);
+        return n.equals("host")
+                || n.equals("connection")
+                || n.equals("content-length")
+                || n.equals("expect")
+                || n.equals("upgrade");
     }
 
     private HttpClient pickHttpClient() {
