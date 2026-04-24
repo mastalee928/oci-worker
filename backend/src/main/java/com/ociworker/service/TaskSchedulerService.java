@@ -180,8 +180,7 @@ public class TaskSchedulerService {
                 + "⚙️ <b>架构：</b>" + architecture + "\n"
                 + "📊 <b>配置：</b>" + ocpus + "C / " + memory + "GB / " + disk + "GB\n"
                 + "🔢 <b>数量：</b>" + createNumbers + "\n"
-                + "🔑 <b>root 密码：</b><code>" + pwd + "</code>\n"
-                + "💻 <b>SSH：</b>用户 <code>root</code>，端口 22，创建成功后用公网 IP 连接";
+                + "🔑 <b>密码：</b><code>" + pwd + "</code>";
         notificationService.sendHtmlWithType(NotificationService.TYPE_TASK_CREATE, html);
     }
 
@@ -372,8 +371,7 @@ public class TaskSchedulerService {
                         + "💻 <b>Shape：</b>" + result.getShape() + "\n"
                         + "📊 <b>配置：</b>" + result.getOcpus() + "C / " + result.getMemory() + "GB / " + result.getDisk() + "GB\n"
                         + "🌐 <b>公网IP：</b><code>" + result.getPublicIp() + "</code>\n"
-                        + "🔑 <b>root 密码：</b><code>" + result.getRootPassword() + "</code>\n"
-                        + "💻 <b>SSH：</b><code>ssh root@" + result.getPublicIp() + " -p 22</code>";
+                        + "🔑 <b>密码：</b><code>" + result.getRootPassword() + "</code>";
                 notificationService.sendHtmlWithType(NotificationService.TYPE_TASK_RESULT, html);
 
                 if (successCount >= targetCount) {
