@@ -92,7 +92,7 @@ public class BackupService {
             Path sqlDumpFile = tempDir.resolve("oci-worker-dump.sql");
             if (Files.exists(sqlDumpFile)) {
                 String sql = Files.readString(sqlDumpFile);
-                importDatabase(sql);
+                importDatabase(sql.replace("\r\n", "\n").replace("\r", "\n"));
             }
 
             Path keysSource = tempDir.resolve("keys");
@@ -153,14 +153,32 @@ public class BackupService {
         try (Connection conn = dataSource.getConnection();
              Statement stmt = conn.createStatement()) {
             conn.setAutoCommit(false);
-            for (String line : sql.split(";\n")) {
-                String trimmed = line.trim();
-                if (!trimmed.isEmpty() && !trimmed.startsWith("--")) {
-                    stmt.execute(trimmed);
+            for (String chunk : sql.split(";\n")) {
+                // 不能整段用 startsWith("--") 跳过：导出里「-- Table: x」与「DELETE」在同一段时，会把 DELETE 一并丢掉，导致只执行 INSERT → 主键重复
+                String executable = stripSqlComments(chunk);
+                if (executable.isEmpty()) {
+                    continue;
                 }
+                stmt.execute(executable);
             }
             conn.commit();
         }
+    }
+
+    /** 去掉块内以 -- 开头的注释行，保留 SET/DELETE/INSERT 等可执行语句 */
+    private static String stripSqlComments(String chunk) {
+        StringBuilder out = new StringBuilder();
+        for (String line : chunk.split("\n")) {
+            String t = line.trim();
+            if (t.isEmpty() || t.startsWith("--")) {
+                continue;
+            }
+            if (out.length() > 0) {
+                out.append('\n');
+            }
+            out.append(line.trim());
+        }
+        return out.toString().trim();
     }
 
     private void copyDirectory(Path source, Path target) throws IOException {
