@@ -1,6 +1,5 @@
 package com.ociworker.service;
 
-import cn.hutool.core.thread.ThreadFactoryBuilder;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
@@ -18,7 +17,6 @@ import com.ociworker.model.params.PageParams;
 import com.ociworker.util.CommonUtils;
 import com.ociworker.websocket.LogWebSocketHandler;
 import jakarta.annotation.PostConstruct;
-import jakarta.annotation.PreDestroy;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.DependsOn;
@@ -47,25 +45,9 @@ public class TaskSchedulerService {
     @Resource
     private NotificationService notificationService;
 
-    private final Map<String, ScheduledFuture<?>> taskMap = new ConcurrentHashMap<>();
+    private final Map<String, Future<?>> taskMap = new ConcurrentHashMap<>();
     private final Set<String> runningTasks = ConcurrentHashMap.newKeySet();
-    private final ScheduledThreadPoolExecutor taskPool = new ScheduledThreadPoolExecutor(
-            Math.min(4, Runtime.getRuntime().availableProcessors()),
-            ThreadFactoryBuilder.create().setNamePrefix("oci-task-").build());
     private static final ObjectMapper JSON = new ObjectMapper();
-
-    @PreDestroy
-    public void shutdown() {
-        try {
-            taskPool.shutdown();
-            if (!taskPool.awaitTermination(5, TimeUnit.SECONDS)) {
-                taskPool.shutdownNow();
-            }
-        } catch (InterruptedException e) {
-            taskPool.shutdownNow();
-            Thread.currentThread().interrupt();
-        }
-    }
 
     @PostConstruct
     public void init() {
@@ -230,9 +212,9 @@ public class TaskSchedulerService {
 
         boolean wasRunning = TaskStatusEnum.RUNNING.getStatus().equals(task.getStatus());
         if (wasRunning) {
-            ScheduledFuture<?> future = taskMap.get(taskId);
+            Future<?> future = taskMap.get(taskId);
             if (future != null) {
-                future.cancel(false);
+                future.cancel(true);
                 taskMap.remove(taskId);
             }
         }
@@ -265,18 +247,18 @@ public class TaskSchedulerService {
     }
 
     public void deleteTask(String taskId) {
-        ScheduledFuture<?> future = taskMap.get(taskId);
+        Future<?> future = taskMap.get(taskId);
         if (future != null) {
-            future.cancel(false);
+            future.cancel(true);
             taskMap.remove(taskId);
         }
         taskMapper.deleteById(taskId);
     }
 
     public void stopTask(String taskId) {
-        ScheduledFuture<?> future = taskMap.get(taskId);
+        Future<?> future = taskMap.get(taskId);
         if (future != null) {
-            future.cancel(false);
+            future.cancel(true);
             taskMap.remove(taskId);
         }
 
@@ -292,36 +274,44 @@ public class TaskSchedulerService {
     }
 
     /**
-     * 周期调度：首次立即执行；之后每次在上一次 <strong>整次</strong> 创建尝试结束后，再间隔 {@code intervalSeconds} 秒执行下一次。
-     * <p>
-     * 若仅 {@code execute(() -> executeCreate(...))} 而不等待结束，{@link ScheduledExecutorService#scheduleWithFixedDelay}
-     * 会把「外层 Runnable 立即返回」当成一次执行结束，间隔从<strong>提交时刻</strong>起算，表现为「建任务后先空等 60 秒才第一次开机」，
-     * 且可能与仍在进行中的尝试重叠、浪费重试 tick。
+     * 每任务独立虚拟线程循环：<strong>首次无延迟</strong>立即跑 {@link #executeCreate}，一次尝试完全结束后
+     * 再 {@link Thread#sleep} 间隔秒，再下一次。避免 {@link java.util.concurrent.ScheduledThreadPoolExecutor} 仅数个工作线程
+     * 与 {@code scheduleWithFixedDelay} 排队导致「建任务后先空等一个间隔才第一次开机」。
      */
     private void scheduleTask(String taskId, SysUserDTO dto, int intervalSeconds) {
         int delaySec = Math.max(1, intervalSeconds);
-        ScheduledFuture<?> future = taskPool.scheduleWithFixedDelay(
-                () -> {
-                    CompletableFuture<Void> done = new CompletableFuture<>();
-                    VIRTUAL_EXECUTOR.execute(() -> {
-                        try {
-                            executeCreate(taskId, dto, delaySec);
-                        } finally {
-                            done.complete(null);
-                        }
-                    });
-                    try {
-                        done.get();
-                    } catch (InterruptedException e) {
-                        Thread.currentThread().interrupt();
-                    } catch (ExecutionException e) {
-                        log.warn("task {} executeCreate join: {}", taskId, e.getCause() != null ? e.getCause().getMessage() : e.getMessage());
-                    }
-                },
-                0,
-                delaySec,
-                TimeUnit.SECONDS);
+        Future<?> future = VIRTUAL_EXECUTOR.submit(() -> runTaskLoop(taskId, dto, delaySec));
         taskMap.put(taskId, future);
+    }
+
+    private void runTaskLoop(String taskId, SysUserDTO dto, int delaySec) {
+        try {
+            while (!Thread.currentThread().isInterrupted()) {
+                OciCreateTask t = taskMapper.selectById(taskId);
+                if (t == null) {
+                    break;
+                }
+                if (!TaskStatusEnum.RUNNING.getStatus().equals(t.getStatus())) {
+                    break;
+                }
+                executeCreate(taskId, dto, delaySec);
+                t = taskMapper.selectById(taskId);
+                if (t == null) {
+                    break;
+                }
+                if (!TaskStatusEnum.RUNNING.getStatus().equals(t.getStatus())) {
+                    break;
+                }
+                try {
+                    Thread.sleep(delaySec * 1000L);
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    break;
+                }
+            }
+        } finally {
+            taskMap.remove(taskId);
+        }
     }
 
     private void executeCreate(String taskId, SysUserDTO dto, int intervalSeconds) {
@@ -487,9 +477,9 @@ public class TaskSchedulerService {
     }
 
     private void completeTask(String taskId, TaskStatusEnum status) {
-        ScheduledFuture<?> future = taskMap.get(taskId);
+        Future<?> future = taskMap.get(taskId);
         if (future != null) {
-            future.cancel(false);
+            future.cancel(true);
             taskMap.remove(taskId);
         }
         OciCreateTask task = taskMapper.selectById(taskId);
