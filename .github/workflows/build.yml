@@ -40,7 +40,7 @@ jobs:
 
       - name: Build Backend JAR
         working-directory: backend
-        run: mvn clean package -DskipTests -q
+        run: mvn clean package -DskipTests
 
       # 禁止先 delete 再 create：中间会有数秒～数十秒无 JAR，用户 curl 必 404。
       - name: Publish JAR to latest release (upload / clobber — no 404 window)

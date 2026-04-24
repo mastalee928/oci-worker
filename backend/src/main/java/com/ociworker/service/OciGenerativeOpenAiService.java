@@ -235,7 +235,8 @@ public class OciGenerativeOpenAiService {
         }
     }
 
-    private void longCopyStream(HttpClient client, HttpRequest httpRequest, HttpServletResponse response) {
+    private void longCopyStream(HttpClient client, HttpRequest httpRequest, HttpServletResponse response)
+            throws IOException {
         try {
             HttpResponse<InputStream> resp = client.send(httpRequest, HttpResponse.BodyHandlers.ofInputStream());
             int code = resp.statusCode();
@@ -298,7 +299,8 @@ public class OciGenerativeOpenAiService {
         }
     }
 
-    private void bufferAndCopy(HttpClient client, HttpRequest httpRequest, HttpServletResponse response) {
+    private void bufferAndCopy(HttpClient client, HttpRequest httpRequest, HttpServletResponse response)
+            throws IOException {
         try {
             HttpResponse<String> resp = client.send(httpRequest, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             int code = resp.statusCode();
