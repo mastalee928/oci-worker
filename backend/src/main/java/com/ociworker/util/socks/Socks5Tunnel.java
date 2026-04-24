@@ -1,17 +1,25 @@
 package com.ociworker.util.socks;
 
-import java.io.DataInputStream;
-import java.io.DataOutputStream;
 import java.io.IOException;
+import java.net.Authenticator;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.PasswordAuthentication;
+import java.net.Proxy;
 import java.net.Socket;
-import java.nio.charset.StandardCharsets;
+import java.net.SocketAddress;
 
 /**
- * SOCKS5 客户端隧道（RFC 1928 + RFC 1929 用户名密码），供 Apache HttpClient 套接字工厂使用。
+ * 经 SOCKS5 连到目标主机:端口，供 Apache HttpClient 套接字工厂使用。
+ * <p>
+ * 实现改为使用与 {@link java.net.http.HttpClient}「测试代理」相同的 JDK 内置 SOCKS 栈
+ * （{@link Socket#Socket(Proxy)} + {@link Authenticator}），避免自写 RFC1929 与 JDK 字节级差异导致
+ * 代理测试通过而 OCI（Jersey/Apache）仍认证失败。
  */
 public final class Socks5Tunnel {
+
+    /** 与 {@link java.net.http.HttpClient} 经 SOCKS 建连串行化，避免并发改 {@link Authenticator#getDefault()}。 */
+    private static final Object JDK_SOCKS_CONNECT_LOCK = new Object();
 
     private Socks5Tunnel() {
     }
@@ -19,7 +27,7 @@ public final class Socks5Tunnel {
     /**
      * 建立到 targetHost:targetPort 的 TCP 连接（经 SOCKS5 代理）。
      *
-     * @param remoteDns true 时目标以域名形式发给代理（socks5h）；false 时在本机解析为 IP 再发给代理（socks5）
+     * @param remoteDns true 时目标以未解析域名经代理（socks5h）；false 时在本机解析为 IP 再经代理（socks5）
      */
     public static Socket connect(
             String proxyHost,
@@ -30,26 +38,44 @@ public final class Socks5Tunnel {
             int targetPort,
             boolean remoteDns,
             int connectTimeoutMs) throws IOException {
-        Socket socket = new Socket();
-        socket.setTcpNoDelay(true);
-        socket.connect(new InetSocketAddress(proxyHost, proxyPort), connectTimeoutMs);
-        socket.setSoTimeout(Math.max(connectTimeoutMs, 30_000));
-        try {
-            negotiateAndConnect(
-                    socket,
-                    normalizeSocksCredential(proxyUser),
-                    normalizeSocksCredential(proxyPass),
-                    targetHost,
-                    targetPort,
-                    remoteDns);
-        } catch (IOException e) {
+        String u = normalizeSocksCredential(proxyUser);
+        String p = normalizeSocksCredential(proxyPass);
+        boolean hasCreds = !u.isEmpty() || !p.isEmpty();
+        Proxy proxy = new Proxy(Proxy.Type.SOCKS, new InetSocketAddress(proxyHost, proxyPort));
+        SocketAddress remote = remoteDns
+                ? InetSocketAddress.createUnresolved(targetHost, targetPort)
+                : new InetSocketAddress(InetAddress.getByName(targetHost), targetPort);
+
+        synchronized (JDK_SOCKS_CONNECT_LOCK) {
+            Authenticator old = Authenticator.getDefault();
             try {
-                socket.close();
-            } catch (IOException ignored) {
+                if (hasCreds) {
+                    Authenticator.setDefault(new Authenticator() {
+                        @Override
+                        protected PasswordAuthentication getPasswordAuthentication() {
+                            if ("SOCKS5".equals(getRequestingProtocol())) {
+                                return new PasswordAuthentication(u, p.toCharArray());
+                            }
+                            return null;
+                        }
+                    });
+                } else {
+                    Authenticator.setDefault(new Authenticator() {
+                    });
+                }
+                Socket s = new Socket(proxy);
+                s.setTcpNoDelay(true);
+                if (connectTimeoutMs > 0) {
+                    s.connect(remote, connectTimeoutMs);
+                } else {
+                    s.connect(remote);
+                }
+                s.setSoTimeout(connectTimeoutMs > 0 ? Math.max(connectTimeoutMs, 30_000) : 30_000);
+                return s;
+            } finally {
+                Authenticator.setDefault(old);
             }
-            throw e;
         }
-        return socket;
     }
 
     /** 去掉首尾空白、BOM、行尾 CR/LF（常见于从 KV/表单粘贴的密码）。 */
@@ -65,141 +91,5 @@ public final class Socks5Tunnel {
             t = t.substring(0, t.length() - 1);
         }
         return t;
-    }
-
-    private static void negotiateAndConnect(
-            Socket socket,
-            String proxyUser,
-            String proxyPass,
-            String targetHost,
-            int targetPort,
-            boolean remoteDns) throws IOException {
-        DataOutputStream out = new DataOutputStream(socket.getOutputStream());
-        DataInputStream in = new DataInputStream(socket.getInputStream());
-
-        boolean hasCredentials = (proxyUser != null && !proxyUser.isBlank())
-                || (proxyPass != null && !proxyPass.isBlank());
-        // 与 OpenJDK SocksSocketImpl 完全一致：有凭证时仍宣告 NO_AUTH(0x00)+USER_PASS(0x02)。
-        // 若代理同时支持匿名，服务器会选 0x00，JDK 从不发 RFC1929——此时面板里填错的密码不影响「检查更新」；
-        // 若只宣告 0x02 则会强迫走 RFC1929，易与上述行为不一致而出现 status=255。
-        if (hasCredentials) {
-            out.writeByte(0x05);
-            out.writeByte(0x02);
-            out.writeByte(0x00);
-            out.writeByte(0x02);
-        } else {
-            out.writeByte(0x05);
-            out.writeByte(0x01);
-            out.writeByte(0x00);
-        }
-        out.flush();
-
-        int ver = in.readUnsignedByte();
-        int method = in.readUnsignedByte();
-        if (ver != 0x05) {
-            throw new IOException("SOCKS: 无效版本: " + ver);
-        }
-        if (method == 0xff) {
-            throw new IOException("SOCKS: 无可用认证方式");
-        }
-        if (method == 0x02) {
-            if (!hasCredentials) {
-                throw new IOException("SOCKS: 服务器要求用户名密码但未配置");
-            }
-            doUsernamePasswordAuth(out, in, proxyUser, proxyPass);
-        } else if (method != 0x00) {
-            throw new IOException("SOCKS: 不支持的认证方法: " + method);
-        }
-
-        byte[] addrPayload;
-        byte atyp;
-        if (remoteDns) {
-            byte[] hostBytes = targetHost.getBytes(StandardCharsets.UTF_8);
-            if (hostBytes.length > 255) {
-                throw new IOException("SOCKS: 目标主机名过长");
-            }
-            atyp = 0x03;
-            addrPayload = new byte[1 + hostBytes.length];
-            addrPayload[0] = (byte) hostBytes.length;
-            System.arraycopy(hostBytes, 0, addrPayload, 1, hostBytes.length);
-        } else {
-            InetAddress resolved = InetAddress.getByName(targetHost);
-            byte[] raw = resolved.getAddress();
-            if (raw.length == 4) {
-                atyp = 0x01;
-                addrPayload = raw;
-            } else if (raw.length == 16) {
-                atyp = 0x04;
-                addrPayload = raw;
-            } else {
-                throw new IOException("SOCKS: 无法解析目标地址");
-            }
-        }
-
-        int reqLen = 4 + 1 + addrPayload.length + 2;
-        byte[] req = new byte[reqLen];
-        int i = 0;
-        req[i++] = 0x05;
-        req[i++] = 0x01;
-        req[i++] = 0x00;
-        req[i++] = atyp;
-        System.arraycopy(addrPayload, 0, req, i, addrPayload.length);
-        i += addrPayload.length;
-        req[i++] = (byte) ((targetPort >> 8) & 0xff);
-        req[i++] = (byte) (targetPort & 0xff);
-        out.write(req);
-        out.flush();
-
-        int rver = in.readUnsignedByte();
-        int rep = in.readUnsignedByte();
-        in.readUnsignedByte();
-        int rAtyp = in.readUnsignedByte();
-        if (rver != 0x05) {
-            throw new IOException("SOCKS: CONNECT 响应版本异常");
-        }
-        if (rep != 0x00) {
-            throw new IOException("SOCKS: CONNECT 失败, REP=" + rep);
-        }
-        skipBindAddress(in, rAtyp);
-    }
-
-    private static void skipBindAddress(DataInputStream in, int atyp) throws IOException {
-        int skip;
-        switch (atyp) {
-            case 0x01 -> skip = 4 + 2;
-            case 0x03 -> skip = in.readUnsignedByte() + 2;
-            case 0x04 -> skip = 16 + 2;
-            default -> throw new IOException("SOCKS: 未知 ATYP: " + atyp);
-        }
-        in.skipBytes(skip);
-    }
-
-    private static void doUsernamePasswordAuth(DataOutputStream out, DataInputStream in, String user, String pass)
-            throws IOException {
-        String u = user == null ? "" : user;
-        String p = pass == null ? "" : pass;
-        // 与 OpenJDK SocksSocketImpl 一致：RFC1929 使用 ISO_8859_1，而非 UTF_8。
-        // UTF-8 对 U+0080–U+00FF 等为多字节，会导致与「检查更新」等走 JDK SOCKS 的认证字节不一致（代理返回 status≠0）。
-        byte[] ub = u.getBytes(StandardCharsets.ISO_8859_1);
-        byte[] pb = p.getBytes(StandardCharsets.ISO_8859_1);
-        if (ub.length > 255 || pb.length > 255) {
-            throw new IOException("SOCKS: 用户名或密码过长");
-        }
-        out.writeByte(0x01);
-        out.writeByte(ub.length);
-        out.write(ub);
-        out.writeByte(pb.length);
-        out.write(pb);
-        out.flush();
-        int av = in.readUnsignedByte();
-        int st = in.readUnsignedByte();
-        if (av != 0x01 || st != 0x00) {
-            if (av != 0x01) {
-                throw new IOException("SOCKS: RFC1929 响应异常 ver=" + av + " status=" + st
-                        + "（可能非标准代理或协议流错位，请核对代理类型与端口）");
-            }
-            throw new IOException("SOCKS: 用户名密码认证失败 (RFC1929 status=" + st
-                    + ")；请核对用户名/密码、完整 URL 百分号编码，或代理是否要求「仅用户名无密码」等特殊规则");
-        }
     }
 }
