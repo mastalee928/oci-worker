@@ -2,6 +2,7 @@ package com.ociworker.model.dto;
 
 import cn.hutool.core.util.StrUtil;
 import com.ociworker.enums.SysCfgEnum;
+import com.ociworker.util.socks.Socks5Tunnel;
 import com.oracle.bmc.http.client.ProxyConfiguration;
 
 import java.net.InetSocketAddress;
@@ -210,9 +211,11 @@ public record OciProxySnapshot(
         }
         var b = ProxyConfiguration.builder()
                 .proxy(toJavaNetProxy());
-        if (StrUtil.isNotBlank(proxyUser)) {
-            b.username(proxyUser)
-                    .password(proxyPass == null ? new char[0] : proxyPass.toCharArray());
+        // 与 OciProxyConfigService / OCI SOCKS 路径一致做规范化；并支持「仅密码」的 HTTP 代理（此前仅 isNotBlank(user) 会漏掉密码）。
+        String u = Socks5Tunnel.normalizeSocksCredential(proxyUser);
+        String p = Socks5Tunnel.normalizeSocksCredential(proxyPass);
+        if (!u.isEmpty() || !p.isEmpty()) {
+            b.username(u).password(p.toCharArray());
         }
         return Optional.of(b.build());
     }
