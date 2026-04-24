@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div class="orbit-view">
     <div class="table-toolbar">
       <a-space>
         <a-button @click="$router.push('/tenant')">

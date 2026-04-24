@@ -1,5 +1,5 @@
 <template>
-  <div class="webssh-container">
+  <div class="orbit-view webssh-container">
     <iframe
       src="/webssh/index.html"
       class="webssh-iframe"

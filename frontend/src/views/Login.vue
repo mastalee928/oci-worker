@@ -1,5 +1,5 @@
 <template>
-  <div class="login-page" :class="{ 'login-page--orbit': themeStore.isDark }">
+  <div class="orbit-view orbit-view--auth login-page" :class="{ 'login-page--orbit': themeStore.isDark }">
     <video
       v-if="themeStore.isDark"
       class="orbit-bg-video"

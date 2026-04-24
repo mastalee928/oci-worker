@@ -1,0 +1,330 @@
+/**
+ * Orbis 全站交互基线：动效时长、聚焦环、可点击反馈（不依赖单页自写）
+ * 与 body.orbit-app-shell[data-theme='dark'] 同用
+ */
+
+:root {
+  --orbit-ease: cubic-bezier(0.4, 0, 0.2, 1);
+  --orbit-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --orbit-t-fast: 0.16s;
+  --orbit-t: 0.24s;
+  --orbit-t-slow: 0.4s;
+  --orbit-focus: 0 0 0 2px #010828, 0 0 0 4px rgba(111, 255, 0, 0.55);
+}
+
+/* 键盘/聚焦可见（全站可点元素） */
+body.orbit-app-shell[data-theme='dark'] a:focus-visible,
+body.orbit-app-shell[data-theme='dark'] button:focus-visible,
+body.orbit-app-shell[data-theme='dark'] .ant-btn:focus-visible,
+body.orbit-app-shell[data-theme='dark'] [role='button']:focus-visible,
+body.orbit-app-shell[data-theme='dark'] .ant-menu-item:focus-visible,
+body.orbit-app-shell[data-theme='dark'] .ant-input:focus-visible {
+  outline: none !important;
+  box-shadow: var(--orbit-focus) !important;
+  border-radius: 8px;
+}
+
+/* 主内容区：子页面进入动效由 MainLayout 的 transition 名 orbit-page 驱动 */
+.orbit-page-enter-active {
+  transition:
+    opacity var(--orbit-t) var(--orbit-ease),
+    transform var(--orbit-t) var(--orbit-ease);
+}
+.orbit-page-leave-active {
+  transition:
+    opacity calc(var(--orbit-t) * 0.65) var(--orbit-ease),
+    transform calc(var(--orbit-t) * 0.65) var(--orbit-ease);
+}
+.orbit-page-enter-from {
+  opacity: 0;
+  transform: translateY(10px) scale(0.992);
+}
+.orbit-page-leave-to {
+  opacity: 0;
+  transform: translateY(-6px);
+}
+
+/* Ant 表格行：显式可扫视反馈 */
+body.orbit-app-shell[data-theme='dark'] .ant-table-tbody > tr {
+  transition: background-color var(--orbit-t-fast) var(--orbit-ease);
+}
+body.orbit-app-shell[data-theme='dark'] .ant-table-tbody > tr > td {
+  transition: color var(--orbit-t-fast) var(--orbit-ease);
+}
+
+/* 卡片/弹层内按钮微反馈增强 */
+body.orbit-app-shell[data-theme='dark'] .ant-btn:not(:disabled) {
+  transition:
+    background var(--orbit-t) var(--orbit-ease),
+    border-color var(--orbit-t) var(--orbit-ease),
+    color var(--orbit-t) var(--orbit-ease),
+    transform 0.18s var(--orbit-spring),
+    box-shadow var(--orbit-t) var(--orbit-ease) !important;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-btn-primary:not(:disabled):active {
+  transform: scale(0.98);
+}
+
+/* 折叠/分段控件 */
+body.orbit-app-shell[data-theme='dark'] .ant-segmented-item {
+  transition: color var(--orbit-t) var(--orbit-ease), background var(--orbit-t) var(--orbit-ease) !important;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-collapse .ant-collapse-header {
+  transition: background var(--orbit-t) var(--orbit-ease) !important;
+}
+
+/* 移动端侧栏遮罩 */
+.orbit-fade-enter-active,
+.orbit-fade-leave-active {
+  transition: opacity var(--orbit-t) var(--orbit-ease);
+}
+.orbit-fade-enter-from,
+.orbit-fade-leave-to {
+  opacity: 0;
+}
+
+/* =============================================================================
+ * 全站 Ant Design 组件补全：凡可点/可选/可关之处均有 transition + 明确 hover/active
+ * ============================================================================= */
+
+body.orbit-app-shell[data-theme='dark'] .ant-tabs .ant-tabs-tab {
+  transition: color var(--orbit-t) var(--orbit-ease), transform 0.2s var(--orbit-ease);
+}
+body.orbit-app-shell[data-theme='dark'] .ant-tabs .ant-tabs-tab:hover:not(.ant-tabs-tab-active) {
+  color: rgba(239, 244, 255, 0.88) !important;
+}
+
+body.orbit-app-shell[data-theme='dark'] .ant-modal .ant-modal-close,
+body.orbit-app-shell[data-theme='dark'] .ant-drawer .ant-drawer-close {
+  transition: color 0.2s, background 0.2s, transform 0.3s var(--orbit-ease);
+  border-radius: 8px;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-modal .ant-modal-close:hover,
+body.orbit-app-shell[data-theme='dark'] .ant-drawer .ant-drawer-close:hover {
+  color: #6fff00 !important;
+  background: rgba(111, 255, 0, 0.12);
+  transform: rotate(90deg);
+}
+
+body.orbit-app-shell[data-theme='dark'] .ant-pagination .ant-pagination-item,
+body.orbit-app-shell[data-theme='dark'] .ant-pagination .ant-pagination-prev .ant-pagination-item-link,
+body.orbit-app-shell[data-theme='dark'] .ant-pagination .ant-pagination-next .ant-pagination-item-link,
+body.orbit-app-shell[data-theme='dark'] .ant-pagination .ant-pagination-jump-prev .ant-pagination-item-link,
+body.orbit-app-shell[data-theme='dark'] .ant-pagination .ant-pagination-jump-next .ant-pagination-item-link {
+  transition:
+    color 0.2s,
+    background 0.2s,
+    border-color 0.2s,
+    transform 0.18s var(--orbit-spring);
+}
+body.orbit-app-shell[data-theme='dark'] .ant-pagination .ant-pagination-item:hover:not(.ant-pagination-item-active),
+body.orbit-app-shell[data-theme='dark'] .ant-pagination .ant-pagination-prev button:hover,
+body.orbit-app-shell[data-theme='dark'] .ant-pagination .ant-pagination-next button:hover {
+  border-color: rgba(111, 255, 0, 0.4) !important;
+  color: #6fff00 !important;
+  transform: translateY(-1px);
+}
+body.orbit-app-shell[data-theme='dark'] .ant-pagination .ant-pagination-item-active {
+  box-shadow: 0 0 0 1px rgba(111, 255, 0, 0.25);
+}
+
+body.orbit-app-shell[data-theme='dark'] .ant-select-item,
+body.orbit-app-shell[data-theme='dark'] .ant-cascader-menu-item {
+  transition: background 0.15s, color 0.15s;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-select-item-option-active:not(.ant-select-item-option-disabled) {
+  background: rgba(111, 255, 0, 0.1) !important;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-select-item-option-selected:not(.ant-select-item-option-disabled) {
+  color: #6fff00 !important;
+  font-weight: 600;
+}
+
+body.orbit-app-shell[data-theme='dark'] .ant-picker-cell-inner {
+  transition: color 0.15s, background 0.15s, border-radius 0.15s;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-picker-cell:hover .ant-picker-cell-inner {
+  background: rgba(111, 255, 0, 0.12) !important;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-picker-today .ant-picker-cell-inner {
+  border-color: rgba(111, 255, 0, 0.5) !important;
+}
+
+body.orbit-app-shell[data-theme='dark'] .ant-upload.ant-upload-select {
+  transition: border-color 0.2s, background 0.2s, transform 0.2s;
+  border-radius: 10px;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-upload.ant-upload-select:hover {
+  border-color: rgba(111, 255, 0, 0.45) !important;
+  background: rgba(111, 255, 0, 0.06) !important;
+  transform: translateY(-1px);
+}
+body.orbit-app-shell[data-theme='dark'] .ant-upload-list-item {
+  transition: background 0.2s, border-color 0.2s;
+  border-radius: 8px;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-upload-list-item:hover {
+  background: rgba(255, 255, 255, 0.04) !important;
+}
+
+body.orbit-app-shell[data-theme='dark'] .ant-radio-button-wrapper {
+  transition: color 0.2s, background 0.2s, border-color 0.2s, box-shadow 0.2s;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-radio-button-wrapper:hover {
+  color: #7fff50 !important;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-radio-button-wrapper-checked:not(.ant-radio-button-wrapper-disabled) {
+  color: #b8ff6a !important;
+  background: rgba(111, 255, 0, 0.15) !important;
+  box-shadow: 0 0 0 1px rgba(111, 255, 0, 0.35);
+}
+
+body.orbit-app-shell[data-theme='dark'] .ant-switch,
+body.orbit-app-shell[data-theme='dark'] .ant-switch .ant-switch-handle {
+  transition: background 0.25s, transform 0.2s;
+}
+
+body.orbit-app-shell[data-theme='dark'] .ant-tag,
+body.orbit-app-shell[data-theme='dark'] .ant-badge {
+  transition: box-shadow 0.2s, filter 0.2s;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-tag:hover {
+  filter: brightness(1.06);
+  box-shadow: 0 0 0 1px rgba(111, 255, 0, 0.15);
+}
+
+body.orbit-app-shell[data-theme='dark'] .ant-input-search .ant-input-group-addon .ant-btn {
+  transition: background 0.2s, border-color 0.2s, color 0.2s, transform 0.16s;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-input-search .ant-input-group-addon .ant-btn:hover {
+  color: #6fff00 !important;
+  border-color: #6fff00 !important;
+  transform: scale(1.02);
+}
+body.orbit-app-shell[data-theme='dark'] .ant-input-search .ant-input-group-addon .ant-btn:active {
+  transform: scale(0.98);
+}
+
+body.orbit-app-shell[data-theme='dark'] .ant-btn-dangerous:not(:disabled) {
+  transition:
+    color 0.2s,
+    background 0.2s,
+    border-color 0.2s,
+    transform 0.18s var(--orbit-spring) !important;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-btn-dangerous:not(:disabled):active {
+  transform: scale(0.98);
+}
+
+body.orbit-app-shell[data-theme='dark'] .ant-list-item {
+  transition: background 0.2s, border-color 0.2s;
+  border-radius: 8px;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-list-item:hover {
+  background: rgba(111, 255, 0, 0.04) !important;
+}
+
+body.orbit-app-shell[data-theme='dark'] .ant-tree .ant-tree-node-content-wrapper {
+  transition: color 0.15s, background 0.15s, border-radius 0.15s;
+  border-radius: 6px;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-tree .ant-tree-node-content-wrapper:hover {
+  background: rgba(111, 255, 0, 0.08) !important;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-tree .ant-tree-node-selected .ant-tree-node-content-wrapper {
+  background: rgba(111, 255, 0, 0.15) !important;
+  color: #6fff00 !important;
+}
+
+body.orbit-app-shell[data-theme='dark'] .ant-transfer-list {
+  border-radius: 12px;
+  transition: box-shadow 0.2s, border-color 0.2s;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-transfer-list:hover {
+  box-shadow: 0 0 0 1px rgba(111, 255, 0, 0.12);
+}
+body.orbit-app-shell[data-theme='dark'] .ant-transfer-list-content-item {
+  transition: background 0.15s;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-transfer-list-content-item:hover {
+  background: rgba(111, 255, 0, 0.08) !important;
+}
+
+body.orbit-app-shell[data-theme='dark'] .ant-result {
+  transition: box-shadow 0.25s;
+  border-radius: 16px;
+  padding: 32px 24px;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-empty {
+  transition: transform 0.2s, opacity 0.2s;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-table-tbody > tr {
+  position: relative;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-table-tbody > tr:hover > td {
+  position: static;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-table-tbody > tr td .ant-btn-link {
+  transition: color 0.2s, transform 0.16s;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-table-tbody > tr td .ant-btn-link:hover {
+  transform: translateX(1px);
+}
+
+body.orbit-app-shell[data-theme='dark'] .ant-slider-handle {
+  transition: box-shadow 0.2s, transform 0.2s;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-slider-handle:hover,
+body.orbit-app-shell[data-theme='dark'] .ant-slider-handle:focus {
+  box-shadow: 0 0 0 2px rgba(111, 255, 0, 0.35) !important;
+  transform: scale(1.08);
+}
+body.orbit-app-shell[data-theme='dark'] .ant-slider-handle:active {
+  transform: scale(1);
+}
+
+body.orbit-app-shell[data-theme='dark'] .ant-dropdown-menu-item,
+body.orbit-app-shell[data-theme='dark'] .ant-dropdown-menu-submenu-title {
+  transition: background 0.15s, color 0.15s, padding 0.15s, transform 0.12s;
+  border-radius: 6px;
+  margin: 1px 4px;
+  width: auto;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-dropdown-menu-item:hover,
+body.orbit-app-shell[data-theme='dark'] .ant-dropdown-menu-submenu-title:hover {
+  transform: translateX(2px);
+}
+body.orbit-app-shell[data-theme='dark'] .ant-dropdown-menu-item:active {
+  transform: scale(0.99) translateX(1px);
+}
+
+body.orbit-app-shell[data-theme='dark'] .ant-popover .ant-btn {
+  transform: none;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-popover-inner,
+body.orbit-app-shell[data-theme='dark'] .ant-popconfirm .ant-popover-inner {
+  transition: box-shadow 0.25s;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.5);
+}
+
+body.orbit-app-shell[data-theme='dark'] .ant-divider,
+body.orbit-app-shell[data-theme='dark'] .ant-divider-horizontal {
+  transition: border-color 0.2s;
+}
+body.orbit-app-shell[data-theme='dark'] a {
+  transition: color 0.2s, text-shadow 0.2s;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-breadcrumb a:hover,
+body.orbit-app-shell[data-theme='dark'] .ant-typography a:hover,
+body.orbit-app-shell[data-theme='dark'] .ant-typography-expand:hover,
+body.orbit-app-shell[data-theme='dark'] .ant-typography-edit:hover {
+  color: #7fff50 !important;
+}
+
+/* Descriptions 内可点小按钮 */
+body.orbit-app-shell[data-theme='dark'] .ant-descriptions .ant-btn-link {
+  transition: color 0.2s, transform 0.16s;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-descriptions .ant-btn-link:hover {
+  transform: scale(1.02);
+}

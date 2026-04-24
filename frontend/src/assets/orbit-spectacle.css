@@ -1,0 +1,382 @@
+/**
+ * Orbis 炫光层：大屏霓虹、路由大动效、入场 stagger、环境循环动画。
+ * 仅深色主壳 + prefers-reduced-motion: no-preference 时生效。
+ */
+
+/* -------- keyframes（变量继承 orbit-interactions :root）-------- */
+@keyframes orbit-spectacle-topline {
+  0%,
+  100% {
+    background-position: 0% 50%;
+    opacity: 0.7;
+  }
+  50% {
+    background-position: 100% 50%;
+    opacity: 1;
+  }
+}
+
+@keyframes orbit-spectacle-neon-pulse {
+  0%,
+  100% {
+    text-shadow:
+      0 0 8px rgba(111, 255, 0, 0.45),
+      0 0 20px rgba(111, 255, 0, 0.2);
+  }
+  50% {
+    text-shadow:
+      0 0 14px rgba(111, 255, 0, 0.9),
+      0 0 32px rgba(111, 255, 0, 0.45);
+  }
+}
+
+@keyframes orbit-spectacle-rise {
+  from {
+    opacity: 0;
+    transform: translateY(28px) scale(0.96);
+    filter: saturate(0.85);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+    filter: saturate(1);
+  }
+}
+
+@keyframes orbit-spectacle-sweep {
+  0% {
+    transform: translateX(-100%) skewX(-12deg);
+  }
+  100% {
+    transform: translateX(200%) skewX(-12deg);
+  }
+}
+
+@keyframes orbit-spectacle-sider-edge {
+  0%,
+  100% {
+    opacity: 0.3;
+  }
+  50% {
+    opacity: 0.9;
+  }
+}
+
+@keyframes orbit-spectacle-header-breathe {
+  0%,
+  100% {
+    box-shadow: 0 1px 0 0 rgba(111, 255, 0, 0.12);
+  }
+  50% {
+    box-shadow:
+      0 1px 0 0 rgba(111, 255, 0, 0.45),
+      0 0 24px -6px rgba(111, 255, 0, 0.25);
+  }
+}
+
+@keyframes orbit-spectacle-ink-glow {
+  0%,
+  100% {
+    filter: drop-shadow(0 0 2px rgba(111, 255, 0, 0.4));
+  }
+  50% {
+    filter: drop-shadow(0 0 10px rgba(111, 255, 0, 0.9));
+  }
+}
+
+@keyframes orbit-spectacle-stat-tilt {
+  0%,
+  100% {
+    transform: perspective(800px) rotateX(0deg);
+  }
+  50% {
+    transform: perspective(800px) rotateX(1.2deg);
+  }
+}
+
+/* =============================================================================
+ * 大动效：路由页切换（覆盖 orbit-interactions 的 orbit-page）
+ * ============================================================================= */
+@media (prefers-reduced-motion: no-preference) {
+  body.orbit-app-shell[data-theme='dark'] .orbit-page-enter-active {
+    transition:
+      opacity 0.5s cubic-bezier(0.22, 1, 0.36, 1),
+      transform 0.55s cubic-bezier(0.22, 1, 0.36, 1) !important;
+  }
+  body.orbit-app-shell[data-theme='dark'] .orbit-page-leave-active {
+    transition:
+      opacity 0.3s ease,
+      transform 0.32s ease !important;
+  }
+  body.orbit-app-shell[data-theme='dark'] .orbit-page-enter-from {
+    opacity: 0;
+    transform: translateY(32px) scale(0.94);
+  }
+  body.orbit-app-shell[data-theme='dark'] .orbit-page-leave-to {
+    opacity: 0;
+    transform: translateY(-20px) scale(0.97);
+  }
+
+  body.orbit-app-shell[data-theme='dark'] .app-content.orbit-page-surface {
+    perspective: 1400px;
+  }
+
+  /* 顶线：流动霓虹 */
+  body.orbit-app-shell[data-theme='dark'] .app-content.orbit-page-surface::before {
+    background: linear-gradient(
+      90deg,
+      rgba(0, 255, 200, 0) 0%,
+      rgba(111, 255, 0, 0.55) 30%,
+      rgba(0, 255, 200, 0.45) 50%,
+      rgba(111, 255, 0, 0.55) 70%,
+      rgba(0, 255, 200, 0) 100%
+    );
+    background-size: 200% 100% !important;
+    animation: orbit-spectacle-topline 6s ease-in-out infinite;
+    height: 2px;
+  }
+
+  /* 顶栏：呼吸底边 + 下沿霓虹 */
+  body.orbit-app-shell[data-theme='dark'] .app-header {
+    animation: orbit-spectacle-header-breathe 5s ease-in-out infinite;
+  }
+
+  /* 顶栏标题旁图标 */
+  body.orbit-app-shell[data-theme='dark'] .main-layout--orbit .page-title i {
+    animation: orbit-spectacle-neon-pulse 2.4s ease-in-out infinite;
+  }
+
+  /* 侧栏右缘霓虹 */
+  body.orbit-app-shell[data-theme='dark'] .main-layout--orbit .sider {
+    position: relative;
+  }
+  body.orbit-app-shell[data-theme='dark'] .main-layout--orbit .sider::after {
+    content: '';
+    position: absolute;
+    right: 0;
+    top: 10%;
+    bottom: 10%;
+    width: 1px;
+    background: linear-gradient(180deg, transparent, #6fff00, transparent);
+    pointer-events: none;
+    z-index: 2;
+    animation: orbit-spectacle-sider-edge 3.5s ease-in-out infinite;
+  }
+
+  /* 品牌区霓虹字 */
+  body.orbit-app-shell[data-theme='dark'] .main-layout--orbit .brand-neon {
+    animation: orbit-spectacle-neon-pulse 2.2s ease-in-out infinite;
+  }
+
+  /* Ant Tabs 下划线能量 */
+  body.orbit-app-shell[data-theme='dark'] .ant-tabs-ink-bar-animated,
+  body.orbit-app-shell[data-theme='dark'] .ant-tabs .ant-tabs-ink-bar {
+    animation: orbit-spectacle-ink-glow 2.5s ease-in-out infinite;
+    border-radius: 3px;
+  }
+
+  /* 仪表盘：统计卡与面板 入场 stagger + 轻透视 */
+  body.orbit-app-shell[data-theme='dark'] .dashboard--orbit .dash-stat-card {
+    animation: orbit-spectacle-rise 0.65s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  body.orbit-app-shell[data-theme='dark'] .dashboard--orbit .dash-stat-card:nth-child(1) {
+    animation-delay: 0.02s;
+  }
+  body.orbit-app-shell[data-theme='dark'] .dashboard--orbit .dash-stat-card:nth-child(2) {
+    animation-delay: 0.1s;
+  }
+  body.orbit-app-shell[data-theme='dark'] .dashboard--orbit .dash-stat-card:nth-child(3) {
+    animation-delay: 0.18s;
+  }
+  body.orbit-app-shell[data-theme='dark'] .dashboard--orbit .dash-stat-card:nth-child(4) {
+    animation-delay: 0.26s;
+  }
+  body.orbit-app-shell[data-theme='dark'] .dashboard--orbit .dash-panel {
+    animation: orbit-spectacle-rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) 0.32s both;
+  }
+
+  /* 工具条入场 */
+  body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .table-toolbar,
+  body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .instance-toolbar,
+  body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .log-toolbar {
+    animation: orbit-spectacle-rise 0.55s cubic-bezier(0.22, 1, 0.36, 1) 0.05s both;
+  }
+
+  /* 租户 / 手机卡 stagger */
+  body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .tenant-card {
+    animation: orbit-spectacle-rise 0.55s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .tenant-grid .tenant-card:nth-child(1) {
+    animation-delay: 0.04s;
+  }
+  body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .tenant-grid .tenant-card:nth-child(2) {
+    animation-delay: 0.1s;
+  }
+  body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .tenant-grid .tenant-card:nth-child(3) {
+    animation-delay: 0.16s;
+  }
+  body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .tenant-grid .tenant-card:nth-child(4) {
+    animation-delay: 0.22s;
+  }
+  body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .tenant-grid .tenant-card:nth-child(5) {
+    animation-delay: 0.28s;
+  }
+  body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .tenant-grid .tenant-card:nth-child(6) {
+    animation-delay: 0.34s;
+  }
+  body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .tenant-grid .tenant-card:nth-child(7) {
+    animation-delay: 0.4s;
+  }
+  body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .tenant-grid .tenant-card:nth-child(8) {
+    animation-delay: 0.46s;
+  }
+  body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .tenant-grid .tenant-card:nth-child(9) {
+    animation-delay: 0.52s;
+  }
+  body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .tenant-grid .tenant-card:nth-child(10) {
+    animation-delay: 0.58s;
+  }
+  body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .tenant-grid .tenant-card:nth-child(n + 11) {
+    animation-delay: 0.62s;
+  }
+
+  body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .mobile-card {
+    animation: orbit-spectacle-rise 0.5s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  body.orbit-app-shell[data-theme='dark'] .mobile-card:nth-child(1) {
+    animation-delay: 0.04s;
+  }
+  body.orbit-app-shell[data-theme='dark'] .mobile-card:nth-child(2) {
+    animation-delay: 0.1s;
+  }
+  body.orbit-app-shell[data-theme='dark'] .mobile-card:nth-child(3) {
+    animation-delay: 0.16s;
+  }
+  body.orbit-app-shell[data-theme='dark'] .mobile-card:nth-child(4) {
+    animation-delay: 0.22s;
+  }
+  body.orbit-app-shell[data-theme='dark'] .mobile-card:nth-child(5) {
+    animation-delay: 0.28s;
+  }
+  body.orbit-app-shell[data-theme='dark'] .mobile-card:nth-child(6) {
+    animation-delay: 0.34s;
+  }
+  body.orbit-app-shell[data-theme='dark'] .mobile-card:nth-child(n + 7) {
+    animation-delay: 0.4s;
+  }
+
+  /* 大卡片：悬停扫光（不裁切弹层；装饰层在内容下） */
+  body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .ant-card {
+    position: relative;
+  }
+  body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .ant-card::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    left: -60%;
+    z-index: 0;
+    background: linear-gradient(
+      105deg,
+      transparent 0%,
+      rgba(111, 255, 0, 0) 40%,
+      rgba(255, 255, 255, 0.09) 50%,
+      rgba(111, 255, 0, 0) 60%,
+      transparent 100%
+    );
+    transform: translateX(-100%) skewX(-12deg);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 0.3s;
+  }
+  body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .ant-card .ant-card-head,
+  body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .ant-card .ant-card-body {
+    position: relative;
+    z-index: 1;
+  }
+  body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .ant-card:hover::after {
+    opacity: 1;
+    animation: orbit-spectacle-sweep 0.9s ease-out 1;
+  }
+
+  /* 首屏数据卡轻微呼吸 */
+  body.orbit-app-shell[data-theme='dark'] .dashboard--orbit .dash-stat-card:hover {
+    animation: orbit-spectacle-stat-tilt 4s ease-in-out infinite;
+  }
+
+  /* 主内容区表格行：前 16 行轻扫入（子表/弹层内表格不强制） */
+  body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .ant-table .ant-table-tbody > tr {
+    animation: orbit-spectacle-rise 0.42s ease backwards;
+  }
+  body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .ant-table .ant-table-tbody > tr:nth-child(1) {
+    animation-delay: 0.02s;
+  }
+  body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .ant-table .ant-table-tbody > tr:nth-child(2) {
+    animation-delay: 0.04s;
+  }
+  body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .ant-table .ant-table-tbody > tr:nth-child(3) {
+    animation-delay: 0.06s;
+  }
+  body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .ant-table .ant-table-tbody > tr:nth-child(4) {
+    animation-delay: 0.08s;
+  }
+  body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .ant-table .ant-table-tbody > tr:nth-child(5) {
+    animation-delay: 0.1s;
+  }
+  body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .ant-table .ant-table-tbody > tr:nth-child(6) {
+    animation-delay: 0.12s;
+  }
+  body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .ant-table .ant-table-tbody > tr:nth-child(7) {
+    animation-delay: 0.14s;
+  }
+  body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .ant-table .ant-table-tbody > tr:nth-child(8) {
+    animation-delay: 0.16s;
+  }
+  body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .ant-table .ant-table-tbody > tr:nth-child(9) {
+    animation-delay: 0.18s;
+  }
+  body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .ant-table .ant-table-tbody > tr:nth-child(10) {
+    animation-delay: 0.2s;
+  }
+  body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .ant-table .ant-table-tbody > tr:nth-child(11) {
+    animation-delay: 0.22s;
+  }
+  body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .ant-table .ant-table-tbody > tr:nth-child(12) {
+    animation-delay: 0.24s;
+  }
+  body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .ant-table .ant-table-tbody > tr:nth-child(13) {
+    animation-delay: 0.26s;
+  }
+  body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .ant-table .ant-table-tbody > tr:nth-child(14) {
+    animation-delay: 0.28s;
+  }
+  body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .ant-table .ant-table-tbody > tr:nth-child(15) {
+    animation-delay: 0.3s;
+  }
+  body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .ant-table .ant-table-tbody > tr:nth-child(16) {
+    animation-delay: 0.32s;
+  }
+
+  /* 登录/初始化：卡片区入场 + 霓虹 */
+  body.orbit-auth[data-theme='dark'] .login-page--orbit .login-card,
+  body.orbit-auth[data-theme='dark'] .setup-page--orbit .setup-card {
+    animation: orbit-spectacle-rise 0.75s cubic-bezier(0.22, 1, 0.36, 1) both;
+  }
+  body.orbit-auth[data-theme='dark'] .login-page--orbit .login-neon,
+  body.orbit-auth[data-theme='dark'] .setup-page--orbit .setup-neon {
+    animation: orbit-spectacle-neon-pulse 2s ease-in-out infinite;
+  }
+}
+
+/* reduced motion：显式关动画类（保险） */
+@media (prefers-reduced-motion: reduce) {
+  body.orbit-app-shell .orbit-page-enter-active,
+  body.orbit-app-shell .orbit-page-leave-active,
+  body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .ant-table .ant-table-tbody > tr,
+  body.orbit-app-shell[data-theme='dark'] .tenant-card,
+  body.orbit-app-shell[data-theme='dark'] .dash-stat-card,
+  body.orbit-app-shell[data-theme='dark'] .ant-card::after,
+  body.orbit-app-shell[data-theme='dark'] .app-header {
+    animation: none !important;
+    transition-duration: 0.01ms !important;
+  }
+}

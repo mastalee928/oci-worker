@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div class="orbit-view">
     <a-row :gutter="[16, 16]">
       <a-col :xs="24" :md="12">
         <a-card title="备份">

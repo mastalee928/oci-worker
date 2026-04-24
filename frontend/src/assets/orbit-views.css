@@ -1,0 +1,187 @@
+/**
+ * Orbis 全站「视图层」：与根节点 .orbit-view 配合，为自定义块与工具区补全可感知交互。
+ * 与 main.ts 中 orbit-site / orbit-interactions 同序加载；仅深色壳下强化霓虹反馈。
+ */
+
+body.orbit-app-shell .orbit-view {
+  position: relative;
+  min-height: 0;
+}
+
+body.orbit-app-shell .orbit-view--auth {
+  min-height: 100vh;
+}
+
+/* 登录/初始化：主操作按钮 focus-visible */
+body.orbit-app-shell[data-theme='dark'] .orbit-view--auth .submit-btn {
+  transition:
+    background 0.2s,
+    box-shadow 0.2s,
+    transform 0.18s var(--orbit-spring);
+}
+body.orbit-app-shell[data-theme='dark'] .orbit-view--auth .submit-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--orbit-focus);
+}
+body.orbit-app-shell[data-theme='dark'] .orbit-view--auth .submit-btn:active:not(:disabled) {
+  transform: scale(0.99);
+}
+
+/* ---------- 各页顶栏/日志工具区：悬停时整带微亮（不替代 orbit-site 已有底纹）---------- */
+body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .table-toolbar,
+body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .instance-toolbar,
+body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .log-toolbar {
+  transition:
+    border-color var(--orbit-t) var(--orbit-ease),
+    box-shadow 0.25s,
+    background 0.25s;
+}
+body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .table-toolbar:hover,
+body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .instance-toolbar:hover,
+body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .log-toolbar:hover {
+  border-color: rgba(111, 255, 0, 0.22) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(111, 255, 0, 0.2),
+    0 0 0 1px rgba(111, 255, 0, 0.08);
+}
+
+/* ---------- 实例页：分组折叠头反馈 ---------- */
+body.orbit-app-shell[data-theme='dark'] .group-collapse .ant-collapse-header,
+body.orbit-app-shell[data-theme='dark'] .group-collapse-l2 .ant-collapse-header {
+  transition:
+    background 0.2s var(--orbit-ease),
+    transform 0.18s var(--orbit-ease);
+  border-radius: 0;
+}
+body.orbit-app-shell[data-theme='dark'] .group-collapse .ant-collapse-header:active,
+body.orbit-app-shell[data-theme='dark'] .group-collapse-l2 .ant-collapse-header:active {
+  transform: scale(0.998);
+}
+body.orbit-app-shell[data-theme='dark'] .group-collapse .ant-collapse-arrow,
+body.orbit-app-shell[data-theme='dark'] .group-collapse-l2 .ant-collapse-arrow {
+  transition: color 0.2s, transform 0.3s var(--orbit-ease) !important;
+}
+body.orbit-app-shell[data-theme='dark'] .ant-collapse-item-active .ant-collapse-arrow {
+  color: #6fff00 !important;
+}
+
+/* ---------- 实例页：租户卡顶条在深色下统一霓虹（scoped 中紫条由全局压色）---------- */
+body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .tenant-card::before {
+  background: linear-gradient(90deg, #6fff00, rgba(111, 255, 0, 0.35)) !important;
+  height: 2px;
+}
+
+/* ---------- 实例页：VCN/存储 列表项、表格外壳 ---------- */
+body.orbit-app-shell[data-theme='dark'] .vcn-item {
+  transition:
+    border-color 0.2s var(--orbit-ease),
+    box-shadow 0.22s,
+    transform 0.2s var(--orbit-ease);
+}
+body.orbit-app-shell[data-theme='dark'] .vcn-item:hover {
+  border-color: rgba(111, 255, 0, 0.28) !important;
+  box-shadow: 0 8px 28px -12px rgba(0, 0, 0, 0.5);
+  transform: translateY(-1px);
+}
+
+body.orbit-app-shell[data-theme='dark'] .instance-panel-toolbar,
+body.orbit-app-shell[data-theme='dark'] .vcn-panel-toolbar {
+  transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+}
+body.orbit-app-shell[data-theme='dark'] .instance-panel-toolbar:hover,
+body.orbit-app-shell[data-theme='dark'] .vcn-panel-toolbar:hover {
+  border-color: rgba(111, 255, 0, 0.2) !important;
+  box-shadow: 0 0 0 1px rgba(111, 255, 0, 0.1);
+}
+
+body.orbit-app-shell[data-theme='dark'] .tenant-table-wrap {
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+body.orbit-app-shell[data-theme='dark'] .tenant-table-wrap:hover {
+  border-color: rgba(111, 255, 0, 0.15) !important;
+}
+
+/* ---------- 实例：移动端实例卡 ---------- */
+body.orbit-app-shell[data-theme='dark'] .instance-mobile-card {
+  transition:
+    border-color 0.2s var(--orbit-ease),
+    background 0.2s,
+    transform 0.2s var(--orbit-ease),
+    box-shadow 0.2s;
+}
+body.orbit-app-shell[data-theme='dark'] .instance-mobile-card:hover {
+  border-color: rgba(111, 255, 0, 0.28) !important;
+  transform: translateY(-2px);
+  box-shadow: 0 12px 32px -16px rgba(0, 0, 0, 0.55);
+}
+body.orbit-app-shell[data-theme='dark'] .instance-mobile-card:active {
+  transform: translateY(0) scale(0.998);
+}
+
+/* ---------- 仪表盘：原生按钮入口 keyboard 环 + 悬停加一层霓虹 ---------- */
+body.orbit-app-shell[data-theme='dark'] .dashboard--orbit .action-btn {
+  transition:
+    background 0.2s,
+    border-color 0.2s,
+    color 0.2s,
+    box-shadow 0.2s,
+    transform 0.18s var(--orbit-spring);
+}
+body.orbit-app-shell[data-theme='dark'] .dashboard--orbit .action-btn:focus-visible {
+  outline: none;
+  box-shadow: var(--orbit-focus);
+}
+body.orbit-app-shell[data-theme='dark'] .dashboard--orbit .action-btn:active {
+  transform: scale(0.99);
+}
+body.orbit-app-shell[data-theme='dark'] .dashboard--orbit .action-primary:hover {
+  box-shadow:
+    0 0 0 1px rgba(111, 255, 0, 0.25),
+    0 8px 24px -4px rgba(99, 102, 241, 0.45);
+}
+
+/* ---------- 设置等：大卡片在深色下的整卡动效（独立 settings-card 类，不误伤表格内嵌套）---------- */
+body.orbit-app-shell[data-theme='dark'] .settings-card,
+body.orbit-app-shell[data-theme='dark'] .settings-card-wide {
+  transition: transform 0.22s var(--orbit-ease), box-shadow 0.22s, border-color 0.2s !important;
+}
+body.orbit-app-shell[data-theme='dark'] .settings-card:hover,
+body.orbit-app-shell[data-theme='dark'] .settings-card-wide:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 20px 48px -24px rgba(0, 0, 0, 0.55) !important;
+  border-color: rgba(111, 255, 0, 0.2) !important;
+}
+
+/* ---------- WebSSH：全屏区边界与可聚焦时霓虹内描边 ---------- */
+body.orbit-app-shell[data-theme='dark'] .webssh-container {
+  min-height: calc(100vh - 80px);
+  transition: box-shadow 0.25s var(--orbit-ease);
+}
+body.orbit-app-shell[data-theme='dark'] .webssh-container:focus-within {
+  box-shadow: inset 0 0 0 1px rgba(111, 255, 0, 0.22);
+}
+
+/* ---------- 锁屏/验证块：悬停时轻微浮起（心理「可继续」）---------- */
+body.orbit-app-shell[data-theme='dark'] .lock-panel {
+  transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+}
+body.orbit-app-shell[data-theme='dark'] .lock-panel:hover {
+  box-shadow: 0 0 0 1px rgba(111, 255, 0, 0.15);
+  transform: translateY(-1px);
+}
+
+/* ---------- 各页统一样式「手机卡片」流（租户/任务等）---------- */
+body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .mobile-card {
+  transition:
+    border-color 0.2s var(--orbit-ease),
+    box-shadow 0.22s,
+    transform 0.2s var(--orbit-ease);
+}
+body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .mobile-card:hover {
+  border-color: rgba(111, 255, 0, 0.25) !important;
+  box-shadow: 0 12px 36px -16px rgba(0, 0, 0, 0.5) !important;
+  transform: translateY(-2px);
+}
+body.orbit-app-shell[data-theme='dark'] .orbit-page-surface .mobile-card:active {
+  transform: translateY(0) scale(0.998);
+}

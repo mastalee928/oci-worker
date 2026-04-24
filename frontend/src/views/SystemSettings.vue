@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div class="orbit-view">
     <a-tabs v-model:active-key="activeTab">
       <a-tab-pane key="security" tab="安全设置">
         <a-card title="修改登录密码" class="settings-card">

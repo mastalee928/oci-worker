@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div class="orbit-view">
     <a-tabs v-model:active-key="activeTab">
       <a-tab-pane key="config" tab="CF 配置">
         <div class="mobile-toolbar">

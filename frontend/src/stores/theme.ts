@@ -34,6 +34,7 @@ export const useThemeStore = defineStore('theme', () => {
 
   function applyTheme() {
     document.documentElement.setAttribute('data-theme', mode.value)
+    document.body.setAttribute('data-theme', mode.value)
   }
 
   function toggleWallpaper() {

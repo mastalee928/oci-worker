@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div class="orbit-view">
     <div class="table-toolbar">
       <a-space wrap>
         <a-input-search v-model:value="searchText" placeholder="搜索租户" allow-clear @search="loadData" style="width: 200px" />

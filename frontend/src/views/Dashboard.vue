@@ -1,5 +1,5 @@
 <template>
-  <div class="dashboard-page" :class="{ 'dashboard--orbit': themeStore.isDark }">
+  <div class="orbit-view dashboard-page" :class="{ 'dashboard--orbit': themeStore.isDark }">
     <header class="dash-intro">
       <h1 class="dash-title" :class="{ 'font-orbit-display': themeStore.isDark }">工作概览</h1>
       <p v-if="themeStore.isDark" class="dash-sub font-orbit-accent dash-live">Live · Orbit 控制台</p>

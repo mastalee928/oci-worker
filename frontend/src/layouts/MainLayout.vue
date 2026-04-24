@@ -16,7 +16,13 @@
     />
 
     <a-layout :class="['main-layout', { 'main-layout--orbit': themeStore.isDark }]">
-    <div v-if="mobileMenuOpen && isMobile" class="mobile-overlay" @click="mobileMenuOpen = false" />
+    <Transition name="orbit-fade">
+      <div
+        v-if="mobileMenuOpen && isMobile"
+        class="mobile-overlay"
+        @click="mobileMenuOpen = false"
+      />
+    </Transition>
 
     <a-layout-sider
       v-model:collapsed="collapsed"
@@ -27,14 +33,26 @@
       :class="['sider', { 'liquid-glass': themeStore.isDark, 'sider-mobile': isMobile, 'sider-mobile-open': mobileMenuOpen && isMobile, 'sider-collapsed-desktop': collapsed && !isMobile }]"
       :style="isMobile && !mobileMenuOpen ? { display: 'none' } : {}"
     >
-      <div class="brand">
-        <i class="ri-server-line brand-icon"></i>
+        <div
+          :class="['brand', { 'brand--orbit': themeStore.isDark }]"
+          role="link"
+          tabindex="0"
+          :title="themeStore.isDark ? '回仪表盘' : undefined"
+          @click="goDashboard"
+          @keydown.enter.prevent="goDashboard"
+        >
+        <i class="ri-server-line brand-icon" aria-hidden="true"></i>
         <span v-if="!collapsed || (isMobile && mobileMenuOpen)" class="brand-text font-orbit-display"
           >OCI <span class="brand-neon">Worker</span></span
         >
       </div>
-      <a-menu mode="inline" :selected-keys="[currentRoute]" @click="handleMenuClick"
-        class="nav-menu" theme="dark">
+      <a-menu
+        mode="inline"
+        :selected-keys="[currentRoute]"
+        class="nav-menu nav-menu--orbit"
+        theme="dark"
+        @click="handleMenuClick"
+      >
         <!-- 图标必须用 #icon 插槽，否则与标题挤在 title-content 里，侧栏折叠时文字无法隐藏 -->
         <a-menu-item key="dashboard">
           <template #icon><i class="ri-dashboard-3-line menu-ri"></i></template>
@@ -120,7 +138,9 @@
           },
         ]"
       >
-        <router-view />
+        <Transition name="orbit-page" mode="out-in">
+          <router-view :key="route.path" />
+        </Transition>
       </div>
     </a-layout>
 
@@ -190,6 +210,10 @@ const pageTitleIcon = computed(() => {
   }
   return icons[currentRoute.value] || 'ri-dashboard-3-line'
 })
+
+function goDashboard() {
+  router.push('/dashboard')
+}
 
 function handleMenuClick({ key }: { key: string }) {
   router.push('/' + key)
@@ -295,6 +319,25 @@ function handleLogout() {
   color: #6fff00;
   margin-left: 0.2em;
 }
+.brand--orbit {
+  cursor: pointer;
+  border-radius: 0 0 12px 12px;
+  transition:
+    background var(--trans, 0.25s),
+    box-shadow 0.25s,
+    transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.brand--orbit:hover {
+  background: color-mix(in srgb, #6fff00 6%, transparent);
+  box-shadow: inset 0 0 0 1px rgba(111, 255, 0, 0.25);
+}
+.brand--orbit:active {
+  transform: scale(0.99);
+}
+.brand--orbit:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px #010828, 0 0 0 4px rgba(111, 255, 0, 0.45);
+}
 [data-theme='light'] .brand-text,
 [data-theme='light'] .brand-neon {
   background: linear-gradient(135deg, #a5b4fc 0%, #6366f1 100%);
@@ -353,6 +396,91 @@ function handleLogout() {
   font-size: 20px;
   margin-right: 12px;
   vertical-align: -0.15em;
+}
+
+/* Orbis：侧栏菜单项可感知 hover / 选中 / 点击（不替代全局 neon，只补动效与位移） */
+.main-layout--orbit .sider:not(.sider-collapsed-desktop) .nav-menu--orbit :deep(.ant-menu-item) {
+  position: relative;
+  border-radius: 10px !important;
+  margin: 4px 6px !important;
+  transition:
+    transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1),
+    background 0.2s,
+    box-shadow 0.2s,
+    color 0.2s !important;
+}
+.main-layout--orbit .sider:not(.sider-collapsed-desktop) .nav-menu--orbit :deep(.ant-menu-item::before) {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 50%;
+  width: 3px;
+  height: 0;
+  border-radius: 2px;
+  background: #6fff00;
+  transform: translateY(-50%) scaleY(0.4);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    height 0.2s,
+    opacity 0.2s,
+    transform 0.24s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.main-layout--orbit .sider:not(.sider-collapsed-desktop) .nav-menu--orbit :deep(.ant-menu-item:hover) {
+  transform: translateX(4px);
+}
+.main-layout--orbit .sider:not(.sider-collapsed-desktop) .nav-menu--orbit :deep(.ant-menu-item:active) {
+  transform: translateX(2px) scale(0.99);
+}
+.main-layout--orbit .sider:not(.sider-collapsed-desktop) .nav-menu--orbit :deep(.ant-menu-item-selected::before) {
+  height: 60%;
+  opacity: 1;
+  transform: translateY(-50%) scaleY(1);
+}
+.main-layout--orbit .sider:not(.sider-collapsed-desktop) .nav-menu--orbit :deep(.ant-menu-item:hover::before) {
+  opacity: 0.5;
+  height: 40%;
+  transform: translateY(-50%) scaleY(0.8);
+}
+.main-layout--orbit .sider-collapsed-desktop .nav-menu--orbit :deep(.ant-menu-item) {
+  border-radius: 10px !important;
+  transition:
+    transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1),
+    background 0.2s,
+    box-shadow 0.2s !important;
+}
+.main-layout--orbit .sider-collapsed-desktop .nav-menu--orbit :deep(.ant-menu-item:hover) {
+  transform: scale(1.08);
+}
+.main-layout--orbit .sider-collapsed-desktop .nav-menu--orbit :deep(.ant-menu-item:active) {
+  transform: scale(1.02);
+}
+
+/* Orbis：用户卡悬停与退出按钮与顶栏统一弹性反馈 */
+.main-layout--orbit .user-card {
+  transition:
+    background 0.2s,
+    box-shadow 0.2s,
+    border-color 0.2s,
+    transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+.main-layout--orbit .user-card:hover {
+  border-color: rgba(111, 255, 0, 0.35);
+  box-shadow: 0 0 0 1px rgba(111, 255, 0, 0.12);
+  transform: translateY(-1px);
+}
+.main-layout--orbit .header-btn,
+.main-layout--orbit .btn-logout {
+  transition:
+    background 0.2s,
+    border-color 0.2s,
+    color 0.2s,
+    box-shadow 0.2s,
+    transform 0.18s cubic-bezier(0.34, 1.56, 0.64, 1) !important;
+}
+.main-layout--orbit .header-btn:active,
+.main-layout--orbit .btn-logout:active {
+  transform: scale(0.96) !important;
 }
 
 .sidebar-footer {

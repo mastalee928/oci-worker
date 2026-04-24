@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div class="orbit-view">
     <!-- 顶部工具栏 -->
     <div class="instance-toolbar">
       <div class="toolbar-left">

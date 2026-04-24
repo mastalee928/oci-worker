@@ -14,9 +14,17 @@
       (function(){try{var s=localStorage.getItem('theme');var t;if(s==='light'||s==='dark'){t=s}else if(window.matchMedia&&window.matchMedia('(prefers-color-scheme: light)').matches){t='light'}else{t='dark'}document.documentElement.setAttribute('data-theme',t)}catch(e){document.documentElement.setAttribute('data-theme','dark')}})();
     </script>
   </head>
-  <body>
+  <body data-theme="dark">
     <div id="wallpaperLayer"></div>
     <div id="app"></div>
+    <script>
+      (function () {
+        try {
+          var t = document.documentElement.getAttribute('data-theme') || 'dark'
+          document.body.setAttribute('data-theme', t)
+        } catch (e) {}
+      })()
+    </script>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

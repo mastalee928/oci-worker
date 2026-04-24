@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div class="orbit-view">
     <div class="log-toolbar">
       <a-space wrap>
         <a-badge :status="connected ? 'success' : 'error'" :text="connected ? '已连接' : '未连接'" />
