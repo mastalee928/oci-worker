@@ -130,16 +130,19 @@ public class OciProxyConfigService {
     }
 
     private static Authenticator authenticatorFor(OciProxySnapshot s) {
-        if (s.proxyUser() == null || s.proxyUser().isEmpty()) {
+        final String user = s.proxyUser() == null ? "" : s.proxyUser();
+        final char[] pass = s.proxyPass() == null ? new char[0] : s.proxyPass().toCharArray();
+        // 用户名空但密码非空时也必须提供 Authenticator：否则 JDK SOCKS 会退回系统用户名 + 空密码，
+        // 与 Socks5Tunnel（空用户名 + 面板密码）不一致，表现为「检查更新能过、OCI RFC1929 失败」。
+        if (user.isEmpty() && pass.length == 0) {
             return new Authenticator() {
             };
         }
-        final char[] pass = s.proxyPass() == null ? new char[0] : s.proxyPass().toCharArray();
         return new Authenticator() {
             @Override
             protected PasswordAuthentication getPasswordAuthentication() {
                 if (getRequestorType() == Authenticator.RequestorType.PROXY) {
-                    return new PasswordAuthentication(s.proxyUser(), pass);
+                    return new PasswordAuthentication(user, pass);
                 }
                 return null;
             }
