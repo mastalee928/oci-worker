@@ -2,6 +2,7 @@ package com.ociworker.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.oracle.bmc.auth.SimpleAuthenticationDetailsProvider;
 import com.oracle.bmc.http.signing.DefaultRequestSigner;
@@ -30,8 +31,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * 经 OCI IAM 签名将请求转发至 Generative AI OpenAI 兼容端点。
+ * 经 OCI IAM 签名将请求转发至 Generative AI OpenAI 兼容端点（推理面）。
  * Base: https://inference.generativeai.&lt;region&gt;.oci.oraclecloud.com/openai/v1
+ * 模型列表来自管理面 ListModels（generativeai.&lt;region&gt;），因推理面通常不注册 {@code /openai/v1/models}。
  */
 @Slf4j
 @Service
@@ -39,6 +41,9 @@ public class OciGenerativeOpenAiService {
 
     public static final int DEFAULT_MAX_TOKENS = 4000;
     private static final String V1 = "/v1";
+    private static final String GA_API_VERSION = "20231130";
+    private static final int LIST_PAGE_LIMIT = 200;
+    private static final int LIST_MAX_PAGES = 50;
     private static final ObjectMapper MAPPER = new ObjectMapper();
 
     @Resource
@@ -101,23 +106,132 @@ public class OciGenerativeOpenAiService {
 
     public JsonNode getModelsAsJson(OciUser tenant, String after, String modelId) throws Exception {
         String regionId = OciRegionUtil.publicRegionId(tenant.getOciRegion());
-        StringBuilder b = new StringBuilder(
-                "https://inference.generativeai." + regionId + ".oci.oraclecloud.com/openai/v1/models");
-        if (modelId != null && !modelId.isBlank()) {
-            b.append("/");
-            b.append(encodePathSegmentOciModel(modelId));
-        } else if (after != null && !after.isBlank()) {
-            b.append("?after=").append(java.net.URLEncoder.encode(after, StandardCharsets.UTF_8));
+        String managementHost = "generativeai." + regionId + ".oci.oraclecloud.com";
+        String tenantId = tenant.getOciTenantId();
+        if (tenantId == null || tenantId.isBlank()) {
+            throw new OciException("租户无 ociTenantId，无法 list models");
         }
-        URI uri = URI.create(b.toString());
+        if (modelId != null && !modelId.isBlank()) {
+            String path = "/" + GA_API_VERSION + "/models/" + encodePathSegmentOciModel(modelId);
+            return managementGetToOpenAiList(tenant, "https://" + managementHost + path, true);
+        }
+        List<JsonNode> all = new ArrayList<>();
+        String page = (after != null && !after.isBlank()) ? after : null;
+        for (int p = 0; p < LIST_MAX_PAGES; p++) {
+            String q =
+                    "compartmentId=" + java.net.URLEncoder.encode(tenantId, StandardCharsets.UTF_8)
+                            + "&limit=" + LIST_PAGE_LIMIT;
+            if (page != null) {
+                q = q + "&page=" + java.net.URLEncoder.encode(page, StandardCharsets.UTF_8);
+            }
+            URI listUri = URI.create("https://" + managementHost + "/" + GA_API_VERSION + "/models?" + q);
+            HttpRequest req = buildSignedRequest(
+                    newRequestSigner(tenant), "GET", listUri, null, null, "application/json");
+            HttpResponse<String> resp = pickHttpClient()
+                    .send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            if (resp.statusCode() / 100 != 2) {
+                throw new OciException(
+                        "拉取 models 失败: HTTP " + resp.statusCode() + " " + truncate(resp.body(), 500));
+            }
+            JsonNode root = MAPPER.readTree(resp.body() != null ? resp.body() : "{}");
+            JsonNode items = root.get("items");
+            if (items != null && items.isArray()) {
+                for (JsonNode it : items) {
+                    all.add(it);
+                }
+            }
+            String next = resp.headers().firstValue("opc-next-page").orElse(null);
+            if (next == null || next.isBlank()) {
+                break;
+            }
+            page = next;
+        }
+        return ociModelsToOpenAiList(MAPPER.createObjectNode().set("items", toArrayNode(all)));
+    }
+
+    private static ArrayNode toArrayNode(List<JsonNode> nodes) {
+        ArrayNode a = MAPPER.createArrayNode();
+        for (JsonNode n : nodes) {
+            a.add(n);
+        }
+        return a;
+    }
+
+    private JsonNode managementGetToOpenAiList(OciUser tenant, String url, boolean oneItemAsList) throws Exception {
         RequestSigner signer = newRequestSigner(tenant);
+        URI uri = URI.create(url);
         HttpRequest req = buildSignedRequest(signer, "GET", uri, null, null, "application/json");
-        HttpClient c = pickHttpClient();
-        HttpResponse<String> resp = c.send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        HttpResponse<String> resp = pickHttpClient()
+                .send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
         if (resp.statusCode() / 100 != 2) {
             throw new OciException("拉取 models 失败: HTTP " + resp.statusCode() + " " + truncate(resp.body(), 500));
         }
-        return MAPPER.readTree(resp.body());
+        return ociModelsToOpenAiList(MAPPER.readTree(resp.body() != null ? resp.body() : "{}"), oneItemAsList);
+    }
+
+    /**
+     * 将 OCI model / modelCollection JSON 转为 OpenAI 风格 {@code { object, data: [{id, object}] } }。
+     */
+    private JsonNode ociModelsToOpenAiList(JsonNode ociBody) {
+        return ociModelsToOpenAiList(ociBody, false);
+    }
+
+    private JsonNode ociModelsToOpenAiList(JsonNode ociBody, boolean single) {
+        ArrayNode outItems = MAPPER.createArrayNode();
+        if (single && ociBody != null && !ociBody.isObject()) {
+            return buildOpenAiModelList(outItems);
+        }
+        if (single && ociBody != null && ociBody.isObject() && !ociBody.has("items")
+                && ociBody.has("id")) {
+            outItems.add(ociItemToOpenAi(ociBody));
+        } else if (ociBody != null && ociBody.isObject() && ociBody.has("items")) {
+            for (JsonNode n : ociBody.withArray("items")) {
+                outItems.add(ociItemToOpenAi(n));
+            }
+        }
+        return buildOpenAiModelList(outItems);
+    }
+
+    private static ObjectNode buildOpenAiModelList(ArrayNode data) {
+        ObjectNode root = MAPPER.createObjectNode();
+        root.put("object", "list");
+        root.set("data", data);
+        return root;
+    }
+
+    private static ObjectNode ociItemToOpenAi(JsonNode oci) {
+        ObjectNode row = MAPPER.createObjectNode();
+        // 推理/Chat 的 model 字段优先用服务侧 name（如 cohere.command ），否则用资源 OCID
+        String id = firstText(oci, "name");
+        if ((id == null || id.isBlank()) && oci != null) {
+            JsonNode idn = oci.get("id");
+            if (idn != null && !idn.isNull()) {
+                id = idn.asText();
+            }
+        }
+        if (id == null || id.isBlank()) {
+            id = "unknown";
+        }
+        row.put("id", id);
+        row.put("object", "model");
+        JsonNode display = oci.get("displayName");
+        if (display != null && display.isTextual() && !display.asText().isBlank()) {
+            row.put("displayName", display.asText());
+        }
+        return row;
+    }
+
+    private static String firstText(JsonNode o, String... fieldNames) {
+        if (o == null) {
+            return null;
+        }
+        for (String f : fieldNames) {
+            JsonNode n = o.get(f);
+            if (n != null && n.isTextual() && !n.asText().isBlank()) {
+                return n.asText();
+            }
+        }
+        return null;
     }
 
     public static String extractPathAfterV1(HttpServletRequest request) {

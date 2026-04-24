@@ -35,7 +35,7 @@
             <a-form-item v-if="selectedRegion" label="区域">
               <a-tag color="blue">{{ selectedRegion }}</a-tag>
             </a-form-item>
-            <a-form-item label="可选模型（自 OCI /v1/models 拉取）">
+            <a-form-item label="可选模型（OCI 管理面 ListModels）">
               <a-select
                 v-model:value="modelPick"
                 :options="modelOptions"
