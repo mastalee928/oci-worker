@@ -54,21 +54,20 @@ sudo bash /tmp/install.sh
 
 详细文档：[INSTALLER.md](./INSTALLER.md)
 
-### 动效/Orbis UI 版（[feature/ui-polish 分支](https://github.com/mastalee928/oci-worker/tree/feature/ui-polish)）
+### 动效/Orbis UI 版
 
-`install.sh` 下载的 JAR 来自 **master**。若要**动效/深色 Orbis 壳**那一套，请**一开始就直接克隆 `feature/ui-polish` 这一支打 JAR**（不是先装 master 再 `git checkout` 换过去）。在已安装 **Node 18+、JDK 21、Maven** 的前提下，一条命令完成前端构建与后端打包：
+### 一键安装命令
+
+复制粘贴执行即可（Debian / Ubuntu / CentOS 通用）：
 
 ```bash
+# 须已用上一节 install.sh 装过；本机需 Node 18+、JDK 21、Maven。分支见 https://github.com/mastalee928/oci-worker/tree/feature/ui-polish
 git clone -b feature/ui-polish --depth 1 https://github.com/mastalee928/oci-worker.git /tmp/ociw \
   && (cd /tmp/ociw/frontend && npm ci && npm run build) \
-  && (cd /tmp/ociw/backend && mvn -q clean package -DskipTests)
+  && (cd /tmp/ociw/backend && mvn -q clean package -DskipTests) \
+  && sudo cp -a /tmp/ociw/backend/target/oci-worker-1.0.0.jar /opt/oci-worker/oci-worker.jar \
+  && sudo systemctl restart oci-worker
 ```
-
-生成的 JAR 在 `/tmp/ociw/backend/target/oci-worker-1.0.0.jar`。**若你已通过上方向导装好服务**，覆盖并重启即可：
-
-`sudo cp -a /tmp/ociw/backend/target/oci-worker-1.0.0.jar /opt/oci-worker/oci-worker.jar && sudo systemctl restart oci-worker`（也可用 `sudo ociworker restart`）。
-
-**若还没装过 OCI Worker**，先执行上表 `install.sh` 把数据库、目录、服务装好，再照上面**同一条** `git clone -b feature/ui-polish ...` 出包、覆盖 JAR 即可。合并进 `master` 后，用常规 `install.sh` / `ociworker update` 即与动效版一致，无需再指定分支。
 
 ---
 
