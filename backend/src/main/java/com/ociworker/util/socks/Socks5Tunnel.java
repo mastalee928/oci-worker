@@ -53,7 +53,9 @@ public final class Socks5Tunnel {
                     Authenticator.setDefault(new Authenticator() {
                         @Override
                         protected PasswordAuthentication getPasswordAuthentication() {
-                            if ("SOCKS5".equals(getRequestingProtocol())) {
+                            // 与 OciProxyConfigService.authenticatorFor 一致：按 PROXY 凭据响应。
+                            // 仅判断 "SOCKS5" 协议名在部分 JDK/路径下可能为 null 或不同，导致不返回密码而认证失败。
+                            if (getRequestorType() == Authenticator.RequestorType.PROXY) {
                                 return new PasswordAuthentication(u, p.toCharArray());
                             }
                             return null;
