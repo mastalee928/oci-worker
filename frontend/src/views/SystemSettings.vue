@@ -64,6 +64,18 @@
             <a-form-item label="通知类型">
               <a-checkbox-group v-model:value="tgConfig.notifyTypes" :options="notifyTypeOptions" />
             </a-form-item>
+            <a-form-item v-if="tgConfig.notifyTypes.includes('daily_report')" label="每日播报时间">
+              <a-time-picker
+                v-model:value="dailyReportTimePicked"
+                format="HH:mm"
+                :show-second="false"
+                :minute-step="1"
+                value-format="HH:mm"
+              />
+              <div style="margin-top: 6px; font-size: 12px; color: var(--text-sub)">
+                东八区（Asia/Shanghai），默认 09:00
+              </div>
+            </a-form-item>
             <a-space>
               <a-button type="primary" @click="saveTgConfig" :loading="saveLoading">保存</a-button>
               <a-button @click="testTgNotify" :loading="testLoading">测试发送</a-button>
@@ -76,7 +88,7 @@
             <a-descriptions-item label="登录通知">登录成功/失败时发送，包含IP地址、账号、时间</a-descriptions-item>
             <a-descriptions-item label="创建任务">创建开机任务时通知</a-descriptions-item>
             <a-descriptions-item label="任务结果">开机成功或认证失败时通知，包含实例详情</a-descriptions-item>
-            <a-descriptions-item label="每日播报">每天 9:00 自动发送，包含租户总数、失效租户、运行中任务</a-descriptions-item>
+            <a-descriptions-item label="每日播报">在所设东八区时刻自动发送（默认 09:00），包含租户总数、失效租户、运行中任务</a-descriptions-item>
           </a-descriptions>
         </a-card>
       </a-tab-pane>
@@ -212,7 +224,9 @@ const pwdLoading = ref(false)
 const saveLoading = ref(false)
 const testLoading = ref(false)
 const pwdForm = reactive({ oldPassword: '', newPassword: '', confirmPassword: '' })
-const tgConfig = reactive({ botToken: '', chatId: '', notifyTypes: [] as string[] })
+const tgConfig = reactive({ botToken: '', chatId: '', notifyTypes: [] as string[], dailyReportTime: '09:00' })
+/** 与 a-time-picker（value-format=HH:mm）一致 */
+const dailyReportTimePicked = ref<string | null>('09:00')
 
 const tgConfigured = ref(false)
 const pwdTgVerified = ref(false)
@@ -251,6 +265,8 @@ async function loadNotifyConfig() {
     tgConfig.chatId = res.data?.chatId || ''
     const types = res.data?.notifyTypes
     tgConfig.notifyTypes = types ? types.split(',') : ['login', 'task_create', 'task_result', 'daily_report']
+    tgConfig.dailyReportTime = res.data?.dailyReportTime || '09:00'
+    dailyReportTimePicked.value = tgConfig.dailyReportTime
   } catch {}
 }
 
@@ -347,6 +363,7 @@ async function saveTgConfig() {
       botToken: tgConfig.botToken,
       chatId: tgConfig.chatId,
       notifyTypes: tgConfig.notifyTypes.join(','),
+      dailyReportTime: dailyReportTimePicked.value || '09:00',
       password: notifyVerifiedPwd.value,
     })
     message.success('保存成功')

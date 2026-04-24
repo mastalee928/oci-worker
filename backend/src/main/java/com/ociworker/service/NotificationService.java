@@ -13,7 +13,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.Map;
-import java.util.Set;
 
 @Slf4j
 @Service
@@ -37,10 +36,18 @@ public class NotificationService {
         sendTelegram(message);
     }
 
-    private boolean isTypeEnabled(String notifyType) {
+    public boolean isNotifyTypeEnabled(String notifyType) {
+        if (StrUtil.isBlank(notifyType)) return false;
         String types = getKvValue(SysCfgEnum.TG_NOTIFY_TYPES);
         if (StrUtil.isBlank(types)) return true;
-        return Set.of(types.split(",")).contains(notifyType);
+        for (String t : types.split(",")) {
+            if (notifyType.equals(t.trim())) return true;
+        }
+        return false;
+    }
+
+    private boolean isTypeEnabled(String notifyType) {
+        return isNotifyTypeEnabled(notifyType);
     }
 
     private void sendTelegram(String message) {

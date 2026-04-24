@@ -12,10 +12,13 @@ import org.springframework.web.bind.annotation.*;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.regex.Pattern;
 
 @RestController
 @RequestMapping("/api/sys")
 public class SystemController {
+
+    private static final Pattern DAILY_REPORT_TIME = Pattern.compile("^([01]\\d|2[0-3]):[0-5]\\d$");
 
     @Resource
     private SystemService systemService;
@@ -41,6 +44,8 @@ public class SystemController {
         config.put("botTokenConfigured", botToken != null && !botToken.isBlank());
         config.put("chatIdConfigured", chatId != null && !chatId.isBlank());
         config.put("notifyTypes", notificationService.getKvValue(SysCfgEnum.TG_NOTIFY_TYPES));
+        String dailyTime = notificationService.getKvValue(SysCfgEnum.TG_DAILY_REPORT_TIME);
+        config.put("dailyReportTime", (dailyTime == null || dailyTime.isBlank()) ? "09:00" : dailyTime.trim());
         return ResponseData.ok(config);
     }
 
@@ -77,6 +82,16 @@ public class SystemController {
         }
         if (params.containsKey("notifyTypes")) {
             notificationService.saveKvValue(SysCfgEnum.TG_NOTIFY_TYPES, params.get("notifyTypes"));
+        }
+        if (params.containsKey("dailyReportTime")) {
+            String t = params.get("dailyReportTime");
+            if (t != null && !t.isBlank()) {
+                t = t.trim();
+                if (!DAILY_REPORT_TIME.matcher(t).matches()) {
+                    return ResponseData.error("每日播报时间须为 24 小时制 HH:mm（如 09:00、14:30）");
+                }
+                notificationService.saveKvValue(SysCfgEnum.TG_DAILY_REPORT_TIME, t);
+            }
         }
         return ResponseData.ok();
     }
