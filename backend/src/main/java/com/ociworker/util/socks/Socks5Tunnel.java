@@ -175,8 +175,10 @@ public final class Socks5Tunnel {
             throws IOException {
         String u = user == null ? "" : user;
         String p = pass == null ? "" : pass;
-        byte[] ub = u.getBytes(StandardCharsets.UTF_8);
-        byte[] pb = p.getBytes(StandardCharsets.UTF_8);
+        // 与 OpenJDK SocksSocketImpl 一致：RFC1929 使用 ISO_8859_1，而非 UTF_8。
+        // UTF-8 对 U+0080–U+00FF 等为多字节，会导致与「检查更新」等走 JDK SOCKS 的认证字节不一致（代理返回 status≠0）。
+        byte[] ub = u.getBytes(StandardCharsets.ISO_8859_1);
+        byte[] pb = p.getBytes(StandardCharsets.ISO_8859_1);
         if (ub.length > 255 || pb.length > 255) {
             throw new IOException("SOCKS: 用户名或密码过长");
         }
