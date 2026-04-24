@@ -50,13 +50,12 @@ public final class Socks5Tunnel {
             Authenticator old = Authenticator.getDefault();
             try {
                 if (hasCreds) {
+                    // 在整段 connect 已用全局锁串行化的前提下，对期间任意 Authenticator 询问都返回面板凭据。
+                    // 部分 JDK/内部实现里 SOCKS 握手未必以 RequestorType.PROXY 触发，再过滤会退回 null → JDK 走错误回退 → "SOCKS : authentication failed"。
                     Authenticator.setDefault(new Authenticator() {
                         @Override
                         protected PasswordAuthentication getPasswordAuthentication() {
-                            if (getRequestorType() == Authenticator.RequestorType.PROXY) {
-                                return new PasswordAuthentication(u, p.toCharArray());
-                            }
-                            return null;
+                            return new PasswordAuthentication(u, p.toCharArray());
                         }
                     });
                 } else {
