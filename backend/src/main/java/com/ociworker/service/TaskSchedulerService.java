@@ -316,79 +316,108 @@ public class TaskSchedulerService {
 
     private void executeCreate(String taskId, SysUserDTO dto, int intervalSeconds) {
         if (!runningTasks.add(taskId)) return;
-
-        String user = dto.getUsername();
-        String region = dto.getOciCfg().getRegion();
-        String arch = dto.getArchitecture();
-        int attempt = incrementAttempt(taskId);
-
-        broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s],开机数量:[%d],开始执行第 [%d] 次创建实例操作...",
-                user, region, arch, dto.getCreateNumbers(), attempt));
-
-        try (OciClientService client = new OciClientService(dto)) {
-            InstanceDetailDTO result = client.createInstanceData();
-
-            if (result.isDie()) {
-                completeTask(taskId, TaskStatusEnum.FAILED);
-                broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],架构:[%s] - 认证失败(401)，任务已停止", user, region, arch));
-                String html = "❌ <b>开机任务失败</b>\n\n"
-                        + "👤 <b>租户：</b>" + user + "\n"
-                        + "🌍 <b>区域：</b>" + region + "\n"
-                        + "⚙️ <b>架构：</b>" + arch + "\n"
-                        + "📛 <b>原因：</b>认证失败 (401)，任务已停止";
-                notificationService.sendHtmlWithType(NotificationService.TYPE_TASK_RESULT, html);
+        String user = "";
+        String region = "";
+        String arch = "";
+        try {
+            OciCreateTask head = taskMapper.selectById(taskId);
+            if (head == null) {
                 return;
             }
-
-            if (result.isNoShape()) {
-                completeTask(taskId, TaskStatusEnum.FAILED);
-                broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s] - ❌ Shape 不可用，任务已停止", user, region, arch));
+            if (!TaskStatusEnum.RUNNING.getStatus().equals(head.getStatus())) {
                 return;
             }
-
-            if (result.isOutOfCapacity()) {
-                broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s] - 容量不足，[%d]秒后将重试...",
-                        user, region, arch, intervalSeconds));
-                return;
-            }
-
-            if (result.isNoPubVcn()) {
-                broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s] - 未找到可用公有子网，正在尝试创建...",
-                        user, region, arch));
-                return;
-            }
-
-            if (result.isSuccess()) {
-                int successCount = incrementSuccessCount(taskId);
-                int targetCount = dto.getCreateNumbers() != null ? dto.getCreateNumbers() : 1;
-                appendCreatedInstance(taskId, result);
-                broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],架构:[%s] - 实例创建成功(%d/%d)！IP:%s",
-                        user, region, arch, successCount, targetCount, result.getPublicIp()));
-                String html = "🎉 <b>实例创建成功！</b>（" + successCount + "/" + targetCount + "）\n\n"
-                        + "👤 <b>租户：</b>" + user + "\n"
-                        + "🌍 <b>区域：</b>" + region + "\n"
-                        + "⚙️ <b>架构：</b>" + arch + "\n"
-                        + "💻 <b>Shape：</b>" + result.getShape() + "\n"
-                        + "📊 <b>配置：</b>" + result.getOcpus() + "C / " + result.getMemory() + "GB / " + result.getDisk() + "GB\n"
-                        + "🌐 <b>公网IP：</b><code>" + result.getPublicIp() + "</code>\n"
-                        + "🔑 <b>密码：</b><code>" + result.getRootPassword() + "</code>";
-                notificationService.sendHtmlWithType(NotificationService.TYPE_TASK_RESULT, html);
-
-                if (successCount >= targetCount) {
+            // 多进程/多实例、或本机并发时，以库里的 success_count 为准，达目标则不再开新实例
+            int headTarget = head.getCreateNumbers() != null && head.getCreateNumbers() > 0
+                    ? head.getCreateNumbers() : 1;
+            int headSc = head.getSuccessCount() != null ? head.getSuccessCount() : 0;
+            if (headSc >= headTarget) {
+                if (TaskStatusEnum.RUNNING.getStatus().equals(head.getStatus())) {
                     completeTask(taskId, TaskStatusEnum.COMPLETED);
-                    broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],架构:[%s] - 已达到目标数量(%d台)，任务完成！",
-                            user, region, arch, targetCount));
-                } else {
-                    broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],架构:[%s] - 还需创建 %d 台，[%d]秒后继续...",
-                            user, region, arch, targetCount - successCount, intervalSeconds));
                 }
-            } else {
-                broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s] - 创建未成功，[%d]秒后将重试...",
-                        user, region, arch, intervalSeconds));
+                return;
             }
-        } catch (Exception e) {
-            broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s] - 错误: %s，[%d]秒后将重试...",
-                    user, region, arch, e.getMessage(), intervalSeconds));
+            user = dto.getUsername();
+            region = dto.getOciCfg().getRegion();
+            arch = dto.getArchitecture();
+            int attempt = incrementAttempt(taskId);
+            broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s],开机数量:[%d],开始执行第 [%d] 次创建实例操作...",
+                    user, region, arch, dto.getCreateNumbers(), attempt));
+
+            try (OciClientService client = new OciClientService(dto)) {
+                InstanceDetailDTO result = client.createInstanceData();
+
+                if (result.isDie()) {
+                    completeTask(taskId, TaskStatusEnum.FAILED);
+                    broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],架构:[%s] - 认证失败(401)，任务已停止", user, region, arch));
+                    String html = "❌ <b>开机任务失败</b>\n\n"
+                            + "👤 <b>租户：</b>" + user + "\n"
+                            + "🌍 <b>区域：</b>" + region + "\n"
+                            + "⚙️ <b>架构：</b>" + arch + "\n"
+                            + "📛 <b>原因：</b>认证失败 (401)，任务已停止";
+                    notificationService.sendHtmlWithType(NotificationService.TYPE_TASK_RESULT, html);
+                    return;
+                }
+
+                if (result.isNoShape()) {
+                    completeTask(taskId, TaskStatusEnum.FAILED);
+                    broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s] - ❌ Shape 不可用，任务已停止", user, region, arch));
+                    return;
+                }
+
+                if (result.isOutOfCapacity()) {
+                    broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s] - 容量不足，[%d]秒后将重试...",
+                            user, region, arch, intervalSeconds));
+                    return;
+                }
+
+                if (result.isNoPubVcn()) {
+                    broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s] - 未找到可用公有子网，正在尝试创建...",
+                            user, region, arch));
+                    return;
+                }
+
+                if (result.isSuccess()) {
+                    int n = tryIncrementSuccessCount(taskId);
+                    OciCreateTask t = taskMapper.selectById(taskId);
+                    int targetCount = t != null && t.getCreateNumbers() != null && t.getCreateNumbers() > 0
+                            ? t.getCreateNumbers() : 1;
+                    int successCount = t != null && t.getSuccessCount() != null ? t.getSuccessCount() : 0;
+                    if (n > 0) {
+                        appendCreatedInstance(taskId, result);
+                        int display = Math.min(successCount, targetCount);
+                        broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],架构:[%s] - 实例创建成功(%d/%d)！IP:%s",
+                                user, region, arch, display, targetCount, result.getPublicIp()));
+                        String html = "🎉 <b>实例创建成功！</b>（" + display + "/" + targetCount + "）\n\n"
+                                + "👤 <b>租户：</b>" + user + "\n"
+                                + "🌍 <b>区域：</b>" + region + "\n"
+                                + "⚙️ <b>架构：</b>" + arch + "\n"
+                                + "💻 <b>Shape：</b>" + result.getShape() + "\n"
+                                + "📊 <b>配置：</b>" + result.getOcpus() + "C / " + result.getMemory() + "GB / " + result.getDisk() + "GB\n"
+                                + "🌐 <b>公网IP：</b><code>" + result.getPublicIp() + "</code>\n"
+                                + "🔑 <b>密码：</b><code>" + result.getRootPassword() + "</code>";
+                        notificationService.sendHtmlWithType(NotificationService.TYPE_TASK_RESULT, html);
+                    } else {
+                        // OCI 已建出实例，但行级更新因已达目标/并发被跳过
+                        broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],架构:[%s] - 实例已创建(计次未增加) IP:%s（已达目标或并发争用，请在控制台核对实例）",
+                                user, region, arch, result.getPublicIp()));
+                    }
+                    if (successCount >= targetCount) {
+                        completeTask(taskId, TaskStatusEnum.COMPLETED);
+                        broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],架构:[%s] - 已达到目标数量(%d台)，任务完成！",
+                                user, region, arch, targetCount));
+                    } else {
+                        broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],架构:[%s] - 还需创建 %d 台，[%d]秒后继续...",
+                                user, region, arch, targetCount - successCount, intervalSeconds));
+                    }
+                } else {
+                    broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s] - 创建未成功，[%d]秒后将重试...",
+                            user, region, arch, intervalSeconds));
+                }
+            } catch (Exception e) {
+                broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s] - 错误: %s，[%d]秒后将重试...",
+                        user, region, arch, e.getMessage(), intervalSeconds));
+            }
         } finally {
             runningTasks.remove(taskId);
         }
@@ -402,12 +431,13 @@ public class TaskSchedulerService {
         return task != null && task.getAttemptCount() != null ? task.getAttemptCount() : 0;
     }
 
-    private int incrementSuccessCount(String taskId) {
-        UpdateWrapper<OciCreateTask> wrapper = new UpdateWrapper<>();
-        wrapper.eq("id", taskId).setSql("success_count = COALESCE(success_count, 0) + 1");
-        taskMapper.update(null, wrapper);
-        OciCreateTask task = taskMapper.selectById(taskId);
-        return task != null && task.getSuccessCount() != null ? task.getSuccessCount() : 1;
+    /** 仅当计次未达 create_numbers 时 +1；用于多机并发时只涨一行，避免出现 2/1 */
+    private int tryIncrementSuccessCount(String taskId) {
+        UpdateWrapper<OciCreateTask> w = new UpdateWrapper<>();
+        w.eq("id", taskId);
+        w.apply("COALESCE(success_count, 0) < COALESCE(create_numbers, 1)");
+        w.setSql("success_count = COALESCE(success_count, 0) + 1");
+        return taskMapper.update(null, w);
     }
 
     private synchronized void appendCreatedInstance(String taskId, InstanceDetailDTO result) {
