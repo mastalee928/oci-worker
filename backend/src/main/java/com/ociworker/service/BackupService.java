@@ -14,10 +14,9 @@ import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.*;
+import java.text.SimpleDateFormat;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
-import java.util.ArrayList;
-import java.util.List;
 
 @Slf4j
 @Service
@@ -132,11 +131,7 @@ public class BackupService {
                         for (int i = 1; i <= colCount; i++) {
                             if (i > 1) sb.append(", ");
                             Object val = rs.getObject(i);
-                            if (val == null) {
-                                sb.append("NULL");
-                            } else {
-                                sb.append("'").append(val.toString().replace("'", "\\'")).append("'");
-                            }
+                            appendSqlLiteral(sb, val);
                         }
                         sb.append(");\n");
                     }
@@ -149,6 +144,76 @@ public class BackupService {
         return sb.toString();
     }
 
+    /**
+     * 生成 INSERT 可嵌入的字面值。TINYINT(1)、BIT 等列常映射为 {@link Boolean}，
+     * 若统一按字符串 {@code 'true'} 写入，MySQL 在严格模式下会报
+     * {@code Incorrect integer value: 'true' for column ...}。
+     */
+    private static void appendSqlLiteral(StringBuilder sb, Object val) {
+        if (val == null) {
+            sb.append("NULL");
+            return;
+        }
+        if (val instanceof Boolean) {
+            sb.append((Boolean) val ? "1" : "0");
+            return;
+        }
+        if (val instanceof Number) {
+            sb.append(val);
+            return;
+        }
+        if (val instanceof byte[]) {
+            byte[] b = (byte[]) val;
+            if (b.length == 0) {
+                sb.append("''");
+            } else {
+                sb.append("0x");
+                for (byte x : b) {
+                    sb.append(String.format("%02x", x));
+                }
+            }
+            return;
+        }
+        if (val instanceof java.sql.Date) {
+            sb.append('\'').append(((java.sql.Date) val).toString()).append('\'');
+            return;
+        }
+        if (val instanceof java.sql.Time) {
+            sb.append('\'').append(((java.sql.Time) val).toString()).append('\'');
+            return;
+        }
+        if (val instanceof java.sql.Timestamp) {
+            sb.append('\'').append(
+                    new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format((java.sql.Timestamp) val)
+            ).append('\'');
+            return;
+        }
+        if (val instanceof java.time.LocalDateTime) {
+            String s = val.toString().replace('T', ' ');
+            if (s.length() > 19 && s.charAt(19) == '.') {
+                s = s.substring(0, 19);
+            }
+            sb.append('\'').append(s).append('\'');
+            return;
+        }
+        if (val instanceof java.time.LocalDate) {
+            sb.append('\'').append(val).append('\'');
+            return;
+        }
+        if (val instanceof java.time.LocalTime) {
+            sb.append('\'').append(val).append('\'');
+            return;
+        }
+        String s = val.toString();
+        if ("true".equalsIgnoreCase(s) || "false".equalsIgnoreCase(s)) {
+            sb.append("true".equalsIgnoreCase(s) ? "1" : "0");
+            return;
+        }
+        sb.append('\'')
+                .append(s.replace("\\", "\\\\").replace("'", "\\'"))
+                .append('\'');
+    }
+
     private void importDatabase(String sql) throws SQLException {
         try (Connection conn = dataSource.getConnection();
              Statement stmt = conn.createStatement()) {
@@ -159,10 +224,27 @@ public class BackupService {
                 if (executable.isEmpty()) {
                     continue;
                 }
+                executable = fixLegacyBooleanStringLiterals(executable);
                 stmt.execute(executable);
             }
             conn.commit();
         }
+    }
+
+    /**
+     * 旧版导出曾把 TINYINT(1)/布尔列写成 'true'/'false' 字符串，恢复时报 Incorrect integer value。
+     * 在不含中文等复杂字符串的前提下，将典型形态替换为 0/1；新版备份已直接导出数字，不受影响。
+     */
+    private static String fixLegacyBooleanStringLiterals(String sql) {
+        if (!sql.toUpperCase(java.util.Locale.ROOT).contains("INSERT")) {
+            return sql;
+        }
+        return sql.replace(", 'true',", ", 1,")
+                .replace(", 'false',", ", 0,")
+                .replace(", 'true')", ", 1)")
+                .replace(", 'false')", ", 0)")
+                .replace("('true',", "(1,")
+                .replace("('false',", "(0,");
     }
 
     /** 去掉块内以 -- 开头的注释行，保留 SET/DELETE/INSERT 等可执行语句 */
