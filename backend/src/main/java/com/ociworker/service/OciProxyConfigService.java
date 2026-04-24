@@ -61,7 +61,11 @@ public class OciProxyConfigService {
 
     public void reload() {
         try {
-            cache = OciProxySnapshot.fromKv((SysCfgEnum e) -> notificationService.getKvValue(e));
+            OciProxySnapshot s = OciProxySnapshot.fromKv((SysCfgEnum e) -> notificationService.getKvValue(e));
+            cache = s;
+            if (!s.enabled() || !s.canConnect()) {
+                clearJdkInProcessProxyProperties();
+            }
         } catch (Exception e) {
             log.warn("OciProxy reload: {}", e.getMessage());
         }
@@ -84,7 +88,9 @@ public class OciProxyConfigService {
                 .version(HttpClient.Version.HTTP_1_1)
                 .connectTimeout(Duration.ofSeconds(10));
         if (!cache.enabled() || !cache.canConnect()) {
-            return b;
+            // 必须显式 NO_PROXY：否则 java.net.http.HttpClient 会沿用 JVM 的默认 ProxySelector（
+            // 可继承服务端 ALL_PROXY/HTTPS_PROXY 等，表现为「系统设置里关了仍走 SOCKS」）
+            return b.proxy(noProxySelector());
         }
         b.proxy(singleProxy(cache.toJavaNetProxy()));
         b.authenticator(authenticatorFor(cache));
@@ -126,8 +132,8 @@ public class OciProxyConfigService {
         HttpClient.Builder b = HttpClient.newBuilder()
                 .version(HttpClient.Version.HTTP_1_1)
                 .connectTimeout(Duration.ofSeconds(10));
-        if (!t.canConnect()) {
-            return b;
+        if (!t.enabled() || !t.canConnect()) {
+            return b.proxy(noProxySelector());
         }
         b.proxy(singleProxy(t.toJavaNetProxy()));
         b.authenticator(authenticatorFor(t));
@@ -166,6 +172,22 @@ public class OciProxyConfigService {
         reload();
     }
 
+    /**
+     * 对任意 URI 强制直连。用于覆盖默认 ProxySelector 从环境继承的代理（如 ALL_PROXY 导致仍走 SOCKS）。
+     */
+    private static ProxySelector noProxySelector() {
+        return new ProxySelector() {
+            @Override
+            public List<Proxy> select(URI uri) {
+                return List.of(Proxy.NO_PROXY);
+            }
+
+            @Override
+            public void connectFailed(URI uri, SocketAddress sa, IOException ioe) {
+            }
+        };
+    }
+
     /** Java 11+ 兼容（{@link ProxySelector#of(Proxy)} 需 Java 16+） */
     private static ProxySelector singleProxy(Proxy proxy) {
         return new ProxySelector() {
@@ -178,5 +200,22 @@ public class OciProxyConfigService {
             public void connectFailed(URI uri, SocketAddress sa, IOException ioe) {
             }
         };
+    }
+
+    /**
+     * 在「应用内代理关闭」时清除 <strong>本 JVM 进程内</strong> 已设置的标准代理项（-D 或本进程内曾 set 过），
+     * 避免 OCI/Apache/URLConnection 等仍从 {@code System.getProperty("socksProxyHost")} 等走 SOCKS。
+     * 不修改操作系统环境变量；重启进程后服务单元若仍注入 -D，会再次出现，需在 systemd 中去掉或保留本处逻辑。
+     */
+    private static void clearJdkInProcessProxyProperties() {
+        for (String k : List.of(
+                "http.proxyHost", "http.proxyPort", "https.proxyHost", "https.proxyPort",
+                "ftp.proxyHost", "ftp.proxyPort", "socksProxyHost", "socksProxyPort",
+                "http.nonProxyHosts", "socksNonProxyHosts")) {
+            try {
+                System.clearProperty(k);
+            } catch (Exception ignored) {
+            }
+        }
     }
 }
