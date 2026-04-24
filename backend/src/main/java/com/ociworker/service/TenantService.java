@@ -218,9 +218,13 @@ public class TenantService {
                     log.warn("Failed to fetch tenantName for {}: {}", user.getUsername(), e.getMessage());
                 }
 
-                // Fetch plan type
-                com.oracle.bmc.ospgateway.SubscriptionServiceClient ospClient =
-                        com.oracle.bmc.ospgateway.SubscriptionServiceClient.builder().build(client.getProvider());
+                // Fetch plan type（与 OciClientService 同策略：无应用内代理时禁止 Jersey 套 JVM 代理）
+                var ospB = com.oracle.bmc.ospgateway.SubscriptionServiceClient.builder();
+                OciProxyConfigService pxy = OciProxyConfigService.instance();
+                if (pxy == null || !pxy.ociUsesExplicitClientProxy()) {
+                    ospB = ospB.additionalClientConfigurator(OciProxyConfigService.ociSdkJerseyDirectConfigurator());
+                }
+                com.oracle.bmc.ospgateway.SubscriptionServiceClient ospClient = ospB.build(client.getProvider());
                 try {
                     var resp = ospClient.listSubscriptions(
                             com.oracle.bmc.ospgateway.requests.ListSubscriptionsRequest.builder()
@@ -300,7 +304,12 @@ public class TenantService {
 
             com.oracle.bmc.ospgateway.SubscriptionServiceClient ospClient = null;
             try {
-                ospClient = com.oracle.bmc.ospgateway.SubscriptionServiceClient.builder().build(client.getProvider());
+                var ospB = com.oracle.bmc.ospgateway.SubscriptionServiceClient.builder();
+                OciProxyConfigService pxy = OciProxyConfigService.instance();
+                if (pxy == null || !pxy.ociUsesExplicitClientProxy()) {
+                    ospB = ospB.additionalClientConfigurator(OciProxyConfigService.ociSdkJerseyDirectConfigurator());
+                }
+                ospClient = ospB.build(client.getProvider());
                 var resp = ospClient.listSubscriptions(
                         com.oracle.bmc.ospgateway.requests.ListSubscriptionsRequest.builder()
                                 .ospHomeRegion(ospHomeRegion)

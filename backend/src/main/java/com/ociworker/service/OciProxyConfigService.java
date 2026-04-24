@@ -5,7 +5,9 @@ import com.ociworker.exception.OciException;
 import com.ociworker.model.dto.OciProxyConstants;
 import com.ociworker.model.dto.OciProxySnapshot;
 import com.ociworker.util.socks.Socks5Tunnel;
+import com.oracle.bmc.http.ClientConfigurator;
 import com.oracle.bmc.http.client.ProxyConfiguration;
+import com.oracle.bmc.http.client.jersey3.Jersey3ClientProperty;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
@@ -64,7 +66,7 @@ public class OciProxyConfigService {
             OciProxySnapshot s = OciProxySnapshot.fromKv((SysCfgEnum e) -> notificationService.getKvValue(e));
             cache = s;
             if (!s.enabled() || !s.canConnect()) {
-                clearJdkInProcessProxyProperties();
+                clearInProcessHttpSocksProxySystemProperties();
             }
         } catch (Exception e) {
             log.warn("OciProxy reload: {}", e.getMessage());
@@ -77,6 +79,24 @@ public class OciProxyConfigService {
 
     public Optional<ProxyConfiguration> getOciProxyConfiguration() {
         return cache.toOciProxyConfiguration();
+    }
+
+    /**
+     * 当前是否由应用为 OCI 显式配置了 HTTP 代理或 SOCKS（与 {@link OciClientService} 分支一致）。
+     */
+    public boolean ociUsesExplicitClientProxy() {
+        return cache.usesSocksForOci() || getOciProxyConfiguration().isPresent();
+    }
+
+    /**
+     * 无应用内代理时供 OCI Jersey3+Apache 使用：禁止连接器把请求套到 JVM
+     * {@code http(s).proxy*}/{@code socksProxy*} 上（否则仍可能 SOCKS 认证失败）。
+     */
+    public static ClientConfigurator ociSdkJerseyDirectConfigurator() {
+        return b -> b.property(
+                Jersey3ClientProperty.create(
+                        org.glassfish.jersey.apache.connector.ApacheClientProperties.USE_SYSTEM_PROPERTIES),
+                Boolean.FALSE);
     }
 
     public HttpClient newOutboundHttpClient() {
@@ -207,7 +227,11 @@ public class OciProxyConfigService {
      * 避免 OCI/Apache/URLConnection 等仍从 {@code System.getProperty("socksProxyHost")} 等走 SOCKS。
      * 不修改操作系统环境变量；重启进程后服务单元若仍注入 -D，会再次出现，需在 systemd 中去掉或保留本处逻辑。
      */
-    private static void clearJdkInProcessProxyProperties() {
+    /**
+     * 清除本进程内标准代理相关 system properties，并尽量关闭对「系统级代理选择」的依赖。
+     * 在每次创建「直连 OCI」的 Apache 客户端前也可调用，避免仅依赖 reload 顺序。
+     */
+    public static void clearInProcessHttpSocksProxySystemProperties() {
         for (String k : List.of(
                 "http.proxyHost", "http.proxyPort", "https.proxyHost", "https.proxyPort",
                 "ftp.proxyHost", "ftp.proxyPort", "socksProxyHost", "socksProxyPort",
@@ -216,6 +240,10 @@ public class OciProxyConfigService {
                 System.clearProperty(k);
             } catch (Exception ignored) {
             }
+        }
+        try {
+            System.setProperty("java.net.useSystemProxies", "false");
+        } catch (Exception ignored) {
         }
     }
 }
