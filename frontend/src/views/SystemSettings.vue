@@ -99,7 +99,14 @@
                 <a-badge v-if="updateInfo.hasUpdate" status="warning" text="有新版本可用" />
                 <a-badge v-else-if="updateInfo.error" status="error" :text="'检查失败: ' + updateInfo.error" />
                 <a-badge v-else-if="updateInfo.notice" status="processing" :text="updateInfo.notice" />
+                <a-badge v-else-if="updateInfo.versionNotice" status="success" text="无需更新" />
                 <a-badge v-else status="success" text="已是最新版本" />
+              </a-descriptions-item>
+              <a-descriptions-item
+                v-if="updateInfo.versionNotice"
+                :label="updateInfo.hasUpdate ? '注意' : '说明'"
+              >
+                <span style="color: var(--text-sub); font-size: 12px">{{ updateInfo.versionNotice }}</span>
               </a-descriptions-item>
             </a-descriptions>
             <a-empty v-else description="点击检查更新" />

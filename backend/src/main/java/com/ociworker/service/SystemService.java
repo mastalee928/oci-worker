@@ -23,6 +23,9 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+
 import java.time.Duration;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -41,6 +44,7 @@ public class SystemService {
     private static final String REPO = "mastalee928/oci-worker";
     private static final String JAR_PATH = "/opt/oci-worker/oci-worker.jar";
     private static final String ASSET_NAME = "oci-worker-1.0.0.jar";
+    private static final ObjectMapper JSON = new ObjectMapper();
 
     private String currentCommit;
 
@@ -76,8 +80,7 @@ public class SystemService {
         }
 
         try {
-            // 必须用 /releases/tags/latest：/releases/latest 是「全仓库最近发布的一条 Release」，
-            // 若 installer-latest 比应用 JAR 的 latest 更晚发布，会错拿到安装器包（~数 MB），与 oci-worker-1.0.0.jar 无关。
+            // 必须用 /releases/tags/latest，不能用 /releases/latest（会误成 installer-latest）
             String tagLatestApi = "https://api.github.com/repos/" + REPO + "/releases/tags/latest";
             HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
             HttpRequest request = HttpRequest.newBuilder()
@@ -86,7 +89,6 @@ public class SystemService {
                     .timeout(Duration.ofSeconds(15))
                     .GET().build();
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
-            String body = response.body();
             if (response.statusCode() != 200) {
                 result.put("latestSize", -1);
                 result.put("latestSizeHuman", "查询失败");
@@ -95,17 +97,19 @@ public class SystemService {
                 return result;
             }
 
+            JsonNode root = JSON.readTree(response.body());
+            result.put("latestTag", root.path("tag_name").asText(""));
+
+            String publishedAt = root.path("published_at").asText("");
+            if (!publishedAt.isEmpty()) {
+                result.put("publishedAt", publishedAt);
+            }
+
             long jarSize = 0;
-            Matcher jarAsset = Pattern.compile(
-                    "\"name\"\\s*:\\s*\"" + Pattern.quote(ASSET_NAME) + "\"[\\s\\S]*?\"size\"\\s*:\\s*(\\d+)"
-            ).matcher(body);
-            if (jarAsset.find()) {
-                jarSize = Long.parseLong(jarAsset.group(1));
-            } else {
-                Matcher sizeMatcher = Pattern.compile("\"size\"\\s*:\\s*(\\d+)").matcher(body);
-                while (sizeMatcher.find()) {
-                    long s = Long.parseLong(sizeMatcher.group(1));
-                    if (s > jarSize) jarSize = s;
+            for (JsonNode a : root.withArray("assets")) {
+                if (ASSET_NAME.equals(a.path("name").asText())) {
+                    jarSize = a.path("size").asLong(0);
+                    break;
                 }
             }
             if (jarSize > 0) {
@@ -116,30 +120,60 @@ public class SystemService {
                 result.put("latestSizeHuman", "未知");
             }
 
-            Matcher dateMatcher = Pattern.compile("\"published_at\"\\s*:\\s*\"([^\"]+)\"").matcher(body);
-            if (dateMatcher.find()) {
-                result.put("publishedAt", dateMatcher.group(1));
-            }
-
+            // 从 Release notes 正文解析构建 commit（避免整段 JSON 里先匹配到别的 "commit" 子串）
             String latestCommit = null;
-            Matcher commitMatcher = Pattern.compile("commit\\s+([0-9a-f]{7,40})").matcher(body);
-            if (commitMatcher.find()) {
-                String fullHash = commitMatcher.group(1);
-                latestCommit = fullHash.length() > 7 ? fullHash.substring(0, 7) : fullHash;
+            String bodyText = root.path("body").asText("");
+            Matcher cm = Pattern.compile("(?i)commit[\\s]+([0-9a-f]{7,40})").matcher(bodyText);
+            if (cm.find()) {
+                String full = cm.group(1);
+                latestCommit = full.length() > 7 ? full.substring(0, 7) : full;
                 result.put("latestCommit", latestCommit);
             }
 
-            Matcher tagMatcher = Pattern.compile("\"tag_name\"\\s*:\\s*\"([^\"]+)\"").matcher(body);
-            if (tagMatcher.find()) {
-                result.put("latestTag", tagMatcher.group(1));
-            }
-
-            if (currentCommit != null && latestCommit != null) {
-                result.put("hasUpdate", !currentCommit.equals(latestCommit));
-            } else {
+            if (currentCommit == null) {
                 result.put("hasUpdate", false);
-                if (currentCommit == null) {
-                    result.put("notice", "当前为开发版本，无法对比commit");
+                result.put("notice", "当前为开发版本，无法对比 commit");
+            } else if (latestCommit == null) {
+                result.put("hasUpdate", false);
+                result.put("notice", "无法从 GitHub Release 说明中解析构建 commit，请去仓库 Releases 核对");
+            } else if (currentCommit.equalsIgnoreCase(latestCommit)) {
+                result.put("hasUpdate", false);
+            } else {
+                // 比较：base=线上下载包 commit，head=本机 JAR 内嵌 commit
+                // ahead = 本机更新；behind = 本机更旧，应提示更新
+                String compareApi = "https://api.github.com/repos/" + REPO + "/compare/"
+                        + latestCommit + "..." + currentCommit;
+                HttpRequest cr = HttpRequest.newBuilder()
+                        .uri(URI.create(compareApi))
+                        .header("Accept", "application/vnd.github.v3+json")
+                        .timeout(Duration.ofSeconds(15))
+                        .GET().build();
+                HttpResponse<String> cResp = client.send(cr, HttpResponse.BodyHandlers.ofString());
+                if (cResp.statusCode() == 200) {
+                    String status = JSON.readTree(cResp.body()).path("status").asText("");
+                    switch (status) {
+                        case "identical" -> {
+                            result.put("hasUpdate", false);
+                        }
+                        case "ahead" -> {
+                            // 本机相对线上下载包更「新」：无必要一键降级
+                            result.put("hasUpdate", false);
+                            result.put("versionNotice", "当前运行版本已新于或等于 GitHub 上 tag latest 发布包，无需在线更新。");
+                        }
+                        case "behind" -> {
+                            result.put("hasUpdate", true);
+                        }
+                        case "diverged" -> {
+                            result.put("hasUpdate", true);
+                            result.put("versionNotice", "本地与线上下载包提交已分叉，更新前请确认数据与回滚方式。");
+                        }
+                        default -> {
+                            result.put("hasUpdate", !currentCommit.equalsIgnoreCase(latestCommit));
+                        }
+                    }
+                } else {
+                    log.warn("GitHub compare 失败 HTTP {}: {}", cResp.statusCode(), cResp.body());
+                    result.put("hasUpdate", !currentCommit.equalsIgnoreCase(latestCommit));
                 }
             }
         } catch (Exception e) {
