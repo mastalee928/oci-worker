@@ -77,12 +77,15 @@ public final class Socks5Tunnel {
         DataOutputStream out = new DataOutputStream(socket.getOutputStream());
         DataInputStream in = new DataInputStream(socket.getInputStream());
 
-        boolean wantUserPass = (proxyUser != null && !proxyUser.isBlank())
+        boolean hasCredentials = (proxyUser != null && !proxyUser.isBlank())
                 || (proxyPass != null && !proxyPass.isBlank());
-        // 需要认证时只宣告 0x02，避免部分代理在「无认证 + 用户名密码」并存时的异常选择/错位
-        if (wantUserPass) {
+        // 与 OpenJDK SocksSocketImpl 完全一致：有凭证时仍宣告 NO_AUTH(0x00)+USER_PASS(0x02)。
+        // 若代理同时支持匿名，服务器会选 0x00，JDK 从不发 RFC1929——此时面板里填错的密码不影响「检查更新」；
+        // 若只宣告 0x02 则会强迫走 RFC1929，易与上述行为不一致而出现 status=255。
+        if (hasCredentials) {
             out.writeByte(0x05);
-            out.writeByte(0x01);
+            out.writeByte(0x02);
+            out.writeByte(0x00);
             out.writeByte(0x02);
         } else {
             out.writeByte(0x05);
@@ -100,7 +103,7 @@ public final class Socks5Tunnel {
             throw new IOException("SOCKS: 无可用认证方式");
         }
         if (method == 0x02) {
-            if (!wantUserPass) {
+            if (!hasCredentials) {
                 throw new IOException("SOCKS: 服务器要求用户名密码但未配置");
             }
             doUsernamePasswordAuth(out, in, proxyUser, proxyPass);
