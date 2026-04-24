@@ -51,6 +51,8 @@ public class TaskSchedulerService {
 
     @PostConstruct
     public void init() {
+        // 多实例时代旧数据可能出现 success>目标 仍 RUNNING；在恢复任务前先收口，避免再调度
+        repairInconsistentRunningTasks();
         List<OciCreateTask> runningTaskList = taskMapper.selectList(
                 new LambdaQueryWrapper<OciCreateTask>()
                         .eq(OciCreateTask::getStatus, TaskStatusEnum.RUNNING.getStatus()));
@@ -87,6 +89,7 @@ public class TaskSchedulerService {
     }
 
     public Page<Map<String, Object>> listTasks(PageParams params) {
+        repairInconsistentRunningTasks();
         cleanExpiredTasks();
 
         Page<OciCreateTask> page = new Page<>(params.getCurrent(), params.getSize());
@@ -548,6 +551,33 @@ public class TaskSchedulerService {
         taskMapper.delete(new LambdaQueryWrapper<OciCreateTask>()
                 .ne(OciCreateTask::getStatus, TaskStatusEnum.RUNNING.getStatus())
                 .lt(OciCreateTask::getCreateTime, cutoff));
+    }
+
+    /**
+     * 将「计次已达标」但仍为 RUNNING 的任务收口为 COMPLETED，并回写计次不高于目标（修复历史/多机脏数据）
+     */
+    private void repairInconsistentRunningTasks() {
+        List<OciCreateTask> running = taskMapper.selectList(
+                new LambdaQueryWrapper<OciCreateTask>()
+                        .eq(OciCreateTask::getStatus, TaskStatusEnum.RUNNING.getStatus()));
+        for (OciCreateTask t : running) {
+            int target = t.getCreateNumbers() != null && t.getCreateNumbers() > 0 ? t.getCreateNumbers() : 1;
+            int sc = t.getSuccessCount() != null ? t.getSuccessCount() : 0;
+            if (sc < target) {
+                continue;
+            }
+            try {
+                log.info("修复开机任务: id={} 进度{}/{} -> 已完成", t.getId(), sc, target);
+                completeTask(t.getId(), TaskStatusEnum.COMPLETED);
+                if (sc > target) {
+                    UpdateWrapper<OciCreateTask> uw = new UpdateWrapper<>();
+                    uw.eq("id", t.getId()).set("success_count", target);
+                    taskMapper.update(null, uw);
+                }
+            } catch (Exception e) {
+                log.warn("repairInconsistentRunningTasks id={}: {}", t.getId(), e.getMessage());
+            }
+        }
     }
 
     private void broadcastLog(String message) {
