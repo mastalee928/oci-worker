@@ -28,7 +28,7 @@ import com.ociworker.model.dto.OciProxySnapshot;
 import com.ociworker.model.dto.SysUserDTO;
 import com.ociworker.util.CommonUtils;
 import com.ociworker.util.socks.OciSocksApacheConnectionManager;
-import com.oracle.bmc.http.client.HttpClientBuilder;
+import com.oracle.bmc.http.ClientConfigurator;
 import com.oracle.bmc.http.client.ProxyConfiguration;
 import com.oracle.bmc.http.client.StandardClientProperties;
 import com.oracle.bmc.http.client.jersey3.ApacheClientProperties;
@@ -39,7 +39,6 @@ import org.apache.http.conn.HttpClientConnectionManager;
 
 import java.io.*;
 import java.util.*;
-import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -128,7 +127,7 @@ public class OciClientService implements Closeable {
                 ? Optional.empty()
                 : ps.getOciProxyConfiguration();
 
-        Consumer<HttpClientBuilder> socksApacheCfg = null;
+        ClientConfigurator socksApacheCfg = null;
         if (socksPool != null) {
             socksApacheCfg = b -> {
                 b.property(ApacheClientProperties.CONNECTION_MANAGER, socksPool);
