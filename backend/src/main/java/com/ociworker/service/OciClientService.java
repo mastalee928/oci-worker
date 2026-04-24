@@ -190,12 +190,18 @@ public class OciClientService implements Closeable {
         if (StrUtil.isBlank(regionId)) {
             throw new OciException("Region 不能为空");
         }
-        for (Region r : Region.values()) {
-            if (regionId.equalsIgnoreCase(r.getRegionId())) {
-                return r;
+        String trimmed = regionId.trim();
+        // 实例 API 的 region 常为短码（如 Ashburn → iad），与租户配置里的 us-ashburn-1 不同；SDK 可统一解析
+        try {
+            return Region.fromRegionCodeOrId(trimmed);
+        } catch (IllegalArgumentException ignored) {
+            for (Region r : Region.values()) {
+                if (trimmed.equalsIgnoreCase(r.getRegionId())) {
+                    return r;
+                }
             }
+            throw new OciException("未知 Region: " + regionId + "（请检查拼写或升级 OCI SDK）");
         }
-        throw new OciException("未知 Region: " + regionId + "（请检查拼写或升级 OCI SDK）");
     }
 
     private String findRootCompartment(IdentityClient identityClient, String tenantId) {
