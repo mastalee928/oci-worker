@@ -182,6 +182,7 @@ function handleLogout() {
 .sider {
   background: var(--bg-sidebar) !important;
   border-right: 1px solid var(--border);
+  box-shadow: 6px 0 32px -12px rgba(0, 0, 0, 0.35);
   display: flex;
   flex-direction: column;
   backdrop-filter: blur(20px);
@@ -192,6 +193,9 @@ function handleLogout() {
   height: 100vh;
   align-self: flex-start;
   z-index: 10;
+}
+[data-theme='light'] .sider {
+  box-shadow: 6px 0 28px -12px rgba(15, 23, 42, 0.08);
 }
 .sider :deep(.ant-layout-sider-children) {
   display: flex;
@@ -230,6 +234,7 @@ function handleLogout() {
   padding: 0 24px;
   gap: 12px;
   flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
 }
 .sider-collapsed-desktop .brand {
   justify-content: center;
@@ -396,6 +401,10 @@ function handleLogout() {
   padding: 0 32px;
   z-index: 40;
   flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+  background: color-mix(in srgb, var(--bg-body) 55%, transparent);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
 }
 .header-left {
   display: flex;
@@ -406,6 +415,7 @@ function handleLogout() {
 .page-title {
   font-weight: 800;
   font-size: 24px;
+  letter-spacing: -0.03em;
   display: flex;
   align-items: center;
   gap: 12px;

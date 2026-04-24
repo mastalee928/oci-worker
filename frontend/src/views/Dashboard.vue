@@ -1,5 +1,9 @@
 <template>
-  <div>
+  <div class="dashboard-page">
+    <header class="dash-intro">
+      <h1 class="dash-title">工作概览</h1>
+      <p class="dash-sub">租户、任务与主机资源一屏掌握</p>
+    </header>
     <div class="dash-stats">
       <div class="dash-stat-card">
         <div class="icon-wrap" style="background: var(--primary-light); color: var(--primary)">
@@ -72,6 +76,27 @@ onMounted(async () => {
 </script>
 
 <style scoped>
+.dashboard-page {
+  max-width: 1400px;
+  margin: 0 auto;
+}
+.dash-intro {
+  margin-bottom: 22px;
+}
+.dash-title {
+  margin: 0;
+  font-size: 1.375rem;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: var(--text-main);
+  line-height: 1.2;
+}
+.dash-sub {
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--text-sub);
+  font-weight: 500;
+}
 .dash-stats {
   display: grid;
   grid-template-columns: repeat(4, 1fr);
@@ -79,18 +104,35 @@ onMounted(async () => {
   margin-bottom: 24px;
 }
 .dash-stat-card {
-  background: var(--bg-card);
+  position: relative;
+  overflow: hidden;
+  background: linear-gradient(165deg, rgba(30, 41, 59, 0.55) 0%, var(--bg-card) 100%);
   border: 1px solid var(--border);
   border-radius: 16px;
   padding: 20px 18px;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  transition: border-color 0.2s, transform 0.2s;
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  transition: border-color 0.2s, transform 0.2s, box-shadow 0.2s;
   box-shadow: var(--shadow-card);
 }
+.dash-stat-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 12%;
+  right: 12%;
+  height: 1px;
+  background: var(--accent-line);
+  opacity: 0.85;
+  pointer-events: none;
+}
 .dash-stat-card:hover {
-  border-color: rgba(129, 140, 248, 0.35);
+  border-color: rgba(129, 140, 248, 0.4);
   transform: translateY(-2px);
+  box-shadow: var(--shadow-elevated);
+}
+[data-theme='light'] .dash-stat-card {
+  background: linear-gradient(165deg, rgba(255, 255, 255, 0.95) 0%, var(--bg-card) 100%);
 }
 .icon-wrap {
   width: 42px; height: 42px;
@@ -121,13 +163,31 @@ onMounted(async () => {
   gap: 20px;
 }
 .dash-panel {
+  position: relative;
+  overflow: hidden;
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: 24px;
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
   box-shadow: var(--shadow-card);
+  transition: box-shadow 0.2s, border-color 0.2s;
+}
+.dash-panel::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 1px;
+  background: var(--accent-line);
+  opacity: 0.5;
+  pointer-events: none;
+}
+.dash-panel:hover {
+  border-color: rgba(129, 140, 248, 0.18);
+  box-shadow: var(--shadow-elevated);
 }
 .dash-panel h3 {
   margin: 0 0 18px;

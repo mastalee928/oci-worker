@@ -190,17 +190,31 @@ async function handleTgLogin() {
   50% { transform: translate(30px, 30px); }
 }
 .login-card {
-  background: rgba(30, 41, 59, 0.4);
+  background: linear-gradient(165deg, rgba(30, 41, 59, 0.55) 0%, rgba(30, 41, 59, 0.35) 100%);
   backdrop-filter: blur(24px);
   -webkit-backdrop-filter: blur(24px);
   padding: 48px 40px;
   border-radius: 24px;
   width: 100%;
   max-width: 380px;
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  box-shadow:
+    0 0 0 1px rgba(99, 102, 241, 0.08) inset,
+    0 25px 50px -12px rgba(0, 0, 0, 0.55),
+    0 0 100px -30px rgba(99, 102, 241, 0.18);
   position: relative;
   z-index: 1;
+}
+.login-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 10%;
+  right: 10%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, rgba(129, 140, 248, 0.55) 50%, transparent);
+  border-radius: 24px 24px 0 0;
+  pointer-events: none;
 }
 .login-header {
   text-align: center;
