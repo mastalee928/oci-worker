@@ -34,8 +34,8 @@ public final class OciSocksApacheConnectionManager {
         }
         String proxyHost = snap.host();
         int proxyPort = snap.port();
-        String user = snap.proxyUser() == null ? "" : snap.proxyUser();
-        String pass = snap.proxyPass() == null ? "" : snap.proxyPass();
+        String user = Socks5Tunnel.normalizeSocksCredential(snap.proxyUser());
+        String pass = Socks5Tunnel.normalizeSocksCredential(snap.proxyPass());
         boolean remoteDns = OciProxyConstants.TYPE_SOCKS5H.equals(snap.type());
 
         SocksParams p = new SocksParams(proxyHost, proxyPort, user, pass, remoteDns);

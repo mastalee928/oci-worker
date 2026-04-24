@@ -53,8 +53,6 @@ public final class Socks5Tunnel {
                     Authenticator.setDefault(new Authenticator() {
                         @Override
                         protected PasswordAuthentication getPasswordAuthentication() {
-                            // 与 OciProxyConfigService.authenticatorFor 一致：按 PROXY 凭据响应。
-                            // 仅判断 "SOCKS5" 协议名在部分 JDK/路径下可能为 null 或不同，导致不返回密码而认证失败。
                             if (getRequestorType() == Authenticator.RequestorType.PROXY) {
                                 return new PasswordAuthentication(u, p.toCharArray());
                             }
@@ -65,23 +63,34 @@ public final class Socks5Tunnel {
                     Authenticator.setDefault(new Authenticator() {
                     });
                 }
-                Socket s = new Socket(proxy);
-                s.setTcpNoDelay(true);
-                if (connectTimeoutMs > 0) {
-                    s.connect(remote, connectTimeoutMs);
-                } else {
-                    s.connect(remote);
+                final Socket s = new Socket(proxy);
+                try {
+                    s.setTcpNoDelay(true);
+                    if (connectTimeoutMs > 0) {
+                        s.connect(remote, connectTimeoutMs);
+                    } else {
+                        s.connect(remote);
+                    }
+                    s.setSoTimeout(connectTimeoutMs > 0 ? Math.max(connectTimeoutMs, 30_000) : 30_000);
+                    return s;
+                } catch (IOException | RuntimeException e) {
+                    try {
+                        s.close();
+                    } catch (IOException ignored) {
+                    }
+                    throw e;
                 }
-                s.setSoTimeout(connectTimeoutMs > 0 ? Math.max(connectTimeoutMs, 30_000) : 30_000);
-                return s;
             } finally {
                 Authenticator.setDefault(old);
             }
         }
     }
 
-    /** 去掉首尾空白、BOM、行尾 CR/LF（常见于从 KV/表单粘贴的密码）。 */
-    static String normalizeSocksCredential(String s) {
+    /**
+     * 与 {@link com.ociworker.service.OciProxyConfigService#authenticatorFor} 对 HttpClient 使用的凭据规则一致，避免一边 strip 一边不 strip。
+     * 去掉首尾空白、BOM、行尾 CR/LF（常见于从 KV/表单粘贴的密码）。
+     */
+    public static String normalizeSocksCredential(String s) {
         if (s == null) {
             return "";
         }

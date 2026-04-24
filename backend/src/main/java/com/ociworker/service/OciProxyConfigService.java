@@ -4,6 +4,7 @@ import com.ociworker.enums.SysCfgEnum;
 import com.ociworker.exception.OciException;
 import com.ociworker.model.dto.OciProxyConstants;
 import com.ociworker.model.dto.OciProxySnapshot;
+import com.ociworker.util.socks.Socks5Tunnel;
 import com.oracle.bmc.http.client.ProxyConfiguration;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
@@ -130,8 +131,8 @@ public class OciProxyConfigService {
     }
 
     private static Authenticator authenticatorFor(OciProxySnapshot s) {
-        final String user = s.proxyUser() == null ? "" : s.proxyUser();
-        final char[] pass = s.proxyPass() == null ? new char[0] : s.proxyPass().toCharArray();
+        final String user = Socks5Tunnel.normalizeSocksCredential(s.proxyUser());
+        final char[] pass = Socks5Tunnel.normalizeSocksCredential(s.proxyPass()).toCharArray();
         // 用户名空但密码非空时也必须提供 Authenticator：否则 JDK SOCKS 会退回系统用户名 + 空密码，
         // 与 Socks5Tunnel（空用户名 + 面板密码）不一致，表现为「检查更新能过、OCI RFC1929 失败」。
         if (user.isEmpty() && pass.length == 0) {
