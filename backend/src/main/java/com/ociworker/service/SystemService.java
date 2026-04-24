@@ -76,24 +76,41 @@ public class SystemService {
         }
 
         try {
+            // 必须用 /releases/tags/latest：/releases/latest 是「全仓库最近发布的一条 Release」，
+            // 若 installer-latest 比应用 JAR 的 latest 更晚发布，会错拿到安装器包（~数 MB），与 oci-worker-1.0.0.jar 无关。
+            String tagLatestApi = "https://api.github.com/repos/" + REPO + "/releases/tags/latest";
             HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create("https://api.github.com/repos/" + REPO + "/releases/latest"))
+                    .uri(URI.create(tagLatestApi))
                     .header("Accept", "application/vnd.github.v3+json")
                     .timeout(Duration.ofSeconds(15))
                     .GET().build();
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
             String body = response.body();
-
-            Matcher sizeMatcher = Pattern.compile("\"size\"\\s*:\\s*(\\d+)").matcher(body);
-            long maxSize = 0;
-            while (sizeMatcher.find()) {
-                long s = Long.parseLong(sizeMatcher.group(1));
-                if (s > maxSize) maxSize = s;
+            if (response.statusCode() != 200) {
+                result.put("latestSize", -1);
+                result.put("latestSizeHuman", "查询失败");
+                result.put("hasUpdate", false);
+                result.put("error", "GitHub 返回 " + response.statusCode() + "（可能无 tag latest）");
+                return result;
             }
-            if (maxSize > 0) {
-                result.put("latestSize", maxSize);
-                result.put("latestSizeHuman", humanReadableSize(maxSize));
+
+            long jarSize = 0;
+            Matcher jarAsset = Pattern.compile(
+                    "\"name\"\\s*:\\s*\"" + Pattern.quote(ASSET_NAME) + "\"[\\s\\S]*?\"size\"\\s*:\\s*(\\d+)"
+            ).matcher(body);
+            if (jarAsset.find()) {
+                jarSize = Long.parseLong(jarAsset.group(1));
+            } else {
+                Matcher sizeMatcher = Pattern.compile("\"size\"\\s*:\\s*(\\d+)").matcher(body);
+                while (sizeMatcher.find()) {
+                    long s = Long.parseLong(sizeMatcher.group(1));
+                    if (s > jarSize) jarSize = s;
+                }
+            }
+            if (jarSize > 0) {
+                result.put("latestSize", jarSize);
+                result.put("latestSizeHuman", humanReadableSize(jarSize));
             } else {
                 result.put("latestSize", -1);
                 result.put("latestSizeHuman", "未知");
@@ -150,7 +167,7 @@ public class SystemService {
                     ASSET="%s"
                     JAR="%s"
                     sleep 2
-                    JAR_URL=$(curl -sL "https://api.github.com/repos/${REPO}/releases/latest" \
+                    JAR_URL=$(curl -sL "https://api.github.com/repos/${REPO}/releases/tags/latest" \
                       | grep -o "https://github.com/${REPO}/releases/download/[^\\"]*${ASSET}" | head -1)
                     [ -z "$JAR_URL" ] && JAR_URL="https://github.com/${REPO}/releases/download/latest/${ASSET}"
                     curl -fSL --retry 3 --retry-delay 5 -o "${JAR}.tmp" "$JAR_URL"
