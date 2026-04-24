@@ -117,9 +117,11 @@ public class OciClientService implements Closeable {
                 .build();
         OciProxyConfigService ps = OciProxyConfigService.instance();
         OciProxySnapshot snap = ps == null ? null : ps.snapshot();
-        org.apache.http.impl.conn.PoolingHttpClientConnectionManager socksPool = null;
+        final org.apache.http.impl.conn.PoolingHttpClientConnectionManager socksPool;
         if (snap != null && snap.usesSocksForOci()) {
             socksPool = OciSocksApacheConnectionManager.create(snap);
+        } else {
+            socksPool = null;
         }
         this.ociSocksPoolingManager = socksPool;
 
