@@ -489,10 +489,35 @@ async function handleBackupWithCode() {
     })
     if (!resp.ok) {
       const text = await resp.text()
-      try { const json = JSON.parse(text); throw new Error(json.message || '备份失败') }
-      catch { throw new Error(text || '备份失败') }
+      let msg = '备份失败'
+      try {
+        const json = JSON.parse(text) as { message?: string }
+        if (json?.message) msg = json.message
+      } catch {
+        if (text) msg = text.slice(0, 240)
+      }
+      throw new Error(msg)
     }
-    const blob = await resp.blob()
+    // 业务错误（如验证码错误、备份失败）走 GlobalExceptionHandler 时仍是 HTTP 200 + application/json；
+    // 若直接当 blob 下载会得到几十字节的“假 zip”，恢复时报压缩包损坏。这里按魔数/JSON 显式拆出来。
+    const buf = await resp.arrayBuffer()
+    const u8 = new Uint8Array(buf)
+    const isZip = u8.length >= 2 && u8[0] === 0x50 && u8[1] === 0x4B
+    if (!isZip) {
+      const text = new TextDecoder().decode(buf)
+      let errMsg = '服务器未返回有效的 ZIP 备份，请重试或查看服务日志'
+      try {
+        const json = JSON.parse(text) as { message?: string }
+        if (json?.message) errMsg = json.message
+      } catch {
+        if (text.trim().length) errMsg = text.trim().slice(0, 240)
+      }
+      throw new Error(errMsg)
+    }
+    if (u8.length < 64) {
+      throw new Error('备份文件异常过小，请重试或检查服务是否正常')
+    }
+    const blob = new Blob([buf], { type: 'application/zip' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url; a.download = 'oci-worker-backup.zip'; a.click()
