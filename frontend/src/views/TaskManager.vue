@@ -39,7 +39,7 @@
         </template>
         <template v-if="column.key === 'progress'">
           <span>
-            <span style="font-weight: 600">{{ record.successCount || 0 }}</span>
+            <span style="font-weight: 600">{{ progressDisplaySuccess(record) }}</span>
             <span style="color: var(--text-sub)"> / {{ record.createNumbers }}</span>
             <a-tag v-if="record.progressOverTarget" color="orange" style="margin-left: 6px"
               :title="progressOverTargetTip">超目标</a-tag>
@@ -86,7 +86,7 @@
           <div class="mobile-card-row"><span class="label">区域</span><span class="value">{{ task.ociRegion }}</span></div>
           <div class="mobile-card-row"><span class="label">配置</span><span class="value">{{ task.ocpus }}C / {{ task.memory }}G / {{ task.disk }}GB</span></div>
           <div class="mobile-card-row"><span class="label">进度</span>
-            <span class="value">{{ task.successCount || 0 }} / {{ task.createNumbers }}
+            <span class="value">{{ progressDisplaySuccess(task) }} / {{ task.createNumbers }}
               <a-tag v-if="task.progressOverTarget" color="orange" size="small" style="margin-left: 4px" :title="progressOverTargetTip">超</a-tag>
             </span>
           </div>
@@ -283,10 +283,10 @@
               <a-descriptions-item label="操作系统">{{ detailData.operationSystem || '—' }}</a-descriptions-item>
               <a-descriptions-item label="配置">{{ detailData.ocpus }}C / {{ detailData.memory }}G / {{ detailData.disk }}GB</a-descriptions-item>
               <a-descriptions-item label="进度">
-                <span style="font-weight:600">{{ detailData.successCount || 0 }}</span> / {{ detailData.createNumbers }}
+                <span style="font-weight:600">{{ progressDisplaySuccess(detailData) }}</span> / {{ detailData.createNumbers }}
                 <a-tag v-if="detailData.progressOverTarget" color="orange" style="margin-left:6px" :title="progressOverTargetTip">超目标</a-tag>
-                <div v-if="(detailData.recordedInstanceCount ?? 0) > 0" style="font-size:12px;color:var(--text-sub);margin-top:4px">
-                  本任务已记录实例数：{{ detailData.recordedInstanceCount }}（以列表为准核对是否多开/计费）
+                <div v-if="(detailData.successCount ?? 0) !== (detailData.recordedInstanceCount ?? 0)" style="font-size:12px;color:var(--text-sub);margin-top:4px">
+                  计次 {{ detailData.successCount ?? 0 }} 与已记录 {{ detailData.recordedInstanceCount ?? 0 }} 条不一致时，进度分子取较大值展示。
                 </div>
               </a-descriptions-item>
               <a-descriptions-item label="公网IP">{{ detailData.assignPublicIp ? '启用' : '禁用' }}</a-descriptions-item>
@@ -364,7 +364,13 @@ const badgeStatusMap: Record<string, string> = {
 }
 
 const progressOverTargetTip =
-  '成功计次或本任务已记录实例数超过目标，多开可能产生 OCI 费用，请至控制台与实例页核对。'
+  '成功计次与「本任务已记录实例」中较大者超过目标时标红；多开可能产生 OCI 费用，请至控制台与实例页核对。'
+
+/** 进度分子：计次与已记录实例数取大，避免历史把计次改小后仍显示 1/1 而实际多开 */
+function progressDisplaySuccess(r: { successCount?: number; recordedInstanceCount?: number } | null | undefined) {
+  if (!r) return 0
+  return Math.max(r.successCount ?? 0, r.recordedInstanceCount ?? 0)
+}
 
 const columns = [
   { title: '租户', dataIndex: 'username', key: 'username' },
