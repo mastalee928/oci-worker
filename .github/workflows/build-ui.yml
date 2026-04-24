@@ -45,15 +45,20 @@ jobs:
         working-directory: backend
         run: mvn clean package -DskipTests -q
 
-      - name: Create ui-latest release
+      - name: Publish JAR to ui-latest (upload / clobber — no 404 window)
         run: |
           set -euo pipefail
-          gh release delete ui-latest --yes --cleanup-tag 2>/dev/null || true
-          sleep 4
-          gh release create ui-latest \
-            --title "UI / Orbis (feature/ui-polish)" \
-            --notes "与 \`install.sh\` 配合使用：\`OCI_WORKER_UI=1\` 时从本 Release 拉取 JAR。构建提交：${{ github.sha }}。" \
-            --latest false \
-            backend/target/oci-worker-1.0.0.jar
+          JAR="backend/target/oci-worker-1.0.0.jar"
+          NOTES="与 \`install.sh\` 配合使用：\`OCI_WORKER_UI=1\` 时从本 Release 拉取 JAR。构建提交：${{ github.sha }}。"
+          if gh release view ui-latest >/dev/null 2>&1; then
+            gh release upload ui-latest "${JAR}" --clobber
+            gh release edit ui-latest --notes "${NOTES}"
+          else
+            gh release create ui-latest \
+              --title "UI / Orbis (feature/ui-polish)" \
+              --notes "${NOTES}" \
+              --latest false \
+              "${JAR}"
+          fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

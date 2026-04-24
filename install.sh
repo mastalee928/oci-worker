@@ -763,17 +763,29 @@ download_jar() {
     else
         info "下载 JAR（Release：${JAR_RELEASE_TAG}）…"
     fi
-    local url tmp size
+    local url tmp size attempt max
     url="https://github.com/${REPO}/releases/download/${JAR_RELEASE_TAG}/${JAR_ASSET}"
     tmp="${INSTALL_DIR}/${JAR_NAME}.tmp"
-    if ! download_with_retry "${url}" "${tmp}"; then
-        rm -f "${tmp}"
-        err "JAR 下载失败"
-        if [ "${JAR_RELEASE_TAG}" = "${JAR_TAG_UI}" ]; then
-            err "动效/Orbis 需存在 Release「${JAR_TAG_UI}」；由 feature/ui-polish 分支 CI 构建。尚无时可先用默认安装（不设置 OCI_WORKER_UI）。"
+    max=3
+    attempt=0
+    while [ "${attempt}" -lt "${max}" ]; do
+        if download_with_retry "${url}" "${tmp}"; then
+            break
         fi
-        return 1
-    fi
+        rm -f "${tmp}"
+        attempt=$((attempt+1))
+        if [ "${attempt}" -ge "${max}" ]; then
+            err "JAR 下载失败"
+            if [ "${JAR_RELEASE_TAG}" = "${JAR_TAG_UI}" ]; then
+                err "动效/Orbis 需存在 Release「${JAR_TAG_UI}」；由 feature/ui-polish 分支 CI 构建。尚无时可先用默认安装（不设置 OCI_WORKER_UI）。"
+            else
+                err "若出现 404，多为刚推送代码、或 GitHub Release 正更新，请过几分钟再试，并在仓库 Releases 页确认「${JAR_RELEASE_TAG}」下已有 ${JAR_ASSET}。"
+            fi
+            return 1
+        fi
+        warn "JAR 下载失败，20 秒后重试（第 ${attempt}/${max} 次，常见于 GitHub 刚更新时）"
+        sleep 20
+    done
     size="$(file_size "${tmp}")"
     if [ "${size}" -lt 1000000 ]; then
         rm -f "${tmp}"

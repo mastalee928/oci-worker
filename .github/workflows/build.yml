@@ -42,17 +42,21 @@ jobs:
         working-directory: backend
         run: mvn clean package -DskipTests -q
 
-      - name: Delete old release
-        run: gh release delete latest --yes --cleanup-tag 2>/dev/null || true
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Create release with JAR
+      # 禁止先 delete 再 create：中间会有数秒～数十秒无 JAR，用户 curl 必 404。
+      - name: Publish JAR to latest release (upload / clobber — no 404 window)
         run: |
-          gh release create latest \
-            --title "Latest Build" \
-            --notes "Auto-built from commit ${{ github.sha }}" \
-            --latest \
-            backend/target/oci-worker-1.0.0.jar
+          set -euo pipefail
+          JAR="backend/target/oci-worker-1.0.0.jar"
+          NOTES="Auto-built from commit ${{ github.sha }}"
+          if gh release view latest >/dev/null 2>&1; then
+            gh release upload latest "${JAR}" --clobber
+            gh release edit latest --notes "${NOTES}"
+          else
+            gh release create latest \
+              --title "Latest Build" \
+              --notes "${NOTES}" \
+              --latest \
+              "${JAR}"
+          fi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
