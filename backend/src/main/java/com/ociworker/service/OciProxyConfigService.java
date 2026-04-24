@@ -89,14 +89,31 @@ public class OciProxyConfigService {
     }
 
     /**
-     * 无应用内代理时供 OCI Jersey3+Apache 使用：禁止连接器把请求套到 JVM
-     * {@code http(s).proxy*}/{@code socksProxy*} 上（否则仍可能 SOCKS 认证失败）。
+     * 无应用内代理时供 OCI Jersey3+Apache 使用：
+     * <ul>
+     *   <li>禁止 USE_SYSTEM_PROPERTIES 从 JVM 读代理；</li>
+     *   <li>显式清除 Jersey {@code PROXY_URI}（含 OCI 将 SOCKS 映射成 {@code socks://} 的残留），避免仍走 {@link java.net.SocksSocketImpl}；</li>
+     *   <li>清除 Apache 上可能继承的代理凭据。</li>
+     * </ul>
+     * 若仍报 SOCKS 认证失败，请确认：① 系统/服务环境变量中无 {@code ALL_PROXY} 等；② 面板中 OCI 代理已关闭并保存，或修正 SOCKS 账号密码。
      */
     public static ClientConfigurator ociSdkJerseyDirectConfigurator() {
-        return b -> b.property(
-                Jersey3ClientProperty.create(
-                        org.glassfish.jersey.apache.connector.ApacheClientProperties.USE_SYSTEM_PROPERTIES),
-                Boolean.FALSE);
+        return b -> {
+            b.property(
+                    Jersey3ClientProperty.create(
+                            org.glassfish.jersey.apache.connector.ApacheClientProperties.USE_SYSTEM_PROPERTIES),
+                    Boolean.FALSE);
+            b.property(
+                    Jersey3ClientProperty.create(
+                            org.glassfish.jersey.apache.connector.ApacheClientProperties.CREDENTIALS_PROVIDER),
+                    null);
+            b.property(
+                    Jersey3ClientProperty.create(org.glassfish.jersey.client.ClientProperties.PROXY_URI), null);
+            b.property(
+                    Jersey3ClientProperty.create(org.glassfish.jersey.client.ClientProperties.PROXY_USERNAME), null);
+            b.property(
+                    Jersey3ClientProperty.create(org.glassfish.jersey.client.ClientProperties.PROXY_PASSWORD), null);
+        };
     }
 
     public HttpClient newOutboundHttpClient() {

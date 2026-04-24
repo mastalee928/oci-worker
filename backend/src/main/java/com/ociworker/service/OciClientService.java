@@ -145,6 +145,10 @@ public class OciClientService implements Closeable {
             ociApacheCfg = OciProxyConfigService.ociSdkJerseyDirectConfigurator();
         }
 
+        if (snap != null && snap.usesSocksForOci()) {
+            log.debug("OCI 客户端经应用内 SOCKS5 代理出站: {}:{}", snap.host(), snap.port());
+        }
+
         var idb = IdentityClient.builder().configuration(clientConfig);
         idb.additionalClientConfigurator(ociApacheCfg);
         identityClient = idb.build(provider);
