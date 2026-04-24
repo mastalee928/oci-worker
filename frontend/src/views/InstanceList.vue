@@ -1457,6 +1457,23 @@ const quickTaskForm = reactive({
   assignPublicIp: true, assignIpv6: false,
 })
 
+function defaultMemoryGbForQuickTaskShape(architecture: string) {
+  if (architecture === 'AMD') return 1
+  if (architecture === 'ARM') return 6
+  if (architecture && (architecture.includes('.Micro') || architecture.endsWith('Micro'))) return 1
+  if (architecture && architecture.includes('Flex')) return 6
+  return 6
+}
+
+/** ant-design-vue 4 的 a-select 上 @change 有时不触发，用 watch 随规格同步默认内存 */
+watch(
+  () => quickTaskForm.architecture,
+  (arch) => {
+    if (arch == null || arch === undefined) return
+    quickTaskForm.memory = defaultMemoryGbForQuickTaskShape(String(arch))
+  },
+)
+
 const consoleLoading = ref(false)
 const consoleData = ref<any>(null)
 

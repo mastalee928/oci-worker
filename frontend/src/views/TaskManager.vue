@@ -194,7 +194,7 @@
       :confirm-loading="editLoading" :mask-closable="false">
       <a-form :model="editForm" layout="vertical">
         <a-form-item label="机器规格 (Shape)">
-          <a-select v-model:value="editForm.architecture">
+          <a-select v-model:value="editForm.architecture" @update:value="onEditArchitectureChange">
             <a-select-option value="ARM">ARM (A1.Flex)</a-select-option>
             <a-select-option value="AMD">AMD (E2.1.Micro)</a-select-option>
           </a-select>
@@ -337,7 +337,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, onMounted, onUnmounted, watch } from 'vue'
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
 import { getTaskList, createTask, updateTask, stopTask, hasRunningTask, resumeTask, deleteTask, batchStopTask, batchResumeTask, getTaskDetail } from '../api/task'
@@ -382,11 +382,33 @@ function checkMobile() { isMobile.value = window.innerWidth < 768 }
 onMounted(() => window.addEventListener('resize', checkMobile))
 onUnmounted(() => window.removeEventListener('resize', checkMobile))
 
+/** 随规格切换默认内存：E2.1.Micro(AMD)=1G；A1.Flex(ARM)=6G；其它 Micro=1G，Flex=6G */
+function defaultMemoryGbForShape(architecture: string) {
+  if (architecture === 'AMD') return 1
+  if (architecture === 'ARM') return 6
+  if (architecture && (architecture.includes('.Micro') || architecture.endsWith('Micro'))) return 1
+  if (architecture && architecture.includes('Flex')) return 6
+  return 6
+}
+
+function onEditArchitectureChange(architecture: string) {
+  editForm.memory = defaultMemoryGbForShape(architecture)
+}
+
 const createForm = reactive({
   userId: '', architecture: 'ARM', operationSystem: 'Ubuntu',
   ocpus: 1, memory: 6, disk: 50, createNumbers: 1, interval: 60, rootPassword: '',
   customScript: '', assignPublicIp: true, assignIpv6: false,
 })
+
+/** 创建任务：随规格改默认内存（@change 在 ant-design-vue 4 的 Select 上不可靠） */
+watch(
+  () => createForm.architecture,
+  (arch) => {
+    if (arch == null || arch === undefined) return
+    createForm.memory = defaultMemoryGbForShape(String(arch))
+  },
+)
 
 const editVisible = ref(false)
 const editLoading = ref(false)
