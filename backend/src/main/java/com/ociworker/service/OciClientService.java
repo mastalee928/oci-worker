@@ -506,8 +506,7 @@ public class OciClientService implements Closeable {
                     result.setInstanceId(instance.getId());
                     result.setInstanceName(instance.getDisplayName());
                     result.setShape(shape.getShape());
-                    result.setOcpus(user.getOcpus());
-                    result.setMemory(user.getMemory());
+                    fillResultHardwareFromLaunch(result, instance, shape);
                     result.setDisk(user.getDisk());
                     result.setPublicIp(publicIp);
                     result.setImage(image.getId());
@@ -533,6 +532,44 @@ public class OciClientService implements Closeable {
                     user.getUsername(), user.getOciCfg().getRegion(), e.getMessage());
         }
         return result;
+    }
+
+    /**
+     * 播报/任务详情中的 CPU、内存须与 OCI 实际交付一致：固定规格（如 E2.1.Micro）不用任务单上的 memory，
+     * 否则会出现 TG 显示 6G、控制台实际 1G。
+     */
+    private void fillResultHardwareFromLaunch(InstanceDetailDTO result, Instance instance, Shape shape) {
+        String shapeName = shape != null ? shape.getShape() : "";
+        boolean flex = shapeName.contains("Flex");
+        InstanceShapeConfig sc = instance.getShapeConfig();
+        if (sc != null) {
+            if (sc.getOcpus() != null) {
+                result.setOcpus(sc.getOcpus().doubleValue());
+            }
+            if (sc.getMemoryInGBs() != null) {
+                result.setMemory(sc.getMemoryInGBs().doubleValue());
+            }
+        }
+        if (result.getOcpus() == null) {
+            result.setOcpus(flex ? (user.getOcpus() != null ? user.getOcpus() : 1d) : 1d);
+        }
+        if (result.getMemory() == null) {
+            if (flex) {
+                result.setMemory(user.getMemory() != null ? user.getMemory() : 6d);
+            } else {
+                result.setMemory(fixedShapeDefaultMemoryGb(shapeName));
+            }
+        }
+    }
+
+    private static double fixedShapeDefaultMemoryGb(String shapeName) {
+        if (StrUtil.isBlank(shapeName)) {
+            return 1d;
+        }
+        if (shapeName.contains("Micro")) {
+            return 1d;
+        }
+        return 1d;
     }
 
     private Subnet findOrCreateSubnet(String availabilityDomain) {
