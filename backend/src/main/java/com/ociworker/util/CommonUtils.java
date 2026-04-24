@@ -56,10 +56,21 @@ public class CommonUtils {
     public static String getPwdShell(String password, String customScript) {
         StringBuilder sb = new StringBuilder("#!/bin/bash\n");
         if (password != null && !password.isEmpty()) {
+            // 设 root 密码
             sb.append("echo 'root:").append(password).append("' | chpasswd\n");
-            sb.append("sed -i 's/#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config\n");
-            sb.append("sed -i 's/PasswordAuthentication no/PasswordAuthentication yes/' /etc/ssh/sshd_config\n");
-            sb.append("systemctl restart sshd || service sshd restart\n");
+            // 许多镜像用 prohibit-password 或把规则写在 sshd_config.d（如 50-cloud-init.conf），
+            // 仅 sed 主文件里 # 开头的 PermitRootLogin 会无效，导致「仅密钥、无密码」类握手错误。
+            sb.append("if [ -d /etc/ssh/sshd_config.d ]; then\n");
+            sb.append("  printf '%s\\n' 'PermitRootLogin yes' 'PasswordAuthentication yes' ");
+            sb.append("> /etc/ssh/sshd_config.d/99-ociworker.conf\n");
+            sb.append("  chmod 644 /etc/ssh/sshd_config.d/99-ociworker.conf\n");
+            sb.append("fi\n");
+            sb.append("sed -i -E 's/^[#[:space:]]*PermitRootLogin[[:space:]].*/PermitRootLogin yes/' ");
+            sb.append("/etc/ssh/sshd_config\n");
+            sb.append("sed -i -E 's/^[#[:space:]]*PasswordAuthentication[[:space:]].*/PasswordAuthentication yes/' ");
+            sb.append("/etc/ssh/sshd_config\n");
+            sb.append("systemctl restart sshd 2>/dev/null || systemctl restart ssh 2>/dev/null || ");
+            sb.append("service sshd restart 2>/dev/null || service ssh restart\n");
         }
         if (customScript != null && !customScript.trim().isEmpty()) {
             sb.append("\n# --- Custom Script ---\n");

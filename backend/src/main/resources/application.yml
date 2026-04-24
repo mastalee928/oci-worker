@@ -14,6 +14,11 @@ spring:
     url: jdbc:mysql://localhost:3306/oci_worker?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
     username: ociworker
     password: ociworker123
+    hikari:
+      # 连接在池里的最长存活（须小于 MySQL 的 wait_timeout，并留 1 分钟以上余量）
+      max-lifetime: 1500000
+      # 定期对空闲连接发保活，减少「服务端已关、池里还以为能用」
+      keepalive-time: 120000
   sql:
     init:
       mode: never
