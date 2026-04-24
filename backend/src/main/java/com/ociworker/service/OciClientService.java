@@ -24,15 +24,22 @@ import com.oracle.bmc.workrequests.WorkRequestClient;
 import com.ociworker.enums.ArchitectureEnum;
 import com.ociworker.exception.OciException;
 import com.ociworker.model.dto.InstanceDetailDTO;
+import com.ociworker.model.dto.OciProxySnapshot;
 import com.ociworker.model.dto.SysUserDTO;
 import com.ociworker.util.CommonUtils;
+import com.ociworker.util.socks.OciSocksApacheConnectionManager;
+import com.oracle.bmc.http.client.HttpClientBuilder;
 import com.oracle.bmc.http.client.ProxyConfiguration;
 import com.oracle.bmc.http.client.StandardClientProperties;
+import com.oracle.bmc.http.client.jersey3.ApacheClientProperties;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 
+import org.apache.http.conn.HttpClientConnectionManager;
+
 import java.io.*;
 import java.util.*;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -50,6 +57,8 @@ public class OciClientService implements Closeable {
     private final SimpleAuthenticationDetailsProvider provider;
     private SysUserDTO user;
     private String compartmentId;
+    /** SOCKS 时共享的 Apache 连接池；HTTP 代理时为 null */
+    private final HttpClientConnectionManager ociSocksPoolingManager;
 
     private static final String CIDR_BLOCK = "10.0.0.0/16";
     private static final String SUBNET_CIDR = "10.0.0.0/24";
@@ -64,6 +73,12 @@ public class OciClientService implements Closeable {
         objectStorageClient.close();
         monitoringClient.close();
         networkLoadBalancerClient.close();
+        if (ociSocksPoolingManager != null) {
+            try {
+                ociSocksPoolingManager.shutdown();
+            } catch (Exception ignored) {
+            }
+        }
     }
 
     public OciClientService(SysUserDTO user) {
@@ -102,40 +117,87 @@ public class OciClientService implements Closeable {
                 .readTimeoutMillis(30_000)
                 .build();
         OciProxyConfigService ps = OciProxyConfigService.instance();
+        OciProxySnapshot snap = ps == null ? null : ps.snapshot();
+        org.apache.http.impl.conn.PoolingHttpClientConnectionManager socksPool = null;
+        if (snap != null && snap.usesSocksForOci()) {
+            socksPool = OciSocksApacheConnectionManager.create(snap);
+        }
+        this.ociSocksPoolingManager = socksPool;
+
         Optional<ProxyConfiguration> ocx = ps == null
                 ? Optional.empty()
                 : ps.getOciProxyConfiguration();
 
+        Consumer<HttpClientBuilder> socksApacheCfg = null;
+        if (socksPool != null) {
+            socksApacheCfg = b -> {
+                b.property(ApacheClientProperties.CONNECTION_MANAGER, socksPool);
+                b.property(ApacheClientProperties.CONNECTION_MANAGER_SHARED, Boolean.TRUE);
+            };
+        }
+
         var idb = IdentityClient.builder().configuration(clientConfig);
-        ocx.ifPresent(cfg -> idb.additionalClientConfigurator(c -> c.property(StandardClientProperties.PROXY, cfg)));
+        if (socksApacheCfg != null) {
+            idb.additionalClientConfigurator(socksApacheCfg);
+        } else {
+            ocx.ifPresent(cfg -> idb.additionalClientConfigurator(c -> c.property(StandardClientProperties.PROXY, cfg)));
+        }
         identityClient = idb.build(provider);
 
         var c1 = ComputeClient.builder().configuration(clientConfig);
-        ocx.ifPresent(cfg -> c1.additionalClientConfigurator(c -> c.property(StandardClientProperties.PROXY, cfg)));
+        if (socksApacheCfg != null) {
+            c1.additionalClientConfigurator(socksApacheCfg);
+        } else {
+            ocx.ifPresent(cfg -> c1.additionalClientConfigurator(c -> c.property(StandardClientProperties.PROXY, cfg)));
+        }
         computeClient = c1.build(provider);
 
         var c2 = BlockstorageClient.builder().configuration(clientConfig);
-        ocx.ifPresent(cfg -> c2.additionalClientConfigurator(c -> c.property(StandardClientProperties.PROXY, cfg)));
+        if (socksApacheCfg != null) {
+            c2.additionalClientConfigurator(socksApacheCfg);
+        } else {
+            ocx.ifPresent(cfg -> c2.additionalClientConfigurator(c -> c.property(StandardClientProperties.PROXY, cfg)));
+        }
         blockstorageClient = c2.build(provider);
 
         var c3 = ObjectStorageClient.builder().configuration(clientConfig);
-        ocx.ifPresent(cfg -> c3.additionalClientConfigurator(c -> c.property(StandardClientProperties.PROXY, cfg)));
+        if (socksApacheCfg != null) {
+            c3.additionalClientConfigurator(socksApacheCfg);
+        } else {
+            ocx.ifPresent(cfg -> c3.additionalClientConfigurator(c -> c.property(StandardClientProperties.PROXY, cfg)));
+        }
         objectStorageClient = c3.build(provider);
 
         var c4 = WorkRequestClient.builder().configuration(clientConfig);
-        ocx.ifPresent(cfg -> c4.additionalClientConfigurator(c -> c.property(StandardClientProperties.PROXY, cfg)));
+        if (socksApacheCfg != null) {
+            c4.additionalClientConfigurator(socksApacheCfg);
+        } else {
+            ocx.ifPresent(cfg -> c4.additionalClientConfigurator(c -> c.property(StandardClientProperties.PROXY, cfg)));
+        }
         workRequestClient = c4.build(provider);
 
         var c5 = VirtualNetworkClient.builder().configuration(clientConfig);
-        ocx.ifPresent(cfg -> c5.additionalClientConfigurator(c -> c.property(StandardClientProperties.PROXY, cfg)));
+        if (socksApacheCfg != null) {
+            c5.additionalClientConfigurator(socksApacheCfg);
+        } else {
+            ocx.ifPresent(cfg -> c5.additionalClientConfigurator(c -> c.property(StandardClientProperties.PROXY, cfg)));
+        }
         virtualNetworkClient = c5.build(provider);
 
         var c6 = MonitoringClient.builder().configuration(clientConfig);
-        ocx.ifPresent(cfg -> c6.additionalClientConfigurator(c -> c.property(StandardClientProperties.PROXY, cfg)));
+        if (socksApacheCfg != null) {
+            c6.additionalClientConfigurator(socksApacheCfg);
+        } else {
+            ocx.ifPresent(cfg -> c6.additionalClientConfigurator(c -> c.property(StandardClientProperties.PROXY, cfg)));
+        }
         monitoringClient = c6.build(provider);
 
         var c7 = NetworkLoadBalancerClient.builder().configuration(clientConfig);
-        ocx.ifPresent(cfg -> c7.additionalClientConfigurator(c -> c.property(StandardClientProperties.PROXY, cfg)));
+        if (socksApacheCfg != null) {
+            c7.additionalClientConfigurator(socksApacheCfg);
+        } else {
+            ocx.ifPresent(cfg -> c7.additionalClientConfigurator(c -> c.property(StandardClientProperties.PROXY, cfg)));
+        }
         networkLoadBalancerClient = c7.build(provider);
         this.provider = provider;
         compartmentId = StrUtil.isBlank(ociCfg.getCompartmentId())

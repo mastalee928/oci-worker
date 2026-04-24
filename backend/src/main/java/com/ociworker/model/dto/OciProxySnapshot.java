@@ -176,8 +176,17 @@ public record OciProxySnapshot(
         return new Proxy(pt, addr);
     }
 
+    /** OCI SDK 经 Apache SOCKS 时勿再设 {@link ProxyConfiguration}（会触发 UnsupportedSchemeException）。 */
+    public boolean usesSocksForOci() {
+        return enabled && canConnect()
+                && (OciProxyConstants.TYPE_SOCKS5.equals(type) || OciProxyConstants.TYPE_SOCKS5H.equals(type));
+    }
+
     public Optional<ProxyConfiguration> toOciProxyConfiguration() {
         if (!enabled || !canConnect()) {
+            return Optional.empty();
+        }
+        if (usesSocksForOci()) {
             return Optional.empty();
         }
         var b = ProxyConfiguration.builder()
