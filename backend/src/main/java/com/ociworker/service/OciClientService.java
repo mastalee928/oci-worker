@@ -38,6 +38,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.http.conn.HttpClientConnectionManager;
 
 import java.io.*;
+import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -629,7 +630,8 @@ public class OciClientService implements Closeable {
                         .assignPublicIp(user.getAssignPublicIp() != null ? user.getAssignPublicIp() : true)
                         .build())
                 .metadata(cloudInitScript != null && !cloudInitScript.isEmpty()
-                        ? Map.of("user_data", Base64.getEncoder().encodeToString(cloudInitScript.getBytes()))
+                        ? Map.of("user_data", Base64.getEncoder().encodeToString(
+                                cloudInitScript.getBytes(StandardCharsets.UTF_8)))
                         : null);
 
         if (shape.getShape().contains("Flex")) {

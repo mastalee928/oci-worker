@@ -56,21 +56,32 @@ public class CommonUtils {
     public static String getPwdShell(String password, String customScript) {
         StringBuilder sb = new StringBuilder("#!/bin/bash\n");
         if (password != null && !password.isEmpty()) {
-            // 设 root 密码
-            sb.append("echo 'root:").append(password).append("' | chpasswd\n");
-            // 许多镜像用 prohibit-password 或把规则写在 sshd_config.d（如 50-cloud-init.conf），
-            // 仅 sed 主文件里 # 开头的 PermitRootLogin 会无效，导致「仅密钥、无密码」类握手错误。
+            // chpasswd 行用 Base64 传入，避免密码中的 ' " $ ` \ 等把 shell 或 user_data 弄断（此前登录失败主因之一）
+            String chpasswdLine = "root:" + password + "\n";
+            String chpasswdB64 = Base64.getEncoder().encodeToString(
+                    chpasswdLine.getBytes(StandardCharsets.UTF_8));
+            sb.append("set -e\n");
+            sb.append("printf '%s' '").append(chpasswdB64).append("' | base64 -d | chpasswd\n");
+            sb.append("set +e\n");
+            // 与 cloud-init 的 50-*.conf 等：用更晚的序号覆盖
             sb.append("if [ -d /etc/ssh/sshd_config.d ]; then\n");
-            sb.append("  printf '%s\\n' 'PermitRootLogin yes' 'PasswordAuthentication yes' ");
-            sb.append("> /etc/ssh/sshd_config.d/99-ociworker.conf\n");
+            sb.append("  cat > /etc/ssh/sshd_config.d/99-ociworker.conf <<'SSHEOF'\n");
+            sb.append("PermitRootLogin yes\n");
+            sb.append("PasswordAuthentication yes\n");
+            sb.append("KbdInteractiveAuthentication yes\n");
+            sb.append("PubkeyAuthentication yes\n");
+            sb.append("SSHEOF\n");
             sb.append("  chmod 644 /etc/ssh/sshd_config.d/99-ociworker.conf\n");
             sb.append("fi\n");
-            sb.append("sed -i -E 's/^[#[:space:]]*PermitRootLogin[[:space:]].*/PermitRootLogin yes/' ");
-            sb.append("/etc/ssh/sshd_config\n");
-            sb.append("sed -i -E 's/^[#[:space:]]*PasswordAuthentication[[:space:]].*/PasswordAuthentication yes/' ");
-            sb.append("/etc/ssh/sshd_config\n");
-            sb.append("systemctl restart sshd 2>/dev/null || systemctl restart ssh 2>/dev/null || ");
+            sb.append("sed -i -E 's/^[#[:space:]]*PermitRootLogin[[:space:]].*/PermitRootLogin yes/' /etc/ssh/sshd_config\n");
+            sb.append("sed -i -E 's/^[#[:space:]]*PasswordAuthentication[[:space:]].*/PasswordAuthentication yes/' /etc/ssh/sshd_config\n");
+            // 配置不合法时勿盲目 restart，避免把 sshd 打挂
+            sb.append("if sshd -t 2>>/var/log/ociworker-bootstrap.log; then\n");
+            sb.append("  systemctl restart sshd 2>/dev/null || systemctl restart ssh 2>/dev/null || ");
             sb.append("service sshd restart 2>/dev/null || service ssh restart\n");
+            sb.append("else\n");
+            sb.append("  echo 'ociworker: sshd -t failed, not restarting ssh' >>/var/log/ociworker-bootstrap.log\n");
+            sb.append("fi\n");
         }
         if (customScript != null && !customScript.trim().isEmpty()) {
             sb.append("\n# --- Custom Script ---\n");
