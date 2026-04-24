@@ -3,8 +3,10 @@ package com.ociworker.controller;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.crypto.digest.DigestUtil;
 import com.ociworker.enums.SysCfgEnum;
+import com.ociworker.model.dto.OciProxySnapshot;
 import com.ociworker.model.vo.ResponseData;
 import com.ociworker.service.NotificationService;
+import com.ociworker.service.OciProxyConfigService;
 import com.ociworker.service.SystemService;
 import com.ociworker.service.VerifyCodeService;
 import jakarta.annotation.Resource;
@@ -28,6 +30,8 @@ public class SystemController {
     private VerifyCodeService verifyCodeService;
     @Resource
     private AuthController authController;
+    @Resource
+    private OciProxyConfigService ociProxyConfigService;
 
     @GetMapping("/glance")
     public ResponseData<?> glance() {
@@ -122,5 +126,105 @@ public class SystemController {
     public ResponseData<?> performUpdate() {
         systemService.performUpdate();
         return ResponseData.ok("更新已启动，服务将在几秒后重启");
+    }
+
+    @GetMapping("/ociProxy")
+    public ResponseData<?> getOciProxy() {
+        OciProxySnapshot s = ociProxyConfigService.snapshot();
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("enabled", s.enabled());
+        m.put("proxyType", s.type());
+        m.put("host", s.host() == null ? "" : s.host());
+        m.put("port", s.port() > 0 ? s.port() : null);
+        String u = s.proxyUser();
+        m.put("username", (u == null || u.isBlank()) ? "" : maskSecret(u));
+        m.put("passwordConfigured", s.proxyPass() != null && !s.proxyPass().isBlank());
+        m.put("password", s.proxyPass() == null || s.proxyPass().isBlank() ? "" : maskSecret(s.proxyPass()));
+        m.put("fullUrl", s.fullUrl() == null || s.fullUrl().isBlank() ? "" : maskUrlForDisplay(s.fullUrl()));
+        m.put("fullUrlConfigured", s.fullUrl() != null && !s.fullUrl().isBlank());
+        return ResponseData.ok(m);
+    }
+
+    private String maskUrlForDisplay(String url) {
+        if (url == null || url.isBlank()) return "";
+        if (url.contains("@")) {
+            return url.replaceAll("://([^/]+)@", "://****@");
+        }
+        return url.length() > 48 ? url.substring(0, 24) + "…" : url;
+    }
+
+    @PostMapping("/ociProxy")
+    public ResponseData<?> saveOciProxy(@RequestBody Map<String, String> params) {
+        if (!verifyLoginPassword(params.get("password"))) {
+            return ResponseData.error("请输入正确的登录密码");
+        }
+        OciProxySnapshot cur = ociProxyConfigService.snapshot();
+        boolean en = "true".equalsIgnoreCase(nvl(params.get("enabled")))
+                || "1".equals(nvl(params.get("enabled")));
+        String type = nvl(params.get("proxyType"));
+        String host = nvl(params.get("host"));
+        int port = 0;
+        String ps = params.get("port");
+        if (ps != null && !ps.isBlank()) {
+            try {
+                port = Integer.parseInt(ps.trim());
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        String user = resolveMasked(params.get("username"), cur.proxyUser());
+        String pass = resolveMasked(params.get("password"), cur.proxyPass());
+        String full = resolveMasked(params.get("fullUrl"), cur.fullUrl());
+        OciProxySnapshot snap = OciProxySnapshot.fromForm(en, type, host, port, user, pass, full);
+        ociProxyConfigService.persistAndReload(snap);
+        return ResponseData.ok();
+    }
+
+    @PostMapping("/ociProxy/test")
+    public ResponseData<?> testOciProxy(@RequestBody Map<String, String> params) {
+        if (!verifyLoginPassword(params.get("password"))) {
+            return ResponseData.error("请输入正确的登录密码");
+        }
+        OciProxySnapshot cur = ociProxyConfigService.snapshot();
+        boolean en = "true".equalsIgnoreCase(nvl(params.get("enabled")))
+                || "1".equals(nvl(params.get("enabled")));
+        String type = nvl(params.get("proxyType"));
+        String host = nvl(params.get("host"));
+        int port = 0;
+        String ps = params.get("port");
+        if (ps != null && !ps.isBlank()) {
+            try {
+                port = Integer.parseInt(ps.trim());
+            } catch (NumberFormatException ignored) {
+            }
+        }
+        String user = resolveMasked(params.get("username"), cur.proxyUser());
+        String pass = resolveMasked(params.get("password"), cur.proxyPass());
+        String full = resolveMasked(params.get("fullUrl"), cur.fullUrl());
+        OciProxySnapshot test = OciProxySnapshot.fromForm(en, type, host, port, user, pass, full);
+        String msg = ociProxyConfigService.testWithParams(test);
+        return ResponseData.ok(msg);
+    }
+
+    private String nvl(String s) {
+        return s == null ? "" : s.trim();
+    }
+
+    /**
+     * 若前端回传为脱敏占位（含 ****），保留数据库原值；否则采用新值（可为空以清空密码等）。
+     */
+    private String resolveMasked(String fromClient, String existing) {
+        if (fromClient != null && fromClient.contains("****")
+                && existing != null && !existing.isBlank()) {
+            return existing;
+        }
+        return nvl(fromClient);
+    }
+
+    private boolean verifyLoginPassword(String pwd) {
+        if (StrUtil.isBlank(pwd)) {
+            return false;
+        }
+        String inputHash = DigestUtil.sha256Hex(pwd);
+        return inputHash.equals(authController.getEffectivePasswordHash());
     }
 }

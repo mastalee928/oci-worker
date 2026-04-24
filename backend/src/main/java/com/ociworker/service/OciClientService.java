@@ -26,6 +26,8 @@ import com.ociworker.exception.OciException;
 import com.ociworker.model.dto.InstanceDetailDTO;
 import com.ociworker.model.dto.SysUserDTO;
 import com.ociworker.util.CommonUtils;
+import com.oracle.bmc.http.client.ProxyConfiguration;
+import com.oracle.bmc.http.client.StandardClientProperties;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 
@@ -99,14 +101,42 @@ public class OciClientService implements Closeable {
                 .connectionTimeoutMillis(10_000)
                 .readTimeoutMillis(30_000)
                 .build();
-        identityClient = IdentityClient.builder().configuration(clientConfig).build(provider);
-        computeClient = ComputeClient.builder().configuration(clientConfig).build(provider);
-        blockstorageClient = BlockstorageClient.builder().configuration(clientConfig).build(provider);
-        objectStorageClient = ObjectStorageClient.builder().configuration(clientConfig).build(provider);
-        workRequestClient = WorkRequestClient.builder().configuration(clientConfig).build(provider);
-        virtualNetworkClient = VirtualNetworkClient.builder().configuration(clientConfig).build(provider);
-        monitoringClient = MonitoringClient.builder().configuration(clientConfig).build(provider);
-        networkLoadBalancerClient = NetworkLoadBalancerClient.builder().configuration(clientConfig).build(provider);
+        OciProxyConfigService ps = OciProxyConfigService.instance();
+        Optional<ProxyConfiguration> ocx = ps == null
+                ? Optional.empty()
+                : ps.getOciProxyConfiguration();
+
+        var idb = IdentityClient.builder().configuration(clientConfig);
+        ocx.ifPresent(cfg -> idb.clientConfigurator(c -> c.property(StandardClientProperties.PROXY, cfg)));
+        identityClient = idb.build(provider);
+
+        var c1 = ComputeClient.builder().configuration(clientConfig);
+        ocx.ifPresent(cfg -> c1.clientConfigurator(c -> c.property(StandardClientProperties.PROXY, cfg)));
+        computeClient = c1.build(provider);
+
+        var c2 = BlockstorageClient.builder().configuration(clientConfig);
+        ocx.ifPresent(cfg -> c2.clientConfigurator(c -> c.property(StandardClientProperties.PROXY, cfg)));
+        blockstorageClient = c2.build(provider);
+
+        var c3 = ObjectStorageClient.builder().configuration(clientConfig);
+        ocx.ifPresent(cfg -> c3.clientConfigurator(c -> c.property(StandardClientProperties.PROXY, cfg)));
+        objectStorageClient = c3.build(provider);
+
+        var c4 = WorkRequestClient.builder().configuration(clientConfig);
+        ocx.ifPresent(cfg -> c4.clientConfigurator(c -> c.property(StandardClientProperties.PROXY, cfg)));
+        workRequestClient = c4.build(provider);
+
+        var c5 = VirtualNetworkClient.builder().configuration(clientConfig);
+        ocx.ifPresent(cfg -> c5.clientConfigurator(c -> c.property(StandardClientProperties.PROXY, cfg)));
+        virtualNetworkClient = c5.build(provider);
+
+        var c6 = MonitoringClient.builder().configuration(clientConfig);
+        ocx.ifPresent(cfg -> c6.clientConfigurator(c -> c.property(StandardClientProperties.PROXY, cfg)));
+        monitoringClient = c6.build(provider);
+
+        var c7 = NetworkLoadBalancerClient.builder().configuration(clientConfig);
+        ocx.ifPresent(cfg -> c7.clientConfigurator(c -> c.property(StandardClientProperties.PROXY, cfg)));
+        networkLoadBalancerClient = c7.build(provider);
         this.provider = provider;
         compartmentId = StrUtil.isBlank(ociCfg.getCompartmentId())
                 ? findRootCompartment(identityClient, provider.getTenantId())

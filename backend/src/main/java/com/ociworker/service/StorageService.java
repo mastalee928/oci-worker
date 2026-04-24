@@ -16,6 +16,7 @@ import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.net.http.HttpClient;
 import java.util.*;
 
 @Slf4j
@@ -24,6 +25,8 @@ public class StorageService {
 
     @Resource
     private OciUserMapper userMapper;
+    @Resource
+    private OciProxyConfigService ociProxyConfigService;
 
     /**
      * 租户在 OCI 中已订阅（可用）的区域，避免枚举 SDK 内全部公有区域导致下拉过长。
@@ -380,7 +383,9 @@ public class StorageService {
         }
         OciUser ociUser = requireUser(userId);
         try (OciClientService client = new OciClientService(buildDto(ociUser), region)) {
+            HttpClient http = ociProxyConfigService.newOutboundHttpClient();
             ObjectStorageBucketPolicyHttp.putBucketPolicy(
+                    http,
                     client.getObjectStorageClient(),
                     client.getProvider(),
                     namespace,

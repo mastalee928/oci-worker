@@ -10,6 +10,7 @@ import com.ociworker.model.entity.OciUser;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
@@ -24,6 +25,9 @@ public class ConsoleService {
 
     @Resource
     private OciUserMapper userMapper;
+    @Lazy
+    @Resource
+    private OciProxyConfigService ociProxyConfigService;
 
     private static final String KEY_DIR = "./keys";
     private static final String PRIVATE_KEY_FILE = "console_rsa";
@@ -400,7 +404,7 @@ public class ConsoleService {
         String[] services = {"https://ifconfig.me/ip", "https://api.ipify.org", "https://checkip.amazonaws.com"};
         for (String svc : services) {
             try {
-                var client = java.net.http.HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(5)).build();
+                var client = ociProxyConfigService.newOutboundHttpClient();
                 var req = java.net.http.HttpRequest.newBuilder().uri(java.net.URI.create(svc))
                         .timeout(java.time.Duration.ofSeconds(5)).GET().build();
                 var resp = client.send(req, java.net.http.HttpResponse.BodyHandlers.ofString());

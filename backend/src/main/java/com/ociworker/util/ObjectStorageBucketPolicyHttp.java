@@ -31,6 +31,7 @@ public final class ObjectStorageBucketPolicyHttp {
     }
 
     public static void putBucketPolicy(
+            HttpClient http,
             ObjectStorageClient objectStorageClient,
             BasicAuthenticationDetailsProvider authProvider,
             String namespace,
@@ -57,9 +58,6 @@ public final class ObjectStorageBucketPolicyHttp {
         URI uri = URI.create(endpoint + path);
 
         RequestSigner signer = DefaultRequestSigner.createRequestSigner(authProvider);
-        HttpClient http = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(10))
-                .build();
 
         String ifMatch = null;
         try {

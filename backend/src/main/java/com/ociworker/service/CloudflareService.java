@@ -1,7 +1,5 @@
 package com.ociworker.service;
 
-import cn.hutool.http.HttpRequest;
-import cn.hutool.http.HttpResponse;
 import cn.hutool.json.JSONArray;
 import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
@@ -13,10 +11,20 @@ import com.ociworker.model.entity.CfCfg;
 import com.ociworker.util.CommonUtils;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
+import java.io.IOException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.time.LocalDateTime;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
 
 @Slf4j
 @Service
@@ -26,6 +34,9 @@ public class CloudflareService {
 
     @Resource
     private CfCfgMapper cfCfgMapper;
+    @Lazy
+    @Resource
+    private OciProxyConfigService ociProxyConfigService;
 
     public Page<CfCfg> listCfgPage(int current, int size) {
         return cfCfgMapper.selectPage(new Page<>(current, size),
@@ -49,13 +60,13 @@ public class CloudflareService {
         String url = String.format("%s/zones/%s/dns_records?page=%d&per_page=%d",
                 CF_API_BASE, cfg.getZoneId(), page, perPage);
 
-        HttpResponse resp = HttpRequest.get(url)
+        String body = httpSend(HttpRequest.newBuilder(URI.create(url))
                 .header("Authorization", "Bearer " + cfg.getApiToken())
                 .header("Content-Type", "application/json")
-                .timeout(15000)
-                .execute();
+                .timeout(Duration.ofSeconds(15))
+                .GET());
 
-        JSONObject json = JSONUtil.parseObj(resp.body());
+        JSONObject json = JSONUtil.parseObj(body);
         if (!json.getBool("success", false)) {
             throw new OciException("Cloudflare API 错误: " + json.getStr("errors"));
         }
@@ -81,18 +92,17 @@ public class CloudflareService {
         if (cfg == null) throw new OciException("CF 配置不存在");
 
         String url = String.format("%s/zones/%s/dns_records", CF_API_BASE, cfg.getZoneId());
-        Map<String, Object> body = Map.of(
+        Map<String, Object> b = Map.of(
                 "type", type, "name", name, "content", content,
                 "proxied", proxied, "ttl", ttl);
 
-        HttpResponse resp = HttpRequest.post(url)
+        String body = httpSend(HttpRequest.newBuilder(URI.create(url))
                 .header("Authorization", "Bearer " + cfg.getApiToken())
                 .header("Content-Type", "application/json")
-                .body(JSONUtil.toJsonStr(body))
-                .timeout(15000)
-                .execute();
+                .POST(HttpRequest.BodyPublishers.ofString(JSONUtil.toJsonStr(b)))
+                .timeout(Duration.ofSeconds(15)));
 
-        JSONObject json = JSONUtil.parseObj(resp.body());
+        JSONObject json = JSONUtil.parseObj(body);
         if (!json.getBool("success", false)) {
             throw new OciException("添加DNS记录失败: " + json.getStr("errors"));
         }
@@ -103,10 +113,10 @@ public class CloudflareService {
         if (cfg == null) throw new OciException("CF 配置不存在");
 
         String url = String.format("%s/zones/%s/dns_records/%s", CF_API_BASE, cfg.getZoneId(), recordId);
-        HttpRequest.delete(url)
+        httpSend(HttpRequest.newBuilder(URI.create(url))
                 .header("Authorization", "Bearer " + cfg.getApiToken())
-                .timeout(15000)
-                .execute();
+                .timeout(Duration.ofSeconds(15))
+                .DELETE());
     }
 
     public void updateDnsRecord(String cfgId, String recordId, String type, String name,
@@ -115,15 +125,32 @@ public class CloudflareService {
         if (cfg == null) throw new OciException("CF 配置不存在");
 
         String url = String.format("%s/zones/%s/dns_records/%s", CF_API_BASE, cfg.getZoneId(), recordId);
-        Map<String, Object> body = Map.of(
+        Map<String, Object> b = Map.of(
                 "type", type, "name", name, "content", content,
                 "proxied", proxied, "ttl", ttl);
 
-        HttpRequest.put(url)
+        httpSend(HttpRequest.newBuilder(URI.create(url))
                 .header("Authorization", "Bearer " + cfg.getApiToken())
                 .header("Content-Type", "application/json")
-                .body(JSONUtil.toJsonStr(body))
-                .timeout(15000)
-                .execute();
+                .method("PUT", HttpRequest.BodyPublishers.ofString(JSONUtil.toJsonStr(b)))
+                .timeout(Duration.ofSeconds(15)));
+    }
+
+    private String httpSend(HttpRequest.Builder b) {
+        try {
+            HttpClient c = ociProxyConfigService.newOutboundHttpClient();
+            HttpRequest req = b.build();
+            HttpResponse<String> r = c.send(req, HttpResponse.BodyHandlers.ofString());
+            if (r.statusCode() < 200 || r.statusCode() >= 400) {
+                throw new OciException("HTTP " + r.statusCode() + (r.body() != null && r.body().length() < 200
+                        ? (": " + r.body()) : ""));
+            }
+            return r.body() == null ? "" : r.body();
+        } catch (IOException e) {
+            throw new OciException("请求失败: " + e.getMessage());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new OciException("请求中断");
+        }
     }
 }

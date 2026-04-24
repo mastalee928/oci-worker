@@ -1,7 +1,6 @@
 package com.ociworker.service;
 
 import cn.hutool.core.util.StrUtil;
-import cn.hutool.http.HttpRequest;
 import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.ociworker.enums.SysCfgEnum;
@@ -10,8 +9,14 @@ import com.ociworker.model.entity.OciKv;
 import com.ociworker.util.CommonUtils;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
 import java.util.Map;
 
 @Slf4j
@@ -25,6 +30,9 @@ public class NotificationService {
 
     @Resource
     private OciKvMapper kvMapper;
+    @Lazy
+    @Resource
+    private OciProxyConfigService ociProxyConfigService;
 
     public void sendMessage(String notifyType, String message) {
         if (!isTypeEnabled(notifyType)) return;
@@ -57,11 +65,14 @@ public class NotificationService {
             if (StrUtil.isBlank(botToken) || StrUtil.isBlank(chatId)) return;
 
             String url = String.format("https://api.telegram.org/bot%s/sendMessage", botToken);
-            HttpRequest.post(url)
+            HttpClient c = ociProxyConfigService.newOutboundHttpClient();
+            HttpRequest req = HttpRequest.newBuilder(URI.create(url))
                     .header("Content-Type", "application/json")
-                    .body(JSONUtil.toJsonStr(Map.of("chat_id", chatId, "text", message)))
-                    .timeout(10000)
-                    .execute();
+                    .POST(HttpRequest.BodyPublishers.ofString(
+                            JSONUtil.toJsonStr(Map.of("chat_id", chatId, "text", message))))
+                    .timeout(Duration.ofSeconds(10))
+                    .build();
+            c.send(req, HttpResponse.BodyHandlers.discarding());
         } catch (Exception e) {
             log.warn("Failed to send Telegram message: {}", e.getMessage());
         }
@@ -90,11 +101,13 @@ public class NotificationService {
                                         "copy_text", copyText)
                         ))));
             }
-            HttpRequest.post(url)
+            HttpClient c = ociProxyConfigService.newOutboundHttpClient();
+            HttpRequest req = HttpRequest.newBuilder(URI.create(url))
                     .header("Content-Type", "application/json")
-                    .body(JSONUtil.toJsonStr(body))
-                    .timeout(10000)
-                    .execute();
+                    .POST(HttpRequest.BodyPublishers.ofString(JSONUtil.toJsonStr(body)))
+                    .timeout(Duration.ofSeconds(10))
+                    .build();
+            c.send(req, HttpResponse.BodyHandlers.discarding());
         } catch (Exception e) {
             log.warn("Failed to send Telegram HTML message: {}", e.getMessage());
         }

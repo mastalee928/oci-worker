@@ -12,15 +12,32 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.List;
 
+/**
+ * 转发到本机 WebSSH 子进程。HttpClient 显式禁用系统/应用出站代理，避免 OCI 代理影响串口/文件功能。
+ */
 @Slf4j
 @RestController
 @RequestMapping("/webssh-api")
 public class WebSSHProxyController {
 
     private static final String UPSTREAM = "http://127.0.0.1:8008";
+    private static final ProxySelector NO_OUTBOUND_PROXY = new ProxySelector() {
+        @Override
+        public List<Proxy> select(URI uri) {
+            return List.of(Proxy.NO_PROXY);
+        }
+
+        @Override
+        public void connectFailed(URI uri, SocketAddress sa, IOException ioe) {
+        }
+    };
+
     private final HttpClient client = HttpClient.newBuilder()
-            .connectTimeout(Duration.ofSeconds(10)).build();
+            .connectTimeout(Duration.ofSeconds(10))
+            .proxy(NO_OUTBOUND_PROXY)
+            .build();
 
     @GetMapping({"/check", "/sysinfo"})
     public void proxyGet(HttpServletRequest req, HttpServletResponse resp) throws Exception {

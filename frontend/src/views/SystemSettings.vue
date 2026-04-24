@@ -93,6 +93,86 @@
         </a-card>
       </a-tab-pane>
 
+      <a-tab-pane key="proxy" tab="OCI 代理">
+        <a-card class="settings-card-wide">
+          <template #title>
+            <span><i class="ri-server-line" style="margin-right: 8px; vertical-align: middle"></i>OCI 代理配置</span>
+          </template>
+          <div v-if="!ociProxyPwdVerified" class="lock-panel">
+            <i class="ri-lock-2-line lock-icon"></i>
+            <p class="lock-text">请输入登录密码以配置出站代理</p>
+            <a-space direction="vertical" style="width: 100%">
+              <a-input-password
+                v-model:value="ociProxyPwd"
+                placeholder="输入登录密码"
+                @pressEnter="verifyOciProxyPwd"
+              />
+              <a-button type="primary" block @click="verifyOciProxyPwd" :disabled="!ociProxyPwd">验证</a-button>
+            </a-space>
+          </div>
+          <a-form v-else layout="vertical">
+            <a-form-item>
+              <a-checkbox v-model:checked="ociProxyForm.enabled">启用 OCI API 代理（HTTP / SOCKS5 / SOCKS5h）</a-checkbox>
+            </a-form-item>
+            <a-form-item v-if="ociProxyForm.enabled" label="代理类型">
+              <a-select
+                v-model:value="ociProxyForm.proxyType"
+                :options="ociProxyTypeOptions"
+                style="max-width: 360px"
+              />
+            </a-form-item>
+            <a-row v-if="ociProxyForm.enabled" :gutter="[12, 0]">
+              <a-col :xs="24" :sm="14">
+                <a-form-item label="主机" required>
+                  <a-input v-model:value="ociProxyForm.host" placeholder="如 10.0.0.1 或 域名" />
+                </a-form-item>
+              </a-col>
+              <a-col :xs="24" :sm="10">
+                <a-form-item label="端口" required>
+                  <a-input-number
+                    v-model:value="ociProxyForm.port"
+                    :min="1"
+                    :max="65535"
+                    placeholder="端口"
+                    style="width: 100%"
+                  />
+                </a-form-item>
+              </a-col>
+            </a-row>
+            <a-row v-if="ociProxyForm.enabled" :gutter="[12, 0]">
+              <a-col :span="24" :md="12">
+                <a-form-item label="用户名（可选）">
+                  <a-input v-model:value="ociProxyForm.username" placeholder="代理认证用户" allow-clear />
+                </a-form-item>
+              </a-col>
+              <a-col :span="24" :md="12">
+                <a-form-item label="密码（可选）">
+                  <a-input-password v-model:value="ociProxyForm.password" placeholder="不修改可保留脱敏显示" allow-clear />
+                </a-form-item>
+              </a-col>
+            </a-row>
+            <a-form-item v-if="ociProxyForm.enabled" label="完整代理 URL（可选）">
+              <a-input
+                v-model:value="ociProxyForm.fullUrl"
+                placeholder="留空则使用上方组合；或粘贴完整地址覆盖，如 socks5h://user:pass@host:1080"
+                allow-clear
+              />
+            </a-form-item>
+            <a-alert
+              v-if="ociProxyForm.enabled"
+              type="info"
+              show-icon
+              style="margin-bottom: 16px"
+              message="与 Telegram 通知相互独立。关闭上方开关后直连 OCI（发现实例、换 IP、监控内 OCI 调用、GitHub 检查、Cloudflare 等），WebSSH 本地上游始终不走本代理。"
+            />
+            <a-space>
+              <a-button type="primary" @click="saveOciProxy" :loading="ociProxySaveLoading">保存设置</a-button>
+              <a-button @click="testOciProxy" :loading="ociProxyTestLoading">测试代理</a-button>
+            </a-space>
+          </a-form>
+        </a-card>
+      </a-tab-pane>
+
       <a-tab-pane key="update" tab="系统更新">
         <a-card title="一键更新" class="settings-card-wide">
           <a-spin :spinning="updateChecking">
@@ -242,6 +322,26 @@ const notifyPwdVerified = ref(false)
 const notifyPwd = ref('')
 const notifyVerifiedPwd = ref('')
 
+const ociProxyPwdVerified = ref(false)
+const ociProxyPwd = ref('')
+const ociProxyVerifiedPwd = ref('')
+const ociProxySaveLoading = ref(false)
+const ociProxyTestLoading = ref(false)
+const ociProxyForm = reactive({
+  enabled: false,
+  proxyType: 'http',
+  host: '',
+  port: null as number | null,
+  username: '',
+  password: '',
+  fullUrl: '',
+})
+const ociProxyTypeOptions = [
+  { label: 'HTTP 代理', value: 'http' },
+  { label: 'SOCKS5（本地解析 DNS）', value: 'socks5' },
+  { label: 'SOCKS5h（代理解析 DNS）', value: 'socks5h' },
+]
+
 const notifyTypeOptions = [
   { label: '登录通知', value: 'login' },
   { label: '创建任务', value: 'task_create' },
@@ -251,12 +351,90 @@ const notifyTypeOptions = [
 
 onMounted(async () => {
   loadNotifyConfig()
+  loadOciProxy()
   try {
     const res = await request.get('/sys/tgStatus')
     tgConfigured.value = res.data?.configured === true
   } catch {}
 })
 
+
+async function loadOciProxy() {
+  try {
+    const res = await request.get('/sys/ociProxy')
+    const d = res.data
+    ociProxyForm.enabled = d?.enabled === true
+    ociProxyForm.proxyType = d?.proxyType || 'http'
+    ociProxyForm.host = d?.host || ''
+    ociProxyForm.port = typeof d?.port === 'number' && d.port > 0 ? d.port : null
+    ociProxyForm.username = d?.username || ''
+    ociProxyForm.password = d?.password || ''
+    ociProxyForm.fullUrl = d?.fullUrl || ''
+  } catch {
+    /* 忽略 */
+  }
+}
+
+async function verifyOciProxyPwd() {
+  if (!ociProxyPwd.value) {
+    message.warning('请输入密码')
+    return
+  }
+  try {
+    await request.post('/auth/verifyPassword', { password: ociProxyPwd.value })
+    ociProxyVerifiedPwd.value = ociProxyPwd.value
+    ociProxyPwdVerified.value = true
+    message.success('验证通过')
+  } catch (e: any) {
+    message.error(e?.message || '密码错误')
+  }
+}
+
+async function saveOciProxy() {
+  ociProxySaveLoading.value = true
+  try {
+    await request.post('/sys/ociProxy', {
+      ...buildOciProxyPayload(),
+      password: ociProxyVerifiedPwd.value,
+    })
+    message.success('已保存')
+    ociProxyPwdVerified.value = false
+    ociProxyPwd.value = ''
+    ociProxyVerifiedPwd.value = ''
+    await loadOciProxy()
+  } catch (e: any) {
+    message.error(e?.message || '保存失败')
+  } finally {
+    ociProxySaveLoading.value = false
+  }
+}
+
+async function testOciProxy() {
+  ociProxyTestLoading.value = true
+  try {
+    const res = await request.post('/sys/ociProxy/test', {
+      ...buildOciProxyPayload(),
+      password: ociProxyVerifiedPwd.value,
+    })
+    message.success(res.data != null ? String(res.data) : '测试完成')
+  } catch (e: any) {
+    message.error(e?.message || '测试失败')
+  } finally {
+    ociProxyTestLoading.value = false
+  }
+}
+
+function buildOciProxyPayload() {
+  return {
+    enabled: ociProxyForm.enabled ? 'true' : 'false',
+    proxyType: ociProxyForm.proxyType,
+    host: ociProxyForm.host,
+    port: ociProxyForm.port == null || ociProxyForm.port === undefined ? '' : String(ociProxyForm.port),
+    username: ociProxyForm.username,
+    password: ociProxyForm.password,
+    fullUrl: ociProxyForm.fullUrl,
+  }
+}
 
 async function loadNotifyConfig() {
   try {

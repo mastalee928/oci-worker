@@ -8,6 +8,7 @@ import com.ociworker.mapper.OciUserMapper;
 import com.ociworker.model.entity.OciCreateTask;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 import oshi.SystemInfo;
 import oshi.hardware.CentralProcessor;
@@ -40,6 +41,9 @@ public class SystemService {
     private OciUserMapper userMapper;
     @Resource
     private OciCreateTaskMapper taskMapper;
+    @Lazy
+    @Resource
+    private OciProxyConfigService ociProxyConfigService;
 
     private static final String REPO = "mastalee928/oci-worker";
     private static final String JAR_PATH = "/opt/oci-worker/oci-worker.jar";
@@ -82,7 +86,7 @@ public class SystemService {
         try {
             // 必须用 /releases/tags/latest，不能用 /releases/latest（会误成 installer-latest）
             String tagLatestApi = "https://api.github.com/repos/" + REPO + "/releases/tags/latest";
-            HttpClient client = HttpClient.newBuilder().connectTimeout(Duration.ofSeconds(10)).build();
+            HttpClient client = ociProxyConfigService.newOutboundHttpClient();
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(tagLatestApi))
                     .header("Accept", "application/vnd.github.v3+json")
