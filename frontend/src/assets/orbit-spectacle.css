@@ -163,11 +163,6 @@
     animation: orbit-spectacle-sider-edge 3.5s ease-in-out infinite;
   }
 
-  /* 品牌区霓虹字 */
-  body.orbit-app-shell[data-theme='dark'] .main-layout--orbit .brand-neon {
-    animation: orbit-spectacle-neon-pulse 2.2s ease-in-out infinite;
-  }
-
   /* Ant Tabs 下划线能量 */
   body.orbit-app-shell[data-theme='dark'] .ant-tabs-ink-bar-animated,
   body.orbit-app-shell[data-theme='dark'] .ant-tabs .ant-tabs-ink-bar {

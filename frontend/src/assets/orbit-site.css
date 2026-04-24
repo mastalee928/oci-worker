@@ -230,8 +230,20 @@ body.orbit-app-shell[data-theme='dark'] .ant-tag {
   border-radius: 6px !important;
   border: 1px solid rgba(255, 255, 255, 0.1) !important;
 }
-body.orbit-app-shell[data-theme='dark'] .ant-badge-count {
-  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.2);
+/* 数字徽标：深字 + 细描边，绿底上才能一眼读出（避免与背景融在一起） */
+body.orbit-app-shell[data-theme='dark'] .ant-badge .ant-badge-count,
+body.orbit-app-shell[data-theme='dark'] .ant-scroll-number-only {
+  color: #010828 !important;
+  font-weight: 800 !important;
+  font-size: 12px !important;
+  line-height: 1.2 !important;
+  min-width: 1.1em;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  box-shadow:
+    0 0 0 1px rgba(0, 0, 0, 0.22),
+    0 1px 3px rgba(0, 0, 0, 0.25) !important;
+  text-shadow: 0 0 1px rgba(255, 255, 255, 0.35);
 }
 
 /* ========== Modal / Drawer / Popover / Dropdown ========== */

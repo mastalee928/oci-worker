@@ -33,18 +33,9 @@
       :class="['sider', { 'liquid-glass': themeStore.isDark, 'sider-mobile': isMobile, 'sider-mobile-open': mobileMenuOpen && isMobile, 'sider-collapsed-desktop': collapsed && !isMobile }]"
       :style="isMobile && !mobileMenuOpen ? { display: 'none' } : {}"
     >
-        <div
-          :class="['brand', { 'brand--orbit': themeStore.isDark }]"
-          role="link"
-          tabindex="0"
-          :title="themeStore.isDark ? '回仪表盘' : undefined"
-          @click="goDashboard"
-          @keydown.enter.prevent="goDashboard"
-        >
+        <div class="brand">
         <i class="ri-server-line brand-icon" aria-hidden="true"></i>
-        <span v-if="!collapsed || (isMobile && mobileMenuOpen)" class="brand-text font-orbit-display"
-          >OCI <span class="brand-neon">Worker</span></span
-        >
+        <span v-if="!collapsed || (isMobile && mobileMenuOpen)" class="brand-text">OCI Worker</span>
       </div>
       <a-menu
         mode="inline"
@@ -211,10 +202,6 @@ const pageTitleIcon = computed(() => {
   return icons[currentRoute.value] || 'ri-dashboard-3-line'
 })
 
-function goDashboard() {
-  router.push('/dashboard')
-}
-
 function handleMenuClick({ key }: { key: string }) {
   router.push('/' + key)
   if (isMobile.value) mobileMenuOpen.value = false
@@ -308,46 +295,12 @@ function handleLogout() {
   color: #818cf8;
 }
 .brand-text {
-  font-size: 18px;
-  font-weight: 400;
-  text-transform: uppercase;
-  color: #eff4ff;
-  letter-spacing: 0.04em;
-  white-space: nowrap;
-}
-.brand-neon {
-  color: #6fff00;
-  margin-left: 0.2em;
-}
-.brand--orbit {
-  cursor: pointer;
-  border-radius: 0 0 12px 12px;
-  transition:
-    background var(--trans, 0.25s),
-    box-shadow 0.25s,
-    transform 0.2s cubic-bezier(0.34, 1.56, 0.64, 1);
-}
-.brand--orbit:hover {
-  background: color-mix(in srgb, #6fff00 6%, transparent);
-  box-shadow: inset 0 0 0 1px rgba(111, 255, 0, 0.25);
-}
-.brand--orbit:active {
-  transform: scale(0.99);
-}
-.brand--orbit:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 2px #010828, 0 0 0 4px rgba(111, 255, 0, 0.45);
-}
-[data-theme='light'] .brand-text,
-[data-theme='light'] .brand-neon {
+  font-size: 20px;
+  font-weight: 800;
   background: linear-gradient(135deg, #a5b4fc 0%, #6366f1 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
-  color: transparent;
-  margin: 0;
-}
-[data-theme='light'] .brand-neon {
-  margin-left: 0.15em;
+  white-space: nowrap;
 }
 
 .nav-menu {
