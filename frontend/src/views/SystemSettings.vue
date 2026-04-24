@@ -552,11 +552,14 @@ async function performUpdate() {
       message.loading({ content: '等待服务重启...', duration: 0, key: 'update' })
       let attempts = 0
       const maxAttempts = 30
+      let pollInFlight = false
       if (updatePollTimer) clearInterval(updatePollTimer)
       updatePollTimer = setInterval(async () => {
+        if (pollInFlight) return
+        pollInFlight = true
         attempts++
         try {
-          await request.get('/sys/glance')
+          await request.get('/sys/glance', { skipErrorMessage: true })
           if (updatePollTimer) { clearInterval(updatePollTimer); updatePollTimer = null }
           message.success({ content: '更新完成，3秒后跳转首页...', key: 'update' })
           updatePerforming.value = false
@@ -568,6 +571,8 @@ async function performUpdate() {
             message.warning({ content: '服务重启超时，请手动刷新页面', key: 'update' })
             updatePerforming.value = false
           }
+        } finally {
+          pollInFlight = false
         }
       }, 3000)
     }, 3000)

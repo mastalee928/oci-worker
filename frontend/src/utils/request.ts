@@ -1,6 +1,9 @@
 import axios from 'axios'
+import type { AxiosRequestConfig } from 'axios'
 import { message } from 'ant-design-vue'
 import router from '../router'
+
+export type RequestConfig = AxiosRequestConfig & { skipErrorMessage?: boolean }
 
 const request = axios.create({
   baseURL: '/api',
@@ -51,6 +54,10 @@ request.interceptors.response.use(
       localStorage.removeItem('token')
       redirectTo('/login')
     } else {
+      // 如一键更新时轮询健康接口，服务重启窗口会出现 502，不应打全局红字
+      if ((error.config as RequestConfig | undefined)?.skipErrorMessage) {
+        return Promise.reject(error)
+      }
       message.error(error.message || '网络错误')
     }
     return Promise.reject(error)
