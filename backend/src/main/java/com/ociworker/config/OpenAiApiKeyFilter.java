@@ -21,7 +21,7 @@ import java.nio.charset.StandardCharsets;
  * 校验 {@code /v1} 请求上的本地面板颁发的 API Key，并绑定至租户。
  */
 @Component
-@Order(Ordered.HIGHEST_PRECEDENCE + 1)
+@Order(Ordered.HIGHEST_PRECEDENCE + 2)
 public class OpenAiApiKeyFilter extends OncePerRequestFilter {
 
     @Resource

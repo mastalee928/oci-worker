@@ -4,6 +4,10 @@ export function getOracleAiGateway() {
   return request.post('/oci/oracle-ai/gateway', {})
 }
 
+export function setOracleAiGatewayEnabled(data: { enabled: boolean }) {
+  return request.post('/oci/oracle-ai/gateway/setEnabled', data)
+}
+
 export function createOracleKey(data: { ociUserId: string; name?: string }) {
   return request.post('/oci/oracle-ai/keys/create', data)
 }

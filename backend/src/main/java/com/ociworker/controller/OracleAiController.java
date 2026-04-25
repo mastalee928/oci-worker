@@ -36,6 +36,8 @@ public class OracleAiController {
     private OciGenerativeOpenAiService generativeOpenAiService;
     @Resource
     private OciUserMapper ociUserMapper;
+    @Resource
+    private com.ociworker.service.OracleAiGatewayToggleService gatewayToggleService;
 
     @PostMapping("/gateway")
     public ResponseData<?> gateway() {
@@ -43,7 +45,16 @@ public class OracleAiController {
         m.put("openaiApiPort", openaiApiPort);
         m.put("pathPrefix", "/v1");
         m.put("baseUrlExample", OciGenerativeOpenAiService.gatewayHint(openaiApiPort));
+        m.put("openaiProxyEnabled", gatewayToggleService.isEnabled());
         return ResponseData.ok(m);
+    }
+
+    @PostMapping("/gateway/setEnabled")
+    public ResponseData<?> setGatewayEnabled(@RequestBody Map<String, Object> body) {
+        Object v = body == null ? null : body.get("enabled");
+        boolean enabled = v instanceof Boolean ? (Boolean) v : (v != null && "true".equalsIgnoreCase(String.valueOf(v)));
+        gatewayToggleService.setEnabled(enabled);
+        return ResponseData.ok(Map.of("openaiProxyEnabled", enabled));
     }
 
     @PostMapping("/keys/create")

@@ -2,10 +2,16 @@
   <div class="oracle-ai-page">
     <a-card class="mb-card" title="Oracle 生成式 AI 网关" :bordered="false">
       <a-space direction="vertical" style="width: 100%">
-        <div class="sub">
-          Base：
-          <code>http://&lt;主机或域名&gt;:{{ openaiPort }}/v1</code>
-          <span class="sub-muted">（Header：<code>Authorization: Bearer sk-...</code>）</span>
+        <div class="sub top-line">
+          <div>
+            Base：
+            <code>http://&lt;主机或域名&gt;:{{ openaiPort }}/v1</code>
+            <span class="sub-muted">（Header：<code>Authorization: Bearer sk-...</code>）</span>
+          </div>
+          <a-space align="center" class="proxy-switch">
+            <a-switch v-model:checked="openaiProxyEnabled" @change="onToggleProxy" />
+            <span class="sub-muted">启用 OpenAI 转发</span>
+          </a-space>
         </div>
         <a-typography-paragraph copyable :content="publicBaseUrl">
           <code class="code-wrap">{{ publicBaseUrl }}</code>
@@ -131,6 +137,7 @@
           </template>
           <template v-else-if="column.key === 'a'">
             <a-space>
+              <a-button size="small" type="link" @click="viewKey(record)">查看</a-button>
               <a-button size="small" @click="toggleKey(record)">
                 {{ record.disabled ? '启用' : '禁用' }}
               </a-button>
@@ -147,6 +154,7 @@
           <div>
             <b>{{ k.name || '未命名' }}</b> <code class="p">{{ k.keyPrefix }}…</code>
           </div>
+          <a-button size="small" type="link" @click="viewKey(k)">查看</a-button>
           <a-button size="small" @click="toggleKey(k)">{{ k.disabled ? '启用' : '禁用' }}</a-button>
           <a-popconfirm title="确定删除？" @confirm="removeK(k)">
             <a-button size="small" danger>删除</a-button>
@@ -174,6 +182,31 @@
       </a-typography-paragraph>
     </a-modal>
 
+    <a-modal v-model:open="keyViewOpen" title="密钥详情" :footer="null" :width="640">
+      <a-descriptions bordered size="small" :column="1">
+        <a-descriptions-item label="备注">{{ keyViewRow?.name || '未命名' }}</a-descriptions-item>
+        <a-descriptions-item label="前缀">
+          <code>{{ keyViewRow?.keyPrefix }}…</code>
+        </a-descriptions-item>
+        <a-descriptions-item label="状态">
+          <a-tag :color="keyViewRow?.disabled ? 'red' : 'green'">{{ keyViewRow?.disabled ? '已禁用' : '正常' }}</a-tag>
+        </a-descriptions-item>
+        <a-descriptions-item label="创建">{{ keyViewRow?.createTime || '-' }}</a-descriptions-item>
+        <a-descriptions-item label="最后使用">{{ keyViewRow?.lastUsed || '-' }}</a-descriptions-item>
+        <a-descriptions-item label="Base">
+          <a-typography-paragraph copyable :content="publicBaseUrl" style="margin: 0">
+            <code class="code-wrap">{{ publicBaseUrl }}</code>
+          </a-typography-paragraph>
+        </a-descriptions-item>
+      </a-descriptions>
+      <a-alert
+        class="mt-card"
+        type="warning"
+        show-icon
+        message="系统不保存密钥明文，仅展示前缀用于识别。需要替换请生成新密钥。"
+      />
+    </a-modal>
+
     <a-divider />
     <div class="sub sub-bottom">
       说明：未带 <code>max_tokens</code> 时网关会补默认 4000；请求体里 <code>force_non_stream: true</code> 会强制非流式。
@@ -189,6 +222,7 @@ import { message } from 'ant-design-vue'
 import { getTenantList } from '../api/tenant'
 import {
   getOracleAiGateway,
+  setOracleAiGatewayEnabled,
   listOracleKeys,
   createOracleKey,
   setOracleKeyDisabled,
@@ -215,6 +249,10 @@ const plainKeyModalOpen = ref(false)
 const newKeyPlain = ref('')
 const keyName = ref('')
 const baseHint = ref('')
+const openaiProxyEnabled = ref(true)
+
+const keyViewOpen = ref(false)
+const keyViewRow = ref<any | null>(null)
 
 const chatApiKey = ref('')
 const chatModel = ref<string | undefined>(undefined)
@@ -333,11 +371,29 @@ async function loadGateway() {
     const r: any = await getOracleAiGateway()
     const p = r?.data?.openaiApiPort
     if (p != null) openaiPort.value = p
+    if (typeof r?.data?.openaiProxyEnabled === 'boolean') {
+      openaiProxyEnabled.value = r.data.openaiProxyEnabled
+    }
     baseHint.value = r?.data?.baseUrlExample
       ? `Base 示例: ${r.data.baseUrlExample}`
       : `对外访问需在防火墙放行 TCP ${openaiPort.value}。`
   } catch {
     baseHint.value = `请放行 TCP 端口 ${openaiPort.value} 供 New API/客户端访问。`
+  }
+}
+
+async function onToggleProxy(v: boolean) {
+  try {
+    const r: any = await setOracleAiGatewayEnabled({ enabled: v })
+    const en = r?.data?.openaiProxyEnabled
+    if (typeof en === 'boolean') {
+      openaiProxyEnabled.value = en
+    }
+    message.success(v ? '已开启转发' : '已关闭转发')
+  } catch (e: any) {
+    message.error(e?.message || '设置失败')
+    // revert by reloading gateway state
+    loadGateway()
   }
 }
 
@@ -560,6 +616,11 @@ function removeK(k: any) {
     })
     .catch(() => {})
 }
+
+function viewKey(k: any) {
+  keyViewRow.value = k
+  keyViewOpen.value = true
+}
 </script>
 
 <style scoped>
@@ -577,6 +638,8 @@ function removeK(k: any) {
   padding: 0 4px;
 }
 .sub-muted { color: var(--text-sub, #666); opacity: 0.9; }
+.top-line { display: flex; justify-content: space-between; gap: 12px; align-items: center; flex-wrap: wrap; }
+.proxy-switch { margin-left: auto; }
 .sub-bottom {
   margin-bottom: 24px;
 }
