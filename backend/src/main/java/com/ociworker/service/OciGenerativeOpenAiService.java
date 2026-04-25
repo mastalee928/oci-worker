@@ -116,6 +116,18 @@ public class OciGenerativeOpenAiService {
                         request.setAttribute("ociworker.rewrite.useRawV1Base", Boolean.TRUE);
                         pathAfterV1 = "/responses";
                         body = transformChatCompletionsToResponsesJson(origBody);
+                        // Cursor 走 chat/completions 时会被改写成 /responses；但 OCI 对 ModelInput 更严格，
+                        // 这里对改写后的 body 再做一次宽松规范化，避免 422: untagged enum ModelInput 反序列化失败。
+                        try {
+                            if (request != null && body != null) {
+                                request.setAttribute("ociworker.debug.responsesInputShape.before", describeResponsesInputShape(body));
+                            }
+                            body = normalizeResponsesInputForOci(body);
+                            if (request != null && body != null) {
+                                request.setAttribute("ociworker.debug.responsesInputShape.after", describeResponsesInputShape(body));
+                            }
+                        } catch (Exception ignored) {
+                        }
                         // responses 与 chat completions 的补默认策略不同，这里让下游按 OCI 行为处理
                     } else if (isChatCompletionsPath(origPathAfterV1)) {
                         body = transformChatCompletionsJson(origBody);
