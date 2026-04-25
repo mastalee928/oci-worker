@@ -60,6 +60,15 @@
                 >
                   从 OCI 拉取项目
                 </a-button>
+                <a-button
+                  size="small"
+                  type="dashed"
+                  :disabled="!ociUserId"
+                  :loading="gaProjectCreating"
+                  @click="createDefaultProject"
+                >
+                  一键创建 Project
+                </a-button>
                 <a-select
                   v-if="gaProjectOptions.length"
                   :options="gaProjectOptions"
@@ -249,6 +258,7 @@ import {
   saveOracleAiGenerativeContext,
   listGenerativeProjects,
   oracleAiChatTest,
+  createGenerativeProject,
 } from '../api/oracleAi'
 
 const tenantsLoading = ref(false)
@@ -274,6 +284,7 @@ const generativeConversationStoreId = ref('')
 const generativeContextSaving = ref(false)
 const gaProjectsLoading = ref(false)
 const gaProjectOptions = ref<{ label: string; value: string }[]>([])
+const gaProjectCreating = ref(false)
 
 const chatApiKey = ref('')
 const chatModel = ref<string | undefined>(undefined)
@@ -499,6 +510,32 @@ async function fetchGenerativeProjects() {
 function onPickGaProject(v: string | undefined) {
   if (v != null && v !== '') {
     generativeOpenaiProject.value = String(v)
+  }
+}
+
+async function createDefaultProject() {
+  if (!ociUserId.value) return
+  gaProjectCreating.value = true
+  try {
+    const r: any = await createGenerativeProject({
+      ociUserId: ociUserId.value,
+      displayName: 'ociworker-default',
+    })
+    const id = r?.data?.id
+    if (typeof id === 'string' && id) {
+      generativeOpenaiProject.value = id
+      // 后端已自动写入租户默认；这里顺手刷新一下 context，保持一致
+      await loadGenerativeContext()
+      message.success('已创建并填入 OpenAI-Project')
+      // 创建后也刷新列表（若有权限）
+      fetchGenerativeProjects()
+    } else {
+      message.success('已创建项目')
+    }
+  } catch (e: any) {
+    message.error(e?.message || '创建项目失败（可能无权限）')
+  } finally {
+    gaProjectCreating.value = false
   }
 }
 

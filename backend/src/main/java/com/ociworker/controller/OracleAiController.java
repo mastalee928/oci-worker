@@ -138,6 +138,34 @@ public class OracleAiController {
         }
     }
 
+    @PostMapping("/generative-projects/create")
+    public ResponseData<?> createGenerativeProject(@RequestBody Map<String, String> body) {
+        if (body == null || body.get("ociUserId") == null) {
+            return ResponseData.error("ociUserId 必填");
+        }
+        OciUser u = ociUserMapper.selectById(body.get("ociUserId"));
+        if (u == null) {
+            return ResponseData.error("租户不存在");
+        }
+        String displayName = body.get("displayName");
+        try {
+            JsonNode j = generativeOpenAiService.createGenerativeAiProject(u, displayName);
+            // 创建后自动写入租户默认 OpenAI-Project，便于 Multi-Agent 直接可用
+            if (j != null && j.isObject()) {
+                String id = j.get("id") != null && j.get("id").isTextual() ? j.get("id").asText() : null;
+                if (id != null && !id.isBlank()) {
+                    u.setGenerativeOpenaiProject(id);
+                    ociUserMapper.updateById(u);
+                }
+            }
+            return ResponseData.ok(j);
+        } catch (com.ociworker.exception.OciException e) {
+            return ResponseData.error(e.getMessage());
+        } catch (Exception e) {
+            return ResponseData.error("创建项目失败: " + (e.getMessage() != null ? e.getMessage() : "未知错误"));
+        }
+    }
+
     @PostMapping("/generative-context/get")
     public ResponseData<?> getGenerativeContext(@RequestBody Map<String, String> body) {
         if (body == null || body.get("ociUserId") == null) {

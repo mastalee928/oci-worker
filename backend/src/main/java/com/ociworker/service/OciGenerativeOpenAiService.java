@@ -295,6 +295,61 @@ public class OciGenerativeOpenAiService {
         return out;
     }
 
+    /**
+     * 管理面：创建 Generative AI Project，返回包含 {@code id}/{@code displayName} 的 JSON。
+     * 注意：需要调用方在 IAM 中具备创建权限；否则会返回 403。
+     */
+    public JsonNode createGenerativeAiProject(OciUser tenant, String displayName) throws Exception {
+        String regionId = OciRegionUtil.publicRegionId(tenant.getOciRegion());
+        String managementHost = "generativeai." + regionId + ".oci.oraclecloud.com";
+        String compartmentId = tenant.getOciTenantId();
+        if (compartmentId == null || compartmentId.isBlank()) {
+            throw new OciException("租户无 ociTenantId，无法创建 Generative AI 项目");
+        }
+        String name = (displayName == null || displayName.isBlank()) ? "ociworker-default" : displayName.trim();
+        ObjectNode body = MAPPER.createObjectNode();
+        body.put("compartmentId", compartmentId);
+        body.put("displayName", name);
+        // 其余可选配置交给用户后续在控制台/面板完善；此处仅满足最小可用闭环
+        byte[] bytes = MAPPER.writeValueAsBytes(body);
+
+        URI uri = URI.create("https://" + managementHost + "/" + GA_API_VERSION + "/generativeAiProjects");
+        HttpRequest req = buildSignedRequest(
+                newRequestSigner(tenant),
+                "POST",
+                uri,
+                bytes,
+                "application/json",
+                "application/json",
+                compartmentId,
+                null);
+        HttpResponse<String> resp;
+        try {
+            resp = pickHttpClient().send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        } catch (Exception e) {
+            throw new OciException("创建 generativeAiProject 异常(" + e.getClass().getSimpleName() + "): "
+                    + (e.getMessage() != null ? e.getMessage() : "未知错误"));
+        }
+        if (resp.statusCode() / 100 != 2) {
+            throw new OciException("创建 generativeAiProject 失败: HTTP " + resp.statusCode()
+                    + " body=" + truncate(resp.body(), 1200));
+        }
+        JsonNode root = MAPPER.readTree(resp.body() != null ? resp.body() : "{}");
+        if (root != null && root.isObject()) {
+            ObjectNode out = MAPPER.createObjectNode();
+            String id = firstText(root, "id");
+            if (id != null) {
+                out.put("id", id);
+            }
+            String dn = firstText(root, "displayName");
+            if (dn != null) {
+                out.put("displayName", dn);
+            }
+            return out;
+        }
+        return root;
+    }
+
     private static ArrayNode toArrayNode(List<JsonNode> nodes) {
         ArrayNode a = MAPPER.createArrayNode();
         for (JsonNode n : nodes) {

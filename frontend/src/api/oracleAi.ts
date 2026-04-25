@@ -44,3 +44,7 @@ export function listGenerativeProjects(data: { ociUserId: string }) {
 export function oracleAiChatTest(data: { apiKey: string; model: string; input: string }) {
   return request.post('/oci/oracle-ai/chat-test', data)
 }
+
+export function createGenerativeProject(data: { ociUserId: string; displayName?: string }) {
+  return request.post('/oci/oracle-ai/generative-projects/create', data)
+}
