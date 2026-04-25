@@ -26,93 +26,6 @@
       />
     </a-card>
 
-    <a-row :gutter="[16, 16]">
-      <a-col :xs="24" :lg="12">
-        <a-card title="租户与模型" :bordered="false" :loading="tenantsLoading">
-          <a-form layout="vertical">
-            <a-form-item label="选择租户（Region=该租户 OCI 区域）">
-              <a-select
-                v-model:value="ociUserId"
-                :options="tenantOptions"
-                placeholder="选择租户"
-                show-search
-                :filter-option="filterTenant"
-                @change="onTenantChange"
-                allow-clear
-              />
-            </a-form-item>
-            <a-form-item v-if="selectedRegion" label="区域">
-              <a-tag color="blue">{{ selectedRegion }}</a-tag>
-            </a-form-item>
-            <a-form-item label="可选模型（OCI 管理面 ListModels）">
-              <a-select
-                v-model:value="modelPick"
-                mode="multiple"
-                :options="modelOptions"
-                :loading="modelsLoading"
-                placeholder="先选租户，再刷新"
-                allow-clear
-                show-search
-                :filter-option="filterModel"
-              />
-            </a-form-item>
-            <a-button type="primary" :loading="modelsLoading" :disabled="!ociUserId" @click="() => loadModelsIfNeeded(true)">
-              刷新模型列表
-            </a-button>
-          </a-form>
-        </a-card>
-      </a-col>
-      <a-col :xs="24" :lg="12">
-        <a-card title="对话测试（浏览器直连 /v1）" :bordered="false">
-          <a-alert
-            class="mb-alert"
-            type="info"
-            show-icon
-            message="浏览器直连 :8080/v1 快速验证（绕过 New API/IDE 差异）。"
-          />
-          <a-form layout="vertical">
-            <a-form-item label="API Key（sk-...，仅保存在浏览器本地）">
-              <a-input-password v-model:value="chatApiKey" placeholder="sk-..." allow-clear />
-            </a-form-item>
-            <a-form-item label="模型">
-              <a-select
-                v-model:value="chatModel"
-                :options="modelOptions"
-                :disabled="!modelOptions.length"
-                placeholder="先在左侧拉取模型列表"
-                show-search
-                :filter-option="filterModel"
-                allow-clear
-              />
-            </a-form-item>
-            <a-form-item label="用户消息">
-              <a-textarea v-model:value="chatUserText" :rows="4" placeholder="输入要测试的内容…" />
-            </a-form-item>
-            <a-space wrap>
-              <a-button
-                type="primary"
-                :loading="chatSending"
-                :disabled="!chatApiKey || !chatModel || !chatUserText"
-                @click="sendChatTest"
-              >
-                发送测试
-              </a-button>
-              <a-button :disabled="chatSending" @click="clearChatTest">清空</a-button>
-            </a-space>
-          </a-form>
-
-          <div v-if="chatError" class="chat-box chat-error">
-            <div class="chat-label">错误</div>
-            <pre class="chat-pre">{{ chatError }}</pre>
-          </div>
-          <div v-if="chatAssistantText" class="chat-box">
-            <div class="chat-label">Assistant</div>
-            <pre class="chat-pre">{{ chatAssistantText }}</pre>
-          </div>
-        </a-card>
-      </a-col>
-    </a-row>
-
     <a-card title="API 密钥" :bordered="false" class="mt-card">
       <a-row class="key-toolbar" :gutter="[8, 8]" align="middle" justify="start" wrap>
         <a-col>
@@ -161,6 +74,88 @@
           </a-popconfirm>
         </div>
       </template>
+    </a-card>
+
+    <a-card title="租户与模型" :bordered="false" class="mt-card" :loading="tenantsLoading">
+      <a-form layout="vertical">
+        <a-form-item label="选择租户（Region=该租户 OCI 区域）">
+          <a-select
+            v-model:value="ociUserId"
+            :options="tenantOptions"
+            placeholder="选择租户"
+            show-search
+            :filter-option="filterTenant"
+            @change="onTenantChange"
+            allow-clear
+          />
+        </a-form-item>
+        <a-form-item v-if="selectedRegion" label="区域">
+          <a-tag color="blue">{{ selectedRegion }}</a-tag>
+        </a-form-item>
+        <a-form-item label="可选模型（OCI 管理面 ListModels）">
+          <a-select
+            v-model:value="modelPick"
+            mode="multiple"
+            :options="modelOptions"
+            :loading="modelsLoading"
+            placeholder="先选租户，再刷新"
+            allow-clear
+            show-search
+            :filter-option="filterModel"
+          />
+        </a-form-item>
+        <a-button type="primary" :loading="modelsLoading" :disabled="!ociUserId" @click="() => loadModelsIfNeeded(true)">
+          刷新模型列表
+        </a-button>
+      </a-form>
+    </a-card>
+
+    <a-card title="对话测试（浏览器直连 /v1）" :bordered="false" class="mt-card">
+      <a-alert
+        class="mb-alert"
+        type="info"
+        show-icon
+        message="浏览器直连 :8080/v1 快速验证（绕过 New API/IDE 差异）。"
+      />
+      <a-form layout="vertical">
+        <a-form-item label="API Key（sk-...，仅保存在浏览器本地）">
+          <a-input-password v-model:value="chatApiKey" placeholder="sk-..." allow-clear />
+        </a-form-item>
+        <a-form-item label="模型">
+          <a-select
+            v-model:value="chatModel"
+            :options="modelOptions"
+            :disabled="!modelOptions.length"
+            placeholder="先在上方拉取模型列表"
+            show-search
+            :filter-option="filterModel"
+            allow-clear
+          />
+        </a-form-item>
+        <a-form-item label="用户消息">
+          <a-textarea v-model:value="chatUserText" :rows="4" placeholder="输入要测试的内容…" />
+        </a-form-item>
+        <a-space wrap>
+          <a-button
+            type="primary"
+            :loading="chatSending"
+            :disabled="!chatApiKey || !chatModel || !chatUserText"
+            @click="sendChatTest"
+          >
+            发送测试
+          </a-button>
+          <a-button :disabled="chatSending" @click="clearChatTest">清空</a-button>
+        </a-space>
+      </a-form>
+
+      <div v-if="chatError" class="chat-box chat-error">
+        <div class="chat-label">错误</div>
+        <pre class="chat-pre">{{ chatError }}</pre>
+      </div>
+      <div v-if="chatAssistantText" class="chat-box">
+        <div class="chat-label">Assistant</div>
+        <pre class="chat-pre">{{ chatAssistantText }}</pre>
+      </div>
     </a-card>
 
     <a-modal v-model:open="keyModalOpen" title="新密钥" :confirm-loading="keyCreating" @ok="submitKey">
