@@ -177,6 +177,54 @@
       </a-typography-paragraph>
     </a-modal>
 
+    <a-card title="对话测试（浏览器直连 /v1）" :bordered="false" class="mt-card">
+      <a-alert
+        class="mb-alert"
+        type="info"
+        show-icon
+        message="该测试会从浏览器直接调用本机 OpenAI 兼容端口（如 :8080/v1）。用于快速验证网关是否能返回内容，避免 New API/IDE 侧差异干扰。"
+      />
+      <a-form layout="vertical">
+        <a-form-item label="API Key（sk-...，仅保存在浏览器本地）">
+          <a-input-password v-model:value="chatApiKey" placeholder="sk-..." allow-clear />
+        </a-form-item>
+        <a-form-item label="模型">
+          <a-select
+            v-model:value="chatModel"
+            :options="modelOptions"
+            :disabled="!modelOptions.length"
+            placeholder="先在左侧拉取模型列表"
+            show-search
+            :filter-option="filterModel"
+            allow-clear
+          />
+        </a-form-item>
+        <a-form-item label="用户消息">
+          <a-textarea v-model:value="chatUserText" :rows="4" placeholder="输入要测试的内容…" />
+        </a-form-item>
+        <a-space wrap>
+          <a-button
+            type="primary"
+            :loading="chatSending"
+            :disabled="!chatApiKey || !chatModel || !chatUserText"
+            @click="sendChatTest"
+          >
+            发送测试
+          </a-button>
+          <a-button :disabled="chatSending" @click="clearChatTest">清空</a-button>
+        </a-space>
+      </a-form>
+
+      <div v-if="chatError" class="chat-box chat-error">
+        <div class="chat-label">错误</div>
+        <pre class="chat-pre">{{ chatError }}</pre>
+      </div>
+      <div v-if="chatAssistantText" class="chat-box">
+        <div class="chat-label">Assistant</div>
+        <pre class="chat-pre">{{ chatAssistantText }}</pre>
+      </div>
+    </a-card>
+
     <a-divider />
     <div class="sub sub-bottom">
       说明：未带 <code>max_tokens</code> 时网关会补默认 4000；请求体里 <code>force_non_stream: true</code> 会强制非流式。
@@ -226,6 +274,13 @@ const generativeContextSaving = ref(false)
 const gaProjectsLoading = ref(false)
 const gaProjectOptions = ref<{ label: string; value: string }[]>([])
 
+const chatApiKey = ref('')
+const chatModel = ref<string | undefined>(undefined)
+const chatUserText = ref('')
+const chatAssistantText = ref('')
+const chatError = ref('')
+const chatSending = ref(false)
+
 const keyColumns = [
   { title: '备注', dataIndex: 'name', key: 'name' },
   { title: '前缀', dataIndex: 'keyPrefix', key: 'keyPrefix' },
@@ -249,6 +304,7 @@ const publicBaseUrl = computed(() => {
 })
 
 const LS_KEY = 'ociworker.oracleAi.state.v1'
+const LS_CHAT_KEY = 'ociworker.oracleAi.chatTest.v1'
 const restoring = ref(false)
 
 function loadPersistedState() {
@@ -287,6 +343,32 @@ function persistState() {
   }
 }
 
+function loadChatPersisted() {
+  if (typeof window === 'undefined') return
+  try {
+    const raw = localStorage.getItem(LS_CHAT_KEY)
+    if (!raw) return
+    const s = JSON.parse(raw || '{}') || {}
+    if (typeof s.chatApiKey === 'string') chatApiKey.value = s.chatApiKey
+    if (typeof s.chatModel === 'string') chatModel.value = s.chatModel
+  } catch {
+  }
+}
+
+function persistChatState() {
+  if (typeof window === 'undefined') return
+  try {
+    localStorage.setItem(
+      LS_CHAT_KEY,
+      JSON.stringify({
+        chatApiKey: chatApiKey.value || '',
+        chatModel: chatModel.value || '',
+      }),
+    )
+  } catch {
+  }
+}
+
 function checkM() {
   isMobile.value = window.innerWidth < 768
 }
@@ -295,6 +377,7 @@ onMounted(() => {
   checkM()
   window.addEventListener('resize', checkM)
   loadPersistedState()
+  loadChatPersisted()
   loadGateway()
   loadTenants()
 })
@@ -441,6 +524,12 @@ watch(
   { deep: true },
 )
 
+watch(
+  () => [chatApiKey.value, chatModel.value],
+  () => persistChatState(),
+  { deep: true },
+)
+
 async function loadModelsIfNeeded(alertOnErr: boolean) {
   if (!ociUserId.value) return
   modelsLoading.value = true
@@ -464,6 +553,9 @@ async function loadModelsIfNeeded(alertOnErr: boolean) {
         return { value: id, label: finalLabel, title: note || finalLabel }
       })
       .filter((x) => x) as any
+    if (!chatModel.value && modelOptions.value.length) {
+      chatModel.value = modelOptions.value[0].value
+    }
     if (!modelOptions.value.length && alertOnErr) {
       message.info('无模型条目或 OCI 返回与预期结构不同，请查看后端日志。')
     }
@@ -471,6 +563,60 @@ async function loadModelsIfNeeded(alertOnErr: boolean) {
   } finally {
     modelsLoading.value = false
   }
+}
+
+async function sendChatTest() {
+  if (!chatApiKey.value || !chatModel.value || !chatUserText.value) return
+  chatSending.value = true
+  chatAssistantText.value = ''
+  chatError.value = ''
+  try {
+    const url = `${publicBaseUrl.value}/chat/completions`
+    const payload = {
+      model: chatModel.value,
+      messages: [{ role: 'user', content: chatUserText.value }],
+      stream: false,
+    }
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: chatApiKey.value.startsWith('Bearer ')
+          ? chatApiKey.value
+          : `Bearer ${chatApiKey.value}`,
+      },
+      body: JSON.stringify(payload),
+    })
+    const text = await resp.text()
+    if (!resp.ok) {
+      chatError.value = `HTTP ${resp.status}\n${text}`
+      return
+    }
+    let json: any
+    try {
+      json = JSON.parse(text)
+    } catch {
+      chatAssistantText.value = text
+      return
+    }
+    const c0 = json?.choices?.[0]
+    const content = c0?.message?.content
+    if (typeof content === 'string') {
+      chatAssistantText.value = content
+    } else {
+      chatAssistantText.value = JSON.stringify(json, null, 2)
+    }
+  } catch (e: any) {
+    chatError.value = e?.message || String(e)
+  } finally {
+    chatSending.value = false
+  }
+}
+
+function clearChatTest() {
+  chatUserText.value = ''
+  chatAssistantText.value = ''
+  chatError.value = ''
 }
 
 async function refreshKeys() {
@@ -567,4 +713,19 @@ function removeK(k: any) {
 .key-plain { word-break: break-all; font-size: 13px; }
 .key-card-m { padding: 8px; border: 1px solid var(--border, #e8e8e8); border-radius: 6px; margin-bottom: 8px; }
 .key-card-m .p { font-size: 12px; }
+.chat-box {
+  margin-top: 12px;
+  border: 1px solid var(--border, #e8e8e8);
+  border-radius: 8px;
+  padding: 10px;
+}
+.chat-error { border-color: #ffccc7; }
+.chat-label { font-weight: 600; margin-bottom: 6px; }
+.chat-pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+  line-height: 1.55;
+}
 </style>
