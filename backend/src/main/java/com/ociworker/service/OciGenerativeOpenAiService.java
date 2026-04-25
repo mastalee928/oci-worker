@@ -95,21 +95,38 @@ public class OciGenerativeOpenAiService {
         if ("POST".equalsIgnoreCase(method)
                 && isChatCompletionsPath(origPathAfterV1)
                 && origBody != null
-                && origBody.length > 0
-                && looksLikeJson) {
-            // 兜底启发式：某些上游会发“很大/非标准/带奇怪字符”的 JSON，导致解析失败而无法触发改写。
-            // 只要 body 中明显出现 multi-agent，就强制走 /responses。
+                && origBody.length > 0) {
+            // 兜底启发式：只要请求体中出现 multi-agent，就无条件强制改写到 /responses，
+            // 避免因 content-type/JSON 解析异常导致落回 /chat/completions 并被 OCI 直接 400。
             boolean bodyMentionsMultiAgent = false;
             try {
                 String raw = new String(origBody, StandardCharsets.UTF_8).toLowerCase(java.util.Locale.ROOT);
                 bodyMentionsMultiAgent = raw.contains("multi-agent") || raw.contains("multiagent") || raw.contains("multi agent");
             } catch (Exception ignored) {
             }
-            try {
-                JsonNode root = MAPPER.readTree(origBody);
-                if (root != null && root.isObject()) {
-                    String model = textOrNull(((ObjectNode) root), "model");
-                    if (isLikelyMultiAgentModelName(model) || bodyMentionsMultiAgent) {
+            if (bodyMentionsMultiAgent) {
+                request.setAttribute("ociworker.rewrite.chatToResponses", Boolean.TRUE);
+                request.setAttribute("ociworker.rewrite.useRawV1Base", Boolean.TRUE);
+                request.setAttribute("ociworker.rewrite.model", "multi-agent");
+                pathAfterV1 = "/responses";
+                body = transformChatCompletionsToResponsesJson(origBody);
+                try {
+                    if (request != null && body != null) {
+                        request.setAttribute("ociworker.debug.responsesInputShape.before", describeResponsesInputShape(body));
+                    }
+                    body = normalizeResponsesInputForOci(body);
+                    body = truncateResponsesInputForMultiAgent(body, 20);
+                    if (request != null && body != null) {
+                        request.setAttribute("ociworker.debug.responsesInputShape.after", describeResponsesInputShape(body));
+                    }
+                } catch (Exception ignored) {
+                }
+            } else if (looksLikeJson) {
+                try {
+                    JsonNode root = MAPPER.readTree(origBody);
+                    if (root != null && root.isObject()) {
+                        String model = textOrNull(((ObjectNode) root), "model");
+                        if (isLikelyMultiAgentModelName(model)) {
                         if (isStreamRequest(origBody, contentType)) {
                             // OCI 侧 Multi Agent 不适用于 chat-completions 流式；本网关会改走 /v1/responses 并关闭 stream。
                             log.debug(
@@ -142,31 +159,14 @@ public class OciGenerativeOpenAiService {
                     } else if (isChatCompletionsPath(origPathAfterV1)) {
                         body = transformChatCompletionsJson(origBody);
                     }
-                } else if (isChatCompletionsPath(origPathAfterV1)) {
+                    } else if (isChatCompletionsPath(origPathAfterV1)) {
                     body = transformChatCompletionsJson(origBody);
                 }
-            } catch (Exception e) {
-                // JSON 解析失败时也尽量按启发式改写 Multi-Agent，避免落回 /chat/completions 直接 400。
-                if (bodyMentionsMultiAgent && origBody != null) {
-                    request.setAttribute("ociworker.rewrite.chatToResponses", Boolean.TRUE);
-                    request.setAttribute("ociworker.rewrite.useRawV1Base", Boolean.TRUE);
-                    request.setAttribute("ociworker.rewrite.model", "multi-agent");
-                    pathAfterV1 = "/responses";
-                    body = transformChatCompletionsToResponsesJson(origBody);
-                    try {
-                        if (request != null && body != null) {
-                            request.setAttribute("ociworker.debug.responsesInputShape.before", describeResponsesInputShape(body));
-                        }
-                        body = normalizeResponsesInputForOci(body);
-                        body = truncateResponsesInputForMultiAgent(body, 20);
-                        if (request != null && body != null) {
-                            request.setAttribute("ociworker.debug.responsesInputShape.after", describeResponsesInputShape(body));
-                        }
-                    } catch (Exception ignored) {
-                    }
-                } else if (origBody != null) {
+                } catch (Exception e) {
                     body = transformChatCompletionsJson(origBody);
                 }
+            } else if (body != null && body.length > 0 && looksLikeJson) {
+                body = transformChatCompletionsJson(body);
             }
         } else if (isChatCompletionsPath(origPathAfterV1) && body != null && body.length > 0 && looksLikeJson) {
             body = transformChatCompletionsJson(body);
