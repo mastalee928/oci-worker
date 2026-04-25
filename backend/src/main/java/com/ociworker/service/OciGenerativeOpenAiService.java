@@ -26,6 +26,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.util.Iterator;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -137,7 +138,13 @@ public class OciGenerativeOpenAiService {
                 && contentType != null
                 && contentType.toLowerCase().contains("json")) {
             try {
+                if (request != null) {
+                    request.setAttribute("ociworker.debug.responsesInputShape.before", describeResponsesInputShape(body));
+                }
                 body = normalizeResponsesInputForOci(body);
+                if (request != null) {
+                    request.setAttribute("ociworker.debug.responsesInputShape.after", describeResponsesInputShape(body));
+                }
             } catch (Exception ignored) {
             }
         }
@@ -587,6 +594,7 @@ public class OciGenerativeOpenAiService {
     /**
      * 将 responses 请求中的 input 规范化为 OCI 能接受的 ModelInput：
      * - input 为 string -> 转为 [{role:"user", content:[{type:"input_text", text:"..."}]}]
+     * - input 为 object -> 尝试当作单条 message 或带 messages 的对象
      * - input 为 array 且元素形如 {role, content:"..."} -> 转为 content 块数组
      * - 其余保持原样（尽量不破坏已是 responses 原生结构的请求）
      */
@@ -614,6 +622,38 @@ public class OciGenerativeOpenAiService {
                 arr.add(item);
                 in.set("input", arr);
                 return MAPPER.writeValueAsBytes(in);
+            }
+            if (inputNode.isObject()) {
+                ObjectNode io = (ObjectNode) inputNode;
+                JsonNode msgs = io.get("messages");
+                if (msgs != null && msgs.isArray()) {
+                    ObjectNode fauxChat = MAPPER.createObjectNode();
+                    fauxChat.set("messages", msgs);
+                    byte[] mapped = transformChatCompletionsToResponsesJson(MAPPER.writeValueAsBytes(fauxChat));
+                    JsonNode mappedRoot = MAPPER.readTree(mapped);
+                    if (mappedRoot != null && mappedRoot.isObject() && mappedRoot.get("input") != null) {
+                        in.set("input", mappedRoot.get("input"));
+                        return MAPPER.writeValueAsBytes(in);
+                    }
+                }
+                ArrayNode arr = MAPPER.createArrayNode();
+                ObjectNode item = MAPPER.createObjectNode();
+                String role = textOrNull(io, "role");
+                item.put("role", (role == null || role.isBlank()) ? "user" : role);
+                JsonNode content = io.get("content");
+                if (content != null && content.isTextual()) {
+                    item.set("content", toInputTextParts(content.asText()));
+                } else if (content != null && content.isArray()) {
+                    item.set("content", content);
+                } else if (content != null && content.isObject()) {
+                    item.set("content", toInputTextParts(content.toString()));
+                } else {
+                    item.set("content", toInputTextParts(String.valueOf(content)));
+                }
+                arr.add(item);
+                in.set("input", arr);
+                // 继续让 array 分支做更细的块规范化
+                inputNode = in.get("input");
             }
             if (inputNode.isArray()) {
                 ArrayNode outArr = MAPPER.createArrayNode();
@@ -668,6 +708,8 @@ public class OciGenerativeOpenAiService {
                         if (normalized.size() > 0) {
                             io.set("content", normalized);
                         }
+                    } else if (content != null && content.isObject()) {
+                        io.set("content", toInputTextParts(content.toString()));
                     }
                     outArr.add(io);
                 }
@@ -677,6 +719,60 @@ public class OciGenerativeOpenAiService {
             return input;
         } catch (Exception e) {
             return input;
+        }
+    }
+
+    private static String describeResponsesInputShape(byte[] body) {
+        try {
+            JsonNode root = MAPPER.readTree(body);
+            if (root == null || !root.isObject()) {
+                return "root=" + (root == null ? "null" : root.getNodeType());
+            }
+            JsonNode input = root.get("input");
+            if (input == null) {
+                return "input=<missing>";
+            }
+            StringBuilder sb = new StringBuilder();
+            sb.append("input=").append(input.getNodeType());
+            if (input.isTextual()) {
+                sb.append("(len=").append(input.asText().length()).append(")");
+                return sb.toString();
+            }
+            if (input.isObject()) {
+                sb.append("(keys=");
+                Iterator<String> it = input.fieldNames();
+                int c = 0;
+                while (it.hasNext() && c < 8) {
+                    if (c > 0) sb.append(",");
+                    sb.append(it.next());
+                    c++;
+                }
+                if (it.hasNext()) sb.append(",…");
+                sb.append(")");
+                return sb.toString();
+            }
+            if (input.isArray()) {
+                sb.append("(n=").append(input.size()).append(")");
+                if (input.size() > 0) {
+                    JsonNode first = input.get(0);
+                    sb.append(" first=").append(first == null ? "null" : first.getNodeType());
+                    if (first != null && first.isObject()) {
+                        JsonNode ctn = first.get("content");
+                        sb.append(" content=").append(ctn == null ? "<missing>" : ctn.getNodeType().toString());
+                        if (ctn != null && ctn.isArray() && ctn.size() > 0) {
+                            JsonNode p0 = ctn.get(0);
+                            String t = (p0 != null && p0.isObject()) ? textOrNull((ObjectNode) p0, "type") : null;
+                            if (t != null) {
+                                sb.append(" part0.type=").append(t);
+                            }
+                        }
+                    }
+                }
+                return sb.toString();
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            return "parse_error(" + e.getClass().getSimpleName() + ")";
         }
     }
 
@@ -926,6 +1022,23 @@ public class OciGenerativeOpenAiService {
             }
             response.setStatus(code);
             String b = resp.body() != null ? resp.body() : "";
+            if (code >= 400
+                    && request != null
+                    && isResponsesPath(extractPathAfterV1(request))
+                    && b != null
+                    && b.contains("ModelInput")) {
+                String before = String.valueOf(request.getAttribute("ociworker.debug.responsesInputShape.before"));
+                String after = String.valueOf(request.getAttribute("ociworker.debug.responsesInputShape.after"));
+                String rid = firstRequestHeader(
+                        request,
+                        "x-request-id",
+                        "x-cursor-request-id",
+                        "x-openai-request-id",
+                        "x-amzn-trace-id",
+                        "traceparent");
+                log.warn("OCI /responses ModelInput error; rid={} before={} after={} body={}",
+                        rid, before, after, truncate(b, 800));
+            }
             if (code >= 200
                     && code < 300
                     && request != null
