@@ -627,11 +627,52 @@ public class OciGenerativeOpenAiService {
             }
             JsonNode messages = in.get("messages");
             if (messages != null && messages.isArray()) {
-                com.fasterxml.jackson.databind.node.ArrayNode inputArr = MAPPER.createArrayNode();
+                // Responses API 的 input 期望为 message items，其中 content 多为数组块（例如 input_text）。
+                // 将 chat.completions 的 {role, content:"..."} 转换为 {role, content:[{type:"input_text", text:"..."}]}。
+                ArrayNode inputArr = MAPPER.createArrayNode();
                 for (JsonNode m : messages) {
-                    if (m != null && m.isObject()) {
-                        inputArr.add(m);
+                    if (m == null || !m.isObject()) {
+                        continue;
                     }
+                    ObjectNode mo = (ObjectNode) m;
+                    String role = textOrNull(mo, "role");
+                    if (role == null || role.isBlank()) {
+                        role = "user";
+                    }
+                    ObjectNode item = MAPPER.createObjectNode();
+                    item.put("role", role);
+
+                    JsonNode content = mo.get("content");
+                    if (content == null || content.isNull()) {
+                        continue;
+                    }
+                    if (content.isTextual()) {
+                        ArrayNode parts = MAPPER.createArrayNode();
+                        ObjectNode p = MAPPER.createObjectNode();
+                        p.put("type", "input_text");
+                        p.put("text", content.asText());
+                        parts.add(p);
+                        item.set("content", parts);
+                    } else if (content.isArray()) {
+                        // 尽量复用已是“块数组”的内容（兼容部分客户端可能已经按 responses 格式发来）
+                        item.set("content", content);
+                    } else if (content.isObject()) {
+                        // 极少数客户端会把 content 作为对象；兜底为 JSON 字符串
+                        ArrayNode parts = MAPPER.createArrayNode();
+                        ObjectNode p = MAPPER.createObjectNode();
+                        p.put("type", "input_text");
+                        p.put("text", content.toString());
+                        parts.add(p);
+                        item.set("content", parts);
+                    } else {
+                        ArrayNode parts = MAPPER.createArrayNode();
+                        ObjectNode p = MAPPER.createObjectNode();
+                        p.put("type", "input_text");
+                        p.put("text", String.valueOf(content.asText()));
+                        parts.add(p);
+                        item.set("content", parts);
+                    }
+                    inputArr.add(item);
                 }
                 out.set("input", inputArr);
             } else {
