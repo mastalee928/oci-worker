@@ -310,6 +310,12 @@ public class OciGenerativeOpenAiService {
         ObjectNode body = MAPPER.createObjectNode();
         body.put("compartmentId", compartmentId);
         body.put("displayName", name);
+        // Console 创建项目时会要求配置 Data retention；部分租户/区域的 API 也会校验该字段。
+        // 这里给出保守默认值：30 天（720h），避免 400 Bad Request。
+        ObjectNode conversationConfig = MAPPER.createObjectNode();
+        conversationConfig.put("responsesRetentionInHours", 720);
+        conversationConfig.put("conversationsRetentionInHours", 720);
+        body.set("conversationConfig", conversationConfig);
         // 其余可选配置交给用户后续在控制台/面板完善；此处仅满足最小可用闭环
         byte[] bytes = MAPPER.writeValueAsBytes(body);
 
@@ -331,7 +337,9 @@ public class OciGenerativeOpenAiService {
                     + (e.getMessage() != null ? e.getMessage() : "未知错误"));
         }
         if (resp.statusCode() / 100 != 2) {
+            String rid = resp.headers().firstValue("opc-request-id").orElse("");
             throw new OciException("创建 generativeAiProject 失败: HTTP " + resp.statusCode()
+                    + (rid.isBlank() ? "" : " opc-request-id=" + rid)
                     + " body=" + truncate(resp.body(), 1200));
         }
         JsonNode root = MAPPER.readTree(resp.body() != null ? resp.body() : "{}");
