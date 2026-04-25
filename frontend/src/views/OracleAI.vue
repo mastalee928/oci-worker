@@ -1,13 +1,18 @@
 <template>
   <div class="oracle-ai-page">
     <a-card class="mb-card" title="Oracle 生成式 AI 网关" :bordered="false">
-      <p class="sub">
-        使用已保存租户的 OCI 配置，经 OpenAI 兼容端代理至 OCI
-        <code>inference.generativeai</code>。New API 将 Base 设为
-        <strong>:{{ openaiPort }}/v1</strong>，请求头
-        <code>Authorization: Bearer &lt;下方 sk&gt;</code>。未带
-        <code>max_tokens</code> 时由网关补默认 4000；<code>force_non_stream: true</code> 时强制非流式。
-      </p>
+      <a-space direction="vertical" style="width: 100%">
+        <div class="sub">
+          Base 示例：
+          <code>http://&lt;本机或域名&gt;:{{ openaiPort }}/v1</code>
+          （Header：
+          <code>Authorization: Bearer sk-...</code>
+          ）
+        </div>
+        <a-typography-paragraph copyable :content="publicBaseUrl">
+          <code class="code-wrap">{{ publicBaseUrl }}</code>
+        </a-typography-paragraph>
+      </a-space>
       <a-alert
         v-if="baseHint"
         class="mb-alert"
@@ -53,18 +58,11 @@
           </a-form>
         </a-card>
       </a-col>
-      <a-col :xs="24" :lg="12">
-        <a-card title="Base URL（给 New API）" :bordered="false">
-          <p>专属端口：<code>:{{ openaiPort }}</code></p>
-          <a-typography-paragraph copyable>
-            <code class="code-wrap">{{ publicBaseUrl }}</code>
-          </a-typography-paragraph>
-        </a-card>
-      </a-col>
+      <a-col :xs="24" :lg="12" />
     </a-row>
 
     <a-card title="API 密钥" :bordered="false" class="mt-card">
-      <a-space class="mb-row" wrap>
+      <a-space class="mb-row key-actions" wrap>
         <a-button type="primary" :disabled="!ociUserId" @click="openKeyModal">生成新密钥</a-button>
         <a-button :disabled="!ociUserId" @click="refreshKeys">刷新</a-button>
       </a-space>
@@ -118,13 +116,19 @@
       <a-alert
         class="mb-alert"
         type="error"
-        message="密钥只显示这一遍。关闭后只能重新生成新的。"
+        message="出于安全考虑，系统只保存密钥哈希，无法再次展示明文。关闭后如需更换，请生成新密钥。"
         show-icon
       />
       <a-typography-paragraph copyable>
         <code class="key-plain">{{ newKeyPlain }}</code>
       </a-typography-paragraph>
     </a-modal>
+
+    <a-divider />
+    <div class="sub sub-bottom">
+      说明：未带 <code>max_tokens</code> 时网关会补默认 4000；请求体里 <code>force_non_stream: true</code> 会强制非流式。
+      模型列表来自 OCI 管理面 <code>ListModels</code>（用于查看可用模型），推理走 <code>/v1/chat/completions</code>。
+    </div>
   </div>
 </template>
 
@@ -398,6 +402,18 @@ function removeK(k: any) {
 .sub code {
   font-size: 12px;
   padding: 0 4px;
+}
+.sub-bottom {
+  margin-bottom: 24px;
+}
+.key-actions {
+  position: relative;
+  z-index: 2;
+  margin-bottom: 12px;
+}
+.mt-card :deep(.ant-table) {
+  position: relative;
+  z-index: 1;
 }
 .mb-card { margin-bottom: 16px; }
 .mt-card { margin-top: 8px; }
