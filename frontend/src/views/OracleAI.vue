@@ -479,40 +479,19 @@ async function sendChatTest() {
       chatAssistantText.value = typeof content === 'string' ? content : JSON.stringify(json, null, 2)
     }
 
-    // 优先尝试“浏览器直连 /v1”（有些环境会因为 HTTPS/CORS/网络策略失败）
-    try {
-      const base = publicBaseUrl.value.replace(/\/+$/, '')
-      const url = `${base}${isMultiAgent ? '/responses' : '/chat/completions'}`
-      const resp = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'content-type': 'application/json',
-          authorization: `Bearer ${chatApiKey.value}`,
-        },
-        body: JSON.stringify(payload),
-      })
-      const text = await resp.text()
-      if (!resp.ok) {
-        chatError.value = `HTTP ${resp.status}\n${text}`
-        return
-      }
-      parseAndSet(text)
+    // 为避免浏览器环境下的 HTTPS/CORS/网络策略导致失败，统一走同源 /api 代请求（服务端本机访问 127.0.0.1:8080/v1）
+    const r: any = await oracleAiChatTest({
+      apiKey: chatApiKey.value,
+      model,
+      input: chatUserText.value,
+    })
+    const status = r?.data?.status ?? r?.status
+    const body = r?.data?.body ?? r?.body ?? ''
+    if (typeof status === 'number' && status >= 400) {
+      chatError.value = `HTTP ${status}\n${String(body || '')}`
       return
-    } catch (e: any) {
-      // 直连失败则回退到同源 /api 代请求（服务端本机访问 127.0.0.1:8080/v1，避免浏览器网络限制）
-      const r: any = await oracleAiChatTest({
-        apiKey: chatApiKey.value,
-        model,
-        input: chatUserText.value,
-      })
-      const status = r?.data?.status ?? r?.status
-      const body = r?.data?.body ?? r?.body ?? ''
-      if (typeof status === 'number' && status >= 400) {
-        chatError.value = `HTTP ${status}\n${String(body || '')}`
-        return
-      }
-      parseAndSet(String(body || ''))
     }
+    parseAndSet(String(body || ''))
   } catch (e: any) {
     chatError.value = e?.message || String(e)
   } finally {
