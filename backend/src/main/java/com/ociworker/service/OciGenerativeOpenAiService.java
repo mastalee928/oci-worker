@@ -58,15 +58,10 @@ public class OciGenerativeOpenAiService {
         if (!pathAfterV1.startsWith("/")) {
             pathAfterV1 = "/" + pathAfterV1;
         }
+        final String origPathAfterV1 = pathAfterV1;
         String regionId = OciRegionUtil.publicRegionId(tenant.getOciRegion());
         String base = "https://inference.generativeai." + regionId + ".oci.oraclecloud.com/openai/v1";
         String query = request.getQueryString();
-        StringBuilder u = new StringBuilder(base);
-        u.append(pathAfterV1);
-        if (query != null && !query.isEmpty()) {
-            u.append("?").append(query);
-        }
-        URI target = URI.create(u.toString());
 
         RequestSigner signer = newRequestSigner(tenant);
 
@@ -85,11 +80,54 @@ public class OciGenerativeOpenAiService {
         if (!"GET".equals(method) && !"HEAD".equals(method) && !"DELETE".equals(method)) {
             body = request.getInputStream().readAllBytes();
         }
+        final byte[] origBody = body;
 
-        if (isChatCompletionsPath(pathAfterV1) && body != null && body.length > 0
+        // OCI：Multi Agent 模型不允许走 /v1/chat/completions，需要改走 /v1/responses
+        if ("POST".equalsIgnoreCase(method)
+                && isChatCompletionsPath(origPathAfterV1)
+                && origBody != null
+                && origBody.length > 0
+                && contentType != null
+                && contentType.toLowerCase().contains("json")) {
+            try {
+                JsonNode root = MAPPER.readTree(origBody);
+                if (root != null && root.isObject()) {
+                    String model = textOrNull(((ObjectNode) root), "model");
+                    if (isLikelyMultiAgentModelName(model)) {
+                        if (isStreamRequest(origBody, contentType)) {
+                            // OCI 侧 Multi Agent 不适用于 chat-completions 流式；本网关会改走 /v1/responses 并关闭 stream。
+                            log.debug(
+                                    "Multi Agent 模型在 chat/completions 上收到 stream=true，将改写为 /v1/responses 且按非流式处理");
+                        }
+                        request.setAttribute("ociworker.rewrite.chatToResponses", Boolean.TRUE);
+                        if (model != null) {
+                            request.setAttribute("ociworker.rewrite.model", model);
+                        }
+                        pathAfterV1 = "/responses";
+                        body = transformChatCompletionsToResponsesJson(origBody);
+                        // responses 与 chat completions 的补默认策略不同，这里让下游按 OCI 行为处理
+                    } else if (isChatCompletionsPath(origPathAfterV1)) {
+                        body = transformChatCompletionsJson(origBody);
+                    }
+                } else if (isChatCompletionsPath(origPathAfterV1)) {
+                    body = transformChatCompletionsJson(origBody);
+                }
+            } catch (Exception e) {
+                if (isChatCompletionsPath(origPathAfterV1) && origBody != null) {
+                    body = transformChatCompletionsJson(origBody);
+                }
+            }
+        } else if (isChatCompletionsPath(origPathAfterV1) && body != null && body.length > 0
                 && contentType != null && contentType.toLowerCase().contains("json")) {
             body = transformChatCompletionsJson(body);
         }
+
+        StringBuilder u = new StringBuilder(base);
+        u.append(pathAfterV1);
+        if (query != null && !query.isEmpty()) {
+            u.append("?").append(query);
+        }
+        URI target = URI.create(u.toString());
 
         HttpRequest httpRequest = buildSignedRequest(
                 signer,
@@ -101,10 +139,14 @@ public class OciGenerativeOpenAiService {
                 tenant != null ? tenant.getOciTenantId() : null);
         HttpClient client = pickHttpClient();
 
-        if (isChatCompletionsPath(pathAfterV1) && isStreamRequest(body, contentType)) {
+        boolean useStreamCopy =
+                isChatCompletionsPath(origPathAfterV1)
+                        && isStreamRequest(origBody, contentType)
+                        && !Boolean.TRUE.equals(request.getAttribute("ociworker.rewrite.chatToResponses"));
+        if (useStreamCopy) {
             longCopyStream(client, httpRequest, response);
         } else {
-            bufferAndCopy(client, httpRequest, response);
+            bufferAndCopy(client, httpRequest, response, request);
         }
     }
 
@@ -259,8 +301,8 @@ public class OciGenerativeOpenAiService {
         if (isLikelyMultiAgentModelName(id) || (display != null && display.isTextual() && isLikelyMultiAgentModelName(display.asText()))) {
             row.put(
                     "ociworkerNote",
-                    "该模型为 Multi Agent：通常不适用于 New API 基于 /v1/chat/completions 的测通；"
-                            + "需使用 OCI 面向 Multi-Agent 的接口/流程（与 chat completions 不同）。");
+                    "该模型为 Multi Agent：在 oci-worker 上会把你对 /v1/chat/completions 的非标准调用改写为 /v1/responses；"
+                            + "响应会尽量装成 OpenAI 的 chat.completion，便于只支持 chat 协议的上游/客户端。若仍失败，请改用支持 Responses 的直连客户端。");
         }
         return row;
     }
@@ -402,6 +444,60 @@ public class OciGenerativeOpenAiService {
         }
     }
 
+    private static byte[] transformChatCompletionsToResponsesJson(byte[] input) {
+        try {
+            JsonNode root = MAPPER.readTree(input);
+            if (root == null || !root.isObject()) {
+                return input;
+            }
+            ObjectNode in = (ObjectNode) root;
+            String model = textOrNull(in, "model");
+            ObjectNode out = MAPPER.createObjectNode();
+            if (model != null && !model.isBlank()) {
+                out.put("model", model);
+            }
+            JsonNode messages = in.get("messages");
+            if (messages != null && messages.isArray()) {
+                com.fasterxml.jackson.databind.node.ArrayNode inputArr = MAPPER.createArrayNode();
+                for (JsonNode m : messages) {
+                    if (m != null && m.isObject()) {
+                        inputArr.add(m);
+                    }
+                }
+                out.set("input", inputArr);
+            } else {
+                // 兼容极少数不规范请求：没有 messages 时，尽可能把 prompt 当 input
+                JsonNode p = in.get("prompt");
+                if (p != null && p.isTextual()) {
+                    out.put("input", p.asText());
+                }
+            }
+            JsonNode mt = in.get("max_tokens");
+            if (mt != null && !mt.isNull() && !mt.isMissingNode()) {
+                if (mt.isNumber()) {
+                    out.put("max_output_tokens", mt.intValue());
+                } else {
+                    out.put("max_output_tokens", mt.asInt(DEFAULT_MAX_TOKENS));
+                }
+            } else {
+                out.put("max_output_tokens", DEFAULT_MAX_TOKENS);
+            }
+            JsonNode temp = in.get("temperature");
+            if (temp != null && !temp.isNull() && !temp.isMissingNode()) {
+                out.set("temperature", temp);
+            }
+            JsonNode topP = in.get("top_p");
+            if (topP != null && !topP.isNull() && !topP.isMissingNode()) {
+                out.set("top_p", topP);
+            }
+            // responses API 的流式事件与 chat_completions 不同，默认关闭
+            out.put("stream", false);
+            return MAPPER.writeValueAsBytes(out);
+        } catch (Exception e) {
+            return input;
+        }
+    }
+
     private void longCopyStream(HttpClient client, HttpRequest httpRequest, HttpServletResponse response)
             throws IOException {
         try {
@@ -466,7 +562,8 @@ public class OciGenerativeOpenAiService {
         }
     }
 
-    private void bufferAndCopy(HttpClient client, HttpRequest httpRequest, HttpServletResponse response)
+    private void bufferAndCopy(
+            HttpClient client, HttpRequest httpRequest, HttpServletResponse response, HttpServletRequest request)
             throws IOException {
         try {
             HttpResponse<String> resp = client.send(httpRequest, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
@@ -493,6 +590,22 @@ public class OciGenerativeOpenAiService {
             }
             response.setStatus(code);
             String b = resp.body() != null ? resp.body() : "";
+            if (code >= 200
+                    && code < 300
+                    && request != null
+                    && Boolean.TRUE.equals(request.getAttribute("ociworker.rewrite.chatToResponses"))
+                    && b != null
+                    && !b.isBlank()) {
+                String ct = resp.headers().firstValue("content-type").orElse("application/json; charset=utf-8");
+                if (ct.toLowerCase().contains("json")) {
+                    try {
+                        String modelHint = (String) request.getAttribute("ociworker.rewrite.model");
+                        b = convertResponsesJsonToChatCompletionJson(b, modelHint);
+                        response.setContentType("application/json; charset=utf-8");
+                    } catch (Exception ignored) {
+                    }
+                }
+            }
             response.getOutputStream().write(b.getBytes(StandardCharsets.UTF_8));
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -503,6 +616,136 @@ public class OciGenerativeOpenAiService {
             }
             throw e;
         }
+    }
+
+    private static String textOrNull(ObjectNode o, String field) {
+        if (o == null) {
+            return null;
+        }
+        JsonNode n = o.get(field);
+        if (n == null || n.isNull() || n.isMissingNode()) {
+            return null;
+        }
+        if (n.isTextual()) {
+            return n.asText();
+        }
+        if (n.isNumber() || n.isBoolean()) {
+            return n.toString();
+        }
+        return null;
+    }
+
+    private static String convertResponsesJsonToChatCompletionJson(String responsesJson, String modelHint) throws Exception {
+        JsonNode r = MAPPER.readTree(responsesJson);
+        if (r == null || !r.isObject()) {
+            return responsesJson;
+        }
+        ObjectNode ro = (ObjectNode) r;
+        String text = extractResponsesAssistantText(ro);
+        if (text == null) {
+            return responsesJson;
+        }
+        String model = modelHint;
+        if (model == null || model.isBlank()) {
+            JsonNode m = ro.get("model");
+            if (m != null && m.isTextual()) {
+                model = m.asText();
+            }
+        }
+        if (model == null) {
+            model = "";
+        }
+        long created = System.currentTimeMillis() / 1000L;
+        String id = "chatcmpl-ociworker";
+        JsonNode idn = ro.get("id");
+        if (idn != null && idn.isTextual() && !idn.asText().isBlank()) {
+            id = idn.asText();
+        }
+
+        ObjectNode out = MAPPER.createObjectNode();
+        out.put("id", id);
+        out.put("object", "chat.completion");
+        out.put("created", created);
+        out.put("model", model);
+        com.fasterxml.jackson.databind.node.ArrayNode choices = MAPPER.createArrayNode();
+        ObjectNode ch = MAPPER.createObjectNode();
+        ch.put("index", 0);
+        ObjectNode msg = MAPPER.createObjectNode();
+        msg.put("role", "assistant");
+        msg.put("content", text);
+        ch.set("message", msg);
+        ch.put("finish_reason", "stop");
+        choices.add(ch);
+        out.set("choices", choices);
+        return MAPPER.writeValueAsString(out);
+    }
+
+    private static String extractResponsesAssistantText(ObjectNode r) {
+        if (r == null) {
+            return null;
+        }
+        JsonNode ot = r.get("output_text");
+        if (ot != null && ot.isTextual() && !ot.asText().isBlank()) {
+            return ot.asText();
+        }
+        JsonNode out = r.get("output");
+        if (out == null || !out.isArray()) {
+            return null;
+        }
+        StringBuilder sb = new StringBuilder();
+        for (JsonNode item : out) {
+            if (item == null || !item.isObject()) {
+                continue;
+            }
+            ObjectNode io = (ObjectNode) item;
+            String type = textOrNull(io, "type");
+            if (type != null
+                    && !"message".equalsIgnoreCase(type)
+                    && !"output_message".equalsIgnoreCase(type)) {
+                // 仍尝试解析：有的实现会省略 type
+            }
+            JsonNode role = io.get("role");
+            if (role != null && role.isTextual() && !"assistant".equalsIgnoreCase(role.asText())) {
+                continue;
+            }
+            JsonNode content = io.get("content");
+            if (content == null) {
+                continue;
+            }
+            if (content.isTextual()) {
+                appendText(sb, content.asText());
+                continue;
+            }
+            if (content.isArray()) {
+                for (JsonNode part : content) {
+                    if (part == null || !part.isObject()) {
+                        continue;
+                    }
+                    ObjectNode po = (ObjectNode) part;
+                    String pt = textOrNull(po, "type");
+                    if (pt == null) {
+                        continue;
+                    }
+                    if ("output_text".equalsIgnoreCase(pt) || "text".equalsIgnoreCase(pt)) {
+                        JsonNode tx = po.get("text");
+                        if (tx != null && tx.isTextual()) {
+                            appendText(sb, tx.asText());
+                        }
+                    }
+                }
+            }
+        }
+        return sb.length() == 0 ? null : sb.toString();
+    }
+
+    private static void appendText(StringBuilder sb, String s) {
+        if (s == null || s.isBlank()) {
+            return;
+        }
+        if (sb.length() > 0) {
+            sb.append("\n");
+        }
+        sb.append(s);
     }
 
     private HttpRequest buildSignedRequest(
