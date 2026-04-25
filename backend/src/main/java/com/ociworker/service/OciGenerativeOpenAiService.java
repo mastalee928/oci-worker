@@ -60,7 +60,8 @@ public class OciGenerativeOpenAiService {
         }
         final String origPathAfterV1 = pathAfterV1;
         String regionId = OciRegionUtil.publicRegionId(tenant.getOciRegion());
-        String base = "https://inference.generativeai." + regionId + ".oci.oraclecloud.com/openai/v1";
+        String baseOpenAi = "https://inference.generativeai." + regionId + ".oci.oraclecloud.com/openai/v1";
+        String baseRawV1 = "https://inference.generativeai." + regionId + ".oci.oraclecloud.com/v1";
         String query = request.getQueryString();
 
         RequestSigner signer = newRequestSigner(tenant);
@@ -83,6 +84,7 @@ public class OciGenerativeOpenAiService {
         final byte[] origBody = body;
 
         // OCI：Multi Agent 模型不允许走 /v1/chat/completions，需要改走 /v1/responses
+        // 且按 OCI 文档，该模型的 endpoints 为 /v1/responses（非 /openai/v1/responses）
         if ("POST".equalsIgnoreCase(method)
                 && isChatCompletionsPath(origPathAfterV1)
                 && origBody != null
@@ -103,6 +105,7 @@ public class OciGenerativeOpenAiService {
                         if (model != null) {
                             request.setAttribute("ociworker.rewrite.model", model);
                         }
+                        request.setAttribute("ociworker.rewrite.useRawV1Base", Boolean.TRUE);
                         pathAfterV1 = "/responses";
                         body = transformChatCompletionsToResponsesJson(origBody);
                         // responses 与 chat completions 的补默认策略不同，这里让下游按 OCI 行为处理
@@ -122,7 +125,23 @@ public class OciGenerativeOpenAiService {
             body = transformChatCompletionsJson(body);
         }
 
-        StringBuilder u = new StringBuilder(base);
+        // /v1/responses 对 Multi-Agent 模型需要走 raw /v1 base；其它情况仍走 /openai/v1 base
+        boolean useRawV1Base = Boolean.TRUE.equals(request.getAttribute("ociworker.rewrite.useRawV1Base"));
+        if (!useRawV1Base && isResponsesPath(origPathAfterV1) && origBody != null && origBody.length > 0
+                && contentType != null && contentType.toLowerCase().contains("json")) {
+            try {
+                JsonNode root = MAPPER.readTree(origBody);
+                if (root != null && root.isObject()) {
+                    String model = textOrNull((ObjectNode) root, "model");
+                    if (isLikelyMultiAgentModelName(model)) {
+                        useRawV1Base = true;
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+        }
+
+        StringBuilder u = new StringBuilder(useRawV1Base ? baseRawV1 : baseOpenAi);
         u.append(pathAfterV1);
         if (query != null && !query.isEmpty()) {
             u.append("?").append(query);
@@ -141,7 +160,7 @@ public class OciGenerativeOpenAiService {
         HttpClient client = pickHttpClient();
 
         boolean useStreamCopy =
-                isChatCompletionsPath(origPathAfterV1)
+                (isChatCompletionsPath(origPathAfterV1) || isResponsesPath(origPathAfterV1))
                         && isStreamRequest(origBody, contentType)
                         && !Boolean.TRUE.equals(request.getAttribute("ociworker.rewrite.chatToResponses"));
         if (useStreamCopy) {
@@ -542,6 +561,10 @@ public class OciGenerativeOpenAiService {
 
     private static boolean isChatCompletionsPath(String p) {
         return p != null && (p.equals("/chat/completions") || p.endsWith("/chat/completions"));
+    }
+
+    private static boolean isResponsesPath(String p) {
+        return p != null && (p.equals("/responses") || p.endsWith("/responses"));
     }
 
     private static boolean isStreamRequest(byte[] body, String contentType) {
