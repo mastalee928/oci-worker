@@ -136,7 +136,8 @@ public class OciGenerativeOpenAiService {
                 body,
                 contentType,
                 accept,
-                tenant != null ? tenant.getOciTenantId() : null);
+                tenant != null ? tenant.getOciTenantId() : null,
+                extractOciGenerativeForwardHeaders(request));
         HttpClient client = pickHttpClient();
 
         boolean useStreamCopy =
@@ -182,7 +183,8 @@ public class OciGenerativeOpenAiService {
                     null,
                     "application/json",
                     "application/json",
-                    tenantId);
+                    tenantId,
+                    null);
             HttpResponse<String> resp;
             try {
                 resp = pickHttpClient()
@@ -231,7 +233,8 @@ public class OciGenerativeOpenAiService {
                 null,
                 "application/json",
                 "application/json",
-                tenant != null ? tenant.getOciTenantId() : null);
+                tenant != null ? tenant.getOciTenantId() : null,
+                null);
         HttpResponse<String> resp;
         try {
             resp = pickHttpClient()
@@ -301,8 +304,8 @@ public class OciGenerativeOpenAiService {
         if (isLikelyMultiAgentModelName(id) || (display != null && display.isTextual() && isLikelyMultiAgentModelName(display.asText()))) {
             row.put(
                     "ociworkerNote",
-                    "该模型为 Multi Agent：在 oci-worker 上会把你对 /v1/chat/completions 的非标准调用改写为 /v1/responses；"
-                            + "响应会尽量装成 OpenAI 的 chat.completion，便于只支持 chat 协议的上游/客户端。若仍失败，请改用支持 Responses 的直连客户端。");
+                    "该模型为 Multi Agent：本网关会把 /v1/chat/completions 改写为 /v1/responses 并尽量把响应装成 chat.completion。"
+                            + " OCI 通常还要求请求里提供 OpenAI-Project 或 opc-conversation-store-id（请经上游在 HTTP 头里传到 oci-worker）。");
         }
         return row;
     }
@@ -748,6 +751,42 @@ public class OciGenerativeOpenAiService {
         sb.append(s);
     }
 
+    /**
+     * 从进入网关的 HTTP 请求提取 OCI Generative（尤其 Multi-Agent / responses）可能要求的头，并原样透传到推理面且参与签名。
+     * 中间层（如 New API）若需使用 Multi-Agent，可在渠道上配置把这些头转发到本服务。
+     */
+    private static Map<String, String> extractOciGenerativeForwardHeaders(HttpServletRequest request) {
+        if (request == null) {
+            return null;
+        }
+        Map<String, String> out = new LinkedHashMap<>();
+        String project = firstRequestHeader(request, "OpenAI-Project", "openai-project", "X-OpenAI-Project");
+        if (project != null && !project.isBlank()) {
+            out.put("OpenAI-Project", project.trim());
+        }
+        String convStore = firstRequestHeader(request, "opc-conversation-store-id", "OPC-Conversation-Store-Id");
+        if (convStore != null && !convStore.isBlank()) {
+            out.put("opc-conversation-store-id", convStore.trim());
+        }
+        return out.isEmpty() ? null : out;
+    }
+
+    private static String firstRequestHeader(HttpServletRequest request, String... headerNames) {
+        if (request == null || headerNames == null) {
+            return null;
+        }
+        for (String name : headerNames) {
+            if (name == null) {
+                continue;
+            }
+            String v = request.getHeader(name);
+            if (v != null && !v.isBlank()) {
+                return v;
+            }
+        }
+        return null;
+    }
+
     private HttpRequest buildSignedRequest(
             RequestSigner signer,
             String method,
@@ -755,13 +794,26 @@ public class OciGenerativeOpenAiService {
             byte[] body,
             String contentType,
             String clientAccept,
-            String opcCompartmentId) {
+            String opcCompartmentId,
+            Map<String, String> extraSignedHeaders) {
         Map<String, List<String>> headers = new LinkedHashMap<>();
         headers.put("host", list(h(uri.getHost())));
         headers.put("accept", list(h(clientAccept)));
         // OCI 推理端点通常要求提供 compartmentId（否则 400: Compartment ID must be provided）
         if (opcCompartmentId != null && !opcCompartmentId.isBlank()) {
             headers.put("opc-compartment-id", list(opcCompartmentId));
+        }
+        if (extraSignedHeaders != null) {
+            for (Map.Entry<String, String> e : extraSignedHeaders.entrySet()) {
+                if (e.getKey() == null) {
+                    continue;
+                }
+                String val = e.getValue();
+                if (val == null || val.isBlank()) {
+                    continue;
+                }
+                headers.put(e.getKey(), list(h(val.trim())));
+            }
         }
         if (contentType != null && !contentType.isBlank()) {
             headers.put("content-type", list(contentType));
