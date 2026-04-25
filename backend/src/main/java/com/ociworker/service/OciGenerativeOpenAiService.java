@@ -105,6 +105,10 @@ public class OciGenerativeOpenAiService {
             } catch (Exception ignored) {
             }
             if (bodyMentionsMultiAgent) {
+                if (isStreamRequest(origBody, contentType)) {
+                    // 上游想要 chat.completions SSE，这里后续会在返回侧模拟 SSE
+                    request.setAttribute("ociworker.rewrite.simulateSse", Boolean.TRUE);
+                }
                 request.setAttribute("ociworker.rewrite.chatToResponses", Boolean.TRUE);
                 request.setAttribute("ociworker.rewrite.useRawV1Base", Boolean.TRUE);
                 request.setAttribute("ociworker.rewrite.model", "multi-agent");
@@ -829,9 +833,6 @@ public class OciGenerativeOpenAiService {
                 }
             }
             o.set("input", out);
-            // 便于日志定位：记录截断前后的数量（不影响业务）
-            o.put("ociworker_truncated_input_from", n);
-            o.put("ociworker_truncated_input_to", out.size());
             return MAPPER.writeValueAsBytes(o);
         } catch (Exception ignored) {
             return body;
