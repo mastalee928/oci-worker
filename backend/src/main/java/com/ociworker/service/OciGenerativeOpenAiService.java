@@ -88,12 +88,15 @@ public class OciGenerativeOpenAiService {
 
         // OCI：Multi Agent 模型不允许走 /v1/chat/completions，需要改走 /v1/responses
         // 且按 OCI 文档，该模型的 endpoints 为 /v1/responses（非 /openai/v1/responses）
+        boolean looksLikeJson =
+                contentType == null
+                        || contentType.isBlank()
+                        || contentType.toLowerCase().contains("json");
         if ("POST".equalsIgnoreCase(method)
                 && isChatCompletionsPath(origPathAfterV1)
                 && origBody != null
                 && origBody.length > 0
-                && contentType != null
-                && contentType.toLowerCase().contains("json")) {
+                && looksLikeJson) {
             try {
                 JsonNode root = MAPPER.readTree(origBody);
                 if (root != null && root.isObject()) {
@@ -125,8 +128,7 @@ public class OciGenerativeOpenAiService {
                     body = transformChatCompletionsJson(origBody);
                 }
             }
-        } else if (isChatCompletionsPath(origPathAfterV1) && body != null && body.length > 0
-                && contentType != null && contentType.toLowerCase().contains("json")) {
+        } else if (isChatCompletionsPath(origPathAfterV1) && body != null && body.length > 0 && looksLikeJson) {
             body = transformChatCompletionsJson(body);
         }
 
@@ -137,8 +139,7 @@ public class OciGenerativeOpenAiService {
                 && isResponsesPath(origPathAfterV1)
                 && body != null
                 && body.length > 0
-                && contentType != null
-                && contentType.toLowerCase().contains("json")) {
+                && looksLikeJson) {
             try {
                 if (request != null) {
                     request.setAttribute("ociworker.debug.responsesInputShape.before", describeResponsesInputShape(body));
@@ -157,8 +158,7 @@ public class OciGenerativeOpenAiService {
 
         // /v1/responses 对 Multi-Agent 模型需要走 raw /v1 base；其它情况仍走 /openai/v1 base
         boolean useRawV1Base = Boolean.TRUE.equals(request.getAttribute("ociworker.rewrite.useRawV1Base"));
-        if (!useRawV1Base && isResponsesPath(origPathAfterV1) && origBody != null && origBody.length > 0
-                && contentType != null && contentType.toLowerCase().contains("json")) {
+        if (!useRawV1Base && isResponsesPath(origPathAfterV1) && origBody != null && origBody.length > 0 && looksLikeJson) {
             try {
                 JsonNode root = MAPPER.readTree(origBody);
                 if (root != null && root.isObject()) {
@@ -983,11 +983,25 @@ public class OciGenerativeOpenAiService {
                                     || bl.contains("untagged enum")
                                     || bl.contains("modelinput")
                                     || bl.contains("modellnput");
-                    if (looksLikeInputDeserializeError && request != null && isResponsesPath(extractPathAfterV1(request))) {
+                    if (request != null) {
+                        String rid = firstRequestHeader(
+                                request,
+                                "x-request-id",
+                                "x-cursor-request-id",
+                                "x-openai-request-id",
+                                "x-amzn-trace-id",
+                                "traceparent");
+                        String origPath = String.valueOf(request.getAttribute("ociworker.debug.origPathAfterV1"));
+                        String finalPath = String.valueOf(request.getAttribute("ociworker.debug.finalPathAfterV1"));
                         String before = String.valueOf(request.getAttribute("ociworker.debug.responsesInputShape.before"));
                         String after = String.valueOf(request.getAttribute("ociworker.debug.responsesInputShape.after"));
-                        log.warn("OCI /responses ModelInput error(stream); before={} after={} body={}",
-                                before, after, truncate(b, 800));
+                        // 任何 4xx/5xx 都打印一条结构化摘要，避免 Cursor 端不显示 body 时“无输出”
+                        log.warn("OCI proxy error(stream); rid={} code={} origPath={} finalPath={} before={} after={} body={}",
+                                rid, code, origPath, finalPath, before, after, truncate(b, 1200));
+                        if (looksLikeInputDeserializeError && isResponsesPath(extractPathAfterV1(request))) {
+                            log.warn("OCI /responses ModelInput error(stream); rid={} before={} after={} body={}",
+                                    rid, before, after, truncate(b, 1200));
+                        }
                     }
                 } catch (Exception ignored) {
                 }
@@ -1063,7 +1077,6 @@ public class OciGenerativeOpenAiService {
                                 || isResponsesPath(String.valueOf(request.getAttribute("ociworker.debug.finalPathAfterV1")))
                                 || isResponsesPath(String.valueOf(request.getAttribute("ociworker.debug.origPathAfterV1")))
                                 || isResponsesPath(extractPathAfterV1(request));
-                if (looksLikeInputDeserializeError && maybeResponses) {
                 String before = String.valueOf(request.getAttribute("ociworker.debug.responsesInputShape.before"));
                 String after = String.valueOf(request.getAttribute("ociworker.debug.responsesInputShape.after"));
                 String rid = firstRequestHeader(
@@ -1075,8 +1088,12 @@ public class OciGenerativeOpenAiService {
                         "traceparent");
                 String origPath = String.valueOf(request.getAttribute("ociworker.debug.origPathAfterV1"));
                 String finalPath = String.valueOf(request.getAttribute("ociworker.debug.finalPathAfterV1"));
-                log.warn("OCI /responses ModelInput error; rid={} code={} origPath={} finalPath={} before={} after={} body={}",
-                        rid, code, origPath, finalPath, before, after, truncate(b, 800));
+                // 任何 4xx/5xx 都打印一条结构化摘要，避免 Cursor 端不显示 body 时“无输出”
+                log.warn("OCI proxy error; rid={} code={} origPath={} finalPath={} maybeResponses={} before={} after={} body={}",
+                        rid, code, origPath, finalPath, maybeResponses, before, after, truncate(b, 1200));
+                if (looksLikeInputDeserializeError && maybeResponses) {
+                    log.warn("OCI /responses ModelInput error; rid={} code={} origPath={} finalPath={} before={} after={} body={}",
+                            rid, code, origPath, finalPath, before, after, truncate(b, 1200));
                 }
             }
             if (code >= 200

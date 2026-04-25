@@ -215,9 +215,21 @@ public class OracleAiController {
             return ResponseData.error("input 必填");
         }
         String bearer = apiKey.toLowerCase().startsWith("bearer ") ? apiKey : "Bearer " + apiKey;
-        String url = "http://127.0.0.1:" + openaiApiPort + "/v1/chat/completions";
-        String payload = "{\"model\":" + jsonString(model)
-                + ",\"messages\":[{\"role\":\"user\",\"content\":" + jsonString(input) + "}],\"stream\":false}";
+        boolean multiAgent = model.toLowerCase().contains("multi-agent")
+                || model.toLowerCase().contains("multi agent")
+                || model.toLowerCase().contains("multiagent");
+        // Multi-Agent 在 OCI 只能走 /v1/responses（chat/completions 会直接 400）
+        String url = "http://127.0.0.1:" + openaiApiPort + (multiAgent ? "/v1/responses" : "/v1/chat/completions");
+        String payload;
+        if (multiAgent) {
+            payload = "{\"model\":" + jsonString(model)
+                    + ",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":"
+                    + jsonString(input)
+                    + "}]}],\"stream\":false}";
+        } else {
+            payload = "{\"model\":" + jsonString(model)
+                    + ",\"messages\":[{\"role\":\"user\",\"content\":" + jsonString(input) + "}],\"stream\":false}";
+        }
         try {
             HttpRequest req = HttpRequest.newBuilder()
                     .uri(URI.create(url))

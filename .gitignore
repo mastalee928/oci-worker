@@ -37,3 +37,9 @@ data/
 
 # Env
 .env
+
+# Tools (downloaded binaries / one-off scripts)
+tools/apache-maven-*/
+tools/maven-*.zip
+tools/_patch_*.mjs
+tools/_patch_*.py
