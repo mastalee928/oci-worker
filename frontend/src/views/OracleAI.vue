@@ -3,11 +3,9 @@
     <a-card class="mb-card" title="Oracle 生成式 AI 网关" :bordered="false">
       <a-space direction="vertical" style="width: 100%">
         <div class="sub">
-          Base 示例：
-          <code>http://&lt;本机或域名&gt;:{{ openaiPort }}/v1</code>
-          （Header：
-          <code>Authorization: Bearer sk-...</code>
-          ）
+          Base：
+          <code>http://&lt;主机或域名&gt;:{{ openaiPort }}/v1</code>
+          <span class="sub-muted">（Header：<code>Authorization: Bearer sk-...</code>）</span>
         </div>
         <a-typography-paragraph copyable :content="publicBaseUrl">
           <code class="code-wrap">{{ publicBaseUrl }}</code>
@@ -58,7 +56,55 @@
           </a-form>
         </a-card>
       </a-col>
-      <a-col :xs="24" :lg="12" />
+      <a-col :xs="24" :lg="12">
+        <a-card title="对话测试（浏览器直连 /v1）" :bordered="false">
+          <a-alert
+            class="mb-alert"
+            type="info"
+            show-icon
+            message="浏览器直连 :8080/v1 快速验证（绕过 New API/IDE 差异）。"
+          />
+          <a-form layout="vertical">
+            <a-form-item label="API Key（sk-...，仅保存在浏览器本地）">
+              <a-input-password v-model:value="chatApiKey" placeholder="sk-..." allow-clear />
+            </a-form-item>
+            <a-form-item label="模型">
+              <a-select
+                v-model:value="chatModel"
+                :options="modelOptions"
+                :disabled="!modelOptions.length"
+                placeholder="先在左侧拉取模型列表"
+                show-search
+                :filter-option="filterModel"
+                allow-clear
+              />
+            </a-form-item>
+            <a-form-item label="用户消息">
+              <a-textarea v-model:value="chatUserText" :rows="4" placeholder="输入要测试的内容…" />
+            </a-form-item>
+            <a-space wrap>
+              <a-button
+                type="primary"
+                :loading="chatSending"
+                :disabled="!chatApiKey || !chatModel || !chatUserText"
+                @click="sendChatTest"
+              >
+                发送测试
+              </a-button>
+              <a-button :disabled="chatSending" @click="clearChatTest">清空</a-button>
+            </a-space>
+          </a-form>
+
+          <div v-if="chatError" class="chat-box chat-error">
+            <div class="chat-label">错误</div>
+            <pre class="chat-pre">{{ chatError }}</pre>
+          </div>
+          <div v-if="chatAssistantText" class="chat-box">
+            <div class="chat-label">Assistant</div>
+            <pre class="chat-pre">{{ chatAssistantText }}</pre>
+          </div>
+        </a-card>
+      </a-col>
     </a-row>
 
     <a-card title="API 密钥" :bordered="false" class="mt-card">
@@ -127,54 +173,6 @@
         <code class="key-plain">{{ newKeyPlain }}</code>
       </a-typography-paragraph>
     </a-modal>
-
-    <a-card title="对话测试（浏览器直连 /v1）" :bordered="false" class="mt-card">
-      <a-alert
-        class="mb-alert"
-        type="info"
-        show-icon
-        message="该测试会从浏览器直接调用本机 OpenAI 兼容端口（如 :8080/v1）。用于快速验证网关是否能返回内容，避免 New API/IDE 侧差异干扰。"
-      />
-      <a-form layout="vertical">
-        <a-form-item label="API Key（sk-...，仅保存在浏览器本地）">
-          <a-input-password v-model:value="chatApiKey" placeholder="sk-..." allow-clear />
-        </a-form-item>
-        <a-form-item label="模型">
-          <a-select
-            v-model:value="chatModel"
-            :options="modelOptions"
-            :disabled="!modelOptions.length"
-            placeholder="先在左侧拉取模型列表"
-            show-search
-            :filter-option="filterModel"
-            allow-clear
-          />
-        </a-form-item>
-        <a-form-item label="用户消息">
-          <a-textarea v-model:value="chatUserText" :rows="4" placeholder="输入要测试的内容…" />
-        </a-form-item>
-        <a-space wrap>
-          <a-button
-            type="primary"
-            :loading="chatSending"
-            :disabled="!chatApiKey || !chatModel || !chatUserText"
-            @click="sendChatTest"
-          >
-            发送测试
-          </a-button>
-          <a-button :disabled="chatSending" @click="clearChatTest">清空</a-button>
-        </a-space>
-      </a-form>
-
-      <div v-if="chatError" class="chat-box chat-error">
-        <div class="chat-label">错误</div>
-        <pre class="chat-pre">{{ chatError }}</pre>
-      </div>
-      <div v-if="chatAssistantText" class="chat-box">
-        <div class="chat-label">Assistant</div>
-        <pre class="chat-pre">{{ chatAssistantText }}</pre>
-      </div>
-    </a-card>
 
     <a-divider />
     <div class="sub sub-bottom">
@@ -585,6 +583,7 @@ function removeK(k: any) {
   font-size: 12px;
   padding: 0 4px;
 }
+.sub-muted { color: var(--text-sub, #666); opacity: 0.9; }
 .sub-bottom {
   margin-bottom: 24px;
 }
