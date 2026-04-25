@@ -129,7 +129,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted, onUnmounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { message } from 'ant-design-vue'
 import { getTenantList } from '../api/tenant'
 import {
@@ -182,6 +182,45 @@ const publicBaseUrl = computed(() => {
   return `${p}//${h}:${openaiPort.value}${openaiPath}`
 })
 
+const LS_KEY = 'ociworker.oracleAi.state.v1'
+const restoring = ref(false)
+
+function loadPersistedState() {
+  if (typeof window === 'undefined') return
+  try {
+    const raw = localStorage.getItem(LS_KEY)
+    if (!raw) return
+    const s = JSON.parse(raw || '{}') || {}
+    restoring.value = true
+    if (typeof s.ociUserId === 'string' && s.ociUserId) {
+      ociUserId.value = s.ociUserId
+    }
+    if (Array.isArray(s.modelPick)) {
+      modelPick.value = s.modelPick.filter((x: any) => typeof x === 'string') as string[]
+    }
+  } catch {
+  } finally {
+    // allow onTenantChange() to run for user-driven changes only
+    setTimeout(() => {
+      restoring.value = false
+    }, 0)
+  }
+}
+
+function persistState() {
+  if (typeof window === 'undefined') return
+  try {
+    localStorage.setItem(
+      LS_KEY,
+      JSON.stringify({
+        ociUserId: ociUserId.value || '',
+        modelPick: modelPick.value || [],
+      }),
+    )
+  } catch {
+  }
+}
+
 function checkM() {
   isMobile.value = window.innerWidth < 768
 }
@@ -189,6 +228,7 @@ function checkM() {
 onMounted(() => {
   checkM()
   window.addEventListener('resize', checkM)
+  loadPersistedState()
   loadGateway()
   loadTenants()
 })
@@ -231,6 +271,11 @@ async function loadTenants() {
       value: t.id,
       ociRegion: t.ociRegion,
     }))
+    // 恢复时如果租户仍存在，则自动拉取模型/密钥
+    if (ociUserId.value && tenantOptions.value.some((x) => x.value === ociUserId.value)) {
+      loadModelsIfNeeded(false)
+      refreshKeys()
+    }
   } catch (e: any) {
     message.error(e?.message || '加载租户失败')
   } finally {
@@ -239,11 +284,22 @@ async function loadTenants() {
 }
 
 function onTenantChange() {
+  if (restoring.value) {
+    persistState()
+    return
+  }
   modelOptions.value = []
   modelPick.value = []
+  persistState()
   loadModelsIfNeeded(false)
   refreshKeys()
 }
+
+watch(
+  () => [ociUserId.value, modelPick.value],
+  () => persistState(),
+  { deep: true },
+)
 
 async function loadModelsIfNeeded(alertOnErr: boolean) {
   if (!ociUserId.value) return
