@@ -83,6 +83,8 @@ public class OciGenerativeOpenAiService {
             body = request.getInputStream().readAllBytes();
         }
         final byte[] origBody = body;
+        // 记录原始 /v1 之后路径，便于排障
+        request.setAttribute("ociworker.debug.origPathAfterV1", origPathAfterV1);
 
         // OCI：Multi Agent 模型不允许走 /v1/chat/completions，需要改走 /v1/responses
         // 且按 OCI 文档，该模型的 endpoints 为 /v1/responses（非 /openai/v1/responses）
@@ -168,6 +170,7 @@ public class OciGenerativeOpenAiService {
             } catch (Exception ignored) {
             }
         }
+        request.setAttribute("ociworker.debug.finalPathAfterV1", pathAfterV1);
 
         StringBuilder u = new StringBuilder(useRawV1Base ? baseRawV1 : baseOpenAi);
         u.append(pathAfterV1);
@@ -1048,7 +1051,6 @@ public class OciGenerativeOpenAiService {
             String b = resp.body() != null ? resp.body() : "";
             if (code >= 400
                     && request != null
-                    && isResponsesPath(extractPathAfterV1(request))
                     && b != null) {
                 String bl = b.toLowerCase(java.util.Locale.ROOT);
                 boolean looksLikeInputDeserializeError =
@@ -1056,7 +1058,12 @@ public class OciGenerativeOpenAiService {
                                 || bl.contains("untagged enum")
                                 || bl.contains("modelinput")
                                 || bl.contains("modellnput");
-                if (looksLikeInputDeserializeError) {
+                boolean maybeResponses =
+                        Boolean.TRUE.equals(request.getAttribute("ociworker.rewrite.useRawV1Base"))
+                                || isResponsesPath(String.valueOf(request.getAttribute("ociworker.debug.finalPathAfterV1")))
+                                || isResponsesPath(String.valueOf(request.getAttribute("ociworker.debug.origPathAfterV1")))
+                                || isResponsesPath(extractPathAfterV1(request));
+                if (looksLikeInputDeserializeError && maybeResponses) {
                 String before = String.valueOf(request.getAttribute("ociworker.debug.responsesInputShape.before"));
                 String after = String.valueOf(request.getAttribute("ociworker.debug.responsesInputShape.after"));
                 String rid = firstRequestHeader(
@@ -1066,8 +1073,10 @@ public class OciGenerativeOpenAiService {
                         "x-openai-request-id",
                         "x-amzn-trace-id",
                         "traceparent");
-                log.warn("OCI /responses ModelInput error; rid={} before={} after={} body={}",
-                        rid, before, after, truncate(b, 800));
+                String origPath = String.valueOf(request.getAttribute("ociworker.debug.origPathAfterV1"));
+                String finalPath = String.valueOf(request.getAttribute("ociworker.debug.finalPathAfterV1"));
+                log.warn("OCI /responses ModelInput error; rid={} code={} origPath={} finalPath={} before={} after={} body={}",
+                        rid, code, origPath, finalPath, before, after, truncate(b, 800));
                 }
             }
             if (code >= 200
