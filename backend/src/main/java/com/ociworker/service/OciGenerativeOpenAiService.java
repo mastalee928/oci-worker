@@ -126,12 +126,20 @@ public class OciGenerativeOpenAiService {
             }
             URI listUri = URI.create("https://" + managementHost + "/" + GA_API_VERSION + "/models?" + q);
             HttpRequest req = buildSignedRequest(
-                    newRequestSigner(tenant), "GET", listUri, null, null, "application/json");
-            HttpResponse<String> resp = pickHttpClient()
-                    .send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+                    newRequestSigner(tenant), "GET", listUri, null, "application/json", "application/json");
+            HttpResponse<String> resp;
+            try {
+                resp = pickHttpClient()
+                        .send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            } catch (Exception e) {
+                throw new OciException("拉取 models 异常(" + e.getClass().getSimpleName() + "): "
+                        + (e.getMessage() != null ? e.getMessage() : "未知错误"));
+            }
             if (resp.statusCode() / 100 != 2) {
                 throw new OciException(
-                        "拉取 models 失败: HTTP " + resp.statusCode() + " " + truncate(resp.body(), 500));
+                        "拉取 models 失败: HTTP " + resp.statusCode()
+                                + " headers=" + truncate(String.valueOf(resp.headers().map()), 500)
+                                + " body=" + truncate(resp.body(), 500));
             }
             JsonNode root = MAPPER.readTree(resp.body() != null ? resp.body() : "{}");
             JsonNode items = root.get("items");
@@ -160,11 +168,19 @@ public class OciGenerativeOpenAiService {
     private JsonNode managementGetToOpenAiList(OciUser tenant, String url, boolean oneItemAsList) throws Exception {
         RequestSigner signer = newRequestSigner(tenant);
         URI uri = URI.create(url);
-        HttpRequest req = buildSignedRequest(signer, "GET", uri, null, null, "application/json");
-        HttpResponse<String> resp = pickHttpClient()
-                .send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        HttpRequest req = buildSignedRequest(signer, "GET", uri, null, "application/json", "application/json");
+        HttpResponse<String> resp;
+        try {
+            resp = pickHttpClient()
+                    .send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        } catch (Exception e) {
+            throw new OciException("拉取 models 异常(" + e.getClass().getSimpleName() + "): "
+                    + (e.getMessage() != null ? e.getMessage() : "未知错误"));
+        }
         if (resp.statusCode() / 100 != 2) {
-            throw new OciException("拉取 models 失败: HTTP " + resp.statusCode() + " " + truncate(resp.body(), 500));
+            throw new OciException("拉取 models 失败: HTTP " + resp.statusCode()
+                    + " headers=" + truncate(String.valueOf(resp.headers().map()), 500)
+                    + " body=" + truncate(resp.body(), 500));
         }
         return ociModelsToOpenAiList(MAPPER.readTree(resp.body() != null ? resp.body() : "{}"), oneItemAsList);
     }
@@ -457,9 +473,10 @@ public class OciGenerativeOpenAiService {
         Map<String, List<String>> headers = new LinkedHashMap<>();
         headers.put("host", list(h(uri.getHost())));
         headers.put("accept", list(h(clientAccept)));
-        if (body != null && body.length > 0) {
-            String ct = (contentType != null && !contentType.isBlank()) ? contentType : "application/json";
-            headers.put("content-type", list(ct));
+        if (contentType != null && !contentType.isBlank()) {
+            headers.put("content-type", list(contentType));
+        } else if (body != null && body.length > 0) {
+            headers.put("content-type", list("application/json"));
         }
         Object toSign = body;
         if (toSign != null && ((byte[]) toSign).length == 0) {
