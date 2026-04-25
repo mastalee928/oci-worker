@@ -255,7 +255,23 @@ public class OciGenerativeOpenAiService {
         if (display != null && display.isTextual() && !display.asText().isBlank()) {
             row.put("displayName", display.asText());
         }
+        // 管理面 ListModels 会返回多种“模型产品形态”，不保证都适用于 OpenAI 兼容的 /v1/chat/completions
+        if (isLikelyMultiAgentModelName(id) || (display != null && display.isTextual() && isLikelyMultiAgentModelName(display.asText()))) {
+            row.put(
+                    "ociworkerNote",
+                    "该模型为 Multi Agent：通常不适用于 New API 基于 /v1/chat/completions 的测通；"
+                            + "需使用 OCI 面向 Multi-Agent 的接口/流程（与 chat completions 不同）。");
+        }
         return row;
+    }
+
+    private static boolean isLikelyMultiAgentModelName(String s) {
+        if (s == null) {
+            return false;
+        }
+        String t = s.toLowerCase();
+        // 以名称启发式为主（避免在网关侧做额外管理面查询）
+        return t.contains("multi-agent") || t.contains("multi agent") || t.contains("multiagent");
     }
 
     private static String firstText(JsonNode o, String... fieldNames) {
