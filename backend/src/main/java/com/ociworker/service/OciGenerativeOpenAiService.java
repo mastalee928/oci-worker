@@ -144,6 +144,10 @@ public class OciGenerativeOpenAiService {
                 body = normalizeResponsesInputForOci(body);
                 if (request != null) {
                     request.setAttribute("ociworker.debug.responsesInputShape.after", describeResponsesInputShape(body));
+                    if (isStreamRequest(origBody, contentType)) {
+                        // Cursor/New API 对 /responses 的流式事件形态不一致，先强制走 buffer 以保证能返回可见错误/结果
+                        request.setAttribute("ociworker.rewrite.forceBuffer", Boolean.TRUE);
+                    }
                 }
             } catch (Exception ignored) {
             }
@@ -186,9 +190,10 @@ public class OciGenerativeOpenAiService {
         boolean useStreamCopy =
                 (isChatCompletionsPath(origPathAfterV1) || isResponsesPath(origPathAfterV1))
                         && isStreamRequest(origBody, contentType)
-                        && !Boolean.TRUE.equals(request.getAttribute("ociworker.rewrite.chatToResponses"));
+                        && !Boolean.TRUE.equals(request.getAttribute("ociworker.rewrite.chatToResponses"))
+                        && !Boolean.TRUE.equals(request.getAttribute("ociworker.rewrite.forceBuffer"));
         if (useStreamCopy) {
-            longCopyStream(client, httpRequest, response);
+            longCopyStream(client, httpRequest, response, request);
         } else {
             bufferAndCopy(client, httpRequest, response, request);
         }
@@ -930,7 +935,8 @@ public class OciGenerativeOpenAiService {
         }
     }
 
-    private void longCopyStream(HttpClient client, HttpRequest httpRequest, HttpServletResponse response)
+    private void longCopyStream(
+            HttpClient client, HttpRequest httpRequest, HttpServletResponse response, HttpServletRequest request)
             throws IOException {
         try {
             HttpResponse<InputStream> resp = client.send(httpRequest, HttpResponse.BodyHandlers.ofInputStream());
@@ -959,10 +965,22 @@ public class OciGenerativeOpenAiService {
             }
             response.setStatus(code);
             if (code >= 400) {
+                byte[] bytes = new byte[0];
                 try (InputStream in = resp.body()) {
                     if (in != null) {
-                        in.transferTo(response.getOutputStream());
+                        bytes = in.readAllBytes();
+                        response.getOutputStream().write(bytes);
                     }
+                }
+                try {
+                    String b = bytes.length > 0 ? new String(bytes, StandardCharsets.UTF_8) : "";
+                    if (b.contains("ModelInput") && request != null && isResponsesPath(extractPathAfterV1(request))) {
+                        String before = String.valueOf(request.getAttribute("ociworker.debug.responsesInputShape.before"));
+                        String after = String.valueOf(request.getAttribute("ociworker.debug.responsesInputShape.after"));
+                        log.warn("OCI /responses ModelInput error(stream); before={} after={} body={}",
+                                before, after, truncate(b, 800));
+                    }
+                } catch (Exception ignored) {
                 }
                 return;
             }
