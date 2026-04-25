@@ -123,6 +123,8 @@ public class OciGenerativeOpenAiService {
                                 request.setAttribute("ociworker.debug.responsesInputShape.before", describeResponsesInputShape(body));
                             }
                             body = normalizeResponsesInputForOci(body);
+                            // Multi-Agent 典型会携带超长历史导致 TPM/结构错误；在网关侧截断 input，仅保留最近 N 条。
+                            body = truncateResponsesInputForMultiAgent(body, 20);
                             if (request != null && body != null) {
                                 request.setAttribute("ociworker.debug.responsesInputShape.after", describeResponsesInputShape(body));
                             }
@@ -157,6 +159,7 @@ public class OciGenerativeOpenAiService {
                     request.setAttribute("ociworker.debug.responsesInputShape.before", describeResponsesInputShape(body));
                 }
                 body = normalizeResponsesInputForOci(body);
+                body = truncateResponsesInputForMultiAgent(body, 20);
                 if (request != null) {
                     request.setAttribute("ociworker.debug.responsesInputShape.after", describeResponsesInputShape(body));
                     if (isStreamRequest(origBody, contentType)) {
@@ -760,6 +763,52 @@ public class OciGenerativeOpenAiService {
             return input;
         } catch (Exception e) {
             return input;
+        }
+    }
+
+    /**
+     * 对 Multi-Agent 的 /v1/responses 请求做最小侵入的“截断历史”：
+     * - 仅当 model 名称启发式命中 multi-agent
+     * - 且 input 是数组并超过 maxItems
+     * 则保留最后 maxItems 条，降低 TPM 触发概率与结构复杂度。
+     */
+    private static byte[] truncateResponsesInputForMultiAgent(byte[] body, int maxItems) {
+        if (body == null || body.length == 0 || maxItems <= 0) {
+            return body;
+        }
+        try {
+            JsonNode root = MAPPER.readTree(body);
+            if (root == null || !root.isObject()) {
+                return body;
+            }
+            ObjectNode o = (ObjectNode) root;
+            String model = textOrNull(o, "model");
+            if (!isLikelyMultiAgentModelName(model)) {
+                return body;
+            }
+            JsonNode input = o.get("input");
+            if (input == null || !input.isArray()) {
+                return body;
+            }
+            ArrayNode arr = (ArrayNode) input;
+            int n = arr.size();
+            if (n <= maxItems) {
+                return body;
+            }
+            ArrayNode out = MAPPER.createArrayNode();
+            for (int i = n - maxItems; i < n; i++) {
+                JsonNode it = arr.get(i);
+                if (it != null) {
+                    out.add(it);
+                }
+            }
+            o.set("input", out);
+            // 便于日志定位：记录截断前后的数量（不影响业务）
+            o.put("ociworker_truncated_input_from", n);
+            o.put("ociworker_truncated_input_to", out.size());
+            return MAPPER.writeValueAsBytes(o);
+        } catch (Exception ignored) {
+            return body;
         }
     }
 
