@@ -38,6 +38,7 @@
             <a-form-item label="可选模型（OCI 管理面 ListModels）">
               <a-select
                 v-model:value="modelPick"
+                mode="multiple"
                 :options="modelOptions"
                 :loading="modelsLoading"
                 placeholder="先选租户，再刷新"
@@ -150,7 +151,7 @@ const openaiPath = '/v1'
 const ociUserId = ref<string | undefined>(undefined)
 const tenantOptions = ref<{ label: string; value: string; ociRegion: string }[]>([])
 const keys = ref<any[]>([])
-const modelPick = ref<string | undefined>(undefined)
+const modelPick = ref<string[]>([])
 const modelOptions = ref<{ label: string; value: string }[]>([])
 
 const keyModalOpen = ref(false)
@@ -239,7 +240,7 @@ async function loadTenants() {
 
 function onTenantChange() {
   modelOptions.value = []
-  modelPick.value = undefined
+  modelPick.value = []
   loadModelsIfNeeded(false)
   refreshKeys()
 }
@@ -257,9 +258,13 @@ async function loadModelsIfNeeded(alertOnErr: boolean) {
       list = d
     }
     modelOptions.value = list
-      .map((m) => m?.id || m)
-      .filter((x) => x)
-      .map((id) => ({ label: String(id), value: String(id) }))
+      .map((m) => {
+        const id = String(m?.id || m || '').trim()
+        const label = String(m?.displayName || m?.name || m?.id || m || '').trim()
+        if (!id) return null
+        return { value: id, label: label || id }
+      })
+      .filter((x) => x) as any
     if (!modelOptions.value.length && alertOnErr) {
       message.info('无模型条目或 OCI 返回与预期结构不同，请查看后端日志。')
     }
