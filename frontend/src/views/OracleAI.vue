@@ -441,31 +441,69 @@ async function sendChatTest() {
   chatAssistantText.value = ''
   chatError.value = ''
   try {
-    const r: any = await oracleAiChatTest({
-      apiKey: chatApiKey.value,
-      model: chatModel.value,
-      input: chatUserText.value,
+    const model = String(chatModel.value || '')
+    const isMultiAgent = model.toLowerCase().includes('multi-agent') || model.toLowerCase().includes('multiagent')
+
+    // 真正“浏览器直连 /v1”：对普通模型走 /chat/completions；对 Multi-Agent 走 /responses
+    const base = publicBaseUrl.value.replace(/\/+$/, '')
+    const url = `${base}${isMultiAgent ? '/responses' : '/chat/completions'}`
+    const payload = isMultiAgent
+      ? {
+          model,
+          input: [
+            {
+              role: 'user',
+              content: [{ type: 'input_text', text: chatUserText.value }],
+            },
+          ],
+          stream: false,
+        }
+      : {
+          model,
+          messages: [{ role: 'user', content: chatUserText.value }],
+          stream: false,
+        }
+
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        authorization: `Bearer ${chatApiKey.value}`,
+      },
+      body: JSON.stringify(payload),
     })
-    const status = r?.data?.status ?? r?.status
-    const body = r?.data?.body ?? r?.body ?? ''
-    if (typeof status === 'number' && status >= 400) {
-      chatError.value = `HTTP ${status}\n${String(body || '')}`
+
+    const text = await resp.text()
+    if (!resp.ok) {
+      chatError.value = `HTTP ${resp.status}\n${text}`
       return
     }
+
     let json: any
     try {
-      json = typeof body === 'string' ? JSON.parse(body) : body
+      json = text ? JSON.parse(text) : {}
     } catch {
-      chatAssistantText.value = String(body || '')
+      chatAssistantText.value = text
       return
     }
+
+    if (isMultiAgent) {
+      // 尝试从 responses 结构里提取文本；否则回退展示原 JSON
+      const outText =
+        json?.output_text ||
+        json?.output?.[0]?.content?.find?.((x: any) => x?.type === 'output_text')?.text ||
+        json?.output?.[0]?.content?.find?.((x: any) => x?.type === 'text')?.text
+      if (typeof outText === 'string' && outText) {
+        chatAssistantText.value = outText
+      } else {
+        chatAssistantText.value = JSON.stringify(json, null, 2)
+      }
+      return
+    }
+
     const c0 = json?.choices?.[0]
     const content = c0?.message?.content
-    if (typeof content === 'string') {
-      chatAssistantText.value = content
-    } else {
-      chatAssistantText.value = JSON.stringify(json, null, 2)
-    }
+    chatAssistantText.value = typeof content === 'string' ? content : JSON.stringify(json, null, 2)
   } catch (e: any) {
     chatError.value = e?.message || String(e)
   } finally {
