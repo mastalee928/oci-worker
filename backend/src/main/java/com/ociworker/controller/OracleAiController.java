@@ -8,6 +8,7 @@ import com.ociworker.service.OciGenerativeOpenAiService;
 import com.ociworker.service.OciOpenaiKeyService;
 import com.ociworker.mapper.OciUserMapper;
 import jakarta.annotation.Resource;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
 
@@ -21,6 +22,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+@Slf4j
 @RestController
 @RequestMapping("/api/oci/oracle-ai")
 public class OracleAiController {
@@ -220,6 +222,7 @@ public class OracleAiController {
                 || model.toLowerCase().contains("multiagent");
         // Multi-Agent 在 OCI 只能走 /v1/responses（chat/completions 会直接 400）
         String url = "http://127.0.0.1:" + openaiApiPort + (multiAgent ? "/v1/responses" : "/v1/chat/completions");
+        log.info("chat-test -> {} model={} (multiAgent={})", url, model, multiAgent);
         String payload;
         if (multiAgent) {
             payload = "{\"model\":" + jsonString(model)
