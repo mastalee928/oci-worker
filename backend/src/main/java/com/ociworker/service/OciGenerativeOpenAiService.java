@@ -91,7 +91,14 @@ public class OciGenerativeOpenAiService {
             body = transformChatCompletionsJson(body);
         }
 
-        HttpRequest httpRequest = buildSignedRequest(signer, method, target, body, contentType, accept);
+        HttpRequest httpRequest = buildSignedRequest(
+                signer,
+                method,
+                target,
+                body,
+                contentType,
+                accept,
+                tenant != null ? tenant.getOciTenantId() : null);
         HttpClient client = pickHttpClient();
 
         if (isChatCompletionsPath(pathAfterV1) && isStreamRequest(body, contentType)) {
@@ -127,7 +134,13 @@ public class OciGenerativeOpenAiService {
             }
             URI listUri = URI.create("https://" + managementHost + "/" + GA_API_VERSION + "/models?" + q);
             HttpRequest req = buildSignedRequest(
-                    newRequestSigner(tenant), "GET", listUri, null, "application/json", "application/json");
+                    newRequestSigner(tenant),
+                    "GET",
+                    listUri,
+                    null,
+                    "application/json",
+                    "application/json",
+                    tenantId);
             HttpResponse<String> resp;
             try {
                 resp = pickHttpClient()
@@ -169,7 +182,14 @@ public class OciGenerativeOpenAiService {
     private JsonNode managementGetToOpenAiList(OciUser tenant, String url, boolean oneItemAsList) throws Exception {
         RequestSigner signer = newRequestSigner(tenant);
         URI uri = URI.create(url);
-        HttpRequest req = buildSignedRequest(signer, "GET", uri, null, "application/json", "application/json");
+        HttpRequest req = buildSignedRequest(
+                signer,
+                "GET",
+                uri,
+                null,
+                "application/json",
+                "application/json",
+                tenant != null ? tenant.getOciTenantId() : null);
         HttpResponse<String> resp;
         try {
             resp = pickHttpClient()
@@ -470,10 +490,20 @@ public class OciGenerativeOpenAiService {
     }
 
     private HttpRequest buildSignedRequest(
-            RequestSigner signer, String method, URI uri, byte[] body, String contentType, String clientAccept) {
+            RequestSigner signer,
+            String method,
+            URI uri,
+            byte[] body,
+            String contentType,
+            String clientAccept,
+            String opcCompartmentId) {
         Map<String, List<String>> headers = new LinkedHashMap<>();
         headers.put("host", list(h(uri.getHost())));
         headers.put("accept", list(h(clientAccept)));
+        // OCI 推理端点通常要求提供 compartmentId（否则 400: Compartment ID must be provided）
+        if (opcCompartmentId != null && !opcCompartmentId.isBlank()) {
+            headers.put("opc-compartment-id", list(opcCompartmentId));
+        }
         if (contentType != null && !contentType.isBlank()) {
             headers.put("content-type", list(contentType));
         } else if (body != null && body.length > 0) {
