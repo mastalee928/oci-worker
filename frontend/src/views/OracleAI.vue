@@ -40,64 +40,6 @@
             <a-form-item v-if="selectedRegion" label="区域">
               <a-tag color="blue">{{ selectedRegion }}</a-tag>
             </a-form-item>
-            <a-typography-text type="secondary" class="ma-hint">
-              Multi-Agent 模型在 OCI 上要求 <code>OpenAI-Project</code> 或 <code>opc-conversation-store-id</code>；若经 New
-              API 等无法转发明文头，请在此为当前租户保存至少一项。OpenAI-Project 可点下面「从 OCI 拉取项目」用管理面 API
-              自动列举；<code>opc-conversation-store-id</code> 需从控制台复制资源 OCID（当前无统一列举入口）。
-            </a-typography-text>
-            <a-form-item label="OpenAI-Project（可选）">
-              <a-input
-                v-model:value="generativeOpenaiProject"
-                placeholder="可手动粘贴 Project OCID，或拉取后从下拉选择"
-                allow-clear
-              />
-              <a-space class="ma-actions" wrap>
-                <a-button
-                  size="small"
-                  :disabled="!ociUserId"
-                  :loading="gaProjectsLoading"
-                  @click="fetchGenerativeProjects"
-                >
-                  从 OCI 拉取项目
-                </a-button>
-                <a-button
-                  size="small"
-                  type="dashed"
-                  :disabled="!ociUserId"
-                  :loading="gaProjectCreating"
-                  @click="createDefaultProject"
-                >
-                  一键创建 Project
-                </a-button>
-                <a-select
-                  v-if="gaProjectOptions.length"
-                  :options="gaProjectOptions"
-                  show-search
-                  :filter-option="filterGaProject"
-                  allow-clear
-                  placeholder="选择后填入上方输入框"
-                  style="min-width: 220px"
-                  @change="(v: any) => onPickGaProject(v as string | undefined)"
-                />
-              </a-space>
-            </a-form-item>
-            <a-form-item label="opc-conversation-store-id（可选）">
-              <a-input
-                v-model:value="generativeConversationStoreId"
-                placeholder="常见为 Conversation Store 的 OCID，保存后自动带此头"
-                allow-clear
-              />
-            </a-form-item>
-            <a-form-item>
-              <a-button
-                type="default"
-                :disabled="!ociUserId"
-                :loading="generativeContextSaving"
-                @click="saveGenerativeContext"
-              >
-                保存 Multi-Agent 头
-              </a-button>
-            </a-form-item>
             <a-form-item label="可选模型（OCI 管理面 ListModels）">
               <a-select
                 v-model:value="modelPick"
@@ -254,11 +196,7 @@ import {
   setOracleKeyDisabled,
   removeOracleKey,
   listOpenAiModels,
-  getOracleAiGenerativeContext,
-  saveOracleAiGenerativeContext,
-  listGenerativeProjects,
   oracleAiChatTest,
-  createGenerativeProject,
 } from '../api/oracleAi'
 
 const tenantsLoading = ref(false)
@@ -279,12 +217,6 @@ const plainKeyModalOpen = ref(false)
 const newKeyPlain = ref('')
 const keyName = ref('')
 const baseHint = ref('')
-const generativeOpenaiProject = ref('')
-const generativeConversationStoreId = ref('')
-const generativeContextSaving = ref(false)
-const gaProjectsLoading = ref(false)
-const gaProjectOptions = ref<{ label: string; value: string }[]>([])
-const gaProjectCreating = ref(false)
 
 const chatApiKey = ref('')
 const chatModel = ref<string | undefined>(undefined)
@@ -421,11 +353,6 @@ function filterModel(input: string, opt: any) {
     .toLowerCase()
     .includes((input || '').toLowerCase()))
 }
-function filterGaProject(input: string, option: any) {
-  return (String(option?.label || '') + String(option?.value || ''))
-    .toLowerCase()
-    .includes((input || '').toLowerCase())
-}
 
 async function loadTenants() {
   tenantsLoading.value = true
@@ -439,7 +366,6 @@ async function loadTenants() {
     }))
     // 恢复时如果租户仍存在，则自动拉取模型/密钥
     if (ociUserId.value && tenantOptions.value.some((x) => x.value === ociUserId.value)) {
-      loadGenerativeContext()
       loadModelsIfNeeded(false)
       refreshKeys()
     }
@@ -457,103 +383,9 @@ function onTenantChange() {
   }
   modelOptions.value = []
   modelPick.value = []
-  generativeOpenaiProject.value = ''
-  generativeConversationStoreId.value = ''
-  gaProjectOptions.value = []
   persistState()
-  loadGenerativeContext()
   loadModelsIfNeeded(false)
   refreshKeys()
-}
-
-async function loadGenerativeContext() {
-  if (!ociUserId.value) {
-    return
-  }
-  try {
-    const r: any = await getOracleAiGenerativeContext({ ociUserId: ociUserId.value })
-    const d = r?.data || r
-    generativeOpenaiProject.value = typeof d?.generativeOpenaiProject === 'string' ? d.generativeOpenaiProject : ''
-    generativeConversationStoreId.value =
-      typeof d?.generativeConversationStoreId === 'string' ? d.generativeConversationStoreId : ''
-  } catch {
-  }
-}
-
-async function fetchGenerativeProjects() {
-  if (!ociUserId.value) return
-  gaProjectsLoading.value = true
-  try {
-    const r: any = await listGenerativeProjects({ ociUserId: ociUserId.value })
-    const items = r?.data?.items
-    if (!Array.isArray(items) || !items.length) {
-      gaProjectOptions.value = []
-      message.info('未找到 Generative AI 项目：请确认已在该租户/区间下创建项目，且 API 用户具备列举权限')
-      return
-    }
-    gaProjectOptions.value = items
-      .map((x: any) => {
-        const id = String(x?.id || '').trim()
-        if (!id) return null
-        const label = String(x?.displayName || x?.id || '').trim() || id
-        return { value: id, label }
-      })
-      .filter((x: any) => x) as { label: string; value: string }[]
-    message.success(`已拉取 ${gaProjectOptions.value.length} 个项目，请从下拉选择以填入上方`)
-  } catch (e: any) {
-    message.error(e?.message || e?.data?.message || '拉取项目失败')
-  } finally {
-    gaProjectsLoading.value = false
-  }
-}
-
-function onPickGaProject(v: string | undefined) {
-  if (v != null && v !== '') {
-    generativeOpenaiProject.value = String(v)
-  }
-}
-
-async function createDefaultProject() {
-  if (!ociUserId.value) return
-  gaProjectCreating.value = true
-  try {
-    const r: any = await createGenerativeProject({
-      ociUserId: ociUserId.value,
-      displayName: 'ociworker-default',
-    })
-    const id = r?.data?.id
-    if (typeof id === 'string' && id) {
-      generativeOpenaiProject.value = id
-      // 后端已自动写入租户默认；这里顺手刷新一下 context，保持一致
-      await loadGenerativeContext()
-      message.success('已创建并填入 OpenAI-Project')
-      // 创建后也刷新列表（若有权限）
-      fetchGenerativeProjects()
-    } else {
-      message.success('已创建项目')
-    }
-  } catch (e: any) {
-    message.error(e?.message || '创建项目失败（可能无权限）')
-  } finally {
-    gaProjectCreating.value = false
-  }
-}
-
-async function saveGenerativeContext() {
-  if (!ociUserId.value) return
-  generativeContextSaving.value = true
-  try {
-    await saveOracleAiGenerativeContext({
-      ociUserId: ociUserId.value,
-      generativeOpenaiProject: generativeOpenaiProject.value ?? '',
-      generativeConversationStoreId: generativeConversationStoreId.value ?? '',
-    })
-    message.success('已保存')
-  } catch (e: any) {
-    message.error(e?.message || '保存失败')
-  } finally {
-    generativeContextSaving.value = false
-  }
 }
 
 watch(
@@ -732,7 +564,6 @@ function removeK(k: any) {
   margin: 0 0 8px 0;
 }
 .ma-hint code { font-size: 11px; }
-.ma-actions { margin-top: 8px; }
 .mb-alert { margin: 0 0 8px; }
 .code-wrap {
   word-break: break-all;
