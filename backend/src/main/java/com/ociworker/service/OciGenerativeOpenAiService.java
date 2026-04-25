@@ -640,12 +640,34 @@ public class OciGenerativeOpenAiService {
                     ObjectNode io = (ObjectNode) it;
                     JsonNode content = io.get("content");
                     if (content != null && content.isTextual()) {
-                        ArrayNode parts = MAPPER.createArrayNode();
-                        ObjectNode p = MAPPER.createObjectNode();
-                        p.put("type", "input_text");
-                        p.put("text", content.asText());
-                        parts.add(p);
-                        io.set("content", parts);
+                        io.set("content", toInputTextParts(content.asText()));
+                    } else if (content != null && content.isArray()) {
+                        // 兼容：content=[{type:"text", text:"..."}] 或 content=["..."]
+                        ArrayNode normalized = MAPPER.createArrayNode();
+                        for (JsonNode part : content) {
+                            if (part == null || part.isNull()) {
+                                continue;
+                            }
+                            if (part.isTextual()) {
+                                normalized.add(toInputTextPartNode(part.asText()));
+                                continue;
+                            }
+                            if (part.isObject()) {
+                                ObjectNode po = (ObjectNode) part;
+                                String t = textOrNull(po, "type");
+                                if (t != null && ("text".equalsIgnoreCase(t) || "input_text".equalsIgnoreCase(t))) {
+                                    String tx = textOrNull(po, "text");
+                                    if (tx != null) {
+                                        normalized.add(toInputTextPartNode(tx));
+                                        continue;
+                                    }
+                                }
+                            }
+                            normalized.add(part);
+                        }
+                        if (normalized.size() > 0) {
+                            io.set("content", normalized);
+                        }
                     }
                     outArr.add(io);
                 }
@@ -656,6 +678,19 @@ public class OciGenerativeOpenAiService {
         } catch (Exception e) {
             return input;
         }
+    }
+
+    private static ArrayNode toInputTextParts(String text) {
+        ArrayNode parts = MAPPER.createArrayNode();
+        parts.add(toInputTextPartNode(text));
+        return parts;
+    }
+
+    private static ObjectNode toInputTextPartNode(String text) {
+        ObjectNode p = MAPPER.createObjectNode();
+        p.put("type", "input_text");
+        p.put("text", text == null ? "" : text);
+        return p;
     }
 
     private static boolean isStreamRequest(byte[] body, String contentType) {
