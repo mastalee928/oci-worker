@@ -62,10 +62,14 @@
     </a-row>
 
     <a-card title="API 密钥" :bordered="false" class="mt-card">
-      <a-space class="mb-row key-actions" wrap>
-        <a-button type="primary" :disabled="!ociUserId" @click="openKeyModal">生成新密钥</a-button>
-        <a-button :disabled="!ociUserId" @click="refreshKeys">刷新</a-button>
-      </a-space>
+      <a-row class="key-toolbar" :gutter="[8, 8]" align="middle" justify="start" wrap>
+        <a-col>
+          <a-button type="primary" :disabled="!ociUserId" @click="openKeyModal">生成新密钥</a-button>
+        </a-col>
+        <a-col>
+          <a-button :disabled="!ociUserId" @click="refreshKeys">刷新</a-button>
+        </a-col>
+      </a-row>
       <a-table
         v-if="!isMobile"
         :columns="keyColumns"
@@ -406,19 +410,13 @@ function removeK(k: any) {
 .sub-bottom {
   margin-bottom: 24px;
 }
-.key-actions {
-  position: relative;
-  z-index: 2;
-  margin-bottom: 12px;
-}
-.mt-card :deep(.ant-table) {
-  position: relative;
-  z-index: 1;
+.key-toolbar {
+  /* 12px - 16px：按钮行与表格之间的安全间距 */
+  margin-bottom: 14px;
 }
 .mb-card { margin-bottom: 16px; }
 .mt-card { margin-top: 8px; }
 .mb-alert { margin: 0 0 8px; }
-.mb-row { margin-bottom: 12px; }
 .code-wrap {
   word-break: break-all;
   user-select: all;
