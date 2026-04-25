@@ -10,6 +10,7 @@ import com.oracle.bmc.http.signing.RequestSigner;
 import com.ociworker.exception.OciException;
 import com.ociworker.model.entity.OciUser;
 import com.ociworker.util.OciBasicForSigning;
+import com.ociworker.util.OciDuplicatableByteArrayInputStream;
 import com.ociworker.util.OciRegionUtil;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
@@ -483,7 +484,7 @@ public class OciGenerativeOpenAiService {
         // - 普通 InputStream 会触发 IllegalArgumentException: Only DuplicatableInputStream supported...
         Object toSign = null;
         if (body != null && body.length > 0) {
-            toSign = new com.oracle.bmc.http.internal.WrappedByteArrayInputStream(body);
+            toSign = new OciDuplicatableByteArrayInputStream(body);
         }
         Object signedObject = signer.signRequest(uri, method, headers, toSign);
         Map<String, List<String>> signed = castSignedHeaders(signedObject);
