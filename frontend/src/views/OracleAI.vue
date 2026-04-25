@@ -441,9 +441,6 @@ async function sendChatTest() {
     const model = String(chatModel.value || '')
     const isMultiAgent = model.toLowerCase().includes('multi-agent') || model.toLowerCase().includes('multiagent')
 
-    // 真正“浏览器直连 /v1”：对普通模型走 /chat/completions；对 Multi-Agent 走 /responses
-    const base = publicBaseUrl.value.replace(/\/+$/, '')
-    const url = `${base}${isMultiAgent ? '/responses' : '/chat/completions'}`
     const payload = isMultiAgent
       ? {
           model,
@@ -461,46 +458,61 @@ async function sendChatTest() {
           stream: false,
         }
 
-    const resp = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: `Bearer ${chatApiKey.value}`,
-      },
-      body: JSON.stringify(payload),
-    })
-
-    const text = await resp.text()
-    if (!resp.ok) {
-      chatError.value = `HTTP ${resp.status}\n${text}`
-      return
-    }
-
-    let json: any
-    try {
-      json = text ? JSON.parse(text) : {}
-    } catch {
-      chatAssistantText.value = text
-      return
-    }
-
-    if (isMultiAgent) {
-      // 尝试从 responses 结构里提取文本；否则回退展示原 JSON
-      const outText =
-        json?.output_text ||
-        json?.output?.[0]?.content?.find?.((x: any) => x?.type === 'output_text')?.text ||
-        json?.output?.[0]?.content?.find?.((x: any) => x?.type === 'text')?.text
-      if (typeof outText === 'string' && outText) {
-        chatAssistantText.value = outText
-      } else {
-        chatAssistantText.value = JSON.stringify(json, null, 2)
+    const parseAndSet = (raw: string) => {
+      let json: any
+      try {
+        json = raw ? JSON.parse(raw) : {}
+      } catch {
+        chatAssistantText.value = raw
+        return
       }
-      return
+      if (isMultiAgent) {
+        const outText =
+          json?.output_text ||
+          json?.output?.[0]?.content?.find?.((x: any) => x?.type === 'output_text')?.text ||
+          json?.output?.[0]?.content?.find?.((x: any) => x?.type === 'text')?.text
+        chatAssistantText.value = typeof outText === 'string' && outText ? outText : JSON.stringify(json, null, 2)
+        return
+      }
+      const c0 = json?.choices?.[0]
+      const content = c0?.message?.content
+      chatAssistantText.value = typeof content === 'string' ? content : JSON.stringify(json, null, 2)
     }
 
-    const c0 = json?.choices?.[0]
-    const content = c0?.message?.content
-    chatAssistantText.value = typeof content === 'string' ? content : JSON.stringify(json, null, 2)
+    // 优先尝试“浏览器直连 /v1”（有些环境会因为 HTTPS/CORS/网络策略失败）
+    try {
+      const base = publicBaseUrl.value.replace(/\/+$/, '')
+      const url = `${base}${isMultiAgent ? '/responses' : '/chat/completions'}`
+      const resp = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'content-type': 'application/json',
+          authorization: `Bearer ${chatApiKey.value}`,
+        },
+        body: JSON.stringify(payload),
+      })
+      const text = await resp.text()
+      if (!resp.ok) {
+        chatError.value = `HTTP ${resp.status}\n${text}`
+        return
+      }
+      parseAndSet(text)
+      return
+    } catch (e: any) {
+      // 直连失败则回退到同源 /api 代请求（服务端本机访问 127.0.0.1:8080/v1，避免浏览器网络限制）
+      const r: any = await oracleAiChatTest({
+        apiKey: chatApiKey.value,
+        model,
+        input: chatUserText.value,
+      })
+      const status = r?.data?.status ?? r?.status
+      const body = r?.data?.body ?? r?.body ?? ''
+      if (typeof status === 'number' && status >= 400) {
+        chatError.value = `HTTP ${status}\n${String(body || '')}`
+        return
+      }
+      parseAndSet(String(body || ''))
+    }
   } catch (e: any) {
     chatError.value = e?.message || String(e)
   } finally {
