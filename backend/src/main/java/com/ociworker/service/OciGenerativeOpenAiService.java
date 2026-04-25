@@ -100,6 +100,8 @@ public class OciGenerativeOpenAiService {
                             // OCI 侧 Multi Agent 不适用于 chat-completions 流式；本网关会改走 /v1/responses 并关闭 stream。
                             log.debug(
                                     "Multi Agent 模型在 chat/completions 上收到 stream=true，将改写为 /v1/responses 且按非流式处理");
+                            // 但上游（如 New API / IDE）可能只在 stream=true 时才显示输出，这里在返回侧模拟 SSE。
+                            request.setAttribute("ociworker.rewrite.simulateSse", Boolean.TRUE);
                         }
                         request.setAttribute("ociworker.rewrite.chatToResponses", Boolean.TRUE);
                         if (model != null) {
@@ -810,6 +812,17 @@ public class OciGenerativeOpenAiService {
                 if (ct.toLowerCase().contains("json")) {
                     try {
                         String modelHint = (String) request.getAttribute("ociworker.rewrite.model");
+                        // 如果上游请求 stream=true，则在响应侧模拟 SSE（更兼容 New API/IDE）。
+                        if (Boolean.TRUE.equals(request.getAttribute("ociworker.rewrite.simulateSse"))) {
+                            String text = extractResponsesAssistantText((ObjectNode) MAPPER.readTree(b));
+                            if (text != null) {
+                                response.setStatus(200);
+                                response.setHeader("cache-control", "no-cache");
+                                response.setContentType("text/event-stream; charset=utf-8");
+                                writeChatCompletionSseFromText(response, text, modelHint);
+                                return;
+                            }
+                        }
                         b = convertResponsesJsonToChatCompletionJson(b, modelHint);
                         response.setContentType("application/json; charset=utf-8");
                     } catch (Exception ignored) {
@@ -956,6 +969,65 @@ public class OciGenerativeOpenAiService {
             sb.append("\n");
         }
         sb.append(s);
+    }
+
+    private static void writeChatCompletionSseFromText(
+            HttpServletResponse response, String text, String modelHint) throws IOException {
+        OutputStream out = response.getOutputStream();
+        String id = "chatcmpl-ociworker";
+        long created = System.currentTimeMillis() / 1000L;
+        String model = modelHint == null ? "" : modelHint;
+
+        // role chunk
+        String first =
+                "{\"id\":\""
+                        + id
+                        + "\",\"object\":\"chat.completion.chunk\",\"created\":"
+                        + created
+                        + ",\"model\":\""
+                        + escapeJson(model)
+                        + "\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"},\"finish_reason\":null}]}";
+        out.write(("data: " + first + "\n\n").getBytes(StandardCharsets.UTF_8));
+        out.flush();
+
+        int step = 200;
+        for (int i = 0; i < text.length(); i += step) {
+            String part = text.substring(i, Math.min(text.length(), i + step));
+            String j =
+                    "{\"id\":\""
+                            + id
+                            + "\",\"object\":\"chat.completion.chunk\",\"created\":"
+                            + created
+                            + ",\"model\":\""
+                            + escapeJson(model)
+                            + "\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\""
+                            + escapeJson(part)
+                            + "\"},\"finish_reason\":null}]}";
+            out.write(("data: " + j + "\n\n").getBytes(StandardCharsets.UTF_8));
+            out.flush();
+        }
+
+        String last =
+                "{\"id\":\""
+                        + id
+                        + "\",\"object\":\"chat.completion.chunk\",\"created\":"
+                        + created
+                        + ",\"model\":\""
+                        + escapeJson(model)
+                        + "\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}";
+        out.write(("data: " + last + "\n\n").getBytes(StandardCharsets.UTF_8));
+        out.write("data: [DONE]\n\n".getBytes(StandardCharsets.UTF_8));
+        out.flush();
+    }
+
+    private static String escapeJson(String s) {
+        if (s == null) {
+            return "";
+        }
+        return s.replace("\\", "\\\\")
+                .replace("\"", "\\\"")
+                .replace("\r", "\\r")
+                .replace("\n", "\\n");
     }
 
     /**
