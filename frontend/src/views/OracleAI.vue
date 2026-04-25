@@ -418,8 +418,7 @@ async function loadModelsIfNeeded(alertOnErr: boolean) {
         const label = String(m?.displayName || m?.name || m?.id || m || '').trim()
         if (!id) return null
         const note = String(m?.ociworkerNote || '').trim()
-        const prefix = note ? '⚠ ' : ''
-        const finalLabel = `${prefix}${label || id}`
+        const finalLabel = `${label || id}`
         return { value: id, label: finalLabel, title: note || finalLabel }
       })
       .filter((x) => x) as any
