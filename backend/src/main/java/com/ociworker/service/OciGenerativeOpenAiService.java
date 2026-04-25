@@ -478,9 +478,11 @@ public class OciGenerativeOpenAiService {
         } else if (body != null && body.length > 0) {
             headers.put("content-type", list("application/json"));
         }
-        Object toSign = body;
-        if (toSign != null && ((byte[]) toSign).length == 0) {
-            toSign = null;
+        // OCI Java SDK 的 signer 对 body 类型有限制；byte[] 会触发
+        // IllegalArgumentException: Unexpected body type: [B
+        Object toSign = null;
+        if (body != null && body.length > 0) {
+            toSign = new java.io.ByteArrayInputStream(body);
         }
         Object signedObject = signer.signRequest(uri, method, headers, toSign);
         Map<String, List<String>> signed = castSignedHeaders(signedObject);
