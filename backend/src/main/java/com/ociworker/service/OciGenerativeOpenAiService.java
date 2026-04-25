@@ -684,20 +684,31 @@ public class OciGenerativeOpenAiService {
                     if (it.isTextual()) {
                         ObjectNode item = MAPPER.createObjectNode();
                         item.put("role", "user");
-                        ArrayNode parts = MAPPER.createArrayNode();
-                        ObjectNode p = MAPPER.createObjectNode();
-                        p.put("type", "input_text");
-                        p.put("text", it.asText());
-                        parts.add(p);
-                        item.set("content", parts);
+                        item.set("content", toInputTextParts(it.asText()));
                         outArr.add(item);
                         continue;
                     }
                     if (!it.isObject()) {
-                        outArr.add(it);
+                        // 兜底：未知类型转为文本块
+                        ObjectNode item = MAPPER.createObjectNode();
+                        item.put("role", "user");
+                        item.set("content", toInputTextParts(String.valueOf(it)));
+                        outArr.add(item);
                         continue;
                     }
                     ObjectNode io = (ObjectNode) it;
+                    // role 只允许文本；未知 role 统一降级为 user（OCI ModelInput 更严格）
+                    String role = textOrNull(io, "role");
+                    if (role == null || role.isBlank()) {
+                        role = "user";
+                    } else {
+                        String rl = role.toLowerCase(java.util.Locale.ROOT);
+                        // Cursor/SDK 可能出现 tool/function/developer 等 role；统一降级
+                        if (!("user".equals(rl) || "assistant".equals(rl) || "system".equals(rl))) {
+                            role = "user";
+                        }
+                    }
+                    io.put("role", role);
                     JsonNode content = io.get("content");
                     if (content != null && content.isTextual()) {
                         io.set("content", toInputTextParts(content.asText()));
@@ -722,14 +733,24 @@ public class OciGenerativeOpenAiService {
                                         continue;
                                     }
                                 }
+                                // 允许已是 responses 图片块（尽量不破坏）
+                                if (t != null && "input_image".equalsIgnoreCase(t)) {
+                                    normalized.add(po);
+                                    continue;
+                                }
                             }
-                            normalized.add(part);
+                            // 兜底：未知块一律转为 input_text，避免 OCI ModelInput 反序列化失败
+                            normalized.add(toInputTextPartNode(part.isTextual() ? part.asText() : part.toString()));
                         }
                         if (normalized.size() > 0) {
                             io.set("content", normalized);
+                        } else {
+                            io.set("content", toInputTextParts(""));
                         }
                     } else if (content != null && content.isObject()) {
                         io.set("content", toInputTextParts(content.toString()));
+                    } else if (content == null || content.isNull()) {
+                        io.set("content", toInputTextParts(""));
                     }
                     outArr.add(io);
                 }
