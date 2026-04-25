@@ -127,8 +127,9 @@ public class OciGenerativeOpenAiService {
             body = transformChatCompletionsJson(body);
         }
 
-        // 对直接调用 /v1/responses 的请求：Multi-Agent 在 OCI 上要求 input 格式满足 ModelInput。
+        // 对直接调用 /v1/responses 的请求：OCI 对 input 的 ModelInput 格式较严格。
         // 某些上游（IDE/New API）会按 chat 风格拼 input（content 为 string），OCI 会报反序列化失败。
+        // 这里做宽松规范化：只要检测到“chat 风格”就转换为 input_text 块数组（对非 Multi-Agent 也安全）。
         if ("POST".equalsIgnoreCase(method)
                 && isResponsesPath(origPathAfterV1)
                 && body != null
@@ -136,13 +137,7 @@ public class OciGenerativeOpenAiService {
                 && contentType != null
                 && contentType.toLowerCase().contains("json")) {
             try {
-                JsonNode root = MAPPER.readTree(body);
-                if (root != null && root.isObject()) {
-                    String model = textOrNull((ObjectNode) root, "model");
-                    if (isLikelyMultiAgentModelName(model)) {
-                        body = normalizeResponsesInputForOci(body);
-                    }
-                }
+                body = normalizeResponsesInputForOci(body);
             } catch (Exception ignored) {
             }
         }
