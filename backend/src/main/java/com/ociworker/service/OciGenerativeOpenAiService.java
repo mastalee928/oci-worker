@@ -974,7 +974,13 @@ public class OciGenerativeOpenAiService {
                 }
                 try {
                     String b = bytes.length > 0 ? new String(bytes, StandardCharsets.UTF_8) : "";
-                    if (b.contains("ModelInput") && request != null && isResponsesPath(extractPathAfterV1(request))) {
+                    String bl = b.toLowerCase(java.util.Locale.ROOT);
+                    boolean looksLikeInputDeserializeError =
+                            bl.contains("failed to deserialize")
+                                    || bl.contains("untagged enum")
+                                    || bl.contains("modelinput")
+                                    || bl.contains("modellnput");
+                    if (looksLikeInputDeserializeError && request != null && isResponsesPath(extractPathAfterV1(request))) {
                         String before = String.valueOf(request.getAttribute("ociworker.debug.responsesInputShape.before"));
                         String after = String.valueOf(request.getAttribute("ociworker.debug.responsesInputShape.after"));
                         log.warn("OCI /responses ModelInput error(stream); before={} after={} body={}",
@@ -1043,8 +1049,14 @@ public class OciGenerativeOpenAiService {
             if (code >= 400
                     && request != null
                     && isResponsesPath(extractPathAfterV1(request))
-                    && b != null
-                    && b.contains("ModelInput")) {
+                    && b != null) {
+                String bl = b.toLowerCase(java.util.Locale.ROOT);
+                boolean looksLikeInputDeserializeError =
+                        bl.contains("failed to deserialize")
+                                || bl.contains("untagged enum")
+                                || bl.contains("modelinput")
+                                || bl.contains("modellnput");
+                if (looksLikeInputDeserializeError) {
                 String before = String.valueOf(request.getAttribute("ociworker.debug.responsesInputShape.before"));
                 String after = String.valueOf(request.getAttribute("ociworker.debug.responsesInputShape.after"));
                 String rid = firstRequestHeader(
@@ -1056,6 +1068,7 @@ public class OciGenerativeOpenAiService {
                         "traceparent");
                 log.warn("OCI /responses ModelInput error; rid={} before={} after={} body={}",
                         rid, before, after, truncate(b, 800));
+                }
             }
             if (code >= 200
                     && code < 300
