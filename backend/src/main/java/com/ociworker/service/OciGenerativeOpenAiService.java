@@ -127,6 +127,26 @@ public class OciGenerativeOpenAiService {
             body = transformChatCompletionsJson(body);
         }
 
+        // 对直接调用 /v1/responses 的请求：Multi-Agent 在 OCI 上要求 input 格式满足 ModelInput。
+        // 某些上游（IDE/New API）会按 chat 风格拼 input（content 为 string），OCI 会报反序列化失败。
+        if ("POST".equalsIgnoreCase(method)
+                && isResponsesPath(origPathAfterV1)
+                && body != null
+                && body.length > 0
+                && contentType != null
+                && contentType.toLowerCase().contains("json")) {
+            try {
+                JsonNode root = MAPPER.readTree(body);
+                if (root != null && root.isObject()) {
+                    String model = textOrNull((ObjectNode) root, "model");
+                    if (isLikelyMultiAgentModelName(model)) {
+                        body = normalizeResponsesInputForOci(body);
+                    }
+                }
+            } catch (Exception ignored) {
+            }
+        }
+
         // /v1/responses 对 Multi-Agent 模型需要走 raw /v1 base；其它情况仍走 /openai/v1 base
         boolean useRawV1Base = Boolean.TRUE.equals(request.getAttribute("ociworker.rewrite.useRawV1Base"));
         if (!useRawV1Base && isResponsesPath(origPathAfterV1) && origBody != null && origBody.length > 0
@@ -567,6 +587,80 @@ public class OciGenerativeOpenAiService {
 
     private static boolean isResponsesPath(String p) {
         return p != null && (p.equals("/responses") || p.endsWith("/responses"));
+    }
+
+    /**
+     * 将 responses 请求中的 input 规范化为 OCI 能接受的 ModelInput：
+     * - input 为 string -> 转为 [{role:"user", content:[{type:"input_text", text:"..."}]}]
+     * - input 为 array 且元素形如 {role, content:"..."} -> 转为 content 块数组
+     * - 其余保持原样（尽量不破坏已是 responses 原生结构的请求）
+     */
+    private static byte[] normalizeResponsesInputForOci(byte[] input) {
+        try {
+            JsonNode root = MAPPER.readTree(input);
+            if (root == null || !root.isObject()) {
+                return input;
+            }
+            ObjectNode in = (ObjectNode) root;
+            JsonNode inputNode = in.get("input");
+            if (inputNode == null || inputNode.isNull() || inputNode.isMissingNode()) {
+                return input;
+            }
+            if (inputNode.isTextual()) {
+                ArrayNode arr = MAPPER.createArrayNode();
+                ObjectNode item = MAPPER.createObjectNode();
+                item.put("role", "user");
+                ArrayNode parts = MAPPER.createArrayNode();
+                ObjectNode p = MAPPER.createObjectNode();
+                p.put("type", "input_text");
+                p.put("text", inputNode.asText());
+                parts.add(p);
+                item.set("content", parts);
+                arr.add(item);
+                in.set("input", arr);
+                return MAPPER.writeValueAsBytes(in);
+            }
+            if (inputNode.isArray()) {
+                ArrayNode outArr = MAPPER.createArrayNode();
+                for (JsonNode it : inputNode) {
+                    if (it == null) {
+                        continue;
+                    }
+                    if (it.isTextual()) {
+                        ObjectNode item = MAPPER.createObjectNode();
+                        item.put("role", "user");
+                        ArrayNode parts = MAPPER.createArrayNode();
+                        ObjectNode p = MAPPER.createObjectNode();
+                        p.put("type", "input_text");
+                        p.put("text", it.asText());
+                        parts.add(p);
+                        item.set("content", parts);
+                        outArr.add(item);
+                        continue;
+                    }
+                    if (!it.isObject()) {
+                        outArr.add(it);
+                        continue;
+                    }
+                    ObjectNode io = (ObjectNode) it;
+                    JsonNode content = io.get("content");
+                    if (content != null && content.isTextual()) {
+                        ArrayNode parts = MAPPER.createArrayNode();
+                        ObjectNode p = MAPPER.createObjectNode();
+                        p.put("type", "input_text");
+                        p.put("text", content.asText());
+                        parts.add(p);
+                        io.set("content", parts);
+                    }
+                    outArr.add(io);
+                }
+                in.set("input", outArr);
+                return MAPPER.writeValueAsBytes(in);
+            }
+            return input;
+        } catch (Exception e) {
+            return input;
+        }
     }
 
     private static boolean isStreamRequest(byte[] body, String contentType) {
