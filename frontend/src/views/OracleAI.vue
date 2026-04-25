@@ -416,8 +416,10 @@ async function loadModelsIfNeeded(alertOnErr: boolean) {
         const label = String(m?.displayName || m?.name || m?.id || m || '').trim()
         if (!id) return null
         const note = String(m?.ociworkerNote || '').trim()
+        const ociId = String(m?.ociId || '').trim()
         const finalLabel = `${label || id}`
-        return { value: id, label: finalLabel, title: note || finalLabel }
+        const titleBits = [note, ociId].filter((x) => x && x.trim())
+        return { value: id, label: finalLabel, title: titleBits.length ? titleBits.join(' | ') : finalLabel }
       })
       .filter((x) => x) as any
     if (!chatModel.value && modelOptions.value.length) {

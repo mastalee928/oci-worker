@@ -526,15 +526,26 @@ public class OciGenerativeOpenAiService {
         // 最后才回退到资源 OCID。否则前端选中后会把 OCID 传到 /v1/chat/completions，导致 Multi-Agent 无法命中改写。
         String id = firstText(oci, "name");
         JsonNode display = oci != null ? oci.get("displayName") : null;
-        if ((id == null || id.isBlank())
-                && display != null
-                && display.isTextual()
-                && !display.asText().isBlank()) {
-            String dn = display.asText().trim();
-            // 仅在 displayName 看起来像 OpenAI/模型标识时才用它做 id（避免把“人类可读名”当模型名）
-            if (dn.matches("^[a-z0-9]+\\.[a-z0-9._\\-]+$")) {
+        String dn = (display != null && display.isTextual()) ? display.asText().trim() : null;
+        // 如果 displayName 看起来像真实模型名（例如 xai.grok-...），优先使用它作为 OpenAI model id
+        if (dn != null && !dn.isBlank()) {
+            String dnl = dn.toLowerCase(java.util.Locale.ROOT);
+            boolean looksLikeModelName =
+                    dnl.startsWith("xai.")
+                            || dnl.startsWith("cohere.")
+                            || dnl.startsWith("meta.")
+                            || dnl.startsWith("mistral.")
+                            || dnl.startsWith("openai.")
+                            || dn.matches("^[a-z0-9]+\\.[a-z0-9._\\-]+$");
+            if (looksLikeModelName) {
                 id = dn;
             }
+        }
+        if ((id == null || id.isBlank())
+                && dn != null
+                && !dn.isBlank()) {
+            // 兜底：仍允许把 displayName 当作 id
+            id = dn;
         }
         if ((id == null || id.isBlank()) && oci != null) {
             JsonNode idn = oci.get("id");
@@ -547,8 +558,15 @@ public class OciGenerativeOpenAiService {
         }
         row.put("id", id);
         row.put("object", "model");
-        if (display != null && display.isTextual() && !display.asText().isBlank()) {
-            row.put("displayName", display.asText());
+        if (dn != null && !dn.isBlank()) {
+            row.put("displayName", dn);
+        }
+        // 额外透出原始 OCID，便于前端 hover/排障（不影响 OpenAI model id）
+        if (oci != null) {
+            JsonNode ociId = oci.get("id");
+            if (ociId != null && ociId.isTextual() && !ociId.asText().isBlank()) {
+                row.put("ociId", ociId.asText());
+            }
         }
         // 管理面 ListModels 会返回多种“模型产品形态”，不保证都适用于 OpenAI 兼容的 /v1/chat/completions
         if (isLikelyMultiAgentModelName(id) || (display != null && display.isTextual() && isLikelyMultiAgentModelName(display.asText()))) {
