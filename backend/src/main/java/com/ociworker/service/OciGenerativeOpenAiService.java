@@ -522,10 +522,10 @@ public class OciGenerativeOpenAiService {
 
     private static ObjectNode ociItemToOpenAi(JsonNode oci) {
         ObjectNode row = MAPPER.createObjectNode();
-        // 推理/Chat 的 model 字段优先用服务侧 name（如 cohere.command ），其次用看起来像“模型名”的 displayName，
+        // 推理/Chat 的 model 字段优先用服务侧 name（如 cohere.command ），其次用看起来像“模型名”的 displayName/modelName，
         // 最后才回退到资源 OCID。否则前端选中后会把 OCID 传到 /v1/chat/completions，导致 Multi-Agent 无法命中改写。
-        String id = firstText(oci, "name");
-        JsonNode display = oci != null ? oci.get("displayName") : null;
+        String id = firstText(oci, "name", "modelName", "model", "modelId");
+        JsonNode display = oci != null ? (oci.get("displayName") != null ? oci.get("displayName") : oci.get("modelName")) : null;
         String dn = (display != null && display.isTextual()) ? display.asText().trim() : null;
         // 如果 displayName 看起来像真实模型名（例如 xai.grok-...），优先使用它作为 OpenAI model id
         if (dn != null && !dn.isBlank()) {
