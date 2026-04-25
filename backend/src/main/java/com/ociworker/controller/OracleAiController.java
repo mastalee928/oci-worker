@@ -11,6 +11,11 @@ import jakarta.annotation.Resource;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
 
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -161,6 +166,56 @@ public class OracleAiController {
         u.setGenerativeConversationStoreId(trimToNullOrBlank(body.get("generativeConversationStoreId")));
         ociUserMapper.updateById(u);
         return ResponseData.ok();
+    }
+
+    /**
+     * 面板内置对话测试：浏览器调用本接口（同源 /api），由后端在服务器本机直连 OpenAI 兼容端口（:openaiApiPort/v1）。
+     * 解决浏览器无法访问 8080（防火墙/反代/跨域）的问题。
+     */
+    @PostMapping("/chat-test")
+    public ResponseData<?> chatTest(@RequestBody Map<String, Object> body) {
+        String apiKey = body == null ? null : String.valueOf(body.getOrDefault("apiKey", "")).trim();
+        String model = body == null ? null : String.valueOf(body.getOrDefault("model", "")).trim();
+        String input = body == null ? null : String.valueOf(body.getOrDefault("input", "")).trim();
+        if (apiKey == null || apiKey.isBlank()) {
+            return ResponseData.error("apiKey 必填");
+        }
+        if (model == null || model.isBlank()) {
+            return ResponseData.error("model 必填");
+        }
+        if (input == null || input.isBlank()) {
+            return ResponseData.error("input 必填");
+        }
+        String bearer = apiKey.toLowerCase().startsWith("bearer ") ? apiKey : "Bearer " + apiKey;
+        String url = "http://127.0.0.1:" + openaiApiPort + "/v1/chat/completions";
+        String payload = "{\"model\":" + jsonString(model)
+                + ",\"messages\":[{\"role\":\"user\",\"content\":" + jsonString(input) + "}],\"stream\":false}";
+        try {
+            HttpRequest req = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .timeout(java.time.Duration.ofSeconds(120))
+                    .header("content-type", "application/json")
+                    .header("authorization", bearer)
+                    .POST(HttpRequest.BodyPublishers.ofString(payload, StandardCharsets.UTF_8))
+                    .build();
+            HttpResponse<String> resp = HttpClient.newHttpClient()
+                    .send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            Map<String, Object> out = new HashMap<>();
+            out.put("status", resp.statusCode());
+            out.put("body", resp.body() != null ? resp.body() : "");
+            return ResponseData.ok(out);
+        } catch (Exception e) {
+            return ResponseData.error("chat-test 调用失败: " + (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName()));
+        }
+    }
+
+    private static String jsonString(String s) {
+        if (s == null) {
+            return "null";
+        }
+        String t = s.replace("\\", "\\\\").replace("\"", "\\\"");
+        t = t.replace("\r", "\\r").replace("\n", "\\n");
+        return "\"" + t + "\"";
     }
 
     private static String trimToNullOrBlank(String s) {

@@ -248,6 +248,7 @@ import {
   getOracleAiGenerativeContext,
   saveOracleAiGenerativeContext,
   listGenerativeProjects,
+  oracleAiChatTest,
 } from '../api/oracleAi'
 
 const tenantsLoading = ref(false)
@@ -571,32 +572,22 @@ async function sendChatTest() {
   chatAssistantText.value = ''
   chatError.value = ''
   try {
-    const url = `${publicBaseUrl.value}/chat/completions`
-    const payload = {
+    const r: any = await oracleAiChatTest({
+      apiKey: chatApiKey.value,
       model: chatModel.value,
-      messages: [{ role: 'user', content: chatUserText.value }],
-      stream: false,
-    }
-    const resp = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'content-type': 'application/json',
-        authorization: chatApiKey.value.startsWith('Bearer ')
-          ? chatApiKey.value
-          : `Bearer ${chatApiKey.value}`,
-      },
-      body: JSON.stringify(payload),
+      input: chatUserText.value,
     })
-    const text = await resp.text()
-    if (!resp.ok) {
-      chatError.value = `HTTP ${resp.status}\n${text}`
+    const status = r?.data?.status ?? r?.status
+    const body = r?.data?.body ?? r?.body ?? ''
+    if (typeof status === 'number' && status >= 400) {
+      chatError.value = `HTTP ${status}\n${String(body || '')}`
       return
     }
     let json: any
     try {
-      json = JSON.parse(text)
+      json = typeof body === 'string' ? JSON.parse(body) : body
     } catch {
-      chatAssistantText.value = text
+      chatAssistantText.value = String(body || '')
       return
     }
     const c0 = json?.choices?.[0]

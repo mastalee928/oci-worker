@@ -40,3 +40,7 @@ export function saveOracleAiGenerativeContext(data: {
 export function listGenerativeProjects(data: { ociUserId: string }) {
   return request.post('/oci/oracle-ai/generative-projects/list', data)
 }
+
+export function oracleAiChatTest(data: { apiKey: string; model: string; input: string }) {
+  return request.post('/oci/oracle-ai/chat-test', data)
+}
