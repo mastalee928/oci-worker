@@ -42,14 +42,35 @@
             </a-form-item>
             <a-typography-text type="secondary" class="ma-hint">
               Multi-Agent 模型在 OCI 上要求 <code>OpenAI-Project</code> 或 <code>opc-conversation-store-id</code>；若经 New
-              API 等无法转发明文头，请在此为当前租户保存至少一项（与控制台/文档中的资源标识一致）。
+              API 等无法转发明文头，请在此为当前租户保存至少一项。OpenAI-Project 可点下面「从 OCI 拉取项目」用管理面 API
+              自动列举；<code>opc-conversation-store-id</code> 需从控制台复制资源 OCID（当前无统一列举入口）。
             </a-typography-text>
             <a-form-item label="OpenAI-Project（可选）">
               <a-input
                 v-model:value="generativeOpenaiProject"
-                placeholder="按 OCI 要求填写，保存后 /v1 自动带此头"
+                placeholder="可手动粘贴 Project OCID，或拉取后从下拉选择"
                 allow-clear
               />
+              <a-space class="ma-actions" wrap>
+                <a-button
+                  size="small"
+                  :disabled="!ociUserId"
+                  :loading="gaProjectsLoading"
+                  @click="fetchGenerativeProjects"
+                >
+                  从 OCI 拉取项目
+                </a-button>
+                <a-select
+                  v-if="gaProjectOptions.length"
+                  :options="gaProjectOptions"
+                  show-search
+                  :filter-option="filterGaProject"
+                  allow-clear
+                  placeholder="选择后填入上方输入框"
+                  style="min-width: 220px"
+                  @change="(v: any) => onPickGaProject(v as string | undefined)"
+                />
+              </a-space>
             </a-form-item>
             <a-form-item label="opc-conversation-store-id（可选）">
               <a-input
@@ -178,6 +199,7 @@ import {
   listOpenAiModels,
   getOracleAiGenerativeContext,
   saveOracleAiGenerativeContext,
+  listGenerativeProjects,
 } from '../api/oracleAi'
 
 const tenantsLoading = ref(false)
@@ -201,6 +223,8 @@ const baseHint = ref('')
 const generativeOpenaiProject = ref('')
 const generativeConversationStoreId = ref('')
 const generativeContextSaving = ref(false)
+const gaProjectsLoading = ref(false)
+const gaProjectOptions = ref<{ label: string; value: string }[]>([])
 
 const keyColumns = [
   { title: '备注', dataIndex: 'name', key: 'name' },
@@ -302,6 +326,11 @@ function filterModel(input: string, opt: any) {
     .toLowerCase()
     .includes((input || '').toLowerCase()))
 }
+function filterGaProject(input: string, option: any) {
+  return (String(option?.label || '') + String(option?.value || ''))
+    .toLowerCase()
+    .includes((input || '').toLowerCase())
+}
 
 async function loadTenants() {
   tenantsLoading.value = true
@@ -335,6 +364,7 @@ function onTenantChange() {
   modelPick.value = []
   generativeOpenaiProject.value = ''
   generativeConversationStoreId.value = ''
+  gaProjectOptions.value = []
   persistState()
   loadGenerativeContext()
   loadModelsIfNeeded(false)
@@ -352,6 +382,39 @@ async function loadGenerativeContext() {
     generativeConversationStoreId.value =
       typeof d?.generativeConversationStoreId === 'string' ? d.generativeConversationStoreId : ''
   } catch {
+  }
+}
+
+async function fetchGenerativeProjects() {
+  if (!ociUserId.value) return
+  gaProjectsLoading.value = true
+  try {
+    const r: any = await listGenerativeProjects({ ociUserId: ociUserId.value })
+    const items = r?.data?.items
+    if (!Array.isArray(items) || !items.length) {
+      gaProjectOptions.value = []
+      message.info('未找到 Generative AI 项目：请确认已在该租户/区间下创建项目，且 API 用户具备列举权限')
+      return
+    }
+    gaProjectOptions.value = items
+      .map((x: any) => {
+        const id = String(x?.id || '').trim()
+        if (!id) return null
+        const label = String(x?.displayName || x?.id || '').trim() || id
+        return { value: id, label }
+      })
+      .filter((x: any) => x) as { label: string; value: string }[]
+    message.success(`已拉取 ${gaProjectOptions.value.length} 个项目，请从下拉选择以填入上方`)
+  } catch (e: any) {
+    message.error(e?.message || e?.data?.message || '拉取项目失败')
+  } finally {
+    gaProjectsLoading.value = false
+  }
+}
+
+function onPickGaProject(v: string | undefined) {
+  if (v != null && v !== '') {
+    generativeOpenaiProject.value = String(v)
   }
 }
 
@@ -495,6 +558,7 @@ function removeK(k: any) {
   margin: 0 0 8px 0;
 }
 .ma-hint code { font-size: 11px; }
+.ma-actions { margin-top: 8px; }
 .mb-alert { margin: 0 0 8px; }
 .code-wrap {
   word-break: break-all;

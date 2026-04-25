@@ -215,6 +215,86 @@ public class OciGenerativeOpenAiService {
         return ociModelsToOpenAiList(MAPPER.createObjectNode().set("items", toArrayNode(all)));
     }
 
+    /**
+     * 管理面：列出 Generative AI Project，用于面板一键填入 OpenAI-Project 头（值为 Project OCID）。
+     * 使用与 ListModels 相同的 compartmentId（当前为租户 tenant OCID，与现网 /v1 行为一致）。
+     */
+    public JsonNode listGenerativeAiProjectSummaries(OciUser tenant) throws Exception {
+        String regionId = OciRegionUtil.publicRegionId(tenant.getOciRegion());
+        String managementHost = "generativeai." + regionId + ".oci.oraclecloud.com";
+        String compartmentId = tenant.getOciTenantId();
+        if (compartmentId == null || compartmentId.isBlank()) {
+            throw new OciException("租户无 ociTenantId，无法列举 Generative AI 项目");
+        }
+        List<JsonNode> all = new ArrayList<>();
+        String page = null;
+        for (int p = 0; p < LIST_MAX_PAGES; p++) {
+            String q =
+                    "compartmentId="
+                            + java.net.URLEncoder.encode(compartmentId, StandardCharsets.UTF_8)
+                            + "&limit="
+                            + LIST_PAGE_LIMIT;
+            if (page != null) {
+                q = q + "&page=" + java.net.URLEncoder.encode(page, StandardCharsets.UTF_8);
+            }
+            URI listUri = URI.create(
+                    "https://" + managementHost + "/" + GA_API_VERSION + "/generativeAiProjects?" + q);
+            HttpRequest req = buildSignedRequest(
+                    newRequestSigner(tenant),
+                    "GET",
+                    listUri,
+                    null,
+                    "application/json",
+                    "application/json",
+                    compartmentId,
+                    null);
+            HttpResponse<String> resp;
+            try {
+                resp = pickHttpClient()
+                        .send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            } catch (Exception e) {
+                throw new OciException("列举 generativeAiProjects 异常(" + e.getClass().getSimpleName() + "): "
+                        + (e.getMessage() != null ? e.getMessage() : "未知错误"));
+            }
+            if (resp.statusCode() / 100 != 2) {
+                throw new OciException("列举 generativeAiProjects 失败: HTTP " + resp.statusCode()
+                        + " body=" + truncate(resp.body(), 800));
+            }
+            JsonNode root = MAPPER.readTree(resp.body() != null ? resp.body() : "{}");
+            JsonNode items = root.get("items");
+            if (items != null && items.isArray()) {
+                for (JsonNode it : items) {
+                    all.add(it);
+                }
+            }
+            String next = resp.headers().firstValue("opc-next-page").orElse(null);
+            if (next == null || next.isBlank()) {
+                break;
+            }
+            page = next;
+        }
+        com.fasterxml.jackson.databind.node.ArrayNode arr = MAPPER.createArrayNode();
+        for (JsonNode it : all) {
+            if (it == null || !it.isObject()) {
+                continue;
+            }
+            String id = firstText(it, "id");
+            if (id == null || id.isBlank()) {
+                continue;
+            }
+            ObjectNode row = MAPPER.createObjectNode();
+            row.put("id", id);
+            String dn = firstText(it, "displayName");
+            if (dn != null && !dn.isBlank()) {
+                row.put("displayName", dn);
+            }
+            arr.add(row);
+        }
+        ObjectNode out = MAPPER.createObjectNode();
+        out.set("items", arr);
+        return out;
+    }
+
     private static ArrayNode toArrayNode(List<JsonNode> nodes) {
         ArrayNode a = MAPPER.createArrayNode();
         for (JsonNode n : nodes) {

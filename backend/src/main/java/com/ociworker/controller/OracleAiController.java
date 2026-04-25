@@ -114,6 +114,25 @@ public class OracleAiController {
         }
     }
 
+    @PostMapping("/generative-projects/list")
+    public ResponseData<?> listGenerativeProjects(@RequestBody Map<String, String> body) {
+        if (body == null || body.get("ociUserId") == null) {
+            return ResponseData.error("ociUserId 必填");
+        }
+        OciUser u = ociUserMapper.selectById(body.get("ociUserId"));
+        if (u == null) {
+            return ResponseData.error("租户不存在");
+        }
+        try {
+            JsonNode j = generativeOpenAiService.listGenerativeAiProjectSummaries(u);
+            return ResponseData.ok(j);
+        } catch (com.ociworker.exception.OciException e) {
+            return ResponseData.error(e.getMessage());
+        } catch (Exception e) {
+            return ResponseData.error("列举项目失败: " + (e.getMessage() != null ? e.getMessage() : "未知错误"));
+        }
+    }
+
     @PostMapping("/generative-context/get")
     public ResponseData<?> getGenerativeContext(@RequestBody Map<String, String> body) {
         if (body == null || body.get("ociUserId") == null) {

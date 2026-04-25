@@ -35,3 +35,8 @@ export function saveOracleAiGenerativeContext(data: {
 }) {
   return request.post('/oci/oracle-ai/generative-context/save', data)
 }
+
+/** 管理面 ListGenerativeAiProject，用于一键填入 OpenAI-Project */
+export function listGenerativeProjects(data: { ociUserId: string }) {
+  return request.post('/oci/oracle-ai/generative-projects/list', data)
+}
