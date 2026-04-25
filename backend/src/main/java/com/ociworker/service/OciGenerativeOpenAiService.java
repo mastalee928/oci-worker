@@ -478,11 +478,12 @@ public class OciGenerativeOpenAiService {
         } else if (body != null && body.length > 0) {
             headers.put("content-type", list("application/json"));
         }
-        // OCI Java SDK 的 signer 对 body 类型有限制；byte[] 会触发
-        // IllegalArgumentException: Unexpected body type: [B
+        // OCI Java SDK 的 signer 对 body 类型有限制：
+        // - byte[] 会触发 IllegalArgumentException: Unexpected body type: [B
+        // - 普通 InputStream 会触发 IllegalArgumentException: Only DuplicatableInputStream supported...
         Object toSign = null;
         if (body != null && body.length > 0) {
-            toSign = new java.io.ByteArrayInputStream(body);
+            toSign = new com.oracle.bmc.http.internal.WrappedByteArrayInputStream(body);
         }
         Object signedObject = signer.signRequest(uri, method, headers, toSign);
         Map<String, List<String>> signed = castSignedHeaders(signedObject);
