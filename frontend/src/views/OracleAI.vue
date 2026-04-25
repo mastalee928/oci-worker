@@ -40,6 +40,34 @@
             <a-form-item v-if="selectedRegion" label="区域">
               <a-tag color="blue">{{ selectedRegion }}</a-tag>
             </a-form-item>
+            <a-typography-text type="secondary" class="ma-hint">
+              Multi-Agent 模型在 OCI 上要求 <code>OpenAI-Project</code> 或 <code>opc-conversation-store-id</code>；若经 New
+              API 等无法转发明文头，请在此为当前租户保存至少一项（与控制台/文档中的资源标识一致）。
+            </a-typography-text>
+            <a-form-item label="OpenAI-Project（可选）">
+              <a-input
+                v-model:value="generativeOpenaiProject"
+                placeholder="按 OCI 要求填写，保存后 /v1 自动带此头"
+                allow-clear
+              />
+            </a-form-item>
+            <a-form-item label="opc-conversation-store-id（可选）">
+              <a-input
+                v-model:value="generativeConversationStoreId"
+                placeholder="常见为 Conversation Store 的 OCID，保存后自动带此头"
+                allow-clear
+              />
+            </a-form-item>
+            <a-form-item>
+              <a-button
+                type="default"
+                :disabled="!ociUserId"
+                :loading="generativeContextSaving"
+                @click="saveGenerativeContext"
+              >
+                保存 Multi-Agent 头
+              </a-button>
+            </a-form-item>
             <a-form-item label="可选模型（OCI 管理面 ListModels）">
               <a-select
                 v-model:value="modelPick"
@@ -131,7 +159,8 @@
     <a-divider />
     <div class="sub sub-bottom">
       说明：未带 <code>max_tokens</code> 时网关会补默认 4000；请求体里 <code>force_non_stream: true</code> 会强制非流式。
-      模型列表来自 OCI 管理面 <code>ListModels</code>（用于查看可用模型），推理走 <code>/v1/chat/completions</code>。
+      Multi-Agent 在网关内会走 <code>/v1/responses</code>；新库若缺列需执行
+      <code>upgrade-oci-generative-tenant-columns.sql</code>。
     </div>
   </div>
 </template>
@@ -147,6 +176,8 @@ import {
   setOracleKeyDisabled,
   removeOracleKey,
   listOpenAiModels,
+  getOracleAiGenerativeContext,
+  saveOracleAiGenerativeContext,
 } from '../api/oracleAi'
 
 const tenantsLoading = ref(false)
@@ -167,6 +198,9 @@ const plainKeyModalOpen = ref(false)
 const newKeyPlain = ref('')
 const keyName = ref('')
 const baseHint = ref('')
+const generativeOpenaiProject = ref('')
+const generativeConversationStoreId = ref('')
+const generativeContextSaving = ref(false)
 
 const keyColumns = [
   { title: '备注', dataIndex: 'name', key: 'name' },
@@ -281,6 +315,7 @@ async function loadTenants() {
     }))
     // 恢复时如果租户仍存在，则自动拉取模型/密钥
     if (ociUserId.value && tenantOptions.value.some((x) => x.value === ociUserId.value)) {
+      loadGenerativeContext()
       loadModelsIfNeeded(false)
       refreshKeys()
     }
@@ -298,9 +333,43 @@ function onTenantChange() {
   }
   modelOptions.value = []
   modelPick.value = []
+  generativeOpenaiProject.value = ''
+  generativeConversationStoreId.value = ''
   persistState()
+  loadGenerativeContext()
   loadModelsIfNeeded(false)
   refreshKeys()
+}
+
+async function loadGenerativeContext() {
+  if (!ociUserId.value) {
+    return
+  }
+  try {
+    const r: any = await getOracleAiGenerativeContext({ ociUserId: ociUserId.value })
+    const d = r?.data || r
+    generativeOpenaiProject.value = typeof d?.generativeOpenaiProject === 'string' ? d.generativeOpenaiProject : ''
+    generativeConversationStoreId.value =
+      typeof d?.generativeConversationStoreId === 'string' ? d.generativeConversationStoreId : ''
+  } catch {
+  }
+}
+
+async function saveGenerativeContext() {
+  if (!ociUserId.value) return
+  generativeContextSaving.value = true
+  try {
+    await saveOracleAiGenerativeContext({
+      ociUserId: ociUserId.value,
+      generativeOpenaiProject: generativeOpenaiProject.value ?? '',
+      generativeConversationStoreId: generativeConversationStoreId.value ?? '',
+    })
+    message.success('已保存')
+  } catch (e: any) {
+    message.error(e?.message || '保存失败')
+  } finally {
+    generativeContextSaving.value = false
+  }
 }
 
 watch(
@@ -419,6 +488,13 @@ function removeK(k: any) {
 }
 .mb-card { margin-bottom: 16px; }
 .mt-card { margin-top: 8px; }
+.ma-hint {
+  display: block;
+  font-size: 12px;
+  line-height: 1.5;
+  margin: 0 0 8px 0;
+}
+.ma-hint code { font-size: 11px; }
 .mb-alert { margin: 0 0 8px; }
 .code-wrap {
   word-break: break-all;

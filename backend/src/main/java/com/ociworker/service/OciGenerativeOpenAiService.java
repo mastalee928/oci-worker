@@ -137,7 +137,7 @@ public class OciGenerativeOpenAiService {
                 contentType,
                 accept,
                 tenant != null ? tenant.getOciTenantId() : null,
-                extractOciGenerativeForwardHeaders(request));
+                extractOciGenerativeForwardHeaders(request, tenant));
         HttpClient client = pickHttpClient();
 
         boolean useStreamCopy =
@@ -305,7 +305,7 @@ public class OciGenerativeOpenAiService {
             row.put(
                     "ociworkerNote",
                     "该模型为 Multi Agent：本网关会把 /v1/chat/completions 改写为 /v1/responses 并尽量把响应装成 chat.completion。"
-                            + " OCI 通常还要求请求里提供 OpenAI-Project 或 opc-conversation-store-id（请经上游在 HTTP 头里传到 oci-worker）。");
+                            + " OCI 通常要求 OpenAI-Project 或 opc-conversation-store-id；可在「Oracle 生成式 AI」页为租户保存默认值，或由上游转发明文头。");
         }
         return row;
     }
@@ -752,21 +752,33 @@ public class OciGenerativeOpenAiService {
     }
 
     /**
-     * 从进入网关的 HTTP 请求提取 OCI Generative（尤其 Multi-Agent / responses）可能要求的头，并原样透传到推理面且参与签名。
-     * 中间层（如 New API）若需使用 Multi-Agent，可在渠道上配置把这些头转发到本服务。
+     * 组合 OCI Generative（尤其 Multi-Agent / responses）可能要求的请求头并参与签名：
+     * 优先使用入站 HTTP 头；缺省项使用租户在面板中保存的默认值（应对 New API 等不转发自定义头的情况）。
      */
-    private static Map<String, String> extractOciGenerativeForwardHeaders(HttpServletRequest request) {
-        if (request == null) {
-            return null;
-        }
+    private static Map<String, String> extractOciGenerativeForwardHeaders(
+            HttpServletRequest request, OciUser tenant) {
         Map<String, String> out = new LinkedHashMap<>();
-        String project = firstRequestHeader(request, "OpenAI-Project", "openai-project", "X-OpenAI-Project");
-        if (project != null && !project.isBlank()) {
-            out.put("OpenAI-Project", project.trim());
+        if (request != null) {
+            String project = firstRequestHeader(request, "OpenAI-Project", "openai-project", "X-OpenAI-Project");
+            if (project != null && !project.isBlank()) {
+                out.put("OpenAI-Project", project.trim());
+            }
+            String convStore = firstRequestHeader(request, "opc-conversation-store-id", "OPC-Conversation-Store-Id");
+            if (convStore != null && !convStore.isBlank()) {
+                out.put("opc-conversation-store-id", convStore.trim());
+            }
         }
-        String convStore = firstRequestHeader(request, "opc-conversation-store-id", "OPC-Conversation-Store-Id");
-        if (convStore != null && !convStore.isBlank()) {
-            out.put("opc-conversation-store-id", convStore.trim());
+        if (tenant != null) {
+            if (!out.containsKey("OpenAI-Project")
+                    && tenant.getGenerativeOpenaiProject() != null
+                    && !tenant.getGenerativeOpenaiProject().isBlank()) {
+                out.put("OpenAI-Project", tenant.getGenerativeOpenaiProject().trim());
+            }
+            if (!out.containsKey("opc-conversation-store-id")
+                    && tenant.getGenerativeConversationStoreId() != null
+                    && !tenant.getGenerativeConversationStoreId().isBlank()) {
+                out.put("opc-conversation-store-id", tenant.getGenerativeConversationStoreId().trim());
+            }
         }
         return out.isEmpty() ? null : out;
     }

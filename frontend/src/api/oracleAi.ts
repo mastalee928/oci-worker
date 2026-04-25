@@ -23,3 +23,15 @@ export function removeOracleKey(data: { id: string }) {
 export function listOpenAiModels(data: { ociUserId: string; after?: string; modelId?: string }) {
   return request.post('/oci/oracle-ai/models', data)
 }
+
+export function getOracleAiGenerativeContext(data: { ociUserId: string }) {
+  return request.post('/oci/oracle-ai/generative-context/get', data)
+}
+
+export function saveOracleAiGenerativeContext(data: {
+  ociUserId: string
+  generativeOpenaiProject?: string
+  generativeConversationStoreId?: string
+}) {
+  return request.post('/oci/oracle-ai/generative-context/save', data)
+}
