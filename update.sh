@@ -9,6 +9,13 @@ ASSET_NAME="oci-worker-1.0.0.jar"
 
 ts() { date "+%Y-%m-%d %H:%M:%S"; }
 
+# If set to 1, always download/overwrite (skip conditional/short-circuit checks)
+FORCE="${OCI_WORKER_UPDATE_FORCE:-0}"
+
+# Default: 1 = stop only after a successful download (old service keeps running while downloading)
+# Set to 0 to keep the older behavior: stop first, then download.
+START_AFTER_SUCCESS="${OCI_WORKER_UPDATE_START_AFTER_SUCCESS:-1}"
+
 detect_port() {
     local cfg="${INSTALL_DIR}/application.yml"
     local p=""
@@ -54,7 +61,9 @@ fi
 
 OLD_SIZE=$(stat -c%s "$INSTALL_DIR/$JAR_NAME" 2>/dev/null || echo "0")
 echo "📦 当前 JAR 大小: $(numfmt --to=iec $OLD_SIZE 2>/dev/null || echo "${OLD_SIZE} bytes")"
+echo "（提示：慢通常发生在 GitHub Release 拉包；若与上次是同一个文件，将自动跳过。可用 OCI_WORKER_UPDATE_FORCE=1 强制重下）"
 
+T0_START="$(date +%s)"
 echo "[$(ts)] 🔍 获取最新版本下载地址..."
 JAR_URL=$(curl -sL "https://api.github.com/repos/${REPO}/releases/latest" \
   | grep -o "https://github.com/${REPO}/releases/download/[^\"]*${ASSET_NAME}" \
@@ -66,35 +75,103 @@ if [ -z "$JAR_URL" ]; then
 fi
 echo "📎 下载地址: $JAR_URL"
 
-echo "[$(ts)] ⏹  停止服务..."
-sudo systemctl stop "$SERVICE_NAME" 2>/dev/null || true
-sleep 1
+META_FILE="${INSTALL_DIR}/.${JAR_NAME}.update-meta"
+
+# Fast path: compare remote ETag+size+URL; if same, nothing to do.
+# This avoids repeated big downloads on servers with slower GitHub paths.
+if [ "$FORCE" != "1" ] && [ -f "$META_FILE" ]; then
+  PREV_URL="$(awk -F'\t' 'NR==1{print $0}' "$META_FILE" 2>/dev/null || true)"
+  PREV_ETAG="$(awk -F'\t' 'NR==2{print $0}' "$META_FILE" 2>/dev/null || true)"
+  PREV_SIZE="$(awk -F'\t' 'NR==3{print $0}' "$META_FILE" 2>/dev/null || true)"
+  if [ -n "$PREV_URL" ] && [ -n "$PREV_ETAG" ] && [ -n "$PREV_SIZE" ] && [ "$PREV_URL" = "$JAR_URL" ]; then
+    T_META_START="$(date +%s)"
+    echo "[$(ts)] 🧪 预检：获取远端元数据（ETag/大小）..."
+    curl -fsSIL --retry 2 --retry-delay 1 --connect-timeout 10 --max-time 30 \
+      -D "$INSTALL_DIR/$JAR_NAME.head" "$JAR_URL" 2>/dev/null || true
+    REMOTE_ETAG=""
+    REMOTE_LEN=""
+    if [ -f "$INSTALL_DIR/$JAR_NAME.head" ]; then
+      REMOTE_ETAG="$(grep -i '^etag:' "$INSTALL_DIR/$JAR_NAME.head" | head -1 | cut -d: -f2- | tr -d "\r" | xargs || true)"
+      # Content-Length on redirected GitHub release assets is often the real asset size
+      REMOTE_LEN="$(grep -i '^content-length:' "$INSTALL_DIR/$JAR_NAME.head" | tail -1 | cut -d: -f2- | tr -d "\r" | xargs || true)"
+      rm -f "$INSTALL_DIR/$JAR_NAME.head" 2>/dev/null || true
+    fi
+    T_META_END="$(date +%s)"
+    if [ -n "$REMOTE_ETAG" ] && [ -n "$REMOTE_LEN" ] \
+      && [ "$REMOTE_ETAG" = "$PREV_ETAG" ] && [ "$REMOTE_LEN" = "$PREV_SIZE" ]; then
+      echo "[$(ts)] ⏩ 远端文件未变（ETag+大小一致），跳过更新。预检耗时: $((T_META_END - T_META_START))s，总耗时: $((T_META_END - T0_START))s"
+      exit 0
+    else
+      echo "[$(ts)] ℹ  远端有变化，或元数据不足；继续更新。"
+    fi
+  fi
+fi
+
+if [ "$START_AFTER_SUCCESS" = "1" ]; then
+  echo "[$(ts)] ⬇  先下载新包（服务保持旧版本运行，下载结束后再切）"
+else
+  echo "[$(ts)] ⏹  停止服务..."
+  sudo systemctl stop "$SERVICE_NAME" 2>/dev/null || true
+  sleep 1
+fi
 
 echo "[$(ts)] ⬇  下载最新版本（首次无输出可能在 DNS/TLS/下载中，请稍等）..."
+T_DL_START="$(date +%s)"
+# Resume partial downloads, record Last-Modified for conditional updates next time.
+# Note: if release asset URL redirects, -J/--remote-time still stores correct file time in many cases.
 sudo curl -fSL --retry 3 --retry-delay 5 --connect-timeout 15 --max-time 600 \
-  --progress-bar -o "$INSTALL_DIR/$JAR_NAME.tmp" "$JAR_URL"
+  --progress-bar -C - --remote-time -J \
+  -o "$INSTALL_DIR/$JAR_NAME.tmp" "$JAR_URL"
+T_DL_END="$(date +%s)"
 
 NEW_SIZE=$(stat -c%s "$INSTALL_DIR/$JAR_NAME.tmp" 2>/dev/null || echo "0")
 if [ "$NEW_SIZE" -lt 1000 ]; then
     echo "❌ 下载失败：文件大小异常 (${NEW_SIZE} bytes)"
     sudo rm -f "$INSTALL_DIR/$JAR_NAME.tmp"
     echo "▶  恢复启动旧版本..."
-    sudo systemctl start "$SERVICE_NAME"
+    sudo systemctl start "$SERVICE_NAME" 2>/dev/null || true
     exit 1
 fi
 
+ETAG=""
+CLEN="${NEW_SIZE}"
+curl -fsSIL --retry 2 --retry-delay 1 --connect-timeout 10 --max-time 30 \
+  -D "$INSTALL_DIR/$JAR_NAME.head" "$JAR_URL" 2>/dev/null || true
+if [ -f "$INSTALL_DIR/$JAR_NAME.head" ]; then
+  ETAG="$(grep -i '^etag:' "$INSTALL_DIR/$JAR_NAME.head" | head -1 | cut -d: -f2- | tr -d "\r" | xargs || true)"
+  HCLEN="$(grep -i '^content-length:' "$INSTALL_DIR/$JAR_NAME.head" | tail -1 | cut -d: -f2- | tr -d "\r" | xargs || true)"
+  if [ -n "$HCLEN" ]; then
+    CLEN="$HCLEN"
+  fi
+  rm -f "$INSTALL_DIR/$JAR_NAME.head" 2>/dev/null || true
+fi
+{
+  echo "$JAR_URL"
+  echo "${ETAG:-}"
+  echo "${CLEN:-}"
+} | sudo tee "$META_FILE" >/dev/null
+
 sudo mv "$INSTALL_DIR/$JAR_NAME.tmp" "$INSTALL_DIR/$JAR_NAME"
-echo "📦 新 JAR 大小: $(numfmt --to=iec $NEW_SIZE 2>/dev/null || echo "${NEW_SIZE} bytes")"
+echo "📦 新 JAR 大小: $(numfmt --to=iec $NEW_SIZE 2>/dev/null || echo "${NEW_SIZE} bytes") (下载+校验耗时: $((T_DL_END - T_DL_START))s)"
+
+if [ "$START_AFTER_SUCCESS" = "1" ]; then
+  echo "[$(ts)] ⏹  停止旧服务并替换后启动（OCI_WORKER_UPDATE_START_AFTER_SUCCESS=1）"
+  sudo systemctl stop "$SERVICE_NAME" 2>/dev/null || true
+  sleep 1
+fi
 
 echo "[$(ts)] ▶  启动服务..."
 sudo systemctl start "$SERVICE_NAME"
 
 PORT="$(detect_port)"
 echo "[$(ts)] ⏳ 等待服务就绪（最多 90s，端口 ${PORT}）..."
+T_UP_START="$(date +%s)"
 if systemctl is-active --quiet "$SERVICE_NAME" && wait_for_port "${PORT}" 90; then
+    T_UP_END="$(date +%s)"
     echo ""
     echo "✅ 更新完成，服务已启动"
     echo "🌐 本机访问: http://127.0.0.1:${PORT}"
+    echo "⏱  启动+就绪: $((T_UP_END - T_UP_START))s；总耗时: $((T_UP_END - T0_START))s"
     echo "📋 查看日志: sudo journalctl -u $SERVICE_NAME -f --no-pager"
 else
     echo ""
