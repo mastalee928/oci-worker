@@ -102,6 +102,8 @@
             allow-clear
             show-search
             :filter-option="filterModel"
+            :max-tag-count="6"
+            :max-tag-placeholder="(omittedValues: any[]) => `+${omittedValues?.length || 0}`"
           />
         </a-form-item>
         <a-button type="primary" :loading="modelsLoading" :disabled="!ociUserId" @click="() => loadModelsIfNeeded(true)">
@@ -237,7 +239,14 @@ const ociUserId = ref<string | undefined>(undefined)
 const tenantOptions = ref<{ label: string; value: string; ociRegion: string }[]>([])
 const keys = ref<any[]>([])
 const modelPick = ref<string[]>([])
-const modelOptions = ref<{ label: string; value: string }[]>([])
+const modelOptions = ref<
+  {
+    label: string
+    value: string
+    title?: string
+    disabled?: boolean
+  }[]
+>([])
 
 const keyModalOpen = ref(false)
 const plainKeyModalOpen = ref(false)
@@ -255,6 +264,9 @@ const chatUserText = ref('')
 const chatAssistantText = ref('')
 const chatError = ref('')
 const chatSending = ref(false)
+
+const CHAT_BAD_MODELS_LS = 'ociworker.oracleAi.chatTest.badModels.v1'
+const chatBadModels = ref<Record<string, { code: number; msg: string; at: number }>>({})
 
 const keyColumns = [
   { title: '备注', dataIndex: 'name', key: 'name' },
@@ -330,6 +342,37 @@ function loadChatPersisted() {
   }
 }
 
+function loadChatBadModels() {
+  if (typeof window === 'undefined') return
+  try {
+    const raw = localStorage.getItem(CHAT_BAD_MODELS_LS)
+    if (!raw) return
+    const obj = JSON.parse(raw || '{}') || {}
+    if (obj && typeof obj === 'object') {
+      chatBadModels.value = obj
+    }
+  } catch {
+  }
+}
+
+function persistChatBadModels() {
+  if (typeof window === 'undefined') return
+  try {
+    localStorage.setItem(CHAT_BAD_MODELS_LS, JSON.stringify(chatBadModels.value || {}))
+  } catch {
+  }
+}
+
+function markChatModelBad(model: string, code: number, msg: string) {
+  const m = String(model || '').trim()
+  if (!m) return
+  chatBadModels.value = {
+    ...(chatBadModels.value || {}),
+    [m]: { code, msg: String(msg || ''), at: Date.now() },
+  }
+  persistChatBadModels()
+}
+
 function persistChatState() {
   if (typeof window === 'undefined') return
   try {
@@ -353,6 +396,7 @@ onMounted(() => {
   window.addEventListener('resize', checkM)
   loadPersistedState()
   loadChatPersisted()
+  loadChatBadModels()
   loadGateway()
   loadTenants()
 })
@@ -468,11 +512,32 @@ async function loadModelsIfNeeded(alertOnErr: boolean) {
         if (!id) return null
         const note = String(m?.ociworkerNote || '').trim()
         const ociId = String(m?.ociId || '').trim()
+        const bad = chatBadModels.value?.[id]
         const finalLabel = `${label || id}`
         const titleBits = [note, ociId].filter((x) => x && x.trim())
-        return { value: id, label: finalLabel, title: titleBits.length ? titleBits.join(' | ') : finalLabel }
+        const badHint = bad ? `不可用于对话测试：HTTP ${bad.code} ${bad.msg}` : ''
+        const title = [...titleBits, badHint].filter((x) => x && x.trim()).join(' | ') || finalLabel
+        return { value: id, label: finalLabel, title, disabled: !!bad }
       })
       .filter((x) => x) as any
+
+    // 防止“已选模型”因 options 刷新而丢失：把已选 value 补进 options（只做展示）
+    const existing = new Set(modelOptions.value.map((x: any) => String(x?.value || '')))
+    const ensure = (v: any) => {
+      const s = String(v || '').trim()
+      if (!s || existing.has(s)) return
+      const bad = chatBadModels.value?.[s]
+      modelOptions.value.push({
+        value: s,
+        label: `${s}（不在当前列表）`,
+        title: bad ? `不可用于对话测试：HTTP ${bad.code} ${bad.msg}` : '不在当前列表（可能是租户/区域变化或模型下线）',
+        disabled: !!bad,
+      })
+      existing.add(s)
+    }
+    ;(modelPick.value || []).forEach(ensure)
+    if (chatModel.value) ensure(chatModel.value)
+
     if (!chatModel.value && modelOptions.value.length) {
       chatModel.value = modelOptions.value[0].value
     }
@@ -542,6 +607,14 @@ async function sendChatTest() {
     const body = r?.data?.body ?? r?.body ?? ''
     if (typeof status === 'number' && status >= 400) {
       chatError.value = `HTTP ${status}\n${String(body || '')}`
+      const b = String(body || '')
+      const bl = b.toLowerCase()
+      // 记录常见不可用模型，避免反复踩坑
+      if (status === 400 && bl.includes('unsupported openai operation')) {
+        markChatModelBad(model, status, 'Unsupported OpenAI operation')
+      } else if (status === 404 && (bl.includes('entity') || bl.includes('not found'))) {
+        markChatModelBad(model, status, 'Entity not found')
+      }
       return
     }
     parseAndSet(String(body || ''))
