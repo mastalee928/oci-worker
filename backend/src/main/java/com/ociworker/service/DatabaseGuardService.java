@@ -44,6 +44,8 @@ public class DatabaseGuardService {
                 plan_type VARCHAR(32),
                 group_level1 VARCHAR(64) DEFAULT NULL,
                 group_level2 VARCHAR(64) DEFAULT NULL,
+                generative_openai_project VARCHAR(512) DEFAULT NULL,
+                generative_conversation_store_id VARCHAR(512) DEFAULT NULL,
                 create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 INDEX idx_oci_user_create_time (create_time DESC)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
@@ -293,6 +295,8 @@ public class DatabaseGuardService {
     private void migrateColumns(Connection conn) {
         addColumnIfMissing(conn, "oci_user", "group_level1", "VARCHAR(64) DEFAULT NULL AFTER plan_type");
         addColumnIfMissing(conn, "oci_user", "group_level2", "VARCHAR(64) DEFAULT NULL AFTER group_level1");
+        addColumnIfMissing(conn, "oci_user", "generative_openai_project", "VARCHAR(512) DEFAULT NULL AFTER group_level2");
+        addColumnIfMissing(conn, "oci_user", "generative_conversation_store_id", "VARCHAR(512) DEFAULT NULL AFTER generative_openai_project");
         addColumnIfMissing(conn, "oci_create_task", "custom_script", "TEXT DEFAULT NULL AFTER operation_system");
         addColumnIfMissing(conn, "oci_create_task", "assign_public_ip", "TINYINT(1) DEFAULT 1 AFTER custom_script");
         addColumnIfMissing(conn, "oci_create_task", "assign_ipv6", "TINYINT(1) DEFAULT 0 AFTER assign_public_ip");
