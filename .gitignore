@@ -43,3 +43,6 @@ tools/apache-maven-*/
 tools/maven-*.zip
 tools/_patch_*.mjs
 tools/_patch_*.py
+
+# Local compare / clone scratch
+tmp/

@@ -293,6 +293,8 @@ const publicBaseUrl = computed(() => {
 const LS_KEY = 'ociworker.oracleAi.state.v1'
 const LS_CHAT_KEY = 'ociworker.oracleAi.chatTest.v1'
 const restoring = ref(false)
+/** 避免「租户 options 未加载时 a-select 把值清掉」立刻触发 watch 用空值覆盖 localStorage */
+const selectionPersistEnabled = ref(false)
 
 function loadPersistedState() {
   if (typeof window === 'undefined') return
@@ -317,7 +319,7 @@ function loadPersistedState() {
 }
 
 function persistState() {
-  if (typeof window === 'undefined') return
+  if (typeof window === 'undefined' || !selectionPersistEnabled.value) return
   try {
     localStorage.setItem(
       LS_KEY,
@@ -326,6 +328,38 @@ function persistState() {
         modelPick: modelPick.value || [],
       }),
     )
+  } catch {
+  }
+}
+
+/** 租户列表已就绪后，从 localStorage 再应用一次，抵消 Select 在 options 空时的误清空 */
+function reapplyOracleAiSelectionFromStorage() {
+  if (typeof window === 'undefined') return
+  try {
+    const raw = localStorage.getItem(LS_KEY)
+    if (!raw) {
+      if (ociUserId.value && tenantOptions.value.some((x) => x.value === ociUserId.value)) {
+        loadModelsIfNeeded(false)
+        refreshKeys()
+      }
+      return
+    }
+    const s = JSON.parse(raw || '{}') || {}
+    const savedId = typeof s.ociUserId === 'string' ? s.ociUserId.trim() : ''
+    if (savedId && tenantOptions.value.some((x) => x.value === savedId)) {
+      restoring.value = true
+      ociUserId.value = savedId
+      if (Array.isArray(s.modelPick)) {
+        modelPick.value = s.modelPick.filter((x: any) => typeof x === 'string') as string[]
+      }
+      setTimeout(() => {
+        restoring.value = false
+      }, 0)
+    }
+    if (ociUserId.value && tenantOptions.value.some((x) => x.value === ociUserId.value)) {
+      loadModelsIfNeeded(false)
+      refreshKeys()
+    }
   } catch {
   }
 }
@@ -448,6 +482,7 @@ function filterModel(input: string, opt: any) {
 }
 
 async function loadTenants() {
+  selectionPersistEnabled.value = false
   tenantsLoading.value = true
   try {
     const res: any = await getTenantList({ current: 1, size: 5000, keyword: '' })
@@ -457,15 +492,12 @@ async function loadTenants() {
       value: t.id,
       ociRegion: t.ociRegion,
     }))
-    // 恢复时如果租户仍存在，则自动拉取模型/密钥
-    if (ociUserId.value && tenantOptions.value.some((x) => x.value === ociUserId.value)) {
-      loadModelsIfNeeded(false)
-      refreshKeys()
-    }
+    reapplyOracleAiSelectionFromStorage()
   } catch (e: any) {
     message.error(e?.message || '加载租户失败')
   } finally {
     tenantsLoading.value = false
+    selectionPersistEnabled.value = true
   }
 }
 
@@ -483,7 +515,11 @@ function onTenantChange() {
 
 watch(
   () => [ociUserId.value, modelPick.value],
-  () => persistState(),
+  () => {
+    if (tenantsLoading.value) return
+    if (!selectionPersistEnabled.value) return
+    persistState()
+  },
   { deep: true },
 )
 
@@ -520,6 +556,20 @@ async function loadModelsIfNeeded(alertOnErr: boolean) {
         return { value: id, label: finalLabel, title, disabled: !!bad }
       })
       .filter((x) => x) as any
+
+    // 多选在「模型 options 曾为空」时可能被清空，用 localStorage 再补一次
+    if (!modelPick.value?.length) {
+      try {
+        const raw2 = localStorage.getItem(LS_KEY)
+        if (raw2) {
+          const s2 = JSON.parse(raw2 || '{}') || {}
+          if (Array.isArray(s2.modelPick) && s2.modelPick.length) {
+            modelPick.value = s2.modelPick.filter((x: any) => typeof x === 'string') as string[]
+          }
+        }
+      } catch {
+      }
+    }
 
     // 防止“已选模型”因 options 刷新而丢失：把已选 value 补进 options（只做展示）
     const existing = new Set(modelOptions.value.map((x: any) => String(x?.value || '')))
