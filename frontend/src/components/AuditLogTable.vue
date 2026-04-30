@@ -75,12 +75,17 @@ function eventLabel(id?: string) {
     'sso.session.create.success': '登录成功',
     'sso.session.create.failure': '登录失败',
     'sso.authentication.failure': '认证失败',
+    'sso.session.delete.success': '登出/会话结束',
     'admin.authentication.success': '管理员登录成功',
     'admin.authentication.failure': '管理员登录失败',
     'sso.app.access.success': '应用访问成功',
     'sso.app.access.failure': '应用访问失败',
+    'sso.auth.factor.initiated': 'MFA 因素发起',
   }
-  return map[id] || id
+  if (map[id]) return map[id]
+  if (id.endsWith('.success')) return id.replace(/\.success$/, '') + ' 成功'
+  if (id.endsWith('.failure')) return id.replace(/\.failure$/, '') + ' 失败'
+  return id
 }
 
 function eventColor(id?: string) {

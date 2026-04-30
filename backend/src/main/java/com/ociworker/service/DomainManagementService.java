@@ -353,11 +353,9 @@ public class DomainManagementService {
     }
 
     /**
-     * 身份域登录审计日志。
-     * 注意：OCI 于 2024-12-15 弃用了 Identity Domain SCIM /admin/v1/AuditEvents 端点，
-     * 所有身份域审计事件已迁移到 OCI Audit 服务。改用 AuditClient.listEvents。
-     * 过滤前缀 "com.oraclecloud.identitydomain." 且只保留登录相关类别（sso / session / authentication / appaccess / signin）；
-     * 再按 additionalDetails 中的 domain 字段聚合到对应域。
+     * 身份域「登录」相关审计。
+     * 身份域 SCIM {@code /admin/v1/AuditEvents} 新数据已由官方迁到租户级 {@link AuditClient}{@code #listEvents}；
+     * 应按 {@code data.additionalDetails.eventId} 识别 SSO/控制台登录类事件（与 Oracle「从 OCI Audit 生成 IAM 报表」文档一致）。
      */
     public List<Map<String, Object>> getAuditLogs(String tenantId, int days) {
         List<Map<String, Object>> result = new ArrayList<>();
@@ -373,7 +371,7 @@ public class DomainManagementService {
             try (AuditClient auditClient = AuditClient.builder().build(client.getProvider())) {
                 String tenancyId = client.getProvider().getTenantId();
                 String page = null;
-                int maxEvents = 5000; // 兜底，避免历史过长导致拉取过多
+                int maxEvents = 12000;
                 do {
                     var reqB = ListEventsRequest.builder()
                             .compartmentId(tenancyId)
@@ -384,40 +382,45 @@ public class DomainManagementService {
                     if (resp.getItems() != null) events.addAll(resp.getItems());
                     page = resp.getOpcNextPage();
                 } while (page != null && !page.isEmpty() && events.size() < maxEvents);
-                log.info("OCI Audit listEvents total={} windowDays={}", events.size(), window);
+                log.info("OCI Audit listEvents rawTotal={} windowDays={}", events.size(), window);
             }
 
-            // 按域聚合
             Map<String, List<Map<String, Object>>> grouped = new LinkedHashMap<>();
             for (var d : domains) grouped.put((String) d.get("id"), new ArrayList<>());
             List<Map<String, Object>> unknown = new ArrayList<>();
 
-            // 预建 displayName -> domainId 映射（OCI Audit 事件里通常含 domainDisplayName，有的含 domainId/domainOcid）
             Map<String, String> nameToId = new HashMap<>();
             for (var d : domains) {
                 Object n = d.get("displayName");
-                if (n != null) nameToId.put(String.valueOf(n).toLowerCase(Locale.ROOT), (String) d.get("id"));
+                if (n != null) nameToId.put(String.valueOf(n).trim().toLowerCase(Locale.ROOT), (String) d.get("id"));
             }
 
-            for (AuditEvent ev : events) {
-                String et = ev.getEventType();
-                if (et == null) continue;
-                String etl = et.toLowerCase(Locale.ROOT);
-                // 只保留身份域相关
-                if (!etl.contains("identitydomain") && !etl.contains("idcs")) continue;
-                // 只保留登录类
-                if (!(etl.contains("session") || etl.contains("authentication") || etl.contains("appaccess") || etl.contains("signin") || etl.contains("sso"))) continue;
+            String fallbackDomainId = resolveLoginLogFallbackDomainId(domains);
 
-                String domainId = null;
+            for (AuditEvent ev : events) {
+                String etFull = ev.getEventType();
+                String scmEventId = null;
+                com.oracle.bmc.audit.model.Data data = ev.getData();
+                Map<String, Object> addl = data != null && data.getAdditionalDetails() != null
+                        ? castStringObjectMap(data.getAdditionalDetails())
+                        : null;
+                if (addl != null) {
+                    Object eid = addl.get("eventId");
+                    if (eid != null) scmEventId = String.valueOf(eid).trim();
+                }
+                if (!matchesLoginAuditEvent(scmEventId, etFull)) continue;
+
+                String domainIdFromEvent = resolveLoginLogDomainId(data, nameToId);
+
                 String actorName = null;
                 String principalId = null;
                 String clientIp = null;
                 String userAgent = null;
                 String ssoApp = null;
+                String ssoProtectedResource = null;
                 String ssoIdp = null;
                 String ssoFactor = null;
                 String msg = null;
-                var data = ev.getData();
                 if (data != null) {
                     var identity = data.getIdentity();
                     if (identity != null) {
@@ -426,26 +429,23 @@ public class DomainManagementService {
                         clientIp = identity.getIpAddress();
                         userAgent = identity.getUserAgent();
                     }
-                    String rid = data.getResourceId();
-                    if (rid != null && rid.contains("ocid1.domain.")) {
-                        domainId = rid;
-                    }
-                    var addl = data.getAdditionalDetails();
                     if (addl != null) {
-                        if (domainId == null) {
-                            Object did = addl.getOrDefault("domainOcid", addl.getOrDefault("domainId", null));
-                            if (did != null && String.valueOf(did).startsWith("ocid1.domain.")) domainId = String.valueOf(did);
+                        Object an = addl.get("actorName");
+                        if (an != null && !String.valueOf(an).isBlank()) {
+                            actorName = String.valueOf(an).trim();
                         }
-                        if (domainId == null) {
-                            Object dn = addl.get("domainDisplayName");
-                            if (dn != null) domainId = nameToId.get(String.valueOf(dn).toLowerCase(Locale.ROOT));
-                        }
-                        Object a = addl.get("ssoApplicationType");
-                        if (a != null) ssoApp = String.valueOf(a);
+                        Object a = firstNonBlank(addl, "ssoProtectedResource", "protectedResource");
+                        if (a != null) ssoProtectedResource = String.valueOf(a);
+                        Object ap = firstNonBlank(addl, "ssoApplicationType", "applicationDisplayName");
+                        if (ap != null) ssoApp = String.valueOf(ap);
                         Object ip = addl.get("ssoIdentityProvider");
                         if (ip != null) ssoIdp = String.valueOf(ip);
                         Object f = addl.get("ssoAuthFactor");
                         if (f != null) ssoFactor = String.valueOf(f);
+                        if ((clientIp == null || clientIp.isBlank())) {
+                            Object xc = firstNonBlank(addl, "clientIp", "ipAddress");
+                            if (xc != null) clientIp = String.valueOf(xc).trim();
+                        }
                     }
                     if (data.getResponse() != null && data.getResponse().getMessage() != null) {
                         msg = data.getResponse().getMessage();
@@ -455,22 +455,33 @@ public class DomainManagementService {
 
                 Map<String, Object> row = new LinkedHashMap<>();
                 row.put("eventTime", ev.getEventTime() == null ? null : ev.getEventTime().toInstant().toString());
-                row.put("eventId", et);
+                row.put("eventId",
+                        scmEventId != null && !scmEventId.isBlank() ? scmEventId
+                                : (etFull != null ? etFull : ""));
+                row.put("auditEventType", etFull);
                 row.put("actorName", actorName);
-                row.put("actorType", principalId);
+                row.put("principalId", principalId);
                 row.put("actorDisplayName", actorName);
                 row.put("ssoIdentityProvider", ssoIdp);
                 row.put("ssoApplicationType", ssoApp);
+                row.put("ssoProtectedResource", ssoProtectedResource);
                 row.put("ssoUserAgent", userAgent);
                 row.put("clientIp", clientIp);
                 row.put("ssoAuthFactor", ssoFactor);
                 row.put("message", msg);
 
-                if (domainId != null && grouped.containsKey(domainId)) {
-                    grouped.get(domainId).add(row);
+                if (domainIdFromEvent != null && grouped.containsKey(domainIdFromEvent)) {
+                    grouped.get(domainIdFromEvent).add(row);
                 } else {
                     unknown.add(row);
                 }
+            }
+
+            if (!unknown.isEmpty()) {
+                String target = fallbackDomainId != null && grouped.containsKey(fallbackDomainId)
+                        ? fallbackDomainId
+                        : (String) domains.getFirst().get("id");
+                grouped.get(target).addAll(unknown);
             }
 
             for (var d : domains) {
@@ -479,12 +490,6 @@ public class DomainManagementService {
                 entry.put("displayName", d.get("displayName"));
                 entry.put("type", d.get("type"));
                 List<Map<String, Object>> logs = grouped.getOrDefault((String) d.get("id"), new ArrayList<>());
-                // 无法识别域归属的事件，记到 Default 域下（通常是旧事件缺少 domainDisplayName）
-                if ("Default".equals(d.get("displayName")) && !unknown.isEmpty()) {
-                    logs.addAll(unknown);
-                    unknown.clear();
-                }
-                // 按时间倒序
                 logs.sort((a, b) -> {
                     String ta = String.valueOf(a.getOrDefault("eventTime", ""));
                     String tb = String.valueOf(b.getOrDefault("eventTime", ""));
@@ -499,6 +504,78 @@ public class DomainManagementService {
             throw new OciException("获取登录日志失败: " + (e.getMessage() == null ? "未知错误" : e.getMessage()));
         }
         return result;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, Object> castStringObjectMap(Object raw) {
+        if (!(raw instanceof Map<?, ?> map)) return null;
+        Map<String, Object> out = new LinkedHashMap<>();
+        for (var e : map.entrySet()) {
+            if (e.getKey() != null) out.put(String.valueOf(e.getKey()), e.getValue());
+        }
+        return out;
+    }
+
+    private static Object firstNonBlank(Map<String, Object> map, String k1, String k2) {
+        Object v1 = map == null ? null : map.get(k1);
+        if (v1 != null && String.valueOf(v1).trim().length() > 0) return v1;
+        Object v2 = map == null ? null : map.get(k2);
+        if (v2 != null && String.valueOf(v2).trim().length() > 0) return v2;
+        return null;
+    }
+
+    /**
+     * 与 Oracle「Generate IAM Reports from OCI Audit」中登录/App 访问口径大体一致，
+     * 仅保留与用户登录、控制台认证、会话、应用 SSO 浏览相关条目。
+     */
+    private static boolean matchesLoginAuditScmEventId(String scmEventId) {
+        String s = scmEventId.trim().toLowerCase(Locale.ROOT);
+        return s.startsWith("sso.session.")
+                || "sso.authentication.failure".equals(s)
+                || s.startsWith("sso.app.access.")
+                || s.startsWith("admin.authentication.")
+                || "sso.auth.factor.initiated".equals(s);
+    }
+
+    /** 顶层 eventType（未迁出 additionalDetails.eventId 的旧形态或少数封装事件）兜底 */
+    private static boolean matchesLoginAuditByLegacyEventType(String eventTypeFull) {
+        if (eventTypeFull == null) return false;
+        String etl = eventTypeFull.toLowerCase(Locale.ROOT);
+        if (!(etl.contains("identitydomain") || etl.contains("identitydomains") || etl.contains("idcs"))) return false;
+        return etl.contains("session") || etl.contains("authentication") || etl.contains("appaccess")
+                || etl.contains("signin") || etl.contains("sso");
+    }
+
+    private static boolean matchesLoginAuditEvent(String scmEventIdNullable, String eventTypeFull) {
+        if (scmEventIdNullable != null && !scmEventIdNullable.isBlank()) {
+            return matchesLoginAuditScmEventId(scmEventIdNullable);
+        }
+        return matchesLoginAuditByLegacyEventType(eventTypeFull);
+    }
+
+    private static String resolveLoginLogDomainId(com.oracle.bmc.audit.model.Data data, Map<String, String> nameToId) {
+        if (data == null) return null;
+        String rid = data.getResourceId();
+        if (rid != null && rid.contains("ocid1.domain.")) return rid;
+
+        Map<String, Object> addl = castStringObjectMap(data.getAdditionalDetails());
+        if (addl == null) return null;
+        Object did = firstNonBlank(addl, "domainOcid", "domainId");
+        String ds = did != null ? String.valueOf(did).trim() : "";
+        if (ds.startsWith("ocid1.domain.")) return ds;
+        Object dn = addl.get("domainDisplayName");
+        if (dn == null || String.valueOf(dn).isBlank()) return null;
+        return nameToId.get(String.valueOf(dn).trim().toLowerCase(Locale.ROOT));
+    }
+
+    /** 无法解析域时将日志归并入「默认域」（type=DEFAULT），否则第一条域 — 避免静默丢失 unknown */
+    private static String resolveLoginLogFallbackDomainId(List<Map<String, Object>> domains) {
+        if (domains == null || domains.isEmpty()) return null;
+        for (var d : domains) {
+            if ("DEFAULT".equalsIgnoreCase(String.valueOf(d.get("type")))) return (String) d.get("id");
+        }
+        for (var d : domains) if ("Default".equals(d.get("displayName"))) return (String) d.get("id");
+        return (String) domains.getFirst().get("id");
     }
 
     // ---------------- Authentication Factor Settings ----------------

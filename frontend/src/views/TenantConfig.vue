@@ -736,7 +736,7 @@ region=ap-tokyo-1"
               <a-select-option :value="30">最近 30 天</a-select-option>
             </a-select>
             <span style="font-size: 12px; color: var(--text-sub)">
-              来源：身份域 → 报告 → 审计日志（SCIM /admin/v1/AuditEvents）
+              来源：OCI Audit（租户 compartment + 时间窗），身份域登录事件以 <code style="font-size:11px">additionalDetails.eventId</code> 为准（与 Oracle IAM 审计迁移文档一致）
             </span>
           </a-space>
           <a-spin :spinning="auditLogsLoading">
