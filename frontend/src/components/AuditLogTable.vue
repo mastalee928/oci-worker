@@ -1,41 +1,54 @@
 <template>
   <a-alert v-if="error" type="warning" show-icon :message="error" style="margin-bottom: 8px" />
-  <a-table v-if="!isMobile" :data-source="rows" size="small" :pagination="{ pageSize: 20 }"
+  <a-table v-if="!isMobile" :data-source="rows" size="small" :pagination="{ pageSize: 20 }" class="audit-log-table"
     :row-key="(r: any) => (r.eventTime + '|' + r.eventId + '|' + (r.actorName || '') + '|' + (r.clientIp || ''))"
-    :scroll="{ x: 920 }">
-    <a-table-column title="时间" data-index="eventTime" key="eventTime" :width="170">
+    :scroll="{ x: 1250 }">
+    <a-table-column data-index="eventTime" key="eventTime" :width="168">
+      <template #title><span class="audit-th">时间</span></template>
       <template #default="{ text }">
         <span style="font-size: 12px">{{ formatTime(text) }}</span>
       </template>
     </a-table-column>
-    <a-table-column title="事件" data-index="eventId" key="eventId" :width="210">
+    <a-table-column data-index="eventId" key="eventId" :width="112">
+      <template #title><span class="audit-th">事件</span></template>
       <template #default="{ text }">
         <a-tag :color="eventColor(text)" style="font-size: 11px; margin: 0">{{ eventLabel(text) }}</a-tag>
       </template>
     </a-table-column>
-    <a-table-column title="用户" data-index="actorName" key="actorName" :ellipsis="true">
+    <a-table-column data-index="actorName" key="actorName" :width="196" :ellipsis="{ showTitle: false }">
+      <template #title><span class="audit-th">用户</span></template>
       <template #default="{ record }">
-        <span>{{ record.actorDisplayName || record.actorName || '—' }}</span>
+        <a-tooltip :title="String(record.actorDisplayName || record.actorName || '').trim() || undefined">
+          <span style="font-size: 12px">{{ record.actorDisplayName || record.actorName || '—' }}</span>
+        </a-tooltip>
       </template>
     </a-table-column>
-    <a-table-column title="IP" data-index="clientIp" key="clientIp" :width="140">
+    <a-table-column data-index="clientIp" key="clientIp" :width="138">
+      <template #title><span class="audit-th">IP</span></template>
       <template #default="{ text }">
         <span style="font-size: 12px">{{ text || '—' }}</span>
       </template>
     </a-table-column>
-    <a-table-column title="身份提供者" data-index="ssoIdentityProvider" key="ssoIdentityProvider" :ellipsis="true" :width="140">
+    <a-table-column data-index="ssoIdentityProvider" key="ssoIdentityProvider" :width="148" :ellipsis="{ showTitle: false }">
+      <template #title><span class="audit-th">身份提供者</span></template>
       <template #default="{ text }">
-        <span style="font-size: 12px">{{ text || '—' }}</span>
+        <a-tooltip :title="text || undefined">
+          <span style="font-size: 12px">{{ text || '—' }}</span>
+        </a-tooltip>
       </template>
     </a-table-column>
-    <a-table-column title="应用/资源" data-index="ssoProtectedResource" key="ssoProtectedResource" :ellipsis="true">
+    <a-table-column data-index="ssoProtectedResource" key="ssoProtectedResource" :width="216" :ellipsis="{ showTitle: false }">
+      <template #title><span class="audit-th">应用/资源</span></template>
       <template #default="{ text }">
-        <span style="font-size: 12px">{{ text || '—' }}</span>
+        <a-tooltip :title="text || undefined">
+          <span style="font-size: 12px">{{ text || '—' }}</span>
+        </a-tooltip>
       </template>
     </a-table-column>
-    <a-table-column title="备注" data-index="message" key="message" :ellipsis="true" :width="220">
+    <a-table-column data-index="message" key="message" :width="264" :ellipsis="{ showTitle: false }">
+      <template #title><span class="audit-th">备注</span></template>
       <template #default="{ text }">
-        <a-tooltip :title="text"><span style="font-size: 12px">{{ text || '—' }}</span></a-tooltip>
+        <a-tooltip :title="text || undefined"><span style="font-size: 12px">{{ text || '—' }}</span></a-tooltip>
       </template>
     </a-table-column>
   </a-table>
@@ -95,3 +108,17 @@ function eventColor(id?: string) {
   return 'default'
 }
 </script>
+
+<style scoped>
+/* 横向滚动表格：表头一字排开，避免相邻列标题被挤压重叠 */
+.audit-log-table :deep(.ant-table-thead > tr > th) {
+  white-space: nowrap;
+}
+.audit-th {
+  white-space: nowrap;
+  font-weight: 600;
+}
+.audit-log-table :deep(.ant-table-cell) {
+  overflow: hidden;
+}
+</style>
