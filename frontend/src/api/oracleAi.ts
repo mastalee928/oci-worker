@@ -52,3 +52,11 @@ export function oracleAiChatTest(data: { apiKey: string; model: string; input: s
 export function createGenerativeProject(data: { ociUserId: string; displayName?: string }) {
   return request.post('/oci/oracle-ai/generative-projects/create', data)
 }
+
+export function getOracleAiUiState() {
+  return request.post('/oci/oracle-ai/ui-state/get', {})
+}
+
+export function saveOracleAiUiState(data: { ociUserId?: string; modelPick?: string[] }) {
+  return request.post('/oci/oracle-ai/ui-state/save', data)
+}

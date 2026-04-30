@@ -1,12 +1,17 @@
 package com.ociworker.controller;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.ociworker.model.entity.OciOpenaiKey;
 import com.ociworker.model.entity.OciUser;
+import com.ociworker.model.entity.OciKv;
 import com.ociworker.model.vo.ResponseData;
 import com.ociworker.service.OciGenerativeOpenAiService;
 import com.ociworker.service.OciOpenaiKeyService;
+import com.ociworker.mapper.OciKvMapper;
 import com.ociworker.mapper.OciUserMapper;
+import com.ociworker.util.CommonUtils;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -38,6 +43,12 @@ public class OracleAiController {
     private OciUserMapper ociUserMapper;
     @Resource
     private com.ociworker.service.OracleAiGatewayToggleService gatewayToggleService;
+    @Resource
+    private OciKvMapper kvMapper;
+
+    private static final String UI_STATE_TYPE = "ui_state";
+    private static final String UI_STATE_CODE = "oracle_ai.page_state.v1";
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     @PostMapping("/gateway")
     public ResponseData<?> gateway() {
@@ -47,6 +58,81 @@ public class OracleAiController {
         m.put("baseUrlExample", OciGenerativeOpenAiService.gatewayHint(openaiApiPort));
         m.put("openaiProxyEnabled", gatewayToggleService.isEnabled());
         return ResponseData.ok(m);
+    }
+
+    /**
+     * Oracle AI 页面：记住上次选择（无痕模式也可恢复）。
+     * 存储位置：oci_kv(type=ui_state, code=oracle_ai.page_state.v1)
+     */
+    @PostMapping("/ui-state/get")
+    public ResponseData<?> getUiState() {
+        try {
+            OciKv kv = kvMapper.selectOne(new LambdaQueryWrapper<OciKv>()
+                    .eq(OciKv::getCode, UI_STATE_CODE)
+                    .eq(OciKv::getType, UI_STATE_TYPE));
+            if (kv == null || kv.getValue() == null || kv.getValue().isBlank()) {
+                return ResponseData.ok(Map.of());
+            }
+            Object obj = objectMapper.readValue(kv.getValue(), Object.class);
+            return ResponseData.ok(obj != null ? obj : Map.of());
+        } catch (Exception e) {
+            // 不影响主功能，读取失败时返回空
+            return ResponseData.ok(Map.of());
+        }
+    }
+
+    @PostMapping("/ui-state/save")
+    @SuppressWarnings("unchecked")
+    public ResponseData<?> saveUiState(@RequestBody Map<String, Object> body) {
+        if (body == null) {
+            return ResponseData.error("参数错误");
+        }
+        String ociUserId = body.get("ociUserId") == null ? "" : String.valueOf(body.get("ociUserId")).trim();
+        Object mp = body.get("modelPick");
+        java.util.List<String> modelPick = new java.util.ArrayList<>();
+        if (mp instanceof java.util.List<?> list) {
+            for (Object o : list) {
+                if (o != null) {
+                    String s = String.valueOf(o).trim();
+                    if (!s.isBlank()) {
+                        modelPick.add(s);
+                    }
+                }
+            }
+        }
+        // 仅保存“偏好/选择”，做个简单限长，避免被滥用塞超大 payload
+        if (ociUserId.length() > 128) {
+            ociUserId = ociUserId.substring(0, 128);
+        }
+        if (modelPick.size() > 200) {
+            modelPick = modelPick.subList(0, 200);
+        }
+
+        Map<String, Object> state = new HashMap<>();
+        state.put("ociUserId", ociUserId);
+        state.put("modelPick", modelPick);
+        state.put("updateAt", System.currentTimeMillis());
+
+        try {
+            String json = objectMapper.writeValueAsString(state);
+            OciKv existing = kvMapper.selectOne(new LambdaQueryWrapper<OciKv>()
+                    .eq(OciKv::getCode, UI_STATE_CODE)
+                    .eq(OciKv::getType, UI_STATE_TYPE));
+            if (existing != null) {
+                existing.setValue(json);
+                kvMapper.updateById(existing);
+            } else {
+                OciKv kv = new OciKv();
+                kv.setId(CommonUtils.generateId());
+                kv.setCode(UI_STATE_CODE);
+                kv.setType(UI_STATE_TYPE);
+                kv.setValue(json);
+                kvMapper.insert(kv);
+            }
+            return ResponseData.ok();
+        } catch (Exception e) {
+            return ResponseData.error("保存失败: " + (e.getMessage() != null ? e.getMessage() : "未知错误"));
+        }
     }
 
     @PostMapping("/gateway/setEnabled")
