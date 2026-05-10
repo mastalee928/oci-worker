@@ -107,6 +107,32 @@
     <!-- 新增用户弹窗 -->
     <a-modal v-model:open="createVisible" title="新增用户" :width="isMobile ? '100%' : 520" @ok="handleCreate" :confirm-loading="createLoading" :mask-closable="false">
       <a-form :model="createForm" layout="vertical">
+        <a-form-item label="Identity Domain">
+          <a-select
+            v-model:value="createForm.domainId"
+            :loading="identityDomainsLoading"
+            placeholder="加载域列表…"
+            show-search
+            allow-clear
+            style="width: 100%"
+            :filter-option="filterDomainOption"
+          >
+            <a-select-option
+              v-for="d in identityDomains"
+              :key="d.id"
+              :value="d.id"
+              :label="`${d.displayName || d.id} (${d.type || '—'})`"
+            >
+              {{ d.displayName || d.id }} ({{ d.type || '—' }})
+            </a-select-option>
+          </a-select>
+          <div v-if="identityDomainsLoadError" style="margin-top: 6px; color: var(--text-sub); font-size: 12px">
+            域列表加载失败，将使用经典 Identity API 创建（不指定域）。
+          </div>
+          <div v-else-if="!identityDomainsLoading && identityDomains.length === 0" style="margin-top: 6px; color: var(--text-sub); font-size: 12px">
+            未返回域列表（例如未启用 Identity Domains 的区域），将使用经典 Identity API。
+          </div>
+        </a-form-item>
         <a-form-item label="用户名" required>
           <a-input v-model:value="createForm.userName" placeholder="登录用户名" />
         </a-form-item>
@@ -174,12 +200,12 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ArrowLeftOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
 import {
-  listUsers, createUser, resetPassword, clearMfa,
+  listUsers, listIdentityDomains, createUser, resetPassword, clearMfa,
   addToAdmin, removeFromAdmin, updateUser, updateUserState, listMfaDevices,
 } from '../api/user'
 import { getTenantList } from '../api/tenant'
@@ -198,7 +224,43 @@ const currentActionLoading = reactive<Record<string, boolean>>({})
 
 const createVisible = ref(false)
 const createLoading = ref(false)
-const createForm = reactive({ userName: '', email: '', addToAdminGroup: false })
+const createForm = reactive({ domainId: '' as string, userName: '', email: '', addToAdminGroup: false })
+
+const identityDomains = ref<any[]>([])
+const identityDomainsLoading = ref(false)
+const identityDomainsLoadError = ref(false)
+
+function filterDomainOption(input: string, option: any) {
+  const label = String(option?.label ?? '')
+  return label.toLowerCase().includes(input.toLowerCase())
+}
+
+function pickDefaultDomainId(): string {
+  const list = identityDomains.value
+  const def = list.find((x: any) => x.displayName === 'Default')
+  return def?.id ?? list[0]?.id ?? ''
+}
+
+async function prefetchDomainsForCreate() {
+  identityDomainsLoading.value = true
+  identityDomainsLoadError.value = false
+  try {
+    const res = await listIdentityDomains({ tenantId })
+    identityDomains.value = res.data || []
+  } catch {
+    identityDomainsLoadError.value = true
+    identityDomains.value = []
+  } finally {
+    identityDomainsLoading.value = false
+  }
+}
+
+watch(identityDomains, (list) => {
+  if (!createVisible.value || !list?.length) return
+  if (!createForm.domainId) {
+    createForm.domainId = pickDefaultDomainId()
+  }
+})
 
 const pwdResultVisible = ref(false)
 const pwdResult = ref('')
@@ -270,6 +332,10 @@ async function openVerifyAction(actionKey: string, record: any, callback: (code:
   } catch {
     message.error('检查 TG 状态失败')
     return
+  }
+
+  if (actionKey === 'createUser') {
+    prefetchDomainsForCreate()
   }
 
   verifySending.value = true
@@ -377,6 +443,7 @@ async function handleUpdateUser() {
 }
 
 function showCreateModal(code: string) {
+  createForm.domainId = pickDefaultDomainId()
   createForm.userName = ''
   createForm.email = ''
   createForm.addToAdminGroup = false
@@ -390,7 +457,17 @@ async function handleCreate() {
   if (!createForm.userName) { message.warning('请填写用户名'); return }
   createLoading.value = true
   try {
-    await createUser({ tenantId, ...createForm, verifyCode: pendingCreateVerifyCode })
+    const payload: Record<string, any> = {
+      tenantId,
+      userName: createForm.userName,
+      email: createForm.email,
+      addToAdminGroup: createForm.addToAdminGroup,
+      verifyCode: pendingCreateVerifyCode,
+    }
+    if (createForm.domainId) {
+      payload.domainId = createForm.domainId
+    }
+    await createUser(payload)
     message.success('用户创建成功')
     createVisible.value = false
     pendingCreateVerifyCode = ''

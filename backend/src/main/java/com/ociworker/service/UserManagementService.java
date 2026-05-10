@@ -1,6 +1,5 @@
 package com.ociworker.service;
 
-import cn.hutool.core.collection.CollectionUtil;
 import cn.hutool.core.util.StrUtil;
 import com.oracle.bmc.Region;
 import com.oracle.bmc.auth.SimpleAuthenticationDetailsProvider;
@@ -8,6 +7,16 @@ import com.oracle.bmc.identity.IdentityClient;
 import com.oracle.bmc.identity.model.*;
 import com.oracle.bmc.identity.requests.*;
 import com.oracle.bmc.identity.responses.*;
+import com.oracle.bmc.identitydomains.IdentityDomainsClient;
+import com.oracle.bmc.identitydomains.model.Group;
+import com.oracle.bmc.identitydomains.model.Groups;
+import com.oracle.bmc.identitydomains.model.Operations;
+import com.oracle.bmc.identitydomains.model.PatchOp;
+import com.oracle.bmc.identitydomains.requests.GetGroupRequest;
+import com.oracle.bmc.identitydomains.requests.ListGroupsRequest;
+import com.oracle.bmc.identitydomains.requests.PatchGroupRequest;
+import com.oracle.bmc.identitydomains.responses.GetGroupResponse;
+import com.oracle.bmc.identitydomains.responses.ListGroupsResponse;
 import com.ociworker.exception.OciException;
 import com.ociworker.mapper.OciUserMapper;
 import com.ociworker.model.entity.OciUser;
@@ -23,8 +32,14 @@ import java.util.*;
 @Service
 public class UserManagementService {
 
+    private static final String SCIM_SCHEMA_USER = "urn:ietf:params:scim:schemas:core:2.0:User";
+    private static final String SCIM_SCHEMA_PATCH_OP = "urn:ietf:params:scim:api:messages:2.0:PatchOp";
+
     @Resource
     private OciUserMapper userMapper;
+
+    @Resource
+    private DomainManagementService domainManagementService;
 
     private IdentityClient buildClient(OciUser tenant) {
         SimpleAuthenticationDetailsProvider provider = SimpleAuthenticationDetailsProvider.builder()
@@ -91,6 +106,34 @@ public class UserManagementService {
 
     public Map<String, Object> createUser(UserParams params) {
         OciUser tenant = getTenant(params.getTenantId());
+        String domainId = StrUtil.trimToNull(params.getDomainId());
+        if (domainId == null) {
+            return createUserViaIamApi(tenant, params);
+        }
+        try (OciClientService oci = domainManagementService.openOciClient(tenant.getId())) {
+            List<Map<String, Object>> domains = domainManagementService.listDomains(oci, false);
+            Map<String, Object> selected = null;
+            for (Map<String, Object> d : domains) {
+                if (domainId.equals(d.get("id"))) {
+                    selected = d;
+                    break;
+                }
+            }
+            if (selected == null) {
+                throw new OciException("未找到指定的 Identity Domain，请刷新域列表后重试");
+            }
+            if (isDefaultDomainForClassicIam(selected)) {
+                return createUserViaIamApi(tenant, params);
+            }
+            return createUserViaIdentityDomainsApi(oci, selected, params, tenant);
+        }
+    }
+
+    /**
+     * 使用 IAM Service API（20160918）在 Default identity domain 中创建用户，参见 Oracle 文档：
+     * Identity Domains 环境下该 API 仅作用于 Default 域。
+     */
+    private Map<String, Object> createUserViaIamApi(OciUser tenant, UserParams params) {
         try (IdentityClient client = buildClient(tenant)) {
             CreateUserDetails.Builder builder = CreateUserDetails.builder()
                     .compartmentId(tenant.getOciTenantId())
@@ -105,7 +148,7 @@ public class UserManagementService {
             );
 
             User created = response.getUser();
-            log.info("Created user: {} in tenant: {}", created.getName(), tenant.getUsername());
+            log.info("Created user (IAM API): {} in tenant: {}", created.getName(), tenant.getUsername());
 
             if (Boolean.TRUE.equals(params.getAddToAdminGroup())) {
                 addToAdminGroup(client, tenant.getOciTenantId(), created.getId());
@@ -118,6 +161,131 @@ public class UserManagementService {
             result.put("state", created.getLifecycleState().getValue());
             return result;
         }
+    }
+
+    private static boolean isDefaultDomainForClassicIam(Map<String, Object> domain) {
+        return "Default".equals(String.valueOf(domain.get("displayName")));
+    }
+
+    /**
+     * 在非 Default 的 identity domain 中通过 IAM Identity Domains API（SCIM）创建用户。
+     */
+    private Map<String, Object> createUserViaIdentityDomainsApi(
+            OciClientService oci,
+            Map<String, Object> domain,
+            UserParams params,
+            OciUser tenant) {
+        String url = (String) domain.get("url");
+        if (StrUtil.isBlank(url)) {
+            throw new OciException("该 Identity Domain 缺少 URL，无法创建用户");
+        }
+        com.oracle.bmc.identitydomains.model.User.Builder ub =
+                com.oracle.bmc.identitydomains.model.User.builder()
+                        .schemas(List.of(SCIM_SCHEMA_USER))
+                        .userName(params.getUserName())
+                        .active(Boolean.TRUE)
+                        .description(StrUtil.isNotBlank(params.getEmail()) ? params.getEmail() : params.getUserName());
+        if (StrUtil.isNotBlank(params.getEmail())) {
+            Map<String, Object> em = new LinkedHashMap<>();
+            em.put("value", params.getEmail());
+            em.put("type", "work");
+            em.put("primary", true);
+            ub.emails(List.of(em));
+        }
+        com.oracle.bmc.identitydomains.model.User scimUser = ub.build();
+
+        try (IdentityDomainsClient dc = IdentityDomainsClient.builder().build(oci.getProvider())) {
+            dc.setEndpoint(url);
+            com.oracle.bmc.identitydomains.responses.CreateUserResponse response = dc.createUser(
+                    com.oracle.bmc.identitydomains.requests.CreateUserRequest.builder().user(scimUser).build());
+            com.oracle.bmc.identitydomains.model.User created = response.getUser();
+            log.info("Created user (Identity Domains API): {} in domain {} tenant {}",
+                    created.getUserName(), domain.get("displayName"), tenant.getUsername());
+
+            if (Boolean.TRUE.equals(params.getAddToAdminGroup()) && created.getId() != null) {
+                addUserToAdministratorsGroupIdentityDomains(dc, created.getId());
+            }
+
+            Map<String, Object> result = new LinkedHashMap<>();
+            String id = StrUtil.isNotBlank(created.getOcid()) ? created.getOcid() : created.getId();
+            result.put("id", id);
+            result.put("name", created.getUserName());
+            result.put("email", firstEmailValue(created, params.getEmail()));
+            result.put("state", Boolean.FALSE.equals(created.getActive()) ? "INACTIVE" : "ACTIVE");
+            return result;
+        }
+    }
+
+    private static String firstEmailValue(com.oracle.bmc.identitydomains.model.User u, String fallback) {
+        if (u.getEmails() != null) {
+            for (Object o : u.getEmails()) {
+                if (o instanceof Map<?, ?> m && m.get("value") != null) {
+                    return String.valueOf(m.get("value"));
+                }
+            }
+        }
+        return fallback;
+    }
+
+    private void addUserToAdministratorsGroupIdentityDomains(IdentityDomainsClient dc, String userScimId) {
+        try {
+            ListGroupsResponse listResp = dc.listGroups(
+                    ListGroupsRequest.builder()
+                            .filter("displayName eq \"Administrators\"")
+                            .count(50)
+                            .build());
+            Groups groups = listResp.getGroups();
+            if (groups == null || groups.getResources() == null || groups.getResources().isEmpty()) {
+                log.warn("Administrators group not found in identity domain, skip addToAdminGroup");
+                return;
+            }
+            Object raw = groups.getResources().get(0);
+            if (!(raw instanceof Group adminGroup)) {
+                log.warn("Unexpected group resource type, skip addToAdminGroup");
+                return;
+            }
+            String groupId = adminGroup.getId();
+            if (StrUtil.isBlank(groupId)) {
+                return;
+            }
+            GetGroupResponse getResp = dc.getGroup(GetGroupRequest.builder().groupId(groupId).build());
+            String ifMatch = headerValueIgnoreCase(getResp, "etag");
+            Map<String, Object> member = new LinkedHashMap<>();
+            member.put("value", userScimId);
+            member.put("type", "User");
+            PatchOp patchOp = PatchOp.builder()
+                    .schemas(List.of(SCIM_SCHEMA_PATCH_OP))
+                    .operations(List.of(
+                            Operations.builder()
+                                    .op(Operations.Op.Add)
+                                    .path("members")
+                                    .value(List.of(member))
+                                    .build()
+                    ))
+                    .build();
+            PatchGroupRequest.Builder pr = PatchGroupRequest.builder()
+                    .groupId(groupId)
+                    .patchOp(patchOp);
+            if (StrUtil.isNotBlank(ifMatch)) {
+                pr.ifMatch(ifMatch);
+            }
+            dc.patchGroup(pr.build());
+            log.info("Added user {} to Administrators in identity domain", userScimId);
+        } catch (Exception e) {
+            log.warn("Failed to add user to Administrators in identity domain: {}", e.getMessage());
+        }
+    }
+
+    private static String headerValueIgnoreCase(com.oracle.bmc.responses.BmcResponse resp, String name) {
+        if (resp.getHeaders() == null) {
+            return null;
+        }
+        for (Map.Entry<String, List<String>> e : resp.getHeaders().entrySet()) {
+            if (name.equalsIgnoreCase(e.getKey()) && e.getValue() != null && !e.getValue().isEmpty()) {
+                return e.getValue().get(0);
+            }
+        }
+        return null;
     }
 
     public void resetPassword(UserParams params) {

@@ -2,6 +2,7 @@ package com.ociworker.controller;
 
 import com.ociworker.model.params.UserParams;
 import com.ociworker.model.vo.ResponseData;
+import com.ociworker.service.DomainManagementService;
 import com.ociworker.service.UserManagementService;
 import com.ociworker.service.VerifyCodeService;
 import jakarta.annotation.Resource;
@@ -18,11 +19,22 @@ public class UserController {
     private UserManagementService userManagementService;
 
     @Resource
+    private DomainManagementService domainManagementService;
+
+    @Resource
     private VerifyCodeService verifyCodeService;
 
     @PostMapping("/list")
     public ResponseData<?> listUsers(@RequestBody Map<String, String> params) {
         return ResponseData.ok(userManagementService.listUsers(params.get("tenantId")));
+    }
+
+    /**
+     * 列出租户下 Identity Domain（Oracle IAM API ListDomains），供创建用户时选择目标域。
+     */
+    @PostMapping("/domains")
+    public ResponseData<?> listIdentityDomains(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(domainManagementService.listIdentityDomains(params.get("tenantId")));
     }
 
     @PostMapping("/groups")
@@ -38,6 +50,10 @@ public class UserController {
         up.setUserName((String) params.get("userName"));
         up.setEmail((String) params.get("email"));
         up.setAddToAdminGroup(Boolean.TRUE.equals(params.get("addToAdminGroup")));
+        Object domainId = params.get("domainId");
+        if (domainId != null) {
+            up.setDomainId(String.valueOf(domainId));
+        }
         return ResponseData.ok(userManagementService.createUser(up));
     }
 

@@ -75,8 +75,10 @@ public class DomainManagementService {
 
     /**
      * List all Identity Domains of the tenancy（含分页），按 Default → OracleIdentityCloudService → 其它 排序。
+     *
+     * @param suppressErrors true 时失败返回空列表（兼容旧接口）；false 时抛出 {@link OciException}
      */
-    private List<Map<String, Object>> listDomains(OciClientService client) {
+    public List<Map<String, Object>> listDomains(OciClientService client, boolean suppressErrors) {
         List<Map<String, Object>> domains = new ArrayList<>();
         try {
             var identityClient = client.getIdentityClient();
@@ -115,8 +117,25 @@ public class DomainManagementService {
             }
         } catch (Exception e) {
             log.warn("Failed to list domains: {}", e.getMessage());
+            if (!suppressErrors) {
+                throw new OciException("列出 Identity Domain 失败: " + (e.getMessage() != null ? e.getMessage() : "未知错误"));
+            }
         }
         return domains;
+    }
+
+    /**
+     * 供创建用户等场景：严格列出域；失败抛错（与 Oracle IAM API 列出域行为一致）。
+     */
+    public List<Map<String, Object>> listIdentityDomains(String tenantId) {
+        try (OciClientService c = buildClient(tenantId)) {
+            return listDomains(c, false);
+        }
+    }
+
+    /** 打开租户 OCI 客户端（调用方负责 try-with-resources 关闭）。 */
+    public OciClientService openOciClient(String tenantId) {
+        return buildClient(tenantId);
     }
 
     private int domainRank(Map<String, Object> d) {
@@ -142,7 +161,7 @@ public class DomainManagementService {
         Map<String, Object> result = new LinkedHashMap<>();
         List<Map<String, Object>> domainResults = new ArrayList<>();
         try (OciClientService client = buildClient(tenantId)) {
-            var domains = listDomains(client);
+            var domains = listDomains(client, true);
             if (domains.isEmpty()) {
                 throw new OciException("未找到 Identity Domain");
             }
@@ -249,7 +268,7 @@ public class DomainManagementService {
 
     public void updateMfaSetting(String tenantId, String domainId, boolean enabled) {
         try (OciClientService client = buildClient(tenantId)) {
-            var domains = listDomains(client);
+            var domains = listDomains(client, true);
             var target = findDomain(domains, domainId);
             try (IdentityDomainsClient dc = newDomainClient(client, (String) target.get("url"))) {
                 List<Operations> ops = new ArrayList<>();
@@ -292,7 +311,7 @@ public class DomainManagementService {
 
     public void updatePasswordExpiry(String tenantId, String domainId, int days) {
         try (OciClientService client = buildClient(tenantId)) {
-            var domains = listDomains(client);
+            var domains = listDomains(client, true);
             var target = findDomain(domains, domainId);
             try (IdentityDomainsClient dc = newDomainClient(client, (String) target.get("url"))) {
                 var list = dc.listPasswordPolicies(ListPasswordPoliciesRequest.builder()
@@ -360,7 +379,7 @@ public class DomainManagementService {
     public List<Map<String, Object>> getAuditLogs(String tenantId, int days) {
         List<Map<String, Object>> result = new ArrayList<>();
         try (OciClientService client = buildClient(tenantId)) {
-            var domains = listDomains(client);
+            var domains = listDomains(client, true);
             if (domains.isEmpty()) throw new OciException("未找到 Identity Domain");
 
             int window = Math.max(1, Math.min(days, 30));
@@ -603,7 +622,7 @@ public class DomainManagementService {
         Map<String, Object> result = new LinkedHashMap<>();
         List<Map<String, Object>> domainResults = new ArrayList<>();
         try (OciClientService client = buildClient(tenantId)) {
-            var domains = listDomains(client);
+            var domains = listDomains(client, true);
             if (domains.isEmpty()) throw new OciException("未找到 Identity Domain");
             for (var d : domains) {
                 Map<String, Object> r = new LinkedHashMap<>();
@@ -665,7 +684,7 @@ public class DomainManagementService {
                                                         Map<String, Object> desiredTrustedDevice) {
         requireAuthFactorToken(token);
         try (OciClientService client = buildClient(tenantId)) {
-            var domains = listDomains(client);
+            var domains = listDomains(client, true);
             var target = findDomain(domains, domainId);
             try (IdentityDomainsClient dc = newDomainClient(client, (String) target.get("url"))) {
                 AuthenticationFactorSetting current = firstAuthFactorSetting(dc);

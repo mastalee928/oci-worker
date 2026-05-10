@@ -4,6 +4,10 @@ export function listUsers(data: { tenantId: string }) {
   return request.post('/oci/identity/list', data)
 }
 
+export function listIdentityDomains(data: { tenantId: string }) {
+  return request.post('/oci/identity/domains', data)
+}
+
 export function listGroups(data: { tenantId: string }) {
   return request.post('/oci/identity/groups', data)
 }
