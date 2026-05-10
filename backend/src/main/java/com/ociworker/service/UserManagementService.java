@@ -8,15 +8,11 @@ import com.oracle.bmc.identity.model.*;
 import com.oracle.bmc.identity.requests.*;
 import com.oracle.bmc.identity.responses.*;
 import com.oracle.bmc.identitydomains.IdentityDomainsClient;
-import com.oracle.bmc.identitydomains.model.Group;
 import com.oracle.bmc.identitydomains.model.Groups;
 import com.oracle.bmc.identitydomains.model.Operations;
 import com.oracle.bmc.identitydomains.model.PatchOp;
-import com.oracle.bmc.identitydomains.requests.GetGroupRequest;
-import com.oracle.bmc.identitydomains.requests.ListGroupsRequest;
+import com.oracle.bmc.identitydomains.model.UserEmails;
 import com.oracle.bmc.identitydomains.requests.PatchGroupRequest;
-import com.oracle.bmc.identitydomains.responses.GetGroupResponse;
-import com.oracle.bmc.identitydomains.responses.ListGroupsResponse;
 import com.ociworker.exception.OciException;
 import com.ociworker.mapper.OciUserMapper;
 import com.ociworker.model.entity.OciUser;
@@ -186,11 +182,13 @@ public class UserManagementService {
                         .active(Boolean.TRUE)
                         .description(StrUtil.isNotBlank(params.getEmail()) ? params.getEmail() : params.getUserName());
         if (StrUtil.isNotBlank(params.getEmail())) {
-            Map<String, Object> em = new LinkedHashMap<>();
-            em.put("value", params.getEmail());
-            em.put("type", "work");
-            em.put("primary", true);
-            ub.emails(List.of(em));
+            ub.emails(List.of(
+                    UserEmails.builder()
+                            .value(params.getEmail())
+                            .type(UserEmails.Type.Work)
+                            .primary(true)
+                            .build()
+            ));
         }
         com.oracle.bmc.identitydomains.model.User scimUser = ub.build();
 
@@ -219,6 +217,9 @@ public class UserManagementService {
     private static String firstEmailValue(com.oracle.bmc.identitydomains.model.User u, String fallback) {
         if (u.getEmails() != null) {
             for (Object o : u.getEmails()) {
+                if (o instanceof UserEmails ue && StrUtil.isNotBlank(ue.getValue())) {
+                    return ue.getValue();
+                }
                 if (o instanceof Map<?, ?> m && m.get("value") != null) {
                     return String.valueOf(m.get("value"));
                 }
@@ -229,8 +230,8 @@ public class UserManagementService {
 
     private void addUserToAdministratorsGroupIdentityDomains(IdentityDomainsClient dc, String userScimId) {
         try {
-            ListGroupsResponse listResp = dc.listGroups(
-                    ListGroupsRequest.builder()
+            com.oracle.bmc.identitydomains.responses.ListGroupsResponse listResp = dc.listGroups(
+                    com.oracle.bmc.identitydomains.requests.ListGroupsRequest.builder()
                             .filter("displayName eq \"Administrators\"")
                             .count(50)
                             .build());
@@ -240,7 +241,7 @@ public class UserManagementService {
                 return;
             }
             Object raw = groups.getResources().get(0);
-            if (!(raw instanceof Group adminGroup)) {
+            if (!(raw instanceof com.oracle.bmc.identitydomains.model.Group adminGroup)) {
                 log.warn("Unexpected group resource type, skip addToAdminGroup");
                 return;
             }
@@ -248,7 +249,8 @@ public class UserManagementService {
             if (StrUtil.isBlank(groupId)) {
                 return;
             }
-            GetGroupResponse getResp = dc.getGroup(GetGroupRequest.builder().groupId(groupId).build());
+            com.oracle.bmc.identitydomains.responses.GetGroupResponse getResp = dc.getGroup(
+                    com.oracle.bmc.identitydomains.requests.GetGroupRequest.builder().groupId(groupId).build());
             String ifMatch = headerValueIgnoreCase(getResp, "etag");
             Map<String, Object> member = new LinkedHashMap<>();
             member.put("value", userScimId);
