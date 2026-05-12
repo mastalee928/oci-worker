@@ -3,6 +3,7 @@ package com.ociworker.service;
 import cn.hutool.core.util.StrUtil;
 import com.oracle.bmc.Region;
 import com.oracle.bmc.auth.SimpleAuthenticationDetailsProvider;
+import com.oracle.bmc.model.BmcException;
 import com.oracle.bmc.identity.IdentityClient;
 import com.oracle.bmc.identity.model.*;
 import com.oracle.bmc.identity.requests.*;
@@ -12,7 +13,9 @@ import com.oracle.bmc.identitydomains.model.Groups;
 import com.oracle.bmc.identitydomains.model.Operations;
 import com.oracle.bmc.identitydomains.model.PatchOp;
 import com.oracle.bmc.identitydomains.model.UserEmails;
+import com.oracle.bmc.identitydomains.model.UserPasswordChanger;
 import com.oracle.bmc.identitydomains.requests.PatchGroupRequest;
+import com.oracle.bmc.identitydomains.requests.PutUserPasswordChangerRequest;
 import com.ociworker.exception.OciException;
 import com.ociworker.mapper.OciUserMapper;
 import com.ociworker.model.entity.OciUser;
@@ -23,6 +26,7 @@ import org.springframework.stereotype.Service;
 
 import java.io.*;
 import java.util.*;
+import java.util.concurrent.ThreadLocalRandom;
 
 @Slf4j
 @Service
@@ -30,6 +34,8 @@ public class UserManagementService {
 
     private static final String SCIM_SCHEMA_USER = "urn:ietf:params:scim:schemas:core:2.0:User";
     private static final String SCIM_SCHEMA_PATCH_OP = "urn:ietf:params:scim:api:messages:2.0:PatchOp";
+    private static final String SCHEMA_USER_PASSWORD_CHANGER =
+            "urn:ietf:params:scim:schemas:oracle:idcs:UserPasswordChanger";
 
     @Resource
     private OciUserMapper userMapper;
@@ -291,27 +297,117 @@ public class UserManagementService {
     }
 
     public void resetPassword(UserParams params) {
-        OciUser tenant = getTenant(params.getTenantId());
-        try (IdentityClient client = buildClient(tenant)) {
-            client.createOrResetUIPassword(
-                    CreateOrResetUIPasswordRequest.builder()
-                            .userId(params.getUserId())
-                            .build()
-            );
-            log.info("Password reset for user: {}", params.getUserId());
-        }
+        resetPasswordWithResult(params);
     }
 
     public String getResetPasswordResult(UserParams params) {
+        return resetPasswordWithResult(params);
+    }
+
+    /**
+     * 先尝试经典 IAM {@code CreateOrResetUIPassword}；若返回 404/400（身份域租户常见），再在各 Identity Domain 内
+     * 按 OCID 查找用户并用 {@code PutUserPasswordChanger} 设置随机密码（与 Oracle 推荐域内 API 一致）。
+     */
+    private String resetPasswordWithResult(UserParams params) {
         OciUser tenant = getTenant(params.getTenantId());
+        String userId = params.getUserId();
+        if (StrUtil.isBlank(userId)) {
+            throw new OciException("userId 不能为空");
+        }
         try (IdentityClient client = buildClient(tenant)) {
             CreateOrResetUIPasswordResponse response = client.createOrResetUIPassword(
-                    CreateOrResetUIPasswordRequest.builder()
-                            .userId(params.getUserId())
-                            .build()
-            );
-            return response.getUIPassword().getPassword();
+                    CreateOrResetUIPasswordRequest.builder().userId(userId).build());
+            if (response.getUIPassword() != null && StrUtil.isNotBlank(response.getUIPassword().getPassword())) {
+                log.info("Password reset (classic IAM) for user: {}", userId);
+                return response.getUIPassword().getPassword();
+            }
+        } catch (BmcException e) {
+            int code = e.getStatusCode();
+            if (code != 404 && code != 400) {
+                throw e;
+            }
+            log.info("Classic CreateOrResetUIPassword returned {}, trying Identity Domains API for user {}", code, userId);
         }
+        return resetPasswordViaIdentityDomains(tenant, userId);
+    }
+
+    private static String generateAdminResetPassword() {
+        String chars = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789";
+        ThreadLocalRandom r = ThreadLocalRandom.current();
+        StringBuilder sb = new StringBuilder(16);
+        for (int i = 0; i < 16; i++) {
+            sb.append(chars.charAt(r.nextInt(chars.length())));
+        }
+        return sb.toString();
+    }
+
+    private String resetPasswordViaIdentityDomains(OciUser tenant, String classicUserOcid) {
+        String newPassword = generateAdminResetPassword();
+        try (OciClientService oci = domainManagementService.openOciClient(tenant.getId())) {
+            List<Map<String, Object>> domains = domainManagementService.listDomains(oci, false);
+            if (domains.isEmpty()) {
+                throw new OciException("未找到 Identity Domain，无法通过域 API 重置密码");
+            }
+            UserPasswordChanger body = UserPasswordChanger.builder()
+                    .schemas(List.of(SCHEMA_USER_PASSWORD_CHANGER))
+                    .password(newPassword)
+                    .bypassNotification(true)
+                    .build();
+
+            for (Map<String, Object> d : domains) {
+                String url = (String) d.get("url");
+                if (StrUtil.isBlank(url)) {
+                    continue;
+                }
+                String domainLabel = String.valueOf(d.get("displayName"));
+                try (IdentityDomainsClient dc = IdentityDomainsClient.builder().build(oci.getProvider())) {
+                    dc.setEndpoint(url);
+                    com.oracle.bmc.identitydomains.responses.ListUsersResponse listResp = dc.listUsers(
+                            com.oracle.bmc.identitydomains.requests.ListUsersRequest.builder()
+                                    .filter("ocid eq \"" + classicUserOcid + "\"")
+                                    .attributes("id,ocid,userName")
+                                    .count(10)
+                                    .build());
+                    com.oracle.bmc.identitydomains.model.Users wrapper = listResp.getUsers();
+                    if (wrapper == null || wrapper.getResources() == null || wrapper.getResources().isEmpty()) {
+                        continue;
+                    }
+                    Object raw = wrapper.getResources().get(0);
+                    if (!(raw instanceof com.oracle.bmc.identitydomains.model.User domainUser)) {
+                        continue;
+                    }
+                    String scimUserId = domainUser.getId();
+                    if (StrUtil.isBlank(scimUserId)) {
+                        continue;
+                    }
+                    try {
+                        dc.putUserPasswordChanger(
+                                PutUserPasswordChangerRequest.builder()
+                                        .userPasswordChangerId(scimUserId)
+                                        .userPasswordChanger(body)
+                                        .build());
+                    } catch (BmcException ex) {
+                        int sc = ex.getStatusCode();
+                        if (sc == 401 || sc == 403) {
+                            throw new OciException(
+                                    "重置密码失败：API Key 对应用户在域「" + domainLabel
+                                            + "」中权限不足。请在 OCI 控制台：身份与安全 → 域 → 该域 → 管理员 → "
+                                            + "将「用户管理员(User Administrator)」授予当前 API Key 所属用户后重试。");
+                        }
+                        throw ex;
+                    }
+                    log.info("Password reset (Identity Domains) domain={} userOcid={}", domainLabel, classicUserOcid);
+                    return newPassword;
+                } catch (BmcException ex) {
+                    if (ex.getStatusCode() == 404) {
+                        log.debug("User OCID not in domain {}: {}", domainLabel, ex.getMessage());
+                        continue;
+                    }
+                    throw ex;
+                }
+            }
+        }
+        throw new OciException("在任一 Identity Domain 中未找到该用户（OCID），或无法完成密码重置: " + classicUserOcid);
     }
 
     public void clearMfa(UserParams params) {
