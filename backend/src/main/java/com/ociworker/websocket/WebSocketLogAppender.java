@@ -1,5 +1,6 @@
 package com.ociworker.websocket;
 
+import ch.qos.logback.classic.spi.IThrowableProxy;
 import ch.qos.logback.classic.spi.ILoggingEvent;
 import ch.qos.logback.core.AppenderBase;
 
@@ -18,8 +19,20 @@ public class WebSocketLogAppender extends AppenderBase<ILoggingEvent> {
             String ts = LocalDateTime.ofInstant(
                     Instant.ofEpochMilli(event.getTimeStamp()), ZoneId.systemDefault()
             ).format(FMT);
-            String msg = ts + " " + event.getLevel() + "  " + event.getFormattedMessage();
-            LogWebSocketHandler.broadcast(msg);
+            StringBuilder line = new StringBuilder(ts)
+                    .append(" ")
+                    .append(event.getLevel())
+                    .append("  ")
+                    .append(event.getFormattedMessage());
+            IThrowableProxy tp = event.getThrowableProxy();
+            if (tp != null) {
+                line.append(" | ");
+                line.append(tp.getClassName());
+                if (tp.getMessage() != null && !tp.getMessage().isEmpty()) {
+                    line.append(": ").append(tp.getMessage());
+                }
+            }
+            LogWebSocketHandler.broadcast(line.toString());
         } catch (Exception e) {
             // Avoid recursive logging; write to stderr so the failure is still visible.
             System.err.println("[WebSocketLogAppender] broadcast failed: " + e.getMessage());
