@@ -23,6 +23,9 @@
         <template v-if="column.key === 'isMfaActivated'">
           <a-tag :color="record.isMfaActivated ? 'green' : 'default'">{{ record.isMfaActivated ? '已启用' : '未启用' }}</a-tag>
         </template>
+        <template v-if="column.key === 'timeCreated'">
+          <span :title="String(record.timeCreated ?? '')">{{ formatUserTimeCreated(record.timeCreated) }}</span>
+        </template>
         <template v-if="column.key === 'action'">
           <a-dropdown :trigger="['click']">
             <a-button size="small" :loading="!!currentActionLoading[record.id]">
@@ -205,6 +208,7 @@ import { ref, reactive, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ArrowLeftOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
+import dayjs from 'dayjs'
 import {
   listUsers, listIdentityDomains, createUser, resetPassword, clearMfa,
   addToAdmin, removeFromAdmin, updateUser, updateUserState, listMfaDevices,
@@ -299,12 +303,20 @@ const ACTION_LABELS: Record<string, string> = {
 
 const NEEDS_VERIFY = new Set(Object.keys(ACTION_LABELS))
 
+function formatUserTimeCreated(v: unknown): string {
+  if (v == null || v === '') return '—'
+  const s = String(v).trim()
+  const d = dayjs(s)
+  if (!d.isValid()) return s
+  return d.format('YYYY-MM-DD HH:mm:ss')
+}
+
 const columns = [
   { title: '用户名', dataIndex: 'name', key: 'name' },
   { title: '邮箱', dataIndex: 'email', key: 'email', ellipsis: true },
   { title: '状态', key: 'state', width: 100 },
   { title: 'MFA', key: 'isMfaActivated', width: 100 },
-  { title: '创建时间', dataIndex: 'timeCreated', key: 'timeCreated', width: 200, ellipsis: true },
+  { title: '创建时间', key: 'timeCreated', width: 176 },
   { title: '操作', key: 'action', width: 100 },
 ]
 
