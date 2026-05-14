@@ -93,8 +93,8 @@
       </div>
     </a-spin>
 
-    <!-- TG 验证码弹窗（统一） -->
-    <a-modal v-model:open="verifyVisible" :title="'安全验证 — ' + verifyActionLabel" :width="isMobile ? '100%' : 520" :mask-closable="false"
+    <!-- TG 验证码弹窗（统一）；destroy-on-close 避免与后续业务弹窗叠层时残留焦点/误触 -->
+    <a-modal v-model:open="verifyVisible" :title="'安全验证 — ' + verifyActionLabel" :width="isMobile ? '100%' : 520" :mask-closable="false" destroy-on-close
       @ok="handleVerifyConfirm" :confirm-loading="verifyConfirmLoading" ok-text="确认" cancel-text="取消">
       <div style="margin-bottom: 16px; color: var(--text-sub)">验证码已发送至 Telegram，请查收后输入：</div>
       <a-input v-model:value="verifyCode" placeholder="请输入6位验证码" :maxlength="6" size="large"
@@ -116,6 +116,7 @@
             allow-clear
             style="width: 100%"
             :filter-option="filterDomainOption"
+            :get-popup-container="domainSelectPopupContainer"
           >
             <a-select-option
               v-for="d in identityDomains"
@@ -233,6 +234,11 @@ const identityDomainsLoadError = ref(false)
 function filterDomainOption(input: string, option: any) {
   const label = String(option?.label ?? '')
   return label.toLowerCase().includes(input.toLowerCase())
+}
+
+/** 将域下拉拉到当前 Modal 内，避免选项点击穿透到其它弹窗的「确定」触发验证码校验 */
+function domainSelectPopupContainer(trigger: HTMLElement) {
+  return (trigger.closest('.ant-modal-content') as HTMLElement) || document.body
 }
 
 function pickDefaultDomainId(): string {
@@ -375,11 +381,22 @@ async function handleVerifyConfirm() {
     return
   }
   verifyConfirmLoading.value = true
+  const code = verifyCode.value
+  const cb = verifyCallback.value
+  const action = verifyActionKey.value
   try {
-    if (verifyCallback.value) {
-      await verifyCallback.value(verifyCode.value)
+    // 新增用户：先关掉验证码弹窗再打开「新增用户」，避免与 Select 下拉叠层导致误触「确认」再次校验验证码
+    if (action === 'createUser' && cb) {
+      verifyVisible.value = false
+      verifyCode.value = ''
+      await cb(code)
+    } else {
+      if (cb) {
+        await cb(code)
+      }
+      verifyVisible.value = false
+      verifyCode.value = ''
     }
-    verifyVisible.value = false
   } catch (e: any) {
     message.error(e?.message || '操作失败')
   } finally {
