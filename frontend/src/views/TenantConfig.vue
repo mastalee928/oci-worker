@@ -1,5 +1,5 @@
 <template>
-  <div>
+  <div class="tenant-config-root">
     <div class="table-toolbar">
       <a-space wrap>
         <a-input-search v-model:value="searchText" placeholder="搜索租户" allow-clear @search="loadData" style="width: 200px" />
@@ -297,6 +297,19 @@
         </div>
       </template>
     </a-spin>
+
+    <div class="tenant-page-float-actions" aria-label="页面快捷操作">
+      <a-tooltip placement="left" title="收起所有一级分组与子分组">
+        <a-button type="default" shape="circle" class="float-action-btn" @click="collapseAllGroups">
+          <template #icon><MenuFoldOutlined /></template>
+        </a-button>
+      </a-tooltip>
+      <a-tooltip placement="left" title="返回页面顶部">
+        <a-button type="default" shape="circle" class="float-action-btn" @click="scrollTenantPageTop">
+          <template #icon><VerticalAlignTopOutlined /></template>
+        </a-button>
+      </a-tooltip>
+    </div>
 
     <!-- 分组管理器弹窗 -->
     <a-modal v-model:open="groupMgrVisible" title="管理分组" :width="isMobile ? '100%' : 700" :footer="null" centered>
@@ -806,7 +819,7 @@ region=ap-tokyo-1"
 <script setup lang="ts">
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { PlusOutlined, ThunderboltOutlined, InboxOutlined, ReloadOutlined } from '@ant-design/icons-vue'
+import { PlusOutlined, ThunderboltOutlined, InboxOutlined, ReloadOutlined, MenuFoldOutlined, VerticalAlignTopOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
 import type { UploadFile } from 'ant-design-vue'
 import { getTenantList, addTenant, updateTenant, removeTenant, uploadKey, getTenantFullInfo, getTenantBillingSummary, downloadInvoicePdf, getDomainSettings, updateMfa, updatePasswordExpiry, getAuditLogs, getServiceQuotas, getTenantGroups, createGroup, renameGroup, deleteGroup, saveGroupOrder, unlockAuthFactors, getAuthFactors, updateAuthFactors } from '../api/tenant'
@@ -1026,7 +1039,8 @@ async function loadData() {
   } finally {
     loading.value = false
   }
-  loadGroups()
+  await loadGroups()
+  applyDefaultExpandAfterLoad()
 }
 
 function handleTableChange(pag: any) {
@@ -1436,6 +1450,44 @@ function getPlanCounts(group: GroupNode): Record<string, number> {
 
 const expandedGroups = ref<Set<string>>(new Set())
 
+/** 一级 + 子分组节点总数（每个分组卡片算 1） */
+function countGroupNodesIncludingSubs(tree: GroupNode[]): number {
+  let n = 0
+  for (const g of tree) {
+    n += 1
+    if (g.children?.length) n += g.children.length
+  }
+  return n
+}
+
+/**
+ * 规则：配置数 >10 或 分组数（含子分组）>3 时默认全部收起；否则默认展开所有分组。
+ */
+function applyDefaultExpandAfterLoad() {
+  const tenantCount = tableData.value.length
+  const groupCount = countGroupNodesIncludingSubs(groupTree.value)
+  if (tenantCount > 10 || groupCount > 3) {
+    expandedGroups.value = new Set()
+    return
+  }
+  const next = new Set<string>()
+  for (const g of groupTree.value) {
+    next.add(g.key)
+    if (g.children) {
+      for (const c of g.children) next.add(c.key)
+    }
+  }
+  expandedGroups.value = next
+}
+
+function collapseAllGroups() {
+  expandedGroups.value = new Set()
+}
+
+function scrollTenantPageTop() {
+  window.scrollTo({ top: 0, behavior: 'smooth' })
+}
+
 const dragFromIndex = ref(-1)
 const dragOverIndex = ref(-1)
 const dragOverPos = ref<'top' | 'bottom'>('top')
@@ -1500,11 +1552,10 @@ function resetDrag() {
 }
 
 function toggleGroup(key: string) {
-  if (expandedGroups.value.has(key)) {
-    expandedGroups.value.delete(key)
-  } else {
-    expandedGroups.value.add(key)
-  }
+  const s = new Set(expandedGroups.value)
+  if (s.has(key)) s.delete(key)
+  else s.add(key)
+  expandedGroups.value = s
 }
 
 async function openTenantInfo(record: any) {
@@ -1749,12 +1800,6 @@ function handleBatchDelete() {
 
 onMounted(async () => {
   await loadData()
-  for (const g of groupTree.value) {
-    expandedGroups.value.add(g.key)
-    if (g.children) {
-      for (const c of g.children) expandedGroups.value.add(c.key)
-    }
-  }
   window.addEventListener('resize', checkMobile)
 })
 onUnmounted(() => window.removeEventListener('resize', checkMobile))
@@ -2025,6 +2070,26 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   .group-bar-right { flex-wrap: wrap; gap: 4px; }
   .drag-handle, .collapse-btn { width: 32px; height: 32px; }
 }
+.tenant-config-root {
+  position: relative;
+}
+.tenant-page-float-actions {
+  position: fixed;
+  right: 20px;
+  bottom: 24px;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
+}
+.tenant-page-float-actions > * {
+  pointer-events: auto;
+}
+.float-action-btn {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
+}
+
 @media (max-width: 768px) {
   .table-toolbar {
     flex-direction: column;
