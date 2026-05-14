@@ -411,9 +411,22 @@
       @ok="handleQuickTask" :confirm-loading="quickTaskLoading" :mask-closable="false">
       <div style="margin-bottom: 12px">
         <a-tag color="blue">{{ quickTaskTenant?.username }}</a-tag>
-        <a-tag>{{ quickTaskTenant?.ociRegion }}</a-tag>
+        <span style="color: var(--text-sub); font-size: 12px; margin-left: 8px">租户配置区域：{{ quickTaskTenant?.ociRegion || '—' }}</span>
       </div>
       <a-form :model="quickTaskForm" layout="vertical">
+        <a-form-item label="目标区域（开机任务）">
+          <a-select
+            v-model:value="quickTaskForm.ociRegion"
+            placeholder="默认同上；可改为 tenancy 已订阅的其它区"
+            show-search
+            allow-clear
+            :options="ociRegionSelectOptions"
+            :filter-option="filterOciRegionSelectOption"
+          />
+          <div style="margin-top: 6px; color: var(--text-sub); font-size: 12px">
+            同一 tenancy 多区域时在此选择要开机的 Region；不选则使用租户配置中的 Region。
+          </div>
+        </a-form-item>
         <a-form-item label="机器规格">
           <a-select v-model:value="quickTaskForm.architecture">
             <a-select-option value="ARM">ARM (A1.Flex)</a-select-option>
@@ -1068,6 +1081,11 @@ import StorageManager from './StorageManager.vue'
 import { createTask, hasRunningTask } from '../api/task'
 import { sendVerifyCode } from '../api/system'
 import { listStorageRegions } from '../api/storage'
+import {
+  loadOciRegionCatalog,
+  ociRegionSelectOptions,
+  filterOciRegionSelectOption,
+} from '../utils/ociRegionCatalog'
 
 interface TenantData {
   tenant: any
@@ -1452,6 +1470,7 @@ const quickTaskVisible = ref(false)
 const quickTaskLoading = ref(false)
 const quickTaskTenant = ref<any>(null)
 const quickTaskForm = reactive({
+  ociRegion: undefined as string | undefined,
   architecture: 'ARM', operationSystem: 'Ubuntu',
   ocpus: 1, memory: 6, disk: 50, createNumbers: 1, interval: 60, rootPassword: '', customScript: '',
   assignPublicIp: true, assignIpv6: false,
@@ -2312,13 +2331,15 @@ async function loadTraffic() {
   finally { trafficLoading.value = false }
 }
 
-function openQuickTask(tenant: any) {
+async function openQuickTask(tenant: any) {
   quickTaskTenant.value = tenant
   Object.assign(quickTaskForm, {
+    ociRegion: tenant.ociRegion || undefined,
     architecture: 'ARM', operationSystem: 'Ubuntu',
     ocpus: 1, memory: 6, disk: 50, createNumbers: 1, interval: 60, rootPassword: '', customScript: '',
     assignPublicIp: true, assignIpv6: false,
   })
+  await loadOciRegionCatalog(tenant.id)
   quickTaskVisible.value = true
 }
 

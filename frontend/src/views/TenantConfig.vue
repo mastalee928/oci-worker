@@ -27,7 +27,7 @@
               <span v-else style="color: var(--text-sub); font-size: 12px">获取中...</span>
             </template>
             <template v-if="column.key === 'ociRegion'">
-              <a-tag color="blue">{{ getRegionLabel(record.ociRegion) }}</a-tag>
+              <a-tag color="blue">{{ getOciRegionDisplayName(record.ociRegion) }}</a-tag>
               <div style="font-size: 11px; color: var(--text-sub); margin-top: 2px">{{ record.ociRegion }}</div>
             </template>
             <template v-if="column.key === 'taskStatus'">
@@ -59,7 +59,7 @@
             </div>
             <div class="mobile-card-body">
               <div class="mobile-card-row"><span class="label">租户名</span><span class="value">{{ r.tenantName || '获取中...' }}</span></div>
-              <div class="mobile-card-row"><span class="label">区域</span><a-tag color="blue" style="margin:0">{{ getRegionLabel(r.ociRegion) }}</a-tag></div>
+              <div class="mobile-card-row"><span class="label">区域</span><a-tag color="blue" style="margin:0">{{ getOciRegionDisplayName(r.ociRegion) }}</a-tag></div>
               <div class="mobile-card-row">
                 <span class="label">开机任务</span>
                 <a-badge v-if="r.hasRunningTask" status="processing" text="执行中" />
@@ -140,7 +140,7 @@
                       <span v-else style="color: var(--text-sub); font-size: 12px">获取中...</span>
                     </template>
                     <template v-if="column.key === 'ociRegion'">
-                      <a-tag color="blue">{{ getRegionLabel(record.ociRegion) }}</a-tag>
+                      <a-tag color="blue">{{ getOciRegionDisplayName(record.ociRegion) }}</a-tag>
                       <div style="font-size: 11px; color: var(--text-sub); margin-top: 2px">{{ record.ociRegion }}</div>
                     </template>
                     <template v-if="column.key === 'taskStatus'">
@@ -171,7 +171,7 @@
                     </div>
                     <div class="mobile-card-body">
                       <div class="mobile-card-row"><span class="label">租户名</span><span class="value">{{ r.tenantName || '获取中...' }}</span></div>
-                      <div class="mobile-card-row"><span class="label">区域</span><a-tag color="blue" style="margin:0">{{ getRegionLabel(r.ociRegion) }}</a-tag></div>
+                      <div class="mobile-card-row"><span class="label">区域</span><a-tag color="blue" style="margin:0">{{ getOciRegionDisplayName(r.ociRegion) }}</a-tag></div>
                       <div class="mobile-card-row">
                         <span class="label">任务</span>
                         <a-badge v-if="r.hasRunningTask" status="processing" text="执行中" />
@@ -235,7 +235,7 @@
                         <span v-else style="color: var(--text-sub); font-size: 12px">获取中...</span>
                       </template>
                       <template v-if="column.key === 'ociRegion'">
-                        <a-tag color="blue">{{ getRegionLabel(record.ociRegion) }}</a-tag>
+                        <a-tag color="blue">{{ getOciRegionDisplayName(record.ociRegion) }}</a-tag>
                         <div style="font-size: 11px; color: var(--text-sub); margin-top: 2px">{{ record.ociRegion }}</div>
                       </template>
                       <template v-if="column.key === 'taskStatus'">
@@ -266,7 +266,7 @@
                       </div>
                       <div class="mobile-card-body">
                         <div class="mobile-card-row"><span class="label">租户名</span><span class="value">{{ r.tenantName || '获取中...' }}</span></div>
-                        <div class="mobile-card-row"><span class="label">区域</span><a-tag color="blue" style="margin:0">{{ getRegionLabel(r.ociRegion) }}</a-tag></div>
+                        <div class="mobile-card-row"><span class="label">区域</span><a-tag color="blue" style="margin:0">{{ getOciRegionDisplayName(r.ociRegion) }}</a-tag></div>
                         <div class="mobile-card-row">
                           <span class="label">任务</span>
                           <a-badge v-if="r.hasRunningTask" status="processing" text="执行中" />
@@ -426,13 +426,8 @@ region=ap-tokyo-1"
         </a-form-item>
         <a-form-item label="Region" required>
           <a-select v-model:value="formState.ociRegion" placeholder="选择区域" show-search
-            :filter-option="(input: string, option: any) => {
-              const val = (option?.value || '').toLowerCase()
-              const label = (regionMap[option?.value] || '').toLowerCase()
-              const kw = input.toLowerCase()
-              return val.includes(kw) || label.includes(kw)
-            }">
-            <a-select-option v-for="r in regions" :key="r" :value="r">{{ getRegionLabel(r) }}（{{ r }}）</a-select-option>
+            :filter-option="filterOciRegionSelectOption">
+            <a-select-option v-for="opt in ociRegionSelectOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</a-select-option>
           </a-select>
         </a-form-item>
         <a-form-item label="私钥文件 (.pem)">
@@ -826,62 +821,18 @@ import { getTenantList, addTenant, updateTenant, removeTenant, uploadKey, getTen
 import { sendVerifyCode } from '../api/system'
 import { RightOutlined, DownOutlined, SettingOutlined, FolderOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons-vue'
 import AuditLogTable from '../components/AuditLogTable.vue'
+import {
+  loadOciRegionCatalog,
+  ociRegionSelectOptions,
+  getOciRegionDisplayName,
+  filterOciRegionSelectOption,
+} from '../utils/ociRegionCatalog'
 import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc'
 
 dayjs.extend(utc)
 
 const router = useRouter()
-
-const regionMap: Record<string, string> = {
-  'us-ashburn-1': '美国东部（阿什本）',
-  'us-phoenix-1': '美国西部（凤凰城）',
-  'us-sanjose-1': '美国西部（圣何塞）',
-  'us-chicago-1': '美国中西部（芝加哥）',
-  'ca-toronto-1': '加拿大东南部（多伦多）',
-  'ca-montreal-1': '加拿大东南部（蒙特利尔）',
-  'eu-frankfurt-1': '德国中部（法兰克福）',
-  'eu-zurich-1': '瑞士北部（苏黎世）',
-  'eu-amsterdam-1': '荷兰西北部（阿姆斯特丹）',
-  'eu-marseille-1': '法国南部（马赛）',
-  'eu-stockholm-1': '瑞典北部（斯德哥尔摩）',
-  'eu-milan-1': '意大利西北部（米兰）',
-  'eu-paris-1': '法国中部（巴黎）',
-  'eu-madrid-1': '西班牙中部（马德里）',
-  'uk-london-1': '英国南部（伦敦）',
-  'uk-cardiff-1': '英国西部（加的夫）',
-  'ap-tokyo-1': '日本东部（东京）',
-  'ap-osaka-1': '日本中部（大阪）',
-  'ap-seoul-1': '韩国中部（首尔）',
-  'ap-chuncheon-1': '韩国北部（春川）',
-  'ap-mumbai-1': '印度西部（孟买）',
-  'ap-hyderabad-1': '印度南部（海得拉巴）',
-  'ap-singapore-1': '新加坡（新加坡）',
-  'ap-sydney-1': '澳大利亚东部（悉尼）',
-  'ap-melbourne-1': '澳大利亚东南部（墨尔本）',
-  'sa-saopaulo-1': '巴西东部（圣保罗）',
-  'sa-vinhedo-1': '巴西东南部（维涅杜）',
-  'sa-santiago-1': '智利中部（圣地亚哥）',
-  'me-jeddah-1': '沙特阿拉伯西部（吉达）',
-  'me-dubai-1': '阿联酋东部（迪拜）',
-  'me-abudhabi-1': '阿联酋中部（阿布扎比）',
-  'me-riyadh-1': '沙特阿拉伯中部（利雅得）',
-  'af-johannesburg-1': '南非中部（约翰内斯堡）',
-  'il-jerusalem-1': '以色列中部（耶路撒冷）',
-  'mx-queretaro-1': '墨西哥中部（克雷塔罗）',
-  'mx-monterrey-1': '墨西哥东北部（蒙特雷）',
-  'us-saltlake-2': '美国中西部（盐湖城）',
-  'us-langley-1': '美国政府（兰利）',
-  'us-luke-1': '美国政府（卢克）',
-  'us-gov-ashburn-1': '美国政府（阿什本）',
-  'us-gov-chicago-1': '美国政府（芝加哥）',
-  'us-gov-phoenix-1': '美国政府（凤凰城）',
-}
-const regions = Object.keys(regionMap)
-
-function getRegionLabel(code: string) {
-  return regionMap[code] || code
-}
 
 function formatUtcCnDate(v: any): string {
   if (!v) return '—'
@@ -1060,13 +1011,14 @@ function resetForm() {
   importText.value = ''
 }
 
-function showAddModal() {
+async function showAddModal() {
   editingId.value = ''
   resetForm()
+  await loadOciRegionCatalog()
   modalVisible.value = true
 }
 
-function showEditModal(record: any) {
+async function showEditModal(record: any) {
   editingId.value = record.id
   Object.assign(formState, {
     username: record.username,
@@ -1081,6 +1033,7 @@ function showEditModal(record: any) {
   pendingFile = null
   fileList.value = []
   importText.value = ''
+  await loadOciRegionCatalog(record.id)
   modalVisible.value = true
 }
 

@@ -11,3 +11,7 @@ export function sendVerifyCode(action: string) {
 export function getTgStatus() {
   return request.get('/sys/tgStatus')
 }
+
+export function listOciRegionOptions(userId?: string) {
+  return request.get('/sys/ociRegionOptions', { params: userId ? { userId } : {} })
+}

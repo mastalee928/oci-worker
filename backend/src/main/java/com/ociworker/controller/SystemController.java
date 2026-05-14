@@ -38,6 +38,12 @@ public class SystemController {
         return ResponseData.ok(systemService.getGlance());
     }
 
+    /** 区域下拉：传 userId 时仅返回 tenancy 已订阅区；不传则返回 SDK 全集（新增租户配置用）。 */
+    @GetMapping("/ociRegionOptions")
+    public ResponseData<?> ociRegionOptions(@RequestParam(required = false) String userId) {
+        return ResponseData.ok(systemService.listOciRegionCatalog(userId));
+    }
+
     @GetMapping("/notifyConfig")
     public ResponseData<?> getNotifyConfig() {
         Map<String, Object> config = new LinkedHashMap<>();

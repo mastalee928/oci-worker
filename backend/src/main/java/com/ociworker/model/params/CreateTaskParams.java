@@ -18,4 +18,6 @@ public class CreateTaskParams {
     private String customScript;
     private Boolean assignPublicIp = true;
     private Boolean assignIpv6 = false;
+    /** 可选；为空则使用租户配置中的 Region（同 tenancy 多区开机时指定目标区） */
+    private String ociRegion;
 }

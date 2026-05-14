@@ -14,7 +14,9 @@ import com.ociworker.model.dto.SysUserDTO;
 import com.ociworker.model.entity.OciCreateTask;
 import com.ociworker.model.entity.OciUser;
 import com.ociworker.model.params.PageParams;
+import cn.hutool.core.util.StrUtil;
 import com.ociworker.util.CommonUtils;
+import com.ociworker.util.OciRegionUtil;
 import com.ociworker.websocket.LogWebSocketHandler;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
@@ -149,14 +151,21 @@ public class TaskSchedulerService {
     public void createTask(String userId, String architecture, Double ocpus, Double memory,
                            Integer disk, Integer createNumbers, Integer interval,
                            String rootPassword, String operationSystem, String customScript,
-                           Boolean assignPublicIp, Boolean assignIpv6) {
+                           Boolean assignPublicIp, Boolean assignIpv6, String ociRegionOverride) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
+
+        String effectiveRegion = StrUtil.trimToNull(ociRegionOverride);
+        if (effectiveRegion == null) {
+            effectiveRegion = OciRegionUtil.publicRegionId(ociUser.getOciRegion());
+        } else {
+            effectiveRegion = OciRegionUtil.publicRegionId(effectiveRegion);
+        }
 
         OciCreateTask task = new OciCreateTask();
         task.setId(CommonUtils.generateId());
         task.setUserId(userId);
-        task.setOciRegion(ociUser.getOciRegion());
+        task.setOciRegion(effectiveRegion);
         task.setArchitecture(architecture);
         task.setOcpus(ocpus);
         task.setMemory(memory);
@@ -178,13 +187,13 @@ public class TaskSchedulerService {
         scheduleTask(task.getId(), dto, interval);
 
         String logMsg = String.format("【开机任务】用户:[%s],区域:[%s],架构:[%s],数量:[%d] - 任务已创建",
-                ociUser.getUsername(), ociUser.getOciRegion(), architecture, createNumbers);
+                ociUser.getUsername(), effectiveRegion, architecture, createNumbers);
         broadcastLog(logMsg);
 
         String pwd = rootPassword != null ? rootPassword : "随机";
         String html = "📋 <b>开机任务已创建</b>\n\n"
                 + "👤 <b>租户：</b>" + ociUser.getUsername() + "\n"
-                + "🌍 <b>区域：</b>" + ociUser.getOciRegion() + "\n"
+                + "🌍 <b>区域：</b>" + effectiveRegion + "\n"
                 + "⚙️ <b>架构：</b>" + architecture + "\n"
                 + "📊 <b>配置：</b>" + ocpus + "C / " + memory + "GB / " + disk + "GB\n"
                 + "🔢 <b>数量：</b>" + createNumbers + "\n"
@@ -208,7 +217,7 @@ public class TaskSchedulerService {
         scheduleTask(task.getId(), dto, task.getIntervalSeconds());
 
         broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s] - 任务已恢复运行",
-                ociUser.getUsername(), ociUser.getOciRegion(), task.getArchitecture()));
+                ociUser.getUsername(), task.getOciRegion(), task.getArchitecture()));
     }
 
     public void updateTask(String taskId, String architecture, Double ocpus, Double memory,
@@ -556,7 +565,7 @@ public class TaskSchedulerService {
                         .tenantId(ociUser.getOciTenantId())
                         .userId(ociUser.getOciUserId())
                         .fingerprint(ociUser.getOciFingerprint())
-                        .region(ociUser.getOciRegion())
+                        .region(task.getOciRegion())
                         .privateKeyPath(ociUser.getOciKeyPath())
                         .build())
                 .build();

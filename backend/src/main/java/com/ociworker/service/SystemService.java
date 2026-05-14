@@ -1,11 +1,13 @@
 package com.ociworker.service;
 
+import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.ociworker.enums.TaskStatusEnum;
 import com.ociworker.exception.OciException;
 import com.ociworker.mapper.OciCreateTaskMapper;
 import com.ociworker.mapper.OciUserMapper;
 import com.ociworker.model.entity.OciCreateTask;
+import com.ociworker.util.OciRegionCatalog;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Lazy;
@@ -29,6 +31,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.time.Duration;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -44,6 +47,8 @@ public class SystemService {
     @Lazy
     @Resource
     private OciProxyConfigService ociProxyConfigService;
+    @Resource
+    private StorageService storageService;
 
     private static final String REPO = "mastalee928/oci-worker";
     private static final String JAR_PATH = "/opt/oci-worker/oci-worker.jar";
@@ -279,5 +284,15 @@ public class SystemService {
                 uptime.toDays(), uptime.toHoursPart(), uptime.toMinutesPart()));
 
         return result;
+    }
+
+    /**
+     * 区域下拉：传 {@code userId} 时仅返回该租户在 OCI tenancy 已订阅的区域；不传则返回 SDK 枚举全集（如新增配置尚未有 id）。
+     */
+    public List<Map<String, String>> listOciRegionCatalog(String userId) {
+        if (StrUtil.isNotBlank(userId)) {
+            return OciRegionCatalog.listUiRowsForIds(storageService.listSubscribedRegionIds(userId));
+        }
+        return OciRegionCatalog.listUiRows();
     }
 }

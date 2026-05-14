@@ -41,7 +41,8 @@ public class TaskController {
                 params.getCreateNumbers(), params.getInterval(),
                 params.getRootPassword(), params.getOperationSystem(),
                 params.getCustomScript(),
-                params.getAssignPublicIp(), params.getAssignIpv6());
+                params.getAssignPublicIp(), params.getAssignIpv6(),
+                params.getOciRegion());
         return ResponseData.ok();
     }
 

@@ -1,0 +1,53 @@
+/** OCI 公共区域代码与中文展示名（与租户配置表单一致，供多处置复用） */
+export const OCI_REGION_MAP: Record<string, string> = {
+  'us-ashburn-1': '美国东部（阿什本）',
+  'us-phoenix-1': '美国西部（凤凰城）',
+  'us-sanjose-1': '美国西部（圣何塞）',
+  'us-chicago-1': '美国中西部（芝加哥）',
+  'ca-toronto-1': '加拿大东南部（多伦多）',
+  'ca-montreal-1': '加拿大东南部（蒙特利尔）',
+  'eu-frankfurt-1': '德国中部（法兰克福）',
+  'eu-zurich-1': '瑞士北部（苏黎世）',
+  'eu-amsterdam-1': '荷兰西北部（阿姆斯特丹）',
+  'eu-marseille-1': '法国南部（马赛）',
+  'eu-stockholm-1': '瑞典北部（斯德哥尔摩）',
+  'eu-milan-1': '意大利西北部（米兰）',
+  'eu-paris-1': '法国中部（巴黎）',
+  'eu-madrid-1': '西班牙中部（马德里）',
+  'uk-london-1': '英国南部（伦敦）',
+  'uk-cardiff-1': '英国西部（加的夫）',
+  'ap-tokyo-1': '日本东部（东京）',
+  'ap-osaka-1': '日本中部（大阪）',
+  'ap-seoul-1': '韩国中部（首尔）',
+  'ap-chuncheon-1': '韩国北部（春川）',
+  'ap-mumbai-1': '印度西部（孟买）',
+  'ap-hyderabad-1': '印度南部（海得拉巴）',
+  'ap-singapore-1': '新加坡（新加坡）',
+  'ap-singapore-2': '新加坡西部',
+  'ap-sydney-1': '澳大利亚东部（悉尼）',
+  'ap-melbourne-1': '澳大利亚东南部（墨尔本）',
+  'sa-saopaulo-1': '巴西东部（圣保罗）',
+  'sa-vinhedo-1': '巴西东南部（维涅杜）',
+  'sa-santiago-1': '智利中部（圣地亚哥）',
+  'me-jeddah-1': '沙特阿拉伯西部（吉达）',
+  'me-dubai-1': '阿联酋东部（迪拜）',
+  'me-abudhabi-1': '阿联酋中部（阿布扎比）',
+  'me-riyadh-1': '沙特阿拉伯中部（利雅得）',
+  'af-johannesburg-1': '南非中部（约翰内斯堡）',
+  'il-jerusalem-1': '以色列中部（耶路撒冷）',
+  'mx-queretaro-1': '墨西哥中部（克雷塔罗）',
+  'mx-monterrey-1': '墨西哥东北部（蒙特雷）',
+  'us-saltlake-2': '美国中西部（盐湖城）',
+  'us-langley-1': '美国政府（兰利）',
+  'us-luke-1': '美国政府（卢克）',
+  'us-gov-ashburn-1': '美国政府（阿什本）',
+  'us-gov-chicago-1': '美国政府（芝加哥）',
+  'us-gov-phoenix-1': '美国政府（凤凰城）',
+}
+
+export const OCI_REGION_CODES = Object.keys(OCI_REGION_MAP).sort()
+
+export function getOciRegionLabel(code: string): string {
+  if (!code) return ''
+  return OCI_REGION_MAP[code] || code
+}
