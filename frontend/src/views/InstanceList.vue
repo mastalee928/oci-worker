@@ -1506,16 +1506,20 @@ watch(
   },
 )
 
+let quickTaskShapeLoadGen = 0
+
 async function loadQuickTaskShapes() {
   const tid = quickTaskTenant.value?.id
   if (!tid) {
     quickTaskShapes.value = []
     return
   }
+  const gen = ++quickTaskShapeLoadGen
   quickTaskShapesLoading.value = true
   try {
     const region = quickTaskForm.ociRegion?.trim() || undefined
     const res = await getAvailableShapes({ id: tid, ...(region ? { region } : {}) })
+    if (gen !== quickTaskShapeLoadGen) return
     const rows = res.data || []
     quickTaskShapes.value = rows.filter(
       (s: any) => s.shape !== 'VM.Standard.A1.Flex' && s.shape !== 'VM.Standard.E2.1.Micro',
@@ -1527,14 +1531,18 @@ async function loadQuickTaskShapes() {
       quickTaskShapes.value.some((s: any) => s.shape === arch)
     if (!ok) quickTaskForm.architecture = 'ARM'
   } catch {
-    quickTaskShapes.value = []
+    if (gen === quickTaskShapeLoadGen) quickTaskShapes.value = []
   } finally {
-    quickTaskShapesLoading.value = false
+    if (gen === quickTaskShapeLoadGen) quickTaskShapesLoading.value = false
   }
 }
 
 watch(quickTaskVisible, (open) => {
-  if (!open) quickTaskShapes.value = []
+  if (!open) {
+    quickTaskShapes.value = []
+    quickTaskShapeLoadGen++
+    quickTaskShapesLoading.value = false
+  }
 })
 
 watch(
@@ -2383,7 +2391,7 @@ async function loadTraffic() {
   finally { trafficLoading.value = false }
 }
 
-async function openQuickTask(tenant: any) {
+function openQuickTask(tenant: any) {
   quickTaskTenant.value = tenant
   Object.assign(quickTaskForm, {
     ociRegion: tenant.ociRegion || undefined,
@@ -2391,9 +2399,9 @@ async function openQuickTask(tenant: any) {
     ocpus: 1, memory: 6, disk: 50, createNumbers: 1, interval: 60, rootPassword: '', customScript: '',
     assignPublicIp: true, assignIpv6: false,
   })
-  await loadOciRegionCatalog(tenant.id)
-  await loadQuickTaskShapes()
   quickTaskVisible.value = true
+  void loadOciRegionCatalog(tenant.id)
+  void loadQuickTaskShapes()
 }
 
 async function handleQuickTask() {
