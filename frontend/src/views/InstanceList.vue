@@ -428,10 +428,20 @@
           </div>
         </a-form-item>
         <a-form-item label="机器规格">
-          <a-select v-model:value="quickTaskForm.architecture">
+          <a-select
+            v-model:value="quickTaskForm.architecture"
+            placeholder="选择 Shape"
+            :loading="quickTaskShapesLoading"
+          >
             <a-select-option value="ARM">ARM (A1.Flex)</a-select-option>
             <a-select-option value="AMD">AMD (E2.1.Micro)</a-select-option>
+            <a-select-option v-for="s in quickTaskShapes" :key="s.shape" :value="s.shape">
+              {{ s.shape }}{{ s.processorDescription ? `（${s.processorDescription}）` : '' }}
+            </a-select-option>
           </a-select>
+          <div v-if="quickTaskShapes.length" style="color: var(--text-sub); font-size: 12px; margin-top: 4px">
+            已从 OCI 加载 {{ quickTaskShapes.length }} 个可用 Shape（随目标区域变化）
+          </div>
         </a-form-item>
         <a-form-item label="操作系统">
           <a-select v-model:value="quickTaskForm.operationSystem">
@@ -1073,6 +1083,7 @@ import {
   updateInstance,
   assignEphemeralIp, deletePublicIp, deleteSecondaryIp,
   createConsoleConnection, deleteConsoleConnection,
+  getAvailableShapes,
 } from '../api/instance'
 import { getTenantList, getTenantGroups } from '../api/tenant'
 import { listAllVolumes, deleteVolume } from '../api/volume'
@@ -1469,6 +1480,8 @@ const isFlexShape = computed(() => currentInstance.value?.shape?.includes('Flex'
 const quickTaskVisible = ref(false)
 const quickTaskLoading = ref(false)
 const quickTaskTenant = ref<any>(null)
+const quickTaskShapes = ref<any[]>([])
+const quickTaskShapesLoading = ref(false)
 const quickTaskForm = reactive({
   ociRegion: undefined as string | undefined,
   architecture: 'ARM', operationSystem: 'Ubuntu',
@@ -1490,6 +1503,45 @@ watch(
   (arch) => {
     if (arch == null || arch === undefined) return
     quickTaskForm.memory = defaultMemoryGbForQuickTaskShape(String(arch))
+  },
+)
+
+async function loadQuickTaskShapes() {
+  const tid = quickTaskTenant.value?.id
+  if (!tid) {
+    quickTaskShapes.value = []
+    return
+  }
+  quickTaskShapesLoading.value = true
+  try {
+    const region = quickTaskForm.ociRegion?.trim() || undefined
+    const res = await getAvailableShapes({ id: tid, ...(region ? { region } : {}) })
+    const rows = res.data || []
+    quickTaskShapes.value = rows.filter(
+      (s: any) => s.shape !== 'VM.Standard.A1.Flex' && s.shape !== 'VM.Standard.E2.1.Micro',
+    )
+    const arch = quickTaskForm.architecture
+    const ok =
+      arch === 'ARM' ||
+      arch === 'AMD' ||
+      quickTaskShapes.value.some((s: any) => s.shape === arch)
+    if (!ok) quickTaskForm.architecture = 'ARM'
+  } catch {
+    quickTaskShapes.value = []
+  } finally {
+    quickTaskShapesLoading.value = false
+  }
+}
+
+watch(quickTaskVisible, (open) => {
+  if (!open) quickTaskShapes.value = []
+})
+
+watch(
+  () => quickTaskForm.ociRegion,
+  async () => {
+    if (!quickTaskVisible.value || !quickTaskTenant.value?.id) return
+    await loadQuickTaskShapes()
   },
 )
 
@@ -2340,6 +2392,7 @@ async function openQuickTask(tenant: any) {
     assignPublicIp: true, assignIpv6: false,
   })
   await loadOciRegionCatalog(tenant.id)
+  await loadQuickTaskShapes()
   quickTaskVisible.value = true
 }
 

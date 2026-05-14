@@ -458,7 +458,6 @@ public class OciClientService implements Closeable {
         result.setCreateNumbers(user.getCreateNumbers());
 
         List<AvailabilityDomain> availabilityDomains = getAvailabilityDomains();
-        String targetShape = ArchitectureEnum.getShape(user.getArchitecture());
 
         // Use sequential stream: OCI SDK ComputeClient is not thread-safe, and this method is @synchronized.
         List<String> shapeList = availabilityDomains.stream()
@@ -466,6 +465,17 @@ public class OciClientService implements Closeable {
                 .map(Shape::getShape)
                 .distinct()
                 .collect(Collectors.toList());
+
+        String arch = user.getArchitecture();
+        String targetShape;
+        if (arch != null && ("ARM".equalsIgnoreCase(arch) || "AMD".equalsIgnoreCase(arch))) {
+            targetShape = ArchitectureEnum.getShape(arch);
+        } else if (arch != null && shapeList.contains(arch)) {
+            // 任务管理里从 listShapes 选的完整 shape 名（如 VM.Standard3.Flex）
+            targetShape = arch;
+        } else {
+            targetShape = ArchitectureEnum.getShape(arch == null ? "ARM" : arch);
+        }
 
         if (CollectionUtil.isEmpty(shapeList) || !shapeList.contains(targetShape)) {
             result.setNoShape(true);
