@@ -13,6 +13,7 @@ import com.oracle.bmc.identitydomains.model.Groups;
 import com.oracle.bmc.identitydomains.model.Operations;
 import com.oracle.bmc.identitydomains.model.PatchOp;
 import com.oracle.bmc.identitydomains.model.UserEmails;
+import com.oracle.bmc.identitydomains.model.UserName;
 import com.oracle.bmc.identitydomains.model.UserPasswordChanger;
 import com.oracle.bmc.identitydomains.requests.PatchGroupRequest;
 import com.oracle.bmc.identitydomains.requests.PutUserPasswordChangerRequest;
@@ -181,12 +182,20 @@ public class UserManagementService {
         if (StrUtil.isBlank(url)) {
             throw new OciException("该 Identity Domain 缺少 URL，无法创建用户");
         }
+        // Identity Domains SCIM 要求 User 资源包含 name（与 userName 不同）
+        String loginName = StrUtil.blankToDefault(StrUtil.trim(params.getUserName()), "User");
+        UserName scimName = UserName.builder()
+                .formatted(loginName)
+                .givenName(loginName)
+                .familyName(loginName)
+                .build();
         com.oracle.bmc.identitydomains.model.User.Builder ub =
                 com.oracle.bmc.identitydomains.model.User.builder()
                         .schemas(List.of(SCIM_SCHEMA_USER))
-                        .userName(params.getUserName())
+                        .userName(loginName)
+                        .name(scimName)
                         .active(Boolean.TRUE)
-                        .description(StrUtil.isNotBlank(params.getEmail()) ? params.getEmail() : params.getUserName());
+                        .description(StrUtil.isNotBlank(params.getEmail()) ? params.getEmail() : loginName);
         if (StrUtil.isNotBlank(params.getEmail())) {
             ub.emails(List.of(
                     UserEmails.builder()
