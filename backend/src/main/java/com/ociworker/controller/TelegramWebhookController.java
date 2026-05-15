@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ociworker.service.LoginSecurityService;
 import com.ociworker.service.NotificationService;
+import com.ociworker.service.TelegramBotCommandService;
 import com.ociworker.util.SecretCompare;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
@@ -22,9 +23,10 @@ import org.springframework.web.bind.annotation.RestController;
  * <pre>
  * curl -G "https://api.telegram.org/bot&lt;TOKEN&gt;/setWebhook" \
  *   --data-urlencode "url=https://你的域名/api/tg/callback/&lt;PATH_SECRET&gt;" \
- *   --data-urlencode "secret_token=&lt;仅含A-Za-z0-9_-&gt;"
+ *   --data-urlencode "secret_token=&lt;仅含A-Za-z0-9_-&gt;" \
+ *   --data-urlencode "allowed_updates=[\"message\",\"callback_query\"]"
+ * （须包含 message 才能接收 /start 等文字命令）
  * </pre>
- */
 @Slf4j
 @RestController
 @RequestMapping("/api/tg")
@@ -44,6 +46,8 @@ public class TelegramWebhookController {
     private LoginSecurityService loginSecurityService;
     @Resource
     private NotificationService notificationService;
+    @Resource
+    private TelegramBotCommandService telegramBotCommandService;
 
     @PostMapping("/callback/{secret}")
     public void callback(
@@ -73,6 +77,10 @@ public class TelegramWebhookController {
                 } else {
                     loginSecurityService.handleTelegramCallback(data, id);
                 }
+            }
+            JsonNode msg = root.get("message");
+            if (msg != null) {
+                telegramBotCommandService.handleTelegramMessage(msg);
             }
         } catch (Exception e) {
             log.warn("Telegram webhook parse error: {}", e.getMessage());

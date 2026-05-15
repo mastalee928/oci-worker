@@ -1,0 +1,141 @@
+package com.ociworker.service;
+
+import cn.hutool.core.util.StrUtil;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.ociworker.enums.SysCfgEnum;
+import com.ociworker.enums.TaskStatusEnum;
+import com.ociworker.mapper.OciCreateTaskMapper;
+import com.ociworker.mapper.OciUserMapper;
+import com.ociworker.model.entity.OciCreateTask;
+import com.ociworker.model.entity.OciUser;
+import com.fasterxml.jackson.databind.JsonNode;
+import jakarta.annotation.Resource;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.stereotype.Service;
+
+import java.util.HashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+/**
+ * Telegram 文本命令：/start /stop /logs /state（仅处理已绑定 chat_id）。
+ */
+@Slf4j
+@Service
+public class TelegramBotCommandService {
+
+    private static final int TG_TEXT_MAX = 3800;
+
+    @Resource
+    private VerifyCodeService verifyCodeService;
+    @Resource
+    private NotificationService notificationService;
+    @Resource
+    private LoginSecurityService loginSecurityService;
+    @Resource
+    private SystemService systemService;
+    @Resource
+    private OciCreateTaskMapper taskMapper;
+    @Resource
+    private OciUserMapper userMapper;
+
+    public void handleTelegramMessage(JsonNode message) {
+        if (!verifyCodeService.isTgConfigured()) return;
+        if (message == null || !message.has("chat") || !message.has("text")) return;
+
+        String configuredChat = StrUtil.trim(notificationService.getKvValue(SysCfgEnum.TG_CHAT_ID));
+        if (StrUtil.isBlank(configuredChat)) return;
+
+        String chatId = message.path("chat").path("id").asText("");
+        if (!configuredChat.equals(chatId)) {
+            log.debug("[TG] ignore message from chat {}", chatId);
+            return;
+        }
+
+        String raw = message.get("text").asText("").trim();
+        if (raw.isEmpty()) return;
+
+        String firstToken = raw.split("\\s+")[0];
+        String lower = firstToken.toLowerCase();
+        String cmd = lower.contains("@") ? lower.substring(0, lower.indexOf('@')) : lower;
+
+        switch (cmd) {
+            case "/start" -> handleStart();
+            case "/stop" -> handleStop();
+            case "/logs" -> handleLogs();
+            case "/state" -> handleState();
+            default -> { /* 非命令消息忽略 */ }
+        }
+    }
+
+    private void handleStart() {
+        loginSecurityService.setSitePaused(false);
+        notificationService.sendMessage("启动OCIWorker");
+    }
+
+    private void handleStop() {
+        loginSecurityService.setSitePaused(true);
+        notificationService.sendMessage("已暂停全站 API 访问。");
+    }
+
+    private void handleLogs() {
+        List<OciCreateTask> list = taskMapper.selectList(
+                new LambdaQueryWrapper<OciCreateTask>()
+                        .eq(OciCreateTask::getStatus, TaskStatusEnum.RUNNING.getStatus())
+                        .orderByDesc(OciCreateTask::getCreateTime));
+        if (list.isEmpty()) {
+            notificationService.sendMessage("当前无运行中的开机任务。");
+            return;
+        }
+        Set<String> userIds = list.stream()
+                .map(OciCreateTask::getUserId)
+                .filter(StrUtil::isNotBlank)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+
+        Map<String, String> idToName = new HashMap<>();
+        if (!userIds.isEmpty()) {
+            List<OciUser> users = userMapper.selectList(
+                    new LambdaQueryWrapper<OciUser>().in(OciUser::getId, userIds));
+            for (OciUser u : users) {
+                idToName.put(u.getId(), StrUtil.blankToDefault(u.getUsername(), u.getId()));
+            }
+        }
+
+        int tenantN = userIds.size();
+        StringBuilder sb = new StringBuilder();
+        sb.append("当前有 ").append(tenantN).append(" 个租户正在开机（").append(list.size()).append(" 个运行中任务）。\n\n");
+        for (String uid : userIds) {
+            sb.append("· ").append(idToName.getOrDefault(uid, uid)).append('\n');
+        }
+        String out = sb.toString().trim();
+        if (out.length() > TG_TEXT_MAX) {
+            out = out.substring(0, TG_TEXT_MAX) + "\n…";
+        }
+        notificationService.sendMessage(out);
+    }
+
+    private void handleState() {
+        Map<String, Object> g = systemService.getGlance();
+        boolean paused = loginSecurityService.isSitePaused();
+        String norm = paused ? "全站已暂停" : "全站运行中";
+
+        long tenants = 0L;
+        Object tc = g.get("tenantCount");
+        if (tc instanceof Number n) tenants = n.longValue();
+
+        long tasks = 0L;
+        Object rc = g.get("runningTaskCount");
+        if (rc instanceof Number n) tasks = n.longValue();
+
+        String cpu = g.get("cpuUsage") != null ? String.valueOf(g.get("cpuUsage")) : "—";
+        String mem = g.get("memoryUsage") != null ? String.valueOf(g.get("memoryUsage")) : "—";
+
+        String msg = String.format(
+                "状态：%s\n租户：%d\n运行中任务：%d\nCPU：%s%%\n内存：%s%%",
+                norm, tenants, tasks, cpu, mem);
+        notificationService.sendMessage(msg);
+    }
+}

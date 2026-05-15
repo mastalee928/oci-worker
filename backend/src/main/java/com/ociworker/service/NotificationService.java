@@ -190,4 +190,29 @@ public class NotificationService {
             log.warn("Failed to answer Telegram callback: {}", e.getMessage());
         }
     }
+
+    /** 注册左侧菜单斜杠命令（Telegram setMyCommands）。 */
+    public void registerTelegramBotCommands() {
+        try {
+            String botToken = getKvValue(SysCfgEnum.TG_BOT_TOKEN);
+            if (StrUtil.isBlank(botToken)) return;
+            String url = String.format("https://api.telegram.org/bot%s/setMyCommands", botToken);
+            java.util.List<Map<String, String>> commands = new java.util.ArrayList<>();
+            commands.add(Map.of("command", "start", "description", "启动OCIWorker"));
+            commands.add(Map.of("command", "stop", "description", "暂停全站访问"));
+            commands.add(Map.of("command", "logs", "description", "抢机任务"));
+            commands.add(Map.of("command", "state", "description", "系统状态"));
+            Map<String, Object> body = Map.of("commands", commands);
+            HttpClient c = ociProxyConfigService.newOutboundHttpClient();
+            HttpRequest req = HttpRequest.newBuilder(URI.create(url))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(JSONUtil.toJsonStr(body)))
+                    .timeout(Duration.ofSeconds(15))
+                    .build();
+            c.send(req, HttpResponse.BodyHandlers.discarding());
+            log.info("Telegram setMyCommands registered (start/stop/logs/state)");
+        } catch (Exception e) {
+            log.warn("Failed to register Telegram bot commands: {}", e.getMessage());
+        }
+    }
 }

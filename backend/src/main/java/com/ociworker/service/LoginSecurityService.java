@@ -57,6 +57,12 @@ public class LoginSecurityService {
         return "true".equalsIgnoreCase(StrUtil.trim(v));
     }
 
+    /** TG / 管理用：设置全站 API 暂停（true=503 除白名单外）。 */
+    public void setSitePaused(boolean paused) {
+        notificationService.saveKvValue(SysCfgEnum.SITE_ACCESS_PAUSED, paused ? "true" : "false");
+        log.warn("[LoginSecurity] site_access_paused = {}", paused);
+    }
+
     public boolean isDeniedForLogin(String ip, String deviceId) {
         if (containsIp(readIpDenylist(), normalizeIp(ip))) return true;
         if (StrUtil.isNotBlank(deviceId) && containsToken(readDeviceDenylist(), deviceId.trim())) return true;
