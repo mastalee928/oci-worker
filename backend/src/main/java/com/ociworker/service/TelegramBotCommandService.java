@@ -46,12 +46,18 @@ public class TelegramBotCommandService {
         if (!verifyCodeService.isTgConfigured()) return;
         if (message == null || !message.has("chat") || !message.has("text")) return;
 
-        String configuredChat = StrUtil.trim(notificationService.getKvValue(SysCfgEnum.TG_CHAT_ID));
+        String configuredChat = normalizeChatIdStr(notificationService.getKvValue(SysCfgEnum.TG_CHAT_ID));
         if (StrUtil.isBlank(configuredChat)) return;
 
-        String chatId = message.path("chat").path("id").asText("");
+        String chatId = normalizeChatIdFromMessage(message);
         if (!configuredChat.equals(chatId)) {
-            log.debug("[TG] ignore message from chat {}", chatId);
+            String raw = message.path("text").asText("").trim();
+            if (raw.startsWith("/")) {
+                log.warn("[TG] 斜杠命令已送达但 chat_id 不匹配：收到 [{}]，面板配置 TG_CHAT_ID=[{}]。请用 @userinfobot 查看本对话 id 并写入系统设置。",
+                        chatId, configuredChat);
+            } else {
+                log.debug("[TG] ignore message from chat {}", chatId);
+            }
             return;
         }
 
@@ -137,5 +143,29 @@ public class TelegramBotCommandService {
                 "状态：%s\n租户：%d\n运行中任务：%d\nCPU：%s%%\n内存：%s%%",
                 norm, tenants, tasks, cpu, mem);
         notificationService.sendMessage(msg);
+    }
+
+    /** 与 Telegram JSON 中 chat.id（数字或字符串）对齐，避免与面板里填的纯数字字符串不一致。 */
+    private static String normalizeChatIdFromMessage(JsonNode message) {
+        JsonNode id = message.path("chat").path("id");
+        return normalizeChatIdNode(id);
+    }
+
+    private static String normalizeChatIdNode(JsonNode id) {
+        if (id == null || id.isMissingNode() || id.isNull()) return "";
+        if (id.isNumber()) {
+            if (id.isIntegralNumber()) return Long.toString(id.longValue());
+            return id.asText("");
+        }
+        return StrUtil.trim(id.asText(""));
+    }
+
+    private static String normalizeChatIdStr(String s) {
+        if (StrUtil.isBlank(s)) return "";
+        String t = StrUtil.trim(s);
+        if ((t.startsWith("\"") && t.endsWith("\"")) || (t.startsWith("'") && t.endsWith("'"))) {
+            t = t.substring(1, t.length() - 1).trim();
+        }
+        return t;
     }
 }

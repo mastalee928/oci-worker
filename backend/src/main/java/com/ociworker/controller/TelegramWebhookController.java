@@ -80,6 +80,9 @@ public class TelegramWebhookController {
                 }
             }
             JsonNode msg = root.get("message");
+            if (msg == null) {
+                msg = root.get("edited_message");
+            }
             if (msg != null) {
                 telegramBotCommandService.handleTelegramMessage(msg);
             }
