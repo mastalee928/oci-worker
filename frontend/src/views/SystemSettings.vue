@@ -76,13 +76,6 @@
                 东八区（Asia/Shanghai），默认 09:00
               </div>
             </a-form-item>
-            <a-alert
-              type="info"
-              show-icon
-              style="margin-bottom: 12px"
-              message="Bot 命令与按钮"
-              description="斜杠命令（/start、/stop 等）与内联按钮由本服务通过 Telegram getUpdates 长轮询接收，无需配置 Webhook 或公网地址。保存 Token 与 Chat ID 后由后台自动拉取更新；更换 Token 后会自动清空拉取游标。"
-            />
             <a-space wrap>
               <a-button type="primary" @click="saveTgConfig" :loading="saveLoading">保存</a-button>
               <a-button @click="testTgNotify" :loading="testLoading">测试发送</a-button>
