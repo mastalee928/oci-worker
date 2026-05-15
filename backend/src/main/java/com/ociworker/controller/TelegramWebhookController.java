@@ -27,6 +27,7 @@ import org.springframework.web.bind.annotation.RestController;
  *   --data-urlencode "allowed_updates=[\"message\",\"callback_query\"]"
  * （须包含 message 才能接收 /start 等文字命令）
  * </pre>
+ */
 @Slf4j
 @RestController
 @RequestMapping("/api/tg")
