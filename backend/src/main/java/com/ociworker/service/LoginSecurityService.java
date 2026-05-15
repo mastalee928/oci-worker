@@ -29,11 +29,13 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class LoginSecurityService {
 
     private static final long PENDING_TTL_MS = 15 * 60 * 1000L;
+    /** 禁止名单管理内联按钮有效期（可慢慢点，略长于登录失败按钮） */
+    private static final long DENYLIST_UI_TTL_MS = 30 * 60 * 1000L;
     private static final long FAIL_WINDOW_MS = 15 * 60 * 1000L;
     private static final int PAUSE_OFFER_THRESHOLD = 5;
 
     private enum PendingKind {
-        BLOCK_IP, BLOCK_DEVICE, PAUSE_SITE, RESUME_SITE, IGNORE_FAILS
+        BLOCK_IP, BLOCK_DEVICE, PAUSE_SITE, RESUME_SITE, IGNORE_FAILS, UNBLOCK_IP, UNBLOCK_DEVICE
     }
 
     private record Pending(PendingKind kind, String ip, String deviceId, long expireAt) {}
@@ -170,7 +172,8 @@ public class LoginSecurityService {
         }
         Pending pend = pendingByToken.get(token);
         if (pend == null || System.currentTimeMillis() > pend.expireAt) {
-            notificationService.answerTelegramCallbackQuery(callbackQueryId, "操作已过期，请重新尝试登录后再点", false);
+            notificationService.answerTelegramCallbackQuery(callbackQueryId,
+                    "操作已过期，请重新发送 /bans 或重新登录后再试", false);
             return;
         }
         if (!prefixMatchesKind(prefix, pend.kind)) {
@@ -209,6 +212,22 @@ public class LoginSecurityService {
                     ipFailWindows.remove(pend.ip);
                     notificationService.answerTelegramCallbackQuery(callbackQueryId, "已清零该 IP 的失败计数", false);
                 }
+                case "R" -> {
+                    boolean ok = removeIpFromDenylist(pend.ip);
+                    notificationService.answerTelegramCallbackQuery(callbackQueryId,
+                            ok ? "已解除 IP 禁止: " + pend.ip : "该 IP 已不在名单中", false);
+                    if (ok) {
+                        log.info("[LoginSecurity] IP removed from denylist via TG: {}", pend.ip);
+                    }
+                }
+                case "r" -> {
+                    boolean ok = removeDeviceFromDenylist(pend.deviceId);
+                    notificationService.answerTelegramCallbackQuery(callbackQueryId,
+                            ok ? "已解除设备禁止" : "该设备已不在名单中", false);
+                    if (ok) {
+                        log.info("[LoginSecurity] Device removed from denylist via TG: {}", pend.deviceId);
+                    }
+                }
                 default -> notificationService.answerTelegramCallbackQuery(callbackQueryId, "未知操作", false);
             }
         } catch (Exception e) {
@@ -223,6 +242,8 @@ public class LoginSecurityService {
             case BLOCK_DEVICE -> StrUtil.isNotBlank(pend.deviceId);
             case IGNORE_FAILS -> StrUtil.isNotBlank(pend.ip);
             case PAUSE_SITE, RESUME_SITE -> true;
+            case UNBLOCK_IP -> StrUtil.isNotBlank(pend.ip);
+            case UNBLOCK_DEVICE -> StrUtil.isNotBlank(pend.deviceId);
         };
     }
 
@@ -233,6 +254,8 @@ public class LoginSecurityService {
             case "p" -> kind == PendingKind.PAUSE_SITE;
             case "u" -> kind == PendingKind.RESUME_SITE;
             case "g" -> kind == PendingKind.IGNORE_FAILS;
+            case "R" -> kind == PendingKind.UNBLOCK_IP;
+            case "r" -> kind == PendingKind.UNBLOCK_DEVICE;
             default -> false;
         };
     }
@@ -324,6 +347,93 @@ public class LoginSecurityService {
         Set<String> s = readDeviceDenylist();
         s.add(deviceId.trim());
         notificationService.saveKvValue(SysCfgEnum.LOGIN_DEVICE_DENYLIST, String.join(",", s));
+    }
+
+    /**
+     * 向已配置的 Chat 发送当前 IP/设备禁止名单，并为每项附上「解除」内联按钮（短 token，避免 callback_data 超长）。
+     */
+    public void sendDenylistManagementKeyboard() {
+        long exp = System.currentTimeMillis() + DENYLIST_UI_TTL_MS;
+        List<String> ips = new ArrayList<>(readIpDenylist());
+        List<String> devs = new ArrayList<>(readDeviceDenylist());
+
+        StringBuilder text = new StringBuilder();
+        text.append("【禁止名单】点下方按钮解除对应项（30 分钟内有效）。\n");
+        text.append("IP：").append(ips.size()).append(" 条；设备：").append(devs.size()).append(" 条。\n");
+
+        if (ips.isEmpty() && devs.isEmpty()) {
+            text.append("\n当前无禁止的 IP 与设备。");
+            notificationService.sendMessage(text.toString());
+            return;
+        }
+
+        final int capIp = 40;
+        final int capDev = 40;
+        List<List<Map<String, String>>> rows = new ArrayList<>();
+        int ipShown = 0;
+        for (String ip : ips) {
+            if (ipShown >= capIp) {
+                break;
+            }
+            String tok = registerPending(new Pending(PendingKind.UNBLOCK_IP, ip, null, exp));
+            rows.add(List.of(Map.of(
+                    "text", "解除IP " + shortenForTelegramButton(ip, 48),
+                    "callback_data", "R|" + tok)));
+            ipShown++;
+        }
+        int devShown = 0;
+        for (String did : devs) {
+            if (devShown >= capDev) {
+                break;
+            }
+            String tok = registerPending(new Pending(PendingKind.UNBLOCK_DEVICE, null, did, exp));
+            rows.add(List.of(Map.of(
+                    "text", "解除设备 " + shortenForTelegramButton(did, 44),
+                    "callback_data", "r|" + tok)));
+            devShown++;
+        }
+        if (ips.size() > capIp) {
+            text.append("\n⚠ IP 较多，仅生成前 ").append(capIp).append(" 条的解除按钮；解除后可再发 /bans。");
+        }
+        if (devs.size() > capDev) {
+            text.append("\n⚠ 设备较多，仅生成前 ").append(capDev).append(" 条的解除按钮；解除后可再发 /bans。");
+        }
+
+        notificationService.sendSecurityTextWithInlineKeyboard(text.toString(), rows);
+    }
+
+    private static String shortenForTelegramButton(String s, int maxLen) {
+        if (s == null) {
+            return "";
+        }
+        if (s.length() <= maxLen) {
+            return s;
+        }
+        return s.substring(0, Math.max(0, maxLen - 1)) + "…";
+    }
+
+    private boolean removeIpFromDenylist(String ip) {
+        if (StrUtil.isBlank(ip)) {
+            return false;
+        }
+        Set<String> s = readIpDenylist();
+        if (!s.remove(normalizeIp(ip))) {
+            return false;
+        }
+        notificationService.saveKvValue(SysCfgEnum.LOGIN_IP_DENYLIST, s.isEmpty() ? "" : String.join(",", s));
+        return true;
+    }
+
+    private boolean removeDeviceFromDenylist(String deviceId) {
+        if (StrUtil.isBlank(deviceId)) {
+            return false;
+        }
+        Set<String> s = readDeviceDenylist();
+        if (!s.remove(deviceId.trim())) {
+            return false;
+        }
+        notificationService.saveKvValue(SysCfgEnum.LOGIN_DEVICE_DENYLIST, s.isEmpty() ? "" : String.join(",", s));
+        return true;
     }
 
     public String readDeviceIdFromRequest(HttpServletRequest request) {

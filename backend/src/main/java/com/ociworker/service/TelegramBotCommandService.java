@@ -21,7 +21,7 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * Telegram 文本命令：/start /stop /logs /state（仅处理已绑定 chat_id）。
+ * Telegram 文本命令：/start /stop /logs /state /bans（仅处理已绑定 chat_id）。
  */
 @Slf4j
 @Service
@@ -73,13 +73,18 @@ public class TelegramBotCommandService {
             case "/stop" -> handleStop();
             case "/logs" -> handleLogs();
             case "/state" -> handleState();
+            case "/bans" -> handleBans();
             default -> { /* 非命令消息忽略 */ }
         }
     }
 
     private void handleStart() {
         loginSecurityService.setSitePaused(false);
-        notificationService.sendMessage("启动OCIWorker");
+        notificationService.sendMessage("OCIWorker已启动");
+    }
+
+    private void handleBans() {
+        loginSecurityService.sendDenylistManagementKeyboard();
     }
 
     private void handleStop() {

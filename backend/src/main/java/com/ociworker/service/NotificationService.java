@@ -202,10 +202,11 @@ public class NotificationService {
             if (StrUtil.isBlank(botToken)) return;
             String url = String.format("https://api.telegram.org/bot%s/setMyCommands", botToken);
             java.util.List<Map<String, String>> commands = new java.util.ArrayList<>();
-            commands.add(Map.of("command", "start", "description", "启动OCIWorker"));
+            commands.add(Map.of("command", "start", "description", "OCIWorker已启动"));
             commands.add(Map.of("command", "stop", "description", "暂停全站访问"));
             commands.add(Map.of("command", "logs", "description", "抢机任务"));
             commands.add(Map.of("command", "state", "description", "系统状态"));
+            commands.add(Map.of("command", "bans", "description", "禁止名单与解除"));
             Map<String, Object> body = Map.of("commands", commands);
             HttpClient c = ociProxyConfigService.newOutboundHttpClient();
             HttpRequest req = HttpRequest.newBuilder(URI.create(url))
@@ -214,7 +215,7 @@ public class NotificationService {
                     .timeout(Duration.ofSeconds(15))
                     .build();
             c.send(req, HttpResponse.BodyHandlers.discarding());
-            log.info("Telegram setMyCommands registered (start/stop/logs/state)");
+            log.info("Telegram setMyCommands registered (start/stop/logs/state/bans)");
         } catch (Exception e) {
             log.warn("Failed to register Telegram bot commands: {}", e.getMessage());
         }
