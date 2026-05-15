@@ -71,6 +71,7 @@ public class TelegramLongPollingRunner {
                     }
                     Long uidObj = u.getLong("update_id");
                     long uid = uidObj == null ? 0L : uidObj;
+                    if (uid > 0) {
                         maxSeen = Math.max(maxSeen, uid);
                     }
                     telegramInboundUpdateDispatcher.dispatchUpdateJson(u.toString());
