@@ -1,21 +1,29 @@
 package com.ociworker.controller;
 
 import cn.hutool.core.util.RandomUtil;
+import cn.hutool.core.util.StrUtil;
 import cn.hutool.crypto.digest.DigestUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.ociworker.mapper.OciKvMapper;
 import com.ociworker.model.entity.OciKv;
 import com.ociworker.model.params.LoginParams;
 import com.ociworker.model.vo.ResponseData;
+import com.ociworker.service.LoginSecurityService;
 import com.ociworker.service.NotificationService;
 import com.ociworker.service.VerifyCodeService;
 import com.ociworker.util.CommonUtils;
+import com.ociworker.util.HttpRequestUtil;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.ResponseCookie;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
+import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Map;
@@ -36,12 +44,19 @@ public class AuthController {
     private NotificationService notificationService;
     @Resource
     private VerifyCodeService verifyCodeService;
+    @Resource
+    private LoginSecurityService loginSecurityService;
 
     private static final long TG_CODE_EXPIRE_MS = 30 * 1000;
     private static final int TG_CODE_MAX_ATTEMPTS = 3;
+    /** 连续成功发码达到此次数后，须距上次发码至少间隔 {@link #TG_SEND_BURST_COOLDOWN_MS} 毫秒才可再发 */
+    private static final int TG_SEND_BURST_MAX = 3;
+    private static final long TG_SEND_BURST_COOLDOWN_MS = 60_000;
     private volatile String tgLoginCode;
     private volatile long tgLoginCodeExpireAt;
     private volatile long tgLoginCodeSentAt;
+    /** 当前「连发」窗口内已成功发码次数；距上次发码超过 {@link #TG_SEND_BURST_COOLDOWN_MS} 则清零 */
+    private volatile int tgSendBurstCount;
     private final AtomicInteger tgLoginFailCount = new AtomicInteger(0);
 
     private static final String CODE_ACCOUNT = "web_account";
@@ -122,10 +137,35 @@ public class AuthController {
         return ResponseData.ok(Map.of("token", token));
     }
 
+    /**
+     * 为登录页下发 HttpOnly 设备 Cookie（用于「禁止该设备」与审计）；无鉴权。
+     */
+    @GetMapping("/device")
+    public ResponseEntity<Void> ensureDeviceCookie(HttpServletRequest request, HttpServletResponse response) {
+        String existing = HttpRequestUtil.getCookie(request, "ow_did");
+        if (StrUtil.isBlank(existing)) {
+            String id = CommonUtils.generateId();
+            ResponseCookie cookie = ResponseCookie.from("ow_did", id)
+                    .httpOnly(true)
+                    .path("/")
+                    .maxAge(Duration.ofDays(365))
+                    .sameSite("Lax")
+                    .build();
+            response.addHeader(HttpHeaders.SET_COOKIE, cookie.toString());
+        }
+        return ResponseEntity.noContent().build();
+    }
+
     @PostMapping("/login")
     public ResponseData<?> login(@RequestBody @Valid LoginParams params, HttpServletRequest request) {
         if (!isSetupDone()) {
             return ResponseData.error(403, "请先完成初始化设置");
+        }
+
+        String ip = HttpRequestUtil.getClientIp(request);
+        String deviceId = loginSecurityService.readDeviceIdFromRequest(request);
+        if (loginSecurityService.isDeniedForLogin(ip, deviceId)) {
+            return ResponseData.error(403, "访问被拒绝");
         }
 
         String effectiveAccount = getEffectiveAccount();
@@ -133,15 +173,11 @@ public class AuthController {
         String inputPwdHash = DigestUtil.sha256Hex(params.getPassword());
 
         if (!effectiveAccount.equals(params.getAccount()) || !effectivePwdHash.equals(inputPwdHash)) {
-            String ip = getClientIp(request);
-            notificationService.sendMessage(NotificationService.TYPE_LOGIN,
-                    String.format("【登录通知】⚠️ 登录失败\n账号: %s\nIP: %s\n时间: %s",
-                            params.getAccount(), ip, nowStr()));
+            loginSecurityService.onPasswordLoginFailed(params.getAccount(), ip, deviceId);
             return ResponseData.error("账号或密码错误");
         }
 
         String token = CommonUtils.generateToken(effectiveAccount, effectivePwdHash);
-        String ip = getClientIp(request);
         notificationService.sendMessage(NotificationService.TYPE_LOGIN,
                 String.format("【登录通知】✅ 登录成功\n账号: %s\nIP: %s\n时间: %s",
                         params.getAccount(), ip, nowStr()));
@@ -157,10 +193,30 @@ public class AuthController {
             return ResponseData.error(403, "请先完成初始化设置");
         }
 
+        String ip = HttpRequestUtil.getClientIp(request);
+        String deviceId = loginSecurityService.readDeviceIdFromRequest(request);
+        if (loginSecurityService.isDeniedForLogin(ip, deviceId)) {
+            return ResponseData.error(403, "访问被拒绝");
+        }
+
         long now = System.currentTimeMillis();
-        if (tgLoginCodeSentAt > 0 && now - tgLoginCodeSentAt < 30_000) {
-            long wait = (30_000 - (now - tgLoginCodeSentAt)) / 1000;
-            return ResponseData.error("请求过于频繁，请 " + wait + " 秒后重试");
+        if (tgLoginCodeSentAt > 0) {
+            long sinceLastSend = now - tgLoginCodeSentAt;
+            if (sinceLastSend < 30_000) {
+                long wait = (30_000 - sinceLastSend) / 1000;
+                return ResponseData.error("请求过于频繁，请 " + wait + " 秒后重试");
+            }
+            if (sinceLastSend >= TG_SEND_BURST_COOLDOWN_MS) {
+                tgSendBurstCount = 0;
+            }
+        }
+        if (tgSendBurstCount >= TG_SEND_BURST_MAX) {
+            long sinceLastSend = now - tgLoginCodeSentAt;
+            if (sinceLastSend < TG_SEND_BURST_COOLDOWN_MS) {
+                long wait = Math.max(1L, (TG_SEND_BURST_COOLDOWN_MS - sinceLastSend + 999) / 1000);
+                return ResponseData.error(
+                        "已连续发码 " + TG_SEND_BURST_MAX + " 次，请等待 " + wait + " 秒后再试");
+            }
         }
 
         String numPart = RandomUtil.randomNumbers(6);
@@ -169,9 +225,9 @@ public class AuthController {
         tgLoginCode = code;
         tgLoginCodeExpireAt = now + TG_CODE_EXPIRE_MS;
         tgLoginCodeSentAt = now;
+        tgSendBurstCount++;
         tgLoginFailCount.set(0);
 
-        String ip = getClientIp(request);
         String html = String.format(
                 "Your token: <code>%s</code>\n\n请在 <b>30</b> 秒内使用该验证码登录\n\n<i>IP: %s</i>",
                 code, ip);
@@ -189,12 +245,16 @@ public class AuthController {
             return ResponseData.error(403, "请先完成初始化设置");
         }
 
+        String ip = HttpRequestUtil.getClientIp(request);
+        String deviceId = loginSecurityService.readDeviceIdFromRequest(request);
+        if (loginSecurityService.isDeniedForLogin(ip, deviceId)) {
+            return ResponseData.error(403, "访问被拒绝");
+        }
+
         String inputCode = params.get("code");
         if (inputCode == null || inputCode.isBlank()) {
             return ResponseData.error("请输入验证码");
         }
-
-        String ip = getClientIp(request);
 
         if (tgLoginCode == null) {
             return ResponseData.error("请先获取验证码");
@@ -284,17 +344,6 @@ public class AuthController {
         String account = getEffectiveAccount();
         String newToken = CommonUtils.generateToken(account, newHash);
         return ResponseData.ok(Map.of("token", newToken, "message", "密码修改成功"));
-    }
-
-    private String getClientIp(HttpServletRequest request) {
-        String ip = request.getHeader("X-Forwarded-For");
-        if (ip == null || ip.isEmpty() || "unknown".equalsIgnoreCase(ip))
-            ip = request.getHeader("X-Real-IP");
-        if (ip == null || ip.isEmpty() || "unknown".equalsIgnoreCase(ip))
-            ip = request.getRemoteAddr();
-        if (ip != null && ip.contains(","))
-            ip = ip.split(",")[0].trim();
-        return ip;
     }
 
     private String nowStr() {

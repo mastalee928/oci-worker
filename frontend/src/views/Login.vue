@@ -77,6 +77,7 @@
 <script setup lang="ts">
 import { reactive, ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
+import axios from 'axios'
 import { message } from 'ant-design-vue'
 import { useUserStore } from '../stores/user'
 import { login, needSetup, tgLoginAvailable, tgLoginSendCode, tgLogin } from '../api/auth'
@@ -96,6 +97,9 @@ const tgCountdown = ref(0)
 let countdownTimer: any = null
 
 onMounted(async () => {
+  try {
+    await axios.get('/api/auth/device', { withCredentials: true, validateStatus: () => true })
+  } catch { /* ignore */ }
   try {
     const res = await needSetup()
     if (res.data) { router.replace('/setup'); return }

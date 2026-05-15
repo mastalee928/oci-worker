@@ -22,6 +22,13 @@ public enum SysCfgEnum {
 
     MFA_SECRET("mfa_secret", "sys"),
     MFA_ENABLED("mfa_enabled", "sys"),
+
+    /** 逗号分隔 IPv4/IPv6，用于拦截密码/TG 登录入口 */
+    LOGIN_IP_DENYLIST("login_ip_denylist", "sys"),
+    /** 逗号分隔设备 ID（与 Cookie ow_did 一致） */
+    LOGIN_DEVICE_DENYLIST("login_device_denylist", "sys"),
+    /** true / false：为 true 时除白名单接口外一律 503 */
+    SITE_ACCESS_PAUSED("site_access_paused", "sys"),
     ;
 
     private final String code;

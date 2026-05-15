@@ -17,6 +17,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 
 @Slf4j
@@ -138,6 +139,55 @@ public class NotificationService {
             kv.setType(cfg.getType());
             kv.setValue(value);
             kvMapper.insert(kv);
+        }
+    }
+
+    /**
+     * 安全类通知：不受「通知类型」开关过滤，只要已配置 Bot 即发送（用于登录失败带操作按钮等）。
+     */
+    public void sendSecurityTextWithInlineKeyboard(String text, List<List<Map<String, String>>> inlineKeyboard) {
+        try {
+            String botToken = getKvValue(SysCfgEnum.TG_BOT_TOKEN);
+            String chatId = getKvValue(SysCfgEnum.TG_CHAT_ID);
+            if (StrUtil.isBlank(botToken) || StrUtil.isBlank(chatId)) return;
+
+            String url = String.format("https://api.telegram.org/bot%s/sendMessage", botToken);
+            Map<String, Object> body = new java.util.LinkedHashMap<>();
+            body.put("chat_id", chatId);
+            body.put("text", text);
+            body.put("reply_markup", Map.of("inline_keyboard", inlineKeyboard));
+            HttpClient c = ociProxyConfigService.newOutboundHttpClient();
+            HttpRequest req = HttpRequest.newBuilder(URI.create(url))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(JSONUtil.toJsonStr(body)))
+                    .timeout(Duration.ofSeconds(15))
+                    .build();
+            c.send(req, HttpResponse.BodyHandlers.discarding());
+        } catch (Exception e) {
+            log.warn("Failed to send Telegram security keyboard message: {}", e.getMessage());
+        }
+    }
+
+    public void answerTelegramCallbackQuery(String callbackQueryId, String text, boolean showAlert) {
+        try {
+            String botToken = getKvValue(SysCfgEnum.TG_BOT_TOKEN);
+            if (StrUtil.isBlank(botToken) || StrUtil.isBlank(callbackQueryId)) return;
+            String url = String.format("https://api.telegram.org/bot%s/answerCallbackQuery", botToken);
+            String t = text == null ? "" : text;
+            if (t.length() > 180) t = t.substring(0, 177) + "...";
+            Map<String, Object> body = new java.util.LinkedHashMap<>();
+            body.put("callback_query_id", callbackQueryId);
+            body.put("text", t);
+            body.put("show_alert", showAlert);
+            HttpClient c = ociProxyConfigService.newOutboundHttpClient();
+            HttpRequest req = HttpRequest.newBuilder(URI.create(url))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(JSONUtil.toJsonStr(body)))
+                    .timeout(Duration.ofSeconds(10))
+                    .build();
+            c.send(req, HttpResponse.BodyHandlers.discarding());
+        } catch (Exception e) {
+            log.warn("Failed to answer Telegram callback: {}", e.getMessage());
         }
     }
 }

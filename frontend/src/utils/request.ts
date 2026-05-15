@@ -5,6 +5,7 @@ import router from '../router'
 const request = axios.create({
   baseURL: '/api',
   timeout: 60000,
+  withCredentials: true,
 })
 
 function getToken() {
@@ -47,6 +48,17 @@ request.interceptors.response.use(
     return res
   },
   (error) => {
+    if (error.response?.status === 503) {
+      const msg = error.response?.data?.message
+      if (msg) message.error(msg)
+      else message.error('站点暂时不可用')
+      return Promise.reject(error)
+    }
+    if (error.response?.status === 403) {
+      const msg = error.response?.data?.message
+      if (msg && !error.config?.skipErrorMessage) message.error(msg)
+      return Promise.reject(error)
+    }
     if (error.response?.status === 401) {
       localStorage.removeItem('token')
       redirectTo('/login')

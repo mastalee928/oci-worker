@@ -7,7 +7,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ociworker.mapper.OciKvMapper;
 import com.ociworker.model.entity.OciKv;
 import com.ociworker.model.vo.ResponseData;
+import com.ociworker.service.LoginSecurityService;
 import com.ociworker.util.CommonUtils;
+import com.ociworker.util.HttpRequestUtil;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -25,6 +27,8 @@ public class AuthInterceptor implements HandlerInterceptor {
 
     @Resource
     private OciKvMapper kvMapper;
+    @Resource
+    private LoginSecurityService loginSecurityService;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
 
@@ -62,11 +66,32 @@ public class AuthInterceptor implements HandlerInterceptor {
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
         String uri = request.getRequestURI();
 
+        if (loginSecurityService.isSitePaused() && !loginSecurityService.isExemptFromSitePause(uri)) {
+            response.setContentType("application/json;charset=UTF-8");
+            response.setStatus(503);
+            response.getWriter().write(objectMapper.writeValueAsString(ResponseData.error(503,
+                    "站点已暂停访问。请通过 Telegram 中的「恢复全站访问」或修改数据库配置项 site_access_paused 后重试。")));
+            return false;
+        }
+
+        if (loginSecurityService.isLoginHardenedPath(uri)) {
+            String ip = HttpRequestUtil.getClientIp(request);
+            String did = loginSecurityService.readDeviceIdFromRequest(request);
+            if (loginSecurityService.isDeniedForLogin(ip, did)) {
+                response.setContentType("application/json;charset=UTF-8");
+                response.setStatus(403);
+                response.getWriter().write(objectMapper.writeValueAsString(ResponseData.error(403, "访问被拒绝")));
+                return false;
+            }
+        }
+
         if (uri.startsWith("/api/auth/login")
                 || uri.startsWith("/api/auth/needSetup")
                 || uri.startsWith("/api/auth/setup")
                 || uri.startsWith("/api/auth/tgLogin")
                 || uri.startsWith("/api/auth/tgLoginAvailable")
+                || uri.startsWith("/api/auth/device")
+                || uri.startsWith("/api/tg/callback/")
                 || uri.startsWith("/ws/")
                 || uri.equals("/") || uri.startsWith("/assets/")
                 || uri.endsWith(".html") || uri.endsWith(".js")
