@@ -209,11 +209,9 @@ public class SystemService {
                     REPO="%s"
                     ASSET="%s"
                     JAR="%s"
-                    sleep 2
-                    JAR_URL=$(curl -sL "https://api.github.com/repos/${REPO}/releases/tags/latest" \
-                      | grep -o "https://github.com/${REPO}/releases/download/[^\\"]*${ASSET}" | head -1)
-                    [ -z "$JAR_URL" ] && JAR_URL="https://github.com/${REPO}/releases/download/latest/${ASSET}"
-                    curl -fSL --retry 3 --retry-delay 5 -o "${JAR}.tmp" "$JAR_URL"
+                    # 直连 latest 资源，避免先调 api.github.com + grep（省一次 RTT，也降低限流概率）
+                    JAR_URL="https://github.com/${REPO}/releases/download/latest/${ASSET}"
+                    curl -fSL --retry 2 --retry-delay 2 --connect-timeout 15 --max-time 600 -o "${JAR}.tmp" "$JAR_URL"
                     NEW_SIZE=$(stat -c%%s "${JAR}.tmp" 2>/dev/null || echo 0)
                     if [ "$NEW_SIZE" -lt 1000 ]; then
                       rm -f "${JAR}.tmp"
