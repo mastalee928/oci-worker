@@ -92,23 +92,8 @@
               <a-button type="primary" @click="saveTgConfig" :loading="saveLoading">保存</a-button>
               <a-button @click="testTgNotify" :loading="testLoading">测试发送</a-button>
               <a-button @click="refreshTgWebhookSnapshot" :loading="tgWhSnapLoading">Webhook 状态</a-button>
-              <a-button type="primary" ghost @click="openApplyTgWebhook">一键同步 Webhook</a-button>
+              <a-button type="primary" ghost @click="applyTgWebhookNow" :loading="tgWhApplyLoading">一键同步 Webhook</a-button>
             </a-space>
-            <a-modal
-              v-model:open="applyWhOpen"
-              title="一键同步 Telegram Webhook"
-              ok-text="同步"
-              :confirm-loading="applyWhLoading"
-              destroy-on-close
-              @ok="confirmApplyTgWebhook"
-            >
-              <p style="margin-bottom: 10px; color: var(--text-sub); font-size: 12px">
-                使用上方「Webhook 公网根地址」与路径密钥（环境变量 TG_WEBHOOK_SECRET、或面板已保存的「Webhook 路径密钥」、或下方临时填写）向 Telegram 注册
-                allowed_updates（message + callback_query）。
-              </p>
-              <a-input-password v-model:value="applyWhPathSecret" placeholder="路径密钥（可选，未设环境变量且未在面板保存时填写）" style="margin-bottom: 12px" />
-              <a-input-password v-model:value="applyWhPwd" placeholder="登录密码" />
-            </a-modal>
           </a-form>
         </a-card>
 
@@ -335,10 +320,7 @@ const notifyVerifiedPwd = ref('')
 
 const tgWebhookPublicUrl = ref('')
 const tgWhSnapLoading = ref(false)
-const applyWhOpen = ref(false)
-const applyWhPwd = ref('')
-const applyWhPathSecret = ref('')
-const applyWhLoading = ref(false)
+const tgWhApplyLoading = ref(false)
 
 const ociProxySaveLoading = ref(false)
 const ociProxyTestLoading = ref(false)
@@ -545,9 +527,7 @@ async function saveTgConfig() {
     }
     await request.post('/sys/notifyConfig', payload)
     message.success('保存成功')
-    notifyPwdVerified.value = false
     notifyPwd.value = ''
-    notifyVerifiedPwd.value = ''
   } catch (e: any) {
     message.error(e?.message || '保存失败')
   } finally {
@@ -567,44 +547,35 @@ async function testTgNotify() {
   }
 }
 
-function openApplyTgWebhook() {
+async function applyTgWebhookNow() {
+  if (!notifyVerifiedPwd.value) {
+    message.warning('请先在上方验证登录密码')
+    return
+  }
   const u = tgWebhookPublicUrl.value?.trim()
   if (!u) {
     message.warning('请先填写 Webhook 公网根地址')
     return
   }
-  applyWhPwd.value = ''
-  applyWhPathSecret.value = ''
-  applyWhOpen.value = true
-}
-
-async function confirmApplyTgWebhook() {
-  if (!applyWhPwd.value.trim()) {
-    message.warning('请输入登录密码')
-    return Promise.reject(new Error('skip'))
-  }
-  const u = tgWebhookPublicUrl.value?.trim()
-  if (!u) {
-    message.warning('请先填写 Webhook 公网根地址')
-    return Promise.reject(new Error('skip'))
-  }
-  applyWhLoading.value = true
+  tgWhApplyLoading.value = true
   try {
-    const res = await request.post('/sys/applyTgWebhook', {
-      password: applyWhPwd.value,
+    const body: Record<string, string> = {
+      password: notifyVerifiedPwd.value,
       publicBaseUrl: u,
-      webhookPathSecret: applyWhPathSecret.value?.trim() || undefined,
-    })
+    }
+    const ps = tgConfig.webhookPathSecret?.trim()
+    if (ps && !ps.includes('****')) {
+      body.webhookPathSecret = ps
+    }
+    const res = await request.post('/sys/applyTgWebhook', body)
     const d = res.data || {}
     message.success(
       `已同步。allowedUpdates: ${(d.allowedUpdates || []).join(', ') || '—'}；pending: ${d.pendingUpdateCount ?? '—'}`,
     )
-    applyWhOpen.value = false
-    applyWhPwd.value = ''
   } catch (e: any) {
     message.error(e?.message || '同步失败')
   } finally {
-    applyWhLoading.value = false
+    tgWhApplyLoading.value = false
   }
 }
 
