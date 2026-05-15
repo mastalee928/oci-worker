@@ -1,6 +1,12 @@
 import axios from 'axios'
+import type { AxiosRequestConfig } from 'axios'
 import { message } from 'ant-design-vue'
 import router from '../router'
+
+export interface OciRequestConfig extends AxiosRequestConfig {
+  /** 业务 code≠0 时不弹全局 message（由调用方自行提示） */
+  skipBusinessMessage?: boolean
+}
 
 const request = axios.create({
   baseURL: '/api',
@@ -35,7 +41,10 @@ request.interceptors.response.use(
   (response) => {
     const res = response.data
     if (res && typeof res === 'object' && 'code' in res && res.code !== 0) {
-      message.error(res.message || '请求失败')
+      const cfg = response.config as OciRequestConfig
+      if (!cfg.skipBusinessMessage) {
+        message.error(res.message || '请求失败')
+      }
       if (res.code === 401) {
         localStorage.removeItem('token')
         redirectTo('/login')

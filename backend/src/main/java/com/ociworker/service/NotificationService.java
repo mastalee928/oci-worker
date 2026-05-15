@@ -239,13 +239,14 @@ public class NotificationService {
         }
         base = base.replaceAll("/+$", "");
         if (StrUtil.isBlank(pathSecret)) {
-            throw new OciException("未配置 Webhook 路径密钥（TG_WEBHOOK_SECRET / ociworker.telegram.webhook-secret）");
+            throw new OciException("Webhook 路径密钥无效，请重试或联系管理员");
         }
         String hookUrl = base + "/api/tg/callback/" + pathSecret;
 
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("url", hookUrl);
         body.put("allowed_updates", List.of("message", "callback_query"));
+        body.put("drop_pending_updates", true);
         if (StrUtil.isNotBlank(StrUtil.trim(secretToken))) {
             body.put("secret_token", StrUtil.trim(secretToken));
         }
