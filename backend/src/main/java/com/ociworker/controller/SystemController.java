@@ -63,6 +63,10 @@ public class SystemController {
         config.put("notifyTypes", notificationService.getKvValue(SysCfgEnum.TG_NOTIFY_TYPES));
         String dailyTime = notificationService.getKvValue(SysCfgEnum.TG_DAILY_REPORT_TIME);
         config.put("dailyReportTime", (dailyTime == null || dailyTime.isBlank()) ? "09:00" : dailyTime.trim());
+        String whPath = notificationService.getKvValue(SysCfgEnum.TG_WEBHOOK_PATH_SECRET);
+        config.put("webhookPathSecret", maskSecret(whPath));
+        config.put("webhookPathSecretKvConfigured", StrUtil.isNotBlank(whPath));
+        config.put("webhookPathSecretYmlConfigured", StrUtil.isNotBlank(telegramWebhookSecret));
         return ResponseData.ok(config);
     }
 
@@ -110,6 +114,12 @@ public class SystemController {
                 notificationService.saveKvValue(SysCfgEnum.TG_DAILY_REPORT_TIME, t);
             }
         }
+        if (params.containsKey("webhookPathSecret")) {
+            String v = params.get("webhookPathSecret");
+            if (v != null && !v.contains("****")) {
+                notificationService.saveKvValue(SysCfgEnum.TG_WEBHOOK_PATH_SECRET, v.trim());
+            }
+        }
         return ResponseData.ok();
     }
 
@@ -135,12 +145,15 @@ public class SystemController {
         if (!verifyCodeService.isTgConfigured()) {
             return ResponseData.error("请先配置 Telegram Bot Token 与 Chat ID");
         }
-        return ResponseData.ok(notificationService.readTelegramWebhookSnapshot());
+        Map<String, Object> snap = notificationService.readTelegramWebhookSnapshot();
+        snap.put("pathSecretYmlConfigured", StrUtil.isNotBlank(telegramWebhookSecret));
+        snap.put("pathSecretKvConfigured", StrUtil.isNotBlank(notificationService.getKvValue(SysCfgEnum.TG_WEBHOOK_PATH_SECRET)));
+        return ResponseData.ok(snap);
     }
 
     /**
      * 一键向 Telegram 注册 Webhook（含 message + callback_query）。解决仅收按钮回调、私聊斜杠命令无响应的问题。
-     * <p>请求体：{@code password}（登录密码）、{@code publicBaseUrl}（公网根地址，如 https://panel.example.com，无末尾斜杠）</p>
+     * <p>请求体：{@code password}（登录密码）、{@code publicBaseUrl}（公网根地址）、可选 {@code webhookPathSecret}（未设环境变量且未入库时临时传入，成功后写入 tg_webhook_path_secret）</p>
      */
     @PostMapping("/applyTgWebhook")
     public ResponseData<?> applyTgWebhook(@RequestBody Map<String, String> body) {
@@ -155,12 +168,24 @@ public class SystemController {
         if (!verifyCodeService.isTgConfigured()) {
             return ResponseData.error("请先配置 Telegram Bot Token 与 Chat ID");
         }
-        if (StrUtil.isBlank(telegramWebhookSecret)) {
-            return ResponseData.error("未配置 ociworker.telegram.webhook-secret（或 TG_WEBHOOK_SECRET），无法拼接回调 URL");
+        String pathSecret = StrUtil.trimToNull(telegramWebhookSecret);
+        String bodyPath = StrUtil.trimToNull(body.get("webhookPathSecret"));
+        if (pathSecret == null) {
+            pathSecret = bodyPath;
+        }
+        if (pathSecret == null) {
+            pathSecret = StrUtil.trimToNull(notificationService.getKvValue(SysCfgEnum.TG_WEBHOOK_PATH_SECRET));
+        }
+        if (StrUtil.isBlank(pathSecret)) {
+            return ResponseData.error("未配置 Webhook 路径密钥：请在环境变量 TG_WEBHOOK_SECRET 中配置，或在「Telegram 通知」中填写「Webhook 路径密钥」并保存；也可在同步弹窗内临时填写（成功后将写入系统配置）。");
         }
         String publicBaseUrl = body.get("publicBaseUrl");
-        return ResponseData.ok(notificationService.applyTelegramWebhook(
-                publicBaseUrl, telegramWebhookSecret, telegramWebhookSecretToken));
+        Map<String, Object> out = notificationService.applyTelegramWebhook(
+                publicBaseUrl, pathSecret, telegramWebhookSecretToken);
+        if (StrUtil.isBlank(telegramWebhookSecret) && StrUtil.isNotBlank(bodyPath)) {
+            notificationService.saveKvValue(SysCfgEnum.TG_WEBHOOK_PATH_SECRET, bodyPath);
+        }
+        return ResponseData.ok(out);
     }
 
     @GetMapping("/checkUpdate")

@@ -1,7 +1,9 @@
 package com.ociworker.controller;
 
+import cn.hutool.core.util.StrUtil;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.ociworker.enums.SysCfgEnum;
 import com.ociworker.service.LoginSecurityService;
 import com.ociworker.service.NotificationService;
 import com.ociworker.service.TelegramBotCommandService;
@@ -18,7 +20,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 /**
- * Telegram Bot Webhook：路径须与 {@code ociworker.telegram.webhook-secret} 一致；
+ * Telegram Bot Webhook：路径密钥优先 {@code ociworker.telegram.webhook-secret}，否则读库 {@code tg_webhook_path_secret}；
  * 可选校验 {@code ociworker.telegram.webhook-secret-token} 与请求头 {@code X-Telegram-Bot-Api-Secret-Token}（与 setWebhook 的 {@code secret_token} 一致）。
  * <pre>
  * curl -G "https://api.telegram.org/bot&lt;TOKEN&gt;/setWebhook" \
@@ -56,7 +58,8 @@ public class TelegramWebhookController {
             @RequestBody String body,
             HttpServletRequest request,
             HttpServletResponse response) {
-        if (webhookSecret == null || webhookSecret.isBlank() || !SecretCompare.equalsUtf8(webhookSecret, secret)) {
+        String pathSecret = effectiveWebhookPathSecret();
+        if (pathSecret.isBlank() || !SecretCompare.equalsUtf8(pathSecret, secret)) {
             response.setStatus(404);
             return;
         }
@@ -90,5 +93,13 @@ public class TelegramWebhookController {
             log.warn("Telegram webhook parse error: {}", e.getMessage());
         }
         response.setStatus(200);
+    }
+
+    /** 环境变量优先，否则为面板保存的 {@link SysCfgEnum#TG_WEBHOOK_PATH_SECRET}。 */
+    private String effectiveWebhookPathSecret() {
+        if (StrUtil.isNotBlank(webhookSecret)) {
+            return webhookSecret.trim();
+        }
+        return StrUtil.trimToEmpty(notificationService.getKvValue(SysCfgEnum.TG_WEBHOOK_PATH_SECRET));
     }
 }

@@ -11,6 +11,10 @@ public enum SysCfgEnum {
     TG_NOTIFY_TYPES("tg_notify_types", "sys"),
     /** 每日播报发送时刻，24 小时制 HH:mm，东八区 Asia/Shanghai */
     TG_DAILY_REPORT_TIME("tg_daily_report_time", "sys"),
+    /**
+     * Webhook 路径密钥（与 URL 中 /api/tg/callback/ 后一段一致）。若未设置环境变量 TG_WEBHOOK_SECRET，可使用此项存库。
+     */
+    TG_WEBHOOK_PATH_SECRET("tg_webhook_path_secret", "sys"),
 
     OCI_PROXY_ENABLED("oci_proxy_enabled", "sys"),
     OCI_PROXY_TYPE("oci_proxy_type", "sys"),

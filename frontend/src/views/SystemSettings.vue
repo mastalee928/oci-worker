@@ -61,6 +61,12 @@
             <a-form-item label="Chat ID">
               <a-input v-model:value="tgConfig.chatId" placeholder="输入 Chat ID" />
             </a-form-item>
+            <a-form-item label="Webhook 路径密钥">
+              <a-input-password v-model:value="tgConfig.webhookPathSecret" placeholder="与 /api/tg/callback/ 后路径一致；未设 TG_WEBHOOK_SECRET 环境变量时在此填写并保存" />
+              <div style="margin-top: 6px; font-size: 12px; color: var(--text-sub)">
+                若服务器已配置环境变量 TG_WEBHOOK_SECRET，可留空。否则必填其一，否则无法接收 Telegram 回调与斜杠命令。
+              </div>
+            </a-form-item>
             <a-form-item label="通知类型">
               <a-checkbox-group v-model:value="tgConfig.notifyTypes" :options="notifyTypeOptions" />
             </a-form-item>
@@ -97,9 +103,10 @@
               @ok="confirmApplyTgWebhook"
             >
               <p style="margin-bottom: 10px; color: var(--text-sub); font-size: 12px">
-                使用上方「Webhook 公网根地址」+ 服务器已配置的 TG_WEBHOOK_SECRET，向 Telegram 注册
+                使用上方「Webhook 公网根地址」与路径密钥（环境变量 TG_WEBHOOK_SECRET、或面板已保存的「Webhook 路径密钥」、或下方临时填写）向 Telegram 注册
                 allowed_updates（message + callback_query）。
               </p>
+              <a-input-password v-model:value="applyWhPathSecret" placeholder="路径密钥（可选，未设环境变量且未在面板保存时填写）" style="margin-bottom: 12px" />
               <a-input-password v-model:value="applyWhPwd" placeholder="登录密码" />
             </a-modal>
           </a-form>
@@ -308,7 +315,7 @@ const pwdLoading = ref(false)
 const saveLoading = ref(false)
 const testLoading = ref(false)
 const pwdForm = reactive({ oldPassword: '', newPassword: '', confirmPassword: '' })
-const tgConfig = reactive({ botToken: '', chatId: '', notifyTypes: [] as string[], dailyReportTime: '09:00' })
+const tgConfig = reactive({ botToken: '', chatId: '', webhookPathSecret: '', notifyTypes: [] as string[], dailyReportTime: '09:00' })
 /** 与 a-time-picker（value-format=HH:mm）一致 */
 const dailyReportTimePicked = ref<string | null>('09:00')
 
@@ -330,6 +337,7 @@ const tgWebhookPublicUrl = ref('')
 const tgWhSnapLoading = ref(false)
 const applyWhOpen = ref(false)
 const applyWhPwd = ref('')
+const applyWhPathSecret = ref('')
 const applyWhLoading = ref(false)
 
 const ociProxySaveLoading = ref(false)
@@ -428,6 +436,7 @@ async function loadNotifyConfig() {
     const res = await request.get('/sys/notifyConfig')
     tgConfig.botToken = res.data?.botToken || ''
     tgConfig.chatId = res.data?.chatId || ''
+    tgConfig.webhookPathSecret = res.data?.webhookPathSecret || ''
     const types = res.data?.notifyTypes
     tgConfig.notifyTypes = types ? types.split(',') : ['login', 'task_create', 'task_result', 'daily_report']
     tgConfig.dailyReportTime = res.data?.dailyReportTime || '09:00'
@@ -524,13 +533,17 @@ function handleForceLogout() {
 async function saveTgConfig() {
   saveLoading.value = true
   try {
-    await request.post('/sys/notifyConfig', {
+    const payload: Record<string, string> = {
       botToken: tgConfig.botToken,
       chatId: tgConfig.chatId,
       notifyTypes: tgConfig.notifyTypes.join(','),
       dailyReportTime: dailyReportTimePicked.value || '09:00',
       password: notifyVerifiedPwd.value,
-    })
+    }
+    if (tgConfig.webhookPathSecret && !tgConfig.webhookPathSecret.includes('****')) {
+      payload.webhookPathSecret = tgConfig.webhookPathSecret
+    }
+    await request.post('/sys/notifyConfig', payload)
     message.success('保存成功')
     notifyPwdVerified.value = false
     notifyPwd.value = ''
@@ -561,6 +574,7 @@ function openApplyTgWebhook() {
     return
   }
   applyWhPwd.value = ''
+  applyWhPathSecret.value = ''
   applyWhOpen.value = true
 }
 
@@ -579,6 +593,7 @@ async function confirmApplyTgWebhook() {
     const res = await request.post('/sys/applyTgWebhook', {
       password: applyWhPwd.value,
       publicBaseUrl: u,
+      webhookPathSecret: applyWhPathSecret.value?.trim() || undefined,
     })
     const d = res.data || {}
     message.success(
@@ -598,9 +613,12 @@ async function refreshTgWebhookSnapshot() {
   try {
     const res = await request.get('/sys/tgWebhookSnapshot')
     const d = res.data || {}
+    const urlLine = d.url != null && String(d.url).trim() !== '' ? d.url : '（未设置，请点一键同步）'
     const lines = [
       `fetchOk: ${d.fetchOk}`,
-      `url: ${d.url ?? '—'}`,
+      `pathSecretYml: ${d.pathSecretYmlConfigured ? '已配置' : '未配置'}`,
+      `pathSecretKv: ${d.pathSecretKvConfigured ? '已配置' : '未配置'}`,
+      `url: ${urlLine}`,
       `allowedUpdates: ${(d.allowedUpdates || []).join(', ') || '（空或全部）'}`,
       `pending: ${d.pendingUpdateCount ?? '—'}`,
       `lastError: ${d.lastErrorMessage || '—'}`,

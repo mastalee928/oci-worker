@@ -8,7 +8,7 @@ ociworker:
     port: 8080
   telegram:
     # Telegram Webhook 路径密钥：https://你的域名/api/tg/callback/{webhook-secret}
-    # 须与 setWebhook 的 url 路径末尾一致；留空则回调接口返回 404（TG 内联按钮需配置后才可用）
+    # 留空则回调路径密钥可读库项 tg_webhook_path_secret（系统设置 → Telegram 中可填）
     webhook-secret: ${TG_WEBHOOK_SECRET:}
     # Telegram setWebhook 的 secret_token（仅允许 A-Za-z0-9_-，见官方文档）；Webhook 请求须带请求头 X-Telegram-Bot-Api-Secret-Token 且与此完全一致。
     # 留空则不校验该头（兼容旧 Webhook）。建议与路径密钥分开配置，并在 setWebhook 时同时传入 url 与 secret_token。
