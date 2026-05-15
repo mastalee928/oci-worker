@@ -1,6 +1,8 @@
 package com.ociworker.service;
 
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.json.JSONArray;
+import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.ociworker.enums.SysCfgEnum;
@@ -213,6 +215,63 @@ public class NotificationService {
             log.info("Telegram setMyCommands registered (start/stop/logs/state)");
         } catch (Exception e) {
             log.warn("Failed to register Telegram bot commands: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * 启动时拉取 getWebhookInfo：若 allowed_updates 限制了类型且不含 message，斜杠命令永远不会 POST 到本服务。
+     */
+    public void logTelegramWebhookDiagnostics() {
+        try {
+            String botToken = getKvValue(SysCfgEnum.TG_BOT_TOKEN);
+            if (StrUtil.isBlank(botToken)) return;
+            String url = String.format("https://api.telegram.org/bot%s/getWebhookInfo", botToken);
+            HttpClient c = ociProxyConfigService.newOutboundHttpClient();
+            HttpRequest req = HttpRequest.newBuilder(URI.create(url))
+                    .GET()
+                    .timeout(Duration.ofSeconds(15))
+                    .build();
+            HttpResponse<String> resp = c.send(req, HttpResponse.BodyHandlers.ofString());
+            if (resp.statusCode() != 200 || resp.body() == null) {
+                log.warn("[TG] getWebhookInfo HTTP {}", resp.statusCode());
+                return;
+            }
+            JSONObject root = JSONUtil.parseObj(resp.body());
+            if (!root.getBool("ok", false)) {
+                log.warn("[TG] getWebhookInfo ok=false body={}", resp.body());
+                return;
+            }
+            JSONObject result = root.getJSONObject("result");
+            if (result == null) return;
+
+            String hookUrl = result.getStr("url");
+            if (StrUtil.isBlank(hookUrl)) {
+                log.warn("[TG] Telegram 未配置 Webhook URL（url 为空）。请 setWebhook 指向 https://你的域名/api/tg/callback/<secret>。");
+            }
+
+            String lastErr = result.getStr("last_error_message");
+            if (StrUtil.isNotBlank(lastErr)) {
+                log.warn("[TG] Telegram Webhook 最近错误: {}", lastErr);
+            }
+
+            JSONArray allowed = result.getJSONArray("allowed_updates");
+            if (allowed != null && allowed.size() > 0) {
+                boolean hasMessage = false;
+                for (int i = 0; i < allowed.size(); i++) {
+                    Object el = allowed.get(i);
+                    if (el != null && "message".equalsIgnoreCase(StrUtil.trim(el.toString()))) {
+                        hasMessage = true;
+                        break;
+                    }
+                }
+                if (!hasMessage) {
+                    log.warn("[TG] 当前 allowed_updates={} 未包含 message，私聊里的 /start、/state 等不会发到本服务（登录通知是服务端主动 sendMessage，与 Webhook 无关）。请重新 setWebhook，例如 allowed_updates=[\"message\",\"callback_query\"]。",
+                            allowed);
+                }
+            }
+            log.info("[TG] getWebhookInfo url={} pending={}", hookUrl, result.getInt("pending_update_count", 0));
+        } catch (Exception e) {
+            log.warn("[TG] getWebhookInfo failed: {}", e.getMessage());
         }
     }
 }
