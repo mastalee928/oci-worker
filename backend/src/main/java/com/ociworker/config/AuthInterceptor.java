@@ -91,7 +91,6 @@ public class AuthInterceptor implements HandlerInterceptor {
                 || uri.startsWith("/api/auth/tgLogin")
                 || uri.startsWith("/api/auth/tgLoginAvailable")
                 || uri.startsWith("/api/auth/device")
-                || uri.startsWith("/api/tg/callback/")
                 || uri.startsWith("/ws/")
                 || uri.equals("/") || uri.startsWith("/assets/")
                 || uri.endsWith(".html") || uri.endsWith(".js")

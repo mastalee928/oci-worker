@@ -12,9 +12,9 @@ public enum SysCfgEnum {
     /** 每日播报发送时刻，24 小时制 HH:mm，东八区 Asia/Shanghai */
     TG_DAILY_REPORT_TIME("tg_daily_report_time", "sys"),
     /**
-     * Webhook 路径密钥（与 URL 中 /api/tg/callback/ 后一段一致）。若未设置环境变量 TG_WEBHOOK_SECRET，可使用此项存库。
+     * getUpdates 的 offset：下一条拉取应传入的 update_id（即「已处理的最大 update_id + 1」），持久化避免重启重复处理。
      */
-    TG_WEBHOOK_PATH_SECRET("tg_webhook_path_secret", "sys"),
+    TG_UPDATES_NEXT_OFFSET("tg_updates_next_offset", "sys"),
 
     OCI_PROXY_ENABLED("oci_proxy_enabled", "sys"),
     OCI_PROXY_TYPE("oci_proxy_type", "sys"),

@@ -81,7 +81,6 @@ public class LoginSecurityService {
      */
     public boolean isExemptFromSitePause(String uri) {
         if (uri == null) return false;
-        if (uri.startsWith("/api/tg/callback/")) return true;
         if (uri.startsWith("/api/auth/device")) return true;
         if (uri.startsWith("/api/auth/needSetup")) return true;
         if (uri.startsWith("/api/auth/setup")) return true;
@@ -151,7 +150,7 @@ public class LoginSecurityService {
                 )
         );
         String text = String.format(
-                "【登录安全】同一 IP 在 %d 分钟内已连续密码登录失败 %d 次\nIP: %s\n\n可选择暂停整站 API 访问（仍可通过下方「恢复」与 Webhook 解除），或仅清零计数。",
+                "【登录安全】同一 IP 在 %d 分钟内已连续密码登录失败 %d 次\nIP: %s\n\n可选择暂停整站 API 访问（仍可通过下方「恢复」与 Telegram 内联按钮解除），或仅清零计数。",
                 FAIL_WINDOW_MS / 60000, PAUSE_OFFER_THRESHOLD, ipN);
         notificationService.sendSecurityTextWithInlineKeyboard(text, rows);
     }

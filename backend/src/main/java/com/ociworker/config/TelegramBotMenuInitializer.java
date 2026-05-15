@@ -27,7 +27,6 @@ public class TelegramBotMenuInitializer {
         }
         try {
             notificationService.registerTelegramBotCommands();
-            notificationService.logTelegramWebhookDiagnostics();
         } catch (Exception e) {
             log.warn("Telegram setMyCommands skipped: {}", e.getMessage());
         }

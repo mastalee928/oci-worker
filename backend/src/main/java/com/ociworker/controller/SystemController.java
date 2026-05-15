@@ -1,7 +1,6 @@
 package com.ociworker.controller;
 
 import cn.hutool.core.util.StrUtil;
-import cn.hutool.core.util.RandomUtil;
 import cn.hutool.crypto.digest.DigestUtil;
 import com.ociworker.enums.SysCfgEnum;
 import com.ociworker.model.dto.OciProxySnapshot;
@@ -11,7 +10,6 @@ import com.ociworker.service.OciProxyConfigService;
 import com.ociworker.service.SystemService;
 import com.ociworker.service.VerifyCodeService;
 import jakarta.annotation.Resource;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.LinkedHashMap;
@@ -34,12 +32,6 @@ public class SystemController {
     private AuthController authController;
     @Resource
     private OciProxyConfigService ociProxyConfigService;
-
-    @Value("${ociworker.telegram.webhook-secret:}")
-    private String telegramWebhookSecret;
-
-    @Value("${ociworker.telegram.webhook-secret-token:}")
-    private String telegramWebhookSecretToken;
 
     @GetMapping("/glance")
     public ResponseData<?> glance() {
@@ -64,10 +56,9 @@ public class SystemController {
         config.put("notifyTypes", notificationService.getKvValue(SysCfgEnum.TG_NOTIFY_TYPES));
         String dailyTime = notificationService.getKvValue(SysCfgEnum.TG_DAILY_REPORT_TIME);
         config.put("dailyReportTime", (dailyTime == null || dailyTime.isBlank()) ? "09:00" : dailyTime.trim());
-        String whPath = notificationService.getKvValue(SysCfgEnum.TG_WEBHOOK_PATH_SECRET);
-        config.put("webhookPathSecret", maskSecret(whPath));
-        config.put("webhookPathSecretKvConfigured", StrUtil.isNotBlank(whPath));
-        config.put("webhookPathSecretYmlConfigured", StrUtil.isNotBlank(telegramWebhookSecret));
+        config.put("tgInboundMode", "getUpdates");
+        config.put("tgUpdatesOffsetConfigured",
+                StrUtil.isNotBlank(notificationService.getKvValue(SysCfgEnum.TG_UPDATES_NEXT_OFFSET)));
         return ResponseData.ok(config);
     }
 
@@ -94,6 +85,7 @@ public class SystemController {
             String v = params.get("botToken");
             if (v != null && !v.contains("****")) {
                 notificationService.saveKvValue(SysCfgEnum.TG_BOT_TOKEN, v);
+                notificationService.resetTelegramUpdatesOffset();
             }
         }
         if (params.containsKey("chatId")) {
@@ -115,12 +107,6 @@ public class SystemController {
                 notificationService.saveKvValue(SysCfgEnum.TG_DAILY_REPORT_TIME, t);
             }
         }
-        if (params.containsKey("webhookPathSecret")) {
-            String v = params.get("webhookPathSecret");
-            if (v != null && !v.contains("****")) {
-                notificationService.saveKvValue(SysCfgEnum.TG_WEBHOOK_PATH_SECRET, v.trim());
-            }
-        }
         return ResponseData.ok();
     }
 
@@ -139,68 +125,6 @@ public class SystemController {
     @GetMapping("/tgStatus")
     public ResponseData<?> tgStatus() {
         return ResponseData.ok(Map.of("configured", verifyCodeService.isTgConfigured()));
-    }
-
-    @GetMapping("/tgWebhookSnapshot")
-    public ResponseData<?> tgWebhookSnapshot() {
-        if (!verifyCodeService.isTgConfigured()) {
-            return ResponseData.error("请先配置 Telegram Bot Token 与 Chat ID");
-        }
-        Map<String, Object> snap = notificationService.readTelegramWebhookSnapshot();
-        snap.put("pathSecretYmlConfigured", StrUtil.isNotBlank(telegramWebhookSecret));
-        snap.put("pathSecretKvConfigured", StrUtil.isNotBlank(notificationService.getKvValue(SysCfgEnum.TG_WEBHOOK_PATH_SECRET)));
-        return ResponseData.ok(snap);
-    }
-
-    /**
-     * 一键向 Telegram 注册 Webhook（含 message + callback_query）。
-     * <p>路径密钥：环境变量优先；否则请求体；否则库中已有；若皆无则<strong>自动生成</strong>随机串并写入库。</p>
-     */
-    @PostMapping("/applyTgWebhook")
-    public ResponseData<?> applyTgWebhook(@RequestBody Map<String, String> body) {
-        String pwd = body.get("password");
-        if (StrUtil.isBlank(pwd)) {
-            return ResponseData.error("请输入登录密码进行验证");
-        }
-        String inputHash = DigestUtil.sha256Hex(pwd);
-        if (!inputHash.equals(authController.getEffectivePasswordHash())) {
-            return ResponseData.error("密码错误");
-        }
-        if (!verifyCodeService.isTgConfigured()) {
-            return ResponseData.error("请先配置 Telegram Bot Token 与 Chat ID");
-        }
-        String publicBaseUrl = StrUtil.trimToNull(body.get("publicBaseUrl"));
-        if (StrUtil.isBlank(publicBaseUrl)) {
-            return ResponseData.error("请填写 Webhook 公网根地址（不要末尾斜杠）");
-        }
-        if (!publicBaseUrl.toLowerCase().startsWith("https://")) {
-            return ResponseData.error("公网根地址须以 https:// 开头（Telegram 要求）。若只有 IP:端口，请先用隧道/域名提供 HTTPS。");
-        }
-
-        String pathSecret = StrUtil.trimToNull(telegramWebhookSecret);
-        String bodyPath = StrUtil.trimToNull(body.get("webhookPathSecret"));
-        if (pathSecret == null) {
-            pathSecret = bodyPath;
-        }
-        if (pathSecret == null) {
-            pathSecret = StrUtil.trimToNull(notificationService.getKvValue(SysCfgEnum.TG_WEBHOOK_PATH_SECRET));
-        }
-        boolean pathSecretAutoGenerated = false;
-        if (StrUtil.isBlank(pathSecret)) {
-            pathSecret = RandomUtil.randomString(
-                    "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789", 48);
-            pathSecretAutoGenerated = true;
-        }
-
-        Map<String, Object> out = notificationService.applyTelegramWebhook(
-                publicBaseUrl, pathSecret, telegramWebhookSecretToken);
-        if (pathSecretAutoGenerated) {
-            notificationService.saveKvValue(SysCfgEnum.TG_WEBHOOK_PATH_SECRET, pathSecret);
-            out.put("pathSecretAutoGenerated", true);
-        } else if (StrUtil.isBlank(telegramWebhookSecret) && StrUtil.isNotBlank(bodyPath)) {
-            notificationService.saveKvValue(SysCfgEnum.TG_WEBHOOK_PATH_SECRET, bodyPath);
-        }
-        return ResponseData.ok(out);
     }
 
     @GetMapping("/checkUpdate")
