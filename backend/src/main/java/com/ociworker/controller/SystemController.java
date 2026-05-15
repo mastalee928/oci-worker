@@ -10,6 +10,7 @@ import com.ociworker.service.OciProxyConfigService;
 import com.ociworker.service.SystemService;
 import com.ociworker.service.VerifyCodeService;
 import jakarta.annotation.Resource;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.LinkedHashMap;
@@ -32,6 +33,12 @@ public class SystemController {
     private AuthController authController;
     @Resource
     private OciProxyConfigService ociProxyConfigService;
+
+    @Value("${ociworker.telegram.webhook-secret:}")
+    private String telegramWebhookSecret;
+
+    @Value("${ociworker.telegram.webhook-secret-token:}")
+    private String telegramWebhookSecretToken;
 
     @GetMapping("/glance")
     public ResponseData<?> glance() {
@@ -121,6 +128,39 @@ public class SystemController {
     @GetMapping("/tgStatus")
     public ResponseData<?> tgStatus() {
         return ResponseData.ok(Map.of("configured", verifyCodeService.isTgConfigured()));
+    }
+
+    @GetMapping("/tgWebhookSnapshot")
+    public ResponseData<?> tgWebhookSnapshot() {
+        if (!verifyCodeService.isTgConfigured()) {
+            return ResponseData.error("请先配置 Telegram Bot Token 与 Chat ID");
+        }
+        return ResponseData.ok(notificationService.readTelegramWebhookSnapshot());
+    }
+
+    /**
+     * 一键向 Telegram 注册 Webhook（含 message + callback_query）。解决仅收按钮回调、私聊斜杠命令无响应的问题。
+     * <p>请求体：{@code password}（登录密码）、{@code publicBaseUrl}（公网根地址，如 https://panel.example.com，无末尾斜杠）</p>
+     */
+    @PostMapping("/applyTgWebhook")
+    public ResponseData<?> applyTgWebhook(@RequestBody Map<String, String> body) {
+        String pwd = body.get("password");
+        if (StrUtil.isBlank(pwd)) {
+            return ResponseData.error("请输入登录密码进行验证");
+        }
+        String inputHash = DigestUtil.sha256Hex(pwd);
+        if (!inputHash.equals(authController.getEffectivePasswordHash())) {
+            return ResponseData.error("密码错误");
+        }
+        if (!verifyCodeService.isTgConfigured()) {
+            return ResponseData.error("请先配置 Telegram Bot Token 与 Chat ID");
+        }
+        if (StrUtil.isBlank(telegramWebhookSecret)) {
+            return ResponseData.error("未配置 ociworker.telegram.webhook-secret（或 TG_WEBHOOK_SECRET），无法拼接回调 URL");
+        }
+        String publicBaseUrl = body.get("publicBaseUrl");
+        return ResponseData.ok(notificationService.applyTelegramWebhook(
+                publicBaseUrl, telegramWebhookSecret, telegramWebhookSecretToken));
     }
 
     @GetMapping("/checkUpdate")

@@ -76,10 +76,32 @@
                 东八区（Asia/Shanghai），默认 09:00
               </div>
             </a-form-item>
-            <a-space>
+            <a-form-item label="Webhook 公网根地址">
+              <a-input v-model:value="tgWebhookPublicUrl" placeholder="https://你的域名 无末尾斜杠，与浏览器访问面板一致" />
+              <div style="margin-top: 6px; font-size: 12px; color: var(--text-sub)">
+                若私聊发 /start、/state 机器人无回复，多为 Telegram 未订阅 message 更新；点下方「一键同步 Webhook」可自动修复。
+              </div>
+            </a-form-item>
+            <a-space wrap>
               <a-button type="primary" @click="saveTgConfig" :loading="saveLoading">保存</a-button>
               <a-button @click="testTgNotify" :loading="testLoading">测试发送</a-button>
+              <a-button @click="refreshTgWebhookSnapshot" :loading="tgWhSnapLoading">Webhook 状态</a-button>
+              <a-button type="primary" ghost @click="openApplyTgWebhook">一键同步 Webhook</a-button>
             </a-space>
+            <a-modal
+              v-model:open="applyWhOpen"
+              title="一键同步 Telegram Webhook"
+              ok-text="同步"
+              :confirm-loading="applyWhLoading"
+              destroy-on-close
+              @ok="confirmApplyTgWebhook"
+            >
+              <p style="margin-bottom: 10px; color: var(--text-sub); font-size: 12px">
+                使用上方「Webhook 公网根地址」+ 服务器已配置的 TG_WEBHOOK_SECRET，向 Telegram 注册
+                allowed_updates（message + callback_query）。
+              </p>
+              <a-input-password v-model:value="applyWhPwd" placeholder="登录密码" />
+            </a-modal>
           </a-form>
         </a-card>
 
@@ -272,7 +294,7 @@
 import { reactive, ref, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { InboxOutlined } from '@ant-design/icons-vue'
-import { message } from 'ant-design-vue'
+import { message, Modal } from 'ant-design-vue'
 import type { UploadFile } from 'ant-design-vue'
 import { useUserStore } from '../stores/user'
 import { sendVerifyCode } from '../api/system'
@@ -304,6 +326,12 @@ const notifyPwdVerified = ref(false)
 const notifyPwd = ref('')
 const notifyVerifiedPwd = ref('')
 
+const tgWebhookPublicUrl = ref('')
+const tgWhSnapLoading = ref(false)
+const applyWhOpen = ref(false)
+const applyWhPwd = ref('')
+const applyWhLoading = ref(false)
+
 const ociProxySaveLoading = ref(false)
 const ociProxyTestLoading = ref(false)
 const ociProxyForm = reactive({
@@ -329,6 +357,10 @@ const notifyTypeOptions = [
 ]
 
 onMounted(async () => {
+  if (typeof window !== 'undefined' && window.location?.origin) {
+    tgWebhookPublicUrl.value = window.location.origin
+    window.addEventListener('resize', checkMobile)
+  }
   loadNotifyConfig()
   loadOciProxy()
   try {
@@ -522,6 +554,69 @@ async function testTgNotify() {
   }
 }
 
+function openApplyTgWebhook() {
+  const u = tgWebhookPublicUrl.value?.trim()
+  if (!u) {
+    message.warning('请先填写 Webhook 公网根地址')
+    return
+  }
+  applyWhPwd.value = ''
+  applyWhOpen.value = true
+}
+
+async function confirmApplyTgWebhook() {
+  if (!applyWhPwd.value.trim()) {
+    message.warning('请输入登录密码')
+    return Promise.reject(new Error('skip'))
+  }
+  const u = tgWebhookPublicUrl.value?.trim()
+  if (!u) {
+    message.warning('请先填写 Webhook 公网根地址')
+    return Promise.reject(new Error('skip'))
+  }
+  applyWhLoading.value = true
+  try {
+    const res = await request.post('/sys/applyTgWebhook', {
+      password: applyWhPwd.value,
+      publicBaseUrl: u,
+    })
+    const d = res.data || {}
+    message.success(
+      `已同步。allowedUpdates: ${(d.allowedUpdates || []).join(', ') || '—'}；pending: ${d.pendingUpdateCount ?? '—'}`,
+    )
+    applyWhOpen.value = false
+    applyWhPwd.value = ''
+  } catch (e: any) {
+    message.error(e?.message || '同步失败')
+  } finally {
+    applyWhLoading.value = false
+  }
+}
+
+async function refreshTgWebhookSnapshot() {
+  tgWhSnapLoading.value = true
+  try {
+    const res = await request.get('/sys/tgWebhookSnapshot')
+    const d = res.data || {}
+    const lines = [
+      `fetchOk: ${d.fetchOk}`,
+      `url: ${d.url ?? '—'}`,
+      `allowedUpdates: ${(d.allowedUpdates || []).join(', ') || '（空或全部）'}`,
+      `pending: ${d.pendingUpdateCount ?? '—'}`,
+      `lastError: ${d.lastErrorMessage || '—'}`,
+    ]
+    Modal.info({
+      title: 'Telegram Webhook 状态',
+      width: 560,
+      content: lines.join('\n'),
+    })
+  } catch (e: any) {
+    message.error(e?.message || '查询失败')
+  } finally {
+    tgWhSnapLoading.value = false
+  }
+}
+
 const updateChecking = ref(false)
 const updatePerforming = ref(false)
 const updateInfo = ref<any>(null)
@@ -592,7 +687,6 @@ function formatPublishDate(isoStr: string) {
 
 const isMobile = ref(window.innerWidth < 768)
 function checkMobile() { isMobile.value = window.innerWidth < 768 }
-onMounted(() => window.addEventListener('resize', checkMobile))
 onUnmounted(() => {
   window.removeEventListener('resize', checkMobile)
   if (pwdCountdownTimer) clearInterval(pwdCountdownTimer)
