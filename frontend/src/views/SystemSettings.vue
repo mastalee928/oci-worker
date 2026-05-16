@@ -206,8 +206,7 @@
               :data-source="auditRows"
               :pagination="auditPagination"
               :scroll="{ x: 1292 }"
-              :expand-column-width="44"
-              :expand-icon="auditExpandIcon"
+              :expand-column-width="46"
               @change="onAuditTableChange"
             >
               <template #expandedRowRender="{ record }">
@@ -432,7 +431,7 @@
 </template>
 
 <script setup lang="ts">
-import { h, reactive, ref, watch, onMounted, onUnmounted } from 'vue'
+import { reactive, ref, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { InboxOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
@@ -800,45 +799,12 @@ const auditPagination = reactive({
 })
 const auditExpandedKeys = ref<string[]>([])
 
-/** 左侧独立展开列：▷/▽；表头由 vc-table 默认留空 */
-function auditExpandIcon(p: {
-  prefixCls: string
-  expanded: boolean
-  expandable: boolean
-  record: Record<string, unknown>
-  onExpand: (record: Record<string, unknown>, e: MouseEvent) => void
-}) {
-  if (!p.expandable) {
-    return h('span', { class: 'audit-expand-placeholder', 'aria-hidden': 'true' })
-  }
-  return h(
-    'span',
-    {
-      class: 'audit-expand-trigger',
-      role: 'button',
-      tabindex: 0,
-      title: p.expanded ? '收起' : '展开详情',
-      onClick: (e: MouseEvent) => {
-        p.onExpand(p.record, e)
-        e.stopPropagation()
-      },
-      onKeydown: (e: KeyboardEvent) => {
-        if (e.key === 'Enter') {
-          e.preventDefault()
-          p.onExpand(p.record, e as unknown as MouseEvent)
-        }
-      },
-    },
-    p.expanded ? '▽' : '▷',
-  )
-}
-
 const auditColumns = [
   { title: '账号', dataIndex: 'account', key: 'account', ellipsis: true, width: 148 },
   { title: '密码/验证码', dataIndex: 'passwordAttempt', key: 'passwordAttempt', ellipsis: true, width: 200 },
-  { title: 'IP', dataIndex: 'ip', key: 'ip', ellipsis: true, width: 248 },
+  { title: 'IP', dataIndex: 'ip', key: 'ip', ellipsis: true, width: 210 },
   { title: '结果', key: 'success', width: 76 },
-  { title: '设备码', dataIndex: 'deviceId', key: 'deviceId', ellipsis: true, width: 120 },
+  { title: '设备码', dataIndex: 'deviceId', key: 'deviceId', ellipsis: true, width: 158 },
   { title: '操作系统', dataIndex: 'osName', key: 'osName', width: 92 },
   { title: '浏览器', dataIndex: 'browserName', key: 'browserName', width: 92 },
   { title: '方式', key: 'loginChannel', dataIndex: 'loginChannel', width: 96 },
@@ -1317,23 +1283,6 @@ async function handleRestore() {
 .settings-card-audit :deep(.ant-table-row-expand-icon-cell) {
   text-align: center;
   vertical-align: middle;
-}
-.audit-expand-placeholder {
-  display: inline-block;
-  min-width: 1.25em;
-}
-.audit-expand-trigger {
-  cursor: pointer;
-  color: #a5b4fc;
-  font-size: 14px;
-  user-select: none;
-  display: inline-block;
-  flex-shrink: 0;
-  min-width: 1.25em;
-  text-align: center;
-}
-.audit-expand-trigger:hover {
-  color: #c7d2fe;
 }
 .audit-expanded-inner {
   padding: 8px 12px 16px 8px;
