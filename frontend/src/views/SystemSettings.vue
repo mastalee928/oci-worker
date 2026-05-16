@@ -205,8 +205,9 @@
               :columns="auditColumns"
               :data-source="auditRows"
               :pagination="auditPagination"
-              :scroll="{ x: 1292 }"
+              :scroll="{ x: 1290 }"
               :expand-column-width="46"
+              :expand-icon="auditExpandIcon"
               @change="onAuditTableChange"
             >
               <template #expandedRowRender="{ record }">
@@ -431,9 +432,9 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, watch, onMounted, onUnmounted } from 'vue'
+import { h, reactive, ref, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { InboxOutlined, ReloadOutlined } from '@ant-design/icons-vue'
+import { CaretRightOutlined, InboxOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
 import type { UploadFile } from 'ant-design-vue'
 import { useUserStore } from '../stores/user'
@@ -799,16 +800,42 @@ const auditPagination = reactive({
 })
 const auditExpandedKeys = ref<string[]>([])
 
+/** 三角指示用 SVG（CaretRight），不用主题自带的「+」伪元素展开格 */
+function auditExpandIcon(p: {
+  expanded: boolean
+  expandable: boolean
+  record: Record<string, unknown>
+  onExpand: (record: Record<string, unknown>, e: MouseEvent) => void
+}) {
+  if (!p.expandable) {
+    return h('span', { class: 'audit-expand-spacer', 'aria-hidden': 'true' })
+  }
+  return h(
+    'button',
+    {
+      type: 'button',
+      class: ['audit-row-expand-btn', p.expanded ? 'audit-row-expand-btn-expanded' : ''].filter(Boolean).join(' '),
+      'aria-label': p.expanded ? '收起详情' : '展开详情',
+      'aria-expanded': p.expanded,
+      onClick: (e: MouseEvent) => {
+        p.onExpand(p.record, e)
+        e.stopPropagation()
+      },
+    },
+    [h(CaretRightOutlined)],
+  )
+}
+
 const auditColumns = [
-  { title: '账号', dataIndex: 'account', key: 'account', ellipsis: true, width: 148 },
-  { title: '密码/验证码', dataIndex: 'passwordAttempt', key: 'passwordAttempt', ellipsis: true, width: 200 },
-  { title: 'IP', dataIndex: 'ip', key: 'ip', ellipsis: true, width: 210 },
-  { title: '结果', key: 'success', width: 76 },
-  { title: '设备码', dataIndex: 'deviceId', key: 'deviceId', ellipsis: true, width: 158 },
-  { title: '操作系统', dataIndex: 'osName', key: 'osName', width: 92 },
-  { title: '浏览器', dataIndex: 'browserName', key: 'browserName', width: 92 },
-  { title: '方式', key: 'loginChannel', dataIndex: 'loginChannel', width: 96 },
-  { title: '时间', dataIndex: 'createTime', key: 'createTime', width: 172 },
+  { title: '账号', dataIndex: 'account', key: 'account', ellipsis: true, width: 135 },
+  { title: '密码/验证码', dataIndex: 'passwordAttempt', key: 'passwordAttempt', ellipsis: true, width: 190 },
+  { title: 'IP', dataIndex: 'ip', key: 'ip', ellipsis: true, width: 205 },
+  { title: '结果', key: 'success', width: 74 },
+  { title: '设备码', dataIndex: 'deviceId', key: 'deviceId', ellipsis: true, width: 198 },
+  { title: '操作系统', dataIndex: 'osName', key: 'osName', width: 90 },
+  { title: '浏览器', dataIndex: 'browserName', key: 'browserName', width: 90 },
+  { title: '方式', key: 'loginChannel', dataIndex: 'loginChannel', width: 92 },
+  { title: '时间', dataIndex: 'createTime', key: 'createTime', width: 170 },
 ]
 
 async function loadAudit() {
@@ -1283,6 +1310,41 @@ async function handleRestore() {
 .settings-card-audit :deep(.ant-table-row-expand-icon-cell) {
   text-align: center;
   vertical-align: middle;
+}
+.settings-card-audit :deep(.audit-row-expand-btn) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  margin: 0;
+  padding: 0;
+  border: 1px solid var(--border, rgba(148, 163, 184, 0.35));
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.04);
+  color: rgba(226, 232, 240, 0.92);
+  cursor: pointer;
+  line-height: 0;
+  transition: border-color 0.2s, color 0.2s, background 0.2s;
+}
+.settings-card-audit :deep(.audit-row-expand-btn:hover),
+.settings-card-audit :deep(.audit-row-expand-btn:focus-visible) {
+  border-color: #818cf8;
+  color: #c7d2fe;
+  outline: none;
+}
+.settings-card-audit :deep(.audit-row-expand-btn .anticon) {
+  font-size: 11px;
+  transition: transform 0.2s ease;
+}
+.settings-card-audit :deep(.audit-row-expand-btn-expanded .anticon) {
+  transform: rotate(90deg);
+}
+.settings-card-audit :deep(.audit-expand-spacer) {
+  display: inline-block;
+  width: 22px;
+  height: 22px;
+  visibility: hidden;
 }
 .audit-expanded-inner {
   padding: 8px 12px 16px 8px;
