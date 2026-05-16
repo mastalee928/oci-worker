@@ -226,7 +226,25 @@
                 </div>
               </template>
               <template #bodyCell="{ column, record }">
-                <template v-if="column.key === 'success'">
+                <template v-if="column.key === 'ip' || column.key === 'deviceId'">
+                  <div
+                    class="audit-copy-cell"
+                    :class="{ 'audit-copy-cell--tap': isMobile }"
+                    @click.stop="onAuditCopyCellTap(record, column)"
+                  >
+                    <span class="audit-copy-text" :title="auditScalar(record, column)">{{ auditScalar(record, column) }}</span>
+                    <a-button
+                      v-if="!isMobile"
+                      type="link"
+                      size="small"
+                      class="audit-copy-btn"
+                      @click.stop="copyAuditColumn(record, column)"
+                    >
+                      复制
+                    </a-button>
+                  </div>
+                </template>
+                <template v-else-if="column.key === 'success'">
                   <a-tag :color="record.success ? 'success' : 'error'">{{ record.success ? '成功' : '失败' }}</a-tag>
                 </template>
                 <template v-else-if="column.key === 'loginChannel'">
@@ -863,6 +881,29 @@ function onAuditTableChange(pag: { current?: number; pageSize?: number }) {
   loadAudit()
 }
 
+function auditScalar(record: Record<string, unknown>, column: { key?: string; dataIndex?: unknown }): string {
+  const di = column.dataIndex != null ? String(column.dataIndex) : column.key != null ? String(column.key) : ''
+  const v = di ? record[di] : undefined
+  if (v == null || String(v).trim() === '') return '—'
+  return String(v).trim()
+}
+
+async function copyAuditColumn(record: Record<string, unknown>, column: { key?: string; dataIndex?: unknown }) {
+  const s = auditScalar(record, column)
+  if (s === '—') return
+  try {
+    await navigator.clipboard.writeText(s)
+    message.success('已复制')
+  } catch {
+    message.error('复制失败')
+  }
+}
+
+function onAuditCopyCellTap(record: Record<string, unknown>, column: { key?: string; dataIndex?: unknown }) {
+  if (!isMobile.value) return
+  void copyAuditColumn(record, column)
+}
+
 interface AuditDetailSection {
   title: string
   entries: Record<string, string>
@@ -1312,6 +1353,36 @@ async function handleRestore() {
 .settings-card-audit :deep(.ant-table-row-expand-icon-cell) {
   text-align: center;
   vertical-align: middle;
+}
+.settings-card-audit :deep(.audit-copy-cell) {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
+  width: 100%;
+}
+.settings-card-audit :deep(.audit-copy-text) {
+  min-width: 0;
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.settings-card-audit :deep(.audit-copy-btn) {
+  flex-shrink: 0;
+  padding: 0 4px !important;
+  height: auto !important;
+  line-height: 1.2 !important;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.settings-card-audit :deep(.ant-table-tbody > tr:hover .audit-copy-btn) {
+  opacity: 1;
+}
+.settings-card-audit :deep(.audit-copy-cell--tap) {
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
 }
 .settings-card-audit :deep(.audit-row-expand-btn) {
   display: inline-flex;
