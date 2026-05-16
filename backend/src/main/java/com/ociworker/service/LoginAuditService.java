@@ -247,6 +247,10 @@ public class LoginAuditService {
         if (!(req instanceof ContentCachingRequestWrapper w)) {
             return "";
         }
+        byte[] buf = w.getContentAsByteArray();
+        if (buf == null || buf.length == 0) {
+            return "";
+        }
         Charset cs = StandardCharsets.UTF_8;
         String enc = req.getCharacterEncoding();
         if (enc != null && !enc.isBlank()) {
@@ -256,15 +260,7 @@ public class LoginAuditService {
                 // keep UTF-8
             }
         }
-        try {
-            return w.getContentAsString(cs);
-        } catch (Exception e) {
-            byte[] buf = w.getContentAsByteArray();
-            if (buf == null || buf.length == 0) {
-                return "";
-            }
-            return new String(buf, StandardCharsets.UTF_8);
-        }
+        return new String(buf, cs);
     }
 
     private static String truncPlain(String s, int max) {
