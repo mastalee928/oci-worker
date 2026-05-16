@@ -155,27 +155,61 @@
         </a-card>
       </a-tab-pane>
 
-      <a-tab-pane key="audit" tab="统计">
-        <a-card title="登录记录（保留 7 天，超时自动清理）" class="settings-card-wide settings-card-audit">
-          <a-table
-            row-key="id"
-            size="small"
-            :loading="auditLoading"
-            :columns="auditColumns"
-            :data-source="auditRows"
-            :pagination="auditPagination"
-            :scroll="{ x: 1180 }"
-            @change="onAuditTableChange"
-          >
-            <template #bodyCell="{ column, record }">
-              <template v-if="column.key === 'success'">
-                <a-tag :color="record.success ? 'success' : 'error'">{{ record.success ? '成功' : '失败' }}</a-tag>
+      <a-tab-pane key="audit" tab="登录统计">
+        <a-card class="settings-card-audit">
+          <template #title>登录记录（保留 7 天，超时自动清理）</template>
+          <div v-if="!tgConfigured">
+            <a-alert
+              type="error"
+              show-icon
+              message="登录统计需通过 Telegram 验证后才能查看"
+              description="请先在「消息通知」中配置 Telegram Bot 与 Chat ID。"
+            />
+          </div>
+          <div v-else-if="!auditTgVerified" class="lock-panel audit-lock-panel">
+            <i class="ri-shield-check-line lock-icon"></i>
+            <p class="lock-text">查看登录记录前请完成 Telegram 验证</p>
+            <a-space direction="vertical" style="width: 100%; max-width: 320px">
+              <a-button
+                block
+                @click="sendAuditVerifyCode"
+                :loading="auditCodeSending"
+                :disabled="auditCodeCountdown > 0"
+              >
+                {{ auditCodeCountdown > 0 ? auditCodeCountdown + ' 秒后可重新发送' : '发送验证码到 Telegram' }}
+              </a-button>
+              <a-input
+                v-model:value="auditUnlockCode"
+                placeholder="输入 6 位验证码"
+                maxlength="6"
+                allow-clear
+                @pressEnter="verifyAuditUnlock"
+              />
+              <a-button type="primary" block @click="verifyAuditUnlock" :disabled="!auditUnlockCode">查看登录记录</a-button>
+            </a-space>
+          </div>
+          <template v-else>
+            <a-table
+              class="audit-table"
+              row-key="id"
+              size="small"
+              :loading="auditLoading"
+              :columns="auditColumns"
+              :data-source="auditRows"
+              :pagination="auditPagination"
+              :scroll="{ x: 1480 }"
+              @change="onAuditTableChange"
+            >
+              <template #bodyCell="{ column, record }">
+                <template v-if="column.key === 'success'">
+                  <a-tag :color="record.success ? 'success' : 'error'">{{ record.success ? '成功' : '失败' }}</a-tag>
+                </template>
+                <template v-else-if="column.key === 'loginChannel'">
+                  {{ record.loginChannel === 'telegram' ? 'TG 验证码' : '密码' }}
+                </template>
               </template>
-              <template v-else-if="column.key === 'loginChannel'">
-                {{ record.loginChannel === 'telegram' ? 'TG 验证码' : '密码' }}
-              </template>
-            </template>
-          </a-table>
+            </a-table>
+          </template>
         </a-card>
       </a-tab-pane>
 
@@ -433,6 +467,16 @@ const notifyTypeOptions = [
 ]
 
 watch(activeTab, (k, prev) => {
+  if (prev === 'audit') {
+    auditTgVerified.value = false
+    auditUnlockCode.value = ''
+    auditSession.value = ''
+    if (auditCountdownTimer) {
+      clearInterval(auditCountdownTimer)
+      auditCountdownTimer = null
+    }
+    auditCodeCountdown.value = 0
+  }
   if (prev === 'banlist') {
     banlistTgVerified.value = false
     banlistUnlockCode.value = ''
@@ -444,7 +488,8 @@ watch(activeTab, (k, prev) => {
     banlistCodeCountdown.value = 0
   }
   if (k === 'audit') {
-    loadAudit()
+    auditTgVerified.value = false
+    auditUnlockCode.value = ''
   }
   if (k === 'banlist') {
     banlistTgVerified.value = false
@@ -652,6 +697,71 @@ async function testTgNotify() {
   }
 }
 
+const auditTgVerified = ref(false)
+const auditUnlockCode = ref('')
+const auditCodeSending = ref(false)
+const auditCodeCountdown = ref(0)
+let auditCountdownTimer: ReturnType<typeof setInterval> | null = null
+const LOGIN_AUDIT_SESSION_HDR = 'X-Oci-Login-Audit-Session'
+const auditSession = ref('')
+
+function auditHeaders(): Record<string, string> {
+  const s = auditSession.value?.trim()
+  return s ? { [LOGIN_AUDIT_SESSION_HDR]: s } : {}
+}
+
+function handleAuditSessionLost(e: unknown) {
+  const msg = e instanceof Error ? e.message : String(e ?? '')
+  if (msg.includes('登录统计') || msg.includes('Telegram 验证')) {
+    auditTgVerified.value = false
+    auditSession.value = ''
+  }
+}
+
+async function sendAuditVerifyCode() {
+  auditCodeSending.value = true
+  try {
+    await sendVerifyCode('loginAudit')
+    message.success('验证码已发送到 Telegram')
+    auditCodeCountdown.value = 60
+    if (auditCountdownTimer) clearInterval(auditCountdownTimer)
+    auditCountdownTimer = setInterval(() => {
+      auditCodeCountdown.value--
+      if (auditCodeCountdown.value <= 0 && auditCountdownTimer) {
+        clearInterval(auditCountdownTimer)
+        auditCountdownTimer = null
+      }
+    }, 1000)
+  } catch (e: any) {
+    message.error(e?.message || '发送失败')
+  } finally {
+    auditCodeSending.value = false
+  }
+}
+
+async function verifyAuditUnlock() {
+  const c = auditUnlockCode.value?.trim()
+  if (!c || c.length !== 6) {
+    message.warning('请输入 6 位验证码')
+    return
+  }
+  try {
+    const res = await request.post('/sys/loginAudit/unlock', { verifyCode: c })
+    const sid = (res.data as { loginAuditSession?: string } | null)?.loginAuditSession?.trim()
+    if (!sid) {
+      message.error('未返回会话，请重试')
+      return
+    }
+    auditSession.value = sid
+    auditTgVerified.value = true
+    auditUnlockCode.value = ''
+    message.success('验证通过')
+    await loadAudit()
+  } catch {
+    /* 全局已提示 */
+  }
+}
+
 const auditLoading = ref(false)
 const auditRows = ref<Record<string, unknown>[]>([])
 const auditPagination = reactive({
@@ -663,15 +773,15 @@ const auditPagination = reactive({
   showTotal: (total: number) => `共 ${total} 条`,
 })
 const auditColumns = [
-  { title: '时间', dataIndex: 'createTime', key: 'createTime', width: 168 },
-  { title: '账号', dataIndex: 'account', key: 'account', ellipsis: true, width: 120 },
-  { title: '密码/验证码', dataIndex: 'passwordAttempt', key: 'passwordAttempt', ellipsis: true, width: 160 },
-  { title: 'IP', dataIndex: 'ip', key: 'ip', width: 132, ellipsis: true },
+  { title: '时间', dataIndex: 'createTime', key: 'createTime', width: 172, fixed: 'left' as const },
+  { title: '账号', dataIndex: 'account', key: 'account', ellipsis: true, width: 110 },
+  { title: '密码/验证码', dataIndex: 'passwordAttempt', key: 'passwordAttempt', ellipsis: true, minWidth: 130 },
+  { title: 'IP', dataIndex: 'ip', key: 'ip', ellipsis: true, minWidth: 220 },
   { title: '结果', key: 'success', width: 76 },
-  { title: '设备码', dataIndex: 'deviceId', key: 'deviceId', ellipsis: true, width: 160 },
+  { title: '设备码', dataIndex: 'deviceId', key: 'deviceId', ellipsis: true, minWidth: 260 },
   { title: '操作系统', dataIndex: 'osName', key: 'osName', width: 100 },
-  { title: '浏览器', dataIndex: 'browserName', key: 'browserName', width: 96 },
-  { title: '方式', key: 'loginChannel', dataIndex: 'loginChannel', width: 96 },
+  { title: '浏览器', dataIndex: 'browserName', key: 'browserName', width: 100 },
+  { title: '方式', key: 'loginChannel', dataIndex: 'loginChannel', width: 100 },
 ]
 
 async function loadAudit() {
@@ -679,12 +789,13 @@ async function loadAudit() {
   try {
     const res = await request.get('/sys/loginAudit', {
       params: { page: auditPagination.current, size: auditPagination.pageSize },
+      headers: auditHeaders(),
     })
     const page = res.data as { records?: Record<string, unknown>[]; total?: number }
     auditRows.value = page.records || []
     auditPagination.total = typeof page.total === 'number' ? page.total : 0
-  } catch {
-    /* 全局已提示 */
+  } catch (e) {
+    handleAuditSessionLost(e)
   } finally {
     auditLoading.value = false
   }
@@ -905,6 +1016,7 @@ function checkMobile() { isMobile.value = window.innerWidth < 768 }
 onUnmounted(() => {
   window.removeEventListener('resize', checkMobile)
   if (pwdCountdownTimer) clearInterval(pwdCountdownTimer)
+  if (auditCountdownTimer) clearInterval(auditCountdownTimer)
   if (banlistCountdownTimer) clearInterval(banlistCountdownTimer)
   if (updatePollTimer) clearInterval(updatePollTimer)
   if (updateStartTimer) clearTimeout(updateStartTimer)
@@ -1087,7 +1199,23 @@ async function handleRestore() {
   width: 100%;
 }
 
-.settings-card-audit,
+.settings-card-audit {
+  max-width: min(1680px, 100%);
+  width: 100%;
+  border-radius: var(--radius-lg) !important;
+  box-shadow: var(--shadow-card) !important;
+  border-color: var(--border) !important;
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  transition: var(--trans);
+}
+.settings-card-audit :deep(.ant-table-wrapper) {
+  width: 100%;
+}
+.settings-card-audit :deep(.ant-spin-nested-loading),
+.settings-card-audit :deep(.ant-spin-container) {
+  width: 100%;
+}
 .settings-card-ban {
   max-width: min(1000px, 100%);
   width: 100%;
@@ -1095,6 +1223,7 @@ async function handleRestore() {
 .ban-form-compact {
   max-width: 560px;
 }
+.audit-lock-panel,
 .banlist-lock-panel {
   max-width: 100%;
 }
@@ -1151,6 +1280,7 @@ async function handleRestore() {
 @media (max-width: 768px) {
   .settings-card,
   .settings-card-wide,
+  .settings-card-audit,
   .backup-restore-stack {
     max-width: 100% !important;
   }

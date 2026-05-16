@@ -2,14 +2,13 @@ package com.ociworker.controller;
 
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.crypto.digest.DigestUtil;
-import com.baomidou.mybatisplus.core.metadata.IPage;
 import com.google.common.net.InetAddresses;
 import com.ociworker.enums.SysCfgEnum;
-import com.ociworker.model.entity.OciLoginAudit;
 import com.ociworker.model.dto.OciProxySnapshot;
 import com.ociworker.model.vo.ResponseData;
 import com.ociworker.service.BanlistViewSessionService;
 import com.ociworker.service.LoginAuditService;
+import com.ociworker.service.LoginAuditViewSessionService;
 import com.ociworker.service.LoginSecurityService;
 import com.ociworker.service.NotificationService;
 import com.ociworker.service.OciProxyConfigService;
@@ -28,6 +27,7 @@ public class SystemController {
 
     private static final Pattern DAILY_REPORT_TIME = Pattern.compile("^([01]\\d|2[0-3]):[0-5]\\d$");
     private static final String BANLIST_SESSION_HEADER = "X-Oci-Banlist-Session";
+    private static final String LOGIN_AUDIT_SESSION_HEADER = "X-Oci-Login-Audit-Session";
 
     @Resource
     private SystemService systemService;
@@ -45,6 +45,8 @@ public class SystemController {
     private LoginSecurityService loginSecurityService;
     @Resource
     private BanlistViewSessionService banlistViewSessionService;
+    @Resource
+    private LoginAuditViewSessionService loginAuditViewSessionService;
 
     @GetMapping("/glance")
     public ResponseData<?> glance() {
@@ -140,10 +142,23 @@ public class SystemController {
         return ResponseData.ok(Map.of("configured", verifyCodeService.isTgConfigured()));
     }
 
+    /** 查看登录统计前：校验 TG 验证码（action=loginAudit），下发短期会话 ID。 */
+    @PostMapping("/loginAudit/unlock")
+    public ResponseData<?> loginAuditUnlock(@RequestBody Map<String, String> body) {
+        verifyCodeService.verifyCode("loginAudit", body.get("verifyCode"));
+        String sid = loginAuditViewSessionService.issue();
+        return ResponseData.ok(Map.of("loginAuditSession", sid));
+    }
+
     @GetMapping("/loginAudit")
-    public ResponseData<IPage<OciLoginAudit>> loginAudit(
+    public ResponseData<?> loginAudit(
+            @RequestHeader(value = LOGIN_AUDIT_SESSION_HEADER, required = false) String loginAuditSession,
             @RequestParam(defaultValue = "1") long page,
             @RequestParam(defaultValue = "20") long size) {
+        ResponseData<?> gate = requireLoginAuditViewSession(loginAuditSession);
+        if (gate != null) {
+            return gate;
+        }
         return ResponseData.ok(loginAuditService.pageAudits(page, Math.min(size, 100)));
     }
 
@@ -259,6 +274,14 @@ public class SystemController {
     private ResponseData<?> requireBanlistViewSession(String sessionId) {
         if (!banlistViewSessionService.isValid(sessionId)) {
             return ResponseData.error(403, "请先通过 Telegram 验证进入封禁列表");
+        }
+        return null;
+    }
+
+    /** @return null 表示校验通过 */
+    private ResponseData<?> requireLoginAuditViewSession(String sessionId) {
+        if (!loginAuditViewSessionService.isValid(sessionId)) {
+            return ResponseData.error(403, "请先通过 Telegram 验证查看登录统计");
         }
         return null;
     }
