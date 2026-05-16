@@ -21,6 +21,8 @@ import com.ociworker.websocket.LogWebSocketHandler;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.web.context.WebServerGracefulShutdownLifecycle;
+import org.springframework.context.SmartLifecycle;
 import org.springframework.context.annotation.DependsOn;
 import org.springframework.stereotype.Service;
 
@@ -38,7 +40,7 @@ import static com.ociworker.config.VirtualThreadConfig.VIRTUAL_EXECUTOR;
 @Slf4j
 @Service
 @DependsOn("databaseGuardService")
-public class TaskSchedulerService {
+public class TaskSchedulerService implements SmartLifecycle {
 
     @Resource
     private OciCreateTaskMapper taskMapper;
@@ -50,6 +52,9 @@ public class TaskSchedulerService {
     private final Map<String, Future<?>> taskMap = new ConcurrentHashMap<>();
     private final Set<String> runningTasks = ConcurrentHashMap.newKeySet();
     private static final ObjectMapper JSON = new ObjectMapper();
+
+    /** 为 SmartLifecycle：仅在上下文 refresh 完成后置 true，关闭时先于 Web 优雅停机取消开机调度 */
+    private volatile boolean lifecycleRunning = false;
 
     @PostConstruct
     public void init() {
@@ -80,6 +85,45 @@ public class TaskSchedulerService {
                 }
             }
         }
+    }
+
+    @Override
+    public void start() {
+        lifecycleRunning = true;
+    }
+
+    @Override
+    public void stop() {
+        cancelAllBootTasksForShutdown();
+        lifecycleRunning = false;
+    }
+
+    @Override
+    public boolean isRunning() {
+        return lifecycleRunning;
+    }
+
+    /**
+     * 高于 Web 优雅停机阶段，保证 SIGTERM/停服时先取消开机虚拟线程，避免 Tomcat 已停后仍发起 OCI 调用。
+     */
+    @Override
+    public int getPhase() {
+        return WebServerGracefulShutdownLifecycle.SMART_LIFECYCLE_PHASE + 1024;
+    }
+
+    /**
+     * 仅中断调度循环，不修改库中 RUNNING；下次进程启动时 {@link #init()} 仍会按库恢复任务。
+     */
+    private void cancelAllBootTasksForShutdown() {
+        if (taskMap.isEmpty()) {
+            return;
+        }
+        int n = taskMap.size();
+        for (Future<?> future : new ArrayList<>(taskMap.values())) {
+            future.cancel(true);
+        }
+        taskMap.clear();
+        log.info("【开机任务】应用关闭，已取消 {} 个调度中的虚拟线程（库中 RUNNING 未改，重启后将恢复）", n);
     }
 
     public boolean hasRunningTask(String userId) {

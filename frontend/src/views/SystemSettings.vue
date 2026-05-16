@@ -198,8 +198,8 @@
               :columns="auditColumns"
               :data-source="auditRows"
               :pagination="auditPagination"
-              :scroll="{ x: 1180 }"
-              :expandable="{ showExpandColumn: false }"
+              :scroll="{ x: 1138 }"
+              :expandable="auditTableExpandable"
               @change="onAuditTableChange"
             >
               <template #expandedRowRender="{ record }">
@@ -218,16 +218,19 @@
                 </div>
               </template>
               <template #bodyCell="{ column, record }">
-                <template v-if="column.key === '_exp'">
-                  <span
-                    class="audit-expand-trigger"
-                    role="button"
-                    tabindex="0"
-                    :title="auditExpandedKeys.includes(String(record.id)) ? '收起' : '展开详情'"
-                    @click.stop="toggleAuditExpand(record.id)"
-                    @keydown.enter.prevent="toggleAuditExpand(record.id)"
-                  >
-                    {{ auditExpandedKeys.includes(String(record.id)) ? '▽' : '▷' }}
+                <template v-if="column.key === 'account'">
+                  <span class="audit-account-cell">
+                    <span
+                      class="audit-expand-trigger"
+                      role="button"
+                      tabindex="0"
+                      :title="auditExpandedKeys.includes(String(record.id)) ? '收起' : '展开详情'"
+                      @click.stop="toggleAuditExpand(record.id)"
+                      @keydown.enter.prevent="toggleAuditExpand(record.id)"
+                    >
+                      {{ auditExpandedKeys.includes(String(record.id)) ? '▽' : '▷' }}
+                    </span>
+                    <span class="audit-account-text" :title="String(record.account ?? '')">{{ record.account ?? '—' }}</span>
                   </span>
                 </template>
                 <template v-else-if="column.key === 'success'">
@@ -803,9 +806,11 @@ const auditPagination = reactive({
   showTotal: (total: number) => `共 ${total} 条`,
 })
 const auditExpandedKeys = ref<string[]>([])
+/** 隐藏表格自带展开列图标（▷/▽ 已放在「账号」列） */
+const auditTableExpandable = { showExpandColumn: false, expandIcon: () => null }
+
 const auditColumns = [
-  { title: '', key: '_exp', width: 42, align: 'center' as const },
-  { title: '账号', dataIndex: 'account', key: 'account', ellipsis: true, width: 110 },
+  { title: '账号', dataIndex: 'account', key: 'account', ellipsis: true, width: 132 },
   { title: '密码/验证码', dataIndex: 'passwordAttempt', key: 'passwordAttempt', ellipsis: true, width: 108 },
   { title: 'IP', dataIndex: 'ip', key: 'ip', ellipsis: true, width: 156 },
   { title: '结果', key: 'success', width: 76 },
@@ -1287,12 +1292,27 @@ async function handleRestore() {
 .settings-card-audit :deep(.ant-spin-container) {
   width: 100%;
 }
+.audit-account-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  vertical-align: middle;
+}
+.audit-account-text {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  flex: 1;
+}
 .audit-expand-trigger {
   cursor: pointer;
   color: #a5b4fc;
   font-size: 14px;
   user-select: none;
   display: inline-block;
+  flex-shrink: 0;
   min-width: 1.25em;
   text-align: center;
 }
