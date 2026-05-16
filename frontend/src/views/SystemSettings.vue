@@ -205,8 +205,9 @@
               :columns="auditColumns"
               :data-source="auditRows"
               :pagination="auditPagination"
-              :scroll="{ x: 1244 }"
-              :expandable="auditTableExpandable"
+              :scroll="{ x: 1292 }"
+              :expand-column-width="44"
+              :expand-icon="auditExpandIcon"
               @change="onAuditTableChange"
             >
               <template #expandedRowRender="{ record }">
@@ -225,22 +226,7 @@
                 </div>
               </template>
               <template #bodyCell="{ column, record }">
-                <template v-if="column.key === 'account'">
-                  <span class="audit-account-cell">
-                    <span
-                      class="audit-expand-trigger"
-                      role="button"
-                      tabindex="0"
-                      :title="auditExpandedKeys.includes(String(record.id)) ? '收起' : '展开详情'"
-                      @click.stop="toggleAuditExpand(record.id)"
-                      @keydown.enter.prevent="toggleAuditExpand(record.id)"
-                    >
-                      {{ auditExpandedKeys.includes(String(record.id)) ? '▽' : '▷' }}
-                    </span>
-                    <span class="audit-account-text" :title="String(record.account ?? '')">{{ record.account ?? '—' }}</span>
-                  </span>
-                </template>
-                <template v-else-if="column.key === 'success'">
+                <template v-if="column.key === 'success'">
                   <a-tag :color="record.success ? 'success' : 'error'">{{ record.success ? '成功' : '失败' }}</a-tag>
                 </template>
                 <template v-else-if="column.key === 'loginChannel'">
@@ -446,7 +432,7 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, watch, onMounted, onUnmounted } from 'vue'
+import { h, reactive, ref, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { InboxOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
@@ -813,8 +799,39 @@ const auditPagination = reactive({
   showTotal: (total: number) => `共 ${total} 条`,
 })
 const auditExpandedKeys = ref<string[]>([])
-/** 隐藏表格自带「+」列；▷/▽ 与「账号」同格展示 */
-const auditTableExpandable = { showExpandColumn: false, expandIcon: () => null }
+
+/** 左侧独立展开列：▷/▽；表头由 vc-table 默认留空 */
+function auditExpandIcon(p: {
+  prefixCls: string
+  expanded: boolean
+  expandable: boolean
+  record: Record<string, unknown>
+  onExpand: (record: Record<string, unknown>, e: MouseEvent) => void
+}) {
+  if (!p.expandable) {
+    return h('span', { class: 'audit-expand-placeholder', 'aria-hidden': 'true' })
+  }
+  return h(
+    'span',
+    {
+      class: 'audit-expand-trigger',
+      role: 'button',
+      tabindex: 0,
+      title: p.expanded ? '收起' : '展开详情',
+      onClick: (e: MouseEvent) => {
+        p.onExpand(p.record, e)
+        e.stopPropagation()
+      },
+      onKeydown: (e: KeyboardEvent) => {
+        if (e.key === 'Enter') {
+          e.preventDefault()
+          p.onExpand(p.record, e as unknown as MouseEvent)
+        }
+      },
+    },
+    p.expanded ? '▽' : '▷',
+  )
+}
 
 const auditColumns = [
   { title: '账号', dataIndex: 'account', key: 'account', ellipsis: true, width: 148 },
@@ -885,16 +902,6 @@ function auditDetailSections(record: Record<string, unknown>): AuditDetailSectio
     return out
   } catch {
     return []
-  }
-}
-
-function toggleAuditExpand(id: unknown) {
-  const sid = String(id)
-  const keys = auditExpandedKeys.value
-  if (keys.includes(sid)) {
-    auditExpandedKeys.value = keys.filter((k) => k !== sid)
-  } else {
-    auditExpandedKeys.value = [...keys, sid]
   }
 }
 
@@ -1307,32 +1314,13 @@ async function handleRestore() {
 .settings-card-audit :deep(.ant-spin-container) {
   width: 100%;
 }
-/* expandedRowRender 存在时仍可能占位默认「+」列，整列隐藏；▷ 在「账号」列内 */
-.settings-card-audit :deep(.ant-table-expand-icon-col),
-.settings-card-audit :deep(col.ant-table-expand-icon-col),
-.settings-card-audit :deep(.ant-table-row-expand-icon-cell),
-.settings-card-audit :deep(.ant-table-cell.ant-table-row-expand-icon-cell),
-.settings-card-audit :deep(button.ant-table-row-expand-icon) {
-  display: none !important;
-  width: 0 !important;
-  min-width: 0 !important;
-  max-width: 0 !important;
-  padding: 0 !important;
-  border: 0 !important;
-}
-.audit-account-cell {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  max-width: 100%;
+.settings-card-audit :deep(.ant-table-row-expand-icon-cell) {
+  text-align: center;
   vertical-align: middle;
 }
-.audit-account-text {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  flex: 1;
+.audit-expand-placeholder {
+  display: inline-block;
+  min-width: 1.25em;
 }
 .audit-expand-trigger {
   cursor: pointer;
