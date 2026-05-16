@@ -1306,6 +1306,19 @@ async function handleRestore() {
 .settings-card-audit :deep(.ant-spin-container) {
   width: 100%;
 }
+/* expandedRowRender 存在时仍可能占位默认「+」列，与账号列「▷」重复，整列隐藏 */
+.settings-card-audit :deep(.ant-table-expand-icon-col),
+.settings-card-audit :deep(col.ant-table-expand-icon-col),
+.settings-card-audit :deep(.ant-table-row-expand-icon-cell),
+.settings-card-audit :deep(.ant-table-cell.ant-table-row-expand-icon-cell),
+.settings-card-audit :deep(button.ant-table-row-expand-icon) {
+  display: none !important;
+  width: 0 !important;
+  min-width: 0 !important;
+  max-width: 0 !important;
+  padding: 0 !important;
+  border: 0 !important;
+}
 .audit-account-cell {
   display: inline-flex;
   align-items: center;
