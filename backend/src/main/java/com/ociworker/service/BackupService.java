@@ -40,6 +40,11 @@ public class BackupService {
         this.dataSource = dataSource;
     }
 
+    /**
+     * 面板「备份恢复」加密 Zip 内含的 SQL 导出表。
+     * <p>刻意不包含 {@code oci_login_audit}（登录统计）：不进入备份包；{@link #restoreBackup} 导入时也不会写该表，
+     * 故本机登录审计既不会被旧备份覆盖，也不会被恢复流程清空。仅替换 JAR 升级时该表同样保留在 MySQL 中。</p>
+     */
     private static final String[] TABLES = {"oci_user", "oci_create_task", "oci_kv", "cf_cfg", "ip_data"};
 
     public byte[] createBackup(String password) {
