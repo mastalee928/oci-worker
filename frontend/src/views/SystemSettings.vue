@@ -205,7 +205,7 @@
               :columns="auditColumns"
               :data-source="auditRows"
               :pagination="auditPagination"
-              :scroll="{ x: 1290 }"
+              :scroll="{ x: 1312 }"
               :expand-column-width="46"
               :expand-icon="auditExpandIcon"
               @change="onAuditTableChange"
@@ -831,7 +831,7 @@ const auditColumns = [
   { title: '密码/验证码', dataIndex: 'passwordAttempt', key: 'passwordAttempt', ellipsis: true, width: 190 },
   { title: 'IP', dataIndex: 'ip', key: 'ip', ellipsis: true, width: 205 },
   { title: '结果', key: 'success', width: 74 },
-  { title: '设备码', dataIndex: 'deviceId', key: 'deviceId', ellipsis: true, width: 198 },
+  { title: '设备码', dataIndex: 'deviceId', key: 'deviceId', ellipsis: true, width: 220 },
   { title: '操作系统', dataIndex: 'osName', key: 'osName', width: 90 },
   { title: '浏览器', dataIndex: 'browserName', key: 'browserName', width: 90 },
   { title: '方式', key: 'loginChannel', dataIndex: 'loginChannel', width: 92 },
@@ -888,7 +888,9 @@ function auditDetailSections(record: Record<string, unknown>): AuditDetailSectio
       if (!block || typeof block !== 'object') continue
       const entries: Record<string, string> = {}
       for (const [k, v] of Object.entries(block)) {
-        entries[k] = v == null ? '' : String(v)
+        const s = v == null ? '' : String(v).trim()
+        if (s === '') continue
+        entries[k] = s
       }
       if (Object.keys(entries).length) out.push({ title, entries })
     }
