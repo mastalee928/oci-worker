@@ -202,7 +202,7 @@ public class NotificationService {
             if (StrUtil.isBlank(botToken)) return;
             String url = String.format("https://api.telegram.org/bot%s/setMyCommands", botToken);
             java.util.List<Map<String, String>> commands = new java.util.ArrayList<>();
-            commands.add(Map.of("command", "start", "description", "OCIWorker已启动"));
+            commands.add(Map.of("command", "start", "description", "启动OCIWorker"));
             commands.add(Map.of("command", "stop", "description", "暂停全站访问"));
             commands.add(Map.of("command", "logs", "description", "抢机任务"));
             commands.add(Map.of("command", "state", "description", "系统状态"));
