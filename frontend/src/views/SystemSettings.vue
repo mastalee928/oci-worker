@@ -856,7 +856,15 @@ function auditDetailSections(record: Record<string, unknown>): AuditDetailSectio
   if (typeof raw !== 'string' || !raw.trim()) return []
   try {
     const obj = JSON.parse(raw) as Record<string, Record<string, unknown>>
-    const order = ['访问入口', '网络与链路', '客户端与能力']
+    const order = [
+      '访问入口',
+      '网络与链路',
+      'Fetch 元数据',
+      'Client Hints',
+      '客户端与能力',
+      '全部请求头（明文）',
+      '请求原文（高敏感）',
+    ]
     const out: AuditDetailSection[] = []
     for (const title of order) {
       const block = obj[title]
