@@ -226,7 +226,7 @@
                 </div>
               </template>
               <template #bodyCell="{ column, record }">
-                <template v-if="column.key === 'ip' || column.key === 'deviceId'">
+                <template v-if="isAuditCopyColumn(column)">
                   <div
                     class="audit-copy-cell"
                     :class="{ 'audit-copy-cell--tap': isMobile }"
@@ -847,9 +847,9 @@ function auditExpandIcon(p: {
 const auditColumns = [
   { title: '账号', dataIndex: 'account', key: 'account', ellipsis: true, width: 135 },
   { title: '密码/验证码', dataIndex: 'passwordAttempt', key: 'passwordAttempt', ellipsis: true, width: 190 },
-  { title: 'IP', dataIndex: 'ip', key: 'ip', ellipsis: true, width: 205 },
+  { title: 'IP', dataIndex: 'ip', key: 'ip', width: 205 },
   { title: '结果', key: 'success', width: 74 },
-  { title: '设备码', dataIndex: 'deviceId', key: 'deviceId', ellipsis: true, width: 220 },
+  { title: '设备码', dataIndex: 'deviceId', key: 'deviceId', width: 220 },
   { title: '操作系统', dataIndex: 'osName', key: 'osName', width: 90 },
   { title: '浏览器', dataIndex: 'browserName', key: 'browserName', width: 90 },
   { title: '方式', key: 'loginChannel', dataIndex: 'loginChannel', width: 92 },
@@ -872,6 +872,12 @@ async function loadAudit() {
   } finally {
     auditLoading.value = false
   }
+}
+
+function isAuditCopyColumn(column: { key?: string; dataIndex?: unknown }): boolean {
+  const k = column.key != null ? String(column.key) : ''
+  const d = column.dataIndex != null ? String(column.dataIndex) : ''
+  return k === 'ip' || k === 'deviceId' || d === 'ip' || d === 'deviceId'
 }
 
 function onAuditTableChange(pag: { current?: number; pageSize?: number }) {
@@ -1355,29 +1361,48 @@ async function handleRestore() {
   vertical-align: middle;
 }
 .settings-card-audit :deep(.audit-copy-cell) {
-  display: flex;
-  align-items: center;
-  gap: 4px;
+  position: relative;
   min-width: 0;
   width: 100%;
+  min-height: 22px;
 }
 .settings-card-audit :deep(.audit-copy-text) {
-  min-width: 0;
-  flex: 1;
+  display: block;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  padding-right: 2px;
+}
+.settings-card-audit :deep(.audit-copy-cell:not(.audit-copy-cell--tap) .audit-copy-text) {
+  padding-right: 44px;
 }
 .settings-card-audit :deep(.audit-copy-btn) {
-  flex-shrink: 0;
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
   padding: 0 4px !important;
   height: auto !important;
   line-height: 1.2 !important;
+  margin: 0 !important;
   opacity: 0;
+  pointer-events: none;
   transition: opacity 0.15s;
+  background: linear-gradient(
+    90deg,
+    rgba(15, 23, 42, 0) 0%,
+    rgba(15, 23, 42, 0.55) 28%,
+    rgba(15, 23, 42, 0.92) 45%
+  );
+  border-radius: 4px;
+  z-index: 1;
 }
-.settings-card-audit :deep(.ant-table-tbody > tr:hover .audit-copy-btn) {
+.settings-card-audit :deep(.audit-copy-cell:hover .audit-copy-btn) {
   opacity: 1;
+  pointer-events: auto;
+}
+.settings-card-audit :deep(.audit-copy-cell--tap .audit-copy-text) {
+  padding-right: 0;
 }
 .settings-card-audit :deep(.audit-copy-cell--tap) {
   cursor: pointer;
