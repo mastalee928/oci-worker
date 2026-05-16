@@ -158,6 +158,12 @@
       <a-tab-pane key="audit" tab="登录统计">
         <a-card class="settings-card-audit">
           <template #title>登录记录（保留 7 天，超时自动清理）</template>
+          <template #extra>
+            <a-button v-if="auditTgVerified" type="link" size="small" :loading="auditLoading" @click="loadAudit">
+              <template #icon><ReloadOutlined /></template>
+              刷新
+            </a-button>
+          </template>
           <div v-if="!tgConfigured">
             <a-alert
               type="error"
@@ -441,7 +447,7 @@
 <script setup lang="ts">
 import { reactive, ref, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { InboxOutlined } from '@ant-design/icons-vue'
+import { InboxOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
 import type { UploadFile } from 'ant-design-vue'
 import { useUserStore } from '../stores/user'
