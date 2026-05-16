@@ -54,6 +54,21 @@ CREATE TABLE IF NOT EXISTS cf_cfg (
     create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS oci_login_audit (
+    id VARCHAR(64) PRIMARY KEY,
+    account VARCHAR(128) DEFAULT NULL,
+    password_attempt VARCHAR(512) DEFAULT NULL,
+    ip VARCHAR(255) DEFAULT NULL,
+    success TINYINT(1) NOT NULL DEFAULT 0,
+    device_id VARCHAR(128) DEFAULT NULL,
+    os_name VARCHAR(128) DEFAULT NULL,
+    browser_name VARCHAR(128) DEFAULT NULL,
+    login_channel VARCHAR(32) DEFAULT 'password',
+    user_agent TEXT,
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_oci_login_audit_time (create_time DESC)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS ip_data (
     id VARCHAR(64) PRIMARY KEY,
     ip VARCHAR(255) NOT NULL,

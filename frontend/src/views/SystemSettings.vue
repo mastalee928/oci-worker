@@ -155,6 +155,109 @@
         </a-card>
       </a-tab-pane>
 
+      <a-tab-pane key="audit" tab="统计">
+        <a-card title="登录记录（保留 7 天，超时自动清理）" class="settings-card-wide settings-card-audit">
+          <a-table
+            row-key="id"
+            size="small"
+            :loading="auditLoading"
+            :columns="auditColumns"
+            :data-source="auditRows"
+            :pagination="auditPagination"
+            :scroll="{ x: 1180 }"
+            @change="onAuditTableChange"
+          >
+            <template #bodyCell="{ column, record }">
+              <template v-if="column.key === 'success'">
+                <a-tag :color="record.success ? 'success' : 'error'">{{ record.success ? '成功' : '失败' }}</a-tag>
+              </template>
+              <template v-else-if="column.key === 'loginChannel'">
+                {{ record.loginChannel === 'telegram' ? 'TG 验证码' : '密码' }}
+              </template>
+            </template>
+          </a-table>
+        </a-card>
+      </a-tab-pane>
+
+      <a-tab-pane key="banlist" tab="封禁列表">
+        <a-card class="settings-card-wide settings-card-ban">
+          <template #title>封禁列表</template>
+          <div v-if="!tgConfigured">
+            <a-alert
+              type="error"
+              show-icon
+              message="封禁列表需通过 Telegram 验证后才能进入"
+              description="请先在「消息通知」中配置 Telegram Bot 与 Chat ID。"
+            />
+          </div>
+          <div v-else-if="!banlistTgVerified" class="lock-panel banlist-lock-panel">
+            <i class="ri-shield-check-line lock-icon"></i>
+            <p class="lock-text">进入封禁列表前请完成 Telegram 验证</p>
+            <a-space direction="vertical" style="width: 100%; max-width: 320px">
+              <a-button
+                block
+                @click="sendBanlistVerifyCode"
+                :loading="banlistCodeSending"
+                :disabled="banlistCodeCountdown > 0"
+              >
+                {{ banlistCodeCountdown > 0 ? banlistCodeCountdown + ' 秒后可重新发送' : '发送验证码到 Telegram' }}
+              </a-button>
+              <a-input
+                v-model:value="banlistUnlockCode"
+                placeholder="输入 6 位验证码"
+                maxlength="6"
+                allow-clear
+                @pressEnter="verifyBanlistUnlock"
+              />
+              <a-button type="primary" block @click="verifyBanlistUnlock" :disabled="!banlistUnlockCode">进入封禁列表</a-button>
+            </a-space>
+          </div>
+          <template v-else>
+            <a-space direction="vertical" size="middle" style="width: 100%">
+              <a-alert type="warning" show-icon message="封禁与解除均须填写登录密码；仅影响登录，已登录会话不受影响。" />
+              <a-form layout="vertical" class="ban-form-compact">
+                <a-form-item label="登录密码（封禁 / 解除）">
+                  <a-input-password v-model:value="banPassword" placeholder="输入当前登录密码" allow-clear />
+                </a-form-item>
+                <a-form-item label="新增封禁">
+                  <a-space direction="vertical" style="width: 100%" size="small">
+                    <a-input
+                      v-model:value="banInput"
+                      placeholder="输入 IPv4、IPv6 或设备码（自动识别）"
+                      allow-clear
+                      @pressEnter="submitBan"
+                    />
+                    <div style="font-size: 12px; color: var(--text-sub)">合法 IP 字面值将加入 IP 封禁，否则按设备码封禁。</div>
+                    <a-space wrap>
+                      <a-button type="primary" danger :loading="banAddLoading" @click="submitBan">封禁</a-button>
+                      <a-button :loading="banLoading" @click="loadBanlist">刷新列表</a-button>
+                    </a-space>
+                  </a-space>
+                </a-form-item>
+              </a-form>
+              <a-row :gutter="[16, 16]">
+                <a-col :xs="24" :lg="12">
+                  <div class="ban-col-title">已封禁 IP</div>
+                  <div v-if="!bannedIps.length" class="ban-empty">暂无</div>
+                  <div v-for="ip in bannedIps" :key="'ip-' + ip" class="ban-row">
+                    <span class="ban-row-text">{{ ip }}</span>
+                    <a-button type="link" size="small" :loading="banActionLoading" @click="unbanIp(ip)">解除</a-button>
+                  </div>
+                </a-col>
+                <a-col :xs="24" :lg="12">
+                  <div class="ban-col-title">已封禁设备</div>
+                  <div v-if="!bannedDevices.length" class="ban-empty">暂无</div>
+                  <div v-for="did in bannedDevices" :key="'d-' + did" class="ban-row">
+                    <span class="ban-row-text">{{ did }}</span>
+                    <a-button type="link" size="small" :loading="banActionLoading" @click="unbanDevice(did)">解除</a-button>
+                  </div>
+                </a-col>
+              </a-row>
+            </a-space>
+          </template>
+        </a-card>
+      </a-tab-pane>
+
       <a-tab-pane key="update" tab="系统更新">
         <a-card title="一键更新" class="settings-card-wide">
           <a-spin :spinning="updateChecking">
@@ -269,7 +372,7 @@
 </template>
 
 <script setup lang="ts">
-import { reactive, ref, onMounted, onUnmounted } from 'vue'
+import { reactive, ref, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { InboxOutlined } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
@@ -327,6 +430,26 @@ const notifyTypeOptions = [
   { label: '任务结果', value: 'task_result' },
   { label: '每日播报', value: 'daily_report' },
 ]
+
+watch(activeTab, (k, prev) => {
+  if (prev === 'banlist') {
+    banlistTgVerified.value = false
+    banlistUnlockCode.value = ''
+    banlistSession.value = ''
+    if (banlistCountdownTimer) {
+      clearInterval(banlistCountdownTimer)
+      banlistCountdownTimer = null
+    }
+    banlistCodeCountdown.value = 0
+  }
+  if (k === 'audit') {
+    loadAudit()
+  }
+  if (k === 'banlist') {
+    banlistTgVerified.value = false
+    banlistUnlockCode.value = ''
+  }
+})
 
 onMounted(async () => {
   if (typeof window !== 'undefined') {
@@ -528,6 +651,202 @@ async function testTgNotify() {
   }
 }
 
+const auditLoading = ref(false)
+const auditRows = ref<Record<string, unknown>[]>([])
+const auditPagination = reactive({
+  current: 1,
+  pageSize: 20,
+  total: 0,
+  showSizeChanger: true,
+  pageSizeOptions: ['10', '20', '50'],
+  showTotal: (total: number) => `共 ${total} 条`,
+})
+const auditColumns = [
+  { title: '时间', dataIndex: 'createTime', key: 'createTime', width: 168 },
+  { title: '账号', dataIndex: 'account', key: 'account', ellipsis: true, width: 120 },
+  { title: '密码/验证码', dataIndex: 'passwordAttempt', key: 'passwordAttempt', ellipsis: true, width: 160 },
+  { title: 'IP', dataIndex: 'ip', key: 'ip', width: 132, ellipsis: true },
+  { title: '结果', key: 'success', width: 76 },
+  { title: '设备码', dataIndex: 'deviceId', key: 'deviceId', ellipsis: true, width: 160 },
+  { title: '操作系统', dataIndex: 'osName', key: 'osName', width: 100 },
+  { title: '浏览器', dataIndex: 'browserName', key: 'browserName', width: 96 },
+  { title: '方式', key: 'loginChannel', dataIndex: 'loginChannel', width: 96 },
+]
+
+async function loadAudit() {
+  auditLoading.value = true
+  try {
+    const res = await request.get('/sys/loginAudit', {
+      params: { page: auditPagination.current, size: auditPagination.pageSize },
+    })
+    const page = res.data as { records?: Record<string, unknown>[]; total?: number }
+    auditRows.value = page.records || []
+    auditPagination.total = typeof page.total === 'number' ? page.total : 0
+  } catch {
+    /* 全局已提示 */
+  } finally {
+    auditLoading.value = false
+  }
+}
+
+function onAuditTableChange(pag: { current?: number; pageSize?: number }) {
+  if (pag.current != null) auditPagination.current = pag.current
+  if (pag.pageSize != null) auditPagination.pageSize = pag.pageSize
+  loadAudit()
+}
+
+const banlistTgVerified = ref(false)
+const banlistUnlockCode = ref('')
+const banlistCodeSending = ref(false)
+const banlistCodeCountdown = ref(0)
+let banlistCountdownTimer: ReturnType<typeof setInterval> | null = null
+
+async function sendBanlistVerifyCode() {
+  banlistCodeSending.value = true
+  try {
+    await sendVerifyCode('banlist')
+    message.success('验证码已发送到 Telegram')
+    banlistCodeCountdown.value = 60
+    if (banlistCountdownTimer) clearInterval(banlistCountdownTimer)
+    banlistCountdownTimer = setInterval(() => {
+      banlistCodeCountdown.value--
+      if (banlistCodeCountdown.value <= 0 && banlistCountdownTimer) {
+        clearInterval(banlistCountdownTimer)
+        banlistCountdownTimer = null
+      }
+    }, 1000)
+  } catch (e: any) {
+    message.error(e?.message || '发送失败')
+  } finally {
+    banlistCodeSending.value = false
+  }
+}
+
+async function verifyBanlistUnlock() {
+  const c = banlistUnlockCode.value?.trim()
+  if (!c || c.length !== 6) {
+    message.warning('请输入 6 位验证码')
+    return
+  }
+  try {
+    const res = await request.post('/sys/banlist/unlock', { verifyCode: c })
+    const sid = (res.data as { banlistSession?: string } | null)?.banlistSession?.trim()
+    if (!sid) {
+      message.error('未返回会话，请重试')
+      return
+    }
+    banlistSession.value = sid
+    banlistTgVerified.value = true
+    banlistUnlockCode.value = ''
+    message.success('验证通过')
+    await loadBanlist()
+  } catch {
+    /* 全局已提示 */
+  }
+}
+
+const BANLIST_SESSION_HDR = 'X-Oci-Banlist-Session'
+const banlistSession = ref('')
+
+function banlistHeaders(): Record<string, string> {
+  const s = banlistSession.value?.trim()
+  return s ? { [BANLIST_SESSION_HDR]: s } : {}
+}
+
+function handleBanlistSessionLost(e: unknown) {
+  const msg = e instanceof Error ? e.message : String(e ?? '')
+  if (msg.includes('封禁列表') || msg.includes('Telegram 验证')) {
+    banlistTgVerified.value = false
+    banlistSession.value = ''
+  }
+}
+
+const banPassword = ref('')
+const banInput = ref('')
+const banLoading = ref(false)
+const banAddLoading = ref(false)
+const banActionLoading = ref(false)
+const bannedIps = ref<string[]>([])
+const bannedDevices = ref<string[]>([])
+
+async function loadBanlist() {
+  banLoading.value = true
+  try {
+    const res = await request.get('/sys/banlist', { headers: banlistHeaders() })
+    bannedIps.value = Array.isArray(res.data?.ips) ? res.data.ips : []
+    bannedDevices.value = Array.isArray(res.data?.devices) ? res.data.devices : []
+  } catch (e) {
+    handleBanlistSessionLost(e)
+    bannedIps.value = []
+    bannedDevices.value = []
+  } finally {
+    banLoading.value = false
+  }
+}
+
+function requireBanPassword(): string | null {
+  const p = banPassword.value?.trim()
+  if (!p) {
+    message.warning('请先填写登录密码')
+    return null
+  }
+  return p
+}
+
+async function submitBan() {
+  const pwd = requireBanPassword()
+  if (!pwd) return
+  const raw = banInput.value?.trim()
+  if (!raw) {
+    message.warning('请输入 IP 或设备码')
+    return
+  }
+  banAddLoading.value = true
+  try {
+    await request.post('/sys/banlist/add', { password: pwd, value: raw }, { headers: banlistHeaders() })
+    message.success('已封禁')
+    banInput.value = ''
+    await loadBanlist()
+  } catch (e) {
+    handleBanlistSessionLost(e)
+    /* 全局已提示 */
+  } finally {
+    banAddLoading.value = false
+  }
+}
+
+async function unbanIp(ip: string) {
+  const pwd = requireBanPassword()
+  if (!pwd) return
+  banActionLoading.value = true
+  try {
+    await request.post('/sys/banlist/removeIp', { password: pwd, ip }, { headers: banlistHeaders() })
+    message.success('已解除 IP')
+    await loadBanlist()
+  } catch (e) {
+    handleBanlistSessionLost(e)
+    /* 全局已提示 */
+  } finally {
+    banActionLoading.value = false
+  }
+}
+
+async function unbanDevice(deviceId: string) {
+  const pwd = requireBanPassword()
+  if (!pwd) return
+  banActionLoading.value = true
+  try {
+    await request.post('/sys/banlist/removeDevice', { password: pwd, deviceId }, { headers: banlistHeaders() })
+    message.success('已解除设备')
+    await loadBanlist()
+  } catch (e) {
+    handleBanlistSessionLost(e)
+    /* 全局已提示 */
+  } finally {
+    banActionLoading.value = false
+  }
+}
+
 const updateChecking = ref(false)
 const updatePerforming = ref(false)
 const updateInfo = ref<any>(null)
@@ -601,6 +920,7 @@ function checkMobile() { isMobile.value = window.innerWidth < 768 }
 onUnmounted(() => {
   window.removeEventListener('resize', checkMobile)
   if (pwdCountdownTimer) clearInterval(pwdCountdownTimer)
+  if (banlistCountdownTimer) clearInterval(banlistCountdownTimer)
   if (updatePollTimer) clearInterval(updatePollTimer)
   if (updateStartTimer) clearTimeout(updateStartTimer)
   if (updateRedirectTimer) clearTimeout(updateRedirectTimer)
@@ -780,6 +1100,45 @@ async function handleRestore() {
 .settings-card-oci-proxy :deep(.oci-proxy-url-input) {
   max-width: 100%;
   width: 100%;
+}
+
+.settings-card-audit,
+.settings-card-ban {
+  max-width: min(1000px, 100%);
+  width: 100%;
+}
+.ban-form-compact {
+  max-width: 560px;
+}
+.banlist-lock-panel {
+  max-width: 100%;
+}
+.ban-col-title {
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--text-main);
+}
+.ban-empty {
+  color: var(--text-sub);
+  font-size: 13px;
+  padding: 8px 0;
+}
+.ban-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 8px);
+  margin-bottom: 8px;
+  background: var(--input-bg, rgba(255, 255, 255, 0.02));
+}
+.ban-row-text {
+  word-break: break-all;
+  font-size: 13px;
+  flex: 1;
+  min-width: 0;
 }
 
 .lock-panel {

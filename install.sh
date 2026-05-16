@@ -730,6 +730,8 @@ WorkingDirectory=${INSTALL_DIR}
 ExecStart=/usr/local/bin/java -Xmx256m -Duser.timezone=Asia/Shanghai -Duser.dir=${INSTALL_DIR} -jar ${JAR_NAME} --spring.config.additional-location=file:${CONFIG_FILE}
 Restart=on-failure
 RestartSec=10
+# 未设置时 systemd 常用默认约 90s，stop 期间脚本长时间无新日志，易被误认为卡死
+TimeoutStopSec=45
 
 [Install]
 WantedBy=multi-user.target
@@ -737,6 +739,16 @@ EOF
     systemctl daemon-reload
     systemctl enable "${SERVICE_NAME}" >/dev/null 2>&1 || true
     ok "systemd 服务已注册"
+}
+
+# 已部署环境可能仍为旧版 unit（无 TimeoutStopSec），升级时 stop 会等满 systemd 默认超时（常见 ~90s）
+apply_worker_stop_timeout_dropin() {
+    mkdir -p "/etc/systemd/system/${SERVICE_NAME}.service.d"
+    cat > "/etc/systemd/system/${SERVICE_NAME}.service.d/10-stop-timeout.conf" <<'EOF'
+[Service]
+TimeoutStopSec=45
+EOF
+    systemctl daemon-reload
 }
 
 # -----------------------------------------------------------------------------
@@ -1062,6 +1074,8 @@ do_upgrade() {
     info "升级模式不会修改 application.yml 和数据库"
 
     install_jdk21
+
+    apply_worker_stop_timeout_dropin
 
     info "停止 ${SERVICE_NAME}..."
     systemctl stop "${SERVICE_NAME}" 2>/dev/null || true

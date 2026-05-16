@@ -412,7 +412,8 @@ public class LoginSecurityService {
         return s.substring(0, Math.max(0, maxLen - 1)) + "…";
     }
 
-    private boolean removeIpFromDenylist(String ip) {
+    /** 从 IP 禁止名单移除；返回是否确实移除了一条。 */
+    public boolean removeIpFromDenylist(String ip) {
         if (StrUtil.isBlank(ip)) {
             return false;
         }
@@ -424,7 +425,8 @@ public class LoginSecurityService {
         return true;
     }
 
-    private boolean removeDeviceFromDenylist(String deviceId) {
+    /** 从设备禁止名单移除；返回是否确实移除了一条。 */
+    public boolean removeDeviceFromDenylist(String deviceId) {
         if (StrUtil.isBlank(deviceId)) {
             return false;
         }
@@ -434,6 +436,22 @@ public class LoginSecurityService {
         }
         notificationService.saveKvValue(SysCfgEnum.LOGIN_DEVICE_DENYLIST, s.isEmpty() ? "" : String.join(",", s));
         return true;
+    }
+
+    public List<String> listBannedIps() {
+        return new ArrayList<>(readIpDenylist());
+    }
+
+    public List<String> listBannedDevices() {
+        return new ArrayList<>(readDeviceDenylist());
+    }
+
+    public void addIpToDenylist(String ip) {
+        appendIpDenylist(ip);
+    }
+
+    public void addDeviceToDenylist(String deviceId) {
+        appendDeviceDenylist(deviceId);
     }
 
     public String readDeviceIdFromRequest(HttpServletRequest request) {

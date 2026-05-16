@@ -2,9 +2,15 @@ package com.ociworker.controller;
 
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.crypto.digest.DigestUtil;
+import com.baomidou.mybatisplus.core.metadata.IPage;
+import com.google.common.net.InetAddresses;
 import com.ociworker.enums.SysCfgEnum;
+import com.ociworker.model.entity.OciLoginAudit;
 import com.ociworker.model.dto.OciProxySnapshot;
 import com.ociworker.model.vo.ResponseData;
+import com.ociworker.service.BanlistViewSessionService;
+import com.ociworker.service.LoginAuditService;
+import com.ociworker.service.LoginSecurityService;
 import com.ociworker.service.NotificationService;
 import com.ociworker.service.OciProxyConfigService;
 import com.ociworker.service.SystemService;
@@ -21,6 +27,7 @@ import java.util.regex.Pattern;
 public class SystemController {
 
     private static final Pattern DAILY_REPORT_TIME = Pattern.compile("^([01]\\d|2[0-3]):[0-5]\\d$");
+    private static final String BANLIST_SESSION_HEADER = "X-Oci-Banlist-Session";
 
     @Resource
     private SystemService systemService;
@@ -32,6 +39,12 @@ public class SystemController {
     private AuthController authController;
     @Resource
     private OciProxyConfigService ociProxyConfigService;
+    @Resource
+    private LoginAuditService loginAuditService;
+    @Resource
+    private LoginSecurityService loginSecurityService;
+    @Resource
+    private BanlistViewSessionService banlistViewSessionService;
 
     @GetMapping("/glance")
     public ResponseData<?> glance() {
@@ -125,6 +138,160 @@ public class SystemController {
     @GetMapping("/tgStatus")
     public ResponseData<?> tgStatus() {
         return ResponseData.ok(Map.of("configured", verifyCodeService.isTgConfigured()));
+    }
+
+    @GetMapping("/loginAudit")
+    public ResponseData<IPage<OciLoginAudit>> loginAudit(
+            @RequestParam(defaultValue = "1") long page,
+            @RequestParam(defaultValue = "20") long size) {
+        return ResponseData.ok(loginAuditService.pageAudits(page, Math.min(size, 100)));
+    }
+
+    @GetMapping("/banlist")
+    public ResponseData<?> banlist(
+            @RequestHeader(value = BANLIST_SESSION_HEADER, required = false) String banlistSession) {
+        ResponseData<?> gate = requireBanlistViewSession(banlistSession);
+        if (gate != null) {
+            return gate;
+        }
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("ips", loginSecurityService.listBannedIps());
+        m.put("devices", loginSecurityService.listBannedDevices());
+        return ResponseData.ok(m);
+    }
+
+    /** 进入封禁列表页前：校验 TG 下发的 6 位验证码（与 sendVerifyCode action=banlist 配套），并下发短期会话 ID。 */
+    @PostMapping("/banlist/unlock")
+    public ResponseData<?> banlistUnlock(@RequestBody Map<String, String> body) {
+        verifyCodeService.verifyCode("banlist", body.get("verifyCode"));
+        String sid = banlistViewSessionService.issue();
+        return ResponseData.ok(Map.of("banlistSession", sid));
+    }
+
+    /**
+     * 根据内容自动识别：合法 IPv4/IPv6 字面值则封禁 IP，否则按设备码封禁。
+     */
+    @PostMapping("/banlist/add")
+    public ResponseData<?> banlistAdd(
+            @RequestHeader(value = BANLIST_SESSION_HEADER, required = false) String banlistSession,
+            @RequestBody Map<String, String> body) {
+        ResponseData<?> gate = requireBanlistViewSession(banlistSession);
+        if (gate != null) {
+            return gate;
+        }
+        ResponseData<?> pwdCheck = requireAdminPassword(body.get("password"));
+        if (pwdCheck != null) {
+            return pwdCheck;
+        }
+        String value = StrUtil.trimToNull(body.get("value"));
+        if (value == null) {
+            return ResponseData.error("请输入 IP 或设备码");
+        }
+        if (InetAddresses.isInetAddress(value)) {
+            loginSecurityService.addIpToDenylist(value);
+        } else {
+            loginSecurityService.addDeviceToDenylist(value);
+        }
+        return ResponseData.ok();
+    }
+
+    @PostMapping("/banlist/addIp")
+    public ResponseData<?> banlistAddIp(
+            @RequestHeader(value = BANLIST_SESSION_HEADER, required = false) String banlistSession,
+            @RequestBody Map<String, String> body) {
+        ResponseData<?> gate = requireBanlistViewSession(banlistSession);
+        if (gate != null) {
+            return gate;
+        }
+        ResponseData<?> pwdCheck = requireAdminPassword(body.get("password"));
+        if (pwdCheck != null) {
+            return pwdCheck;
+        }
+        String ip = StrUtil.trimToNull(body.get("ip"));
+        if (ip == null) {
+            return ResponseData.error("请输入 IP");
+        }
+        loginSecurityService.addIpToDenylist(ip);
+        return ResponseData.ok();
+    }
+
+    @PostMapping("/banlist/addDevice")
+    public ResponseData<?> banlistAddDevice(
+            @RequestHeader(value = BANLIST_SESSION_HEADER, required = false) String banlistSession,
+            @RequestBody Map<String, String> body) {
+        ResponseData<?> gate = requireBanlistViewSession(banlistSession);
+        if (gate != null) {
+            return gate;
+        }
+        ResponseData<?> pwdCheck = requireAdminPassword(body.get("password"));
+        if (pwdCheck != null) {
+            return pwdCheck;
+        }
+        String did = StrUtil.trimToNull(body.get("deviceId"));
+        if (did == null) {
+            return ResponseData.error("请输入设备码");
+        }
+        loginSecurityService.addDeviceToDenylist(did);
+        return ResponseData.ok();
+    }
+
+    @PostMapping("/banlist/removeIp")
+    public ResponseData<?> banlistRemoveIp(
+            @RequestHeader(value = BANLIST_SESSION_HEADER, required = false) String banlistSession,
+            @RequestBody Map<String, String> body) {
+        ResponseData<?> gate = requireBanlistViewSession(banlistSession);
+        if (gate != null) {
+            return gate;
+        }
+        ResponseData<?> pwdCheck = requireAdminPassword(body.get("password"));
+        if (pwdCheck != null) {
+            return pwdCheck;
+        }
+        String ip = StrUtil.trimToNull(body.get("ip"));
+        if (ip == null) {
+            return ResponseData.error("缺少 ip");
+        }
+        loginSecurityService.removeIpFromDenylist(ip);
+        return ResponseData.ok();
+    }
+
+    @PostMapping("/banlist/removeDevice")
+    public ResponseData<?> banlistRemoveDevice(
+            @RequestHeader(value = BANLIST_SESSION_HEADER, required = false) String banlistSession,
+            @RequestBody Map<String, String> body) {
+        ResponseData<?> gate = requireBanlistViewSession(banlistSession);
+        if (gate != null) {
+            return gate;
+        }
+        ResponseData<?> pwdCheck = requireAdminPassword(body.get("password"));
+        if (pwdCheck != null) {
+            return pwdCheck;
+        }
+        String did = StrUtil.trimToNull(body.get("deviceId"));
+        if (did == null) {
+            return ResponseData.error("缺少 deviceId");
+        }
+        loginSecurityService.removeDeviceFromDenylist(did);
+        return ResponseData.ok();
+    }
+
+    /** @return null 表示校验通过 */
+    private ResponseData<?> requireBanlistViewSession(String sessionId) {
+        if (!banlistViewSessionService.isValid(sessionId)) {
+            return ResponseData.error(403, "请先通过 Telegram 验证进入封禁列表");
+        }
+        return null;
+    }
+
+    /** @return null 表示校验通过 */
+    private ResponseData<?> requireAdminPassword(String pwd) {
+        if (StrUtil.isBlank(pwd)) {
+            return ResponseData.error("请输入登录密码进行验证");
+        }
+        if (!DigestUtil.sha256Hex(pwd.trim()).equals(authController.getEffectivePasswordHash())) {
+            return ResponseData.error("密码错误");
+        }
+        return null;
     }
 
     @GetMapping("/checkUpdate")
