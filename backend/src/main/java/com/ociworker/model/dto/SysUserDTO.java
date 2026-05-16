@@ -25,6 +25,10 @@ public class SysUserDTO {
     private String customScript;
     private Boolean assignPublicIp;
     private Boolean assignIpv6;
+    /**
+     * 本次创建在任务目标中的第几台（从 1 起）。仅开机任务在调用 {@code createInstanceData} 前设置，用于 OCI displayName。
+     */
+    private Integer instanceDisplayOrdinal;
     private OciCfg ociCfg;
 
     @Data

@@ -405,6 +405,7 @@ public class TaskSchedulerService implements SmartLifecycle {
             broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s],开机数量:[%d],开始执行第 [%d] 次创建实例操作...",
                     user, region, arch, dto.getCreateNumbers(), attempt));
 
+            dto.setInstanceDisplayOrdinal(headSc + 1);
             try (OciClientService client = new OciClientService(dto)) {
                 InstanceDetailDTO result = client.createInstanceData();
 

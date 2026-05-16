@@ -624,12 +624,27 @@ public class OciClientService implements Closeable {
         return null;
     }
 
+    private String resolveLaunchDisplayName() {
+        int target = user.getCreateNumbers() != null && user.getCreateNumbers() > 0 ? user.getCreateNumbers() : 1;
+        int ord = user.getInstanceDisplayOrdinal() != null && user.getInstanceDisplayOrdinal() > 0
+                ? user.getInstanceDisplayOrdinal() : 1;
+        if (target == 1) {
+            return "oci-worker-instance";
+        }
+        if (target <= 4) {
+            int o = Math.min(Math.max(ord, 1), target);
+            char letter = (char) ('A' + o - 1);
+            return "oci-worker-" + letter;
+        }
+        return "oci-instance-" + ord;
+    }
+
     private LaunchInstanceDetails buildLaunchDetails(AvailabilityDomain ad, Shape shape, Image image,
                                                       Subnet subnet, String cloudInitScript) {
         LaunchInstanceDetails.Builder builder = LaunchInstanceDetails.builder()
                 .compartmentId(compartmentId)
                 .availabilityDomain(ad.getName())
-                .displayName("oci-worker-instance")
+                .displayName(resolveLaunchDisplayName())
                 .shape(shape.getShape())
                 .sourceDetails(InstanceSourceViaImageDetails.builder()
                         .imageId(image.getId())
