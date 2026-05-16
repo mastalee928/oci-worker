@@ -198,7 +198,7 @@
               :columns="auditColumns"
               :data-source="auditRows"
               :pagination="auditPagination"
-              :scroll="{ x: 1520 }"
+              :scroll="{ x: 1180 }"
               :expandable="{ showExpandColumn: false }"
               @change="onAuditTableChange"
             >
@@ -804,16 +804,16 @@ const auditPagination = reactive({
 })
 const auditExpandedKeys = ref<string[]>([])
 const auditColumns = [
-  { title: '', key: '_exp', width: 42, fixed: 'left' as const, align: 'center' as const },
-  { title: '时间', dataIndex: 'createTime', key: 'createTime', width: 172, fixed: 'left' as const },
+  { title: '', key: '_exp', width: 42, align: 'center' as const },
   { title: '账号', dataIndex: 'account', key: 'account', ellipsis: true, width: 110 },
-  { title: '密码/验证码', dataIndex: 'passwordAttempt', key: 'passwordAttempt', ellipsis: true, minWidth: 130 },
-  { title: 'IP', dataIndex: 'ip', key: 'ip', ellipsis: true, minWidth: 220 },
+  { title: '密码/验证码', dataIndex: 'passwordAttempt', key: 'passwordAttempt', ellipsis: true, width: 108 },
+  { title: 'IP', dataIndex: 'ip', key: 'ip', ellipsis: true, width: 156 },
   { title: '结果', key: 'success', width: 76 },
-  { title: '设备码', dataIndex: 'deviceId', key: 'deviceId', ellipsis: true, minWidth: 260 },
-  { title: '操作系统', dataIndex: 'osName', key: 'osName', width: 100 },
-  { title: '浏览器', dataIndex: 'browserName', key: 'browserName', width: 100 },
-  { title: '方式', key: 'loginChannel', dataIndex: 'loginChannel', width: 100 },
+  { title: '设备码', dataIndex: 'deviceId', key: 'deviceId', ellipsis: true, minWidth: 200 },
+  { title: '操作系统', dataIndex: 'osName', key: 'osName', width: 92 },
+  { title: '浏览器', dataIndex: 'browserName', key: 'browserName', width: 92 },
+  { title: '方式', key: 'loginChannel', dataIndex: 'loginChannel', width: 96 },
+  { title: '时间', dataIndex: 'createTime', key: 'createTime', width: 172 },
 ]
 
 async function loadAudit() {
