@@ -378,19 +378,11 @@
             <a-descriptions-item label="更新流程">下载最新 JAR → 替换本地文件 → 重启服务</a-descriptions-item>
             <a-descriptions-item label="预计耗时">10 ~ 30 秒（取决于网络）</a-descriptions-item>
             <a-descriptions-item label="注意事项">更新期间页面将短暂无法访问，完成后自动恢复</a-descriptions-item>
-            <a-descriptions-item label="登录统计">数据在 MySQL 表 oci_login_audit，仅换 JAR 不会删除；与「备份恢复」Zip 互相独立（见该页说明）</a-descriptions-item>
           </a-descriptions>
         </a-card>
       </a-tab-pane>
       <a-tab-pane key="backup" tab="备份恢复">
         <div class="backup-restore-stack">
-          <a-alert
-            type="info"
-            show-icon
-            message="登录统计与备份范围"
-            description="「登录统计」保存在数据库表 oci_login_audit：不会写入本页生成的加密备份 Zip；从 Zip 恢复时也不会导入或清空该表，本机记录继续保留。仅替换 JAR 升级程序时该表同样保留。若需连同登录审计迁移整机，请使用数据库级备份（如 mysqldump）等方案。"
-            class="settings-card-wide backup-scope-alert"
-          />
           <a-card title="备份" class="settings-card-wide">
             <a-form layout="vertical">
               <a-form-item label="加密密码">
@@ -1251,12 +1243,6 @@ async function handleRestore() {
   flex-direction: column;
   gap: 20px;
   max-width: 560px;
-}
-.backup-scope-alert {
-  width: 100%;
-}
-.backup-scope-alert :deep(.ant-alert-description) {
-  line-height: 1.55;
 }
 .backup-restore-dragger :deep(.ant-upload) {
   background: var(--input-bg) !important;
