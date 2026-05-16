@@ -65,6 +65,9 @@ public class LoginSecurityService {
         log.warn("[LoginSecurity] site_access_paused = {}", paused);
     }
 
+    /**
+     * 当前 IP 或设备是否在禁止名单（登录接口与已通过 Bearer 鉴权后的 /api/** 请求均会校验）。
+     */
     public boolean isDeniedForLogin(String ip, String deviceId) {
         if (containsIp(readIpDenylist(), normalizeIp(ip))) return true;
         if (StrUtil.isNotBlank(deviceId) && containsToken(readDeviceDenylist(), deviceId.trim())) return true;

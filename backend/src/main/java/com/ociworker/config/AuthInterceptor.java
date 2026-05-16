@@ -116,6 +116,15 @@ public class AuthInterceptor implements HandlerInterceptor {
             response.getWriter().write(objectMapper.writeValueAsString(ResponseData.error(401, "Unauthorized")));
             return false;
         }
+
+        String clientIp = HttpRequestUtil.getClientIp(request);
+        String deviceId = loginSecurityService.readDeviceIdFromRequest(request);
+        if (loginSecurityService.isDeniedForLogin(clientIp, deviceId)) {
+            response.setContentType("application/json;charset=UTF-8");
+            response.setStatus(403);
+            response.getWriter().write(objectMapper.writeValueAsString(ResponseData.error(403, "访问被拒绝")));
+            return false;
+        }
         return true;
     }
 }

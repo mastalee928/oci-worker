@@ -34,4 +34,21 @@ public final class HttpRequestUtil {
         }
         return null;
     }
+
+    /**
+     * 从原始 Cookie 请求头解析指定名称（用于 WebSocket 握手等无 {@link HttpServletRequest} 场景）。
+     */
+    public static String getCookieValueFromCookieHeader(String cookieHeader, String name) {
+        if (cookieHeader == null || name == null) {
+            return null;
+        }
+        for (String part : cookieHeader.split(";")) {
+            String[] kv = part.trim().split("=", 2);
+            if (kv.length == 2 && name.equals(kv[0].trim())) {
+                String v = kv[1].trim();
+                return v.isBlank() ? null : v;
+            }
+        }
+        return null;
+    }
 }

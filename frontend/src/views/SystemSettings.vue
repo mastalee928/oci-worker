@@ -214,11 +214,12 @@
           </div>
           <template v-else>
             <a-space direction="vertical" size="middle" style="width: 100%">
-              <a-alert type="warning" show-icon message="封禁与解除均须填写登录密码；仅影响登录，已登录会话不受影响。" />
+              <a-alert
+                type="warning"
+                show-icon
+                message="已进入封禁列表（已通过 Telegram 验证）。封禁或解除后，对应 IP 或设备在下一次请求起将无法再访问面板接口（含当前已登录会话）。"
+              />
               <a-form layout="vertical" class="ban-form-compact">
-                <a-form-item label="登录密码（封禁 / 解除）">
-                  <a-input-password v-model:value="banPassword" placeholder="输入当前登录密码" allow-clear />
-                </a-form-item>
                 <a-form-item label="新增封禁">
                   <a-space direction="vertical" style="width: 100%" size="small">
                     <a-input
@@ -761,7 +762,6 @@ function handleBanlistSessionLost(e: unknown) {
   }
 }
 
-const banPassword = ref('')
 const banInput = ref('')
 const banLoading = ref(false)
 const banAddLoading = ref(false)
@@ -784,18 +784,7 @@ async function loadBanlist() {
   }
 }
 
-function requireBanPassword(): string | null {
-  const p = banPassword.value?.trim()
-  if (!p) {
-    message.warning('请先填写登录密码')
-    return null
-  }
-  return p
-}
-
 async function submitBan() {
-  const pwd = requireBanPassword()
-  if (!pwd) return
   const raw = banInput.value?.trim()
   if (!raw) {
     message.warning('请输入 IP 或设备码')
@@ -803,7 +792,7 @@ async function submitBan() {
   }
   banAddLoading.value = true
   try {
-    await request.post('/sys/banlist/add', { password: pwd, value: raw }, { headers: banlistHeaders() })
+    await request.post('/sys/banlist/add', { value: raw }, { headers: banlistHeaders() })
     message.success('已封禁')
     banInput.value = ''
     await loadBanlist()
@@ -816,11 +805,9 @@ async function submitBan() {
 }
 
 async function unbanIp(ip: string) {
-  const pwd = requireBanPassword()
-  if (!pwd) return
   banActionLoading.value = true
   try {
-    await request.post('/sys/banlist/removeIp', { password: pwd, ip }, { headers: banlistHeaders() })
+    await request.post('/sys/banlist/removeIp', { ip }, { headers: banlistHeaders() })
     message.success('已解除 IP')
     await loadBanlist()
   } catch (e) {
@@ -832,11 +819,9 @@ async function unbanIp(ip: string) {
 }
 
 async function unbanDevice(deviceId: string) {
-  const pwd = requireBanPassword()
-  if (!pwd) return
   banActionLoading.value = true
   try {
-    await request.post('/sys/banlist/removeDevice', { password: pwd, deviceId }, { headers: banlistHeaders() })
+    await request.post('/sys/banlist/removeDevice', { deviceId }, { headers: banlistHeaders() })
     message.success('已解除设备')
     await loadBanlist()
   } catch (e) {

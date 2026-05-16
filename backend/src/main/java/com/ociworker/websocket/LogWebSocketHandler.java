@@ -1,6 +1,8 @@
 package com.ociworker.websocket;
 
 import com.ociworker.service.LogPersistService;
+import com.ociworker.service.LoginSecurityService;
+import com.ociworker.util.HttpRequestUtil;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
@@ -23,13 +25,34 @@ public class LogWebSocketHandler extends TextWebSocketHandler {
      */
     private static final Map<String, ConcurrentWebSocketSessionDecorator> SESSIONS = new ConcurrentHashMap<>();
     private static volatile LogPersistService logPersistService;
+    private static volatile LoginSecurityService loginSecurityService;
 
-    public LogWebSocketHandler(LogPersistService persistService) {
+    public LogWebSocketHandler(LogPersistService persistService, LoginSecurityService loginSecurityService) {
         logPersistService = persistService;
+        LogWebSocketHandler.loginSecurityService = loginSecurityService;
     }
 
     @Override
     public void afterConnectionEstablished(WebSocketSession session) {
+        LoginSecurityService sec = loginSecurityService;
+        if (sec != null) {
+            String ip = "";
+            if (session.getRemoteAddress() instanceof java.net.InetSocketAddress isa
+                    && isa.getAddress() != null) {
+                ip = isa.getAddress().getHostAddress();
+            }
+            String cookieHeader = session.getHandshakeHeaders().getFirst("Cookie");
+            String did = HttpRequestUtil.getCookieValueFromCookieHeader(cookieHeader, "ow_did");
+            if (sec.isDeniedForLogin(ip, did)) {
+                try {
+                    session.close(CloseStatus.NOT_ACCEPTABLE);
+                } catch (IOException ignored) {
+                    // ignore
+                }
+                log.warn("Log WebSocket rejected (denylist): ip={} session={}", ip, session.getId());
+                return;
+            }
+        }
         ConcurrentWebSocketSessionDecorator decorated =
                 new ConcurrentWebSocketSessionDecorator(session, 2000, 64 * 1024);
         SESSIONS.put(session.getId(), decorated);

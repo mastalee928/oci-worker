@@ -179,10 +179,6 @@ public class SystemController {
         if (gate != null) {
             return gate;
         }
-        ResponseData<?> pwdCheck = requireAdminPassword(body.get("password"));
-        if (pwdCheck != null) {
-            return pwdCheck;
-        }
         String value = StrUtil.trimToNull(body.get("value"));
         if (value == null) {
             return ResponseData.error("请输入 IP 或设备码");
@@ -203,10 +199,6 @@ public class SystemController {
         if (gate != null) {
             return gate;
         }
-        ResponseData<?> pwdCheck = requireAdminPassword(body.get("password"));
-        if (pwdCheck != null) {
-            return pwdCheck;
-        }
         String ip = StrUtil.trimToNull(body.get("ip"));
         if (ip == null) {
             return ResponseData.error("请输入 IP");
@@ -222,10 +214,6 @@ public class SystemController {
         ResponseData<?> gate = requireBanlistViewSession(banlistSession);
         if (gate != null) {
             return gate;
-        }
-        ResponseData<?> pwdCheck = requireAdminPassword(body.get("password"));
-        if (pwdCheck != null) {
-            return pwdCheck;
         }
         String did = StrUtil.trimToNull(body.get("deviceId"));
         if (did == null) {
@@ -243,10 +231,6 @@ public class SystemController {
         if (gate != null) {
             return gate;
         }
-        ResponseData<?> pwdCheck = requireAdminPassword(body.get("password"));
-        if (pwdCheck != null) {
-            return pwdCheck;
-        }
         String ip = StrUtil.trimToNull(body.get("ip"));
         if (ip == null) {
             return ResponseData.error("缺少 ip");
@@ -263,10 +247,6 @@ public class SystemController {
         if (gate != null) {
             return gate;
         }
-        ResponseData<?> pwdCheck = requireAdminPassword(body.get("password"));
-        if (pwdCheck != null) {
-            return pwdCheck;
-        }
         String did = StrUtil.trimToNull(body.get("deviceId"));
         if (did == null) {
             return ResponseData.error("缺少 deviceId");
@@ -279,17 +259,6 @@ public class SystemController {
     private ResponseData<?> requireBanlistViewSession(String sessionId) {
         if (!banlistViewSessionService.isValid(sessionId)) {
             return ResponseData.error(403, "请先通过 Telegram 验证进入封禁列表");
-        }
-        return null;
-    }
-
-    /** @return null 表示校验通过 */
-    private ResponseData<?> requireAdminPassword(String pwd) {
-        if (StrUtil.isBlank(pwd)) {
-            return ResponseData.error("请输入登录密码进行验证");
-        }
-        if (!DigestUtil.sha256Hex(pwd.trim()).equals(authController.getEffectivePasswordHash())) {
-            return ResponseData.error("密码错误");
         }
         return null;
     }
