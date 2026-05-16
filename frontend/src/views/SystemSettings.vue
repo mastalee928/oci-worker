@@ -193,15 +193,44 @@
               class="audit-table"
               row-key="id"
               size="small"
+              v-model:expanded-row-keys="auditExpandedKeys"
               :loading="auditLoading"
               :columns="auditColumns"
               :data-source="auditRows"
               :pagination="auditPagination"
-              :scroll="{ x: 1480 }"
+              :scroll="{ x: 1520 }"
+              :expandable="{ showExpandColumn: false }"
               @change="onAuditTableChange"
             >
+              <template #expandedRowRender="{ record }">
+                <div class="audit-expanded-inner">
+                  <template v-if="auditDetailSections(record).length">
+                    <div v-for="sec in auditDetailSections(record)" :key="sec.title" class="audit-detail-block">
+                      <div class="audit-detail-h">{{ sec.title }}</div>
+                      <a-descriptions bordered size="small" :column="1">
+                        <a-descriptions-item v-for="(val, key) in sec.entries" :key="String(key)" :label="key">
+                          <span class="audit-detail-val">{{ val }}</span>
+                        </a-descriptions-item>
+                      </a-descriptions>
+                    </div>
+                  </template>
+                  <a-empty v-else description="无扩展详情（该条为升级前记录或未采集）" />
+                </div>
+              </template>
               <template #bodyCell="{ column, record }">
-                <template v-if="column.key === 'success'">
+                <template v-if="column.key === '_exp'">
+                  <span
+                    class="audit-expand-trigger"
+                    role="button"
+                    tabindex="0"
+                    :title="auditExpandedKeys.includes(String(record.id)) ? '收起' : '展开详情'"
+                    @click.stop="toggleAuditExpand(record.id)"
+                    @keydown.enter.prevent="toggleAuditExpand(record.id)"
+                  >
+                    {{ auditExpandedKeys.includes(String(record.id)) ? '▽' : '▷' }}
+                  </span>
+                </template>
+                <template v-else-if="column.key === 'success'">
                   <a-tag :color="record.success ? 'success' : 'error'">{{ record.success ? '成功' : '失败' }}</a-tag>
                 </template>
                 <template v-else-if="column.key === 'loginChannel'">
@@ -471,6 +500,7 @@ watch(activeTab, (k, prev) => {
     auditTgVerified.value = false
     auditUnlockCode.value = ''
     auditSession.value = ''
+    auditExpandedKeys.value = []
     if (auditCountdownTimer) {
       clearInterval(auditCountdownTimer)
       auditCountdownTimer = null
@@ -772,7 +802,9 @@ const auditPagination = reactive({
   pageSizeOptions: ['10', '20', '50'],
   showTotal: (total: number) => `共 ${total} 条`,
 })
+const auditExpandedKeys = ref<string[]>([])
 const auditColumns = [
+  { title: '', key: '_exp', width: 42, fixed: 'left' as const, align: 'center' as const },
   { title: '时间', dataIndex: 'createTime', key: 'createTime', width: 172, fixed: 'left' as const },
   { title: '账号', dataIndex: 'account', key: 'account', ellipsis: true, width: 110 },
   { title: '密码/验证码', dataIndex: 'passwordAttempt', key: 'passwordAttempt', ellipsis: true, minWidth: 130 },
@@ -794,6 +826,7 @@ async function loadAudit() {
     const page = res.data as { records?: Record<string, unknown>[]; total?: number }
     auditRows.value = page.records || []
     auditPagination.total = typeof page.total === 'number' ? page.total : 0
+    auditExpandedKeys.value = []
   } catch (e) {
     handleAuditSessionLost(e)
   } finally {
@@ -804,7 +837,45 @@ async function loadAudit() {
 function onAuditTableChange(pag: { current?: number; pageSize?: number }) {
   if (pag.current != null) auditPagination.current = pag.current
   if (pag.pageSize != null) auditPagination.pageSize = pag.pageSize
+  auditExpandedKeys.value = []
   loadAudit()
+}
+
+interface AuditDetailSection {
+  title: string
+  entries: Record<string, string>
+}
+
+function auditDetailSections(record: Record<string, unknown>): AuditDetailSection[] {
+  const raw = record.loginDetail
+  if (typeof raw !== 'string' || !raw.trim()) return []
+  try {
+    const obj = JSON.parse(raw) as Record<string, Record<string, unknown>>
+    const order = ['访问入口', '网络与链路', '客户端与能力']
+    const out: AuditDetailSection[] = []
+    for (const title of order) {
+      const block = obj[title]
+      if (!block || typeof block !== 'object') continue
+      const entries: Record<string, string> = {}
+      for (const [k, v] of Object.entries(block)) {
+        entries[k] = v == null ? '' : String(v)
+      }
+      if (Object.keys(entries).length) out.push({ title, entries })
+    }
+    return out
+  } catch {
+    return []
+  }
+}
+
+function toggleAuditExpand(id: unknown) {
+  const sid = String(id)
+  const keys = auditExpandedKeys.value
+  if (keys.includes(sid)) {
+    auditExpandedKeys.value = keys.filter((k) => k !== sid)
+  } else {
+    auditExpandedKeys.value = [...keys, sid]
+  }
 }
 
 const banlistTgVerified = ref(false)
@@ -1215,6 +1286,39 @@ async function handleRestore() {
 .settings-card-audit :deep(.ant-spin-nested-loading),
 .settings-card-audit :deep(.ant-spin-container) {
   width: 100%;
+}
+.audit-expand-trigger {
+  cursor: pointer;
+  color: #a5b4fc;
+  font-size: 14px;
+  user-select: none;
+  display: inline-block;
+  min-width: 1.25em;
+  text-align: center;
+}
+.audit-expand-trigger:hover {
+  color: #c7d2fe;
+}
+.audit-expanded-inner {
+  padding: 8px 12px 16px 8px;
+  max-width: 100%;
+}
+.audit-detail-block {
+  margin-bottom: 16px;
+}
+.audit-detail-block:last-child {
+  margin-bottom: 0;
+}
+.audit-detail-h {
+  font-weight: 600;
+  margin-bottom: 8px;
+  color: var(--text-main, #e2e8f0);
+  font-size: 13px;
+}
+.audit-detail-val {
+  word-break: break-all;
+  white-space: pre-wrap;
+  font-size: 12px;
 }
 .settings-card-ban {
   max-width: min(1000px, 100%);

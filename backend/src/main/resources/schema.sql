@@ -65,6 +65,7 @@ CREATE TABLE IF NOT EXISTS oci_login_audit (
     browser_name VARCHAR(128) DEFAULT NULL,
     login_channel VARCHAR(32) DEFAULT 'password',
     user_agent TEXT,
+    login_detail MEDIUMTEXT NULL COMMENT 'JSON: 访问入口、网络与链路、客户端与能力',
     create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_oci_login_audit_time (create_time DESC)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

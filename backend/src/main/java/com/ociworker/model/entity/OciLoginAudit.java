@@ -21,5 +21,7 @@ public class OciLoginAudit {
     /** password | telegram */
     private String loginChannel;
     private String userAgent;
+    /** JSON：访问入口、网络与链路、客户端与能力 */
+    private String loginDetail;
     private LocalDateTime createTime;
 }

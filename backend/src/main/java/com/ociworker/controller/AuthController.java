@@ -167,9 +167,8 @@ public class AuthController {
 
         String ip = HttpRequestUtil.getClientIp(request);
         String deviceId = loginSecurityService.readDeviceIdFromRequest(request);
-        String ua = request.getHeader("User-Agent");
         if (loginSecurityService.isDeniedForLogin(ip, deviceId)) {
-            loginAuditService.recordPasswordLogin(params.getAccount(), params.getPassword(), ip, deviceId, false, ua);
+            loginAuditService.recordPasswordLogin(params.getAccount(), params.getPassword(), ip, deviceId, false, request);
             return ResponseData.error(403, "访问被拒绝");
         }
 
@@ -178,12 +177,12 @@ public class AuthController {
         String inputPwdHash = DigestUtil.sha256Hex(params.getPassword());
 
         if (!effectiveAccount.equals(params.getAccount()) || !effectivePwdHash.equals(inputPwdHash)) {
-            loginAuditService.recordPasswordLogin(params.getAccount(), params.getPassword(), ip, deviceId, false, ua);
+            loginAuditService.recordPasswordLogin(params.getAccount(), params.getPassword(), ip, deviceId, false, request);
             loginSecurityService.onPasswordLoginFailed(params.getAccount(), ip, deviceId);
             return ResponseData.error("账号或密码错误");
         }
 
-        loginAuditService.recordPasswordLogin(effectiveAccount, params.getPassword(), ip, deviceId, true, ua);
+        loginAuditService.recordPasswordLogin(effectiveAccount, params.getPassword(), ip, deviceId, true, request);
         String token = CommonUtils.generateToken(effectiveAccount, effectivePwdHash);
         notificationService.sendMessage(NotificationService.TYPE_LOGIN,
                 String.format("【登录通知】✅ 登录成功\n账号: %s\nIP: %s\n时间: %s",
@@ -254,33 +253,32 @@ public class AuthController {
 
         String ip = HttpRequestUtil.getClientIp(request);
         String deviceId = loginSecurityService.readDeviceIdFromRequest(request);
-        String ua = request.getHeader("User-Agent");
         String tgAcct = getEffectiveAccount();
         if (loginSecurityService.isDeniedForLogin(ip, deviceId)) {
-            loginAuditService.recordTelegramLogin(tgAcct, ip, deviceId, false, ua, "(封禁拦截)");
+            loginAuditService.recordTelegramLogin(tgAcct, ip, deviceId, false, request, "(封禁拦截)");
             return ResponseData.error(403, "访问被拒绝");
         }
 
         String inputCode = params.get("code");
         if (inputCode == null || inputCode.isBlank()) {
-            loginAuditService.recordTelegramLogin(tgAcct, ip, deviceId, false, ua, "(未填验证码)");
+            loginAuditService.recordTelegramLogin(tgAcct, ip, deviceId, false, request, "(未填验证码)");
             return ResponseData.error("请输入验证码");
         }
 
         if (tgLoginCode == null) {
-            loginAuditService.recordTelegramLogin(tgAcct, ip, deviceId, false, ua, "(未获取验证码)");
+            loginAuditService.recordTelegramLogin(tgAcct, ip, deviceId, false, request, "(未获取验证码)");
             return ResponseData.error("请先获取验证码");
         }
 
         if (System.currentTimeMillis() > tgLoginCodeExpireAt) {
             tgLoginCode = null;
-            loginAuditService.recordTelegramLogin(tgAcct, ip, deviceId, false, ua, "(验证码过期)");
+            loginAuditService.recordTelegramLogin(tgAcct, ip, deviceId, false, request, "(验证码过期)");
             return ResponseData.error("验证码已过期，请重新获取");
         }
 
         if (tgLoginFailCount.get() >= TG_CODE_MAX_ATTEMPTS) {
             tgLoginCode = null;
-            loginAuditService.recordTelegramLogin(tgAcct, ip, deviceId, false, ua, "(验证锁定)");
+            loginAuditService.recordTelegramLogin(tgAcct, ip, deviceId, false, request, "(验证锁定)");
             notificationService.sendMessage(String.format(
                     "【登录通知】🚨 TG验证码登录被锁定\n连续错误 %d 次\nIP: %s\n时间: %s",
                     TG_CODE_MAX_ATTEMPTS, ip, nowStr()));
@@ -288,7 +286,7 @@ public class AuthController {
         }
 
         if (!tgLoginCode.equals(inputCode)) {
-            loginAuditService.recordTelegramLogin(tgAcct, ip, deviceId, false, ua, inputCode.trim());
+            loginAuditService.recordTelegramLogin(tgAcct, ip, deviceId, false, request, inputCode.trim());
             int fails = tgLoginFailCount.incrementAndGet();
             int remaining = TG_CODE_MAX_ATTEMPTS - fails;
             if (remaining <= 0) {
@@ -309,7 +307,7 @@ public class AuthController {
         String effectivePwdHash = getEffectivePasswordHash();
         String token = CommonUtils.generateToken(effectiveAccount, effectivePwdHash);
 
-        loginAuditService.recordTelegramLogin(effectiveAccount, ip, deviceId, true, ua, "(TG验证码)");
+        loginAuditService.recordTelegramLogin(effectiveAccount, ip, deviceId, true, request, "(TG验证码)");
         notificationService.sendMessage(NotificationService.TYPE_LOGIN,
                 String.format("【登录通知】✅ TG验证码登录成功\nIP: %s\n时间: %s", ip, nowStr()));
 
