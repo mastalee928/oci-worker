@@ -197,6 +197,7 @@
           <template v-else>
             <a-table
               class="audit-table"
+              table-layout="fixed"
               row-key="id"
               size="small"
               v-model:expanded-row-keys="auditExpandedKeys"
@@ -204,7 +205,7 @@
               :columns="auditColumns"
               :data-source="auditRows"
               :pagination="auditPagination"
-              :scroll="{ x: 1138 }"
+              :scroll="{ x: 1244 }"
               :expandable="auditTableExpandable"
               @change="onAuditTableChange"
             >
@@ -817,10 +818,10 @@ const auditTableExpandable = { showExpandColumn: false, expandIcon: () => null }
 
 const auditColumns = [
   { title: '账号', dataIndex: 'account', key: 'account', ellipsis: true, width: 148 },
-  { title: '密码/验证码', dataIndex: 'passwordAttempt', key: 'passwordAttempt', ellipsis: true, width: 148 },
-  { title: 'IP', dataIndex: 'ip', key: 'ip', ellipsis: true, width: 192 },
+  { title: '密码/验证码', dataIndex: 'passwordAttempt', key: 'passwordAttempt', ellipsis: true, width: 200 },
+  { title: 'IP', dataIndex: 'ip', key: 'ip', ellipsis: true, width: 248 },
   { title: '结果', key: 'success', width: 76 },
-  { title: '设备码', dataIndex: 'deviceId', key: 'deviceId', ellipsis: true, width: 168 },
+  { title: '设备码', dataIndex: 'deviceId', key: 'deviceId', ellipsis: true, width: 120 },
   { title: '操作系统', dataIndex: 'osName', key: 'osName', width: 92 },
   { title: '浏览器', dataIndex: 'browserName', key: 'browserName', width: 92 },
   { title: '方式', key: 'loginChannel', dataIndex: 'loginChannel', width: 96 },
