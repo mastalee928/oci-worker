@@ -87,6 +87,7 @@
             :filter-option="filterTenant"
             @change="onTenantChange"
             allow-clear
+            :get-popup-container="selectPopupContainer"
           />
         </a-form-item>
         <a-form-item v-if="selectedRegion" label="区域">
@@ -104,6 +105,8 @@
             :filter-option="filterModel"
             :max-tag-count="6"
             :max-tag-placeholder="(omittedValues: any[]) => `+${omittedValues?.length || 0}`"
+            :get-popup-container="selectPopupContainer"
+            :dropdown-style="{ maxHeight: 'min(70vh, 480px)' }"
           />
         </a-form-item>
         <a-button type="primary" :loading="modelsLoading" :disabled="!ociUserId" @click="() => loadModelsIfNeeded(true)">
@@ -132,6 +135,8 @@
             show-search
             :filter-option="filterModel"
             allow-clear
+            :get-popup-container="selectPopupContainer"
+            :dropdown-style="{ maxHeight: 'min(70vh, 480px)' }"
           />
         </a-form-item>
         <a-form-item label="用户消息">
@@ -279,6 +284,11 @@ const keyColumns = [
   { title: '最后使用', dataIndex: 'lastUsed', key: 'lastUsed' },
   { title: '操作', key: 'a', width: 200 },
 ] as any
+
+/** 下拉挂到 body，避免挂在 .app-content 内与 overflow 滚轮「抢事件」导致难滚回顶部 */
+function selectPopupContainer() {
+  return document.body
+}
 
 const selectedRegion = computed(() => {
   return tenantOptions.value.find((x) => x.value === ociUserId.value)?.ociRegion
@@ -539,7 +549,7 @@ async function loadModelsIfNeeded(alertOnErr: boolean) {
     } else if (Array.isArray(d)) {
       list = d
     }
-    modelOptions.value = list
+    const mapped = list
       .map((m) => {
         const id = String(m?.id || m || '').trim()
         const label = String(m?.displayName || m?.name || m?.id || m || '').trim()
@@ -553,7 +563,15 @@ async function loadModelsIfNeeded(alertOnErr: boolean) {
         const title = [...titleBits, badHint].filter((x) => x && x.trim()).join(' | ') || finalLabel
         return { value: id, label: finalLabel, title, disabled: !!bad }
       })
-      .filter((x) => x) as any
+      .filter((x) => x) as any[]
+    const seenVal = new Set<string>()
+    modelOptions.value = []
+    for (const opt of mapped) {
+      const v = String(opt?.value || '').trim()
+      if (!v || seenVal.has(v)) continue
+      seenVal.add(v)
+      modelOptions.value.push(opt)
+    }
 
     // 多选在「模型 options 曾为空」时可能被清空，用后端 UI state 再补一次
     if (!modelPick.value?.length && serverUiState.value?.modelPick?.length) {

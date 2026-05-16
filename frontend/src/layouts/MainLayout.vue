@@ -457,7 +457,6 @@ function handleLogout() {
   padding: 0 32px 32px;
   overflow-y: auto;
   overflow-x: hidden;
-  scroll-behavior: smooth;
 }
 .app-content.no-padding {
   padding: 0;
