@@ -543,6 +543,10 @@ function showCreateModal() {
 
 async function handleCreate() {
   if (!createForm.userId) { message.warning('请选择租户'); return }
+  if (createForm.architecture?.includes('A2.Flex') && createForm.ocpus === 1 && createForm.memory === 1) {
+    message.error('比例错误')
+    return
+  }
   if (!createForm.rootPassword) generateRandomPwd()
 
   try {

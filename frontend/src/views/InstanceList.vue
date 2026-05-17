@@ -2669,6 +2669,10 @@ function openQuickTask(tenant: any) {
 
 async function handleQuickTask() {
   if (!quickTaskTenant.value) return
+  if (quickTaskForm.architecture?.includes('A2.Flex') && quickTaskForm.ocpus === 1 && quickTaskForm.memory === 1) {
+    message.error('比例错误')
+    return
+  }
 
   if (!quickTaskForm.rootPassword) {
     const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$%'
