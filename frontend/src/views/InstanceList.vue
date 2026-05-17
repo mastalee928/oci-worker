@@ -1730,8 +1730,13 @@ async function handleForceA2ToA1Confirm() {
     await loadShapeEditOptions()
     const td = tenantDataList.value.find(t => t.tenant.id === currentTenant.value.id)
     if (td) scheduleReload(() => loadTenantInstances(td), 3000)
-  } catch {
-    message.error('本次更改失败，您可再次尝试！')
+  } catch (e: any) {
+    const msg = String(e?.message || '')
+    if (msg.includes('当前实例 Shape 不是') && msg.includes('请检查当前 Shape')) {
+      Modal.error({ title: '无法执行强改', content: msg, okText: '知道了' })
+    } else {
+      message.error('本次更改失败，您可再次尝试！')
+    }
     return Promise.reject()
   } finally {
     forceA2Loading.value = false
