@@ -975,7 +975,11 @@ function parseAndFill() {
   message.success('已解析并填充，请上传私钥后提交')
 }
 
-async function loadData() {
+/** 新增/编辑保存后展开目标分组；普通 loadData 不设置 */
+let pendingExpandTarget: { groupLevel1?: string; groupLevel2?: string } | null = null
+
+async function loadData(expandAfter?: { groupLevel1?: string; groupLevel2?: string }) {
+  if (expandAfter) pendingExpandTarget = expandAfter
   loading.value = true
   try {
     const res = await getTenantList({
@@ -1415,8 +1419,18 @@ function countGroupNodesIncludingSubs(tree: GroupNode[]): number {
 
 /**
  * 规则：配置数 >10 或 分组数（含子分组）>3 时默认全部收起；否则默认展开所有分组。
+ * 新增/编辑保存后若设置了 pendingExpandTarget，仅展开该一级（及可选二级），不受上述规则影响。
  */
 function applyDefaultExpandAfterLoad() {
+  if (pendingExpandTarget) {
+    const l1 = (pendingExpandTarget.groupLevel1 || '').trim() || '未分组'
+    const next = new Set<string>([l1])
+    const l2 = (pendingExpandTarget.groupLevel2 || '').trim()
+    if (l2) next.add(`${l1}/${l2}`)
+    expandedGroups.value = next
+    pendingExpandTarget = null
+    return
+  }
   const tenantCount = tableData.value.length
   const groupCount = countGroupNodesIncludingSubs(groupTree.value)
   if (tenantCount > 10 || groupCount > 3) {
@@ -1716,7 +1730,10 @@ async function handleSubmit() {
       message.success('添加成功')
     }
     modalVisible.value = false
-    loadData()
+    await loadData({
+      groupLevel1: formState.groupLevel1,
+      groupLevel2: formState.groupLevel2,
+    })
   } catch (e: any) {
     message.error(e?.message || '操作失败')
   } finally {
