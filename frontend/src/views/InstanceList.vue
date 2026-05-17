@@ -923,7 +923,7 @@
           </template>
         </a-tab-pane>
       </a-tabs>
-      <template v-if="activeTab === 'shape'" #footer>
+      <template v-if="activeTab === 'shape' && showForceA2ToA1Button" #footer>
         <div class="instance-drawer-shape-footer">
           <a-button danger @click="openForceA2ToA1Modal">A2强改A1</a-button>
         </div>
@@ -1590,6 +1590,10 @@ const shapeMemoryMin = computed(() => shapeEditSelectedMeta.value?.memoryMinInGB
 const shapeMemoryMax = computed(() => shapeEditSelectedMeta.value?.memoryMaxInGBs ?? 512)
 const shapeOcpuLabel = computed(() => `OCPU（${shapeOcpuMin.value}–${shapeOcpuMax.value}）`)
 const shapeMemoryLabel = computed(() => `内存 GB（${shapeMemoryMin.value}–${shapeMemoryMax.value}）`)
+
+const showForceA2ToA1Button = computed(
+  () => currentInstance.value?.shape === 'VM.Standard.A2.Flex',
+)
 
 function clampShapeNum(v: number, min?: number | null, max?: number | null) {
   let n = v
