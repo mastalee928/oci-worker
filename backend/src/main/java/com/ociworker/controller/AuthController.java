@@ -332,7 +332,7 @@ public class AuthController {
     }
 
     @PostMapping("/changePassword")
-    public ResponseData<?> changePassword(@RequestBody Map<String, String> params) {
+    public ResponseData<?> changePassword(@RequestBody Map<String, String> params, HttpServletRequest request) {
         if (verifyCodeService.isTgConfigured()) {
             String code = params.get("verifyCode");
             if (code == null || code.isBlank()) {
@@ -357,6 +357,14 @@ public class AuthController {
 
         String account = getEffectiveAccount();
         String newToken = CommonUtils.generateToken(account, newHash);
+
+        if (verifyCodeService.isTgConfigured()) {
+            String ip = HttpRequestUtil.getClientIp(request);
+            notificationService.sendMessage(String.format(
+                    "【登录通知】🔐 面板登录密码已成功修改\n账号: %s\nIP: %s\n时间: %s\n\n如非本人操作，请立即检查账户安全。",
+                    account, ip, nowStr()));
+        }
+
         return ResponseData.ok(Map.of("token", newToken, "message", "密码修改成功"));
     }
 
