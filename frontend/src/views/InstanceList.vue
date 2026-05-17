@@ -1720,7 +1720,7 @@ async function handleForceA2ToA1Confirm() {
       instanceId: currentInstance.value.instanceId,
       ...instanceDetailRegionParam(),
     })
-    message.success('A2 强改 A1 已提交')
+    message.success('已成功转为A1，稍后刷新页面后在基本信息中查看')
     const inst = currentInstance.value
     if (res.data?.shape) inst.shape = res.data.shape
     if (res.data?.ocpus != null) inst.ocpus = res.data.ocpus
@@ -1730,9 +1730,8 @@ async function handleForceA2ToA1Confirm() {
     await loadShapeEditOptions()
     const td = tenantDataList.value.find(t => t.tenant.id === currentTenant.value.id)
     if (td) scheduleReload(() => loadTenantInstances(td), 3000)
-  } catch (e: any) {
-    const msg = e?.message || 'A2 强改 A1 失败'
-    Modal.error({ title: '无法执行强改', content: msg, okText: '知道了' })
+  } catch {
+    message.error('本次更改失败，您可再次尝试！')
     return Promise.reject()
   } finally {
     forceA2Loading.value = false
