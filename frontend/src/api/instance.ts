@@ -37,6 +37,10 @@ export function getShapesForInstance(data: { id: string; instanceId: string } & 
   return request.post('/oci/instance/shapesForInstance', data)
 }
 
+export function forceA2ToA1(data: { id: string; instanceId: string } & R) {
+  return request.post('/oci/instance/forceA2ToA1', data)
+}
+
 export function getSecurityRules(data: { id: string; instanceId: string } & R) {
   return request.post('/oci/network/securityRules', data)
 }

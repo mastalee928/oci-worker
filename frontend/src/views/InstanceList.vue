@@ -877,6 +877,9 @@
                   <a-button :disabled="shapeEditLoading" @click="loadShapeEditOptions">刷新 Shape 列表</a-button>
                 </a-space>
               </a-form>
+              <div class="shape-edit-footer">
+                <a-button danger @click="openForceA2ToA1Modal">A2强改A1</a-button>
+              </div>
             </template>
           </a-spin>
         </a-tab-pane>
@@ -1002,6 +1005,33 @@
         </a-form-item>
         <div style="color: #999; font-size: 12px">调整 Shape / OCPU / 内存请使用详情抽屉中的「形状编辑」页签。</div>
       </a-form>
+    </a-modal>
+
+    <a-modal
+      v-model:open="forceA2ModalVisible"
+      title="A2 强改 A1"
+      ok-text="确认执行"
+      cancel-text="取消"
+      :confirm-loading="forceA2Loading"
+      :ok-button-props="{ disabled: !forceA2AllYes, danger: true }"
+      :mask-closable="false"
+      :width="isMobile ? '100%' : 480"
+      @ok="handleForceA2ToA1Confirm"
+      @cancel="resetForceA2Modal"
+    >
+      <a-alert type="error" show-icon style="margin-bottom: 16px" message="强行 A2→A1 存在账号封禁等风险，请谨慎操作。" />
+      <div class="force-a2-q">
+        <div class="force-a2-q-label">该账户是否在试用期内？</div>
+        <a-radio-group v-model:value="forceA2Q.trial" :options="forceA2YesNoOptions" />
+      </div>
+      <div class="force-a2-q">
+        <div class="force-a2-q-label">请确认目前该形状为 VM.Standard.A2.Flex？</div>
+        <a-radio-group v-model:value="forceA2Q.a2Shape" :options="forceA2YesNoOptions" />
+      </div>
+      <div class="force-a2-q">
+        <div class="force-a2-q-label">是否知悉强行转 A2 有被封号的风险？</div>
+        <a-radio-group v-model:value="forceA2Q.risk" :options="forceA2YesNoOptions" />
+      </div>
     </a-modal>
 
     <!-- 终止实例验证码弹窗 -->
@@ -1141,6 +1171,7 @@ import {
   createConsoleConnection, deleteConsoleConnection,
   getAvailableShapes,
   getShapesForInstance,
+  forceA2ToA1,
 } from '../api/instance'
 import { getTenantList, getTenantGroups } from '../api/tenant'
 import { listAllVolumes, deleteVolume } from '../api/volume'
@@ -1644,6 +1675,65 @@ async function handleApplyShapeEdit() {
     message.error(e?.message || '形状变更失败')
   } finally {
     shapeEditSaving.value = false
+  }
+}
+
+const forceA2ModalVisible = ref(false)
+const forceA2Loading = ref(false)
+const forceA2Q = reactive({
+  trial: undefined as boolean | undefined,
+  a2Shape: undefined as boolean | undefined,
+  risk: undefined as boolean | undefined,
+})
+const forceA2YesNoOptions = [
+  { label: '是', value: true },
+  { label: '否', value: false },
+]
+const forceA2AllYes = computed(
+  () => forceA2Q.trial === true && forceA2Q.a2Shape === true && forceA2Q.risk === true,
+)
+
+function resetForceA2Modal() {
+  forceA2Q.trial = undefined
+  forceA2Q.a2Shape = undefined
+  forceA2Q.risk = undefined
+}
+
+function openForceA2ToA1Modal() {
+  if (!currentInstance.value) return
+  resetForceA2Modal()
+  forceA2ModalVisible.value = true
+}
+
+async function handleForceA2ToA1Confirm() {
+  if (!forceA2AllYes.value) {
+    message.warning('请三项均选择「是」后再执行')
+    return Promise.reject()
+  }
+  if (!currentInstance.value || !currentTenant.value) return Promise.reject()
+  forceA2Loading.value = true
+  try {
+    const res = await forceA2ToA1({
+      id: currentTenant.value.id,
+      instanceId: currentInstance.value.instanceId,
+      ...instanceDetailRegionParam(),
+    })
+    message.success('A2 强改 A1 已提交')
+    const inst = currentInstance.value
+    if (res.data?.shape) inst.shape = res.data.shape
+    if (res.data?.ocpus != null) inst.ocpus = res.data.ocpus
+    if (res.data?.memoryInGBs != null) inst.memoryInGBs = res.data.memoryInGBs
+    forceA2ModalVisible.value = false
+    resetForceA2Modal()
+    await loadShapeEditOptions()
+    const td = tenantDataList.value.find(t => t.tenant.id === currentTenant.value.id)
+    if (td) scheduleReload(() => loadTenantInstances(td), 3000)
+  } catch (e: any) {
+    const msg = e?.message || 'A2 强改 A1 失败'
+    Modal.error({ title: '无法执行强改', content: msg, okText: '知道了' })
+    return Promise.reject()
+  } finally {
+    forceA2Loading.value = false
   }
 }
 
@@ -2990,6 +3080,22 @@ onUnmounted(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
   max-width: 160px;
+}
+.shape-edit-footer {
+  margin-top: 24px;
+  display: flex;
+  justify-content: flex-end;
+}
+.force-a2-q {
+  margin-bottom: 16px;
+}
+.force-a2-q:last-child {
+  margin-bottom: 0;
+}
+.force-a2-q-label {
+  margin-bottom: 8px;
+  font-weight: 500;
+  color: var(--text-main);
 }
 .ip-copy :deep(.ant-typography-copy) {
   margin-inline-start: 4px;

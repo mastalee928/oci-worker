@@ -19,6 +19,9 @@ import java.util.LinkedHashSet;
 @Service
 public class InstanceService {
 
+    private static final String SHAPE_A2_FLEX = "VM.Standard.A2.Flex";
+    private static final String SHAPE_A1_FLEX = "VM.Standard.A1.Flex";
+
     @Resource
     private OciUserMapper userMapper;
 
@@ -693,6 +696,75 @@ public class InstanceService {
             throw new OciException(tag(ociUser) + "修改实例失败: " + extractOciErrorMessage(e));
         } catch (Exception e) {
             throw new OciException(tag(ociUser) + "修改实例失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 特殊区域 A2→A1：不校验 ListShapes 是否列出 A1，直接 UpdateInstance（与 CLI 强改一致）。
+     * 仅当 OCI 返回的当前 Shape 为 VM.Standard.A2.Flex 时执行。
+     */
+    public Map<String, Object> forceA2FlexToA1Flex(String userId, String instanceId, String region) {
+        OciUser ociUser = userMapper.selectById(userId);
+        if (ociUser == null) throw new OciException("租户配置不存在");
+
+        try (OciClientService client = oci(ociUser, region)) {
+            Instance current = client.getComputeClient().getInstance(
+                    GetInstanceRequest.builder().instanceId(instanceId).build()
+            ).getInstance();
+
+            String actualShape = current.getShape();
+            if (!SHAPE_A2_FLEX.equals(actualShape)) {
+                throw new OciException(tag(ociUser) + "当前实例 Shape 不是 "
+                        + SHAPE_A2_FLEX + "，无法执行强改。请检查当前 Shape，实际为：" + actualShape);
+            }
+
+            Float ocpus = null;
+            Float memoryInGBs = null;
+            if (current.getShapeConfig() != null) {
+                ocpus = current.getShapeConfig().getOcpus();
+                memoryInGBs = current.getShapeConfig().getMemoryInGBs();
+            }
+            if (ocpus == null || memoryInGBs == null) {
+                throw new OciException(tag(ociUser) + "无法读取当前 Flex 的 OCPU/内存配置，请检查后重试");
+            }
+
+            List<Shape> compatible = client.getShapes(current.getAvailabilityDomain(), current.getImageId());
+            Shape a1Meta = findShapeMeta(compatible, SHAPE_A1_FLEX);
+            if (a1Meta != null) {
+                validateFlexResources(a1Meta, ocpus, memoryInGBs);
+            }
+
+            log.warn("{} force A2→A1 instanceId={} ocpus={} memoryInGBs={}",
+                    tag(ociUser), instanceId, ocpus, memoryInGBs);
+
+            Instance updated = client.getComputeClient().updateInstance(
+                    UpdateInstanceRequest.builder()
+                            .instanceId(instanceId)
+                            .updateInstanceDetails(UpdateInstanceDetails.builder()
+                                    .shape(SHAPE_A1_FLEX)
+                                    .shapeConfig(UpdateInstanceShapeConfigDetails.builder()
+                                            .ocpus(ocpus)
+                                            .memoryInGBs(memoryInGBs)
+                                            .build())
+                                    .build())
+                            .build()
+            ).getInstance();
+
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("instanceId", updated.getId());
+            result.put("name", updated.getDisplayName());
+            result.put("shape", updated.getShape());
+            if (updated.getShapeConfig() != null) {
+                result.put("ocpus", updated.getShapeConfig().getOcpus());
+                result.put("memoryInGBs", updated.getShapeConfig().getMemoryInGBs());
+            }
+            return result;
+        } catch (OciException e) {
+            throw e;
+        } catch (com.oracle.bmc.model.BmcException e) {
+            throw new OciException(tag(ociUser) + "A2 强改 A1 失败: " + extractOciErrorMessage(e));
+        } catch (Exception e) {
+            throw new OciException(tag(ociUser) + "A2 强改 A1 失败: " + e.getMessage());
         }
     }
 

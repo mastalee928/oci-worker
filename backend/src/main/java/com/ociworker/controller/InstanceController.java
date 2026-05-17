@@ -66,6 +66,12 @@ public class InstanceController {
                 params.get("id"), params.get("instanceId"), regStr(params)));
     }
 
+    @PostMapping("/forceA2ToA1")
+    public ResponseData<?> forceA2ToA1(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(instanceService.forceA2FlexToA1Flex(
+                params.get("id"), params.get("instanceId"), regStr(params)));
+    }
+
     @PostMapping("/bootVolumes")
     public ResponseData<?> bootVolumes(@RequestBody Map<String, String> params) {
         return ResponseData.ok(instanceService.listBootVolumesByInstance(params.get("id"), params.get("instanceId"), regStr(params)));
