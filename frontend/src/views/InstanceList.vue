@@ -456,12 +456,12 @@
         <a-row :gutter="12">
           <a-col :xs="12" :sm="8">
             <a-form-item label="OCPU">
-              <a-input-number v-model:value="quickTaskForm.ocpus" :min="1" :max="4" style="width: 100%" />
+              <a-input-number v-model:value="quickTaskForm.ocpus" :min="1" :max="512" :disabled="quickTaskBmLocked" style="width: 100%" />
             </a-form-item>
           </a-col>
           <a-col :xs="12" :sm="8">
             <a-form-item label="内存 (GB)">
-              <a-input-number v-model:value="quickTaskForm.memory" :min="1" :max="24" style="width: 100%" />
+              <a-input-number v-model:value="quickTaskForm.memory" :min="1" :max="4096" :disabled="quickTaskBmLocked" style="width: 100%" />
             </a-form-item>
           </a-col>
           <a-col :xs="12" :sm="8">
@@ -1187,6 +1187,7 @@ import {
   ociRegionSelectOptions,
   filterOciRegionSelectOption,
 } from '../utils/ociRegionCatalog'
+import { applyTaskShapeDefaults, isBmArchitecture } from '../constants/ociBmShapeSpecs'
 
 interface TenantData {
   tenant: any
@@ -1755,22 +1756,21 @@ const quickTaskForm = reactive({
   assignPublicIp: true, assignIpv6: false,
 })
 
-function defaultMemoryGbForQuickTaskShape(architecture: string) {
-  if (architecture === 'AMD') return 1
-  if (architecture === 'ARM') return 6
-  if (architecture && (architecture.includes('.Micro') || architecture.endsWith('Micro'))) return 1
-  if (architecture && architecture.includes('Flex')) return 6
-  return 6
-}
+const quickTaskBmLocked = ref(false)
 
-/** ant-design-vue 4 的 a-select 上 @change 有时不触发，用 watch 随规格同步默认内存 */
 watch(
   () => quickTaskForm.architecture,
   (arch) => {
     if (arch == null || arch === undefined) return
-    quickTaskForm.memory = defaultMemoryGbForQuickTaskShape(String(arch))
+    quickTaskBmLocked.value = applyTaskShapeDefaults(quickTaskForm, quickTaskShapes.value)
   },
 )
+
+watch(quickTaskShapes, () => {
+  if (isBmArchitecture(quickTaskForm.architecture)) {
+    quickTaskBmLocked.value = applyTaskShapeDefaults(quickTaskForm, quickTaskShapes.value)
+  }
+})
 
 let quickTaskShapeLoadGen = 0
 
@@ -1796,6 +1796,9 @@ async function loadQuickTaskShapes() {
       arch === 'AMD' ||
       quickTaskShapes.value.some((s: any) => s.shape === arch)
     if (!ok) quickTaskForm.architecture = 'ARM'
+    if (gen === quickTaskShapeLoadGen && isBmArchitecture(quickTaskForm.architecture)) {
+      quickTaskBmLocked.value = applyTaskShapeDefaults(quickTaskForm, quickTaskShapes.value)
+    }
   } catch {
     if (gen === quickTaskShapeLoadGen) quickTaskShapes.value = []
   } finally {
@@ -1808,6 +1811,7 @@ watch(quickTaskVisible, (open) => {
     quickTaskShapes.value = []
     quickTaskShapeLoadGen++
     quickTaskShapesLoading.value = false
+    quickTaskBmLocked.value = false
   }
 })
 
@@ -2662,6 +2666,7 @@ function openQuickTask(tenant: any) {
     ocpus: 1, memory: 6, disk: 50, createNumbers: 1, interval: 60, rootPassword: '', customScript: '',
     assignPublicIp: true, assignIpv6: false,
   })
+  quickTaskBmLocked.value = false
   quickTaskVisible.value = true
   void loadOciRegionCatalog(tenant.id)
   void loadQuickTaskShapes()

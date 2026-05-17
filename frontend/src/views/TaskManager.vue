@@ -146,12 +146,12 @@
         <a-row :gutter="12">
           <a-col :xs="12" :sm="8">
             <a-form-item label="OCPU 数量">
-              <a-input-number v-model:value="createForm.ocpus" :min="1" :max="4" :step="1" style="width: 100%" />
+              <a-input-number v-model:value="createForm.ocpus" :min="1" :max="512" :step="1" :disabled="createBmLocked" style="width: 100%" />
             </a-form-item>
           </a-col>
           <a-col :xs="12" :sm="8">
             <a-form-item label="内存 (GB)">
-              <a-input-number v-model:value="createForm.memory" :min="1" :max="24" :step="1" style="width: 100%" />
+              <a-input-number v-model:value="createForm.memory" :min="1" :max="4096" :step="1" :disabled="createBmLocked" style="width: 100%" />
             </a-form-item>
           </a-col>
           <a-col :xs="12" :sm="8">
@@ -355,6 +355,7 @@ import { message, Modal } from 'ant-design-vue'
 import { getTaskList, createTask, updateTask, stopTask, hasRunningTask, resumeTask, deleteTask, batchStopTask, batchResumeTask, getTaskDetail } from '../api/task'
 import { getTenantList } from '../api/tenant'
 import { getAvailableShapes } from '../api/instance'
+import { applyTaskShapeDefaults, defaultMemoryGbForShape, isBmArchitecture } from '../constants/ociBmShapeSpecs'
 
 const statusMap: Record<string, string> = {
   RUNNING: '运行中', STOPPED: '已停止', COMPLETED: '已完成', FAILED: '已失败',
@@ -403,33 +404,31 @@ function checkMobile() { isMobile.value = window.innerWidth < 768 }
 onMounted(() => window.addEventListener('resize', checkMobile))
 onUnmounted(() => window.removeEventListener('resize', checkMobile))
 
-/** 随规格切换默认内存：E2.1.Micro(AMD)=1G；A1.Flex(ARM)=6G；其它 Micro=1G，Flex=6G */
-function defaultMemoryGbForShape(architecture: string) {
-  if (architecture === 'AMD') return 1
-  if (architecture === 'ARM') return 6
-  if (architecture && (architecture.includes('.Micro') || architecture.endsWith('Micro'))) return 1
-  if (architecture && architecture.includes('Flex')) return 6
-  return 6
-}
-
-function onEditArchitectureChange(architecture: string) {
-  editForm.memory = defaultMemoryGbForShape(architecture)
-}
-
 const createForm = reactive({
   userId: '', architecture: 'ARM', operationSystem: 'Ubuntu',
   ocpus: 1, memory: 6, disk: 50, createNumbers: 1, interval: 60, rootPassword: '',
   customScript: '', assignPublicIp: true, assignIpv6: false,
 })
 
-/** 创建任务：随规格改默认内存（@change 在 ant-design-vue 4 的 Select 上不可靠） */
+const createBmLocked = ref(false)
+
 watch(
   () => createForm.architecture,
   (arch) => {
     if (arch == null || arch === undefined) return
-    createForm.memory = defaultMemoryGbForShape(String(arch))
+    createBmLocked.value = applyTaskShapeDefaults(createForm, availableShapes.value)
   },
 )
+
+watch(availableShapes, () => {
+  if (isBmArchitecture(createForm.architecture)) {
+    createBmLocked.value = applyTaskShapeDefaults(createForm, availableShapes.value)
+  }
+})
+
+function onEditArchitectureChange(architecture: string) {
+  editForm.memory = defaultMemoryGbForShape(architecture)
+}
 
 const editVisible = ref(false)
 const editLoading = ref(false)
@@ -538,6 +537,7 @@ function showCreateModal() {
     ocpus: 1, memory: 6, disk: 50, createNumbers: 1, interval: 60, rootPassword: '',
     customScript: '', assignPublicIp: true, assignIpv6: false,
   })
+  createBmLocked.value = false
   createVisible.value = true
 }
 
