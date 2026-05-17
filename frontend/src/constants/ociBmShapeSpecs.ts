@@ -49,6 +49,12 @@ export const OCI_BM_SHAPE_SPECS: Record<string, { ocpus: number; memory: number 
   'BM.HPC2.36': { ocpus: 36, memory: 384 },
 }
 
+/** 部分 Flex 切换时预选 OCPU/内存（可编辑， unlike BM 锁定） */
+export const OCI_FLEX_SHAPE_DEFAULTS: Record<string, { ocpus: number; memory: number }> = {
+  'VM.Standard3.Flex': { ocpus: 1, memory: 16 },
+  'VM.Standard.E5.Flex': { ocpus: 1, memory: 12 },
+}
+
 export function isBmArchitecture(arch?: string | null): boolean {
   return !!arch && arch.startsWith('BM.')
 }
@@ -87,6 +93,12 @@ export function applyTaskShapeDefaults(
       form.memory = spec.memory
       return true
     }
+    return false
+  }
+  const flexDefault = OCI_FLEX_SHAPE_DEFAULTS[arch]
+  if (flexDefault) {
+    form.ocpus = flexDefault.ocpus
+    form.memory = flexDefault.memory
     return false
   }
   form.memory = defaultMemoryGbForShape(arch)
