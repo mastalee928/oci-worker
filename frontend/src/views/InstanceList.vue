@@ -483,7 +483,8 @@
           </a-col>
           <a-col :xs="24" :sm="8">
             <a-form-item label="Root 密码">
-              <a-input-password v-model:value="quickTaskForm.rootPassword" placeholder="留空=随机" />
+              <a-input-password v-model:value="quickTaskForm.rootPassword" placeholder="留空=随机生成" />
+              <a-button type="link" size="small" @click="generateQuickTaskRandomPwd" style="padding: 0">随机生成</a-button>
             </a-form-item>
           </a-col>
         </a-row>
@@ -2672,6 +2673,14 @@ function openQuickTask(tenant: any) {
   void loadQuickTaskShapes()
 }
 
+function generateQuickTaskRandomPwd() {
+  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$%'
+  let pwd = ''
+  for (let i = 0; i < 16; i++) pwd += chars[Math.floor(Math.random() * chars.length)]
+  quickTaskForm.rootPassword = pwd
+  message.success('已生成随机密码')
+}
+
 async function handleQuickTask() {
   if (!quickTaskTenant.value) return
   if (quickTaskForm.architecture?.includes('A2.Flex') && quickTaskForm.ocpus === 1 && quickTaskForm.memory === 1) {
@@ -2679,12 +2688,7 @@ async function handleQuickTask() {
     return
   }
 
-  if (!quickTaskForm.rootPassword) {
-    const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$%'
-    let pwd = ''
-    for (let i = 0; i < 16; i++) pwd += chars[Math.floor(Math.random() * chars.length)]
-    quickTaskForm.rootPassword = pwd
-  }
+  if (!quickTaskForm.rootPassword) generateQuickTaskRandomPwd()
 
   try {
     const checkRes = await hasRunningTask({ userId: quickTaskTenant.value.id })
