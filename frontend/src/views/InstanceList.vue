@@ -877,9 +877,6 @@
                   <a-button :disabled="shapeEditLoading" @click="loadShapeEditOptions">刷新 Shape 列表</a-button>
                 </a-space>
               </a-form>
-              <div class="shape-edit-footer">
-                <a-button danger @click="openForceA2ToA1Modal">A2强改A1</a-button>
-              </div>
             </template>
           </a-spin>
         </a-tab-pane>
@@ -925,6 +922,11 @@
           </template>
         </a-tab-pane>
       </a-tabs>
+      <template v-if="activeTab === 'shape'" #footer>
+        <div class="instance-drawer-shape-footer">
+          <a-button danger @click="openForceA2ToA1Modal">A2强改A1</a-button>
+        </div>
+      </template>
     </a-drawer>
 
     <!-- 添加安全规则弹窗 -->
@@ -1029,7 +1031,7 @@
         <a-radio-group v-model:value="forceA2Q.a2Shape" :options="forceA2YesNoOptions" />
       </div>
       <div class="force-a2-q">
-        <div class="force-a2-q-label">是否知悉强行转 A2 有被封号的风险？</div>
+        <div class="force-a2-q-label">是否知悉强行转 A1 有被封号的风险？</div>
         <a-radio-group v-model:value="forceA2Q.risk" :options="forceA2YesNoOptions" />
       </div>
     </a-modal>
@@ -3081,8 +3083,7 @@ onUnmounted(() => {
   white-space: nowrap;
   max-width: 160px;
 }
-.shape-edit-footer {
-  margin-top: 24px;
+.instance-drawer-shape-footer {
   display: flex;
   justify-content: flex-end;
 }
