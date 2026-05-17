@@ -523,6 +523,11 @@ public class OciClientService implements Closeable {
                         } catch (Exception e) {
                             log.warn("【开机任务】用户:[{}] - IPv6 分配失败: {}", user.getUsername(), e.getMessage());
                         }
+                        try {
+                            ensureIpv6AllSecurityRules(subnet.getId());
+                        } catch (Exception e) {
+                            log.warn("【开机任务】用户:[{}] - IPv6 安全列表规则失败: {}", user.getUsername(), e.getMessage());
+                        }
                     }
 
                     result.setSuccess(true);
@@ -756,6 +761,56 @@ public class OciClientService implements Closeable {
                         .vnicId(vnicId)
                         .build())
                 .build());
+    }
+
+    /** 开机任务勾选 IPv6 时：静默补 ::/0 全协议入站+出站（仅 IPv6，不动 IPv4 规则） */
+    private void ensureIpv6AllSecurityRules(String subnetId) {
+        Subnet subnet = virtualNetworkClient.getSubnet(
+                GetSubnetRequest.builder().subnetId(subnetId).build()).getSubnet();
+        if (subnet.getSecurityListIds() == null || subnet.getSecurityListIds().isEmpty()) {
+            log.warn("子网 {} 无安全列表，跳过 IPv6 ::/0 规则", subnetId);
+            return;
+        }
+        String secListId = subnet.getSecurityListIds().get(0);
+        SecurityList secList = virtualNetworkClient.getSecurityList(
+                GetSecurityListRequest.builder().securityListId(secListId).build()
+        ).getSecurityList();
+
+        List<IngressSecurityRule> ingressRules = new ArrayList<>(secList.getIngressSecurityRules());
+        boolean hasIpv6Ingress = ingressRules.stream().anyMatch(r ->
+                "::/0".equals(r.getSource()) && "all".equals(r.getProtocol()));
+        if (!hasIpv6Ingress) {
+            ingressRules.add(IngressSecurityRule.builder()
+                    .source("::/0")
+                    .sourceType(IngressSecurityRule.SourceType.CidrBlock)
+                    .protocol("all")
+                    .description("oci-worker auto IPv6 ingress")
+                    .build());
+        }
+
+        List<EgressSecurityRule> egressRules = new ArrayList<>(secList.getEgressSecurityRules());
+        boolean hasIpv6Egress = egressRules.stream().anyMatch(r ->
+                "::/0".equals(r.getDestination()) && "all".equals(r.getProtocol()));
+        if (!hasIpv6Egress) {
+            egressRules.add(EgressSecurityRule.builder()
+                    .destination("::/0")
+                    .destinationType(EgressSecurityRule.DestinationType.CidrBlock)
+                    .protocol("all")
+                    .description("oci-worker auto IPv6 egress")
+                    .build());
+        }
+
+        if (!hasIpv6Ingress || !hasIpv6Egress) {
+            virtualNetworkClient.updateSecurityList(
+                    UpdateSecurityListRequest.builder()
+                            .securityListId(secListId)
+                            .updateSecurityListDetails(UpdateSecurityListDetails.builder()
+                                    .ingressSecurityRules(ingressRules)
+                                    .egressSecurityRules(egressRules)
+                                    .build())
+                            .build());
+            log.info("子网 {} 安全列表已补 IPv6 ::/0 全协议入站/出站", subnetId);
+        }
     }
 
     private void ensureIpv6InternetRoute(Vcn vcn, Subnet subnet) {

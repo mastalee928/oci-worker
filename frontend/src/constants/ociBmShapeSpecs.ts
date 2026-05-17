@@ -101,6 +101,8 @@ export function applyTaskShapeDefaults(
     form.memory = flexDefault.memory
     return false
   }
+  // 离开 BM 后须恢复 OCPU；此前只改 memory，会残留 BM 的 192 等值
+  form.ocpus = 1
   form.memory = defaultMemoryGbForShape(arch)
   return false
 }
