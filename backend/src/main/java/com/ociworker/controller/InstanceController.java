@@ -49,6 +49,7 @@ public class InstanceController {
                 asString(params.get("id")),
                 asString(params.get("instanceId")),
                 asString(params.get("displayName")),
+                asString(params.get("shape")),
                 asFloat(params.get("ocpus")),
                 asFloat(params.get("memoryInGBs")),
                 regObj(params)));
@@ -57,6 +58,12 @@ public class InstanceController {
     @PostMapping("/shapes")
     public ResponseData<?> listShapes(@RequestBody Map<String, String> params) {
         return ResponseData.ok(instanceService.listAvailableShapes(params.get("id"), regStr(params)));
+    }
+
+    @PostMapping("/shapesForInstance")
+    public ResponseData<?> shapesForInstance(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(instanceService.listShapesForInstance(
+                params.get("id"), params.get("instanceId"), regStr(params)));
     }
 
     @PostMapping("/bootVolumes")

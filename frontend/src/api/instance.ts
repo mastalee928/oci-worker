@@ -18,12 +18,23 @@ export function changeIp(data: Record<string, unknown> & R) {
   return request.post('/oci/network/changeIp', data)
 }
 
-export function updateInstance(data: { id: string; instanceId: string; displayName?: string; ocpus?: number; memoryInGBs?: number } & R) {
+export function updateInstance(data: {
+  id: string
+  instanceId: string
+  displayName?: string
+  shape?: string
+  ocpus?: number
+  memoryInGBs?: number
+} & R) {
   return request.post('/oci/instance/updateInstance', data)
 }
 
 export function getAvailableShapes(data: { id: string } & R) {
   return request.post('/oci/instance/shapes', data)
+}
+
+export function getShapesForInstance(data: { id: string; instanceId: string } & R) {
+  return request.post('/oci/instance/shapesForInstance', data)
 }
 
 export function getSecurityRules(data: { id: string; instanceId: string } & R) {

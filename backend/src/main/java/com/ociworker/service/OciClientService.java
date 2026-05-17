@@ -293,12 +293,18 @@ public class OciClientService implements Closeable {
     }
 
     public List<Shape> getShapes(String availabilityDomain) {
-        return computeClient.listShapes(
-                ListShapesRequest.builder()
-                        .compartmentId(compartmentId)
-                        .availabilityDomain(availabilityDomain)
-                        .build()
-        ).getItems();
+        return getShapes(availabilityDomain, null);
+    }
+
+    /** @param imageId 非空时仅返回与该镜像兼容的 Shape（与控制台 Edit shape 一致） */
+    public List<Shape> getShapes(String availabilityDomain, String imageId) {
+        ListShapesRequest.Builder b = ListShapesRequest.builder()
+                .compartmentId(compartmentId)
+                .availabilityDomain(availabilityDomain);
+        if (imageId != null && !imageId.isBlank()) {
+            b.imageId(imageId.trim());
+        }
+        return computeClient.listShapes(b.build()).getItems();
     }
 
     public List<Instance> listInstances() {

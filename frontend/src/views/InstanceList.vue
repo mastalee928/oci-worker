@@ -809,6 +809,78 @@
           </a-descriptions>
         </a-tab-pane>
 
+        <a-tab-pane key="shape" tab="形状编辑">
+          <a-alert type="info" show-icon style="margin-bottom: 16px">
+            <template #message>
+              列表按当前实例镜像与可用域从 OCI ListShapes 拉取；Flex 规格须落在 API 返回的 OCPU/内存上下限内。提交后 OCI 可能自动停止并重启实例以生效。
+            </template>
+          </a-alert>
+          <a-spin :spinning="shapeEditLoading">
+            <template v-if="currentInstance">
+              <a-descriptions :column="1" bordered size="small" style="margin-bottom: 16px">
+                <a-descriptions-item label="当前 Shape">{{ currentInstance.shape }}</a-descriptions-item>
+                <a-descriptions-item label="当前配置">
+                  {{ currentInstance.ocpus ?? '—' }} OCPU / {{ currentInstance.memoryInGBs ?? '—' }} GB
+                </a-descriptions-item>
+                <a-descriptions-item label="状态">
+                  <a-badge :status="stateColorMap[currentInstance.state] || 'default'" :text="currentInstance.state" />
+                </a-descriptions-item>
+              </a-descriptions>
+              <a-form layout="vertical" class="shape-edit-form">
+                <a-form-item label="目标 Shape">
+                  <a-select
+                    v-model:value="shapeForm.shape"
+                    show-search
+                    :filter-option="filterShapeOption"
+                    placeholder="选择兼容形状"
+                    :options="shapeEditSelectOptions"
+                    @change="onShapeFormShapeChange"
+                  />
+                </a-form-item>
+                <template v-if="shapeEditSelectedMeta?.isFlexible">
+                  <a-row :gutter="12">
+                    <a-col :span="12">
+                      <a-form-item :label="shapeOcpuLabel">
+                        <a-input-number
+                          v-model:value="shapeForm.ocpus"
+                          :min="shapeOcpuMin"
+                          :max="shapeOcpuMax"
+                          :step="1"
+                          style="width: 100%"
+                        />
+                      </a-form-item>
+                    </a-col>
+                    <a-col :span="12">
+                      <a-form-item :label="shapeMemoryLabel">
+                        <a-input-number
+                          v-model:value="shapeForm.memoryInGBs"
+                          :min="shapeMemoryMin"
+                          :max="shapeMemoryMax"
+                          :step="1"
+                          style="width: 100%"
+                        />
+                      </a-form-item>
+                    </a-col>
+                  </a-row>
+                </template>
+                <a-alert
+                  v-else-if="shapeEditSelectedMeta"
+                  type="warning"
+                  show-icon
+                  message="当前为固定规格 Shape，仅可更换形状系列，不能单独调整 OCPU/内存。"
+                  style="margin-bottom: 12px"
+                />
+                <a-space wrap>
+                  <a-button type="primary" :loading="shapeEditSaving" :disabled="!shapeForm.shape" @click="handleApplyShapeEdit">
+                    应用形状变更
+                  </a-button>
+                  <a-button :disabled="shapeEditLoading" @click="loadShapeEditOptions">刷新 Shape 列表</a-button>
+                </a-space>
+              </a-form>
+            </template>
+          </a-spin>
+        </a-tab-pane>
+
         <a-tab-pane key="console" tab="串行控制台">
           <a-alert type="info" show-icon style="margin-bottom: 16px">
             <template #message>用于实例网络异常时的紧急救援，通过 OCI 内部通道连接实例串口</template>
@@ -928,23 +1000,7 @@
         <a-form-item label="实例名称">
           <a-input v-model:value="editInstanceForm.displayName" placeholder="输入新名称" />
         </a-form-item>
-        <template v-if="isFlexShape">
-          <a-divider orientation="left" plain>配置调整（Flex Shape）</a-divider>
-          <a-row :gutter="12">
-            <a-col :span="12">
-              <a-form-item label="OCPU 数量">
-                <a-input-number v-model:value="editInstanceForm.ocpus" :min="1" :max="80" :step="1" style="width: 100%" />
-              </a-form-item>
-            </a-col>
-            <a-col :span="12">
-              <a-form-item label="内存 (GB)">
-                <a-input-number v-model:value="editInstanceForm.memoryInGBs" :min="1" :max="512" :step="1" style="width: 100%" />
-              </a-form-item>
-            </a-col>
-          </a-row>
-          <div style="color: #999; font-size: 12px">仅 Flex 类型支持调整 OCPU 和内存。修改后实例可能需要重启生效。</div>
-        </template>
-        <div v-else style="color: #999; font-size: 12px; margin-top: 8px">当前 Shape（{{ currentInstance.shape }}）为固定规格，不支持在线调整。</div>
+        <div style="color: #999; font-size: 12px">调整 Shape / OCPU / 内存请使用详情抽屉中的「形状编辑」页签。</div>
       </a-form>
     </a-modal>
 
@@ -1084,6 +1140,7 @@ import {
   assignEphemeralIp, deletePublicIp, deleteSecondaryIp,
   createConsoleConnection, deleteConsoleConnection,
   getAvailableShapes,
+  getShapesForInstance,
 } from '../api/instance'
 import { getTenantList, getTenantGroups } from '../api/tenant'
 import { listAllVolumes, deleteVolume } from '../api/volume'
@@ -1474,8 +1531,121 @@ const createRipName = ref('')
 
 const editInstanceVisible = ref(false)
 const editInstanceLoading = ref(false)
-const editInstanceForm = reactive({ displayName: '', ocpus: 1, memoryInGBs: 6 })
-const isFlexShape = computed(() => currentInstance.value?.shape?.includes('Flex') ?? false)
+const editInstanceForm = reactive({ displayName: '' })
+
+const shapeEditLoading = ref(false)
+const shapeEditSaving = ref(false)
+const shapeEditOptions = ref<any[]>([])
+const shapeForm = reactive({ shape: '' as string, ocpus: 1 as number, memoryInGBs: 6 as number })
+
+const shapeEditSelectOptions = computed(() =>
+  shapeEditOptions.value.map((s: any) => ({
+    value: s.shape,
+    label: `${s.shape}${s.processorDescription ? ` — ${s.processorDescription}` : ''}`,
+  })),
+)
+
+const shapeEditSelectedMeta = computed(() =>
+  shapeEditOptions.value.find((s: any) => s.shape === shapeForm.shape) ?? null,
+)
+
+const shapeOcpuMin = computed(() => shapeEditSelectedMeta.value?.ocpuMin ?? 1)
+const shapeOcpuMax = computed(() => shapeEditSelectedMeta.value?.ocpuMax ?? 80)
+const shapeMemoryMin = computed(() => shapeEditSelectedMeta.value?.memoryMinInGBs ?? 1)
+const shapeMemoryMax = computed(() => shapeEditSelectedMeta.value?.memoryMaxInGBs ?? 512)
+const shapeOcpuLabel = computed(() => `OCPU（${shapeOcpuMin.value}–${shapeOcpuMax.value}）`)
+const shapeMemoryLabel = computed(() => `内存 GB（${shapeMemoryMin.value}–${shapeMemoryMax.value}）`)
+
+function clampShapeNum(v: number, min?: number | null, max?: number | null) {
+  let n = v
+  if (min != null && n < min) n = min
+  if (max != null && n > max) n = max
+  return n
+}
+
+function filterShapeOption(input: string, option: any) {
+  const label = option?.label ?? option?.value ?? ''
+  return String(label).toLowerCase().includes(input.toLowerCase())
+}
+
+function onShapeFormShapeChange() {
+  const meta = shapeEditSelectedMeta.value
+  if (!meta?.isFlexible) return
+  const inst = currentInstance.value
+  const o = inst?.shape === shapeForm.shape ? (inst.ocpus ?? meta.ocpuMin) : (meta.ocpuMin ?? 1)
+  const m = inst?.shape === shapeForm.shape ? (inst.memoryInGBs ?? meta.memoryMinInGBs) : (meta.memoryMinInGBs ?? 6)
+  shapeForm.ocpus = clampShapeNum(Number(o) || 1, meta.ocpuMin, meta.ocpuMax)
+  shapeForm.memoryInGBs = clampShapeNum(Number(m) || 6, meta.memoryMinInGBs, meta.memoryMaxInGBs)
+}
+
+async function loadShapeEditOptions() {
+  if (!currentInstance.value || !currentTenant.value) return
+  shapeEditLoading.value = true
+  try {
+    const res = await getShapesForInstance({
+      id: currentTenant.value.id,
+      instanceId: currentInstance.value.instanceId,
+      ...instanceDetailRegionParam(),
+    })
+    shapeEditOptions.value = res.data || []
+    const cur = currentInstance.value.shape
+    shapeForm.shape = shapeEditOptions.value.some((s: any) => s.shape === cur) ? cur : (shapeEditOptions.value[0]?.shape ?? '')
+    shapeForm.ocpus = currentInstance.value.ocpus ?? 1
+    shapeForm.memoryInGBs = currentInstance.value.memoryInGBs ?? 6
+    onShapeFormShapeChange()
+  } catch (e: any) {
+    message.error(e?.message || '加载 Shape 列表失败')
+  } finally {
+    shapeEditLoading.value = false
+  }
+}
+
+async function handleApplyShapeEdit() {
+  if (!currentInstance.value || !currentTenant.value || !shapeForm.shape) return
+  const meta = shapeEditSelectedMeta.value
+  const inst = currentInstance.value
+  const payload: Record<string, unknown> = {
+    id: currentTenant.value.id,
+    instanceId: inst.instanceId,
+    ...instanceDetailRegionParam(),
+  }
+  let changed = false
+  if (shapeForm.shape !== inst.shape) {
+    payload.shape = shapeForm.shape
+    changed = true
+  }
+  if (meta?.isFlexible) {
+    const ocpuChanged = shapeForm.ocpus !== inst.ocpus
+    const memChanged = shapeForm.memoryInGBs !== inst.memoryInGBs
+    if (changed || ocpuChanged || memChanged) {
+      payload.ocpus = shapeForm.ocpus
+      payload.memoryInGBs = shapeForm.memoryInGBs
+      changed = true
+    }
+  } else if (!changed) {
+    message.info('未检测到变更')
+    return
+  }
+  if (!changed) {
+    message.info('未检测到变更')
+    return
+  }
+  shapeEditSaving.value = true
+  try {
+    const res = await updateInstance(payload as any)
+    message.success('形状变更已提交')
+    if (res.data?.shape) inst.shape = res.data.shape
+    if (res.data?.ocpus != null) inst.ocpus = res.data.ocpus
+    if (res.data?.memoryInGBs != null) inst.memoryInGBs = res.data.memoryInGBs
+    if (res.data?.name) inst.name = res.data.name
+    const td = tenantDataList.value.find(t => t.tenant.id === currentTenant.value.id)
+    if (td) scheduleReload(() => loadTenantInstances(td), 3000)
+  } catch (e: any) {
+    message.error(e?.message || '形状变更失败')
+  } finally {
+    shapeEditSaving.value = false
+  }
+}
 
 const quickTaskVisible = ref(false)
 const quickTaskLoading = ref(false)
@@ -1737,6 +1907,7 @@ async function loadTenantInstances(td: TenantData) {
 function onTabChange(key: string) {
   if (key === 'volume') loadBootVolumes()
   if (key === 'allVolumes') loadAllVolumes()
+  if (key === 'shape') loadShapeEditOptions()
 }
 
 function openDetail(tenant: any, record: any) {
@@ -1750,6 +1921,8 @@ function openDetail(tenant: any, record: any) {
   trafficData.value = null
   networkDetail.value = null
   consoleData.value = null
+  shapeEditOptions.value = []
+  shapeForm.shape = ''
   drawerVisible.value = true
   loadNetworkDetail()
   loadSecurityRules()
@@ -2329,31 +2502,25 @@ async function handleUnassignReservedIp(publicIpId: string) {
 function openEditInstance() {
   if (!currentInstance.value) return
   editInstanceForm.displayName = currentInstance.value.name || ''
-  editInstanceForm.ocpus = currentInstance.value.ocpus || 1
-  editInstanceForm.memoryInGBs = currentInstance.value.memoryInGBs || 6
   editInstanceVisible.value = true
 }
 
 async function handleEditInstance() {
   if (!currentInstance.value || !currentTenant.value) return
+  if (!editInstanceForm.displayName || editInstanceForm.displayName === currentInstance.value.name) {
+    message.info('请输入新的实例名称')
+    return
+  }
   editInstanceLoading.value = true
   try {
-    const payload: any = {
+    const res = await updateInstance({
       id: currentTenant.value.id,
       instanceId: currentInstance.value.instanceId,
+      displayName: editInstanceForm.displayName,
       ...instanceDetailRegionParam(),
-    }
-    if (editInstanceForm.displayName && editInstanceForm.displayName !== currentInstance.value.name) payload.displayName = editInstanceForm.displayName
-    if (isFlexShape.value) {
-      if (editInstanceForm.ocpus !== currentInstance.value.ocpus) payload.ocpus = editInstanceForm.ocpus
-      if (editInstanceForm.memoryInGBs !== currentInstance.value.memoryInGBs) payload.memoryInGBs = editInstanceForm.memoryInGBs
-    }
-    if (!payload.displayName && !payload.ocpus && !payload.memoryInGBs) { message.info('未检测到修改'); editInstanceLoading.value = false; return }
-    const res = await updateInstance(payload)
-    message.success('实例已更新')
+    })
+    message.success('实例名称已更新')
     if (res.data?.name) currentInstance.value.name = res.data.name
-    if (res.data?.ocpus) currentInstance.value.ocpus = res.data.ocpus
-    if (res.data?.memoryInGBs) currentInstance.value.memoryInGBs = res.data.memoryInGBs
     editInstanceVisible.value = false
     const td = tenantDataList.value.find(t => t.tenant.id === currentTenant.value.id)
     if (td) loadTenantInstances(td)
