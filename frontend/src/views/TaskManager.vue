@@ -202,10 +202,16 @@
       :confirm-loading="editLoading" :mask-closable="false">
       <a-form :model="editForm" layout="vertical">
         <a-form-item label="机器规格 (Shape)">
-          <a-select v-model:value="editForm.architecture" @update:value="onEditArchitectureChange">
+          <a-select v-model:value="editForm.architecture" placeholder="选择 Shape" :loading="editShapesLoading">
             <a-select-option value="ARM">ARM (A1.Flex)</a-select-option>
             <a-select-option value="AMD">AMD (E2.1.Micro)</a-select-option>
+            <a-select-option v-for="s in editAvailableShapes" :key="s.shape" :value="s.shape">
+              {{ s.shape }} ({{ s.processorDescription || '' }})
+            </a-select-option>
           </a-select>
+          <div v-if="editAvailableShapes.length" style="color: #888; font-size: 12px; margin-top: 4px">
+            查询到 {{ editAvailableShapes.length }} 个可用 Shape
+          </div>
         </a-form-item>
         <a-form-item label="操作系统">
           <a-select v-model:value="editForm.operationSystem">
@@ -220,12 +226,12 @@
         <a-row :gutter="12">
           <a-col :xs="12" :sm="8">
             <a-form-item label="OCPU 数量">
-              <a-input-number v-model:value="editForm.ocpus" :min="1" :max="4" :step="1" style="width: 100%" />
+              <a-input-number v-model:value="editForm.ocpus" :min="1" :max="512" :step="1" :disabled="editBmLocked" style="width: 100%" />
             </a-form-item>
           </a-col>
           <a-col :xs="12" :sm="8">
             <a-form-item label="内存 (GB)">
-              <a-input-number v-model:value="editForm.memory" :min="1" :max="24" :step="1" style="width: 100%" />
+              <a-input-number v-model:value="editForm.memory" :min="1" :max="4096" :step="1" :disabled="editBmLocked" style="width: 100%" />
             </a-form-item>
           </a-col>
           <a-col :xs="12" :sm="8">
@@ -355,7 +361,7 @@ import { message, Modal } from 'ant-design-vue'
 import { getTaskList, createTask, updateTask, stopTask, hasRunningTask, resumeTask, deleteTask, batchStopTask, batchResumeTask, getTaskDetail } from '../api/task'
 import { getTenantList } from '../api/tenant'
 import { getAvailableShapes } from '../api/instance'
-import { applyTaskShapeDefaults, defaultMemoryGbForShape, isBmArchitecture } from '../constants/ociBmShapeSpecs'
+import { applyTaskShapeDefaults, isFixedTaskShapeSpec } from '../constants/ociBmShapeSpecs'
 
 const statusMap: Record<string, string> = {
   RUNNING: '运行中', STOPPED: '已停止', COMPLETED: '已完成', FAILED: '已失败',
@@ -421,27 +427,70 @@ watch(
 )
 
 watch(availableShapes, () => {
-  if (isBmArchitecture(createForm.architecture)) {
+  if (isFixedTaskShapeSpec(createForm.architecture)) {
     createBmLocked.value = applyTaskShapeDefaults(createForm, availableShapes.value)
   }
 })
 
-function onEditArchitectureChange(architecture: string) {
-  editForm.memory = defaultMemoryGbForShape(architecture)
-}
-
 const editVisible = ref(false)
 const editLoading = ref(false)
+const editAvailableShapes = ref<any[]>([])
+const editShapesLoading = ref(false)
+const editBmLocked = ref(false)
 const editForm = reactive({
   taskId: '',
+  userId: '',
   architecture: 'ARM', operationSystem: 'Ubuntu',
   ocpus: 1, memory: 6, disk: 50, createNumbers: 1, interval: 60, rootPassword: '',
   customScript: '', assignPublicIp: true, assignIpv6: false,
 })
 
-function showEditModal(record: any) {
+watch(
+  () => editForm.architecture,
+  (arch) => {
+    if (arch == null || arch === undefined) return
+    editBmLocked.value = applyTaskShapeDefaults(editForm, editAvailableShapes.value)
+  },
+)
+
+watch(editAvailableShapes, () => {
+  if (isFixedTaskShapeSpec(editForm.architecture)) {
+    editBmLocked.value = applyTaskShapeDefaults(editForm, editAvailableShapes.value)
+  }
+})
+
+async function loadEditAvailableShapes(tenantId: string, region?: string, currentArch?: string) {
+  if (!tenantId) {
+    editAvailableShapes.value = []
+    return
+  }
+  editShapesLoading.value = true
+  try {
+    const res = await getAvailableShapes({ id: tenantId, ...(region?.trim() ? { region: region.trim() } : {}) })
+    let rows = (res.data || []).filter(
+      (s: any) => s.shape !== 'VM.Standard.A1.Flex' && s.shape !== 'VM.Standard.E2.1.Micro',
+    )
+    const arch = currentArch ?? editForm.architecture
+    if (
+      arch &&
+      arch !== 'ARM' &&
+      arch !== 'AMD' &&
+      !rows.some((s: any) => s.shape === arch)
+    ) {
+      rows = [{ shape: arch, processorDescription: '当前任务' }, ...rows]
+    }
+    editAvailableShapes.value = rows
+  } catch {
+    editAvailableShapes.value = []
+  } finally {
+    editShapesLoading.value = false
+  }
+}
+
+async function showEditModal(record: any) {
   Object.assign(editForm, {
     taskId: record.id,
+    userId: record.userId || '',
     architecture: record.architecture,
     operationSystem: record.operationSystem || 'Ubuntu',
     ocpus: record.ocpus,
@@ -454,10 +503,17 @@ function showEditModal(record: any) {
     assignPublicIp: record.assignPublicIp ?? true,
     assignIpv6: record.assignIpv6 ?? false,
   })
+  editBmLocked.value = applyTaskShapeDefaults(editForm, editAvailableShapes.value)
   editVisible.value = true
+  await loadEditAvailableShapes(record.userId, record.ociRegion, record.architecture)
+  editBmLocked.value = applyTaskShapeDefaults(editForm, editAvailableShapes.value)
 }
 
 async function handleEdit() {
+  if (editForm.architecture?.includes('A2.Flex') && editForm.ocpus === 1 && editForm.memory === 1) {
+    message.error('比例错误')
+    return
+  }
   editLoading.value = true
   try {
     await updateTask(editForm)
@@ -471,6 +527,13 @@ async function handleEdit() {
   }
 }
 
+watch(editVisible, (open) => {
+  if (!open) {
+    editAvailableShapes.value = []
+    editBmLocked.value = false
+  }
+})
+
 function generateRandomPwd() {
   const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$%'
   let pwd = ''
@@ -479,12 +542,23 @@ function generateRandomPwd() {
   message.success('已生成随机密码')
 }
 
+async function loadTenantAvailableShapes(tenantId: string, region?: string) {
+  if (!tenantId) return []
+  const res = await getAvailableShapes({ id: tenantId, ...(region?.trim() ? { region: region.trim() } : {}) })
+  return (res.data || []).filter(
+    (s: any) => s.shape !== 'VM.Standard.A1.Flex' && s.shape !== 'VM.Standard.E2.1.Micro',
+  )
+}
+
 async function onTenantChange(tenantId: string) {
-  if (!tenantId) { availableShapes.value = []; return }
+  if (!tenantId) {
+    availableShapes.value = []
+    return
+  }
   shapesLoading.value = true
   try {
-    const res = await getAvailableShapes({ id: tenantId })
-    availableShapes.value = (res.data || []).filter((s: any) => s.shape !== 'VM.Standard.A1.Flex' && s.shape !== 'VM.Standard.E2.1.Micro')
+    const t = tenants.value.find((x: any) => x.id === tenantId)
+    availableShapes.value = await loadTenantAvailableShapes(tenantId, t?.ociRegion)
   } catch {
     availableShapes.value = []
   } finally {

@@ -49,14 +49,39 @@ export const OCI_BM_SHAPE_SPECS: Record<string, { ocpus: number; memory: number 
   'BM.HPC2.36': { ocpus: 36, memory: 384 },
 }
 
-/** 部分 Flex 切换时预选 OCPU/内存（可编辑， unlike BM 锁定） */
+/** 部分 Flex 切换时预选 OCPU/内存（可编辑， unlike BM / 固定 VM 锁定） */
 export const OCI_FLEX_SHAPE_DEFAULTS: Record<string, { ocpus: number; memory: number }> = {
   'VM.Standard3.Flex': { ocpus: 1, memory: 16 },
   'VM.Standard.E5.Flex': { ocpus: 1, memory: 12 },
+  'VM.Standard.E4.Flex': { ocpus: 1, memory: 16 },
+  'VM.Standard.E3.Flex': { ocpus: 1, memory: 16 },
+}
+
+/** 固定规格 VM（非 Flex），OCPU/内存不可改 */
+export const OCI_FIXED_VM_SHAPE_SPECS: Record<string, { ocpus: number; memory: number }> = {
+  'VM.Standard.E2.1': { ocpus: 1, memory: 8 },
+  'VM.Standard.E2.2': { ocpus: 2, memory: 16 },
+  'VM.Standard.E2.4': { ocpus: 4, memory: 32 },
+  'VM.Standard.E2.8': { ocpus: 8, memory: 64 },
+  'VM.Standard2.1': { ocpus: 1, memory: 15 },
+  'VM.Standard2.2': { ocpus: 2, memory: 30 },
+  'VM.Standard2.4': { ocpus: 4, memory: 60 },
+  'VM.Standard2.8': { ocpus: 8, memory: 120 },
+  'VM.Standard2.16': { ocpus: 16, memory: 240 },
+  'VM.Standard2.24': { ocpus: 24, memory: 320 },
 }
 
 export function isBmArchitecture(arch?: string | null): boolean {
   return !!arch && arch.startsWith('BM.')
+}
+
+export function isFixedVmShapeSpec(arch?: string | null): boolean {
+  return !!arch && arch in OCI_FIXED_VM_SHAPE_SPECS
+}
+
+/** BM 或固定规格 VM：OCPU/内存锁定 */
+export function isFixedTaskShapeSpec(arch?: string | null): boolean {
+  return isBmArchitecture(arch) || isFixedVmShapeSpec(arch)
 }
 
 export function resolveBmShapeSpec(
@@ -80,14 +105,24 @@ export function defaultMemoryGbForShape(architecture: string) {
   return 6
 }
 
+export function resolveFixedTaskShapeSpec(
+  arch: string,
+  shapesFromApi?: Array<{ shape: string; ocpus?: number; memoryInGBs?: number }>,
+): { ocpus: number; memory: number } | null {
+  if (isBmArchitecture(arch)) return resolveBmShapeSpec(arch, shapesFromApi)
+  const fixed = OCI_FIXED_VM_SHAPE_SPECS[arch]
+  if (fixed) return fixed
+  return null
+}
+
 export function applyTaskShapeDefaults(
   form: { architecture?: string; ocpus: number; memory: number },
   shapesFromApi?: Array<{ shape: string; ocpus?: number; memoryInGBs?: number }>,
 ): boolean {
   const arch = form.architecture
   if (!arch) return false
-  if (isBmArchitecture(arch)) {
-    const spec = resolveBmShapeSpec(arch, shapesFromApi)
+  if (isFixedTaskShapeSpec(arch)) {
+    const spec = resolveFixedTaskShapeSpec(arch, shapesFromApi)
     if (spec) {
       form.ocpus = spec.ocpus
       form.memory = spec.memory
@@ -101,7 +136,7 @@ export function applyTaskShapeDefaults(
     form.memory = flexDefault.memory
     return false
   }
-  // 离开 BM 后须恢复 OCPU；此前只改 memory，会残留 BM 的 192 等值
+  // 离开 BM/固定 VM 后须恢复 OCPU；此前只改 memory，会残留大规格 OCPU
   form.ocpus = 1
   form.memory = defaultMemoryGbForShape(arch)
   return false

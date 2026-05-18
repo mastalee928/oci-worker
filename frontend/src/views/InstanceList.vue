@@ -1188,7 +1188,7 @@ import {
   ociRegionSelectOptions,
   filterOciRegionSelectOption,
 } from '../utils/ociRegionCatalog'
-import { applyTaskShapeDefaults, isBmArchitecture } from '../constants/ociBmShapeSpecs'
+import { applyTaskShapeDefaults, isFixedTaskShapeSpec } from '../constants/ociBmShapeSpecs'
 
 interface TenantData {
   tenant: any
@@ -1772,7 +1772,7 @@ watch(
 )
 
 watch(quickTaskShapes, () => {
-  if (isBmArchitecture(quickTaskForm.architecture)) {
+  if (isFixedTaskShapeSpec(quickTaskForm.architecture)) {
     quickTaskBmLocked.value = applyTaskShapeDefaults(quickTaskForm, quickTaskShapes.value)
   }
 })
@@ -1801,7 +1801,7 @@ async function loadQuickTaskShapes() {
       arch === 'AMD' ||
       quickTaskShapes.value.some((s: any) => s.shape === arch)
     if (!ok) quickTaskForm.architecture = 'ARM'
-    if (gen === quickTaskShapeLoadGen && isBmArchitecture(quickTaskForm.architecture)) {
+    if (gen === quickTaskShapeLoadGen && isFixedTaskShapeSpec(quickTaskForm.architecture)) {
       quickTaskBmLocked.value = applyTaskShapeDefaults(quickTaskForm, quickTaskShapes.value)
     }
   } catch {
