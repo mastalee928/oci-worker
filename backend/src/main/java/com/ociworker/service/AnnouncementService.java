@@ -8,8 +8,12 @@ import com.oracle.bmc.Region;
 import com.oracle.bmc.announcementsservice.AnnouncementClient;
 import com.oracle.bmc.announcementsservice.model.AffectedResource;
 import com.oracle.bmc.announcementsservice.model.Announcement;
+import com.oracle.bmc.announcementsservice.model.AnnouncementSummary;
+import com.oracle.bmc.announcementsservice.model.AnnouncementUserStatusDetails;
+import com.oracle.bmc.announcementsservice.model.AnnouncementsCollection;
 import com.oracle.bmc.announcementsservice.model.BaseAnnouncement;
 import com.oracle.bmc.announcementsservice.requests.GetAnnouncementRequest;
+import com.oracle.bmc.announcementsservice.responses.ListAnnouncementsResponse;
 import com.oracle.bmc.announcementsservice.requests.GetAnnouncementUserStatusRequest;
 import com.oracle.bmc.announcementsservice.requests.ListAnnouncementsRequest;
 import jakarta.annotation.Resource;
@@ -17,6 +21,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -78,14 +83,8 @@ public class AnnouncementService {
                         .sortOrder(ListAnnouncementsRequest.SortOrder.Desc)
                         .limit(100);
                 if (page != null) req.page(page);
-                var resp = client.listAnnouncements(req.build());
-                if (resp.getItems() != null) {
-                    for (BaseAnnouncement a : resp.getItems()) {
-                        Map<String, Object> row = toSummaryMap(a);
-                        row.put("userStatus", fetchUserStatusLabel(client, a.getId()));
-                        items.add(row);
-                    }
-                }
+                ListAnnouncementsResponse resp = client.listAnnouncements(req.build());
+                appendListRows(items, resp, true);
                 page = resp.getOpcNextPage();
             } while (page != null && !page.isBlank());
         } catch (OciException e) {
@@ -164,9 +163,10 @@ public class AnnouncementService {
                         .sortOrder(ListAnnouncementsRequest.SortOrder.Desc)
                         .limit(100);
                 if (page != null) req.page(page);
-                var resp = client.listAnnouncements(req.build());
-                if (resp.getItems() != null) {
-                    for (BaseAnnouncement a : resp.getItems()) {
+                ListAnnouncementsResponse resp = client.listAnnouncements(req.build());
+                AnnouncementsCollection coll = resp.getAnnouncementsCollection();
+                if (coll != null && coll.getItems() != null) {
+                    for (AnnouncementSummary a : coll.getItems()) {
                         if (a.getId() != null && a.getId().equals(excludeId)) continue;
                         items.add(toSummaryMap(a));
                     }
@@ -177,6 +177,33 @@ public class AnnouncementService {
             log.warn("listByChainId failed chainId={}: {}", chainId, e.getMessage());
         }
         return items;
+    }
+
+    private static void appendListRows(List<Map<String, Object>> target, ListAnnouncementsResponse resp, boolean withUserStatus) {
+        AnnouncementsCollection coll = resp.getAnnouncementsCollection();
+        if (coll == null || coll.getItems() == null) return;
+        Map<String, String> statusById = withUserStatus ? userStatusMap(coll.getUserStatuses()) : Map.of();
+        for (AnnouncementSummary a : coll.getItems()) {
+            Map<String, Object> row = toSummaryMap(a);
+            if (withUserStatus) {
+                String id = a.getId();
+                row.put("userStatus", id != null && statusById.containsKey(id)
+                        ? statusById.get(id)
+                        : "Unread");
+            }
+            target.add(row);
+        }
+    }
+
+    private static Map<String, String> userStatusMap(List<AnnouncementUserStatusDetails> statuses) {
+        Map<String, String> map = new HashMap<>();
+        if (statuses == null) return map;
+        for (AnnouncementUserStatusDetails s : statuses) {
+            if (s == null || s.getUserStatusAnnouncementId() == null) continue;
+            map.put(s.getUserStatusAnnouncementId(),
+                    s.getTimeAcknowledged() != null ? "Read" : "Unread");
+        }
+        return map;
     }
 
     private static String fetchUserStatusLabel(AnnouncementClient client, String announcementId) {
