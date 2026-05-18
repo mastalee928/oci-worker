@@ -15,15 +15,17 @@ export const OCI_BM_SHAPE_SPECS: Record<string, { ocpus: number; memory: number 
   'BM.Standard.A4.48': { ocpus: 48, memory: 768 },
   'BM.Standard.A4.Ax.48': { ocpus: 48, memory: 768 },
   // Dense I/O (current)
+  'BM.DenseIO.A4.Ax.72': { ocpus: 72, memory: 1152 },
   'BM.DenseIO.E4.128': { ocpus: 128, memory: 2048 },
   'BM.DenseIO.E5.128': { ocpus: 128, memory: 1536 },
   'BM.DenseIO.E5.1281': { ocpus: 128, memory: 1536 },
   'BM.DenseIO.E6.Ax.192': { ocpus: 192, memory: 2304 },
   'BM.DenseIO.E6.Ax.1921': { ocpus: 192, memory: 2304 },
   // GPU (CPU Memory GB)
-  'BM.GPU2.2': { ocpus: 28, memory: 192 },
+  'BM.GPU2.2': { ocpus: 28, memory: 256 },
   'BM.GPU3.8': { ocpus: 52, memory: 768 },
   'BM.GPU4.8': { ocpus: 64, memory: 2048 },
+  'BM.GPU.B4.8': { ocpus: 128, memory: 2048 },
   'BM.GPU.A10.4': { ocpus: 64, memory: 1024 },
   'BM.GPU.A100-v2.8': { ocpus: 128, memory: 2048 },
   'BM.GPU.MI300X.8': { ocpus: 112, memory: 2048 },
