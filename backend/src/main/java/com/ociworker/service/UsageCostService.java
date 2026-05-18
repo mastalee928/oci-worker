@@ -20,7 +20,7 @@ import org.springframework.stereotype.Service;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
-import java.time.Instant;
+import java.time.LocalDate;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
@@ -53,10 +53,10 @@ public class UsageCostService {
 
         int periodDays = Math.max(1, Math.min(90, days));
         String tenancyId = user.getOciTenantId();
-        Instant endInst = Instant.now();
-        Instant startInst = endInst.minusSeconds((long) periodDays * 86400L);
-        Date timeEnd = Date.from(endInst);
-        Date timeStart = Date.from(startInst);
+        // Usage API 要求 UTC 时间为当日 00:00:00（不可带时分秒）
+        LocalDate todayUtc = LocalDate.now(ZoneOffset.UTC);
+        Date timeStart = Date.from(todayUtc.minusDays(periodDays).atStartOfDay(ZoneOffset.UTC).toInstant());
+        Date timeEnd = Date.from(todayUtc.plusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant());
 
         Map<String, Object> usage = new LinkedHashMap<>();
         usage.put("available", Boolean.FALSE);
@@ -112,8 +112,7 @@ public class UsageCostService {
                 usage.put("reason", null);
             } catch (Exception e) {
                 log.warn("Usage API cost query failed for {}: {}", tenantId, e.getMessage());
-                usage.put("reason", "成本分析接口不可用/权限不足（需 usage-report 相关读权限）："
-                        + (e.getMessage() == null ? "未知错误" : e.getMessage()));
+                usage.put("reason", formatUsageApiError(e));
             } finally {
                 client.close();
             }
@@ -249,5 +248,16 @@ public class UsageCostService {
         } catch (Exception ignored) {
         }
         return StrUtil.blankToDefault(fallback, Region.US_ASHBURN_1.getRegionId());
+    }
+
+    private static String formatUsageApiError(Exception e) {
+        String msg = e.getMessage() == null ? "未知错误" : e.getMessage();
+        if (msg.contains("InvalidParameter") && msg.contains("precision")) {
+            return "成本分析请求时间格式不符合 OCI 要求（已按 UTC 整日对齐，若仍失败请反馈日志）";
+        }
+        if (msg.contains("NotAuthorized") || msg.contains("403")) {
+            return "成本分析权限不足（需 usage-report 相关读权限）：" + msg;
+        }
+        return "成本分析查询失败：" + msg;
     }
 }
