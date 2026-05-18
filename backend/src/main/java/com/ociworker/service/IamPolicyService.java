@@ -5,6 +5,7 @@ import com.ociworker.mapper.OciUserMapper;
 import com.ociworker.model.dto.SysUserDTO;
 import com.ociworker.model.entity.OciUser;
 import com.oracle.bmc.identity.IdentityClient;
+import com.oracle.bmc.identity.model.Compartment;
 import com.oracle.bmc.identity.model.Policy;
 import com.oracle.bmc.identity.requests.GetPolicyRequest;
 import com.oracle.bmc.identity.requests.ListPoliciesRequest;
@@ -15,9 +16,11 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 经典 IAM Policy（Identity API），与 Identity Domain 策略无关。
@@ -48,34 +51,40 @@ public class IamPolicyService {
     }
 
     /**
-     * 列出租户下 IAM 策略（根 compartment + 子树，含分页）。
+     * 列出租户下 IAM 策略（遍历根及子 compartment，含分页）。
+     * 当前 oci-java-sdk 的 ListPoliciesRequest 无 compartmentIdInSubtree，故按 compartment 分别 list。
      * 需 API 用户具备 inspect policies 等读权限。
      */
     public Map<String, Object> listPolicies(String tenantId) {
         OciUser user = userMapper.selectById(tenantId);
         if (user == null) throw new OciException("租户配置不存在");
 
-        String compartmentId = user.getOciTenantId();
+        String tenancyId = user.getOciTenantId();
         List<Map<String, Object>> items = new ArrayList<>();
+        Set<String> seenPolicyIds = new HashSet<>();
 
         try (OciClientService client = buildClient(tenantId)) {
             IdentityClient identityClient = client.getIdentityClient();
-            String page = null;
-            do {
-                ListPoliciesRequest.Builder req = ListPoliciesRequest.builder()
-                        .compartmentId(compartmentId)
-                        .compartmentIdInSubtree(true);
-                if (page != null) {
-                    req.page(page);
-                }
-                ListPoliciesResponse resp = identityClient.listPolicies(req.build());
-                if (resp.getItems() != null) {
-                    for (Policy p : resp.getItems()) {
-                        items.add(policySummary(p));
+            List<Compartment> compartments = client.listAllCompartments();
+            for (Compartment compartment : compartments) {
+                String cid = compartment.getId();
+                if (cid == null || cid.isBlank()) continue;
+                String page = null;
+                do {
+                    ListPoliciesRequest.Builder req = ListPoliciesRequest.builder().compartmentId(cid);
+                    if (page != null) {
+                        req.page(page);
                     }
-                }
-                page = resp.getOpcNextPage();
-            } while (page != null && !page.isBlank());
+                    ListPoliciesResponse resp = identityClient.listPolicies(req.build());
+                    if (resp.getItems() != null) {
+                        for (Policy p : resp.getItems()) {
+                            if (p.getId() != null && !seenPolicyIds.add(p.getId())) continue;
+                            items.add(policySummary(p));
+                        }
+                    }
+                    page = resp.getOpcNextPage();
+                } while (page != null && !page.isBlank());
+            }
         } catch (OciException e) {
             throw e;
         } catch (Exception e) {
@@ -84,7 +93,7 @@ public class IamPolicyService {
         }
 
         Map<String, Object> out = new LinkedHashMap<>();
-        out.put("compartmentId", compartmentId);
+        out.put("compartmentId", tenancyId);
         out.put("items", items);
         out.put("count", items.size());
         return out;
