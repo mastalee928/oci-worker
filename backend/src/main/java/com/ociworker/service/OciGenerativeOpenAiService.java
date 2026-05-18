@@ -18,8 +18,10 @@ import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -106,8 +108,7 @@ public class OciGenerativeOpenAiService {
             }
             if (bodyMentionsMultiAgent) {
                 if (isStreamRequest(origBody, contentType)) {
-                    // 上游想要 chat.completions SSE，这里后续会在返回侧模拟 SSE
-                    request.setAttribute("ociworker.rewrite.simulateSse", Boolean.TRUE);
+                    request.setAttribute("ociworker.rewrite.streamTranslateToChat", Boolean.TRUE);
                 }
                 request.setAttribute("ociworker.rewrite.chatToResponses", Boolean.TRUE);
                 request.setAttribute("ociworker.rewrite.useRawV1Base", Boolean.TRUE);
@@ -132,11 +133,9 @@ public class OciGenerativeOpenAiService {
                         String model = textOrNull(((ObjectNode) root), "model");
                         if (isLikelyMultiAgentModelName(model)) {
                         if (isStreamRequest(origBody, contentType)) {
-                            // OCI 侧 Multi Agent 不适用于 chat-completions 流式；本网关会改走 /v1/responses 并关闭 stream。
                             log.debug(
-                                    "Multi Agent 模型在 chat/completions 上收到 stream=true，将改写为 /v1/responses 且按非流式处理");
-                            // 但上游（如 New API / IDE）可能只在 stream=true 时才显示输出，这里在返回侧模拟 SSE。
-                            request.setAttribute("ociworker.rewrite.simulateSse", Boolean.TRUE);
+                                    "Multi Agent chat/completions stream=true：改走 /v1/responses 并透传 OCI 流式，转译为 chat SSE");
+                            request.setAttribute("ociworker.rewrite.streamTranslateToChat", Boolean.TRUE);
                         }
                         request.setAttribute("ociworker.rewrite.chatToResponses", Boolean.TRUE);
                         if (model != null) {
@@ -192,16 +191,13 @@ public class OciGenerativeOpenAiService {
                 body = truncateResponsesInputForMultiAgent(body, 20);
                 if (request != null) {
                     request.setAttribute("ociworker.debug.responsesInputShape.after", describeResponsesInputShape(body));
-                    if (isStreamRequest(origBody, contentType)) {
-                        // Cursor/New API 对 /responses 的流式事件形态不一致，先强制走 buffer 以保证能返回可见错误/结果
-                        request.setAttribute("ociworker.rewrite.forceBuffer", Boolean.TRUE);
-                    }
                 }
             } catch (Exception ignored) {
             }
         }
 
-        // /v1/responses 对 Multi-Agent 模型需要走 raw /v1 base；其它情况仍走 /openai/v1 base
+        // Multi-Agent 非流式历史行为：raw /v1/responses；流式按 OCI 官方 openai/v1/responses + SSE（否则 OCI 常整包 JSON）
+        boolean wantsStream = isStreamRequest(origBody, contentType) || isStreamRequest(body, contentType);
         boolean useRawV1Base = Boolean.TRUE.equals(request.getAttribute("ociworker.rewrite.useRawV1Base"));
         if (!useRawV1Base && isResponsesPath(origPathAfterV1) && origBody != null && origBody.length > 0 && looksLikeJson) {
             try {
@@ -215,7 +211,14 @@ public class OciGenerativeOpenAiService {
             } catch (Exception ignored) {
             }
         }
+        if (wantsStream && (useRawV1Base || isResponsesPath(pathAfterV1))) {
+            useRawV1Base = false;
+        }
         request.setAttribute("ociworker.debug.finalPathAfterV1", pathAfterV1);
+        request.setAttribute("ociworker.debug.wantsStream", wantsStream);
+        request.setAttribute("ociworker.debug.useRawV1Base", useRawV1Base);
+
+        String acceptForOci = wantsStream ? "text/event-stream" : accept;
 
         StringBuilder u = new StringBuilder(useRawV1Base ? baseRawV1 : baseOpenAi);
         u.append(pathAfterV1);
@@ -230,16 +233,13 @@ public class OciGenerativeOpenAiService {
                 target,
                 body,
                 contentType,
-                accept,
+                acceptForOci,
                 tenant != null ? tenant.getOciTenantId() : null,
                 extractOciGenerativeForwardHeaders(request, tenant));
         HttpClient client = pickHttpClient();
 
         boolean useStreamCopy =
-                (isChatCompletionsPath(origPathAfterV1) || isResponsesPath(origPathAfterV1))
-                        && isStreamRequest(origBody, contentType)
-                        && !Boolean.TRUE.equals(request.getAttribute("ociworker.rewrite.chatToResponses"))
-                        && !Boolean.TRUE.equals(request.getAttribute("ociworker.rewrite.forceBuffer"));
+                (isChatCompletionsPath(origPathAfterV1) || isResponsesPath(origPathAfterV1)) && wantsStream;
         if (useStreamCopy) {
             longCopyStream(client, httpRequest, response, request);
         } else {
@@ -936,7 +936,13 @@ public class OciGenerativeOpenAiService {
     }
 
     private static boolean isStreamRequest(byte[] body, String contentType) {
-        if (body == null || contentType == null || !contentType.toLowerCase().contains("json")) {
+        if (body == null || body.length == 0) {
+            return false;
+        }
+        if (contentType != null
+                && !contentType.isBlank()
+                && !contentType.toLowerCase().contains("json")
+                && !contentType.toLowerCase().contains("text")) {
             return false;
         }
         try {
@@ -1068,8 +1074,16 @@ public class OciGenerativeOpenAiService {
             if (topP != null && !topP.isNull() && !topP.isMissingNode()) {
                 out.set("top_p", topP);
             }
-            // responses API 的流式事件与 chat_completions 不同，默认关闭
-            out.put("stream", false);
+            boolean stream = false;
+            JsonNode sn = in.get("stream");
+            if (sn != null && !sn.isNull() && !sn.isMissingNode()) {
+                if (sn.isBoolean()) {
+                    stream = sn.asBoolean();
+                } else if (sn.isTextual() && "true".equalsIgnoreCase(sn.asText())) {
+                    stream = true;
+                }
+            }
+            out.put("stream", stream);
             return MAPPER.writeValueAsBytes(out);
         } catch (Exception e) {
             return input;
@@ -1105,6 +1119,8 @@ public class OciGenerativeOpenAiService {
                 }
             }
             response.setStatus(code);
+            response.setHeader("X-Accel-Buffering", "no");
+            response.setBufferSize(0);
             if (code >= 400) {
                 byte[] bytes = new byte[0];
                 try (InputStream in = resp.body()) {
@@ -1145,17 +1161,41 @@ public class OciGenerativeOpenAiService {
                 }
                 return;
             }
-            if (response.getContentType() == null) {
-                String ct = resp.headers().firstValue("content-type").orElse("text/event-stream; charset=utf-8");
-                response.setContentType(ct);
-            }
             try (InputStream in = resp.body();
                  OutputStream out = response.getOutputStream()) {
                 if (in == null) {
                     return;
                 }
                 response.setBufferSize(8192);
-                byte[] buf = new byte[16384];
+                String ociCt =
+                        resp.headers().firstValue("content-type").orElse("").toLowerCase(java.util.Locale.ROOT);
+                boolean ociLooksSse = ociCt.contains("text/event-stream") || ociCt.contains("stream");
+                if (request != null
+                        && Boolean.TRUE.equals(request.getAttribute("ociworker.rewrite.streamTranslateToChat"))) {
+                    response.setHeader("cache-control", "no-cache");
+                    response.setContentType("text/event-stream; charset=utf-8");
+                    String modelHint = (String) request.getAttribute("ociworker.rewrite.model");
+                    if (ociLooksSse) {
+                        streamTranslateResponsesSseToChat(in, out, modelHint != null ? modelHint : "");
+                    } else {
+                        byte[] all = in.readAllBytes();
+                        String raw = new String(all, StandardCharsets.UTF_8);
+                        log.warn(
+                                "Multi-Agent stream=true 但 OCI 返回非 SSE (content-type={})，无法真流式；bodyLen={}",
+                                ociCt,
+                                all.length);
+                        response.setContentType("application/json; charset=utf-8");
+                        out.write(all);
+                        out.flush();
+                    }
+                    return;
+                }
+                response.setHeader("cache-control", "no-cache");
+                if (response.getContentType() == null) {
+                    String ct = resp.headers().firstValue("content-type").orElse("text/event-stream; charset=utf-8");
+                    response.setContentType(ct);
+                }
+                byte[] buf = new byte[8192];
                 int n;
                 while ((n = in.read(buf)) != -1) {
                     out.write(buf, 0, n);
@@ -1171,6 +1211,152 @@ public class OciGenerativeOpenAiService {
             }
             throw e;
         }
+    }
+
+    /**
+     * 将 OCI /v1/responses 的 SSE 事件实时转译为 OpenAI chat.completion.chunk（供 Cursor/New API/面板使用）。
+     */
+    private static void streamTranslateResponsesSseToChat(InputStream in, OutputStream out, String model)
+            throws IOException {
+        BufferedReader br = new BufferedReader(new InputStreamReader(in, StandardCharsets.UTF_8));
+        String id = "chatcmpl-ociworker";
+        long created = System.currentTimeMillis() / 1000L;
+        boolean sentRole = false;
+        boolean sentDone = false;
+        String line;
+        String pendingEvent = null;
+        while ((line = br.readLine()) != null) {
+            if (line.startsWith("event:")) {
+                pendingEvent = line.length() > 6 ? line.substring(6).trim() : null;
+                continue;
+            }
+            if (!line.startsWith("data:")) {
+                continue;
+            }
+            String data = line.length() > 5 ? line.substring(5).trim() : "";
+            if (data.isEmpty()) {
+                continue;
+            }
+            if ("[DONE]".equals(data)) {
+                if (!sentDone) {
+                    writeChatCompletionSseDone(out, id, created, model);
+                    sentDone = true;
+                }
+                break;
+            }
+            try {
+                JsonNode n = MAPPER.readTree(data);
+                if (n == null || !n.isObject()) {
+                    continue;
+                }
+                String type = textOrNull((ObjectNode) n, "type");
+                if (type == null && pendingEvent != null) {
+                    type = pendingEvent;
+                }
+                pendingEvent = null;
+                if (type != null
+                        && (type.endsWith(".completed")
+                                || "response.completed".equalsIgnoreCase(type)
+                                || "response.output_text.done".equalsIgnoreCase(type))) {
+                    if (!sentDone) {
+                        if (!sentRole) {
+                            writeChatCompletionSseRoleChunk(out, id, created, model);
+                            sentRole = true;
+                        }
+                        writeChatCompletionSseDone(out, id, created, model);
+                        sentDone = true;
+                    }
+                    continue;
+                }
+                String delta = extractResponsesStreamDelta((ObjectNode) n);
+                if (delta == null || delta.isEmpty()) {
+                    continue;
+                }
+                if (!sentRole) {
+                    writeChatCompletionSseRoleChunk(out, id, created, model);
+                    sentRole = true;
+                }
+                writeChatCompletionSseContentDelta(out, id, created, model, delta);
+            } catch (Exception ignored) {
+            }
+        }
+        if (!sentDone) {
+            if (!sentRole) {
+                writeChatCompletionSseRoleChunk(out, id, created, model);
+            }
+            writeChatCompletionSseDone(out, id, created, model);
+        }
+    }
+
+    private static String extractResponsesStreamDelta(ObjectNode n) {
+        if (n == null) {
+            return null;
+        }
+        JsonNode delta = n.get("delta");
+        if (delta != null && delta.isTextual() && !delta.asText().isEmpty()) {
+            return delta.asText();
+        }
+        JsonNode text = n.get("text");
+        if (text != null && text.isTextual() && !text.asText().isEmpty()) {
+            return text.asText();
+        }
+        JsonNode part = n.get("part");
+        if (part != null && part.isObject()) {
+            JsonNode pt = part.get("text");
+            if (pt != null && pt.isTextual() && !pt.asText().isEmpty()) {
+                return pt.asText();
+            }
+            JsonNode pd = part.get("delta");
+            if (pd != null && pd.isTextual() && !pd.asText().isEmpty()) {
+                return pd.asText();
+            }
+        }
+        return null;
+    }
+
+    private static void writeChatCompletionSseRoleChunk(OutputStream out, String id, long created, String model)
+            throws IOException {
+        String first =
+                "{\"id\":\""
+                        + id
+                        + "\",\"object\":\"chat.completion.chunk\",\"created\":"
+                        + created
+                        + ",\"model\":\""
+                        + escapeJson(model)
+                        + "\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"},\"finish_reason\":null}]}";
+        out.write(("data: " + first + "\n\n").getBytes(StandardCharsets.UTF_8));
+        out.flush();
+    }
+
+    private static void writeChatCompletionSseContentDelta(
+            OutputStream out, String id, long created, String model, String delta) throws IOException {
+        String j =
+                "{\"id\":\""
+                        + id
+                        + "\",\"object\":\"chat.completion.chunk\",\"created\":"
+                        + created
+                        + ",\"model\":\""
+                        + escapeJson(model)
+                        + "\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\""
+                        + escapeJson(delta)
+                        + "\"},\"finish_reason\":null}]}";
+        out.write(("data: " + j + "\n\n").getBytes(StandardCharsets.UTF_8));
+        out.flush();
+    }
+
+    private static void writeChatCompletionSseDone(OutputStream out, String id, long created, String model)
+            throws IOException {
+        String last =
+                "{\"id\":\""
+                        + id
+                        + "\",\"object\":\"chat.completion.chunk\",\"created\":"
+                        + created
+                        + ",\"model\":\""
+                        + escapeJson(model)
+                        + "\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}";
+        out.write(("data: " + last + "\n\n").getBytes(StandardCharsets.UTF_8));
+        out.write("data: [DONE]\n\n".getBytes(StandardCharsets.UTF_8));
+        out.flush();
     }
 
     private void bufferAndCopy(

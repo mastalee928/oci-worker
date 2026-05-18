@@ -13,10 +13,14 @@ import com.ociworker.mapper.OciKvMapper;
 import com.ociworker.mapper.OciUserMapper;
 import com.ociworker.util.CommonUtils;
 import jakarta.annotation.Resource;
+import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -314,54 +318,74 @@ public class OracleAiController {
      * 面板内置对话测试：浏览器调用本接口（同源 /api），由后端在服务器本机直连 OpenAI 兼容端口（:openaiApiPort/v1）。
      * 解决浏览器无法访问 8080（防火墙/反代/跨域）的问题。
      */
-    @PostMapping("/chat-test")
-    public ResponseData<?> chatTest(@RequestBody Map<String, Object> body) {
+    /**
+     * 面板对话测试：SSE 真流式；统一走 /v1/chat/completions + stream（Multi-Agent 由网关改写到 /v1/responses 并转译 SSE）。
+     */
+    @PostMapping(value = "/chat-test", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public void chatTest(@RequestBody Map<String, Object> body, HttpServletResponse servletResponse) throws Exception {
         String apiKey = body == null ? null : String.valueOf(body.getOrDefault("apiKey", "")).trim();
         String model = body == null ? null : String.valueOf(body.getOrDefault("model", "")).trim();
         String input = body == null ? null : String.valueOf(body.getOrDefault("input", "")).trim();
         if (apiKey == null || apiKey.isBlank()) {
-            return ResponseData.error("apiKey 必填");
+            writeChatTestError(servletResponse, 400, "apiKey 必填");
+            return;
         }
         if (model == null || model.isBlank()) {
-            return ResponseData.error("model 必填");
+            writeChatTestError(servletResponse, 400, "model 必填");
+            return;
         }
         if (input == null || input.isBlank()) {
-            return ResponseData.error("input 必填");
+            writeChatTestError(servletResponse, 400, "input 必填");
+            return;
         }
         String bearer = apiKey.toLowerCase().startsWith("bearer ") ? apiKey : "Bearer " + apiKey;
-        boolean multiAgent = model.toLowerCase().contains("multi-agent")
-                || model.toLowerCase().contains("multi agent")
-                || model.toLowerCase().contains("multiagent");
-        // Multi-Agent 在 OCI 只能走 /v1/responses（chat/completions 会直接 400）
-        String url = "http://127.0.0.1:" + openaiApiPort + (multiAgent ? "/v1/responses" : "/v1/chat/completions");
-        log.info("chat-test -> {} model={} (multiAgent={})", url, model, multiAgent);
-        String payload;
-        if (multiAgent) {
-            payload = "{\"model\":" + jsonString(model)
-                    + ",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":"
-                    + jsonString(input)
-                    + "}]}],\"stream\":false}";
-        } else {
-            payload = "{\"model\":" + jsonString(model)
-                    + ",\"messages\":[{\"role\":\"user\",\"content\":" + jsonString(input) + "}],\"stream\":false}";
+        String url = "http://127.0.0.1:" + openaiApiPort + "/v1/chat/completions";
+        String payload =
+                "{\"model\":"
+                        + jsonString(model)
+                        + ",\"messages\":[{\"role\":\"user\",\"content\":"
+                        + jsonString(input)
+                        + "}],\"stream\":true}";
+        log.info("chat-test(stream) -> {} model={}", url, model);
+        servletResponse.setCharacterEncoding(StandardCharsets.UTF_8.name());
+        servletResponse.setHeader("Cache-Control", "no-cache");
+        servletResponse.setHeader("X-Accel-Buffering", "no");
+        HttpRequest req =
+                HttpRequest.newBuilder()
+                        .uri(URI.create(url))
+                        .timeout(java.time.Duration.ofSeconds(300))
+                        .header("content-type", "application/json")
+                        .header("accept", "text/event-stream")
+                        .header("authorization", bearer)
+                        .POST(HttpRequest.BodyPublishers.ofString(payload, StandardCharsets.UTF_8))
+                        .build();
+        HttpResponse<InputStream> resp =
+                HttpClient.newHttpClient().send(req, HttpResponse.BodyHandlers.ofInputStream());
+        servletResponse.setStatus(resp.statusCode());
+        if (resp.statusCode() >= 400) {
+            byte[] err = resp.body() != null ? resp.body().readAllBytes() : new byte[0];
+            servletResponse.setContentType(MediaType.APPLICATION_JSON_VALUE);
+            servletResponse.getOutputStream().write(err);
+            servletResponse.getOutputStream().flush();
+            return;
         }
-        try {
-            HttpRequest req = HttpRequest.newBuilder()
-                    .uri(URI.create(url))
-                    .timeout(java.time.Duration.ofSeconds(120))
-                    .header("content-type", "application/json")
-                    .header("authorization", bearer)
-                    .POST(HttpRequest.BodyPublishers.ofString(payload, StandardCharsets.UTF_8))
-                    .build();
-            HttpResponse<String> resp = HttpClient.newHttpClient()
-                    .send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-            Map<String, Object> out = new HashMap<>();
-            out.put("status", resp.statusCode());
-            out.put("body", resp.body() != null ? resp.body() : "");
-            return ResponseData.ok(out);
-        } catch (Exception e) {
-            return ResponseData.error("chat-test 调用失败: " + (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName()));
+        servletResponse.setContentType(MediaType.TEXT_EVENT_STREAM_VALUE + "; charset=utf-8");
+        try (InputStream in = resp.body();
+                OutputStream out = servletResponse.getOutputStream()) {
+            if (in == null) {
+                return;
+            }
+            in.transferTo(out);
+            out.flush();
         }
+    }
+
+    private static void writeChatTestError(HttpServletResponse response, int status, String message) throws Exception {
+        response.setStatus(status);
+        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+        String json = "{\"code\":1,\"message\":" + jsonString(message) + "}";
+        response.getOutputStream().write(json.getBytes(StandardCharsets.UTF_8));
+        response.getOutputStream().flush();
     }
 
     private static String jsonString(String s) {

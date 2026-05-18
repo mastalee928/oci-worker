@@ -245,7 +245,6 @@ import {
   setOracleKeyDisabled,
   removeOracleKey,
   listOpenAiModels,
-  oracleAiChatTest,
   getOracleAiUiState,
   saveOracleAiUiState,
 } from '../api/oracleAi'
@@ -625,74 +624,82 @@ async function loadModelsIfNeeded(alertOnErr: boolean) {
   }
 }
 
+function getPanelAuthHeader(): Record<string, string> {
+  const t = localStorage.getItem('token')?.trim() || ''
+  if (!t) return {}
+  return { Authorization: t.startsWith('Bearer ') ? t : `Bearer ${t}` }
+}
+
 async function sendChatTest() {
   if (!chatApiKey.value || !chatModel.value || !chatUserText.value) return
   chatSending.value = true
   chatAssistantText.value = ''
   chatError.value = ''
+  const model = String(chatModel.value || '')
   try {
-    const model = String(chatModel.value || '')
-    const isMultiAgent = model.toLowerCase().includes('multi-agent') || model.toLowerCase().includes('multiagent')
-
-    const payload = isMultiAgent
-      ? {
-          model,
-          input: [
-            {
-              role: 'user',
-              content: [{ type: 'input_text', text: chatUserText.value }],
-            },
-          ],
-          stream: false,
-        }
-      : {
-          model,
-          messages: [{ role: 'user', content: chatUserText.value }],
-          stream: false,
-        }
-
-    const parseAndSet = (raw: string) => {
-      let json: any
-      try {
-        json = raw ? JSON.parse(raw) : {}
-      } catch {
-        chatAssistantText.value = raw
-        return
-      }
-      if (isMultiAgent) {
-        const outText =
-          json?.output_text ||
-          json?.output?.[0]?.content?.find?.((x: any) => x?.type === 'output_text')?.text ||
-          json?.output?.[0]?.content?.find?.((x: any) => x?.type === 'text')?.text
-        chatAssistantText.value = typeof outText === 'string' && outText ? outText : JSON.stringify(json, null, 2)
-        return
-      }
-      const c0 = json?.choices?.[0]
-      const content = c0?.message?.content
-      chatAssistantText.value = typeof content === 'string' ? content : JSON.stringify(json, null, 2)
-    }
-
-    // 为避免浏览器环境下的 HTTPS/CORS/网络策略导致失败，统一走同源 /api 代请求（服务端本机访问 127.0.0.1:8080/v1）
-    const r: any = await oracleAiChatTest({
-      apiKey: chatApiKey.value,
-      model,
-      input: chatUserText.value,
+    const res = await fetch('/api/oci/oracle-ai/chat-test', {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'text/event-stream',
+        ...getPanelAuthHeader(),
+      },
+      body: JSON.stringify({
+        apiKey: chatApiKey.value,
+        model,
+        input: chatUserText.value,
+      }),
     })
-    const status = r?.data?.status ?? r?.status
-    const body = r?.data?.body ?? r?.body ?? ''
-    if (typeof status === 'number' && status >= 400) {
-      chatError.value = `HTTP ${status}\n${String(body || '')}`
-      const b = String(body || '')
-      const bl = b.toLowerCase()
-      // 记录常见不可用模型，避免反复踩坑
-      if (status === 400 && bl.includes('unsupported openai operation')) {
-        markChatModelBad(model, status, 'Unsupported OpenAI operation')
-      } else if (status === 404 && (bl.includes('entity') || bl.includes('not found'))) {
-        markChatModelBad(model, status, 'Entity not found')
+    const ct = (res.headers.get('content-type') || '').toLowerCase()
+    if (!res.ok) {
+      const errText = await res.text()
+      let msg = errText
+      try {
+        const j = JSON.parse(errText)
+        msg = j?.message || errText
+      } catch {
+        /* keep raw */
+      }
+      chatError.value = `HTTP ${res.status}\n${msg}`
+      const bl = String(msg || '').toLowerCase()
+      if (res.status === 400 && bl.includes('unsupported openai operation')) {
+        markChatModelBad(model, res.status, 'Unsupported OpenAI operation')
+      } else if (res.status === 404 && (bl.includes('entity') || bl.includes('not found'))) {
+        markChatModelBad(model, res.status, 'Entity not found')
       }
       return
     }
-    parseAndSet(String(body || ''))
+    if (!ct.includes('text/event-stream') || !res.body) {
+      const raw = await res.text()
+      chatAssistantText.value = raw || '(空响应)'
+      return
+    }
+    const reader = res.body.getReader()
+    const decoder = new TextDecoder()
+    let buf = ''
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+      buf += decoder.decode(value, { stream: true })
+      const lines = buf.split('\n')
+      buf = lines.pop() || ''
+      for (const line of lines) {
+        const trimmed = line.trimEnd()
+        if (!trimmed.startsWith('data:')) continue
+        const data = trimmed.slice(5).trim()
+        if (!data || data === '[DONE]') continue
+        try {
+          const json = JSON.parse(data)
+          const delta = json?.choices?.[0]?.delta?.content
+          if (typeof delta === 'string' && delta) {
+            chatAssistantText.value += delta
+          }
+        } catch {
+          /* ignore partial SSE lines */
+        }
+      }
+    }
   } catch (e: any) {
     chatError.value = e?.message || String(e)
   } finally {
