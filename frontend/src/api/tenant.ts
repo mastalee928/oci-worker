@@ -71,6 +71,15 @@ export function getIamPolicy(data: { id: string; policyId: string }) {
   return request.post('/oci/user/iamPolicy', data)
 }
 
+/** OCI 云公告（Announcements API），只读 */
+export function listAnnouncements(data: { id: string }) {
+  return request.post('/oci/user/announcements', data)
+}
+
+export function getAnnouncementDetail(data: { id: string; announcementId: string }) {
+  return request.post('/oci/user/announcement', data)
+}
+
 export function unlockAuthFactors(data: { verifyCode: string }) {
   return request.post('/oci/user/authFactorsUnlock', data)
 }

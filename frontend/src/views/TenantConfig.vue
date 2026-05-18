@@ -630,6 +630,52 @@ region=ap-tokyo-1"
             </div>
           </a-spin>
         </a-tab-pane>
+        <a-tab-pane key="announcements" tab="云公告">
+          <a-alert type="info" show-icon style="margin-bottom: 10px"
+            message="对应 OCI 控制台右上角铃铛（Announcements API），实时从云端拉取；Oracle 约保留 90 天。仅展示阅读状态，不支持在此标记已读。" />
+          <a-space style="margin-bottom: 12px" wrap>
+            <a-button type="primary" @click="loadAnnouncements" :loading="announcementsLoading">
+              <template #icon><ReloadOutlined /></template>加载公告
+            </a-button>
+            <a-input-search v-model:value="announcementSearch" placeholder="搜索摘要/工单号/类型" allow-clear style="width: 240px" />
+          </a-space>
+          <div v-if="announcementsRetentionNote" style="font-size: 12px; color: var(--text-sub); margin-bottom: 8px">
+            {{ announcementsRetentionNote }}
+          </div>
+          <a-table v-if="!isMobile" :data-source="filteredAnnouncements" :loading="announcementsLoading" size="small"
+            :pagination="{ pageSize: 15 }" row-key="id"
+            :custom-row="announcementCustomRow">
+            <a-table-column title="摘要" data-index="summary" key="summary" :ellipsis="true" />
+            <a-table-column title="类型" data-index="announcementType" key="announcementType" :width="120" />
+            <a-table-column title="发布时间" data-index="timeCreated" key="timeCreated" :width="168">
+              <template #default="{ text }">{{ formatUtcCnDate(text) }}</template>
+            </a-table-column>
+            <a-table-column title="阅读状态" data-index="userStatus" key="userStatus" :width="88">
+              <template #default="{ text }">
+                <a-tag :color="announcementStatusColor(text)">{{ formatAnnouncementUserStatus(text) }}</a-tag>
+              </template>
+            </a-table-column>
+            <a-table-column title="工单号" data-index="referenceTicketNumber" key="referenceTicketNumber" :width="120" :ellipsis="true" />
+            <a-table-column title="操作" key="action" :width="72">
+              <template #default="{ record }">
+                <a-button type="link" size="small" @click.stop="openAnnouncementDetail(record)">详情</a-button>
+              </template>
+            </a-table-column>
+          </a-table>
+          <a-spin v-else :spinning="announcementsLoading">
+            <a-empty v-if="!announcementsLoading && filteredAnnouncements.length === 0" description="请点击「加载公告」" />
+            <div v-for="a in filteredAnnouncements" :key="a.id" class="mobile-card" @click="openAnnouncementDetail(a)">
+              <div class="mobile-card-header">
+                <span class="mobile-card-title">{{ a.summary || '—' }}</span>
+                <a-tag :color="announcementStatusColor(a.userStatus)" style="margin:0">{{ formatAnnouncementUserStatus(a.userStatus) }}</a-tag>
+              </div>
+              <div class="mobile-card-body">
+                <div class="mobile-card-row"><span class="label">类型</span><span class="value">{{ a.announcementType || '—' }}</span></div>
+                <div class="mobile-card-row"><span class="label">时间</span><span class="value">{{ formatUtcCnDate(a.timeCreated) }}</span></div>
+              </div>
+            </div>
+          </a-spin>
+        </a-tab-pane>
         <a-tab-pane key="quotas" tab="账户配额">
           <a-space style="margin-bottom: 12px">
             <a-button type="primary" @click="loadQuotas" :loading="quotasLoading">
@@ -681,6 +727,105 @@ region=ap-tokyo-1"
         </a-tab-pane>
       </a-tabs>
     </a-modal>
+
+    <a-drawer
+      v-model:open="announcementDrawerVisible"
+      :title="announcementDrawerTitle"
+      :width="isMobile ? '100%' : 720"
+      placement="right"
+      :destroy-on-close="true"
+    >
+      <a-spin :spinning="announcementDetailLoading">
+        <a-tabs v-model:activeKey="announcementDetailTab">
+          <a-tab-pane key="detail" tab="详情">
+            <template v-if="announcementDetail">
+              <a-descriptions :column="1" bordered size="small">
+                <a-descriptions-item label="摘要">{{ announcementDetail.summary || '—' }}</a-descriptions-item>
+                <a-descriptions-item label="公告 ID">
+                  <span style="word-break: break-all; font-size: 12px">{{ announcementDetail.id || '—' }}</span>
+                </a-descriptions-item>
+                <a-descriptions-item label="工单号">{{ announcementDetail.referenceTicketNumber || '—' }}</a-descriptions-item>
+                <a-descriptions-item label="类型">{{ announcementDetail.announcementType || '—' }}</a-descriptions-item>
+                <a-descriptions-item label="平台">{{ announcementDetail.platformType || '—' }}</a-descriptions-item>
+                <a-descriptions-item label="状态">{{ announcementDetail.lifecycleState || '—' }}</a-descriptions-item>
+                <a-descriptions-item label="阅读状态">
+                  <a-tag :color="announcementStatusColor(announcementDetail.userStatus)">
+                    {{ formatAnnouncementUserStatus(announcementDetail.userStatus) }}
+                  </a-tag>
+                </a-descriptions-item>
+                <a-descriptions-item label="涉及服务">
+                  <template v-if="announcementDetail.services?.length">
+                    <a-tag v-for="s in announcementDetail.services" :key="s" style="margin: 2px">{{ s }}</a-tag>
+                  </template>
+                  <span v-else>—</span>
+                </a-descriptions-item>
+                <a-descriptions-item label="受影响区域">
+                  <template v-if="announcementDetail.affectedRegions?.length">
+                    <a-tag v-for="r in announcementDetail.affectedRegions" :key="r" color="blue" style="margin: 2px">{{ r }}</a-tag>
+                  </template>
+                  <span v-else>—</span>
+                </a-descriptions-item>
+                <a-descriptions-item label="环境">{{ announcementDetail.environmentName || '—' }}</a-descriptions-item>
+                <a-descriptions-item label="创建时间">{{ formatUtcCnDate(announcementDetail.timeCreated) }}</a-descriptions-item>
+                <a-descriptions-item label="更新时间">{{ formatUtcCnDate(announcementDetail.timeUpdated) }}</a-descriptions-item>
+                <a-descriptions-item v-if="announcementDetail.chainId" label="链 ID">
+                  <span style="word-break: break-all; font-size: 12px">{{ announcementDetail.chainId }}</span>
+                </a-descriptions-item>
+              </a-descriptions>
+              <div v-if="announcementDetail.description" class="announcement-block">
+                <div class="announcement-block-title">描述</div>
+                <div class="announcement-description">{{ announcementDetail.description }}</div>
+              </div>
+              <div v-if="announcementDetail.additionalInformation" class="announcement-block">
+                <div class="announcement-block-title">附加信息</div>
+                <div class="announcement-description">{{ announcementDetail.additionalInformation }}</div>
+              </div>
+            </template>
+            <a-empty v-else description="暂无详情" />
+          </a-tab-pane>
+          <a-tab-pane key="impacted" tab="受影响资源">
+            <a-table
+              v-if="announcementImpacted.length"
+              size="small"
+              :data-source="announcementImpacted"
+              :pagination="false"
+              row-key="resourceId"
+            >
+              <a-table-column title="资源名称" data-index="resourceName" key="resourceName" :ellipsis="true" />
+              <a-table-column title="资源 ID" data-index="resourceId" key="resourceId" :ellipsis="true">
+                <template #default="{ text }">
+                  <span style="font-size: 11px; word-break: break-all">{{ text || '—' }}</span>
+                </template>
+              </a-table-column>
+              <a-table-column title="区域" data-index="region" key="region" :width="140" />
+            </a-table>
+            <a-empty v-else description="无受影响资源" />
+          </a-tab-pane>
+          <a-tab-pane key="history" tab="公告历史">
+            <a-alert v-if="!announcementDetail?.chainId" type="info" show-icon message="该公告无 chainId，无关联历史条目。" />
+            <a-table
+              v-else-if="announcementHistory.length"
+              size="small"
+              :data-source="announcementHistory"
+              :pagination="{ pageSize: 10 }"
+              row-key="id"
+            >
+              <a-table-column title="摘要" data-index="summary" key="summary" :ellipsis="true" />
+              <a-table-column title="类型" data-index="announcementType" key="announcementType" :width="110" />
+              <a-table-column title="时间" data-index="timeCreated" key="timeCreated" :width="168">
+                <template #default="{ text }">{{ formatUtcCnDate(text) }}</template>
+              </a-table-column>
+              <a-table-column title="操作" key="action" :width="72">
+                <template #default="{ record }">
+                  <a-button type="link" size="small" @click="openAnnouncementDetail(record)">查看</a-button>
+                </template>
+              </a-table-column>
+            </a-table>
+            <a-empty v-else-if="announcementDetail?.chainId" description="同链无其它历史公告" />
+          </a-tab-pane>
+        </a-tabs>
+      </a-spin>
+    </a-drawer>
 
     <!-- 域管理弹窗 -->
     <a-modal v-model:open="domainMgmtVisible" :title="'域管理 — ' + (domainMgmtTenant?.username || '')"
@@ -867,7 +1012,7 @@ import { useRouter } from 'vue-router'
 import { PlusOutlined, ThunderboltOutlined, InboxOutlined, ReloadOutlined, MenuFoldOutlined, VerticalAlignTopOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
 import type { UploadFile } from 'ant-design-vue'
-import { getTenantList, addTenant, updateTenant, removeTenant, uploadKey, getTenantFullInfo, getTenantBillingSummary, downloadInvoicePdf, getDomainSettings, updateMfa, updatePasswordExpiry, getAuditLogs, getServiceQuotas, listIamPolicies, getIamPolicy, getTenantGroups, createGroup, renameGroup, deleteGroup, saveGroupOrder, unlockAuthFactors, getAuthFactors, updateAuthFactors } from '../api/tenant'
+import { getTenantList, addTenant, updateTenant, removeTenant, uploadKey, getTenantFullInfo, getTenantBillingSummary, downloadInvoicePdf, getDomainSettings, updateMfa, updatePasswordExpiry, getAuditLogs, getServiceQuotas, listIamPolicies, getIamPolicy, listAnnouncements, getAnnouncementDetail, getTenantGroups, createGroup, renameGroup, deleteGroup, saveGroupOrder, unlockAuthFactors, getAuthFactors, updateAuthFactors } from '../api/tenant'
 import { sendVerifyCode } from '../api/system'
 import { RightOutlined, DownOutlined, SettingOutlined, FolderOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons-vue'
 import AuditLogTable from '../components/AuditLogTable.vue'
@@ -1003,7 +1148,37 @@ const iamPolicySearch = ref('')
 const iamExpandedRowKeys = ref<string[]>([])
 const iamPolicyStatements = ref<Record<string, string[]>>({})
 const iamPolicyDetailLoading = ref('')
+const announcementsLoading = ref(false)
+const announcementsList = ref<any[]>([])
+const announcementsRetentionNote = ref('')
+const announcementSearch = ref('')
+const announcementDrawerVisible = ref(false)
+const announcementDetailLoading = ref(false)
+const announcementDetailTab = ref('detail')
+const announcementDetail = ref<any | null>(null)
+const announcementImpacted = ref<any[]>([])
+const announcementHistory = ref<any[]>([])
+const announcementDrawerTitle = ref('云公告详情')
 function checkMobile() { isMobile.value = window.innerWidth < 768 }
+
+function formatAnnouncementUserStatus(v: string | null | undefined): string {
+  if (v === 'Read') return '已读'
+  if (v === 'Unread') return '未读'
+  return '未知'
+}
+
+function announcementStatusColor(v: string | null | undefined): string {
+  if (v === 'Read') return 'default'
+  if (v === 'Unread') return 'blue'
+  return 'default'
+}
+
+function announcementCustomRow(record: any) {
+  return {
+    style: { cursor: 'pointer' },
+    onClick: () => openAnnouncementDetail(record),
+  }
+}
 
 function parseAndFill() {
   if (!importText.value.trim()) {
@@ -1345,6 +1520,16 @@ const filteredIamPolicies = computed(() => {
   )
 })
 
+const filteredAnnouncements = computed(() => {
+  if (!announcementSearch.value) return announcementsList.value
+  const kw = announcementSearch.value.toLowerCase()
+  return announcementsList.value.filter((a: any) =>
+    (a.summary || '').toLowerCase().includes(kw) ||
+    (a.referenceTicketNumber || '').toLowerCase().includes(kw) ||
+    (a.announcementType || '').toLowerCase().includes(kw),
+  )
+})
+
 function shortOcId(id: string | null | undefined): string {
   if (!id) return '—'
   if (id.length <= 22) return id
@@ -1608,12 +1793,16 @@ async function openTenantMgmt(record: any) {
   iamPoliciesCompartmentId.value = ''
   iamPolicyStatements.value = {}
   iamExpandedRowKeys.value = []
+  announcementsList.value = []
+  announcementsRetentionNote.value = ''
+  announcementDrawerVisible.value = false
   quotasList.value = []
   await loadTenantAccountInfo(record)
 }
 
 function onTenantTabChange(key: string) {
   if (key === 'iam' && !iamPoliciesList.value.length) loadIamPolicies()
+  if (key === 'announcements' && !announcementsList.value.length) loadAnnouncements()
 }
 
 async function loadTenantAccountInfo(record: any) {
@@ -1676,6 +1865,54 @@ async function onIamExpand(expanded: boolean, record: any) {
     message.error(e?.message || '加载策略语句失败')
   } finally {
     iamPolicyDetailLoading.value = ''
+  }
+}
+
+async function loadAnnouncements() {
+  if (!tenantMgmtTenant.value?.id) return
+  announcementsLoading.value = true
+  try {
+    const res = await listAnnouncements({ id: tenantMgmtTenant.value.id })
+    const data = res.data || {}
+    announcementsList.value = data.items || []
+    announcementsRetentionNote.value = data.retentionNote || ''
+    if (!announcementsList.value.length) {
+      message.info('未找到云公告（或当前 API 用户无 announcement 读权限）')
+    }
+  } catch (e: any) {
+    message.error(e?.message || '获取云公告失败')
+  } finally {
+    announcementsLoading.value = false
+  }
+}
+
+async function openAnnouncementDetail(record: any) {
+  const announcementId = record?.id
+  if (!announcementId || !tenantMgmtTenant.value?.id) return
+  announcementDrawerVisible.value = true
+  announcementDetailTab.value = 'detail'
+  announcementDrawerTitle.value = record.summary || '云公告详情'
+  announcementDetailLoading.value = true
+  announcementDetail.value = null
+  announcementImpacted.value = []
+  announcementHistory.value = []
+  try {
+    const res = await getAnnouncementDetail({
+      id: tenantMgmtTenant.value.id,
+      announcementId,
+    })
+    const data = res.data || {}
+    announcementDetail.value = data.detail || null
+    announcementImpacted.value = data.impactedResources || []
+    announcementHistory.value = data.history || []
+    if (announcementDetail.value?.summary) {
+      announcementDrawerTitle.value = announcementDetail.value.summary
+    }
+  } catch (e: any) {
+    message.error(e?.message || '获取公告详情失败')
+    announcementDrawerVisible.value = false
+  } finally {
+    announcementDetailLoading.value = false
   }
 }
 
@@ -2208,5 +2445,22 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   line-height: 1.5;
   margin-bottom: 6px;
   word-break: break-word;
+}
+
+.announcement-block { margin-top: 14px; }
+.announcement-block-title {
+  font-weight: 600;
+  margin-bottom: 8px;
+  font-size: 13px;
+}
+.announcement-description {
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 13px;
+  line-height: 1.6;
+  padding: 10px 12px;
+  background: var(--bg-sub, #fafafa);
+  border-radius: 6px;
+  border: 1px solid var(--border, #f0f0f0);
 }
 </style>

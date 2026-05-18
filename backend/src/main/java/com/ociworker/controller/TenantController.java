@@ -6,6 +6,7 @@ import com.ociworker.model.params.PageParams;
 import com.ociworker.model.params.TenantParams;
 import com.ociworker.model.vo.ResponseData;
 import com.ociworker.service.DomainManagementService;
+import com.ociworker.service.AnnouncementService;
 import com.ociworker.service.IamPolicyService;
 import com.ociworker.service.TenantService;
 import jakarta.annotation.Resource;
@@ -29,6 +30,8 @@ public class TenantController {
     private DomainManagementService domainManagementService;
     @Resource
     private IamPolicyService iamPolicyService;
+    @Resource
+    private AnnouncementService announcementService;
 
     @PostMapping("/list")
     public ResponseData<?> list(@RequestBody PageParams params) {
@@ -152,6 +155,18 @@ public class TenantController {
     @PostMapping("/iamPolicy")
     public ResponseData<?> iamPolicy(@RequestBody java.util.Map<String, String> params) {
         return ResponseData.ok(iamPolicyService.getPolicy(params.get("id"), params.get("policyId")));
+    }
+
+    /** OCI 云公告（Announcements API，与控制台铃铛同源），只读 */
+    @PostMapping("/announcements")
+    public ResponseData<?> announcements(@RequestBody java.util.Map<String, String> params) {
+        return ResponseData.ok(announcementService.listAnnouncements(params.get("id")));
+    }
+
+    @PostMapping("/announcement")
+    public ResponseData<?> announcement(@RequestBody java.util.Map<String, String> params) {
+        return ResponseData.ok(announcementService.getAnnouncementDetail(
+                params.get("id"), params.get("announcementId")));
     }
 
     @PostMapping("/authFactorsUnlock")
