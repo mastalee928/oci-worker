@@ -107,9 +107,8 @@
               <div class="group-stats">
                 <a-badge
                   :count="groupTotalCount(group)"
-                  :number-style="{ backgroundColor: 'var(--primary)', fontSize: '11px' }"
                   :show-zero="true"
-                  class="group-tenant-count-badge"
+                  class="group-tenant-count-badge oci-group-count-badge"
                 />
                 <template v-if="!isMobile" v-for="(pc, pt) in getPlanCounts(group)" :key="pt">
                   <span :class="['plan-tag', pt === 'PAYG' ? 'tag-green' : pt === 'FREE' ? 'tag-orange' : 'tag-gray']">{{ pt }}×{{ pc }}</span>
@@ -212,9 +211,8 @@
                 <span class="subgroup-name" @click="toggleGroup(sub.key)">{{ sub.label }}</span>
                 <a-badge
                   :count="sub.tenants.length"
-                  :number-style="{ backgroundColor: 'var(--primary)', fontSize: '11px' }"
                   :show-zero="true"
-                  class="group-tenant-count-badge"
+                  class="group-tenant-count-badge oci-group-count-badge"
                 />
                 </div>
                 <div class="group-card-header-actions">
@@ -2561,9 +2559,6 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
 .group-tenant-count-badge {
   margin-left: 8px;
   flex-shrink: 0;
-}
-.group-tenant-count-badge :deep(.ant-badge-count) {
-  box-shadow: none;
 }
 .group-action-btn {
   padding: 5px 10px;

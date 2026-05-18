@@ -281,6 +281,26 @@ body::after {
   border-color: var(--primary) !important;
 }
 
+/* 分组/标题数量徽章：深底白字，避免 primary 浅底导致数字发灰看不清 */
+.oci-group-count-badge .ant-badge-count,
+.group-tenant-count-badge .ant-badge-count {
+  background-color: var(--primary-hover) !important;
+  color: #ffffff !important;
+  font-weight: 600 !important;
+  font-size: 11px !important;
+  line-height: 18px !important;
+  min-width: 20px !important;
+  height: 20px !important;
+  padding: 0 6px !important;
+  border: 1px solid rgba(255, 255, 255, 0.28) !important;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35) !important;
+}
+[data-theme="light"] .oci-group-count-badge .ant-badge-count,
+[data-theme="light"] .group-tenant-count-badge .ant-badge-count {
+  border-color: rgba(79, 70, 229, 0.4) !important;
+  box-shadow: none !important;
+}
+
 .ant-tabs-tab {
   color: var(--text-sub) !important;
 }

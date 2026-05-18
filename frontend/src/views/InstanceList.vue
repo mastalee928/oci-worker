@@ -29,7 +29,7 @@
         <a-collapse-panel v-for="g1 in groupedTenants" :key="g1.key" :collapsible="groupTenantCount(g1) === 0 ? 'disabled' : undefined">
           <template #header>
             <span class="group-header-label">{{ g1.label }}</span>
-            <a-badge :count="groupTenantCount(g1)" :number-style="{ backgroundColor: 'var(--primary)', fontSize: '11px' }" :show-zero="true" style="margin-left: 8px" />
+            <a-badge :count="groupTenantCount(g1)" :show-zero="true" class="oci-group-count-badge" style="margin-left: 8px" />
           </template>
           <!-- 二级分组 -->
           <template v-if="g1.children && g1.children.length > 0">
@@ -80,7 +80,7 @@
               <a-collapse-panel v-for="l2 in g1.children" :key="l2.key" :collapsible="l2.tenants.length === 0 ? 'disabled' : undefined">
                 <template #header>
                   <span class="group-header-label">{{ l2.label }}</span>
-                  <a-badge :count="l2.tenants.length" :number-style="{ backgroundColor: 'var(--primary)', fontSize: '11px' }" :show-zero="true" style="margin-left: 8px" />
+                  <a-badge :count="l2.tenants.length" :show-zero="true" class="oci-group-count-badge" style="margin-left: 8px" />
                 </template>
                 <div v-if="tenantViewMode === 'card'" class="tenant-grid">
                   <template v-for="td in l2.tenants" :key="td.tenant.id">
@@ -263,7 +263,7 @@
           <i class="ri-server-line" style="margin-right: 8px; color: var(--primary)"></i>
           <span class="drawer-username">{{ activeTenantData.tenant.username }}</span>
           <a-tag v-if="!isMobile" color="blue" style="margin-left: 8px">{{ instancePanelRegion || activeTenantData.tenant.ociRegion }}</a-tag>
-          <a-badge :count="activeTenantData.instances.length" :number-style="{ backgroundColor: 'var(--primary)' }" :show-zero="true" style="margin-left: 8px" />
+          <a-badge :count="activeTenantData.instances.length" :show-zero="true" class="oci-group-count-badge" style="margin-left: 8px" />
         </div>
       </template>
       <template #extra>
