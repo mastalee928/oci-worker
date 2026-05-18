@@ -28,6 +28,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.stream.Collectors;
 
@@ -339,6 +340,32 @@ public class OracleAiController {
             return;
         }
         String bearer = apiKey.toLowerCase().startsWith("bearer ") ? apiKey : "Bearer " + apiKey;
+        String token = bearer.length() > 7 ? bearer.substring(7).trim() : "";
+        OciUser keyTenant = null;
+        if (!token.isEmpty()) {
+            com.ociworker.model.entity.OciOpenaiKey keyRow = openaiKeyService.findByPlainKey(token);
+            if (keyRow != null && keyRow.getOciUserId() != null) {
+                keyTenant = ociUserMapper.selectById(keyRow.getOciUserId());
+            }
+        }
+        if (isMultiAgentModelName(model)) {
+            if (keyTenant == null) {
+                writeChatTestError(servletResponse, 400, "API Key 无效或未绑定租户，无法调用 Multi-Agent");
+                return;
+            }
+            String project = keyTenant.getGenerativeOpenaiProject();
+            String store = keyTenant.getGenerativeConversationStoreId();
+            boolean hasProject = project != null && !project.isBlank();
+            boolean hasStore = store != null && !store.isBlank();
+            if (!hasProject && !hasStore) {
+                writeChatTestError(
+                        servletResponse,
+                        400,
+                        "Multi-Agent 需要 OpenAI-Project（Generative AI Project OCID）。"
+                                + "请在上方「Multi-Agent 上下文」一键创建或保存后再试。");
+                return;
+            }
+        }
         String url = "http://127.0.0.1:" + openaiApiPort + "/v1/chat/completions";
         String payload =
                 "{\"model\":"
@@ -350,15 +377,25 @@ public class OracleAiController {
         servletResponse.setCharacterEncoding(StandardCharsets.UTF_8.name());
         servletResponse.setHeader("Cache-Control", "no-cache");
         servletResponse.setHeader("X-Accel-Buffering", "no");
-        HttpRequest req =
+        HttpRequest.Builder reqBuilder =
                 HttpRequest.newBuilder()
                         .uri(URI.create(url))
                         .timeout(java.time.Duration.ofSeconds(300))
                         .header("content-type", "application/json")
                         .header("accept", "text/event-stream")
-                        .header("authorization", bearer)
-                        .POST(HttpRequest.BodyPublishers.ofString(payload, StandardCharsets.UTF_8))
-                        .build();
+                        .header("authorization", bearer);
+        if (keyTenant != null) {
+            String project = keyTenant.getGenerativeOpenaiProject();
+            if (project != null && !project.isBlank()) {
+                reqBuilder.header("OpenAI-Project", project.trim());
+            }
+            String store = keyTenant.getGenerativeConversationStoreId();
+            if (store != null && !store.isBlank()) {
+                reqBuilder.header("opc-conversation-store-id", store.trim());
+            }
+        }
+        HttpRequest req =
+                reqBuilder.POST(HttpRequest.BodyPublishers.ofString(payload, StandardCharsets.UTF_8)).build();
         HttpResponse<InputStream> resp =
                 HttpClient.newHttpClient().send(req, HttpResponse.BodyHandlers.ofInputStream());
         servletResponse.setStatus(resp.statusCode());
@@ -403,5 +440,13 @@ public class OracleAiController {
         }
         String t = s.trim();
         return t.isEmpty() ? null : t;
+    }
+
+    private static boolean isMultiAgentModelName(String model) {
+        if (model == null || model.isBlank()) {
+            return false;
+        }
+        String t = model.toLowerCase(Locale.ROOT);
+        return t.contains("multi-agent") || t.contains("multi agent") || t.contains("multiagent");
     }
 }
