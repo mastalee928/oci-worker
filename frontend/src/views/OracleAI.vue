@@ -118,69 +118,12 @@
       </a-form>
     </a-card>
 
-    <a-card title="Multi-Agent 上下文（OpenAI-Project）" :bordered="false" class="mt-card">
-      <a-alert
-        class="mb-alert"
-        type="warning"
-        show-icon
-        message="Multi-Agent / Responses API 必须配置 Generative AI Project（OpenAI-Project 头）。与上方所选租户绑定；API Key 须属于同一租户。"
-      />
-      <a-form layout="vertical">
-        <a-form-item label="OpenAI-Project（Project OCID）">
-          <a-select
-            v-model:value="generativeOpenaiProject"
-            :options="generativeProjectOptions"
-            :loading="generativeProjectsLoading"
-            :disabled="!ociUserId"
-            placeholder="选择或下方粘贴 OCID"
-            show-search
-            allow-clear
-            :filter-option="filterGenerativeProject"
-            :get-popup-container="selectPopupContainer"
-          />
-        </a-form-item>
-        <a-form-item label="或手动填写 Project OCID">
-          <a-input
-            v-model:value="generativeOpenaiProject"
-            :disabled="!ociUserId"
-            placeholder="ocid1.generativeaiproject...."
-            allow-clear
-          />
-        </a-form-item>
-        <a-form-item label="opc-conversation-store-id（可选）">
-          <a-input
-            v-model:value="generativeConversationStoreId"
-            :disabled="!ociUserId"
-            placeholder="可选"
-            allow-clear
-          />
-        </a-form-item>
-        <a-space wrap>
-          <a-button :disabled="!ociUserId" :loading="generativeProjectsLoading" @click="loadGenerativeProjects">
-            从 OCI 拉取项目
-          </a-button>
-          <a-button type="primary" :disabled="!ociUserId" :loading="generativeProjectCreating" @click="createGenerativeProjectDefault">
-            一键创建默认项目
-          </a-button>
-          <a-button type="primary" :disabled="!ociUserId" :loading="generativeContextSaving" @click="saveGenerativeContext">
-            保存到租户
-          </a-button>
-        </a-space>
-        <a-tag v-if="generativeContextLoaded && generativeOpenaiProject" color="green" class="mt-tag">
-          已配置 Project，Multi-Agent 可测
-        </a-tag>
-        <a-tag v-else-if="generativeContextLoaded && !generativeOpenaiProject" color="orange" class="mt-tag">
-          未配置 — Multi-Agent 将返回 400
-        </a-tag>
-      </a-form>
-    </a-card>
-
     <a-card title="对话测试（浏览器直连 /v1）" :bordered="false" class="mt-card">
       <a-alert
         class="mb-alert"
         type="info"
         show-icon
-        message="经面板 /api 代发到 :8080/v1，支持 SSE 真流式。Multi-Agent 须先配置上方 OpenAI-Project。"
+        message="浏览器直连 :8080/v1 快速验证（绕过 New API/IDE 差异）。"
       />
       <a-form layout="vertical">
         <a-form-item label="API Key（sk-...，仅保存在浏览器本地）">
@@ -302,12 +245,9 @@ import {
   setOracleKeyDisabled,
   removeOracleKey,
   listOpenAiModels,
+  oracleAiChatTest,
   getOracleAiUiState,
   saveOracleAiUiState,
-  getOracleAiGenerativeContext,
-  saveOracleAiGenerativeContext,
-  listGenerativeProjects,
-  createGenerativeProject,
 } from '../api/oracleAi'
 
 const tenantsLoading = ref(false)
@@ -350,14 +290,6 @@ const chatUserText = ref('')
 const chatAssistantText = ref('')
 const chatError = ref('')
 const chatSending = ref(false)
-
-const generativeOpenaiProject = ref('')
-const generativeConversationStoreId = ref('')
-const generativeProjectOptions = ref<{ label: string; value: string }[]>([])
-const generativeProjectsLoading = ref(false)
-const generativeProjectCreating = ref(false)
-const generativeContextSaving = ref(false)
-const generativeContextLoaded = ref(false)
 
 const CHAT_BAD_MODELS_LS = 'ociworker.oracleAi.chatTest.badModels.v1'
 const chatBadModels = ref<Record<string, { code: number; msg: string; at: number }>>({})
@@ -453,7 +385,6 @@ function reapplyOracleAiSelectionFromStorage() {
     if (ociUserId.value && tenantOptions.value.some((x) => x.value === ociUserId.value)) {
       loadModelsIfNeeded(false)
       refreshKeys()
-      loadGenerativeContext()
     }
   } catch {
   }
@@ -576,104 +507,6 @@ function filterModel(input: string, opt: any) {
     .includes((input || '').toLowerCase()))
 }
 
-function filterGenerativeProject(input: string, opt: any) {
-  const q = (input || '').toLowerCase()
-  const label = String(opt?.label || '').toLowerCase()
-  const value = String(opt?.value || '').toLowerCase()
-  return label.includes(q) || value.includes(q)
-}
-
-function isMultiAgentModel(model: string) {
-  const t = String(model || '').toLowerCase()
-  return t.includes('multi-agent') || t.includes('multiagent') || t.includes('multi agent')
-}
-
-async function loadGenerativeContext() {
-  generativeContextLoaded.value = false
-  generativeOpenaiProject.value = ''
-  generativeConversationStoreId.value = ''
-  generativeProjectOptions.value = []
-  if (!ociUserId.value) {
-    generativeContextLoaded.value = true
-    return
-  }
-  try {
-    const r: any = await getOracleAiGenerativeContext({ ociUserId: ociUserId.value })
-    const d = r?.data || {}
-    generativeOpenaiProject.value = typeof d.generativeOpenaiProject === 'string' ? d.generativeOpenaiProject : ''
-    generativeConversationStoreId.value =
-      typeof d.generativeConversationStoreId === 'string' ? d.generativeConversationStoreId : ''
-  } catch {
-    /* ignore */
-  } finally {
-    generativeContextLoaded.value = true
-  }
-}
-
-async function loadGenerativeProjects() {
-  if (!ociUserId.value) return
-  generativeProjectsLoading.value = true
-  try {
-    const r: any = await listGenerativeProjects({ ociUserId: ociUserId.value })
-    const items = r?.data?.items || []
-    generativeProjectOptions.value = (Array.isArray(items) ? items : []).map((it: any) => {
-      const id = String(it?.id || '').trim()
-      const dn = String(it?.displayName || '').trim()
-      return { value: id, label: dn ? `${dn} (${id})` : id }
-    }).filter((x: { value: string }) => x.value)
-    if (generativeProjectOptions.value.length === 1 && !generativeOpenaiProject.value) {
-      generativeOpenaiProject.value = generativeProjectOptions.value[0].value
-    }
-    message.success(`已拉取 ${generativeProjectOptions.value.length} 个项目`)
-  } catch (e: any) {
-    message.error(e?.message || '拉取项目失败')
-  } finally {
-    generativeProjectsLoading.value = false
-  }
-}
-
-async function createGenerativeProjectDefault() {
-  if (!ociUserId.value) return
-  generativeProjectCreating.value = true
-  try {
-    const r: any = await createGenerativeProject({
-      ociUserId: ociUserId.value,
-      displayName: 'ociworker-default',
-    })
-    const id = r?.data?.id
-    if (typeof id === 'string' && id) {
-      generativeOpenaiProject.value = id
-      message.success('已创建并写入租户默认 Project')
-      await loadGenerativeProjects()
-    } else {
-      message.success('创建请求已提交，请保存或拉取列表确认')
-    }
-    await loadGenerativeContext()
-  } catch (e: any) {
-    message.error(e?.message || '创建项目失败')
-  } finally {
-    generativeProjectCreating.value = false
-  }
-}
-
-async function saveGenerativeContext() {
-  if (!ociUserId.value) return
-  generativeContextSaving.value = true
-  try {
-    await saveOracleAiGenerativeContext({
-      ociUserId: ociUserId.value,
-      generativeOpenaiProject: generativeOpenaiProject.value?.trim() || undefined,
-      generativeConversationStoreId: generativeConversationStoreId.value?.trim() || undefined,
-    })
-    message.success('已保存 Multi-Agent 上下文')
-    await loadGenerativeContext()
-  } catch (e: any) {
-    message.error(e?.message || '保存失败')
-  } finally {
-    generativeContextSaving.value = false
-  }
-}
-
 async function loadTenants() {
   selectionPersistEnabled.value = false
   tenantsLoading.value = true
@@ -704,7 +537,6 @@ function onTenantChange() {
   persistState()
   loadModelsIfNeeded(false)
   refreshKeys()
-  loadGenerativeContext()
 }
 
 watch(
@@ -793,88 +625,74 @@ async function loadModelsIfNeeded(alertOnErr: boolean) {
   }
 }
 
-function getPanelAuthHeader(): Record<string, string> {
-  const t = localStorage.getItem('token')?.trim() || ''
-  if (!t) return {}
-  return { Authorization: t.startsWith('Bearer ') ? t : `Bearer ${t}` }
-}
-
 async function sendChatTest() {
   if (!chatApiKey.value || !chatModel.value || !chatUserText.value) return
-  const model = String(chatModel.value || '')
-  if (isMultiAgentModel(model) && !generativeOpenaiProject.value?.trim() && !generativeConversationStoreId.value?.trim()) {
-    chatError.value =
-      'Multi-Agent 需要 OpenAI-Project。请在上方「Multi-Agent 上下文」一键创建或保存后再试。'
-    message.warning('请先配置 OpenAI-Project')
-    return
-  }
   chatSending.value = true
   chatAssistantText.value = ''
   chatError.value = ''
   try {
-    const res = await fetch('/api/oci/oracle-ai/chat-test', {
-      method: 'POST',
-      credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'text/event-stream',
-        ...getPanelAuthHeader(),
-      },
-      body: JSON.stringify({
-        apiKey: chatApiKey.value,
-        model,
-        input: chatUserText.value,
-      }),
-    })
-    const ct = (res.headers.get('content-type') || '').toLowerCase()
-    if (!res.ok) {
-      const errText = await res.text()
-      let msg = errText
-      try {
-        const j = JSON.parse(errText)
-        msg = j?.message || errText
-      } catch {
-        /* keep raw */
-      }
-      chatError.value = `HTTP ${res.status}\n${msg}`
-      const bl = String(msg || '').toLowerCase()
-      if (res.status === 400 && bl.includes('unsupported openai operation')) {
-        markChatModelBad(model, res.status, 'Unsupported OpenAI operation')
-      } else if (res.status === 404 && (bl.includes('entity') || bl.includes('not found'))) {
-        markChatModelBad(model, res.status, 'Entity not found')
-      }
-      return
-    }
-    if (!ct.includes('text/event-stream') || !res.body) {
-      const raw = await res.text()
-      chatAssistantText.value = raw || '(空响应)'
-      return
-    }
-    const reader = res.body.getReader()
-    const decoder = new TextDecoder()
-    let buf = ''
-    while (true) {
-      const { done, value } = await reader.read()
-      if (done) break
-      buf += decoder.decode(value, { stream: true })
-      const lines = buf.split('\n')
-      buf = lines.pop() || ''
-      for (const line of lines) {
-        const trimmed = line.trimEnd()
-        if (!trimmed.startsWith('data:')) continue
-        const data = trimmed.slice(5).trim()
-        if (!data || data === '[DONE]') continue
-        try {
-          const json = JSON.parse(data)
-          const delta = json?.choices?.[0]?.delta?.content
-          if (typeof delta === 'string' && delta) {
-            chatAssistantText.value += delta
-          }
-        } catch {
-          /* ignore partial SSE lines */
+    const model = String(chatModel.value || '')
+    const isMultiAgent = model.toLowerCase().includes('multi-agent') || model.toLowerCase().includes('multiagent')
+
+    const payload = isMultiAgent
+      ? {
+          model,
+          input: [
+            {
+              role: 'user',
+              content: [{ type: 'input_text', text: chatUserText.value }],
+            },
+          ],
+          stream: false,
         }
+      : {
+          model,
+          messages: [{ role: 'user', content: chatUserText.value }],
+          stream: false,
+        }
+
+    const parseAndSet = (raw: string) => {
+      let json: any
+      try {
+        json = raw ? JSON.parse(raw) : {}
+      } catch {
+        chatAssistantText.value = raw
+        return
       }
+      if (isMultiAgent) {
+        const outText =
+          json?.output_text ||
+          json?.output?.[0]?.content?.find?.((x: any) => x?.type === 'output_text')?.text ||
+          json?.output?.[0]?.content?.find?.((x: any) => x?.type === 'text')?.text
+        chatAssistantText.value = typeof outText === 'string' && outText ? outText : JSON.stringify(json, null, 2)
+        return
+      }
+      const c0 = json?.choices?.[0]
+      const content = c0?.message?.content
+      chatAssistantText.value = typeof content === 'string' ? content : JSON.stringify(json, null, 2)
     }
+
+    // 为避免浏览器环境下的 HTTPS/CORS/网络策略导致失败，统一走同源 /api 代请求（服务端本机访问 127.0.0.1:8080/v1）
+    const r: any = await oracleAiChatTest({
+      apiKey: chatApiKey.value,
+      model,
+      input: chatUserText.value,
+    })
+    const status = r?.data?.status ?? r?.status
+    const body = r?.data?.body ?? r?.body ?? ''
+    if (typeof status === 'number' && status >= 400) {
+      chatError.value = `HTTP ${status}\n${String(body || '')}`
+      const b = String(body || '')
+      const bl = b.toLowerCase()
+      // 记录常见不可用模型，避免反复踩坑
+      if (status === 400 && bl.includes('unsupported openai operation')) {
+        markChatModelBad(model, status, 'Unsupported OpenAI operation')
+      } else if (status === 404 && (bl.includes('entity') || bl.includes('not found'))) {
+        markChatModelBad(model, status, 'Entity not found')
+      }
+      return
+    }
+    parseAndSet(String(body || ''))
   } catch (e: any) {
     chatError.value = e?.message || String(e)
   } finally {
@@ -989,7 +807,6 @@ async function viewKey(k: any) {
 }
 .mb-card { margin-bottom: 16px; }
 .mt-card { margin-top: 8px; }
-.mt-tag { margin-top: 8px; }
 .ma-hint {
   display: block;
   font-size: 12px;

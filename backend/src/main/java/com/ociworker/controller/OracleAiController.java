@@ -13,14 +13,10 @@ import com.ociworker.mapper.OciKvMapper;
 import com.ociworker.mapper.OciUserMapper;
 import com.ociworker.util.CommonUtils;
 import jakarta.annotation.Resource;
-import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 
-import java.io.InputStream;
-import java.io.OutputStream;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -28,7 +24,6 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.stream.Collectors;
 
@@ -319,110 +314,54 @@ public class OracleAiController {
      * 面板内置对话测试：浏览器调用本接口（同源 /api），由后端在服务器本机直连 OpenAI 兼容端口（:openaiApiPort/v1）。
      * 解决浏览器无法访问 8080（防火墙/反代/跨域）的问题。
      */
-    /**
-     * 面板对话测试：SSE 真流式；统一走 /v1/chat/completions + stream（Multi-Agent 由网关改写到 /v1/responses 并转译 SSE）。
-     */
-    @PostMapping(value = "/chat-test", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public void chatTest(@RequestBody Map<String, Object> body, HttpServletResponse servletResponse) throws Exception {
+    @PostMapping("/chat-test")
+    public ResponseData<?> chatTest(@RequestBody Map<String, Object> body) {
         String apiKey = body == null ? null : String.valueOf(body.getOrDefault("apiKey", "")).trim();
         String model = body == null ? null : String.valueOf(body.getOrDefault("model", "")).trim();
         String input = body == null ? null : String.valueOf(body.getOrDefault("input", "")).trim();
         if (apiKey == null || apiKey.isBlank()) {
-            writeChatTestError(servletResponse, 400, "apiKey 必填");
-            return;
+            return ResponseData.error("apiKey 必填");
         }
         if (model == null || model.isBlank()) {
-            writeChatTestError(servletResponse, 400, "model 必填");
-            return;
+            return ResponseData.error("model 必填");
         }
         if (input == null || input.isBlank()) {
-            writeChatTestError(servletResponse, 400, "input 必填");
-            return;
+            return ResponseData.error("input 必填");
         }
         String bearer = apiKey.toLowerCase().startsWith("bearer ") ? apiKey : "Bearer " + apiKey;
-        String token = bearer.length() > 7 ? bearer.substring(7).trim() : "";
-        OciUser keyTenant = null;
-        if (!token.isEmpty()) {
-            com.ociworker.model.entity.OciOpenaiKey keyRow = openaiKeyService.findByPlainKey(token);
-            if (keyRow != null && keyRow.getOciUserId() != null) {
-                keyTenant = ociUserMapper.selectById(keyRow.getOciUserId());
-            }
+        boolean multiAgent = model.toLowerCase().contains("multi-agent")
+                || model.toLowerCase().contains("multi agent")
+                || model.toLowerCase().contains("multiagent");
+        // Multi-Agent 在 OCI 只能走 /v1/responses（chat/completions 会直接 400）
+        String url = "http://127.0.0.1:" + openaiApiPort + (multiAgent ? "/v1/responses" : "/v1/chat/completions");
+        log.info("chat-test -> {} model={} (multiAgent={})", url, model, multiAgent);
+        String payload;
+        if (multiAgent) {
+            payload = "{\"model\":" + jsonString(model)
+                    + ",\"input\":[{\"role\":\"user\",\"content\":[{\"type\":\"input_text\",\"text\":"
+                    + jsonString(input)
+                    + "}]}],\"stream\":false}";
+        } else {
+            payload = "{\"model\":" + jsonString(model)
+                    + ",\"messages\":[{\"role\":\"user\",\"content\":" + jsonString(input) + "}],\"stream\":false}";
         }
-        if (isMultiAgentModelName(model)) {
-            if (keyTenant == null) {
-                writeChatTestError(servletResponse, 400, "API Key 无效或未绑定租户，无法调用 Multi-Agent");
-                return;
-            }
-            String project = keyTenant.getGenerativeOpenaiProject();
-            String store = keyTenant.getGenerativeConversationStoreId();
-            boolean hasProject = project != null && !project.isBlank();
-            boolean hasStore = store != null && !store.isBlank();
-            if (!hasProject && !hasStore) {
-                writeChatTestError(
-                        servletResponse,
-                        400,
-                        "Multi-Agent 需要 OpenAI-Project（Generative AI Project OCID）。"
-                                + "请在上方「Multi-Agent 上下文」一键创建或保存后再试。");
-                return;
-            }
+        try {
+            HttpRequest req = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .timeout(java.time.Duration.ofSeconds(120))
+                    .header("content-type", "application/json")
+                    .header("authorization", bearer)
+                    .POST(HttpRequest.BodyPublishers.ofString(payload, StandardCharsets.UTF_8))
+                    .build();
+            HttpResponse<String> resp = HttpClient.newHttpClient()
+                    .send(req, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+            Map<String, Object> out = new HashMap<>();
+            out.put("status", resp.statusCode());
+            out.put("body", resp.body() != null ? resp.body() : "");
+            return ResponseData.ok(out);
+        } catch (Exception e) {
+            return ResponseData.error("chat-test 调用失败: " + (e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName()));
         }
-        String url = "http://127.0.0.1:" + openaiApiPort + "/v1/chat/completions";
-        String payload =
-                "{\"model\":"
-                        + jsonString(model)
-                        + ",\"messages\":[{\"role\":\"user\",\"content\":"
-                        + jsonString(input)
-                        + "}],\"stream\":true}";
-        log.info("chat-test(stream) -> {} model={}", url, model);
-        servletResponse.setCharacterEncoding(StandardCharsets.UTF_8.name());
-        servletResponse.setHeader("Cache-Control", "no-cache");
-        servletResponse.setHeader("X-Accel-Buffering", "no");
-        HttpRequest.Builder reqBuilder =
-                HttpRequest.newBuilder()
-                        .uri(URI.create(url))
-                        .timeout(java.time.Duration.ofSeconds(300))
-                        .header("content-type", "application/json")
-                        .header("accept", "text/event-stream")
-                        .header("authorization", bearer);
-        if (keyTenant != null) {
-            String project = keyTenant.getGenerativeOpenaiProject();
-            if (project != null && !project.isBlank()) {
-                reqBuilder.header("OpenAI-Project", project.trim());
-            }
-            String store = keyTenant.getGenerativeConversationStoreId();
-            if (store != null && !store.isBlank()) {
-                reqBuilder.header("opc-conversation-store-id", store.trim());
-            }
-        }
-        HttpRequest req =
-                reqBuilder.POST(HttpRequest.BodyPublishers.ofString(payload, StandardCharsets.UTF_8)).build();
-        HttpResponse<InputStream> resp =
-                HttpClient.newHttpClient().send(req, HttpResponse.BodyHandlers.ofInputStream());
-        servletResponse.setStatus(resp.statusCode());
-        if (resp.statusCode() >= 400) {
-            byte[] err = resp.body() != null ? resp.body().readAllBytes() : new byte[0];
-            servletResponse.setContentType(MediaType.APPLICATION_JSON_VALUE);
-            servletResponse.getOutputStream().write(err);
-            servletResponse.getOutputStream().flush();
-            return;
-        }
-        servletResponse.setContentType(MediaType.TEXT_EVENT_STREAM_VALUE + "; charset=utf-8");
-        try (InputStream in = resp.body();
-                OutputStream out = servletResponse.getOutputStream()) {
-            if (in == null) {
-                return;
-            }
-            in.transferTo(out);
-            out.flush();
-        }
-    }
-
-    private static void writeChatTestError(HttpServletResponse response, int status, String message) throws Exception {
-        response.setStatus(status);
-        response.setContentType(MediaType.APPLICATION_JSON_VALUE);
-        String json = "{\"code\":1,\"message\":" + jsonString(message) + "}";
-        response.getOutputStream().write(json.getBytes(StandardCharsets.UTF_8));
-        response.getOutputStream().flush();
     }
 
     private static String jsonString(String s) {
@@ -440,13 +379,5 @@ public class OracleAiController {
         }
         String t = s.trim();
         return t.isEmpty() ? null : t;
-    }
-
-    private static boolean isMultiAgentModelName(String model) {
-        if (model == null || model.isBlank()) {
-            return false;
-        }
-        String t = model.toLowerCase(Locale.ROOT);
-        return t.contains("multi-agent") || t.contains("multi agent") || t.contains("multiagent");
     }
 }
