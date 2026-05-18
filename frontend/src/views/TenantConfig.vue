@@ -515,7 +515,7 @@ region=ap-tokyo-1"
         <a-spin :spinning="billingLoading">
           <template v-if="billingData">
             <a-row :gutter="12">
-              <a-col :xs="24" :sm="24">
+              <a-col :xs="24" :sm="12">
                 <a-card size="small" :bordered="true">
                   <div style="font-size: 12px; color: var(--text-sub)">最近发票</div>
                   <div style="font-weight: 700; font-size: 16px; margin-top: 4px">
@@ -530,7 +530,86 @@ region=ap-tokyo-1"
                   </div>
                 </a-card>
               </a-col>
+              <a-col :xs="24" :sm="12">
+                <a-card size="small" :bordered="true">
+                  <div style="font-size: 12px; color: var(--text-sub)">期间成本（Usage API）</div>
+                  <div style="font-weight: 700; font-size: 16px; margin-top: 4px">
+                    <template v-if="billingData.usage?.available && billingData.usage?.summary">
+                      {{ billingData.usage.summary.totalCost ?? '—' }} {{ billingData.usage.summary.currency || '' }}
+                    </template>
+                    <span v-else>—</span>
+                  </div>
+                  <div style="margin-top: 6px; font-size: 12px; color: var(--text-sub)">
+                    <span v-if="billingData.usage?.available">近 {{ billingData.usage.periodDays || billingCostDays }} 天</span>
+                    <span v-else>成本数据未加载</span>
+                  </div>
+                </a-card>
+              </a-col>
             </a-row>
+
+            <div style="margin-top: 12px">
+              <a-space wrap style="margin-bottom: 8px">
+                <span style="font-weight: 600">成本分析</span>
+                <a-select v-model:value="billingCostDays" style="width: 110px" :options="billingCostDayOptions" />
+                <a-button size="small" type="primary" :loading="billingLoading" @click="reloadBillingCost">查询成本</a-button>
+                <a v-if="billingData.links?.costAnalysis" :href="billingData.links.costAnalysis" target="_blank" rel="noopener noreferrer" style="font-size: 12px">控制台</a>
+              </a-space>
+              <a-alert v-if="billingData.usage && !billingData.usage.available" type="warning" show-icon
+                :message="billingData.usage.reason || '成本分析不可用'" style="margin-bottom: 8px" />
+              <template v-else-if="billingData.usage?.available">
+                <div style="font-size: 12px; color: var(--text-sub); margin-bottom: 8px">
+                  {{ formatBillingPeriod(billingData.usage.timeUsageStarted, billingData.usage.timeUsageEnded) }}
+                </div>
+                <div style="font-weight: 600; margin-bottom: 6px">按服务</div>
+                <a-table
+                  v-if="!isMobile"
+                  size="small"
+                  :data-source="billingData.usage.byService || []"
+                  :pagination="{ pageSize: 10 }"
+                  row-key="service"
+                >
+                  <a-table-column title="服务" data-index="service" key="service" :ellipsis="true" />
+                  <a-table-column title="成本" key="cost" :width="140">
+                    <template #default="{ record }">
+                      {{ record.cost ?? '—' }} {{ record.currency || '' }}
+                    </template>
+                  </a-table-column>
+                </a-table>
+                <a-spin v-else :spinning="false">
+                  <a-empty v-if="!(billingData.usage.byService || []).length" description="无服务分项" />
+                  <div v-for="(row, i) in (billingData.usage.byService || [])" :key="row.service || i" class="mobile-card">
+                    <div class="mobile-card-body">
+                      <div class="mobile-card-row"><span class="label">服务</span><span class="value">{{ row.service }}</span></div>
+                      <div class="mobile-card-row"><span class="label">成本</span><span class="value">{{ row.cost }} {{ row.currency || '' }}</span></div>
+                    </div>
+                  </div>
+                </a-spin>
+                <div style="font-weight: 600; margin: 12px 0 6px">按日趋势</div>
+                <a-table
+                  v-if="!isMobile"
+                  size="small"
+                  :data-source="billingData.usage.byDay || []"
+                  :pagination="{ pageSize: 10 }"
+                  row-key="date"
+                >
+                  <a-table-column title="日期" data-index="date" key="date" :width="120" />
+                  <a-table-column title="成本" key="cost" :width="140">
+                    <template #default="{ record }">
+                      {{ record.cost ?? '—' }} {{ record.currency || '' }}
+                    </template>
+                  </a-table-column>
+                </a-table>
+                <a-spin v-else :spinning="false">
+                  <a-empty v-if="!(billingData.usage.byDay || []).length" description="无按日数据" />
+                  <div v-for="(row, i) in (billingData.usage.byDay || [])" :key="row.date || i" class="mobile-card">
+                    <div class="mobile-card-body">
+                      <div class="mobile-card-row"><span class="label">日期</span><span class="value">{{ row.date }}</span></div>
+                      <div class="mobile-card-row"><span class="label">成本</span><span class="value">{{ row.cost }} {{ row.currency || '' }}</span></div>
+                    </div>
+                  </div>
+                </a-spin>
+              </template>
+            </div>
 
             <a-alert v-if="billingData.invoices && billingData.invoices.available === false"
               type="warning" show-icon style="margin-top: 10px"
@@ -1042,6 +1121,13 @@ function formatUtcCnDate(v: any): string {
   return `${d.year()}年${d.month() + 1}月${d.date()}日（UTC）`
 }
 
+function formatBillingPeriod(start: string | null | undefined, end: string | null | undefined): string {
+  if (!start && !end) return '—'
+  const s = start ? formatUtcCnDate(start) : '—'
+  const e = end ? formatUtcCnDate(end) : '—'
+  return `${s} ～ ${e}`
+}
+
 function formatCountryCn(v: any): string {
   if (!v) return '—'
   const raw = String(v).trim()
@@ -1147,6 +1233,12 @@ const tenantInfoLoading = ref(false)
 const tenantInfoData = ref<any>({})
 const billingLoading = ref(false)
 const billingData = ref<any | null>(null)
+const billingCostDays = ref(30)
+const billingCostDayOptions = [
+  { value: 7, label: '近 7 天' },
+  { value: 30, label: '近 30 天' },
+  { value: 90, label: '近 90 天' },
+]
 const iamPoliciesLoading = ref(false)
 const iamPoliciesList = ref<any[]>([])
 const iamPoliciesCompartmentId = ref('')
@@ -1833,7 +1925,10 @@ async function loadTenantAccountInfo(record: any) {
   try {
     const [res, bill] = await Promise.all([
       getTenantFullInfo({ id: record.id }),
-      getTenantBillingSummary({ id: record.id, limits: { invoices: 5, payments: 5, usageStatements: 3 } }),
+      getTenantBillingSummary({
+        id: record.id,
+        limits: { invoices: 5, payments: 5, usageStatements: 3, costDays: billingCostDays.value },
+      }),
     ])
     const d = res.data || {}
     tenantInfoData.value = { ...d, id: record.id }
@@ -1849,6 +1944,32 @@ async function loadTenantAccountInfo(record: any) {
     message.error(e?.message || '获取租户信息失败')
   } finally {
     tenantInfoLoading.value = false
+    billingLoading.value = false
+  }
+}
+
+async function reloadBillingCost() {
+  const tenantId = tenantInfoData.value?.id || tenantMgmtTenant.value?.id
+  if (!tenantId) return
+  billingLoading.value = true
+  try {
+    const bill = await getTenantBillingSummary({
+      id: tenantId,
+      limits: { invoices: 5, costDays: billingCostDays.value },
+    })
+    const data = bill.data || {}
+    if (billingData.value) {
+      billingData.value = {
+        ...billingData.value,
+        usage: data.usage,
+        links: { ...billingData.value.links, ...data.links },
+      }
+    } else {
+      billingData.value = data
+    }
+  } catch (e: any) {
+    message.error(e?.message || '查询成本失败')
+  } finally {
     billingLoading.value = false
   }
 }

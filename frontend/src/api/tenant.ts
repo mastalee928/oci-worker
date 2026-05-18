@@ -28,7 +28,10 @@ export function getTenantFullInfo(data: { id: string }) {
   return request.post('/oci/user/fullInfo', data)
 }
 
-export function getTenantBillingSummary(data: { id: string; limits?: { invoices?: number; payments?: number; usageStatements?: number } }) {
+export function getTenantBillingSummary(data: {
+  id: string
+  limits?: { invoices?: number; payments?: number; usageStatements?: number; costDays?: number }
+}) {
   return request.post('/oci/user/billingSummary', data)
 }
 

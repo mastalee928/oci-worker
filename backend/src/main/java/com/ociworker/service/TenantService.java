@@ -39,6 +39,8 @@ public class TenantService {
     private OciCreateTaskMapper taskMapper;
     @Resource
     private OciKvMapper kvMapper;
+    @Resource
+    private UsageCostService usageCostService;
 
     private static final String GROUP_TYPE = "group";
     private static final String GROUP_L1_PREFIX = "group_l1:";
@@ -377,13 +379,16 @@ public class TenantService {
         limits.put("invoices", 5);
         limits.put("payments", 5);
         limits.put("usageStatements", 3);
+        limits.put("costDays", 30);
         if (limitsRaw instanceof Map<?, ?> m) {
             Object inv = m.get("invoices");
             Object pay = m.get("payments");
             Object us = m.get("usageStatements");
+            Object costDays = m.get("costDays");
             if (inv instanceof Number n) limits.put("invoices", Math.max(1, Math.min(50, n.intValue())));
             if (pay instanceof Number n) limits.put("payments", Math.max(1, Math.min(50, n.intValue())));
             if (us instanceof Number n) limits.put("usageStatements", Math.max(1, Math.min(50, n.intValue())));
+            if (costDays instanceof Number n) limits.put("costDays", Math.max(1, Math.min(90, n.intValue())));
         }
 
         Map<String, Object> result = new LinkedHashMap<>();
@@ -393,6 +398,7 @@ public class TenantService {
 
         Map<String, Object> links = new LinkedHashMap<>();
         links.put("billingOverview", "https://cloud.oracle.com/billing/overview?region=" + user.getOciRegion());
+        links.put("costAnalysis", "https://cloud.oracle.com/billing/cost-analysis?region=" + user.getOciRegion());
         links.put("invoices", "https://cloud.oracle.com/billing/invoices?region=" + user.getOciRegion());
         links.put("paymentHistory", "https://cloud.oracle.com/billing/payments?region=" + user.getOciRegion());
         links.put("upgradeAndPayment", "https://cloud.oracle.com/billing/account?region=" + user.getOciRegion());
@@ -409,11 +415,17 @@ public class TenantService {
         payments.put("items", new ArrayList<>());
         result.put("payments", payments);
 
-        Map<String, Object> usage = new LinkedHashMap<>();
-        usage.put("available", Boolean.FALSE);
-        usage.put("reason", "暂未接入 Cost Analysis/Usage API，后续可扩展；当前请在控制台查看或导出报表");
-        usage.put("summary", null);
-        usage.put("statements", new ArrayList<>());
+        Map<String, Object> usage;
+        try {
+            usage = usageCostService.fetchCostAnalysis(id, limits.get("costDays"));
+        } catch (Exception e) {
+            usage = new LinkedHashMap<>();
+            usage.put("available", Boolean.FALSE);
+            usage.put("reason", e.getMessage() == null ? "成本分析查询失败" : e.getMessage());
+            usage.put("summary", null);
+            usage.put("byService", new ArrayList<>());
+            usage.put("byDay", new ArrayList<>());
+        }
         result.put("usage", usage);
 
         com.ociworker.model.dto.SysUserDTO dto = com.ociworker.model.dto.SysUserDTO.builder()
