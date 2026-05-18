@@ -658,7 +658,7 @@ region=ap-tokyo-1"
               </a-spin>
             </div>
           </template>
-          <a-empty v-else description="未加载账务信息" />
+          <a-empty v-else description="切换到此标签后将自动加载账务数据" />
         </a-spin>
         </a-tab-pane>
         <a-tab-pane key="iam" tab="IAM 策略">
@@ -1909,10 +1909,12 @@ async function openTenantMgmt(record: any) {
   announcementsRetentionNote.value = ''
   announcementDrawerVisible.value = false
   quotasList.value = []
+  billingData.value = null
   await loadTenantAccountInfo(record)
 }
 
 function onTenantTabChange(key: string) {
+  if (key === 'billing' && !billingData.value) loadTenantBilling()
   if (key === 'iam' && !iamPoliciesList.value.length) loadIamPolicies()
   if (key === 'announcements' && !announcementsList.value.length) loadAnnouncements()
 }
@@ -1920,19 +1922,10 @@ function onTenantTabChange(key: string) {
 async function loadTenantAccountInfo(record: any) {
   tenantInfoData.value = { configName: record.username, id: record.id }
   tenantInfoLoading.value = true
-  billingLoading.value = true
-  billingData.value = null
   try {
-    const [res, bill] = await Promise.all([
-      getTenantFullInfo({ id: record.id }),
-      getTenantBillingSummary({
-        id: record.id,
-        limits: { invoices: 5, payments: 5, usageStatements: 3, costDays: billingCostDays.value },
-      }),
-    ])
+    const res = await getTenantFullInfo({ id: record.id })
     const d = res.data || {}
     tenantInfoData.value = { ...d, id: record.id }
-    billingData.value = bill.data || null
     if (record?.id) {
       const row = tableData.value.find((r: any) => r.id === record.id)
       if (row) {
@@ -1941,9 +1934,25 @@ async function loadTenantAccountInfo(record: any) {
       }
     }
   } catch (e: any) {
-    message.error(e?.message || '获取租户信息失败')
+    message.error(e?.message || '获取账户信息失败')
   } finally {
     tenantInfoLoading.value = false
+  }
+}
+
+async function loadTenantBilling() {
+  const tenantId = tenantInfoData.value?.id || tenantMgmtTenant.value?.id
+  if (!tenantId) return
+  billingLoading.value = true
+  try {
+    const bill = await getTenantBillingSummary({
+      id: tenantId,
+      limits: { invoices: 5, payments: 5, usageStatements: 3, costDays: billingCostDays.value },
+    })
+    billingData.value = bill.data || null
+  } catch (e: any) {
+    message.error(e?.message || '获取账务信息失败')
+  } finally {
     billingLoading.value = false
   }
 }
