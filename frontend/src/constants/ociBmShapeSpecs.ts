@@ -55,6 +55,11 @@ export const OCI_FLEX_SHAPE_DEFAULTS: Record<string, { ocpus: number; memory: nu
   'VM.Standard.E5.Flex': { ocpus: 1, memory: 12 },
   'VM.Standard.E4.Flex': { ocpus: 1, memory: 16 },
   'VM.Standard.E3.Flex': { ocpus: 1, memory: 16 },
+  'VM.Standard.E6.Flex': { ocpus: 1, memory: 11 },
+  'VM.Standard.E6.Ax.Flex': { ocpus: 1, memory: 7 },
+  'VM.Optimized3.Flex': { ocpus: 1, memory: 14 },
+  'VM.Standard4.Ax.Flex': { ocpus: 1, memory: 9 },
+  'VM.Standard.A4.Flex': { ocpus: 1, memory: 16 },
 }
 
 /** 固定规格 VM（非 Flex），OCPU/内存不可改 */
@@ -69,6 +74,70 @@ export const OCI_FIXED_VM_SHAPE_SPECS: Record<string, { ocpus: number; memory: n
   'VM.Standard2.8': { ocpus: 8, memory: 120 },
   'VM.Standard2.16': { ocpus: 16, memory: 240 },
   'VM.Standard2.24': { ocpus: 24, memory: 320 },
+  'VM.DenseIO2.8': { ocpus: 8, memory: 120 },
+  'VM.DenseIO2.16': { ocpus: 16, memory: 240 },
+  'VM.DenseIO2.24': { ocpus: 24, memory: 320 },
+  'VM.GPU.A10.1': { ocpus: 15, memory: 240 },
+  'VM.GPU.A10.2': { ocpus: 30, memory: 480 },
+  'VM.GPU2.1': { ocpus: 12, memory: 72 },
+  'VM.GPU3.1': { ocpus: 6, memory: 90 },
+  'VM.GPU3.2': { ocpus: 12, memory: 180 },
+  'VM.GPU3.4': { ocpus: 24, memory: 360 },
+  'VM.Standard.B1.1': { ocpus: 1, memory: 12 },
+  'VM.Standard.B1.2': { ocpus: 2, memory: 24 },
+  'VM.Standard.B1.4': { ocpus: 4, memory: 48 },
+  'VM.Standard.B1.8': { ocpus: 8, memory: 96 },
+  'VM.Standard.B1.16': { ocpus: 16, memory: 192 },
+  'VM.Standard1.1': { ocpus: 1, memory: 7 },
+  'VM.Standard1.2': { ocpus: 2, memory: 14 },
+  'VM.Standard1.4': { ocpus: 4, memory: 28 },
+}
+
+/** DenseIO Flex：按 OCI 控制台档位同步 OCPU/内存（本地 NVMe 随档位由 OCI 配置） */
+export type DenseIoFlexTier = { ocpus: number; memory: number; nvmeLabel: string }
+
+export const OCI_DENSEIO_FLEX_TIERS: Record<string, DenseIoFlexTier[]> = {
+  'VM.DenseIO.E5.Flex': [
+    { ocpus: 8, memory: 96, nvmeLabel: '1×6.8 TB NVMe · 8 Gbps' },
+    { ocpus: 16, memory: 192, nvmeLabel: '2×13.6 TB NVMe · 16 Gbps' },
+    { ocpus: 24, memory: 288, nvmeLabel: '3×20.4 TB NVMe · 24 Gbps' },
+    { ocpus: 32, memory: 384, nvmeLabel: '4×27.2 TB NVMe · 32 Gbps' },
+    { ocpus: 40, memory: 480, nvmeLabel: '5×34 TB NVMe · 40 Gbps' },
+    { ocpus: 48, memory: 576, nvmeLabel: '6×40.8 TB NVMe · 48 Gbps' },
+  ],
+  'VM.DenseIO.E4.Flex': [
+    { ocpus: 8, memory: 128, nvmeLabel: '1×6.8 TB NVMe · 8 Gbps' },
+    { ocpus: 16, memory: 256, nvmeLabel: '2×13.6 TB NVMe · 16 Gbps' },
+    { ocpus: 32, memory: 512, nvmeLabel: '4×27.2 TB NVMe · 32 Gbps' },
+  ],
+}
+
+export function getDenseIoFlexTiers(arch?: string | null): DenseIoFlexTier[] | null {
+  if (!arch) return null
+  return OCI_DENSEIO_FLEX_TIERS[arch] ?? null
+}
+
+export function isDenseIoFlexTiered(arch?: string | null): boolean {
+  return !!getDenseIoFlexTiers(arch)?.length
+}
+
+export function denseIoFlexTierKey(t: DenseIoFlexTier): string {
+  return `${t.ocpus}-${t.memory}`
+}
+
+export function formatDenseIoTierLabel(t: DenseIoFlexTier): string {
+  return `${t.ocpus} OCPU · ${t.memory} GB · ${t.nvmeLabel}`
+}
+
+export function validateDenseIoFlexTier(
+  arch: string | undefined,
+  ocpus: number,
+  memory: number,
+): string | null {
+  const tiers = getDenseIoFlexTiers(arch)
+  if (!tiers) return null
+  if (tiers.some((t) => t.ocpus === ocpus && t.memory === memory)) return null
+  return '请选择有效的 DenseIO 档位'
 }
 
 export function isBmArchitecture(arch?: string | null): boolean {
@@ -121,6 +190,14 @@ export function applyTaskShapeDefaults(
 ): boolean {
   const arch = form.architecture
   if (!arch) return false
+  const denseTiers = getDenseIoFlexTiers(arch)
+  if (denseTiers?.length) {
+    const hit = denseTiers.find((t) => t.ocpus === form.ocpus && t.memory === form.memory)
+    const t = hit ?? denseTiers[0]
+    form.ocpus = t.ocpus
+    form.memory = t.memory
+    return false
+  }
   if (isFixedTaskShapeSpec(arch)) {
     const spec = resolveFixedTaskShapeSpec(arch, shapesFromApi)
     if (spec) {

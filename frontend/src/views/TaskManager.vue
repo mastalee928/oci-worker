@@ -143,13 +143,23 @@
             <a-select-option value="CentOS">CentOS</a-select-option>
           </a-select>
         </a-form-item>
+        <a-form-item v-if="createDenseIoTiers?.length" label="DenseIO 档位">
+          <a-select v-model:value="createDenseIoTierKey" style="width: 100%">
+            <a-select-option v-for="t in createDenseIoTiers" :key="denseIoFlexTierKey(t)" :value="denseIoFlexTierKey(t)">
+              {{ formatDenseIoTierLabel(t) }}
+            </a-select-option>
+          </a-select>
+          <div style="color: var(--text-sub); font-size: 12px; margin-top: 4px">
+            本地 NVMe 与网络带宽随档位由 OCI 自动配置，与控制台一致
+          </div>
+        </a-form-item>
         <a-row :gutter="12">
-          <a-col :xs="12" :sm="8">
+          <a-col v-if="!createDenseIoTiers?.length" :xs="12" :sm="8">
             <a-form-item label="OCPU 数量">
               <a-input-number v-model:value="createForm.ocpus" :min="1" :max="512" :step="1" :disabled="createBmLocked" style="width: 100%" />
             </a-form-item>
           </a-col>
-          <a-col :xs="12" :sm="8">
+          <a-col v-if="!createDenseIoTiers?.length" :xs="12" :sm="8">
             <a-form-item label="内存 (GB)">
               <a-input-number v-model:value="createForm.memory" :min="1" :max="4096" :step="1" :disabled="createBmLocked" style="width: 100%" />
             </a-form-item>
@@ -223,13 +233,23 @@
             <a-select-option value="CentOS">CentOS</a-select-option>
           </a-select>
         </a-form-item>
+        <a-form-item v-if="editDenseIoTiers?.length" label="DenseIO 档位">
+          <a-select v-model:value="editDenseIoTierKey" style="width: 100%">
+            <a-select-option v-for="t in editDenseIoTiers" :key="denseIoFlexTierKey(t)" :value="denseIoFlexTierKey(t)">
+              {{ formatDenseIoTierLabel(t) }}
+            </a-select-option>
+          </a-select>
+          <div style="color: var(--text-sub); font-size: 12px; margin-top: 4px">
+            本地 NVMe 与网络带宽随档位由 OCI 自动配置，与控制台一致
+          </div>
+        </a-form-item>
         <a-row :gutter="12">
-          <a-col :xs="12" :sm="8">
+          <a-col v-if="!editDenseIoTiers?.length" :xs="12" :sm="8">
             <a-form-item label="OCPU 数量">
               <a-input-number v-model:value="editForm.ocpus" :min="1" :max="512" :step="1" :disabled="editBmLocked" style="width: 100%" />
             </a-form-item>
           </a-col>
-          <a-col :xs="12" :sm="8">
+          <a-col v-if="!editDenseIoTiers?.length" :xs="12" :sm="8">
             <a-form-item label="内存 (GB)">
               <a-input-number v-model:value="editForm.memory" :min="1" :max="4096" :step="1" :disabled="editBmLocked" style="width: 100%" />
             </a-form-item>
@@ -361,7 +381,8 @@ import { message, Modal } from 'ant-design-vue'
 import { getTaskList, createTask, updateTask, stopTask, hasRunningTask, resumeTask, deleteTask, batchStopTask, batchResumeTask, getTaskDetail } from '../api/task'
 import { getTenantList } from '../api/tenant'
 import { getAvailableShapes } from '../api/instance'
-import { applyTaskShapeDefaults, isFixedTaskShapeSpec } from '../constants/ociBmShapeSpecs'
+import { applyTaskShapeDefaults, isFixedTaskShapeSpec, validateDenseIoFlexTier } from '../constants/ociBmShapeSpecs'
+import { useDenseIoFlexTier } from '../composables/useDenseIoFlexTier'
 
 const statusMap: Record<string, string> = {
   RUNNING: '运行中', STOPPED: '已停止', COMPLETED: '已完成', FAILED: '已失败',
@@ -417,6 +438,12 @@ const createForm = reactive({
 })
 
 const createBmLocked = ref(false)
+const {
+  tiers: createDenseIoTiers,
+  tierKey: createDenseIoTierKey,
+  formatDenseIoTierLabel,
+  denseIoFlexTierKey,
+} = useDenseIoFlexTier(createForm)
 
 watch(
   () => createForm.architecture,
@@ -444,6 +471,10 @@ const editForm = reactive({
   ocpus: 1, memory: 6, disk: 50, createNumbers: 1, interval: 60, rootPassword: '',
   customScript: '', assignPublicIp: true, assignIpv6: false,
 })
+const {
+  tiers: editDenseIoTiers,
+  tierKey: editDenseIoTierKey,
+} = useDenseIoFlexTier(editForm)
 
 watch(
   () => editForm.architecture,
@@ -510,6 +541,11 @@ async function showEditModal(record: any) {
 }
 
 async function handleEdit() {
+  const denseErr = validateDenseIoFlexTier(editForm.architecture, editForm.ocpus, editForm.memory)
+  if (denseErr) {
+    message.error(denseErr)
+    return
+  }
   if (editForm.architecture?.includes('A2.Flex') && editForm.ocpus === 1 && editForm.memory === 1) {
     message.error('比例错误')
     return
@@ -617,6 +653,11 @@ function showCreateModal() {
 
 async function handleCreate() {
   if (!createForm.userId) { message.warning('请选择租户'); return }
+  const denseErr = validateDenseIoFlexTier(createForm.architecture, createForm.ocpus, createForm.memory)
+  if (denseErr) {
+    message.error(denseErr)
+    return
+  }
   if (createForm.architecture?.includes('A2.Flex') && createForm.ocpus === 1 && createForm.memory === 1) {
     message.error('比例错误')
     return

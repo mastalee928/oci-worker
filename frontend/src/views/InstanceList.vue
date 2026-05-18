@@ -453,13 +453,23 @@
             <a-select-option value="CentOS">CentOS</a-select-option>
           </a-select>
         </a-form-item>
+        <a-form-item v-if="quickDenseIoTiers?.length" label="DenseIO 档位">
+          <a-select v-model:value="quickDenseIoTierKey" style="width: 100%">
+            <a-select-option v-for="t in quickDenseIoTiers" :key="denseIoFlexTierKey(t)" :value="denseIoFlexTierKey(t)">
+              {{ formatDenseIoTierLabel(t) }}
+            </a-select-option>
+          </a-select>
+          <div style="color: var(--text-sub); font-size: 12px; margin-top: 4px">
+            本地 NVMe 与网络带宽随档位由 OCI 自动配置，与控制台一致
+          </div>
+        </a-form-item>
         <a-row :gutter="12">
-          <a-col :xs="12" :sm="8">
+          <a-col v-if="!quickDenseIoTiers?.length" :xs="12" :sm="8">
             <a-form-item label="OCPU">
               <a-input-number v-model:value="quickTaskForm.ocpus" :min="1" :max="512" :disabled="quickTaskBmLocked" style="width: 100%" />
             </a-form-item>
           </a-col>
-          <a-col :xs="12" :sm="8">
+          <a-col v-if="!quickDenseIoTiers?.length" :xs="12" :sm="8">
             <a-form-item label="内存 (GB)">
               <a-input-number v-model:value="quickTaskForm.memory" :min="1" :max="4096" :disabled="quickTaskBmLocked" style="width: 100%" />
             </a-form-item>
@@ -1188,7 +1198,8 @@ import {
   ociRegionSelectOptions,
   filterOciRegionSelectOption,
 } from '../utils/ociRegionCatalog'
-import { applyTaskShapeDefaults, isFixedTaskShapeSpec } from '../constants/ociBmShapeSpecs'
+import { applyTaskShapeDefaults, isFixedTaskShapeSpec, validateDenseIoFlexTier } from '../constants/ociBmShapeSpecs'
+import { useDenseIoFlexTier } from '../composables/useDenseIoFlexTier'
 
 interface TenantData {
   tenant: any
@@ -1762,6 +1773,12 @@ const quickTaskForm = reactive({
 })
 
 const quickTaskBmLocked = ref(false)
+const {
+  tiers: quickDenseIoTiers,
+  tierKey: quickDenseIoTierKey,
+  formatDenseIoTierLabel,
+  denseIoFlexTierKey,
+} = useDenseIoFlexTier(quickTaskForm)
 
 watch(
   () => quickTaskForm.architecture,
@@ -2687,6 +2704,11 @@ function generateQuickTaskRandomPwd() {
 
 async function handleQuickTask() {
   if (!quickTaskTenant.value) return
+  const denseErr = validateDenseIoFlexTier(quickTaskForm.architecture, quickTaskForm.ocpus, quickTaskForm.memory)
+  if (denseErr) {
+    message.error(denseErr)
+    return
+  }
   if (quickTaskForm.architecture?.includes('A2.Flex') && quickTaskForm.ocpus === 1 && quickTaskForm.memory === 1) {
     message.error('比例错误')
     return
