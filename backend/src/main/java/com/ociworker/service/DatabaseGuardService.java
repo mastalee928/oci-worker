@@ -304,6 +304,8 @@ public class DatabaseGuardService {
         addColumnIfMissing(conn, "oci_create_task", "created_instances", "TEXT DEFAULT NULL AFTER success_count");
         addColumnIfMissing(conn, "oci_login_audit", "login_detail",
                 "MEDIUMTEXT NULL COMMENT 'JSON: 访问入口、网络与链路、客户端与能力' AFTER user_agent");
+        addColumnIfMissing(conn, "oci_openai_key", "key_encrypted",
+                "TEXT NULL COMMENT 'AES 加密完整 sk，供面板查看' AFTER key_prefix");
     }
 
     private void addColumnIfMissing(Connection conn, String table, String column, String definition) {

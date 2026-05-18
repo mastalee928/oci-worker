@@ -16,6 +16,10 @@ export function listOracleKeys(data: { ociUserId: string }) {
   return request.post('/oci/oracle-ai/keys/list', data)
 }
 
+export function revealOracleKey(data: { id: string }) {
+  return request.post('/oci/oracle-ai/keys/reveal', data)
+}
+
 export function setOracleKeyDisabled(data: { id: string; disabled: boolean }) {
   return request.post('/oci/oracle-ai/keys/setDisabled', data)
 }

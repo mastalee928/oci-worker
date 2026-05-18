@@ -152,8 +152,22 @@ public class OracleAiController {
         d.put("id", c.id());
         d.put("apiKey", c.plainKey());
         d.put("keyPrefix", c.keyPrefix());
-        d.put("warning", "此密钥只显示一次，请立即保存。对接 New API 时 API 地址为 http://<本机或域名>:" + openaiApiPort + "/v1");
+        d.put("keyMasked", c.keyMasked());
+        d.put("warning", "密钥已入库，可在列表中点击「查看」再次复制。对接 New API 时 API 地址为 http://<本机或域名>:" + openaiApiPort + "/v1");
         return ResponseData.ok(d);
+    }
+
+    @PostMapping("/keys/reveal")
+    public ResponseData<?> revealKey(@RequestBody Map<String, String> body) {
+        if (body == null || body.get("id") == null) {
+            return ResponseData.error("id 必填");
+        }
+        try {
+            String plain = openaiKeyService.revealPlainKey(body.get("id"));
+            return ResponseData.ok(Map.of("apiKey", plain));
+        } catch (com.ociworker.exception.OciException e) {
+            return ResponseData.error(e.getMessage());
+        }
     }
 
     @PostMapping("/keys/list")
@@ -168,6 +182,7 @@ public class OracleAiController {
                                     row.put("id", k.getId());
                                     row.put("name", k.getName());
                                     row.put("keyPrefix", k.getKeyPrefix());
+                                    row.put("keyMasked", openaiKeyService.maskForList(k));
                                     row.put("disabled", k.getDisabled() != null && k.getDisabled() == 1);
                                     row.put("createTime", k.getCreateTime());
                                     row.put("lastUsed", k.getLastUsed());

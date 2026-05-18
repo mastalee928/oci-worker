@@ -48,6 +48,9 @@
           <template v-if="column.key === 'dis'">
             <a-tag :color="record.disabled ? 'red' : 'green'">{{ record.disabled ? '已禁用' : '正常' }}</a-tag>
           </template>
+          <template v-else-if="column.key === 'keyMasked'">
+            <code class="key-masked">{{ record.keyMasked || 'sk-****' }}</code>
+          </template>
           <template v-else-if="column.key === 'a'">
             <a-space>
               <a-button size="small" type="link" @click="viewKey(record)">查看</a-button>
@@ -65,7 +68,7 @@
         <a-empty v-if="!keys.length && !keysLoading" description="无密钥" />
         <div v-for="k in keys" :key="k.id" class="key-card-m">
           <div>
-            <b>{{ k.name || '未命名' }}</b> <code class="p">{{ k.keyPrefix }}…</code>
+            <b>{{ k.name || '未命名' }}</b> <code class="p">{{ k.keyMasked || 'sk-****' }}</code>
           </div>
           <a-button size="small" type="link" @click="viewKey(k)">查看</a-button>
           <a-button size="small" @click="toggleKey(k)">{{ k.disabled ? '启用' : '禁用' }}</a-button>
@@ -172,11 +175,11 @@
         </a-form-item>
       </a-form>
     </a-modal>
-    <a-modal v-model:open="plainKeyModalOpen" title="请立即复制保存" :footer="null" :width="600">
+    <a-modal v-model:open="plainKeyModalOpen" title="密钥已生成" :footer="null" :width="600">
       <a-alert
         class="mb-alert"
-        type="error"
-        message="出于安全考虑，系统只保存密钥哈希，无法再次展示明文。关闭后如需更换，请生成新密钥。"
+        type="info"
+        message="密钥已写入数据库（加密保存）。关闭后仍可在列表点击「查看」复制完整密钥。"
         show-icon
       />
       <a-typography-paragraph copyable>
@@ -185,10 +188,20 @@
     </a-modal>
 
     <a-modal v-model:open="keyViewOpen" title="密钥详情" :footer="null" :width="640">
+      <a-spin :spinning="keyViewLoading">
       <a-descriptions bordered size="small" :column="1">
         <a-descriptions-item label="备注">{{ keyViewRow?.name || '未命名' }}</a-descriptions-item>
-        <a-descriptions-item label="前缀">
-          <code>{{ keyViewRow?.keyPrefix }}…</code>
+        <a-descriptions-item label="密钥（列表脱敏）">
+          <code>{{ keyViewRow?.keyMasked || 'sk-****' }}</code>
+        </a-descriptions-item>
+        <a-descriptions-item label="完整密钥">
+          <template v-if="keyViewPlain">
+            <a-typography-paragraph copyable style="margin: 0">
+              <code class="key-plain">{{ keyViewPlain }}</code>
+            </a-typography-paragraph>
+          </template>
+          <span v-else-if="keyViewError" style="color: var(--danger-text, #f87171)">{{ keyViewError }}</span>
+          <span v-else style="color: var(--text-sub)">加载中…</span>
         </a-descriptions-item>
         <a-descriptions-item label="状态">
           <a-tag :color="keyViewRow?.disabled ? 'red' : 'green'">{{ keyViewRow?.disabled ? '已禁用' : '正常' }}</a-tag>
@@ -201,11 +214,12 @@
           </a-typography-paragraph>
         </a-descriptions-item>
       </a-descriptions>
+      </a-spin>
       <a-alert
         class="mt-card"
         type="warning"
         show-icon
-        message="系统不保存密钥明文，仅展示前缀用于识别。需要替换请生成新密钥。"
+        message="完整密钥加密存于数据库；修改面板登录密码后若无法解密，请重新生成密钥。"
       />
     </a-modal>
 
@@ -226,6 +240,7 @@ import {
   getOracleAiGateway,
   setOracleAiGatewayEnabled,
   listOracleKeys,
+  revealOracleKey,
   createOracleKey,
   setOracleKeyDisabled,
   removeOracleKey,
@@ -265,6 +280,9 @@ const openaiProxyEnabled = ref(true)
 
 const keyViewOpen = ref(false)
 const keyViewRow = ref<any | null>(null)
+const keyViewPlain = ref('')
+const keyViewError = ref('')
+const keyViewLoading = ref(false)
 
 const chatApiKey = ref('')
 const chatModel = ref<string | undefined>(undefined)
@@ -278,7 +296,7 @@ const chatBadModels = ref<Record<string, { code: number; msg: string; at: number
 
 const keyColumns = [
   { title: '备注', dataIndex: 'name', key: 'name' },
-  { title: '前缀', dataIndex: 'keyPrefix', key: 'keyPrefix' },
+  { title: '密钥', key: 'keyMasked', width: 200 },
   { title: '状态', key: 'dis' },
   { title: '创建', dataIndex: 'createTime', key: 'createTime' },
   { title: '最后使用', dataIndex: 'lastUsed', key: 'lastUsed' },
@@ -742,9 +760,24 @@ function removeK(k: any) {
     .catch(() => {})
 }
 
-function viewKey(k: any) {
+async function viewKey(k: any) {
+  if (!k?.id) return
   keyViewRow.value = k
+  keyViewPlain.value = ''
+  keyViewError.value = ''
   keyViewOpen.value = true
+  keyViewLoading.value = true
+  try {
+    const r: any = await revealOracleKey({ id: k.id })
+    keyViewPlain.value = r?.data?.apiKey || ''
+    if (!keyViewPlain.value) {
+      keyViewError.value = '未返回密钥内容'
+    }
+  } catch (e: any) {
+    keyViewError.value = e?.message || e?.data?.message || '无法读取完整密钥'
+  } finally {
+    keyViewLoading.value = false
+  }
 }
 </script>
 
@@ -787,6 +820,7 @@ function viewKey(k: any) {
   user-select: all;
 }
 .key-plain { word-break: break-all; font-size: 13px; }
+.key-masked { font-size: 12px; user-select: none; }
 .key-card-m { padding: 8px; border: 1px solid var(--border, #e8e8e8); border-radius: 6px; margin-bottom: 8px; }
 .key-card-m .p { font-size: 12px; }
 .chat-box {
