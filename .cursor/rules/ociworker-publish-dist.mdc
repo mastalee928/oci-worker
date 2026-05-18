@@ -15,12 +15,22 @@ alwaysApply: true
 - 开发、提交、push、`latest` / `installer-latest` 等由开发仓 CI 与用户指令决定
 - **不要**把发布仓的约束（如 commit 只能写「增加以及优化功能。」、禁止删 tag、禁止提交源码到 OCIworker 等）套用到开发仓
 
-## 何时才适用 `publish-repo.mdc`
+## 何时才动公开仓
 
-**仅当用户明确表示要在 `OCIworker/OCIworker` 发布新版本时**（例如说「可以发布」「在 OCIworker 发一版」），才遵守：
+**公开仓日常不更新。** 只有用户 **特别说明** 要给 `OCIworker/OCIworker` 做更新/发布时（例如「可以发布」「更新公开仓」「在 OCIworker 发一版」），才：
 
-`H:\cursor\OCIWorker-dist\.cursor\rules\publish-repo.mdc`
+1. 遵守 `H:\cursor\OCIWorker-dist\.cursor\rules\publish-repo.mdc`
+2. 使用 **OCIworker** 账号操作该仓
 
-其余时候（日常开发、开发仓自己的 Release、只打开 `OCIWorker-dist` 目录等）**不适用**该规则。
+其余一切（日常开发、开发仓 push/Release、打开 `OCIWorker-dist` 目录、检查更新逻辑讨论等）**默认不碰公开仓**，也 **不适用** `publish-repo.mdc`。
 
 同步时从开发仓 **只读复制** 到 `OCIWorker-dist` 再改；是否允许改开发仓以用户当次指令为准。
+
+## GitHub 账号（`gh` / push）
+
+| 场景 | 使用账号 |
+|------|----------|
+| 日常开发、`mastalee928/oci-worker` 的 push / CI | **mastalee928**（默认） |
+| 对外公开仓 `OCIworker/OCIworker` 的 push / Release | **OCIworker** |
+
+推送前确认 `gh auth status` 的 Active account 与目标远程一致；开发仓 push 失败且报 `Repository not found` 时，常见原因是当前登录成了 `OCIworker`，应 `gh auth switch -u mastalee928` 后再推。

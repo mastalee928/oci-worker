@@ -104,11 +104,13 @@
               <div class="group-dot" :style="{ background: groupColors[gi % groupColors.length], boxShadow: '0 0 8px ' + groupColors[gi % groupColors.length] + '80' }"></div>
               <span class="group-name" @click="toggleGroup(group.key)">{{ group.label }}</span>
 
-              <div v-if="isMobile || groupTotalCount(group) > 0" class="group-stats">
-                <div class="stat-item group-count-stat" :title="`${groupTotalCount(group)} 个配置`">
-                  <AppstoreOutlined class="group-count-icon" />
-                  <span>{{ groupTotalCount(group) }}</span>
-                </div>
+              <div class="group-stats">
+                <a-badge
+                  :count="groupTotalCount(group)"
+                  :number-style="{ backgroundColor: 'var(--primary)', fontSize: '11px' }"
+                  :show-zero="true"
+                  class="group-tenant-count-badge"
+                />
                 <template v-if="!isMobile" v-for="(pc, pt) in getPlanCounts(group)" :key="pt">
                   <span :class="['plan-tag', pt === 'PAYG' ? 'tag-green' : pt === 'FREE' ? 'tag-orange' : 'tag-gray']">{{ pt }}×{{ pc }}</span>
                 </template>
@@ -208,12 +210,12 @@
                   <RightOutlined v-else />
                 </div>
                 <span class="subgroup-name" @click="toggleGroup(sub.key)">{{ sub.label }}</span>
-                <div class="group-stats">
-                  <div class="stat-item group-count-stat" :title="`${sub.tenants.length} 个配置`">
-                    <AppstoreOutlined class="group-count-icon" />
-                    <span>{{ sub.tenants.length }}</span>
-                  </div>
-                </div>
+                <a-badge
+                  :count="sub.tenants.length"
+                  :number-style="{ backgroundColor: 'var(--primary)', fontSize: '11px' }"
+                  :show-zero="true"
+                  class="group-tenant-count-badge"
+                />
                 </div>
                 <div class="group-card-header-actions">
                   <a-dropdown :trigger="['click']" @click.stop>
@@ -1115,7 +1117,7 @@ import { message, Modal } from 'ant-design-vue'
 import type { UploadFile } from 'ant-design-vue'
 import { getTenantList, addTenant, updateTenant, removeTenant, uploadKey, getTenantFullInfo, getTenantBillingSummary, downloadInvoicePdf, getDomainSettings, updateMfa, updatePasswordExpiry, getAuditLogs, getServiceQuotas, listIamPolicies, getIamPolicy, listAnnouncements, getAnnouncementDetail, getTenantGroups, createGroup, renameGroup, deleteGroup, saveGroupOrder, unlockAuthFactors, getAuthFactors, updateAuthFactors } from '../api/tenant'
 import { sendVerifyCode } from '../api/system'
-import { RightOutlined, DownOutlined, SettingOutlined, FolderOutlined, EditOutlined, DeleteOutlined, AppstoreOutlined } from '@ant-design/icons-vue'
+import { RightOutlined, DownOutlined, SettingOutlined, FolderOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons-vue'
 import AuditLogTable from '../components/AuditLogTable.vue'
 import {
   loadOciRegionCatalog,
@@ -2556,18 +2558,12 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   margin-left: 8px;
   flex-shrink: 0;
 }
-.group-stats .stat-item {
-  display: flex;
-  align-items: center;
-  gap: 4px;
+.group-tenant-count-badge {
+  margin-left: 8px;
+  flex-shrink: 0;
 }
-.group-count-stat {
-  font-weight: 600;
-  color: var(--text-main, #e8e8e8);
-}
-.group-count-icon {
-  font-size: 14px;
-  color: var(--primary, #1677ff);
+.group-tenant-count-badge :deep(.ant-badge-count) {
+  box-shadow: none;
 }
 .group-action-btn {
   padding: 5px 10px;
