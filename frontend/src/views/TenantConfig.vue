@@ -774,11 +774,17 @@ region=ap-tokyo-1"
               </a-descriptions>
               <div v-if="announcementDetail.description" class="announcement-block">
                 <div class="announcement-block-title">描述</div>
-                <div class="announcement-description">{{ announcementDetail.description }}</div>
+                <div
+                  class="announcement-description"
+                  v-html="formatAnnouncementBody(announcementDetail.description)"
+                />
               </div>
               <div v-if="announcementDetail.additionalInformation" class="announcement-block">
                 <div class="announcement-block-title">附加信息</div>
-                <div class="announcement-description">{{ announcementDetail.additionalInformation }}</div>
+                <div
+                  class="announcement-description"
+                  v-html="formatAnnouncementBody(announcementDetail.additionalInformation)"
+                />
               </div>
             </template>
             <a-empty v-else description="暂无详情" />
@@ -1171,6 +1177,20 @@ function announcementStatusColor(v: string | null | undefined): string {
   if (v === 'Read') return 'default'
   if (v === 'Unread') return 'blue'
   return 'default'
+}
+
+/** 转义 HTML 并将 OCI 公告中的 [text](url) 转为可点击链接 */
+function formatAnnouncementBody(text: string | null | undefined): string {
+  if (!text) return ''
+  const escaped = text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+  return escaped.replace(
+    /\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g,
+    '<a href="$2" target="_blank" rel="noopener noreferrer" class="announcement-link">$1</a>',
+  )
 }
 
 function announcementCustomRow(record: any) {
@@ -2452,6 +2472,7 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   font-weight: 600;
   margin-bottom: 8px;
   font-size: 13px;
+  color: var(--text-main);
 }
 .announcement-description {
   white-space: pre-wrap;
@@ -2459,8 +2480,16 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   font-size: 13px;
   line-height: 1.6;
   padding: 10px 12px;
-  background: var(--bg-sub, #fafafa);
-  border-radius: 6px;
-  border: 1px solid var(--border, #f0f0f0);
+  color: var(--text-main);
+  background: var(--input-bg);
+  border-radius: var(--radius-sm, 8px);
+  border: 1px solid var(--border);
+}
+.announcement-description :deep(.announcement-link) {
+  color: var(--primary);
+  text-decoration: underline;
+}
+.announcement-description :deep(.announcement-link:hover) {
+  color: var(--primary-hover);
 }
 </style>
