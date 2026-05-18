@@ -59,7 +59,7 @@
             </div>
             <div class="mobile-card-body">
               <div class="mobile-card-row"><span class="label">租户名</span><span class="value">{{ r.tenantName || '获取中...' }}</span></div>
-              <div class="mobile-card-row"><span class="label">区域</span><a-tag color="blue" style="margin:0">{{ getOciRegionDisplayName(r.ociRegion) }}</a-tag></div>
+              <div class="mobile-card-row"><span class="label">主区域</span><a-tag color="blue" style="margin:0">{{ getOciRegionDisplayName(r.ociRegion) }}</a-tag></div>
               <div class="mobile-card-row">
                 <span class="label">开机任务</span>
                 <a-badge v-if="r.hasRunningTask" status="processing" text="执行中" />
@@ -171,7 +171,7 @@
                     </div>
                     <div class="mobile-card-body">
                       <div class="mobile-card-row"><span class="label">租户名</span><span class="value">{{ r.tenantName || '获取中...' }}</span></div>
-                      <div class="mobile-card-row"><span class="label">区域</span><a-tag color="blue" style="margin:0">{{ getOciRegionDisplayName(r.ociRegion) }}</a-tag></div>
+                      <div class="mobile-card-row"><span class="label">主区域</span><a-tag color="blue" style="margin:0">{{ getOciRegionDisplayName(r.ociRegion) }}</a-tag></div>
                       <div class="mobile-card-row">
                         <span class="label">任务</span>
                         <a-badge v-if="r.hasRunningTask" status="processing" text="执行中" />
@@ -266,7 +266,7 @@
                       </div>
                       <div class="mobile-card-body">
                         <div class="mobile-card-row"><span class="label">租户名</span><span class="value">{{ r.tenantName || '获取中...' }}</span></div>
-                        <div class="mobile-card-row"><span class="label">区域</span><a-tag color="blue" style="margin:0">{{ getOciRegionDisplayName(r.ociRegion) }}</a-tag></div>
+                        <div class="mobile-card-row"><span class="label">主区域</span><a-tag color="blue" style="margin:0">{{ getOciRegionDisplayName(r.ociRegion) }}</a-tag></div>
                         <div class="mobile-card-row">
                           <span class="label">任务</span>
                           <a-badge v-if="r.hasRunningTask" status="processing" text="执行中" />
@@ -509,9 +509,9 @@ region=ap-tokyo-1"
           <a-descriptions-item label="开始日期">{{ formatUtcCnDate(tenantInfoData.subscriptionStartTime) }}</a-descriptions-item>
           <a-descriptions-item label="注册地">{{ formatCountryCn(tenantInfoData.registrationLocation) }}</a-descriptions-item>
         </a-descriptions>
-
-        <a-divider style="margin: 14px 0">账务信息</a-divider>
-
+      </a-spin>
+        </a-tab-pane>
+        <a-tab-pane key="billing" tab="账务信息">
         <a-spin :spinning="billingLoading">
           <template v-if="billingData">
             <a-row :gutter="12">
@@ -581,7 +581,6 @@ region=ap-tokyo-1"
           </template>
           <a-empty v-else description="未加载账务信息" />
         </a-spin>
-      </a-spin>
         </a-tab-pane>
         <a-tab-pane key="iam" tab="IAM 策略">
           <a-alert type="info" show-icon style="margin-bottom: 10px"
@@ -632,8 +631,6 @@ region=ap-tokyo-1"
           </a-spin>
         </a-tab-pane>
         <a-tab-pane key="quotas" tab="账户配额">
-          <a-alert type="info" show-icon style="margin-bottom: 10px"
-            message="租户级服务配额（Limits API），与域选择无关。" />
           <a-space style="margin-bottom: 12px">
             <a-button type="primary" @click="loadQuotas" :loading="quotasLoading">
               <template #icon><ReloadOutlined /></template>查询配额
@@ -945,7 +942,7 @@ function formatCountryCn(v: any): string {
 const columns = [
   { title: '名称', dataIndex: 'username', key: 'username', ellipsis: true },
   { title: '租户名', dataIndex: 'tenantName', key: 'tenantName', width: 150, ellipsis: true },
-  { title: '区域', dataIndex: 'ociRegion', key: 'ociRegion', width: 220 },
+  { title: '主区域', dataIndex: 'ociRegion', key: 'ociRegion', width: 220 },
   { title: '开机任务', key: 'taskStatus', width: 140 },
   { title: '账户类型', dataIndex: 'planType', key: 'planType', width: 130 },
   { title: '创建时间', dataIndex: 'createTime', key: 'createTime', width: 180 },

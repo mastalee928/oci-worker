@@ -541,6 +541,9 @@
             <a-descriptions-item label="状态">
               <a-badge :status="stateColorMap[currentInstance.state] || 'default'" :text="currentInstance.state" />
             </a-descriptions-item>
+            <a-descriptions-item label="创建日期">
+              {{ formatInstanceCreatedDate(currentInstance.timeCreated) }}
+            </a-descriptions-item>
           </a-descriptions>
 
           <a-divider orientation="left">网络信息</a-divider>
@@ -1200,6 +1203,20 @@ import {
 } from '../utils/ociRegionCatalog'
 import { applyTaskShapeDefaults, isFixedTaskShapeSpec, validateDenseIoFlexTier } from '../constants/ociBmShapeSpecs'
 import { useDenseIoFlexTier } from '../composables/useDenseIoFlexTier'
+import dayjs from 'dayjs'
+import utc from 'dayjs/plugin/utc'
+
+dayjs.extend(utc)
+
+function formatInstanceCreatedDate(v: unknown): string {
+  if (v == null || v === '') return '—'
+  const d = dayjs.utc(v)
+  if (!d.isValid()) return '—'
+  const y = d.year()
+  const m = String(d.month() + 1).padStart(2, '0')
+  const day = String(d.date()).padStart(2, '0')
+  return `${y}年${m}月${day}日`
+}
 
 interface TenantData {
   tenant: any
