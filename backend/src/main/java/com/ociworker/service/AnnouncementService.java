@@ -8,6 +8,7 @@ import com.oracle.bmc.Region;
 import com.oracle.bmc.announcementsservice.AnnouncementClient;
 import com.oracle.bmc.announcementsservice.model.AffectedResource;
 import com.oracle.bmc.announcementsservice.model.Announcement;
+import com.oracle.bmc.announcementsservice.model.Property;
 import com.oracle.bmc.announcementsservice.model.AnnouncementSummary;
 import com.oracle.bmc.announcementsservice.model.AnnouncementUserStatusDetails;
 import com.oracle.bmc.announcementsservice.model.AnnouncementsCollection;
@@ -126,7 +127,7 @@ public class AnnouncementService {
                     rm.put("resourceId", r.getResourceId());
                     rm.put("resourceName", r.getResourceName());
                     rm.put("region", r.getRegion());
-                    rm.put("additionalProperties", r.getAdditionalProperties());
+                    rm.put("additionalProperties", toPropertyList(r.getAdditionalProperties()));
                     impacted.add(rm);
                 }
             }
@@ -260,5 +261,19 @@ public class AnnouncementService {
         } catch (Exception ignored) {
             return String.valueOf(e);
         }
+    }
+
+    /** OCI SDK Property 不能由 Jackson 直接序列化，转为简单结构 */
+    private static List<Map<String, String>> toPropertyList(List<Property> props) {
+        if (props == null || props.isEmpty()) return List.of();
+        List<Map<String, String>> out = new ArrayList<>();
+        for (Property p : props) {
+            if (p == null) continue;
+            Map<String, String> row = new LinkedHashMap<>();
+            row.put("name", p.getName());
+            row.put("value", p.getValue());
+            out.add(row);
+        }
+        return out;
     }
 }
