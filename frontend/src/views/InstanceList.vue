@@ -1210,6 +1210,7 @@ dayjs.extend(utc)
 
 function formatInstanceCreatedDate(v: unknown): string {
   if (v == null || v === '') return '—'
+  if (typeof v !== 'string' && typeof v !== 'number' && !(v instanceof Date)) return '—'
   const d = dayjs.utc(v)
   if (!d.isValid()) return '—'
   const y = d.year()
