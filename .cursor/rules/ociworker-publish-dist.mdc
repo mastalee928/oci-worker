@@ -1,0 +1,26 @@
+---
+description: 开发仓与 OCIworker 对外发布仓分离；两套发布互不影响
+alwaysApply: true
+---
+
+# 两套仓库、两套发布
+
+| 仓库 | 本地 | 远程 | 发布规则 |
+|------|------|------|----------|
+| **开发仓** | `H:\cursor\oci-worker` | `mastalee928/oci-worker` | **本仓自己的 CI / Release**（`.github/workflows` 等），**不**适用 `OCIWorker-dist` 规则 |
+| **对外发布仓** | `H:\cursor\OCIWorker-dist` | `OCIworker/OCIworker` | 仅适用 `H:\cursor\OCIWorker-dist\.cursor\rules\publish-repo.mdc` |
+
+## 在开发仓工作时
+
+- 开发、提交、push、`latest` / `installer-latest` 等由开发仓 CI 与用户指令决定
+- **不要**把发布仓的约束（如 commit 只能写「增加以及优化功能。」、禁止删 tag、禁止提交源码到 OCIworker 等）套用到开发仓
+
+## 何时才适用 `publish-repo.mdc`
+
+**仅当用户明确表示要在 `OCIworker/OCIworker` 发布新版本时**（例如说「可以发布」「在 OCIworker 发一版」），才遵守：
+
+`H:\cursor\OCIWorker-dist\.cursor\rules\publish-repo.mdc`
+
+其余时候（日常开发、开发仓自己的 Release、只打开 `OCIWorker-dist` 目录等）**不适用**该规则。
+
+同步时从开发仓 **只读复制** 到 `OCIWorker-dist` 再改；是否允许改开发仓以用户当次指令为准。

@@ -1,4 +1,5 @@
 # Java
+BOOT-INF/
 target/
 *.class
 *.jar

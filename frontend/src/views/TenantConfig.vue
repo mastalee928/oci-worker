@@ -90,7 +90,8 @@
                      'dragging': dragFromIndex === gi }">
           <!-- 一级分组卡片 -->
           <div class="group-card">
-            <div style="display: flex; align-items: center; gap: 10px;">
+            <div class="group-card-header">
+              <div class="group-card-header-main">
               <div class="drag-handle" title="拖动排序" draggable="true"
                 @dragstart="onDragStart($event, gi)"
                 @dragend="onDragEnd">
@@ -103,17 +104,18 @@
               <div class="group-dot" :style="{ background: groupColors[gi % groupColors.length], boxShadow: '0 0 8px ' + groupColors[gi % groupColors.length] + '80' }"></div>
               <span class="group-name" @click="toggleGroup(group.key)">{{ group.label }}</span>
 
-              <div v-if="groupTotalCount(group) > 0" class="group-stats">
-                <div class="stat-item">
-                  <span class="stat-icon">📅</span>
+              <div v-if="isMobile || groupTotalCount(group) > 0" class="group-stats">
+                <div class="stat-item group-count-stat" :title="`${groupTotalCount(group)} 个配置`">
+                  <AppstoreOutlined class="group-count-icon" />
                   <span>{{ groupTotalCount(group) }}</span>
                 </div>
-                <template v-for="(pc, pt) in getPlanCounts(group)" :key="pt">
+                <template v-if="!isMobile" v-for="(pc, pt) in getPlanCounts(group)" :key="pt">
                   <span :class="['plan-tag', pt === 'PAYG' ? 'tag-green' : pt === 'FREE' ? 'tag-orange' : 'tag-gray']">{{ pt }}×{{ pc }}</span>
                 </template>
               </div>
+              </div>
 
-              <div style="display: flex; gap: 6px; margin-left: auto;">
+              <div class="group-card-header-actions">
                 <button class="group-action-btn" @click.stop="handleAddSubGroup(group.label)">
                   <PlusOutlined /> 子分组
                 </button>
@@ -196,7 +198,8 @@
           <!-- 二级子分组卡片 -->
           <template v-if="group.children && expandedGroups.has(group.key)">
             <div v-for="sub in group.children" :key="sub.key" class="group-card subgroup-card">
-              <div style="display: flex; align-items: center; gap: 10px;">
+              <div class="group-card-header subgroup-header">
+                <div class="group-card-header-main">
                 <div class="drag-handle" title="拖动排序">
                   <span style="font-size: 12px; line-height: 1;">⠿</span>
                 </div>
@@ -206,12 +209,13 @@
                 </div>
                 <span class="subgroup-name" @click="toggleGroup(sub.key)">{{ sub.label }}</span>
                 <div class="group-stats">
-                  <div class="stat-item">
-                    <span class="stat-icon">📅</span>
+                  <div class="stat-item group-count-stat" :title="`${sub.tenants.length} 个配置`">
+                    <AppstoreOutlined class="group-count-icon" />
                     <span>{{ sub.tenants.length }}</span>
                   </div>
                 </div>
-                <div style="display: flex; gap: 6px; margin-left: auto;">
+                </div>
+                <div class="group-card-header-actions">
                   <a-dropdown :trigger="['click']" @click.stop>
                     <button class="group-action-btn" title="编辑分组"><SettingOutlined /></button>
                     <template #overlay>
@@ -495,7 +499,13 @@ region=ap-tokyo-1"
             <span v-else>—</span>
           </a-descriptions-item>
           <a-descriptions-item label="升级状态">
-            <a-tag v-if="tenantInfoData.upgradeState" color="purple">{{ tenantInfoData.upgradeState }}</a-tag>
+            <a-tag v-if="tenantInfoData.upgradeState" color="purple">{{ formatUpgradeState(tenantInfoData.upgradeState) }}</a-tag>
+            <span v-else>—</span>
+          </a-descriptions-item>
+          <a-descriptions-item label="订阅状态">
+            <a-tag v-if="tenantInfoData.subscriptionStatusLabel || tenantInfoData.subscriptionStatus" color="blue">
+              {{ tenantInfoData.subscriptionStatusLabel || tenantInfoData.subscriptionStatus }}
+            </a-tag>
             <span v-else>—</span>
           </a-descriptions-item>
           <a-descriptions-item label="货币">{{ tenantInfoData.currencyCode || '—' }}</a-descriptions-item>
@@ -513,6 +523,9 @@ region=ap-tokyo-1"
         </a-tab-pane>
         <a-tab-pane key="billing" tab="账务信息">
         <a-spin :spinning="billingLoading">
+          <a-space v-if="!billingData && !billingLoading" style="margin-bottom: 12px">
+            <a-button type="primary" @click="loadTenantBilling">加载账务信息</a-button>
+          </a-space>
           <template v-if="billingData">
             <a-row :gutter="12">
               <a-col :xs="24" :sm="12">
@@ -549,6 +562,9 @@ region=ap-tokyo-1"
 
             <div style="margin-top: 12px">
               <a-space wrap style="margin-bottom: 8px">
+                <a-button size="small" :loading="billingLoading" @click="loadTenantBilling">
+                  <template #icon><ReloadOutlined /></template>刷新账务
+                </a-button>
                 <span style="font-weight: 600">成本分析</span>
                 <a-select v-model:value="billingCostDays" style="width: 110px" :options="billingCostDayOptions" />
                 <a-button size="small" type="primary" :loading="billingLoading" @click="reloadBillingCost">查询成本</a-button>
@@ -1099,7 +1115,7 @@ import { message, Modal } from 'ant-design-vue'
 import type { UploadFile } from 'ant-design-vue'
 import { getTenantList, addTenant, updateTenant, removeTenant, uploadKey, getTenantFullInfo, getTenantBillingSummary, downloadInvoicePdf, getDomainSettings, updateMfa, updatePasswordExpiry, getAuditLogs, getServiceQuotas, listIamPolicies, getIamPolicy, listAnnouncements, getAnnouncementDetail, getTenantGroups, createGroup, renameGroup, deleteGroup, saveGroupOrder, unlockAuthFactors, getAuthFactors, updateAuthFactors } from '../api/tenant'
 import { sendVerifyCode } from '../api/system'
-import { RightOutlined, DownOutlined, SettingOutlined, FolderOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons-vue'
+import { RightOutlined, DownOutlined, SettingOutlined, FolderOutlined, EditOutlined, DeleteOutlined, AppstoreOutlined } from '@ant-design/icons-vue'
 import AuditLogTable from '../components/AuditLogTable.vue'
 import {
   loadOciRegionCatalog,
@@ -1126,6 +1142,16 @@ function formatBillingPeriod(start: string | null | undefined, end: string | nul
   const s = start ? formatUtcCnDate(start) : '—'
   const e = end ? formatUtcCnDate(end) : '—'
   return `${s} ～ ${e}`
+}
+
+function formatUpgradeState(v: string | null | undefined): string {
+  if (!v) return '—'
+  const map: Record<string, string> = {
+    UPGRADE_PENDING: '升级待处理',
+    UPGRADE_COMPLETE: '升级完成',
+    UPGRADE_FAILED: '升级失败',
+  }
+  return map[v] || v
 }
 
 function formatCountryCn(v: any): string {
@@ -1915,6 +1941,7 @@ async function openTenantMgmt(record: any) {
 
 function onTenantTabChange(key: string) {
   if (key === 'billing' && !billingData.value) loadTenantBilling()
+  if (key === 'quotas' && !quotasList.value.length && !quotasLoading.value) loadQuotas()
   if (key === 'iam' && !iamPoliciesList.value.length) loadIamPolicies()
   if (key === 'announcements' && !announcementsList.value.length) loadAnnouncements()
 }
@@ -2480,6 +2507,25 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   border-radius: 50%;
   flex-shrink: 0;
 }
+.group-card-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.group-card-header-main {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.group-card-header-actions {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
 .group-name {
   font-weight: 600;
   font-size: 16px;
@@ -2488,11 +2534,18 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   overflow: hidden;
   text-overflow: ellipsis;
   margin: 0;
+  flex: 1 1 auto;
+  min-width: 0;
 }
 .subgroup-name {
   font-weight: 600;
   font-size: 15px;
   cursor: pointer;
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 .group-stats {
   display: flex;
@@ -2501,13 +2554,21 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   font-size: 12px;
   color: var(--text-sub, #999);
   margin-left: 8px;
+  flex-shrink: 0;
 }
 .group-stats .stat-item {
   display: flex;
   align-items: center;
   gap: 4px;
 }
-.group-stats .stat-icon { font-size: 14px; }
+.group-count-stat {
+  font-weight: 600;
+  color: var(--text-main, #e8e8e8);
+}
+.group-count-icon {
+  font-size: 14px;
+  color: var(--primary, #1677ff);
+}
 .group-action-btn {
   padding: 5px 10px;
   background: rgba(255,255,255,0.03);
@@ -2547,10 +2608,19 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
 }
 @media (max-width: 768px) {
   .group-card { padding: 10px 12px; border-radius: 10px; }
-  .group-name { font-size: 13px; max-width: 140px; }
+  .group-name, .subgroup-name { font-size: 14px; max-width: none; flex: 1 1 0; min-width: 48px; }
   .subgroup-card { margin-left: 16px; }
   .group-bar-right { flex-wrap: wrap; gap: 4px; }
   .drag-handle, .collapse-btn { width: 32px; height: 32px; }
+  .group-card-header { gap: 8px; }
+  .group-card-header-main { flex: 1 1 100%; min-width: 0; }
+  .group-stats { margin-left: auto; gap: 6px; }
+  .group-card-header-actions {
+    margin-left: 0;
+    width: 100%;
+    justify-content: flex-end;
+  }
+  .subgroup-header .group-card-header-actions { width: auto; margin-left: auto; }
 }
 .tenant-config-root {
   position: relative;
