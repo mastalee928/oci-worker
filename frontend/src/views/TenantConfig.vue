@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="tenant-config-root">
     <div class="table-toolbar">
       <a-space wrap>
@@ -39,9 +39,9 @@
             </template>
             <template v-if="column.key === 'action'">
               <a-space>
-                <a-button type="link" size="small" @click="openTenantInfo(record)">详情</a-button>
                 <a-button type="link" size="small" @click="showEditModal(record)">编辑</a-button>
-                <a-button type="link" size="small" @click="openDomainMgmt(record)">管理</a-button>
+                <a-button type="link" size="small" @click="openDomainMgmt(record)">域</a-button>
+                <a-button type="link" size="small" @click="openTenantMgmt(record)">租户</a-button>
                 <a-button type="link" size="small" @click="goUserManagement(record)">用户</a-button>
                 <a-popconfirm title="确定删除?" @confirm="handleDelete(record.id)">
                   <a-button type="link" danger size="small">删除</a-button>
@@ -67,9 +67,9 @@
               </div>
             </div>
             <div class="mobile-card-actions">
-              <a-button type="link" size="small" @click="openTenantInfo(r)">详情</a-button>
               <a-button type="link" size="small" @click="showEditModal(r)">编辑</a-button>
-              <a-button type="link" size="small" @click="openDomainMgmt(r)">管理</a-button>
+              <a-button type="link" size="small" @click="openDomainMgmt(r)">域</a-button>
+              <a-button type="link" size="small" @click="openTenantMgmt(r)">租户</a-button>
               <a-button type="link" size="small" @click="goUserManagement(r)">用户</a-button>
               <a-popconfirm title="确定删除?" @confirm="handleDelete(r.id)">
                 <a-button type="link" danger size="small">删除</a-button>
@@ -152,9 +152,9 @@
                     </template>
                     <template v-if="column.key === 'action'">
                       <a-space>
-                        <a-button type="link" size="small" @click="openTenantInfo(record)">详情</a-button>
                         <a-button type="link" size="small" @click="showEditModal(record)">编辑</a-button>
-                        <a-button type="link" size="small" @click="openDomainMgmt(record)">管理</a-button>
+                        <a-button type="link" size="small" @click="openDomainMgmt(record)">域</a-button>
+                        <a-button type="link" size="small" @click="openTenantMgmt(record)">租户</a-button>
                         <a-button type="link" size="small" @click="goUserManagement(record)">用户</a-button>
                         <a-popconfirm title="确定删除?" @confirm="handleDelete(record.id)">
                           <a-button type="link" danger size="small">删除</a-button>
@@ -179,9 +179,9 @@
                       </div>
                     </div>
                     <div class="mobile-card-actions">
-                      <a-button type="link" size="small" @click="openTenantInfo(r)">详情</a-button>
                       <a-button type="link" size="small" @click="showEditModal(r)">编辑</a-button>
-                      <a-button type="link" size="small" @click="openDomainMgmt(r)">管理</a-button>
+                      <a-button type="link" size="small" @click="openDomainMgmt(r)">域</a-button>
+                      <a-button type="link" size="small" @click="openTenantMgmt(r)">租户</a-button>
                       <a-button type="link" size="small" @click="goUserManagement(r)">用户</a-button>
                       <a-popconfirm title="确定删除?" @confirm="handleDelete(r.id)">
                         <a-button type="link" danger size="small">删除</a-button>
@@ -247,9 +247,9 @@
                       </template>
                       <template v-if="column.key === 'action'">
                         <a-space>
-                          <a-button type="link" size="small" @click="openTenantInfo(record)">详情</a-button>
                           <a-button type="link" size="small" @click="showEditModal(record)">编辑</a-button>
-                          <a-button type="link" size="small" @click="openDomainMgmt(record)">管理</a-button>
+                          <a-button type="link" size="small" @click="openDomainMgmt(record)">域</a-button>
+                          <a-button type="link" size="small" @click="openTenantMgmt(record)">租户</a-button>
                           <a-button type="link" size="small" @click="goUserManagement(record)">用户</a-button>
                           <a-popconfirm title="确定删除?" @confirm="handleDelete(record.id)">
                             <a-button type="link" danger size="small">删除</a-button>
@@ -274,9 +274,9 @@
                         </div>
                       </div>
                       <div class="mobile-card-actions">
-                        <a-button type="link" size="small" @click="openTenantInfo(r)">详情</a-button>
                         <a-button type="link" size="small" @click="showEditModal(r)">编辑</a-button>
-                        <a-button type="link" size="small" @click="openDomainMgmt(r)">管理</a-button>
+                        <a-button type="link" size="small" @click="openDomainMgmt(r)">域</a-button>
+                        <a-button type="link" size="small" @click="openTenantMgmt(r)">租户</a-button>
                         <a-button type="link" size="small" @click="goUserManagement(r)">用户</a-button>
                         <a-popconfirm title="确定删除?" @confirm="handleDelete(r.id)">
                           <a-button type="link" danger size="small">删除</a-button>
@@ -459,9 +459,11 @@ region=ap-tokyo-1"
       </a-form>
     </a-modal>
 
-    <!-- 租户详情弹窗 -->
-    <a-modal v-model:open="tenantInfoVisible" title="租户信息" :width="isMobile ? '100%' : 680"
-      :footer="null" centered :bodyStyle="{ maxHeight: '70vh', overflow: 'auto' }">
+    <!-- 租户级管理 -->
+    <a-modal v-model:open="tenantMgmtVisible" :title="'租户 — ' + (tenantMgmtTenant?.username || '')"
+      :width="isMobile ? '100%' : 840" :footer="null" centered :bodyStyle="{ maxHeight: '75vh', overflow: 'auto' }">
+      <a-tabs v-model:activeKey="tenantTab" @change="onTenantTabChange">
+        <a-tab-pane key="account" tab="账户信息">
       <a-spin :spinning="tenantInfoLoading">
         <a-descriptions :column="1" bordered size="small" style="margin-top: 8px">
           <a-descriptions-item label="当前配置">
@@ -580,6 +582,107 @@ region=ap-tokyo-1"
           <a-empty v-else description="未加载账务信息" />
         </a-spin>
       </a-spin>
+        </a-tab-pane>
+        <a-tab-pane key="iam" tab="IAM 策略">
+          <a-alert type="info" show-icon style="margin-bottom: 10px"
+            message="对应 OCI 控制台「身份与安全性 → 身份 → 策略」（经典 IAM Policy API），与身份域内的安全策略无关。只读列表。" />
+          <a-space style="margin-bottom: 12px" wrap>
+            <a-button type="primary" @click="loadIamPolicies" :loading="iamPoliciesLoading">
+              <template #icon><ReloadOutlined /></template>加载策略
+            </a-button>
+            <a-input-search v-model:value="iamPolicySearch" placeholder="搜索名称/描述" allow-clear style="width: 220px" />
+          </a-space>
+          <a-table v-if="!isMobile" :data-source="filteredIamPolicies" :loading="iamPoliciesLoading" size="small"
+            :pagination="{ pageSize: 15 }" row-key="id"
+            v-model:expanded-row-keys="iamExpandedRowKeys"
+            @expand="onIamExpand">
+            <template #expandedRowRender="{ record }">
+              <a-spin :spinning="iamPolicyDetailLoading === record.id">
+                <div v-if="(iamPolicyStatements[record.id] || []).length" class="iam-statements">
+                  <div v-for="(st, si) in iamPolicyStatements[record.id]" :key="si" class="iam-statement-line">{{ si + 1 }}. {{ st }}</div>
+                </div>
+                <a-empty v-else description="展开后加载策略语句" />
+              </a-spin>
+            </template>
+            <a-table-column title="名称" data-index="name" key="name" :width="160" :ellipsis="true" />
+            <a-table-column title="描述" data-index="description" key="description" :ellipsis="true" />
+            <a-table-column title="语句数" data-index="statementCount" key="statementCount" :width="72" />
+            <a-table-column title="状态" data-index="lifecycleState" key="lifecycleState" :width="88" />
+            <a-table-column title="Compartment" data-index="compartmentId" key="compartmentId" :width="120" :ellipsis="true">
+              <template #default="{ text }">
+                <span style="font-size: 11px">{{ shortOcId(text) }}</span>
+              </template>
+            </a-table-column>
+            <a-table-column title="创建时间" data-index="timeCreated" key="timeCreated" :width="168">
+              <template #default="{ text }">{{ formatUtcCnDate(text) }}</template>
+            </a-table-column>
+          </a-table>
+          <a-spin v-else :spinning="iamPoliciesLoading">
+            <a-empty v-if="!iamPoliciesLoading && filteredIamPolicies.length === 0" description="请点击「加载策略」" />
+            <div v-for="p in filteredIamPolicies" :key="p.id" class="mobile-card">
+              <div class="mobile-card-header">
+                <span class="mobile-card-title">{{ p.name }}</span>
+                <a-tag style="margin:0">{{ p.statementCount ?? 0 }} 条</a-tag>
+              </div>
+              <div class="mobile-card-body">
+                <div class="mobile-card-row"><span class="label">描述</span><span class="value">{{ p.description || '—' }}</span></div>
+                <div class="mobile-card-row"><span class="label">状态</span><span class="value">{{ p.lifecycleState || '—' }}</span></div>
+              </div>
+            </div>
+          </a-spin>
+        </a-tab-pane>
+        <a-tab-pane key="quotas" tab="账户配额">
+          <a-alert type="info" show-icon style="margin-bottom: 10px"
+            message="租户级服务配额（Limits API），与域选择无关。" />
+          <a-space style="margin-bottom: 12px">
+            <a-button type="primary" @click="loadQuotas" :loading="quotasLoading">
+              <template #icon><ReloadOutlined /></template>查询配额
+            </a-button>
+            <a-input-search v-model:value="quotaSearch" placeholder="搜索服务/配额名" allow-clear style="width: 220px" />
+          </a-space>
+          <a-table v-if="!isMobile" :data-source="filteredQuotas" :loading="quotasLoading" size="small"
+            :pagination="{ pageSize: 20 }" :row-key="(r: any) => r.serviceName + r.limitName + r.availabilityDomain">
+            <a-table-column title="服务" data-index="serviceName" key="serviceName" :width="140">
+              <template #default="{ text }">
+                <a-tag>{{ text }}</a-tag>
+              </template>
+            </a-table-column>
+            <a-table-column title="配额名称" data-index="limitName" key="limitName" :ellipsis="true" />
+            <a-table-column title="AD" data-index="availabilityDomain" key="ad" :width="120" :ellipsis="true">
+              <template #default="{ text }">
+                <span style="font-size: 12px">{{ text || '全局' }}</span>
+              </template>
+            </a-table-column>
+            <a-table-column title="上限" data-index="limit" key="limit" :width="80" />
+            <a-table-column title="已用" data-index="used" key="used" :width="80">
+              <template #default="{ text }">
+                <span>{{ text ?? '—' }}</span>
+              </template>
+            </a-table-column>
+            <a-table-column title="可用" data-index="available" key="available" :width="80">
+              <template #default="{ text }">
+                <a-tag v-if="text !== null && text !== undefined" :color="text === 0 ? 'red' : 'green'">{{ text }}</a-tag>
+                <span v-else>—</span>
+              </template>
+            </a-table-column>
+          </a-table>
+          <a-spin v-else :spinning="quotasLoading">
+            <a-empty v-if="!quotasLoading && filteredQuotas.length === 0" description="无配额数据" />
+            <div v-for="(q, qi) in filteredQuotas" :key="qi" class="mobile-card">
+              <div class="mobile-card-header">
+                <a-tag style="margin:0">{{ q.serviceName }}</a-tag>
+                <a-tag v-if="q.available !== null && q.available !== undefined" :color="q.available === 0 ? 'red' : 'green'" style="margin:0">可用: {{ q.available }}</a-tag>
+              </div>
+              <div class="mobile-card-body">
+                <div class="mobile-card-row"><span class="label">配额</span><span class="value">{{ q.limitName }}</span></div>
+                <div class="mobile-card-row"><span class="label">AD</span><span class="value">{{ q.availabilityDomain || '全局' }}</span></div>
+                <div class="mobile-card-row"><span class="label">上限</span><span class="value">{{ q.limit }}</span></div>
+                <div class="mobile-card-row"><span class="label">已用</span><span class="value">{{ q.used ?? '—' }}</span></div>
+              </div>
+            </div>
+          </a-spin>
+        </a-tab-pane>
+      </a-tabs>
     </a-modal>
 
     <!-- 域管理弹窗 -->
@@ -755,57 +858,7 @@ region=ap-tokyo-1"
             </div>
           </a-spin>
         </a-tab-pane>
-        <a-tab-pane key="quotas" tab="账户配额">
-          <a-alert type="info" show-icon style="margin-bottom: 10px"
-            message="账户配额为租户级数据，与域选择无关" />
-          <a-space style="margin-bottom: 12px">
-            <a-button @click="loadQuotas" :loading="quotasLoading">
-              <template #icon><ReloadOutlined /></template>查询配额
-            </a-button>
-            <a-input-search v-model:value="quotaSearch" placeholder="搜索服务/配额名" allow-clear style="width: 220px" />
-          </a-space>
-          <a-table v-if="!isMobile" :data-source="filteredQuotas" :loading="quotasLoading" size="small"
-            :pagination="{ pageSize: 20 }" :row-key="(r: any) => r.serviceName + r.limitName + r.availabilityDomain">
-            <a-table-column title="服务" data-index="serviceName" key="serviceName" :width="140">
-              <template #default="{ text }">
-                <a-tag>{{ text }}</a-tag>
-              </template>
-            </a-table-column>
-            <a-table-column title="配额名称" data-index="limitName" key="limitName" :ellipsis="true" />
-            <a-table-column title="AD" data-index="availabilityDomain" key="ad" :width="120" :ellipsis="true">
-              <template #default="{ text }">
-                <span style="font-size: 12px">{{ text || '全局' }}</span>
-              </template>
-            </a-table-column>
-            <a-table-column title="上限" data-index="limit" key="limit" :width="80" />
-            <a-table-column title="已用" data-index="used" key="used" :width="80">
-              <template #default="{ text }">
-                <span>{{ text ?? '—' }}</span>
-              </template>
-            </a-table-column>
-            <a-table-column title="可用" data-index="available" key="available" :width="80">
-              <template #default="{ text, record }">
-                <a-tag v-if="text !== null && text !== undefined" :color="text === 0 ? 'red' : 'green'">{{ text }}</a-tag>
-                <span v-else>—</span>
-              </template>
-            </a-table-column>
-          </a-table>
-          <a-spin v-else :spinning="quotasLoading">
-            <a-empty v-if="!quotasLoading && filteredQuotas.length === 0" description="无配额数据" />
-            <div v-for="(q, qi) in filteredQuotas" :key="qi" class="mobile-card">
-              <div class="mobile-card-header">
-                <a-tag style="margin:0">{{ q.serviceName }}</a-tag>
-                <a-tag v-if="q.available !== null && q.available !== undefined" :color="q.available === 0 ? 'red' : 'green'" style="margin:0">可用: {{ q.available }}</a-tag>
-              </div>
-              <div class="mobile-card-body">
-                <div class="mobile-card-row"><span class="label">配额</span><span class="value">{{ q.limitName }}</span></div>
-                <div class="mobile-card-row"><span class="label">AD</span><span class="value">{{ q.availabilityDomain || '全局' }}</span></div>
-                <div class="mobile-card-row"><span class="label">上限</span><span class="value">{{ q.limit }}</span></div>
-                <div class="mobile-card-row"><span class="label">已用</span><span class="value">{{ q.used ?? '—' }}</span></div>
-              </div>
-            </div>
-          </a-spin>
-        </a-tab-pane>
+        
       </a-tabs>
     </a-modal>
   </div>
@@ -817,7 +870,7 @@ import { useRouter } from 'vue-router'
 import { PlusOutlined, ThunderboltOutlined, InboxOutlined, ReloadOutlined, MenuFoldOutlined, VerticalAlignTopOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
 import type { UploadFile } from 'ant-design-vue'
-import { getTenantList, addTenant, updateTenant, removeTenant, uploadKey, getTenantFullInfo, getTenantBillingSummary, downloadInvoicePdf, getDomainSettings, updateMfa, updatePasswordExpiry, getAuditLogs, getServiceQuotas, getTenantGroups, createGroup, renameGroup, deleteGroup, saveGroupOrder, unlockAuthFactors, getAuthFactors, updateAuthFactors } from '../api/tenant'
+import { getTenantList, addTenant, updateTenant, removeTenant, uploadKey, getTenantFullInfo, getTenantBillingSummary, downloadInvoicePdf, getDomainSettings, updateMfa, updatePasswordExpiry, getAuditLogs, getServiceQuotas, listIamPolicies, getIamPolicy, getTenantGroups, createGroup, renameGroup, deleteGroup, saveGroupOrder, unlockAuthFactors, getAuthFactors, updateAuthFactors } from '../api/tenant'
 import { sendVerifyCode } from '../api/system'
 import { RightOutlined, DownOutlined, SettingOutlined, FolderOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons-vue'
 import AuditLogTable from '../components/AuditLogTable.vue'
@@ -939,11 +992,20 @@ const createGroupLoading = ref(false)
 let pendingFile: File | null = null
 const isMobile = ref(window.innerWidth < 768)
 
-const tenantInfoVisible = ref(false)
+const tenantMgmtVisible = ref(false)
+const tenantMgmtTenant = ref<any>(null)
+const tenantTab = ref('account')
 const tenantInfoLoading = ref(false)
 const tenantInfoData = ref<any>({})
 const billingLoading = ref(false)
 const billingData = ref<any | null>(null)
+const iamPoliciesLoading = ref(false)
+const iamPoliciesList = ref<any[]>([])
+const iamPoliciesCompartmentId = ref('')
+const iamPolicySearch = ref('')
+const iamExpandedRowKeys = ref<string[]>([])
+const iamPolicyStatements = ref<Record<string, string[]>>({})
+const iamPolicyDetailLoading = ref('')
 function checkMobile() { isMobile.value = window.innerWidth < 768 }
 
 function parseAndFill() {
@@ -1277,10 +1339,26 @@ async function loadAuditLogs() {
   }
 }
 
+const filteredIamPolicies = computed(() => {
+  if (!iamPolicySearch.value) return iamPoliciesList.value
+  const kw = iamPolicySearch.value.toLowerCase()
+  return iamPoliciesList.value.filter((p: any) =>
+    (p.name || '').toLowerCase().includes(kw) ||
+    (p.description || '').toLowerCase().includes(kw),
+  )
+})
+
+function shortOcId(id: string | null | undefined): string {
+  if (!id) return '—'
+  if (id.length <= 22) return id
+  return id.slice(0, 12) + '…' + id.slice(-8)
+}
+
 async function loadQuotas() {
+  if (!tenantMgmtTenant.value?.id) return
   quotasLoading.value = true
   try {
-    const res = await getServiceQuotas({ id: domainMgmtTenant.value.id })
+    const res = await getServiceQuotas({ id: tenantMgmtTenant.value.id })
     quotasList.value = res.data || []
     if (!quotasList.value.length) {
       message.info('未获取到配额信息')
@@ -1525,9 +1603,24 @@ function toggleGroup(key: string) {
   expandedGroups.value = s
 }
 
-async function openTenantInfo(record: any) {
-  tenantInfoData.value = { configName: record.username }
-  tenantInfoVisible.value = true
+async function openTenantMgmt(record: any) {
+  tenantMgmtTenant.value = record
+  tenantTab.value = 'account'
+  tenantMgmtVisible.value = true
+  iamPoliciesList.value = []
+  iamPoliciesCompartmentId.value = ''
+  iamPolicyStatements.value = {}
+  iamExpandedRowKeys.value = []
+  quotasList.value = []
+  await loadTenantAccountInfo(record)
+}
+
+function onTenantTabChange(key: string) {
+  if (key === 'iam' && !iamPoliciesList.value.length) loadIamPolicies()
+}
+
+async function loadTenantAccountInfo(record: any) {
+  tenantInfoData.value = { configName: record.username, id: record.id }
   tenantInfoLoading.value = true
   billingLoading.value = true
   billingData.value = null
@@ -1537,7 +1630,7 @@ async function openTenantInfo(record: any) {
       getTenantBillingSummary({ id: record.id, limits: { invoices: 5, payments: 5, usageStatements: 3 } }),
     ])
     const d = res.data || {}
-    tenantInfoData.value = d
+    tenantInfoData.value = { ...d, id: record.id }
     billingData.value = bill.data || null
     if (record?.id) {
       const row = tableData.value.find((r: any) => r.id === record.id)
@@ -1547,10 +1640,45 @@ async function openTenantInfo(record: any) {
       }
     }
   } catch (e: any) {
-    message.error(e?.message || '获取租户详情失败')
+    message.error(e?.message || '获取租户信息失败')
   } finally {
     tenantInfoLoading.value = false
     billingLoading.value = false
+  }
+}
+
+async function loadIamPolicies() {
+  if (!tenantMgmtTenant.value?.id) return
+  iamPoliciesLoading.value = true
+  iamPolicyStatements.value = {}
+  iamExpandedRowKeys.value = []
+  try {
+    const res = await listIamPolicies({ id: tenantMgmtTenant.value.id })
+    const data = res.data || {}
+    iamPoliciesList.value = data.items || []
+    iamPoliciesCompartmentId.value = data.compartmentId || ''
+    if (!iamPoliciesList.value.length) {
+      message.info('未找到 IAM 策略（或当前 API 用户无 inspect policies 权限）')
+    }
+  } catch (e: any) {
+    message.error(e?.message || '获取 IAM 策略失败')
+  } finally {
+    iamPoliciesLoading.value = false
+  }
+}
+
+async function onIamExpand(expanded: boolean, record: any) {
+  if (!expanded || !record?.id || !tenantMgmtTenant.value?.id) return
+  if (iamPolicyStatements.value[record.id]?.length) return
+  iamPolicyDetailLoading.value = record.id
+  try {
+    const res = await getIamPolicy({ id: tenantMgmtTenant.value.id, policyId: record.id })
+    const stmts = res.data?.statements || []
+    iamPolicyStatements.value = { ...iamPolicyStatements.value, [record.id]: stmts }
+  } catch (e: any) {
+    message.error(e?.message || '加载策略语句失败')
+  } finally {
+    iamPolicyDetailLoading.value = ''
   }
 }
 
@@ -2074,5 +2202,14 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   }
   .group-header { padding: 8px 10px; }
   .group-body { padding: 4px 4px; }
+}
+
+.iam-statements { padding: 4px 0; }
+.iam-statement-line {
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  margin-bottom: 6px;
+  word-break: break-word;
 }
 </style>

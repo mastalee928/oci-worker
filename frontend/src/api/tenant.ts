@@ -62,6 +62,15 @@ export function getServiceQuotas(data: { id: string }) {
   return request.post('/oci/user/quotas', data)
 }
 
+/** 经典 IAM Policy（Identity API），与身份域策略无关 */
+export function listIamPolicies(data: { id: string }) {
+  return request.post('/oci/user/iamPolicies', data)
+}
+
+export function getIamPolicy(data: { id: string; policyId: string }) {
+  return request.post('/oci/user/iamPolicy', data)
+}
+
 export function unlockAuthFactors(data: { verifyCode: string }) {
   return request.post('/oci/user/authFactorsUnlock', data)
 }

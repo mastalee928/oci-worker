@@ -6,6 +6,7 @@ import com.ociworker.model.params.PageParams;
 import com.ociworker.model.params.TenantParams;
 import com.ociworker.model.vo.ResponseData;
 import com.ociworker.service.DomainManagementService;
+import com.ociworker.service.IamPolicyService;
 import com.ociworker.service.TenantService;
 import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
@@ -26,6 +27,8 @@ public class TenantController {
     private TenantService tenantService;
     @Resource
     private DomainManagementService domainManagementService;
+    @Resource
+    private IamPolicyService iamPolicyService;
 
     @PostMapping("/list")
     public ResponseData<?> list(@RequestBody PageParams params) {
@@ -138,6 +141,17 @@ public class TenantController {
     @PostMapping("/quotas")
     public ResponseData<?> quotas(@RequestBody java.util.Map<String, String> params) {
         return ResponseData.ok(domainManagementService.getServiceQuotas(params.get("id")));
+    }
+
+    /** 经典 IAM Policy（Identity → Policies），只读列表 */
+    @PostMapping("/iamPolicies")
+    public ResponseData<?> iamPolicies(@RequestBody java.util.Map<String, String> params) {
+        return ResponseData.ok(iamPolicyService.listPolicies(params.get("id")));
+    }
+
+    @PostMapping("/iamPolicy")
+    public ResponseData<?> iamPolicy(@RequestBody java.util.Map<String, String> params) {
+        return ResponseData.ok(iamPolicyService.getPolicy(params.get("id"), params.get("policyId")));
     }
 
     @PostMapping("/authFactorsUnlock")
