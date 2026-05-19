@@ -2704,10 +2704,10 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
 }
 
 .tenant-form-compact :deep(.ant-form-item) {
-  margin-bottom: 16px;
+  margin-bottom: 12px;
 }
 .tenant-form-compact :deep(.ant-form-item-label) {
-  padding-bottom: 4px;
+  padding-bottom: 2px;
 }
 .pem-input-mode-segmented {
   margin-bottom: 8px;
