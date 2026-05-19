@@ -2714,15 +2714,24 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   height: 118px;
   margin: 0;
   padding: 0;
+  display: block;
 }
 .pem-key-input-slot .pem-upload-dragger :deep(.ant-upload-drag) {
-  display: flex;
+  height: 100%;
+}
+.pem-key-input-slot .pem-upload-dragger :deep(.ant-upload-btn) {
+  display: flex !important;
   flex-direction: column;
   align-items: center;
   justify-content: center;
+  height: 100%;
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
 }
 .pem-key-input-slot .pem-upload-dragger :deep(.ant-upload-drag-icon) {
-  margin-bottom: 4px;
+  margin: 0 0 6px 0;
   font-size: 28px;
   line-height: 1;
 }
@@ -2731,6 +2740,7 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   padding: 0 8px;
   font-size: 13px;
   line-height: 1.4;
+  text-align: center;
 }
 .pem-key-input-slot .pem-paste-textarea,
 .pem-key-input-slot .pem-paste-textarea :deep(textarea) {
