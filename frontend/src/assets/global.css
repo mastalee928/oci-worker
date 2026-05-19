@@ -222,9 +222,13 @@ body::after {
   box-shadow: 0 0 0 3px var(--primary-light) !important;
 }
 
-/* 全站 a-input-search：光标留白、垂直居中、聚焦更易辨认 */
+/* 全站 a-input-search：方案 A 聚焦隐占位 + 方案 B 不裁切光标（圆角数值不变） */
+.ant-input-search .ant-input-group,
 .ant-input-search .ant-input-affix-wrapper {
-  padding-left: 12px !important;
+  overflow: visible !important;
+}
+.ant-input-search .ant-input-affix-wrapper {
+  padding-left: 14px !important;
   align-items: center !important;
 }
 .ant-input-search .ant-input-affix-wrapper .ant-input {
@@ -232,14 +236,18 @@ body::after {
   padding-top: 0 !important;
   padding-bottom: 0 !important;
   line-height: 22px !important;
+  position: relative;
+  z-index: 1;
 }
-.ant-input-search > .ant-input-group > .ant-input,
-.ant-input-search > .ant-input-group > .ant-input-affix-wrapper:first-child {
-  padding-left: 12px !important;
+.ant-input-search .ant-input-group .ant-input,
+.ant-input-search .ant-input-group .ant-input-affix-wrapper:first-child {
+  padding-left: 14px !important;
 }
-.ant-input-search > .ant-input-group > .ant-input {
-  padding: 4px 11px 4px 12px !important;
+.ant-input-search .ant-input-group > .ant-input {
+  padding: 4px 11px 4px 14px !important;
   line-height: 22px !important;
+  position: relative;
+  z-index: 1;
 }
 .ant-input-search .ant-input-group .ant-input-affix-wrapper .ant-input {
   padding: 0 !important;
@@ -248,6 +256,11 @@ body::after {
 .ant-input-search .ant-input:focus,
 .ant-input-search .ant-input-affix-wrapper-focused .ant-input {
   caret-color: var(--primary) !important;
+}
+/* 方案 A：聚焦且为空时不显示占位符，避免与光标叠在「搜」上 */
+.ant-input-search .ant-input:focus::placeholder,
+.ant-input-search .ant-input-affix-wrapper-focused .ant-input::placeholder {
+  color: transparent !important;
 }
 
 .ant-select-dropdown {
