@@ -445,28 +445,35 @@
             ]"
             @change="onKeyInputModeChange"
           />
-          <a-upload-dragger
-            v-if="keyInputMode === 'upload'"
-            class="pem-upload-dragger"
-            :before-upload="handleUpload"
-            :max-count="1"
-            accept=".pem"
-            :file-list="fileList"
-            @remove="handleRemoveFile"
-          >
-            <p class="ant-upload-drag-icon"><InboxOutlined /></p>
-            <p class="ant-upload-text">{{ isMobile ? '点击选择 PEM 文件' : '点击或拖拽 PEM 文件到此处' }}</p>
-          </a-upload-dragger>
-          <a-textarea
-            v-else
-            v-model:value="pemPasteText"
-            :rows="4"
-            class="pem-paste-textarea"
-            placeholder="粘贴完整 PEM 私钥，须包含：
+          <div class="pem-key-input-slot">
+            <a-upload-dragger
+              v-if="keyInputMode === 'upload'"
+              class="pem-upload-dragger"
+              :before-upload="handleUpload"
+              :max-count="1"
+              accept=".pem"
+              :file-list="fileList"
+              :show-upload-list="false"
+              @remove="handleRemoveFile"
+            >
+              <p class="ant-upload-drag-icon"><InboxOutlined /></p>
+              <p class="ant-upload-text">{{ isMobile ? '点击选择 PEM 文件' : '点击或拖拽 PEM 文件到此处' }}</p>
+            </a-upload-dragger>
+            <a-textarea
+              v-else
+              v-model:value="pemPasteText"
+              :rows="4"
+              class="pem-paste-textarea"
+              placeholder="粘贴完整 PEM 私钥，须包含：
 -----BEGIN PRIVATE KEY-----
 ...
 -----END PRIVATE KEY-----"
-          />
+            />
+          </div>
+          <div v-if="keyInputMode === 'upload' && fileList.length" class="pem-upload-filename">
+            {{ fileList[0]?.name }}
+            <a class="pem-upload-remove" @click.prevent="handleRemoveFile">移除</a>
+          </div>
           <span v-if="formState.ociKeyPath && !fileList.length && !pemPasteText.trim()" class="pem-existing-hint">
             已有密钥：{{ formState.ociKeyPath }}（上传或粘贴可覆盖）
           </span>
@@ -2683,16 +2690,50 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
 .pem-input-mode-segmented {
   margin-bottom: 8px;
 }
-.pem-upload-dragger :deep(.ant-upload-drag) {
-  padding: 12px 0;
+/* 与 rows=4 的 textarea 同高（约 118px） */
+.pem-key-input-slot {
+  height: 118px;
 }
-.pem-upload-dragger :deep(.ant-upload-drag-icon) {
+.pem-key-input-slot .pem-upload-dragger,
+.pem-key-input-slot .pem-upload-dragger :deep(.ant-upload),
+.pem-key-input-slot .pem-upload-dragger :deep(.ant-upload-drag) {
+  height: 118px;
+  margin: 0;
+  padding: 0;
+}
+.pem-key-input-slot .pem-upload-dragger :deep(.ant-upload-drag) {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+.pem-key-input-slot .pem-upload-dragger :deep(.ant-upload-drag-icon) {
   margin-bottom: 4px;
+  font-size: 28px;
+  line-height: 1;
 }
-.pem-paste-textarea {
-  margin-top: 0;
+.pem-key-input-slot .pem-upload-dragger :deep(.ant-upload-text) {
+  margin: 0;
+  padding: 0 8px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.pem-key-input-slot .pem-paste-textarea,
+.pem-key-input-slot .pem-paste-textarea :deep(textarea) {
+  height: 118px !important;
+  min-height: 118px !important;
+  margin: 0;
+  resize: none;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 12px;
+}
+.pem-upload-filename {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-sub, #888);
+}
+.pem-upload-remove {
+  margin-left: 8px;
 }
 .pem-existing-hint {
   color: var(--text-sub, #888);
