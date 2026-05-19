@@ -404,17 +404,31 @@
       :mask-closable="false"
     >
       <a-form :model="formState" layout="vertical" class="tenant-form-compact">
-        <div v-if="!editingId" class="tenant-quick-import">
-          <a-textarea
-            v-model:value="importText"
-            :rows="5"
-            placeholder="可选：粘贴 OCI 配置自动填充（[Profile]、user、tenancy、fingerprint、region）"
-            class="tenant-quick-import-textarea"
-          />
-          <a-button type="primary" size="small" class="tenant-quick-import-btn" @click="parseAndFill">
-            <template #icon><ThunderboltOutlined /></template>解析并填充
-          </a-button>
-        </div>
+        <!-- 快速导入（始终展开，不可折叠） -->
+        <a-collapse
+          v-if="!editingId"
+          class="tenant-quick-import-collapse"
+          :bordered="false"
+          collapsible="disabled"
+          :active-key="['import']"
+        >
+          <a-collapse-panel key="import" header="⚡ 快速导入 — 粘贴 OCI 配置自动填充">
+            <a-textarea
+              v-model:value="importText"
+              :rows="6"
+              placeholder="粘贴 OCI 配置内容，例如：
+[Profile-Name]
+user=ocid1.user.oc1...
+fingerprint=a5:48:75:06...
+tenancy=ocid1.tenancy.oc1...
+region=ap-tokyo-1"
+              style="font-family: monospace; font-size: 12px"
+            />
+            <a-button type="primary" size="small" style="margin-top: 8px" @click="parseAndFill">
+              <template #icon><ThunderboltOutlined /></template>解析并填充
+            </a-button>
+          </a-collapse-panel>
+        </a-collapse>
 
         <a-form-item label="自定义名称" required>
           <a-input v-model:value="formState.username" placeholder="例：我的甲骨文1号" />
@@ -2741,15 +2755,8 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   margin-top: 6px;
   display: block;
 }
-.tenant-quick-import {
+.tenant-quick-import-collapse {
   margin-bottom: 12px;
-}
-.tenant-quick-import-textarea {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 12px;
-}
-.tenant-quick-import-btn {
-  margin-top: 8px;
 }
 .tenant-page-float-actions {
   position: fixed;
