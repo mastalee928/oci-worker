@@ -404,15 +404,9 @@
       :mask-closable="false"
     >
       <a-form :model="formState" layout="vertical" class="tenant-form-compact">
-        <!-- 快速导入（始终展开，不可折叠） -->
-        <a-collapse
-          v-if="!editingId"
-          class="tenant-quick-import-collapse"
-          :bordered="false"
-          collapsible="disabled"
-          :active-key="['import']"
-        >
-          <a-collapse-panel key="import" header="⚡ 快速导入 — 粘贴 OCI 配置自动填充">
+        <div v-if="!editingId" class="tenant-quick-import-block">
+          <div class="tenant-quick-import-header">⚡ 快速导入 — 粘贴 OCI 配置自动填充</div>
+          <div class="tenant-quick-import-body">
             <a-textarea
               v-model:value="importText"
               :rows="6"
@@ -427,8 +421,8 @@ region=ap-tokyo-1"
             <a-button type="primary" size="small" style="margin-top: 8px" @click="parseAndFill">
               <template #icon><ThunderboltOutlined /></template>解析并填充
             </a-button>
-          </a-collapse-panel>
-        </a-collapse>
+          </div>
+        </div>
 
         <a-form-item label="自定义名称" required>
           <a-input v-model:value="formState.username" placeholder="例：我的甲骨文1号" />
@@ -2474,15 +2468,29 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   gap: 8px;
   transition: var(--trans);
 }
-/* 快速导入折叠区：覆盖内联浅色背景，随主题切换 */
-:deep(.ant-collapse) {
-  background: var(--bg-card) !important;
-  border: 1px solid var(--border) !important;
-  border-radius: var(--radius-sm) !important;
-  box-shadow: var(--shadow-card) !important;
+/* 快速导入（无折叠，仅展示） */
+.tenant-quick-import-block {
+  margin-bottom: 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-card);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   transition: var(--trans);
+  overflow: hidden;
+}
+.tenant-quick-import-header {
+  padding: 12px 16px;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-main);
+  cursor: default;
+  user-select: none;
+  border-bottom: 1px solid var(--border);
+}
+.tenant-quick-import-body {
+  padding: 12px 16px 16px;
 }
 .group-section {
   margin-bottom: 12px;
@@ -2764,9 +2772,6 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   font-size: 12px;
   margin-top: 6px;
   display: block;
-}
-.tenant-quick-import-collapse {
-  margin-bottom: 12px;
 }
 .tenant-page-float-actions {
   position: fixed;
