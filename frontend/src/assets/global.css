@@ -171,6 +171,10 @@ body::after {
   transform: translateY(-1px);
   box-shadow: 0 8px 15px -3px rgba(99, 102, 241, 0.5) !important;
 }
+/* 主内容区滚动容器会裁切顶阴影；悬停仅加深阴影，不上移 */
+.app-content .ant-btn-primary:hover {
+  transform: none !important;
+}
 
 .ant-btn-default {
   background: var(--bg-card) !important;
@@ -216,6 +220,34 @@ body::after {
 .ant-input-password:focus, .ant-select-focused .ant-select-selector {
   border-color: var(--primary) !important;
   box-shadow: 0 0 0 3px var(--primary-light) !important;
+}
+
+/* 全站 a-input-search：光标留白、垂直居中、聚焦更易辨认 */
+.ant-input-search .ant-input-affix-wrapper {
+  padding-left: 12px !important;
+  align-items: center !important;
+}
+.ant-input-search .ant-input-affix-wrapper .ant-input {
+  padding-left: 0 !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  line-height: 22px !important;
+}
+.ant-input-search > .ant-input-group > .ant-input,
+.ant-input-search > .ant-input-group > .ant-input-affix-wrapper:first-child {
+  padding-left: 12px !important;
+}
+.ant-input-search > .ant-input-group > .ant-input {
+  padding: 4px 11px 4px 12px !important;
+  line-height: 22px !important;
+}
+.ant-input-search .ant-input-group .ant-input-affix-wrapper .ant-input {
+  padding: 0 !important;
+  line-height: 22px !important;
+}
+.ant-input-search .ant-input:focus,
+.ant-input-search .ant-input-affix-wrapper-focused .ant-input {
+  caret-color: var(--primary) !important;
 }
 
 .ant-select-dropdown {

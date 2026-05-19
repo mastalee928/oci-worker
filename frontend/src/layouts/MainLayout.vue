@@ -454,7 +454,7 @@ function handleLogout() {
 
 .app-content {
   flex: 1;
-  padding: 0 32px 32px;
+  padding: 8px 32px 32px;
   overflow-y: auto;
   overflow-x: hidden;
 }
@@ -480,7 +480,7 @@ function handleLogout() {
     font-size: 18px;
   }
   .app-content {
-    padding: 0 16px 24px;
+    padding: 8px 16px 24px;
   }
 }
 </style>
