@@ -285,6 +285,91 @@ mysql_cli_run() {
     MYSQL_PWD="${pass}" mysql "${args[@]}" -e "${sql}" 2>&1
 }
 
+mysql_select1_ok() {
+    # mysql_select1_ok <host> <port> <user> <pass>  -> 0 if SELECT 1 succeeds
+    local host="$1" port="$2" user="$3" pass="$4" out
+    out="$(MYSQL_PWD="$4" mysql -h"$1" -P"$2" -u"$3" -N -B --connect-timeout=5 -e "SELECT 1" 2>&1 || true)"
+    [ "${out}" = "1" ]
+}
+
+sql_escape_ident() {
+    # Backtick-quoted identifier (database name).
+    local s="$1"
+    s="${s//\`/\`\`}"
+    printf '`%s`' "${s}"
+}
+
+sql_escape_literal() {
+    # Single-quoted SQL string literal (user name or password).
+    local s="$1"
+    s="${s//\\/\\\\}"
+    s="${s//\'/\'\'}"
+    printf "'%s'" "${s}"
+}
+
+docker_mysql_select1_status() {
+    # ok | auth_fail | conn_wait | wait  (conn_wait/wait = keep polling)
+    local out
+    out="$(MYSQL_PWD="${DB_PASS}" mysql -h127.0.0.1 -P3306 -u"${DB_USER}" -N -B --connect-timeout=5 -e "SELECT 1" 2>&1 || true)"
+    if [ "${out}" = "1" ]; then
+        echo "ok"
+        return 0
+    fi
+    if echo "${out}" | grep -qiE "Access denied"; then
+        echo "auth_fail"
+        return 0
+    fi
+    if echo "${out}" | grep -qiE "Can't connect|Connection refused|timed out|Unknown MySQL server host"; then
+        echo "conn_wait"
+        return 0
+    fi
+    echo "wait"
+}
+
+wait_docker_mysql_user() {
+    info "等待 MySQL 就绪（最多 60 秒）..."
+    local waited=0 status
+    while [ "${waited}" -lt 60 ]; do
+        status="$(docker_mysql_select1_status)"
+        case "${status}" in
+            ok)
+                ok "MySQL 已就绪"
+                return 0
+                ;;
+            auth_fail)
+                printf "\n" >&2
+                die "MySQL 已启动，但用户名或密码错误。复用容器时请填写首次创建时的密码；不记得请选重新创建容器（或清空 /opt/oci-worker/data/mysql 后重装）。"
+                ;;
+        esac
+        sleep 2
+        waited=$((waited + 2))
+        printf "." >&2
+    done
+    printf "\n" >&2
+    return 1
+}
+
+verify_docker_mysql_credentials() {
+    info "验证数据库账号..."
+    local probe
+    probe="$(probe_database)"
+    case "${probe}" in
+        ok)
+            ok "登录成功"
+            ;;
+        auth_fail)
+            die "无法用当前用户名/密码连接容器内 MySQL（密码须与容器初始化时一致，或选择重新创建容器）"
+            ;;
+        conn_fail)
+            die "无法连接 127.0.0.1:3306，请检查容器：docker logs oci-worker-mysql"
+            ;;
+        *)
+            die "MySQL 返回错误：${probe#other:}"
+            ;;
+    esac
+    check_database_quality || die "数据库自检未通过"
+}
+
 ensure_mysql_client() {
     if command -v mysql >/dev/null 2>&1; then
         return 0
@@ -519,37 +604,34 @@ prompt_db_docker() {
         fi
     fi
 
-    if ! docker ps --format '{{.Names}}' | grep -qx "oci-worker-mysql"; then
-        info "启动 MySQL 8.0 容器..."
-        mkdir -p /opt/oci-worker/data/mysql
-        docker run -d \
-            --name oci-worker-mysql \
-            --restart always \
-            -p 127.0.0.1:3306:3306 \
-            -v /opt/oci-worker/data/mysql:/var/lib/mysql \
-            -e MYSQL_ROOT_PASSWORD="${root_pass}" \
-            -e MYSQL_DATABASE="${DB_NAME}" \
-            -e MYSQL_USER="${DB_USER}" \
-            -e MYSQL_PASSWORD="${DB_PASS}" \
-            -e TZ=Asia/Shanghai \
-            mysql:8.0 \
-            --character-set-server=utf8mb4 \
-            --collation-server=utf8mb4_unicode_ci >/dev/null \
-            || die "MySQL 容器启动失败"
-        info "等待 MySQL 启动（最多 60 秒）..."
-        local waited=0
-        while [ "${waited}" -lt 60 ]; do
-            if MYSQL_PWD="${DB_PASS}" mysql -h127.0.0.1 -P3306 -u"${DB_USER}" --connect-timeout=2 -e "SELECT 1" >/dev/null 2>&1; then
-                ok "MySQL 已就绪"
-                return 0
-            fi
-            sleep 2
-            waited=$((waited + 2))
-            printf "." >&2
-        done
-        printf "\n" >&2
-        die "MySQL 启动超时，请查看：docker logs oci-worker-mysql"
+    if docker ps -a --format '{{.Names}}' | grep -qx "oci-worker-mysql"; then
+        if ! docker ps --format '{{.Names}}' | grep -qx "oci-worker-mysql"; then
+            info "启动已有容器 oci-worker-mysql..."
+            docker start oci-worker-mysql >/dev/null || die "启动容器失败：docker start oci-worker-mysql"
+            wait_docker_mysql_user || die "MySQL 启动超时，请查看：docker logs oci-worker-mysql"
+        fi
+        verify_docker_mysql_credentials
+        return 0
     fi
+
+    info "启动 MySQL 8.0 容器..."
+    mkdir -p /opt/oci-worker/data/mysql
+    docker run -d \
+        --name oci-worker-mysql \
+        --restart always \
+        -p 127.0.0.1:3306:3306 \
+        -v /opt/oci-worker/data/mysql:/var/lib/mysql \
+        -e MYSQL_ROOT_PASSWORD="${root_pass}" \
+        -e MYSQL_DATABASE="${DB_NAME}" \
+        -e MYSQL_USER="${DB_USER}" \
+        -e MYSQL_PASSWORD="${DB_PASS}" \
+        -e TZ=Asia/Shanghai \
+        mysql:8.0 \
+        --character-set-server=utf8mb4 \
+        --collation-server=utf8mb4_unicode_ci >/dev/null \
+        || die "MySQL 容器启动失败"
+    wait_docker_mysql_user || die "MySQL 启动超时，请查看：docker logs oci-worker-mysql"
+    verify_docker_mysql_credentials
 }
 
 prompt_db_root() {
@@ -571,23 +653,36 @@ prompt_db_root() {
 
     info "用 root 测试连接..."
     local probe_out
-    probe_out="$(MYSQL_PWD="${root_pass}" mysql -h"${DB_HOST}" -P"${DB_PORT}" -u"${root_user}" --connect-timeout=5 -e "SELECT 1" 2>&1 || true)"
-    if ! echo "${probe_out}" | grep -q "^1$"; then
+    if mysql_select1_ok "${DB_HOST}" "${DB_PORT}" "${root_user}" "${root_pass}"; then
+        ok "root 登录成功"
+    else
+        probe_out="$(MYSQL_PWD="${root_pass}" mysql -h"${DB_HOST}" -P"${DB_PORT}" -u"${root_user}" -N -B --connect-timeout=5 -e "SELECT 1" 2>&1 || true)"
         die "root 登录失败：${probe_out}"
     fi
-    ok "root 登录成功"
 
     info "创建数据库和用户..."
-    MYSQL_PWD="${root_pass}" mysql -h"${DB_HOST}" -P"${DB_PORT}" -u"${root_user}" <<EOF || die "创建数据库/用户失败"
-CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
-CREATE USER IF NOT EXISTS '${DB_USER}'@'%' IDENTIFIED BY '${DB_PASS}';
-CREATE USER IF NOT EXISTS '${DB_USER}'@'localhost' IDENTIFIED BY '${DB_PASS}';
-GRANT ALL PRIVILEGES ON \`${DB_NAME}\`.* TO '${DB_USER}'@'%';
-GRANT ALL PRIVILEGES ON \`${DB_NAME}\`.* TO '${DB_USER}'@'localhost';
-ALTER USER '${DB_USER}'@'%' IDENTIFIED BY '${DB_PASS}';
-ALTER USER '${DB_USER}'@'localhost' IDENTIFIED BY '${DB_PASS}';
+    local db_ident user_lit pass_lit sql_file
+    db_ident="$(sql_escape_ident "${DB_NAME}")"
+    user_lit="$(sql_escape_literal "${DB_USER}")"
+    pass_lit="$(sql_escape_literal "${DB_PASS}")"
+    sql_file="$(mktemp)"
+    chmod 600 "${sql_file}"
+    cat > "${sql_file}" <<EOF
+CREATE DATABASE IF NOT EXISTS ${db_ident} DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER IF NOT EXISTS ${user_lit}@'%' IDENTIFIED BY ${pass_lit};
+CREATE USER IF NOT EXISTS ${user_lit}@'localhost' IDENTIFIED BY ${pass_lit};
+GRANT ALL PRIVILEGES ON ${db_ident}.* TO ${user_lit}@'%';
+GRANT ALL PRIVILEGES ON ${db_ident}.* TO ${user_lit}@'localhost';
+ALTER USER ${user_lit}@'%' IDENTIFIED BY ${pass_lit};
+ALTER USER ${user_lit}@'localhost' IDENTIFIED BY ${pass_lit};
 FLUSH PRIVILEGES;
 EOF
+    local create_out
+    create_out="$(MYSQL_PWD="${root_pass}" mysql -h"${DB_HOST}" -P"${DB_PORT}" -u"${root_user}" --connect-timeout=10 < "${sql_file}" 2>&1)" || {
+        rm -f "${sql_file}"
+        die "创建数据库/用户失败：${create_out}"
+    }
+    rm -f "${sql_file}"
     ok "数据库 ${DB_NAME} 和用户 ${DB_USER} 已创建"
 
     if ! check_database_quality; then
