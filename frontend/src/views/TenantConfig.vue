@@ -404,25 +404,17 @@
       :mask-closable="false"
     >
       <a-form :model="formState" layout="vertical" class="tenant-form-compact">
-        <!-- 快速导入区域（仅新增时显示，默认收起） -->
-        <a-collapse v-if="!editingId" :bordered="false" v-model:activeKey="importCollapseActive" style="margin-bottom: 12px; background: #f6f8fa; border-radius: 8px">
-          <a-collapse-panel key="import" header="⚡ 快速导入 — 粘贴 OCI 配置自动填充">
-            <a-textarea
-              v-model:value="importText"
-              :rows="6"
-              placeholder="粘贴 OCI 配置内容，例如：
-[Profile-Name]
-user=ocid1.user.oc1...
-fingerprint=a5:48:75:06...
-tenancy=ocid1.tenancy.oc1...
-region=ap-tokyo-1"
-              style="font-family: monospace; font-size: 12px"
-            />
-            <a-button type="primary" size="small" style="margin-top: 8px" @click="parseAndFill">
-              <template #icon><ThunderboltOutlined /></template>解析并填充
-            </a-button>
-          </a-collapse-panel>
-        </a-collapse>
+        <div v-if="!editingId" class="tenant-quick-import">
+          <a-textarea
+            v-model:value="importText"
+            :rows="5"
+            placeholder="可选：粘贴 OCI 配置自动填充（[Profile]、user、tenancy、fingerprint、region）"
+            class="tenant-quick-import-textarea"
+          />
+          <a-button type="primary" size="small" class="tenant-quick-import-btn" @click="parseAndFill">
+            <template #icon><ThunderboltOutlined /></template>解析并填充
+          </a-button>
+        </div>
 
         <a-form-item label="自定义名称" required>
           <a-input v-model:value="formState.username" placeholder="例：我的甲骨文1号" />
@@ -1251,7 +1243,6 @@ const modalVisible = ref(false)
 const editingId = ref('')
 const pagination = reactive({ current: 1, pageSize: 10, total: 0 })
 const importText = ref('')
-const importCollapseActive = ref<string[]>([])
 const fileList = ref<UploadFile[]>([])
 const keyInputMode = ref<'upload' | 'paste'>('upload')
 const pemPasteText = ref('')
@@ -1418,7 +1409,6 @@ function resetForm() {
   pendingFile = null
   fileList.value = []
   importText.value = ''
-  importCollapseActive.value = []
   pemPasteText.value = ''
   keyInputMode.value = isMobile.value ? 'paste' : 'upload'
 }
@@ -1465,7 +1455,6 @@ async function showEditModal(record: any) {
   pendingFile = null
   fileList.value = []
   importText.value = ''
-  importCollapseActive.value = []
   pemPasteText.value = ''
   keyInputMode.value = 'upload'
   await loadOciRegionCatalog(record.id)
@@ -2710,6 +2699,16 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   font-size: 12px;
   margin-top: 6px;
   display: block;
+}
+.tenant-quick-import {
+  margin-bottom: 12px;
+}
+.tenant-quick-import-textarea {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+}
+.tenant-quick-import-btn {
+  margin-top: 8px;
 }
 .tenant-page-float-actions {
   position: fixed;
