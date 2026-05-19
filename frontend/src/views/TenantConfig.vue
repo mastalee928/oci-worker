@@ -394,10 +394,18 @@
     </a-modal>
 
     <!-- 新增/编辑弹窗（内嵌快速导入） -->
-    <a-modal v-model:open="modalVisible" :title="editingId ? '编辑配置' : '新增配置'" :width="isMobile ? '100%' : 680" @ok="handleSubmit" :confirm-loading="submitLoading" :mask-closable="false">
-      <a-form :model="formState" layout="vertical">
-        <!-- 快速导入区域（仅新增时显示） -->
-        <a-collapse v-if="!editingId" :bordered="false" :active-key="['import']" style="margin-bottom: 16px; background: #f6f8fa; border-radius: 8px">
+    <a-modal
+      v-model:open="modalVisible"
+      :title="editingId ? '编辑配置' : '新增配置'"
+      :width="isMobile ? '100%' : 680"
+      :body-style="{ maxHeight: '75vh', overflow: 'auto' }"
+      @ok="handleSubmit"
+      :confirm-loading="submitLoading"
+      :mask-closable="false"
+    >
+      <a-form :model="formState" layout="vertical" class="tenant-form-compact">
+        <!-- 快速导入区域（仅新增时显示，默认收起） -->
+        <a-collapse v-if="!editingId" :bordered="false" v-model:activeKey="importCollapseActive" style="margin-bottom: 12px; background: #f6f8fa; border-radius: 8px">
           <a-collapse-panel key="import" header="⚡ 快速导入 — 粘贴 OCI 配置自动填充">
             <a-textarea
               v-model:value="importText"
@@ -434,8 +442,20 @@ region=ap-tokyo-1"
             <a-select-option v-for="opt in ociRegionSelectOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</a-select-option>
           </a-select>
         </a-form-item>
-        <a-form-item label="私钥文件 (.pem)">
+        <a-form-item label="私钥 (.pem)" required>
+          <a-segmented
+            v-model:value="keyInputMode"
+            block
+            class="pem-input-mode-segmented"
+            :options="[
+              { label: '上传文件', value: 'upload' },
+              { label: '粘贴内容', value: 'paste' },
+            ]"
+            @change="onKeyInputModeChange"
+          />
           <a-upload-dragger
+            v-if="keyInputMode === 'upload'"
+            class="pem-upload-dragger"
             :before-upload="handleUpload"
             :max-count="1"
             accept=".pem"
@@ -443,10 +463,20 @@ region=ap-tokyo-1"
             @remove="handleRemoveFile"
           >
             <p class="ant-upload-drag-icon"><InboxOutlined /></p>
-            <p class="ant-upload-text">点击或拖拽 PEM 文件到此处上传</p>
+            <p class="ant-upload-text">{{ isMobile ? '点击选择 PEM 文件' : '点击或拖拽 PEM 文件到此处' }}</p>
           </a-upload-dragger>
-          <span v-if="formState.ociKeyPath && !fileList.length" style="color: #888; font-size: 12px; margin-top: 4px; display: block">
-            已有密钥：{{ formState.ociKeyPath }}
+          <a-textarea
+            v-else
+            v-model:value="pemPasteText"
+            :rows="4"
+            class="pem-paste-textarea"
+            placeholder="粘贴完整 PEM 私钥，须包含：
+-----BEGIN PRIVATE KEY-----
+...
+-----END PRIVATE KEY-----"
+          />
+          <span v-if="formState.ociKeyPath && !fileList.length && !pemPasteText.trim()" class="pem-existing-hint">
+            已有密钥：{{ formState.ociKeyPath }}（上传或粘贴可覆盖）
           </span>
         </a-form-item>
         <a-form-item label="一级分组">
@@ -1221,7 +1251,10 @@ const modalVisible = ref(false)
 const editingId = ref('')
 const pagination = reactive({ current: 1, pageSize: 10, total: 0 })
 const importText = ref('')
+const importCollapseActive = ref<string[]>([])
 const fileList = ref<UploadFile[]>([])
+const keyInputMode = ref<'upload' | 'paste'>('upload')
+const pemPasteText = ref('')
 
 const formState = reactive({
   username: '', ociTenantId: '', ociUserId: '',
@@ -1344,7 +1377,7 @@ function parseAndFill() {
   formState.ociTenantId = fields['tenancy'] || formState.ociTenantId
   formState.ociFingerprint = fields['fingerprint'] || formState.ociFingerprint
   formState.ociRegion = fields['region'] || formState.ociRegion
-  message.success('已解析并填充，请上传私钥后提交')
+  message.success('已解析并填充，请上传或粘贴私钥后提交')
 }
 
 /** 新增/编辑保存后展开目标分组；普通 loadData 不设置 */
@@ -1385,6 +1418,29 @@ function resetForm() {
   pendingFile = null
   fileList.value = []
   importText.value = ''
+  importCollapseActive.value = []
+  pemPasteText.value = ''
+  keyInputMode.value = isMobile.value ? 'paste' : 'upload'
+}
+
+function onKeyInputModeChange() {
+  if (keyInputMode.value === 'upload') {
+    pemPasteText.value = ''
+  } else {
+    pendingFile = null
+    fileList.value = []
+  }
+}
+
+function validatePemPasteText(text: string): boolean {
+  const t = text.trim()
+  return t.includes('BEGIN') && t.includes('PRIVATE KEY')
+}
+
+function pemPasteTextToFile(text: string): File {
+  const trimmed = text.trim()
+  const body = trimmed.endsWith('\n') ? trimmed : `${trimmed}\n`
+  return new File([body], 'pasted.pem', { type: 'application/x-pem-file' })
 }
 
 async function showAddModal() {
@@ -1409,6 +1465,9 @@ async function showEditModal(record: any) {
   pendingFile = null
   fileList.value = []
   importText.value = ''
+  importCollapseActive.value = []
+  pemPasteText.value = ''
+  keyInputMode.value = 'upload'
   await loadOciRegionCatalog(record.id)
   modalVisible.value = true
 }
@@ -2247,15 +2306,24 @@ async function handleSubmit() {
   submitLoading.value = true
   try {
     let keyPath = formState.ociKeyPath
-    if (pendingFile) {
+    let fileToUpload: File | null = pendingFile
+    if (!fileToUpload && keyInputMode.value === 'paste' && pemPasteText.value.trim()) {
+      if (!validatePemPasteText(pemPasteText.value)) {
+        message.warning('请粘贴完整的 PEM 私钥（须包含 BEGIN … PRIVATE KEY … END）')
+        submitLoading.value = false
+        return
+      }
+      fileToUpload = pemPasteTextToFile(pemPasteText.value)
+    }
+    if (fileToUpload) {
       const fd = new FormData()
-      fd.append('file', pendingFile)
+      fd.append('file', fileToUpload)
       const uploadRes = await uploadKey(fd)
       keyPath = uploadRes.data
     }
 
     if (!keyPath && !editingId.value) {
-      message.warning('请上传私钥文件')
+      message.warning(keyInputMode.value === 'paste' ? '请粘贴 PEM 私钥' : '请上传私钥文件')
       submitLoading.value = false
       return
     }
@@ -2615,6 +2683,33 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
 }
 .tenant-config-root {
   position: relative;
+}
+
+.tenant-form-compact :deep(.ant-form-item) {
+  margin-bottom: 16px;
+}
+.tenant-form-compact :deep(.ant-form-item-label) {
+  padding-bottom: 4px;
+}
+.pem-input-mode-segmented {
+  margin-bottom: 8px;
+}
+.pem-upload-dragger :deep(.ant-upload-drag) {
+  padding: 12px 0;
+}
+.pem-upload-dragger :deep(.ant-upload-drag-icon) {
+  margin-bottom: 4px;
+}
+.pem-paste-textarea {
+  margin-top: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+}
+.pem-existing-hint {
+  color: var(--text-sub, #888);
+  font-size: 12px;
+  margin-top: 6px;
+  display: block;
 }
 .tenant-page-float-actions {
   position: fixed;
