@@ -105,7 +105,11 @@ final class OspSubscriptionEnricher {
         if (StrUtil.isNotBlank(pm) && result.get("paymentMethodLabel") == null) {
             result.put("paymentMethodLabel", labelPaymentMethod(pm));
         }
-        Number amt = result.get("subscriptionAmount") instanceof Number n ? n : null;
+        Number amt = null;
+        Object amountObj = result.get("subscriptionAmount");
+        if (amountObj instanceof Number) {
+            amt = (Number) amountObj;
+        }
         if (amt != null && result.get("subscriptionAmountLabel") == null) {
             result.put("subscriptionAmountLabel", formatAmount(amt, asString(result.get("currencyCode"))));
         }
@@ -368,7 +372,7 @@ final class OspSubscriptionEnricher {
         result.put("subscriptionStatus", resolved.code());
         result.put("subscriptionStatusLabel", resolved.label());
         if (result.get("paymentMethod") != null && result.get("paymentMethodLabel") == null) {
-            result.put("paymentMethodLabel", labelPaymentMethod(asString(result.get("paymentMethod")));
+            result.put("paymentMethodLabel", labelPaymentMethod(asString(result.get("paymentMethod"))));
         }
     }
 
