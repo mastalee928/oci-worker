@@ -770,8 +770,6 @@ region=ap-tokyo-1"
           </a-spin>
         </a-tab-pane>
         <a-tab-pane key="announcements" tab="云公告">
-          <a-alert type="info" show-icon style="margin-bottom: 10px"
-            message="对应 OCI 控制台右上角铃铛（Announcements API），实时从云端拉取；Oracle 约保留 90 天。仅展示阅读状态，不支持在此标记已读。" />
           <a-space style="margin-bottom: 12px" wrap>
             <a-button type="primary" @click="loadAnnouncements" :loading="announcementsLoading">
               <template #icon><ReloadOutlined /></template>加载公告

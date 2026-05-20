@@ -1,8 +1,5 @@
 <template>
   <div class="compartment-manager">
-    <a-alert type="info" show-icon style="margin-bottom: 10px"
-      message="列表与控制台一致：仅显示当前层级的直接子区间；点名称进入子级。返回上级：点「返回上一级」或面包屑中上一级名称。" />
-
     <div class="compartment-nav-bar">
       <a-button
         v-if="canGoUp"
