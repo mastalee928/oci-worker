@@ -51,17 +51,113 @@ export const OCI_BM_SHAPE_SPECS: Record<string, { ocpus: number; memory: number 
   'BM.HPC2.36': { ocpus: 36, memory: 384 },
 }
 
+/** Flex Shape：控制台默认 OCPU/内存与最大值（用户提供截图） */
+export type FlexShapeSpec = {
+  ocpus: number
+  memory: number
+  maxOcpus: number
+  maxMemoryGb: number
+}
+
+export const OCI_FLEX_SHAPE_SPECS: Record<string, FlexShapeSpec> = {
+  'VM.Standard.E6.Flex': { ocpus: 1, memory: 11, maxOcpus: 126, maxMemoryGb: 1454 },
+  'VM.Standard.E6.Ax.Flex': { ocpus: 1, memory: 7, maxOcpus: 94, maxMemoryGb: 712 },
+  'VM.Standard.E5.Flex': { ocpus: 1, memory: 12, maxOcpus: 126, maxMemoryGb: 2098 },
+  'VM.Standard.E4.Flex': { ocpus: 1, memory: 16, maxOcpus: 114, maxMemoryGb: 1760 },
+  'VM.Standard3.Flex': { ocpus: 1, memory: 16, maxOcpus: 56, maxMemoryGb: 896 },
+  'VM.Optimized3.Flex': { ocpus: 1, memory: 14, maxOcpus: 18, maxMemoryGb: 256 },
+  'VM.Standard4.Ax.Flex': { ocpus: 1, memory: 9, maxOcpus: 39, maxMemoryGb: 360 },
+  'VM.Standard.A1.Flex': { ocpus: 1, memory: 6, maxOcpus: 80, maxMemoryGb: 512 },
+  'VM.Standard.A2.Flex': { ocpus: 1, memory: 6, maxOcpus: 78, maxMemoryGb: 946 },
+  'VM.Standard.A4.Flex': { ocpus: 1, memory: 7, maxOcpus: 45, maxMemoryGb: 700 },
+  'VM.Standard.E3.Flex': { ocpus: 1, memory: 16, maxOcpus: 114, maxMemoryGb: 1776 },
+}
+
+const ARM_TASK_FLEX_SHAPE = 'VM.Standard.A1.Flex'
+
+/** 开机任务短码 ARM → A1.Flex 上限 */
+export function getFlexShapeSpec(arch?: string | null): FlexShapeSpec | null {
+  if (!arch) return null
+  if (arch === 'ARM') return OCI_FLEX_SHAPE_SPECS[ARM_TASK_FLEX_SHAPE] ?? null
+  return OCI_FLEX_SHAPE_SPECS[arch] ?? null
+}
+
 /** 部分 Flex 切换时预选 OCPU/内存（可编辑， unlike BM / 固定 VM 锁定） */
-export const OCI_FLEX_SHAPE_DEFAULTS: Record<string, { ocpus: number; memory: number }> = {
-  'VM.Standard3.Flex': { ocpus: 1, memory: 16 },
-  'VM.Standard.E5.Flex': { ocpus: 1, memory: 12 },
-  'VM.Standard.E4.Flex': { ocpus: 1, memory: 16 },
-  'VM.Standard.E3.Flex': { ocpus: 1, memory: 16 },
-  'VM.Standard.E6.Flex': { ocpus: 1, memory: 11 },
-  'VM.Standard.E6.Ax.Flex': { ocpus: 1, memory: 7 },
-  'VM.Optimized3.Flex': { ocpus: 1, memory: 14 },
-  'VM.Standard4.Ax.Flex': { ocpus: 1, memory: 9 },
-  'VM.Standard.A4.Flex': { ocpus: 1, memory: 16 },
+export const OCI_FLEX_SHAPE_DEFAULTS: Record<string, { ocpus: number; memory: number }> = Object.fromEntries(
+  Object.entries(OCI_FLEX_SHAPE_SPECS).map(([k, v]) => [k, { ocpus: v.ocpus, memory: v.memory }]),
+)
+
+export type TaskShapeLimits = {
+  minOcpus: number
+  maxOcpus: number
+  minMemory: number
+  maxMemory: number
+}
+
+/** 开机任务 / 快捷开机：按 Shape 解析 OCPU、内存 min/max */
+export function resolveTaskShapeLimits(
+  arch?: string | null,
+  shapesFromApi?: Array<{ shape: string; ocpus?: number; memoryInGBs?: number }>,
+): TaskShapeLimits {
+  if (!arch) return { minOcpus: 1, maxOcpus: 80, minMemory: 1, maxMemory: 512 }
+  if (isFixedTaskShapeSpec(arch)) {
+    const spec = resolveFixedTaskShapeSpec(arch, shapesFromApi)
+    const o = spec?.ocpus ?? 1
+    const m = spec?.memory ?? 1
+    return { minOcpus: o, maxOcpus: o, minMemory: m, maxMemory: m }
+  }
+  const dense = getDenseIoFlexTiers(arch)
+  if (dense?.length) {
+    return {
+      minOcpus: Math.min(...dense.map((t) => t.ocpus)),
+      maxOcpus: Math.max(...dense.map((t) => t.ocpus)),
+      minMemory: Math.min(...dense.map((t) => t.memory)),
+      maxMemory: Math.max(...dense.map((t) => t.memory)),
+    }
+  }
+  const flex = getFlexShapeSpec(arch)
+  if (flex) {
+    return { minOcpus: 1, maxOcpus: flex.maxOcpus, minMemory: 1, maxMemory: flex.maxMemoryGb }
+  }
+  return { minOcpus: 1, maxOcpus: 512, minMemory: 1, maxMemory: 4096 }
+}
+
+export function clampTaskShapeResources(
+  form: { architecture?: string; ocpus: number; memory: number },
+  shapesFromApi?: Array<{ shape: string; ocpus?: number; memoryInGBs?: number }>,
+): void {
+  const lim = resolveTaskShapeLimits(form.architecture, shapesFromApi)
+  if (form.ocpus < lim.minOcpus) form.ocpus = lim.minOcpus
+  if (form.ocpus > lim.maxOcpus) form.ocpus = lim.maxOcpus
+  if (form.memory < lim.minMemory) form.memory = lim.minMemory
+  if (form.memory > lim.maxMemory) form.memory = lim.maxMemory
+}
+
+/** 实例改 Shape：已知 Flex 以固定表上限为准，其余用 API */
+export function resolveShapeEditFlexLimits(
+  shapeName: string,
+  apiMeta?: {
+    ocpuMin?: number | null
+    ocpuMax?: number | null
+    memoryMinInGBs?: number | null
+    memoryMaxInGBs?: number | null
+  } | null,
+): TaskShapeLimits {
+  const flex = getFlexShapeSpec(shapeName)
+  if (flex) {
+    return {
+      minOcpus: apiMeta?.ocpuMin ?? 1,
+      maxOcpus: flex.maxOcpus,
+      minMemory: apiMeta?.memoryMinInGBs ?? 1,
+      maxMemory: flex.maxMemoryGb,
+    }
+  }
+  return {
+    minOcpus: apiMeta?.ocpuMin ?? 1,
+    maxOcpus: apiMeta?.ocpuMax ?? 80,
+    minMemory: apiMeta?.memoryMinInGBs ?? 1,
+    maxMemory: apiMeta?.memoryMaxInGBs ?? 512,
+  }
 }
 
 /** 固定规格 VM（非 Flex），OCPU/内存不可改 */
@@ -198,6 +294,7 @@ export function applyTaskShapeDefaults(
     const t = hit ?? denseTiers[0]
     form.ocpus = t.ocpus
     form.memory = t.memory
+    clampTaskShapeResources(form, shapesFromApi)
     return false
   }
   if (isFixedTaskShapeSpec(arch)) {
@@ -209,14 +306,16 @@ export function applyTaskShapeDefaults(
     }
     return false
   }
-  const flexDefault = OCI_FLEX_SHAPE_DEFAULTS[arch]
-  if (flexDefault) {
-    form.ocpus = flexDefault.ocpus
-    form.memory = flexDefault.memory
+  const flex = getFlexShapeSpec(arch)
+  if (flex) {
+    form.ocpus = flex.ocpus
+    form.memory = flex.memory
+    clampTaskShapeResources(form, shapesFromApi)
     return false
   }
   // 离开 BM/固定 VM 后须恢复 OCPU；此前只改 memory，会残留大规格 OCPU
   form.ocpus = 1
   form.memory = defaultMemoryGbForShape(arch)
+  clampTaskShapeResources(form, shapesFromApi)
   return false
 }

@@ -3,6 +3,7 @@ package com.ociworker.service;
 import com.oracle.bmc.core.model.*;
 import com.oracle.bmc.core.requests.*;
 import com.ociworker.exception.OciException;
+import com.ociworker.util.ShapeFlexLimitsUtil;
 import com.ociworker.mapper.OciUserMapper;
 import com.ociworker.model.dto.SysUserDTO;
 import com.ociworker.model.entity.OciUser;
@@ -887,7 +888,23 @@ public class InstanceService {
         map.put("memoryMinInGBs", memMin);
         map.put("memoryMaxInGBs", memMax);
         map.put("memoryInGBs", shape.getMemoryInGBs());
+        applyFlexLimitsOverride(map, name);
         return map;
+    }
+
+    private static void applyFlexLimitsOverride(Map<String, Object> map, String shapeName) {
+        ShapeFlexLimitsUtil.FlexLimits lim = ShapeFlexLimitsUtil.forShape(shapeName);
+        if (lim == null || !Boolean.TRUE.equals(map.get("isFlexible"))) {
+            return;
+        }
+        map.put("ocpuMax", lim.maxOcpus());
+        map.put("memoryMaxInGBs", lim.maxMemoryGb());
+        if (map.get("ocpuMin") == null) {
+            map.put("ocpuMin", 1f);
+        }
+        if (map.get("memoryMinInGBs") == null) {
+            map.put("memoryMinInGBs", lim.defaultMemoryGb());
+        }
     }
 
     private static void validateFlexResources(Shape shapeMeta, Float ocpus, Float memoryInGBs) {
@@ -898,6 +915,17 @@ public class InstanceService {
         Float oMax = shapeMeta.getOcpuOptions() != null ? shapeMeta.getOcpuOptions().getMax() : shapeMeta.getOcpus();
         Float mMin = shapeMeta.getMemoryOptions() != null ? shapeMeta.getMemoryOptions().getMinInGBs() : shapeMeta.getMemoryInGBs();
         Float mMax = shapeMeta.getMemoryOptions() != null ? shapeMeta.getMemoryOptions().getMaxInGBs() : shapeMeta.getMemoryInGBs();
+        ShapeFlexLimitsUtil.FlexLimits fixed = ShapeFlexLimitsUtil.forShape(shapeMeta.getShape());
+        if (fixed != null) {
+            oMax = fixed.maxOcpus();
+            mMax = fixed.maxMemoryGb();
+            if (oMin == null) {
+                oMin = 1f;
+            }
+            if (mMin == null) {
+                mMin = fixed.defaultMemoryGb();
+            }
+        }
         if (oMin != null && ocpus < oMin) {
             throw new OciException(String.format("OCPU 不能小于 %s（该 Shape 下限）", trimFloat(oMin)));
         }

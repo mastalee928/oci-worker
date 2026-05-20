@@ -466,12 +466,12 @@
         <a-row :gutter="12">
           <a-col v-if="!quickDenseIoTiers?.length" :xs="12" :sm="8">
             <a-form-item label="OCPU">
-              <a-input-number v-model:value="quickTaskForm.ocpus" :min="1" :max="512" :disabled="quickTaskBmLocked" style="width: 100%" />
+              <a-input-number v-model:value="quickTaskForm.ocpus" :min="quickTaskShapeLimits.minOcpus" :max="quickTaskShapeLimits.maxOcpus" :disabled="quickTaskBmLocked" style="width: 100%" />
             </a-form-item>
           </a-col>
           <a-col v-if="!quickDenseIoTiers?.length" :xs="12" :sm="8">
             <a-form-item label="内存 (GB)">
-              <a-input-number v-model:value="quickTaskForm.memory" :min="1" :max="4096" :disabled="quickTaskBmLocked" style="width: 100%" />
+              <a-input-number v-model:value="quickTaskForm.memory" :min="quickTaskShapeLimits.minMemory" :max="quickTaskShapeLimits.maxMemory" :disabled="quickTaskBmLocked" style="width: 100%" />
             </a-form-item>
           </a-col>
           <a-col :xs="12" :sm="8">
@@ -1201,7 +1201,15 @@ import {
   ociRegionSelectOptions,
   filterOciRegionSelectOption,
 } from '../utils/ociRegionCatalog'
-import { applyTaskShapeDefaults, isFixedTaskShapeSpec, validateDenseIoFlexTier } from '../constants/ociBmShapeSpecs'
+import {
+  applyTaskShapeDefaults,
+  clampTaskShapeResources,
+  getFlexShapeSpec,
+  isFixedTaskShapeSpec,
+  resolveShapeEditFlexLimits,
+  resolveTaskShapeLimits,
+  validateDenseIoFlexTier,
+} from '../constants/ociBmShapeSpecs'
 import { useDenseIoFlexTier } from '../composables/useDenseIoFlexTier'
 import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc'
@@ -1613,10 +1621,13 @@ const shapeEditSelectedMeta = computed(() =>
   shapeEditOptions.value.find((s: any) => s.shape === shapeForm.shape) ?? null,
 )
 
-const shapeOcpuMin = computed(() => shapeEditSelectedMeta.value?.ocpuMin ?? 1)
-const shapeOcpuMax = computed(() => shapeEditSelectedMeta.value?.ocpuMax ?? 80)
-const shapeMemoryMin = computed(() => shapeEditSelectedMeta.value?.memoryMinInGBs ?? 1)
-const shapeMemoryMax = computed(() => shapeEditSelectedMeta.value?.memoryMaxInGBs ?? 512)
+const shapeEditFlexLimits = computed(() =>
+  resolveShapeEditFlexLimits(shapeForm.shape, shapeEditSelectedMeta.value),
+)
+const shapeOcpuMin = computed(() => shapeEditFlexLimits.value.minOcpus)
+const shapeOcpuMax = computed(() => shapeEditFlexLimits.value.maxOcpus)
+const shapeMemoryMin = computed(() => shapeEditFlexLimits.value.minMemory)
+const shapeMemoryMax = computed(() => shapeEditFlexLimits.value.maxMemory)
 const shapeOcpuLabel = computed(() => `OCPU（${shapeOcpuMin.value}–${shapeOcpuMax.value}）`)
 const shapeMemoryLabel = computed(() => `内存 GB（${shapeMemoryMin.value}–${shapeMemoryMax.value}）`)
 
@@ -1639,11 +1650,21 @@ function filterShapeOption(input: string, option: any) {
 function onShapeFormShapeChange() {
   const meta = shapeEditSelectedMeta.value
   if (!meta?.isFlexible) return
+  const lim = resolveShapeEditFlexLimits(shapeForm.shape, meta)
   const inst = currentInstance.value
-  const o = inst?.shape === shapeForm.shape ? (inst.ocpus ?? meta.ocpuMin) : (meta.ocpuMin ?? 1)
-  const m = inst?.shape === shapeForm.shape ? (inst.memoryInGBs ?? meta.memoryMinInGBs) : (meta.memoryMinInGBs ?? 6)
-  shapeForm.ocpus = clampShapeNum(Number(o) || 1, meta.ocpuMin, meta.ocpuMax)
-  shapeForm.memoryInGBs = clampShapeNum(Number(m) || 6, meta.memoryMinInGBs, meta.memoryMaxInGBs)
+  const flexDefault = getFlexShapeSpec(shapeForm.shape)
+  if (inst?.shape === shapeForm.shape) {
+    const o = inst.ocpus ?? flexDefault?.ocpus ?? lim.minOcpus
+    const m = inst.memoryInGBs ?? flexDefault?.memory ?? lim.minMemory
+    shapeForm.ocpus = clampShapeNum(Number(o) || 1, lim.minOcpus, lim.maxOcpus)
+    shapeForm.memoryInGBs = clampShapeNum(Number(m) || 6, lim.minMemory, lim.maxMemory)
+  } else if (flexDefault) {
+    shapeForm.ocpus = flexDefault.ocpus
+    shapeForm.memoryInGBs = flexDefault.memory
+  } else {
+    shapeForm.ocpus = clampShapeNum(Number(meta.ocpuMin) || 1, lim.minOcpus, lim.maxOcpus)
+    shapeForm.memoryInGBs = clampShapeNum(Number(meta.memoryMinInGBs) || 6, lim.minMemory, lim.maxMemory)
+  }
 }
 
 async function loadShapeEditOptions() {
@@ -1791,6 +1812,9 @@ const quickTaskForm = reactive({
 })
 
 const quickTaskBmLocked = ref(false)
+const quickTaskShapeLimits = computed(() =>
+  resolveTaskShapeLimits(quickTaskForm.architecture, quickTaskShapes.value),
+)
 const {
   tiers: quickDenseIoTiers,
   tierKey: quickDenseIoTierKey,
@@ -1803,13 +1827,20 @@ watch(
   (arch) => {
     if (arch == null || arch === undefined) return
     quickTaskBmLocked.value = applyTaskShapeDefaults(quickTaskForm, quickTaskShapes.value)
+    clampTaskShapeResources(quickTaskForm, quickTaskShapes.value)
   },
+)
+
+watch(
+  () => [quickTaskForm.ocpus, quickTaskForm.memory, quickTaskShapeLimits.value] as const,
+  () => clampTaskShapeResources(quickTaskForm, quickTaskShapes.value),
 )
 
 watch(quickTaskShapes, () => {
   if (isFixedTaskShapeSpec(quickTaskForm.architecture)) {
     quickTaskBmLocked.value = applyTaskShapeDefaults(quickTaskForm, quickTaskShapes.value)
   }
+  clampTaskShapeResources(quickTaskForm, quickTaskShapes.value)
 })
 
 let quickTaskShapeLoadGen = 0

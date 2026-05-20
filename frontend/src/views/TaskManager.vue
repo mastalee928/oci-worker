@@ -156,12 +156,12 @@
         <a-row :gutter="12">
           <a-col v-if="!createDenseIoTiers?.length" :xs="12" :sm="8">
             <a-form-item label="OCPU 数量">
-              <a-input-number v-model:value="createForm.ocpus" :min="1" :max="512" :step="1" :disabled="createBmLocked" style="width: 100%" />
+              <a-input-number v-model:value="createForm.ocpus" :min="createShapeLimits.minOcpus" :max="createShapeLimits.maxOcpus" :step="1" :disabled="createBmLocked" style="width: 100%" />
             </a-form-item>
           </a-col>
           <a-col v-if="!createDenseIoTiers?.length" :xs="12" :sm="8">
             <a-form-item label="内存 (GB)">
-              <a-input-number v-model:value="createForm.memory" :min="1" :max="4096" :step="1" :disabled="createBmLocked" style="width: 100%" />
+              <a-input-number v-model:value="createForm.memory" :min="createShapeLimits.minMemory" :max="createShapeLimits.maxMemory" :step="1" :disabled="createBmLocked" style="width: 100%" />
             </a-form-item>
           </a-col>
           <a-col :xs="12" :sm="8">
@@ -246,12 +246,12 @@
         <a-row :gutter="12">
           <a-col v-if="!editDenseIoTiers?.length" :xs="12" :sm="8">
             <a-form-item label="OCPU 数量">
-              <a-input-number v-model:value="editForm.ocpus" :min="1" :max="512" :step="1" :disabled="editBmLocked" style="width: 100%" />
+              <a-input-number v-model:value="editForm.ocpus" :min="editShapeLimits.minOcpus" :max="editShapeLimits.maxOcpus" :step="1" :disabled="editBmLocked" style="width: 100%" />
             </a-form-item>
           </a-col>
           <a-col v-if="!editDenseIoTiers?.length" :xs="12" :sm="8">
             <a-form-item label="内存 (GB)">
-              <a-input-number v-model:value="editForm.memory" :min="1" :max="4096" :step="1" :disabled="editBmLocked" style="width: 100%" />
+              <a-input-number v-model:value="editForm.memory" :min="editShapeLimits.minMemory" :max="editShapeLimits.maxMemory" :step="1" :disabled="editBmLocked" style="width: 100%" />
             </a-form-item>
           </a-col>
           <a-col :xs="12" :sm="8">
@@ -375,13 +375,19 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, onMounted, onUnmounted, watch } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
 import { getTaskList, createTask, updateTask, stopTask, hasRunningTask, resumeTask, deleteTask, batchStopTask, batchResumeTask, getTaskDetail } from '../api/task'
 import { getTenantList } from '../api/tenant'
 import { getAvailableShapes } from '../api/instance'
-import { applyTaskShapeDefaults, isFixedTaskShapeSpec, validateDenseIoFlexTier } from '../constants/ociBmShapeSpecs'
+import {
+  applyTaskShapeDefaults,
+  clampTaskShapeResources,
+  isFixedTaskShapeSpec,
+  resolveTaskShapeLimits,
+  validateDenseIoFlexTier,
+} from '../constants/ociBmShapeSpecs'
 import { useDenseIoFlexTier } from '../composables/useDenseIoFlexTier'
 
 const statusMap: Record<string, string> = {
@@ -438,6 +444,7 @@ const createForm = reactive({
 })
 
 const createBmLocked = ref(false)
+const createShapeLimits = computed(() => resolveTaskShapeLimits(createForm.architecture, availableShapes.value))
 const {
   tiers: createDenseIoTiers,
   tierKey: createDenseIoTierKey,
@@ -450,7 +457,13 @@ watch(
   (arch) => {
     if (arch == null || arch === undefined) return
     createBmLocked.value = applyTaskShapeDefaults(createForm, availableShapes.value)
+    clampTaskShapeResources(createForm, availableShapes.value)
   },
+)
+
+watch(
+  () => [createForm.ocpus, createForm.memory, createShapeLimits.value] as const,
+  () => clampTaskShapeResources(createForm, availableShapes.value),
 )
 
 watch(availableShapes, () => {
@@ -464,6 +477,7 @@ const editLoading = ref(false)
 const editAvailableShapes = ref<any[]>([])
 const editShapesLoading = ref(false)
 const editBmLocked = ref(false)
+const editShapeLimits = computed(() => resolveTaskShapeLimits(editForm.architecture, editAvailableShapes.value))
 const editForm = reactive({
   taskId: '',
   userId: '',
@@ -481,7 +495,13 @@ watch(
   (arch) => {
     if (arch == null || arch === undefined) return
     editBmLocked.value = applyTaskShapeDefaults(editForm, editAvailableShapes.value)
+    clampTaskShapeResources(editForm, editAvailableShapes.value)
   },
+)
+
+watch(
+  () => [editForm.ocpus, editForm.memory, editShapeLimits.value] as const,
+  () => clampTaskShapeResources(editForm, editAvailableShapes.value),
 )
 
 watch(editAvailableShapes, () => {
