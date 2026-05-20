@@ -13,6 +13,7 @@
 #   ociworker update           Run install.sh in upgrade mode
 #   ociworker backup           Backup db dump + application.yml + keys
 #   ociworker restore <file>   Restore from a backup tarball
+#   ociworker tg-clean         Clear Telegram bot binding (oci_kv); re-bind in web UI
 #   ociworker uninstall        Uninstall everything (asks before each step)
 #   ociworker version          Show installer version + jar info
 #
@@ -95,6 +96,25 @@ require_installed() {
     if [ ! -f "${CONFIG_FILE}" ] || [ ! -f "${INSTALL_DIR}/${JAR_NAME}" ]; then
         die "未检测到 OCI Worker 安装，请先运行 install.sh"
     fi
+}
+
+# Run SQL against the panel database (requires mysql client).
+_mysql_exec() {
+    local sql="$1"
+    if ! command -v mysql >/dev/null 2>&1; then
+        die "未安装 mysql 客户端，无法执行数据库操作"
+    fi
+    local jdbc db_user db_pass host port db
+    jdbc="$(yaml_get spring.datasource.url)" || die "无法读取数据库配置"
+    db_user="$(yaml_get spring.datasource.username)"
+    db_pass="$(yaml_get spring.datasource.password)"
+    host="$(echo "${jdbc}" | sed -n 's#jdbc:mysql://\([^:/]*\).*#\1#p')"
+    port="$(echo "${jdbc}" | sed -n 's#jdbc:mysql://[^:]*:\([0-9]*\)/.*#\1#p')"
+    db="$(echo "${jdbc}"   | sed -n 's#jdbc:mysql://[^/]*/\([^?]*\).*#\1#p')"
+    [ -n "${host}" ] || host="127.0.0.1"
+    [ -n "${port}" ] || port="3306"
+    [ -n "${db}"   ] || die "无法解析数据库名"
+    MYSQL_PWD="${db_pass}" mysql -h"${host}" -P"${port}" -u"${db_user}" "${db}" -e "${sql}"
 }
 
 # -----------------------------------------------------------------------------
@@ -477,6 +497,24 @@ cmd_backup() {
     ls -lh "${out}"
 }
 
+cmd_tg_clean() {
+    require_root tg-clean
+    require_installed
+    section "清除 Telegram 绑定"
+    local bound_count
+    bound_count="$(_mysql_exec "SELECT COUNT(*) FROM oci_kv WHERE type='sys' AND code IN ('tg_bot_token','tg_chat_id') AND COALESCE(TRIM(value),'') <> '';" 2>/dev/null | tail -n1 | tr -d '[:space:]')"
+    if [ -z "${bound_count}" ] || [ "${bound_count}" = "0" ]; then
+        info "当前未检测到 Telegram 绑定（tg_bot_token / tg_chat_id）"
+        ok "telegram通知已清除，请登录面板重新绑定。"
+        return 0
+    fi
+    echo "将删除数据库中的 Bot Token、Chat ID 及 getUpdates offset。"
+    echo "清除后：面板保存通知配置将不再要求 TG 验证码，直至重新绑定。"
+    [ "$(ask_yes_no "确认清除 Telegram 绑定？" "N")" = "y" ] || { info "已取消"; return 0; }
+    _mysql_exec "DELETE FROM oci_kv WHERE type='sys' AND code IN ('tg_bot_token','tg_chat_id','tg_updates_next_offset');"
+    ok "telegram通知已清除，请登录面板重新绑定。"
+}
+
 cmd_restore() {
     require_root restore
     require_installed
@@ -634,6 +672,7 @@ main() {
         update)        cmd_update ;;
         backup)        cmd_backup ;;
         restore)       cmd_restore "$@" ;;
+        tg-clean)      cmd_tg_clean ;;
         uninstall)     cmd_uninstall ;;
         version)       cmd_version ;;
         menu)          menu ;;

@@ -87,13 +87,21 @@ public class SystemController {
 
     @PostMapping("/notifyConfig")
     public ResponseData<?> saveNotifyConfig(@RequestBody Map<String, String> params) {
-        String pwd = params.get("password");
-        if (StrUtil.isBlank(pwd)) {
-            return ResponseData.error("请输入登录密码进行验证");
-        }
-        String inputHash = DigestUtil.sha256Hex(pwd);
-        if (!inputHash.equals(authController.getEffectivePasswordHash())) {
-            return ResponseData.error("密码错误");
+        if (verifyCodeService.isTgConfigured()) {
+            String code = params.get("verifyCode");
+            if (StrUtil.isBlank(code)) {
+                return ResponseData.error("请先获取 Telegram 验证码");
+            }
+            verifyCodeService.verifyCode("notifyConfig", code);
+        } else {
+            String pwd = params.get("password");
+            if (StrUtil.isBlank(pwd)) {
+                return ResponseData.error("请输入登录密码进行验证");
+            }
+            String inputHash = DigestUtil.sha256Hex(pwd);
+            if (!inputHash.equals(authController.getEffectivePasswordHash())) {
+                return ResponseData.error("密码错误");
+            }
         }
 
         if (params.containsKey("botToken")) {

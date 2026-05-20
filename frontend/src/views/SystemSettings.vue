@@ -76,12 +76,43 @@
                 东八区（Asia/Shanghai），默认 09:00
               </div>
             </a-form-item>
+            <div v-if="tgConfigured" style="font-size: 12px; color: var(--text-sub); margin-bottom: 8px">
+              已绑定 Telegram：保存将发送验证码到 TG 进行确认。
+            </div>
             <a-space wrap>
               <a-button type="primary" @click="saveTgConfig" :loading="saveLoading">保存</a-button>
               <a-button @click="testTgNotify" :loading="testLoading">测试发送</a-button>
             </a-space>
           </a-form>
         </a-card>
+
+        <a-modal
+          v-model:open="notifySaveVerifyVisible"
+          title="安全验证 — 保存 Telegram 通知配置"
+          :width="isMobile ? '100%' : 400"
+          :mask-closable="false"
+          @ok="confirmNotifySave"
+          :confirm-loading="saveLoading"
+          ok-text="确认保存"
+        >
+          <a-alert type="info" show-icon style="margin-bottom: 16px">
+            <template #message>验证码已发送至 Telegram</template>
+          </a-alert>
+          <a-input
+            v-model:value="notifySaveVerifyCode"
+            placeholder="请输入6位验证码"
+            size="large"
+            :maxlength="6"
+            allow-clear
+            @pressEnter="confirmNotifySave"
+          />
+          <div style="margin-top: 12px; display: flex; justify-content: space-between; align-items: center">
+            <span style="color: var(--text-sub); font-size: 12px">验证码有效期 5 分钟</span>
+            <a-button type="link" size="small" :loading="notifySaveCodeSending" @click="sendNotifySaveCode">
+              {{ notifySaveCodeCountdown > 0 ? notifySaveCodeCountdown + ' 秒后可重发' : '重新发送' }}
+            </a-button>
+          </div>
+        </a-modal>
 
         <a-card title="通知说明" class="settings-card-wide" style="margin-top: 16px">
           <a-descriptions :column="1" bordered size="small">
@@ -484,6 +515,11 @@ const pwdOverlayPwd = ref('')
 const notifyPwdVerified = ref(false)
 const notifyPwd = ref('')
 const notifyVerifiedPwd = ref('')
+const notifySaveVerifyVisible = ref(false)
+const notifySaveVerifyCode = ref('')
+const notifySaveCodeSending = ref(false)
+const notifySaveCodeCountdown = ref(0)
+let notifySaveCountdownTimer: ReturnType<typeof setInterval> | null = null
 
 const ociProxySaveLoading = ref(false)
 const ociProxyTestLoading = ref(false)
@@ -711,23 +747,82 @@ function handleForceLogout() {
   router.push('/login')
 }
 
-async function saveTgConfig() {
+async function sendNotifySaveCode() {
+  if (notifySaveCodeCountdown.value > 0) return
+  notifySaveCodeSending.value = true
+  try {
+    await sendVerifyCode('notifyConfig')
+    message.success('验证码已发送到 Telegram')
+    notifySaveCodeCountdown.value = 60
+    if (notifySaveCountdownTimer) clearInterval(notifySaveCountdownTimer)
+    notifySaveCountdownTimer = setInterval(() => {
+      notifySaveCodeCountdown.value--
+      if (notifySaveCodeCountdown.value <= 0 && notifySaveCountdownTimer) {
+        clearInterval(notifySaveCountdownTimer)
+        notifySaveCountdownTimer = null
+      }
+    }, 1000)
+  } catch (e: any) {
+    message.error(e?.message || '发送失败')
+  } finally {
+    notifySaveCodeSending.value = false
+  }
+}
+
+async function executeSaveTgConfig(verifyCode?: string) {
+  const payload: Record<string, string> = {
+    botToken: tgConfig.botToken,
+    chatId: tgConfig.chatId,
+    notifyTypes: tgConfig.notifyTypes.join(','),
+    dailyReportTime: dailyReportTimePicked.value || '09:00',
+  }
+  if (tgConfigured.value) {
+    if (!verifyCode?.trim()) {
+      message.warning('请输入 Telegram 验证码')
+      return
+    }
+    payload.verifyCode = verifyCode.trim()
+  } else if (!notifyVerifiedPwd.value) {
+    message.warning('请先验证登录密码')
+    return
+  } else {
+    payload.password = notifyVerifiedPwd.value
+  }
   saveLoading.value = true
   try {
-    await request.post('/sys/notifyConfig', {
-      botToken: tgConfig.botToken,
-      chatId: tgConfig.chatId,
-      notifyTypes: tgConfig.notifyTypes.join(','),
-      dailyReportTime: dailyReportTimePicked.value || '09:00',
-      password: notifyVerifiedPwd.value,
-    })
+    await request.post('/sys/notifyConfig', payload)
     message.success('保存成功')
     notifyPwd.value = ''
+    notifySaveVerifyVisible.value = false
+    notifySaveVerifyCode.value = ''
+    try {
+      const res = await request.get('/sys/tgStatus')
+      tgConfigured.value = res.data?.configured === true
+    } catch {}
+    await loadNotifyConfig()
   } catch (e: any) {
     message.error(e?.message || '保存失败')
   } finally {
     saveLoading.value = false
   }
+}
+
+async function saveTgConfig() {
+  if (tgConfigured.value) {
+    notifySaveVerifyCode.value = ''
+    notifySaveVerifyVisible.value = true
+    await sendNotifySaveCode()
+    return
+  }
+  await executeSaveTgConfig()
+}
+
+async function confirmNotifySave() {
+  if (!notifySaveVerifyCode.value || notifySaveVerifyCode.value.length !== 6) {
+    message.warning('请输入6位验证码')
+    return
+  }
+  await executeSaveTgConfig(notifySaveVerifyCode.value)
 }
 
 async function testTgNotify() {
