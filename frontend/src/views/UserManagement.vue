@@ -35,6 +35,7 @@
               <a-menu @click="({ key }: any) => handleMenuAction(key, record)">
                 <a-menu-item key="resetPassword"><i class="ri-lock-password-line menu-icon"></i>重置密码</a-menu-item>
                 <a-menu-item key="editUser"><i class="ri-edit-line menu-icon"></i>修改信息</a-menu-item>
+                <a-menu-item key="editCapabilities"><i class="ri-user-settings-line menu-icon"></i>编辑用户权限</a-menu-item>
                 <a-menu-divider />
                 <a-menu-item key="addToAdmin"><i class="ri-shield-user-line menu-icon"></i>加入管理员组</a-menu-item>
                 <a-menu-item key="removeFromAdmin"><i class="ri-shield-cross-line menu-icon"></i>移出管理员组</a-menu-item>
@@ -69,6 +70,7 @@
               <a-menu @click="({ key }: any) => handleMenuAction(key, u)">
                 <a-menu-item key="resetPassword"><i class="ri-lock-password-line menu-icon"></i>重置密码</a-menu-item>
                 <a-menu-item key="editUser"><i class="ri-edit-line menu-icon"></i>修改信息</a-menu-item>
+                <a-menu-item key="editCapabilities"><i class="ri-user-settings-line menu-icon"></i>编辑用户权限</a-menu-item>
                 <a-menu-divider />
                 <a-menu-item key="addToAdmin"><i class="ri-shield-user-line menu-icon"></i>加入管理员组</a-menu-item>
                 <a-menu-item key="removeFromAdmin"><i class="ri-shield-cross-line menu-icon"></i>移出管理员组</a-menu-item>
@@ -162,6 +164,30 @@
       </a-alert>
     </a-modal>
 
+    <!-- 编辑用户权限（控制台 Capabilities） -->
+    <a-modal
+      v-model:open="capabilitiesVisible"
+      title="编辑用户权限"
+      :width="isMobile ? '100%' : 520"
+      @ok="handleUpdateCapabilities"
+      :confirm-loading="capabilitiesSaving"
+      :mask-closable="false"
+    >
+      <a-spin :spinning="capabilitiesLoading">
+        <div v-if="capabilitiesUser" style="margin-bottom: 12px; color: var(--text-sub)">
+          用户：<b>{{ capabilitiesUser.name }}</b>
+        </div>
+        <a-form layout="vertical">
+          <a-form-item v-for="item in CAPABILITY_ITEMS" :key="item.key" :label="item.label">
+            <a-switch v-model:checked="capabilitiesForm[item.key]" />
+          </a-form-item>
+        </a-form>
+        <div style="color: var(--text-sub); font-size: 12px">
+          与 OCI 控制台「Edit user capabilities」一致；保存时需使用已验证的 Telegram 验证码。
+        </div>
+      </a-spin>
+    </a-modal>
+
     <!-- 修改用户信息弹窗 -->
     <a-modal v-model:open="editVisible" title="修改用户信息" :width="isMobile ? '100%' : 520" @ok="handleUpdateUser" :confirm-loading="editLoading" :mask-closable="false">
       <a-form :model="editForm" layout="vertical">
@@ -212,6 +238,7 @@ import dayjs from 'dayjs'
 import {
   listUsers, listIdentityDomains, createUser, resetPassword, clearMfa,
   addToAdmin, removeFromAdmin, updateUser, updateUserState, listMfaDevices,
+  getUserCapabilities, updateUserCapabilities,
 } from '../api/user'
 import { getTenantList } from '../api/tenant'
 import { sendVerifyCode, getTgStatus } from '../api/system'
@@ -280,6 +307,19 @@ const editLoading = ref(false)
 const editingUser = ref<any>(null)
 const editForm = reactive({ userName: '', email: '' })
 
+const capabilitiesVisible = ref(false)
+const capabilitiesLoading = ref(false)
+const capabilitiesSaving = ref(false)
+const capabilitiesUser = ref<any>(null)
+const capabilitiesForm = reactive<Record<string, boolean>>({})
+let pendingCapabilitiesVerifyCode = ''
+
+function initCapabilitiesForm(data?: Record<string, boolean>) {
+  for (const item of CAPABILITY_ITEMS) {
+    capabilitiesForm[item.key] = !!data?.[item.key]
+  }
+}
+
 const mfaVisible = ref(false)
 const mfaLoading = ref(false)
 const mfaDevices = ref<any[]>([])
@@ -293,9 +333,20 @@ const verifyActionLabel = ref('')
 const verifyTargetRecord = ref<any>(null)
 const verifyCallback = ref<((code: string) => Promise<void>) | null>(null)
 
+const CAPABILITY_ITEMS = [
+  { key: 'canUseConsolePassword', label: '控制台本地密码 (Local password)' },
+  { key: 'canUseApiKeys', label: 'API 密钥 (API keys)' },
+  { key: 'canUseAuthTokens', label: '认证令牌 (Auth token)' },
+  { key: 'canUseSmtpCredentials', label: 'SMTP 凭证 (SMTP credentials)' },
+  { key: 'canUseCustomerSecretKeys', label: '客户秘密密钥 (Customer secret keys)' },
+  { key: 'canUseOAuth2ClientCredentials', label: 'OAuth 2.0 客户端凭证' },
+  { key: 'canUseDbCredentials', label: '数据库密码 (Database passwords)' },
+] as const
+
 const ACTION_LABELS: Record<string, string> = {
   createUser: '新增用户',
   updateUser: '修改信息',
+  updateUserCapabilities: '编辑用户权限',
   removeFromAdmin: '移出管理员组',
   clearMfa: '清理 MFA',
   disableUser: '禁用用户',
@@ -420,6 +471,7 @@ function handleMenuAction(key: string, record: any) {
   switch (key) {
     case 'resetPassword': confirmAction('确定重置该用户密码？', () => handleResetPassword(record)); break
     case 'editUser': openVerifyAction('updateUser', record, (code) => openEditUserWithCode(record, code)); break
+    case 'editCapabilities': openVerifyAction('updateUserCapabilities', record, (code) => openCapabilitiesWithCode(record, code)); break
     case 'addToAdmin': confirmAction('确定加入管理员组？', () => handleAddToAdmin(record)); break
     case 'removeFromAdmin': openVerifyAction('removeFromAdmin', record, (code) => handleRemoveFromAdminWithCode(record, code)); break
     case 'listMfa': handleListMfa(record); break
@@ -454,6 +506,52 @@ async function openEditUserWithCode(record: any, code: string) {
   editForm.userName = record.description || ''
   editForm.email = record.email || ''
   editVisible.value = true
+}
+
+async function openCapabilitiesWithCode(record: any, code: string) {
+  pendingCapabilitiesVerifyCode = code
+  capabilitiesUser.value = record
+  initCapabilitiesForm()
+  capabilitiesVisible.value = true
+  capabilitiesLoading.value = true
+  try {
+    const res = await getUserCapabilities({ tenantId, userId: record.id })
+    initCapabilitiesForm(res.data as Record<string, boolean>)
+  } catch (e: any) {
+    message.error(e?.message || '加载用户权限失败')
+    capabilitiesVisible.value = false
+    pendingCapabilitiesVerifyCode = ''
+  } finally {
+    capabilitiesLoading.value = false
+  }
+}
+
+async function handleUpdateCapabilities() {
+  if (!capabilitiesUser.value?.id || !pendingCapabilitiesVerifyCode) {
+    message.warning('请先完成 Telegram 验证')
+    return
+  }
+  capabilitiesSaving.value = true
+  try {
+    const capabilities: Record<string, boolean> = {}
+    for (const item of CAPABILITY_ITEMS) {
+      capabilities[item.key] = !!capabilitiesForm[item.key]
+    }
+    await updateUserCapabilities({
+      tenantId,
+      userId: capabilitiesUser.value.id,
+      verifyCode: pendingCapabilitiesVerifyCode,
+      capabilities,
+    })
+    message.success('用户权限已更新')
+    capabilitiesVisible.value = false
+    pendingCapabilitiesVerifyCode = ''
+    capabilitiesUser.value = null
+  } catch (e: any) {
+    message.error(e?.message || '更新用户权限失败')
+  } finally {
+    capabilitiesSaving.value = false
+  }
 }
 
 async function handleUpdateUser() {

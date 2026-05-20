@@ -38,6 +38,15 @@ public class UserManagementService {
     private static final String SCHEMA_USER_PASSWORD_CHANGER =
             "urn:ietf:params:scim:schemas:oracle:idcs:UserPasswordChanger";
 
+    public static final List<String> CAPABILITY_KEYS = List.of(
+            "canUseConsolePassword",
+            "canUseApiKeys",
+            "canUseAuthTokens",
+            "canUseSmtpCredentials",
+            "canUseDbCredentials",
+            "canUseCustomerSecretKeys",
+            "canUseOAuth2ClientCredentials");
+
     @Resource
     private OciUserMapper userMapper;
 
@@ -559,6 +568,90 @@ public class UserManagementService {
                     .build());
             log.info("Updated user: {}", params.getUserId());
         }
+    }
+
+    public Map<String, Object> getUserCapabilities(String tenantId, String userId) {
+        OciUser tenant = getTenant(tenantId);
+        try (IdentityClient client = buildClient(tenant)) {
+            User user = client.getUser(GetUserRequest.builder().userId(userId).build()).getUser();
+            return capabilitiesToMap(user == null ? null : user.getCapabilities());
+        }
+    }
+
+    public void updateUserCapabilities(UserParams params) {
+        OciUser tenant = getTenant(params.getTenantId());
+        Map<String, Boolean> caps = params.getCapabilities();
+        if (caps == null || caps.isEmpty()) {
+            throw new OciException("请至少指定一项用户权限");
+        }
+        UpdateUserCapabilitiesDetails.Builder builder = UpdateUserCapabilitiesDetails.builder();
+        if (caps.containsKey("canUseConsolePassword")) {
+            builder.canUseConsolePassword(caps.get("canUseConsolePassword"));
+        }
+        if (caps.containsKey("canUseApiKeys")) {
+            builder.canUseApiKeys(caps.get("canUseApiKeys"));
+        }
+        if (caps.containsKey("canUseAuthTokens")) {
+            builder.canUseAuthTokens(caps.get("canUseAuthTokens"));
+        }
+        if (caps.containsKey("canUseSmtpCredentials")) {
+            builder.canUseSmtpCredentials(caps.get("canUseSmtpCredentials"));
+        }
+        if (caps.containsKey("canUseDbCredentials")) {
+            builder.canUseDBCredentials(caps.get("canUseDbCredentials"));
+        }
+        if (caps.containsKey("canUseCustomerSecretKeys")) {
+            builder.canUseCustomerSecretKeys(caps.get("canUseCustomerSecretKeys"));
+        }
+        if (caps.containsKey("canUseOAuth2ClientCredentials")) {
+            builder.canUseOAuth2ClientCredentials(caps.get("canUseOAuth2ClientCredentials"));
+        }
+        try (IdentityClient client = buildClient(tenant)) {
+            client.updateUserCapabilities(UpdateUserCapabilitiesRequest.builder()
+                    .userId(params.getUserId())
+                    .updateUserCapabilitiesDetails(builder.build())
+                    .build());
+            log.info("Updated user capabilities: {}", params.getUserId());
+        }
+    }
+
+    private static Map<String, Object> capabilitiesToMap(UserCapabilities caps) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        for (String key : CAPABILITY_KEYS) {
+            map.put(key, capabilityValue(caps, key));
+        }
+        return map;
+    }
+
+    private static boolean capabilityValue(UserCapabilities caps, String key) {
+        if (caps == null) {
+            return false;
+        }
+        Boolean v = switch (key) {
+            case "canUseConsolePassword" -> caps.getCanUseConsolePassword();
+            case "canUseApiKeys" -> caps.getCanUseApiKeys();
+            case "canUseAuthTokens" -> caps.getCanUseAuthTokens();
+            case "canUseSmtpCredentials" -> caps.getCanUseSmtpCredentials();
+            case "canUseDbCredentials" -> caps.getCanUseDbCredentials();
+            case "canUseCustomerSecretKeys" -> caps.getCanUseCustomerSecretKeys();
+            case "canUseOAuth2ClientCredentials" -> caps.getCanUseOAuth2ClientCredentials();
+            default -> null;
+        };
+        return Boolean.TRUE.equals(v);
+    }
+
+    @SuppressWarnings("unchecked")
+    public static Map<String, Boolean> parseCapabilitiesMap(Object raw) {
+        if (!(raw instanceof Map<?, ?> m)) {
+            return Map.of();
+        }
+        Map<String, Boolean> out = new LinkedHashMap<>();
+        for (String key : CAPABILITY_KEYS) {
+            if (m.containsKey(key)) {
+                out.put(key, Boolean.TRUE.equals(m.get(key)));
+            }
+        }
+        return out;
     }
 
     public void updateUserState(String tenantId, String userId, boolean blocked) {

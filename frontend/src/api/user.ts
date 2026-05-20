@@ -47,3 +47,16 @@ export function updateUserState(data: { tenantId: string; userId: string; blocke
 export function listMfaDevices(data: { tenantId: string; userId: string }) {
   return request.post('/oci/identity/listMfaDevices', data)
 }
+
+export function getUserCapabilities(data: { tenantId: string; userId: string }) {
+  return request.post('/oci/identity/userCapabilities', data)
+}
+
+export function updateUserCapabilities(data: {
+  tenantId: string
+  userId: string
+  verifyCode: string
+  capabilities: Record<string, boolean>
+}) {
+  return request.post('/oci/identity/updateUserCapabilities', data)
+}

@@ -124,4 +124,21 @@ public class UserController {
     public ResponseData<?> listMfaDevices(@RequestBody Map<String, String> params) {
         return ResponseData.ok(userManagementService.listMfaDevices(params.get("tenantId"), params.get("userId")));
     }
+
+    @PostMapping("/userCapabilities")
+    public ResponseData<?> getUserCapabilities(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(userManagementService.getUserCapabilities(
+                params.get("tenantId"), params.get("userId")));
+    }
+
+    @PostMapping("/updateUserCapabilities")
+    public ResponseData<?> updateUserCapabilities(@RequestBody Map<String, Object> params) {
+        verifyCodeService.verifyCode("updateUserCapabilities", (String) params.get("verifyCode"));
+        UserParams up = new UserParams();
+        up.setTenantId((String) params.get("tenantId"));
+        up.setUserId((String) params.get("userId"));
+        up.setCapabilities(UserManagementService.parseCapabilitiesMap(params.get("capabilities")));
+        userManagementService.updateUserCapabilities(up);
+        return ResponseData.ok();
+    }
 }
