@@ -486,7 +486,6 @@ public class TenantService {
 
                 enrichSubscriptionStatusFromAssigned(result, orgSub);
                 attachPromoAllocationFromOrg(result, orgSub);
-                attachAccountApiDiagnostics(result, orgSub);
 
                 if (StrUtil.isNotBlank(orgOcid)) {
                     result.put("subscriptionId", orgOcid);
@@ -806,29 +805,6 @@ public class TenantService {
             result.put("promoAllocation", promo);
             return;
         }
-    }
-
-    @SuppressWarnings("unchecked")
-    private static void attachAccountApiDiagnostics(Map<String, Object> result, Map<String, Object> orgSub) {
-        Map<String, Object> diag = new LinkedHashMap<>();
-        diag.put("osp",
-                result.get("subscriptionPlanNumber") != null || result.get("subscriptionStartTime") != null
-                        ? "ok" : "no_fields");
-        Object rewards = result.get("rewards");
-        if (rewards instanceof Map<?, ?> r) {
-            diag.put("rewards", Boolean.TRUE.equals(r.get("available")) ? "ok" : String.valueOf(r.get("reason")));
-        }
-        Object usage = result.get("subscriptionUsage");
-        if (usage instanceof Map<?, ?> u) {
-            diag.put("usage", Boolean.TRUE.equals(u.get("available")) ? "ok" : String.valueOf(u.get("reason")));
-        }
-        if (orgSub != null) {
-            diag.put("assigned", orgSub.get("assignedSubscriptions") instanceof List<?> l && !l.isEmpty()
-                    ? "ok" : "empty");
-            diag.put("subscribedService", orgSub.get("reason") != null
-                    ? String.valueOf(orgSub.get("reason")) : "ok");
-        }
-        result.put("accountApiDiagnostics", diag);
     }
 
     private static String countryNameFromRaw(JsonNode sub) {

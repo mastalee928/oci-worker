@@ -546,9 +546,6 @@ region=ap-tokyo-1"
                 自 {{ formatUtcCnDate(tenantInfoData.subscriptionUsage.timeUsageStarted) }}（Usage API）
               </span>
             </template>
-            <span v-else-if="tenantInfoData.subscriptionUsage?.reason" style="color: var(--text-sub); font-size: 12px">
-              {{ tenantInfoData.subscriptionUsage.reason }}
-            </span>
             <span v-else>—</span>
           </a-descriptions-item>
           <a-descriptions-item v-if="tenantInfoData.promoAllocation" label="子服务额度（API）">
@@ -615,12 +612,6 @@ region=ap-tokyo-1"
                 || formatRewardsAmount(tenantInfoData.rewards.summary.totalRewardsAvailable, tenantInfoData.rewards.summary.currency)
                 || '—' }}
             </template>
-            <span v-else-if="tenantInfoData.rewards?.reason" style="color: var(--text-sub); font-size: 12px">
-              {{ tenantInfoData.rewards.reason }}
-              <span v-if="tenantInfoData.rewards?.subscriptionIdUsed" style="display: block; margin-top: 4px; opacity: 0.85">
-                命中订阅：{{ tenantInfoData.rewards.subscriptionIdUsed }}
-              </span>
-            </span>
             <span v-else>—</span>
           </a-descriptions-item>
         </a-descriptions>
@@ -643,19 +634,6 @@ region=ap-tokyo-1"
             </a-table-column>
           </a-table>
         </template>
-        <a-alert
-          v-if="tenantInfoData.accountApiDiagnostics"
-          type="info" show-icon style="margin-top: 10px"
-          message="API 数据源摘要（便于对照 R-Bot / TG）"
-        >
-          <template #description>
-            <div style="font-size: 12px; line-height: 1.6">
-              <div v-for="(val, key) in tenantInfoData.accountApiDiagnostics" :key="key">
-                <strong>{{ key }}</strong>：{{ val }}
-              </div>
-            </div>
-          </template>
-        </a-alert>
         <template v-if="tenantInfoData.rewards?.available && (tenantInfoData.rewards?.periods || []).length">
           <a-divider style="margin: 12px 0" orientation="left">
             <span style="font-size: 12px; color: var(--text-sub)">促销余额明细（Usage Rewards API）</span>
@@ -678,54 +656,6 @@ region=ap-tokyo-1"
               <template #default="{ record }">{{ formatUtcCnDate(record.timeUsageEnded) || '—' }}</template>
             </a-table-column>
           </a-table>
-        </template>
-        <template v-if="tenantInfoData.organizationSubscription">
-          <a-divider style="margin: 12px 0" orientation="left">
-            <span style="font-size: 12px; color: var(--text-sub)">订购额度 / 剩余可用（Organizations + Subscribed Service）</span>
-          </a-divider>
-          <a-alert
-            v-if="tenantInfoData.organizationSubscription.reason"
-            type="info" show-icon style="margin-bottom: 10px"
-            :message="tenantInfoData.organizationSubscription.reason" />
-          <template v-if="(tenantInfoData.organizationSubscription.assignedSubscriptions || []).length">
-            <div style="font-size: 12px; font-weight: 600; margin-bottom: 6px">已分配订购（Assigned Subscriptions）</div>
-            <a-table
-              size="small"
-              :pagination="false"
-              row-key="id"
-              :data-source="tenantInfoData.organizationSubscription.assignedSubscriptions"
-              :scroll="{ x: 640 }"
-            >
-              <a-table-column title="订阅 ID" data-index="id" key="id" :ellipsis="true" />
-              <a-table-column title="生命周期" data-index="lifecycleState" key="lifecycleState" :width="110" />
-              <a-table-column title="服务类型" data-index="serviceName" key="serviceName" :width="100" />
-              <a-table-column title="订阅编号" data-index="subscriptionNumber" key="subscriptionNumber" :width="120" />
-              <a-table-column title="货币" data-index="currencyCode" key="currencyCode" :width="72" />
-            </a-table>
-          </template>
-          <template v-if="(tenantInfoData.organizationSubscription.subscribedServices || []).length">
-            <div style="font-size: 12px; font-weight: 600; margin: 10px 0 6px">子服务额度（Subscribed Services）</div>
-            <a-table
-              size="small"
-              :pagination="false"
-              :row-key="orgSubscribedServiceRowKey"
-              :data-source="tenantInfoData.organizationSubscription.subscribedServices"
-              :scroll="{ x: 800 }"
-            >
-              <a-table-column title="产品" data-index="productName" key="productName" :ellipsis="true" />
-              <a-table-column title="下发额度" data-index="fundedAllocationValue" key="fundedAllocationValue" :width="100" />
-              <a-table-column title="剩余可用" data-index="availableAmount" key="availableAmount" :width="100" />
-              <a-table-column title="状态" data-index="status" key="status" :width="88" />
-              <a-table-column title="订单号" data-index="orderNumber" key="orderNumber" :width="120" :ellipsis="true" />
-              <a-table-column title="订阅 ID" data-index="subscriptionId" key="subscriptionId" :ellipsis="true" />
-              <a-table-column title="说明" data-index="error" key="error" :ellipsis="true">
-                <template #default="{ record }">
-                  <span v-if="record.error" style="color: var(--text-sub); font-size: 12px">{{ record.error }}</span>
-                  <span v-else>—</span>
-                </template>
-              </a-table-column>
-            </a-table>
-          </template>
         </template>
       </a-spin>
         </a-tab-pane>
