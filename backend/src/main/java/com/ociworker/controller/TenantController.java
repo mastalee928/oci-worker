@@ -188,6 +188,7 @@ public class TenantController {
 
     @PostMapping("/compartmentUpdate")
     public ResponseData<?> compartmentUpdate(@RequestBody java.util.Map<String, String> params) {
+        verifyCodeService.verifyCode("updateCompartment", params == null ? null : params.get("verifyCode"));
         return ResponseData.ok(compartmentService.updateCompartment(
                 params.get("id"), params.get("compartmentId"), params.get("name"), params.get("description")));
     }

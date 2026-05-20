@@ -53,6 +53,7 @@ public class VerifyCodeService {
             case "banlist" -> "封禁列表管理";
             case "loginAudit" -> "登录统计查看";
             case "deleteCompartment" -> "删除区间";
+            case "updateCompartment" -> "重命名区间";
             case "moveCompartmentResource" -> "迁移区间资源";
             default -> action;
         };

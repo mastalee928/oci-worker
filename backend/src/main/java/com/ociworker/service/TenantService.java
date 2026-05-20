@@ -319,28 +319,25 @@ public class TenantService {
                 var items = resp.getSubscriptionCollection().getItems();
                 if (items != null && !items.isEmpty()) {
                     var sub = items.get(0);
-                    String planVal = sub.getPlanType() != null ? sub.getPlanType().getValue() : null;
-                    result.put("planType", planVal);
+                    String subId = sub.getId();
+                    Object merged = sub;
+                    if (StrUtil.isNotBlank(subId)) {
+                        Object detail = OspSubscriptionEnricher.fetchSubscriptionDetail(
+                                ospClient, ospHomeRegion, client.getCompartmentId(), subId);
+                        if (detail != null) merged = detail;
+                    }
+                    OspSubscriptionEnricher.enrich(merged, result);
+                    String planVal = result.get("planType") == null ? null : String.valueOf(result.get("planType"));
                     if (StrUtil.isNotBlank(planVal) && !Objects.equals(planVal, user.getPlanType())) {
                         user.setPlanType(planVal);
                         userMapper.updateById(user);
                     }
-                    result.put("accountType", sub.getAccountType() != null ? sub.getAccountType().getValue() : null);
-                    result.put("upgradeState", sub.getUpgradeState() != null ? sub.getUpgradeState().getValue() : null);
-                    result.put("currencyCode", sub.getCurrencyCode());
-                    result.put("isIntentToPay", sub.getIsIntentToPay());
-                    result.put("subscriptionStartTime", sub.getTimeStart() != null ? sub.getTimeStart().toString() : null);
-                    // 说明：OSP Gateway SubscriptionSummary(oci-sdk 3.83.0) 不提供 timeEnd/status 字段；
-                    // 控制台“状态/续订日期”在不同账号形态下可能来自合同/订单体系，这里先返回 null 供前端降级展示。
-                    result.put("subscriptionRenewTime", null);
-                    result.put("subscriptionStatus", null);
-                    result.put("subscriptionStatusLabel", buildSubscriptionStatusLabel(sub));
 
                     // 注册地：尽量从订阅的 bill-to/billing 地址里解析国家名称（不同 SDK 版本字段可能不同）
                     String countryName = null;
-                    Object addr = tryInvoke(sub, "getBillToAddress");
-                    if (addr == null) addr = tryInvoke(sub, "getBillingAddress");
-                    if (addr == null) addr = tryInvoke(sub, "getAddress");
+                    Object addr = tryInvoke(merged, "getBillToAddress");
+                    if (addr == null) addr = tryInvoke(merged, "getBillingAddress");
+                    if (addr == null) addr = tryInvoke(merged, "getAddress");
                     Object country = addr == null ? null : tryInvoke(addr, "getCountry");
                     if (country != null) {
                         Object n = tryInvoke(country, "getName");
@@ -525,26 +522,6 @@ public class TenantService {
         result.put("summary", summary);
 
         return result;
-    }
-
-    /** 控制台「订阅状态」在 OSP SubscriptionSummary 上字段不全，用可得字段拼可读说明 */
-    private static String buildSubscriptionStatusLabel(Object sub) {
-        if (sub == null) return null;
-        String upgrade = tryEnumValue(tryInvoke(sub, "getUpgradeState"));
-        if (StrUtil.isNotBlank(upgrade)) {
-            return switch (upgrade) {
-                case "UPGRADE_PENDING" -> "升级待处理";
-                case "UPGRADE_COMPLETE" -> "升级完成";
-                case "UPGRADE_FAILED" -> "升级失败";
-                default -> upgrade;
-            };
-        }
-        String plan = tryEnumValue(tryInvoke(sub, "getPlanType"));
-        if ("FREE".equalsIgnoreCase(plan)) return "免费套餐";
-        Boolean intent = (Boolean) tryInvoke(sub, "getIsIntentToPay");
-        if (Boolean.FALSE.equals(intent)) return "待完成付款意向";
-        if (Boolean.TRUE.equals(intent) && StrUtil.isNotBlank(plan)) return "已激活 (" + plan + ")";
-        return StrUtil.isNotBlank(plan) ? plan : null;
     }
 
     private static Object tryInvoke(Object target, String method) {

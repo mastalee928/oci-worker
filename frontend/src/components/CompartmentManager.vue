@@ -92,8 +92,14 @@
     </a-modal>
 
     <!-- 重命名 -->
-    <a-modal v-model:open="renameVisible" title="重命名区间" @ok="submitRename" :confirm-loading="renameLoading">
+    <a-modal v-model:open="renameVisible" title="重命名区间" @ok="submitRename" :confirm-loading="renameLoading" ok-text="保存">
+      <a-alert type="warning" message="重命名区间需 Telegram 验证码（有效期 5 分钟）" show-icon style="margin-bottom: 12px" />
       <a-form layout="vertical">
+        <a-form-item label="Telegram 验证码" required>
+          <a-input v-model:value="renameCode" placeholder="请输入 6 位验证码" :maxlength="6" allow-clear />
+          <a-button type="link" size="small" :loading="renameCodeSending" style="padding-left: 0; margin-top: 4px"
+            @click="resendRenameCode">重新发送验证码</a-button>
+        </a-form-item>
         <a-form-item label="名称" required>
           <a-input v-model:value="renameForm.name" />
         </a-form-item>
@@ -262,6 +268,8 @@ const createForm = ref({ name: '', description: '' })
 
 const renameVisible = ref(false)
 const renameLoading = ref(false)
+const renameCode = ref('')
+const renameCodeSending = ref(false)
 const renameForm = ref({ compartmentId: '', name: '', description: '' })
 
 const deleteVisible = ref(false)
@@ -423,16 +431,40 @@ async function openDetail(record: any) {
   }
 }
 
-function openRename(record: any) {
+async function openRename(record: any) {
   renameForm.value = {
     compartmentId: record.id,
     name: record.name?.replace(/ \(root\)$/, '') || record.name,
     description: record.description || '',
   }
+  renameCode.value = ''
+  try {
+    await sendVerifyCode('updateCompartment')
+    message.success('验证码已发送至 Telegram')
+  } catch (e: any) {
+    message.error(e?.message || '发送验证码失败')
+    return
+  }
   renameVisible.value = true
 }
 
+async function resendRenameCode() {
+  renameCodeSending.value = true
+  try {
+    await sendVerifyCode('updateCompartment')
+    message.success('验证码已重新发送')
+  } catch (e: any) {
+    message.error(e?.message || '发送失败')
+  } finally {
+    renameCodeSending.value = false
+  }
+}
+
 async function submitRename() {
+  if (!renameCode.value || renameCode.value.length !== 6) {
+    message.warning('请输入 6 位验证码')
+    return
+  }
   if (!renameForm.value.name.trim()) {
     message.warning('名称不能为空')
     return
@@ -444,6 +476,7 @@ async function submitRename() {
       compartmentId: renameForm.value.compartmentId,
       name: renameForm.value.name.trim(),
       description: renameForm.value.description,
+      verifyCode: renameCode.value,
     })
     message.success('已更新')
     renameVisible.value = false
@@ -611,6 +644,12 @@ async function submitMoveResource() {
     moveResLoading.value = false
   }
 }
+
+watch(detailTab, (key) => {
+  if (key === 'resources' && detailVisible.value && detailData.value?.id) {
+    void loadResources(true)
+  }
+})
 
 watch(
   () => props.tenantId,

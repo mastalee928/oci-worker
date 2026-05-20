@@ -27,6 +27,7 @@ export function updateCompartment(data: {
   compartmentId: string
   name?: string
   description?: string
+  verifyCode: string
 }) {
   return request.post('/oci/user/compartmentUpdate', data)
 }

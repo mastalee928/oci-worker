@@ -527,22 +527,33 @@ region=ap-tokyo-1"
             <span v-else>—</span>
           </a-descriptions-item>
           <a-descriptions-item label="订阅套餐">
-            <a-tag v-if="tenantInfoData.planType" :color="tenantInfoData.planType === 'FREE' ? 'default' : 'green'">
-              {{ tenantInfoData.planType === 'FREE' ? '免费套餐 (Free Tier)' : tenantInfoData.planType }}
+            <a-tag v-if="tenantInfoData.planType" :color="planTypeTagColor(tenantInfoData.planType)">
+              {{ tenantInfoData.planTypeLabel || formatPlanType(tenantInfoData.planType) }}
             </a-tag>
             <span v-else>—</span>
           </a-descriptions-item>
+          <a-descriptions-item label="支付方式">
+            {{ tenantInfoData.paymentMethodLabel || formatPaymentMethod(tenantInfoData.paymentMethod) || '—' }}
+          </a-descriptions-item>
+          <a-descriptions-item label="订阅额度">
+            {{ tenantInfoData.subscriptionAmountLabel || formatSubscriptionAmount(tenantInfoData) || '—' }}
+          </a-descriptions-item>
           <a-descriptions-item label="账户类型">
-            <a-tag v-if="tenantInfoData.accountType" color="orange">{{ tenantInfoData.accountType }}</a-tag>
+            <a-tag v-if="tenantInfoData.accountType" color="orange">{{ formatAccountType(tenantInfoData.accountType) }}</a-tag>
             <span v-else>—</span>
           </a-descriptions-item>
           <a-descriptions-item label="升级状态">
-            <a-tag v-if="tenantInfoData.upgradeState" color="purple">{{ formatUpgradeState(tenantInfoData.upgradeState) }}</a-tag>
+            <a-tag v-if="tenantInfoData.upgradeState" color="purple">
+              {{ tenantInfoData.upgradeStateLabel || formatUpgradeState(tenantInfoData.upgradeState) }}
+            </a-tag>
             <span v-else>—</span>
           </a-descriptions-item>
           <a-descriptions-item label="订阅状态">
-            <a-tag v-if="tenantInfoData.subscriptionStatusLabel || tenantInfoData.subscriptionStatus" color="blue">
-              {{ tenantInfoData.subscriptionStatusLabel || tenantInfoData.subscriptionStatus }}
+            <a-tag v-if="tenantInfoData.subscriptionStatus || tenantInfoData.subscriptionStatusLabel"
+              :color="subscriptionStatusTagColor(tenantInfoData.subscriptionStatus)">
+              {{ tenantInfoData.subscriptionStatusLabel || formatSubscriptionStatus(tenantInfoData.subscriptionStatus) }}
+              <span v-if="tenantInfoData.subscriptionStatus && tenantInfoData.subscriptionStatusLabel"
+                style="opacity: 0.75; font-size: 11px"> ({{ tenantInfoData.subscriptionStatus }})</span>
             </a-tag>
             <span v-else>—</span>
           </a-descriptions-item>
@@ -555,6 +566,13 @@ region=ap-tokyo-1"
             <span v-else>—</span>
           </a-descriptions-item>
           <a-descriptions-item label="开始日期">{{ formatUtcCnDate(tenantInfoData.subscriptionStartTime) }}</a-descriptions-item>
+          <a-descriptions-item label="结束日期">
+            {{ formatUtcCnDate(tenantInfoData.subscriptionEndTime) }}
+            <span v-if="tenantInfoData.subscriptionDurationDays != null"
+              style="margin-left: 6px; font-size: 12px; color: var(--text-sub)">
+              （{{ tenantInfoData.subscriptionDurationDays }} 天）
+            </span>
+          </a-descriptions-item>
           <a-descriptions-item label="注册地">{{ formatCountryCn(tenantInfoData.registrationLocation) }}</a-descriptions-item>
         </a-descriptions>
       </a-spin>
@@ -1187,9 +1205,77 @@ function formatBillingPeriod(start: string | null | undefined, end: string | nul
   return `${s} ～ ${e}`
 }
 
+function formatPlanType(v: string | null | undefined): string {
+  if (!v) return '—'
+  const map: Record<string, string> = {
+    FREE: '免费套餐 (Free Tier)',
+    FREE_TIER: '免费套餐 (Free Tier)',
+    PAYG: '按量付费 (PAYG)',
+  }
+  return map[v] || v
+}
+
+function planTypeTagColor(plan: string | null | undefined) {
+  const p = (plan || '').toUpperCase()
+  if (p === 'FREE' || p === 'FREE_TIER') return 'default'
+  return 'green'
+}
+
+function formatPaymentMethod(v: string | null | undefined): string {
+  if (!v) return '—'
+  const map: Record<string, string> = {
+    FREE_TRIAL: '免费试用 (FREE_TRIAL)',
+    CREDIT_CARD: '信用卡',
+    PAYPAL: 'PayPal',
+  }
+  return map[v] || v
+}
+
+function formatSubscriptionAmount(data: any): string {
+  if (!data) return '—'
+  if (data.subscriptionAmountLabel) return data.subscriptionAmountLabel
+  if (data.subscriptionAmount == null) return '—'
+  const cur = data.currencyCode ? ` ${data.currencyCode}` : ''
+  return `${data.subscriptionAmount}${cur}`
+}
+
+function formatAccountType(v: string | null | undefined): string {
+  if (!v) return '—'
+  const map: Record<string, string> = {
+    PERSONAL: '个人',
+    CORPORATE: '企业',
+    CORPORATE_SUBMITTED: '企业（已提交）',
+  }
+  return map[v] || v
+}
+
+function formatSubscriptionStatus(v: string | null | undefined): string {
+  if (!v) return '—'
+  const map: Record<string, string> = {
+    ACTIVE: '有效',
+    EXPIRED: '已过期',
+    INACTIVE: '未激活',
+    PENDING: '处理中',
+    ERROR: '异常',
+  }
+  return map[v] || v
+}
+
+function subscriptionStatusTagColor(status: string | null | undefined) {
+  const s = (status || '').toUpperCase()
+  if (s === 'EXPIRED' || s === 'ERROR') return 'error'
+  if (s === 'PENDING' || s === 'INACTIVE') return 'warning'
+  if (s === 'ACTIVE') return 'success'
+  return 'blue'
+}
+
 function formatUpgradeState(v: string | null | undefined): string {
   if (!v) return '—'
   const map: Record<string, string> = {
+    PROMO: '促销/试用',
+    SUBMITTED: '已提交',
+    ERROR: '错误',
+    UPGRADED: '已升级',
     UPGRADE_PENDING: '升级待处理',
     UPGRADE_COMPLETE: '升级完成',
     UPGRADE_FAILED: '升级失败',
