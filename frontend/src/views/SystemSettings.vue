@@ -112,6 +112,11 @@
               {{ notifySaveCodeCountdown > 0 ? notifySaveCodeCountdown + ' 秒后可重发' : '重新发送' }}
             </a-button>
           </div>
+          <div style="margin-top: 8px">
+            <a-button type="link" size="small" style="padding: 0; height: auto" @click="showNotifyTgLostHint">
+              Telegram丢失
+            </a-button>
+          </div>
         </a-modal>
 
         <a-card title="通知说明" class="settings-card-wide" style="margin-top: 16px">
@@ -484,7 +489,7 @@
 import { h, reactive, ref, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { CaretRightOutlined, InboxOutlined, ReloadOutlined } from '@ant-design/icons-vue'
-import { message } from 'ant-design-vue'
+import { Modal, message } from 'ant-design-vue'
 import type { UploadFile } from 'ant-design-vue'
 import { useUserStore } from '../stores/user'
 import { sendVerifyCode } from '../api/system'
@@ -745,6 +750,14 @@ async function handleChangePassword() {
 function handleForceLogout() {
   localStorage.removeItem('token')
   router.push('/login')
+}
+
+function showNotifyTgLostHint() {
+  Modal.info({
+    title: 'Telegram 丢失',
+    content: '请在 SSH 执行 sudo ociworker tg-clean 进行解绑',
+    okText: '知道了',
+  })
 }
 
 async function sendNotifySaveCode() {

@@ -624,7 +624,8 @@ menu() {
   5) 查看实时日志    6) 修改配置（含回滚）
   7) 备份            8) 恢复
   9) 升级到最新版   10) 版本信息
- 11) 卸载            0) 退出
+ 11) 清除Tg绑定    12) 卸载
+  0) 退出
 EOF
         printf "> " >&2
         local c; IFS= read -r c </dev/tty || break
@@ -642,7 +643,8 @@ EOF
                 ;;
             9)  cmd_update         || true ;;
             10) cmd_version        || true ;;
-            11) cmd_uninstall      || true ;;
+            11) cmd_tg_clean       || true ;;
+            12) cmd_uninstall      || true ;;
             0|q|Q|exit) info "再见"; break ;;
             *) warn "无效选项" ;;
         esac
