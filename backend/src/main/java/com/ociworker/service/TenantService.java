@@ -4,7 +4,9 @@ import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.ociworker.enums.TaskStatusEnum;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.ociworker.exception.OciException;
+import com.ociworker.util.OspGatewayHttp;
 import com.ociworker.mapper.OciCreateTaskMapper;
 import com.ociworker.mapper.OciKvMapper;
 import com.ociworker.mapper.OciUserMapper;
@@ -25,6 +27,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.http.HttpClient;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.*;
@@ -41,6 +44,12 @@ public class TenantService {
     private OciKvMapper kvMapper;
     @Resource
     private UsageCostService usageCostService;
+
+    @Resource
+    private UsageRewardsService usageRewardsService;
+
+    @Resource
+    private OrganizationSubscriptionService organizationSubscriptionService;
 
     private static final String GROUP_TYPE = "group";
     private static final String GROUP_L1_PREFIX = "group_l1:";
@@ -305,6 +314,8 @@ public class TenantService {
             }
 
             com.oracle.bmc.ospgateway.SubscriptionServiceClient ospClient = null;
+            HttpClient http = HttpClient.newHttpClient();
+            String compartmentId = client.getCompartmentId();
             try {
                 var ospB = com.oracle.bmc.ospgateway.SubscriptionServiceClient.builder();
                 OciProxyConfigService pxy = OciProxyConfigService.instance();
@@ -312,28 +323,72 @@ public class TenantService {
                     ospB = ospB.additionalClientConfigurator(OciProxyConfigService.ociSdkJerseyDirectConfigurator());
                 }
                 ospClient = ospB.build(client.getProvider());
+
+                String subId = null;
+                JsonNode rawSub = null;
+                try {
+                    JsonNode listRaw = OspGatewayHttp.listSubscriptionsJson(
+                            http, ospClient, client.getProvider(), ospHomeRegion, compartmentId);
+                    JsonNode listSub = OspGatewayHttp.unwrapSubscriptionBody(listRaw);
+                    if (listSub != null && listSub.hasNonNull("id")) {
+                        subId = listSub.get("id").asText();
+                    }
+                    rawSub = listSub;
+                    if (StrUtil.isNotBlank(subId)) {
+                        try {
+                            JsonNode detailRaw = OspGatewayHttp.getSubscriptionJson(
+                                    http, ospClient, client.getProvider(), ospHomeRegion, compartmentId, subId);
+                            JsonNode detailSub = OspGatewayHttp.unwrapSubscriptionBody(detailRaw);
+                            if (detailSub != null) {
+                                rawSub = detailSub;
+                            }
+                        } catch (Exception ex) {
+                            log.warn("OSP raw getSubscription: {}", ex.getMessage());
+                        }
+                    }
+                    if (rawSub != null) {
+                        OspSubscriptionEnricher.enrichFromRawJson(rawSub, result);
+                    }
+                } catch (Exception ex) {
+                    log.warn("OSP raw listSubscriptions: {}", ex.getMessage());
+                }
+
+                Object merged = null;
                 var resp = ospClient.listSubscriptions(
                         com.oracle.bmc.ospgateway.requests.ListSubscriptionsRequest.builder()
                                 .ospHomeRegion(ospHomeRegion)
-                                .compartmentId(client.getCompartmentId()).build());
+                                .compartmentId(compartmentId).build());
                 var items = resp.getSubscriptionCollection().getItems();
                 if (items != null && !items.isEmpty()) {
                     var sub = items.get(0);
-                    String subId = sub.getId();
-                    Object merged = sub;
+                    if (StrUtil.isBlank(subId)) {
+                        subId = sub.getId();
+                    }
+                    merged = sub;
                     if (StrUtil.isNotBlank(subId)) {
                         Object detail = OspSubscriptionEnricher.fetchSubscriptionDetail(
-                                ospClient, ospHomeRegion, client.getCompartmentId(), subId);
-                        if (detail != null) merged = detail;
+                                ospClient, ospHomeRegion, compartmentId, subId);
+                        if (detail != null) {
+                            merged = detail;
+                        }
                     }
                     OspSubscriptionEnricher.enrich(merged, result);
-                    String planVal = result.get("planType") == null ? null : String.valueOf(result.get("planType"));
-                    if (StrUtil.isNotBlank(planVal) && !Objects.equals(planVal, user.getPlanType())) {
-                        user.setPlanType(planVal);
-                        userMapper.updateById(user);
+                } else if (StrUtil.isNotBlank(subId)) {
+                    Object detail = OspSubscriptionEnricher.fetchSubscriptionDetail(
+                            ospClient, ospHomeRegion, compartmentId, subId);
+                    if (detail != null) {
+                        merged = detail;
+                        OspSubscriptionEnricher.enrich(merged, result);
                     }
+                }
 
-                    // 注册地：尽量从订阅的 bill-to/billing 地址里解析国家名称（不同 SDK 版本字段可能不同）
+                String planVal = result.get("planType") == null ? null : String.valueOf(result.get("planType"));
+                if (StrUtil.isNotBlank(planVal) && !Objects.equals(planVal, user.getPlanType())) {
+                    user.setPlanType(planVal);
+                    userMapper.updateById(user);
+                }
+
+                if (merged != null) {
                     String countryName = null;
                     Object addr = tryInvoke(merged, "getBillToAddress");
                     if (addr == null) addr = tryInvoke(merged, "getBillingAddress");
@@ -350,7 +405,44 @@ public class TenantService {
                         if (n == null) n = tryInvoke(addr, "getCountry");
                         if (n != null) countryName = String.valueOf(n);
                     }
+                    if (StrUtil.isBlank(countryName) && rawSub != null) {
+                        countryName = countryNameFromRaw(rawSub);
+                    }
                     result.put("registrationLocation", StrUtil.isBlank(countryName) ? null : countryName);
+                } else if (rawSub != null) {
+                    String countryName = countryNameFromRaw(rawSub);
+                    result.put("registrationLocation", StrUtil.isBlank(countryName) ? null : countryName);
+                }
+
+                if (StrUtil.isNotBlank(subId)) {
+                    result.put("subscriptionId", subId);
+                    try {
+                        Map<String, Object> rewards = usageRewardsService.fetchSubscriptionRewards(
+                                client, user.getOciTenantId(), subId, user.getOciRegion());
+                        result.put("rewards", rewards);
+                    } catch (Exception ex) {
+                        log.warn("Failed to get subscription rewards: {}", ex.getMessage());
+                        Map<String, Object> rewards = new LinkedHashMap<>();
+                        rewards.put("available", Boolean.FALSE);
+                        rewards.put("reason", ex.getMessage());
+                        rewards.put("summary", null);
+                        rewards.put("periods", List.of());
+                        result.put("rewards", rewards);
+                    }
+                }
+
+                try {
+                    Map<String, Object> orgSub = organizationSubscriptionService.fetchOrganizationSubscription(
+                            client, user.getOciTenantId(), user.getOciRegion(), subId);
+                    result.put("organizationSubscription", orgSub);
+                } catch (Exception ex) {
+                    log.warn("Failed to get organization subscription: {}", ex.getMessage());
+                    Map<String, Object> orgSub = new LinkedHashMap<>();
+                    orgSub.put("available", Boolean.FALSE);
+                    orgSub.put("reason", ex.getMessage());
+                    orgSub.put("assignedSubscriptions", List.of());
+                    orgSub.put("subscribedServices", List.of());
+                    result.put("organizationSubscription", orgSub);
                 }
             } catch (Exception e) {
                 log.warn("Failed to get subscription info: {}", e.getMessage());
@@ -522,6 +614,31 @@ public class TenantService {
         result.put("summary", summary);
 
         return result;
+    }
+
+    private static String countryNameFromRaw(JsonNode sub) {
+        if (sub == null || sub.isNull()) {
+            return null;
+        }
+        for (String addrKey : List.of("billingAddress", "billToAddress", "address")) {
+            JsonNode addr = sub.get(addrKey);
+            if (addr == null || addr.isNull()) {
+                continue;
+            }
+            JsonNode country = addr.get("country");
+            if (country != null && !country.isNull()) {
+                if (country.hasNonNull("name")) {
+                    return country.get("name").asText();
+                }
+                if (country.hasNonNull("countryName")) {
+                    return country.get("countryName").asText();
+                }
+            }
+            if (addr.hasNonNull("countryName")) {
+                return addr.get("countryName").asText();
+            }
+        }
+        return null;
     }
 
     private static Object tryInvoke(Object target, String method) {

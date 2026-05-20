@@ -574,7 +574,86 @@ region=ap-tokyo-1"
             </span>
           </a-descriptions-item>
           <a-descriptions-item label="注册地">{{ formatCountryCn(tenantInfoData.registrationLocation) }}</a-descriptions-item>
+          <a-descriptions-item label="订阅 ID">
+            <span style="word-break: break-all; font-size: 12px">{{ tenantInfoData.subscriptionId || '—' }}</span>
+          </a-descriptions-item>
+          <a-descriptions-item label="促销总可用余额">
+            <template v-if="tenantInfoData.rewards?.available && tenantInfoData.rewards?.summary">
+              {{ tenantInfoData.rewards.summary.totalRewardsAvailableLabel
+                || formatRewardsAmount(tenantInfoData.rewards.summary.totalRewardsAvailable, tenantInfoData.rewards.summary.currency)
+                || '—' }}
+            </template>
+            <span v-else-if="tenantInfoData.rewards?.reason" style="color: var(--text-sub); font-size: 12px">
+              {{ tenantInfoData.rewards.reason }}
+            </span>
+            <span v-else>—</span>
+          </a-descriptions-item>
         </a-descriptions>
+        <template v-if="tenantInfoData.rewards?.available && (tenantInfoData.rewards?.periods || []).length">
+          <a-divider style="margin: 12px 0" orientation="left">
+            <span style="font-size: 12px; color: var(--text-sub)">促销余额明细（Usage Rewards API）</span>
+          </a-divider>
+          <a-table
+            size="small"
+            :pagination="false"
+            row-key="usagePeriodKey"
+            :data-source="tenantInfoData.rewards.periods"
+            :scroll="{ x: 720 }"
+          >
+            <a-table-column title="周期" data-index="usagePeriodKey" key="usagePeriodKey" :width="100" :ellipsis="true" />
+            <a-table-column title="可用" data-index="availableRewardsLabel" key="availableRewards" :width="88" />
+            <a-table-column title="已获得" data-index="earnedRewardsLabel" key="earnedRewards" :width="88" />
+            <a-table-column title="已兑换" data-index="redeemedRewardsLabel" key="redeemedRewards" :width="88" />
+            <a-table-column title="奖励过期" key="timeRewardsExpired" :width="160">
+              <template #default="{ record }">{{ formatUtcCnDate(record.timeRewardsExpired) || '—' }}</template>
+            </a-table-column>
+            <a-table-column title="用量结束" key="timeUsageEnded" :width="160">
+              <template #default="{ record }">{{ formatUtcCnDate(record.timeUsageEnded) || '—' }}</template>
+            </a-table-column>
+          </a-table>
+        </template>
+        <template v-if="tenantInfoData.organizationSubscription">
+          <a-divider style="margin: 12px 0" orientation="left">
+            <span style="font-size: 12px; color: var(--text-sub)">订购额度 / 剩余可用（Organizations + Subscribed Service）</span>
+          </a-divider>
+          <a-alert
+            v-if="!tenantInfoData.organizationSubscription.available && tenantInfoData.organizationSubscription.reason"
+            type="info" show-icon style="margin-bottom: 10px"
+            :message="tenantInfoData.organizationSubscription.reason" />
+          <template v-if="(tenantInfoData.organizationSubscription.assignedSubscriptions || []).length">
+            <div style="font-size: 12px; font-weight: 600; margin-bottom: 6px">已分配订购（Assigned Subscriptions）</div>
+            <a-table
+              size="small"
+              :pagination="false"
+              row-key="id"
+              :data-source="tenantInfoData.organizationSubscription.assignedSubscriptions"
+              :scroll="{ x: 640 }"
+            >
+              <a-table-column title="订阅 ID" data-index="id" key="id" :ellipsis="true" />
+              <a-table-column title="生命周期" data-index="lifecycleState" key="lifecycleState" :width="110" />
+              <a-table-column title="服务类型" data-index="serviceName" key="serviceName" :width="100" />
+              <a-table-column title="订阅编号" data-index="subscriptionNumber" key="subscriptionNumber" :width="120" />
+              <a-table-column title="货币" data-index="currencyCode" key="currencyCode" :width="72" />
+            </a-table>
+          </template>
+          <template v-if="(tenantInfoData.organizationSubscription.subscribedServices || []).length">
+            <div style="font-size: 12px; font-weight: 600; margin: 10px 0 6px">子服务额度（Subscribed Services）</div>
+            <a-table
+              size="small"
+              :pagination="false"
+              :row-key="orgSubscribedServiceRowKey"
+              :data-source="tenantInfoData.organizationSubscription.subscribedServices"
+              :scroll="{ x: 800 }"
+            >
+              <a-table-column title="产品" data-index="productName" key="productName" :ellipsis="true" />
+              <a-table-column title="下发额度" data-index="fundedAllocationValue" key="fundedAllocationValue" :width="100" />
+              <a-table-column title="剩余可用" data-index="availableAmount" key="availableAmount" :width="100" />
+              <a-table-column title="状态" data-index="status" key="status" :width="88" />
+              <a-table-column title="订单号" data-index="orderNumber" key="orderNumber" :width="120" :ellipsis="true" />
+              <a-table-column title="订阅 ID" data-index="subscriptionId" key="subscriptionId" :ellipsis="true" />
+            </a-table>
+          </template>
+        </template>
       </a-spin>
         </a-tab-pane>
         <a-tab-pane key="billing" tab="账务信息">
@@ -1243,6 +1322,16 @@ function formatSubscriptionAmount(data: any): string {
   return `${data.subscriptionAmount}${cur}`
 }
 
+function formatRewardsAmount(amount: number | null | undefined, currency?: string | null): string {
+  if (amount == null) return '—'
+  const cur = currency ? ` ${currency}` : ''
+  return `${amount}${cur}`
+}
+
+function orgSubscribedServiceRowKey(record: any, index: number) {
+  return record?.orderNumber || record?.subscriptionId || record?.productName || `org-svc-${index}`
+}
+
 function formatAccountType(v: string | null | undefined): string {
   if (!v) return '—'
   const map: Record<string, string> = {
@@ -1400,6 +1489,7 @@ const billingCostDayOptions = [
   { value: 30, label: '近 30 天' },
   { value: 90, label: '近 90 天' },
 ]
+
 const iamPoliciesLoading = ref(false)
 const iamPoliciesList = ref<any[]>([])
 const iamPoliciesCompartmentId = ref('')

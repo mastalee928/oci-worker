@@ -79,7 +79,7 @@ public class UsageCostService {
                 .build();
 
         try (OciClientService oci = new OciClientService(dto)) {
-            String usageRegion = resolveUsageApiRegion(oci.getIdentityClient(), tenancyId, user.getOciRegion());
+            String usageRegion = resolveTenancyHomeRegionName(oci.getIdentityClient(), tenancyId, user.getOciRegion());
             UsageapiClient client = UsageapiClient.builder().build(oci.getProvider());
             try {
                 client.setRegion(Region.fromRegionId(usageRegion));
@@ -226,7 +226,8 @@ public class UsageCostService {
         return v.setScale(4, RoundingMode.HALF_UP).stripTrailingZeros().toPlainString();
     }
 
-    private static String resolveUsageApiRegion(IdentityClient identityClient, String tenancyId, String fallback) {
+    /** tenancy 主区域名（Usage API / Rewards 等账单类服务共用）。 */
+    static String resolveTenancyHomeRegionName(IdentityClient identityClient, String tenancyId, String fallback) {
         if (identityClient == null || StrUtil.isBlank(tenancyId)) {
             return StrUtil.blankToDefault(fallback, Region.US_ASHBURN_1.getRegionId());
         }
