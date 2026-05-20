@@ -133,12 +133,20 @@ export function clampTaskShapeResources(
   if (form.memory > lim.maxMemory) form.memory = lim.maxMemory
 }
 
+/** 固定规格（min === max）时不显示括号范围 */
+export function formatShapeResourceRangeLabel(base: string, min: number, max: number): string {
+  if (min === max) {
+    return base
+  }
+  return `${base}（${min}–${max}）`
+}
+
 export function taskOcpuFieldLabel(
   arch?: string | null,
   shapesFromApi?: Array<{ shape: string; ocpus?: number; memoryInGBs?: number }>,
 ): string {
   const lim = resolveTaskShapeLimits(arch, shapesFromApi)
-  return `OCPU（${lim.minOcpus}–${lim.maxOcpus}）`
+  return formatShapeResourceRangeLabel('OCPU', lim.minOcpus, lim.maxOcpus)
 }
 
 export function taskMemoryFieldLabel(
@@ -146,7 +154,7 @@ export function taskMemoryFieldLabel(
   shapesFromApi?: Array<{ shape: string; ocpus?: number; memoryInGBs?: number }>,
 ): string {
   const lim = resolveTaskShapeLimits(arch, shapesFromApi)
-  return `内存 GB（${lim.minMemory}–${lim.maxMemory}）`
+  return formatShapeResourceRangeLabel('内存 GB', lim.minMemory, lim.maxMemory)
 }
 
 /** InputNumber 直接键入时 :max 不一定即时生效，须在变更时钳制 */

@@ -1226,6 +1226,7 @@ import {
   isFixedTaskShapeSpec,
   resolveShapeEditFlexLimits,
   resolveTaskShapeLimits,
+  formatShapeResourceRangeLabel,
   taskMemoryFieldLabel,
   taskOcpuFieldLabel,
   validateDenseIoFlexTier,
@@ -1648,8 +1649,12 @@ const shapeOcpuMin = computed(() => shapeEditFlexLimits.value.minOcpus)
 const shapeOcpuMax = computed(() => shapeEditFlexLimits.value.maxOcpus)
 const shapeMemoryMin = computed(() => shapeEditFlexLimits.value.minMemory)
 const shapeMemoryMax = computed(() => shapeEditFlexLimits.value.maxMemory)
-const shapeOcpuLabel = computed(() => `OCPU（${shapeOcpuMin.value}–${shapeOcpuMax.value}）`)
-const shapeMemoryLabel = computed(() => `内存 GB（${shapeMemoryMin.value}–${shapeMemoryMax.value}）`)
+const shapeOcpuLabel = computed(() =>
+  formatShapeResourceRangeLabel('OCPU', shapeOcpuMin.value, shapeOcpuMax.value),
+)
+const shapeMemoryLabel = computed(() =>
+  formatShapeResourceRangeLabel('内存 GB', shapeMemoryMin.value, shapeMemoryMax.value),
+)
 
 const showForceA2ToA1Button = computed(
   () => currentInstance.value?.shape === 'VM.Standard.A2.Flex',
