@@ -279,13 +279,13 @@ public class CompartmentService {
                     MoveCompartmentRequest.builder()
                             .compartmentId(compartmentId.trim())
                             .moveCompartmentDetails(MoveCompartmentDetails.builder()
-                                    .parentCompartmentId(newParentId.trim())
+                                    .targetCompartmentId(newParentId.trim())
                                     .build())
                             .build());
-            Compartment c = resp.getCompartment();
             Map<String, Object> out = new LinkedHashMap<>();
-            out.put("id", c.getId());
-            out.put("parentId", c.getCompartmentId());
+            out.put("compartmentId", compartmentId.trim());
+            out.put("targetParentId", newParentId.trim());
+            out.put("workRequestId", resp.getOpcWorkRequestId());
             return out;
         } catch (BmcException e) {
             throw new OciException("移动区间失败: " + ociMessage(e));
@@ -313,8 +313,11 @@ public class CompartmentService {
 
             SearchResourcesResponse resp = searchClient.searchResources(req.build());
             List<Map<String, Object>> items = new ArrayList<>();
-            if (resp.getItems() != null) {
-                for (ResourceSummary r : resp.getItems()) {
+            List<ResourceSummary> summaries = resp.getResourceSummaryCollection() != null
+                    ? resp.getResourceSummaryCollection().getItems()
+                    : null;
+            if (summaries != null) {
+                for (ResourceSummary r : summaries) {
                     Map<String, Object> m = new LinkedHashMap<>();
                     m.put("identifier", r.getIdentifier());
                     m.put("displayName", r.getDisplayName());
