@@ -536,7 +536,8 @@ region=ap-tokyo-1"
             {{ tenantInfoData.paymentMethodLabel || formatPaymentMethod(tenantInfoData.paymentMethod) || '—' }}
           </a-descriptions-item>
           <a-descriptions-item label="订阅额度">
-            {{ tenantInfoData.subscriptionAmountLabel || formatSubscriptionAmount(tenantInfoData) || '—' }}
+            <span>{{ tenantInfoData.subscriptionAmountLabel || formatSubscriptionAmount(tenantInfoData) || '—' }}</span>
+            <span v-if="tenantInfoData.subscriptionAmountEstimated" style="margin-left: 6px; font-size: 11px; color: var(--text-sub)">（参考额度）</span>
           </a-descriptions-item>
           <a-descriptions-item label="账户类型">
             <a-tag v-if="tenantInfoData.accountType" color="orange">{{ formatAccountType(tenantInfoData.accountType) }}</a-tag>
@@ -567,11 +568,12 @@ region=ap-tokyo-1"
           </a-descriptions-item>
           <a-descriptions-item label="开始日期">{{ formatUtcCnDate(tenantInfoData.subscriptionStartTime) }}</a-descriptions-item>
           <a-descriptions-item label="结束日期">
-            {{ formatUtcCnDate(tenantInfoData.subscriptionEndTime) }}
+            {{ formatUtcCnDate(tenantInfoData.subscriptionEndTime) || '—' }}
             <span v-if="tenantInfoData.subscriptionDurationDays != null"
               style="margin-left: 6px; font-size: 12px; color: var(--text-sub)">
               （{{ tenantInfoData.subscriptionDurationDays }} 天）
             </span>
+            <span v-if="tenantInfoData.subscriptionEndTimeEstimated" style="margin-left: 6px; font-size: 11px; color: var(--text-sub)">（按 30 天试用推算）</span>
           </a-descriptions-item>
           <a-descriptions-item label="注册地">{{ formatCountryCn(tenantInfoData.registrationLocation) }}</a-descriptions-item>
         </a-descriptions>
@@ -1205,19 +1207,23 @@ function formatBillingPeriod(start: string | null | undefined, end: string | nul
   return `${s} ～ ${e}`
 }
 
+function isFreeTierPlan(plan: string | null | undefined) {
+  if (!plan) return false
+  const p = plan.toUpperCase().replace(/[_-]/g, '')
+  return p === 'FREE' || p === 'FREETIER'
+}
+
 function formatPlanType(v: string | null | undefined): string {
   if (!v) return '—'
+  if (isFreeTierPlan(v)) return '免费套餐 (Free Tier)'
   const map: Record<string, string> = {
-    FREE: '免费套餐 (Free Tier)',
-    FREE_TIER: '免费套餐 (Free Tier)',
     PAYG: '按量付费 (PAYG)',
   }
   return map[v] || v
 }
 
 function planTypeTagColor(plan: string | null | undefined) {
-  const p = (plan || '').toUpperCase()
-  if (p === 'FREE' || p === 'FREE_TIER') return 'default'
+  if (isFreeTierPlan(plan)) return 'default'
   return 'green'
 }
 

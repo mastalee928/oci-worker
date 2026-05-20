@@ -1,6 +1,8 @@
 package com.ociworker.service;
 
 import cn.hutool.core.util.StrUtil;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.oracle.bmc.ospgateway.SubscriptionServiceClient;
 import com.oracle.bmc.ospgateway.requests.GetSubscriptionRequest;
 import lombok.extern.slf4j.Slf4j;
@@ -8,6 +10,7 @@ import lombok.extern.slf4j.Slf4j;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.Date;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -17,6 +20,10 @@ import java.util.Map;
  */
 @Slf4j
 final class OspSubscriptionEnricher {
+
+    private static final ObjectMapper JSON = new ObjectMapper();
+    /** Oracle 常见试用促销天数（OSP 未返回结束日时推算） */
+    private static final int DEFAULT_PROMO_TRIAL_DAYS = 30;
 
     private OspSubscriptionEnricher() {}
 
@@ -78,6 +85,36 @@ final class OspSubscriptionEnricher {
         result.put("subscriptionStatus", resolved.code());
         result.put("subscriptionStatusLabel", resolved.label());
         result.put("subscriptionRenewTime", null);
+
+        mergeFromJsonTree(sub, result);
+        applyPromoTrialFallback(sub, result);
+        reconcileAfterMerge(sub, result);
+    }
+
+    private static void reconcileAfterMerge(Object sub, Map<String, Object> result) {
+        Date end = parseIsoDate(asString(result.get("subscriptionEndTime")));
+        if (end != null && result.get("subscriptionDurationDays") == null) {
+            Integer d = durationDays(tryInvoke(sub, "getTimeStart"), end);
+            if (d != null) result.put("subscriptionDurationDays", d);
+        }
+        String status = asString(result.get("subscriptionStatus"));
+        if (StrUtil.isNotBlank(status) && result.get("subscriptionStatusLabel") == null) {
+            result.put("subscriptionStatusLabel", labelSubscriptionStatus(status));
+        }
+        String pm = asString(result.get("paymentMethod"));
+        if (StrUtil.isNotBlank(pm) && result.get("paymentMethodLabel") == null) {
+            result.put("paymentMethodLabel", labelPaymentMethod(pm));
+        }
+        Number amt = result.get("subscriptionAmount") instanceof Number n ? n : null;
+        if (amt != null && result.get("subscriptionAmountLabel") == null) {
+            result.put("subscriptionAmountLabel", formatAmount(amt, asString(result.get("currencyCode"))));
+        }
+        if (StrUtil.isNotBlank(status)) {
+            ResolvedStatus resolved = resolveSubscriptionStatus(sub, status, end,
+                    asString(result.get("planType")), asString(result.get("upgradeState")));
+            result.put("subscriptionStatus", resolved.code());
+            result.put("subscriptionStatusLabel", resolved.label());
+        }
     }
 
     private static String resolvePaymentMethod(Object sub) {
@@ -101,7 +138,7 @@ final class OspSubscriptionEnricher {
         }
         String plan = enumValue(tryInvoke(sub, "getPlanType"));
         String upgrade = enumValue(tryInvoke(sub, "getUpgradeState"));
-        if ("FREE_TIER".equalsIgnoreCase(plan) && "PROMO".equalsIgnoreCase(upgrade)) {
+        if (isFreeTierPlan(plan) && "PROMO".equalsIgnoreCase(upgrade)) {
             return "FREE_TRIAL";
         }
         return null;
@@ -143,9 +180,7 @@ final class OspSubscriptionEnricher {
         if ("SUBMITTED".equalsIgnoreCase(upgradeState)) {
             return new ResolvedStatus("PENDING", "处理中");
         }
-        if ("PROMO".equalsIgnoreCase(upgradeState)
-                || "FREE_TIER".equalsIgnoreCase(planType)
-                || "FREE".equalsIgnoreCase(planType)) {
+        if ("PROMO".equalsIgnoreCase(upgradeState) || isFreeTierPlan(planType)) {
             return new ResolvedStatus("ACTIVE", "试用中");
         }
         if ("PAYG".equalsIgnoreCase(planType)) {
@@ -192,11 +227,171 @@ final class OspSubscriptionEnricher {
 
     static String labelPlanType(String plan) {
         if (StrUtil.isBlank(plan)) return null;
+        if (isFreeTierPlan(plan)) return "免费套餐 (Free Tier)";
         return switch (plan.toUpperCase(Locale.ROOT)) {
-            case "FREE", "FREE_TIER" -> "免费套餐 (Free Tier)";
             case "PAYG" -> "按量付费 (PAYG)";
             default -> plan;
         };
+    }
+
+    private static boolean isFreeTierPlan(String plan) {
+        if (StrUtil.isBlank(plan)) return false;
+        String p = plan.toUpperCase(Locale.ROOT).replace("_", "").replace("-", "");
+        return "FREE".equals(p) || "FREETIER".equals(p);
+    }
+
+    private static void mergeFromJsonTree(Object sub, Map<String, Object> result) {
+        try {
+            JsonNode root = JSON.valueToTree(sub);
+            scanJsonNode(root, result);
+        } catch (Exception e) {
+            log.debug("subscription json scan skipped: {}", e.getMessage());
+        }
+    }
+
+    private static void scanJsonNode(JsonNode node, Map<String, Object> result) {
+        if (node == null || node.isNull()) return;
+        if (node.isObject()) {
+            Iterator<Map.Entry<String, JsonNode>> it = node.fields();
+            while (it.hasNext()) {
+                Map.Entry<String, JsonNode> e = it.next();
+                String key = e.getKey();
+                JsonNode val = e.getValue();
+                String lower = key.toLowerCase(Locale.ROOT);
+                if (matchesEndKey(lower)) {
+                    putEndIfAbsent(result, val);
+                } else if (lower.contains("paymentmethod") || "paymentType".equalsIgnoreCase(key)) {
+                    putStringIfAbsent(result, "paymentMethod", textNode(val));
+                } else if (lower.contains("status") && !lower.contains("upgrade")) {
+                    putStringIfAbsent(result, "subscriptionStatus", textNode(val));
+                } else if (isAmountKey(lower)) {
+                    putAmountIfAbsent(result, val);
+                } else if (lower.contains("duration") && val.isNumber()) {
+                    result.putIfAbsent("subscriptionDurationDays", val.asInt());
+                }
+                scanJsonNode(val, result);
+            }
+        } else if (node.isArray()) {
+            for (JsonNode child : node) scanJsonNode(child, result);
+        }
+    }
+
+    private static boolean matchesEndKey(String lower) {
+        return lower.equals("timeend") || lower.equals("endtime") || lower.equals("timeended")
+                || lower.contains("subscriptionend") || lower.contains("promoend")
+                || (lower.contains("end") && lower.contains("time"));
+    }
+
+    private static boolean isAmountKey(String lower) {
+        return lower.contains("subscriptionamount") || lower.contains("promoamount")
+                || lower.contains("promotionalcredit") || lower.equals("totalamount")
+                || (lower.contains("amount") && !lower.contains("discount"));
+    }
+
+    private static void putEndIfAbsent(Map<String, Object> result, JsonNode val) {
+        if (result.get("subscriptionEndTime") != null) return;
+        String iso = parseDateIso(val);
+        if (iso != null) result.put("subscriptionEndTime", iso);
+    }
+
+    private static void putAmountIfAbsent(Map<String, Object> result, JsonNode val) {
+        if (result.get("subscriptionAmount") != null) return;
+        if (val.isNumber()) {
+            result.put("subscriptionAmount", val.numberValue());
+            String cur = asString(result.get("currencyCode"));
+            result.put("subscriptionAmountLabel", formatAmount(val.numberValue(), cur));
+        }
+    }
+
+    private static void putStringIfAbsent(Map<String, Object> result, String key, String val) {
+        if (StrUtil.isBlank(val) || result.get(key) != null) return;
+        result.put(key, val);
+        if ("paymentMethod".equals(key)) {
+            result.put("paymentMethodLabel", labelPaymentMethod(val));
+        }
+        if ("subscriptionStatus".equals(key)) {
+            result.put("subscriptionStatusLabel", labelSubscriptionStatus(val));
+        }
+    }
+
+    private static String textNode(JsonNode val) {
+        if (val == null || val.isNull()) return null;
+        if (val.isTextual()) return val.asText();
+        if (val.isNumber()) return val.asText();
+        return null;
+    }
+
+    private static String parseDateIso(JsonNode val) {
+        if (val == null || val.isNull()) return null;
+        if (val.isNumber()) return formatInstant(new Date(val.asLong()));
+        if (val.isTextual()) {
+            try {
+                return Instant.parse(val.asText()).toString();
+            } catch (Exception ignored) {
+                return val.asText();
+            }
+        }
+        return null;
+    }
+
+    /** OSP 未返回结束日/额度时，按免费试用促销惯例补全（并标记 estimated） */
+    private static void applyPromoTrialFallback(Object sub, Map<String, Object> result) {
+        String upgrade = asString(result.get("upgradeState"));
+        if (!"PROMO".equalsIgnoreCase(upgrade) && !isFreeTierPlan(asString(result.get("planType")))) {
+            return;
+        }
+        if (result.get("paymentMethod") == null) {
+            result.put("paymentMethod", "FREE_TRIAL");
+            result.put("paymentMethodLabel", labelPaymentMethod("FREE_TRIAL"));
+        }
+        Date start = asDate(tryInvoke(sub, "getTimeStart"));
+        if (result.get("subscriptionEndTime") == null && start != null) {
+            Date end = Date.from(start.toInstant().plus(DEFAULT_PROMO_TRIAL_DAYS, ChronoUnit.DAYS).minus(1, ChronoUnit.SECONDS));
+            result.put("subscriptionEndTime", formatInstant(end));
+            result.put("subscriptionDurationDays", DEFAULT_PROMO_TRIAL_DAYS);
+            result.put("subscriptionEndTimeEstimated", Boolean.TRUE);
+        }
+        if (result.get("subscriptionAmount") == null) {
+            String currency = asString(result.get("currencyCode"));
+            Number amt = defaultTrialCreditAmount(currency);
+            if (amt != null) {
+                result.put("subscriptionAmount", amt);
+                result.put("subscriptionAmountLabel", formatAmount(amt, currency));
+                result.put("subscriptionAmountEstimated", Boolean.TRUE);
+            }
+        }
+        // 补全后刷新状态（含是否已过期）
+        Date end = parseIsoDate(asString(result.get("subscriptionEndTime")));
+        ResolvedStatus resolved = resolveSubscriptionStatus(sub,
+                asString(result.get("subscriptionStatus")), end,
+                asString(result.get("planType")), upgrade);
+        result.put("subscriptionStatus", resolved.code());
+        result.put("subscriptionStatusLabel", resolved.label());
+        if (result.get("paymentMethod") != null && result.get("paymentMethodLabel") == null) {
+            result.put("paymentMethodLabel", labelPaymentMethod(asString(result.get("paymentMethod")));
+        }
+    }
+
+    private static Number defaultTrialCreditAmount(String currency) {
+        if (StrUtil.isBlank(currency)) return 300;
+        return switch (currency.toUpperCase(Locale.ROOT)) {
+            case "EUR" -> 250;
+            case "GBP" -> 250;
+            case "AUD" -> 300;
+            case "USD" -> 300;
+            case "JPY" -> 40000;
+            case "CAD" -> 300;
+            default -> 300;
+        };
+    }
+
+    private static Date parseIsoDate(String iso) {
+        if (StrUtil.isBlank(iso)) return null;
+        try {
+            return Date.from(Instant.parse(iso));
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     private static String formatAmount(Number amount, String currency) {
@@ -258,7 +453,11 @@ final class OspSubscriptionEnricher {
 
     private static String enumValue(Object v) {
         if (v == null) return null;
-        if (v instanceof Enum<?> e) return e.name();
+        if (v instanceof Enum<?> e) {
+            Object val = tryInvoke(e, "getValue");
+            if (val != null) return String.valueOf(val);
+            return e.name();
+        }
         return String.valueOf(v);
     }
 
