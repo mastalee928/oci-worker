@@ -7,6 +7,7 @@ import com.ociworker.model.params.TenantParams;
 import com.ociworker.model.vo.ResponseData;
 import com.ociworker.service.DomainManagementService;
 import com.ociworker.service.AnnouncementService;
+import com.ociworker.service.CompartmentService;
 import com.ociworker.service.IamPolicyService;
 import com.ociworker.service.TenantService;
 import jakarta.annotation.Resource;
@@ -30,6 +31,8 @@ public class TenantController {
     private DomainManagementService domainManagementService;
     @Resource
     private IamPolicyService iamPolicyService;
+    @Resource
+    private CompartmentService compartmentService;
     @Resource
     private AnnouncementService announcementService;
 
@@ -155,6 +158,66 @@ public class TenantController {
     @PostMapping("/iamPolicy")
     public ResponseData<?> iamPolicy(@RequestBody java.util.Map<String, String> params) {
         return ResponseData.ok(iamPolicyService.getPolicy(params.get("id"), params.get("policyId")));
+    }
+
+    /** OCI 区间（Compartment）— Identity API */
+    @PostMapping("/compartments")
+    public ResponseData<?> compartments(@RequestBody java.util.Map<String, String> params) {
+        return ResponseData.ok(compartmentService.listCompartments(
+                params.get("id"), params.get("parentId"), params.get("keyword")));
+    }
+
+    @PostMapping("/compartmentDetail")
+    public ResponseData<?> compartmentDetail(@RequestBody java.util.Map<String, String> params) {
+        return ResponseData.ok(compartmentService.getCompartment(params.get("id"), params.get("compartmentId")));
+    }
+
+    @PostMapping("/compartmentCreate")
+    public ResponseData<?> compartmentCreate(@RequestBody java.util.Map<String, String> params) {
+        return ResponseData.ok(compartmentService.createCompartment(
+                params.get("id"), params.get("parentId"), params.get("name"), params.get("description")));
+    }
+
+    @PostMapping("/compartmentUpdate")
+    public ResponseData<?> compartmentUpdate(@RequestBody java.util.Map<String, String> params) {
+        return ResponseData.ok(compartmentService.updateCompartment(
+                params.get("id"), params.get("compartmentId"), params.get("name"), params.get("description")));
+    }
+
+    @PostMapping("/compartmentDelete")
+    public ResponseData<?> compartmentDelete(@RequestBody java.util.Map<String, String> params) {
+        compartmentService.deleteCompartment(params.get("id"), params.get("compartmentId"));
+        return ResponseData.ok();
+    }
+
+    @PostMapping("/compartmentMove")
+    public ResponseData<?> compartmentMove(@RequestBody java.util.Map<String, String> params) {
+        return ResponseData.ok(compartmentService.moveCompartment(
+                params.get("id"), params.get("compartmentId"), params.get("newParentId")));
+    }
+
+    @PostMapping("/compartmentResources")
+    public ResponseData<?> compartmentResources(@RequestBody java.util.Map<String, Object> params) {
+        String id = params == null ? null : String.valueOf(params.get("id"));
+        String compartmentId = params == null ? null : String.valueOf(params.get("compartmentId"));
+        String pageToken = params == null ? null : (params.get("pageToken") == null ? null : String.valueOf(params.get("pageToken")));
+        Integer limit = null;
+        Object lim = params == null ? null : params.get("limit");
+        if (lim instanceof Number n) limit = n.intValue();
+        else if (lim != null) {
+            try { limit = Integer.parseInt(String.valueOf(lim)); } catch (Exception ignored) {}
+        }
+        return ResponseData.ok(compartmentService.listResources(id, compartmentId, pageToken, limit));
+    }
+
+    @PostMapping("/compartmentMoveResource")
+    public ResponseData<?> compartmentMoveResource(@RequestBody java.util.Map<String, String> params) {
+        compartmentService.moveResource(
+                params.get("id"),
+                params.get("resourceId"),
+                params.get("resourceType"),
+                params.get("targetCompartmentId"));
+        return ResponseData.ok();
     }
 
     /** OCI 云公告（Announcements API，与控制台铃铛同源），只读 */

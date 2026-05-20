@@ -714,6 +714,12 @@ region=ap-tokyo-1"
           <a-empty v-else description="切换到此标签后将自动加载账务数据" />
         </a-spin>
         </a-tab-pane>
+        <a-tab-pane key="compartments" tab="区间">
+          <CompartmentManager
+            v-if="tenantTab === 'compartments' && tenantMgmtTenant?.id"
+            :tenant-id="tenantMgmtTenant.id"
+          />
+        </a-tab-pane>
         <a-tab-pane key="iam" tab="IAM 策略">
           <a-alert type="info" show-icon style="margin-bottom: 10px"
             message="对应 OCI 控制台「身份与安全性 → 身份 → 策略」（经典 IAM Policy API），与身份域内的安全策略无关。只读列表。" />
@@ -1154,6 +1160,7 @@ import { getTenantList, addTenant, updateTenant, removeTenant, uploadKey, getTen
 import { sendVerifyCode } from '../api/system'
 import { RightOutlined, DownOutlined, SettingOutlined, FolderOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons-vue'
 import AuditLogTable from '../components/AuditLogTable.vue'
+import CompartmentManager from '../components/CompartmentManager.vue'
 import {
   loadOciRegionCatalog,
   ociRegionSelectOptions,
