@@ -1,14 +1,26 @@
 <template>
   <div class="compartment-manager">
     <a-alert type="info" show-icon style="margin-bottom: 10px"
-      message="列表与控制台一致：仅显示当前层级的直接子区间（根下约 9 条）；点名称或面包屑进入子级。Resource Search 可编辑资源。" />
+      message="列表与控制台一致：仅显示当前层级的直接子区间；点名称进入子级。返回上级：点「返回上一级」或面包屑中上一级名称。" />
 
-    <a-breadcrumb style="margin-bottom: 12px">
-      <a-breadcrumb-item v-for="(b, i) in breadcrumb" :key="b.id">
-        <a v-if="i < breadcrumb.length - 1" @click="navigateTo(b.id)">{{ b.name }}</a>
-        <span v-else>{{ b.name }}</span>
-      </a-breadcrumb-item>
-    </a-breadcrumb>
+    <div class="compartment-nav-bar">
+      <a-button
+        v-if="canGoUp"
+        type="default"
+        size="small"
+        class="compartment-back-btn"
+        @click="goUpOneLevel"
+      >
+        <template #icon><ArrowLeftOutlined /></template>
+        返回上一级
+      </a-button>
+      <a-breadcrumb class="compartment-breadcrumb">
+        <a-breadcrumb-item v-for="(b, i) in breadcrumb" :key="b.id">
+          <a v-if="i < breadcrumb.length - 1" class="compartment-crumb-link" @click="navigateTo(b.id)">{{ b.name }}</a>
+          <span v-else class="compartment-crumb-current">{{ b.name }}</span>
+        </a-breadcrumb-item>
+      </a-breadcrumb>
+    </div>
 
     <a-space wrap style="margin-bottom: 12px">
       <a-button type="primary" @click="openCreateModal">
@@ -230,6 +242,8 @@ const tenancyId = ref('')
 const breadcrumb = ref<{ id: string; name: string }[]>([])
 const browseParentId = ref('')
 
+const canGoUp = computed(() => breadcrumb.value.length > 1)
+
 const createVisible = ref(false)
 const createLoading = ref(false)
 const createForm = ref({ name: '', description: '' })
@@ -322,6 +336,13 @@ async function reloadList() {
 function navigateTo(id: string) {
   browseParentId.value = id === tenancyId.value ? '' : id
   reloadList()
+}
+
+/** 返回面包屑的上一级（如 IntegrationsCompartment → root） */
+function goUpOneLevel() {
+  const bc = breadcrumb.value
+  if (bc.length < 2) return
+  navigateTo(bc[bc.length - 2].id)
 }
 
 /** 点名称：进入该层子区间列表（与 OCI 控制台一致），不关列表只换层级 */
@@ -547,5 +568,38 @@ watch(
 <style scoped>
 .compartment-manager {
   min-height: 200px;
+}
+
+.compartment-nav-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.compartment-back-btn {
+  flex-shrink: 0;
+}
+
+.compartment-breadcrumb {
+  flex: 1;
+  min-width: 0;
+  margin-bottom: 0 !important;
+}
+
+.compartment-crumb-link {
+  color: #1677ff;
+  cursor: pointer;
+}
+
+.compartment-crumb-link:hover {
+  color: #4096ff;
+  text-decoration: underline;
+}
+
+.compartment-crumb-current {
+  color: var(--text-main, rgba(255, 255, 255, 0.88));
+  font-weight: 500;
 }
 </style>
