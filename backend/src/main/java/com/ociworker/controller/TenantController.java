@@ -10,6 +10,7 @@ import com.ociworker.service.AnnouncementService;
 import com.ociworker.service.CompartmentService;
 import com.ociworker.service.IamPolicyService;
 import com.ociworker.service.TenantService;
+import com.ociworker.service.VerifyCodeService;
 import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpHeaders;
@@ -35,6 +36,8 @@ public class TenantController {
     private CompartmentService compartmentService;
     @Resource
     private AnnouncementService announcementService;
+    @Resource
+    private VerifyCodeService verifyCodeService;
 
     @PostMapping("/list")
     public ResponseData<?> list(@RequestBody PageParams params) {
@@ -186,6 +189,7 @@ public class TenantController {
 
     @PostMapping("/compartmentDelete")
     public ResponseData<?> compartmentDelete(@RequestBody java.util.Map<String, String> params) {
+        verifyCodeService.verifyCode("deleteCompartment", params == null ? null : params.get("verifyCode"));
         compartmentService.deleteCompartment(params.get("id"), params.get("compartmentId"));
         return ResponseData.ok();
     }

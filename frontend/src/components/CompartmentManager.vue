@@ -1,7 +1,7 @@
 <template>
   <div class="compartment-manager">
     <a-alert type="info" show-icon style="margin-bottom: 10px"
-      message="对应 OCI「身份与安全性 → 身份 → 区间」，使用 Identity API 与 Resource Search；实例/块存储/启动卷支持应用内迁移。" />
+      message="列表与控制台一致：仅显示当前层级的直接子区间（根下约 9 条）；点名称或面包屑进入子级。Resource Search 可编辑资源。" />
 
     <a-breadcrumb style="margin-bottom: 12px">
       <a-breadcrumb-item v-for="(b, i) in breadcrumb" :key="b.id">
@@ -35,7 +35,7 @@
     >
       <a-table-column title="名称" key="name" :width="200">
         <template #default="{ record }">
-          <a @click="openDetail(record)">{{ record.name }}</a>
+          <a @click="enterCompartment(record)">{{ record.name }}</a>
         </template>
       </a-table-column>
       <a-table-column title="状态" data-index="lifecycleState" key="state" :width="100">
@@ -56,14 +56,13 @@
       </a-table-column>
       <a-table-column title="操作" key="action" :width="200" fixed="right">
         <template #default="{ record }">
-          <a-space v-if="!record.root" size="small" wrap>
+          <a-space size="small" wrap>
             <a-button type="link" size="small" @click="openDetail(record)">详情</a-button>
-            <a-button type="link" size="small" @click="openRename(record)">重命名</a-button>
-            <a-popconfirm title="确定删除该区间？须为空区间。" @confirm="handleDelete(record)">
-              <a-button type="link" size="small" danger>删除</a-button>
-            </a-popconfirm>
+            <template v-if="!record.root">
+              <a-button type="link" size="small" @click="openRename(record)">重命名</a-button>
+              <a-button type="link" size="small" danger @click="openDelete(record)">删除</a-button>
+            </template>
           </a-space>
-          <span v-else style="color: var(--text-sub); font-size: 12px">根区间</span>
         </template>
       </a-table-column>
     </a-table>
@@ -96,7 +95,18 @@
     </a-modal>
 
     <!-- 详情 -->
-    <a-drawer v-model:open="detailVisible" :title="'区间 — ' + (detailData?.name || '')" width="720" :destroy-on-close="true">
+    <a-drawer
+      v-model:open="detailVisible"
+      :title="'区间 — ' + (detailData?.name || '')"
+      width="720"
+      :destroy-on-close="true"
+      :mask-closable="true"
+    >
+      <template #extra>
+        <a-button type="link" size="small" @click="closeDetailBackToList">
+          <ArrowLeftOutlined /> 返回列表
+        </a-button>
+      </template>
       <a-spin :spinning="detailLoading">
         <template v-if="detailData">
           <a-descriptions :column="1" bordered size="small" style="margin-bottom: 16px">
@@ -115,13 +125,13 @@
 
           <a-tabs v-model:activeKey="detailTab">
             <a-tab-pane key="children" tab="子区间">
-              <a-button type="primary" size="small" style="margin-bottom: 8px" @click="drillInto(detailData)">
-                在此层级创建 / 浏览子区间
+              <a-button type="primary" size="small" style="margin-bottom: 8px" @click="enterCompartment(detailData)">
+                进入此层级子区间列表
               </a-button>
               <a-table :data-source="detailData.children || []" size="small" row-key="id" :pagination="false">
                 <a-table-column title="名称" key="name">
                   <template #default="{ record }">
-                    <a @click="openDetail(record)">{{ record.name }}</a>
+                    <a @click="enterCompartment(record)">{{ record.name }}</a>
                   </template>
                 </a-table-column>
                 <a-table-column title="状态" data-index="lifecycleState" key="state" :width="90">
@@ -165,6 +175,21 @@
     </a-drawer>
 
     <!-- 迁移资源 -->
+    <a-modal
+      v-model:open="deleteVisible"
+      :title="'删除区间 — ' + (deleteTarget?.name || '')"
+      @ok="submitDelete"
+      :confirm-loading="deleteLoading"
+      ok-text="确认删除"
+      :ok-button-props="{ danger: true }"
+    >
+      <a-alert type="warning" message="删除须为空区间；需 Telegram 验证码（有效期 5 分钟）" show-icon style="margin-bottom: 12px" />
+      <a-input v-model:value="deleteCode" placeholder="请输入 6 位验证码" :maxlength="6" allow-clear />
+      <div style="margin-top: 8px">
+        <a-button type="link" size="small" :loading="deleteCodeSending" @click="resendDeleteCode">重新发送验证码</a-button>
+      </div>
+    </a-modal>
+
     <a-modal v-model:open="moveResVisible" title="迁移资源到其他区间" @ok="submitMoveResource"
       :confirm-loading="moveResLoading">
       <a-form layout="vertical">
@@ -182,7 +207,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { message } from 'ant-design-vue'
-import { PlusOutlined, ReloadOutlined } from '@ant-design/icons-vue'
+import { PlusOutlined, ReloadOutlined, ArrowLeftOutlined } from '@ant-design/icons-vue'
 import {
   listCompartments,
   getCompartmentDetail,
@@ -192,6 +217,7 @@ import {
   listCompartmentResources,
   moveCompartmentResource,
 } from '../api/compartment'
+import { sendVerifyCode } from '../api/system'
 
 const props = defineProps<{
   tenantId: string
@@ -211,6 +237,12 @@ const createForm = ref({ name: '', description: '' })
 const renameVisible = ref(false)
 const renameLoading = ref(false)
 const renameForm = ref({ compartmentId: '', name: '', description: '' })
+
+const deleteVisible = ref(false)
+const deleteTarget = ref<any>(null)
+const deleteCode = ref('')
+const deleteLoading = ref(false)
+const deleteCodeSending = ref(false)
 
 const detailVisible = ref(false)
 const detailLoading = ref(false)
@@ -292,10 +324,16 @@ function navigateTo(id: string) {
   reloadList()
 }
 
-function drillInto(record: any) {
+/** 点名称：进入该层子区间列表（与 OCI 控制台一致），不关列表只换层级 */
+function enterCompartment(record: any) {
+  if (!record?.id) return
   detailVisible.value = false
-  browseParentId.value = record.id
+  browseParentId.value = record.id === tenancyId.value ? '' : record.id
   reloadList()
+}
+
+function closeDetailBackToList() {
+  detailVisible.value = false
 }
 
 function openCreateModal() {
@@ -387,13 +425,54 @@ async function submitRename() {
   }
 }
 
-async function handleDelete(record: any) {
+async function openDelete(record: any) {
+  deleteTarget.value = record
+  deleteCode.value = ''
   try {
-    await deleteCompartment({ id: props.tenantId, compartmentId: record.id })
+    await sendVerifyCode('deleteCompartment')
+    message.success('验证码已发送至 Telegram')
+  } catch (e: any) {
+    message.error(e?.message || '发送验证码失败')
+    return
+  }
+  deleteVisible.value = true
+}
+
+async function resendDeleteCode() {
+  deleteCodeSending.value = true
+  try {
+    await sendVerifyCode('deleteCompartment')
+    message.success('验证码已重新发送')
+  } catch (e: any) {
+    message.error(e?.message || '发送失败')
+  } finally {
+    deleteCodeSending.value = false
+  }
+}
+
+async function submitDelete() {
+  if (!deleteCode.value || deleteCode.value.length !== 6) {
+    message.warning('请输入 6 位验证码')
+    return
+  }
+  if (!deleteTarget.value?.id) return
+  deleteLoading.value = true
+  try {
+    await deleteCompartment({
+      id: props.tenantId,
+      compartmentId: deleteTarget.value.id,
+      verifyCode: deleteCode.value,
+    })
     message.success('已提交删除（异步，空区间方可完成）')
+    deleteVisible.value = false
+    if (detailVisible.value && detailData.value?.id === deleteTarget.value.id) {
+      detailVisible.value = false
+    }
     await reloadList()
   } catch (e: any) {
     message.error(e?.message || '删除失败')
+  } finally {
+    deleteLoading.value = false
   }
 }
 

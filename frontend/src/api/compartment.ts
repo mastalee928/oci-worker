@@ -26,7 +26,7 @@ export function updateCompartment(data: {
   return request.post('/oci/user/compartmentUpdate', data)
 }
 
-export function deleteCompartment(data: { id: string; compartmentId: string }) {
+export function deleteCompartment(data: { id: string; compartmentId: string; verifyCode: string }) {
   return request.post('/oci/user/compartmentDelete', data)
 }
 

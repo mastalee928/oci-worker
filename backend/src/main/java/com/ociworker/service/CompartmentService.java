@@ -68,7 +68,7 @@ public class CompartmentService {
     }
 
     /**
-     * @param parentId 为空或等于 tenancyId 时：扁平子树（控制台默认一览）；否则仅直接子区间
+     * @param parentId 为空或等于 tenancyId 时：根区间 + 根下<strong>直接</strong>子区间（与控制台一致）；否则仅该父级下直接子区间
      */
     public Map<String, Object> listCompartments(String tenantId, String parentId, String keyword) {
         OciUser user = userMapper.selectById(tenantId);
@@ -88,6 +88,13 @@ public class CompartmentService {
             Map<String, Integer> childCounts = buildChildCounts(subtree, tenancy);
 
             List<Map<String, Object>> items = new ArrayList<>();
+            String listParentId = atRoot ? tenancy : parentId.trim();
+            for (Compartment c : subtree) {
+                if (listParentId.equals(c.getCompartmentId())) {
+                    items.add(compartmentRow(c, childCounts, false));
+                }
+            }
+            items.sort(Comparator.comparing(m -> String.valueOf(m.get("name")), String.CASE_INSENSITIVE_ORDER));
             if (atRoot) {
                 items.add(compartmentRow(
                         tenancy,
@@ -98,16 +105,6 @@ public class CompartmentService {
                         childCounts.getOrDefault(tenancy, 0),
                         null,
                         true));
-                for (Compartment c : subtree) {
-                    items.add(compartmentRow(c, childCounts, false));
-                }
-            } else {
-                String pid = parentId.trim();
-                for (Compartment c : subtree) {
-                    if (pid.equals(c.getCompartmentId())) {
-                        items.add(compartmentRow(c, childCounts, false));
-                    }
-                }
             }
 
             if (StrUtil.isNotBlank(keyword)) {
@@ -122,7 +119,8 @@ public class CompartmentService {
             out.put("tenancyId", tenancy);
             out.put("tenancyName", tenancyInfo.getName());
             out.put("parentId", atRoot ? tenancy : parentId.trim());
-            out.put("flatSubtree", atRoot);
+            out.put("flatSubtree", false);
+            out.put("directChildrenOnly", true);
             out.put("items", items);
             out.put("count", items.size());
             out.put("breadcrumb", buildBreadcrumb(subtree, tenancy, tenancyInfo.getName(), atRoot ? tenancy : parentId.trim()));
