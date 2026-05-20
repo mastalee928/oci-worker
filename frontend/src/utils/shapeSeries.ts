@@ -16,16 +16,17 @@ export const SHAPE_SERIES_SPECIALTY = '专业和上一代'
 export const SHAPE_SERIES_BARE_METAL = '裸金属机'
 export const SHAPE_SERIES_OTHER = '其它'
 
-export const SHAPE_SERIES_OPTIONS: ShapePickOption[] = [
-  { value: SHAPE_SERIES_ARM, label: SHAPE_SERIES_ARM },
-  { value: SHAPE_SERIES_AMD, label: SHAPE_SERIES_AMD },
-  { value: SHAPE_SERIES_INTEL, label: SHAPE_SERIES_INTEL },
-  { value: SHAPE_SERIES_SPECIALTY, label: SHAPE_SERIES_SPECIALTY },
-  { value: SHAPE_SERIES_BARE_METAL, label: SHAPE_SERIES_BARE_METAL },
-  { value: SHAPE_SERIES_OTHER, label: SHAPE_SERIES_OTHER },
+/** 架构下拉顺序（与 OCI 控制台习惯一致） */
+export const SHAPE_SERIES_ORDER: readonly string[] = [
+  SHAPE_SERIES_ARM,
+  SHAPE_SERIES_SPECIALTY,
+  SHAPE_SERIES_AMD,
+  SHAPE_SERIES_INTEL,
+  SHAPE_SERIES_BARE_METAL,
+  SHAPE_SERIES_OTHER,
 ]
 
-const KNOWN_SERIES = new Set(SHAPE_SERIES_OPTIONS.map((o) => o.value))
+const KNOWN_SERIES = new Set(SHAPE_SERIES_ORDER)
 
 const FIXED_VM_SHAPE_SERIES: Record<string, string> = (() => {
   const m: Record<string, string> = {}
@@ -169,4 +170,12 @@ export function pickDefaultArchitectureForSeries(
   const opts = shapeOptionsForSeries(series, apiShapes)
   if (prev && opts.some((o) => o.value === prev)) return prev
   return opts[0]?.value ?? 'ARM'
+}
+
+/** 仅展示当前区域有 Shape 的架构；「其它」无项时不出现 */
+export function seriesOptionsForPicker(apiShapes: ShapeListRow[]): ShapePickOption[] {
+  const filtered = filterApiShapesForPicker(apiShapes)
+  return SHAPE_SERIES_ORDER.filter(
+    (series) => shapeOptionsForSeries(series, filtered).length > 0,
+  ).map((value) => ({ value, label: value }))
 }

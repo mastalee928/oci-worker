@@ -5,7 +5,7 @@
         <a-form-item label="架构" :style="{ marginBottom: isMobile ? '12px' : undefined }">
           <a-select
             v-model:value="seriesModel"
-            :options="SHAPE_SERIES_OPTIONS"
+            :options="seriesOptions"
             placeholder="选择架构系列"
             @change="onSeriesChange"
           />
@@ -35,12 +35,13 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import {
-  SHAPE_SERIES_OPTIONS,
+  SHAPE_SERIES_ARM,
   type ShapeListRow,
   filterApiShapesForPicker,
   normalizeShapeSeries,
   pickDefaultArchitectureForSeries,
   seriesFromArchitecture,
+  seriesOptionsForPicker,
   shapeOptionsForSeries,
 } from '../utils/shapeSeries'
 
@@ -68,7 +69,9 @@ const emit = defineEmits<{
 
 const apiShapes = computed(() => filterApiShapesForPicker(props.shapes ?? []))
 
-const seriesModel = ref(normalizeShapeSeries(SHAPE_SERIES_OPTIONS[0].value))
+const seriesModel = ref(SHAPE_SERIES_ARM)
+
+const seriesOptions = computed(() => seriesOptionsForPicker(props.shapes ?? []))
 
 const architectureModel = computed({
   get: () => props.architecture || 'ARM',
@@ -103,12 +106,32 @@ watch(
   { immediate: true },
 )
 
+function ensureSeriesStillVisible() {
+  const list = seriesOptions.value
+  if (!list.length) return
+  if (!list.some((o) => o.value === seriesModel.value)) {
+    seriesModel.value = SHAPE_SERIES_ARM
+    architectureModel.value = pickDefaultArchitectureForSeries(SHAPE_SERIES_ARM, apiShapes.value, 'ARM')
+  }
+}
+
 watch(apiShapes, () => {
+  ensureSeriesStillVisible()
   const opts = shapeOptions.value
+  if (!opts.length) {
+    architectureModel.value = pickDefaultArchitectureForSeries(
+      seriesModel.value,
+      apiShapes.value,
+      architectureModel.value,
+    )
+    return
+  }
   if (!opts.some((o) => o.value === architectureModel.value)) {
     architectureModel.value = pickDefaultArchitectureForSeries(seriesModel.value, apiShapes.value, null)
   } else {
     syncSeriesFromArchitecture()
   }
 })
+
+watch(seriesOptions, () => ensureSeriesStillVisible())
 </script>
