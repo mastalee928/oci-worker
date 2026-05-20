@@ -423,9 +423,6 @@
             :options="ociRegionSelectOptions"
             :filter-option="filterOciRegionSelectOption"
           />
-          <div style="margin-top: 6px; color: var(--text-sub); font-size: 12px">
-            同一 tenancy 多区域时在此选择要开机的 Region；不选则使用租户配置中的 Region。
-          </div>
         </a-form-item>
         <ShapeSeriesPicker
           v-model:architecture="quickTaskForm.architecture"
@@ -1880,10 +1877,7 @@ async function loadQuickTaskShapes() {
     const region = quickTaskForm.ociRegion?.trim() || undefined
     const res = await getAvailableShapes({ id: tid, ...(region ? { region } : {}) })
     if (gen !== quickTaskShapeLoadGen) return
-    const rows = res.data || []
-    quickTaskShapes.value = rows.filter(
-      (s: any) => s.shape !== 'VM.Standard.A1.Flex' && s.shape !== 'VM.Standard.E2.1.Micro',
-    )
+    quickTaskShapes.value = res.data || []
     const arch = quickTaskForm.architecture
     const ok =
       arch === 'ARM' ||

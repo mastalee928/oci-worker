@@ -552,9 +552,7 @@ async function loadEditAvailableShapes(tenantId: string, region?: string, curren
   editShapesLoading.value = true
   try {
     const res = await getAvailableShapes({ id: tenantId, ...(region?.trim() ? { region: region.trim() } : {}) })
-    let rows = (res.data || []).filter(
-      (s: any) => s.shape !== 'VM.Standard.A1.Flex' && s.shape !== 'VM.Standard.E2.1.Micro',
-    )
+    let rows = res.data || []
     const arch = currentArch ?? editForm.architecture
     if (
       arch &&
@@ -635,9 +633,7 @@ function generateRandomPwd() {
 async function loadTenantAvailableShapes(tenantId: string, region?: string) {
   if (!tenantId) return []
   const res = await getAvailableShapes({ id: tenantId, ...(region?.trim() ? { region: region.trim() } : {}) })
-  return (res.data || []).filter(
-    (s: any) => s.shape !== 'VM.Standard.A1.Flex' && s.shape !== 'VM.Standard.E2.1.Micro',
-  )
+  return res.data || []
 }
 
 async function onTenantChange(tenantId: string) {
