@@ -1336,10 +1336,6 @@ function formatRewardsAmount(amount: number | null | undefined, currency?: strin
   return `${amount}${cur}`
 }
 
-function orgSubscribedServiceRowKey(record: any, index: number) {
-  return record?.orderNumber || record?.subscriptionId || record?.productName || `org-svc-${index}`
-}
-
 function formatAccountType(v: string | null | undefined): string {
   if (!v) return '—'
   const map: Record<string, string> = {
