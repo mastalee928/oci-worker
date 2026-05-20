@@ -16,14 +16,12 @@ import java.util.Locale;
 import java.util.Map;
 
 /**
- * 从 OSP Gateway 订阅对象提取/推导账户信息 Tab 所需字段（含反射兼容未文档化字段）。
+ * 从 OSP Gateway 订阅对象提取账户信息 Tab 字段（反射 + JSON 扫描）；无 API 数据则不填、不推算。
  */
 @Slf4j
 final class OspSubscriptionEnricher {
 
     private static final ObjectMapper JSON = new ObjectMapper();
-    /** Oracle 常见试用促销天数（OSP 未返回结束日时推算） */
-    private static final int DEFAULT_PROMO_TRIAL_DAYS = 30;
 
     private OspSubscriptionEnricher() {}
 
@@ -80,14 +78,12 @@ final class OspSubscriptionEnricher {
 
         String rawStatus = firstString(sub,
                 "getStatus", "getSubscriptionStatus", "getLifecycleState", "getState");
-        ResolvedStatus resolved = resolveSubscriptionStatus(sub, rawStatus, timeEnd, planVal,
-                enumValue(tryInvoke(sub, "getUpgradeState")));
+        ResolvedStatus resolved = resolveSubscriptionStatus(rawStatus, timeEnd);
         result.put("subscriptionStatus", resolved.code());
         result.put("subscriptionStatusLabel", resolved.label());
         result.put("subscriptionRenewTime", null);
 
         mergeFromJsonTree(sub, result);
-        applyPromoTrialFallback(sub, result);
         reconcileAfterMerge(sub, result);
     }
 
@@ -113,9 +109,8 @@ final class OspSubscriptionEnricher {
         if (amt != null && result.get("subscriptionAmountLabel") == null) {
             result.put("subscriptionAmountLabel", formatAmount(amt, asString(result.get("currencyCode"))));
         }
-        if (StrUtil.isNotBlank(status)) {
-            ResolvedStatus resolved = resolveSubscriptionStatus(sub, status, end,
-                    asString(result.get("planType")), asString(result.get("upgradeState")));
+        ResolvedStatus resolved = resolveSubscriptionStatus(status, end);
+        if (resolved.code() != null) {
             result.put("subscriptionStatus", resolved.code());
             result.put("subscriptionStatusLabel", resolved.label());
         }
@@ -140,11 +135,6 @@ final class OspSubscriptionEnricher {
             String pm = firstString(gateway, "getPaymentMethod", "getType", "getGatewayType");
             if (StrUtil.isNotBlank(pm)) return pm;
         }
-        String plan = enumValue(tryInvoke(sub, "getPlanType"));
-        String upgrade = enumValue(tryInvoke(sub, "getUpgradeState"));
-        if (isFreeTierPlan(plan) && "PROMO".equalsIgnoreCase(upgrade)) {
-            return "FREE_TRIAL";
-        }
         return null;
     }
 
@@ -163,32 +153,16 @@ final class OspSubscriptionEnricher {
 
     private record ResolvedStatus(String code, String label) {}
 
-    private static ResolvedStatus resolveSubscriptionStatus(
-            Object sub, String rawStatus, Date timeEnd, String planType, String upgradeState) {
+    /** 仅使用 API/JSON 中的 status；若无 status 仅有结束日，则按结束日判断已过期/有效（结束日本身须来自 OSP）。 */
+    private static ResolvedStatus resolveSubscriptionStatus(String rawStatus, Date timeEnd) {
         if (StrUtil.isNotBlank(rawStatus)) {
             return new ResolvedStatus(rawStatus.toUpperCase(Locale.ROOT), labelSubscriptionStatus(rawStatus));
         }
-        Instant now = Instant.now();
         if (timeEnd != null) {
-            if (timeEnd.toInstant().isBefore(now)) {
+            if (timeEnd.toInstant().isBefore(Instant.now())) {
                 return new ResolvedStatus("EXPIRED", "已过期");
             }
             return new ResolvedStatus("ACTIVE", "有效");
-        }
-        if ("UPGRADED".equalsIgnoreCase(upgradeState)) {
-            return new ResolvedStatus("ACTIVE", "已升级");
-        }
-        if ("ERROR".equalsIgnoreCase(upgradeState)) {
-            return new ResolvedStatus("ERROR", "异常");
-        }
-        if ("SUBMITTED".equalsIgnoreCase(upgradeState)) {
-            return new ResolvedStatus("PENDING", "处理中");
-        }
-        if ("PROMO".equalsIgnoreCase(upgradeState) || isFreeTierPlan(planType)) {
-            return new ResolvedStatus("ACTIVE", "试用中");
-        }
-        if ("PAYG".equalsIgnoreCase(planType)) {
-            return new ResolvedStatus("ACTIVE", "按量付费");
         }
         return new ResolvedStatus(null, null);
     }
@@ -336,57 +310,6 @@ final class OspSubscriptionEnricher {
             }
         }
         return null;
-    }
-
-    /** OSP 未返回结束日/额度时，按免费试用促销惯例补全（并标记 estimated） */
-    private static void applyPromoTrialFallback(Object sub, Map<String, Object> result) {
-        String upgrade = asString(result.get("upgradeState"));
-        if (!"PROMO".equalsIgnoreCase(upgrade) && !isFreeTierPlan(asString(result.get("planType")))) {
-            return;
-        }
-        if (result.get("paymentMethod") == null) {
-            result.put("paymentMethod", "FREE_TRIAL");
-            result.put("paymentMethodLabel", labelPaymentMethod("FREE_TRIAL"));
-        }
-        Date start = asDate(tryInvoke(sub, "getTimeStart"));
-        if (result.get("subscriptionEndTime") == null && start != null) {
-            Date end = Date.from(start.toInstant().plus(DEFAULT_PROMO_TRIAL_DAYS, ChronoUnit.DAYS).minus(1, ChronoUnit.SECONDS));
-            result.put("subscriptionEndTime", formatInstant(end));
-            result.put("subscriptionDurationDays", DEFAULT_PROMO_TRIAL_DAYS);
-            result.put("subscriptionEndTimeEstimated", Boolean.TRUE);
-        }
-        if (result.get("subscriptionAmount") == null) {
-            String currency = asString(result.get("currencyCode"));
-            Number amt = defaultTrialCreditAmount(currency);
-            if (amt != null) {
-                result.put("subscriptionAmount", amt);
-                result.put("subscriptionAmountLabel", formatAmount(amt, currency));
-                result.put("subscriptionAmountEstimated", Boolean.TRUE);
-            }
-        }
-        // 补全后刷新状态（含是否已过期）
-        Date end = parseIsoDate(asString(result.get("subscriptionEndTime")));
-        ResolvedStatus resolved = resolveSubscriptionStatus(sub,
-                asString(result.get("subscriptionStatus")), end,
-                asString(result.get("planType")), upgrade);
-        result.put("subscriptionStatus", resolved.code());
-        result.put("subscriptionStatusLabel", resolved.label());
-        if (result.get("paymentMethod") != null && result.get("paymentMethodLabel") == null) {
-            result.put("paymentMethodLabel", labelPaymentMethod(asString(result.get("paymentMethod"))));
-        }
-    }
-
-    private static Number defaultTrialCreditAmount(String currency) {
-        if (StrUtil.isBlank(currency)) return 300;
-        return switch (currency.toUpperCase(Locale.ROOT)) {
-            case "EUR" -> 250;
-            case "GBP" -> 250;
-            case "AUD" -> 300;
-            case "USD" -> 300;
-            case "JPY" -> 40000;
-            case "CAD" -> 300;
-            default -> 300;
-        };
     }
 
     private static Date parseIsoDate(String iso) {

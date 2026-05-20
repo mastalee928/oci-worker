@@ -536,8 +536,7 @@ region=ap-tokyo-1"
             {{ tenantInfoData.paymentMethodLabel || formatPaymentMethod(tenantInfoData.paymentMethod) || '—' }}
           </a-descriptions-item>
           <a-descriptions-item label="订阅额度">
-            <span>{{ tenantInfoData.subscriptionAmountLabel || formatSubscriptionAmount(tenantInfoData) || '—' }}</span>
-            <span v-if="tenantInfoData.subscriptionAmountEstimated" style="margin-left: 6px; font-size: 11px; color: var(--text-sub)">（参考额度）</span>
+            {{ tenantInfoData.subscriptionAmountLabel || formatSubscriptionAmount(tenantInfoData) || '—' }}
           </a-descriptions-item>
           <a-descriptions-item label="账户类型">
             <a-tag v-if="tenantInfoData.accountType" color="orange">{{ formatAccountType(tenantInfoData.accountType) }}</a-tag>
@@ -569,11 +568,10 @@ region=ap-tokyo-1"
           <a-descriptions-item label="开始日期">{{ formatUtcCnDate(tenantInfoData.subscriptionStartTime) }}</a-descriptions-item>
           <a-descriptions-item label="结束日期">
             {{ formatUtcCnDate(tenantInfoData.subscriptionEndTime) || '—' }}
-            <span v-if="tenantInfoData.subscriptionDurationDays != null"
+            <span v-if="tenantInfoData.subscriptionEndTime && tenantInfoData.subscriptionDurationDays != null"
               style="margin-left: 6px; font-size: 12px; color: var(--text-sub)">
               （{{ tenantInfoData.subscriptionDurationDays }} 天）
             </span>
-            <span v-if="tenantInfoData.subscriptionEndTimeEstimated" style="margin-left: 6px; font-size: 11px; color: var(--text-sub)">（按 30 天试用推算）</span>
           </a-descriptions-item>
           <a-descriptions-item label="注册地">{{ formatCountryCn(tenantInfoData.registrationLocation) }}</a-descriptions-item>
         </a-descriptions>
