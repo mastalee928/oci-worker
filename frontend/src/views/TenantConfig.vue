@@ -508,9 +508,6 @@ region=ap-tokyo-1"
         <a-tab-pane key="account" tab="账户信息">
       <a-spin :spinning="tenantInfoLoading">
         <a-descriptions :column="1" bordered size="small" style="margin-top: 8px">
-          <a-descriptions-item label="当前配置">
-            <span style="color: var(--primary); font-weight: 600">{{ tenantInfoData.configName || '—' }}</span>
-          </a-descriptions-item>
           <a-descriptions-item label="租户名称">{{ tenantInfoData.tenantName || '—' }}</a-descriptions-item>
           <a-descriptions-item label="homeRegionKey">{{ tenantInfoData.homeRegionKey || '—' }}</a-descriptions-item>
           <a-descriptions-item label="upiIdcsCompatibilityLayerEndpoint">
@@ -539,23 +536,15 @@ region=ap-tokyo-1"
             {{ tenantInfoData.subscriptionAmountLabel || formatSubscriptionAmount(tenantInfoData) || '—' }}
           </a-descriptions-item>
           <a-descriptions-item label="试用期内已消费">
-            <template v-if="tenantInfoData.subscriptionUsage?.available && tenantInfoData.subscriptionUsage?.summary">
+            <template v-if="tenantInfoData.subscriptionUsage?.summary != null">
               {{ tenantInfoData.subscriptionUsage.summary.totalConsumedLabel
-                || tenantInfoData.subscriptionUsage.summary.totalConsumed }}
+                ?? tenantInfoData.subscriptionUsage.summary.totalConsumed
+                ?? '0' }}
               <span v-if="tenantInfoData.subscriptionUsage.timeUsageStarted" style="display: block; font-size: 11px; color: var(--text-sub); margin-top: 2px">
                 自 {{ formatUtcCnDate(tenantInfoData.subscriptionUsage.timeUsageStarted) }}（Usage API）
               </span>
             </template>
             <span v-else>—</span>
-          </a-descriptions-item>
-          <a-descriptions-item v-if="tenantInfoData.promoAllocation" label="子服务额度（API）">
-            <span style="font-size: 12px">
-              下发 {{ tenantInfoData.promoAllocation.fundedAllocationValue ?? '—' }}
-              / 剩余 {{ tenantInfoData.promoAllocation.availableAmount ?? '—' }}
-              <span v-if="tenantInfoData.promoAllocation.productName" style="color: var(--text-sub)">
-                （{{ tenantInfoData.promoAllocation.productName }}）
-              </span>
-            </span>
           </a-descriptions-item>
           <a-descriptions-item label="账户类型">
             <a-tag v-if="tenantInfoData.accountType" color="orange">{{ formatAccountType(tenantInfoData.accountType) }}</a-tag>
@@ -585,78 +574,15 @@ region=ap-tokyo-1"
             <span v-else>—</span>
           </a-descriptions-item>
           <a-descriptions-item label="开始日期">{{ formatUtcCnDate(tenantInfoData.subscriptionStartTime) }}</a-descriptions-item>
-          <a-descriptions-item label="结束日期">
-            {{ formatUtcCnDate(tenantInfoData.subscriptionEndTime) || '—' }}
-            <span v-if="tenantInfoData.subscriptionEndTime && tenantInfoData.subscriptionDurationDays != null"
-              style="margin-left: 6px; font-size: 12px; color: var(--text-sub)">
-              （{{ tenantInfoData.subscriptionDurationDays }} 天）
-            </span>
-          </a-descriptions-item>
+          <a-descriptions-item label="结束日期">{{ formatUtcCnDate(tenantInfoData.subscriptionEndTime) || '—' }}</a-descriptions-item>
           <a-descriptions-item label="注册地">{{ formatCountryCn(tenantInfoData.registrationLocation) }}</a-descriptions-item>
           <a-descriptions-item label="订阅编号">
-            <span style="word-break: break-all; font-size: 12px">
-              {{ tenantInfoData.subscriptionPlanNumber || (tenantInfoData.subscriptionOspRef && !isOciSubscriptionId(tenantInfoData.subscriptionOspRef) ? tenantInfoData.subscriptionOspRef : '') || '—' }}
-            </span>
+            <span style="word-break: break-all; font-size: 12px">{{ tenantInfoData.subscriptionPlanNumber || '—' }}</span>
           </a-descriptions-item>
           <a-descriptions-item label="组织订阅 OCID">
-            <span style="word-break: break-all; font-size: 12px">
-              {{ tenantInfoData.subscriptionOrgOcid || tenantInfoData.subscriptionOcid || (isOciSubscriptionId(tenantInfoData.subscriptionId) ? tenantInfoData.subscriptionId : '') || '—' }}
-            </span>
-          </a-descriptions-item>
-          <a-descriptions-item v-if="tenantInfoData.subscriptionOspOcid" label="OSP 订阅 OCID">
-            <span style="word-break: break-all; font-size: 12px">{{ tenantInfoData.subscriptionOspOcid }}</span>
-          </a-descriptions-item>
-          <a-descriptions-item label="促销余额（Rewards）">
-            <template v-if="tenantInfoData.rewards?.available && tenantInfoData.rewards?.summary">
-              {{ tenantInfoData.rewards.summary.totalRewardsAvailableLabel
-                || formatRewardsAmount(tenantInfoData.rewards.summary.totalRewardsAvailable, tenantInfoData.rewards.summary.currency)
-                || '—' }}
-            </template>
-            <span v-else>—</span>
+            <span style="word-break: break-all; font-size: 12px">{{ tenantInfoData.subscriptionOrgOcid || '—' }}</span>
           </a-descriptions-item>
         </a-descriptions>
-        <template v-if="tenantInfoData.subscriptionUsage?.available && (tenantInfoData.subscriptionUsage?.byService || []).length">
-          <a-divider style="margin: 12px 0" orientation="left">
-            <span style="font-size: 12px; color: var(--text-sub)">试用期内消费明细（Usage API · 按服务）</span>
-          </a-divider>
-          <a-table
-            size="small"
-            :pagination="false"
-            row-key="service"
-            :data-source="tenantInfoData.subscriptionUsage.byService"
-            :scroll="{ x: 480 }"
-          >
-            <a-table-column title="服务" data-index="service" key="service" :ellipsis="true" />
-            <a-table-column title="消费" key="cost" :width="120">
-              <template #default="{ record }">
-                {{ record.cost }} {{ record.currency || '' }}
-              </template>
-            </a-table-column>
-          </a-table>
-        </template>
-        <template v-if="tenantInfoData.rewards?.available && (tenantInfoData.rewards?.periods || []).length">
-          <a-divider style="margin: 12px 0" orientation="left">
-            <span style="font-size: 12px; color: var(--text-sub)">促销余额明细（Usage Rewards API）</span>
-          </a-divider>
-          <a-table
-            size="small"
-            :pagination="false"
-            row-key="usagePeriodKey"
-            :data-source="tenantInfoData.rewards.periods"
-            :scroll="{ x: 720 }"
-          >
-            <a-table-column title="周期" data-index="usagePeriodKey" key="usagePeriodKey" :width="100" :ellipsis="true" />
-            <a-table-column title="可用" data-index="availableRewardsLabel" key="availableRewards" :width="88" />
-            <a-table-column title="已获得" data-index="earnedRewardsLabel" key="earnedRewards" :width="88" />
-            <a-table-column title="已兑换" data-index="redeemedRewardsLabel" key="redeemedRewards" :width="88" />
-            <a-table-column title="奖励过期" key="timeRewardsExpired" :width="160">
-              <template #default="{ record }">{{ formatUtcCnDate(record.timeRewardsExpired) || '—' }}</template>
-            </a-table-column>
-            <a-table-column title="用量结束" key="timeUsageEnded" :width="160">
-              <template #default="{ record }">{{ formatUtcCnDate(record.timeUsageEnded) || '—' }}</template>
-            </a-table-column>
-          </a-table>
-        </template>
       </a-spin>
         </a-tab-pane>
         <a-tab-pane key="billing" tab="账务信息">

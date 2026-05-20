@@ -32,6 +32,23 @@ public class OrganizationSubscriptionService {
 
     private static final int PAGE_LIMIT = 100;
 
+    /** 仅拉取 Assigned Subscriptions（用于组织订阅 OCID、订阅状态，不查 Subscribed Service）。 */
+    public List<Map<String, Object>> listAssignedSubscriptionsOnly(
+            OciClientService oci, String tenancyId, String fallbackRegion) {
+        if (StrUtil.isBlank(tenancyId)) {
+            return List.of();
+        }
+        String region = UsageCostService.resolveTenancyHomeRegionName(
+                oci.getIdentityClient(), tenancyId, fallbackRegion);
+        try (SubscriptionClient subClient = buildSubscriptionClient(oci)) {
+            setRegion(subClient, region);
+            return listAssignedSubscriptions(subClient, tenancyId);
+        } catch (Exception e) {
+            log.warn("listAssignedSubscriptionsOnly failed: {}", e.getMessage());
+            return List.of();
+        }
+    }
+
     /**
      * @param ospSubscriptionRef OSP Gateway 返回的订阅引用（可能是 ocid1.* 或订阅编号如 77007627）
      */
