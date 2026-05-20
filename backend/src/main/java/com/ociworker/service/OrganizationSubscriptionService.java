@@ -35,11 +35,17 @@ public class OrganizationSubscriptionService {
     /** 仅拉取 Assigned Subscriptions（用于组织订阅 OCID、订阅状态，不查 Subscribed Service）。 */
     public List<Map<String, Object>> listAssignedSubscriptionsOnly(
             OciClientService oci, String tenancyId, String fallbackRegion) {
+        String region = UsageCostService.resolveTenancyHomeRegionName(
+                oci.getIdentityClient(), tenancyId, fallbackRegion);
+        return listAssignedSubscriptionsOnly(oci, tenancyId, region);
+    }
+
+    public List<Map<String, Object>> listAssignedSubscriptionsOnly(
+            OciClientService oci, String tenancyId, String homeRegionName) {
         if (StrUtil.isBlank(tenancyId)) {
             return List.of();
         }
-        String region = UsageCostService.resolveTenancyHomeRegionName(
-                oci.getIdentityClient(), tenancyId, fallbackRegion);
+        String region = StrUtil.isNotBlank(homeRegionName) ? homeRegionName.trim() : Region.US_ASHBURN_1.getRegionId();
         try (SubscriptionClient subClient = buildSubscriptionClient(oci)) {
             setRegion(subClient, region);
             return listAssignedSubscriptions(subClient, tenancyId);

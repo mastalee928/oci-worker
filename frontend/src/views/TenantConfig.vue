@@ -532,9 +532,6 @@ region=ap-tokyo-1"
           <a-descriptions-item label="支付方式">
             {{ tenantInfoData.paymentMethodLabel || formatPaymentMethod(tenantInfoData.paymentMethod) || '—' }}
           </a-descriptions-item>
-          <a-descriptions-item label="OSP 订阅额度">
-            {{ tenantInfoData.subscriptionAmountLabel || formatSubscriptionAmount(tenantInfoData) || '—' }}
-          </a-descriptions-item>
           <a-descriptions-item label="试用期内已消费">
             <template v-if="tenantInfoData.subscriptionUsage?.summary != null">
               {{ tenantInfoData.subscriptionUsage.summary.totalConsumedLabel
@@ -574,7 +571,6 @@ region=ap-tokyo-1"
             <span v-else>—</span>
           </a-descriptions-item>
           <a-descriptions-item label="开始日期">{{ formatUtcCnDate(tenantInfoData.subscriptionStartTime) }}</a-descriptions-item>
-          <a-descriptions-item label="结束日期">{{ formatUtcCnDate(tenantInfoData.subscriptionEndTime) || '—' }}</a-descriptions-item>
           <a-descriptions-item label="注册地">{{ formatCountryCn(tenantInfoData.registrationLocation) }}</a-descriptions-item>
           <a-descriptions-item label="订阅编号">
             <span style="word-break: break-all; font-size: 12px">{{ tenantInfoData.subscriptionPlanNumber || '—' }}</span>
@@ -1241,14 +1237,6 @@ function formatPaymentMethod(v: string | null | undefined): string {
     PAYPAL: 'PayPal',
   }
   return map[v] || v
-}
-
-function formatSubscriptionAmount(data: any): string {
-  if (!data) return '—'
-  if (data.subscriptionAmountLabel) return data.subscriptionAmountLabel
-  if (data.subscriptionAmount == null) return '—'
-  const cur = data.currencyCode ? ` ${data.currencyCode}` : ''
-  return `${data.subscriptionAmount}${cur}`
 }
 
 function isOciSubscriptionId(id: string | null | undefined): boolean {
