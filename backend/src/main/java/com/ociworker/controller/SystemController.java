@@ -13,12 +13,16 @@ import com.ociworker.service.LoginSecurityService;
 import com.ociworker.service.NotificationService;
 import com.ociworker.service.OciProxyConfigService;
 import com.ociworker.service.SystemService;
+import com.ociworker.service.TgNotifyConfigRollbackService;
 import com.ociworker.service.VerifyCodeService;
+import com.ociworker.util.HttpRequestUtil;
 import jakarta.annotation.Resource;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Objects;
 import java.util.regex.Pattern;
 
 @RestController
@@ -47,6 +51,8 @@ public class SystemController {
     private BanlistViewSessionService banlistViewSessionService;
     @Resource
     private LoginAuditViewSessionService loginAuditViewSessionService;
+    @Resource
+    private TgNotifyConfigRollbackService tgNotifyConfigRollbackService;
 
     @GetMapping("/glance")
     public ResponseData<?> glance() {
@@ -86,7 +92,12 @@ public class SystemController {
     }
 
     @PostMapping("/notifyConfig")
-    public ResponseData<?> saveNotifyConfig(@RequestBody Map<String, String> params) {
+    public ResponseData<?> saveNotifyConfig(@RequestBody Map<String, String> params, HttpServletRequest request) {
+        String oldToken = notificationService.getKvValue(SysCfgEnum.TG_BOT_TOKEN);
+        String oldChatId = notificationService.getKvValue(SysCfgEnum.TG_CHAT_ID);
+        boolean tokenWillChange = willTgSecretChange(params.get("botToken"), oldToken);
+        boolean chatWillChange = willTgSecretChange(params.get("chatId"), oldChatId);
+
         if (verifyCodeService.isTgConfigured()) {
             String code = params.get("verifyCode");
             if (StrUtil.isBlank(code)) {
@@ -104,17 +115,30 @@ public class SystemController {
             }
         }
 
-        if (params.containsKey("botToken")) {
-            String v = params.get("botToken");
-            if (v != null && !v.contains("****")) {
-                notificationService.saveKvValue(SysCfgEnum.TG_BOT_TOKEN, v);
-                notificationService.resetTelegramUpdatesOffset();
+        boolean identityRollback = (tokenWillChange || chatWillChange)
+                && StrUtil.isNotBlank(oldToken)
+                && StrUtil.isNotBlank(oldChatId);
+
+        if (identityRollback) {
+            String ip = HttpRequestUtil.getClientIp(request);
+            String deviceId = loginSecurityService.readDeviceIdFromRequest(request);
+            String newToken = resolveIncomingSecret(params.get("botToken"), oldToken);
+            String newChatId = resolveIncomingSecret(params.get("chatId"), oldChatId);
+            tgNotifyConfigRollbackService.applyIdentityChange(
+                    oldToken.trim(), oldChatId.trim(), newToken, newChatId, ip, deviceId);
+        } else {
+            if (params.containsKey("botToken")) {
+                String v = params.get("botToken");
+                if (v != null && !v.contains("****")) {
+                    notificationService.saveKvValue(SysCfgEnum.TG_BOT_TOKEN, v);
+                    notificationService.resetTelegramUpdatesOffset();
+                }
             }
-        }
-        if (params.containsKey("chatId")) {
-            String v = params.get("chatId");
-            if (v != null && !v.contains("****")) {
-                notificationService.saveKvValue(SysCfgEnum.TG_CHAT_ID, v);
+            if (params.containsKey("chatId")) {
+                String v = params.get("chatId");
+                if (v != null && !v.contains("****")) {
+                    notificationService.saveKvValue(SysCfgEnum.TG_CHAT_ID, v);
+                }
             }
         }
         if (params.containsKey("notifyTypes")) {
@@ -131,6 +155,21 @@ public class SystemController {
             }
         }
         return ResponseData.ok();
+    }
+
+    private static String resolveIncomingSecret(String incoming, String current) {
+        if (incoming == null || incoming.contains("****")) {
+            return StrUtil.trimToEmpty(current);
+        }
+        return incoming.trim();
+    }
+
+    /** 请求体携带非脱敏新值且与库中不同时，视为 Bot Token / Chat ID 将变更。 */
+    private static boolean willTgSecretChange(String incoming, String current) {
+        if (incoming == null || incoming.contains("****")) {
+            return false;
+        }
+        return !Objects.equals(StrUtil.trim(incoming), StrUtil.trimToEmpty(current));
     }
 
     @PostMapping("/testNotify")

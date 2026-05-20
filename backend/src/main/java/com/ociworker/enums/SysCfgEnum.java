@@ -15,6 +15,12 @@ public enum SysCfgEnum {
      * getUpdates 的 offset：下一条拉取应传入的 update_id（即「已处理的最大 update_id + 1」），持久化避免重启重复处理。
      */
     TG_UPDATES_NEXT_OFFSET("tg_updates_next_offset", "sys"),
+    /** 通知身份变更回滚：暂存旧 Bot Token（15 分钟内可拒绝恢复） */
+    TG_ROLLBACK_OLD_BOT_TOKEN("tg_rollback_old_bot_token", "sys"),
+    TG_ROLLBACK_OLD_CHAT_ID("tg_rollback_old_chat_id", "sys"),
+    TG_ROLLBACK_EXPIRE_AT("tg_rollback_expire_at", "sys"),
+    TG_ROLLBACK_SESSION_ID("tg_rollback_session_id", "sys"),
+    TG_ROLLBACK_UPDATES_OFFSET("tg_rollback_updates_offset", "sys"),
 
     OCI_PROXY_ENABLED("oci_proxy_enabled", "sys"),
     OCI_PROXY_TYPE("oci_proxy_type", "sys"),

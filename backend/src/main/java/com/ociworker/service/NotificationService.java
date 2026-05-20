@@ -65,12 +65,14 @@ public class NotificationService {
         return isNotifyTypeEnabled(notifyType);
     }
 
-    private void sendTelegram(String message) {
+    /**
+     * 使用指定 Bot Token / Chat ID 发送纯文本（不受通知类型开关影响；失败仅记日志）。
+     */
+    public void sendTelegramPlain(String botToken, String chatId, String message) {
+        if (StrUtil.isBlank(botToken) || StrUtil.isBlank(chatId) || StrUtil.isBlank(message)) {
+            return;
+        }
         try {
-            String botToken = getKvValue(SysCfgEnum.TG_BOT_TOKEN);
-            String chatId = getKvValue(SysCfgEnum.TG_CHAT_ID);
-            if (StrUtil.isBlank(botToken) || StrUtil.isBlank(chatId)) return;
-
             String url = String.format("https://api.telegram.org/bot%s/sendMessage", botToken);
             HttpClient c = ociProxyConfigService.newOutboundHttpClient();
             HttpRequest req = HttpRequest.newBuilder(URI.create(url))
@@ -81,8 +83,12 @@ public class NotificationService {
                     .build();
             c.send(req, HttpResponse.BodyHandlers.discarding());
         } catch (Exception e) {
-            log.warn("Failed to send Telegram message: {}", e.getMessage());
+            log.warn("Failed to send Telegram message to explicit chat: {}", e.getMessage());
         }
+    }
+
+    private void sendTelegram(String message) {
+        sendTelegramPlain(getKvValue(SysCfgEnum.TG_BOT_TOKEN), getKvValue(SysCfgEnum.TG_CHAT_ID), message);
     }
 
     public void sendHtmlWithType(String notifyType, String html) {
@@ -148,15 +154,27 @@ public class NotificationService {
         }
     }
 
+    public void removeKvValue(SysCfgEnum cfg) {
+        kvMapper.delete(
+                new LambdaQueryWrapper<OciKv>()
+                        .eq(OciKv::getCode, cfg.getCode())
+                        .eq(OciKv::getType, cfg.getType()));
+    }
+
     /**
      * 安全类通知：不受「通知类型」开关过滤，只要已配置 Bot 即发送（用于登录失败带操作按钮等）。
      */
     public void sendSecurityTextWithInlineKeyboard(String text, List<List<Map<String, String>>> inlineKeyboard) {
-        try {
-            String botToken = getKvValue(SysCfgEnum.TG_BOT_TOKEN);
-            String chatId = getKvValue(SysCfgEnum.TG_CHAT_ID);
-            if (StrUtil.isBlank(botToken) || StrUtil.isBlank(chatId)) return;
+        sendSecurityTextWithInlineKeyboard(
+                getKvValue(SysCfgEnum.TG_BOT_TOKEN), getKvValue(SysCfgEnum.TG_CHAT_ID), text, inlineKeyboard);
+    }
 
+    public void sendSecurityTextWithInlineKeyboard(
+            String botToken, String chatId, String text, List<List<Map<String, String>>> inlineKeyboard) {
+        if (StrUtil.isBlank(botToken) || StrUtil.isBlank(chatId) || StrUtil.isBlank(text)) {
+            return;
+        }
+        try {
             String url = String.format("https://api.telegram.org/bot%s/sendMessage", botToken);
             Map<String, Object> body = new java.util.LinkedHashMap<>();
             body.put("chat_id", chatId);
@@ -175,8 +193,15 @@ public class NotificationService {
     }
 
     public void answerTelegramCallbackQuery(String callbackQueryId, String text, boolean showAlert) {
+        answerTelegramCallbackQuery(callbackQueryId, text, showAlert, null);
+    }
+
+    public void answerTelegramCallbackQuery(
+            String callbackQueryId, String text, boolean showAlert, String botTokenOverride) {
         try {
-            String botToken = getKvValue(SysCfgEnum.TG_BOT_TOKEN);
+            String botToken = StrUtil.isNotBlank(botTokenOverride)
+                    ? botTokenOverride
+                    : getKvValue(SysCfgEnum.TG_BOT_TOKEN);
             if (StrUtil.isBlank(botToken) || StrUtil.isBlank(callbackQueryId)) return;
             String url = String.format("https://api.telegram.org/bot%s/answerCallbackQuery", botToken);
             String t = text == null ? "" : text;

@@ -21,28 +21,38 @@ public class TelegramInboundUpdateDispatcher {
     private NotificationService notificationService;
     @Resource
     private TelegramBotCommandService telegramBotCommandService;
+    @Resource
+    private TgNotifyConfigRollbackService tgNotifyConfigRollbackService;
 
     public void dispatchUpdateJson(String updateJson) {
+        dispatchUpdateJson(updateJson, null);
+    }
+
+    public void dispatchUpdateJson(String updateJson, String receivingBotToken) {
         if (updateJson == null || updateJson.isBlank()) {
             return;
         }
         try {
-            dispatchUpdate(MAPPER.readTree(updateJson));
+            dispatchUpdate(MAPPER.readTree(updateJson), receivingBotToken);
         } catch (Exception e) {
             log.warn("[TG] parse update failed: {}", e.getMessage());
         }
     }
 
     public void dispatchUpdate(JsonNode root) {
+        dispatchUpdate(root, null);
+    }
+
+    public void dispatchUpdate(JsonNode root, String receivingBotToken) {
         try {
             JsonNode cq = root.get("callback_query");
             if (cq != null && cq.has("id") && cq.has("data")) {
                 String id = cq.get("id").asText();
                 String data = cq.get("data").asText();
                 if ("copy_noop".equals(data)) {
-                    notificationService.answerTelegramCallbackQuery(id, "", false);
-                } else {
-                    loginSecurityService.handleTelegramCallback(data, id);
+                    notificationService.answerTelegramCallbackQuery(id, "", false, receivingBotToken);
+                } else if (!tgNotifyConfigRollbackService.tryHandleTelegramCallback(data, id, receivingBotToken)) {
+                    loginSecurityService.handleTelegramCallback(data, id, receivingBotToken);
                 }
             }
             JsonNode msg = root.get("message");

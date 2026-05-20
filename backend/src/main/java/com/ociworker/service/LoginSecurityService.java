@@ -161,30 +161,34 @@ public class LoginSecurityService {
     }
 
     public void handleTelegramCallback(String rawData, String callbackQueryId) {
+        handleTelegramCallback(rawData, callbackQueryId, null);
+    }
+
+    public void handleTelegramCallback(String rawData, String callbackQueryId, String answeringBotToken) {
         if (StrUtil.isBlank(callbackQueryId)) return;
         if (rawData == null || !rawData.contains("|")) {
-            notificationService.answerTelegramCallbackQuery(callbackQueryId, "无效操作", false);
+            answerCallback(callbackQueryId, "无效操作", false, answeringBotToken);
             return;
         }
         int p = rawData.indexOf('|');
         String prefix = rawData.substring(0, p);
         String token = rawData.substring(p + 1);
         if (token.length() > 32) {
-            notificationService.answerTelegramCallbackQuery(callbackQueryId, "无效操作", false);
+            answerCallback(callbackQueryId, "无效操作", false, answeringBotToken);
             return;
         }
         Pending pend = pendingByToken.get(token);
         if (pend == null || System.currentTimeMillis() > pend.expireAt) {
-            notificationService.answerTelegramCallbackQuery(callbackQueryId,
-                    "操作已过期，请重新发送 /bans 或重新登录后再试", false);
+            answerCallback(callbackQueryId,
+                    "操作已过期，请重新发送 /bans 或重新登录后再试", false, answeringBotToken);
             return;
         }
         if (!prefixMatchesKind(prefix, pend.kind)) {
-            notificationService.answerTelegramCallbackQuery(callbackQueryId, "无效操作", false);
+            answerCallback(callbackQueryId, "无效操作", false, answeringBotToken);
             return;
         }
         if (!isPendingPayloadValid(pend)) {
-            notificationService.answerTelegramCallbackQuery(callbackQueryId, "数据无效", false);
+            answerCallback(callbackQueryId, "数据无效", false, answeringBotToken);
             return;
         }
         pendingByToken.remove(token);
@@ -192,51 +196,65 @@ public class LoginSecurityService {
             switch (prefix) {
                 case "i" -> {
                     appendIpDenylist(pend.ip);
-                    notificationService.answerTelegramCallbackQuery(callbackQueryId, "已拉黑 IP: " + pend.ip, false);
+                    answerCallback(callbackQueryId, "已拉黑 IP: " + pend.ip, false, answeringBotToken);
                     log.warn("[LoginSecurity] IP denylisted via TG: {}", pend.ip);
                 }
                 case "d" -> {
                     appendDeviceDenylist(pend.deviceId);
-                    notificationService.answerTelegramCallbackQuery(callbackQueryId, "已禁止设备: " + pend.deviceId, false);
+                    answerCallback(callbackQueryId, "已禁止设备: " + pend.deviceId, false, answeringBotToken);
                     log.warn("[LoginSecurity] Device denylisted via TG: {}", pend.deviceId);
                 }
                 case "p" -> {
                     notificationService.saveKvValue(SysCfgEnum.SITE_ACCESS_PAUSED, "true");
-                    notificationService.answerTelegramCallbackQuery(callbackQueryId, "全站 API 已暂停（静态页与 TG 回调仍可用）", false);
+                    answerCallback(callbackQueryId, "全站 API 已暂停（静态页与 TG 回调仍可用）", false, answeringBotToken);
                     log.warn("[LoginSecurity] Site access paused via TG, trigger IP: {}", pend.ip);
                     sendResumeOfferAfterPause();
                 }
                 case "u" -> {
                     notificationService.saveKvValue(SysCfgEnum.SITE_ACCESS_PAUSED, "false");
-                    notificationService.answerTelegramCallbackQuery(callbackQueryId, "已恢复全站访问", false);
+                    answerCallback(callbackQueryId, "已恢复全站访问", false, answeringBotToken);
                     log.info("[LoginSecurity] Site access resumed via TG");
                 }
                 case "g" -> {
                     ipFailWindows.remove(pend.ip);
-                    notificationService.answerTelegramCallbackQuery(callbackQueryId, "已清零该 IP 的失败计数", false);
+                    answerCallback(callbackQueryId, "已清零该 IP 的失败计数", false, answeringBotToken);
                 }
                 case "R" -> {
                     boolean ok = removeIpFromDenylist(pend.ip);
-                    notificationService.answerTelegramCallbackQuery(callbackQueryId,
-                            ok ? "已解除 IP 禁止: " + pend.ip : "该 IP 已不在名单中", false);
+                    answerCallback(callbackQueryId,
+                            ok ? "已解除 IP 禁止: " + pend.ip : "该 IP 已不在名单中", false, answeringBotToken);
                     if (ok) {
                         log.info("[LoginSecurity] IP removed from denylist via TG: {}", pend.ip);
                     }
                 }
                 case "r" -> {
                     boolean ok = removeDeviceFromDenylist(pend.deviceId);
-                    notificationService.answerTelegramCallbackQuery(callbackQueryId,
-                            ok ? "已解除设备禁止" : "该设备已不在名单中", false);
+                    answerCallback(callbackQueryId,
+                            ok ? "已解除设备禁止" : "该设备已不在名单中", false, answeringBotToken);
                     if (ok) {
                         log.info("[LoginSecurity] Device removed from denylist via TG: {}", pend.deviceId);
                     }
                 }
-                default -> notificationService.answerTelegramCallbackQuery(callbackQueryId, "未知操作", false);
+                default -> answerCallback(callbackQueryId, "未知操作", false, answeringBotToken);
             }
         } catch (Exception e) {
             log.warn("[LoginSecurity] Callback handling failed: {}", e.getMessage());
-            notificationService.answerTelegramCallbackQuery(callbackQueryId, "执行失败", true);
+            answerCallback(callbackQueryId, "执行失败", true, answeringBotToken);
         }
+    }
+
+    /** 供 TG 通知配置变更安全提示等场景注册「拉黑该 IP」按钮。 */
+    public String registerBlockIpCallback(String ip) {
+        String ipN = normalizeIp(ip);
+        if (StrUtil.isBlank(ipN)) {
+            return null;
+        }
+        return registerPending(new Pending(PendingKind.BLOCK_IP, ipN, null,
+                System.currentTimeMillis() + PENDING_TTL_MS));
+    }
+
+    private void answerCallback(String callbackQueryId, String text, boolean showAlert, String answeringBotToken) {
+        notificationService.answerTelegramCallbackQuery(callbackQueryId, text, showAlert, answeringBotToken);
     }
 
     private static boolean isPendingPayloadValid(Pending pend) {
