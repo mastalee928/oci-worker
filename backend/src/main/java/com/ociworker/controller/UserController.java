@@ -42,6 +42,12 @@ public class UserController {
         return ResponseData.ok(userManagementService.listGroups(params.get("tenantId")));
     }
 
+    @PostMapping("/domainGroups")
+    public ResponseData<?> listDomainGroups(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(userManagementService.listDomainGroups(
+                params.get("tenantId"), params.get("domainId")));
+    }
+
     @PostMapping("/create")
     public ResponseData<?> createUser(@RequestBody Map<String, Object> params) {
         verifyCodeService.verifyCode("createUser", (String) params.get("verifyCode"));
@@ -50,6 +56,7 @@ public class UserController {
         up.setUserName((String) params.get("userName"));
         up.setEmail((String) params.get("email"));
         up.setAddToAdminGroup(Boolean.TRUE.equals(params.get("addToAdminGroup")));
+        up.setGroupIds(parseGroupIds(params.get("groupIds")));
         Object domainId = params.get("domainId");
         if (domainId != null) {
             up.setDomainId(String.valueOf(domainId));

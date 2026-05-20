@@ -224,8 +224,8 @@ public class UserManagementService {
             log.info("Created user (Identity Domains API): {} in domain {} tenant {}",
                     created.getUserName(), domain.get("displayName"), tenant.getUsername());
 
-            if (Boolean.TRUE.equals(params.getAddToAdminGroup()) && created.getId() != null) {
-                addUserToAdministratorsGroupIdentityDomains(dc, created.getId());
+            if (created.getId() != null) {
+                applyIdentityDomainGroupAssignments(dc, created.getId(), params);
             }
 
             Map<String, Object> result = new LinkedHashMap<>();
@@ -252,6 +252,22 @@ public class UserManagementService {
         return fallback;
     }
 
+    private void applyIdentityDomainGroupAssignments(
+            IdentityDomainsClient dc, String userScimId, UserParams params) {
+        List<String> groupIds = params.getGroupIds();
+        if (groupIds != null && !groupIds.isEmpty()) {
+            for (String groupId : groupIds) {
+                if (StrUtil.isNotBlank(groupId)) {
+                    addUserToGroupIdentityDomains(dc, userScimId, groupId.trim());
+                }
+            }
+            return;
+        }
+        if (Boolean.TRUE.equals(params.getAddToAdminGroup())) {
+            addUserToAdministratorsGroupIdentityDomains(dc, userScimId);
+        }
+    }
+
     private void addUserToAdministratorsGroupIdentityDomains(IdentityDomainsClient dc, String userScimId) {
         try {
             com.oracle.bmc.identitydomains.responses.ListGroupsResponse listResp = dc.listGroups(
@@ -273,6 +289,14 @@ public class UserManagementService {
             if (StrUtil.isBlank(groupId)) {
                 return;
             }
+            addUserToGroupIdentityDomains(dc, userScimId, groupId);
+        } catch (Exception e) {
+            log.warn("Failed to add user to Administrators in identity domain: {}", e.getMessage());
+        }
+    }
+
+    private void addUserToGroupIdentityDomains(IdentityDomainsClient dc, String userScimId, String groupId) {
+        try {
             com.oracle.bmc.identitydomains.responses.GetGroupResponse getResp = dc.getGroup(
                     com.oracle.bmc.identitydomains.requests.GetGroupRequest.builder().groupId(groupId).build());
             String ifMatch = headerValueIgnoreCase(getResp, "etag");
@@ -296,10 +320,95 @@ public class UserManagementService {
                 pr.ifMatch(ifMatch);
             }
             dc.patchGroup(pr.build());
-            log.info("Added user {} to Administrators in identity domain", userScimId);
+            log.info("Added user {} to identity domain group {}", userScimId, groupId);
         } catch (Exception e) {
-            log.warn("Failed to add user to Administrators in identity domain: {}", e.getMessage());
+            log.warn("Failed to add user {} to identity domain group {}: {}", userScimId, groupId, e.getMessage());
         }
+    }
+
+    private static boolean isHiddenDomainGroupName(String name) {
+        if (StrUtil.isBlank(name)) {
+            return false;
+        }
+        String n = name.trim().toLowerCase();
+        return "all domain users".equals(n);
+    }
+
+    /**
+     * Default 域返回经典 IAM 组；其它 Identity Domain 返回该域 SCIM 组列表。
+     */
+    public List<Map<String, Object>> listDomainGroups(String tenantId, String domainId) {
+        if (StrUtil.isBlank(domainId)) {
+            return listGroupsFiltered(tenantId);
+        }
+        try (OciClientService oci = domainManagementService.openOciClient(tenantId)) {
+            List<Map<String, Object>> domains = domainManagementService.listDomains(oci, false);
+            Map<String, Object> selected = null;
+            for (Map<String, Object> d : domains) {
+                if (domainId.equals(d.get("id"))) {
+                    selected = d;
+                    break;
+                }
+            }
+            if (selected == null) {
+                throw new OciException("未找到指定的 Identity Domain");
+            }
+            if (isDefaultDomainForClassicIam(selected)) {
+                return listGroupsFiltered(tenantId);
+            }
+            String url = (String) selected.get("url");
+            if (StrUtil.isBlank(url)) {
+                throw new OciException("该 Identity Domain 缺少 URL，无法列出组");
+            }
+            List<Map<String, Object>> result = new ArrayList<>();
+            try (IdentityDomainsClient dc = IdentityDomainsClient.builder().build(oci.getProvider())) {
+                dc.setEndpoint(url);
+                int startIndex = 1;
+                final int pageSize = 100;
+                while (true) {
+                    com.oracle.bmc.identitydomains.responses.ListGroupsResponse listResp = dc.listGroups(
+                            com.oracle.bmc.identitydomains.requests.ListGroupsRequest.builder()
+                                    .count(pageSize)
+                                    .startIndex(startIndex)
+                                    .build());
+                    Groups wrapper = listResp.getGroups();
+                    if (wrapper == null || wrapper.getResources() == null || wrapper.getResources().isEmpty()) {
+                        break;
+                    }
+                    for (Object raw : wrapper.getResources()) {
+                        if (!(raw instanceof com.oracle.bmc.identitydomains.model.Group g)) {
+                            continue;
+                        }
+                        String name = g.getDisplayName() != null ? g.getDisplayName() : g.getId();
+                        if (isHiddenDomainGroupName(name)) {
+                            continue;
+                        }
+                        Map<String, Object> map = new LinkedHashMap<>();
+                        map.put("id", g.getId());
+                        map.put("name", name);
+                        map.put("description", null);
+                        result.add(map);
+                    }
+                    if (wrapper.getResources().size() < pageSize) {
+                        break;
+                    }
+                    startIndex += pageSize;
+                }
+            }
+            return result;
+        }
+    }
+
+    private List<Map<String, Object>> listGroupsFiltered(String tenantId) {
+        List<Map<String, Object>> all = listGroups(tenantId);
+        List<Map<String, Object>> filtered = new ArrayList<>();
+        for (Map<String, Object> g : all) {
+            String name = g.get("name") == null ? null : String.valueOf(g.get("name"));
+            if (!isHiddenDomainGroupName(name)) {
+                filtered.add(g);
+            }
+        }
+        return filtered;
     }
 
     private static String headerValueIgnoreCase(com.oracle.bmc.responses.BmcResponse resp, String name) {

@@ -145,8 +145,24 @@
         <a-form-item label="邮箱">
           <a-input v-model:value="createForm.email" placeholder="user@example.com" />
         </a-form-item>
-        <a-form-item label="加入管理员组">
+        <a-form-item v-if="createUseDefaultDomain" label="加入管理员组">
           <a-switch v-model:checked="createForm.addToAdminGroup" />
+        </a-form-item>
+        <a-form-item v-else label="加入用户组">
+          <a-select
+            v-model:value="createForm.groupIds"
+            mode="multiple"
+            placeholder="选择要加入的组（可多选）"
+            style="width: 100%"
+            show-search
+            :loading="createDomainGroupsLoading"
+            :options="createDomainGroupOptions"
+            :filter-option="filterGroupSelectOption"
+            :disabled="!createForm.domainId || createDomainGroupsLoading"
+          />
+          <div v-if="createForm.domainId && !createDomainGroupsLoading && createDomainGroups.length === 0" style="margin-top: 6px; color: var(--text-sub); font-size: 12px">
+            该域下未返回可分配的组，创建后可在 OCI 控制台为该用户分配组。
+          </div>
         </a-form-item>
       </a-form>
     </a-modal>
@@ -255,7 +271,7 @@ import dayjs from 'dayjs'
 import {
   listUsers, listIdentityDomains, createUser, resetPassword, clearMfa,
   addToAdmin, removeFromAdmin, updateUser, updateUserState, listMfaDevices,
-  getUserCapabilities, updateUserCapabilities, listGroups, getUserGroups,
+  getUserCapabilities, updateUserCapabilities, listGroups, getUserGroups, listDomainGroups,
 } from '../api/user'
 import { getTenantList } from '../api/tenant'
 import { sendVerifyCode, getTgStatus } from '../api/system'
@@ -273,7 +289,29 @@ const currentActionLoading = reactive<Record<string, boolean>>({})
 
 const createVisible = ref(false)
 const createLoading = ref(false)
-const createForm = reactive({ domainId: '' as string, userName: '', email: '', addToAdminGroup: false })
+const createForm = reactive({
+  domainId: '' as string,
+  userName: '',
+  email: '',
+  addToAdminGroup: false,
+  groupIds: [] as string[],
+})
+const createDomainGroups = ref<{ id: string; name: string; description?: string }[]>([])
+const createDomainGroupsLoading = ref(false)
+
+const createUseDefaultDomain = computed(() => {
+  const id = createForm.domainId
+  if (!id) return true
+  const d = identityDomains.value.find((x: any) => x.id === id)
+  return !d || d.displayName === 'Default'
+})
+
+const createDomainGroupOptions = computed(() =>
+  createDomainGroups.value.map((g) => ({
+    value: g.id,
+    label: g.description ? `${g.name} — ${g.description}` : g.name,
+  })),
+)
 
 const identityDomains = ref<any[]>([])
 const identityDomainsLoading = ref(false)
@@ -316,6 +354,34 @@ watch(identityDomains, (list) => {
   }
 })
 
+watch(
+  () => createForm.domainId,
+  async (domainId) => {
+    if (!createVisible.value) return
+    createForm.groupIds = []
+    createForm.addToAdminGroup = false
+    if (!domainId || createUseDefaultDomain.value) {
+      createDomainGroups.value = []
+      return
+    }
+    createDomainGroupsLoading.value = true
+    try {
+      const res = await listDomainGroups({ tenantId, domainId })
+      const all = (res.data || []) as { id: string; name: string; description?: string }[]
+      createDomainGroups.value = all.map((g) => ({
+        id: g.id,
+        name: g.name || g.id,
+        description: g.description,
+      }))
+    } catch (e: any) {
+      createDomainGroups.value = []
+      message.error(e?.message || '加载域内用户组失败')
+    } finally {
+      createDomainGroupsLoading.value = false
+    }
+  },
+)
+
 const pwdResultVisible = ref(false)
 const pwdResult = ref('')
 
@@ -326,6 +392,11 @@ const editingUser = ref<any>(null)
 const editForm = reactive({ userName: '', email: '', groupIds: [] as string[] })
 const tenantGroups = ref<{ id: string; name: string; description?: string }[]>([])
 const editCurrentGroupNames = ref<string[]>([])
+
+/** OCI 内置全员组：不在此界面展示或编辑，与控制台 Groups 习惯一致 */
+function isHiddenIamGroupName(name: string | undefined | null): boolean {
+  return (name || '').trim().toLowerCase() === 'all domain users'
+}
 
 const tenantGroupOptions = computed(() =>
   tenantGroups.value.map((g) => ({
@@ -547,14 +618,17 @@ async function openEditUserWithCode(record: any, code: string) {
       getUserGroups({ tenantId, userId: record.id }),
     ])
     const all = (allRes.data || []) as { id: string; name: string; description?: string }[]
-    tenantGroups.value = all.map((g) => ({
-      id: g.id,
-      name: g.name || g.id,
-      description: g.description,
-    }))
+    tenantGroups.value = all
+      .filter((g) => !isHiddenIamGroupName(g.name))
+      .map((g) => ({
+        id: g.id,
+        name: g.name || g.id,
+        description: g.description,
+      }))
     const memberships = (userRes.data || []) as { groupId: string; name?: string }[]
-    editForm.groupIds = memberships.map((m) => m.groupId).filter(Boolean)
-    editCurrentGroupNames.value = memberships.map((m) => m.name || m.groupId).filter(Boolean)
+    const visibleMemberships = memberships.filter((m) => !isHiddenIamGroupName(m.name))
+    editForm.groupIds = visibleMemberships.map((m) => m.groupId).filter(Boolean)
+    editCurrentGroupNames.value = visibleMemberships.map((m) => m.name || m.groupId).filter(Boolean)
   } catch (e: any) {
     message.error(e?.message || '加载用户组失败')
     editVisible.value = false
@@ -632,13 +706,31 @@ async function handleUpdateUser() {
   }
 }
 
-function showCreateModal(code: string) {
+async function showCreateModal(code: string) {
   createForm.domainId = pickDefaultDomainId()
   createForm.userName = ''
   createForm.email = ''
   createForm.addToAdminGroup = false
+  createForm.groupIds = []
+  createDomainGroups.value = []
   pendingCreateVerifyCode = code
   createVisible.value = true
+  if (createForm.domainId && !createUseDefaultDomain.value) {
+    createDomainGroupsLoading.value = true
+    try {
+      const res = await listDomainGroups({ tenantId, domainId: createForm.domainId })
+      const all = (res.data || []) as { id: string; name: string; description?: string }[]
+      createDomainGroups.value = all.map((g) => ({
+        id: g.id,
+        name: g.name || g.id,
+        description: g.description,
+      }))
+    } catch {
+      createDomainGroups.value = []
+    } finally {
+      createDomainGroupsLoading.value = false
+    }
+  }
 }
 
 let pendingCreateVerifyCode = ''
@@ -651,11 +743,15 @@ async function handleCreate() {
       tenantId,
       userName: createForm.userName,
       email: createForm.email,
-      addToAdminGroup: createForm.addToAdminGroup,
       verifyCode: pendingCreateVerifyCode,
     }
     if (createForm.domainId) {
       payload.domainId = createForm.domainId
+    }
+    if (createUseDefaultDomain.value) {
+      payload.addToAdminGroup = createForm.addToAdminGroup
+    } else if (createForm.groupIds.length) {
+      payload.groupIds = [...createForm.groupIds]
     }
     await createUser(payload)
     message.success('用户创建成功')

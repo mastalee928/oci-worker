@@ -12,6 +12,10 @@ export function listGroups(data: { tenantId: string }) {
   return request.post('/oci/identity/groups', data)
 }
 
+export function listDomainGroups(data: { tenantId: string; domainId: string }) {
+  return request.post('/oci/identity/domainGroups', data)
+}
+
 export function createUser(data: any) {
   return request.post('/oci/identity/create', data)
 }
