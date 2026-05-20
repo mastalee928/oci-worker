@@ -163,7 +163,7 @@
                 :step="1"
                 :disabled="createBmLocked"
                 style="width: 100%"
-                @update:value="(v) => applyTaskOcpusInput(createForm, v, availableShapes)"
+                @update:value="(v: number | null) => applyTaskOcpusInput(createForm, v, availableShapes)"
                 @blur="() => clampTaskShapeResources(createForm, availableShapes)"
               />
             </a-form-item>
@@ -177,7 +177,7 @@
                 :step="1"
                 :disabled="createBmLocked"
                 style="width: 100%"
-                @update:value="(v) => applyTaskMemoryInput(createForm, v, availableShapes)"
+                @update:value="(v: number | null) => applyTaskMemoryInput(createForm, v, availableShapes)"
                 @blur="() => clampTaskShapeResources(createForm, availableShapes)"
               />
             </a-form-item>
@@ -271,7 +271,7 @@
                 :step="1"
                 :disabled="editBmLocked"
                 style="width: 100%"
-                @update:value="(v) => applyTaskOcpusInput(editForm, v, editAvailableShapes)"
+                @update:value="(v: number | null) => applyTaskOcpusInput(editForm, v, editAvailableShapes)"
                 @blur="() => clampTaskShapeResources(editForm, editAvailableShapes)"
               />
             </a-form-item>
@@ -285,7 +285,7 @@
                 :step="1"
                 :disabled="editBmLocked"
                 style="width: 100%"
-                @update:value="(v) => applyTaskMemoryInput(editForm, v, editAvailableShapes)"
+                @update:value="(v: number | null) => applyTaskMemoryInput(editForm, v, editAvailableShapes)"
                 @blur="() => clampTaskShapeResources(editForm, editAvailableShapes)"
               />
             </a-form-item>

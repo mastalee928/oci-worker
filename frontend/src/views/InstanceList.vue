@@ -472,7 +472,7 @@
                 :max="quickTaskShapeLimits.maxOcpus"
                 :disabled="quickTaskBmLocked"
                 style="width: 100%"
-                @update:value="(v) => applyTaskOcpusInput(quickTaskForm, v, quickTaskShapes)"
+                @update:value="(v: number | null) => applyTaskOcpusInput(quickTaskForm, v, quickTaskShapes)"
                 @blur="() => clampTaskShapeResources(quickTaskForm, quickTaskShapes)"
               />
             </a-form-item>
@@ -485,7 +485,7 @@
                 :max="quickTaskShapeLimits.maxMemory"
                 :disabled="quickTaskBmLocked"
                 style="width: 100%"
-                @update:value="(v) => applyTaskMemoryInput(quickTaskForm, v, quickTaskShapes)"
+                @update:value="(v: number | null) => applyTaskMemoryInput(quickTaskForm, v, quickTaskShapes)"
                 @blur="() => clampTaskShapeResources(quickTaskForm, quickTaskShapes)"
               />
             </a-form-item>
