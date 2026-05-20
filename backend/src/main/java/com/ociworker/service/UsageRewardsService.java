@@ -15,8 +15,10 @@ import org.springframework.stereotype.Service;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * OCI Usage Rewards API（促销/试用余额），对应官方 list-rewards。
@@ -29,9 +31,63 @@ import java.util.Map;
 public class UsageRewardsService {
 
     /**
+     * 按顺序尝试多个订阅 OCID（优先 OSP 计费订阅，其次 Organizations 订阅）。
+     */
+    public Map<String, Object> fetchSubscriptionRewards(
+            OciClientService oci,
+            String tenancyId,
+            List<String> subscriptionIds,
+            String fallbackRegion) {
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("available", Boolean.FALSE);
+        out.put("reason", null);
+        out.put("summary", null);
+        out.put("periods", new ArrayList<>());
+        out.put("attemptedSubscriptionIds", List.of());
+        out.put("subscriptionIdUsed", null);
+
+        if (StrUtil.isBlank(tenancyId)) {
+            out.put("reason", "缺少 tenancy OCID");
+            return out;
+        }
+
+        List<String> candidates = dedupeOcidCandidates(subscriptionIds);
+        if (candidates.isEmpty()) {
+            out.put("reason", "缺少可用于 Rewards 的订阅 OCID（OSP 编号需先解析为 ocid1.*）");
+            return out;
+        }
+
+        List<String> attempted = new ArrayList<>();
+        List<String> failureNotes = new ArrayList<>();
+        for (String subId : candidates) {
+            attempted.add(subId);
+            Map<String, Object> one = fetchSubscriptionRewardsSingle(oci, tenancyId, subId, fallbackRegion);
+            if (Boolean.TRUE.equals(one.get("available"))) {
+                one.put("attemptedSubscriptionIds", attempted);
+                one.put("subscriptionIdUsed", subId);
+                return one;
+            }
+            Object reason = one.get("reason");
+            if (reason != null && StrUtil.isNotBlank(String.valueOf(reason))) {
+                failureNotes.add(shortId(subId) + ": " + reason);
+            }
+        }
+
+        out.put("attemptedSubscriptionIds", attempted);
+        out.put("reason", buildMultiAttemptReason(failureNotes));
+        return out;
+    }
+
+    /**
      * @return 含 available、reason、summary、periods；失败时 available=false 且带 reason
      */
     public Map<String, Object> fetchSubscriptionRewards(
+            OciClientService oci, String tenancyId, String subscriptionId, String fallbackRegion) {
+        List<String> ids = StrUtil.isBlank(subscriptionId) ? List.of() : List.of(subscriptionId.trim());
+        return fetchSubscriptionRewards(oci, tenancyId, ids, fallbackRegion);
+    }
+
+    private Map<String, Object> fetchSubscriptionRewardsSingle(
             OciClientService oci, String tenancyId, String subscriptionId, String fallbackRegion) {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("available", Boolean.FALSE);
@@ -39,10 +95,6 @@ public class UsageRewardsService {
         out.put("summary", null);
         out.put("periods", new ArrayList<>());
 
-        if (StrUtil.isBlank(tenancyId)) {
-            out.put("reason", "缺少 tenancy OCID");
-            return out;
-        }
         if (StrUtil.isBlank(subscriptionId)) {
             out.put("reason", "缺少订阅 ID，无法查询促销余额");
             return out;
@@ -105,6 +157,37 @@ public class UsageRewardsService {
             out.put("reason", "促销余额查询失败：" + (e.getMessage() == null ? "未知错误" : e.getMessage()));
         }
         return out;
+    }
+
+    private static List<String> dedupeOcidCandidates(List<String> subscriptionIds) {
+        if (subscriptionIds == null || subscriptionIds.isEmpty()) {
+            return List.of();
+        }
+        Set<String> ordered = new LinkedHashSet<>();
+        for (String id : subscriptionIds) {
+            if (StrUtil.isNotBlank(id) && OspSubscriptionEnricher.isOciOcid(id)) {
+                ordered.add(id.trim());
+            }
+        }
+        return new ArrayList<>(ordered);
+    }
+
+    private static String shortId(String ocid) {
+        if (StrUtil.isBlank(ocid) || ocid.length() <= 48) {
+            return ocid;
+        }
+        return ocid.substring(0, 24) + "…" + ocid.substring(ocid.length() - 12);
+    }
+
+    private static String buildMultiAttemptReason(List<String> failureNotes) {
+        if (failureNotes == null || failureNotes.isEmpty()) {
+            return "促销余额接口均无数据";
+        }
+        if (failureNotes.size() == 1) {
+            return failureNotes.get(0);
+        }
+        return "已依次尝试 " + failureNotes.size() + " 个订阅 OCID，均未返回促销余额；"
+                + String.join("；", failureNotes);
     }
 
     private static Map<String, Object> mapSummary(RewardDetails s) {

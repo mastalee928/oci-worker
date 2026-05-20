@@ -39,7 +39,8 @@ public class OrganizationSubscriptionService {
             OciClientService oci,
             String tenancyId,
             String fallbackRegion,
-            String ospSubscriptionRef) {
+            String ospSubscriptionRef,
+            List<String> extraSubscriptionOcids) {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("available", Boolean.FALSE);
         out.put("reason", null);
@@ -70,7 +71,7 @@ public class OrganizationSubscriptionService {
         }
 
         Set<String> subscriptionIdsToQuery =
-                resolveSubscriptionOcidCandidates(assignedRows, ospSubscriptionRef);
+                resolveSubscriptionOcidCandidates(assignedRows, ospSubscriptionRef, extraSubscriptionOcids);
 
         if (subscriptionIdsToQuery.isEmpty()) {
             out.put("assignedSubscriptions", assignedRows);
@@ -114,8 +115,18 @@ public class OrganizationSubscriptionService {
     }
 
     static Set<String> resolveSubscriptionOcidCandidates(
-            List<Map<String, Object>> assignedRows, String ospSubscriptionRef) {
+            List<Map<String, Object>> assignedRows,
+            String ospSubscriptionRef,
+            List<String> extraSubscriptionOcids) {
         Set<String> ids = new LinkedHashSet<>();
+        if (extraSubscriptionOcids != null) {
+            for (String id : extraSubscriptionOcids) {
+                if (OspSubscriptionEnricher.isOciOcid(id)
+                        && !OspSubscriptionEnricher.isOrganizationsSubscriptionOcid(id)) {
+                    ids.add(id.trim());
+                }
+            }
+        }
         if (assignedRows != null) {
             for (Map<String, Object> row : assignedRows) {
                 String id = row.get("id") == null ? null : String.valueOf(row.get("id")).trim();

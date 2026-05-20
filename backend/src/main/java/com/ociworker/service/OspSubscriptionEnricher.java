@@ -9,11 +9,14 @@ import lombok.extern.slf4j.Slf4j;
 
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.ArrayList;
 import java.util.Date;
 import java.util.Iterator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 /**
  * 从 OSP Gateway 订阅对象提取账户信息 Tab 字段（反射 + JSON 扫描）；无 API 数据则不填、不推算。
@@ -58,7 +61,16 @@ final class OspSubscriptionEnricher {
         }
         scanJsonNode(sub, result);
         applySubscriptionIdentifiers(result, sub, null);
+        collectOspRewardSubscriptionOcids(sub, null, result);
         reconcileAfterMerge(null, result);
+    }
+
+    /** Assigned / Rewards 的 organizationssubscription 与 OSP 计费订阅 OCID 不是同一类。 */
+    static boolean isOrganizationsSubscriptionOcid(String value) {
+        if (StrUtil.isBlank(value)) {
+            return false;
+        }
+        return value.trim().toLowerCase(Locale.ROOT).contains("organizationssubscription");
     }
 
     /** Rewards / Organizations 等接口需要 ocid1.*；OSP 列表里的 id 可能是订阅编号。 */
@@ -89,8 +101,63 @@ final class OspSubscriptionEnricher {
         }
         if (StrUtil.isNotBlank(jsonId)) {
             result.put("subscriptionOspRef", jsonId.trim());
-            if (isOciOcid(jsonId)) {
-                result.put("subscriptionOcid", jsonId.trim());
+            if (isOciOcid(jsonId) && !isOrganizationsSubscriptionOcid(jsonId)) {
+                result.put("subscriptionOspOcid", jsonId.trim());
+            }
+        }
+    }
+
+    /** 从 OSP 原始 JSON / SDK 收集可能用于 Usage Rewards 的计费订阅 OCID（不含 organizationssubscription）。 */
+    static void collectOspRewardSubscriptionOcids(JsonNode raw, Object sdkObj, Map<String, Object> result) {
+        if (result == null) {
+            return;
+        }
+        LinkedHashSet<String> ids = new LinkedHashSet<>();
+        if (raw != null && !raw.isNull()) {
+            collectOcidsFromJsonNode(raw, ids);
+        }
+        collectOcidsFromSdkObject(sdkObj, ids);
+        Object ospOcid = result.get("subscriptionOspOcid");
+        if (ospOcid != null && isOciOcid(String.valueOf(ospOcid))) {
+            ids.add(String.valueOf(ospOcid).trim());
+        }
+        if (!ids.isEmpty()) {
+            result.put("ospRewardSubscriptionOcids", new ArrayList<>(ids));
+        }
+    }
+
+    private static void collectOcidsFromJsonNode(JsonNode node, Set<String> ids) {
+        if (node == null || node.isNull()) {
+            return;
+        }
+        if (node.isTextual()) {
+            String t = node.asText();
+            if (isOciOcid(t) && !isOrganizationsSubscriptionOcid(t)) {
+                ids.add(t.trim());
+            }
+            return;
+        }
+        if (node.isObject()) {
+            Iterator<Map.Entry<String, JsonNode>> it = node.fields();
+            while (it.hasNext()) {
+                collectOcidsFromJsonNode(it.next().getValue(), ids);
+            }
+        } else if (node.isArray()) {
+            for (JsonNode child : node) {
+                collectOcidsFromJsonNode(child, ids);
+            }
+        }
+    }
+
+    private static void collectOcidsFromSdkObject(Object sdkObj, Set<String> ids) {
+        if (sdkObj == null) {
+            return;
+        }
+        for (String getter : List.of(
+                "getId", "getSubscriptionId", "getClassicSubscriptionId", "getBillingSubscriptionId")) {
+            String v = asString(tryInvoke(sdkObj, getter));
+            if (isOciOcid(v) && !isOrganizationsSubscriptionOcid(v)) {
+                ids.add(v.trim());
             }
         }
     }
@@ -143,8 +210,10 @@ final class OspSubscriptionEnricher {
         mergeFromJsonTree(sub, result);
         try {
             applySubscriptionIdentifiers(result, JSON.valueToTree(sub), sub);
+            collectOspRewardSubscriptionOcids(JSON.valueToTree(sub), sub, result);
         } catch (Exception ignored) {
             applySubscriptionIdentifiers(result, null, sub);
+            collectOspRewardSubscriptionOcids(null, sub, result);
         }
         reconcileAfterMerge(sub, result);
     }

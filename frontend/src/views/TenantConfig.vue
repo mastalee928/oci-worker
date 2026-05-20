@@ -579,10 +579,13 @@ region=ap-tokyo-1"
               {{ tenantInfoData.subscriptionPlanNumber || (tenantInfoData.subscriptionOspRef && !isOciSubscriptionId(tenantInfoData.subscriptionOspRef) ? tenantInfoData.subscriptionOspRef : '') || '—' }}
             </span>
           </a-descriptions-item>
-          <a-descriptions-item label="订阅 OCID">
+          <a-descriptions-item label="组织订阅 OCID">
             <span style="word-break: break-all; font-size: 12px">
-              {{ tenantInfoData.subscriptionOcid || (isOciSubscriptionId(tenantInfoData.subscriptionId) ? tenantInfoData.subscriptionId : '') || '—' }}
+              {{ tenantInfoData.subscriptionOrgOcid || tenantInfoData.subscriptionOcid || (isOciSubscriptionId(tenantInfoData.subscriptionId) ? tenantInfoData.subscriptionId : '') || '—' }}
             </span>
+          </a-descriptions-item>
+          <a-descriptions-item v-if="tenantInfoData.subscriptionOspOcid" label="OSP 订阅 OCID">
+            <span style="word-break: break-all; font-size: 12px">{{ tenantInfoData.subscriptionOspOcid }}</span>
           </a-descriptions-item>
           <a-descriptions-item label="促销总可用余额">
             <template v-if="tenantInfoData.rewards?.available && tenantInfoData.rewards?.summary">
@@ -592,6 +595,9 @@ region=ap-tokyo-1"
             </template>
             <span v-else-if="tenantInfoData.rewards?.reason" style="color: var(--text-sub); font-size: 12px">
               {{ tenantInfoData.rewards.reason }}
+              <span v-if="tenantInfoData.rewards?.subscriptionIdUsed" style="display: block; margin-top: 4px; opacity: 0.85">
+                命中订阅：{{ tenantInfoData.rewards.subscriptionIdUsed }}
+              </span>
             </span>
             <span v-else>—</span>
           </a-descriptions-item>
