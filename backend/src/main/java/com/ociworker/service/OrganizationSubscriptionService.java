@@ -37,10 +37,10 @@ public class OrganizationSubscriptionService {
             OciClientService oci, String tenancyId, String fallbackRegion) {
         String region = UsageCostService.resolveTenancyHomeRegionName(
                 oci.getIdentityClient(), tenancyId, fallbackRegion);
-        return listAssignedSubscriptionsOnly(oci, tenancyId, region);
+        return listAssignedSubscriptionsOnlyInRegion(oci, tenancyId, region);
     }
 
-    public List<Map<String, Object>> listAssignedSubscriptionsOnly(
+    private List<Map<String, Object>> listAssignedSubscriptionsOnlyInRegion(
             OciClientService oci, String tenancyId, String homeRegionName) {
         if (StrUtil.isBlank(tenancyId)) {
             return List.of();
