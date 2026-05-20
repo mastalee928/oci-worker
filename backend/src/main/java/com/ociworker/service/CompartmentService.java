@@ -135,6 +135,58 @@ public class CompartmentService {
         }
     }
 
+    /** 全租户区间扁平列表（路径标签），供资源迁移等下拉选择 */
+    public Map<String, Object> listCompartmentsPicker(String tenantId) {
+        OciUser user = userMapper.selectById(tenantId);
+        if (user == null) throw new OciException("租户配置不存在");
+        String tenancy = tenancyId(user);
+        try (OciClientService client = buildClient(tenantId)) {
+            IdentityClient identity = client.getIdentityClient();
+            Tenancy tenancyInfo = identity.getTenancy(
+                    GetTenancyRequest.builder().tenancyId(tenancy).build()).getTenancy();
+            String rootName = tenancyInfo.getName();
+            List<Compartment> subtree = listCompartmentsPaginated(identity, tenancy, true);
+            Map<String, Compartment> byId = new HashMap<>();
+            for (Compartment c : subtree) {
+                if (c.getId() != null) byId.put(c.getId(), c);
+            }
+
+            List<Map<String, Object>> items = new ArrayList<>();
+            Map<String, Object> root = new LinkedHashMap<>();
+            root.put("id", tenancy);
+            root.put("name", rootName + " (root)");
+            root.put("pathLabel", rootName + " (root)");
+            root.put("root", true);
+            root.put("lifecycleState", "ACTIVE");
+            items.add(root);
+
+            for (Compartment c : subtree) {
+                String state = stateName(c.getLifecycleState());
+                if (!"ACTIVE".equals(state)) continue;
+                Map<String, Object> m = new LinkedHashMap<>();
+                m.put("id", c.getId());
+                m.put("name", c.getName());
+                m.put("pathLabel", buildPathLabel(c.getId(), tenancy, rootName, byId));
+                m.put("root", false);
+                m.put("lifecycleState", state);
+                items.add(m);
+            }
+            items.sort(Comparator.comparing(o -> String.valueOf(o.get("pathLabel")), String.CASE_INSENSITIVE_ORDER));
+
+            Map<String, Object> out = new LinkedHashMap<>();
+            out.put("tenancyId", tenancy);
+            out.put("items", items);
+            return out;
+        } catch (OciException e) {
+            throw e;
+        } catch (BmcException e) {
+            throw new OciException("获取区间列表失败: " + ociMessage(e));
+        } catch (Exception e) {
+            log.warn("listCompartmentsPicker failed: {}", e.getMessage());
+            throw new OciException("获取区间列表失败: " + e.getMessage());
+        }
+    }
+
     public Map<String, Object> getCompartment(String tenantId, String compartmentId) {
         if (StrUtil.isBlank(compartmentId)) throw new OciException("compartmentId 不能为空");
         OciUser user = userMapper.selectById(tenantId);
@@ -446,6 +498,23 @@ public class CompartmentService {
         m.put("timeCreated", timeCreated);
         m.put("root", root);
         return m;
+    }
+
+    private static String buildPathLabel(String compartmentId, String tenancyId, String rootName, Map<String, Compartment> byId) {
+        if (tenancyId.equals(compartmentId)) return rootName + " (root)";
+        Deque<String> names = new ArrayDeque<>();
+        String cur = compartmentId;
+        int guard = 0;
+        while (cur != null && !tenancyId.equals(cur) && guard++ < 32) {
+            Compartment c = byId.get(cur);
+            if (c == null) break;
+            names.addFirst(c.getName());
+            cur = c.getCompartmentId();
+        }
+        List<String> parts = new ArrayList<>();
+        parts.add(rootName + " (root)");
+        parts.addAll(names);
+        return String.join(" / ", parts);
     }
 
     private static List<Map<String, String>> buildBreadcrumb(

@@ -4,6 +4,11 @@ export function listCompartments(data: { id: string; parentId?: string; keyword?
   return request.post('/oci/user/compartments', data)
 }
 
+/** 全租户区间（带路径标签），供迁移资源等下拉 */
+export function listCompartmentPicker(data: { id: string }) {
+  return request.post('/oci/user/compartmentPicker', data)
+}
+
 export function getCompartmentDetail(data: { id: string; compartmentId: string }) {
   return request.post('/oci/user/compartmentDetail', data)
 }
@@ -48,6 +53,7 @@ export function moveCompartmentResource(data: {
   resourceId: string
   resourceType: string
   targetCompartmentId: string
+  verifyCode: string
 }) {
   return request.post('/oci/user/compartmentMoveResource', data)
 }

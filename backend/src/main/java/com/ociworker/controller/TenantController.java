@@ -170,6 +170,11 @@ public class TenantController {
                 params.get("id"), params.get("parentId"), params.get("keyword")));
     }
 
+    @PostMapping("/compartmentPicker")
+    public ResponseData<?> compartmentPicker(@RequestBody java.util.Map<String, String> params) {
+        return ResponseData.ok(compartmentService.listCompartmentsPicker(params.get("id")));
+    }
+
     @PostMapping("/compartmentDetail")
     public ResponseData<?> compartmentDetail(@RequestBody java.util.Map<String, String> params) {
         return ResponseData.ok(compartmentService.getCompartment(params.get("id"), params.get("compartmentId")));
@@ -216,6 +221,7 @@ public class TenantController {
 
     @PostMapping("/compartmentMoveResource")
     public ResponseData<?> compartmentMoveResource(@RequestBody java.util.Map<String, String> params) {
+        verifyCodeService.verifyCode("moveCompartmentResource", params == null ? null : params.get("verifyCode"));
         compartmentService.moveResource(
                 params.get("id"),
                 params.get("resourceId"),

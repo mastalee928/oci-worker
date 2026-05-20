@@ -53,6 +53,7 @@ public class VerifyCodeService {
             case "banlist" -> "封禁列表管理";
             case "loginAudit" -> "登录统计查看";
             case "deleteCompartment" -> "删除区间";
+            case "moveCompartmentResource" -> "迁移区间资源";
             default -> action;
         };
         String msg = String.format("【OCI Worker 安全验证】\n操作：%s\n验证码：%s\n有效期：5分钟\n\n如非本人操作，请检查账户安全。", actionName, code);

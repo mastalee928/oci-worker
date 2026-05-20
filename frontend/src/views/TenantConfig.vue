@@ -502,7 +502,8 @@ region=ap-tokyo-1"
 
     <!-- 租户级管理 -->
     <a-modal v-model:open="tenantMgmtVisible" :title="'租户 — ' + (tenantMgmtTenant?.username || '')"
-      :width="isMobile ? '100%' : 840" :footer="null" centered :bodyStyle="{ maxHeight: '75vh', overflow: 'auto' }">
+      :width="isMobile ? '100%' : 840" :footer="null" centered :bodyStyle="{ maxHeight: '75vh', overflow: 'auto' }"
+      :mask-closable="false" :keyboard="false">
       <a-tabs v-model:activeKey="tenantTab" @change="onTenantTabChange">
         <a-tab-pane key="account" tab="账户信息">
       <a-spin :spinning="tenantInfoLoading">

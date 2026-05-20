@@ -112,13 +112,9 @@
       :title="'区间 — ' + (detailData?.name || '')"
       width="720"
       :destroy-on-close="true"
-      :mask-closable="true"
+      :mask-closable="false"
+      :keyboard="false"
     >
-      <template #extra>
-        <a-button type="link" size="small" @click="closeDetailBackToList">
-          <ArrowLeftOutlined /> 返回列表
-        </a-button>
-      </template>
       <a-spin :spinning="detailLoading">
         <template v-if="detailData">
           <a-descriptions :column="1" bordered size="small" style="margin-bottom: 16px">
@@ -203,13 +199,31 @@
     </a-modal>
 
     <a-modal v-model:open="moveResVisible" title="迁移资源到其他区间" @ok="submitMoveResource"
-      :confirm-loading="moveResLoading">
+      :confirm-loading="moveResLoading" ok-text="确认迁移">
+      <a-alert type="warning" message="迁移资源需 Telegram 验证码（有效期 5 分钟）" show-icon style="margin-bottom: 12px" />
       <a-form layout="vertical">
         <a-form-item label="资源">
           <a-input :value="moveResForm.label" disabled />
         </a-form-item>
-        <a-form-item label="目标区间 OCID" required>
-          <a-input v-model:value="moveResForm.targetCompartmentId" placeholder="ocid1.compartment..." />
+        <a-form-item label="Telegram 验证码" required>
+          <a-input v-model:value="moveResCode" placeholder="请输入 6 位验证码" :maxlength="6" allow-clear />
+          <a-button type="link" size="small" :loading="moveResCodeSending" style="padding-left: 0; margin-top: 4px"
+            @click="resendMoveResCode">重新发送验证码</a-button>
+        </a-form-item>
+        <a-form-item label="目标区间" required>
+          <a-select
+            v-model:value="moveResForm.targetCompartmentId"
+            show-search
+            allow-clear
+            placeholder="搜索并选择目标区间"
+            :loading="moveTargetLoading"
+            :options="moveTargetOptions"
+            option-filter-prop="label"
+            style="width: 100%"
+          />
+          <div v-if="moveResForm.targetCompartmentId" style="margin-top: 6px; font-size: 11px; color: var(--text-sub); word-break: break-all">
+            OCID：{{ moveResForm.targetCompartmentId }}
+          </div>
         </a-form-item>
       </a-form>
     </a-modal>
@@ -222,6 +236,7 @@ import { message } from 'ant-design-vue'
 import { PlusOutlined, ReloadOutlined, ArrowLeftOutlined } from '@ant-design/icons-vue'
 import {
   listCompartments,
+  listCompartmentPicker,
   getCompartmentDetail,
   createCompartment,
   updateCompartment,
@@ -269,7 +284,11 @@ const resourcesNextPage = ref<string | null>(null)
 
 const moveResVisible = ref(false)
 const moveResLoading = ref(false)
-const moveResForm = ref({ resourceId: '', resourceType: '', targetCompartmentId: '', label: '' })
+const moveResCode = ref('')
+const moveResCodeSending = ref(false)
+const moveTargetLoading = ref(false)
+const moveTargetOptions = ref<{ label: string; value: string }[]>([])
+const moveResForm = ref({ resourceId: '', resourceType: '', targetCompartmentId: undefined as string | undefined, label: '' })
 
 const createParentLabel = computed(() => {
   const last = breadcrumb.value[breadcrumb.value.length - 1]
@@ -351,10 +370,6 @@ function enterCompartment(record: any) {
   detailVisible.value = false
   browseParentId.value = record.id === tenancyId.value ? '' : record.id
   reloadList()
-}
-
-function closeDetailBackToList() {
-  detailVisible.value = false
 }
 
 function openCreateModal() {
@@ -519,19 +534,66 @@ async function loadResources(reset: boolean) {
   }
 }
 
-function openMoveResource(record: any) {
+async function loadMoveTargetOptions(excludeCompartmentId?: string) {
+  if (!props.tenantId) return
+  moveTargetLoading.value = true
+  try {
+    const res = await listCompartmentPicker({ id: props.tenantId })
+    const items = (res.data?.items || []) as { id: string; pathLabel?: string; name?: string }[]
+    const exclude = excludeCompartmentId?.trim()
+    moveTargetOptions.value = items
+      .filter((c) => !exclude || c.id !== exclude)
+      .map((c) => ({
+        label: c.pathLabel || c.name || c.id,
+        value: c.id,
+      }))
+  } catch (e: any) {
+    moveTargetOptions.value = []
+    message.error(e?.message || '加载区间列表失败')
+  } finally {
+    moveTargetLoading.value = false
+  }
+}
+
+async function openMoveResource(record: any) {
   moveResForm.value = {
     resourceId: record.identifier,
     resourceType: record.resourceType,
-    targetCompartmentId: '',
+    targetCompartmentId: undefined,
     label: `${record.displayName || record.identifier} (${record.resourceType})`,
   }
+  moveResCode.value = ''
+  try {
+    await sendVerifyCode('moveCompartmentResource')
+    message.success('验证码已发送至 Telegram')
+  } catch (e: any) {
+    message.error(e?.message || '发送验证码失败')
+    return
+  }
   moveResVisible.value = true
+  await loadMoveTargetOptions(detailData.value?.id)
+}
+
+async function resendMoveResCode() {
+  moveResCodeSending.value = true
+  try {
+    await sendVerifyCode('moveCompartmentResource')
+    message.success('验证码已重新发送')
+  } catch (e: any) {
+    message.error(e?.message || '发送失败')
+  } finally {
+    moveResCodeSending.value = false
+  }
 }
 
 async function submitMoveResource() {
-  if (!moveResForm.value.targetCompartmentId.trim()) {
-    message.warning('请输入目标区间 OCID')
+  if (!moveResCode.value || moveResCode.value.length !== 6) {
+    message.warning('请输入 6 位验证码')
+    return
+  }
+  const targetId = (moveResForm.value.targetCompartmentId || '').trim()
+  if (!targetId) {
+    message.warning('请选择目标区间')
     return
   }
   moveResLoading.value = true
@@ -540,7 +602,8 @@ async function submitMoveResource() {
       id: props.tenantId,
       resourceId: moveResForm.value.resourceId,
       resourceType: moveResForm.value.resourceType,
-      targetCompartmentId: moveResForm.value.targetCompartmentId.trim(),
+      targetCompartmentId: targetId,
+      verifyCode: moveResCode.value,
     })
     message.success('资源已迁移')
     moveResVisible.value = false
