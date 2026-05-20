@@ -535,8 +535,30 @@ region=ap-tokyo-1"
           <a-descriptions-item label="支付方式">
             {{ tenantInfoData.paymentMethodLabel || formatPaymentMethod(tenantInfoData.paymentMethod) || '—' }}
           </a-descriptions-item>
-          <a-descriptions-item label="订阅额度">
+          <a-descriptions-item label="OSP 订阅额度">
             {{ tenantInfoData.subscriptionAmountLabel || formatSubscriptionAmount(tenantInfoData) || '—' }}
+          </a-descriptions-item>
+          <a-descriptions-item label="试用期内已消费">
+            <template v-if="tenantInfoData.subscriptionUsage?.available && tenantInfoData.subscriptionUsage?.summary">
+              {{ tenantInfoData.subscriptionUsage.summary.totalConsumedLabel
+                || tenantInfoData.subscriptionUsage.summary.totalConsumed }}
+              <span v-if="tenantInfoData.subscriptionUsage.timeUsageStarted" style="display: block; font-size: 11px; color: var(--text-sub); margin-top: 2px">
+                自 {{ formatUtcCnDate(tenantInfoData.subscriptionUsage.timeUsageStarted) }}（Usage API）
+              </span>
+            </template>
+            <span v-else-if="tenantInfoData.subscriptionUsage?.reason" style="color: var(--text-sub); font-size: 12px">
+              {{ tenantInfoData.subscriptionUsage.reason }}
+            </span>
+            <span v-else>—</span>
+          </a-descriptions-item>
+          <a-descriptions-item v-if="tenantInfoData.promoAllocation" label="子服务额度（API）">
+            <span style="font-size: 12px">
+              下发 {{ tenantInfoData.promoAllocation.fundedAllocationValue ?? '—' }}
+              / 剩余 {{ tenantInfoData.promoAllocation.availableAmount ?? '—' }}
+              <span v-if="tenantInfoData.promoAllocation.productName" style="color: var(--text-sub)">
+                （{{ tenantInfoData.promoAllocation.productName }}）
+              </span>
+            </span>
           </a-descriptions-item>
           <a-descriptions-item label="账户类型">
             <a-tag v-if="tenantInfoData.accountType" color="orange">{{ formatAccountType(tenantInfoData.accountType) }}</a-tag>
@@ -587,7 +609,7 @@ region=ap-tokyo-1"
           <a-descriptions-item v-if="tenantInfoData.subscriptionOspOcid" label="OSP 订阅 OCID">
             <span style="word-break: break-all; font-size: 12px">{{ tenantInfoData.subscriptionOspOcid }}</span>
           </a-descriptions-item>
-          <a-descriptions-item label="促销总可用余额">
+          <a-descriptions-item label="促销余额（Rewards）">
             <template v-if="tenantInfoData.rewards?.available && tenantInfoData.rewards?.summary">
               {{ tenantInfoData.rewards.summary.totalRewardsAvailableLabel
                 || formatRewardsAmount(tenantInfoData.rewards.summary.totalRewardsAvailable, tenantInfoData.rewards.summary.currency)
@@ -602,6 +624,38 @@ region=ap-tokyo-1"
             <span v-else>—</span>
           </a-descriptions-item>
         </a-descriptions>
+        <template v-if="tenantInfoData.subscriptionUsage?.available && (tenantInfoData.subscriptionUsage?.byService || []).length">
+          <a-divider style="margin: 12px 0" orientation="left">
+            <span style="font-size: 12px; color: var(--text-sub)">试用期内消费明细（Usage API · 按服务）</span>
+          </a-divider>
+          <a-table
+            size="small"
+            :pagination="false"
+            row-key="service"
+            :data-source="tenantInfoData.subscriptionUsage.byService"
+            :scroll="{ x: 480 }"
+          >
+            <a-table-column title="服务" data-index="service" key="service" :ellipsis="true" />
+            <a-table-column title="消费" key="cost" :width="120">
+              <template #default="{ record }">
+                {{ record.cost }} {{ record.currency || '' }}
+              </template>
+            </a-table-column>
+          </a-table>
+        </template>
+        <a-alert
+          v-if="tenantInfoData.accountApiDiagnostics"
+          type="info" show-icon style="margin-top: 10px"
+          message="API 数据源摘要（便于对照 R-Bot / TG）"
+        >
+          <template #description>
+            <div style="font-size: 12px; line-height: 1.6">
+              <div v-for="(val, key) in tenantInfoData.accountApiDiagnostics" :key="key">
+                <strong>{{ key }}</strong>：{{ val }}
+              </div>
+            </div>
+          </template>
+        </a-alert>
         <template v-if="tenantInfoData.rewards?.available && (tenantInfoData.rewards?.periods || []).length">
           <a-divider style="margin: 12px 0" orientation="left">
             <span style="font-size: 12px; color: var(--text-sub)">促销余额明细（Usage Rewards API）</span>

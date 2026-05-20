@@ -31,6 +31,7 @@ import java.net.http.HttpClient;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.Locale;
 
 @Slf4j
 @Service
@@ -463,6 +464,30 @@ public class TenantService {
                     result.put("rewards", rewards);
                 }
 
+                String usageStart = result.get("subscriptionStartTime") == null
+                        ? null : String.valueOf(result.get("subscriptionStartTime"));
+                try {
+                    Map<String, Object> subUsage = usageCostService.fetchSubscriptionUsageCost(
+                            client,
+                            user.getOciTenantId(),
+                            rewardsCandidates,
+                            usageStart,
+                            user.getOciRegion());
+                    result.put("subscriptionUsage", subUsage);
+                } catch (Exception ex) {
+                    log.warn("Failed to get subscription usage cost: {}", ex.getMessage());
+                    Map<String, Object> subUsage = new LinkedHashMap<>();
+                    subUsage.put("available", Boolean.FALSE);
+                    subUsage.put("reason", ex.getMessage());
+                    subUsage.put("summary", null);
+                    subUsage.put("byService", List.of());
+                    result.put("subscriptionUsage", subUsage);
+                }
+
+                enrichSubscriptionStatusFromAssigned(result, orgSub);
+                attachPromoAllocationFromOrg(result, orgSub);
+                attachAccountApiDiagnostics(result, orgSub);
+
                 if (StrUtil.isNotBlank(orgOcid)) {
                     result.put("subscriptionId", orgOcid);
                 } else if (ospOcidObj != null && OspSubscriptionEnricher.isOciOcid(String.valueOf(ospOcidObj))) {
@@ -721,6 +746,89 @@ public class TenantService {
             }
         }
         return new ArrayList<>(ids);
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void enrichSubscriptionStatusFromAssigned(Map<String, Object> result, Map<String, Object> orgSub) {
+        if (result == null || orgSub == null) {
+            return;
+        }
+        if (result.get("subscriptionStatus") != null) {
+            return;
+        }
+        Object assigned = orgSub.get("assignedSubscriptions");
+        if (!(assigned instanceof List<?> list) || list.isEmpty()) {
+            return;
+        }
+        for (Object row : list) {
+            if (!(row instanceof Map<?, ?> m)) {
+                continue;
+            }
+            String lifecycle = m.get("lifecycleState") == null
+                    ? null : String.valueOf(m.get("lifecycleState")).trim();
+            if (StrUtil.isNotBlank(lifecycle)) {
+                String code = lifecycle.toUpperCase(Locale.ROOT);
+                result.put("subscriptionStatus", code);
+                result.put("subscriptionStatusLabel", OspSubscriptionEnricher.labelSubscriptionStatus(code));
+                return;
+            }
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void attachPromoAllocationFromOrg(Map<String, Object> result, Map<String, Object> orgSub) {
+        if (result == null || orgSub == null) {
+            return;
+        }
+        Object services = orgSub.get("subscribedServices");
+        if (!(services instanceof List<?> list)) {
+            return;
+        }
+        for (Object row : list) {
+            if (!(row instanceof Map<?, ?> m)) {
+                continue;
+            }
+            if (m.get("error") != null) {
+                continue;
+            }
+            Object funded = m.get("fundedAllocationValue");
+            Object available = m.get("availableAmount");
+            if (funded == null && available == null) {
+                continue;
+            }
+            Map<String, Object> promo = new LinkedHashMap<>();
+            promo.put("source", "subscribedService");
+            promo.put("fundedAllocationValue", funded);
+            promo.put("availableAmount", available);
+            promo.put("productName", m.get("productName"));
+            promo.put("status", m.get("status"));
+            promo.put("subscriptionId", m.get("subscriptionId"));
+            result.put("promoAllocation", promo);
+            return;
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void attachAccountApiDiagnostics(Map<String, Object> result, Map<String, Object> orgSub) {
+        Map<String, Object> diag = new LinkedHashMap<>();
+        diag.put("osp",
+                result.get("subscriptionPlanNumber") != null || result.get("subscriptionStartTime") != null
+                        ? "ok" : "no_fields");
+        Object rewards = result.get("rewards");
+        if (rewards instanceof Map<?, ?> r) {
+            diag.put("rewards", Boolean.TRUE.equals(r.get("available")) ? "ok" : String.valueOf(r.get("reason")));
+        }
+        Object usage = result.get("subscriptionUsage");
+        if (usage instanceof Map<?, ?> u) {
+            diag.put("usage", Boolean.TRUE.equals(u.get("available")) ? "ok" : String.valueOf(u.get("reason")));
+        }
+        if (orgSub != null) {
+            diag.put("assigned", orgSub.get("assignedSubscriptions") instanceof List<?> l && !l.isEmpty()
+                    ? "ok" : "empty");
+            diag.put("subscribedService", orgSub.get("reason") != null
+                    ? String.valueOf(orgSub.get("reason")) : "ok");
+        }
+        result.put("accountApiDiagnostics", diag);
     }
 
     private static String countryNameFromRaw(JsonNode sub) {
