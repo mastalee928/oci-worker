@@ -88,6 +88,24 @@ ociworker update
 
 任何一项不通过都会**给出具体的解决步骤**，绝不让你卡死。
 
+## 用 Docker 装 MySQL（向导选 ②）
+
+与 README 末尾「经典 deploy + 手写 docker run」**不是同一条流程**；v2 安装器会：
+
+- 创建/复用容器 **`oci-worker-mysql`**，端口 **`127.0.0.1:3306`**
+- 把连接写入 `/opt/oci-worker/application.yml`（`spring.datasource.url` 为 `localhost:3306`）
+- 部署 `/usr/local/bin/ociworker`
+
+本机**多数不会**安装 `mysql` 客户端（`ensure_mysql_client` 失败时安装器会警告并继续），因此：
+
+| 操作 | 做法 |
+|------|------|
+| 清除 TG 绑定 | **`sudo ociworker tg-clean`** 或菜单 **11）清除Tg绑定**（自动 `docker exec oci-worker-mysql`，密码来自 yml） |
+| 查库里的 TG 配置 | 优先用 `ociworker tg-clean` 前的列表；勿猜密码，以 yml 里 `spring.datasource.password` 为准 |
+| 备份数据库 | 建议 `apt install -y default-mysql-client` 后 `ociworker backup`，或自行 `docker exec oci-worker-mysql mysql …` |
+
+清除后提示：**telegram通知已清除，请登录面板重新绑定。**
+
 ## 日常管理：`ociworker`
 
 ```bash

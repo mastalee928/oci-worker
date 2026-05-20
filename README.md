@@ -105,6 +105,27 @@ sudo bash /tmp/install.sh
 
 ## 日常管理：`ociworker`
 
+> **安装方式别搞混**  
+> - **推荐 / 你这种**：`install.sh` 向导，数据库选 **「② 用 Docker 装」** → 容器 `oci-worker-mysql`，`application.yml` 为 `localhost:3306`（见 [INSTALLER.md](./INSTALLER.md)）。  
+> - **备用**：文末「经典脚本」里自己 `docker run` + `deploy.sh`，容器名相同，但**不会**自动装 `ociworker` 菜单版脚本，需自行 `curl` 拉取。  
+> Docker 装法下本机**通常没有** `mysql` 命令，**不要**只靠 README 经典段里的手写 `docker exec`；用下面的 `ociworker tg-clean`（已支持自动进容器）。
+
+### Docker 安装 · 清除 Telegram 绑定
+
+面板里 **「Telegram 丢失」** 会提示 SSH 执行：
+
+```bash
+sudo ociworker tg-clean
+# 或 ociworker 菜单 → 11）清除Tg绑定
+```
+
+脚本读 `/opt/oci-worker/application.yml` 的账号密码，在 **`oci-worker-mysql` 容器**里删 `oci_kv` 的 `tg_%` 项（与面板同一库）。更新脚本：
+
+```bash
+sudo curl -fsSL https://raw.githubusercontent.com/mastalee928/oci-worker/master/ociworker -o /usr/local/bin/ociworker
+sudo chmod +x /usr/local/bin/ociworker
+```
+
 ```bash
 ociworker                  # 进交互菜单（最常用）
 ociworker status           # 服务状态
