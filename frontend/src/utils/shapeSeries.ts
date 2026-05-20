@@ -87,10 +87,28 @@ const FIXED_VM_SHAPE_SERIES: Record<string, string> = (() => {
   return m
 })()
 
-/** 任务短码：与下拉重复项，API 列表中会过滤对应 Flex/Micro */
-const SHORT_CODES_BY_SERIES: Record<string, ShapePickOption[]> = {
-  [SHAPE_SERIES_ARM]: [{ value: 'ARM', label: 'VM.Standard.A1.Flex' }],
-  [SHAPE_SERIES_SPECIALTY]: [{ value: 'AMD', label: 'VM.Standard.E2.1.Micro' }],
+const SHAPE_ARM_SHORT = 'VM.Standard.A1.Flex'
+const SHAPE_AMD_SHORT = 'VM.Standard.E2.1.Micro'
+export const SHAPE_AMD_SHORT_LABEL = 'VM.Standard.E2.1.Micro (Always Free)'
+
+/** 任务列表/详情展示用（存库仍为 ARM / AMD / 完整 Shape 名） */
+export function formatTaskArchitectureLabel(architecture: string | null | undefined): string {
+  if (!architecture?.trim()) return '—'
+  const a = architecture.trim()
+  if (a === 'AMD') return SHAPE_AMD_SHORT_LABEL
+  if (a === 'ARM') return SHAPE_ARM_SHORT
+  return a
+}
+
+function shortCodesForSeries(series: string, allShapes: ShapeListRow[]): ShapePickOption[] {
+  const names = new Set(allShapes.map((s) => s.shape))
+  if (series === SHAPE_SERIES_ARM && names.has(SHAPE_ARM_SHORT)) {
+    return [{ value: 'ARM', label: SHAPE_ARM_SHORT }]
+  }
+  if (series === SHAPE_SERIES_SPECIALTY && names.has(SHAPE_AMD_SHORT)) {
+    return [{ value: 'AMD', label: SHAPE_AMD_SHORT_LABEL }]
+  }
+  return []
 }
 
 export function resolveShapeSeries(shapeOrArchitecture: string | null | undefined): string {
@@ -142,11 +160,12 @@ export function filterApiShapesForPicker(rows: ShapeListRow[]): ShapeListRow[] {
 export function shapeOptionsForSeries(
   series: string,
   apiShapes: ShapeListRow[],
+  allShapes?: ShapeListRow[],
 ): ShapePickOption[] {
   const norm = normalizeShapeSeries(series)
   const out: ShapePickOption[] = []
-  const shorts = SHORT_CODES_BY_SERIES[norm] ?? []
-  for (const sc of shorts) out.push({ ...sc })
+  const catalog = allShapes?.length ? allShapes : apiShapes
+  for (const sc of shortCodesForSeries(norm, catalog)) out.push({ ...sc })
   for (const row of apiShapes) {
     if (resolveShapeSeries(row.shape) === norm) {
       out.push(formatShapeOption(row))
@@ -166,16 +185,17 @@ export function pickDefaultArchitectureForSeries(
   series: string,
   apiShapes: ShapeListRow[],
   prev?: string | null,
+  allShapes?: ShapeListRow[],
 ): string {
-  const opts = shapeOptionsForSeries(series, apiShapes)
+  const opts = shapeOptionsForSeries(series, apiShapes, allShapes)
   if (prev && opts.some((o) => o.value === prev)) return prev
   return opts[0]?.value ?? 'ARM'
 }
 
 /** 仅展示当前区域有 Shape 的架构；「其它」无项时不出现 */
-export function seriesOptionsForPicker(apiShapes: ShapeListRow[]): ShapePickOption[] {
-  const filtered = filterApiShapesForPicker(apiShapes)
+export function seriesOptionsForPicker(allShapes: ShapeListRow[]): ShapePickOption[] {
+  const filtered = filterApiShapesForPicker(allShapes)
   return SHAPE_SERIES_ORDER.filter(
-    (series) => shapeOptionsForSeries(series, filtered).length > 0,
+    (series) => shapeOptionsForSeries(series, filtered, allShapes).length > 0,
   ).map((value) => ({ value, label: value }))
 }

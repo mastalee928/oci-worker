@@ -67,7 +67,8 @@ const emit = defineEmits<{
   change: [value: string]
 }>()
 
-const apiShapes = computed(() => filterApiShapesForPicker(props.shapes ?? []))
+const rawShapes = computed(() => props.shapes ?? [])
+const apiShapes = computed(() => filterApiShapesForPicker(rawShapes.value))
 
 const seriesModel = ref(SHAPE_SERIES_ARM)
 
@@ -81,7 +82,9 @@ const architectureModel = computed({
   },
 })
 
-const shapeOptions = computed(() => shapeOptionsForSeries(seriesModel.value, apiShapes.value))
+const shapeOptions = computed(() =>
+  shapeOptionsForSeries(seriesModel.value, apiShapes.value, rawShapes.value),
+)
 
 function filterShapeOption(input: string, option: { label?: string }) {
   return String(option?.label ?? '').toLowerCase().includes(input.toLowerCase())
@@ -92,7 +95,7 @@ function syncSeriesFromArchitecture() {
 }
 
 function onSeriesChange(series: string) {
-  const next = pickDefaultArchitectureForSeries(series, apiShapes.value, null)
+  const next = pickDefaultArchitectureForSeries(series, apiShapes.value, null, rawShapes.value)
   architectureModel.value = next
 }
 
@@ -111,7 +114,12 @@ function ensureSeriesStillVisible() {
   if (!list.length) return
   if (!list.some((o) => o.value === seriesModel.value)) {
     seriesModel.value = SHAPE_SERIES_ARM
-    architectureModel.value = pickDefaultArchitectureForSeries(SHAPE_SERIES_ARM, apiShapes.value, 'ARM')
+    architectureModel.value = pickDefaultArchitectureForSeries(
+      SHAPE_SERIES_ARM,
+      apiShapes.value,
+      'ARM',
+      rawShapes.value,
+    )
   }
 }
 
@@ -123,11 +131,17 @@ watch(apiShapes, () => {
       seriesModel.value,
       apiShapes.value,
       architectureModel.value,
+      rawShapes.value,
     )
     return
   }
   if (!opts.some((o) => o.value === architectureModel.value)) {
-    architectureModel.value = pickDefaultArchitectureForSeries(seriesModel.value, apiShapes.value, null)
+    architectureModel.value = pickDefaultArchitectureForSeries(
+      seriesModel.value,
+      apiShapes.value,
+      null,
+      rawShapes.value,
+    )
   } else {
     syncSeriesFromArchitecture()
   }
