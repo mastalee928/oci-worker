@@ -414,35 +414,58 @@ public class TenantService {
                     result.put("registrationLocation", StrUtil.isBlank(countryName) ? null : countryName);
                 }
 
-                if (StrUtil.isNotBlank(subId)) {
-                    result.put("subscriptionId", subId);
-                    try {
-                        Map<String, Object> rewards = usageRewardsService.fetchSubscriptionRewards(
-                                client, user.getOciTenantId(), subId, user.getOciRegion());
-                        result.put("rewards", rewards);
-                    } catch (Exception ex) {
-                        log.warn("Failed to get subscription rewards: {}", ex.getMessage());
-                        Map<String, Object> rewards = new LinkedHashMap<>();
-                        rewards.put("available", Boolean.FALSE);
-                        rewards.put("reason", ex.getMessage());
-                        rewards.put("summary", null);
-                        rewards.put("periods", List.of());
-                        result.put("rewards", rewards);
-                    }
+                String ospRef = StrUtil.isNotBlank(subId) ? subId.trim() : null;
+                Object ospRefObj = result.get("subscriptionOspRef");
+                if (ospRefObj != null && StrUtil.isNotBlank(String.valueOf(ospRefObj))) {
+                    ospRef = String.valueOf(ospRefObj).trim();
+                } else if (StrUtil.isNotBlank(ospRef)) {
+                    result.put("subscriptionOspRef", ospRef);
                 }
 
+                Map<String, Object> orgSub;
                 try {
-                    Map<String, Object> orgSub = organizationSubscriptionService.fetchOrganizationSubscription(
-                            client, user.getOciTenantId(), user.getOciRegion(), subId);
+                    orgSub = organizationSubscriptionService.fetchOrganizationSubscription(
+                            client, user.getOciTenantId(), user.getOciRegion(), ospRef);
                     result.put("organizationSubscription", orgSub);
                 } catch (Exception ex) {
                     log.warn("Failed to get organization subscription: {}", ex.getMessage());
-                    Map<String, Object> orgSub = new LinkedHashMap<>();
+                    orgSub = new LinkedHashMap<>();
                     orgSub.put("available", Boolean.FALSE);
                     orgSub.put("reason", ex.getMessage());
                     orgSub.put("assignedSubscriptions", List.of());
                     orgSub.put("subscribedServices", List.of());
                     result.put("organizationSubscription", orgSub);
+                }
+
+                String subscriptionOcid = result.get("subscriptionOcid") == null
+                        ? null : String.valueOf(result.get("subscriptionOcid")).trim();
+                if (!OspSubscriptionEnricher.isOciOcid(subscriptionOcid)) {
+                    subscriptionOcid = null;
+                }
+                String rewardsSubId = resolveRewardsSubscriptionId(subscriptionOcid, ospRef, orgSub);
+                if (StrUtil.isBlank(subscriptionOcid) && OspSubscriptionEnricher.isOciOcid(rewardsSubId)) {
+                    subscriptionOcid = rewardsSubId;
+                    result.put("subscriptionOcid", subscriptionOcid);
+                }
+                try {
+                    Map<String, Object> rewards = usageRewardsService.fetchSubscriptionRewards(
+                            client, user.getOciTenantId(), rewardsSubId, user.getOciRegion());
+                    result.put("rewards", rewards);
+                } catch (Exception ex) {
+                    log.warn("Failed to get subscription rewards: {}", ex.getMessage());
+                    Map<String, Object> rewards = new LinkedHashMap<>();
+                    rewards.put("available", Boolean.FALSE);
+                    rewards.put("reason", ex.getMessage());
+                    rewards.put("summary", null);
+                    rewards.put("periods", List.of());
+                    result.put("rewards", rewards);
+                }
+
+                if (StrUtil.isNotBlank(subscriptionOcid)) {
+                    result.put("subscriptionOcid", subscriptionOcid);
+                    result.put("subscriptionId", subscriptionOcid);
+                } else if (StrUtil.isNotBlank(ospRef)) {
+                    result.put("subscriptionId", ospRef);
                 }
             } catch (Exception e) {
                 log.warn("Failed to get subscription info: {}", e.getMessage());
@@ -614,6 +637,58 @@ public class TenantService {
         result.put("summary", summary);
 
         return result;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static String resolveRewardsSubscriptionId(
+            String subscriptionOcid, String ospRef, Map<String, Object> orgSub) {
+        if (OspSubscriptionEnricher.isOciOcid(subscriptionOcid)) {
+            return subscriptionOcid;
+        }
+        if (orgSub != null) {
+            Object assigned = orgSub.get("assignedSubscriptions");
+            if (assigned instanceof List<?> list) {
+                for (Object row : list) {
+                    if (!(row instanceof Map<?, ?> m)) {
+                        continue;
+                    }
+                    String id = m.get("id") == null ? null : String.valueOf(m.get("id")).trim();
+                    if (OspSubscriptionEnricher.isOciOcid(id)) {
+                        if (StrUtil.isBlank(ospRef)) {
+                            return id;
+                        }
+                        String num = m.get("subscriptionNumber") == null
+                                ? null : String.valueOf(m.get("subscriptionNumber")).trim();
+                        if (ospRef.equals(num) || ospRef.equals(id)) {
+                            return id;
+                        }
+                    }
+                }
+                for (Object row : list) {
+                    if (!(row instanceof Map<?, ?> m)) {
+                        continue;
+                    }
+                    String id = m.get("id") == null ? null : String.valueOf(m.get("id")).trim();
+                    if (OspSubscriptionEnricher.isOciOcid(id)) {
+                        return id;
+                    }
+                }
+            }
+            Object services = orgSub.get("subscribedServices");
+            if (services instanceof List<?> list) {
+                for (Object row : list) {
+                    if (!(row instanceof Map<?, ?> m)) {
+                        continue;
+                    }
+                    String id = m.get("subscriptionId") == null
+                            ? null : String.valueOf(m.get("subscriptionId")).trim();
+                    if (OspSubscriptionEnricher.isOciOcid(id)) {
+                        return id;
+                    }
+                }
+            }
+        }
+        return OspSubscriptionEnricher.isOciOcid(ospRef) ? ospRef : null;
     }
 
     private static String countryNameFromRaw(JsonNode sub) {

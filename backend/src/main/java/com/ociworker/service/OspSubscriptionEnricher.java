@@ -57,7 +57,42 @@ final class OspSubscriptionEnricher {
             }
         }
         scanJsonNode(sub, result);
+        applySubscriptionIdentifiers(result, sub, null);
         reconcileAfterMerge(null, result);
+    }
+
+    /** Rewards / Organizations 等接口需要 ocid1.*；OSP 列表里的 id 可能是订阅编号。 */
+    static boolean isOciOcid(String value) {
+        if (StrUtil.isBlank(value)) {
+            return false;
+        }
+        return value.trim().toLowerCase(Locale.ROOT).startsWith("ocid1.");
+    }
+
+    static void applySubscriptionIdentifiers(Map<String, Object> result, JsonNode sub, Object sdkObj) {
+        if (result == null) {
+            return;
+        }
+        String jsonId = sub != null && sub.hasNonNull("id") ? sub.get("id").asText() : null;
+        String planNum = sub != null && sub.hasNonNull("subscriptionPlanNumber")
+                ? sub.get("subscriptionPlanNumber").asText() : null;
+        if (sdkObj != null) {
+            if (StrUtil.isBlank(planNum)) {
+                planNum = asString(tryInvoke(sdkObj, "getSubscriptionPlanNumber"));
+            }
+            if (StrUtil.isBlank(jsonId)) {
+                jsonId = asString(tryInvoke(sdkObj, "getId"));
+            }
+        }
+        if (StrUtil.isNotBlank(planNum)) {
+            result.put("subscriptionPlanNumber", planNum.trim());
+        }
+        if (StrUtil.isNotBlank(jsonId)) {
+            result.put("subscriptionOspRef", jsonId.trim());
+            if (isOciOcid(jsonId)) {
+                result.put("subscriptionOcid", jsonId.trim());
+            }
+        }
     }
 
     static void enrich(Object sub, Map<String, Object> result) {
@@ -106,6 +141,11 @@ final class OspSubscriptionEnricher {
         }
 
         mergeFromJsonTree(sub, result);
+        try {
+            applySubscriptionIdentifiers(result, JSON.valueToTree(sub), sub);
+        } catch (Exception ignored) {
+            applySubscriptionIdentifiers(result, null, sub);
+        }
         reconcileAfterMerge(sub, result);
     }
 
@@ -280,6 +320,8 @@ final class OspSubscriptionEnricher {
                     putEndIfAbsent(result, val);
                 } else if (matchesStartKey(lower)) {
                     putStartIfAbsent(result, val);
+                } else if (lower.equals("subscriptionplannumber")) {
+                    putStringIfAbsent(result, "subscriptionPlanNumber", textNode(val));
                 } else if (lower.equals("plantype")) {
                     putStringIfAbsent(result, "planType", textNode(val));
                     putStringIfAbsent(result, "planTypeLabel", labelPlanType(textNode(val)));

@@ -47,6 +47,11 @@ public class UsageRewardsService {
             out.put("reason", "缺少订阅 ID，无法查询促销余额");
             return out;
         }
+        if (!OspSubscriptionEnricher.isOciOcid(subscriptionId)) {
+            out.put("reason", "订阅引用「" + subscriptionId.trim()
+                    + "」不是 OCID（需 ocid1.*）；Usage Rewards 不接受 OSP 订阅编号");
+            return out;
+        }
 
         var rewardsB = RewardsClient.builder();
         OciProxyConfigService pxy = OciProxyConfigService.instance();

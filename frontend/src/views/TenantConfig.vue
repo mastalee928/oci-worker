@@ -574,8 +574,15 @@ region=ap-tokyo-1"
             </span>
           </a-descriptions-item>
           <a-descriptions-item label="注册地">{{ formatCountryCn(tenantInfoData.registrationLocation) }}</a-descriptions-item>
-          <a-descriptions-item label="订阅 ID">
-            <span style="word-break: break-all; font-size: 12px">{{ tenantInfoData.subscriptionId || '—' }}</span>
+          <a-descriptions-item label="订阅编号">
+            <span style="word-break: break-all; font-size: 12px">
+              {{ tenantInfoData.subscriptionPlanNumber || (tenantInfoData.subscriptionOspRef && !isOciSubscriptionId(tenantInfoData.subscriptionOspRef) ? tenantInfoData.subscriptionOspRef : '') || '—' }}
+            </span>
+          </a-descriptions-item>
+          <a-descriptions-item label="订阅 OCID">
+            <span style="word-break: break-all; font-size: 12px">
+              {{ tenantInfoData.subscriptionOcid || (isOciSubscriptionId(tenantInfoData.subscriptionId) ? tenantInfoData.subscriptionId : '') || '—' }}
+            </span>
           </a-descriptions-item>
           <a-descriptions-item label="促销总可用余额">
             <template v-if="tenantInfoData.rewards?.available && tenantInfoData.rewards?.summary">
@@ -617,7 +624,7 @@ region=ap-tokyo-1"
             <span style="font-size: 12px; color: var(--text-sub)">订购额度 / 剩余可用（Organizations + Subscribed Service）</span>
           </a-divider>
           <a-alert
-            v-if="!tenantInfoData.organizationSubscription.available && tenantInfoData.organizationSubscription.reason"
+            v-if="tenantInfoData.organizationSubscription.reason"
             type="info" show-icon style="margin-bottom: 10px"
             :message="tenantInfoData.organizationSubscription.reason" />
           <template v-if="(tenantInfoData.organizationSubscription.assignedSubscriptions || []).length">
@@ -651,6 +658,12 @@ region=ap-tokyo-1"
               <a-table-column title="状态" data-index="status" key="status" :width="88" />
               <a-table-column title="订单号" data-index="orderNumber" key="orderNumber" :width="120" :ellipsis="true" />
               <a-table-column title="订阅 ID" data-index="subscriptionId" key="subscriptionId" :ellipsis="true" />
+              <a-table-column title="说明" data-index="error" key="error" :ellipsis="true">
+                <template #default="{ record }">
+                  <span v-if="record.error" style="color: var(--text-sub); font-size: 12px">{{ record.error }}</span>
+                  <span v-else>—</span>
+                </template>
+              </a-table-column>
             </a-table>
           </template>
         </template>
@@ -1320,6 +1333,11 @@ function formatSubscriptionAmount(data: any): string {
   if (data.subscriptionAmount == null) return '—'
   const cur = data.currencyCode ? ` ${data.currencyCode}` : ''
   return `${data.subscriptionAmount}${cur}`
+}
+
+function isOciSubscriptionId(id: string | null | undefined): boolean {
+  if (!id || typeof id !== 'string') return false
+  return id.trim().toLowerCase().startsWith('ocid1.')
 }
 
 function formatRewardsAmount(amount: number | null | undefined, currency?: string | null): string {

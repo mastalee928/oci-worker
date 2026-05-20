@@ -33,13 +33,13 @@ public class OrganizationSubscriptionService {
     private static final int PAGE_LIMIT = 100;
 
     /**
-     * @param ospSubscriptionId 可选；当无 assigned 条目时，仍尝试用 OSP 订阅 ID 拉 subscribed services
+     * @param ospSubscriptionRef OSP Gateway 返回的订阅引用（可能是 ocid1.* 或订阅编号如 77007627）
      */
     public Map<String, Object> fetchOrganizationSubscription(
             OciClientService oci,
             String tenancyId,
             String fallbackRegion,
-            String ospSubscriptionId) {
+            String ospSubscriptionRef) {
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("available", Boolean.FALSE);
         out.put("reason", null);
@@ -56,33 +56,27 @@ public class OrganizationSubscriptionService {
 
         List<Map<String, Object>> assignedRows = new ArrayList<>();
         List<Map<String, Object>> serviceRows = new ArrayList<>();
-        Set<String> subscriptionIdsToQuery = new LinkedHashSet<>();
+        List<String> notes = new ArrayList<>();
 
         try (SubscriptionClient subClient = buildSubscriptionClient(oci)) {
             setRegion(subClient, region);
             assignedRows.addAll(listAssignedSubscriptions(subClient, tenancyId));
-            for (Map<String, Object> row : assignedRows) {
-                Object id = row.get("id");
-                if (id != null && StrUtil.isNotBlank(String.valueOf(id))) {
-                    subscriptionIdsToQuery.add(String.valueOf(id).trim());
-                }
-            }
         } catch (BmcException e) {
             log.warn("listAssignedSubscriptions failed: {}", e.getMessage());
-            out.put("reason", formatOrgError("订购分配", e));
-            return out;
+            notes.add(formatOrgError("订购分配", e));
         } catch (Exception e) {
             log.warn("listAssignedSubscriptions failed: {}", e.getMessage());
-            out.put("reason", "订购分配查询失败：" + e.getMessage());
-            return out;
+            notes.add("订购分配查询失败：" + e.getMessage());
         }
 
-        if (subscriptionIdsToQuery.isEmpty() && StrUtil.isNotBlank(ospSubscriptionId)) {
-            subscriptionIdsToQuery.add(ospSubscriptionId.trim());
-        }
+        Set<String> subscriptionIdsToQuery =
+                resolveSubscriptionOcidCandidates(assignedRows, ospSubscriptionRef);
 
         if (subscriptionIdsToQuery.isEmpty()) {
-            out.put("reason", "无已分配订购（Assigned Subscription）；且无可用于 Subscribed Service 的订阅 ID");
+            out.put("assignedSubscriptions", assignedRows);
+            out.put("subscribedServices", serviceRows);
+            notes.add(buildNoOcidReason(ospSubscriptionRef, assignedRows));
+            out.put("reason", String.join("；", notes));
             return out;
         }
 
@@ -111,9 +105,52 @@ public class OrganizationSubscriptionService {
         out.put("subscribedServices", serviceRows);
         if (assignedRows.isEmpty() && serviceRows.isEmpty()) {
             out.put("available", Boolean.FALSE);
-            out.put("reason", "订购与子服务接口均无数据");
+            notes.add("订购与子服务接口均无数据");
+        }
+        if (!notes.isEmpty()) {
+            out.put("reason", String.join("；", notes));
         }
         return out;
+    }
+
+    static Set<String> resolveSubscriptionOcidCandidates(
+            List<Map<String, Object>> assignedRows, String ospSubscriptionRef) {
+        Set<String> ids = new LinkedHashSet<>();
+        if (assignedRows != null) {
+            for (Map<String, Object> row : assignedRows) {
+                String id = row.get("id") == null ? null : String.valueOf(row.get("id")).trim();
+                if (OspSubscriptionEnricher.isOciOcid(id)) {
+                    ids.add(id);
+                }
+            }
+        }
+        if (OspSubscriptionEnricher.isOciOcid(ospSubscriptionRef)) {
+            ids.add(ospSubscriptionRef.trim());
+        } else if (StrUtil.isNotBlank(ospSubscriptionRef) && assignedRows != null) {
+            String ref = ospSubscriptionRef.trim();
+            for (Map<String, Object> row : assignedRows) {
+                String num = row.get("subscriptionNumber") == null
+                        ? null : String.valueOf(row.get("subscriptionNumber")).trim();
+                if (ref.equals(num)) {
+                    String id = row.get("id") == null ? null : String.valueOf(row.get("id")).trim();
+                    if (OspSubscriptionEnricher.isOciOcid(id)) {
+                        ids.add(id);
+                    }
+                }
+            }
+        }
+        return ids;
+    }
+
+    private static String buildNoOcidReason(String ospRef, List<Map<String, Object>> assignedRows) {
+        if (assignedRows == null || assignedRows.isEmpty()) {
+            return "无 Assigned Subscription 记录"
+                    + (StrUtil.isNotBlank(ospRef) ? "（OSP 引用：" + ospRef + "）" : "");
+        }
+        if (StrUtil.isNotBlank(ospRef) && !OspSubscriptionEnricher.isOciOcid(ospRef)) {
+            return "OSP 订阅引用「" + ospRef + "」为编号非 OCID；Subscribed Service / Rewards 需 ocid1.*，请对照下方 Assigned 表中的订阅 ID";
+        }
+        return "未解析到可用于 Subscribed Service 的订阅 OCID";
     }
 
     private static SubscriptionClient buildSubscriptionClient(OciClientService oci) {
