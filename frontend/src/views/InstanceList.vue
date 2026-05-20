@@ -427,22 +427,13 @@
             同一 tenancy 多区域时在此选择要开机的 Region；不选则使用租户配置中的 Region。
           </div>
         </a-form-item>
-        <a-form-item label="机器规格">
-          <a-select
-            v-model:value="quickTaskForm.architecture"
-            placeholder="选择 Shape"
-            :loading="quickTaskShapesLoading"
-          >
-            <a-select-option value="ARM">ARM (A1.Flex)</a-select-option>
-            <a-select-option value="AMD">AMD (E2.1.Micro)</a-select-option>
-            <a-select-option v-for="s in quickTaskShapes" :key="s.shape" :value="s.shape">
-              {{ s.shape }}{{ s.processorDescription ? `（${s.processorDescription}）` : '' }}
-            </a-select-option>
-          </a-select>
-          <div v-if="quickTaskShapes.length" style="color: var(--text-sub); font-size: 12px; margin-top: 4px">
-            已从 OCI 加载 {{ quickTaskShapes.length }} 个可用 Shape（随目标区域变化）
-          </div>
-        </a-form-item>
+        <ShapeSeriesPicker
+          v-model:architecture="quickTaskForm.architecture"
+          :shapes="quickTaskShapes"
+          :loading="quickTaskShapesLoading"
+          :hint="quickTaskShapes.length ? `已从 OCI 加载 ${quickTaskShapes.length} 个可用 Shape（随目标区域变化）` : ''"
+          :is-mobile="isMobile"
+        />
         <a-form-item label="操作系统">
           <a-select v-model:value="quickTaskForm.operationSystem">
             <a-select-option value="Ubuntu">Ubuntu（最新版）</a-select-option>
@@ -1232,6 +1223,7 @@ import {
   validateDenseIoFlexTier,
 } from '../constants/ociBmShapeSpecs'
 import { useDenseIoFlexTier } from '../composables/useDenseIoFlexTier'
+import ShapeSeriesPicker from '../components/ShapeSeriesPicker.vue'
 import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc'
 

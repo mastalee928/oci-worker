@@ -121,18 +121,12 @@
             </a-select-option>
           </a-select>
         </a-form-item>
-        <a-form-item label="机器规格 (Shape)">
-          <a-select v-model:value="createForm.architecture" placeholder="选择 Shape" :loading="shapesLoading">
-            <a-select-option value="ARM">ARM (A1.Flex)</a-select-option>
-            <a-select-option value="AMD">AMD (E2.1.Micro)</a-select-option>
-            <a-select-option v-for="s in availableShapes" :key="s.shape" :value="s.shape">
-              {{ s.shape }} ({{ s.processorDescription || '' }})
-            </a-select-option>
-          </a-select>
-          <div v-if="availableShapes.length" style="color: #888; font-size: 12px; margin-top: 4px">
-            查询到 {{ availableShapes.length }} 个可用 Shape
-          </div>
-        </a-form-item>
+        <ShapeSeriesPicker
+          v-model:architecture="createForm.architecture"
+          :shapes="availableShapes"
+          :loading="shapesLoading"
+          :hint="availableShapes.length ? `查询到 ${availableShapes.length} 个可用 Shape（随租户区域变化）` : ''"
+        />
         <a-form-item label="操作系统">
           <a-select v-model:value="createForm.operationSystem">
             <a-select-option value="Ubuntu">Ubuntu（最新版）</a-select-option>
@@ -229,18 +223,12 @@
     <a-modal v-model:open="editVisible" title="编辑开机任务" :width="isMobile ? '100%' : 600" @ok="handleEdit"
       :confirm-loading="editLoading" :mask-closable="false">
       <a-form :model="editForm" layout="vertical">
-        <a-form-item label="机器规格 (Shape)">
-          <a-select v-model:value="editForm.architecture" placeholder="选择 Shape" :loading="editShapesLoading">
-            <a-select-option value="ARM">ARM (A1.Flex)</a-select-option>
-            <a-select-option value="AMD">AMD (E2.1.Micro)</a-select-option>
-            <a-select-option v-for="s in editAvailableShapes" :key="s.shape" :value="s.shape">
-              {{ s.shape }} ({{ s.processorDescription || '' }})
-            </a-select-option>
-          </a-select>
-          <div v-if="editAvailableShapes.length" style="color: #888; font-size: 12px; margin-top: 4px">
-            查询到 {{ editAvailableShapes.length }} 个可用 Shape
-          </div>
-        </a-form-item>
+        <ShapeSeriesPicker
+          v-model:architecture="editForm.architecture"
+          :shapes="editAvailableShapes"
+          :loading="editShapesLoading"
+          :hint="editAvailableShapes.length ? `查询到 ${editAvailableShapes.length} 个可用 Shape` : ''"
+        />
         <a-form-item label="操作系统">
           <a-select v-model:value="editForm.operationSystem">
             <a-select-option value="Ubuntu">Ubuntu（最新版）</a-select-option>
@@ -429,6 +417,7 @@ import {
   validateDenseIoFlexTier,
 } from '../constants/ociBmShapeSpecs'
 import { useDenseIoFlexTier } from '../composables/useDenseIoFlexTier'
+import ShapeSeriesPicker from '../components/ShapeSeriesPicker.vue'
 
 const statusMap: Record<string, string> = {
   RUNNING: '运行中', STOPPED: '已停止', COMPLETED: '已完成', FAILED: '已失败',
