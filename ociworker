@@ -40,6 +40,8 @@ readonly WEBSSH_PORT=8008
 readonly REPO="mastalee928/oci-worker"
 readonly INSTALLER_RELEASE_TAG="installer-latest"
 readonly RAW_BASE="https://raw.githubusercontent.com/${REPO}/master"
+# install.sh 默认 Docker MySQL 容器名；tg-clean 在本机无 mysql 客户端时可经此容器连库
+readonly OCI_MYSQL_CONTAINER="${OCI_MYSQL_CONTAINER:-oci-worker-mysql}"
 
 # -----------------------------------------------------------------------------
 # Colors / output
@@ -98,23 +100,137 @@ require_installed() {
     fi
 }
 
-# Run SQL against the panel database (requires mysql client).
-_mysql_exec() {
-    local sql="$1"
-    if ! command -v mysql >/dev/null 2>&1; then
-        die "未安装 mysql 客户端，无法执行数据库操作"
+# 从 application.yml 读取与面板相同的数据库配置（仅需 python3，不要求本机 mysql 命令）。
+_mysql_load_cfg() {
+    require_python3 || die "需要 python3 才能读取 ${CONFIG_FILE}"
+    _MYSQL_JDBC="$(yaml_get spring.datasource.url)" || die "无法读取 ${CONFIG_FILE} 中的 spring.datasource.url"
+    _MYSQL_USER="$(yaml_get spring.datasource.username)"
+    _MYSQL_PASS="$(yaml_get spring.datasource.password)"
+    _MYSQL_HOST="$(echo "${_MYSQL_JDBC}" | sed -n 's#jdbc:mysql://\([^:/]*\).*#\1#p')"
+    _MYSQL_PORT="$(echo "${_MYSQL_JDBC}" | sed -n 's#jdbc:mysql://[^:]*:\([0-9]*\)/.*#\1#p')"
+    _MYSQL_DB="$(echo "${_MYSQL_JDBC}"   | sed -n 's#jdbc:mysql://[^/]*/\([^?]*\).*#\1#p')"
+    [ -n "${_MYSQL_HOST}" ] || _MYSQL_HOST="127.0.0.1"
+    [ -n "${_MYSQL_PORT}" ] || _MYSQL_PORT="3306"
+    [ -n "${_MYSQL_DB}" ]   || die "无法从 JDBC URL 解析数据库名：${_MYSQL_JDBC}"
+    _MYSQL_MODE=""
+}
+
+_mysql_host_is_local() {
+    case "${_MYSQL_HOST}" in
+        localhost|127.0.0.1|::1) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+_mysql_docker_available() {
+    command -v docker >/dev/null 2>&1 || return 1
+    _mysql_host_is_local || return 1
+    docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "${OCI_MYSQL_CONTAINER}"
+}
+
+_mysql_try_host() {
+    command -v mysql >/dev/null 2>&1 || return 1
+    local errf; errf="$(mktemp)"
+    if MYSQL_PWD="${_MYSQL_PASS}" mysql -h"${_MYSQL_HOST}" -P"${_MYSQL_PORT}" -u"${_MYSQL_USER}" \
+            "${_MYSQL_DB}" -N -e "SELECT 1" 2>"${errf}" >/dev/null; then
+        rm -f "${errf}"
+        return 0
     fi
-    local jdbc db_user db_pass host port db
-    jdbc="$(yaml_get spring.datasource.url)" || die "无法读取数据库配置"
-    db_user="$(yaml_get spring.datasource.username)"
-    db_pass="$(yaml_get spring.datasource.password)"
-    host="$(echo "${jdbc}" | sed -n 's#jdbc:mysql://\([^:/]*\).*#\1#p')"
-    port="$(echo "${jdbc}" | sed -n 's#jdbc:mysql://[^:]*:\([0-9]*\)/.*#\1#p')"
-    db="$(echo "${jdbc}"   | sed -n 's#jdbc:mysql://[^/]*/\([^?]*\).*#\1#p')"
-    [ -n "${host}" ] || host="127.0.0.1"
-    [ -n "${port}" ] || port="3306"
-    [ -n "${db}"   ] || die "无法解析数据库名"
-    MYSQL_PWD="${db_pass}" mysql -h"${host}" -P"${port}" -u"${db_user}" "${db}" -e "${sql}"
+    rm -f "${errf}"
+    return 1
+}
+
+_mysql_try_docker() {
+    _mysql_docker_available || return 1
+    local errf; errf="$(mktemp)"
+    if docker exec -i "${OCI_MYSQL_CONTAINER}" env MYSQL_PWD="${_MYSQL_PASS}" \
+            mysql -u"${_MYSQL_USER}" "${_MYSQL_DB}" -N -e "SELECT 1" 2>"${errf}" >/dev/null; then
+        rm -f "${errf}"
+        return 0
+    fi
+    rm -f "${errf}"
+    return 1
+}
+
+# 选定 host mysql 或 docker exec（与 install.sh 默认容器一致）。
+_mysql_ensure_mode() {
+    _mysql_load_cfg
+    [ -n "${_MYSQL_MODE}" ] && return 0
+    if _mysql_try_host; then
+        _MYSQL_MODE="host"
+        return 0
+    fi
+    if _mysql_try_docker; then
+        _MYSQL_MODE="docker"
+        info "本机未安装 mysql 或无法直连，已通过 Docker 容器 ${OCI_MYSQL_CONTAINER} 连接数据库"
+        return 0
+    fi
+    err "无法连接数据库（${_MYSQL_USER}@${_MYSQL_HOST}:${_MYSQL_PORT}/${_MYSQL_DB}）"
+    if ! command -v mysql >/dev/null 2>&1; then
+        err "本机缺少 mysql 客户端，且未检测到运行中的 ${OCI_MYSQL_CONTAINER}"
+        die "请执行：apt install -y default-mysql-client；或启动 Docker MySQL 后重试。账号密码以 ${CONFIG_FILE} 为准。"
+    fi
+    if _mysql_docker_available; then
+        die "Docker 容器 ${OCI_MYSQL_CONTAINER} 在运行，但账号/密码与 ${CONFIG_FILE} 不一致，请核对 spring.datasource.password"
+    fi
+    die "请核对 ${CONFIG_FILE} 中的 spring.datasource 与 MySQL 实际账号密码"
+}
+
+_mysql_invoke() {
+    local sql="$1"
+    local numeric="${2:-0}"
+    _mysql_ensure_mode
+    local errf; errf="$(mktemp)"
+    local -a extra=()
+    [ "${numeric}" = "1" ] && extra=(-N)
+    if [ "${_MYSQL_MODE}" = docker ]; then
+        if ! docker exec -i "${OCI_MYSQL_CONTAINER}" env MYSQL_PWD="${_MYSQL_PASS}" \
+                mysql -u"${_MYSQL_USER}" "${_MYSQL_DB}" "${extra[@]}" -e "${sql}" 2>"${errf}"; then
+            err "经 Docker ${OCI_MYSQL_CONTAINER} 执行 SQL 失败"
+            sed 's/^/  /' "${errf}" >&2
+            rm -f "${errf}"
+            die "请核对 ${CONFIG_FILE} 中的 spring.datasource 账号密码"
+        fi
+    else
+        if ! MYSQL_PWD="${_MYSQL_PASS}" mysql -h"${_MYSQL_HOST}" -P"${_MYSQL_PORT}" -u"${_MYSQL_USER}" \
+                "${_MYSQL_DB}" "${extra[@]}" -e "${sql}" 2>"${errf}"; then
+            err "数据库执行失败（${_MYSQL_USER}@${_MYSQL_HOST}:${_MYSQL_PORT}/${_MYSQL_DB}）"
+            sed 's/^/  /' "${errf}" >&2
+            rm -f "${errf}"
+            die "请核对 ${CONFIG_FILE} 与面板是否使用同一库"
+        fi
+    fi
+    rm -f "${errf}"
+}
+
+_mysql_exec() {
+    _mysql_invoke "$1" 0
+}
+
+_mysql_scalar() {
+    local sql="$1"
+    local out errf
+    _mysql_ensure_mode
+    errf="$(mktemp)"
+    if [ "${_MYSQL_MODE}" = docker ]; then
+        out="$(docker exec -i "${OCI_MYSQL_CONTAINER}" env MYSQL_PWD="${_MYSQL_PASS}" \
+            mysql -u"${_MYSQL_USER}" "${_MYSQL_DB}" -N -e "${sql}" 2>"${errf}")" || {
+            err "经 Docker ${OCI_MYSQL_CONTAINER} 查询失败"
+            sed 's/^/  /' "${errf}" >&2
+            rm -f "${errf}"
+            die "请核对 ${CONFIG_FILE} 中的 spring.datasource 账号密码"
+        }
+    else
+        out="$(MYSQL_PWD="${_MYSQL_PASS}" mysql -h"${_MYSQL_HOST}" -P"${_MYSQL_PORT}" -u"${_MYSQL_USER}" \
+            "${_MYSQL_DB}" -N -e "${sql}" 2>"${errf}")" || {
+            err "数据库查询失败（${_MYSQL_USER}@${_MYSQL_HOST}:${_MYSQL_PORT}/${_MYSQL_DB}）"
+            sed 's/^/  /' "${errf}" >&2
+            rm -f "${errf}"
+            die "请核对 ${CONFIG_FILE} 与面板是否使用同一库"
+        }
+    fi
+    rm -f "${errf}"
+    echo "${out}" | tail -n1 | tr -d '\r' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//'
 }
 
 # -----------------------------------------------------------------------------
@@ -501,17 +617,37 @@ cmd_tg_clean() {
     require_root tg-clean
     require_installed
     section "清除 Telegram 绑定"
-    local bound_count
-    bound_count="$(_mysql_exec "SELECT COUNT(*) FROM oci_kv WHERE type='sys' AND code IN ('tg_bot_token','tg_chat_id') AND COALESCE(TRIM(value),'') <> '';" 2>/dev/null | tail -n1 | tr -d '[:space:]')"
-    if [ -z "${bound_count}" ] || [ "${bound_count}" = "0" ]; then
-        info "当前未检测到 Telegram 绑定（tg_bot_token / tg_chat_id）"
-        ok "telegram通知已清除，请登录面板重新绑定。"
-        return 0
+    _mysql_ensure_mode
+    if [ "${_MYSQL_MODE}" = docker ]; then
+        info "数据库：${_MYSQL_USER}@${OCI_MYSQL_CONTAINER}/${_MYSQL_DB}（Docker，配置来自 ${CONFIG_FILE}）"
+    else
+        info "数据库：${_MYSQL_USER}@${_MYSQL_HOST}:${_MYSQL_PORT}/${_MYSQL_DB}（来自 ${CONFIG_FILE}）"
     fi
-    echo "将删除数据库中的 Bot Token、Chat ID 及 getUpdates offset。"
-    echo "清除后：面板保存通知配置将不再要求 TG 验证码，直至重新绑定。"
-    [ "$(ask_yes_no "确认清除 Telegram 绑定？" "N")" = "y" ] || { info "已取消"; return 0; }
-    _mysql_exec "DELETE FROM oci_kv WHERE type='sys' AND code IN ('tg_bot_token','tg_chat_id','tg_updates_next_offset');"
+
+    local has_token has_chat
+    has_token="$(_mysql_scalar "SELECT COUNT(*) FROM oci_kv WHERE type='sys' AND code='tg_bot_token' AND COALESCE(TRIM(value),'') <> '' AND TRIM(value) NOT LIKE '%****%';")"
+    has_chat="$(_mysql_scalar "SELECT COUNT(*) FROM oci_kv WHERE type='sys' AND code='tg_chat_id' AND COALESCE(TRIM(value),'') <> '' AND TRIM(value) NOT LIKE '%****%';")"
+
+    if [ "${has_token}" != "1" ] || [ "${has_chat}" != "1" ]; then
+        warn "未检测到完整绑定（需同时存在有效的 tg_bot_token 与 tg_chat_id）"
+        echo "当前 oci_kv 中 TG 相关项："
+        _mysql_exec "SELECT code,
+            CASE
+              WHEN value IS NULL OR TRIM(value) = '' THEN '(空)'
+              WHEN value LIKE '%****%' THEN '(脱敏占位，非真实 Token)'
+              ELSE CONCAT(LEFT(value, 6), '…(', CHAR_LENGTH(value), ' 字符)')
+            END AS value_hint
+          FROM oci_kv WHERE type='sys' AND code LIKE 'tg_%' ORDER BY code;" || true
+        if [ "$(ask_yes_no "仍要删除所有 tg_% 配置项（含通知类型等）？" "N")" != "y" ]; then
+            info "已取消。"
+            return 0
+        fi
+    else
+        echo "将删除数据库中的 Bot Token、Chat ID、getUpdates offset 及其它 tg_% 项。"
+        echo "清除后：面板保存通知配置将不再要求 TG 验证码，直至重新绑定。"
+        [ "$(ask_yes_no "确认清除 Telegram 绑定？" "N")" = "y" ] || { info "已取消"; return 0; }
+    fi
+    _mysql_exec "DELETE FROM oci_kv WHERE type='sys' AND code LIKE 'tg_%';"
     ok "telegram通知已清除，请登录面板重新绑定。"
 }
 

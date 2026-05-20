@@ -1160,7 +1160,7 @@ do_install() {
   ociworker config     修改端口/数据库（含回滚；账号密码请在网页修改）
   ociworker update     更新到最新版本
   ociworker backup     备份数据库 + 配置 + 密钥
-  ociworker tg-clean   清除 Telegram 绑定（应急，需重新在面板绑定）
+  ociworker tg-clean   清除 Telegram 绑定（无本机 mysql 时自动经 Docker MySQL 容器）
 EOF
 }
 
