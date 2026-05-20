@@ -87,23 +87,37 @@ const FIXED_VM_SHAPE_SERIES: Record<string, string> = (() => {
   return m
 })()
 
-const SHAPE_ARM_SHORT = 'VM.Standard.A1.Flex'
+/** 开机任务默认 ARM Shape（完整名，不再用短码 ARM 作选项 value） */
+export const TASK_ARM_SHAPE = 'VM.Standard.A1.Flex'
 const SHAPE_AMD_SHORT = 'VM.Standard.E2.1.Micro'
 export const SHAPE_AMD_SHORT_LABEL = 'VM.Standard.E2.1.Micro (Always Free)'
 
-/** 任务列表/详情展示用（存库仍为 ARM / AMD / 完整 Shape 名） */
+/** 旧任务短码 ARM → 完整 Shape；其它原样 */
+export function normalizeTaskArchitecture(architecture: string | null | undefined): string {
+  if (!architecture?.trim()) return TASK_ARM_SHAPE
+  const a = architecture.trim()
+  if (a === 'ARM' || a.toUpperCase() === 'AMPERE') return TASK_ARM_SHAPE
+  return a
+}
+
+export function isTaskArmArchitecture(architecture: string | null | undefined): boolean {
+  const a = architecture?.trim()
+  return a === 'ARM' || a === TASK_ARM_SHAPE
+}
+
+/** 任务列表/详情展示用（存库可为 ARM / AMD / 完整 Shape 名） */
 export function formatTaskArchitectureLabel(architecture: string | null | undefined): string {
   if (!architecture?.trim()) return '—'
   const a = architecture.trim()
   if (a === 'AMD') return SHAPE_AMD_SHORT_LABEL
-  if (a === 'ARM') return SHAPE_ARM_SHORT
+  if (a === 'ARM') return TASK_ARM_SHAPE
   return a
 }
 
 function shortCodesForSeries(series: string, allShapes: ShapeListRow[]): ShapePickOption[] {
   const names = new Set(allShapes.map((s) => s.shape))
-  if (series === SHAPE_SERIES_ARM && names.has(SHAPE_ARM_SHORT)) {
-    return [{ value: 'ARM', label: SHAPE_ARM_SHORT }]
+  if (series === SHAPE_SERIES_ARM && names.has(TASK_ARM_SHAPE)) {
+    return [{ value: TASK_ARM_SHAPE, label: TASK_ARM_SHAPE }]
   }
   if (series === SHAPE_SERIES_SPECIALTY && names.has(SHAPE_AMD_SHORT)) {
     return [{ value: 'AMD', label: SHAPE_AMD_SHORT_LABEL }]
@@ -188,8 +202,10 @@ export function pickDefaultArchitectureForSeries(
   allShapes?: ShapeListRow[],
 ): string {
   const opts = shapeOptionsForSeries(series, apiShapes, allShapes)
+  const normPrev = prev ? normalizeTaskArchitecture(prev) : null
+  if (normPrev && opts.some((o) => o.value === normPrev)) return normPrev
   if (prev && opts.some((o) => o.value === prev)) return prev
-  return opts[0]?.value ?? 'ARM'
+  return opts[0]?.value ?? TASK_ARM_SHAPE
 }
 
 /** 仅展示当前区域有 Shape 的架构；「其它」无项时不出现 */

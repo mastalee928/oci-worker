@@ -58,7 +58,7 @@ public class TenantService {
     private OrganizationSubscriptionService organizationSubscriptionService;
 
     private static final Set<String> TENANT_ACCOUNT_INFO_KEYS = Set.of(
-            "tenantName", "homeRegionKey", "upiIdcsCompatibilityLayerEndpoint", "tenantId", "description",
+            "tenantName", "homeRegionKey", "tenantId", "description",
             "subscribedRegions", "planType", "planTypeLabel", "paymentMethod", "paymentMethodLabel",
             "subscriptionUsage",
             "accountType", "upgradeState", "upgradeStateLabel",
@@ -630,7 +630,6 @@ public class TenantService {
                 result.put("homeRegionKey", tenancy.getHomeRegionKey());
                 result.put("tenantId", tenancy.getId());
                 result.put("description", tenancy.getDescription());
-                result.put("upiIdcsCompatibilityLayerEndpoint", tenancy.getUpiIdcsCompatibilityLayerEndpoint());
             }
             var regions = ic.listRegionSubscriptions(
                     ListRegionSubscriptionsRequest.builder().tenancyId(tenancyId).build()).getItems();

@@ -510,9 +510,6 @@ region=ap-tokyo-1"
         <a-descriptions :column="1" bordered size="small" style="margin-top: 8px">
           <a-descriptions-item label="租户名称">{{ tenantInfoData.tenantName || '—' }}</a-descriptions-item>
           <a-descriptions-item label="homeRegionKey">{{ tenantInfoData.homeRegionKey || '—' }}</a-descriptions-item>
-          <a-descriptions-item label="upiIdcsCompatibilityLayerEndpoint">
-            <span style="word-break: break-all">{{ tenantInfoData.upiIdcsCompatibilityLayerEndpoint || '—' }}</span>
-          </a-descriptions-item>
           <a-descriptions-item label="租户 ID">
             <span style="word-break: break-all; font-size: 12px">{{ tenantInfoData.tenantId || '—' }}</span>
           </a-descriptions-item>

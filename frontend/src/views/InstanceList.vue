@@ -1221,6 +1221,7 @@ import {
 } from '../constants/ociBmShapeSpecs'
 import { useDenseIoFlexTier } from '../composables/useDenseIoFlexTier'
 import ShapeSeriesPicker from '../components/ShapeSeriesPicker.vue'
+import { TASK_ARM_SHAPE, normalizeTaskArchitecture } from '../utils/shapeSeries'
 import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc'
 
@@ -1820,7 +1821,7 @@ const quickTaskShapes = ref<any[]>([])
 const quickTaskShapesLoading = ref(false)
 const quickTaskForm = reactive({
   ociRegion: undefined as string | undefined,
-  architecture: 'ARM', operationSystem: 'Ubuntu',
+  architecture: TASK_ARM_SHAPE, operationSystem: 'Ubuntu',
   ocpus: 1, memory: 6, disk: 50, createNumbers: 1, interval: 60, rootPassword: '', customScript: '',
   assignPublicIp: true, assignIpv6: false,
 })
@@ -1878,12 +1879,12 @@ async function loadQuickTaskShapes() {
     const res = await getAvailableShapes({ id: tid, ...(region ? { region } : {}) })
     if (gen !== quickTaskShapeLoadGen) return
     quickTaskShapes.value = res.data || []
+    quickTaskForm.architecture = normalizeTaskArchitecture(quickTaskForm.architecture)
     const arch = quickTaskForm.architecture
     const ok =
-      arch === 'ARM' ||
       arch === 'AMD' ||
       quickTaskShapes.value.some((s: any) => s.shape === arch)
-    if (!ok) quickTaskForm.architecture = 'ARM'
+    if (!ok) quickTaskForm.architecture = TASK_ARM_SHAPE
     if (gen === quickTaskShapeLoadGen && isFixedTaskShapeSpec(quickTaskForm.architecture)) {
       quickTaskBmLocked.value = applyTaskShapeDefaults(quickTaskForm, quickTaskShapes.value)
     }
@@ -2750,7 +2751,7 @@ function openQuickTask(tenant: any) {
   quickTaskTenant.value = tenant
   Object.assign(quickTaskForm, {
     ociRegion: tenant.ociRegion || undefined,
-    architecture: 'ARM', operationSystem: 'Ubuntu',
+    architecture: TASK_ARM_SHAPE, operationSystem: 'Ubuntu',
     ocpus: 1, memory: 6, disk: 50, createNumbers: 1, interval: 60, rootPassword: '', customScript: '',
     assignPublicIp: true, assignIpv6: false,
   })

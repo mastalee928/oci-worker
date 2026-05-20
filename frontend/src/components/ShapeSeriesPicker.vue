@@ -36,8 +36,10 @@
 import { computed, ref, watch } from 'vue'
 import {
   SHAPE_SERIES_ARM,
+  TASK_ARM_SHAPE,
   type ShapeListRow,
   filterApiShapesForPicker,
+  normalizeTaskArchitecture,
   normalizeShapeSeries,
   pickDefaultArchitectureForSeries,
   seriesFromArchitecture,
@@ -54,7 +56,7 @@ const props = withDefaults(
     isMobile?: boolean
   }>(),
   {
-    architecture: 'ARM',
+    architecture: TASK_ARM_SHAPE,
     shapes: () => [],
     loading: false,
     hint: '',
@@ -75,10 +77,11 @@ const seriesModel = ref(SHAPE_SERIES_ARM)
 const seriesOptions = computed(() => seriesOptionsForPicker(props.shapes ?? []))
 
 const architectureModel = computed({
-  get: () => props.architecture || 'ARM',
+  get: () => normalizeTaskArchitecture(props.architecture),
   set: (v: string) => {
-    emit('update:architecture', v)
-    emit('change', v)
+    const next = normalizeTaskArchitecture(v)
+    emit('update:architecture', next)
+    emit('change', next)
   },
 })
 
@@ -105,7 +108,13 @@ function onShapeChange() {
 
 watch(
   () => props.architecture,
-  () => syncSeriesFromArchitecture(),
+  (arch) => {
+    const norm = normalizeTaskArchitecture(arch)
+    if (arch?.trim() && norm !== arch.trim()) {
+      emit('update:architecture', norm)
+    }
+    syncSeriesFromArchitecture()
+  },
   { immediate: true },
 )
 
@@ -117,7 +126,7 @@ function ensureSeriesStillVisible() {
     architectureModel.value = pickDefaultArchitectureForSeries(
       SHAPE_SERIES_ARM,
       apiShapes.value,
-      'ARM',
+      TASK_ARM_SHAPE,
       rawShapes.value,
     )
   }

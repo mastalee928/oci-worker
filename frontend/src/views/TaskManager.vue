@@ -35,7 +35,7 @@
       :row-class-name="(record: any) => record.status !== 'RUNNING' ? 'row-inactive' : ''">
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'architecture'">
-          <a-tag :color="record.architecture === 'ARM' ? 'green' : 'blue'">{{ formatTaskArchitectureLabel(record.architecture) }}</a-tag>
+          <a-tag :color="isTaskArmArchitecture(record.architecture) ? 'green' : 'blue'">{{ formatTaskArchitectureLabel(record.architecture) }}</a-tag>
         </template>
         <template v-if="column.key === 'progress'">
           <span>
@@ -77,7 +77,7 @@
         :style="{ opacity: task.status !== 'RUNNING' ? 0.65 : 1 }">
         <div class="mobile-card-header">
           <span class="mobile-card-title">
-            <a-tag :color="task.architecture === 'ARM' ? 'green' : 'blue'" style="margin-right: 6px">{{ formatTaskArchitectureLabel(task.architecture) }}</a-tag>
+            <a-tag :color="isTaskArmArchitecture(task.architecture) ? 'green' : 'blue'" style="margin-right: 6px">{{ formatTaskArchitectureLabel(task.architecture) }}</a-tag>
             {{ task.username }}
           </span>
           <a-badge :status="badgeStatusMap[task.status] || 'default'" :text="statusMap[task.status] || task.status" />
@@ -328,7 +328,7 @@
               <a-descriptions-item label="租户">{{ detailData.username }}</a-descriptions-item>
               <a-descriptions-item label="区域">{{ detailData.ociRegion }}</a-descriptions-item>
               <a-descriptions-item label="架构">
-                <a-tag :color="detailData.architecture === 'ARM' ? 'green' : 'blue'">{{ formatTaskArchitectureLabel(detailData.architecture) }}</a-tag>
+                <a-tag :color="isTaskArmArchitecture(detailData.architecture) ? 'green' : 'blue'">{{ formatTaskArchitectureLabel(detailData.architecture) }}</a-tag>
               </a-descriptions-item>
               <a-descriptions-item label="操作系统">{{ detailData.operationSystem || '—' }}</a-descriptions-item>
               <a-descriptions-item label="配置">{{ detailData.ocpus }}C / {{ detailData.memory }}G / {{ detailData.disk }}GB</a-descriptions-item>
@@ -418,7 +418,12 @@ import {
 } from '../constants/ociBmShapeSpecs'
 import { useDenseIoFlexTier } from '../composables/useDenseIoFlexTier'
 import ShapeSeriesPicker from '../components/ShapeSeriesPicker.vue'
-import { formatTaskArchitectureLabel } from '../utils/shapeSeries'
+import {
+  TASK_ARM_SHAPE,
+  formatTaskArchitectureLabel,
+  isTaskArmArchitecture,
+  normalizeTaskArchitecture,
+} from '../utils/shapeSeries'
 
 const statusMap: Record<string, string> = {
   RUNNING: '运行中', STOPPED: '已停止', COMPLETED: '已完成', FAILED: '已失败',
@@ -468,7 +473,7 @@ onMounted(() => window.addEventListener('resize', checkMobile))
 onUnmounted(() => window.removeEventListener('resize', checkMobile))
 
 const createForm = reactive({
-  userId: '', architecture: 'ARM', operationSystem: 'Ubuntu',
+  userId: '', architecture: TASK_ARM_SHAPE, operationSystem: 'Ubuntu',
   ocpus: 1, memory: 6, disk: 50, createNumbers: 1, interval: 60, rootPassword: '',
   customScript: '', assignPublicIp: true, assignIpv6: false,
 })
@@ -515,7 +520,7 @@ const editMemoryLabel = computed(() => taskMemoryFieldLabel(editForm.architectur
 const editForm = reactive({
   taskId: '',
   userId: '',
-  architecture: 'ARM', operationSystem: 'Ubuntu',
+  architecture: TASK_ARM_SHAPE, operationSystem: 'Ubuntu',
   ocpus: 1, memory: 6, disk: 50, createNumbers: 1, interval: 60, rootPassword: '',
   customScript: '', assignPublicIp: true, assignIpv6: false,
 })
@@ -553,13 +558,8 @@ async function loadEditAvailableShapes(tenantId: string, region?: string, curren
   try {
     const res = await getAvailableShapes({ id: tenantId, ...(region?.trim() ? { region: region.trim() } : {}) })
     let rows = res.data || []
-    const arch = currentArch ?? editForm.architecture
-    if (
-      arch &&
-      arch !== 'ARM' &&
-      arch !== 'AMD' &&
-      !rows.some((s: any) => s.shape === arch)
-    ) {
+    const arch = normalizeTaskArchitecture(currentArch ?? editForm.architecture)
+    if (arch && arch !== 'AMD' && !rows.some((s: any) => s.shape === arch)) {
       rows = [{ shape: arch, processorDescription: '当前任务' }, ...rows]
     }
     editAvailableShapes.value = rows
@@ -574,7 +574,7 @@ async function showEditModal(record: any) {
   Object.assign(editForm, {
     taskId: record.id,
     userId: record.userId || '',
-    architecture: record.architecture,
+    architecture: normalizeTaskArchitecture(record.architecture),
     operationSystem: record.operationSystem || 'Ubuntu',
     ocpus: record.ocpus,
     memory: record.memory,
@@ -693,7 +693,7 @@ function showCreateModal() {
   loadTenants()
   availableShapes.value = []
   Object.assign(createForm, {
-    userId: '', architecture: 'ARM', operationSystem: 'Ubuntu',
+    userId: '', architecture: TASK_ARM_SHAPE, operationSystem: 'Ubuntu',
     ocpus: 1, memory: 6, disk: 50, createNumbers: 1, interval: 60, rootPassword: '',
     customScript: '', assignPublicIp: true, assignIpv6: false,
   })
