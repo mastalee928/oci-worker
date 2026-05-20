@@ -712,7 +712,7 @@ region=ap-tokyo-1"
               </a-spin>
             </div>
           </template>
-          <a-empty v-else description="切换到此标签后将自动加载账务数据" />
+          <a-empty v-else :description="billingLoading ? '正在加载账务数据' : '暂无账务数据'" />
         </a-spin>
         </a-tab-pane>
         <a-tab-pane key="compartments" tab="区间">
