@@ -133,6 +133,41 @@ export function clampTaskShapeResources(
   if (form.memory > lim.maxMemory) form.memory = lim.maxMemory
 }
 
+export function taskOcpuFieldLabel(
+  arch?: string | null,
+  shapesFromApi?: Array<{ shape: string; ocpus?: number; memoryInGBs?: number }>,
+): string {
+  const lim = resolveTaskShapeLimits(arch, shapesFromApi)
+  return `OCPU（${lim.minOcpus}–${lim.maxOcpus}）`
+}
+
+export function taskMemoryFieldLabel(
+  arch?: string | null,
+  shapesFromApi?: Array<{ shape: string; ocpus?: number; memoryInGBs?: number }>,
+): string {
+  const lim = resolveTaskShapeLimits(arch, shapesFromApi)
+  return `内存 GB（${lim.minMemory}–${lim.maxMemory}）`
+}
+
+/** InputNumber 直接键入时 :max 不一定即时生效，须在变更时钳制 */
+export function applyTaskOcpusInput(
+  form: { architecture?: string; ocpus: number; memory: number },
+  value: number | null | undefined,
+  shapesFromApi?: Array<{ shape: string; ocpus?: number; memoryInGBs?: number }>,
+): void {
+  form.ocpus = value ?? 1
+  clampTaskShapeResources(form, shapesFromApi)
+}
+
+export function applyTaskMemoryInput(
+  form: { architecture?: string; ocpus: number; memory: number },
+  value: number | null | undefined,
+  shapesFromApi?: Array<{ shape: string; ocpus?: number; memoryInGBs?: number }>,
+): void {
+  form.memory = value ?? 1
+  clampTaskShapeResources(form, shapesFromApi)
+}
+
 /** 实例改 Shape：已知 Flex 以固定表上限为准，其余用 API */
 export function resolveShapeEditFlexLimits(
   shapeName: string,

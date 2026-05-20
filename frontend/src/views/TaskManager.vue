@@ -155,13 +155,31 @@
         </a-form-item>
         <a-row :gutter="12">
           <a-col v-if="!createDenseIoTiers?.length" :xs="12" :sm="8">
-            <a-form-item label="OCPU 数量">
-              <a-input-number v-model:value="createForm.ocpus" :min="createShapeLimits.minOcpus" :max="createShapeLimits.maxOcpus" :step="1" :disabled="createBmLocked" style="width: 100%" />
+            <a-form-item :label="createOcpuLabel">
+              <a-input-number
+                :value="createForm.ocpus"
+                :min="createShapeLimits.minOcpus"
+                :max="createShapeLimits.maxOcpus"
+                :step="1"
+                :disabled="createBmLocked"
+                style="width: 100%"
+                @update:value="(v) => applyTaskOcpusInput(createForm, v, availableShapes)"
+                @blur="() => clampTaskShapeResources(createForm, availableShapes)"
+              />
             </a-form-item>
           </a-col>
           <a-col v-if="!createDenseIoTiers?.length" :xs="12" :sm="8">
-            <a-form-item label="内存 (GB)">
-              <a-input-number v-model:value="createForm.memory" :min="createShapeLimits.minMemory" :max="createShapeLimits.maxMemory" :step="1" :disabled="createBmLocked" style="width: 100%" />
+            <a-form-item :label="createMemoryLabel">
+              <a-input-number
+                :value="createForm.memory"
+                :min="createShapeLimits.minMemory"
+                :max="createShapeLimits.maxMemory"
+                :step="1"
+                :disabled="createBmLocked"
+                style="width: 100%"
+                @update:value="(v) => applyTaskMemoryInput(createForm, v, availableShapes)"
+                @blur="() => clampTaskShapeResources(createForm, availableShapes)"
+              />
             </a-form-item>
           </a-col>
           <a-col :xs="12" :sm="8">
@@ -245,13 +263,31 @@
         </a-form-item>
         <a-row :gutter="12">
           <a-col v-if="!editDenseIoTiers?.length" :xs="12" :sm="8">
-            <a-form-item label="OCPU 数量">
-              <a-input-number v-model:value="editForm.ocpus" :min="editShapeLimits.minOcpus" :max="editShapeLimits.maxOcpus" :step="1" :disabled="editBmLocked" style="width: 100%" />
+            <a-form-item :label="editOcpuLabel">
+              <a-input-number
+                :value="editForm.ocpus"
+                :min="editShapeLimits.minOcpus"
+                :max="editShapeLimits.maxOcpus"
+                :step="1"
+                :disabled="editBmLocked"
+                style="width: 100%"
+                @update:value="(v) => applyTaskOcpusInput(editForm, v, editAvailableShapes)"
+                @blur="() => clampTaskShapeResources(editForm, editAvailableShapes)"
+              />
             </a-form-item>
           </a-col>
           <a-col v-if="!editDenseIoTiers?.length" :xs="12" :sm="8">
-            <a-form-item label="内存 (GB)">
-              <a-input-number v-model:value="editForm.memory" :min="editShapeLimits.minMemory" :max="editShapeLimits.maxMemory" :step="1" :disabled="editBmLocked" style="width: 100%" />
+            <a-form-item :label="editMemoryLabel">
+              <a-input-number
+                :value="editForm.memory"
+                :min="editShapeLimits.minMemory"
+                :max="editShapeLimits.maxMemory"
+                :step="1"
+                :disabled="editBmLocked"
+                style="width: 100%"
+                @update:value="(v) => applyTaskMemoryInput(editForm, v, editAvailableShapes)"
+                @blur="() => clampTaskShapeResources(editForm, editAvailableShapes)"
+              />
             </a-form-item>
           </a-col>
           <a-col :xs="12" :sm="8">
@@ -382,10 +418,14 @@ import { getTaskList, createTask, updateTask, stopTask, hasRunningTask, resumeTa
 import { getTenantList } from '../api/tenant'
 import { getAvailableShapes } from '../api/instance'
 import {
+  applyTaskOcpusInput,
+  applyTaskMemoryInput,
   applyTaskShapeDefaults,
   clampTaskShapeResources,
   isFixedTaskShapeSpec,
   resolveTaskShapeLimits,
+  taskMemoryFieldLabel,
+  taskOcpuFieldLabel,
   validateDenseIoFlexTier,
 } from '../constants/ociBmShapeSpecs'
 import { useDenseIoFlexTier } from '../composables/useDenseIoFlexTier'
@@ -445,6 +485,8 @@ const createForm = reactive({
 
 const createBmLocked = ref(false)
 const createShapeLimits = computed(() => resolveTaskShapeLimits(createForm.architecture, availableShapes.value))
+const createOcpuLabel = computed(() => taskOcpuFieldLabel(createForm.architecture, availableShapes.value))
+const createMemoryLabel = computed(() => taskMemoryFieldLabel(createForm.architecture, availableShapes.value))
 const {
   tiers: createDenseIoTiers,
   tierKey: createDenseIoTierKey,
@@ -478,6 +520,8 @@ const editAvailableShapes = ref<any[]>([])
 const editShapesLoading = ref(false)
 const editBmLocked = ref(false)
 const editShapeLimits = computed(() => resolveTaskShapeLimits(editForm.architecture, editAvailableShapes.value))
+const editOcpuLabel = computed(() => taskOcpuFieldLabel(editForm.architecture, editAvailableShapes.value))
+const editMemoryLabel = computed(() => taskMemoryFieldLabel(editForm.architecture, editAvailableShapes.value))
 const editForm = reactive({
   taskId: '',
   userId: '',

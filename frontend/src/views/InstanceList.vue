@@ -465,13 +465,29 @@
         </a-form-item>
         <a-row :gutter="12">
           <a-col v-if="!quickDenseIoTiers?.length" :xs="12" :sm="8">
-            <a-form-item label="OCPU">
-              <a-input-number v-model:value="quickTaskForm.ocpus" :min="quickTaskShapeLimits.minOcpus" :max="quickTaskShapeLimits.maxOcpus" :disabled="quickTaskBmLocked" style="width: 100%" />
+            <a-form-item :label="quickTaskOcpuLabel">
+              <a-input-number
+                :value="quickTaskForm.ocpus"
+                :min="quickTaskShapeLimits.minOcpus"
+                :max="quickTaskShapeLimits.maxOcpus"
+                :disabled="quickTaskBmLocked"
+                style="width: 100%"
+                @update:value="(v) => applyTaskOcpusInput(quickTaskForm, v, quickTaskShapes)"
+                @blur="() => clampTaskShapeResources(quickTaskForm, quickTaskShapes)"
+              />
             </a-form-item>
           </a-col>
           <a-col v-if="!quickDenseIoTiers?.length" :xs="12" :sm="8">
-            <a-form-item label="内存 (GB)">
-              <a-input-number v-model:value="quickTaskForm.memory" :min="quickTaskShapeLimits.minMemory" :max="quickTaskShapeLimits.maxMemory" :disabled="quickTaskBmLocked" style="width: 100%" />
+            <a-form-item :label="quickTaskMemoryLabel">
+              <a-input-number
+                :value="quickTaskForm.memory"
+                :min="quickTaskShapeLimits.minMemory"
+                :max="quickTaskShapeLimits.maxMemory"
+                :disabled="quickTaskBmLocked"
+                style="width: 100%"
+                @update:value="(v) => applyTaskMemoryInput(quickTaskForm, v, quickTaskShapes)"
+                @blur="() => clampTaskShapeResources(quickTaskForm, quickTaskShapes)"
+              />
             </a-form-item>
           </a-col>
           <a-col :xs="12" :sm="8">
@@ -1202,12 +1218,16 @@ import {
   filterOciRegionSelectOption,
 } from '../utils/ociRegionCatalog'
 import {
+  applyTaskOcpusInput,
+  applyTaskMemoryInput,
   applyTaskShapeDefaults,
   clampTaskShapeResources,
   getFlexShapeSpec,
   isFixedTaskShapeSpec,
   resolveShapeEditFlexLimits,
   resolveTaskShapeLimits,
+  taskMemoryFieldLabel,
+  taskOcpuFieldLabel,
   validateDenseIoFlexTier,
 } from '../constants/ociBmShapeSpecs'
 import { useDenseIoFlexTier } from '../composables/useDenseIoFlexTier'
@@ -1814,6 +1834,12 @@ const quickTaskForm = reactive({
 const quickTaskBmLocked = ref(false)
 const quickTaskShapeLimits = computed(() =>
   resolveTaskShapeLimits(quickTaskForm.architecture, quickTaskShapes.value),
+)
+const quickTaskOcpuLabel = computed(() =>
+  taskOcpuFieldLabel(quickTaskForm.architecture, quickTaskShapes.value),
+)
+const quickTaskMemoryLabel = computed(() =>
+  taskMemoryFieldLabel(quickTaskForm.architecture, quickTaskShapes.value),
 )
 const {
   tiers: quickDenseIoTiers,
