@@ -76,9 +76,6 @@
                 东八区（Asia/Shanghai），默认 09:00
               </div>
             </a-form-item>
-            <div v-if="tgConfigured" style="font-size: 12px; color: var(--text-sub); margin-bottom: 8px">
-              已绑定 Telegram：保存将发送验证码到 TG 进行确认。
-            </div>
             <a-space wrap>
               <a-button type="primary" @click="saveTgConfig" :loading="saveLoading">保存</a-button>
               <a-button @click="testTgNotify" :loading="testLoading">测试发送</a-button>
