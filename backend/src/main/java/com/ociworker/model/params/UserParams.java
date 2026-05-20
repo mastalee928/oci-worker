@@ -2,6 +2,7 @@ package com.ociworker.model.params;
 
 import lombok.Data;
 
+import java.util.List;
 import java.util.Map;
 
 @Data
@@ -21,4 +22,7 @@ public class UserParams {
 
     /** IAM 用户能力开关，键见 {@link com.ociworker.service.UserManagementService#CAPABILITY_KEYS} */
     private Map<String, Boolean> capabilities;
+
+    /** 同步用户组成员关系时的目标组 OCID 列表 */
+    private List<String> groupIds;
 }

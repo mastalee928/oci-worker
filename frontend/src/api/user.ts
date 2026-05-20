@@ -36,7 +36,14 @@ export function getUserGroups(data: { tenantId: string; userId: string }) {
   return request.post('/oci/identity/userGroups', data)
 }
 
-export function updateUser(data: { tenantId: string; userId: string; userName?: string; email?: string; verifyCode: string }) {
+export function updateUser(data: {
+  tenantId: string
+  userId: string
+  userName?: string
+  email?: string
+  verifyCode: string
+  groupIds?: string[]
+}) {
   return request.post('/oci/identity/updateUser', data)
 }
 

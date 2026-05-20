@@ -91,20 +91,40 @@ public class UserController {
 
     @PostMapping("/userGroups")
     public ResponseData<?> getUserGroups(@RequestBody Map<String, String> params) {
-        List<String> groups = userManagementService.getUserGroupNames(params.get("tenantId"), params.get("userId"));
-        return ResponseData.ok(groups);
+        return ResponseData.ok(userManagementService.getUserGroups(
+                params.get("tenantId"), params.get("userId")));
     }
 
     @PostMapping("/updateUser")
-    public ResponseData<?> updateUser(@RequestBody Map<String, String> params) {
-        verifyCodeService.verifyCode("updateUser", params.get("verifyCode"));
+    public ResponseData<?> updateUser(@RequestBody Map<String, Object> params) {
+        verifyCodeService.verifyCode("updateUser", (String) params.get("verifyCode"));
         UserParams up = new UserParams();
-        up.setTenantId(params.get("tenantId"));
-        up.setUserId(params.get("userId"));
-        up.setUserName(params.get("userName"));
-        up.setEmail(params.get("email"));
+        up.setTenantId((String) params.get("tenantId"));
+        up.setUserId((String) params.get("userId"));
+        up.setUserName((String) params.get("userName"));
+        up.setEmail((String) params.get("email"));
         userManagementService.updateUser(up);
+        if (params.containsKey("groupIds")) {
+            userManagementService.syncUserGroups(
+                    up.getTenantId(),
+                    up.getUserId(),
+                    parseGroupIds(params.get("groupIds")));
+        }
         return ResponseData.ok();
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<String> parseGroupIds(Object raw) {
+        if (!(raw instanceof List<?> list)) {
+            return List.of();
+        }
+        List<String> ids = new java.util.ArrayList<>();
+        for (Object o : list) {
+            if (o != null && !String.valueOf(o).isBlank()) {
+                ids.add(String.valueOf(o).trim());
+            }
+        }
+        return ids;
     }
 
     @PostMapping("/updateUserState")

@@ -182,25 +182,42 @@
             <a-switch v-model:checked="capabilitiesForm[item.key]" />
           </a-form-item>
         </a-form>
-        <div style="color: var(--text-sub); font-size: 12px">
-          与 OCI 控制台「Edit user capabilities」一致；保存时需使用已验证的 Telegram 验证码。
-        </div>
       </a-spin>
     </a-modal>
 
     <!-- 修改用户信息弹窗 -->
-    <a-modal v-model:open="editVisible" title="修改用户信息" :width="isMobile ? '100%' : 520" @ok="handleUpdateUser" :confirm-loading="editLoading" :mask-closable="false">
-      <a-form :model="editForm" layout="vertical">
-        <a-form-item label="用户名">
-          <a-input :value="editingUser?.name" disabled />
-        </a-form-item>
-        <a-form-item label="描述 / 备注">
-          <a-input v-model:value="editForm.userName" placeholder="修改描述" />
-        </a-form-item>
-        <a-form-item label="邮箱">
-          <a-input v-model:value="editForm.email" placeholder="修改邮箱" />
-        </a-form-item>
-      </a-form>
+    <a-modal v-model:open="editVisible" title="修改用户信息" :width="isMobile ? '100%' : 560" @ok="handleUpdateUser" :confirm-loading="editLoading" :mask-closable="false">
+      <a-spin :spinning="editGroupsLoading">
+        <a-form :model="editForm" layout="vertical">
+          <a-form-item label="用户名">
+            <a-input :value="editingUser?.name" disabled />
+          </a-form-item>
+          <a-form-item label="描述 / 备注">
+            <a-input v-model:value="editForm.userName" placeholder="修改描述" />
+          </a-form-item>
+          <a-form-item label="邮箱">
+            <a-input v-model:value="editForm.email" placeholder="修改邮箱" />
+          </a-form-item>
+          <a-form-item label="所属用户组">
+            <a-select
+              v-model:value="editForm.groupIds"
+              mode="multiple"
+              placeholder="选择用户组（可多选）"
+              style="width: 100%"
+              show-search
+              :filter-option="filterGroupSelectOption"
+              :options="tenantGroupOptions"
+              :disabled="editGroupsLoading"
+            />
+            <div v-if="editCurrentGroupNames.length" style="margin-top: 8px; color: var(--text-sub); font-size: 12px">
+              当前所属：{{ editCurrentGroupNames.join('、') }}
+            </div>
+            <div style="margin-top: 6px; color: var(--text-sub); font-size: 12px">
+              保存时将按所选组同步加入/移出（与 OCI IAM 组成员关系一致）。
+            </div>
+          </a-form-item>
+        </a-form>
+      </a-spin>
     </a-modal>
 
     <!-- MFA 设备列表弹窗 -->
@@ -230,7 +247,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, watch, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRoute } from 'vue-router'
 import { ArrowLeftOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
@@ -238,7 +255,7 @@ import dayjs from 'dayjs'
 import {
   listUsers, listIdentityDomains, createUser, resetPassword, clearMfa,
   addToAdmin, removeFromAdmin, updateUser, updateUserState, listMfaDevices,
-  getUserCapabilities, updateUserCapabilities,
+  getUserCapabilities, updateUserCapabilities, listGroups, getUserGroups,
 } from '../api/user'
 import { getTenantList } from '../api/tenant'
 import { sendVerifyCode, getTgStatus } from '../api/system'
@@ -304,8 +321,22 @@ const pwdResult = ref('')
 
 const editVisible = ref(false)
 const editLoading = ref(false)
+const editGroupsLoading = ref(false)
 const editingUser = ref<any>(null)
-const editForm = reactive({ userName: '', email: '' })
+const editForm = reactive({ userName: '', email: '', groupIds: [] as string[] })
+const tenantGroups = ref<{ id: string; name: string; description?: string }[]>([])
+const editCurrentGroupNames = ref<string[]>([])
+
+const tenantGroupOptions = computed(() =>
+  tenantGroups.value.map((g) => ({
+    value: g.id,
+    label: g.description ? `${g.name} — ${g.description}` : g.name,
+  })),
+)
+
+function filterGroupSelectOption(input: string, option: { label?: string }) {
+  return String(option?.label ?? '').toLowerCase().includes(input.toLowerCase())
+}
 
 const capabilitiesVisible = ref(false)
 const capabilitiesLoading = ref(false)
@@ -505,7 +536,32 @@ async function openEditUserWithCode(record: any, code: string) {
   editingUser.value = record
   editForm.userName = record.description || ''
   editForm.email = record.email || ''
+  editForm.groupIds = []
+  editCurrentGroupNames.value = []
+  tenantGroups.value = []
   editVisible.value = true
+  editGroupsLoading.value = true
+  try {
+    const [allRes, userRes] = await Promise.all([
+      listGroups({ tenantId }),
+      getUserGroups({ tenantId, userId: record.id }),
+    ])
+    const all = (allRes.data || []) as { id: string; name: string; description?: string }[]
+    tenantGroups.value = all.map((g) => ({
+      id: g.id,
+      name: g.name || g.id,
+      description: g.description,
+    }))
+    const memberships = (userRes.data || []) as { groupId: string; name?: string }[]
+    editForm.groupIds = memberships.map((m) => m.groupId).filter(Boolean)
+    editCurrentGroupNames.value = memberships.map((m) => m.name || m.groupId).filter(Boolean)
+  } catch (e: any) {
+    message.error(e?.message || '加载用户组失败')
+    editVisible.value = false
+    pendingEditVerifyCode = ''
+  } finally {
+    editGroupsLoading.value = false
+  }
 }
 
 async function openCapabilitiesWithCode(record: any, code: string) {
@@ -557,7 +613,14 @@ async function handleUpdateCapabilities() {
 async function handleUpdateUser() {
   editLoading.value = true
   try {
-    await updateUser({ tenantId, userId: editingUser.value.id, ...editForm, verifyCode: pendingEditVerifyCode })
+    await updateUser({
+      tenantId,
+      userId: editingUser.value.id,
+      userName: editForm.userName,
+      email: editForm.email,
+      groupIds: [...editForm.groupIds],
+      verifyCode: pendingEditVerifyCode,
+    })
     message.success('用户信息已更新')
     editVisible.value = false
     pendingEditVerifyCode = ''

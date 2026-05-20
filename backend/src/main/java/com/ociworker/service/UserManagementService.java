@@ -513,6 +513,13 @@ public class UserManagementService {
     }
 
     public List<String> getUserGroupNames(String tenantId, String userId) {
+        return getUserGroups(tenantId, userId).stream()
+                .map(g -> g.get("name") == null ? null : String.valueOf(g.get("name")))
+                .filter(StrUtil::isNotBlank)
+                .toList();
+    }
+
+    public List<Map<String, Object>> getUserGroups(String tenantId, String userId) {
         OciUser tenant = getTenant(tenantId);
         try (IdentityClient client = buildClient(tenant)) {
             ListUserGroupMembershipsResponse memberships = client.listUserGroupMemberships(
@@ -522,16 +529,86 @@ public class UserManagementService {
                             .build()
             );
 
-            List<String> groupNames = new ArrayList<>();
+            List<Map<String, Object>> result = new ArrayList<>();
+            if (memberships.getItems() == null) {
+                return result;
+            }
             for (UserGroupMembership m : memberships.getItems()) {
+                Map<String, Object> map = new LinkedHashMap<>();
+                map.put("membershipId", m.getId());
+                map.put("groupId", m.getGroupId());
+                String name = m.getGroupId();
                 try {
                     Group group = client.getGroup(
                             GetGroupRequest.builder().groupId(m.getGroupId()).build()
                     ).getGroup();
-                    groupNames.add(group.getName());
-                } catch (Exception ignored) {}
+                    if (group != null && StrUtil.isNotBlank(group.getName())) {
+                        name = group.getName();
+                    }
+                } catch (Exception ignored) {
+                }
+                map.put("name", name);
+                result.add(map);
             }
-            return groupNames;
+            return result;
+        }
+    }
+
+    public void syncUserGroups(String tenantId, String userId, List<String> targetGroupIds) {
+        OciUser tenant = getTenant(tenantId);
+        LinkedHashSet<String> target = new LinkedHashSet<>();
+        if (targetGroupIds != null) {
+            for (String id : targetGroupIds) {
+                if (StrUtil.isNotBlank(id)) {
+                    target.add(id.trim());
+                }
+            }
+        }
+        try (IdentityClient client = buildClient(tenant)) {
+            String compartmentId = tenant.getOciTenantId();
+            ListUserGroupMembershipsResponse memberships = client.listUserGroupMemberships(
+                    ListUserGroupMembershipsRequest.builder()
+                            .compartmentId(compartmentId)
+                            .userId(userId)
+                            .build()
+            );
+
+            Set<String> currentGroupIds = new LinkedHashSet<>();
+            Map<String, String> membershipByGroupId = new LinkedHashMap<>();
+            if (memberships.getItems() != null) {
+                for (UserGroupMembership m : memberships.getItems()) {
+                    if (m.getGroupId() != null) {
+                        currentGroupIds.add(m.getGroupId());
+                        membershipByGroupId.put(m.getGroupId(), m.getId());
+                    }
+                }
+            }
+
+            for (String groupId : currentGroupIds) {
+                if (!target.contains(groupId)) {
+                    String membershipId = membershipByGroupId.get(groupId);
+                    if (StrUtil.isNotBlank(membershipId)) {
+                        client.removeUserFromGroup(
+                                RemoveUserFromGroupRequest.builder()
+                                        .userGroupMembershipId(membershipId)
+                                        .build());
+                        log.info("Removed user {} from group {}", userId, groupId);
+                    }
+                }
+            }
+
+            for (String groupId : target) {
+                if (!currentGroupIds.contains(groupId)) {
+                    client.addUserToGroup(
+                            AddUserToGroupRequest.builder()
+                                    .addUserToGroupDetails(AddUserToGroupDetails.builder()
+                                            .userId(userId)
+                                            .groupId(groupId)
+                                            .build())
+                                    .build());
+                    log.info("Added user {} to group {}", userId, groupId);
+                }
+            }
         }
     }
 
