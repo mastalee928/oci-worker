@@ -1,6 +1,7 @@
 package com.ociworker.util;
 
 import cn.hutool.core.util.StrUtil;
+import lombok.extern.slf4j.Slf4j;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -8,9 +9,11 @@ import java.util.Map;
 /**
  * Flex Shape 默认与最大值 — 与 OCI 控制台及前端 {@code ociBmShapeSpecs.ts} 一致。
  */
+@Slf4j
 public final class ShapeFlexLimitsUtil {
 
     public static final String ARM_TASK_SHAPE = "VM.Standard.A1.Flex";
+    public static final String AMD_TASK_SHAPE = "VM.Standard.E2.1.Micro";
 
     public record FlexLimits(float defaultOcpus, float defaultMemoryGb, float maxOcpus, float maxMemoryGb) {}
 
@@ -54,6 +57,40 @@ public final class ShapeFlexLimitsUtil {
         if ("ARM".equalsIgnoreCase(arch)) {
             return SPECS.get(ARM_TASK_SHAPE.toUpperCase());
         }
+        if ("AMD".equalsIgnoreCase(arch)) {
+            return new FlexLimits(1, 1, 1, 1);
+        }
         return forShape(arch);
+    }
+
+    /**
+     * 将任务 OCPU/内存钳制到该架构允许范围；无固定表条目时原样返回。
+     *
+     * @return [ocpus, memoryGb]
+     */
+    public static double[] normalizeOcpusAndMemory(String architecture, Double ocpus, Double memory) {
+        FlexLimits lim = forTaskArchitecture(architecture);
+        double o = ocpus != null ? ocpus : (lim != null ? lim.defaultOcpus() : 1d);
+        double m = memory != null ? memory : (lim != null ? lim.defaultMemoryGb() : 6d);
+        if (lim == null) {
+            return new double[]{o, m};
+        }
+        double co = Math.min(Math.max(o, 1d), lim.maxOcpus());
+        double cm = Math.min(Math.max(m, 1d), lim.maxMemoryGb());
+        return new double[]{co, cm};
+    }
+
+    /**
+     * 开机任务创建/更新/执行前：超限则静默改为上限并写日志。
+     */
+    public static double[] normalizeAndLogIfAdjusted(String architecture, Double ocpus, Double memory, String context) {
+        double beforeO = ocpus != null ? ocpus : -1;
+        double beforeM = memory != null ? memory : -1;
+        double[] out = normalizeOcpusAndMemory(architecture, ocpus, memory);
+        if ((ocpus != null && ocpus != out[0]) || (memory != null && memory != out[1])) {
+            log.warn("{} 资源配置已按 Shape 上限调整: arch={} ocpus {} -> {}, memory {} -> {}",
+                    context, architecture, beforeO, out[0], beforeM, out[1]);
+        }
+        return out;
     }
 }

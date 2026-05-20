@@ -17,6 +17,7 @@ import com.ociworker.model.params.PageParams;
 import cn.hutool.core.util.StrUtil;
 import com.ociworker.util.CommonUtils;
 import com.ociworker.util.OciRegionUtil;
+import com.ociworker.util.ShapeFlexLimitsUtil;
 import com.ociworker.util.ShapeSeriesUtil;
 import com.ociworker.websocket.LogWebSocketHandler;
 import jakarta.annotation.PostConstruct;
@@ -33,6 +34,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.*;
 
@@ -212,8 +214,10 @@ public class TaskSchedulerService implements SmartLifecycle {
         task.setUserId(userId);
         task.setOciRegion(effectiveRegion);
         task.setArchitecture(architecture);
-        task.setOcpus(ocpus);
-        task.setMemory(memory);
+        double[] normalized = ShapeFlexLimitsUtil.normalizeAndLogIfAdjusted(
+                architecture, ocpus, memory, "创建开机任务");
+        task.setOcpus(normalized[0]);
+        task.setMemory(normalized[1]);
         task.setDisk(disk);
         task.setCreateNumbers(createNumbers);
         task.setIntervalSeconds(interval);
@@ -242,7 +246,7 @@ public class TaskSchedulerService implements SmartLifecycle {
                 + "🌍 <b>区域：</b>" + effectiveRegion + "\n"
                 + "⚙️ <b>架构：</b>" + series + "\n"
                 + targetShapeLineForNotify(architecture)
-                + "📊 <b>配置：</b>" + ocpus + "C / " + memory + "GB / " + disk + "GB\n"
+                + "📊 <b>配置：</b>" + normalized[0] + "C / " + normalized[1] + "GB / " + disk + "GB\n"
                 + "🔢 <b>数量：</b>" + createNumbers + "\n"
                 + "🔑 <b>密码：</b><code>" + pwd + "</code>";
         notificationService.sendHtmlWithType(NotificationService.TYPE_TASK_CREATE, html);
@@ -294,6 +298,10 @@ public class TaskSchedulerService implements SmartLifecycle {
         if (customScript != null) task.setCustomScript(customScript);
         if (assignPublicIp != null) task.setAssignPublicIp(assignPublicIp);
         if (assignIpv6 != null) task.setAssignIpv6(assignIpv6);
+        double[] normalized = ShapeFlexLimitsUtil.normalizeAndLogIfAdjusted(
+                task.getArchitecture(), task.getOcpus(), task.getMemory(), "更新开机任务");
+        task.setOcpus(normalized[0]);
+        task.setMemory(normalized[1]);
         taskMapper.updateById(task);
 
         if (wasRunning) {
@@ -401,6 +409,16 @@ public class TaskSchedulerService implements SmartLifecycle {
                 }
                 return;
             }
+            double[] launchNorm = ShapeFlexLimitsUtil.normalizeAndLogIfAdjusted(
+                    head.getArchitecture(), head.getOcpus(), head.getMemory(), "执行开机任务");
+            if (!Objects.equals(head.getOcpus(), launchNorm[0])
+                    || !Objects.equals(head.getMemory(), launchNorm[1])) {
+                head.setOcpus(launchNorm[0]);
+                head.setMemory(launchNorm[1]);
+                taskMapper.updateById(head);
+            }
+            dto.setOcpus(launchNorm[0]);
+            dto.setMemory(launchNorm[1]);
             user = dto.getUsername();
             region = dto.getOciCfg().getRegion();
             arch = dto.getArchitecture();
@@ -600,12 +618,14 @@ public class TaskSchedulerService implements SmartLifecycle {
     }
 
     private SysUserDTO buildSysUserDTO(OciUser ociUser, OciCreateTask task) {
+        double[] normalized = ShapeFlexLimitsUtil.normalizeOcpusAndMemory(
+                task.getArchitecture(), task.getOcpus(), task.getMemory());
         return SysUserDTO.builder()
                 .taskId(task.getId())
                 .username(ociUser.getUsername())
                 .architecture(task.getArchitecture())
-                .ocpus(task.getOcpus())
-                .memory(task.getMemory())
+                .ocpus(normalized[0])
+                .memory(normalized[1])
                 .disk(task.getDisk())
                 .createNumbers(task.getCreateNumbers())
                 .rootPassword(task.getRootPassword())
