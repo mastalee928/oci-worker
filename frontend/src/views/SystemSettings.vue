@@ -506,6 +506,7 @@ const notifyTypeOptions = [
   { label: '登录通知', value: 'login' },
   { label: '创建任务', value: 'task_create' },
   { label: '任务结果', value: 'task_result' },
+  { label: '实例操作', value: 'instance' },
   { label: '每日播报', value: 'daily_report' },
 ]
 
@@ -613,7 +614,7 @@ async function loadNotifyConfig() {
     tgConfig.botToken = res.data?.botToken || ''
     tgConfig.chatId = res.data?.chatId || ''
     const types = res.data?.notifyTypes
-    tgConfig.notifyTypes = types ? types.split(',') : ['login', 'task_create', 'task_result', 'daily_report']
+    tgConfig.notifyTypes = types ? types.split(',') : ['login', 'task_create', 'task_result', 'instance', 'daily_report']
     tgConfig.dailyReportTime = res.data?.dailyReportTime || '09:00'
     dailyReportTimePicked.value = tgConfig.dailyReportTime
   } catch {}

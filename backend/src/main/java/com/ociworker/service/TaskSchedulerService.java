@@ -17,6 +17,7 @@ import com.ociworker.model.params.PageParams;
 import cn.hutool.core.util.StrUtil;
 import com.ociworker.util.CommonUtils;
 import com.ociworker.util.OciRegionUtil;
+import com.ociworker.util.ShapeSeriesUtil;
 import com.ociworker.websocket.LogWebSocketHandler;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
@@ -230,15 +231,17 @@ public class TaskSchedulerService implements SmartLifecycle {
         SysUserDTO dto = buildSysUserDTO(ociUser, task);
         scheduleTask(task.getId(), dto, interval);
 
+        String series = ShapeSeriesUtil.resolveSeries(architecture);
         String logMsg = String.format("【开机任务】用户:[%s],区域:[%s],架构:[%s],数量:[%d] - 任务已创建",
-                ociUser.getUsername(), effectiveRegion, architecture, createNumbers);
+                ociUser.getUsername(), effectiveRegion, series, createNumbers);
         broadcastLog(logMsg);
 
         String pwd = rootPassword != null ? rootPassword : "随机";
         String html = "📋 <b>开机任务已创建</b>\n\n"
                 + "👤 <b>租户：</b>" + ociUser.getUsername() + "\n"
                 + "🌍 <b>区域：</b>" + effectiveRegion + "\n"
-                + "⚙️ <b>架构：</b>" + architecture + "\n"
+                + "⚙️ <b>架构：</b>" + series + "\n"
+                + targetShapeLineForNotify(architecture)
                 + "📊 <b>配置：</b>" + ocpus + "C / " + memory + "GB / " + disk + "GB\n"
                 + "🔢 <b>数量：</b>" + createNumbers + "\n"
                 + "🔑 <b>密码：</b><code>" + pwd + "</code>";
@@ -401,9 +404,10 @@ public class TaskSchedulerService implements SmartLifecycle {
             user = dto.getUsername();
             region = dto.getOciCfg().getRegion();
             arch = dto.getArchitecture();
+            String series = ShapeSeriesUtil.resolveSeries(arch);
             int attempt = incrementAttempt(taskId);
             broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s],开机数量:[%d],开始执行第 [%d] 次创建实例操作...",
-                    user, region, arch, dto.getCreateNumbers(), attempt));
+                    user, region, series, dto.getCreateNumbers(), attempt));
 
             dto.setInstanceDisplayOrdinal(headSc + 1);
             try (OciClientService client = new OciClientService(dto)) {
@@ -411,11 +415,12 @@ public class TaskSchedulerService implements SmartLifecycle {
 
                 if (result.isDie()) {
                     completeTask(taskId, TaskStatusEnum.FAILED);
-                    broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],架构:[%s] - 认证失败(401)，任务已停止", user, region, arch));
+                    broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],架构:[%s] - 认证失败(401)，任务已停止", user, region, series));
                     String html = "❌ <b>开机任务失败</b>\n\n"
                             + "👤 <b>租户：</b>" + user + "\n"
                             + "🌍 <b>区域：</b>" + region + "\n"
-                            + "⚙️ <b>架构：</b>" + arch + "\n"
+                            + "⚙️ <b>架构：</b>" + series + "\n"
+                            + targetShapeLineForNotify(arch)
                             + "📛 <b>原因：</b>认证失败 (401)，任务已停止";
                     notificationService.sendHtmlWithType(NotificationService.TYPE_TASK_RESULT, html);
                     return;
@@ -447,13 +452,15 @@ public class TaskSchedulerService implements SmartLifecycle {
                     int successCount = t != null && t.getSuccessCount() != null ? t.getSuccessCount() : 0;
                     if (n > 0) {
                         appendCreatedInstance(taskId, result);
+                        String shapeName = StrUtil.isNotBlank(result.getShape()) ? result.getShape() : arch;
+                        String successSeries = ShapeSeriesUtil.resolveSeries(shapeName);
                         broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],架构:[%s] - 实例创建成功(%d/%d)！IP:%s",
-                                user, region, arch, successCount, targetCount, result.getPublicIp()));
+                                user, region, successSeries, successCount, targetCount, result.getPublicIp()));
                         String html = "🎉 <b>实例创建成功！</b>（" + successCount + "/" + targetCount + "）\n\n"
                                 + "👤 <b>租户：</b>" + user + "\n"
                                 + "🌍 <b>区域：</b>" + region + "\n"
-                                + "⚙️ <b>架构：</b>" + arch + "\n"
-                                + "💻 <b>Shape：</b>" + result.getShape() + "\n"
+                                + "⚙️ <b>架构：</b>" + successSeries + "\n"
+                                + "💻 <b>Shape：</b><code>" + shapeName + "</code>\n"
                                 + "📊 <b>配置：</b>" + result.getOcpus() + "C / " + result.getMemory() + "GB / " + result.getDisk() + "GB\n"
                                 + "🌐 <b>公网IP：</b><code>" + result.getPublicIp() + "</code>\n"
                                 + "🔑 <b>密码：</b><code>" + result.getRootPassword() + "</code>";
@@ -643,6 +650,14 @@ public class TaskSchedulerService implements SmartLifecycle {
                 log.warn("repairInconsistentRunningTasks id={}: {}", t.getId(), e.getMessage());
             }
         }
+    }
+
+    /** TG 通知：任务存的是完整 Shape 时补一行，与「架构」系列区分 */
+    private static String targetShapeLineForNotify(String shapeOrArchitecture) {
+        if (ShapeSeriesUtil.isFullShapeName(shapeOrArchitecture)) {
+            return "💻 <b>目标 Shape：</b><code>" + shapeOrArchitecture.trim() + "</code>\n";
+        }
+        return "";
     }
 
     private void broadcastLog(String message) {

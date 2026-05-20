@@ -24,6 +24,8 @@ public class InstanceService {
 
     @Resource
     private OciUserMapper userMapper;
+    @Resource
+    private NotificationService notificationService;
 
     private String tag(OciUser u) { return "[" + u.getUsername() + "] "; }
 
@@ -758,14 +760,38 @@ public class InstanceService {
                 result.put("ocpus", updated.getShapeConfig().getOcpus());
                 result.put("memoryInGBs", updated.getShapeConfig().getMemoryInGBs());
             }
+            notifyForceA2ToA1Success(updated);
             return result;
         } catch (OciException e) {
+            notifyForceA2ToA1Failure(ociUser, region);
             throw e;
         } catch (com.oracle.bmc.model.BmcException e) {
+            notifyForceA2ToA1Failure(ociUser, region);
             throw new OciException(tag(ociUser) + "A2 强改 A1 失败: " + extractOciErrorMessage(e));
         } catch (Exception e) {
+            notifyForceA2ToA1Failure(ociUser, region);
             throw new OciException(tag(ociUser) + "A2 强改 A1 失败: " + e.getMessage());
         }
+    }
+
+    private void notifyForceA2ToA1Success(Instance updated) {
+        String nowShape = updated.getShape() != null ? updated.getShape() : SHAPE_A1_FLEX;
+        String html = "🎉 <b>实例形状修改成功！</b>\n\n"
+                + "原Shape：<code>" + SHAPE_A2_FLEX + "</code>\n"
+                + "现Shape：<code>" + nowShape + "</code>\n"
+                + "公网IP以及密码无变化\n"
+                + "已成功实现A2➡A1";
+        notificationService.sendHtmlWithType(NotificationService.TYPE_INSTANCE, html);
+    }
+
+    private void notifyForceA2ToA1Failure(OciUser ociUser, String region) {
+        String username = ociUser.getUsername() != null ? ociUser.getUsername() : "-";
+        String reg = (region != null && !region.isBlank()) ? region.trim() : "-";
+        String html = "😟 <b>实例形状修改失败！</b>\n\n"
+                + "租户：" + username + "\n"
+                + "区域：" + reg + "\n"
+                + "A2➡A1修改失败，可再次尝试";
+        notificationService.sendHtmlWithType(NotificationService.TYPE_INSTANCE, html);
     }
 
     public List<Map<String, Object>> listAvailableShapes(String userId, String region) {

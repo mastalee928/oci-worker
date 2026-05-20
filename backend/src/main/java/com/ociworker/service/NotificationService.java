@@ -32,6 +32,8 @@ public class NotificationService {
     public static final String TYPE_TASK_CREATE = "task_create";
     public static final String TYPE_TASK_RESULT = "task_result";
     public static final String TYPE_DAILY_REPORT = "daily_report";
+    /** 实例页操作（如 A2 强改 A1） */
+    public static final String TYPE_INSTANCE = "instance";
 
     @Resource
     private OciKvMapper kvMapper;
