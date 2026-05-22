@@ -1,5 +1,6 @@
 package com.ociworker.model.entity;
 
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
@@ -16,7 +17,8 @@ public class OciCreateTask {
     private Double ocpus;
     private Double memory;
     private Integer disk;
-    /** 引导卷 VPUs/GB，默认 10 */
+    /** 引导卷 VPUs/GB，默认 10（须显式列名，避免 MP 将 PerGB 转成 vpus_per_g_b） */
+    @TableField("vpus_per_gb")
     private Integer vpusPerGB;
     private String architecture;
     private Integer intervalSeconds;
