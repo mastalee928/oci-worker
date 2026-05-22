@@ -26,6 +26,7 @@ import com.ociworker.exception.OciException;
 import com.ociworker.model.dto.InstanceDetailDTO;
 import com.ociworker.model.dto.OciProxySnapshot;
 import com.ociworker.model.dto.SysUserDTO;
+import com.ociworker.util.BootVolumeVpusUtil;
 import com.ociworker.util.CommonUtils;
 import com.ociworker.util.socks.OciSocksApacheConnectionManager;
 import com.oracle.bmc.http.ClientConfigurator;
@@ -656,6 +657,18 @@ public class OciClientService implements Closeable {
         return "oci-instance-" + ord;
     }
 
+    private static InstanceSourceViaImageDetails buildBootVolumeSource(String imageId, SysUserDTO user) {
+        long sizeGb = user.getDisk() != null ? user.getDisk() : 50;
+        InstanceSourceViaImageDetails.Builder b = InstanceSourceViaImageDetails.builder()
+                .imageId(imageId)
+                .bootVolumeSizeInGBs(sizeGb);
+        int vpus = BootVolumeVpusUtil.normalize(user.getVpusPerGB());
+        if (vpus > 0) {
+            b.bootVolumeVpusPerGB((long) vpus);
+        }
+        return b.build();
+    }
+
     private LaunchInstanceDetails buildLaunchDetails(AvailabilityDomain ad, Shape shape, Image image,
                                                       Subnet subnet, String cloudInitScript) {
         LaunchInstanceDetails.Builder builder = LaunchInstanceDetails.builder()
@@ -663,10 +676,7 @@ public class OciClientService implements Closeable {
                 .availabilityDomain(ad.getName())
                 .displayName(resolveLaunchDisplayName())
                 .shape(shape.getShape())
-                .sourceDetails(InstanceSourceViaImageDetails.builder()
-                        .imageId(image.getId())
-                        .bootVolumeSizeInGBs((long) (user.getDisk() != null ? user.getDisk() : 50))
-                        .build())
+                .sourceDetails(buildBootVolumeSource(image.getId(), user))
                 .createVnicDetails(CreateVnicDetails.builder()
                         .subnetId(subnet.getId())
                         .assignPublicIp(user.getAssignPublicIp() != null ? user.getAssignPublicIp() : true)

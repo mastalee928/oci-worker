@@ -11,6 +11,7 @@ public class UpdateTaskParams {
     private Double ocpus;
     private Double memory;
     private Integer disk;
+    private Integer vpusPerGB;
     private Integer createNumbers;
     private Integer interval;
     private String rootPassword;

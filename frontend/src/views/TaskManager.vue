@@ -50,7 +50,7 @@
             :text="statusMap[record.status] || record.status" />
         </template>
         <template v-if="column.key === 'config'">
-          {{ record.ocpus }}C / {{ record.memory }}G / {{ record.disk }}GB
+          {{ record.ocpus }}C / {{ record.memory }}G / {{ formatTaskConfigDisk(record.disk, record.vpusPerGB) }}
         </template>
         <template v-if="column.key === 'action'">
           <a-space>
@@ -84,7 +84,7 @@
         </div>
         <div class="mobile-card-body">
           <div class="mobile-card-row"><span class="label">区域</span><span class="value">{{ task.ociRegion }}</span></div>
-          <div class="mobile-card-row"><span class="label">配置</span><span class="value">{{ task.ocpus }}C / {{ task.memory }}G / {{ task.disk }}GB</span></div>
+          <div class="mobile-card-row"><span class="label">配置</span><span class="value">{{ task.ocpus }}C / {{ task.memory }}G / {{ formatTaskConfigDisk(task.disk, task.vpusPerGB) }}</span></div>
           <div class="mobile-card-row"><span class="label">进度</span>
             <span class="value">{{ progressDisplaySuccess(task) }} / {{ task.createNumbers }}
               <a-tag v-if="task.progressOverTarget" color="orange" size="small" style="margin-left: 4px" :title="progressOverTargetTip">超</a-tag>
@@ -147,8 +147,8 @@
             本地 NVMe 与网络带宽随档位由 OCI 自动配置，与控制台一致
           </div>
         </a-form-item>
-        <a-row :gutter="12">
-          <a-col v-if="!createDenseIoTiers?.length" :xs="12" :sm="8">
+        <a-row v-if="!createDenseIoTiers?.length" :gutter="12">
+          <a-col :xs="12" :sm="12">
             <a-form-item :label="createOcpuLabel">
               <a-input-number
                 :value="createForm.ocpus"
@@ -162,7 +162,7 @@
               />
             </a-form-item>
           </a-col>
-          <a-col v-if="!createDenseIoTiers?.length" :xs="12" :sm="8">
+          <a-col :xs="12" :sm="12">
             <a-form-item :label="createMemoryLabel">
               <a-input-number
                 :value="createForm.memory"
@@ -176,9 +176,23 @@
               />
             </a-form-item>
           </a-col>
-          <a-col :xs="12" :sm="8">
+        </a-row>
+        <a-row :gutter="12">
+          <a-col :xs="12" :sm="12">
             <a-form-item label="磁盘 (GB)">
               <a-input-number v-model:value="createForm.disk" :min="47" :max="200" :step="1" style="width: 100%" />
+            </a-form-item>
+          </a-col>
+          <a-col :xs="12" :sm="12">
+            <a-form-item label="VPUs/GB">
+              <a-input-number
+                v-model:value="createForm.vpusPerGB"
+                :min="BOOT_VOLUME_VPUS_MIN"
+                :max="BOOT_VOLUME_VPUS_MAX"
+                :step="BOOT_VOLUME_VPUS_STEP"
+                style="width: 100%"
+                @blur="createForm.vpusPerGB = snapBootVpusPerGb(createForm.vpusPerGB)"
+              />
             </a-form-item>
           </a-col>
         </a-row>
@@ -249,8 +263,8 @@
             本地 NVMe 与网络带宽随档位由 OCI 自动配置，与控制台一致
           </div>
         </a-form-item>
-        <a-row :gutter="12">
-          <a-col v-if="!editDenseIoTiers?.length" :xs="12" :sm="8">
+        <a-row v-if="!editDenseIoTiers?.length" :gutter="12">
+          <a-col :xs="12" :sm="12">
             <a-form-item :label="editOcpuLabel">
               <a-input-number
                 :value="editForm.ocpus"
@@ -264,7 +278,7 @@
               />
             </a-form-item>
           </a-col>
-          <a-col v-if="!editDenseIoTiers?.length" :xs="12" :sm="8">
+          <a-col :xs="12" :sm="12">
             <a-form-item :label="editMemoryLabel">
               <a-input-number
                 :value="editForm.memory"
@@ -278,9 +292,23 @@
               />
             </a-form-item>
           </a-col>
-          <a-col :xs="12" :sm="8">
+        </a-row>
+        <a-row :gutter="12">
+          <a-col :xs="12" :sm="12">
             <a-form-item label="磁盘 (GB)">
               <a-input-number v-model:value="editForm.disk" :min="47" :max="200" :step="1" style="width: 100%" />
+            </a-form-item>
+          </a-col>
+          <a-col :xs="12" :sm="12">
+            <a-form-item label="VPUs/GB">
+              <a-input-number
+                v-model:value="editForm.vpusPerGB"
+                :min="BOOT_VOLUME_VPUS_MIN"
+                :max="BOOT_VOLUME_VPUS_MAX"
+                :step="BOOT_VOLUME_VPUS_STEP"
+                style="width: 100%"
+                @blur="editForm.vpusPerGB = snapBootVpusPerGb(editForm.vpusPerGB)"
+              />
             </a-form-item>
           </a-col>
         </a-row>
@@ -331,7 +359,7 @@
                 <a-tag :color="isTaskArmArchitecture(detailData.architecture) ? 'green' : 'blue'">{{ formatTaskArchitectureLabel(detailData.architecture) }}</a-tag>
               </a-descriptions-item>
               <a-descriptions-item label="操作系统">{{ detailData.operationSystem || '—' }}</a-descriptions-item>
-              <a-descriptions-item label="配置">{{ detailData.ocpus }}C / {{ detailData.memory }}G / {{ detailData.disk }}GB</a-descriptions-item>
+              <a-descriptions-item label="配置">{{ detailData.ocpus }}C / {{ detailData.memory }}G / {{ formatTaskConfigDisk(detailData.disk, detailData.vpusPerGB) }}</a-descriptions-item>
               <a-descriptions-item label="进度">
                 <span style="font-weight:600">{{ progressDisplaySuccess(detailData) }}</span> / {{ detailData.createNumbers }}
                 <a-tag v-if="detailData.progressOverTarget" color="orange" style="margin-left:6px" :title="progressOverTargetTip">超目标</a-tag>
@@ -419,6 +447,13 @@ import {
 import { useDenseIoFlexTier } from '../composables/useDenseIoFlexTier'
 import ShapeSeriesPicker from '../components/ShapeSeriesPicker.vue'
 import {
+  BOOT_VOLUME_VPUS_MAX,
+  BOOT_VOLUME_VPUS_MIN,
+  BOOT_VOLUME_VPUS_STEP,
+  formatTaskConfigDisk,
+  snapBootVpusPerGb,
+} from '../utils/bootVolume'
+import {
   TASK_ARM_SHAPE,
   formatTaskArchitectureLabel,
   isTaskArmArchitecture,
@@ -474,7 +509,7 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
 
 const createForm = reactive({
   userId: '', architecture: TASK_ARM_SHAPE, operationSystem: 'Ubuntu',
-  ocpus: 1, memory: 6, disk: 50, createNumbers: 1, interval: 60, rootPassword: '',
+  ocpus: 1, memory: 6, disk: 50, vpusPerGB: 10, createNumbers: 1, interval: 60, rootPassword: '',
   customScript: '', assignPublicIp: true, assignIpv6: false,
 })
 
@@ -521,7 +556,7 @@ const editForm = reactive({
   taskId: '',
   userId: '',
   architecture: TASK_ARM_SHAPE, operationSystem: 'Ubuntu',
-  ocpus: 1, memory: 6, disk: 50, createNumbers: 1, interval: 60, rootPassword: '',
+  ocpus: 1, memory: 6, disk: 50, vpusPerGB: 10, createNumbers: 1, interval: 60, rootPassword: '',
   customScript: '', assignPublicIp: true, assignIpv6: false,
 })
 const {
@@ -579,6 +614,7 @@ async function showEditModal(record: any) {
     ocpus: record.ocpus,
     memory: record.memory,
     disk: record.disk,
+    vpusPerGB: record.vpusPerGB ?? 10,
     createNumbers: record.createNumbers,
     interval: record.intervalSeconds,
     rootPassword: '',
@@ -602,6 +638,7 @@ async function handleEdit() {
     message.error('比例错误')
     return
   }
+  editForm.vpusPerGB = snapBootVpusPerGb(editForm.vpusPerGB)
   editLoading.value = true
   try {
     await updateTask(editForm)
@@ -694,7 +731,7 @@ function showCreateModal() {
   availableShapes.value = []
   Object.assign(createForm, {
     userId: '', architecture: TASK_ARM_SHAPE, operationSystem: 'Ubuntu',
-    ocpus: 1, memory: 6, disk: 50, createNumbers: 1, interval: 60, rootPassword: '',
+    ocpus: 1, memory: 6, disk: 50, vpusPerGB: 10, createNumbers: 1, interval: 60, rootPassword: '',
     customScript: '', assignPublicIp: true, assignIpv6: false,
   })
   createBmLocked.value = false
@@ -713,6 +750,7 @@ async function handleCreate() {
     return
   }
   if (!createForm.rootPassword) generateRandomPwd()
+  createForm.vpusPerGB = snapBootVpusPerGb(createForm.vpusPerGB)
 
   try {
     const checkRes = await hasRunningTask({ userId: createForm.userId })

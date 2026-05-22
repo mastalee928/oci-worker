@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS oci_create_task (
     ocpus DOUBLE DEFAULT 1.0,
     memory DOUBLE DEFAULT 6.0,
     disk INT DEFAULT 50,
+    vpus_per_gb INT DEFAULT 10,
     architecture VARCHAR(64) DEFAULT 'ARM',
     interval_seconds INT DEFAULT 60,
     create_numbers INT DEFAULT 1,

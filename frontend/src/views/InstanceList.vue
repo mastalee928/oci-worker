@@ -451,8 +451,8 @@
             本地 NVMe 与网络带宽随档位由 OCI 自动配置，与控制台一致
           </div>
         </a-form-item>
-        <a-row :gutter="12">
-          <a-col v-if="!quickDenseIoTiers?.length" :xs="12" :sm="8">
+        <a-row v-if="!quickDenseIoTiers?.length" :gutter="12">
+          <a-col :xs="12" :sm="12">
             <a-form-item :label="quickTaskOcpuLabel">
               <a-input-number
                 :value="quickTaskForm.ocpus"
@@ -465,7 +465,7 @@
               />
             </a-form-item>
           </a-col>
-          <a-col v-if="!quickDenseIoTiers?.length" :xs="12" :sm="8">
+          <a-col :xs="12" :sm="12">
             <a-form-item :label="quickTaskMemoryLabel">
               <a-input-number
                 :value="quickTaskForm.memory"
@@ -478,9 +478,23 @@
               />
             </a-form-item>
           </a-col>
-          <a-col :xs="12" :sm="8">
+        </a-row>
+        <a-row :gutter="12">
+          <a-col :xs="12" :sm="12">
             <a-form-item label="磁盘 (GB)">
               <a-input-number v-model:value="quickTaskForm.disk" :min="47" :max="200" style="width: 100%" />
+            </a-form-item>
+          </a-col>
+          <a-col :xs="12" :sm="12">
+            <a-form-item label="VPUs/GB">
+              <a-input-number
+                v-model:value="quickTaskForm.vpusPerGB"
+                :min="BOOT_VOLUME_VPUS_MIN"
+                :max="BOOT_VOLUME_VPUS_MAX"
+                :step="BOOT_VOLUME_VPUS_STEP"
+                style="width: 100%"
+                @blur="quickTaskForm.vpusPerGB = snapBootVpusPerGb(quickTaskForm.vpusPerGB)"
+              />
             </a-form-item>
           </a-col>
         </a-row>
@@ -1221,6 +1235,12 @@ import {
 } from '../constants/ociBmShapeSpecs'
 import { useDenseIoFlexTier } from '../composables/useDenseIoFlexTier'
 import ShapeSeriesPicker from '../components/ShapeSeriesPicker.vue'
+import {
+  BOOT_VOLUME_VPUS_MAX,
+  BOOT_VOLUME_VPUS_MIN,
+  BOOT_VOLUME_VPUS_STEP,
+  snapBootVpusPerGb,
+} from '../utils/bootVolume'
 import { TASK_ARM_SHAPE, normalizeTaskArchitecture } from '../utils/shapeSeries'
 import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc'
@@ -1822,7 +1842,7 @@ const quickTaskShapesLoading = ref(false)
 const quickTaskForm = reactive({
   ociRegion: undefined as string | undefined,
   architecture: TASK_ARM_SHAPE, operationSystem: 'Ubuntu',
-  ocpus: 1, memory: 6, disk: 50, createNumbers: 1, interval: 60, rootPassword: '', customScript: '',
+  ocpus: 1, memory: 6, disk: 50, vpusPerGB: 10, createNumbers: 1, interval: 60, rootPassword: '', customScript: '',
   assignPublicIp: true, assignIpv6: false,
 })
 
@@ -2752,7 +2772,7 @@ function openQuickTask(tenant: any) {
   Object.assign(quickTaskForm, {
     ociRegion: tenant.ociRegion || undefined,
     architecture: TASK_ARM_SHAPE, operationSystem: 'Ubuntu',
-    ocpus: 1, memory: 6, disk: 50, createNumbers: 1, interval: 60, rootPassword: '', customScript: '',
+    ocpus: 1, memory: 6, disk: 50, vpusPerGB: 10, createNumbers: 1, interval: 60, rootPassword: '', customScript: '',
     assignPublicIp: true, assignIpv6: false,
   })
   quickTaskBmLocked.value = false
@@ -2801,6 +2821,7 @@ async function handleQuickTask() {
 }
 
 async function doQuickTask() {
+  quickTaskForm.vpusPerGB = snapBootVpusPerGb(quickTaskForm.vpusPerGB)
   quickTaskLoading.value = true
   try {
     await createTask({ userId: quickTaskTenant.value.id, ...quickTaskForm })

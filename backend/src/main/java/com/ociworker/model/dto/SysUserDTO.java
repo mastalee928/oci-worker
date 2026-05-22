@@ -19,6 +19,7 @@ public class SysUserDTO {
     private Double ocpus;
     private Double memory;
     private Integer disk;
+    private Integer vpusPerGB;
     private Integer createNumbers;
     private String rootPassword;
     private String operationSystem;

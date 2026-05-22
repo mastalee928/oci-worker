@@ -59,6 +59,7 @@ public class DatabaseGuardService {
                 ocpus DOUBLE DEFAULT 1.0,
                 memory DOUBLE DEFAULT 6.0,
                 disk INT DEFAULT 50,
+                vpus_per_gb INT DEFAULT 10,
                 architecture VARCHAR(64) DEFAULT 'ARM',
                 interval_seconds INT DEFAULT 60,
                 create_numbers INT DEFAULT 1,
@@ -298,6 +299,7 @@ public class DatabaseGuardService {
         addColumnIfMissing(conn, "oci_user", "generative_openai_project", "VARCHAR(512) DEFAULT NULL AFTER group_level2");
         addColumnIfMissing(conn, "oci_user", "generative_conversation_store_id", "VARCHAR(512) DEFAULT NULL AFTER generative_openai_project");
         addColumnIfMissing(conn, "oci_create_task", "custom_script", "TEXT DEFAULT NULL AFTER operation_system");
+        addColumnIfMissing(conn, "oci_create_task", "vpus_per_gb", "INT DEFAULT 10 AFTER disk");
         addColumnIfMissing(conn, "oci_create_task", "assign_public_ip", "TINYINT(1) DEFAULT 1 AFTER custom_script");
         addColumnIfMissing(conn, "oci_create_task", "assign_ipv6", "TINYINT(1) DEFAULT 0 AFTER assign_public_ip");
         addColumnIfMissing(conn, "oci_create_task", "success_count", "INT DEFAULT 0 AFTER attempt_count");

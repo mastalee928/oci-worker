@@ -37,7 +37,7 @@ public class TaskController {
     public ResponseData<?> create(@RequestBody @Valid CreateTaskParams params) {
         taskSchedulerService.createTask(
                 params.getUserId(), params.getArchitecture(),
-                params.getOcpus(), params.getMemory(), params.getDisk(),
+                params.getOcpus(), params.getMemory(), params.getDisk(), params.getVpusPerGB(),
                 params.getCreateNumbers(), params.getInterval(),
                 params.getRootPassword(), params.getOperationSystem(),
                 params.getCustomScript(),
@@ -50,7 +50,7 @@ public class TaskController {
     public ResponseData<?> update(@RequestBody @Valid UpdateTaskParams params) {
         taskSchedulerService.updateTask(
                 params.getTaskId(), params.getArchitecture(),
-                params.getOcpus(), params.getMemory(), params.getDisk(),
+                params.getOcpus(), params.getMemory(), params.getDisk(), params.getVpusPerGB(),
                 params.getCreateNumbers(), params.getInterval(),
                 params.getRootPassword(), params.getOperationSystem(),
                 params.getCustomScript(),

@@ -11,6 +11,8 @@ public class CreateTaskParams {
     private Double ocpus = 1.0;
     private Double memory = 6.0;
     private Integer disk = 50;
+    /** 引导卷 VPUs/GB，10～120 步进 10；空则 10 */
+    private Integer vpusPerGB = 10;
     private Integer createNumbers = 1;
     private Integer interval = 60;
     private String rootPassword;

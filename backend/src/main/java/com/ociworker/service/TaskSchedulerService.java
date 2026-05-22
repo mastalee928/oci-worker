@@ -15,6 +15,7 @@ import com.ociworker.model.entity.OciCreateTask;
 import com.ociworker.model.entity.OciUser;
 import com.ociworker.model.params.PageParams;
 import cn.hutool.core.util.StrUtil;
+import com.ociworker.util.BootVolumeVpusUtil;
 import com.ociworker.util.CommonUtils;
 import com.ociworker.util.OciRegionUtil;
 import com.ociworker.util.ShapeFlexLimitsUtil;
@@ -174,6 +175,7 @@ public class TaskSchedulerService implements SmartLifecycle {
             map.put("ocpus", task.getOcpus());
             map.put("memory", task.getMemory());
             map.put("disk", task.getDisk());
+            map.put("vpusPerGB", BootVolumeVpusUtil.normalize(task.getVpusPerGB()));
             map.put("architecture", task.getArchitecture());
             map.put("intervalSeconds", task.getIntervalSeconds());
             map.put("createNumbers", task.getCreateNumbers());
@@ -196,7 +198,7 @@ public class TaskSchedulerService implements SmartLifecycle {
     }
 
     public void createTask(String userId, String architecture, Double ocpus, Double memory,
-                           Integer disk, Integer createNumbers, Integer interval,
+                           Integer disk, Integer vpusPerGB, Integer createNumbers, Integer interval,
                            String rootPassword, String operationSystem, String customScript,
                            Boolean assignPublicIp, Boolean assignIpv6, String ociRegionOverride) {
         OciUser ociUser = userMapper.selectById(userId);
@@ -219,6 +221,7 @@ public class TaskSchedulerService implements SmartLifecycle {
         task.setOcpus(normalized[0]);
         task.setMemory(normalized[1]);
         task.setDisk(disk);
+        task.setVpusPerGB(BootVolumeVpusUtil.normalize(vpusPerGB));
         task.setCreateNumbers(createNumbers);
         task.setIntervalSeconds(interval);
         task.setRootPassword(rootPassword);
@@ -246,7 +249,8 @@ public class TaskSchedulerService implements SmartLifecycle {
                 + "🌍 <b>区域：</b>" + effectiveRegion + "\n"
                 + "⚙️ <b>架构：</b>" + series + "\n"
                 + targetShapeLineForNotify(architecture)
-                + "📊 <b>配置：</b>" + normalized[0] + "C / " + normalized[1] + "GB / " + disk + "GB\n"
+                + "📊 <b>配置：</b>" + normalized[0] + "C / " + normalized[1] + "GB / "
+                + BootVolumeVpusUtil.formatDiskWithVpus(disk != null ? disk : 50, task.getVpusPerGB()) + "\n"
                 + "🔢 <b>数量：</b>" + createNumbers + "\n"
                 + "🔑 <b>密码：</b><code>" + pwd + "</code>";
         notificationService.sendHtmlWithType(NotificationService.TYPE_TASK_CREATE, html);
@@ -272,7 +276,7 @@ public class TaskSchedulerService implements SmartLifecycle {
     }
 
     public void updateTask(String taskId, String architecture, Double ocpus, Double memory,
-                           Integer disk, Integer createNumbers, Integer interval,
+                           Integer disk, Integer vpusPerGB, Integer createNumbers, Integer interval,
                            String rootPassword, String operationSystem, String customScript,
                            Boolean assignPublicIp, Boolean assignIpv6) {
         OciCreateTask task = taskMapper.selectById(taskId);
@@ -291,6 +295,7 @@ public class TaskSchedulerService implements SmartLifecycle {
         if (ocpus != null) task.setOcpus(ocpus);
         if (memory != null) task.setMemory(memory);
         if (disk != null) task.setDisk(disk);
+        if (vpusPerGB != null) task.setVpusPerGB(BootVolumeVpusUtil.normalize(vpusPerGB));
         if (createNumbers != null) task.setCreateNumbers(createNumbers);
         if (interval != null) task.setIntervalSeconds(interval);
         if (rootPassword != null && !rootPassword.isBlank()) task.setRootPassword(rootPassword);
@@ -584,6 +589,7 @@ public class TaskSchedulerService implements SmartLifecycle {
         data.put("ocpus", task.getOcpus());
         data.put("memory", task.getMemory());
         data.put("disk", task.getDisk());
+        data.put("vpusPerGB", BootVolumeVpusUtil.normalize(task.getVpusPerGB()));
         data.put("createNumbers", task.getCreateNumbers());
         data.put("operationSystem", task.getOperationSystem());
         data.put("customScript", task.getCustomScript());
@@ -627,6 +633,7 @@ public class TaskSchedulerService implements SmartLifecycle {
                 .ocpus(normalized[0])
                 .memory(normalized[1])
                 .disk(task.getDisk())
+                .vpusPerGB(BootVolumeVpusUtil.normalize(task.getVpusPerGB()))
                 .createNumbers(task.getCreateNumbers())
                 .rootPassword(task.getRootPassword())
                 .operationSystem(task.getOperationSystem())
@@ -675,7 +682,7 @@ public class TaskSchedulerService implements SmartLifecycle {
     /** TG 通知：任务存的是完整 Shape 时补一行，与「架构」系列区分 */
     private static String targetShapeLineForNotify(String shapeOrArchitecture) {
         if (ShapeSeriesUtil.isFullShapeName(shapeOrArchitecture)) {
-            return "💻 <b>目标 Shape：</b><code>" + shapeOrArchitecture.trim() + "</code>\n";
+            return "💻 <b>Shape：</b><code>" + shapeOrArchitecture.trim() + "</code>\n";
         }
         return "";
     }

@@ -16,6 +16,8 @@ public class OciCreateTask {
     private Double ocpus;
     private Double memory;
     private Integer disk;
+    /** 引导卷 VPUs/GB，默认 10 */
+    private Integer vpusPerGB;
     private String architecture;
     private Integer intervalSeconds;
     private Integer createNumbers;
