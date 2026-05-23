@@ -61,6 +61,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: 'Oracle AI', icon: 'ApiOutlined' },
       },
       {
+        path: 'cloudflare',
+        name: 'Cloudflare',
+        component: () => import('../views/Cloudflare.vue'),
+        meta: { title: 'Cloudflare', icon: 'CloudOutlined' },
+      },
+      {
         path: 'webssh',
         name: 'WebSSH',
         component: () => import('../views/WebSSH.vue'),

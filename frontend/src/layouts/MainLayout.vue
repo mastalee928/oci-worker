@@ -46,6 +46,10 @@
           <template #icon><i class="ri-magic-line menu-ri"></i></template>
           Oracle AI
         </a-menu-item>
+        <a-menu-item key="cloudflare">
+          <template #icon><i class="ri-cloud-line menu-ri"></i></template>
+          Cloudflare
+        </a-menu-item>
         <a-menu-item key="webssh">
           <template #icon><i class="ri-terminal-box-line menu-ri"></i></template>
           WebSSH
@@ -162,6 +166,7 @@ const pageTitleIcon = computed(() => {
     task: 'ri-flashlight-line',
     log: 'ri-file-list-3-line',
     'oracle-ai': 'ri-magic-line',
+    cloudflare: 'ri-cloud-line',
     webssh: 'ri-terminal-box-line',
     settings: 'ri-settings-4-line',
     user: 'ri-group-line',

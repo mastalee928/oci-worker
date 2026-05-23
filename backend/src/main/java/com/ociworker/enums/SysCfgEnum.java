@@ -30,6 +30,10 @@ public enum SysCfgEnum {
     OCI_PROXY_PASS("oci_proxy_pass", "sys"),
     OCI_PROXY_FULL_URL("oci_proxy_full_url", "sys"),
 
+    /** Cloudflare 全局 API Token（Account 级） */
+    CF_API_TOKEN("cf_api_token", "sys"),
+    CF_ACCOUNT_ID("cf_account_id", "sys"),
+
     MFA_SECRET("mfa_secret", "sys"),
     MFA_ENABLED("mfa_enabled", "sys"),
 

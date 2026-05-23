@@ -188,6 +188,37 @@
         </a-card>
       </a-tab-pane>
 
+      <a-tab-pane key="cloudflare" tab="Cloudflare">
+        <a-card class="settings-card-wide">
+          <template #title>
+            <span><i class="ri-cloud-line" style="margin-right: 8px; vertical-align: middle"></i>Cloudflare 全局凭据</span>
+          </template>
+          <a-alert
+            type="info"
+            show-icon
+            style="margin-bottom: 16px"
+            message="Account 级 API Token"
+            description="在 Cloudflare 控制台创建具备 Account / Zone 读写的 Token，并填写本账号的 Account ID。凭据全局生效，用于 Tunnel、DNS 等功能。"
+          />
+          <a-form layout="vertical">
+            <a-form-item label="Account ID" required>
+              <a-input v-model:value="cfForm.accountId" placeholder="32 位 Account ID" allow-clear />
+            </a-form-item>
+            <a-form-item label="API Token" required>
+              <a-input-password
+                v-model:value="cfForm.apiToken"
+                :placeholder="cfTokenConfigured ? '已配置（留空不修改）' : '粘贴 API Token'"
+                allow-clear
+              />
+            </a-form-item>
+            <a-space>
+              <a-button type="primary" @click="saveCfConfig" :loading="cfSaveLoading">保存设置</a-button>
+              <a-button @click="testCfConfig" :loading="cfTestLoading">测试连接</a-button>
+            </a-space>
+          </a-form>
+        </a-card>
+      </a-tab-pane>
+
       <a-tab-pane key="audit" tab="登录统计">
         <a-card class="settings-card-audit">
           <template #title>登录记录（保留 7 天，超时自动清理）</template>
@@ -491,6 +522,7 @@ import type { UploadFile } from 'ant-design-vue'
 import { useUserStore } from '../stores/user'
 import { sendVerifyCode } from '../api/system'
 import request from '../utils/request'
+import { getCfAccountConfig, saveCfAccountConfig, testCfAccountConfig } from '../api/cloudflare'
 
 const userStore = useUserStore()
 
@@ -540,6 +572,14 @@ const ociProxyTypeOptions = [
   { label: 'SOCKS5h（代理解析 DNS）', value: 'socks5h' },
 ]
 
+const cfSaveLoading = ref(false)
+const cfTestLoading = ref(false)
+const cfTokenConfigured = ref(false)
+const cfForm = reactive({
+  accountId: '',
+  apiToken: '',
+})
+
 const notifyTypeOptions = [
   { label: '登录通知', value: 'login' },
   { label: '创建任务', value: 'task_create' },
@@ -578,6 +618,9 @@ watch(activeTab, (k, prev) => {
     banlistTgVerified.value = false
     banlistUnlockCode.value = ''
   }
+  if (k === 'cloudflare') {
+    loadCfConfig()
+  }
 })
 
 onMounted(async () => {
@@ -586,6 +629,7 @@ onMounted(async () => {
   }
   loadNotifyConfig()
   loadOciProxy()
+  loadCfConfig()
   try {
     const res = await request.get('/sys/tgStatus')
     tgConfigured.value = res.data?.configured === true
@@ -643,6 +687,57 @@ function buildOciProxyPayload() {
     username: ociProxyForm.username,
     password: ociProxyForm.password,
     fullUrl: ociProxyForm.fullUrl,
+  }
+}
+
+async function loadCfConfig() {
+  try {
+    const res = await getCfAccountConfig()
+    const d = res.data
+    cfForm.accountId = d?.accountId || ''
+    cfTokenConfigured.value = d?.tokenConfigured === true
+    cfForm.apiToken = d?.apiToken || ''
+  } catch {
+    /* 忽略 */
+  }
+}
+
+async function saveCfConfig() {
+  if (!cfForm.accountId.trim()) {
+    message.warning('请填写 Account ID')
+    return
+  }
+  if (!cfTokenConfigured.value && !cfForm.apiToken.trim()) {
+    message.warning('请填写 API Token')
+    return
+  }
+  cfSaveLoading.value = true
+  try {
+    await saveCfAccountConfig({
+      accountId: cfForm.accountId.trim(),
+      apiToken: cfForm.apiToken,
+    })
+    message.success('已保存')
+    await loadCfConfig()
+  } catch (e: any) {
+    message.error(e?.message || '保存失败')
+  } finally {
+    cfSaveLoading.value = false
+  }
+}
+
+async function testCfConfig() {
+  cfTestLoading.value = true
+  try {
+    const res = await testCfAccountConfig({
+      accountId: cfForm.accountId.trim(),
+      apiToken: cfForm.apiToken,
+    })
+    message.success(res.data != null ? String(res.data) : '连接成功')
+  } catch (e: any) {
+    message.error(e?.message || '测试失败')
+  } finally {
+    cfTestLoading.value = false
   }
 }
 
