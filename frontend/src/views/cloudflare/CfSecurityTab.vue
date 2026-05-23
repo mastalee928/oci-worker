@@ -99,7 +99,7 @@
       v-model:open="createModalVisible"
       :title="editingRuleId ? '编辑防火墙规则' : '添加防火墙规则'"
       :confirm-loading="saveLoading"
-      width="680px"
+      width="720px"
       @ok="submitSave"
     >
       <a-form layout="vertical">
@@ -120,41 +120,59 @@
 
           <template v-if="form.mode === 'visual'">
             <p class="cf-section-label">当传入请求匹配时…</p>
-            <a-row :gutter="8" align="middle">
-              <a-col :span="7">
-                <div class="cf-mini-label">字段</div>
-                <a-select
-                  v-model:value="form.fieldId"
-                  :options="fieldOptions"
-                  style="width: 100%"
-                  @change="onFieldChange"
-                />
-              </a-col>
-              <a-col :span="7">
-                <div class="cf-mini-label">运算符</div>
-                <a-select
-                  v-model:value="form.operator"
-                  :options="operatorOptions"
-                  style="width: 100%"
-                />
-              </a-col>
-              <a-col :span="10">
-                <div class="cf-mini-label">值</div>
-                <a-switch
-                  v-if="selectedField?.type === 'bool'"
-                  v-model:checked="form.boolValue"
-                  checked-children="是 (HTTPS)"
-                  un-checked-children="否"
-                />
-                <a-input
-                  v-else
-                  v-model:value="form.value"
-                  :placeholder="selectedField?.placeholder || '输入匹配值'"
-                  allow-clear
-                />
-              </a-col>
-            </a-row>
-            <p v-if="selectedField?.valueHint" class="cf-value-hint">{{ selectedField.valueHint }}</p>
+            <div class="cf-join-bar">
+              <span class="cf-mini-label">条件关系</span>
+              <a-radio-group v-model:value="form.join" size="small">
+                <a-radio-button value="and">且 (AND)</a-radio-button>
+                <a-radio-button value="or">或 (OR)</a-radio-button>
+              </a-radio-group>
+            </div>
+            <div
+              v-for="(clause, idx) in form.clauses"
+              :key="clause.key"
+              class="cf-clause-block"
+            >
+              <div v-if="idx > 0" class="cf-clause-join">{{ form.join === 'and' ? '且' : '或' }}</div>
+              <a-row :gutter="8" align="middle">
+                <a-col :span="7">
+                  <div class="cf-mini-label">字段</div>
+                  <a-select
+                    v-model:value="clause.fieldId"
+                    :options="fieldOptions"
+                    style="width: 100%"
+                    @change="onClauseFieldChange(clause)"
+                  />
+                </a-col>
+                <a-col :span="7">
+                  <div class="cf-mini-label">运算符</div>
+                  <a-select
+                    v-model:value="clause.operator"
+                    :options="operatorsForClause(clause)"
+                    style="width: 100%"
+                  />
+                </a-col>
+                <a-col :span="clauseField(clause)?.type === 'bool' ? 7 : 10">
+                  <div class="cf-mini-label">值</div>
+                  <a-switch
+                    v-if="clauseField(clause)?.type === 'bool'"
+                    v-model:checked="clause.boolValue"
+                    checked-children="是 (HTTPS)"
+                    un-checked-children="否"
+                  />
+                  <a-input
+                    v-else
+                    v-model:value="clause.value"
+                    :placeholder="clauseField(clause)?.placeholder || '输入匹配值'"
+                    allow-clear
+                  />
+                </a-col>
+                <a-col v-if="form.clauses.length > 1" :span="3" class="cf-clause-del">
+                  <a-button type="link" danger size="small" @click="removeClause(idx)">删除</a-button>
+                </a-col>
+              </a-row>
+              <p v-if="clauseField(clause)?.valueHint" class="cf-value-hint">{{ clauseField(clause)?.valueHint }}</p>
+            </div>
+            <a-button type="dashed" block class="cf-add-clause" @click="addClause">添加条件</a-button>
             <div class="cf-expr-preview">
               <div class="cf-expr-preview-head">
                 <span>表达式预览</span>
@@ -194,15 +212,17 @@ import {
 } from '../../api/cloudflare'
 import {
   FIREWALL_FIELDS,
-  compileFirewallClause,
+  compileFirewallExpression,
   defaultOperatorForField,
   operatorsForField,
   humanizeExpression,
   firewallActionLabel,
   ruleDisplayName,
-  parseFirewallExpression,
+  parseFirewallVisualForm,
   type FieldDef,
+  type FirewallJoin,
   type OperatorId,
+  type VisualClauseForm,
 } from './cfFirewallExpression'
 
 interface FirewallRule {
@@ -213,6 +233,8 @@ interface FirewallRule {
   expression?: string
   events24h?: number
 }
+
+type ClauseRow = VisualClauseForm & { key: string }
 
 const props = defineProps<{ zoneId?: string }>()
 
@@ -244,10 +266,8 @@ const form = reactive({
   description: '',
   action: 'block',
   mode: 'visual' as 'visual' | 'advanced',
-  fieldId: 'uri_path',
-  operator: 'wildcard' as OperatorId,
-  value: '',
-  boolValue: true,
+  join: 'and' as FirewallJoin,
+  clauses: [] as ClauseRow[],
   expression: '',
   enabled: true,
 })
@@ -272,38 +292,70 @@ const columns = [
 
 const fieldOptions = FIREWALL_FIELDS.map(f => ({ value: f.id, label: f.label }))
 
-const selectedField = computed((): FieldDef | undefined =>
-  FIREWALL_FIELDS.find(f => f.id === form.fieldId))
-
-const operatorOptions = computed(() =>
-  operatorsForField(selectedField.value).map(o => ({ value: o.id, label: o.label })))
-
-const previewExpression = computed(() => {
-  const field = selectedField.value
-  if (!field) return ''
-  const raw = field.type === 'bool' ? (form.boolValue ? 'true' : 'false') : form.value
-  return compileFirewallClause(field, form.operator, raw) || ''
-})
+const previewExpression = computed(() =>
+  compileFirewallExpression(form.join, form.clauses) || '')
 
 function formatEvents24h(n?: number) {
   if (n === undefined || n === null) return '—'
   return String(n)
 }
 
-function onFieldChange() {
-  const field = selectedField.value
+function createClauseRow(partial?: VisualClauseForm): ClauseRow {
+  return {
+    key: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    fieldId: partial?.fieldId ?? 'uri_path',
+    operator: partial?.operator ?? 'wildcard',
+    value: partial?.value ?? '',
+    boolValue: partial?.boolValue ?? true,
+  }
+}
+
+function clauseField(clause: VisualClauseForm): FieldDef | undefined {
+  return FIREWALL_FIELDS.find(f => f.id === clause.fieldId)
+}
+
+function operatorsForClause(clause: VisualClauseForm) {
+  return operatorsForField(clauseField(clause)).map(o => ({ value: o.id, label: o.label }))
+}
+
+function onClauseFieldChange(clause: VisualClauseForm) {
+  const field = clauseField(clause)
   if (!field) return
-  form.operator = defaultOperatorForField(field)
-  form.value = ''
-  form.boolValue = true
+  clause.operator = defaultOperatorForField(field)
+  clause.value = ''
+  clause.boolValue = true
+}
+
+function addClause() {
+  form.clauses.push(createClauseRow())
+}
+
+function removeClause(idx: number) {
+  if (form.clauses.length <= 1) return
+  form.clauses.splice(idx, 1)
+}
+
+function applyVisualForm(join: FirewallJoin, clauses: VisualClauseForm[]) {
+  form.join = join
+  form.clauses = clauses.map(c => createClauseRow(c))
+}
+
+function resetVisualForm() {
+  form.join = 'and'
+  form.clauses = [createClauseRow()]
+}
+
+function tryLoadVisualFromExpression(expr: string): boolean {
+  const parsed = parseFirewallVisualForm(expr)
+  if (!parsed) return false
+  applyVisualForm(parsed.join, parsed.clauses)
+  return true
 }
 
 function onModeChange() {
   if (form.mode === 'advanced') {
     const compiled = previewExpression.value
-    if (compiled) {
-      form.expression = compiled
-    }
+    if (compiled) form.expression = compiled
     return
   }
   const src = form.expression.trim()
@@ -311,23 +363,10 @@ function onModeChange() {
     resetVisualForm()
     return
   }
-  const parsed = parseFirewallExpression(src)
-  if (!parsed) {
-    message.warning('该表达式含多条件或复杂逻辑，无法转为可视化，请继续使用编辑表达式')
+  if (!tryLoadVisualFromExpression(src)) {
+    message.warning('表达式含混合 and/or 或无法识别的语法，请继续使用编辑表达式')
     form.mode = 'advanced'
-    return
   }
-  form.fieldId = parsed.fieldId
-  form.operator = parsed.operator
-  form.value = parsed.value
-  form.boolValue = parsed.boolValue
-}
-
-function resetVisualForm() {
-  form.fieldId = 'uri_path'
-  form.operator = 'wildcard'
-  form.value = ''
-  form.boolValue = true
 }
 
 function openCreateModal() {
@@ -345,16 +384,19 @@ function openEditModal(record: FirewallRule) {
   editingRuleId.value = record.id
   form.description = record.description || ''
   form.action = record.action || 'block'
-  form.mode = 'advanced'
   form.expression = record.expression || ''
   form.enabled = !record.paused
+  if (record.expression && tryLoadVisualFromExpression(record.expression)) {
+    form.mode = 'visual'
+  } else {
+    form.mode = 'advanced'
+    resetVisualForm()
+  }
   createModalVisible.value = true
 }
 
 function resolveExpression(): string {
-  if (form.mode === 'advanced') {
-    return form.expression.trim()
-  }
+  if (form.mode === 'advanced') return form.expression.trim()
   return previewExpression.value
 }
 
@@ -516,6 +558,26 @@ watch(() => props.zoneId, () => loadAll(), { immediate: true })
 }
 .cf-rule-ops :deep(.ant-btn-link) { padding: 0 4px; }
 .cf-mode-bar { margin-bottom: 12px; }
+.cf-join-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+.cf-clause-block {
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px dashed var(--border);
+}
+.cf-clause-block:last-of-type { border-bottom: none; }
+.cf-clause-join {
+  margin-bottom: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--primary, #1677ff);
+}
+.cf-clause-del { text-align: right; }
+.cf-add-clause { margin-bottom: 12px; }
 .cf-section-label {
   margin: 0 0 8px;
   font-size: 13px;

@@ -326,18 +326,76 @@ function stripBalancedOuterParens(s: string): string {
   return cur
 }
 
-/** 是否含顶层 and/or（多条件表达式无法用单条可视化表示） */
+/** 是否含顶层 and/or */
 export function isCompoundFirewallExpression(raw: string): boolean {
   const s = stripBalancedOuterParens(raw.trim())
   return /\s+and\s+|\s+or\s+/i.test(s)
 }
 
-/**
- * 尝试将单条 Wirefilter 表达式解析为可视化表单；多条件或无法识别时返回 null。
- */
-export function parseFirewallExpression(raw: string): VisualClauseForm | null {
+export type FirewallJoin = 'and' | 'or'
+
+export interface VisualRuleForm {
+  join: FirewallJoin
+  clauses: VisualClauseForm[]
+}
+
+function splitTopLevel(raw: string, join: FirewallJoin): string[] {
+  const s = stripBalancedOuterParens(raw.trim())
+  const keyword = join === 'and' ? ' and ' : ' or '
+  const parts: string[] = []
+  let depth = 0
+  let inStr = false
+  let escape = false
+  let buf = ''
+
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i]
+    if (escape) {
+      buf += ch
+      escape = false
+      continue
+    }
+    if (ch === '\\' && inStr) {
+      buf += ch
+      escape = true
+      continue
+    }
+    if (ch === '"') {
+      inStr = !inStr
+      buf += ch
+      continue
+    }
+    if (!inStr) {
+      if (ch === '(') depth++
+      else if (ch === ')') depth--
+      else if (depth === 0 && s.slice(i, i + keyword.length).toLowerCase() === keyword) {
+        if (buf.trim()) parts.push(buf.trim())
+        buf = ''
+        i += keyword.length - 1
+        continue
+      }
+    }
+    buf += ch
+  }
+  if (buf.trim()) parts.push(buf.trim())
+  return parts
+}
+
+function detectTopLevelJoin(raw: string): FirewallJoin | null {
+  const s = stripBalancedOuterParens(raw.trim())
+  const andParts = splitTopLevel(s, 'and')
+  const orParts = splitTopLevel(s, 'or')
+  const hasAnd = andParts.length > 1
+  const hasOr = orParts.length > 1
+  if (hasAnd && hasOr) return null
+  if (hasAnd) return 'and'
+  if (hasOr) return 'or'
+  return 'and'
+}
+
+/** 解析单条子表达式为可视化字段 */
+export function parseSingleFirewallClause(raw: string): VisualClauseForm | null {
   if (!raw?.trim()) return null
-  if (isCompoundFirewallExpression(raw)) return null
 
   const s = stripBalancedOuterParens(raw.trim())
   const STR = '"((?:[^"\\\\]|\\\\.)*)"'
@@ -389,4 +447,42 @@ export function parseFirewallExpression(raw: string): VisualClauseForm | null {
     return apply(field, ...m.slice(2))
   }
   return null
+}
+
+/** @deprecated 使用 parseFirewallVisualForm */
+export function parseFirewallExpression(raw: string): VisualClauseForm | null {
+  return parseSingleFirewallClause(raw)
+}
+
+/** 解析含 AND/OR 的表达式为可视化表单；混合 and+or 或无法识别时返回 null */
+export function parseFirewallVisualForm(raw: string): VisualRuleForm | null {
+  if (!raw?.trim()) return null
+  const join = detectTopLevelJoin(raw)
+  if (!join) return null
+  const segments = splitTopLevel(raw, join)
+  const clauses: VisualClauseForm[] = []
+  for (const seg of segments) {
+    const clause = parseSingleFirewallClause(seg)
+    if (!clause) return null
+    clauses.push(clause)
+  }
+  if (clauses.length === 0) return null
+  return { join, clauses }
+}
+
+/** 将可视化多条条件编译为 Wirefilter 表达式 */
+export function compileFirewallExpression(join: FirewallJoin, clauses: VisualClauseForm[]): string | null {
+  if (!clauses.length) return null
+  const parts: string[] = []
+  for (const clause of clauses) {
+    const field = FIREWALL_FIELDS.find(f => f.id === clause.fieldId)
+    if (!field) return null
+    const raw = field.type === 'bool' ? (clause.boolValue ? 'true' : 'false') : clause.value
+    const compiled = compileFirewallClause(field, clause.operator, raw)
+    if (!compiled) return null
+    parts.push(compiled)
+  }
+  if (parts.length === 1) return parts[0]
+  const sep = ` ${join} `
+  return `(${parts.join(sep)})`
 }
