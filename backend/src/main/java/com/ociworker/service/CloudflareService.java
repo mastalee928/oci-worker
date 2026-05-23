@@ -77,8 +77,7 @@ public class CloudflareService {
         if (StrUtil.isBlank(token)) {
             throw new OciException("请先填写 API Token");
         }
-        JSONObject verify = parseJson(apiGet(token, CF_API_BASE + "/user/tokens/verify"));
-        requireSuccess(verify, "Token 验证失败");
+        verifyApiToken(token, acc);
         if (acc != null) {
             JSONObject accJson = parseJson(apiGet(token, CF_API_BASE + "/accounts/" + acc));
             requireSuccess(accJson, "Account ID 无效或无权限");
@@ -87,6 +86,25 @@ public class CloudflareService {
             return "连接成功：Token 有效，账户 " + name;
         }
         return "连接成功：Token 有效";
+    }
+
+    /** 账户 API 令牌（cfat_）与用户 API 令牌使用不同的 verify 端点。 */
+    private void verifyApiToken(String token, String accountId) {
+        if (isAccountApiToken(token)) {
+            if (StrUtil.isBlank(accountId)) {
+                throw new OciException("账户 API 令牌（cfat_）测试需填写 Account ID");
+            }
+            JSONObject verify = parseJson(apiGet(token,
+                    CF_API_BASE + "/accounts/" + accountId.trim() + "/tokens/verify"));
+            requireSuccess(verify, "Token 验证失败");
+            return;
+        }
+        JSONObject verify = parseJson(apiGet(token, CF_API_BASE + "/user/tokens/verify"));
+        requireSuccess(verify, "Token 验证失败");
+    }
+
+    private static boolean isAccountApiToken(String token) {
+        return token != null && token.startsWith("cfat_");
     }
 
   // -------------------------------------------------------------------------
