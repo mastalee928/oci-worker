@@ -200,6 +200,7 @@ import {
   humanizeExpression,
   firewallActionLabel,
   ruleDisplayName,
+  parseFirewallExpression,
   type FieldDef,
   type OperatorId,
 } from './cfFirewallExpression'
@@ -298,9 +299,28 @@ function onFieldChange() {
 }
 
 function onModeChange() {
-  if (form.mode === 'advanced' && previewExpression.value) {
-    form.expression = previewExpression.value
+  if (form.mode === 'advanced') {
+    const compiled = previewExpression.value
+    if (compiled) {
+      form.expression = compiled
+    }
+    return
   }
+  const src = form.expression.trim()
+  if (!src) {
+    resetVisualForm()
+    return
+  }
+  const parsed = parseFirewallExpression(src)
+  if (!parsed) {
+    message.warning('该表达式含多条件或复杂逻辑，无法转为可视化，请继续使用编辑表达式')
+    form.mode = 'advanced'
+    return
+  }
+  form.fieldId = parsed.fieldId
+  form.operator = parsed.operator
+  form.value = parsed.value
+  form.boolValue = parsed.boolValue
 }
 
 function resetVisualForm() {

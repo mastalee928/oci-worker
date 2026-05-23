@@ -289,3 +289,104 @@ export function ruleDisplayName(description?: string, expression?: string) {
   }
   return '未命名规则'
 }
+
+export interface VisualClauseForm {
+  fieldId: string
+  operator: OperatorId
+  value: string
+  boolValue: boolean
+}
+
+const FIELDS_BY_EXPR_LEN = [...FIREWALL_FIELDS].sort((a, b) => b.expr.length - a.expr.length)
+
+function findFieldByExpr(exprKey: string): FieldDef | undefined {
+  return FIELDS_BY_EXPR_LEN.find(f => f.expr === exprKey)
+}
+
+function unescapeQuoted(s: string): string {
+  return s.replace(/\\"/g, '"').replace(/\\\\/g, '\\')
+}
+
+function stripBalancedOuterParens(s: string): string {
+  let cur = s.trim()
+  while (cur.startsWith('(') && cur.endsWith(')')) {
+    let depth = 0
+    let canStrip = true
+    for (let i = 0; i < cur.length - 1; i++) {
+      if (cur[i] === '(') depth++
+      else if (cur[i] === ')') depth--
+      if (depth === 0 && i > 0) {
+        canStrip = false
+        break
+      }
+    }
+    if (!canStrip) break
+    cur = cur.slice(1, -1).trim()
+  }
+  return cur
+}
+
+/** 是否含顶层 and/or（多条件表达式无法用单条可视化表示） */
+export function isCompoundFirewallExpression(raw: string): boolean {
+  const s = stripBalancedOuterParens(raw.trim())
+  return /\s+and\s+|\s+or\s+/i.test(s)
+}
+
+/**
+ * 尝试将单条 Wirefilter 表达式解析为可视化表单；多条件或无法识别时返回 null。
+ */
+export function parseFirewallExpression(raw: string): VisualClauseForm | null {
+  if (!raw?.trim()) return null
+  if (isCompoundFirewallExpression(raw)) return null
+
+  const s = stripBalancedOuterParens(raw.trim())
+  const STR = '"((?:[^"\\\\]|\\\\.)*)"'
+  const RAW = 'r"((?:[^"\\\\]|\\\\.)*)"'
+  const FIELD = '([\\w.]+)'
+
+  const base = (field: FieldDef, operator: OperatorId, value: string): VisualClauseForm => ({
+    fieldId: field.id,
+    operator,
+    value,
+    boolValue: field.type === 'bool' ? value === 'true' : true,
+  })
+
+  if (/^not\s+ssl$/i.test(s)) {
+    const field = findFieldByExpr('ssl')
+    return field ? { fieldId: field.id, operator: 'eq', value: 'false', boolValue: false } : null
+  }
+  if (/^ssl$/i.test(s)) {
+    const field = findFieldByExpr('ssl')
+    return field ? { fieldId: field.id, operator: 'eq', value: 'true', boolValue: true } : null
+  }
+
+  type Matcher = { re: RegExp; apply: (field: FieldDef, ...caps: string[]) => VisualClauseForm | null }
+  const matchers: Matcher[] = [
+    { re: new RegExp(`^not\\s+starts_with\\(${FIELD},\\s*${STR}\\)$`, 'i'), apply: (f, v) => base(f, 'not_starts_with', unescapeQuoted(v)) },
+    { re: new RegExp(`^starts_with\\(${FIELD},\\s*${STR}\\)$`, 'i'), apply: (f, v) => base(f, 'starts_with', unescapeQuoted(v)) },
+    { re: new RegExp(`^not\\s+ends_with\\(${FIELD},\\s*${STR}\\)$`, 'i'), apply: (f, v) => base(f, 'not_ends_with', unescapeQuoted(v)) },
+    { re: new RegExp(`^ends_with\\(${FIELD},\\s*${STR}\\)$`, 'i'), apply: (f, v) => base(f, 'ends_with', unescapeQuoted(v)) },
+    { re: new RegExp(`^not\\s+${FIELD}\\s+contains\\s+${STR}$`, 'i'), apply: (f, v) => base(f, 'not_contains', unescapeQuoted(v)) },
+    { re: new RegExp(`^not\\s+${FIELD}\\s+matches\\s+${STR}$`, 'i'), apply: (f, v) => base(f, 'not_matches', unescapeQuoted(v)) },
+    { re: new RegExp(`^not\\s+${FIELD}\\s+in\\s+\\{([^}]*)\\}$`, 'i'), apply: (f, v) => base(f, 'not_in', v.replace(/"/g, '').trim()) },
+    { re: new RegExp(`^${FIELD}\\s+wildcard\\s+${RAW}$`, 'i'), apply: (f, v) => base(f, 'wildcard', unescapeQuoted(v)) },
+    { re: new RegExp(`^${FIELD}\\s+strict\\s+wildcard\\s+${RAW}$`, 'i'), apply: (f, v) => base(f, 'strict_wildcard', unescapeQuoted(v)) },
+    { re: new RegExp(`^${FIELD}\\s+contains\\s+${STR}$`, 'i'), apply: (f, v) => base(f, 'contains', unescapeQuoted(v)) },
+    { re: new RegExp(`^${FIELD}\\s+matches\\s+${STR}$`, 'i'), apply: (f, v) => base(f, 'matches', unescapeQuoted(v)) },
+    { re: new RegExp(`^${FIELD}\\s+eq\\s+${STR}$`, 'i'), apply: (f, v) => base(f, 'eq', unescapeQuoted(v)) },
+    { re: new RegExp(`^${FIELD}\\s+ne\\s+${STR}$`, 'i'), apply: (f, v) => base(f, 'ne', unescapeQuoted(v)) },
+    { re: new RegExp(`^${FIELD}\\s+eq\\s+(\\S+)$`, 'i'), apply: (f, v) => base(f, 'eq', v) },
+    { re: new RegExp(`^${FIELD}\\s+ne\\s+(\\S+)$`, 'i'), apply: (f, v) => base(f, 'ne', v) },
+    { re: new RegExp(`^${FIELD}\\s+(gt|lt|ge|le)\\s+(\\S+)$`, 'i'), apply: (f, op, v) => base(f, op as OperatorId, v) },
+    { re: new RegExp(`^${FIELD}\\s+in\\s+\\{([^}]*)\\}$`, 'i'), apply: (f, v) => base(f, 'in', v.replace(/"/g, '').trim()) },
+  ]
+
+  for (const { re, apply } of matchers) {
+    const m = s.match(re)
+    if (!m) continue
+    const field = findFieldByExpr(m[1])
+    if (!field) continue
+    return apply(field, ...m.slice(2))
+  }
+  return null
+}
