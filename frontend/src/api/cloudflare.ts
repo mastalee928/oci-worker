@@ -249,6 +249,14 @@ export function purgeCfCache(data: { zoneId: string; purgeEverything?: boolean; 
   return request.post('/cf/cache/purge', data)
 }
 
+export function getCfSecurityProtection(data: { zoneId: string }, silent = false) {
+  return request.post('/cf/security/protection/get', data, silent ? cfSilent : undefined)
+}
+
+export function setCfSecurityProtection(data: { zoneId: string; settingId: string; value: unknown }) {
+  return request.post('/cf/security/protection/set', data)
+}
+
 export function listCfFirewallRules(data: { zoneId: string }, silent = false) {
   return request.post('/cf/security/firewall/list', data, silent ? cfSilent : undefined)
 }

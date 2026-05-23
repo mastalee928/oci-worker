@@ -462,6 +462,19 @@ public class CloudflareController {
         return ResponseData.ok();
     }
 
+    @PostMapping("/security/protection/get")
+    public ResponseData<?> securityProtectionGet(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(cloudflareService.getSecuritySettings(params.get("zoneId")));
+    }
+
+    @PostMapping("/security/protection/set")
+    public ResponseData<?> securityProtectionSet(@RequestBody Map<String, Object> params) {
+        return ResponseData.ok(cloudflareService.updateSecuritySetting(
+                parseString(params.get("zoneId")),
+                parseString(params.get("settingId")),
+                params.get("value")));
+    }
+
     @PostMapping("/workers/routes/list")
     public ResponseData<?> workersRoutesList(@RequestBody Map<String, String> params) {
         return ResponseData.ok(cloudflareService.listWorkersRoutes(params.get("zoneId")));

@@ -429,6 +429,33 @@ public class CloudflareService {
     private static final List<String> CACHE_SETTING_IDS = List.of(
             "cache_level", "browser_cache_ttl", "development_mode", "always_online");
 
+    private static final List<String> SECURITY_SETTING_IDS = List.of(
+            "security_level", "bot_fight_mode", "browser_check");
+
+    public Map<String, Object> getSecuritySettings(String zoneId) {
+        Credentials c = requireCredentials();
+        requireZoneId(zoneId);
+        Map<String, Object> out = new LinkedHashMap<>();
+        for (String id : SECURITY_SETTING_IDS) {
+            out.put(id, readZoneSettingValueOptional(c.apiToken(), zoneId, id));
+        }
+        return out;
+    }
+
+    public Map<String, Object> updateSecuritySetting(String zoneId, String settingId, Object value) {
+        if (!SECURITY_SETTING_IDS.contains(settingId)) {
+            throw new OciException("不支持的防护设置: " + settingId);
+        }
+        if ("security_level".equals(settingId)) {
+            String level = value != null ? value.toString().trim().toLowerCase() : "";
+            if (!Set.of("off", "essentially_off", "low", "medium", "high", "under_attack").contains(level)) {
+                throw new OciException("无效的安全级别: " + level);
+            }
+        }
+        patchZoneSetting(zoneId, settingId, value);
+        return getSecuritySettings(zoneId);
+    }
+
     public Map<String, Object> getSslSettings(String zoneId) {
         Credentials c = requireCredentials();
         requireZoneId(zoneId);
@@ -620,7 +647,15 @@ public class CloudflareService {
                     }""";
             Map<String, Object> payload = Map.of("query", gql, "variables", variables);
             JSONObject json = parseJson(apiPost(c.apiToken(), CF_API_BASE + "/graphql", payload));
-            JSONArray zones = json.path("data.viewer.zones").getJSONArray();
+            JSONObject data = json.getJSONObject("data");
+            if (data == null) {
+                return counts;
+            }
+            JSONObject viewer = data.getJSONObject("viewer");
+            if (viewer == null) {
+                return counts;
+            }
+            JSONArray zones = viewer.getJSONArray("zones");
             if (zones == null || zones.isEmpty()) {
                 return counts;
             }
@@ -843,6 +878,15 @@ public class CloudflareService {
         requireSuccess(json, "读取 Zone 设置 " + settingId + " 失败");
         JSONObject result = json.getJSONObject("result");
         return result != null ? result.get("value") : null;
+    }
+
+    private Object readZoneSettingValueOptional(String token, String zoneId, String settingId) {
+        try {
+            return readZoneSettingValue(token, zoneId, settingId);
+        } catch (Exception e) {
+            log.debug("Zone setting {} skipped: {}", settingId, e.getMessage());
+            return null;
+        }
     }
 
     private void patchZoneSetting(String zoneId, String settingId, Object value) {

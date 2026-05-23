@@ -1,9 +1,41 @@
 <template>
   <div class="cf-security-tab">
+    <a-card title="站点防护" size="small" class="cf-shield-card" :loading="shieldLoading">
+      <a-form layout="vertical" class="cf-shield-form">
+        <a-form-item label="安全级别">
+          <a-select
+            v-model:value="shield.security_level"
+            :options="securityLevelOptions"
+            :disabled="shieldSaving"
+            @change="saveShield('security_level', shield.security_level)"
+          />
+          <p v-if="shield.security_level === 'under_attack'" class="cf-shield-warn">
+            全站访问者将看到浏览器验证页（俗称三秒盾），请仅在遭受攻击时使用。
+          </p>
+        </a-form-item>
+        <a-form-item v-if="shield.bot_fight_mode != null" label="Bot Fight Mode">
+          <a-switch
+            :checked="shield.bot_fight_mode === 'on'"
+            :loading="shieldSaving"
+            @change="(v: boolean) => saveShield('bot_fight_mode', v ? 'on' : 'off')"
+          />
+        </a-form-item>
+        <a-form-item v-if="shield.browser_check != null" label="浏览器完整性检查">
+          <a-switch
+            :checked="shield.browser_check === 'on'"
+            :loading="shieldSaving"
+            @change="(v: boolean) => saveShield('browser_check', v ? 'on' : 'off')"
+          />
+        </a-form-item>
+      </a-form>
+    </a-card>
+
+    <a-divider orientation="left">防火墙规则</a-divider>
+
     <div class="cf-toolbar">
       <a-space wrap>
         <a-button type="primary" @click="openCreateModal">添加规则</a-button>
-        <a-button :loading="loading" @click="load">刷新</a-button>
+        <a-button :loading="loading || shieldLoading" @click="loadAll">刷新</a-button>
       </a-space>
     </div>
     <a-table
@@ -157,6 +189,8 @@ import {
   updateCfFirewallRule,
   deleteCfFirewallRule,
   setCfFirewallRulePaused,
+  getCfSecurityProtection,
+  setCfSecurityProtection,
 } from '../../api/cloudflare'
 import {
   FIREWALL_FIELDS,
@@ -182,12 +216,28 @@ interface FirewallRule {
 const props = defineProps<{ zoneId?: string }>()
 
 const loading = ref(false)
+const shieldLoading = ref(false)
+const shieldSaving = ref(false)
 const saveLoading = ref(false)
 const createModalVisible = ref(false)
 const editingRuleId = ref<string | null>(null)
 const rules = ref<FirewallRule[]>([])
 const pauseLoadingMap = ref<Record<string, boolean>>({})
 const deleteLoadingMap = ref<Record<string, boolean>>({})
+
+const shield = reactive({
+  security_level: 'medium' as string,
+  bot_fight_mode: null as string | null,
+  browser_check: null as string | null,
+})
+
+const securityLevelOptions = [
+  { value: 'essentially_off', label: '基本关闭' },
+  { value: 'low', label: '低' },
+  { value: 'medium', label: '中（默认）' },
+  { value: 'high', label: '高' },
+  { value: 'under_attack', label: '我正在遭受攻击（三秒盾）' },
+]
 
 const form = reactive({
   description: '',
@@ -288,6 +338,36 @@ function resolveExpression(): string {
   return previewExpression.value
 }
 
+function applyShieldData(data: Record<string, unknown> | null) {
+  if (!data) return
+  if (data.security_level != null) shield.security_level = String(data.security_level)
+  shield.bot_fight_mode = data.bot_fight_mode != null ? String(data.bot_fight_mode) : null
+  shield.browser_check = data.browser_check != null ? String(data.browser_check) : null
+}
+
+async function loadShield() {
+  if (!props.zoneId) return
+  shieldLoading.value = true
+  try {
+    const res = await getCfSecurityProtection({ zoneId: props.zoneId })
+    applyShieldData(res.data)
+  } finally {
+    shieldLoading.value = false
+  }
+}
+
+async function saveShield(settingId: string, value: unknown) {
+  if (!props.zoneId || shieldSaving.value) return
+  shieldSaving.value = true
+  try {
+    const res = await setCfSecurityProtection({ zoneId: props.zoneId, settingId, value })
+    applyShieldData(res.data)
+    message.success('防护设置已保存')
+  } finally {
+    shieldSaving.value = false
+  }
+}
+
 async function load() {
   if (!props.zoneId) return
   loading.value = true
@@ -299,6 +379,10 @@ async function load() {
   } finally {
     loading.value = false
   }
+}
+
+async function loadAll() {
+  await Promise.all([loadShield(), load()])
 }
 
 async function submitSave() {
@@ -380,10 +464,17 @@ function confirmDelete(record: FirewallRule) {
   })
 }
 
-watch(() => props.zoneId, () => load(), { immediate: true })
+watch(() => props.zoneId, () => loadAll(), { immediate: true })
 </script>
 
 <style scoped>
+.cf-shield-card { margin-bottom: 16px; }
+.cf-shield-form { max-width: 520px; }
+.cf-shield-warn {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--warning, #faad14);
+}
 .cf-toolbar { margin-bottom: 16px; }
 .cf-hint { margin-top: 12px; font-size: 12px; color: var(--text-sub); }
 .cf-rule-name {
