@@ -7,17 +7,12 @@
           <a-switch
             :checked="!!detail?.paused"
             :loading="pausedLoading"
-            :disabled="!zoneId"
-            @change="handlePaused"
+            :disabled="!props.zoneId"
+            @change="onPauseSwitch"
           />
-          <a-popconfirm
-            title="确定删除此区域？此操作不可恢复。"
-            ok-text="删除"
-            ok-type="danger"
-            @confirm="handleDelete"
-          >
-            <a-button danger size="small" :loading="deleteLoading" :disabled="!zoneId">删除区域</a-button>
-          </a-popconfirm>
+          <a-button danger size="small" :loading="deleteLoading" :disabled="!zoneId" @click="openDeleteModal">
+            删除区域
+          </a-button>
           <a-button size="small" :loading="loading" :disabled="!zoneId" @click="load">刷新</a-button>
         </a-space>
       </template>
@@ -35,7 +30,44 @@
       </a-descriptions>
       <a-empty v-else-if="!loading" description="暂无区域信息" />
     </a-card>
-    <p class="cf-hint">使用左侧菜单管理 DNS、电子邮件、SSL/TLS、安全性、缓存、Workers 路由与 Page Rules。</p>
+
+    <a-modal
+      v-model:open="pauseModalVisible"
+      :title="pendingPaused ? '安全验证 — 暂停解析' : '安全验证 — 恢复解析'"
+      :width="400"
+      :confirm-loading="pauseVerifyLoading"
+      ok-text="确认"
+      @ok="confirmPause"
+    >
+      <a-alert type="warning" show-icon style="margin-bottom: 16px">
+        <template #message>验证码已发送至 Telegram，{{ pendingPaused ? '暂停后域名将不再解析' : '恢复后域名将正常解析' }}</template>
+      </a-alert>
+      <a-input v-model:value="pauseVerifyCode" placeholder="请输入6位验证码" size="large" :maxlength="6" allow-clear />
+      <div class="cf-verify-footer">
+        <span>验证码有效期 5 分钟</span>
+        <a-button type="link" size="small" :loading="verifySending" @click="sendPauseCode">重新发送</a-button>
+      </div>
+    </a-modal>
+
+    <a-modal
+      v-model:open="deleteModalVisible"
+      title="安全验证 — 删除区域"
+      :width="400"
+      :confirm-loading="deleteVerifyLoading"
+      ok-text="确认删除"
+      :ok-button-props="{ danger: true }"
+      @ok="confirmDelete"
+    >
+      <a-alert type="error" show-icon style="margin-bottom: 16px">
+        <template #message>删除区域不可恢复，验证码已发送至 Telegram</template>
+      </a-alert>
+      <p v-if="detail" class="cf-delete-target">将删除：<b>{{ detail.name }}</b></p>
+      <a-input v-model:value="deleteVerifyCode" placeholder="请输入6位验证码" size="large" :maxlength="6" allow-clear />
+      <div class="cf-verify-footer">
+        <span>验证码有效期 5 分钟</span>
+        <a-button type="link" size="small" :loading="verifySending" @click="sendDeleteCode">重新发送</a-button>
+      </div>
+    </a-modal>
   </div>
 </template>
 
@@ -43,6 +75,7 @@
 import { ref, watch, onMounted, onUnmounted } from 'vue'
 import { message } from 'ant-design-vue'
 import { getCfZoneDetail, deleteCfZone, setCfZonePaused } from '../../api/cloudflare'
+import { sendVerifyCode } from '../../api/system'
 
 const props = defineProps<{
   zoneId?: string
@@ -67,6 +100,15 @@ const detail = ref<{
 const isMobile = ref(window.innerWidth < 768)
 function checkMobile() { isMobile.value = window.innerWidth < 768 }
 
+const pauseModalVisible = ref(false)
+const deleteModalVisible = ref(false)
+const pendingPaused = ref(false)
+const pauseVerifyCode = ref('')
+const deleteVerifyCode = ref('')
+const pauseVerifyLoading = ref(false)
+const deleteVerifyLoading = ref(false)
+const verifySending = ref(false)
+
 let loadSeq = 0
 
 async function load() {
@@ -88,27 +130,88 @@ async function load() {
   }
 }
 
-async function handlePaused(paused: boolean) {
+async function sendPauseCode() {
+  verifySending.value = true
+  try {
+    await sendVerifyCode('cfZonePause')
+    message.success('验证码已发送')
+  } finally {
+    verifySending.value = false
+  }
+}
+
+async function sendDeleteCode() {
+  verifySending.value = true
+  try {
+    await sendVerifyCode('cfZoneDelete')
+    message.success('验证码已发送')
+  } finally {
+    verifySending.value = false
+  }
+}
+
+async function onPauseSwitch(paused: boolean) {
   if (!props.zoneId) return
+  pendingPaused.value = paused
+  pauseVerifyCode.value = ''
+  pauseModalVisible.value = true
+  try {
+    await sendPauseCode()
+  } catch {
+    /* sendVerifyCode 已提示 */
+  }
+}
+
+async function confirmPause() {
+  if (!props.zoneId) return
+  if (!pauseVerifyCode.value || pauseVerifyCode.value.length !== 6) {
+    message.warning('请输入6位验证码')
+    return
+  }
+  pauseVerifyLoading.value = true
   pausedLoading.value = true
   try {
-    const res = await setCfZonePaused({ zoneId: props.zoneId, paused })
-    if (detail.value) detail.value.paused = res.data?.paused ?? paused
-    message.success(paused ? '区域已暂停' : '区域已恢复')
+    const res = await setCfZonePaused({
+      zoneId: props.zoneId,
+      paused: pendingPaused.value,
+      verifyCode: pauseVerifyCode.value,
+    })
+    if (detail.value) detail.value.paused = res.data?.paused ?? pendingPaused.value
+    message.success(pendingPaused.value ? '区域已暂停' : '区域已恢复')
+    pauseModalVisible.value = false
   } finally {
+    pauseVerifyLoading.value = false
     pausedLoading.value = false
   }
 }
 
-async function handleDelete() {
+async function openDeleteModal() {
   if (!props.zoneId) return
+  deleteVerifyCode.value = ''
+  deleteModalVisible.value = true
+  try {
+    await sendDeleteCode()
+  } catch {
+    /* sendVerifyCode 已提示 */
+  }
+}
+
+async function confirmDelete() {
+  if (!props.zoneId) return
+  if (!deleteVerifyCode.value || deleteVerifyCode.value.length !== 6) {
+    message.warning('请输入6位验证码')
+    return
+  }
+  deleteVerifyLoading.value = true
   deleteLoading.value = true
   try {
-    await deleteCfZone({ zoneId: props.zoneId })
+    await deleteCfZone({ zoneId: props.zoneId, verifyCode: deleteVerifyCode.value })
     message.success('区域已删除')
+    deleteModalVisible.value = false
     detail.value = null
     emit('update:zoneId', undefined)
   } finally {
+    deleteVerifyLoading.value = false
     deleteLoading.value = false
   }
 }
@@ -119,13 +222,20 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
 </script>
 
 <style scoped>
-.cf-hint {
-  margin-top: 12px;
-  font-size: 12px;
-  color: var(--text-sub);
-}
 .cf-label-inline {
   font-size: 13px;
   color: var(--text-sub);
+}
+.cf-verify-footer {
+  margin-top: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: var(--text-sub);
+}
+.cf-delete-target {
+  margin-bottom: 12px;
+  color: var(--text-main);
 }
 </style>

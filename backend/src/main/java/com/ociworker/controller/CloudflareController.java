@@ -3,6 +3,7 @@ package com.ociworker.controller;
 import com.ociworker.model.entity.CfCfg;
 import com.ociworker.model.vo.ResponseData;
 import com.ociworker.service.CloudflareService;
+import com.ociworker.service.VerifyCodeService;
 import jakarta.annotation.Resource;
 import org.springframework.web.bind.annotation.*;
 
@@ -16,6 +17,8 @@ public class CloudflareController {
 
     @Resource
     private CloudflareService cloudflareService;
+    @Resource
+    private VerifyCodeService verifyCodeService;
 
     @GetMapping("/account/config")
     public ResponseData<?> getAccountConfig() {
@@ -64,14 +67,16 @@ public class CloudflareController {
 
     @PostMapping("/zones/delete")
     public ResponseData<?> deleteZone(@RequestBody Map<String, String> params) {
+        verifyCodeService.verifyCode("cfZoneDelete", params.get("verifyCode"));
         cloudflareService.deleteZone(params.get("zoneId"));
         return ResponseData.ok();
     }
 
     @PostMapping("/zones/paused")
     public ResponseData<?> setZonePaused(@RequestBody Map<String, Object> params) {
+        verifyCodeService.verifyCode("cfZonePause", parseString(params.get("verifyCode")));
         return ResponseData.ok(cloudflareService.setZonePaused(
-                (String) params.get("zoneId"),
+                parseString(params.get("zoneId")),
                 parseBoolean(params.get("paused"), false)));
     }
 
@@ -138,12 +143,16 @@ public class CloudflareController {
 
     @PostMapping("/dns/listPage")
     public ResponseData<?> listDnsPage(@RequestBody Map<String, Object> params) {
+        String zoneId = parseString(params.get("zoneId"));
+        if (zoneId == null || zoneId.isBlank()) {
+            throw new com.ociworker.exception.OciException("请选择 Zone");
+        }
         return ResponseData.ok(cloudflareService.listDnsRecordsPage(
-                (String) params.get("zoneId"),
+                zoneId,
                 parseInteger(params.get("page"), 1),
                 parseInteger(params.get("perPage"), 50),
-                (String) params.get("search"),
-                (String) params.get("type")));
+                parseString(params.get("search")),
+                parseString(params.get("type")));
     }
 
     @PostMapping("/dns/add")
@@ -396,6 +405,24 @@ public class CloudflareController {
         return ResponseData.ok(cloudflareService.listFirewallRules(params.get("zoneId")));
     }
 
+    @PostMapping("/security/firewall/create")
+    public ResponseData<?> firewallCreate(@RequestBody Map<String, Object> params) {
+        return ResponseData.ok(cloudflareService.createFirewallRule(
+                parseString(params.get("zoneId")),
+                parseString(params.get("action")),
+                parseString(params.get("expression")),
+                parseString(params.get("description")),
+                parseBoolean(params.get("paused"), false)));
+    }
+
+    @PostMapping("/security/firewall/paused")
+    public ResponseData<?> firewallPaused(@RequestBody Map<String, Object> params) {
+        return ResponseData.ok(cloudflareService.setFirewallRulePaused(
+                parseString(params.get("zoneId")),
+                parseString(params.get("ruleId")),
+                parseBoolean(params.get("paused"), false)));
+    }
+
     @PostMapping("/workers/routes/list")
     public ResponseData<?> workersRoutesList(@RequestBody Map<String, String> params) {
         return ResponseData.ok(cloudflareService.listWorkersRoutes(params.get("zoneId")));
@@ -454,6 +481,16 @@ public class CloudflareController {
         } catch (NumberFormatException e) {
             return defaultValue;
         }
+    }
+
+    private static String parseString(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof String s) {
+            return s;
+        }
+        return null;
     }
 
     @SuppressWarnings("unchecked")

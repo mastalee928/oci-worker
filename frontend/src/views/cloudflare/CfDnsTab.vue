@@ -290,6 +290,10 @@ const dnsPagination = computed(() => ({
 
 let zoneLoadSeq = 0
 
+function resolveZoneId(zoneId?: string) {
+  return typeof zoneId === 'string' && zoneId ? zoneId : props.zoneId
+}
+
 async function onZoneChange(zoneId: string | undefined) {
   if (!zoneId) {
     zoneLoadSeq++
@@ -305,7 +309,7 @@ async function onZoneChange(zoneId: string | undefined) {
 }
 
 async function loadDnssec(zoneId?: string, seq?: number) {
-  const zid = zoneId ?? props.zoneId
+  const zid = resolveZoneId(zoneId)
   if (!zid) return
   dnssecLoading.value = true
   try {
@@ -346,7 +350,7 @@ function onDnsTableChange(pag: TablePaginationConfig) {
 }
 
 async function loadDnsRecords(zoneId?: string, seq?: number) {
-  const zid = zoneId ?? props.zoneId
+  const zid = resolveZoneId(zoneId)
   if (!zid) return
   dnsLoading.value = true
   try {

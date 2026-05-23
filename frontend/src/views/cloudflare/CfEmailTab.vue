@@ -115,6 +115,9 @@
                 {{ isDestVerified(record) ? '已验证' : '待验证' }}
               </a-tag>
             </template>
+            <template v-else-if="column.key === 'created'">
+              {{ formatCfTime(record.created) }}
+            </template>
             <template v-else-if="column.key === 'action'">
               <a-space wrap>
                 <a-button
@@ -347,7 +350,12 @@ import {
 interface EmailDestination {
   id: string
   email: string
-  verified?: string | boolean
+  /** 是否已验证（后端根据 verifiedAt 解析） */
+  verified?: boolean
+  /** 验证通过时间，CF API 原字段 */
+  verifiedAt?: string
+  created?: string
+  modified?: string
 }
 
 interface EmailRule {
@@ -441,6 +449,7 @@ const emailDnsColumns = [
 const destColumns = [
   { title: '邮箱', dataIndex: 'email', ellipsis: true },
   { title: '验证', key: 'verified', width: 100 },
+  { title: '创建时间', key: 'created', width: 168 },
   { title: '操作', key: 'action', width: 140 },
 ]
 
@@ -470,10 +479,17 @@ const emailStatusType = computed(() => {
 })
 
 function isDestVerified(d: EmailDestination) {
-  const v = d.verified
-  if (typeof v === 'boolean') return v
-  if (typeof v === 'string') return v === 'active' || v === 'verified' || v === 'true'
-  return false
+  if (typeof d.verified === 'boolean') return d.verified
+  // 兼容旧数据：CF 的 verified 字段实为 ISO 时间戳，非空即已验证
+  const at = d.verifiedAt ?? (typeof d.verified === 'string' ? d.verified : undefined)
+  return !!at && String(at).trim() !== ''
+}
+
+function formatCfTime(iso?: string) {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  return d.toLocaleString('zh-CN', { hour12: false })
 }
 
 function actionTypeLabel(t?: string) {
@@ -489,6 +505,10 @@ function formatRuleTarget(rule: EmailRule) {
 }
 
 let zoneLoadSeq = 0
+
+function resolveZoneId(zoneId?: string) {
+  return typeof zoneId === 'string' && zoneId ? zoneId : props.zoneId
+}
 
 async function onZoneChange(zoneId: string | undefined) {
   if (!zoneId) {
@@ -511,7 +531,7 @@ async function onZoneChange(zoneId: string | undefined) {
 }
 
 async function loadEmailSettings(zoneId?: string, seq?: number, silent = false) {
-  const zid = zoneId ?? props.zoneId
+  const zid = resolveZoneId(zoneId)
   if (!zid) return
   try {
     const res = await getCfEmailSettings({ zoneId: zid }, silent)
@@ -550,7 +570,7 @@ async function handleDisableEmail() {
 }
 
 async function loadEmailDns(zoneId?: string, seq?: number, silent = false) {
-  const zid = zoneId ?? props.zoneId
+  const zid = resolveZoneId(zoneId)
   if (!zid) return
   emailDnsLoading.value = true
   try {
@@ -636,7 +656,7 @@ async function handleDeleteDestination(id: string) {
 }
 
 async function loadEmailRules(zoneId?: string, seq?: number, silent = false) {
-  const zid = zoneId ?? props.zoneId
+  const zid = resolveZoneId(zoneId)
   if (!zid) return
   emailRulesLoading.value = true
   try {
@@ -747,7 +767,7 @@ async function handleToggleEmailRule(record: EmailRule, enabled: boolean) {
 }
 
 async function loadCatchAll(zoneId?: string, seq?: number, silent = false) {
-  const zid = zoneId ?? props.zoneId
+  const zid = resolveZoneId(zoneId)
   if (!zid) return
   catchAllLoading.value = true
   try {

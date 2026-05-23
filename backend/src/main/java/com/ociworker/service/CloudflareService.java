@@ -362,6 +362,9 @@ public class CloudflareService {
         requireSuccess(json, "清理缓存失败");
     }
 
+    private static final Set<String> FIREWALL_ACTIONS = Set.of(
+            "block", "challenge", "js_challenge", "managed_challenge", "allow", "log", "bypass");
+
     public List<Map<String, Object>> listFirewallRules(String zoneId) {
         Credentials c = requireCredentials();
         requireZoneId(zoneId);
@@ -374,17 +377,110 @@ public class CloudflareService {
             return list;
         }
         for (int i = 0; i < result.size(); i++) {
-            JSONObject r = result.getJSONObject(i);
-            Map<String, Object> m = new LinkedHashMap<>();
-            m.put("id", r.getStr("id"));
-            m.put("description", r.getStr("description"));
-            m.put("action", r.getStr("action"));
-            m.put("paused", r.getBool("paused"));
-            m.put("priority", r.getInt("priority"));
-            m.put("filter", r.get("filter"));
-            list.add(m);
+            list.add(mapFirewallRule(result.getJSONObject(i)));
         }
         return list;
+    }
+
+    public Map<String, Object> createFirewallRule(String zoneId, String action, String expression,
+                                                    String description, boolean paused) {
+        Credentials c = requireCredentials();
+        requireZoneId(zoneId);
+        if (StrUtil.isBlank(action)) {
+            throw new OciException("防火墙动作不能为空");
+        }
+        String act = action.trim().toLowerCase();
+        if (!FIREWALL_ACTIONS.contains(act)) {
+            throw new OciException("不支持的防火墙动作: " + act);
+        }
+        if (StrUtil.isBlank(expression)) {
+            throw new OciException("过滤表达式不能为空");
+        }
+        Map<String, Object> filter = new LinkedHashMap<>();
+        filter.put("expression", expression.trim());
+        filter.put("paused", false);
+        String desc = StrUtil.trimToNull(description);
+        if (desc != null) {
+            filter.put("description", desc);
+        }
+        Map<String, Object> rule = new LinkedHashMap<>();
+        rule.put("action", act);
+        rule.put("filter", filter);
+        rule.put("paused", paused);
+        if (desc != null) {
+            rule.put("description", desc);
+        }
+        String url = CF_API_BASE + "/zones/" + zoneId.trim() + "/firewall/rules";
+        JSONObject json = parseJson(apiPost(c.apiToken(), url, List.of(rule)));
+        requireSuccess(json, "创建防火墙规则失败");
+        JSONArray result = json.getJSONArray("result");
+        if (result == null || result.isEmpty()) {
+            throw new OciException("创建防火墙规则失败：无返回数据");
+        }
+        return mapFirewallRule(result.getJSONObject(0));
+    }
+
+    public Map<String, Object> setFirewallRulePaused(String zoneId, String ruleId, boolean paused) {
+        Credentials c = requireCredentials();
+        requireZoneId(zoneId);
+        if (StrUtil.isBlank(ruleId)) {
+            throw new OciException("规则 ID 不能为空");
+        }
+        String url = CF_API_BASE + "/zones/" + zoneId.trim() + "/firewall/rules/" + ruleId.trim();
+        JSONObject getJson = parseJson(apiGet(c.apiToken(), url));
+        requireSuccess(getJson, "获取防火墙规则失败");
+        JSONObject rule = getJson.getJSONObject("result");
+        if (rule == null) {
+            throw new OciException("防火墙规则不存在");
+        }
+        Map<String, Object> body = buildFirewallRuleUpdateBody(rule, paused);
+        JSONObject json = parseJson(apiPut(c.apiToken(), url, body));
+        requireSuccess(json, paused ? "暂停规则失败" : "启用规则失败");
+        JSONObject result = json.getJSONObject("result");
+        return result != null ? mapFirewallRule(result) : Map.of("id", ruleId, "paused", paused);
+    }
+
+    private static Map<String, Object> buildFirewallRuleUpdateBody(JSONObject rule, boolean paused) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("id", rule.getStr("id"));
+        body.put("action", rule.getStr("action"));
+        body.put("description", rule.getStr("description"));
+        body.put("paused", paused);
+        Object priority = rule.get("priority");
+        if (priority != null && !JSONUtil.isNull(priority)) {
+            body.put("priority", rule.getInt("priority"));
+        }
+        JSONObject filter = rule.getJSONObject("filter");
+        if (filter != null) {
+            Map<String, Object> filterBody = new LinkedHashMap<>();
+            filterBody.put("id", filter.getStr("id"));
+            filterBody.put("expression", filter.getStr("expression"));
+            filterBody.put("paused", filter.getBool("paused", false));
+            String filterDesc = filter.getStr("description");
+            if (StrUtil.isNotBlank(filterDesc)) {
+                filterBody.put("description", filterDesc);
+            }
+            body.put("filter", filterBody);
+        }
+        return body;
+    }
+
+    private static Map<String, Object> mapFirewallRule(JSONObject r) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("id", r.getStr("id"));
+        m.put("description", r.getStr("description"));
+        m.put("action", r.getStr("action"));
+        m.put("paused", Boolean.TRUE.equals(r.getBool("paused")));
+        Object priority = r.get("priority");
+        if (priority != null && !JSONUtil.isNull(priority)) {
+            m.put("priority", r.getInt("priority"));
+        }
+        JSONObject filter = r.getJSONObject("filter");
+        if (filter != null) {
+            m.put("filterId", filter.getStr("id"));
+            m.put("expression", filter.getStr("expression"));
+        }
+        return m;
     }
 
     public List<Map<String, Object>> listWorkersRoutes(String zoneId) {
@@ -1134,7 +1230,10 @@ public class CloudflareService {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("id", d.getStr("id"));
         m.put("email", d.getStr("email"));
-        m.put("verified", d.getStr("verified"));
+        // CF: verified 为验证通过时间（ISO 8601），null/空 表示未验证
+        String verifiedAt = d.getStr("verified");
+        m.put("verifiedAt", verifiedAt);
+        m.put("verified", StrUtil.isNotBlank(verifiedAt));
         m.put("created", d.getStr("created"));
         m.put("modified", d.getStr("modified"));
         return m;

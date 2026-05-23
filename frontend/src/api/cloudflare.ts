@@ -31,11 +31,11 @@ export function createCfZone(data: { name: string }) {
   return request.post('/cf/zones/create', data)
 }
 
-export function deleteCfZone(data: { zoneId: string }) {
+export function deleteCfZone(data: { zoneId: string; verifyCode: string }) {
   return request.post('/cf/zones/delete', data)
 }
 
-export function setCfZonePaused(data: { zoneId: string; paused: boolean }) {
+export function setCfZonePaused(data: { zoneId: string; paused: boolean; verifyCode: string }) {
   return request.post('/cf/zones/paused', data)
 }
 
@@ -234,6 +234,20 @@ export function purgeCfCache(data: { zoneId: string; purgeEverything?: boolean; 
 
 export function listCfFirewallRules(data: { zoneId: string }, silent = false) {
   return request.post('/cf/security/firewall/list', data, silent ? cfSilent : undefined)
+}
+
+export function createCfFirewallRule(data: {
+  zoneId: string
+  action: string
+  expression: string
+  description?: string
+  paused?: boolean
+}) {
+  return request.post('/cf/security/firewall/create', data)
+}
+
+export function setCfFirewallRulePaused(data: { zoneId: string; ruleId: string; paused: boolean }) {
+  return request.post('/cf/security/firewall/paused', data)
 }
 
 export function listCfWorkersRoutes(data: { zoneId: string }, silent = false) {
