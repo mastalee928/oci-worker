@@ -274,22 +274,80 @@ install_jdk21() {
 # -----------------------------------------------------------------------------
 DB_HOST=""; DB_PORT=""; DB_NAME=""; DB_USER=""; DB_PASS=""
 
-mysql_cli_run() {
-    # mysql_cli_run <host> <port> <user> <pass> <db_or_empty> <sql>
-    # Returns mysql output. Uses MYSQL_PWD env to avoid leaking via ps.
+docker_mysql_container_up() {
+    docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "oci-worker-mysql"
+}
+
+# Run mysql inside oci-worker-mysql (avoids host MariaDB client vs MySQL 8 quirks on Debian 13+).
+mysql_docker_run() {
+    local user="$1" pass="$2" db="$3" sql="$4"
+    local args=(-u"${user}" -N -B --connect-timeout=5)
+    [ -n "${db}" ] && args+=("${db}")
+    local out errf err=""
+    errf="$(mktemp)"
+    out="$(docker exec -e MYSQL_PWD="${pass}" oci-worker-mysql \
+        mysql "${args[@]}" -e "${sql}" 2>"${errf}" || true)"
+    if [ -s "${errf}" ]; then
+        err="$(tr '\n' ' ' < "${errf}" | sed 's/  */ /g')"
+    fi
+    rm -f "${errf}"
+    out="$(printf '%s' "${out}" | tr -d '\r')"
+    if [ -n "${out}" ]; then
+        printf '%s' "${out}"
+        return 0
+    fi
+    if [ -n "${err}" ]; then
+        printf '%s' "${err}"
+    fi
+}
+
+mysql_output_is_one() {
+    local o="$1"
+    o="$(printf '%s' "${o}" | tr -d '\r\n[:space:]')"
+    [ "${o}" = "1" ]
+}
+
+docker_mysql_logs_final_ready() {
+    docker logs oci-worker-mysql 2>&1 | grep -qE 'ready for connections.*port: 3306'
+}
+
+# Host mysql: keep stderr separate so MariaDB client WARNING lines do not break parsing.
+mysql_host_run() {
     local host="$1" port="$2" user="$3" pass="$4" db="$5" sql="$6"
     local args=(-h"${host}" -P"${port}" -u"${user}" -N -B --connect-timeout=5)
-    if [ -n "${db}" ]; then
-        args+=("${db}")
+    [ -n "${db}" ] && args+=("${db}")
+    local out errf err=""
+    errf="$(mktemp)"
+    out="$(MYSQL_PWD="${pass}" mysql "${args[@]}" -e "${sql}" 2>"${errf}" || true)"
+    if [ -s "${errf}" ]; then
+        err="$(tr '\n' ' ' < "${errf}" | sed 's/  */ /g')"
     fi
-    MYSQL_PWD="${pass}" mysql "${args[@]}" -e "${sql}" 2>&1
+    rm -f "${errf}"
+    if [ -n "${out}" ]; then
+        printf '%s' "${out}"
+        return 0
+    fi
+    if [ -n "${err}" ]; then
+        printf '%s' "${err}"
+    fi
+}
+
+mysql_cli_run() {
+    # mysql_cli_run <host> <port> <user> <pass> <db_or_empty> <sql>
+    # Returns query stdout (or error text if query failed with no stdout).
+    local host="$1" port="$2" user="$3" pass="$4" db="$5" sql="$6"
+    if [ "${host}" = "127.0.0.1" ] && [ "${port}" = "3306" ] && docker_mysql_container_up; then
+        mysql_docker_run "${user}" "${pass}" "${db}" "${sql}"
+    else
+        mysql_host_run "${host}" "${port}" "${user}" "${pass}" "${db}" "${sql}"
+    fi
 }
 
 mysql_select1_ok() {
     # mysql_select1_ok <host> <port> <user> <pass>  -> 0 if SELECT 1 succeeds
-    local host="$1" port="$2" user="$3" pass="$4" out
-    out="$(MYSQL_PWD="$4" mysql -h"$1" -P"$2" -u"$3" -N -B --connect-timeout=5 -e "SELECT 1" 2>&1 || true)"
-    [ "${out}" = "1" ]
+    local out
+    out="$(mysql_cli_run "$1" "$2" "$3" "$4" "" "SELECT 1")"
+    mysql_output_is_one "${out}"
 }
 
 sql_escape_ident() {
@@ -310,8 +368,12 @@ sql_escape_literal() {
 docker_mysql_select1_status() {
     # ok | auth_fail | conn_wait | wait  (conn_wait/wait = keep polling)
     local out
-    out="$(MYSQL_PWD="${DB_PASS}" mysql -h127.0.0.1 -P3306 -u"${DB_USER}" -N -B --connect-timeout=5 -e "SELECT 1" 2>&1 || true)"
-    if [ "${out}" = "1" ]; then
+    if docker_mysql_container_up; then
+        out="$(mysql_docker_run "${DB_USER}" "${DB_PASS}" "" "SELECT 1")"
+    else
+        out="$(mysql_host_run "127.0.0.1" "3306" "${DB_USER}" "${DB_PASS}" "" "SELECT 1")"
+    fi
+    if mysql_output_is_one "${out}"; then
         echo "ok"
         return 0
     fi
@@ -319,7 +381,7 @@ docker_mysql_select1_status() {
         echo "auth_fail"
         return 0
     fi
-    if echo "${out}" | grep -qiE "Can't connect|Connection refused|timed out|Unknown MySQL server host"; then
+    if echo "${out}" | grep -qiE "Can't connect|Connection refused|timed out|Unknown MySQL server host|ERROR 2002|ERROR 2003"; then
         echo "conn_wait"
         return 0
     fi
@@ -328,17 +390,30 @@ docker_mysql_select1_status() {
 
 wait_docker_mysql_user() {
     info "等待 MySQL 就绪（最多 60 秒）..."
-    local waited=0 status
+    local waited=0 status consecutive=0
     while [ "${waited}" -lt 60 ]; do
+        if ! docker_mysql_logs_final_ready; then
+            consecutive=0
+            sleep 2
+            waited=$((waited + 2))
+            printf "." >&2
+            continue
+        fi
         status="$(docker_mysql_select1_status)"
         case "${status}" in
             ok)
-                ok "MySQL 已就绪"
-                return 0
+                consecutive=$((consecutive + 1))
+                if [ "${consecutive}" -ge 2 ]; then
+                    ok "MySQL 已就绪"
+                    return 0
+                fi
                 ;;
             auth_fail)
                 printf "\n" >&2
                 die "MySQL 已启动，但用户名或密码错误。复用容器时请填写首次创建时的密码；不记得请选重新创建容器（或清空 /opt/oci-worker/data/mysql 后重装）。"
+                ;;
+            *)
+                consecutive=0
                 ;;
         esac
         sleep 2
@@ -396,8 +471,16 @@ ensure_mysql_client() {
 probe_database() {
     # Echoes one of: ok | conn_fail | auth_fail | other:<msg>
     local out
-    out="$(mysql_cli_run "${DB_HOST}" "${DB_PORT}" "${DB_USER}" "${DB_PASS}" "" "SELECT 1" 2>&1 || true)"
-    if echo "${out}" | grep -q "^1$"; then
+    if [ "${DB_HOST}" = "127.0.0.1" ] && [ "${DB_PORT}" = "3306" ] && docker_mysql_container_up; then
+        case "$(docker_mysql_select1_status)" in
+            ok) echo "ok"; return 0 ;;
+            auth_fail) echo "auth_fail"; return 0 ;;
+            conn_wait|wait) echo "conn_fail"; return 0 ;;
+            *) echo "other:docker probe failed"; return 0 ;;
+        esac
+    fi
+    out="$(mysql_cli_run "${DB_HOST}" "${DB_PORT}" "${DB_USER}" "${DB_PASS}" "" "SELECT 1")"
+    if mysql_output_is_one "${out}"; then
         echo "ok"; return 0
     fi
     if echo "${out}" | grep -qiE "Can't connect|Connection refused|timed out|Unknown MySQL server host"; then
@@ -416,29 +499,30 @@ check_database_quality() {
     local out
 
     # Version check
-    out="$(mysql_cli_run "${DB_HOST}" "${DB_PORT}" "${DB_USER}" "${DB_PASS}" "" "SELECT VERSION();" 2>&1 || true)"
+    out="$(mysql_cli_run "${DB_HOST}" "${DB_PORT}" "${DB_USER}" "${DB_PASS}" "" "SELECT VERSION();")"
     if [ -z "${out}" ]; then
         err "无法获取 MySQL 版本：${out}"
         return 1
     fi
-    local ver_major
-    ver_major="$(echo "${out}" | head -n 1 | cut -d. -f1 | tr -d -c '0-9')"
+    local ver_line ver_major
+    ver_line="$(echo "${out}" | grep -Eo '[0-9]+(\.[0-9]+)+' | head -1)"
+    ver_major="${ver_line%%.*}"
     if [ -z "${ver_major}" ] || [ "${ver_major}" -lt 8 ]; then
         err "MySQL 版本过低：${out}（需要 8.0+）"
         warn "请在面板/服务器升级到 MySQL 8.0 或更高版本"
         return 1
     fi
-    ok "MySQL 版本：$(echo "${out}" | head -n 1)"
+    ok "MySQL 版本：${ver_line:-${out}}"
 
     # Database existence
     out="$(mysql_cli_run "${DB_HOST}" "${DB_PORT}" "${DB_USER}" "${DB_PASS}" "" \
-            "SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME='${DB_NAME}';" 2>&1 || true)"
+            "SELECT SCHEMA_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME='${DB_NAME}';")"
     if [ "${out}" != "${DB_NAME}" ]; then
         warn "数据库 \`${DB_NAME}\` 不存在或当前用户无权访问"
         if [ "$(ask_yes_no "尝试用当前账号自动创建数据库（utf8mb4）？" "Y")" = "y" ]; then
             local create_out
             create_out="$(mysql_cli_run "${DB_HOST}" "${DB_PORT}" "${DB_USER}" "${DB_PASS}" "" \
-                "CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" 2>&1 || true)"
+                "CREATE DATABASE IF NOT EXISTS \`${DB_NAME}\` DEFAULT CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;")"
             if [ -n "${create_out}" ]; then
                 err "自动创建失败：${create_out}"
                 warn "请在面板里手动创建数据库 ${DB_NAME}（字符集 utf8mb4），并授权给用户 ${DB_USER}"
@@ -455,7 +539,7 @@ check_database_quality() {
 
     # Charset check (after DB exists)
     out="$(mysql_cli_run "${DB_HOST}" "${DB_PORT}" "${DB_USER}" "${DB_PASS}" "${DB_NAME}" \
-        "SELECT DEFAULT_CHARACTER_SET_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME='${DB_NAME}';" 2>&1 || true)"
+        "SELECT DEFAULT_CHARACTER_SET_NAME FROM information_schema.SCHEMATA WHERE SCHEMA_NAME='${DB_NAME}';")"
     case "${out}" in
         utf8mb4)
             ok "字符集：utf8mb4"
@@ -468,7 +552,7 @@ check_database_quality() {
             if [ "$(ask_yes_no "尝试自动 ALTER DATABASE 修复字符集？" "Y")" = "y" ]; then
                 local alter_out
                 alter_out="$(mysql_cli_run "${DB_HOST}" "${DB_PORT}" "${DB_USER}" "${DB_PASS}" "" \
-                    "ALTER DATABASE \`${DB_NAME}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;" 2>&1 || true)"
+                    "ALTER DATABASE \`${DB_NAME}\` CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;")"
                 if [ -n "${alter_out}" ]; then
                     warn "ALTER 失败（可能权限不足）：${alter_out}"
                     warn "请在面板里把库 ${DB_NAME} 改成 utf8mb4 后重试"
@@ -481,7 +565,7 @@ check_database_quality() {
 
     # Privilege probe: try to create+drop a temp table
     out="$(mysql_cli_run "${DB_HOST}" "${DB_PORT}" "${DB_USER}" "${DB_PASS}" "${DB_NAME}" \
-        "CREATE TABLE IF NOT EXISTS _ociworker_probe_(id INT) ENGINE=InnoDB; DROP TABLE _ociworker_probe_;" 2>&1 || true)"
+        "CREATE TABLE IF NOT EXISTS _ociworker_probe_(id INT) ENGINE=InnoDB; DROP TABLE _ociworker_probe_;")"
     if [ -n "${out}" ]; then
         err "DDL 权限测试失败：${out}"
         warn "请确认用户 ${DB_USER} 对库 ${DB_NAME} 拥有所有权限"
@@ -656,7 +740,7 @@ prompt_db_root() {
     if mysql_select1_ok "${DB_HOST}" "${DB_PORT}" "${root_user}" "${root_pass}"; then
         ok "root 登录成功"
     else
-        probe_out="$(MYSQL_PWD="${root_pass}" mysql -h"${DB_HOST}" -P"${DB_PORT}" -u"${root_user}" -N -B --connect-timeout=5 -e "SELECT 1" 2>&1 || true)"
+        probe_out="$(mysql_cli_run "${DB_HOST}" "${DB_PORT}" "${root_user}" "${root_pass}" "" "SELECT 1")"
         die "root 登录失败：${probe_out}"
     fi
 
@@ -677,11 +761,15 @@ ALTER USER ${user_lit}@'%' IDENTIFIED BY ${pass_lit};
 ALTER USER ${user_lit}@'localhost' IDENTIFIED BY ${pass_lit};
 FLUSH PRIVILEGES;
 EOF
-    local create_out
-    create_out="$(MYSQL_PWD="${root_pass}" mysql -h"${DB_HOST}" -P"${DB_PORT}" -u"${root_user}" --connect-timeout=10 < "${sql_file}" 2>&1)" || {
-        rm -f "${sql_file}"
+    local create_out errf
+    errf="$(mktemp)"
+    if ! MYSQL_PWD="${root_pass}" mysql -h"${DB_HOST}" -P"${DB_PORT}" -u"${root_user}" --connect-timeout=10 \
+            < "${sql_file}" 2>"${errf}"; then
+        create_out="$(cat "${errf}")"
+        rm -f "${sql_file}" "${errf}"
         die "创建数据库/用户失败：${create_out}"
-    }
+    fi
+    rm -f "${errf}"
     rm -f "${sql_file}"
     ok "数据库 ${DB_NAME} 和用户 ${DB_USER} 已创建"
 
