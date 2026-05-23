@@ -10,6 +10,15 @@
     />
 
     <a-tabs v-model:active-key="activeTab" @change="onTabChange">
+      <a-tab-pane key="dns" tab="DNS 与区域">
+        <CfDnsTab v-model:zone-id="selectedZoneId" :cf-configured="cfConfigured" />
+      </a-tab-pane>
+
+      <a-tab-pane key="email" tab="电子邮件">
+        <CfEmailTab v-model:zone-id="selectedZoneId" :cf-configured="cfConfigured" />
+      </a-tab-pane>
+
+      <!-- Tunnel 连接器 -->
       <a-tab-pane key="tunnel" tab="Tunnel 连接器">
         <div class="cf-toolbar">
           <a-space wrap>
@@ -71,14 +80,11 @@
         </a-spin>
       </a-tab-pane>
 
-      <a-tab-pane key="dns" tab="DNS 与区域">
-        <a-empty description="DNS 与区域管理将在下一批次完善（Zone 选择 + 记录 CRUD）" />
+      <a-tab-pane key="workers" tab="Workers">
+        <a-empty description="Workers 脚本与路由功能开发中" />
       </a-tab-pane>
       <a-tab-pane key="security" tab="应用安全">
         <a-empty description="WAF / 防火墙规则等功能开发中" />
-      </a-tab-pane>
-      <a-tab-pane key="email" tab="电子邮件">
-        <a-empty description="Email Routing 功能开发中" />
       </a-tab-pane>
       <a-tab-pane key="cache" tab="缓存与性能">
         <a-empty description="缓存清理与性能设置开发中" />
@@ -89,11 +95,9 @@
       <a-tab-pane key="zerotrust" tab="Zero Trust">
         <a-empty description="Access / Gateway 等功能开发中" />
       </a-tab-pane>
-      <a-tab-pane key="workers" tab="Workers">
-        <a-empty description="Workers 脚本与路由功能开发中" />
-      </a-tab-pane>
     </a-tabs>
 
+    <!-- Tunnel -->
     <a-modal
       v-model:open="createVisible"
       title="创建 Cloudflare Tunnel"
@@ -141,6 +145,8 @@
 import { ref, computed, onMounted, onUnmounted } from 'vue'
 import { message } from 'ant-design-vue'
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons-vue'
+import CfDnsTab from './cloudflare/CfDnsTab.vue'
+import CfEmailTab from './cloudflare/CfEmailTab.vue'
 import {
   getCfAccountConfig,
   listCfTunnels,
@@ -150,31 +156,26 @@ import {
   listCfTunnelConnections,
 } from '../api/cloudflare'
 
-const activeTab = ref('tunnel')
+const activeTab = ref('dns')
 const cfConfigured = ref(false)
+const selectedZoneId = ref<string | undefined>(undefined)
 const isMobile = ref(window.innerWidth < 768)
 function checkMobile() { isMobile.value = window.innerWidth < 768 }
 
+// Tunnel
 const tunnelLoading = ref(false)
 const tunnels = ref<any[]>([])
-
 const createVisible = ref(false)
 const createLoading = ref(false)
 const createName = ref('')
-
 const tokenVisible = ref(false)
 const tokenText = ref('')
-
 const connVisible = ref(false)
 const connLoading = ref(false)
 const connTitle = ref('连接详情')
 const connections = ref<any[]>([])
-
 const installCmd = computed(() =>
-  tokenText.value
-    ? `cloudflared service install ${tokenText.value}`
-    : '')
-
+  tokenText.value ? `cloudflared service install ${tokenText.value}` : '')
 const tunnelColumns = [
   { title: '名称', dataIndex: 'name', width: 160 },
   { title: 'ID', dataIndex: 'id', ellipsis: true },
@@ -202,6 +203,11 @@ async function loadCfConfig() {
   }
 }
 
+function onTabChange(key: string) {
+  if (!cfConfigured.value) return
+  if (key === 'tunnel') loadTunnels()
+}
+
 async function loadTunnels() {
   if (!cfConfigured.value) return
   tunnelLoading.value = true
@@ -210,12 +216,6 @@ async function loadTunnels() {
     tunnels.value = res.data || []
   } finally {
     tunnelLoading.value = false
-  }
-}
-
-function onTabChange(key: string) {
-  if (key === 'tunnel' && cfConfigured.value) {
-    loadTunnels()
   }
 }
 
@@ -256,9 +256,7 @@ async function showToken(record: any) {
     const res = await getCfTunnelToken({ tunnelId: record.id })
     tokenText.value = res.data || ''
     tokenVisible.value = true
-  } catch {
-    /* request 已提示 */
-  }
+  } catch { /* request 已提示 */ }
 }
 
 async function showConnections(record: any) {
@@ -287,22 +285,15 @@ async function copyText(text: string) {
 onMounted(async () => {
   window.addEventListener('resize', checkMobile)
   await loadCfConfig()
-  if (cfConfigured.value) {
-    await loadTunnels()
-  }
 })
 onUnmounted(() => window.removeEventListener('resize', checkMobile))
 </script>
 
 <style scoped>
-.cf-page {
-  min-height: 200px;
-}
-.cf-toolbar {
-  margin-bottom: 16px;
-}
+.cf-page { min-height: 200px; }
+.cf-toolbar { margin-bottom: 16px; }
 .cf-hint {
-  margin: 0;
+  margin: 8px 0 0;
   font-size: 12px;
   color: var(--text-sub);
 }
@@ -316,10 +307,7 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   border-radius: 6px;
   border: 1px solid var(--border);
 }
-.cf-conn-meta {
-  font-size: 12px;
-  color: var(--text-sub);
-}
+.cf-conn-meta { font-size: 12px; color: var(--text-sub); }
 .mobile-card {
   border: 1px solid var(--border);
   border-radius: 8px;
@@ -334,9 +322,7 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   gap: 8px;
   margin-bottom: 8px;
 }
-.mobile-card-title {
-  font-weight: 600;
-}
+.mobile-card-title { font-weight: 600; }
 .mobile-card-row {
   display: flex;
   justify-content: space-between;
@@ -344,12 +330,6 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   font-size: 13px;
   margin-bottom: 4px;
 }
-.mobile-card-row .label {
-  color: var(--text-sub);
-  flex-shrink: 0;
-}
-.mobile-card-row .value {
-  text-align: right;
-  word-break: break-all;
-}
+.mobile-card-row .label { color: var(--text-sub); flex-shrink: 0; }
+.mobile-card-row .value { text-align: right; word-break: break-all; }
 </style>

@@ -6,6 +6,8 @@ import com.ociworker.service.CloudflareService;
 import jakarta.annotation.Resource;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -37,10 +39,40 @@ public class CloudflareController {
     }
 
     @PostMapping("/zones/list")
-    public ResponseData<?> listZones(@RequestBody Map<String, Integer> params) {
+    public ResponseData<?> listZones(@RequestBody Map<String, Object> params) {
         return ResponseData.ok(cloudflareService.listZones(
-                params.getOrDefault("page", 1),
-                params.getOrDefault("perPage", 50)));
+                parseInteger(params.get("page"), 1),
+                parseInteger(params.get("perPage"), 50)));
+    }
+
+    @PostMapping("/zones/listPage")
+    public ResponseData<?> listZonesPage(@RequestBody Map<String, Object> params) {
+        return ResponseData.ok(cloudflareService.listZonesPage(
+                parseInteger(params.get("page"), 1),
+                parseInteger(params.get("perPage"), 50)));
+    }
+
+    @PostMapping("/zones/detail")
+    public ResponseData<?> getZoneDetail(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(cloudflareService.getZoneDetail(params.get("zoneId")));
+    }
+
+    @PostMapping("/zones/create")
+    public ResponseData<?> createZone(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(cloudflareService.createZone(params.get("name")));
+    }
+
+    @PostMapping("/zones/delete")
+    public ResponseData<?> deleteZone(@RequestBody Map<String, String> params) {
+        cloudflareService.deleteZone(params.get("zoneId"));
+        return ResponseData.ok();
+    }
+
+    @PostMapping("/zones/paused")
+    public ResponseData<?> setZonePaused(@RequestBody Map<String, Object> params) {
+        return ResponseData.ok(cloudflareService.setZonePaused(
+                (String) params.get("zoneId"),
+                parseBoolean(params.get("paused"), false)));
     }
 
     @PostMapping("/tunnel/list")
@@ -95,29 +127,40 @@ public class CloudflareController {
         if (zoneId != null && !zoneId.isBlank()) {
             return ResponseData.ok(cloudflareService.listDnsRecords(
                     zoneId,
-                    (Integer) params.getOrDefault("page", 1),
-                    (Integer) params.getOrDefault("perPage", 50)));
+                    parseInteger(params.get("page"), 1),
+                    parseInteger(params.get("perPage"), 50)));
         }
         return ResponseData.ok(cloudflareService.listDnsRecordsByCfgId(
                 (String) params.get("cfgId"),
-                (Integer) params.getOrDefault("page", 1),
-                (Integer) params.getOrDefault("perPage", 50)));
+                parseInteger(params.get("page"), 1),
+                parseInteger(params.get("perPage"), 50)));
+    }
+
+    @PostMapping("/dns/listPage")
+    public ResponseData<?> listDnsPage(@RequestBody Map<String, Object> params) {
+        return ResponseData.ok(cloudflareService.listDnsRecordsPage(
+                (String) params.get("zoneId"),
+                parseInteger(params.get("page"), 1),
+                parseInteger(params.get("perPage"), 50),
+                (String) params.get("search"),
+                (String) params.get("type")));
     }
 
     @PostMapping("/dns/add")
     public ResponseData<?> addDns(@RequestBody Map<String, Object> params) {
         String zoneId = (String) params.get("zoneId");
-        if (zoneId != null && !zoneId.isBlank()) {
-            cloudflareService.addDnsRecord(
-                    zoneId,
-                    (String) params.get("type"),
-                    (String) params.get("name"),
-                    (String) params.get("content"),
-                    (Boolean) params.getOrDefault("proxied", false),
-                    (Integer) params.getOrDefault("ttl", 1));
-        } else {
+        if (zoneId == null || zoneId.isBlank()) {
             throw new com.ociworker.exception.OciException("请提供 zoneId");
         }
+        cloudflareService.addDnsRecord(
+                zoneId,
+                (String) params.get("type"),
+                (String) params.get("name"),
+                (String) params.get("content"),
+                params.containsKey("proxied") ? parseBoolean(params.get("proxied"), false) : null,
+                parseInteger(params.get("ttl"), 1),
+                parseInteger(params.get("priority"), null),
+                (String) params.get("comment"));
         return ResponseData.ok();
     }
 
@@ -129,8 +172,10 @@ public class CloudflareController {
                 (String) params.get("type"),
                 (String) params.get("name"),
                 (String) params.get("content"),
-                (Boolean) params.getOrDefault("proxied", false),
-                (Integer) params.getOrDefault("ttl", 1));
+                params.containsKey("proxied") ? parseBoolean(params.get("proxied"), false) : null,
+                parseInteger(params.get("ttl"), 1),
+                parseInteger(params.get("priority"), null),
+                (String) params.get("comment"));
         return ResponseData.ok();
     }
 
@@ -138,5 +183,212 @@ public class CloudflareController {
     public ResponseData<?> deleteDns(@RequestBody Map<String, String> params) {
         cloudflareService.deleteDnsRecord(params.get("zoneId"), params.get("recordId"));
         return ResponseData.ok();
+    }
+
+    @PostMapping("/dns/export")
+    public ResponseData<?> exportDns(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(cloudflareService.exportDnsRecords(params.get("zoneId")));
+    }
+
+    @PostMapping("/dns/import")
+    public ResponseData<?> importDns(@RequestBody Map<String, Object> params) {
+        cloudflareService.importDnsRecords(
+                (String) params.get("zoneId"),
+                (String) params.get("bindContent"),
+                params.containsKey("proxied") ? parseBoolean(params.get("proxied"), false) : null);
+        return ResponseData.ok();
+    }
+
+    @PostMapping("/dns/dnssec/get")
+    public ResponseData<?> getDnssec(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(cloudflareService.getDnssec(params.get("zoneId")));
+    }
+
+    @PostMapping("/dns/dnssec/set")
+    public ResponseData<?> setDnssec(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(cloudflareService.setDnssec(
+                params.get("zoneId"), params.get("status")));
+    }
+
+    @PostMapping("/email/settings")
+    public ResponseData<?> emailSettings(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(cloudflareService.getEmailRoutingSettings(params.get("zoneId")));
+    }
+
+    @PostMapping("/email/enable")
+    public ResponseData<?> emailEnable(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(cloudflareService.enableEmailRouting(params.get("zoneId")));
+    }
+
+    @PostMapping("/email/disable")
+    public ResponseData<?> emailDisable(@RequestBody Map<String, String> params) {
+        cloudflareService.disableEmailRouting(params.get("zoneId"));
+        return ResponseData.ok();
+    }
+
+    @PostMapping("/email/dns/get")
+    public ResponseData<?> emailDnsGet(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(cloudflareService.getEmailRoutingDns(params.get("zoneId")));
+    }
+
+    @PostMapping("/email/dns/lock")
+    public ResponseData<?> emailDnsLock(@RequestBody Map<String, String> params) {
+        cloudflareService.lockEmailDns(params.get("zoneId"));
+        return ResponseData.ok();
+    }
+
+    @PostMapping("/email/dns/unlock")
+    public ResponseData<?> emailDnsUnlock(@RequestBody Map<String, String> params) {
+        cloudflareService.unlockEmailDns(params.get("zoneId"));
+        return ResponseData.ok();
+    }
+
+    @PostMapping("/email/rules/list")
+    public ResponseData<?> emailRulesList(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(cloudflareService.listEmailRoutingRules(params.get("zoneId")));
+    }
+
+    @PostMapping("/email/rules/create")
+    public ResponseData<?> emailRulesCreate(@RequestBody Map<String, Object> params) {
+        String zoneId = (String) params.get("zoneId");
+        String customAddress = (String) params.get("customAddress");
+        String name = (String) params.get("name");
+        Boolean enabled = params.get("enabled") == null ? null : parseBoolean(params.get("enabled"), true);
+        if (params.containsKey("actionType") || params.containsKey("destinations")
+                || params.containsKey("workerName") || params.containsKey("priority")) {
+            return ResponseData.ok(cloudflareService.createEmailRoutingRule(
+                    zoneId,
+                    name,
+                    customAddress,
+                    (String) params.get("actionType"),
+                    parseStringList(params.get("destinations")),
+                    (String) params.get("workerName"),
+                    parseInteger(params.get("priority"), null),
+                    enabled));
+        }
+        return ResponseData.ok(cloudflareService.createEmailRoutingRule(
+                zoneId,
+                name,
+                customAddress,
+                (String) params.get("destination"),
+                enabled == null || enabled));
+    }
+
+    @PostMapping("/email/rules/delete")
+    public ResponseData<?> emailRulesDelete(@RequestBody Map<String, String> params) {
+        cloudflareService.deleteEmailRoutingRule(params.get("zoneId"), params.get("ruleId"));
+        return ResponseData.ok();
+    }
+
+    @PostMapping("/email/rules/update")
+    public ResponseData<?> emailRulesUpdate(@RequestBody Map<String, Object> params) {
+        Boolean enabled = params.get("enabled") == null ? null : parseBoolean(params.get("enabled"), true);
+        if (params.containsKey("actionType") || params.containsKey("destinations")
+                || params.containsKey("workerName") || params.containsKey("customAddress")
+                || params.containsKey("name") || params.containsKey("priority")) {
+            return ResponseData.ok(cloudflareService.updateEmailRoutingRule(
+                    (String) params.get("zoneId"),
+                    (String) params.get("ruleId"),
+                    (String) params.get("name"),
+                    (String) params.get("customAddress"),
+                    (String) params.get("actionType"),
+                    parseStringList(params.get("destinations")),
+                    (String) params.get("workerName"),
+                    enabled,
+                    parseInteger(params.get("priority"), null)));
+        }
+        return ResponseData.ok(cloudflareService.updateEmailRoutingRule(
+                (String) params.get("zoneId"),
+                (String) params.get("ruleId"),
+                null,
+                null,
+                null,
+                null,
+                null,
+                enabled,
+                null));
+    }
+
+    @PostMapping("/email/rules/catch-all/get")
+    public ResponseData<?> emailCatchAllGet(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(cloudflareService.getCatchAllRule(params.get("zoneId")));
+    }
+
+    @PostMapping("/email/rules/catch-all/update")
+    public ResponseData<?> emailCatchAllUpdate(@RequestBody Map<String, Object> params) {
+        Boolean enabled = params.get("enabled") == null ? null : parseBoolean(params.get("enabled"), true);
+        return ResponseData.ok(cloudflareService.updateCatchAllRule(
+                (String) params.get("zoneId"),
+                (String) params.get("actionType"),
+                parseStringList(params.get("destinations")),
+                (String) params.get("workerName"),
+                enabled));
+    }
+
+    @PostMapping("/email/destinations/list")
+    public ResponseData<?> emailDestinationsList() {
+        return ResponseData.ok(cloudflareService.listEmailDestinations());
+    }
+
+    @PostMapping("/email/destinations/create")
+    public ResponseData<?> emailDestinationsCreate(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(cloudflareService.createEmailDestination(params.get("email")));
+    }
+
+    @PostMapping("/email/destinations/resend")
+    public ResponseData<?> emailDestinationsResend(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(cloudflareService.resendEmailDestination(params.get("email")));
+    }
+
+    @PostMapping("/email/destinations/delete")
+    public ResponseData<?> emailDestinationsDelete(@RequestBody Map<String, String> params) {
+        cloudflareService.deleteEmailDestination(params.get("destinationId"));
+        return ResponseData.ok();
+    }
+
+    @PostMapping("/email/workers/list")
+    public ResponseData<?> emailWorkersList() {
+        return ResponseData.ok(cloudflareService.listWorkers());
+    }
+
+    private static boolean parseBoolean(Object value, boolean defaultValue) {
+        if (value == null) {
+            return defaultValue;
+        }
+        if (value instanceof Boolean b) {
+            return b;
+        }
+        return Boolean.parseBoolean(String.valueOf(value));
+    }
+
+    private static Integer parseInteger(Object value, Integer defaultValue) {
+        if (value == null) {
+            return defaultValue;
+        }
+        if (value instanceof Number n) {
+            return n.intValue();
+        }
+        try {
+            return Integer.parseInt(String.valueOf(value));
+        } catch (NumberFormatException e) {
+            return defaultValue;
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<String> parseStringList(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof List<?> list) {
+            List<String> out = new ArrayList<>();
+            for (Object item : list) {
+                if (item != null) {
+                    out.add(String.valueOf(item));
+                }
+            }
+            return out;
+        }
+        return List.of(String.valueOf(value));
     }
 }

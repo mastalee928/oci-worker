@@ -193,13 +193,23 @@
           <template #title>
             <span><i class="ri-cloud-line" style="margin-right: 8px; vertical-align: middle"></i>Cloudflare 全局凭据</span>
           </template>
-          <a-alert
-            type="info"
-            show-icon
-            style="margin-bottom: 16px"
-            message="Account 级 API Token"
-            description="在 Cloudflare 控制台创建具备 Account / Zone 读写的 Token，并填写本账号的 Account ID。凭据全局生效，用于 Tunnel、DNS 等功能。"
-          />
+          <a-alert type="info" show-icon style="margin-bottom: 16px" message="如何创建 API 令牌">
+            <template #description>
+              <div class="cf-settings-help">
+                <p><strong>推荐：账户 API 令牌</strong>（以 <code>cfat_</code> 开头，适合 OCIWorker 长期集成）</p>
+                <ol>
+                  <li>登录 <a href="https://dash.cloudflare.com/" target="_blank" rel="noopener noreferrer">Cloudflare 控制台</a></li>
+                  <li>进入 <strong>管理账户 → 账户 API 令牌 → 创建令牌 → 自定义令牌</strong></li>
+                  <li>资源范围：<strong>整个账户</strong>，并包含 <strong>所有区域</strong></li>
+                  <li>权限：对 <strong>Account</strong> 与 <strong>Zone</strong> 勾选所需「编辑」即可（全量编辑 Token 可直接用全部功能；同一项只勾编辑，不必读+编辑双勾）</li>
+                  <li>创建后复制完整 Token；<strong>Account ID</strong> 见创建成功页或仪表盘 Overview 右侧</li>
+                </ol>
+                <p class="cf-settings-help-note">
+                  Subaddressing（+ 地址）须在 Cloudflare 控制台 Email Routing → Settings 启用（暂无公开 API）。备选：用户 API 令牌（非 <code>cfat_</code>）亦可。
+                </p>
+              </div>
+            </template>
+          </a-alert>
           <a-form layout="vertical">
             <a-form-item label="Account ID" required>
               <a-input v-model:value="cfForm.accountId" placeholder="32 位 Account ID" allow-clear />
@@ -1725,6 +1735,33 @@ async function handleRestore() {
   margin-bottom: 20px;
   text-align: center;
   font-size: 14px;
+}
+
+.cf-settings-help {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text-sub);
+}
+.cf-settings-help p {
+  margin: 0 0 8px;
+}
+.cf-settings-help ol,
+.cf-settings-help ul {
+  margin: 0 0 8px;
+  padding-left: 1.25em;
+}
+.cf-settings-help li {
+  margin-bottom: 4px;
+}
+.cf-settings-help code {
+  font-size: 12px;
+  padding: 0 4px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.06);
+}
+.cf-settings-help-note {
+  font-size: 12px;
+  opacity: 0.9;
 }
 
 @media (max-width: 768px) {
