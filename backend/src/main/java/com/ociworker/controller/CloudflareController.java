@@ -92,6 +92,7 @@ public class CloudflareController {
 
     @PostMapping("/tunnel/delete")
     public ResponseData<?> deleteTunnel(@RequestBody Map<String, String> params) {
+        verifyCodeService.verifyCode("cfTunnelDelete", params.get("verifyCode"));
         cloudflareService.deleteTunnel(params.get("tunnelId"));
         return ResponseData.ok();
     }
@@ -152,7 +153,7 @@ public class CloudflareController {
                 parseInteger(params.get("page"), 1),
                 parseInteger(params.get("perPage"), 50),
                 parseString(params.get("search")),
-                parseString(params.get("type")));
+                parseString(params.get("type"))));
     }
 
     @PostMapping("/dns/add")

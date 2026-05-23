@@ -31,9 +31,7 @@
               <a-space wrap>
                 <a-button type="link" size="small" @click="showToken(record)">Token</a-button>
                 <a-button type="link" size="small" @click="showConnections(record)">连接</a-button>
-                <a-popconfirm title="确定删除此 Tunnel？" @confirm="handleDeleteTunnel(record.id)">
-                  <a-button type="link" danger size="small">删除</a-button>
-                </a-popconfirm>
+                <a-button type="link" danger size="small" @click="openDeleteTunnel(record)">删除</a-button>
               </a-space>
             </template>
           </template>
@@ -99,6 +97,26 @@
         </a-list>
       </a-spin>
     </a-drawer>
+
+    <a-modal
+      v-model:open="deleteModalVisible"
+      title="安全验证 — 删除 Tunnel"
+      :width="400"
+      :confirm-loading="deleteVerifyLoading"
+      ok-text="确认删除"
+      :ok-button-props="{ danger: true }"
+      @ok="confirmDeleteTunnel"
+    >
+      <a-alert type="error" show-icon style="margin-bottom: 16px">
+        <template #message>删除 Tunnel 不可恢复，验证码已发送至 Telegram</template>
+      </a-alert>
+      <p v-if="deleteTarget" class="cf-delete-target">将删除：<b>{{ deleteTarget.name }}</b></p>
+      <a-input v-model:value="deleteVerifyCode" placeholder="请输入6位验证码" size="large" :maxlength="6" allow-clear />
+      <div class="cf-verify-footer">
+        <span>验证码有效期 5 分钟</span>
+        <a-button type="link" size="small" :loading="verifySending" @click="sendDeleteCode">重新发送</a-button>
+      </div>
+    </a-modal>
   </div>
 </template>
 
@@ -114,6 +132,7 @@ import {
   listCfTunnelConnections,
   listCfWorkerScripts,
 } from '../../api/cloudflare'
+import { sendVerifyCode } from '../../api/system'
 
 defineProps<{ cfConfigured: boolean }>()
 
@@ -135,6 +154,12 @@ const connections = ref<any[]>([])
 
 const scriptsLoading = ref(false)
 const scripts = ref<any[]>([])
+
+const deleteModalVisible = ref(false)
+const deleteVerifyLoading = ref(false)
+const deleteVerifyCode = ref('')
+const verifySending = ref(false)
+const deleteTarget = ref<{ id: string; name: string } | null>(null)
 
 const tunnelColumns = [
   { title: '名称', dataIndex: 'name', width: 160 },
@@ -205,10 +230,46 @@ async function submitCreateTunnel() {
   }
 }
 
-async function handleDeleteTunnel(id: string) {
-  await deleteCfTunnel({ tunnelId: id })
-  message.success('已删除')
-  await loadTunnels()
+async function sendDeleteCode() {
+  verifySending.value = true
+  try {
+    await sendVerifyCode('cfTunnelDelete')
+    message.success('验证码已发送')
+  } finally {
+    verifySending.value = false
+  }
+}
+
+async function openDeleteTunnel(record: { id: string; name: string }) {
+  deleteTarget.value = record
+  deleteVerifyCode.value = ''
+  deleteModalVisible.value = true
+  try {
+    await sendDeleteCode()
+  } catch {
+    /* sendVerifyCode 已提示 */
+  }
+}
+
+async function confirmDeleteTunnel() {
+  if (!deleteTarget.value) return
+  if (!deleteVerifyCode.value || deleteVerifyCode.value.length !== 6) {
+    message.warning('请输入6位验证码')
+    return
+  }
+  deleteVerifyLoading.value = true
+  try {
+    await deleteCfTunnel({
+      tunnelId: deleteTarget.value.id,
+      verifyCode: deleteVerifyCode.value,
+    })
+    message.success('已删除')
+    deleteModalVisible.value = false
+    deleteTarget.value = null
+    await loadTunnels()
+  } finally {
+    deleteVerifyLoading.value = false
+  }
 }
 
 async function showToken(record: any) {
@@ -258,4 +319,16 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   font-size: 13px;
 }
 .mobile-card-row .label { color: var(--text-sub); }
+.cf-verify-footer {
+  margin-top: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: var(--text-sub);
+}
+.cf-delete-target {
+  margin-bottom: 12px;
+  color: var(--text-main);
+}
 </style>

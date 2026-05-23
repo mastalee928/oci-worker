@@ -200,7 +200,7 @@ export function createCfTunnel(data: { name: string }) {
   return request.post('/cf/tunnel/create', data)
 }
 
-export function deleteCfTunnel(data: { tunnelId: string }) {
+export function deleteCfTunnel(data: { tunnelId: string; verifyCode: string }) {
   return request.post('/cf/tunnel/delete', data)
 }
 
