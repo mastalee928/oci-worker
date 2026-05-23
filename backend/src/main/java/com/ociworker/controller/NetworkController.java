@@ -30,14 +30,14 @@ public class NetworkController {
 
     @PostMapping("/releaseAllPorts")
     public ResponseData<?> releaseAllPorts(@RequestBody Map<String, String> params) {
-        networkService.releaseAllPortsByInstance(params.get("id"), params.get("instanceId"), reg(params));
-        return ResponseData.ok();
+        return ResponseData.ok(networkService.releaseAllPortsByInstance(
+                params.get("id"), params.get("instanceId"), reg(params)));
     }
 
     @PostMapping("/releaseOciPreset")
     public ResponseData<?> releaseOciPreset(@RequestBody Map<String, String> params) {
-        networkService.releaseOciPresetByInstance(params.get("id"), params.get("instanceId"), reg(params));
-        return ResponseData.ok();
+        return ResponseData.ok(networkService.releaseOciPresetByInstance(
+                params.get("id"), params.get("instanceId"), reg(params)));
     }
 
     @PostMapping("/addSecurityRule")

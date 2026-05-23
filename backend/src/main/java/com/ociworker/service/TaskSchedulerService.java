@@ -477,8 +477,9 @@ public class TaskSchedulerService implements SmartLifecycle {
                         appendCreatedInstance(taskId, result);
                         String shapeName = StrUtil.isNotBlank(result.getShape()) ? result.getShape() : arch;
                         String successSeries = ShapeSeriesUtil.resolveSeries(shapeName);
-                        broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],架构:[%s] - 实例创建成功(%d/%d)！IP:%s",
-                                user, region, successSeries, successCount, targetCount, result.getPublicIp()));
+                        broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],架构:[%s] - 实例创建成功(%d/%d)！IP:%s%s",
+                                user, region, successSeries, successCount, targetCount, result.getPublicIp(),
+                                StrUtil.isNotBlank(result.getIpv6Address()) ? " IPv6:" + result.getIpv6Address() : ""));
                         String html = "🎉 <b>实例创建成功！</b>（" + successCount + "/" + targetCount + "）\n\n"
                                 + "👤 <b>租户：</b>" + user + "\n"
                                 + "🌍 <b>区域：</b>" + region + "\n"
@@ -486,6 +487,8 @@ public class TaskSchedulerService implements SmartLifecycle {
                                 + "💻 <b>Shape：</b><code>" + shapeName + "</code>\n"
                                 + "📊 <b>配置：</b>" + result.getOcpus() + "C / " + result.getMemory() + "GB / " + result.getDisk() + "GB\n"
                                 + "🌐 <b>公网IP：</b><code>" + result.getPublicIp() + "</code>\n"
+                                + (StrUtil.isNotBlank(result.getIpv6Address())
+                                ? "🌐 <b>IPv6：</b><code>" + result.getIpv6Address() + "</code>\n" : "")
                                 + "🔑 <b>密码：</b><code>" + result.getRootPassword() + "</code>";
                         notificationService.sendHtmlWithType(NotificationService.TYPE_TASK_RESULT, html);
                     } else {
@@ -553,6 +556,9 @@ public class TaskSchedulerService implements SmartLifecycle {
             item.put("disk", result.getDisk());
             item.put("publicIp", result.getPublicIp());
             item.put("privateIp", result.getPrivateIp());
+            if (StrUtil.isNotBlank(result.getIpv6Address())) {
+                item.put("ipv6Address", result.getIpv6Address());
+            }
             item.put("image", result.getImage());
             item.put("createdAt", LocalDateTime.now().format(DateTimeFormatter.ISO_LOCAL_DATE_TIME));
             list.add(item);

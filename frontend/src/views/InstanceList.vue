@@ -657,10 +657,10 @@
           <div class="mobile-toolbar" style="margin-bottom: 12px">
             <a-button @click="loadSecurityRules" :loading="secLoading">加载规则</a-button>
             <a-button type="primary" @click="showAddRuleModal">添加规则</a-button>
-            <a-popconfirm title="确定一键放行所有端口？" @confirm="handleReleaseAll">
+            <a-popconfirm title="确定一键放行所有端口？（VCN 未启用 IPv6 时仅放行 IPv4）" @confirm="handleReleaseAll">
               <a-button type="primary" danger :loading="releaseLoading">一键放行</a-button>
             </a-popconfirm>
-            <a-popconfirm title="将替换为纯TCP预设规则（TCP+ICMP+ICMPv6），其他规则将被删除" @confirm="handleOciPreset">
+            <a-popconfirm title="将替换为纯TCP预设；VCN 未启用 IPv6 时仅 IPv4（TCP+ICMP），启用时含 ICMPv6。其他规则将被删除" @confirm="handleOciPreset">
               <a-button :loading="presetLoading">纯TCP放行</a-button>
             </a-popconfirm>
           </div>
@@ -2380,16 +2380,25 @@ async function loadSecurityRules() {
   }
 }
 
+function securityReleaseSuccessMessage(ipv6RulesApplied: unknown, allPorts: boolean) {
+  if (ipv6RulesApplied === false) {
+    return allPorts
+      ? '已放行所有端口（该 VCN 未启用 IPv6，已仅放行 IPv4）'
+      : '已应用纯 TCP 预设（该 VCN 未启用 IPv6，已仅应用 IPv4 规则）'
+  }
+  return allPorts ? '已放行所有端口（含 IPv4/IPv6）' : '已应用纯 TCP 预设规则（含 IPv4/IPv6）'
+}
+
 async function handleReleaseAll() {
   if (!currentInstance.value || !currentTenant.value) return
   releaseLoading.value = true
   try {
-    await releaseAllPorts({
+    const res = await releaseAllPorts({
       id: currentTenant.value.id,
       instanceId: currentInstance.value.instanceId,
       ...instanceDetailRegionParam(),
     })
-    message.success('已放行所有端口')
+    message.success(securityReleaseSuccessMessage(res.data?.ipv6RulesApplied, true))
     loadSecurityRules()
   } catch (e: any) {
     message.error(e?.message || '放行失败')
@@ -2402,12 +2411,12 @@ async function handleOciPreset() {
   if (!currentInstance.value || !currentTenant.value) return
   presetLoading.value = true
   try {
-    await releaseOciPreset({
+    const res = await releaseOciPreset({
       id: currentTenant.value.id,
       instanceId: currentInstance.value.instanceId,
       ...instanceDetailRegionParam(),
     })
-    message.success('已应用纯TCP预设规则')
+    message.success(securityReleaseSuccessMessage(res.data?.ipv6RulesApplied, false))
     loadSecurityRules()
   } catch (e: any) {
     message.error(e?.message || '应用预设失败')

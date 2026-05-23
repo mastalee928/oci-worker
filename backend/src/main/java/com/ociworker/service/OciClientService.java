@@ -28,6 +28,7 @@ import com.ociworker.model.dto.OciProxySnapshot;
 import com.ociworker.model.dto.SysUserDTO;
 import com.ociworker.util.BootVolumeVpusUtil;
 import com.ociworker.util.CommonUtils;
+import com.ociworker.util.VcnIpv6Util;
 import com.ociworker.util.socks.OciSocksApacheConnectionManager;
 import com.oracle.bmc.http.ClientConfigurator;
 import com.oracle.bmc.http.client.ProxyConfiguration;
@@ -524,16 +525,28 @@ public class OciClientService implements Closeable {
                     }
 
                     if (Boolean.TRUE.equals(user.getAssignIpv6())) {
+                        String ipv6Address = null;
                         try {
-                            assignIpv6ToInstance(instance, subnet);
-                            log.info("【开机任务】用户:[{}] - IPv6 已分配", user.getUsername());
+                            ipv6Address = assignIpv6ToInstance(instance, subnet);
+                            if (StrUtil.isNotBlank(ipv6Address)) {
+                                result.setIpv6Address(ipv6Address);
+                                log.info("【开机任务】用户:[{}] - IPv6 已分配: {}", user.getUsername(), ipv6Address);
+                            } else {
+                                log.warn("【开机任务】用户:[{}] - IPv6 分配未完成（VCN/子网/地址未就绪）", user.getUsername());
+                            }
                         } catch (Exception e) {
                             log.warn("【开机任务】用户:[{}] - IPv6 分配失败: {}", user.getUsername(), e.getMessage());
                         }
-                        try {
-                            ensureIpv6AllSecurityRules(subnet.getId());
-                        } catch (Exception e) {
-                            log.warn("【开机任务】用户:[{}] - IPv6 安全列表规则失败: {}", user.getUsername(), e.getMessage());
+                        boolean ipv6Ready = StrUtil.isNotBlank(ipv6Address)
+                                || VcnIpv6Util.isEnabled(virtualNetworkClient, subnet.getVcnId());
+                        if (ipv6Ready) {
+                            try {
+                                ensureIpv6AllSecurityRules(subnet.getId());
+                            } catch (Exception e) {
+                                log.warn("【开机任务】用户:[{}] - IPv6 安全列表规则失败: {}", user.getUsername(), e.getMessage());
+                            }
+                        } else {
+                            log.warn("【开机任务】用户:[{}] - VCN 未启用 IPv6，跳过 ::/0 安全列表", user.getUsername());
                         }
                     }
 
@@ -711,14 +724,15 @@ public class OciClientService implements Closeable {
         ).execute().getInstance();
     }
 
-    private void assignIpv6ToInstance(Instance instance, Subnet subnet) {
+    /** @return 分配成功时的 IPv6 地址，失败或未就绪则 {@code null} */
+    private String assignIpv6ToInstance(Instance instance, Subnet subnet) {
         List<VnicAttachment> attachments = computeClient.listVnicAttachments(
                 ListVnicAttachmentsRequest.builder()
                         .compartmentId(compartmentId)
                         .instanceId(instance.getId())
                         .build()
         ).getItems();
-        if (attachments.isEmpty()) return;
+        if (attachments.isEmpty()) return null;
 
         String vnicId = attachments.get(0).getVnicId();
         String subnetId = subnet.getId();
@@ -740,7 +754,7 @@ public class OciClientService implements Closeable {
                 String em = e.getMessage() == null ? "" : e.getMessage();
                 if (!em.contains("already exists") && !em.contains("already has")) {
                     log.warn("VCN IPv6 CIDR 添加失败: {}", em);
-                    return;
+                    return null;
                 }
             }
             vcn = virtualNetworkClient.getVcn(GetVcnRequest.builder().vcnId(vcn.getId()).build()).getVcn();
@@ -751,7 +765,7 @@ public class OciClientService implements Closeable {
         if (freshSubnet.getIpv6CidrBlocks() == null || freshSubnet.getIpv6CidrBlocks().isEmpty()) {
             String vcnIpv6Cidr = vcn.getIpv6CidrBlocks() != null && !vcn.getIpv6CidrBlocks().isEmpty()
                     ? vcn.getIpv6CidrBlocks().get(0) : null;
-            if (vcnIpv6Cidr == null) return;
+            if (vcnIpv6Cidr == null) return null;
             String subnetIpv6Cidr = vcnIpv6Cidr.replaceAll("/\\d+$", "/64");
             try {
                 virtualNetworkClient.updateSubnet(UpdateSubnetRequest.builder()
@@ -765,18 +779,19 @@ public class OciClientService implements Closeable {
                 String em = e.getMessage() == null ? "" : e.getMessage();
                 if (!em.contains("already exists") && !em.contains("already has")) {
                     log.warn("子网 IPv6 CIDR 添加失败: {}", em);
-                    return;
+                    return null;
                 }
             }
         }
 
         ensureIpv6InternetRoute(vcn, freshSubnet);
 
-        virtualNetworkClient.createIpv6(CreateIpv6Request.builder()
+        Ipv6 ipv6 = virtualNetworkClient.createIpv6(CreateIpv6Request.builder()
                 .createIpv6Details(CreateIpv6Details.builder()
                         .vnicId(vnicId)
                         .build())
-                .build());
+                .build()).getIpv6();
+        return ipv6 != null ? ipv6.getIpAddress() : null;
     }
 
     /** 开机任务创建实例后：静默补 0.0.0.0/0 全协议入站（已有则跳过） */
@@ -814,6 +829,10 @@ public class OciClientService implements Closeable {
 
     /** 开机任务勾选 IPv6 时：静默补 ::/0 全协议入站+出站（已有则跳过；合并重复项） */
     private void ensureIpv6AllSecurityRules(String subnetId) {
+        if (!VcnIpv6Util.isEnabledForSubnet(virtualNetworkClient, subnetId)) {
+            log.warn("子网 {} 所属 VCN 未启用 IPv6，跳过 ::/0 安全列表规则", subnetId);
+            return;
+        }
         Subnet subnet = virtualNetworkClient.getSubnet(
                 GetSubnetRequest.builder().subnetId(subnetId).build()).getSubnet();
         if (subnet.getSecurityListIds() == null || subnet.getSecurityListIds().isEmpty()) {

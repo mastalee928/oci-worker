@@ -17,6 +17,8 @@ public class InstanceDetailDTO {
     private Integer disk;
     private String publicIp;
     private String privateIp;
+    /** 勾选 IPv6 且分配成功时的地址 */
+    private String ipv6Address;
     private String image;
     private String rootPassword;
     private boolean success;
