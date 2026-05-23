@@ -444,6 +444,60 @@ public class CloudflareService {
         apiDelete(c.apiToken(), url);
     }
 
+    public List<Map<String, Object>> listZoneRules(String zoneId) {
+        Credentials c = requireCredentials();
+        requireZoneId(zoneId);
+        String listUrl = CF_API_BASE + "/zones/" + zoneId.trim() + "/rulesets";
+        JSONObject listJson = parseJson(apiGet(c.apiToken(), listUrl));
+        requireSuccess(listJson, "拉取 Rulesets 失败");
+        JSONArray rulesets = listJson.getJSONArray("result");
+        List<Map<String, Object>> rules = new ArrayList<>();
+        if (rulesets == null) {
+            return rules;
+        }
+        Set<String> userKinds = Set.of("zone", "custom", "root");
+        for (int i = 0; i < rulesets.size(); i++) {
+            JSONObject summary = rulesets.getJSONObject(i);
+            String kind = summary.getStr("kind");
+            if (kind == null || !userKinds.contains(kind)) {
+                continue;
+            }
+            String rulesetId = summary.getStr("id");
+            if (StrUtil.isBlank(rulesetId)) {
+                continue;
+            }
+            String detailUrl = CF_API_BASE + "/zones/" + zoneId.trim() + "/rulesets/" + rulesetId.trim();
+            JSONObject detailJson = parseJson(apiGet(c.apiToken(), detailUrl));
+            requireSuccess(detailJson, "拉取 Ruleset 详情失败");
+            JSONObject detail = detailJson.getJSONObject("result");
+            if (detail == null) {
+                continue;
+            }
+            String phase = detail.getStr("phase");
+            String rulesetName = detail.getStr("name");
+            JSONArray ruleArr = detail.getJSONArray("rules");
+            if (ruleArr == null) {
+                continue;
+            }
+            for (int j = 0; j < ruleArr.size(); j++) {
+                JSONObject rule = ruleArr.getJSONObject(j);
+                Map<String, Object> m = new LinkedHashMap<>();
+                m.put("id", rule.getStr("id"));
+                m.put("ref", rule.getStr("ref"));
+                m.put("rulesetId", rulesetId);
+                m.put("phase", phase);
+                m.put("rulesetName", rulesetName);
+                m.put("description", rule.getStr("description"));
+                m.put("expression", rule.getStr("expression"));
+                m.put("action", rule.getStr("action"));
+                m.put("enabled", rule.getBool("enabled", true));
+                rules.add(m);
+            }
+        }
+        return rules;
+    }
+
+    /** @deprecated Page Rules 不支持 cfat_ 账户令牌，请用 {@link #listZoneRules} */
     public List<Map<String, Object>> listPageRules(String zoneId) {
         Credentials c = requireCredentials();
         requireZoneId(zoneId);

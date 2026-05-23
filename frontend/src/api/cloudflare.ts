@@ -248,6 +248,10 @@ export function deleteCfWorkersRoute(data: { zoneId: string; routeId: string }) 
   return request.post('/cf/workers/routes/delete', data)
 }
 
+export function listCfZoneRules(data: { zoneId: string }, silent = false) {
+  return request.post('/cf/rules/list', data, silent ? cfSilent : undefined)
+}
+
 export function listCfPageRules(data: { zoneId: string }, silent = false) {
   return request.post('/cf/rules/pagerules/list', data, silent ? cfSilent : undefined)
 }

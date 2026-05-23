@@ -7,35 +7,30 @@
       :columns="columns"
       :data-source="rules"
       :loading="loading"
-      row-key="id"
+      row-key="rowKey"
       size="middle"
-      :scroll="{ x: 800 }"
+      :scroll="{ x: 960 }"
     >
       <template #bodyCell="{ column, record }">
-        <template v-if="column.key === 'status'">
-          <a-tag :color="record.status === 'active' ? 'success' : 'default'">{{ record.status }}</a-tag>
+        <template v-if="column.key === 'enabled'">
+          <a-tag :color="record.enabled !== false ? 'success' : 'default'">
+            {{ record.enabled !== false ? '启用' : '禁用' }}
+          </a-tag>
         </template>
-        <template v-else-if="column.key === 'targets'">
-          {{ formatTargets(record.targets) }}
-        </template>
-        <template v-else-if="column.key === 'actions'">
-          {{ formatActions(record.actions) }}
-        </template>
-        <template v-else-if="column.key === 'action'">
-          <a-popconfirm title="确定删除此 Page Rule？" @confirm="handleDelete(record.id)">
-            <a-button type="link" danger size="small">删除</a-button>
-          </a-popconfirm>
+        <template v-else-if="column.key === 'phase'">
+          {{ formatPhase(record.phase) }}
         </template>
       </template>
     </a-table>
-    <p class="cf-hint">Page Rules（旧版规则）。新建复杂规则请使用 Cloudflare 控制台 Rules 产品。</p>
+    <p class="cf-hint">
+      使用 Cloudflare Rulesets（兼容账户 API 令牌 cfat_）。旧版 Page Rules 接口不支持 cfat_，故不在此展示。
+    </p>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, watch } from 'vue'
-import { message } from 'ant-design-vue'
-import { listCfPageRules, deleteCfPageRule } from '../../api/cloudflare'
+import { listCfZoneRules } from '../../api/cloudflare'
 
 const props = defineProps<{ zoneId?: string }>()
 
@@ -43,40 +38,42 @@ const loading = ref(false)
 const rules = ref<any[]>([])
 
 const columns = [
-  { title: '优先级', dataIndex: 'priority', width: 80 },
-  { title: '状态', key: 'status', width: 90 },
-  { title: '匹配', key: 'targets', ellipsis: true },
-  { title: '动作', key: 'actions', ellipsis: true },
-  { title: '操作', key: 'action', width: 80 },
+  { title: '阶段', key: 'phase', width: 140 },
+  { title: '描述', dataIndex: 'description', ellipsis: true },
+  { title: '表达式', dataIndex: 'expression', ellipsis: true },
+  { title: '动作', dataIndex: 'action', width: 120 },
+  { title: '状态', key: 'enabled', width: 80 },
 ]
 
-function formatTargets(targets: unknown) {
-  if (!Array.isArray(targets) || targets.length === 0) return '—'
-  const t = targets[0] as { constraint?: { value?: string } }
-  return t?.constraint?.value || JSON.stringify(targets[0])
+const phaseLabels: Record<string, string> = {
+  http_request_dynamic_redirect: '重定向',
+  http_request_transform: '转换',
+  http_request_cache_settings: '缓存',
+  http_request_firewall_custom: '防火墙',
+  http_config_settings: '配置',
+  http_response_headers_transform: '响应头',
 }
 
-function formatActions(actions: unknown) {
-  if (!Array.isArray(actions) || actions.length === 0) return '—'
-  return actions.map((a: { id?: string }) => a.id || '').filter(Boolean).join(', ') || '—'
+function formatPhase(phase?: string) {
+  if (!phase) return '—'
+  return phaseLabels[phase] || phase
 }
 
 async function load() {
   if (!props.zoneId) return
   loading.value = true
   try {
-    const res = await listCfPageRules({ zoneId: props.zoneId })
-    rules.value = res.data || []
+    const res = await listCfZoneRules({ zoneId: props.zoneId }, true)
+    const list = res.data || []
+    rules.value = list.map((r: any, idx: number) => ({
+      ...r,
+      rowKey: r.id || r.ref || `${r.rulesetId}-${idx}`,
+    }))
+  } catch {
+    rules.value = []
   } finally {
     loading.value = false
   }
-}
-
-async function handleDelete(ruleId: string) {
-  if (!props.zoneId) return
-  await deleteCfPageRule({ zoneId: props.zoneId, ruleId })
-  message.success('已删除')
-  await load()
 }
 
 watch(() => props.zoneId, () => load(), { immediate: true })

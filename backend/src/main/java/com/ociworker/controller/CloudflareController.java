@@ -415,6 +415,12 @@ public class CloudflareController {
         return ResponseData.ok();
     }
 
+    @PostMapping("/rules/list")
+    public ResponseData<?> rulesList(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(cloudflareService.listZoneRules(params.get("zoneId")));
+    }
+
+    /** @deprecated 不支持 cfat_ 账户令牌 */
     @PostMapping("/rules/pagerules/list")
     public ResponseData<?> pageRulesList(@RequestBody Map<String, String> params) {
         return ResponseData.ok(cloudflareService.listPageRules(params.get("zoneId")));
