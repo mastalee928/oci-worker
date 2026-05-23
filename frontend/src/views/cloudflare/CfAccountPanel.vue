@@ -50,6 +50,47 @@
         </a-spin>
       </a-tab-pane>
 
+      <a-tab-pane key="ipaccess" tab="IP 访问规则">
+        <div class="cf-toolbar">
+          <a-space wrap>
+            <a-button type="primary" :disabled="!cfConfigured" @click="openCreateIpRule">
+              <template #icon><PlusOutlined /></template>
+              添加规则
+            </a-button>
+            <a-button :loading="ipRulesLoading" :disabled="!cfConfigured" @click="loadIpRules">
+              <template #icon><ReloadOutlined /></template>
+              刷新
+            </a-button>
+          </a-space>
+        </div>
+        <a-table
+          :columns="ipRuleColumns"
+          :data-source="ipRules"
+          :loading="ipRulesLoading"
+          row-key="id"
+          size="middle"
+          :scroll="{ x: 960 }"
+        >
+          <template #bodyCell="{ column, record }">
+            <template v-if="column.key === 'target'">
+              {{ targetLabel(record.target) }}
+            </template>
+            <template v-else-if="column.key === 'mode'">
+              <a-tag :color="modeColor(record.mode)">{{ modeLabel(record.mode) }}</a-tag>
+            </template>
+            <template v-else-if="column.key === 'scope'">
+              账户中的所有网站
+            </template>
+            <template v-else-if="column.key === 'action'">
+              <a-popconfirm title="确定删除此 IP 访问规则？" @confirm="handleDeleteIpRule(record.id)">
+                <a-button type="link" danger size="small">删除</a-button>
+              </a-popconfirm>
+            </template>
+          </template>
+        </a-table>
+        <p class="cf-hint">账户级 IP 访问规则，对账户下所有 Zone 生效。复杂条件请使用「域名 → 安全性」防火墙规则。</p>
+      </a-tab-pane>
+
       <a-tab-pane key="workers" tab="Workers 脚本">
         <div class="cf-toolbar">
           <a-button :loading="scriptsLoading" :disabled="!cfConfigured" @click="loadScripts">刷新</a-button>
@@ -64,6 +105,29 @@
         <p class="cf-hint">账户级 Workers 脚本列表。路由绑定请在「域名 → Workers 路由」中配置。</p>
       </a-tab-pane>
     </a-tabs>
+
+    <a-modal
+      v-model:open="ipCreateVisible"
+      title="添加 IP 访问规则"
+      :confirm-loading="ipCreateLoading"
+      width="520px"
+      @ok="submitCreateIpRule"
+    >
+      <a-form layout="vertical">
+        <a-form-item label="匹配类型" required>
+          <a-select v-model:value="ipForm.target" :options="ipTargetOptions" />
+        </a-form-item>
+        <a-form-item label="匹配值" required>
+          <a-input v-model:value="ipForm.value" :placeholder="ipValuePlaceholder" allow-clear />
+        </a-form-item>
+        <a-form-item label="动作" required>
+          <a-select v-model:value="ipForm.mode" :options="ipModeOptions" />
+        </a-form-item>
+        <a-form-item label="注释">
+          <a-input v-model:value="ipForm.notes" placeholder="可选备注" allow-clear />
+        </a-form-item>
+      </a-form>
+    </a-modal>
 
     <a-modal
       v-model:open="createVisible"
@@ -121,7 +185,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue'
 import { message } from 'ant-design-vue'
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import {
@@ -131,6 +195,9 @@ import {
   getCfTunnelToken,
   listCfTunnelConnections,
   listCfWorkerScripts,
+  listCfIpAccessRules,
+  createCfIpAccessRule,
+  deleteCfIpAccessRule,
 } from '../../api/cloudflare'
 import { sendVerifyCode } from '../../api/system'
 
@@ -154,6 +221,118 @@ const connections = ref<any[]>([])
 
 const scriptsLoading = ref(false)
 const scripts = ref<any[]>([])
+
+const ipRulesLoading = ref(false)
+const ipRules = ref<any[]>([])
+const ipCreateVisible = ref(false)
+const ipCreateLoading = ref(false)
+const ipForm = reactive({
+  target: 'ip' as 'ip' | 'ip6' | 'ip_range' | 'country' | 'asn',
+  value: '',
+  mode: 'block' as 'block' | 'challenge' | 'js_challenge' | 'managed_challenge' | 'whitelist',
+  notes: '',
+})
+
+const ipTargetOptions = [
+  { value: 'ip', label: 'IP 地址' },
+  { value: 'ip6', label: 'IPv6 地址' },
+  { value: 'ip_range', label: 'IP 网段' },
+  { value: 'country', label: '国家/地区' },
+  { value: 'asn', label: 'ASN' },
+]
+
+const ipModeOptions = [
+  { value: 'block', label: '阻止 (block)' },
+  { value: 'challenge', label: '质询 (challenge)' },
+  { value: 'js_challenge', label: 'JS 质询' },
+  { value: 'managed_challenge', label: '托管质询' },
+  { value: 'whitelist', label: '白名单 (whitelist)' },
+]
+
+const ipValuePlaceholder = computed(() => {
+  switch (ipForm.target) {
+    case 'ip': return '如 203.0.113.1'
+    case 'ip6': return '如 2001:db8::1'
+    case 'ip_range': return '如 203.0.113.0/24'
+    case 'country': return '两位国家码，如 CN'
+    case 'asn': return '如 13335'
+    default: return ''
+  }
+})
+
+const ipRuleColumns = [
+  { title: '匹配值', dataIndex: 'value', ellipsis: true, width: 160 },
+  { title: '类型', key: 'target', width: 100 },
+  { title: '适用于', key: 'scope', width: 140 },
+  { title: '注释', dataIndex: 'notes', ellipsis: true },
+  { title: '动作', key: 'mode', width: 100 },
+  { title: '创建时间', dataIndex: 'createdOn', width: 180 },
+  { title: '操作', key: 'action', width: 80 },
+]
+
+function targetLabel(t?: string) {
+  return ipTargetOptions.find(o => o.value === t)?.label || t || '—'
+}
+
+function modeLabel(m?: string) {
+  return ipModeOptions.find(o => o.value === m)?.label?.replace(/\s*\([^)]*\)/, '') || m || '—'
+}
+
+function modeColor(m?: string) {
+  if (m === 'whitelist') return 'success'
+  if (m === 'block') return 'error'
+  return 'warning'
+}
+
+async function loadIpRules() {
+  ipRulesLoading.value = true
+  try {
+    const res = await listCfIpAccessRules()
+    ipRules.value = res.data || []
+  } finally {
+    ipRulesLoading.value = false
+  }
+}
+
+function openCreateIpRule() {
+  ipForm.target = 'ip'
+  ipForm.value = ''
+  ipForm.mode = 'block'
+  ipForm.notes = ''
+  ipCreateVisible.value = true
+}
+
+async function submitCreateIpRule() {
+  if (!ipForm.value.trim()) {
+    message.warning('请填写匹配值')
+    return
+  }
+  ipCreateLoading.value = true
+  try {
+    await createCfIpAccessRule({
+      target: ipForm.target,
+      value: ipForm.value.trim(),
+      mode: ipForm.mode,
+      notes: ipForm.notes.trim() || undefined,
+    })
+    message.success('规则已创建')
+    ipCreateVisible.value = false
+    await loadIpRules()
+  } finally {
+    ipCreateLoading.value = false
+  }
+}
+
+async function handleDeleteIpRule(ruleId: string) {
+  await deleteCfIpAccessRule({ ruleId })
+  message.success('已删除')
+  await loadIpRules()
+}
+
+watch(accountTab, tab => {
+  if (tab === 'ipaccess') loadIpRules()
+  if (tab === 'workers' && scripts.value.length === 0) loadScripts()
+})
 
 const deleteModalVisible = ref(false)
 const deleteVerifyLoading = ref(false)

@@ -265,6 +265,98 @@ public class CloudflareService {
         apiDelete(c.apiToken(), url);
     }
 
+    // -------------------------------------------------------------------------
+    // IP Access Rules (account-level)
+    // -------------------------------------------------------------------------
+
+    private static final Set<String> IP_ACCESS_TARGETS = Set.of("ip", "ip6", "ip_range", "country", "asn");
+    private static final Set<String> IP_ACCESS_MODES = Set.of(
+            "block", "challenge", "js_challenge", "managed_challenge", "whitelist");
+
+    public List<Map<String, Object>> listIpAccessRules() {
+        Credentials c = requireCredentials();
+        String url = CF_API_BASE + "/accounts/" + c.accountId() + "/firewall/access_rules/rules?per_page=100";
+        JSONObject json = parseJson(apiGet(c.apiToken(), url));
+        requireSuccess(json, "拉取 IP 访问规则失败");
+        JSONArray result = json.getJSONArray("result");
+        List<Map<String, Object>> list = new ArrayList<>();
+        if (result == null) {
+            return list;
+        }
+        for (int i = 0; i < result.size(); i++) {
+            list.add(mapIpAccessRule(result.getJSONObject(i)));
+        }
+        return list;
+    }
+
+    public Map<String, Object> createIpAccessRule(String target, String value, String mode, String notes) {
+        Credentials c = requireCredentials();
+        if (StrUtil.isBlank(target)) {
+            throw new OciException("匹配类型不能为空");
+        }
+        String tgt = target.trim().toLowerCase();
+        if (!IP_ACCESS_TARGETS.contains(tgt)) {
+            throw new OciException("不支持的匹配类型: " + tgt);
+        }
+        if (StrUtil.isBlank(value)) {
+            throw new OciException("匹配值不能为空");
+        }
+        if (StrUtil.isBlank(mode)) {
+            throw new OciException("动作不能为空");
+        }
+        String act = mode.trim().toLowerCase();
+        if (!IP_ACCESS_MODES.contains(act)) {
+            throw new OciException("不支持的动作: " + act);
+        }
+        Map<String, Object> configuration = new LinkedHashMap<>();
+        configuration.put("target", tgt);
+        configuration.put("value", value.trim());
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("mode", act);
+        body.put("configuration", configuration);
+        if (StrUtil.isNotBlank(notes)) {
+            body.put("notes", notes.trim());
+        }
+        String url = CF_API_BASE + "/accounts/" + c.accountId() + "/firewall/access_rules/rules";
+        JSONObject json = parseJson(apiPost(c.apiToken(), url, body));
+        requireSuccess(json, "创建 IP 访问规则失败");
+        JSONObject result = json.getJSONObject("result");
+        if (result == null) {
+            throw new OciException("创建 IP 访问规则失败：无返回数据");
+        }
+        return mapIpAccessRule(result);
+    }
+
+    public void deleteIpAccessRule(String ruleId) {
+        Credentials c = requireCredentials();
+        if (StrUtil.isBlank(ruleId)) {
+            throw new OciException("规则 ID 不能为空");
+        }
+        String url = CF_API_BASE + "/accounts/" + c.accountId()
+                + "/firewall/access_rules/rules/" + ruleId.trim();
+        apiDelete(c.apiToken(), url);
+    }
+
+    private static Map<String, Object> mapIpAccessRule(JSONObject r) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("id", r.getStr("id"));
+        m.put("mode", r.getStr("mode"));
+        m.put("notes", r.getStr("notes"));
+        m.put("createdOn", r.getStr("created_on"));
+        m.put("modifiedOn", r.getStr("modified_on"));
+        JSONObject cfg = r.getJSONObject("configuration");
+        if (cfg != null) {
+            m.put("target", cfg.getStr("target"));
+            m.put("value", cfg.getStr("value"));
+        }
+        JSONObject scope = r.getJSONObject("scope");
+        if (scope != null) {
+            m.put("scopeType", scope.getStr("type"));
+            m.put("scopeEmail", scope.getStr("email"));
+        }
+        return m;
+    }
+
     public String getTunnelRunToken(String tunnelId) {
         Credentials c = requireCredentials();
         if (StrUtil.isBlank(tunnelId)) {

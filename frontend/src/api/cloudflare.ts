@@ -212,6 +212,23 @@ export function listCfTunnelConnections(data: { tunnelId: string }) {
   return request.post('/cf/tunnel/connections', data)
 }
 
+export function listCfIpAccessRules() {
+  return request.post('/cf/access-rules/list', {})
+}
+
+export function createCfIpAccessRule(data: {
+  target: 'ip' | 'ip6' | 'ip_range' | 'country' | 'asn'
+  value: string
+  mode: 'block' | 'challenge' | 'js_challenge' | 'managed_challenge' | 'whitelist'
+  notes?: string
+}) {
+  return request.post('/cf/access-rules/create', data)
+}
+
+export function deleteCfIpAccessRule(data: { ruleId: string }) {
+  return request.post('/cf/access-rules/delete', data)
+}
+
 export function getCfSslSettings(data: { zoneId: string }, silent = false) {
   return request.post('/cf/ssl/get', data, silent ? cfSilent : undefined)
 }

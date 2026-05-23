@@ -107,6 +107,26 @@ public class CloudflareController {
         return ResponseData.ok(cloudflareService.listTunnelConnections(params.get("tunnelId")));
     }
 
+    @PostMapping("/access-rules/list")
+    public ResponseData<?> listIpAccessRules() {
+        return ResponseData.ok(cloudflareService.listIpAccessRules());
+    }
+
+    @PostMapping("/access-rules/create")
+    public ResponseData<?> createIpAccessRule(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(cloudflareService.createIpAccessRule(
+                params.get("target"),
+                params.get("value"),
+                params.get("mode"),
+                params.get("notes")));
+    }
+
+    @PostMapping("/access-rules/delete")
+    public ResponseData<?> deleteIpAccessRule(@RequestBody Map<String, String> params) {
+        cloudflareService.deleteIpAccessRule(params.get("ruleId"));
+        return ResponseData.ok();
+    }
+
     /** @deprecated legacy cf_cfg table */
     @PostMapping("/cfg/list")
     public ResponseData<?> listCfg(@RequestBody Map<String, Integer> params) {
