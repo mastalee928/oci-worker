@@ -351,6 +351,81 @@ public class CloudflareController {
         return ResponseData.ok(cloudflareService.listWorkers());
     }
 
+    @PostMapping("/workers/scripts/list")
+    public ResponseData<?> workerScriptsList() {
+        return ResponseData.ok(cloudflareService.listWorkerScripts());
+    }
+
+    @PostMapping("/ssl/get")
+    public ResponseData<?> sslGet(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(cloudflareService.getSslSettings(params.get("zoneId")));
+    }
+
+    @PostMapping("/ssl/set")
+    public ResponseData<?> sslSet(@RequestBody Map<String, Object> params) {
+        return ResponseData.ok(cloudflareService.updateSslSetting(
+                (String) params.get("zoneId"),
+                (String) params.get("settingId"),
+                params.get("value")));
+    }
+
+    @PostMapping("/cache/get")
+    public ResponseData<?> cacheGet(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(cloudflareService.getCacheSettings(params.get("zoneId")));
+    }
+
+    @PostMapping("/cache/set")
+    public ResponseData<?> cacheSet(@RequestBody Map<String, Object> params) {
+        return ResponseData.ok(cloudflareService.updateCacheSetting(
+                (String) params.get("zoneId"),
+                (String) params.get("settingId"),
+                params.get("value")));
+    }
+
+    @PostMapping("/cache/purge")
+    public ResponseData<?> cachePurge(@RequestBody Map<String, Object> params) {
+        cloudflareService.purgeZoneCache(
+                (String) params.get("zoneId"),
+                parseBoolean(params.get("purgeEverything"), false),
+                parseStringList(params.get("files")));
+        return ResponseData.ok();
+    }
+
+    @PostMapping("/security/firewall/list")
+    public ResponseData<?> firewallList(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(cloudflareService.listFirewallRules(params.get("zoneId")));
+    }
+
+    @PostMapping("/workers/routes/list")
+    public ResponseData<?> workersRoutesList(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(cloudflareService.listWorkersRoutes(params.get("zoneId")));
+    }
+
+    @PostMapping("/workers/routes/create")
+    public ResponseData<?> workersRoutesCreate(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(cloudflareService.createWorkersRoute(
+                params.get("zoneId"),
+                params.get("pattern"),
+                params.get("script")));
+    }
+
+    @PostMapping("/workers/routes/delete")
+    public ResponseData<?> workersRoutesDelete(@RequestBody Map<String, String> params) {
+        cloudflareService.deleteWorkersRoute(params.get("zoneId"), params.get("routeId"));
+        return ResponseData.ok();
+    }
+
+    @PostMapping("/rules/pagerules/list")
+    public ResponseData<?> pageRulesList(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(cloudflareService.listPageRules(params.get("zoneId")));
+    }
+
+    @PostMapping("/rules/pagerules/delete")
+    public ResponseData<?> pageRulesDelete(@RequestBody Map<String, String> params) {
+        cloudflareService.deletePageRule(params.get("zoneId"), params.get("ruleId"));
+        return ResponseData.ok();
+    }
+
     private static boolean parseBoolean(Object value, boolean defaultValue) {
         if (value == null) {
             return defaultValue;

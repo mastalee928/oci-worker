@@ -307,6 +307,202 @@ public class CloudflareService {
     }
 
     // -------------------------------------------------------------------------
+    // SSL/TLS, Cache, Security, Workers Routes, Page Rules (zone-scoped)
+    // -------------------------------------------------------------------------
+
+    private static final List<String> SSL_SETTING_IDS = List.of(
+            "ssl", "always_use_https", "min_tls_version", "tls_1_3");
+
+    private static final List<String> CACHE_SETTING_IDS = List.of(
+            "cache_level", "browser_cache_ttl", "development_mode", "always_online");
+
+    public Map<String, Object> getSslSettings(String zoneId) {
+        Credentials c = requireCredentials();
+        requireZoneId(zoneId);
+        Map<String, Object> out = new LinkedHashMap<>();
+        for (String id : SSL_SETTING_IDS) {
+            out.put(id, readZoneSettingValue(c.apiToken(), zoneId, id));
+        }
+        return out;
+    }
+
+    public Map<String, Object> updateSslSetting(String zoneId, String settingId, Object value) {
+        patchZoneSetting(zoneId, settingId, value);
+        return getSslSettings(zoneId);
+    }
+
+    public Map<String, Object> getCacheSettings(String zoneId) {
+        Credentials c = requireCredentials();
+        requireZoneId(zoneId);
+        Map<String, Object> out = new LinkedHashMap<>();
+        for (String id : CACHE_SETTING_IDS) {
+            out.put(id, readZoneSettingValue(c.apiToken(), zoneId, id));
+        }
+        return out;
+    }
+
+    public Map<String, Object> updateCacheSetting(String zoneId, String settingId, Object value) {
+        patchZoneSetting(zoneId, settingId, value);
+        return getCacheSettings(zoneId);
+    }
+
+    public void purgeZoneCache(String zoneId, boolean purgeEverything, List<String> files) {
+        Credentials c = requireCredentials();
+        requireZoneId(zoneId);
+        Map<String, Object> body = new LinkedHashMap<>();
+        if (purgeEverything) {
+            body.put("purge_everything", true);
+        } else if (files != null && !files.isEmpty()) {
+            body.put("files", files);
+        } else {
+            throw new OciException("请指定 purge_everything 或 files");
+        }
+        String url = CF_API_BASE + "/zones/" + zoneId.trim() + "/purge_cache";
+        JSONObject json = parseJson(apiPost(c.apiToken(), url, body));
+        requireSuccess(json, "清理缓存失败");
+    }
+
+    public List<Map<String, Object>> listFirewallRules(String zoneId) {
+        Credentials c = requireCredentials();
+        requireZoneId(zoneId);
+        String url = CF_API_BASE + "/zones/" + zoneId.trim() + "/firewall/rules?per_page=100";
+        JSONObject json = parseJson(apiGet(c.apiToken(), url));
+        requireSuccess(json, "拉取防火墙规则失败");
+        JSONArray result = json.getJSONArray("result");
+        List<Map<String, Object>> list = new ArrayList<>();
+        if (result == null) {
+            return list;
+        }
+        for (int i = 0; i < result.size(); i++) {
+            JSONObject r = result.getJSONObject(i);
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", r.getStr("id"));
+            m.put("description", r.getStr("description"));
+            m.put("action", r.getStr("action"));
+            m.put("paused", r.getBool("paused"));
+            m.put("priority", r.getInt("priority"));
+            m.put("filter", r.get("filter"));
+            list.add(m);
+        }
+        return list;
+    }
+
+    public List<Map<String, Object>> listWorkersRoutes(String zoneId) {
+        Credentials c = requireCredentials();
+        requireZoneId(zoneId);
+        String url = CF_API_BASE + "/zones/" + zoneId.trim() + "/workers/routes";
+        JSONObject json = parseJson(apiGet(c.apiToken(), url));
+        requireSuccess(json, "拉取 Workers 路由失败");
+        JSONArray result = json.getJSONArray("result");
+        List<Map<String, Object>> list = new ArrayList<>();
+        if (result == null) {
+            return list;
+        }
+        for (int i = 0; i < result.size(); i++) {
+            JSONObject r = result.getJSONObject(i);
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", r.getStr("id"));
+            m.put("pattern", r.getStr("pattern"));
+            m.put("script", r.getStr("script"));
+            list.add(m);
+        }
+        return list;
+    }
+
+    public Map<String, Object> createWorkersRoute(String zoneId, String pattern, String script) {
+        Credentials c = requireCredentials();
+        requireZoneId(zoneId);
+        if (StrUtil.isBlank(pattern)) {
+            throw new OciException("路由 pattern 不能为空");
+        }
+        if (StrUtil.isBlank(script)) {
+            throw new OciException("Worker 脚本名不能为空");
+        }
+        Map<String, Object> body = Map.of(
+                "pattern", pattern.trim(),
+                "script", script.trim());
+        String url = CF_API_BASE + "/zones/" + zoneId.trim() + "/workers/routes";
+        JSONObject json = parseJson(apiPost(c.apiToken(), url, body));
+        requireSuccess(json, "创建 Workers 路由失败");
+        JSONObject result = json.getJSONObject("result");
+        Map<String, Object> m = new LinkedHashMap<>();
+        if (result != null) {
+            m.put("id", result.getStr("id"));
+            m.put("pattern", result.getStr("pattern"));
+            m.put("script", result.getStr("script"));
+        }
+        return m;
+    }
+
+    public void deleteWorkersRoute(String zoneId, String routeId) {
+        Credentials c = requireCredentials();
+        requireZoneId(zoneId);
+        if (StrUtil.isBlank(routeId)) {
+            throw new OciException("路由 ID 不能为空");
+        }
+        String url = CF_API_BASE + "/zones/" + zoneId.trim() + "/workers/routes/" + routeId.trim();
+        apiDelete(c.apiToken(), url);
+    }
+
+    public List<Map<String, Object>> listPageRules(String zoneId) {
+        Credentials c = requireCredentials();
+        requireZoneId(zoneId);
+        String url = CF_API_BASE + "/zones/" + zoneId.trim() + "/pagerules?status=active,disabled";
+        JSONObject json = parseJson(apiGet(c.apiToken(), url));
+        requireSuccess(json, "拉取 Page Rules 失败");
+        JSONArray result = json.getJSONArray("result");
+        List<Map<String, Object>> list = new ArrayList<>();
+        if (result == null) {
+            return list;
+        }
+        for (int i = 0; i < result.size(); i++) {
+            JSONObject r = result.getJSONObject(i);
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", r.getStr("id"));
+            m.put("status", r.getStr("status"));
+            m.put("priority", r.getInt("priority"));
+            m.put("targets", r.get("targets"));
+            m.put("actions", r.get("actions"));
+            list.add(m);
+        }
+        return list;
+    }
+
+    public void deletePageRule(String zoneId, String ruleId) {
+        Credentials c = requireCredentials();
+        requireZoneId(zoneId);
+        if (StrUtil.isBlank(ruleId)) {
+            throw new OciException("规则 ID 不能为空");
+        }
+        String url = CF_API_BASE + "/zones/" + zoneId.trim() + "/pagerules/" + ruleId.trim();
+        apiDelete(c.apiToken(), url);
+    }
+
+    /** 账户级 Workers 脚本列表（与 email/workers/list 相同数据源） */
+    public List<Map<String, Object>> listWorkerScripts() {
+        return listWorkers();
+    }
+
+    private Object readZoneSettingValue(String token, String zoneId, String settingId) {
+        String url = CF_API_BASE + "/zones/" + zoneId.trim() + "/settings/" + settingId.trim();
+        JSONObject json = parseJson(apiGet(token, url));
+        requireSuccess(json, "读取 Zone 设置 " + settingId + " 失败");
+        JSONObject result = json.getJSONObject("result");
+        return result != null ? result.get("value") : null;
+    }
+
+    private void patchZoneSetting(String zoneId, String settingId, Object value) {
+        Credentials c = requireCredentials();
+        requireZoneId(zoneId);
+        if (StrUtil.isBlank(settingId)) {
+            throw new OciException("设置项不能为空");
+        }
+        String url = CF_API_BASE + "/zones/" + zoneId.trim() + "/settings/" + settingId.trim();
+        JSONObject json = parseJson(apiPatch(c.apiToken(), url, Map.of("value", value)));
+        requireSuccess(json, "更新 Zone 设置失败");
+    }
+
+    // -------------------------------------------------------------------------
     // Legacy per-zone cfg (cf_cfg) — kept for compatibility
     // -------------------------------------------------------------------------
 

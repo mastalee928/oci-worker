@@ -1,50 +1,5 @@
 <template>
   <div class="cf-dns-tab">
-    <CfZoneBar
-      v-model:zone-id="innerZoneId"
-      :cf-configured="cfConfigured"
-      show-create-zone
-      @zone-change="onZoneChange"
-      @create-zone="openCreateZoneModal"
-    />
-
-    <a-empty v-if="!innerZoneId && cfConfigured" description="请先选择区域" />
-
-    <template v-else-if="innerZoneId">
-      <!-- Zone 详情 -->
-      <a-card size="small" title="区域详情" class="cf-sub-card" :loading="zoneDetailLoading">
-        <template #extra>
-          <a-space wrap>
-            <span class="cf-label-inline">暂停解析</span>
-            <a-switch
-              :checked="!!zoneDetail?.paused"
-              :loading="zonePausedLoading"
-              @change="handleZonePaused"
-            />
-            <a-popconfirm
-              title="确定删除此区域？此操作不可恢复。"
-              ok-text="删除"
-              ok-type="danger"
-              @confirm="handleDeleteZone"
-            >
-              <a-button danger size="small" :loading="zoneDeleteLoading">删除区域</a-button>
-            </a-popconfirm>
-          </a-space>
-        </template>
-        <a-descriptions v-if="zoneDetail" bordered size="small" :column="isMobile ? 1 : 3">
-          <a-descriptions-item label="域名">{{ zoneDetail.name }}</a-descriptions-item>
-          <a-descriptions-item label="状态">
-            <a-tag :color="zoneDetail.status === 'active' ? 'success' : 'default'">{{ zoneDetail.status }}</a-tag>
-          </a-descriptions-item>
-          <a-descriptions-item label="套餐">{{ zoneDetail.planName || '—' }}</a-descriptions-item>
-          <a-descriptions-item label="Zone ID" :span="isMobile ? 1 : 3">{{ zoneDetail.id }}</a-descriptions-item>
-          <a-descriptions-item label="NS 服务器" :span="isMobile ? 1 : 3">
-            <span v-if="zoneDetail.nameServers?.length">{{ zoneDetail.nameServers.join(' · ') }}</span>
-            <span v-else>—</span>
-          </a-descriptions-item>
-        </a-descriptions>
-      </a-card>
-
       <!-- DNSSEC -->
       <a-card size="small" title="DNSSEC" class="cf-sub-card" :loading="dnssecLoading">
         <a-descriptions v-if="dnssec" bordered size="small" :column="isMobile ? 1 : 2">
@@ -177,22 +132,6 @@
           />
         </div>
       </a-spin>
-    </template>
-
-    <!-- 创建区域 -->
-    <a-modal
-      v-model:open="createZoneVisible"
-      title="添加区域"
-      :confirm-loading="createZoneLoading"
-      @ok="submitCreateZone"
-    >
-      <a-form layout="vertical">
-        <a-form-item label="域名" required>
-          <a-input v-model:value="createZoneName" placeholder="如 example.com" @pressEnter="submitCreateZone" />
-        </a-form-item>
-        <p class="cf-hint">创建后请在域名注册商处将 NS 指向 Cloudflare 提供的名称服务器。</p>
-      </a-form>
-    </a-modal>
 
     <!-- DNS 记录 -->
     <a-modal
@@ -256,12 +195,7 @@ import {
   ImportOutlined,
   ExportOutlined,
 } from '@ant-design/icons-vue'
-import CfZoneBar from './CfZoneBar.vue'
 import {
-  getCfZoneDetail,
-  createCfZone,
-  deleteCfZone,
-  setCfZonePaused,
   listCfDnsRecords,
   addCfDnsRecord,
   updateCfDnsRecord,
@@ -271,15 +205,6 @@ import {
   getCfDnssec,
   setCfDnssec,
 } from '../../api/cloudflare'
-
-interface CfZoneDetail {
-  id: string
-  name: string
-  status: string
-  paused?: boolean
-  planName?: string
-  nameServers?: string[]
-}
 
 interface DnsRecord {
   id: string
@@ -294,29 +219,15 @@ interface DnsRecord {
 
 const props = defineProps<{
   cfConfigured: boolean
-  zoneId?: string
+  zoneId: string
 }>()
 
 const emit = defineEmits<{
   'update:zoneId': [value: string | undefined]
 }>()
 
-const innerZoneId = computed({
-  get: () => props.zoneId,
-  set: (v) => emit('update:zoneId', v),
-})
-
 const isMobile = ref(window.innerWidth < 768)
 function checkMobile() { isMobile.value = window.innerWidth < 768 }
-
-const zoneDetailLoading = ref(false)
-const zoneDetail = ref<CfZoneDetail | null>(null)
-const zonePausedLoading = ref(false)
-const zoneDeleteLoading = ref(false)
-
-const createZoneVisible = ref(false)
-const createZoneLoading = ref(false)
-const createZoneName = ref('')
 
 const dnssecLoading = ref(false)
 const dnssecSetLoading = ref(false)
@@ -377,101 +288,45 @@ const dnsPagination = computed(() => ({
   showTotal: (t: number) => `共 ${t} 条记录`,
 }))
 
+let zoneLoadSeq = 0
+
 async function onZoneChange(zoneId: string | undefined) {
   if (!zoneId) {
-    zoneDetail.value = null
+    zoneLoadSeq++
     dnsRecords.value = []
     dnssec.value = null
     return
   }
-  await Promise.all([loadZoneDetail(), loadDnssec(), loadDnsRecords()])
+  const seq = ++zoneLoadSeq
+  await Promise.all([
+    loadDnssec(zoneId, seq),
+    loadDnsRecords(zoneId, seq),
+  ])
 }
 
-async function loadZoneDetail() {
-  if (!innerZoneId.value) return
-  zoneDetailLoading.value = true
-  try {
-    const res = await getCfZoneDetail({ zoneId: innerZoneId.value })
-    zoneDetail.value = res.data || null
-  } catch {
-    zoneDetail.value = null
-  } finally {
-    zoneDetailLoading.value = false
-  }
-}
-
-async function handleZonePaused(paused: boolean) {
-  if (!innerZoneId.value) return
-  zonePausedLoading.value = true
-  try {
-    const res = await setCfZonePaused({ zoneId: innerZoneId.value, paused })
-    if (zoneDetail.value) {
-      zoneDetail.value.paused = res.data?.paused ?? paused
-    }
-    message.success(paused ? '区域已暂停' : '区域已恢复')
-  } finally {
-    zonePausedLoading.value = false
-  }
-}
-
-async function handleDeleteZone() {
-  if (!innerZoneId.value) return
-  zoneDeleteLoading.value = true
-  try {
-    await deleteCfZone({ zoneId: innerZoneId.value })
-    message.success('区域已删除')
-    innerZoneId.value = undefined
-    zoneDetail.value = null
-    dnsRecords.value = []
-    dnssec.value = null
-  } finally {
-    zoneDeleteLoading.value = false
-  }
-}
-
-function openCreateZoneModal() {
-  createZoneName.value = ''
-  createZoneVisible.value = true
-}
-
-async function submitCreateZone() {
-  const name = createZoneName.value.trim()
-  if (!name) {
-    message.warning('请输入域名')
-    return
-  }
-  createZoneLoading.value = true
-  try {
-    const res = await createCfZone({ name })
-    message.success('区域已创建')
-    createZoneVisible.value = false
-    if (res.data?.id) {
-      innerZoneId.value = res.data.id
-      await onZoneChange(res.data.id)
-    }
-  } finally {
-    createZoneLoading.value = false
-  }
-}
-
-async function loadDnssec() {
-  if (!innerZoneId.value) return
+async function loadDnssec(zoneId?: string, seq?: number) {
+  const zid = zoneId ?? props.zoneId
+  if (!zid) return
   dnssecLoading.value = true
   try {
-    const res = await getCfDnssec({ zoneId: innerZoneId.value })
+    const res = await getCfDnssec({ zoneId: zid }, seq !== undefined)
+    if (seq !== undefined && seq !== zoneLoadSeq) return
     dnssec.value = res.data || null
   } catch {
+    if (seq !== undefined && seq !== zoneLoadSeq) return
     dnssec.value = null
   } finally {
-    dnssecLoading.value = false
+    if (seq === undefined || seq === zoneLoadSeq) {
+      dnssecLoading.value = false
+    }
   }
 }
 
 async function handleSetDnssec(status: 'active' | 'disabled') {
-  if (!innerZoneId.value) return
+  if (!props.zoneId) return
   dnssecSetLoading.value = true
   try {
-    const res = await setCfDnssec({ zoneId: innerZoneId.value, status })
+    const res = await setCfDnssec({ zoneId: props.zoneId, status })
     dnssec.value = res.data || { status }
     message.success(status === 'active' ? 'DNSSEC 已启用' : 'DNSSEC 已禁用')
   } finally {
@@ -490,17 +345,19 @@ function onDnsTableChange(pag: TablePaginationConfig) {
   loadDnsRecords()
 }
 
-async function loadDnsRecords() {
-  if (!innerZoneId.value) return
+async function loadDnsRecords(zoneId?: string, seq?: number) {
+  const zid = zoneId ?? props.zoneId
+  if (!zid) return
   dnsLoading.value = true
   try {
     const res = await listCfDnsRecords({
-      zoneId: innerZoneId.value,
+      zoneId: zid,
       page: dnsPage.value,
       perPage: dnsPerPage.value,
       search: dnsSearch.value.trim() || undefined,
       type: dnsTypeFilter.value || undefined,
     })
+    if (seq !== undefined && seq !== zoneLoadSeq) return
     const data = res.data || {}
     dnsRecords.value = data.records || []
     dnsTotal.value = data.total ?? dnsRecords.value.length
@@ -508,7 +365,9 @@ async function loadDnsRecords() {
     dnsPerPage.value = data.perPage ?? dnsPerPage.value
     dnsTotalPages.value = data.totalPages ?? 1
   } finally {
-    dnsLoading.value = false
+    if (seq === undefined || seq === zoneLoadSeq) {
+      dnsLoading.value = false
+    }
   }
 }
 
@@ -536,13 +395,13 @@ function openDnsModal(record?: DnsRecord) {
 }
 
 async function submitDnsRecord() {
-  if (!innerZoneId.value) return
+  if (!props.zoneId) return
   if (!dnsForm.name.trim() || !dnsForm.content.trim()) {
     message.warning('请填写名称与内容')
     return
   }
   const payload = {
-    zoneId: innerZoneId.value,
+    zoneId: props.zoneId,
     type: dnsForm.type,
     name: dnsForm.name.trim(),
     content: dnsForm.content.trim(),
@@ -568,8 +427,8 @@ async function submitDnsRecord() {
 }
 
 async function handleDeleteDns(recordId: string) {
-  if (!innerZoneId.value) return
-  await deleteCfDnsRecord({ zoneId: innerZoneId.value, recordId })
+  if (!props.zoneId) return
+  await deleteCfDnsRecord({ zoneId: props.zoneId, recordId })
   message.success('已删除')
   await loadDnsRecords()
 }
@@ -581,7 +440,7 @@ function openImportModal() {
 }
 
 async function submitImportDns() {
-  if (!innerZoneId.value) return
+  if (!props.zoneId) return
   if (!importBindContent.value.trim()) {
     message.warning('请粘贴 BIND 内容')
     return
@@ -589,7 +448,7 @@ async function submitImportDns() {
   importLoading.value = true
   try {
     await importCfDnsRecords({
-      zoneId: innerZoneId.value,
+      zoneId: props.zoneId,
       bindContent: importBindContent.value.trim(),
       proxied: importProxied.value,
     })
@@ -602,16 +461,16 @@ async function submitImportDns() {
 }
 
 async function handleExportDns() {
-  if (!innerZoneId.value || !zoneDetail.value) return
+  if (!props.zoneId) return
   exportLoading.value = true
   try {
-    const res = await exportCfDnsRecords({ zoneId: innerZoneId.value })
+    const res = await exportCfDnsRecords({ zoneId: props.zoneId })
     const content = typeof res.data === 'string' ? res.data : String(res.data ?? '')
     const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `${zoneDetail.value.name || 'zone'}.bind`
+    a.download = `${props.zoneId}.bind`
     a.click()
     URL.revokeObjectURL(url)
     message.success('导出成功')
@@ -621,12 +480,11 @@ async function handleExportDns() {
 }
 
 watch(() => props.zoneId, (id) => {
-  if (id) onZoneChange(id)
-})
+  onZoneChange(id)
+}, { immediate: true })
 
 onMounted(() => {
   window.addEventListener('resize', checkMobile)
-  if (props.zoneId) onZoneChange(props.zoneId)
 })
 onUnmounted(() => window.removeEventListener('resize', checkMobile))
 </script>

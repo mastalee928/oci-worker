@@ -1,14 +1,5 @@
 <template>
   <div class="cf-email-tab">
-    <CfZoneBar
-      v-model:zone-id="innerZoneId"
-      :cf-configured="cfConfigured"
-      @zone-change="onZoneChange"
-    />
-
-    <a-empty v-if="!innerZoneId && cfConfigured" description="请先选择区域" />
-
-    <template v-else-if="innerZoneId">
       <!-- Email Routing 状态 -->
       <a-alert
         v-if="emailSettings"
@@ -92,15 +83,6 @@
           </div>
         </a-spin>
       </a-card>
-
-      <!-- Subaddressing -->
-      <a-alert
-        type="info"
-        show-icon
-        style="margin-bottom: 16px"
-        message="子地址（Subaddressing）"
-        description="Cloudflare API 暂不支持在此管理子地址功能。如需启用，请前往 Cloudflare 控制台 → Email Routing → Settings 中开启。"
-      />
 
       <!-- 目标邮箱 -->
       <a-card title="目标邮箱（账户级）" size="small" class="cf-sub-card">
@@ -248,7 +230,6 @@
           </template>
         </a-spin>
       </a-card>
-    </template>
 
     <!-- 路由规则弹窗 -->
     <a-modal
@@ -391,17 +372,8 @@ interface EmailDnsRecord {
 
 const props = defineProps<{
   cfConfigured: boolean
-  zoneId?: string
+  zoneId: string
 }>()
-
-const emit = defineEmits<{
-  'update:zoneId': [value: string | undefined]
-}>()
-
-const innerZoneId = computed({
-  get: () => props.zoneId,
-  set: (v) => emit('update:zoneId', v),
-})
 
 const isMobile = ref(window.innerWidth < 768)
 function checkMobile() { isMobile.value = window.innerWidth < 768 }
@@ -516,8 +488,11 @@ function formatRuleTarget(rule: EmailRule) {
   return (rule.destinations || []).join(', ') || '—'
 }
 
+let zoneLoadSeq = 0
+
 async function onZoneChange(zoneId: string | undefined) {
   if (!zoneId) {
+    zoneLoadSeq++
     emailSettings.value = null
     emailDnsRecords.value = []
     emailRules.value = []
@@ -525,31 +500,35 @@ async function onZoneChange(zoneId: string | undefined) {
     zoneName.value = ''
     return
   }
+  const seq = ++zoneLoadSeq
   await Promise.all([
-    loadEmailSettings(),
-    loadEmailDns(),
-    loadEmailRules(),
-    loadCatchAll(),
-    loadWorkers(),
+    loadEmailSettings(zoneId, seq, true),
+    loadEmailDns(zoneId, seq, true),
+    loadEmailRules(zoneId, seq, true),
+    loadCatchAll(zoneId, seq, true),
+    loadWorkers(true),
   ])
 }
 
-async function loadEmailSettings() {
-  if (!innerZoneId.value) return
+async function loadEmailSettings(zoneId?: string, seq?: number, silent = false) {
+  const zid = zoneId ?? props.zoneId
+  if (!zid) return
   try {
-    const res = await getCfEmailSettings({ zoneId: innerZoneId.value })
+    const res = await getCfEmailSettings({ zoneId: zid }, silent)
+    if (seq !== undefined && seq !== zoneLoadSeq) return
     emailSettings.value = res.data
     zoneName.value = res.data?.name || zoneName.value
   } catch {
+    if (seq !== undefined && seq !== zoneLoadSeq) return
     emailSettings.value = null
   }
 }
 
 async function handleEnableEmail() {
-  if (!innerZoneId.value) return
+  if (!props.zoneId) return
   emailToggleLoading.value = true
   try {
-    const res = await enableCfEmailRouting({ zoneId: innerZoneId.value })
+    const res = await enableCfEmailRouting({ zoneId: props.zoneId })
     emailSettings.value = res.data
     message.success('Email Routing 已启用')
     await loadEmailDns()
@@ -559,10 +538,10 @@ async function handleEnableEmail() {
 }
 
 async function handleDisableEmail() {
-  if (!innerZoneId.value) return
+  if (!props.zoneId) return
   emailToggleLoading.value = true
   try {
-    await disableCfEmailRouting({ zoneId: innerZoneId.value })
+    await disableCfEmailRouting({ zoneId: props.zoneId })
     message.success('Email Routing 已禁用')
     await loadEmailSettings()
   } finally {
@@ -570,22 +549,29 @@ async function handleDisableEmail() {
   }
 }
 
-async function loadEmailDns() {
-  if (!innerZoneId.value) return
+async function loadEmailDns(zoneId?: string, seq?: number, silent = false) {
+  const zid = zoneId ?? props.zoneId
+  if (!zid) return
   emailDnsLoading.value = true
   try {
-    const res = await getCfEmailDns({ zoneId: innerZoneId.value })
+    const res = await getCfEmailDns({ zoneId: zid }, silent)
+    if (seq !== undefined && seq !== zoneLoadSeq) return
     emailDnsRecords.value = res.data || []
+  } catch {
+    if (seq !== undefined && seq !== zoneLoadSeq) return
+    emailDnsRecords.value = []
   } finally {
-    emailDnsLoading.value = false
+    if (seq === undefined || seq === zoneLoadSeq) {
+      emailDnsLoading.value = false
+    }
   }
 }
 
 async function handleLockEmailDns() {
-  if (!innerZoneId.value) return
+  if (!props.zoneId) return
   emailDnsLockLoading.value = true
   try {
-    await lockCfEmailDns({ zoneId: innerZoneId.value })
+    await lockCfEmailDns({ zoneId: props.zoneId })
     message.success('MX 记录已锁定')
     await loadEmailDns()
   } finally {
@@ -594,10 +580,10 @@ async function handleLockEmailDns() {
 }
 
 async function handleUnlockEmailDns() {
-  if (!innerZoneId.value) return
+  if (!props.zoneId) return
   emailDnsLockLoading.value = true
   try {
-    await unlockCfEmailDns({ zoneId: innerZoneId.value })
+    await unlockCfEmailDns({ zoneId: props.zoneId })
     message.success('MX 记录已解锁')
     await loadEmailDns()
   } finally {
@@ -649,22 +635,31 @@ async function handleDeleteDestination(id: string) {
   await loadDestinations()
 }
 
-async function loadEmailRules() {
-  if (!innerZoneId.value) return
+async function loadEmailRules(zoneId?: string, seq?: number, silent = false) {
+  const zid = zoneId ?? props.zoneId
+  if (!zid) return
   emailRulesLoading.value = true
   try {
-    const res = await listCfEmailRules({ zoneId: innerZoneId.value })
+    const res = await listCfEmailRules({ zoneId: zid }, silent)
+    if (seq !== undefined && seq !== zoneLoadSeq) return
     emailRules.value = res.data || []
+  } catch {
+    if (seq !== undefined && seq !== zoneLoadSeq) return
+    emailRules.value = []
   } finally {
-    emailRulesLoading.value = false
+    if (seq === undefined || seq === zoneLoadSeq) {
+      emailRulesLoading.value = false
+    }
   }
 }
 
-async function loadWorkers() {
+async function loadWorkers(silent = false) {
   workersLoading.value = true
   try {
-    const res = await listCfWorkers()
+    const res = await listCfWorkers(silent)
     workers.value = res.data || []
+  } catch {
+    workers.value = []
   } finally {
     workersLoading.value = false
   }
@@ -695,7 +690,7 @@ function openRuleModal(record?: EmailRule) {
 }
 
 async function submitEmailRule() {
-  if (!innerZoneId.value) return
+  if (!props.zoneId) return
   let addr = ruleForm.customAddress.trim()
   if (zoneName.value && addr && !addr.includes('@')) {
     addr = `${addr}@${zoneName.value}`
@@ -715,7 +710,7 @@ async function submitEmailRule() {
   ruleSaveLoading.value = true
   try {
     const payload = {
-      zoneId: innerZoneId.value,
+      zoneId: props.zoneId,
       name: ruleForm.name.trim() || undefined,
       customAddress: addr,
       actionType: ruleForm.actionType,
@@ -739,23 +734,25 @@ async function submitEmailRule() {
 }
 
 async function handleDeleteEmailRule(ruleId: string) {
-  if (!innerZoneId.value) return
-  await deleteCfEmailRule({ zoneId: innerZoneId.value, ruleId })
+  if (!props.zoneId) return
+  await deleteCfEmailRule({ zoneId: props.zoneId, ruleId })
   message.success('已删除')
   await loadEmailRules()
 }
 
 async function handleToggleEmailRule(record: EmailRule, enabled: boolean) {
-  if (!innerZoneId.value) return
-  await updateCfEmailRule({ zoneId: innerZoneId.value, ruleId: record.id, enabled })
+  if (!props.zoneId) return
+  await updateCfEmailRule({ zoneId: props.zoneId, ruleId: record.id, enabled })
   record.enabled = enabled
 }
 
-async function loadCatchAll() {
-  if (!innerZoneId.value) return
+async function loadCatchAll(zoneId?: string, seq?: number, silent = false) {
+  const zid = zoneId ?? props.zoneId
+  if (!zid) return
   catchAllLoading.value = true
   try {
-    const res = await getCfCatchAllRule({ zoneId: innerZoneId.value })
+    const res = await getCfCatchAllRule({ zoneId: zid }, silent)
+    if (seq !== undefined && seq !== zoneLoadSeq) return
     catchAllRule.value = res.data?.id ? res.data : null
     if (catchAllRule.value) {
       catchAllForm.actionType = (catchAllRule.value.actionType as 'forward' | 'drop' | 'worker') || 'drop'
@@ -763,8 +760,13 @@ async function loadCatchAll() {
       catchAllForm.workerName = catchAllRule.value.workerName
       catchAllForm.enabled = catchAllRule.value.enabled !== false
     }
+  } catch {
+    if (seq !== undefined && seq !== zoneLoadSeq) return
+    catchAllRule.value = null
   } finally {
-    catchAllLoading.value = false
+    if (seq === undefined || seq === zoneLoadSeq) {
+      catchAllLoading.value = false
+    }
   }
 }
 
@@ -780,7 +782,7 @@ function openCatchAllModal() {
 }
 
 async function submitCatchAll() {
-  if (!innerZoneId.value) return
+  if (!props.zoneId) return
   if (catchAllForm.actionType === 'forward' && catchAllForm.destinations.length === 0) {
     message.warning('请选择转发目标')
     return
@@ -792,7 +794,7 @@ async function submitCatchAll() {
   catchAllSaveLoading.value = true
   try {
     const res = await updateCfCatchAllRule({
-      zoneId: innerZoneId.value,
+      zoneId: props.zoneId,
       actionType: catchAllForm.actionType,
       destinations: catchAllForm.actionType === 'forward' ? catchAllForm.destinations : undefined,
       workerName: catchAllForm.actionType === 'worker' ? catchAllForm.workerName : undefined,
@@ -807,13 +809,12 @@ async function submitCatchAll() {
 }
 
 watch(() => props.zoneId, (id) => {
-  if (id) onZoneChange(id)
-})
+  onZoneChange(id)
+}, { immediate: true })
 
 onMounted(async () => {
   window.addEventListener('resize', checkMobile)
   await loadDestinations()
-  if (props.zoneId) await onZoneChange(props.zoneId)
 })
 onUnmounted(() => window.removeEventListener('resize', checkMobile))
 </script>

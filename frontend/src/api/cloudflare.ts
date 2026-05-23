@@ -1,4 +1,7 @@
-import request from '../utils/request'
+import request, { type OciRequestConfig } from '../utils/request'
+
+/** 选区域时后台拉取，失败由页面静默处理，不弹全局红字 */
+const cfSilent: OciRequestConfig = { skipBusinessMessage: true }
 
 export function getCfAccountConfig() {
   return request.get('/cf/account/config')
@@ -20,8 +23,8 @@ export function listCfZonesPage(params?: { page?: number; perPage?: number }) {
   return request.post('/cf/zones/listPage', params || {})
 }
 
-export function getCfZoneDetail(data: { zoneId: string }) {
-  return request.post('/cf/zones/detail', data)
+export function getCfZoneDetail(data: { zoneId: string }, silent = false) {
+  return request.post('/cf/zones/detail', data, silent ? cfSilent : undefined)
 }
 
 export function createCfZone(data: { name: string }) {
@@ -85,16 +88,16 @@ export function importCfDnsRecords(data: { zoneId: string; bindContent: string; 
   return request.post('/cf/dns/import', data)
 }
 
-export function getCfDnssec(data: { zoneId: string }) {
-  return request.post('/cf/dns/dnssec/get', data)
+export function getCfDnssec(data: { zoneId: string }, silent = false) {
+  return request.post('/cf/dns/dnssec/get', data, silent ? cfSilent : undefined)
 }
 
 export function setCfDnssec(data: { zoneId: string; status: 'active' | 'disabled' }) {
   return request.post('/cf/dns/dnssec/set', data)
 }
 
-export function getCfEmailSettings(data: { zoneId: string }) {
-  return request.post('/cf/email/settings', data)
+export function getCfEmailSettings(data: { zoneId: string }, silent = false) {
+  return request.post('/cf/email/settings', data, silent ? cfSilent : undefined)
 }
 
 export function enableCfEmailRouting(data: { zoneId: string }) {
@@ -105,8 +108,8 @@ export function disableCfEmailRouting(data: { zoneId: string }) {
   return request.post('/cf/email/disable', data)
 }
 
-export function getCfEmailDns(data: { zoneId: string }) {
-  return request.post('/cf/email/dns/get', data)
+export function getCfEmailDns(data: { zoneId: string }, silent = false) {
+  return request.post('/cf/email/dns/get', data, silent ? cfSilent : undefined)
 }
 
 export function lockCfEmailDns(data: { zoneId: string }) {
@@ -117,8 +120,8 @@ export function unlockCfEmailDns(data: { zoneId: string }) {
   return request.post('/cf/email/dns/unlock', data)
 }
 
-export function listCfEmailRules(data: { zoneId: string }) {
-  return request.post('/cf/email/rules/list', data)
+export function listCfEmailRules(data: { zoneId: string }, silent = false) {
+  return request.post('/cf/email/rules/list', data, silent ? cfSilent : undefined)
 }
 
 export function createCfEmailRule(data: {
@@ -154,8 +157,8 @@ export function updateCfEmailRule(data: {
   return request.post('/cf/email/rules/update', data)
 }
 
-export function getCfCatchAllRule(data: { zoneId: string }) {
-  return request.post('/cf/email/rules/catch-all/get', data)
+export function getCfCatchAllRule(data: { zoneId: string }, silent = false) {
+  return request.post('/cf/email/rules/catch-all/get', data, silent ? cfSilent : undefined)
 }
 
 export function updateCfCatchAllRule(data: {
@@ -185,8 +188,8 @@ export function deleteCfEmailDestination(data: { destinationId: string }) {
   return request.post('/cf/email/destinations/delete', data)
 }
 
-export function listCfWorkers() {
-  return request.post('/cf/email/workers/list', {})
+export function listCfWorkers(silent = false) {
+  return request.post('/cf/email/workers/list', {}, silent ? cfSilent : undefined)
 }
 
 export function listCfTunnels() {
@@ -207,4 +210,52 @@ export function getCfTunnelToken(data: { tunnelId: string }) {
 
 export function listCfTunnelConnections(data: { tunnelId: string }) {
   return request.post('/cf/tunnel/connections', data)
+}
+
+export function getCfSslSettings(data: { zoneId: string }, silent = false) {
+  return request.post('/cf/ssl/get', data, silent ? cfSilent : undefined)
+}
+
+export function setCfSslSetting(data: { zoneId: string; settingId: string; value: unknown }) {
+  return request.post('/cf/ssl/set', data)
+}
+
+export function getCfCacheSettings(data: { zoneId: string }, silent = false) {
+  return request.post('/cf/cache/get', data, silent ? cfSilent : undefined)
+}
+
+export function setCfCacheSetting(data: { zoneId: string; settingId: string; value: unknown }) {
+  return request.post('/cf/cache/set', data)
+}
+
+export function purgeCfCache(data: { zoneId: string; purgeEverything?: boolean; files?: string[] }) {
+  return request.post('/cf/cache/purge', data)
+}
+
+export function listCfFirewallRules(data: { zoneId: string }, silent = false) {
+  return request.post('/cf/security/firewall/list', data, silent ? cfSilent : undefined)
+}
+
+export function listCfWorkersRoutes(data: { zoneId: string }, silent = false) {
+  return request.post('/cf/workers/routes/list', data, silent ? cfSilent : undefined)
+}
+
+export function createCfWorkersRoute(data: { zoneId: string; pattern: string; script: string }) {
+  return request.post('/cf/workers/routes/create', data)
+}
+
+export function deleteCfWorkersRoute(data: { zoneId: string; routeId: string }) {
+  return request.post('/cf/workers/routes/delete', data)
+}
+
+export function listCfPageRules(data: { zoneId: string }, silent = false) {
+  return request.post('/cf/rules/pagerules/list', data, silent ? cfSilent : undefined)
+}
+
+export function deleteCfPageRule(data: { zoneId: string; ruleId: string }) {
+  return request.post('/cf/rules/pagerules/delete', data)
+}
+
+export function listCfWorkerScripts(silent = false) {
+  return request.post('/cf/workers/scripts/list', {}, silent ? cfSilent : undefined)
 }

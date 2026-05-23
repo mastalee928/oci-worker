@@ -205,7 +205,7 @@
                   <li>创建后复制完整 Token；<strong>Account ID</strong> 见创建成功页或仪表盘 Overview 右侧</li>
                 </ol>
                 <p class="cf-settings-help-note">
-                  Subaddressing（+ 地址）须在 Cloudflare 控制台 Email Routing → Settings 启用（暂无公开 API）。备选：用户 API 令牌（非 <code>cfat_</code>）亦可。
+                  备选：用户 API 令牌（非 <code>cfat_</code>）亦可。
                 </p>
               </div>
             </template>
