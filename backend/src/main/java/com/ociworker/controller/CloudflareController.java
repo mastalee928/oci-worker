@@ -444,6 +444,24 @@ public class CloudflareController {
                 parseBoolean(params.get("paused"), false)));
     }
 
+    @PostMapping("/security/firewall/update")
+    public ResponseData<?> firewallUpdate(@RequestBody Map<String, Object> params) {
+        Boolean paused = params.containsKey("paused") ? parseBoolean(params.get("paused"), false) : null;
+        return ResponseData.ok(cloudflareService.updateFirewallRule(
+                parseString(params.get("zoneId")),
+                parseString(params.get("ruleId")),
+                parseString(params.get("action")),
+                params.containsKey("description") ? parseString(params.get("description")) : null,
+                parseString(params.get("expression")),
+                paused));
+    }
+
+    @PostMapping("/security/firewall/delete")
+    public ResponseData<?> firewallDelete(@RequestBody Map<String, String> params) {
+        cloudflareService.deleteFirewallRule(params.get("zoneId"), params.get("ruleId"));
+        return ResponseData.ok();
+    }
+
     @PostMapping("/workers/routes/list")
     public ResponseData<?> workersRoutesList(@RequestBody Map<String, String> params) {
         return ResponseData.ok(cloudflareService.listWorkersRoutes(params.get("zoneId")));

@@ -14,7 +14,6 @@
         <CfZoneWorkspace :cf-configured="cfConfigured" />
       </a-tab-pane>
       <a-tab-pane key="account" tab="账户服务">
-        <p class="cf-top-hint">Tunnel 与 Workers 脚本为<strong>账户级</strong>资源，不绑定单个域名。</p>
         <CfAccountPanel :cf-configured="cfConfigured" />
       </a-tab-pane>
     </a-tabs>
@@ -44,9 +43,4 @@ onMounted(loadCfConfig)
 
 <style scoped>
 .cf-page { min-height: 200px; }
-.cf-top-hint {
-  margin: 0 0 12px;
-  font-size: 13px;
-  color: var(--text-sub);
-}
 </style>

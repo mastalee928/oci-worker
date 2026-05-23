@@ -267,6 +267,21 @@ export function setCfFirewallRulePaused(data: { zoneId: string; ruleId: string; 
   return request.post('/cf/security/firewall/paused', data)
 }
 
+export function updateCfFirewallRule(data: {
+  zoneId: string
+  ruleId: string
+  action?: string
+  description?: string
+  expression?: string
+  paused?: boolean
+}) {
+  return request.post('/cf/security/firewall/update', data)
+}
+
+export function deleteCfFirewallRule(data: { zoneId: string; ruleId: string }) {
+  return request.post('/cf/security/firewall/delete', data)
+}
+
 export function listCfWorkersRoutes(data: { zoneId: string }, silent = false) {
   return request.post('/cf/workers/routes/list', data, silent ? cfSilent : undefined)
 }

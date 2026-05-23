@@ -12,20 +12,52 @@
       :loading="loading"
       row-key="id"
       size="middle"
-      :scroll="{ x: 900 }"
+      :pagination="false"
+      :scroll="{ x: 960 }"
     >
       <template #bodyCell="{ column, record }">
-        <template v-if="column.key === 'paused'">
-          <a-switch
-            :checked="!record.paused"
-            :loading="!!pauseLoadingMap[record.id]"
-            checked-children="启用"
-            un-checked-children="暂停"
-            @change="(checked: boolean) => onRulePausedChange(record, !checked)"
-          />
+        <template v-if="column.key === 'name'">
+          <div class="cf-rule-name">
+            <a class="cf-rule-name-link" @click="openEditModal(record)">
+              {{ ruleDisplayName(record.description, record.expression) }}
+            </a>
+            <a-tag :color="record.paused ? 'default' : 'success'" class="cf-rule-status">
+              {{ record.paused ? '已禁用' : '活动' }}
+            </a-tag>
+          </div>
         </template>
-        <template v-else-if="column.key === 'expression'">
-          <span class="cf-expr" :title="record.expression">{{ record.expression || '—' }}</span>
+        <template v-else-if="column.key === 'match'">
+          <span class="cf-match" :title="record.expression">
+            {{ humanizeExpression(record.expression) }}
+          </span>
+        </template>
+        <template v-else-if="column.key === 'action'">
+          {{ firewallActionLabel(record.action) }}
+        </template>
+        <template v-else-if="column.key === 'events24h'">
+          <span class="cf-events">{{ formatEvents24h(record.events24h) }}</span>
+        </template>
+        <template v-else-if="column.key === 'ops'">
+          <a-space size="small" class="cf-rule-ops">
+            <a-button type="link" size="small" @click="openEditModal(record)">编辑</a-button>
+            <a-button
+              type="link"
+              size="small"
+              :loading="!!pauseLoadingMap[record.id]"
+              @click="toggleRulePaused(record)"
+            >
+              {{ record.paused ? '启用' : '禁用' }}
+            </a-button>
+            <a-button
+              type="link"
+              size="small"
+              danger
+              :loading="!!deleteLoadingMap[record.id]"
+              @click="confirmDelete(record)"
+            >
+              删除
+            </a-button>
+          </a-space>
         </template>
       </template>
     </a-table>
@@ -33,16 +65,16 @@
 
     <a-modal
       v-model:open="createModalVisible"
-      title="添加防火墙规则"
+      :title="editingRuleId ? '编辑防火墙规则' : '添加防火墙规则'"
       :confirm-loading="saveLoading"
       width="680px"
-      @ok="submitCreate"
+      @ok="submitSave"
     >
       <a-form layout="vertical">
-        <a-form-item label="描述">
-          <a-input v-model:value="form.description" placeholder="规则说明" allow-clear />
+        <a-form-item label="名称">
+          <a-input v-model:value="form.description" placeholder="规则名称" allow-clear />
         </a-form-item>
-        <a-form-item label="动作" required>
+        <a-form-item label="操作" required>
           <a-select v-model:value="form.action" :options="actionOptions" />
         </a-form-item>
 
@@ -108,8 +140,8 @@
           />
         </a-form-item>
 
-        <a-form-item label="创建后状态">
-          <a-switch v-model:checked="form.enabled" checked-children="启用" un-checked-children="暂停" />
+        <a-form-item :label="editingRuleId ? '状态' : '创建后状态'">
+          <a-switch v-model:checked="form.enabled" checked-children="启用" un-checked-children="禁用" />
         </a-form-item>
       </a-form>
     </a-modal>
@@ -118,10 +150,12 @@
 
 <script setup lang="ts">
 import { ref, reactive, watch, computed } from 'vue'
-import { message } from 'ant-design-vue'
+import { message, Modal } from 'ant-design-vue'
 import {
   listCfFirewallRules,
   createCfFirewallRule,
+  updateCfFirewallRule,
+  deleteCfFirewallRule,
   setCfFirewallRulePaused,
 } from '../../api/cloudflare'
 import {
@@ -129,6 +163,9 @@ import {
   compileFirewallClause,
   defaultOperatorForField,
   operatorsForField,
+  humanizeExpression,
+  firewallActionLabel,
+  ruleDisplayName,
   type FieldDef,
   type OperatorId,
 } from './cfFirewallExpression'
@@ -138,8 +175,8 @@ interface FirewallRule {
   description?: string
   action?: string
   paused?: boolean
-  priority?: number
   expression?: string
+  events24h?: number
 }
 
 const props = defineProps<{ zoneId?: string }>()
@@ -147,8 +184,10 @@ const props = defineProps<{ zoneId?: string }>()
 const loading = ref(false)
 const saveLoading = ref(false)
 const createModalVisible = ref(false)
+const editingRuleId = ref<string | null>(null)
 const rules = ref<FirewallRule[]>([])
 const pauseLoadingMap = ref<Record<string, boolean>>({})
+const deleteLoadingMap = ref<Record<string, boolean>>({})
 
 const form = reactive({
   description: '',
@@ -173,12 +212,11 @@ const actionOptions = [
 ]
 
 const columns = [
-  { title: '描述', dataIndex: 'description', ellipsis: true, width: 140 },
-  { title: '动作', dataIndex: 'action', width: 100 },
-  { title: '表达式', key: 'expression', ellipsis: true },
-  { title: '优先级', dataIndex: 'priority', width: 72 },
-  { title: '状态', key: 'paused', width: 100 },
-  { title: 'ID', dataIndex: 'id', ellipsis: true, width: 120 },
+  { title: '名称', key: 'name', width: 180 },
+  { title: '匹配条件', key: 'match', ellipsis: true },
+  { title: '操作', key: 'action', width: 96 },
+  { title: '过去 24 小时的事件', key: 'events24h', width: 140, align: 'center' as const },
+  { title: '', key: 'ops', width: 168, fixed: 'right' as const },
 ]
 
 const fieldOptions = FIREWALL_FIELDS.map(f => ({ value: f.id, label: f.label }))
@@ -195,6 +233,11 @@ const previewExpression = computed(() => {
   const raw = field.type === 'bool' ? (form.boolValue ? 'true' : 'false') : form.value
   return compileFirewallClause(field, form.operator, raw) || ''
 })
+
+function formatEvents24h(n?: number) {
+  if (n === undefined || n === null) return '—'
+  return String(n)
+}
 
 function onFieldChange() {
   const field = selectedField.value
@@ -218,12 +261,23 @@ function resetVisualForm() {
 }
 
 function openCreateModal() {
+  editingRuleId.value = null
   form.description = ''
   form.action = 'block'
   form.mode = 'visual'
   form.expression = ''
   form.enabled = true
   resetVisualForm()
+  createModalVisible.value = true
+}
+
+function openEditModal(record: FirewallRule) {
+  editingRuleId.value = record.id
+  form.description = record.description || ''
+  form.action = record.action || 'block'
+  form.mode = 'advanced'
+  form.expression = record.expression || ''
+  form.enabled = !record.paused
   createModalVisible.value = true
 }
 
@@ -247,7 +301,7 @@ async function load() {
   }
 }
 
-async function submitCreate() {
+async function submitSave() {
   if (!props.zoneId) return
   const expression = resolveExpression()
   if (!expression) {
@@ -256,19 +310,35 @@ async function submitCreate() {
   }
   saveLoading.value = true
   try {
-    await createCfFirewallRule({
-      zoneId: props.zoneId,
-      action: form.action,
-      expression,
-      description: form.description.trim() || undefined,
-      paused: !form.enabled,
-    })
-    message.success('规则已创建')
+    if (editingRuleId.value) {
+      await updateCfFirewallRule({
+        zoneId: props.zoneId,
+        ruleId: editingRuleId.value,
+        action: form.action,
+        expression,
+        description: form.description.trim() || undefined,
+        paused: !form.enabled,
+      })
+      message.success('规则已更新')
+    } else {
+      await createCfFirewallRule({
+        zoneId: props.zoneId,
+        action: form.action,
+        expression,
+        description: form.description.trim() || undefined,
+        paused: !form.enabled,
+      })
+      message.success('规则已创建')
+    }
     createModalVisible.value = false
     await load()
   } finally {
     saveLoading.value = false
   }
+}
+
+async function toggleRulePaused(record: FirewallRule) {
+  await onRulePausedChange(record, !record.paused)
 }
 
 async function onRulePausedChange(record: FirewallRule, paused: boolean) {
@@ -281,12 +351,33 @@ async function onRulePausedChange(record: FirewallRule, paused: boolean) {
       paused,
     })
     record.paused = paused
-    message.success(paused ? '规则已暂停' : '规则已启用')
+    message.success(paused ? '规则已禁用' : '规则已启用')
   } catch {
     await load()
   } finally {
     pauseLoadingMap.value[record.id] = false
   }
+}
+
+function confirmDelete(record: FirewallRule) {
+  if (!props.zoneId || !record.id) return
+  Modal.confirm({
+    title: '删除防火墙规则',
+    content: `确定删除「${ruleDisplayName(record.description, record.expression)}」？此操作不可撤销。`,
+    okText: '删除',
+    okType: 'danger',
+    cancelText: '取消',
+    onOk: async () => {
+      deleteLoadingMap.value[record.id] = true
+      try {
+        await deleteCfFirewallRule({ zoneId: props.zoneId!, ruleId: record.id })
+        message.success('规则已删除')
+        await load()
+      } finally {
+        deleteLoadingMap.value[record.id] = false
+      }
+    },
+  })
 }
 
 watch(() => props.zoneId, () => load(), { immediate: true })
@@ -295,10 +386,24 @@ watch(() => props.zoneId, () => load(), { immediate: true })
 <style scoped>
 .cf-toolbar { margin-bottom: 16px; }
 .cf-hint { margin-top: 12px; font-size: 12px; color: var(--text-sub); }
-.cf-expr {
-  font-family: ui-monospace, monospace;
-  font-size: 12px;
+.cf-rule-name {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
 }
+.cf-rule-name-link {
+  color: var(--primary, #1677ff);
+  cursor: pointer;
+}
+.cf-rule-name-link:hover { text-decoration: underline; }
+.cf-rule-status { margin: 0; }
+.cf-match { font-size: 13px; line-height: 1.4; }
+.cf-events {
+  font-variant-numeric: tabular-nums;
+  color: var(--text-main);
+}
+.cf-rule-ops :deep(.ant-btn-link) { padding: 0 4px; }
 .cf-mode-bar { margin-bottom: 12px; }
 .cf-section-label {
   margin: 0 0 8px;

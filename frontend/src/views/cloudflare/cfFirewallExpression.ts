@@ -237,3 +237,55 @@ export function defaultOperatorForField(field: FieldDef): OperatorId {
     default: return 'wildcard'
   }
 }
+
+const ACTION_LABELS: Record<string, string> = {
+  block: '阻止',
+  challenge: '质询',
+  js_challenge: 'JS 质询',
+  managed_challenge: '托管质询',
+  allow: '允许',
+  log: '记录',
+  bypass: '绕过',
+}
+
+export function firewallActionLabel(action?: string) {
+  if (!action) return '—'
+  return ACTION_LABELS[action.toLowerCase()] || action
+}
+
+/** 将 Wirefilter 表达式转为接近 CF 控制台的可读匹配条件 */
+export function humanizeExpression(expr?: string): string {
+  if (!expr?.trim()) return '—'
+  let s = expr.trim().replace(/^\(+|\)+$/g, '').trim()
+  const rules: Array<[RegExp, string | ((...args: string[]) => string)]> = [
+    [/http\.host\s+eq\s+"([^"]+)"/gi, (_, v) => `主机名 等于 ${v}`],
+    [/http\.host\s+ne\s+"([^"]+)"/gi, (_, v) => `主机名 不等于 ${v}`],
+    [/http\.request\.uri\.path\s+contains\s+"([^"]+)"/gi, (_, v) => `URI 路径 包含 ${v}`],
+    [/not\s+http\.request\.uri\.path\s+contains\s+"([^"]+)"/gi, (_, v) => `URI 路径 不包含 ${v}`],
+    [/http\.request\.uri\.path\s+eq\s+"([^"]+)"/gi, (_, v) => `URI 路径 等于 ${v}`],
+    [/starts_with\(http\.request\.uri\.path,\s*"([^"]+)"\)/gi, (_, v) => `URI 路径 开头为 ${v}`],
+    [/not\s+starts_with\(http\.request\.uri\.path,\s*"([^"]+)"\)/gi, (_, v) => `URI 路径 开头不是 ${v}`],
+    [/ends_with\(http\.request\.uri\.path,\s*"([^"]+)"\)/gi, (_, v) => `URI 路径 结尾为 ${v}`],
+    [/ip\.src\.country\s+eq\s+"([^"]+)"/gi, (_, v) => `国家/地区 等于 ${v}`],
+    [/ip\.src\.country\s+in\s+\{([^}]+)\}/gi, (_, v) => `国家/地区 包含 ${v.replace(/"/g, '').trim()}`],
+    [/ip\.src\s+eq\s+([^\s)]+)/gi, (_, v) => `IP 源地址 等于 ${v}`],
+    [/http\.request\.method\s+eq\s+"([^"]+)"/gi, (_, v) => `请求方法 等于 ${v}`],
+    [/\(ssl\)/gi, 'SSL/HTTPS 已启用'],
+    [/\(not ssl\)/gi, 'SSL/HTTPS 未启用'],
+    [/\band\b/gi, '且'],
+    [/\bor\b/gi, '或'],
+  ]
+  for (const [re, rep] of rules) {
+    s = s.replace(re, rep as (substring: string, ...args: string[]) => string)
+  }
+  return s
+}
+
+export function ruleDisplayName(description?: string, expression?: string) {
+  if (description?.trim()) return description.trim()
+  if (expression?.trim()) {
+    const h = humanizeExpression(expression)
+    return h.length > 48 ? `${h.slice(0, 48)}…` : h
+  }
+  return '未命名规则'
+}

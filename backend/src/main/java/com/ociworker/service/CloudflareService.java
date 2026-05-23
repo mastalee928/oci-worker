@@ -24,6 +24,8 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -386,16 +388,35 @@ public class CloudflareService {
             return list;
         }
         for (int i = 0; i < result.size(); i++) {
-            JSONObject conn = result.getJSONObject(i);
-            Map<String, Object> m = new LinkedHashMap<>();
-            m.put("coloName", conn.getStr("colo_name"));
-            m.put("uuid", conn.getStr("uuid"));
-            m.put("isPendingReconnect", conn.getBool("is_pending_reconnect"));
-            m.put("openedAt", conn.getStr("opened_at"));
-            m.put("originIp", conn.getStr("origin_ip"));
-            list.add(m);
+            JSONObject client = result.getJSONObject(i);
+            JSONArray conns = client.getJSONArray("conns");
+            if (conns != null && !conns.isEmpty()) {
+                for (int j = 0; j < conns.size(); j++) {
+                    list.add(mapTunnelConnection(conns.getJSONObject(j), client));
+                }
+            } else {
+                // 兼容 list tunnels 内嵌的扁平 connections 结构
+                list.add(mapTunnelConnection(client, null));
+            }
         }
         return list;
+    }
+
+    private static Map<String, Object> mapTunnelConnection(JSONObject conn, JSONObject client) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("coloName", conn.getStr("colo_name"));
+        m.put("uuid", StrUtil.blankToDefault(conn.getStr("uuid"), conn.getStr("id")));
+        m.put("isPendingReconnect", conn.getBool("is_pending_reconnect"));
+        m.put("openedAt", conn.getStr("opened_at"));
+        m.put("originIp", conn.getStr("origin_ip"));
+        m.put("clientId", conn.getStr("client_id"));
+        m.put("clientVersion", StrUtil.blankToDefault(conn.getStr("client_version"),
+                client != null ? client.getStr("version") : null));
+        if (client != null) {
+            m.put("arch", client.getStr("arch"));
+            m.put("runAt", client.getStr("run_at"));
+        }
+        return m;
     }
 
     // -------------------------------------------------------------------------
@@ -471,6 +492,13 @@ public class CloudflareService {
         for (int i = 0; i < result.size(); i++) {
             list.add(mapFirewallRule(result.getJSONObject(i)));
         }
+        Map<String, Integer> eventCounts = fetchFirewallEventCounts24h(c, zoneId.trim());
+        for (Map<String, Object> rule : list) {
+            String id = (String) rule.get("id");
+            if (eventCounts.containsKey(id)) {
+                rule.put("events24h", eventCounts.get(id));
+            }
+        }
         return list;
     }
 
@@ -525,19 +553,102 @@ public class CloudflareService {
         if (rule == null) {
             throw new OciException("防火墙规则不存在");
         }
-        Map<String, Object> body = buildFirewallRuleUpdateBody(rule, paused);
+        Map<String, Object> body = buildFirewallRuleUpdateBody(rule, paused, null, null, null);
         JSONObject json = parseJson(apiPut(c.apiToken(), url, body));
         requireSuccess(json, paused ? "暂停规则失败" : "启用规则失败");
         JSONObject result = json.getJSONObject("result");
         return result != null ? mapFirewallRule(result) : Map.of("id", ruleId, "paused", paused);
     }
 
-    private static Map<String, Object> buildFirewallRuleUpdateBody(JSONObject rule, boolean paused) {
+    public Map<String, Object> updateFirewallRule(String zoneId, String ruleId, String action,
+                                                    String description, String expression, Boolean paused) {
+        Credentials c = requireCredentials();
+        requireZoneId(zoneId);
+        if (StrUtil.isBlank(ruleId)) {
+            throw new OciException("规则 ID 不能为空");
+        }
+        if (StrUtil.isNotBlank(action)) {
+            String act = action.trim().toLowerCase();
+            if (!FIREWALL_ACTIONS.contains(act)) {
+                throw new OciException("不支持的防火墙动作: " + act);
+            }
+        }
+        String url = CF_API_BASE + "/zones/" + zoneId.trim() + "/firewall/rules/" + ruleId.trim();
+        JSONObject getJson = parseJson(apiGet(c.apiToken(), url));
+        requireSuccess(getJson, "获取防火墙规则失败");
+        JSONObject rule = getJson.getJSONObject("result");
+        if (rule == null) {
+            throw new OciException("防火墙规则不存在");
+        }
+        Map<String, Object> body = buildFirewallRuleUpdateBody(rule, paused, action, description, expression);
+        JSONObject json = parseJson(apiPut(c.apiToken(), url, body));
+        requireSuccess(json, "更新防火墙规则失败");
+        JSONObject result = json.getJSONObject("result");
+        return result != null ? mapFirewallRule(result) : Map.of("id", ruleId);
+    }
+
+    public void deleteFirewallRule(String zoneId, String ruleId) {
+        Credentials c = requireCredentials();
+        requireZoneId(zoneId);
+        if (StrUtil.isBlank(ruleId)) {
+            throw new OciException("规则 ID 不能为空");
+        }
+        String url = CF_API_BASE + "/zones/" + zoneId.trim() + "/firewall/rules/" + ruleId.trim();
+        apiDelete(c.apiToken(), url);
+    }
+
+    private Map<String, Integer> fetchFirewallEventCounts24h(Credentials c, String zoneId) {
+        Map<String, Integer> counts = new LinkedHashMap<>();
+        try {
+            Instant until = Instant.now();
+            Instant since = until.minus(24, ChronoUnit.HOURS);
+            Map<String, Object> filter = new LinkedHashMap<>();
+            filter.put("datetime_geq", since.toString());
+            filter.put("datetime_leq", until.toString());
+            Map<String, Object> variables = new LinkedHashMap<>();
+            variables.put("zoneTag", zoneId);
+            variables.put("filter", filter);
+            String gql = """
+                    query FWEvents($zoneTag: string!, $filter: FirewallEventsAdaptiveFilter_InputObject!) {
+                      viewer {
+                        zones(filter: { zoneTag: $zoneTag }) {
+                          firewallEventsAdaptive(filter: $filter, limit: 10000) {
+                            ruleId
+                          }
+                        }
+                      }
+                    }""";
+            Map<String, Object> payload = Map.of("query", gql, "variables", variables);
+            JSONObject json = parseJson(apiPost(c.apiToken(), CF_API_BASE + "/graphql", payload));
+            JSONArray zones = json.path("data.viewer.zones").getJSONArray();
+            if (zones == null || zones.isEmpty()) {
+                return counts;
+            }
+            JSONArray events = zones.getJSONObject(0).getJSONArray("firewallEventsAdaptive");
+            if (events == null) {
+                return counts;
+            }
+            for (int i = 0; i < events.size(); i++) {
+                JSONObject ev = events.getJSONObject(i);
+                String ruleId = ev.getStr("ruleId");
+                if (StrUtil.isNotBlank(ruleId)) {
+                    counts.merge(ruleId, 1, Integer::sum);
+                }
+            }
+        } catch (Exception e) {
+            log.debug("Firewall 24h events GraphQL skipped: {}", e.getMessage());
+        }
+        return counts;
+    }
+
+    private static Map<String, Object> buildFirewallRuleUpdateBody(JSONObject rule, Boolean paused,
+                                                                    String action, String description,
+                                                                    String expression) {
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("id", rule.getStr("id"));
-        body.put("action", rule.getStr("action"));
-        body.put("description", rule.getStr("description"));
-        body.put("paused", paused);
+        body.put("action", StrUtil.isNotBlank(action) ? action.trim().toLowerCase() : rule.getStr("action"));
+        body.put("description", description != null ? description : rule.getStr("description"));
+        body.put("paused", paused != null ? paused : Boolean.TRUE.equals(rule.getBool("paused")));
         Object priority = rule.get("priority");
         if (priority != null && !JSONUtil.isNull(priority)) {
             body.put("priority", rule.getInt("priority"));
@@ -546,7 +657,8 @@ public class CloudflareService {
         if (filter != null) {
             Map<String, Object> filterBody = new LinkedHashMap<>();
             filterBody.put("id", filter.getStr("id"));
-            filterBody.put("expression", filter.getStr("expression"));
+            filterBody.put("expression", StrUtil.isNotBlank(expression)
+                    ? expression.trim() : filter.getStr("expression"));
             filterBody.put("paused", filter.getBool("paused", false));
             String filterDesc = filter.getStr("description");
             if (StrUtil.isNotBlank(filterDesc)) {

@@ -153,8 +153,8 @@
           <template #renderItem="{ item }">
             <a-list-item>
               <a-list-item-meta
-                :title="item.coloName || '—'"
-                :description="`UUID: ${item.uuid || '—'} · ${item.originIp || '—'}`"
+                :title="connItemTitle(item)"
+                :description="connDescription(item)"
               />
             </a-list-item>
           </template>
@@ -361,6 +361,29 @@ function statusColor(s: string) {
     case 'down': return 'error'
     default: return 'processing'
   }
+}
+
+function connDescription(item: {
+  uuid?: string
+  originIp?: string
+  clientVersion?: string
+  openedAt?: string
+  arch?: string
+  isPendingReconnect?: boolean
+}) {
+  const parts = [
+    item.uuid ? `UUID: ${item.uuid}` : '',
+    item.originIp ? `源 IP: ${item.originIp}` : '',
+    item.clientVersion ? `cloudflared ${item.clientVersion}` : '',
+    item.arch ? item.arch : '',
+    item.openedAt ? `连接于 ${item.openedAt}` : '',
+    item.isPendingReconnect ? '待重连' : '',
+  ].filter(Boolean)
+  return parts.join(' · ') || '—'
+}
+
+function connItemTitle(item: { coloName?: string }) {
+  return item.coloName ? `数据中心 ${item.coloName}` : '—'
 }
 
 async function loadTunnels() {
