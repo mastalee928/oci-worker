@@ -334,3 +334,34 @@ export function deleteCfPageRule(data: { zoneId: string; ruleId: string }) {
 export function listCfWorkerScripts(silent = false) {
   return request.post('/cf/workers/scripts/list', {}, silent ? cfSilent : undefined)
 }
+
+export function getCfWorkersPagesUsage(silent = false) {
+  return request.post('/cf/workers/pages/usage', {}, silent ? cfSilent : undefined)
+}
+
+export function listCfWorkersPagesApplications(silent = false) {
+  return request.post('/cf/workers/pages/applications/list', {}, silent ? cfSilent : undefined)
+}
+
+export function listCfWorkersPagesTemplates(silent = false) {
+  return request.post('/cf/workers/pages/templates/list', {}, silent ? cfSilent : undefined)
+}
+
+export function createCfWorkerHelloWorld(data: { name: string }) {
+  return request.post('/cf/workers/create/hello-world', data)
+}
+
+export function createCfWorkerFromTemplate(data: { name: string; templateId: string }) {
+  return request.post('/cf/workers/create/template', data)
+}
+
+export function createCfPagesFromTemplate(data: { name: string; templateId: string }) {
+  return request.post('/cf/pages/create/template', data)
+}
+
+export function deployCfPagesStatic(data: {
+  name: string
+  files: { path: string; contentBase64: string }[]
+}) {
+  return request.post('/cf/pages/deploy/static', data)
+}

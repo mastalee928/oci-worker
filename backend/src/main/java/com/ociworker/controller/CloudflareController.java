@@ -406,6 +406,47 @@ public class CloudflareController {
         return ResponseData.ok(cloudflareService.listWorkerScripts());
     }
 
+    @PostMapping("/workers/pages/usage")
+    public ResponseData<?> workersPagesUsage() {
+        return ResponseData.ok(cloudflareService.getWorkersUsageSummary());
+    }
+
+    @PostMapping("/workers/pages/applications/list")
+    public ResponseData<?> workersPagesApplicationsList() {
+        return ResponseData.ok(cloudflareService.listWorkersAndPagesApplications());
+    }
+
+    @PostMapping("/workers/pages/templates/list")
+    public ResponseData<?> workersPagesTemplatesList() {
+        return ResponseData.ok(cloudflareService.listWorkerTemplates());
+    }
+
+    @PostMapping("/workers/create/hello-world")
+    public ResponseData<?> workerCreateHelloWorld(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(cloudflareService.createWorkerHelloWorld(params.get("name")));
+    }
+
+    @PostMapping("/workers/create/template")
+    public ResponseData<?> workerCreateTemplate(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(cloudflareService.createWorkerFromTemplate(
+                params.get("name"), params.get("templateId")));
+    }
+
+    @PostMapping("/pages/create/template")
+    public ResponseData<?> pagesCreateTemplate(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(cloudflareService.createPagesFromTemplate(
+                params.get("name"), params.get("templateId")));
+    }
+
+    @PostMapping("/pages/deploy/static")
+    public ResponseData<?> pagesDeployStatic(@RequestBody Map<String, Object> params) {
+        @SuppressWarnings("unchecked")
+        List<Map<String, String>> encoded = (List<Map<String, String>>) params.get("files");
+        return ResponseData.ok(cloudflareService.deployPagesStaticFromUpload(
+                (String) params.get("name"),
+                encoded));
+    }
+
     @PostMapping("/ssl/get")
     public ResponseData<?> sslGet(@RequestBody Map<String, String> params) {
         return ResponseData.ok(cloudflareService.getSslSettings(params.get("zoneId")));

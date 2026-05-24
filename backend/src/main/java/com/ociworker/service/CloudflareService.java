@@ -16,6 +16,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.context.annotation.Lazy;
 import org.springframework.stereotype.Service;
 
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.net.URI;
 import java.net.URLEncoder;
@@ -23,11 +24,16 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
+import java.time.format.DateTimeFormatter;
 import java.time.temporal.ChronoUnit;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -1590,6 +1596,611 @@ public class CloudflareService {
         return list;
     }
 
+    // -------------------------------------------------------------------------
+    // Workers & Pages (account)
+    // -------------------------------------------------------------------------
+
+    private static final String WORKER_HELLO_WORLD = """
+            export default {
+              async fetch() {
+                return new Response('Hello World!', {
+                  headers: { 'content-type': 'text/plain;charset=UTF-8' },
+                });
+              },
+            };
+            """;
+
+    private static final Map<String, String> WORKER_TEMPLATES = Map.of(
+            "json-api", """
+                    export default {
+                      async fetch() {
+                        return Response.json({ ok: true, message: 'Hello from Workers' });
+                      },
+                    };
+                    """,
+            "html", """
+                    export default {
+                      async fetch() {
+                        const html = '<!DOCTYPE html><html><body><h1>Hello World</h1></body></html>';
+                        return new Response(html, { headers: { 'content-type': 'text/html;charset=UTF-8' } });
+                      },
+                    };
+                    """);
+
+    private static final int MAX_PAGES_UPLOAD_FILES = 100;
+    private static final long MAX_PAGES_UPLOAD_BYTES = 25L * 1024 * 1024;
+
+    private static final Map<String, List<Map<String, String>>> PAGES_TEMPLATE_FILES = Map.of(
+            "static-starter", List.of(
+                    Map.of("path", "index.html", "content", """
+                            <!DOCTYPE html>
+                            <html lang="zh-CN">
+                            <head><meta charset="utf-8"><title>Cloudflare Pages</title></head>
+                            <body><h1>Hello from Cloudflare Pages</h1></body>
+                            </html>
+                            """)),
+            "blog-starter", List.of(
+                    Map.of("path", "index.html", "content", """
+                            <!DOCTYPE html>
+                            <html lang="zh-CN">
+                            <head><meta charset="utf-8"><title>My Blog</title></head>
+                            <body><h1>My Blog</h1><p>Powered by Cloudflare Pages.</p></body>
+                            </html>
+                            """),
+                    Map.of("path", "styles.css", "content", "body { font-family: system-ui, sans-serif; margin: 2rem; }")));
+
+    private record MetricQuery(long value, boolean available) {}
+
+    public Map<String, Object> getWorkersUsageSummary() {
+        Credentials c = requireCredentials();
+        Instant now = Instant.now();
+        Instant todayStart = now.atZone(ZoneOffset.UTC).toLocalDate().atStartOfDay(ZoneOffset.UTC).toInstant();
+        Instant monthStart = now.atZone(ZoneOffset.UTC).toLocalDate().withDayOfMonth(1)
+                .atStartOfDay(ZoneOffset.UTC).toInstant();
+
+        MetricQuery todayRequests = queryWorkersRequestsSum(c, todayStart, now);
+        MetricQuery periodRequests = queryWorkersRequestsSum(c, monthStart, now);
+        MetricQuery cpuTimeMs = queryWorkersCpuTimeMs(c, monthStart, now);
+
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("dateRangeLabel", formatUsageDateRange(monthStart, now));
+        m.put("limitsNote", "以下为 Workers 免费版参考限额；付费账户限额不同");
+        m.put("todayRequestsLimit", 100_000L);
+        m.put("todayObservabilityLimit", 200_000L);
+        putMetric(m, "todayRequests", todayRequests);
+        putMetric(m, "periodRequests", periodRequests);
+        putMetric(m, "cpuTimeMs", cpuTimeMs);
+        m.put("todayObservabilityEvents", null);
+        m.put("observabilityEvents", null);
+        m.put("buildMinutes", null);
+        m.put("observabilityAvailable", false);
+        m.put("buildMinutesAvailable", false);
+        return m;
+    }
+
+    private static void putMetric(Map<String, Object> m, String key, MetricQuery q) {
+        m.put(key, q.available() ? q.value() : null);
+        m.put(key + "Available", q.available());
+    }
+
+    public List<Map<String, Object>> listWorkersAndPagesApplications() {
+        List<Map<String, Object>> items = new ArrayList<>();
+        Credentials c = requireCredentials();
+        String workersDevSubdomain = fetchAccountWorkersSubdomain(c);
+        try {
+            for (Map<String, Object> w : listWorkers()) {
+                Map<String, Object> row = new LinkedHashMap<>(w);
+                row.put("kind", "worker");
+                String scriptName = String.valueOf(w.get("id"));
+                row.put("name", scriptName);
+                row.put("url", buildWorkerDevUrl(c, scriptName, workersDevSubdomain));
+                items.add(row);
+            }
+        } catch (Exception e) {
+            log.warn("Workers 列表拉取失败: {}", e.getMessage());
+        }
+        try {
+            items.addAll(listPagesProjects());
+        } catch (Exception e) {
+            log.warn("Pages 列表拉取失败: {}", e.getMessage());
+        }
+        return items;
+    }
+
+    public List<Map<String, Object>> listWorkerTemplates() {
+        List<Map<String, Object>> list = new ArrayList<>();
+        list.add(templateMeta("json-api", "JSON API", "返回 JSON 响应", "worker"));
+        list.add(templateMeta("html", "HTML", "返回简单 HTML 页面", "worker"));
+        list.add(templateMeta("static-starter", "静态站点", "单页 HTML 静态站点", "pages"));
+        list.add(templateMeta("blog-starter", "博客入门", "带样式的简单博客首页", "pages"));
+        return list;
+    }
+
+    private static Map<String, Object> templateMeta(String id, String name, String description, String kind) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("id", id);
+        m.put("name", name);
+        m.put("description", description);
+        m.put("kind", kind);
+        return m;
+    }
+
+    public Map<String, Object> createWorkerHelloWorld(String scriptName) {
+        return uploadWorkerScript(scriptName, WORKER_HELLO_WORLD);
+    }
+
+    public Map<String, Object> createWorkerFromTemplate(String scriptName, String templateId) {
+        String code = WORKER_TEMPLATES.get(templateId);
+        if (code == null) {
+            throw new OciException("不支持的 Worker 模板: " + templateId);
+        }
+        return uploadWorkerScript(scriptName, code);
+    }
+
+    public Map<String, Object> createPagesFromTemplate(String projectName, String templateId) {
+        List<Map<String, String>> files = PAGES_TEMPLATE_FILES.get(templateId);
+        if (files == null) {
+            throw new OciException("不支持的 Pages 模板: " + templateId);
+        }
+        return deployPagesStaticFiles(projectName, files);
+    }
+
+    public Map<String, Object> deployPagesStaticFromUpload(String projectName, List<Map<String, String>> encodedFiles) {
+        List<Map<String, Object>> decoded = decodePagesUploadFiles(encodedFiles);
+        return deployPagesStaticFiles(projectName, decoded);
+    }
+
+    public Map<String, Object> deployPagesStaticFiles(String projectName, List<Map<String, String>> files) {
+        return deployPagesStaticFiles(projectName, toPagesFileBytes(files));
+    }
+
+    private Map<String, Object> deployPagesStaticFiles(String projectName, List<Map<String, Object>> fileEntries) {
+        Credentials c = requireCredentials();
+        String name = normalizePagesProjectName(projectName);
+        if (fileEntries == null || fileEntries.isEmpty()) {
+            throw new OciException("请至少上传一个文件");
+        }
+        ensurePagesProject(c, name);
+        return createPagesDeployment(c, name, fileEntries);
+    }
+
+    private static List<Map<String, Object>> toPagesFileBytes(List<Map<String, String>> files) {
+        List<Map<String, Object>> out = new ArrayList<>();
+        if (files == null) {
+            return out;
+        }
+        for (Map<String, String> f : files) {
+            String path = f.get("path");
+            String content = f.get("content");
+            if (StrUtil.isBlank(path) || content == null) {
+                continue;
+            }
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("path", path);
+            row.put("bytes", content.getBytes(StandardCharsets.UTF_8));
+            out.add(row);
+        }
+        return out;
+    }
+
+    public List<Map<String, Object>> listPagesProjects() {
+        Credentials c = requireCredentials();
+        String url = CF_API_BASE + "/accounts/" + c.accountId() + "/pages/projects?per_page=50";
+        JSONObject json = parseJson(apiGet(c.apiToken(), url));
+        requireSuccess(json, "拉取 Pages 项目失败");
+        JSONArray result = json.getJSONArray("result");
+        List<Map<String, Object>> list = new ArrayList<>();
+        if (result == null) {
+            return list;
+        }
+        for (int i = 0; i < result.size(); i++) {
+            JSONObject p = result.getJSONObject(i);
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("kind", "pages");
+            m.put("id", p.getStr("id"));
+            m.put("name", p.getStr("name"));
+            m.put("createdOn", p.getStr("created_on"));
+            m.put("modifiedOn", p.getStr("modified_on"));
+            String url = resolvePagesProjectUrl(p);
+            if (StrUtil.isNotBlank(url)) {
+                m.put("url", url);
+            }
+            JSONObject latest = p.getJSONObject("latest_deployment");
+            if (latest != null) {
+                if (StrUtil.isBlank(url) && StrUtil.isNotBlank(latest.getStr("url"))) {
+                    m.put("url", latest.getStr("url"));
+                }
+                m.put("deploymentUrl", latest.getStr("url"));
+                m.put("deploymentStatus", latest.getStr("latest_stage"));
+            }
+            list.add(m);
+        }
+        return list;
+    }
+
+    private static String resolvePagesProjectUrl(JSONObject p) {
+        JSONObject latest = p.getJSONObject("latest_deployment");
+        if (latest != null && StrUtil.isNotBlank(latest.getStr("url"))) {
+            return latest.getStr("url");
+        }
+        String subdomain = p.getStr("subdomain");
+        if (StrUtil.isNotBlank(subdomain)) {
+            if (subdomain.startsWith("http://") || subdomain.startsWith("https://")) {
+                return subdomain;
+            }
+            if (subdomain.contains(".")) {
+                return "https://" + subdomain;
+            }
+            return "https://" + subdomain + ".pages.dev";
+        }
+        String name = p.getStr("name");
+        if (StrUtil.isNotBlank(name)) {
+            return "https://" + name + ".pages.dev";
+        }
+        return null;
+    }
+
+    private String fetchAccountWorkersSubdomain(Credentials c) {
+        try {
+            String url = CF_API_BASE + "/accounts/" + c.accountId() + "/workers/subdomain";
+            JSONObject json = parseJson(apiGet(c.apiToken(), url));
+            if (!json.getBool("success", false)) {
+                return null;
+            }
+            JSONObject result = json.getJSONObject("result");
+            return result != null ? StrUtil.trimToNull(result.getStr("subdomain")) : null;
+        } catch (Exception e) {
+            log.debug("Workers 子域拉取跳过: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private String buildWorkerDevUrl(Credentials c, String scriptName, String accountSubdomain) {
+        if (StrUtil.isBlank(scriptName)) {
+            return null;
+        }
+        try {
+            String url = CF_API_BASE + "/accounts/" + c.accountId() + "/workers/scripts/"
+                    + urlEncodePath(scriptName) + "/subdomain";
+            JSONObject json = parseJson(apiGet(c.apiToken(), url));
+            JSONObject result = json.getJSONObject("result");
+            if (result != null && Boolean.FALSE.equals(result.getBool("enabled"))) {
+                return null;
+            }
+        } catch (Exception e) {
+            log.debug("Worker subdomain 状态跳过 {}: {}", scriptName, e.getMessage());
+        }
+        if (StrUtil.isNotBlank(accountSubdomain)) {
+            return "https://" + scriptName + "." + accountSubdomain + ".workers.dev";
+        }
+        return "https://" + scriptName + ".workers.dev";
+    }
+
+    private void ensurePagesProject(Credentials c, String projectName) {
+        String getUrl = CF_API_BASE + "/accounts/" + c.accountId() + "/pages/projects/"
+                + urlEncodePath(projectName);
+        try {
+            JSONObject getJson = parseJson(apiGet(c.apiToken(), getUrl));
+            if (getJson.getBool("success", false)) {
+                return;
+            }
+        } catch (OciException e) {
+            // 404 等视为不存在，继续创建
+            log.debug("Pages 项目不存在，准备创建: {}", projectName);
+        }
+        String url = CF_API_BASE + "/accounts/" + c.accountId() + "/pages/projects";
+        Map<String, Object> body = Map.of(
+                "name", projectName,
+                "production_branch", "main");
+        JSONObject json = parseJson(apiPost(c.apiToken(), url, body));
+        requireSuccess(json, "创建 Pages 项目失败");
+    }
+
+    private Map<String, Object> uploadWorkerScript(String scriptName, String scriptContent) {
+        Credentials c = requireCredentials();
+        String name = normalizeWorkerScriptName(scriptName);
+        String module = "worker.mjs";
+        String metadata = JSONUtil.toJsonStr(Map.of(
+                "main_module", module,
+                "compatibility_date", "2024-09-23"));
+        String url = CF_API_BASE + "/accounts/" + c.accountId() + "/workers/scripts/" + urlEncodePath(name);
+        JSONObject json = parseJson(apiPutMultipart(c.apiToken(), url,
+                Map.of("metadata", metadata),
+                Map.of(module, scriptContent)));
+        requireSuccess(json, "上传 Worker 脚本失败");
+        JSONObject result = json.getJSONObject("result");
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("id", name);
+        m.put("kind", "worker");
+        if (result != null) {
+            m.put("createdOn", result.getStr("created_on"));
+            m.put("modifiedOn", result.getStr("modified_on"));
+        }
+        return m;
+    }
+
+    private Map<String, Object> createPagesDeployment(Credentials c, String projectName,
+                                                      List<Map<String, Object>> fileEntries) {
+        Map<String, String> manifest = new LinkedHashMap<>();
+        Map<String, byte[]> fileBytes = new LinkedHashMap<>();
+        for (Map<String, Object> f : fileEntries) {
+            String path = normalizePagesFilePath(String.valueOf(f.get("path")));
+            Object raw = f.get("bytes");
+            if (StrUtil.isBlank(path) || !(raw instanceof byte[] bytes) || bytes.length == 0) {
+                continue;
+            }
+            manifest.put(path, sha256Hex(bytes));
+            fileBytes.put(path, bytes);
+        }
+        if (manifest.isEmpty()) {
+            throw new OciException("没有有效的静态文件");
+        }
+        String url = CF_API_BASE + "/accounts/" + c.accountId() + "/pages/projects/"
+                + urlEncodePath(projectName) + "/deployments";
+        Map<String, String> fields = new LinkedHashMap<>();
+        fields.put("manifest", JSONUtil.toJsonStr(manifest));
+        fields.put("branch", "main");
+        JSONObject json = parseJson(apiPostMultipartBinary(c.apiToken(), url, fields, fileBytes));
+        requireSuccess(json, "Pages 部署失败");
+        JSONObject result = json.getJSONObject("result");
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("kind", "pages");
+        m.put("name", projectName);
+        if (result != null) {
+            m.put("id", result.getStr("id"));
+            m.put("url", result.getStr("url"));
+        }
+        return m;
+    }
+
+    public List<Map<String, Object>> decodePagesUploadFiles(List<Map<String, String>> encodedFiles) {
+        List<Map<String, Object>> files = new ArrayList<>();
+        if (encodedFiles == null) {
+            return files;
+        }
+        long totalBytes = 0L;
+        for (Map<String, String> f : encodedFiles) {
+            String path = f.get("path");
+            String contentBase64 = f.get("contentBase64");
+            if (StrUtil.isBlank(path) || StrUtil.isBlank(contentBase64)) {
+                continue;
+            }
+            byte[] raw = Base64.getDecoder().decode(contentBase64);
+            totalBytes += raw.length;
+            if (files.size() >= MAX_PAGES_UPLOAD_FILES) {
+                throw new OciException("单次最多上传 " + MAX_PAGES_UPLOAD_FILES + " 个文件");
+            }
+            if (totalBytes > MAX_PAGES_UPLOAD_BYTES) {
+                throw new OciException("上传总大小不能超过 25 MiB");
+            }
+            Map<String, Object> row = new LinkedHashMap<>();
+            row.put("path", path);
+            row.put("bytes", raw);
+            files.add(row);
+        }
+        if (files.isEmpty()) {
+            throw new OciException("没有有效的静态文件");
+        }
+        return normalizeDecodedUploadPaths(files);
+    }
+
+    /** 若所有路径共享同一顶层目录（文件夹上传），去掉该前缀 */
+    private static List<Map<String, Object>> normalizeDecodedUploadPaths(List<Map<String, Object>> files) {
+        if (files.size() <= 1) {
+            return files;
+        }
+        String firstPath = String.valueOf(files.get(0).get("path"));
+        int slash = firstPath.indexOf('/');
+        if (slash <= 0) {
+            return files;
+        }
+        String root = firstPath.substring(0, slash);
+        boolean allShareRoot = true;
+        for (Map<String, Object> f : files) {
+            String p = String.valueOf(f.get("path"));
+            if (!p.startsWith(root + "/")) {
+                allShareRoot = false;
+                break;
+            }
+        }
+        if (!allShareRoot) {
+            return files;
+        }
+        List<Map<String, Object>> normalized = new ArrayList<>();
+        for (Map<String, Object> f : files) {
+            String p = String.valueOf(f.get("path"));
+            String stripped = p.substring(root.length() + 1);
+            if (StrUtil.isBlank(stripped)) {
+                continue;
+            }
+            Map<String, Object> row = new LinkedHashMap<>(f);
+            row.put("path", stripped);
+            normalized.add(row);
+        }
+        return normalized.isEmpty() ? files : normalized;
+    }
+
+    private MetricQuery queryWorkersRequestsSum(Credentials c, Instant start, Instant end) {
+        try {
+            Map<String, Object> variables = new LinkedHashMap<>();
+            variables.put("accountTag", c.accountId());
+            variables.put("datetimeStart", start.toString());
+            variables.put("datetimeEnd", end.toString());
+            String gql = """
+                    query WorkersUsage($accountTag: string!, $datetimeStart: string!, $datetimeEnd: string!) {
+                      viewer {
+                        accounts(filter: { accountTag: $accountTag }) {
+                          workersInvocationsAdaptive(
+                            limit: 10000,
+                            filter: { datetime_geq: $datetimeStart, datetime_leq: $datetimeEnd }
+                          ) {
+                            sum { requests }
+                          }
+                        }
+                      }
+                    }""";
+            JSONObject data = graphqlData(c, gql, variables);
+            if (data == null) {
+                return new MetricQuery(0L, false);
+            }
+            JSONObject viewer = data.getJSONObject("viewer");
+            if (viewer == null) {
+                return new MetricQuery(0L, false);
+            }
+            JSONArray accounts = viewer.getJSONArray("accounts");
+            if (accounts == null || accounts.isEmpty()) {
+                return new MetricQuery(0L, false);
+            }
+            JSONArray rows = accounts.getJSONObject(0).getJSONArray("workersInvocationsAdaptive");
+            if (rows == null) {
+                return new MetricQuery(0L, false);
+            }
+            long total = 0L;
+            for (int i = 0; i < rows.size(); i++) {
+                JSONObject row = rows.getJSONObject(i);
+                JSONObject sum = row.getJSONObject("sum");
+                if (sum != null && sum.get("requests") != null) {
+                    total += sum.getLong("requests", 0L);
+                }
+            }
+            return new MetricQuery(total, true);
+        } catch (Exception e) {
+            log.debug("Workers usage requests GraphQL skipped: {}", e.getMessage());
+            return new MetricQuery(0L, false);
+        }
+    }
+
+    private MetricQuery queryWorkersCpuTimeMs(Credentials c, Instant start, Instant end) {
+        try {
+            Map<String, Object> variables = new LinkedHashMap<>();
+            variables.put("accountTag", c.accountId());
+            variables.put("datetimeStart", start.toString());
+            variables.put("datetimeEnd", end.toString());
+            String gql = """
+                    query WorkersCpu($accountTag: string!, $datetimeStart: string!, $datetimeEnd: string!) {
+                      viewer {
+                        accounts(filter: { accountTag: $accountTag }) {
+                          workersInvocationsAdaptive(
+                            limit: 10000,
+                            filter: { datetime_geq: $datetimeStart, datetime_leq: $datetimeEnd }
+                          ) {
+                            sum { cpuTime }
+                          }
+                        }
+                      }
+                    }""";
+            JSONObject data = graphqlData(c, gql, variables);
+            if (data == null) {
+                return new MetricQuery(0L, false);
+            }
+            JSONObject viewer = data.getJSONObject("viewer");
+            if (viewer == null) {
+                return new MetricQuery(0L, false);
+            }
+            JSONArray accounts = viewer.getJSONArray("accounts");
+            if (accounts == null || accounts.isEmpty()) {
+                return new MetricQuery(0L, false);
+            }
+            JSONArray rows = accounts.getJSONObject(0).getJSONArray("workersInvocationsAdaptive");
+            if (rows == null) {
+                return new MetricQuery(0L, false);
+            }
+            long total = 0L;
+            for (int i = 0; i < rows.size(); i++) {
+                JSONObject row = rows.getJSONObject(i);
+                JSONObject sum = row.getJSONObject("sum");
+                if (sum != null && sum.get("cpuTime") != null) {
+                    total += sum.getLong("cpuTime", 0L);
+                }
+            }
+            return new MetricQuery(total, true);
+        } catch (Exception e) {
+            log.debug("Workers CPU GraphQL skipped: {}", e.getMessage());
+            return new MetricQuery(0L, false);
+        }
+    }
+
+    private JSONObject graphqlData(Credentials c, String query, Map<String, Object> variables) {
+        Map<String, Object> payload = Map.of("query", query, "variables", variables);
+        JSONObject json = parseJson(apiPost(c.apiToken(), CF_API_BASE + "/graphql", payload));
+        if (json.getJSONArray("errors") != null && !json.getJSONArray("errors").isEmpty()) {
+            log.debug("GraphQL errors: {}", json.getJSONArray("errors"));
+            return null;
+        }
+        return json.getJSONObject("data");
+    }
+
+    private static String formatUsageDateRange(Instant start, Instant end) {
+        DateTimeFormatter fmt = DateTimeFormatter.ofPattern("M月d日").withZone(ZoneOffset.UTC);
+        LocalDate startDate = start.atZone(ZoneOffset.UTC).toLocalDate();
+        LocalDate endDate = end.atZone(ZoneOffset.UTC).toLocalDate();
+        if (startDate.getYear() != endDate.getYear()) {
+            DateTimeFormatter withYear = DateTimeFormatter.ofPattern("yyyy年M月d日").withZone(ZoneOffset.UTC);
+            return withYear.format(start) + " - " + withYear.format(end);
+        }
+        return fmt.format(start) + " - " + fmt.format(end);
+    }
+
+    private static String sha256Hex(String content) {
+        return sha256Hex(content.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static String sha256Hex(byte[] content) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] hash = md.digest(content);
+            StringBuilder sb = new StringBuilder();
+            for (byte b : hash) {
+                sb.append(String.format("%02x", b));
+            }
+            return sb.toString();
+        } catch (Exception e) {
+            throw new OciException("计算文件哈希失败");
+        }
+    }
+
+    private static String normalizeWorkerScriptName(String name) {
+        String n = StrUtil.trimToNull(name);
+        if (n == null) {
+            throw new OciException("Worker 名称不能为空");
+        }
+        if (!n.matches("^[a-zA-Z0-9_-]{1,64}$")) {
+            throw new OciException("Worker 名称仅允许字母、数字、下划线与连字符");
+        }
+        return n;
+    }
+
+    private static String normalizePagesProjectName(String name) {
+        String n = StrUtil.trimToNull(name);
+        if (n == null) {
+            throw new OciException("项目名称不能为空");
+        }
+        n = n.toLowerCase().replaceAll("[^a-z0-9-]", "-").replaceAll("-+", "-");
+        if (n.length() < 1 || n.length() > 58) {
+            throw new OciException("项目名称长度须为 1–58 个字符");
+        }
+        return n;
+    }
+
+    private static String normalizePagesFilePath(String path) {
+        String p = StrUtil.trimToNull(path);
+        if (p == null) {
+            throw new OciException("文件路径不能为空");
+        }
+        p = p.replace('\\', '/');
+        while (p.startsWith("/")) {
+            p = p.substring(1);
+        }
+        if (p.contains("..")) {
+            throw new OciException("非法文件路径");
+        }
+        return p;
+    }
+
+    private static String urlEncodePath(String segment) {
+        return URLEncoder.encode(segment, StandardCharsets.UTF_8).replace("+", "%20");
+    }
+
     private static Map<String, Object> buildEmailAction(String actionType, List<String> destinations,
                                                         String workerName) {
         return switch (actionType) {
@@ -1791,7 +2402,130 @@ public class CloudflareService {
                 .header("Authorization", "Bearer " + token)
                 .header("Content-Type", "multipart/form-data; boundary=" + boundary)
                 .POST(HttpRequest.BodyPublishers.ofByteArray(body))
-                .timeout(Duration.ofSeconds(60)));
+                .timeout(Duration.ofSeconds(120)));
+    }
+
+    private String apiPostMultipart(String token, String url, Map<String, String> formFields,
+                                    Map<String, String> fileContents) {
+        String boundary = "----CloudflareBoundary" + System.currentTimeMillis();
+        byte[] body = buildMultipartBodyMulti(boundary, formFields, fileContents, false);
+        return httpSend(HttpRequest.newBuilder(URI.create(url))
+                .header("Authorization", "Bearer " + token)
+                .header("Content-Type", "multipart/form-data; boundary=" + boundary)
+                .POST(HttpRequest.BodyPublishers.ofByteArray(body))
+                .timeout(Duration.ofSeconds(180)));
+    }
+
+    private String apiPostMultipartBinary(String token, String url, Map<String, String> formFields,
+                                            Map<String, byte[]> fileContents) {
+        String boundary = "----CloudflareBoundary" + System.currentTimeMillis();
+        byte[] body = buildMultipartBodyBinary(boundary, formFields, fileContents);
+        return httpSend(HttpRequest.newBuilder(URI.create(url))
+                .header("Authorization", "Bearer " + token)
+                .header("Content-Type", "multipart/form-data; boundary=" + boundary)
+                .POST(HttpRequest.BodyPublishers.ofByteArray(body))
+                .timeout(Duration.ofSeconds(180)));
+    }
+
+    private String apiPutMultipart(String token, String url, Map<String, String> formFields,
+                                     Map<String, String> fileContents) {
+        String boundary = "----CloudflareBoundary" + System.currentTimeMillis();
+        byte[] body = buildMultipartBodyMulti(boundary, formFields, fileContents, true);
+        return httpSend(HttpRequest.newBuilder(URI.create(url))
+                .header("Authorization", "Bearer " + token)
+                .header("Content-Type", "multipart/form-data; boundary=" + boundary)
+                .method("PUT", HttpRequest.BodyPublishers.ofByteArray(body))
+                .timeout(Duration.ofSeconds(120)));
+    }
+
+    private static byte[] buildMultipartBodyMulti(String boundary, Map<String, String> formFields,
+                                                  Map<String, String> fileContents, boolean workerModule) {
+        String lineEnd = "\r\n";
+        StringBuilder sb = new StringBuilder();
+        if (formFields != null) {
+            for (Map.Entry<String, String> e : formFields.entrySet()) {
+                sb.append("--").append(boundary).append(lineEnd);
+                sb.append("Content-Disposition: form-data; name=\"").append(e.getKey()).append("\"").append(lineEnd);
+                if ("metadata".equals(e.getKey()) && workerModule) {
+                    sb.append("Content-Type: application/json").append(lineEnd);
+                }
+                sb.append(lineEnd);
+                sb.append(e.getValue()).append(lineEnd);
+            }
+        }
+        if (fileContents != null) {
+            for (Map.Entry<String, String> e : fileContents.entrySet()) {
+                sb.append("--").append(boundary).append(lineEnd);
+                sb.append("Content-Disposition: form-data; name=\"").append(e.getKey())
+                        .append("\"; filename=\"").append(e.getKey()).append("\"").append(lineEnd);
+                String contentType = workerModule
+                        ? "application/javascript+module"
+                        : guessPagesContentType(e.getKey());
+                sb.append("Content-Type: ").append(contentType).append(lineEnd);
+                sb.append(lineEnd);
+                sb.append(e.getValue()).append(lineEnd);
+            }
+        }
+        sb.append("--").append(boundary).append("--").append(lineEnd);
+        return sb.toString().getBytes(StandardCharsets.UTF_8);
+    }
+
+    private static String guessPagesContentType(String path) {
+        String lower = path.toLowerCase();
+        if (lower.endsWith(".html") || lower.endsWith(".htm")) {
+            return "text/html";
+        }
+        if (lower.endsWith(".css")) {
+            return "text/css";
+        }
+        if (lower.endsWith(".js") || lower.endsWith(".mjs")) {
+            return "application/javascript";
+        }
+        if (lower.endsWith(".json")) {
+            return "application/json";
+        }
+        if (lower.endsWith(".svg")) {
+            return "image/svg+xml";
+        }
+        if (lower.endsWith(".png")) {
+            return "image/png";
+        }
+        if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) {
+            return "image/jpeg";
+        }
+        return "application/octet-stream";
+    }
+
+    private static byte[] buildMultipartBodyBinary(String boundary, Map<String, String> formFields,
+                                                   Map<String, byte[]> fileContents) {
+        try {
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            String lineEnd = "\r\n";
+            if (formFields != null) {
+                for (Map.Entry<String, String> e : formFields.entrySet()) {
+                    out.write(("--" + boundary + lineEnd).getBytes(StandardCharsets.UTF_8));
+                    out.write(("Content-Disposition: form-data; name=\"" + e.getKey() + "\"" + lineEnd).getBytes(StandardCharsets.UTF_8));
+                    out.write(lineEnd.getBytes(StandardCharsets.UTF_8));
+                    out.write(e.getValue().getBytes(StandardCharsets.UTF_8));
+                    out.write(lineEnd.getBytes(StandardCharsets.UTF_8));
+                }
+            }
+            if (fileContents != null) {
+                for (Map.Entry<String, byte[]> e : fileContents.entrySet()) {
+                    out.write(("--" + boundary + lineEnd).getBytes(StandardCharsets.UTF_8));
+                    out.write(("Content-Disposition: form-data; name=\"" + e.getKey()
+                            + "\"; filename=\"" + e.getKey() + "\"" + lineEnd).getBytes(StandardCharsets.UTF_8));
+                    out.write(("Content-Type: " + guessPagesContentType(e.getKey()) + lineEnd).getBytes(StandardCharsets.UTF_8));
+                    out.write(lineEnd.getBytes(StandardCharsets.UTF_8));
+                    out.write(e.getValue());
+                    out.write(lineEnd.getBytes(StandardCharsets.UTF_8));
+                }
+            }
+            out.write(("--" + boundary + "--" + lineEnd).getBytes(StandardCharsets.UTF_8));
+            return out.toByteArray();
+        } catch (IOException e) {
+            throw new OciException("构建上传请求失败");
+        }
     }
 
     private static byte[] buildMultipartBody(String boundary, String fileFieldName, String fileName,

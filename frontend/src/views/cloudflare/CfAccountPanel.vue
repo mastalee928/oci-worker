@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="cf-account-panel">
     <a-tabs v-model:active-key="accountTab">
       <a-tab-pane key="tunnel" tab="Tunnel 连接器">
@@ -118,31 +118,8 @@
         <p class="cf-hint">账户级 IP 访问规则，对账户下所有 Zone 生效。复杂条件请使用「域名 → 安全性」防火墙规则。</p>
       </a-tab-pane>
 
-      <a-tab-pane key="workers" tab="Workers 脚本">
-        <div class="cf-toolbar">
-          <a-button :loading="scriptsLoading" :disabled="!cfConfigured" @click="loadScripts">刷新</a-button>
-        </div>
-        <a-table
-          v-if="!isMobile"
-          :columns="scriptColumns"
-          :data-source="scripts"
-          :loading="scriptsLoading"
-          row-key="id"
-          size="middle"
-        />
-        <a-spin v-else :spinning="scriptsLoading">
-          <a-empty v-if="!scriptsLoading && scripts.length === 0" description="暂无 Workers 脚本" />
-          <div v-for="item in scripts" :key="item.id" class="mobile-card">
-            <div class="mobile-card-header">
-              <span class="mobile-card-title">{{ item.id }}</span>
-            </div>
-            <div class="mobile-card-body">
-              <div v-if="item.createdOn" class="mobile-card-row"><span class="label">创建</span><span class="value">{{ item.createdOn }}</span></div>
-              <div v-if="item.modifiedOn" class="mobile-card-row"><span class="label">修改</span><span class="value">{{ item.modifiedOn }}</span></div>
-            </div>
-          </div>
-        </a-spin>
-        <p class="cf-hint">账户级 Workers 脚本列表。路由绑定请在「域名 → Workers 路由」中配置。</p>
+      <a-tab-pane key="workers" tab="Workers 和 Pages">
+        <CfWorkersPagesTab ref="workersPagesRef" :cf-configured="cfConfigured" />
       </a-tab-pane>
     </a-tabs>
 
@@ -406,6 +383,7 @@ import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { useIsMobile } from '../../composables/useIsMobile'
+import CfWorkersPagesTab from './CfWorkersPagesTab.vue'
 import {
   listCfTunnels,
   createCfTunnel,
@@ -416,7 +394,6 @@ import {
   createCfTunnelRoute,
   deleteCfTunnelRoute,
   listCfZonesPage,
-  listCfWorkerScripts,
   listCfIpAccessRules,
   createCfIpAccessRule,
   deleteCfIpAccessRule,
@@ -530,8 +507,7 @@ const routeColumns = [
   { title: '操作', key: 'action', width: 80 },
 ]
 
-const scriptsLoading = ref(false)
-const scripts = ref<any[]>([])
+const workersPagesRef = ref<InstanceType<typeof CfWorkersPagesTab> | null>(null)
 
 const ipRulesLoading = ref(false)
 const ipRules = ref<any[]>([])
@@ -642,7 +618,7 @@ async function handleDeleteIpRule(ruleId: string) {
 
 watch(accountTab, tab => {
   if (tab === 'ipaccess') loadIpRules()
-  if (tab === 'workers' && scripts.value.length === 0) loadScripts()
+  if (tab === 'workers') workersPagesRef.value?.loadAll()
 })
 
 const deleteModalVisible = ref(false)
@@ -657,12 +633,6 @@ const tunnelColumns = [
   { title: '状态', key: 'status', width: 100 },
   { title: '创建时间', dataIndex: 'createdAt', width: 180 },
   { title: '操作', key: 'action', width: 280 },
-]
-
-const scriptColumns = [
-  { title: '脚本名', dataIndex: 'id' },
-  { title: '创建', dataIndex: 'createdOn', width: 180 },
-  { title: '修改', dataIndex: 'modifiedOn', width: 180 },
 ]
 
 function statusColor(s: string) {
@@ -704,16 +674,6 @@ async function loadTunnels() {
     tunnels.value = res.data || []
   } finally {
     tunnelLoading.value = false
-  }
-}
-
-async function loadScripts() {
-  scriptsLoading.value = true
-  try {
-    const res = await listCfWorkerScripts()
-    scripts.value = res.data || []
-  } finally {
-    scriptsLoading.value = false
   }
 }
 

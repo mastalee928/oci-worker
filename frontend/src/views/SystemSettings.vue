@@ -205,8 +205,12 @@
                     权限（自定义最小权限时建议至少包含）：
                     <ul>
                       <li><strong>Account</strong> → <strong>Cloudflare Tunnel</strong> → <strong>Edit</strong>（Tunnel 连接器、Public Hostname / ingress 路由）</li>
+                      <li><strong>Account</strong> → <strong>Workers Scripts</strong> → <strong>Edit</strong>（创建 / 上传 Worker 脚本）</li>
+                      <li><strong>Account</strong> → <strong>Cloudflare Pages</strong> → <strong>Edit</strong>（Pages 项目、Direct Upload 静态部署）</li>
+                      <li><strong>Account</strong> → <strong>Analytics</strong> → <strong>Read</strong>（Workers 和 Pages「使用情况」用量）</li>
                       <li><strong>Zone</strong> → <strong>DNS</strong> → <strong>Edit</strong>（DNS 记录、Tunnel 自动 CNAME）</li>
-                      <li>其余 OCIWorker 功能按需勾选对应 <strong>Edit</strong>（如 Zone 设置、防火墙、Workers 等）；同一项只勾 Edit，不必读+编辑双勾</li>
+                      <li><strong>Zone</strong> → <strong>Workers Routes</strong> → <strong>Edit</strong>（域名 → Workers 路由，可选）</li>
+                      <li>其余功能按需勾选对应 <strong>Edit</strong>（防火墙、SSL、缓存等）；同一项只勾 Edit，不必读+编辑双勾</li>
                     </ul>
                   </li>
                   <li>若使用 Cloudflare 提供的「编辑全部区域」等宽权限模板，通常已包含上述能力，无需逐项勾选</li>
