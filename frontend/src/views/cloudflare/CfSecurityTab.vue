@@ -39,6 +39,7 @@
       </a-space>
     </div>
     <a-table
+      v-if="!isMobile"
       :columns="columns"
       :data-source="rules"
       :loading="loading"
@@ -93,13 +94,58 @@
         </template>
       </template>
     </a-table>
+    <a-spin v-else :spinning="loading">
+      <a-empty v-if="!loading && rules.length === 0" description="暂无防火墙规则" />
+      <div v-for="record in rules" :key="record.id" class="mobile-card">
+        <div class="mobile-card-header">
+          <a class="mobile-card-title cf-rule-name-link" @click="openEditModal(record)">
+            {{ ruleDisplayName(record.description, record.expression) }}
+          </a>
+          <a-tag :color="record.paused ? 'default' : 'success'">
+            {{ record.paused ? '已禁用' : '活动' }}
+          </a-tag>
+        </div>
+        <div class="mobile-card-body">
+          <div class="mobile-card-row">
+            <span class="label">匹配</span>
+            <span class="value">{{ humanizeExpression(record.expression) }}</span>
+          </div>
+          <div class="mobile-card-row">
+            <span class="label">操作</span>
+            <span class="value">{{ firewallActionLabel(record.action) }}</span>
+          </div>
+          <div class="mobile-card-row">
+            <span class="label">24h 事件</span>
+            <span class="value">{{ formatEvents24h(record.events24h) }}</span>
+          </div>
+        </div>
+        <a-space wrap class="mobile-card-actions">
+          <a-button size="small" @click="openEditModal(record)">编辑</a-button>
+          <a-button
+            size="small"
+            :loading="!!pauseLoadingMap[record.id]"
+            @click="toggleRulePaused(record)"
+          >
+            {{ record.paused ? '启用' : '禁用' }}
+          </a-button>
+          <a-button
+            size="small"
+            danger
+            :loading="!!deleteLoadingMap[record.id]"
+            @click="confirmDelete(record)"
+          >
+            删除
+          </a-button>
+        </a-space>
+      </div>
+    </a-spin>
     <p class="cf-hint">防火墙规则（Ingress）。支持可视化构建或手写 Wirefilter 表达式。</p>
 
     <a-modal
       v-model:open="createModalVisible"
       :title="editingRuleId ? '编辑防火墙规则' : '添加防火墙规则'"
       :confirm-loading="saveLoading"
-      width="720px"
+      :width="isMobile ? 'calc(100vw - 32px)' : 720"
       @ok="submitSave"
     >
       <a-form layout="vertical">
@@ -134,7 +180,7 @@
             >
               <div v-if="idx > 0" class="cf-clause-join">{{ form.join === 'and' ? '且' : '或' }}</div>
               <a-row :gutter="8" align="middle">
-                <a-col :span="7">
+                <a-col :xs="24" :sm="7">
                   <div class="cf-mini-label">字段</div>
                   <a-select
                     v-model:value="clause.fieldId"
@@ -143,7 +189,7 @@
                     @change="onClauseFieldChange(clause)"
                   />
                 </a-col>
-                <a-col :span="7">
+                <a-col :xs="24" :sm="7">
                   <div class="cf-mini-label">运算符</div>
                   <a-select
                     v-model:value="clause.operator"
@@ -151,7 +197,7 @@
                     style="width: 100%"
                   />
                 </a-col>
-                <a-col :span="clauseField(clause)?.type === 'bool' ? 7 : 10">
+                <a-col :xs="24" :sm="clauseField(clause)?.type === 'bool' ? 7 : 10">
                   <div class="cf-mini-label">值</div>
                   <a-switch
                     v-if="clauseField(clause)?.type === 'bool'"
@@ -166,7 +212,7 @@
                     allow-clear
                   />
                 </a-col>
-                <a-col v-if="form.clauses.length > 1" :span="3" class="cf-clause-del">
+                <a-col v-if="form.clauses.length > 1" :xs="24" :sm="3" class="cf-clause-del">
                   <a-button type="link" danger size="small" @click="removeClause(idx)">删除</a-button>
                 </a-col>
               </a-row>
@@ -201,6 +247,7 @@
 <script setup lang="ts">
 import { ref, reactive, watch, computed } from 'vue'
 import { message, Modal } from 'ant-design-vue'
+import { useIsMobile } from '../../composables/useIsMobile'
 import {
   listCfFirewallRules,
   createCfFirewallRule,
@@ -237,6 +284,7 @@ interface FirewallRule {
 type ClauseRow = VisualClauseForm & { key: string }
 
 const props = defineProps<{ zoneId?: string }>()
+const { isMobile } = useIsMobile()
 
 const loading = ref(false)
 const shieldLoading = ref(false)
@@ -616,5 +664,37 @@ watch(() => props.zoneId, () => loadAll(), { immediate: true })
   white-space: pre-wrap;
   word-break: break-all;
   color: var(--text-main);
+}
+.mobile-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+.mobile-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.mobile-card-title { font-weight: 600; word-break: break-word; }
+.mobile-card-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+.mobile-card-row .label { color: var(--text-sub); flex-shrink: 0; }
+.mobile-card-row .value { text-align: right; word-break: break-all; }
+.mobile-card-actions { margin-top: 8px; }
+@media (max-width: 767px) {
+  .cf-join-bar {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+  .cf-clause-del { text-align: left; margin-top: 4px; }
 }
 </style>

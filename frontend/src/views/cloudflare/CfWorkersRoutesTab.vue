@@ -7,6 +7,7 @@
       </a-space>
     </div>
     <a-table
+      v-if="!isMobile"
       :columns="columns"
       :data-source="routes"
       :loading="loading"
@@ -21,8 +22,31 @@
         </template>
       </template>
     </a-table>
+    <a-spin v-else :spinning="loading">
+      <a-empty v-if="!loading && routes.length === 0" description="暂无 Workers 路由" />
+      <div v-for="record in routes" :key="record.id" class="mobile-card">
+        <div class="mobile-card-header">
+          <span class="mobile-card-title">{{ record.pattern }}</span>
+        </div>
+        <div class="mobile-card-body">
+          <div class="mobile-card-row">
+            <span class="label">Worker</span>
+            <span class="value">{{ record.script }}</span>
+          </div>
+        </div>
+        <a-popconfirm title="确定删除此路由？" @confirm="handleDelete(record.id)">
+          <a-button size="small" danger>删除</a-button>
+        </a-popconfirm>
+      </div>
+    </a-spin>
 
-    <a-modal v-model:open="modalVisible" title="添加 Workers 路由" :confirm-loading="saveLoading" @ok="submit">
+    <a-modal
+      v-model:open="modalVisible"
+      title="添加 Workers 路由"
+      :confirm-loading="saveLoading"
+      :width="isMobile ? 'calc(100vw - 32px)' : 520"
+      @ok="submit"
+    >
       <a-form layout="vertical">
         <a-form-item label="Pattern" required>
           <a-input v-model:value="form.pattern" placeholder="如 example.com/*" />
@@ -51,8 +75,10 @@ import {
   deleteCfWorkersRoute,
   listCfWorkerScripts,
 } from '../../api/cloudflare'
+import { useIsMobile } from '../../composables/useIsMobile'
 
 const props = defineProps<{ zoneId?: string }>()
+const { isMobile } = useIsMobile()
 
 const loading = ref(false)
 const saveLoading = ref(false)
@@ -133,4 +159,27 @@ watch(() => props.zoneId, () => load(), { immediate: true })
 
 <style scoped>
 .cf-toolbar { margin-bottom: 16px; }
+.mobile-card {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+  margin-bottom: 12px;
+}
+.mobile-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.mobile-card-title { font-weight: 600; word-break: break-word; }
+.mobile-card-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  font-size: 13px;
+  margin-bottom: 4px;
+}
+.mobile-card-row .label { color: var(--text-sub); flex-shrink: 0; }
+.mobile-card-row .value { text-align: right; word-break: break-all; }
 </style>

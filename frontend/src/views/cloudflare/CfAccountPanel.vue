@@ -45,7 +45,13 @@
             </div>
             <div class="mobile-card-body">
               <div class="mobile-card-row"><span class="label">ID</span><span class="value">{{ item.id }}</span></div>
+              <div v-if="item.createdAt" class="mobile-card-row"><span class="label">创建</span><span class="value">{{ item.createdAt }}</span></div>
             </div>
+            <a-space wrap class="mobile-card-actions">
+              <a-button size="small" @click="showToken(item)">Token</a-button>
+              <a-button size="small" @click="showConnections(item)">连接</a-button>
+              <a-button size="small" danger @click="openDeleteTunnel(item)">删除</a-button>
+            </a-space>
           </div>
         </a-spin>
       </a-tab-pane>
@@ -64,6 +70,7 @@
           </a-space>
         </div>
         <a-table
+          v-if="!isMobile"
           :columns="ipRuleColumns"
           :data-source="ipRules"
           :loading="ipRulesLoading"
@@ -88,6 +95,24 @@
             </template>
           </template>
         </a-table>
+        <a-spin v-else :spinning="ipRulesLoading">
+          <a-empty v-if="!ipRulesLoading && ipRules.length === 0" description="暂无 IP 访问规则" />
+          <div v-for="item in ipRules" :key="item.id" class="mobile-card">
+            <div class="mobile-card-header">
+              <span class="mobile-card-title">{{ item.value }}</span>
+              <a-tag :color="modeColor(item.mode)">{{ modeLabel(item.mode) }}</a-tag>
+            </div>
+            <div class="mobile-card-body">
+              <div class="mobile-card-row"><span class="label">类型</span><span class="value">{{ targetLabel(item.target) }}</span></div>
+              <div class="mobile-card-row"><span class="label">范围</span><span class="value">账户下所有网站</span></div>
+              <div v-if="item.notes" class="mobile-card-row"><span class="label">注释</span><span class="value">{{ item.notes }}</span></div>
+              <div v-if="item.createdOn" class="mobile-card-row"><span class="label">创建</span><span class="value">{{ item.createdOn }}</span></div>
+            </div>
+            <a-popconfirm title="确定删除此 IP 访问规则？" @confirm="handleDeleteIpRule(item.id)">
+              <a-button size="small" danger>删除</a-button>
+            </a-popconfirm>
+          </div>
+        </a-spin>
         <p class="cf-hint">账户级 IP 访问规则，对账户下所有 Zone 生效。复杂条件请使用「域名 → 安全性」防火墙规则。</p>
       </a-tab-pane>
 
@@ -96,12 +121,25 @@
           <a-button :loading="scriptsLoading" :disabled="!cfConfigured" @click="loadScripts">刷新</a-button>
         </div>
         <a-table
+          v-if="!isMobile"
           :columns="scriptColumns"
           :data-source="scripts"
           :loading="scriptsLoading"
           row-key="id"
           size="middle"
         />
+        <a-spin v-else :spinning="scriptsLoading">
+          <a-empty v-if="!scriptsLoading && scripts.length === 0" description="暂无 Workers 脚本" />
+          <div v-for="item in scripts" :key="item.id" class="mobile-card">
+            <div class="mobile-card-header">
+              <span class="mobile-card-title">{{ item.id }}</span>
+            </div>
+            <div class="mobile-card-body">
+              <div v-if="item.createdOn" class="mobile-card-row"><span class="label">创建</span><span class="value">{{ item.createdOn }}</span></div>
+              <div v-if="item.modifiedOn" class="mobile-card-row"><span class="label">修改</span><span class="value">{{ item.modifiedOn }}</span></div>
+            </div>
+          </div>
+        </a-spin>
         <p class="cf-hint">账户级 Workers 脚本列表。路由绑定请在「域名 → Workers 路由」中配置。</p>
       </a-tab-pane>
     </a-tabs>
@@ -146,7 +184,7 @@
       <a-textarea :value="tokenText" :rows="4" readonly />
     </a-modal>
 
-    <a-drawer v-model:open="connVisible" :title="connTitle" width="480">
+    <a-drawer v-model:open="connVisible" :title="connTitle" :width="isMobile ? '100%' : 480">
       <a-spin :spinning="connLoading">
         <a-empty v-if="!connLoading && connections.length === 0" description="暂无活跃连接" />
         <a-list v-else :data-source="connections" item-layout="vertical">
@@ -185,9 +223,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch, onMounted, onUnmounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons-vue'
+import { useIsMobile } from '../../composables/useIsMobile'
 import {
   listCfTunnels,
   createCfTunnel,
@@ -204,8 +243,7 @@ import { sendVerifyCode } from '../../api/system'
 defineProps<{ cfConfigured: boolean }>()
 
 const accountTab = ref('tunnel')
-const isMobile = ref(window.innerWidth < 768)
-function checkMobile() { isMobile.value = window.innerWidth < 768 }
+const { isMobile } = useIsMobile()
 
 const tunnelLoading = ref(false)
 const tunnels = ref<any[]>([])
@@ -493,11 +531,7 @@ async function showConnections(record: any) {
   }
 }
 
-onMounted(() => {
-  window.addEventListener('resize', checkMobile)
-  loadTunnels()
-})
-onUnmounted(() => window.removeEventListener('resize', checkMobile))
+onMounted(() => loadTunnels())
 </script>
 
 <style scoped>
@@ -520,7 +554,9 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   justify-content: space-between;
   font-size: 13px;
 }
-.mobile-card-row .label { color: var(--text-sub); }
+.mobile-card-row .label { color: var(--text-sub); flex-shrink: 0; }
+.mobile-card-row .value { text-align: right; word-break: break-all; }
+.mobile-card-actions { margin-top: 8px; }
 .cf-verify-footer {
   margin-top: 12px;
   display: flex;

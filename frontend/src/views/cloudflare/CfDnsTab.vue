@@ -31,20 +31,20 @@
       </a-card>
 
       <!-- DNS 工具栏 -->
-      <div class="cf-toolbar">
-        <a-space wrap>
+      <div class="cf-toolbar" :class="{ 'is-mobile': isMobile }">
+        <a-space wrap class="cf-toolbar-space">
           <a-input-search
             v-model:value="dnsSearch"
             placeholder="搜索记录名称"
             allow-clear
-            style="width: 200px"
+            class="cf-dns-search"
             @search="onDnsFilterChange"
           />
           <a-select
             v-model:value="dnsTypeFilter"
             placeholder="类型筛选"
             allow-clear
-            style="width: 120px"
+            class="cf-dns-type-filter"
             :options="dnsTypeFilterOptions"
             @change="onDnsFilterChange"
           />
@@ -497,6 +497,12 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
 .cf-dns-tab { min-height: 120px; }
 .cf-sub-card { margin-bottom: 16px; }
 .cf-toolbar { margin-bottom: 16px; }
+.cf-dns-search { width: 200px; }
+.cf-dns-type-filter { width: 120px; }
+.cf-toolbar.is-mobile :deep(.ant-space) { width: 100%; }
+.cf-toolbar.is-mobile :deep(.ant-space-item) { width: 100%; }
+.cf-toolbar.is-mobile .cf-dns-search,
+.cf-toolbar.is-mobile .cf-dns-type-filter { width: 100%; }
 .cf-hint {
   margin: 8px 0 0;
   font-size: 12px;

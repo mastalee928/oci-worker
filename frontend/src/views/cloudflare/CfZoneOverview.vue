@@ -1,7 +1,7 @@
 <template>
   <div class="cf-zone-overview">
     <a-card size="small" title="区域详情" :loading="loading">
-      <template #extra>
+      <template v-if="!isMobile" #extra>
         <a-space wrap>
           <span class="cf-label-inline">暂停解析</span>
           <a-switch
@@ -16,6 +16,23 @@
           <a-button size="small" :loading="loading" :disabled="!zoneId" @click="load">刷新</a-button>
         </a-space>
       </template>
+      <div v-if="isMobile && detail" class="cf-overview-actions">
+        <div class="cf-overview-action-row">
+          <span class="cf-label-inline">暂停解析</span>
+          <a-switch
+            :checked="!!detail.paused"
+            :loading="pausedLoading"
+            :disabled="!props.zoneId"
+            @change="onPauseSwitch"
+          />
+        </div>
+        <a-space wrap>
+          <a-button danger size="small" :loading="deleteLoading" :disabled="!zoneId" @click="openDeleteModal">
+            删除区域
+          </a-button>
+          <a-button size="small" :loading="loading" :disabled="!zoneId" @click="load">刷新</a-button>
+        </a-space>
+      </div>
       <a-descriptions v-if="detail" bordered size="small" :column="isMobile ? 1 : 2">
         <a-descriptions-item label="域名">{{ detail.name }}</a-descriptions-item>
         <a-descriptions-item label="状态">
@@ -72,10 +89,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onMounted, onUnmounted } from 'vue'
+import { ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
 import { getCfZoneDetail, deleteCfZone, setCfZonePaused } from '../../api/cloudflare'
 import { sendVerifyCode } from '../../api/system'
+import { useIsMobile } from '../../composables/useIsMobile'
 
 const props = defineProps<{
   zoneId?: string
@@ -97,8 +115,7 @@ const detail = ref<{
   nameServers?: string[]
 } | null>(null)
 
-const isMobile = ref(window.innerWidth < 768)
-function checkMobile() { isMobile.value = window.innerWidth < 768 }
+const { isMobile } = useIsMobile()
 
 const pauseModalVisible = ref(false)
 const deleteModalVisible = ref(false)
@@ -217,11 +234,22 @@ async function confirmDelete() {
 }
 
 watch(() => props.zoneId, () => load(), { immediate: true })
-onMounted(() => window.addEventListener('resize', checkMobile))
-onUnmounted(() => window.removeEventListener('resize', checkMobile))
 </script>
 
 <style scoped>
+.cf-overview-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.cf-overview-action-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
 .cf-label-inline {
   font-size: 13px;
   color: var(--text-sub);
