@@ -168,57 +168,58 @@
             <p class="cf-section-label">当传入请求匹配时…</p>
             <div class="cf-join-bar">
               <span class="cf-mini-label">条件关系</span>
-              <a-radio-group v-model:value="form.join" size="small">
+              <a-radio-group v-model:value="form.join" size="small" @change="onJoinChange">
                 <a-radio-button value="and">且 (AND)</a-radio-button>
                 <a-radio-button value="or">或 (OR)</a-radio-button>
               </a-radio-group>
             </div>
             <div
-              v-for="(clause, idx) in form.clauses"
-              :key="clause.key"
+              v-for="(item, idx) in form.items"
+              :key="item.key"
               class="cf-clause-block"
+              :class="{ 'cf-clause-block--group': item.type === 'group' }"
             >
               <div v-if="idx > 0" class="cf-clause-join">{{ form.join === 'and' ? '且' : '或' }}</div>
-              <a-row :gutter="8" align="middle">
-                <a-col :xs="24" :sm="7">
-                  <div class="cf-mini-label">字段</div>
-                  <a-select
-                    v-model:value="clause.fieldId"
-                    :options="fieldOptions"
-                    style="width: 100%"
-                    @change="onClauseFieldChange(clause)"
+              <div v-if="item.type === 'group'" class="cf-or-group">
+                <p class="cf-or-group-label">以下条件同时满足（且）</p>
+                <div
+                  v-for="(clause, j) in item.clauses"
+                  :key="clause.key"
+                  class="cf-clause-block cf-clause-block--nested"
+                >
+                  <div v-if="j > 0" class="cf-clause-join">且</div>
+                  <FirewallClauseFields
+                    :clause="clause"
+                    :removable="item.clauses.length > 1"
+                    @remove="removeFromGroup(idx, j)"
                   />
-                </a-col>
-                <a-col :xs="24" :sm="7">
-                  <div class="cf-mini-label">运算符</div>
-                  <a-select
-                    v-model:value="clause.operator"
-                    :options="operatorsForClause(clause)"
-                    style="width: 100%"
-                  />
-                </a-col>
-                <a-col :xs="24" :sm="clauseField(clause)?.type === 'bool' ? 7 : 10">
-                  <div class="cf-mini-label">值</div>
-                  <a-switch
-                    v-if="clauseField(clause)?.type === 'bool'"
-                    v-model:checked="clause.boolValue"
-                    checked-children="是 (HTTPS)"
-                    un-checked-children="否"
-                  />
-                  <a-input
-                    v-else
-                    v-model:value="clause.value"
-                    :placeholder="clauseField(clause)?.placeholder || '输入匹配值'"
-                    allow-clear
-                  />
-                </a-col>
-                <a-col v-if="form.clauses.length > 1" :xs="24" :sm="3" class="cf-clause-del">
-                  <a-button type="link" danger size="small" @click="removeClause(idx)">删除</a-button>
-                </a-col>
-              </a-row>
-              <p v-if="clauseField(clause)?.valueHint" class="cf-value-hint">{{ clauseField(clause)?.valueHint }}</p>
+                </div>
+                <a-button type="dashed" size="small" class="cf-add-clause" @click="addToGroup(idx)">
+                  组内添加且条件
+                </a-button>
+                <a-button type="link" danger size="small" class="cf-remove-group" @click="removeItem(idx)">
+                  删除整组
+                </a-button>
+              </div>
+              <FirewallClauseFields
+                v-else
+                :clause="item"
+                :removable="form.items.length > 1"
+                @remove="removeItem(idx)"
+              />
             </div>
-            <a-button type="dashed" block class="cf-add-clause" @click="addClause">添加条件</a-button>
+            <a-space direction="vertical" style="width: 100%">
+              <a-button type="dashed" block class="cf-add-clause" @click="addClause">添加条件</a-button>
+              <a-button
+                v-if="form.join === 'or'"
+                type="dashed"
+                block
+                class="cf-add-clause"
+                @click="addAndGroup"
+              >
+                添加「且」条件组
+              </a-button>
+            </a-space>
             <div class="cf-expr-preview">
               <div class="cf-expr-preview-head">
                 <span>表达式预览</span>
@@ -257,19 +258,16 @@ import {
   getCfSecurityProtection,
   setCfSecurityProtection,
 } from '../../api/cloudflare'
+import CfFirewallClauseFields from './CfFirewallClauseFields.vue'
 import {
-  FIREWALL_FIELDS,
-  compileFirewallExpression,
-  defaultOperatorForField,
-  operatorsForField,
+  compileFirewallVisualForm,
   humanizeExpression,
   firewallActionLabel,
   ruleDisplayName,
   parseFirewallVisualForm,
-  type FieldDef,
   type FirewallJoin,
-  type OperatorId,
   type VisualClauseForm,
+  type VisualRuleForm,
 } from './cfFirewallExpression'
 
 interface FirewallRule {
@@ -282,6 +280,10 @@ interface FirewallRule {
 }
 
 type ClauseRow = VisualClauseForm & { key: string }
+
+type FormItem =
+  | ({ type: 'clause' } & ClauseRow)
+  | { type: 'group'; key: string; clauses: ClauseRow[] }
 
 const props = defineProps<{ zoneId?: string }>()
 const { isMobile } = useIsMobile()
@@ -315,7 +317,7 @@ const form = reactive({
   action: 'block',
   mode: 'visual' as 'visual' | 'advanced',
   join: 'and' as FirewallJoin,
-  clauses: [] as ClauseRow[],
+  items: [] as FormItem[],
   expression: '',
   enabled: true,
 })
@@ -338,10 +340,7 @@ const columns = [
   { title: '', key: 'ops', width: 168, fixed: 'right' as const },
 ]
 
-const fieldOptions = FIREWALL_FIELDS.map(f => ({ value: f.id, label: f.label }))
-
-const previewExpression = computed(() =>
-  compileFirewallExpression(form.join, form.clauses) || '')
+const previewExpression = computed(() => toVisualRuleForm() ? compileFirewallVisualForm(toVisualRuleForm()!) || '' : '')
 
 function formatEvents24h(n?: number) {
   if (n === undefined || n === null) return '—'
@@ -358,45 +357,89 @@ function createClauseRow(partial?: VisualClauseForm): ClauseRow {
   }
 }
 
-function clauseField(clause: VisualClauseForm): FieldDef | undefined {
-  return FIREWALL_FIELDS.find(f => f.id === clause.fieldId)
+function toVisualClause(row: ClauseRow): VisualClauseForm {
+  return {
+    fieldId: row.fieldId,
+    operator: row.operator,
+    value: row.value,
+    boolValue: row.boolValue,
+  }
 }
 
-function operatorsForClause(clause: VisualClauseForm) {
-  return operatorsForField(clauseField(clause)).map(o => ({ value: o.id, label: o.label }))
-}
-
-function onClauseFieldChange(clause: VisualClauseForm) {
-  const field = clauseField(clause)
-  if (!field) return
-  clause.operator = defaultOperatorForField(field)
-  clause.value = ''
-  clause.boolValue = true
+function toVisualRuleForm(): VisualRuleForm | null {
+  if (!form.items.length) return null
+  const items = form.items.map(item => {
+    if (item.type === 'group') {
+      return {
+        type: 'group' as const,
+        join: 'and' as const,
+        clauses: item.clauses.map(toVisualClause),
+      }
+    }
+    return { type: 'clause' as const, clause: toVisualClause(item) }
+  })
+  return { join: form.join, items }
 }
 
 function addClause() {
-  form.clauses.push(createClauseRow())
+  form.items.push({ type: 'clause', ...createClauseRow() })
 }
 
-function removeClause(idx: number) {
-  if (form.clauses.length <= 1) return
-  form.clauses.splice(idx, 1)
+function addAndGroup() {
+  form.items.push({
+    type: 'group',
+    key: `${Date.now()}-g`,
+    clauses: [createClauseRow(), createClauseRow()],
+  })
 }
 
-function applyVisualForm(join: FirewallJoin, clauses: VisualClauseForm[]) {
-  form.join = join
-  form.clauses = clauses.map(c => createClauseRow(c))
+function addToGroup(itemIdx: number) {
+  const item = form.items[itemIdx]
+  if (item?.type !== 'group') return
+  item.clauses.push(createClauseRow())
+}
+
+function removeItem(idx: number) {
+  if (form.items.length <= 1) return
+  form.items.splice(idx, 1)
+}
+
+function removeFromGroup(itemIdx: number, clauseIdx: number) {
+  const item = form.items[itemIdx]
+  if (item?.type !== 'group' || item.clauses.length <= 1) return
+  item.clauses.splice(clauseIdx, 1)
+}
+
+function onJoinChange() {
+  if (form.join === 'and' && form.items.some(i => i.type === 'group')) {
+    message.warning('当前含「或」下的且条件组，请先删除条件组或改用手写表达式')
+    form.join = 'or'
+  }
+}
+
+function applyVisualForm(parsed: VisualRuleForm) {
+  form.join = parsed.join
+  form.items = parsed.items.map(item => {
+    if (item.type === 'group') {
+      return {
+        type: 'group' as const,
+        key: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        clauses: item.clauses.map(c => createClauseRow(c)),
+      }
+    }
+    return { type: 'clause' as const, ...createClauseRow(item.clause) }
+  })
 }
 
 function resetVisualForm() {
   form.join = 'and'
-  form.clauses = [createClauseRow()]
+  form.items = [{ type: 'clause', ...createClauseRow() }]
 }
 
 function tryLoadVisualFromExpression(expr: string): boolean {
   const parsed = parseFirewallVisualForm(expr)
   if (!parsed) return false
-  applyVisualForm(parsed.join, parsed.clauses)
+  applyVisualForm(parsed)
   return true
 }
 
@@ -616,6 +659,26 @@ watch(() => props.zoneId, () => loadAll(), { immediate: true })
   margin-bottom: 12px;
   padding-bottom: 12px;
   border-bottom: 1px dashed var(--border);
+}
+.cf-clause-block--group {
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card, rgba(0, 0, 0, 0.02));
+}
+.cf-clause-block--nested {
+  border-bottom: none;
+  padding-bottom: 0;
+  margin-bottom: 8px;
+}
+.cf-or-group-label {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--text-sub);
+}
+.cf-remove-group {
+  margin-top: 8px;
+  padding-left: 0;
 }
 .cf-clause-block:last-of-type { border-bottom: none; }
 .cf-clause-join {

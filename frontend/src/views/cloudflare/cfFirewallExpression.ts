@@ -299,8 +299,14 @@ export interface VisualClauseForm {
 
 const FIELDS_BY_EXPR_LEN = [...FIREWALL_FIELDS].sort((a, b) => b.expr.length - a.expr.length)
 
+/** CF 控制台/历史规则中的字段别名 → 本面板 canonical expr */
+const FIELD_EXPR_ALIASES: Record<string, string> = {
+  'ip.geoip.asnum': 'ip.src.asnum',
+}
+
 function findFieldByExpr(exprKey: string): FieldDef | undefined {
-  return FIELDS_BY_EXPR_LEN.find(f => f.expr === exprKey)
+  const canonical = FIELD_EXPR_ALIASES[exprKey] ?? exprKey
+  return FIELDS_BY_EXPR_LEN.find(f => f.expr === canonical)
 }
 
 function unescapeQuoted(s: string): string {
@@ -334,9 +340,13 @@ export function isCompoundFirewallExpression(raw: string): boolean {
 
 export type FirewallJoin = 'and' | 'or'
 
+export type VisualRuleItem =
+  | { type: 'clause'; clause: VisualClauseForm }
+  | { type: 'group'; join: 'and'; clauses: VisualClauseForm[] }
+
 export interface VisualRuleForm {
   join: FirewallJoin
-  clauses: VisualClauseForm[]
+  items: VisualRuleItem[]
 }
 
 function splitTopLevel(raw: string, join: FirewallJoin): string[] {
@@ -454,24 +464,41 @@ export function parseFirewallExpression(raw: string): VisualClauseForm | null {
   return parseSingleFirewallClause(raw)
 }
 
-/** 解析含 AND/OR 的表达式为可视化表单；混合 and+or 或无法识别时返回 null */
+/** 解析含 AND/OR 的表达式为可视化表单；同层混合 and+or 或无法识别时返回 null */
 export function parseFirewallVisualForm(raw: string): VisualRuleForm | null {
   if (!raw?.trim()) return null
   const join = detectTopLevelJoin(raw)
   if (!join) return null
   const segments = splitTopLevel(raw, join)
-  const clauses: VisualClauseForm[] = []
+  const items: VisualRuleItem[] = []
   for (const seg of segments) {
+    const innerJoin = detectTopLevelJoin(seg)
+    if (join === 'or' && innerJoin === 'and') {
+      const innerSegs = splitTopLevel(seg, 'and')
+      const innerClauses: VisualClauseForm[] = []
+      for (const inner of innerSegs) {
+        const c = parseSingleFirewallClause(inner)
+        if (!c) return null
+        innerClauses.push(c)
+      }
+      if (innerClauses.length === 0) return null
+      if (innerClauses.length === 1) {
+        items.push({ type: 'clause', clause: innerClauses[0] })
+      } else {
+        items.push({ type: 'group', join: 'and', clauses: innerClauses })
+      }
+      continue
+    }
+    if (join === 'and' && innerJoin === 'or') return null
     const clause = parseSingleFirewallClause(seg)
     if (!clause) return null
-    clauses.push(clause)
+    items.push({ type: 'clause', clause })
   }
-  if (clauses.length === 0) return null
-  return { join, clauses }
+  if (items.length === 0) return null
+  return { join, items }
 }
 
-/** 将可视化多条条件编译为 Wirefilter 表达式 */
-export function compileFirewallExpression(join: FirewallJoin, clauses: VisualClauseForm[]): string | null {
+function compileClauseList(clauses: VisualClauseForm[]): string | null {
   if (!clauses.length) return null
   const parts: string[] = []
   for (const clause of clauses) {
@@ -483,6 +510,30 @@ export function compileFirewallExpression(join: FirewallJoin, clauses: VisualCla
     parts.push(compiled)
   }
   if (parts.length === 1) return parts[0]
-  const sep = ` ${join} `
+  return `(${parts.join(' and ')})`
+}
+
+/** 将可视化表单（含 OR 下的 AND 组）编译为 Wirefilter 表达式 */
+export function compileFirewallVisualForm(form: VisualRuleForm): string | null {
+  if (!form.items.length) return null
+  const parts: string[] = []
+  for (const item of form.items) {
+    const compiled =
+      item.type === 'clause'
+        ? compileClauseList([item.clause])
+        : compileClauseList(item.clauses)
+    if (!compiled) return null
+    parts.push(compiled)
+  }
+  if (parts.length === 1) return parts[0]
+  const sep = ` ${form.join} `
   return `(${parts.join(sep)})`
+}
+
+/** 将可视化多条条件编译为 Wirefilter 表达式 */
+export function compileFirewallExpression(join: FirewallJoin, clauses: VisualClauseForm[]): string | null {
+  return compileFirewallVisualForm({
+    join,
+    items: clauses.map(clause => ({ type: 'clause', clause })),
+  })
 }
