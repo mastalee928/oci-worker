@@ -214,8 +214,7 @@ body::after {
   padding-left: 0 !important;
   background: transparent !important;
   color: var(--text-main) !important;
-  caret-color: var(--text-main) !important;
-  -webkit-text-fill-color: var(--text-main) !important;
+  caret-color: currentColor !important;
 }
 .ant-input::placeholder, .ant-input-number-input::placeholder {
   color: var(--text-sub) !important;
@@ -226,11 +225,13 @@ body::after {
   box-shadow: 0 0 0 3px var(--primary-light) !important;
 }
 
-/* 全站 a-input-search：暗色可读 + 不裁切光标 + 聚焦隐占位 */
+/* 全站 a-input-search：浅色/深色均保证光标完整可见、文字可读 */
 .ant-input-search,
-.ant-input-search .ant-input-group,
 .ant-input-search .ant-input-group-wrapper,
-.ant-input-search .ant-input-affix-wrapper {
+.ant-input-search .ant-input-wrapper,
+.ant-input-search .ant-input-group,
+.ant-input-search .ant-input-affix-wrapper,
+.ant-input-search .ant-input-group-addon {
   overflow: visible !important;
 }
 .ant-input-search .ant-input-group .ant-input-affix-wrapper,
@@ -238,60 +239,66 @@ body::after {
   background: var(--input-bg) !important;
   border-color: var(--border) !important;
   color: var(--text-main) !important;
+  min-height: 32px !important;
+  box-sizing: border-box !important;
 }
 .ant-input-search .ant-input-affix-wrapper {
-  padding-left: 14px !important;
+  display: inline-flex !important;
   align-items: center !important;
-}
-.ant-input-search .ant-input-affix-wrapper .ant-input,
-.ant-input-search .ant-input-group > .ant-input,
-.ant-input-search .ant-input-group .ant-input-affix-wrapper .ant-input {
-  background: transparent !important;
-  color: var(--text-main) !important;
-  caret-color: var(--text-main) !important;
-  -webkit-text-fill-color: var(--text-main) !important;
-  padding-left: 0 !important;
-  padding-top: 0 !important;
-  padding-bottom: 0 !important;
-  line-height: 22px !important;
-  position: relative;
-  z-index: 1;
-}
-.ant-input-search .ant-input-group .ant-input,
-.ant-input-search .ant-input-group .ant-input-affix-wrapper:first-child {
-  padding-left: 14px !important;
+  padding: 5px 11px 5px 14px !important;
 }
 .ant-input-search .ant-input-group > .ant-input {
-  padding: 4px 11px 4px 14px !important;
+  padding: 5px 11px 5px 14px !important;
+  line-height: 22px !important;
+  font-size: 14px !important;
+  caret-color: currentColor !important;
 }
-.ant-input-search .ant-input:focus,
-.ant-input-search .ant-input-affix-wrapper-focused .ant-input {
+.ant-input-search .ant-input-affix-wrapper .ant-input {
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+  height: 22px !important;
+  min-height: 22px !important;
+  padding: 0 0 0 2px !important;
+  margin: 0 !important;
+  border: none !important;
+  box-shadow: none !important;
+  background: transparent !important;
   color: var(--text-main) !important;
-  -webkit-text-fill-color: var(--text-main) !important;
-  caret-color: var(--primary) !important;
+  caret-color: currentColor !important;
+  line-height: 22px !important;
+  font-size: 14px !important;
+  overflow: visible !important;
 }
-/* 聚焦且为空时不显示占位符，避免与光标叠在左侧 */
-.ant-input-search .ant-input:focus::placeholder,
-.ant-input-search .ant-input-affix-wrapper-focused .ant-input::placeholder {
-  color: transparent !important;
+.ant-input-search .ant-input-affix-wrapper .ant-input:focus,
+.ant-input-search .ant-input-group > .ant-input:focus {
+  caret-color: var(--primary) !important;
+  box-shadow: none !important;
 }
 .ant-input-search .ant-input::placeholder {
   color: var(--text-sub) !important;
 }
+/* 聚焦且为空时隐藏占位符，避免与光标叠字 */
+.ant-input-search .ant-input:focus::placeholder,
+.ant-input-search .ant-input-affix-wrapper-focused .ant-input::placeholder {
+  color: transparent !important;
+}
 
-/* Select show-search 内联搜索框（Zone 选择器等） */
+/* Select show-search 内联搜索框 */
 .ant-select .ant-select-selection-search-input {
   color: var(--text-main) !important;
-  caret-color: var(--text-main) !important;
-  -webkit-text-fill-color: var(--text-main) !important;
+  caret-color: currentColor !important;
+  line-height: 22px !important;
+  height: 22px !important;
 }
 .ant-select-focused .ant-select-selection-search-input {
   caret-color: var(--primary) !important;
 }
 
-/* Cloudflare 等嵌套布局：工具栏搜索框避免被 overflow 裁切光标 */
+/* Cloudflare 工具栏：避免父级 overflow 裁切搜索框光标 */
 .cf-page .cf-toolbar,
-.cf-page .cf-zone-bar {
+.cf-page .cf-zone-bar,
+.cf-page .cf-toolbar-space {
   overflow: visible;
   position: relative;
   z-index: 1;
