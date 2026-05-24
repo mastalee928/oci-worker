@@ -155,6 +155,8 @@
     <!-- 创建向导 -->
     <a-modal
       v-model:open="createVisible"
+      :mask-closable="false"
+      :keyboard="false"
       :title="createModalTitle"
       :footer="null"
       :width="isMobile ? 'calc(100vw - 32px)' : 760"
@@ -366,6 +368,8 @@
     <!-- 编辑已有 Worker -->
     <a-modal
       v-model:open="editWorkerVisible"
+      :mask-closable="false"
+      :keyboard="false"
       title="编辑 Worker 代码"
       :width="isMobile ? 'calc(100vw - 32px)' : 760"
       :confirm-loading="editWorkerLoading"

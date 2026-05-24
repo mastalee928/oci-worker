@@ -42,6 +42,8 @@
 
     <a-modal
       v-model:open="modalVisible"
+      :mask-closable="false"
+      :keyboard="false"
       title="添加 Workers 路由"
       :confirm-loading="saveLoading"
       :width="isMobile ? 'calc(100vw - 32px)' : 520"

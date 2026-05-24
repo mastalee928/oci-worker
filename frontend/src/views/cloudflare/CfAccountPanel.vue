@@ -128,6 +128,8 @@
 
     <a-modal
       v-model:open="ipCreateVisible"
+      :mask-closable="false"
+      :keyboard="false"
       title="添加 IP 访问规则"
       :confirm-loading="ipCreateLoading"
       width="520px"
@@ -151,6 +153,8 @@
 
     <a-modal
       v-model:open="createVisible"
+      :mask-closable="false"
+      :keyboard="false"
       title="创建 Cloudflare Tunnel"
       :confirm-loading="createLoading"
       @ok="submitCreateTunnel"
@@ -164,6 +168,8 @@
 
     <a-modal
       v-model:open="tokenVisible"
+      :mask-closable="false"
+      :keyboard="false"
       :title="tokenModalTitle"
       :footer="null"
       :width="isMobile ? 'calc(100vw - 32px)' : 720"
@@ -265,7 +271,13 @@
       </a-form>
     </a-modal>
 
-    <a-drawer v-model:open="connVisible" :title="connTitle" :width="isMobile ? '100%' : 480">
+    <a-drawer
+      v-model:open="connVisible"
+      :mask-closable="false"
+      :keyboard="false"
+      :title="connTitle"
+      :width="isMobile ? '100%' : 480"
+    >
       <a-spin :spinning="connLoading">
         <a-empty v-if="!connLoading && connections.length === 0" description="暂无活跃连接" />
         <a-list v-else :data-source="connections" item-layout="vertical">
@@ -283,6 +295,8 @@
 
     <a-drawer
       v-model:open="routesVisible"
+      :mask-closable="false"
+      :keyboard="false"
       :title="routesTitle"
       :width="isMobile ? '100%' : 560"
     >
@@ -361,6 +375,8 @@
 
     <a-modal
       v-model:open="deleteModalVisible"
+      :mask-closable="false"
+      :keyboard="false"
       title="安全验证 — 删除 Tunnel"
       :width="400"
       :confirm-loading="deleteVerifyLoading"

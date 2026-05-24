@@ -143,6 +143,8 @@
 
     <a-modal
       v-model:open="createModalVisible"
+      :mask-closable="false"
+      :keyboard="false"
       :title="editingRuleId ? '编辑防火墙规则' : '添加防火墙规则'"
       :confirm-loading="saveLoading"
       :width="isMobile ? 'calc(100vw - 32px)' : 720"

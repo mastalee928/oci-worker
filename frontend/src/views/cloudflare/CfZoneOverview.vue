@@ -50,6 +50,8 @@
 
     <a-modal
       v-model:open="pauseModalVisible"
+      :mask-closable="false"
+      :keyboard="false"
       :title="pendingPaused ? '安全验证 — 暂停解析' : '安全验证 — 恢复解析'"
       :width="400"
       :confirm-loading="pauseVerifyLoading"
@@ -68,6 +70,8 @@
 
     <a-modal
       v-model:open="deleteModalVisible"
+      :mask-closable="false"
+      :keyboard="false"
       title="安全验证 — 删除区域"
       :width="400"
       :confirm-loading="deleteVerifyLoading"

@@ -30,6 +30,8 @@
 
   <a-modal
     v-model:open="createZoneVisible"
+    :mask-closable="false"
+    :keyboard="false"
     title="添加区域"
     :confirm-loading="createZoneLoading"
     @ok="submitCreateZone"

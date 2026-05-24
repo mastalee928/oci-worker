@@ -136,6 +136,8 @@
     <!-- DNS 记录 -->
     <a-modal
       v-model:open="dnsModalVisible"
+      :mask-closable="false"
+      :keyboard="false"
       :title="dnsEditingId ? '编辑 DNS 记录' : '添加 DNS 记录'"
       :confirm-loading="dnsSaveLoading"
       @ok="submitDnsRecord"
@@ -168,6 +170,8 @@
     <!-- 导入 BIND -->
     <a-modal
       v-model:open="importModalVisible"
+      :mask-closable="false"
+      :keyboard="false"
       title="导入 BIND 区域文件"
       :confirm-loading="importLoading"
       width="640px"

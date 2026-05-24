@@ -237,6 +237,8 @@
     <!-- 路由规则弹窗 -->
     <a-modal
       v-model:open="ruleModalVisible"
+      :mask-closable="false"
+      :keyboard="false"
       :title="ruleEditingId ? '编辑路由规则' : '添加路由规则'"
       :confirm-loading="ruleSaveLoading"
       width="560px"
@@ -286,6 +288,8 @@
     <!-- Catch-All 弹窗 -->
     <a-modal
       v-model:open="catchAllModalVisible"
+      :mask-closable="false"
+      :keyboard="false"
       title="编辑 Catch-All 规则"
       :confirm-loading="catchAllSaveLoading"
       width="560px"
