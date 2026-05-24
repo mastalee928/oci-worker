@@ -347,11 +347,31 @@ export function listCfWorkersPagesTemplates(silent = false) {
   return request.post('/cf/workers/pages/templates/list', {}, silent ? cfSilent : undefined)
 }
 
-export function createCfWorkerHelloWorld(data: { name: string }) {
+export function getCfWorkersSubdomainInfo(silent = false) {
+  return request.post('/cf/workers/subdomain/info', {}, silent ? cfSilent : undefined)
+}
+
+export function getCfWorkersPagesTemplatePreview(data: { templateId: string }, silent = false) {
+  return request.post('/cf/workers/pages/templates/preview', data, silent ? cfSilent : undefined)
+}
+
+export function deployCfWorker(data: { name: string; script: string }) {
+  return request.post('/cf/workers/deploy', data)
+}
+
+export function getCfWorkerScript(data: { name: string }, silent = false) {
+  return request.post('/cf/workers/script/get', data, silent ? cfSilent : undefined)
+}
+
+export function updateCfWorkerScript(data: { name: string; script: string }) {
+  return request.post('/cf/workers/script/update', data)
+}
+
+export function createCfWorkerHelloWorld(data: { name: string; script?: string }) {
   return request.post('/cf/workers/create/hello-world', data)
 }
 
-export function createCfWorkerFromTemplate(data: { name: string; templateId: string }) {
+export function createCfWorkerFromTemplate(data: { name: string; templateId: string; script?: string }) {
   return request.post('/cf/workers/create/template', data)
 }
 

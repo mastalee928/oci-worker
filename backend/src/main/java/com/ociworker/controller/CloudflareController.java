@@ -421,15 +421,41 @@ public class CloudflareController {
         return ResponseData.ok(cloudflareService.listWorkerTemplates());
     }
 
+    @PostMapping("/workers/subdomain/info")
+    public ResponseData<?> workersSubdomainInfo() {
+        return ResponseData.ok(cloudflareService.getWorkersSubdomainInfo());
+    }
+
+    @PostMapping("/workers/pages/templates/preview")
+    public ResponseData<?> workersPagesTemplatePreview(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(cloudflareService.getWorkersPagesTemplatePreview(params.get("templateId")));
+    }
+
+    @PostMapping("/workers/deploy")
+    public ResponseData<?> workerDeploy(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(cloudflareService.deployWorker(params.get("name"), params.get("script")));
+    }
+
+    @PostMapping("/workers/script/get")
+    public ResponseData<?> workerScriptGet(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(cloudflareService.getWorkerScriptContent(params.get("name")));
+    }
+
+    @PostMapping("/workers/script/update")
+    public ResponseData<?> workerScriptUpdate(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(cloudflareService.updateWorkerScript(params.get("name"), params.get("script")));
+    }
+
     @PostMapping("/workers/create/hello-world")
     public ResponseData<?> workerCreateHelloWorld(@RequestBody Map<String, String> params) {
-        return ResponseData.ok(cloudflareService.createWorkerHelloWorld(params.get("name")));
+        return ResponseData.ok(cloudflareService.createWorkerHelloWorld(
+                params.get("name"), params.get("script")));
     }
 
     @PostMapping("/workers/create/template")
     public ResponseData<?> workerCreateTemplate(@RequestBody Map<String, String> params) {
         return ResponseData.ok(cloudflareService.createWorkerFromTemplate(
-                params.get("name"), params.get("templateId")));
+                params.get("name"), params.get("templateId"), params.get("script")));
     }
 
     @PostMapping("/pages/create/template")

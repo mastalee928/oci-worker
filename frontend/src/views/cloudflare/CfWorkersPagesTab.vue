@@ -99,7 +99,7 @@
       row-key="rowKey"
       size="middle"
       :pagination="false"
-      :scroll="{ x: 880 }"
+      :scroll="{ x: 980 }"
     >
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'kind'">
@@ -110,6 +110,15 @@
         <template v-else-if="column.key === 'url'">
           <a v-if="record.url" :href="urlHref(record)" target="_blank" rel="noopener">{{ record.url }}</a>
           <span v-else>—</span>
+        </template>
+        <template v-else-if="column.key === 'actions'">
+          <a-button
+            v-if="record.kind === 'worker'"
+            type="link"
+            size="small"
+            @click="openEditWorker(record)"
+          >编辑代码</a-button>
+          <span v-else class="cf-muted">—</span>
         </template>
       </template>
     </a-table>
@@ -130,6 +139,12 @@
               <template v-else>—</template>
             </span>
           </div>
+          <div v-if="item.kind === 'worker'" class="mobile-card-row">
+            <span class="label">操作</span>
+            <span class="value">
+              <a-button type="link" size="small" style="padding: 0" @click="openEditWorker(item)">编辑代码</a-button>
+            </span>
+          </div>
           <div v-if="item.createdOn" class="mobile-card-row">
             <span class="label">创建</span><span class="value">{{ item.createdOn }}</span>
           </div>
@@ -137,13 +152,22 @@
       </div>
     </a-spin>
 
+    <!-- 创建向导 -->
     <a-modal
       v-model:open="createVisible"
-      title="创建应用程序"
+      :title="createModalTitle"
       :footer="null"
-      :width="isMobile ? 'calc(100vw - 32px)' : 720"
+      :width="isMobile ? 'calc(100vw - 32px)' : 760"
       destroy-on-close
     >
+      <div v-if="createStep !== 'choose' && createStep !== 'success'" class="cf-step-bar">
+        <span :class="{ active: createStepIndex >= 1 }">1. 选择方法</span>
+        <span class="cf-step-sep">→</span>
+        <span :class="{ active: createStepIndex >= 2 }">2. {{ createStepTwoLabel }}</span>
+        <span v-if="createStepIndex >= 3" class="cf-step-sep">→</span>
+        <span v-if="createStepIndex >= 3" :class="{ active: createStepIndex >= 3 }">3. 部署</span>
+      </div>
+
       <div v-if="createStep === 'choose'" class="cf-create-grid">
         <div class="cf-create-card" @click="startHelloWorld">
           <div class="cf-create-card-title">从 Hello World! 开始</div>
@@ -166,7 +190,7 @@
           </a-form-item>
           <a-space>
             <a-button @click="createStep = 'choose'">返回</a-button>
-            <a-button type="primary" :loading="createLoading" @click="submitHelloWorld">创建并部署</a-button>
+            <a-button type="primary" @click="proceedHelloToDeploy">下一步：预览并部署</a-button>
           </a-space>
         </a-form>
       </template>
@@ -201,9 +225,75 @@
           </a-form-item>
           <a-space>
             <a-button @click="createStep = 'template'">返回</a-button>
-            <a-button type="primary" :loading="createLoading" @click="submitTemplate">创建</a-button>
+            <a-button type="primary" @click="proceedTemplateToDeploy">下一步：预览并部署</a-button>
           </a-space>
         </a-form>
+      </template>
+
+      <template v-else-if="createStep === 'deploy-worker'">
+        <a-spin :spinning="deployPreviewLoading">
+          <a-form layout="vertical">
+            <a-alert type="info" show-icon style="margin-bottom: 12px"
+              :message="`部署 Worker：${deployForm.label || 'Hello World'}`" />
+            <a-form-item label="Worker 名称">
+              <a-input v-model:value="deployForm.name" placeholder="Worker 名称" allow-clear />
+            </a-form-item>
+            <a-form-item label="workers.dev 地址（部署后可用）">
+              <a-input :value="workerDevPreviewUrl" readonly>
+                <template v-if="workerDevPreviewUrl" #addonAfter>
+                  <a :href="workerDevPreviewUrl" target="_blank" rel="noopener">预览</a>
+                </template>
+              </a-input>
+              <p v-if="!workersSubdomain" class="cf-hint">未能读取账户子域，部署后将尝试自动启用 workers.dev。</p>
+            </a-form-item>
+            <a-form-item label="Worker preview" required>
+              <textarea
+                v-model="deployForm.script"
+                class="cf-code-editor"
+                spellcheck="false"
+                placeholder="在此编写或修改 Worker 代码（ES Module）"
+              />
+              <p class="cf-hint">可直接编辑代码后再点「部署」。部署将上传脚本并启用 workers.dev 子域。</p>
+            </a-form-item>
+            <a-space>
+              <a-button @click="backFromDeployWorker">返回</a-button>
+              <a-button type="primary" :loading="createLoading" @click="submitDeployWorker">部署</a-button>
+            </a-space>
+          </a-form>
+        </a-spin>
+      </template>
+
+      <template v-else-if="createStep === 'deploy-pages'">
+        <a-spin :spinning="deployPreviewLoading">
+          <a-form layout="vertical">
+            <a-alert type="info" show-icon style="margin-bottom: 12px"
+              :message="`部署 Pages：${deployForm.label || selectedTemplate?.name || ''}`" />
+            <a-form-item label="Pages 项目名称">
+              <a-input v-model:value="deployForm.name" placeholder="项目名称" allow-clear />
+            </a-form-item>
+            <a-form-item label="文件预览">
+              <a-table
+                :columns="pagesPreviewColumns"
+                :data-source="deployForm.pagesFiles"
+                row-key="path"
+                size="small"
+                :pagination="false"
+                :scroll="{ y: 240 }"
+              >
+                <template #bodyCell="{ column, record }">
+                  <template v-if="column.key === 'preview'">
+                    <pre class="cf-file-preview">{{ filePreviewSnippet(record.content) }}</pre>
+                  </template>
+                </template>
+              </a-table>
+              <p class="cf-hint">确认文件无误后部署。Pages 地址将在部署成功后显示。</p>
+            </a-form-item>
+            <a-space>
+              <a-button @click="createStep = 'template-form'">返回</a-button>
+              <a-button type="primary" :loading="createLoading" @click="submitDeployPagesTemplate">部署</a-button>
+            </a-space>
+          </a-form>
+        </a-spin>
       </template>
 
       <template v-else-if="createStep === 'upload'">
@@ -221,10 +311,80 @@
           </a-form-item>
           <a-space>
             <a-button @click="createStep = 'choose'">返回</a-button>
+            <a-button type="primary" :disabled="uploadForm.files.length === 0" @click="proceedUploadPreview">下一步：预览文件</a-button>
+          </a-space>
+        </a-form>
+      </template>
+
+      <template v-else-if="createStep === 'upload-preview'">
+        <a-form layout="vertical">
+          <a-alert type="info" show-icon style="margin-bottom: 12px" :message="`Pages 项目：${uploadForm.name}`" />
+          <a-form-item label="上传文件列表">
+            <a-table
+              :columns="uploadPreviewColumns"
+              :data-source="uploadPreviewRows"
+              row-key="path"
+              size="small"
+              :pagination="false"
+              :scroll="{ y: 280 }"
+            />
+          </a-form-item>
+          <a-space>
+            <a-button @click="createStep = 'upload'">返回</a-button>
             <a-button type="primary" :loading="createLoading" @click="submitUpload">部署站点</a-button>
           </a-space>
         </a-form>
       </template>
+
+      <template v-else-if="createStep === 'success'">
+        <a-result status="success" title="部署成功">
+          <template #subTitle>
+            <p>{{ successInfo.kind === 'pages' ? 'Pages 项目' : 'Worker' }}「{{ successInfo.name }}」已部署。</p>
+            <p v-if="successInfo.url">
+              访问地址：
+              <a :href="successInfo.url" target="_blank" rel="noopener">{{ successInfo.url }}</a>
+            </p>
+            <p v-else class="cf-hint">地址生成中，请稍后刷新列表。</p>
+          </template>
+          <template #extra>
+            <a-space>
+              <a-button v-if="successInfo.url" type="primary" @click="openSuccessUrl">打开链接</a-button>
+              <a-button @click="finishCreate">完成</a-button>
+            </a-space>
+          </template>
+        </a-result>
+      </template>
+    </a-modal>
+
+    <!-- 编辑已有 Worker -->
+    <a-modal
+      v-model:open="editWorkerVisible"
+      title="编辑 Worker 代码"
+      :width="isMobile ? 'calc(100vw - 32px)' : 760"
+      :confirm-loading="editWorkerLoading"
+      ok-text="保存并部署"
+      cancel-text="取消"
+      destroy-on-close
+      @ok="submitEditWorker"
+    >
+      <a-spin :spinning="editWorkerScriptLoading">
+        <a-form layout="vertical">
+          <a-form-item label="Worker 名称">
+            <a-input :value="editWorkerForm.name" readonly />
+          </a-form-item>
+          <a-form-item v-if="editWorkerForm.url" label="workers.dev 地址">
+            <a :href="editWorkerForm.url" target="_blank" rel="noopener">{{ editWorkerForm.url }}</a>
+          </a-form-item>
+          <a-form-item label="Worker 代码" required>
+            <textarea
+              v-model="editWorkerForm.script"
+              class="cf-code-editor"
+              spellcheck="false"
+              placeholder="Worker ES Module 代码"
+            />
+          </a-form-item>
+        </a-form>
+      </a-spin>
     </a-modal>
   </div>
 </template>
@@ -238,14 +398,28 @@ import {
   getCfWorkersPagesUsage,
   listCfWorkersPagesApplications,
   listCfWorkersPagesTemplates,
-  createCfWorkerHelloWorld,
-  createCfWorkerFromTemplate,
+  getCfWorkersSubdomainInfo,
+  getCfWorkersPagesTemplatePreview,
+  deployCfWorker,
+  getCfWorkerScript,
+  updateCfWorkerScript,
   createCfPagesFromTemplate,
   deployCfPagesStatic,
 } from '../../api/cloudflare'
 
 const MAX_UPLOAD_FILES = 100
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024
+
+type CreateStep =
+  | 'choose'
+  | 'hello'
+  | 'template'
+  | 'template-form'
+  | 'deploy-worker'
+  | 'deploy-pages'
+  | 'upload'
+  | 'upload-preview'
+  | 'success'
 
 interface UsageSummary {
   dateRangeLabel?: string
@@ -282,6 +456,11 @@ interface TemplateRow {
   kind: 'worker' | 'pages'
 }
 
+interface PagesPreviewFile {
+  path: string
+  content: string
+}
+
 defineProps<{ cfConfigured: boolean }>()
 const { isMobile } = useIsMobile()
 
@@ -289,11 +468,17 @@ const loading = ref(false)
 const usageLoading = ref(false)
 const createLoading = ref(false)
 const templatesLoading = ref(false)
+const deployPreviewLoading = ref(false)
+const editWorkerLoading = ref(false)
+const editWorkerScriptLoading = ref(false)
 const createVisible = ref(false)
+const editWorkerVisible = ref(false)
 const usageLoadError = ref('')
 const appsLoadError = ref('')
-const createStep = ref<'choose' | 'hello' | 'template' | 'template-form' | 'upload'>('choose')
+const createStep = ref<CreateStep>('choose')
 const fileInputRef = ref<HTMLInputElement | null>(null)
+const workersSubdomain = ref('')
+const deployBackStep = ref<CreateStep>('hello')
 
 const usage = reactive<UsageSummary>({})
 const applications = ref<AppRow[]>([])
@@ -304,13 +489,89 @@ const helloForm = reactive({ name: '' })
 const templateForm = reactive({ name: '' })
 const uploadForm = reactive({ name: '', files: [] as { path: string; contentBase64: string }[] })
 
+const deployForm = reactive({
+  name: '',
+  script: '',
+  templateId: '',
+  label: '',
+  kind: 'worker' as 'worker' | 'pages',
+  pagesFiles: [] as PagesPreviewFile[],
+})
+
+const successInfo = reactive({
+  name: '',
+  url: '',
+  kind: 'worker' as 'worker' | 'pages',
+})
+
+const editWorkerForm = reactive({
+  name: '',
+  script: '',
+  url: '',
+})
+
 const uploadTotalBytes = computed(() =>
   uploadForm.files.reduce((sum, f) => sum + Math.ceil((f.contentBase64.length * 3) / 4), 0))
+
+const createModalTitle = computed(() => {
+  if (createStep.value === 'success') return '部署完成'
+  if (createStep.value === 'deploy-worker') return '部署 Worker'
+  if (createStep.value === 'deploy-pages') return '部署 Pages'
+  if (createStep.value === 'upload-preview') return '预览并部署 Pages'
+  return '创建应用程序'
+})
+
+const createStepIndex = computed(() => {
+  switch (createStep.value) {
+    case 'choose': return 1
+    case 'hello':
+    case 'template':
+    case 'upload': return 1
+    case 'template-form': return 2
+    case 'deploy-worker':
+    case 'deploy-pages':
+    case 'upload-preview': return 3
+    default: return 1
+  }
+})
+
+const createStepTwoLabel = computed(() => {
+  if (createStep.value === 'deploy-pages' || createStep.value === 'upload-preview') return '预览文件'
+  if (createStep.value === 'deploy-worker' || createStep.value === 'template-form' || createStep.value === 'hello') {
+    return '填写名称'
+  }
+  return '填写信息'
+})
+
+const workerDevPreviewUrl = computed(() => {
+  const name = deployForm.name.trim()
+  if (!name) return ''
+  if (workersSubdomain.value) {
+    return `https://${name}.${workersSubdomain.value}.workers.dev`
+  }
+  return `https://${name}.workers.dev`
+})
+
+const uploadPreviewRows = computed(() =>
+  uploadForm.files.map(f => ({
+    path: f.path,
+    size: formatBytes(Math.ceil((f.contentBase64.length * 3) / 4)),
+  })))
 
 const limitColumns = [
   { title: '功能', dataIndex: 'feature' },
   { title: '使用情况', dataIndex: 'usage', width: 120 },
   { title: '限制', dataIndex: 'limit', width: 120 },
+]
+
+const pagesPreviewColumns = [
+  { title: '路径', dataIndex: 'path', ellipsis: true, width: 160 },
+  { title: '内容预览', key: 'preview' },
+]
+
+const uploadPreviewColumns = [
+  { title: '路径', dataIndex: 'path', ellipsis: true },
+  { title: '大小', dataIndex: 'size', width: 100 },
 ]
 
 const limitRows = computed(() => [
@@ -336,8 +597,9 @@ const appColumns = [
   { title: '类型', key: 'kind', width: 96 },
   { title: '名称', dataIndex: 'name', ellipsis: true },
   { title: '地址', key: 'url', ellipsis: true },
-  { title: '创建', dataIndex: 'createdOn', width: 180 },
-  { title: '修改', dataIndex: 'modifiedOn', width: 180 },
+  { title: '创建', dataIndex: 'createdOn', width: 170 },
+  { title: '修改', dataIndex: 'modifiedOn', width: 170 },
+  { title: '操作', key: 'actions', width: 100, fixed: 'right' as const },
 ]
 
 function formatNum(n?: number | null) {
@@ -345,11 +607,7 @@ function formatNum(n?: number | null) {
   return n.toLocaleString('zh-CN')
 }
 
-function formatMetric(
-  n?: number | null,
-  available?: boolean,
-  suffix = '',
-) {
+function formatMetric(n?: number | null, available?: boolean, suffix = '') {
   if (available === false) return '—'
   if (n === undefined || n === null) return '—'
   return `${n.toLocaleString('zh-CN')}${suffix}`
@@ -379,8 +637,22 @@ function urlHref(record: AppRow) {
   return `https://${u}`
 }
 
+function filePreviewSnippet(content: string, maxLen = 120) {
+  const s = (content || '').replace(/\s+/g, ' ').trim()
+  return s.length > maxLen ? `${s.slice(0, maxLen)}…` : s
+}
+
 function resetUsage() {
   Object.keys(usage).forEach(k => delete (usage as Record<string, unknown>)[k])
+}
+
+async function loadWorkersSubdomain() {
+  try {
+    const res = await getCfWorkersSubdomainInfo(true)
+    workersSubdomain.value = res.data?.subdomain || ''
+  } catch {
+    workersSubdomain.value = ''
+  }
 }
 
 async function loadUsage() {
@@ -429,6 +701,15 @@ async function loadAll() {
   await Promise.all([loadUsage(), loadApplications()])
 }
 
+function resetDeployForm() {
+  deployForm.name = ''
+  deployForm.script = ''
+  deployForm.templateId = ''
+  deployForm.label = ''
+  deployForm.kind = 'worker'
+  deployForm.pagesFiles = []
+}
+
 function openCreateModal() {
   createStep.value = 'choose'
   helloForm.name = ''
@@ -436,6 +717,7 @@ function openCreateModal() {
   uploadForm.name = ''
   uploadForm.files = []
   selectedTemplate.value = null
+  resetDeployForm()
   if (fileInputRef.value) fileInputRef.value.value = ''
   createVisible.value = true
   if (templates.value.length === 0) loadTemplates()
@@ -451,24 +733,50 @@ function selectTemplate(tpl: TemplateRow) {
   createStep.value = 'template-form'
 }
 
-async function submitHelloWorld() {
+async function loadDeployWorkerPreview(templateId: string) {
+  deployPreviewLoading.value = true
+  try {
+    await loadWorkersSubdomain()
+    const res = await getCfWorkersPagesTemplatePreview({ templateId }, true)
+    deployForm.script = res.data?.script || ''
+  } catch (e: unknown) {
+    message.error((e as Error)?.message || '加载 Worker 模板预览失败')
+    deployForm.script = ''
+  } finally {
+    deployPreviewLoading.value = false
+  }
+}
+
+async function loadDeployPagesPreview(templateId: string) {
+  deployPreviewLoading.value = true
+  try {
+    const res = await getCfWorkersPagesTemplatePreview({ templateId }, true)
+    const files = (res.data?.files || []) as { path: string; content: string }[]
+    deployForm.pagesFiles = files.map(f => ({ path: f.path, content: f.content || '' }))
+  } catch (e: unknown) {
+    message.error((e as Error)?.message || '加载 Pages 模板预览失败')
+    deployForm.pagesFiles = []
+  } finally {
+    deployPreviewLoading.value = false
+  }
+}
+
+function proceedHelloToDeploy() {
   const name = helloForm.name.trim()
   if (!name) {
     message.warning('请输入 Worker 名称')
     return
   }
-  createLoading.value = true
-  try {
-    await createCfWorkerHelloWorld({ name })
-    message.success('Worker 已创建')
-    createVisible.value = false
-    await loadApplications()
-  } finally {
-    createLoading.value = false
-  }
+  deployBackStep.value = 'hello'
+  deployForm.name = name
+  deployForm.templateId = 'hello-world'
+  deployForm.label = 'Hello World'
+  deployForm.kind = 'worker'
+  createStep.value = 'deploy-worker'
+  loadDeployWorkerPreview('hello-world')
 }
 
-async function submitTemplate() {
+function proceedTemplateToDeploy() {
   const name = templateForm.name.trim()
   const tpl = selectedTemplate.value
   if (!tpl) return
@@ -476,19 +784,81 @@ async function submitTemplate() {
     message.warning('请输入名称')
     return
   }
+  deployForm.name = name
+  deployForm.templateId = tpl.id
+  deployForm.label = tpl.name
+  deployForm.kind = tpl.kind
+  if (tpl.kind === 'pages') {
+    deployBackStep.value = 'template-form'
+    createStep.value = 'deploy-pages'
+    loadDeployPagesPreview(tpl.id)
+  } else {
+    deployBackStep.value = 'template-form'
+    createStep.value = 'deploy-worker'
+    loadDeployWorkerPreview(tpl.id)
+  }
+}
+
+function backFromDeployWorker() {
+  createStep.value = deployBackStep.value
+}
+
+function showSuccess(name: string, url: string | undefined, kind: 'worker' | 'pages') {
+  successInfo.name = name
+  successInfo.url = url || ''
+  successInfo.kind = kind
+  createStep.value = 'success'
+}
+
+async function submitDeployWorker() {
+  const name = deployForm.name.trim()
+  const script = deployForm.script.trim()
+  if (!name) {
+    message.warning('请输入 Worker 名称')
+    return
+  }
+  if (!script) {
+    message.warning('Worker 代码不能为空')
+    return
+  }
   createLoading.value = true
   try {
-    if (tpl.kind === 'pages') {
-      await createCfPagesFromTemplate({ name, templateId: tpl.id })
-    } else {
-      await createCfWorkerFromTemplate({ name, templateId: tpl.id })
-    }
-    message.success('已创建')
-    createVisible.value = false
-    await loadApplications()
+    const res = await deployCfWorker({ name, script })
+    const url = res.data?.url as string | undefined
+    showSuccess(name, url, 'worker')
   } finally {
     createLoading.value = false
   }
+}
+
+async function submitDeployPagesTemplate() {
+  const name = deployForm.name.trim()
+  const templateId = deployForm.templateId
+  if (!name || !templateId) {
+    message.warning('请填写项目名称')
+    return
+  }
+  createLoading.value = true
+  try {
+    const res = await createCfPagesFromTemplate({ name, templateId })
+    const url = res.data?.url as string | undefined
+    showSuccess(name, url, 'pages')
+  } finally {
+    createLoading.value = false
+  }
+}
+
+function proceedUploadPreview() {
+  const name = uploadForm.name.trim()
+  if (!name) {
+    message.warning('请输入 Pages 项目名称')
+    return
+  }
+  if (uploadForm.files.length === 0) {
+    message.warning('请选择要上传的文件或文件夹')
+    return
+  }
+  createStep.value = 'upload-preview'
 }
 
 function normalizeUploadPaths(files: { path: string; contentBase64: string }[]) {
@@ -561,12 +931,61 @@ async function submitUpload() {
   }
   createLoading.value = true
   try {
-    await deployCfPagesStatic({ name, files: uploadForm.files })
-    message.success('Pages 站点已部署')
-    createVisible.value = false
-    await loadApplications()
+    const res = await deployCfPagesStatic({ name, files: uploadForm.files })
+    const url = res.data?.url as string | undefined
+    showSuccess(name, url, 'pages')
   } finally {
     createLoading.value = false
+  }
+}
+
+function openSuccessUrl() {
+  if (successInfo.url) {
+    window.open(successInfo.url, '_blank', 'noopener')
+  }
+}
+
+async function finishCreate() {
+  createVisible.value = false
+  await loadApplications()
+}
+
+async function openEditWorker(record: AppRow) {
+  const name = record.name || record.id
+  if (!name) return
+  editWorkerForm.name = name
+  editWorkerForm.script = ''
+  editWorkerForm.url = record.url || ''
+  editWorkerVisible.value = true
+  editWorkerScriptLoading.value = true
+  try {
+    const res = await getCfWorkerScript({ name }, true)
+    editWorkerForm.script = res.data?.script || ''
+  } catch (e: unknown) {
+    message.error((e as Error)?.message || '拉取 Worker 代码失败')
+    editWorkerVisible.value = false
+  } finally {
+    editWorkerScriptLoading.value = false
+  }
+}
+
+async function submitEditWorker() {
+  const name = editWorkerForm.name.trim()
+  const script = editWorkerForm.script.trim()
+  if (!name || !script) {
+    message.warning('Worker 代码不能为空')
+    return
+  }
+  editWorkerLoading.value = true
+  try {
+    const res = await updateCfWorkerScript({ name, script })
+    const url = res.data?.url as string | undefined
+    message.success('Worker 已保存并部署')
+    editWorkerVisible.value = false
+    if (url) editWorkerForm.url = url
+    await loadApplications()
+  } finally {
+    editWorkerLoading.value = false
   }
 }
 
@@ -598,7 +1017,19 @@ defineExpose({ loadAll })
 }
 .cf-metric-label { font-size: 12px; color: var(--text-sub); margin-bottom: 6px; }
 .cf-metric-value { font-size: 22px; font-weight: 600; word-break: break-all; }
-.cf-hint { margin-top: 12px; font-size: 12px; color: var(--text-sub); }
+.cf-hint { margin-top: 8px; font-size: 12px; color: var(--text-sub); }
+.cf-muted { color: var(--text-sub); font-size: 12px; }
+.cf-step-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 16px;
+  font-size: 13px;
+  color: var(--text-sub);
+}
+.cf-step-bar .active { color: var(--primary, #1677ff); font-weight: 600; }
+.cf-step-sep { opacity: 0.5; }
 .cf-create-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -635,6 +1066,29 @@ defineExpose({ loadAll })
 .cf-template-name { font-weight: 600; }
 .cf-back-link { padding-left: 0; margin-bottom: 8px; }
 .cf-upload-summary { margin: 8px 0 0; font-size: 13px; }
+.cf-code-editor {
+  width: 100%;
+  min-height: 320px;
+  padding: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.5;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-soft, #fafafa);
+  color: inherit;
+  resize: vertical;
+  box-sizing: border-box;
+}
+.cf-file-preview {
+  margin: 0;
+  font-size: 11px;
+  max-height: 48px;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  color: var(--text-sub);
+}
 .mobile-card {
   border: 1px solid var(--border);
   border-radius: 8px;

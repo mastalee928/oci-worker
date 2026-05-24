@@ -1725,16 +1725,87 @@ public class CloudflareService {
         return m;
     }
 
-    public Map<String, Object> createWorkerHelloWorld(String scriptName) {
-        return uploadWorkerScript(scriptName, WORKER_HELLO_WORLD);
+    public Map<String, Object> getWorkersSubdomainInfo() {
+        Credentials c = requireCredentials();
+        String subdomain = fetchAccountWorkersSubdomain(c);
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("subdomain", subdomain);
+        m.put("suffix", ".workers.dev");
+        return m;
     }
 
-    public Map<String, Object> createWorkerFromTemplate(String scriptName, String templateId) {
-        String code = WORKER_TEMPLATES.get(templateId);
+    public Map<String, Object> getWorkersPagesTemplatePreview(String templateId) {
+        if (StrUtil.isBlank(templateId)) {
+            throw new OciException("模板 ID 不能为空");
+        }
+        if ("hello-world".equals(templateId)) {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", "hello-world");
+            m.put("kind", "worker");
+            m.put("name", "Hello World");
+            m.put("script", WORKER_HELLO_WORLD);
+            m.put("module", "worker.mjs");
+            return m;
+        }
+        String workerCode = WORKER_TEMPLATES.get(templateId);
+        if (workerCode != null) {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", templateId);
+            m.put("kind", "worker");
+            m.put("script", workerCode);
+            m.put("module", "worker.mjs");
+            return m;
+        }
+        List<Map<String, String>> pagesFiles = PAGES_TEMPLATE_FILES.get(templateId);
+        if (pagesFiles != null) {
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", templateId);
+            m.put("kind", "pages");
+            m.put("files", pagesFiles);
+            return m;
+        }
+        throw new OciException("不支持的模板: " + templateId);
+    }
+
+    public Map<String, Object> deployWorker(String scriptName, String scriptContent) {
+        if (StrUtil.isBlank(scriptContent)) {
+            throw new OciException("Worker 代码不能为空");
+        }
+        Credentials c = requireCredentials();
+        String name = normalizeWorkerScriptName(scriptName);
+        Map<String, Object> result = uploadWorkerScript(name, scriptContent.trim());
+        enableWorkerSubdomain(c, name);
+        String accountSubdomain = fetchAccountWorkersSubdomain(c);
+        result.put("url", resolveWorkerPublicUrl(name, accountSubdomain));
+        result.put("subdomainEnabled", true);
+        return result;
+    }
+
+    public Map<String, Object> getWorkerScriptContent(String scriptName) {
+        Credentials c = requireCredentials();
+        String name = normalizeWorkerScriptName(scriptName);
+        HttpBinaryResponse resp = apiGetBinary(c.apiToken(),
+                CF_API_BASE + "/accounts/" + c.accountId() + "/workers/scripts/" + urlEncodePath(name));
+        Map<String, Object> parsed = parseDownloadedWorkerScript(resp.body(), resp.contentType());
+        parsed.put("name", name);
+        return parsed;
+    }
+
+    public Map<String, Object> updateWorkerScript(String scriptName, String scriptContent) {
+        return deployWorker(scriptName, scriptContent);
+    }
+
+    public Map<String, Object> createWorkerHelloWorld(String scriptName, String scriptContent) {
+        String code = StrUtil.isNotBlank(scriptContent) ? scriptContent : WORKER_HELLO_WORLD;
+        return deployWorker(scriptName, code);
+    }
+
+    public Map<String, Object> createWorkerFromTemplate(String scriptName, String templateId, String scriptContent) {
+        String code = StrUtil.isNotBlank(scriptContent) ? scriptContent : WORKER_TEMPLATES.get(templateId);
         if (code == null) {
             throw new OciException("不支持的 Worker 模板: " + templateId);
         }
-        return uploadWorkerScript(scriptName, code);
+        return deployWorker(scriptName, code);
     }
 
     public Map<String, Object> createPagesFromTemplate(String projectName, String templateId) {
@@ -1894,6 +1965,147 @@ public class CloudflareService {
                 "production_branch", "main");
         JSONObject json = parseJson(apiPost(c.apiToken(), url, body));
         requireSuccess(json, "创建 Pages 项目失败");
+    }
+
+    private void enableWorkerSubdomain(Credentials c, String scriptName) {
+        String url = CF_API_BASE + "/accounts/" + c.accountId() + "/workers/scripts/"
+                + urlEncodePath(scriptName) + "/subdomain";
+        JSONObject json = parseJson(apiPut(c.apiToken(), url, Map.of("enabled", true)));
+        requireSuccess(json, "启用 workers.dev 子域失败");
+    }
+
+    private static String resolveWorkerPublicUrl(String scriptName, String accountSubdomain) {
+        if (StrUtil.isNotBlank(accountSubdomain)) {
+            return "https://" + scriptName + "." + accountSubdomain + ".workers.dev";
+        }
+        return "https://" + scriptName + ".workers.dev";
+    }
+
+    private record HttpBinaryResponse(String contentType, byte[] body) {}
+
+    private HttpBinaryResponse apiGetBinary(String token, String url) {
+        try {
+            HttpClient client = ociProxyConfigService.newOutboundHttpClient();
+            HttpRequest req = HttpRequest.newBuilder(URI.create(url))
+                    .header("Authorization", "Bearer " + token)
+                    .timeout(Duration.ofSeconds(60))
+                    .GET()
+                    .build();
+            HttpResponse<byte[]> r = client.send(req, HttpResponse.BodyHandlers.ofByteArray());
+            byte[] body = r.body() == null ? new byte[0] : r.body();
+            if (r.statusCode() < 200 || r.statusCode() >= 400) {
+                String errBody = body.length == 0 ? "" : new String(body, StandardCharsets.UTF_8);
+                String msg = parseCfError(errBody);
+                throw new OciException("HTTP " + r.statusCode() + (msg != null ? (": " + msg) : ""));
+            }
+            String contentType = r.headers().firstValue("Content-Type").orElse("");
+            return new HttpBinaryResponse(contentType, body);
+        } catch (OciException e) {
+            throw e;
+        } catch (IOException e) {
+            throw new OciException("请求失败: " + e.getMessage());
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new OciException("请求中断");
+        }
+    }
+
+    private static Map<String, Object> parseDownloadedWorkerScript(byte[] raw, String contentType) {
+        if (raw == null || raw.length == 0) {
+            throw new OciException("Worker 脚本为空");
+        }
+        String boundary = extractMultipartBoundary(contentType);
+        if (boundary == null) {
+            String text = new String(raw, StandardCharsets.UTF_8).trim();
+            if (text.startsWith("export") || text.startsWith("{")) {
+                Map<String, Object> m = new LinkedHashMap<>();
+                m.put("module", "worker.mjs");
+                m.put("script", text);
+                return m;
+            }
+            throw new OciException("无法解析 Worker 脚本响应");
+        }
+        String bodyText = new String(raw, StandardCharsets.UTF_8);
+        String module = "worker.mjs";
+        String script = extractMultipartPart(bodyText, boundary, "worker.mjs");
+        if (StrUtil.isBlank(script)) {
+            script = extractFirstScriptPart(bodyText, boundary);
+            if (StrUtil.isBlank(script)) {
+                throw new OciException("Worker 脚本中未找到可编辑模块");
+            }
+        }
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("module", module);
+        m.put("script", script);
+        return m;
+    }
+
+    private static String extractMultipartBoundary(String contentType) {
+        if (StrUtil.isBlank(contentType)) {
+            return null;
+        }
+        for (String part : contentType.split(";")) {
+            String p = part.trim();
+            if (p.startsWith("boundary=")) {
+                String b = p.substring("boundary=".length()).trim();
+                if (b.startsWith("\"") && b.endsWith("\"") && b.length() >= 2) {
+                    b = b.substring(1, b.length() - 1);
+                }
+                return b;
+            }
+        }
+        return null;
+    }
+
+    private static String extractMultipartPart(String body, String boundary, String fieldName) {
+        String marker = "name=\"" + fieldName + "\"";
+        int idx = body.indexOf(marker);
+        if (idx < 0) {
+            return null;
+        }
+        return extractPartBody(body, idx);
+    }
+
+    private static String extractFirstScriptPart(String body, String boundary) {
+        int searchFrom = 0;
+        while (true) {
+            int idx = body.indexOf("Content-Disposition:", searchFrom);
+            if (idx < 0) {
+                return null;
+            }
+            int lineEnd = body.indexOf('\n', idx);
+            String headerLine = lineEnd > idx ? body.substring(idx, lineEnd) : body.substring(idx);
+            if (headerLine.contains("name=\"metadata\"")) {
+                searchFrom = idx + 1;
+                continue;
+            }
+            if (headerLine.contains("filename=") || headerLine.contains("name=\"worker")) {
+                String part = extractPartBody(body, idx);
+                if (StrUtil.isNotBlank(part)) {
+                    return part;
+                }
+            }
+            searchFrom = idx + 1;
+        }
+    }
+
+    private static String extractPartBody(String body, int dispositionIdx) {
+        int headerEnd = body.indexOf("\r\n\r\n", dispositionIdx);
+        if (headerEnd < 0) {
+            headerEnd = body.indexOf("\n\n", dispositionIdx);
+            if (headerEnd < 0) {
+                return null;
+            }
+            headerEnd += 2;
+        } else {
+            headerEnd += 4;
+        }
+        int nextBoundary = body.indexOf("\r\n--", headerEnd);
+        if (nextBoundary < 0) {
+            nextBoundary = body.indexOf("\n--", headerEnd);
+        }
+        String content = nextBoundary > headerEnd ? body.substring(headerEnd, nextBoundary) : body.substring(headerEnd);
+        return content.stripTrailing();
     }
 
     private Map<String, Object> uploadWorkerScript(String scriptName, String scriptContent) {
