@@ -390,7 +390,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed } from 'vue'
+import { ref, reactive, computed, watch, nextTick } from 'vue'
 import { message } from 'ant-design-vue'
 import { PlusOutlined } from '@ant-design/icons-vue'
 import { useIsMobile } from '../../composables/useIsMobile'
@@ -461,7 +461,7 @@ interface PagesPreviewFile {
   content: string
 }
 
-defineProps<{ cfConfigured: boolean }>()
+const props = defineProps<{ cfConfigured: boolean; active?: boolean }>()
 const { isMobile } = useIsMobile()
 
 const loading = ref(false)
@@ -700,6 +700,16 @@ async function loadTemplates() {
 async function loadAll() {
   await Promise.all([loadUsage(), loadApplications()])
 }
+
+watch(
+  () => props.active,
+  async isActive => {
+    if (isActive && props.cfConfigured) {
+      await nextTick()
+      loadAll()
+    }
+  },
+)
 
 function resetDeployForm() {
   deployForm.name = ''

@@ -119,7 +119,10 @@
       </a-tab-pane>
 
       <a-tab-pane key="workers" tab="Workers 和 Pages">
-        <CfWorkersPagesTab ref="workersPagesRef" :cf-configured="cfConfigured" />
+        <CfWorkersPagesTab
+          :cf-configured="cfConfigured"
+          :active="accountTab === 'workers'"
+        />
       </a-tab-pane>
     </a-tabs>
 
@@ -507,8 +510,6 @@ const routeColumns = [
   { title: '操作', key: 'action', width: 80 },
 ]
 
-const workersPagesRef = ref<InstanceType<typeof CfWorkersPagesTab> | null>(null)
-
 const ipRulesLoading = ref(false)
 const ipRules = ref<any[]>([])
 const ipCreateVisible = ref(false)
@@ -618,7 +619,6 @@ async function handleDeleteIpRule(ruleId: string) {
 
 watch(accountTab, tab => {
   if (tab === 'ipaccess') loadIpRules()
-  if (tab === 'workers') workersPagesRef.value?.loadAll()
 })
 
 const deleteModalVisible = ref(false)
