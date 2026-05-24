@@ -804,18 +804,22 @@ watch(createModalVisible, visible => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #ffffff;
-  border: 1px solid #9aa3af;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--border);
   border-radius: 6px;
-  color: #1f2937;
+  color: var(--text-sub);
   cursor: grab;
   user-select: none;
   flex-shrink: 0;
+  transition: all 0.2s;
 }
 .cf-drag-handle:active { cursor: grabbing; }
 .cf-drag-handle:hover {
-  color: #2563eb;
-  border-color: #2563eb;
+  color: var(--primary);
+  border-color: var(--primary);
+}
+[data-theme='light'] .cf-drag-handle {
+  background: rgba(15, 23, 42, 0.04);
 }
 .cf-drag-grip {
   font-size: 14px;
@@ -825,10 +829,10 @@ watch(createModalVisible, visible => {
   opacity: 0.55;
 }
 :deep(.cf-rule-row--over-top td) {
-  box-shadow: inset 0 2px 0 #2563eb;
+  box-shadow: inset 0 2px 0 var(--primary);
 }
 :deep(.cf-rule-row--over-bottom td) {
-  box-shadow: inset 0 -2px 0 #2563eb;
+  box-shadow: inset 0 -2px 0 var(--primary);
 }
 .cf-hint { margin-top: 12px; font-size: 12px; color: var(--text-sub); }
 .cf-rule-name {
