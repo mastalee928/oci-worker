@@ -406,6 +406,32 @@
     </a-modal>
 
     <a-modal
+      v-model:open="renameWarningVisible"
+      :mask-closable="false"
+      :keyboard="false"
+      title="重命名前请注意"
+      ok-text="继续重命名"
+      cancel-text="取消"
+      :width="isMobile ? 'calc(100vw - 32px)' : 520"
+      destroy-on-close
+      @ok="confirmRenameWarning"
+    >
+      <a-alert type="warning" show-icon style="margin-bottom: 16px">
+        <template #message>重命名不会自动更新域名上的 Workers 路由</template>
+      </a-alert>
+      <p class="cf-rename-notice">
+        即将重命名 Worker「<b>{{ renameWorkerForm.name }}</b>」。系统会把当前脚本部署到新名称，并删除原名称下的 Worker。
+      </p>
+      <p class="cf-rename-notice">
+        若您曾在某个域名的「Workers 路由」里，将访问路径绑定到<strong>原 Worker 名称</strong>，重命名后这些路由规则<strong>不会</strong>自动改成新名称，相关访问可能失效。
+      </p>
+      <p class="cf-rename-notice">
+        请在重命名完成后，前往对应域名的 Workers 路由页面，把路由中的脚本名改为新名称。
+      </p>
+      <p class="cf-rename-notice cf-rename-notice-last">确认已了解上述影响后，可继续填写新名称。</p>
+    </a-modal>
+
+    <a-modal
       v-model:open="renameWorkerVisible"
       :mask-closable="false"
       :keyboard="false"
@@ -427,7 +453,6 @@
             allow-clear
           />
         </a-form-item>
-        <p class="cf-hint">将复制脚本到新名称并删除旧 Worker；若 Zone 路由仍指向旧名称，请手动更新。</p>
       </a-form>
     </a-modal>
 
@@ -551,6 +576,7 @@ const editWorkerLoading = ref(false)
 const editWorkerScriptLoading = ref(false)
 const createVisible = ref(false)
 const editWorkerVisible = ref(false)
+const renameWarningVisible = ref(false)
 const renameWorkerVisible = ref(false)
 const deleteWorkerVisible = ref(false)
 const renameWorkerLoading = ref(false)
@@ -1095,6 +1121,11 @@ function openRenameWorker(record: AppRow) {
   if (!name) return
   renameWorkerForm.name = name
   renameWorkerForm.newName = ''
+  renameWarningVisible.value = true
+}
+
+function confirmRenameWarning() {
+  renameWarningVisible.value = false
   renameWorkerVisible.value = true
 }
 
@@ -1325,5 +1356,16 @@ defineExpose({ loadAll })
 .cf-delete-target {
   margin-bottom: 12px;
   color: var(--text-main);
+}
+.cf-rename-notice {
+  margin: 0 0 12px;
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-main);
+}
+.cf-rename-notice-last {
+  margin-bottom: 0;
+  color: var(--text-sub);
+  font-size: 13px;
 }
 </style>
