@@ -1785,8 +1785,8 @@ public class CloudflareService {
 
     public List<Map<String, Object>> listPagesProjects() {
         Credentials c = requireCredentials();
-        String url = CF_API_BASE + "/accounts/" + c.accountId() + "/pages/projects?per_page=50";
-        JSONObject json = parseJson(apiGet(c.apiToken(), url));
+        String apiUrl = CF_API_BASE + "/accounts/" + c.accountId() + "/pages/projects?per_page=50";
+        JSONObject json = parseJson(apiGet(c.apiToken(), apiUrl));
         requireSuccess(json, "拉取 Pages 项目失败");
         JSONArray result = json.getJSONArray("result");
         List<Map<String, Object>> list = new ArrayList<>();
