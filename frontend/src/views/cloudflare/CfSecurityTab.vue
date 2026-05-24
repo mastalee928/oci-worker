@@ -179,7 +179,9 @@
               v-for="(item, idx) in form.items"
               :key="item.key"
               class="cf-clause-block"
-              :class="{ 'cf-clause-block--group': item.type === 'group' }"
+              :class="{
+                'cf-clause-block--group': item.type === 'group' || item.type === 'not_group' || item.type === 'branch',
+              }"
             >
               <div v-if="idx > 0" class="cf-clause-join">{{ form.join === 'and' ? '且' : '或' }}</div>
               <div v-if="item.type === 'group'" class="cf-or-group">
@@ -203,8 +205,70 @@
                   删除整组
                 </a-button>
               </div>
+              <div v-else-if="item.type === 'not_group'" class="cf-not-group">
+                <p class="cf-not-group-label">以下条件均不满足（非 NOT）</p>
+                <div class="cf-join-bar cf-join-bar--inner">
+                  <span class="cf-mini-label">组内关系</span>
+                  <a-radio-group v-model:value="item.innerJoin" size="small">
+                    <a-radio-button value="or">或 (OR)</a-radio-button>
+                    <a-radio-button value="and">且 (AND)</a-radio-button>
+                  </a-radio-group>
+                </div>
+                <div
+                  v-for="(clause, j) in item.clauses"
+                  :key="clause.key"
+                  class="cf-clause-block cf-clause-block--nested"
+                >
+                  <div v-if="j > 0" class="cf-clause-join">{{ item.innerJoin === 'and' ? '且' : '或' }}</div>
+                  <FirewallClauseFields
+                    :clause="clause"
+                    :removable="item.clauses.length > 1"
+                    @remove="removeFromNotGroup(idx, j)"
+                  />
+                </div>
+                <a-button type="dashed" size="small" class="cf-add-clause" @click="addToNotGroup(idx)">
+                  组内添加条件
+                </a-button>
+                <a-button type="link" danger size="small" class="cf-remove-group" @click="removeItem(idx)">
+                  删除非条件组
+                </a-button>
+              </div>
+              <div v-else-if="item.type === 'branch'" class="cf-or-group">
+                <p class="cf-or-group-label">以下条件同时满足（且）</p>
+                <template v-for="(part, j) in item.parts" :key="part.type === 'clause' ? part.key : part.key">
+                  <div v-if="j > 0" class="cf-clause-join">且</div>
+                  <FirewallClauseFields
+                    v-if="part.type === 'clause'"
+                    :clause="part"
+                    :removable="item.parts.length > 1"
+                    @remove="item.parts.splice(j, 1)"
+                  />
+                  <div v-else class="cf-not-group cf-not-group--nested">
+                    <p class="cf-not-group-label">以下条件均不满足（非 NOT）</p>
+                    <div class="cf-join-bar cf-join-bar--inner">
+                      <span class="cf-mini-label">组内关系</span>
+                      <a-radio-group v-model:value="part.innerJoin" size="small">
+                        <a-radio-button value="or">或 (OR)</a-radio-button>
+                        <a-radio-button value="and">且 (AND)</a-radio-button>
+                      </a-radio-group>
+                    </div>
+                    <div
+                      v-for="(clause, k) in part.clauses"
+                      :key="clause.key"
+                      class="cf-clause-block cf-clause-block--nested"
+                    >
+                      <div v-if="k > 0" class="cf-clause-join">{{ part.innerJoin === 'and' ? '且' : '或' }}</div>
+                      <FirewallClauseFields
+                        :clause="clause"
+                        :removable="part.clauses.length > 1"
+                        @remove="part.clauses.splice(k, 1)"
+                      />
+                    </div>
+                  </div>
+                </template>
+              </div>
               <FirewallClauseFields
-                v-else
+                v-else-if="item.type === 'clause'"
                 :clause="item"
                 :removable="form.items.length > 1"
                 @remove="removeItem(idx)"
@@ -212,6 +276,15 @@
             </div>
             <a-space direction="vertical" style="width: 100%">
               <a-button type="dashed" block class="cf-add-clause" @click="addClause">添加条件</a-button>
+              <a-button
+                v-if="form.join === 'and'"
+                type="dashed"
+                block
+                class="cf-add-clause"
+                @click="addNotGroup"
+              >
+                添加「非」条件组
+              </a-button>
               <a-button
                 v-if="form.join === 'or'"
                 type="dashed"
@@ -271,6 +344,7 @@ import {
   type FirewallJoin,
   type VisualClauseForm,
   type VisualRuleForm,
+  type VisualRuleItem,
 } from './cfFirewallExpression'
 
 interface FirewallRule {
@@ -284,9 +358,22 @@ interface FirewallRule {
 
 type ClauseRow = VisualClauseForm & { key: string }
 
+type NotGroupRow = {
+  type: 'not_group'
+  key: string
+  innerJoin: FirewallJoin
+  clauses: ClauseRow[]
+}
+
 type FormItem =
   | ({ type: 'clause' } & ClauseRow)
   | { type: 'group'; key: string; clauses: ClauseRow[] }
+  | NotGroupRow
+  | { type: 'branch'; key: string; parts: Array<({ type: 'clause' } & ClauseRow) | NotGroupRow> }
+
+function newKey() {
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
+}
 
 const props = defineProps<{ zoneId?: string }>()
 const { isMobile } = useIsMobile()
@@ -369,19 +456,29 @@ function toVisualClause(row: ClauseRow): VisualClauseForm {
   }
 }
 
+function formItemToVisual(item: FormItem): VisualRuleItem {
+  if (item.type === 'group') {
+    return { type: 'group', join: 'and', clauses: item.clauses.map(toVisualClause) }
+  }
+  if (item.type === 'not_group') {
+    return { type: 'not_group', innerJoin: item.innerJoin, clauses: item.clauses.map(toVisualClause) }
+  }
+  if (item.type === 'branch') {
+    return {
+      type: 'branch',
+      parts: item.parts.map(part =>
+        part.type === 'clause'
+          ? { type: 'clause', clause: toVisualClause(part) }
+          : { type: 'not_group', innerJoin: part.innerJoin, clauses: part.clauses.map(toVisualClause) },
+      ),
+    }
+  }
+  return { type: 'clause', clause: toVisualClause(item) }
+}
+
 function toVisualRuleForm(): VisualRuleForm | null {
   if (!form.items.length) return null
-  const items = form.items.map(item => {
-    if (item.type === 'group') {
-      return {
-        type: 'group' as const,
-        join: 'and' as const,
-        clauses: item.clauses.map(toVisualClause),
-      }
-    }
-    return { type: 'clause' as const, clause: toVisualClause(item) }
-  })
-  return { join: form.join, items }
+  return { join: form.join, items: form.items.map(formItemToVisual) }
 }
 
 function addClause() {
@@ -413,25 +510,64 @@ function removeFromGroup(itemIdx: number, clauseIdx: number) {
   item.clauses.splice(clauseIdx, 1)
 }
 
+function addNotGroup() {
+  form.items.push(createNotGroupRow())
+}
+
+function addToNotGroup(itemIdx: number) {
+  const item = form.items[itemIdx]
+  if (item?.type !== 'not_group') return
+  item.clauses.push(createClauseRow())
+}
+
+function removeFromNotGroup(itemIdx: number, clauseIdx: number) {
+  const item = form.items[itemIdx]
+  if (item?.type !== 'not_group' || item.clauses.length <= 1) return
+  item.clauses.splice(clauseIdx, 1)
+}
+
 function onJoinChange() {
-  if (form.join === 'and' && form.items.some(i => i.type === 'group')) {
+  if (form.join === 'and' && form.items.some(i => i.type === 'group' || i.type === 'branch')) {
     message.warning('当前含「或」下的且条件组，请先删除条件组或改用手写表达式')
     form.join = 'or'
   }
 }
 
+function createNotGroupRow(partial?: { innerJoin?: FirewallJoin; clauses?: VisualClauseForm[] }): NotGroupRow {
+  return {
+    type: 'not_group',
+    key: newKey(),
+    innerJoin: partial?.innerJoin ?? 'or',
+    clauses: partial?.clauses?.length
+      ? partial.clauses.map(c => createClauseRow(c))
+      : [createClauseRow(), createClauseRow()],
+  }
+}
+
+function visualItemToFormItem(item: VisualRuleItem): FormItem {
+  if (item.type === 'group') {
+    return { type: 'group', key: newKey(), clauses: item.clauses.map(c => createClauseRow(c)) }
+  }
+  if (item.type === 'not_group') {
+    return createNotGroupRow({ innerJoin: item.innerJoin, clauses: item.clauses })
+  }
+  if (item.type === 'branch') {
+    return {
+      type: 'branch',
+      key: newKey(),
+      parts: item.parts.map(part =>
+        part.type === 'clause'
+          ? { type: 'clause', ...createClauseRow(part.clause) }
+          : createNotGroupRow({ innerJoin: part.innerJoin, clauses: part.clauses }),
+      ),
+    }
+  }
+  return { type: 'clause', ...createClauseRow(item.clause) }
+}
+
 function applyVisualForm(parsed: VisualRuleForm) {
   form.join = parsed.join
-  form.items = parsed.items.map(item => {
-    if (item.type === 'group') {
-      return {
-        type: 'group' as const,
-        key: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        clauses: item.clauses.map(c => createClauseRow(c)),
-      }
-    }
-    return { type: 'clause' as const, ...createClauseRow(item.clause) }
-  })
+  form.items = parsed.items.map(visualItemToFormItem)
 }
 
 function resetVisualForm() {
@@ -458,7 +594,7 @@ function onModeChange() {
     return
   }
   if (!tryLoadVisualFromExpression(src)) {
-    message.warning('表达式含混合 and/or 或无法识别的语法，请继续使用编辑表达式')
+    message.warning('无法将表达式解析为可视化结构，请检查语法或继续使用编辑表达式')
     form.mode = 'advanced'
   }
 }
@@ -672,6 +808,26 @@ watch(() => props.zoneId, () => loadAll(), { immediate: true })
 .cf-clause-block--nested {
   border-bottom: none;
   padding-bottom: 0;
+  margin-bottom: 8px;
+}
+.cf-or-group-label,
+.cf-not-group-label {
+  margin: 0 0 8px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+.cf-not-group {
+  margin-top: 4px;
+  padding: 10px 12px;
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  background: var(--bg-sub, rgba(127, 127, 127, 0.06));
+}
+.cf-not-group--nested {
+  margin-top: 8px;
+}
+.cf-join-bar--inner {
   margin-bottom: 8px;
 }
 .cf-or-group-label {

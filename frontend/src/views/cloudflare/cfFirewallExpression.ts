@@ -5,6 +5,8 @@ export type FieldType = 'string' | 'number' | 'ip' | 'set' | 'bool'
 export type OperatorId =
   | 'wildcard'
   | 'strict_wildcard'
+  | 'not_wildcard'
+  | 'not_strict_wildcard'
   | 'eq'
   | 'ne'
   | 'contains'
@@ -33,6 +35,8 @@ export interface OperatorDef {
 export const STRING_OPERATORS: OperatorDef[] = [
   { id: 'wildcard', label: '通配符', wire: 'wildcard' },
   { id: 'strict_wildcard', label: '严格通配符', wire: 'strict wildcard' },
+  { id: 'not_wildcard', label: '非通配符', wire: 'not wildcard' },
+  { id: 'not_strict_wildcard', label: '非严格通配符', wire: 'not strict wildcard' },
   { id: 'eq', label: '等于', wire: 'eq' },
   { id: 'ne', label: '不等于', wire: 'ne' },
   { id: 'contains', label: '包含', wire: 'contains' },
@@ -163,6 +167,12 @@ export function compileFirewallClause(
     case 'strict_wildcard':
       if (!value) return null
       return `(${f} strict wildcard ${quoteRaw(value)})`
+    case 'not_wildcard':
+      if (!value) return null
+      return `(not (${f} wildcard ${quoteRaw(value)}))`
+    case 'not_strict_wildcard':
+      if (!value) return null
+      return `(not (${f} strict wildcard ${quoteRaw(value)}))`
     case 'eq':
       if (field.type === 'number') {
         if (!value) return null
@@ -343,11 +353,26 @@ export type FirewallJoin = 'and' | 'or'
 export type VisualRuleItem =
   | { type: 'clause'; clause: VisualClauseForm }
   | { type: 'group'; join: 'and'; clauses: VisualClauseForm[] }
+  | { type: 'not_group'; innerJoin: FirewallJoin; clauses: VisualClauseForm[] }
+  | {
+      type: 'branch'
+      parts: Array<
+        | { type: 'clause'; clause: VisualClauseForm }
+        | { type: 'not_group'; innerJoin: FirewallJoin; clauses: VisualClauseForm[] }
+      >
+    }
 
 export interface VisualRuleForm {
   join: FirewallJoin
   items: VisualRuleItem[]
 }
+
+/** Wirefilter 表达式 AST（与 CF 控制台逻辑结构一致） */
+type ExprAst =
+  | { kind: 'clause'; clause: VisualClauseForm }
+  | { kind: 'and'; children: ExprAst[] }
+  | { kind: 'or'; children: ExprAst[] }
+  | { kind: 'not'; child: ExprAst }
 
 function splitTopLevel(raw: string, join: FirewallJoin): string[] {
   const s = stripBalancedOuterParens(raw.trim())
@@ -391,16 +416,83 @@ function splitTopLevel(raw: string, join: FirewallJoin): string[] {
   return parts
 }
 
-function detectTopLevelJoin(raw: string): FirewallJoin | null {
-  const s = stripBalancedOuterParens(raw.trim())
-  const andParts = splitTopLevel(s, 'and')
-  const orParts = splitTopLevel(s, 'or')
-  const hasAnd = andParts.length > 1
-  const hasOr = orParts.length > 1
-  if (hasAnd && hasOr) return null
-  if (hasAnd) return 'and'
-  if (hasOr) return 'or'
-  return 'and'
+function normalizeExpression(raw: string): string {
+  return raw.replace(/\s+/g, ' ').trim()
+}
+
+/** 提取 `not (...)` 括号内内容；非此形态返回 null */
+function extractNotParenContent(raw: string): string | null {
+  const s = raw.trim()
+  const m = /^not\s+\(/i.exec(s)
+  if (!m) return null
+  let depth = 0
+  let inStr = false
+  let escape = false
+  const start = m.index! + m[0].length
+  for (let i = start; i < s.length; i++) {
+    const ch = s[i]
+    if (escape) {
+      escape = false
+      continue
+    }
+    if (ch === '\\' && inStr) {
+      escape = true
+      continue
+    }
+    if (ch === '"') {
+      inStr = !inStr
+      continue
+    }
+    if (!inStr) {
+      if (ch === '(') depth++
+      else if (ch === ')') {
+        if (depth === 0) {
+          if (i !== s.length - 1) return null
+          return s.slice(start, i).trim()
+        }
+        depth--
+      }
+    }
+  }
+  return null
+}
+
+const NEGATE_OPERATOR: Partial<Record<OperatorId, OperatorId>> = {
+  wildcard: 'not_wildcard',
+  not_wildcard: 'wildcard',
+  strict_wildcard: 'not_strict_wildcard',
+  not_strict_wildcard: 'strict_wildcard',
+  eq: 'ne',
+  ne: 'eq',
+  contains: 'not_contains',
+  not_contains: 'contains',
+  matches: 'not_matches',
+  not_matches: 'matches',
+  starts_with: 'not_starts_with',
+  not_starts_with: 'starts_with',
+  ends_with: 'not_ends_with',
+  not_ends_with: 'ends_with',
+  in: 'not_in',
+  not_in: 'in',
+  gt: 'le',
+  lt: 'ge',
+  ge: 'lt',
+  le: 'gt',
+}
+
+function negateClause(clause: VisualClauseForm): VisualClauseForm | null {
+  const field = FIREWALL_FIELDS.find(f => f.id === clause.fieldId)
+  if (!field) return null
+  if (field.type === 'bool') {
+    return {
+      ...clause,
+      boolValue: !clause.boolValue,
+      value: clause.boolValue ? 'false' : 'true',
+    }
+  }
+  const negated = NEGATE_OPERATOR[clause.operator]
+  if (!negated) return null
+  return { ...clause, operator: negated }
 }
 
 /** 解析单条子表达式为可视化字段 */
@@ -437,6 +529,8 @@ export function parseSingleFirewallClause(raw: string): VisualClauseForm | null 
     { re: new RegExp(`^not\\s+${FIELD}\\s+contains\\s+${STR}$`, 'i'), apply: (f, v) => base(f, 'not_contains', unescapeQuoted(v)) },
     { re: new RegExp(`^not\\s+${FIELD}\\s+matches\\s+${STR}$`, 'i'), apply: (f, v) => base(f, 'not_matches', unescapeQuoted(v)) },
     { re: new RegExp(`^not\\s+${FIELD}\\s+in\\s+\\{([^}]*)\\}$`, 'i'), apply: (f, v) => base(f, 'not_in', v.replace(/"/g, '').trim()) },
+    { re: new RegExp(`^not\\s+\\(${FIELD}\\s+wildcard\\s+${RAW}\\)$`, 'i'), apply: (f, v) => base(f, 'not_wildcard', unescapeQuoted(v)) },
+    { re: new RegExp(`^not\\s+\\(${FIELD}\\s+strict\\s+wildcard\\s+${RAW}\\)$`, 'i'), apply: (f, v) => base(f, 'not_strict_wildcard', unescapeQuoted(v)) },
     { re: new RegExp(`^${FIELD}\\s+wildcard\\s+${RAW}$`, 'i'), apply: (f, v) => base(f, 'wildcard', unescapeQuoted(v)) },
     { re: new RegExp(`^${FIELD}\\s+strict\\s+wildcard\\s+${RAW}$`, 'i'), apply: (f, v) => base(f, 'strict_wildcard', unescapeQuoted(v)) },
     { re: new RegExp(`^${FIELD}\\s+contains\\s+${STR}$`, 'i'), apply: (f, v) => base(f, 'contains', unescapeQuoted(v)) },
@@ -464,67 +558,278 @@ export function parseFirewallExpression(raw: string): VisualClauseForm | null {
   return parseSingleFirewallClause(raw)
 }
 
-/** 解析含 AND/OR 的表达式为可视化表单；同层混合 and+or 或无法识别时返回 null */
-export function parseFirewallVisualForm(raw: string): VisualRuleForm | null {
-  if (!raw?.trim()) return null
-  const join = detectTopLevelJoin(raw)
-  if (!join) return null
-  const segments = splitTopLevel(raw, join)
-  const items: VisualRuleItem[] = []
-  for (const seg of segments) {
-    const innerJoin = detectTopLevelJoin(seg)
-    if (join === 'or' && innerJoin === 'and') {
-      const innerSegs = splitTopLevel(seg, 'and')
-      const innerClauses: VisualClauseForm[] = []
-      for (const inner of innerSegs) {
-        const c = parseSingleFirewallClause(inner)
-        if (!c) return null
-        innerClauses.push(c)
-      }
-      if (innerClauses.length === 0) return null
-      if (innerClauses.length === 1) {
-        items.push({ type: 'clause', clause: innerClauses[0] })
-      } else {
-        items.push({ type: 'group', join: 'and', clauses: innerClauses })
-      }
-      continue
-    }
-    if (join === 'and' && innerJoin === 'or') return null
-    const clause = parseSingleFirewallClause(seg)
-    if (!clause) return null
-    items.push({ type: 'clause', clause })
-  }
-  if (items.length === 0) return null
-  return { join, items }
+function parseFirewallAst(raw: string): ExprAst | null {
+  return parseOrExpr(normalizeExpression(raw))
 }
 
-function compileClauseList(clauses: VisualClauseForm[]): string | null {
+function parseOrExpr(s: string): ExprAst | null {
+  const body = stripBalancedOuterParens(s.trim())
+  const parts = splitTopLevel(body, 'or')
+  if (parts.length > 1) {
+    const children: ExprAst[] = []
+    for (const part of parts) {
+      const child = parseAndExpr(part.trim())
+      if (!child) return null
+      children.push(child)
+    }
+    return { kind: 'or', children }
+  }
+  return parseAndExpr(body)
+}
+
+function parseAndExpr(s: string): ExprAst | null {
+  const body = stripBalancedOuterParens(s.trim())
+  const parts = splitTopLevel(body, 'and')
+  if (parts.length > 1) {
+    const children: ExprAst[] = []
+    for (const part of parts) {
+      const child = parseUnaryExpr(part.trim())
+      if (!child) return null
+      children.push(child)
+    }
+    return { kind: 'and', children }
+  }
+  return parseUnaryExpr(body)
+}
+
+function parseUnaryExpr(s: string): ExprAst | null {
+  const trimmed = s.trim()
+  const notInner = extractNotParenContent(trimmed)
+  if (notInner !== null) {
+    const child = parseOrExpr(notInner)
+    if (!child) return null
+    if (child.kind === 'not') {
+      return simplifyDoubleNegation(child.child)
+    }
+    return { kind: 'not', child }
+  }
+  return parsePrimary(trimmed)
+}
+
+function simplifyDoubleNegation(ast: ExprAst): ExprAst {
+  if (ast.kind === 'not') return simplifyDoubleNegation(ast.child)
+  return ast
+}
+
+function parsePrimary(s: string): ExprAst | null {
+  const body = stripBalancedOuterParens(s.trim())
+  const clause = parseSingleFirewallClause(body)
+  if (clause) return { kind: 'clause', clause }
+  if (splitTopLevel(body, 'or').length > 1) return parseOrExpr(body)
+  if (splitTopLevel(body, 'and').length > 1) return parseAndExpr(body)
+  return null
+}
+
+/** 将 AND 内的 OR 因子分配为顶层 OR（与 CF 可视化结构一致） */
+function distributeAndWithOr(ast: ExprAst): ExprAst {
+  if (ast.kind === 'not') {
+    return { kind: 'not', child: distributeAndWithOr(ast.child) }
+  }
+  if (ast.kind === 'or') {
+    return { kind: 'or', children: ast.children.map(distributeAndWithOr) }
+  }
+  if (ast.kind !== 'and') return ast
+
+  const orIdx = ast.children.findIndex(c => c.kind === 'or')
+  if (orIdx < 0) {
+    return { kind: 'and', children: ast.children.map(distributeAndWithOr) }
+  }
+
+  const prefix = ast.children.slice(0, orIdx).map(distributeAndWithOr)
+  const orNode = ast.children[orIdx] as Extract<ExprAst, { kind: 'or' }>
+  const suffix = ast.children.slice(orIdx + 1).map(distributeAndWithOr)
+  const branches: ExprAst[] = orNode.children.map(branch => ({
+    kind: 'and',
+    children: [...prefix, branch, ...suffix],
+  }))
+  return distributeAndWithOr({ kind: 'or', children: branches })
+}
+
+function normalizeAstForVisual(ast: ExprAst): ExprAst {
+  return distributeAndWithOr(ast)
+}
+
+function collectNotGroupClauses(node: ExprAst): VisualClauseForm[] | null {
+  if (node.kind === 'clause') return [node.clause]
+  if (node.kind === 'or' || node.kind === 'and') {
+    const clauses: VisualClauseForm[] = []
+    for (const child of node.children) {
+      if (child.kind !== 'clause') return null
+      clauses.push(child.clause)
+    }
+    return clauses
+  }
+  return null
+}
+
+function notAstToItem(node: Extract<ExprAst, { kind: 'not' }>): VisualRuleItem | null {
+  const { child } = node
+  if (child.kind === 'clause') {
+    return { type: 'not_group', innerJoin: 'and', clauses: [child.clause] }
+  }
+  if (child.kind === 'or' || child.kind === 'and') {
+    const clauses = collectNotGroupClauses(child)
+    if (!clauses?.length) return null
+    return { type: 'not_group', innerJoin: child.kind, clauses }
+  }
+  return null
+}
+
+function andAstChildToItem(node: ExprAst): VisualRuleItem | null {
+  if (node.kind === 'clause') return { type: 'clause', clause: node.clause }
+  if (node.kind === 'not') return notAstToItem(node)
+  if (node.kind === 'and') {
+    const clauses: VisualClauseForm[] = []
+    for (const child of node.children) {
+      if (child.kind !== 'clause') return null
+      clauses.push(child.clause)
+    }
+    return andClausesToItem(clauses)
+  }
+  return null
+}
+
+function andClausesToItem(clauses: VisualClauseForm[]): VisualRuleItem {
+  if (clauses.length === 1) return { type: 'clause', clause: clauses[0] }
+  return { type: 'group', join: 'and', clauses }
+}
+
+function andBranchToOrItem(node: ExprAst): VisualRuleItem | null {
+  if (node.kind === 'and') {
+    const parts: Array<
+      | { type: 'clause'; clause: VisualClauseForm }
+      | { type: 'not_group'; innerJoin: FirewallJoin; clauses: VisualClauseForm[] }
+    > = []
+    for (const child of node.children) {
+      if (child.kind === 'clause') {
+        parts.push({ type: 'clause', clause: child.clause })
+      } else if (child.kind === 'not') {
+        const item = notAstToItem(child)
+        if (!item || item.type !== 'not_group') return null
+        parts.push(item)
+      } else {
+        return null
+      }
+    }
+    if (!parts.length) return null
+    if (parts.length === 1) return parts[0]
+    if (parts.every(p => p.type === 'clause')) {
+      return { type: 'group', join: 'and', clauses: parts.map(p => p.clause) }
+    }
+    return { type: 'branch', parts }
+  }
+  return andAstChildToItem(node)
+}
+
+function astToVisualForm(ast: ExprAst): VisualRuleForm | null {
+  if (ast.kind === 'or') {
+    const items: VisualRuleItem[] = []
+    for (const child of ast.children) {
+      const item = andBranchToOrItem(child)
+      if (!item) return null
+      items.push(item)
+    }
+    if (!items.length) return null
+    if (items.length === 1) {
+      const only = items[0]
+      if (only.type === 'group') {
+        return { join: 'and', items: only.clauses.map(c => ({ type: 'clause', clause: c })) }
+      }
+      return { join: 'and', items: [only] }
+    }
+    return { join: 'or', items }
+  }
+
+  if (ast.kind === 'and') {
+    const items: VisualRuleItem[] = []
+    for (const child of ast.children) {
+      const item = andAstChildToItem(child)
+      if (!item) return null
+      items.push(item)
+    }
+    if (!items.length) return null
+    return { join: 'and', items }
+  }
+
+  if (ast.kind === 'not') {
+    const item = notAstToItem(ast)
+    return item ? { join: 'and', items: [item] } : null
+  }
+
+  if (ast.kind === 'clause') {
+    return { join: 'and', items: [{ type: 'clause', clause: ast.clause }] }
+  }
+
+  return null
+}
+
+/** 解析含 AND/OR/NOT 的表达式为可视化表单 */
+export function parseFirewallVisualForm(raw: string): VisualRuleForm | null {
+  if (!raw?.trim()) return null
+  const ast = parseFirewallAst(raw)
+  if (!ast) return null
+  const normalized = normalizeAstForVisual(ast)
+  return astToVisualForm(normalized)
+}
+
+function compileClauseInner(clause: VisualClauseForm): string | null {
+  const field = FIREWALL_FIELDS.find(f => f.id === clause.fieldId)
+  if (!field) return null
+  const raw = field.type === 'bool' ? (clause.boolValue ? 'true' : 'false') : clause.value
+  const compiled = compileFirewallClause(field, clause.operator, raw)
+  if (!compiled) return null
+  return stripBalancedOuterParens(compiled)
+}
+
+function compileClauseList(clauses: VisualClauseForm[], join: FirewallJoin = 'and'): string | null {
   if (!clauses.length) return null
   const parts: string[] = []
   for (const clause of clauses) {
-    const field = FIREWALL_FIELDS.find(f => f.id === clause.fieldId)
-    if (!field) return null
-    const raw = field.type === 'bool' ? (clause.boolValue ? 'true' : 'false') : clause.value
-    const compiled = compileFirewallClause(field, clause.operator, raw)
+    const inner = compileClauseInner(clause)
+    if (!inner) return null
+    parts.push(inner)
+  }
+  if (parts.length === 1) return `(${parts[0]})`
+  return `(${parts.join(` ${join} `)})`
+}
+
+function compileNotGroup(innerJoin: FirewallJoin, clauses: VisualClauseForm[]): string | null {
+  if (!clauses.length) return null
+  const parts: string[] = []
+  for (const clause of clauses) {
+    const inner = compileClauseInner(clause)
+    if (!inner) return null
+    parts.push(inner)
+  }
+  const body = parts.length === 1 ? parts[0] : parts.join(` ${innerJoin} `)
+  return `(not (${body}))`
+}
+
+function compileVisualItem(item: VisualRuleItem): string | null {
+  if (item.type === 'clause') return compileClauseList([item.clause])
+  if (item.type === 'group') return compileClauseList(item.clauses, 'and')
+  if (item.type === 'not_group') return compileNotGroup(item.innerJoin, item.clauses)
+  const parts: string[] = []
+  for (const part of item.parts) {
+    const compiled = compileVisualItem(part)
     if (!compiled) return null
     parts.push(compiled)
   }
+  if (!parts.length) return null
   if (parts.length === 1) return parts[0]
-  return `(${parts.join(' and ')})`
+  return `(${parts.map(p => stripBalancedOuterParens(p)).join(' and ')})`
 }
 
-/** 将可视化表单（含 OR 下的 AND 组）编译为 Wirefilter 表达式 */
+/** 将可视化表单（含 OR 下的 AND 组、NOT 组）编译为 Wirefilter 表达式 */
 export function compileFirewallVisualForm(form: VisualRuleForm): string | null {
   if (!form.items.length) return null
   const parts: string[] = []
   for (const item of form.items) {
-    const compiled =
-      item.type === 'clause'
-        ? compileClauseList([item.clause])
-        : compileClauseList(item.clauses)
+    const compiled = compileVisualItem(item)
     if (!compiled) continue
     parts.push(compiled)
   }
+  if (!parts.length) return null
   if (parts.length === 1) return parts[0]
   const sep = ` ${form.join} `
   return `(${parts.join(sep)})`
