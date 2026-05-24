@@ -180,8 +180,75 @@
       </a-form>
     </a-modal>
 
-    <a-modal v-model:open="tokenVisible" title="Tunnel 运行 Token" :footer="null" width="640px">
-      <a-textarea :value="tokenText" :rows="4" readonly />
+    <a-modal
+      v-model:open="tokenVisible"
+      :title="tokenModalTitle"
+      :footer="null"
+      :width="isMobile ? 'calc(100vw - 32px)' : 720"
+      @after-open-change="onTokenModalOpenChange"
+    >
+      <a-alert type="warning" show-icon class="cf-token-alert">
+        <template #message>Token 等同密钥，请勿泄露。连接成功后还需在 Cloudflare 配置 Public Hostname。</template>
+      </a-alert>
+
+      <a-form layout="vertical" class="cf-token-form">
+        <a-form-item label="运行 Token">
+          <a-textarea :value="tokenText" :rows="3" readonly class="cf-token-text" />
+          <a-button type="link" size="small" class="cf-copy-link" @click="copyText(tokenText, 'Token')">
+            复制 Token
+          </a-button>
+        </a-form-item>
+
+        <a-divider orientation="left">SSH 安装命令生成</a-divider>
+
+        <a-row :gutter="12">
+          <a-col :xs="24" :sm="8">
+            <a-form-item label="CPU 架构" required>
+              <a-select
+                v-model:value="installArch"
+                placeholder="请选择架构"
+                :options="tunnelArchOptions"
+                allow-clear
+              />
+            </a-form-item>
+          </a-col>
+          <a-col :xs="24" :sm="8">
+            <a-form-item label="操作系统" required>
+              <a-select
+                v-model:value="installOs"
+                placeholder="请选择系统"
+                :options="tunnelOsOptions"
+                allow-clear
+              />
+            </a-form-item>
+          </a-col>
+          <a-col :xs="24" :sm="8">
+            <a-form-item label="连接协议" required>
+              <a-select
+                v-model:value="installProtocol"
+                placeholder="请选择协议"
+                :options="tunnelProtocolOptions"
+                allow-clear
+              />
+            </a-form-item>
+          </a-col>
+        </a-row>
+
+        <a-empty
+          v-if="!installScriptReady"
+          description="请先选择架构、系统与连接协议，再生成可粘贴的 SSH 命令"
+        />
+        <template v-else>
+          <a-form-item label="粘贴到 SSH 终端执行">
+            <a-textarea :value="installScript" :rows="14" readonly class="cf-install-script" />
+          </a-form-item>
+          <a-space wrap>
+            <a-button type="primary" @click="copyText(installScript, '安装命令')">
+              复制完整命令
+            </a-button>
+          </a-space>
+        </template>
+      </a-form>
     </a-modal>
 
     <a-drawer v-model:open="connVisible" :title="connTitle" :width="isMobile ? '100%' : 480">
@@ -239,6 +306,16 @@ import {
   deleteCfIpAccessRule,
 } from '../../api/cloudflare'
 import { sendVerifyCode } from '../../api/system'
+import {
+  tunnelArchOptions,
+  tunnelOsOptions,
+  tunnelProtocolOptions,
+  buildTunnelInstallScript,
+  canBuildTunnelInstallScript,
+  type TunnelInstallArch,
+  type TunnelInstallOs,
+  type TunnelInstallProtocol,
+} from './cfTunnelInstallScript'
 
 defineProps<{ cfConfigured: boolean }>()
 
@@ -252,6 +329,57 @@ const createLoading = ref(false)
 const createName = ref('')
 const tokenVisible = ref(false)
 const tokenText = ref('')
+const tokenTunnelName = ref('')
+const installArch = ref<TunnelInstallArch | undefined>(undefined)
+const installOs = ref<TunnelInstallOs | undefined>(undefined)
+const installProtocol = ref<TunnelInstallProtocol | undefined>(undefined)
+
+const tokenModalTitle = computed(() =>
+  tokenTunnelName.value ? `Tunnel · ${tokenTunnelName.value}` : 'Tunnel 运行 Token')
+
+const installScriptReady = computed(() =>
+  canBuildTunnelInstallScript(installArch.value, installOs.value, installProtocol.value, tokenText.value))
+
+const installScript = computed(() => {
+  if (!installScriptReady.value) return ''
+  return buildTunnelInstallScript({
+    arch: installArch.value!,
+    os: installOs.value!,
+    protocol: installProtocol.value!,
+    token: tokenText.value,
+    tunnelName: tokenTunnelName.value || undefined,
+  })
+})
+
+function resetInstallOptions() {
+  installArch.value = undefined
+  installOs.value = undefined
+  installProtocol.value = undefined
+}
+
+function openTokenModal(name: string, token: string) {
+  tokenTunnelName.value = name
+  tokenText.value = token
+  resetInstallOptions()
+  tokenVisible.value = true
+}
+
+function onTokenModalOpenChange(open: boolean) {
+  if (!open) resetInstallOptions()
+}
+
+async function copyText(text: string, label: string) {
+  if (!text.trim()) {
+    message.warning(`${label} 为空`)
+    return
+  }
+  try {
+    await navigator.clipboard.writeText(text)
+    message.success(`${label} 已复制`)
+  } catch {
+    message.error('复制失败，请手动选择文本')
+  }
+}
 const connVisible = ref(false)
 const connLoading = ref(false)
 const connTitle = ref('连接详情')
@@ -461,8 +589,7 @@ async function submitCreateTunnel() {
     message.success('Tunnel 已创建')
     createVisible.value = false
     if (res.data?.token) {
-      tokenText.value = res.data.token
-      tokenVisible.value = true
+      openTokenModal(name, res.data.token)
     }
     await loadTunnels()
   } finally {
@@ -512,10 +639,9 @@ async function confirmDeleteTunnel() {
   }
 }
 
-async function showToken(record: any) {
+async function showToken(record: { id: string; name: string }) {
   const res = await getCfTunnelToken({ tunnelId: record.id })
-  tokenText.value = res.data || ''
-  tokenVisible.value = true
+  openTokenModal(record.name, res.data || '')
 }
 
 async function showConnections(record: any) {
@@ -569,4 +695,12 @@ onMounted(() => loadTunnels())
   margin-bottom: 12px;
   color: var(--text-main);
 }
+.cf-token-alert { margin-bottom: 16px; }
+.cf-token-form { margin-top: 4px; }
+.cf-token-text,
+.cf-install-script {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 12px;
+}
+.cf-copy-link { padding-left: 0; margin-top: 4px; }
 </style>
