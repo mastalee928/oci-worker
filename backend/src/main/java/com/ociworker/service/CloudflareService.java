@@ -1747,14 +1747,14 @@ public class CloudflareService {
 
     public Map<String, Object> deployPagesStaticFromUpload(String projectName, List<Map<String, String>> encodedFiles) {
         List<Map<String, Object>> decoded = decodePagesUploadFiles(encodedFiles);
-        return deployPagesStaticFiles(projectName, decoded);
+        return deployPagesStaticFileEntries(projectName, decoded);
     }
 
     public Map<String, Object> deployPagesStaticFiles(String projectName, List<Map<String, String>> files) {
-        return deployPagesStaticFiles(projectName, toPagesFileBytes(files));
+        return deployPagesStaticFileEntries(projectName, toPagesFileBytes(files));
     }
 
-    private Map<String, Object> deployPagesStaticFiles(String projectName, List<Map<String, Object>> fileEntries) {
+    private Map<String, Object> deployPagesStaticFileEntries(String projectName, List<Map<String, Object>> fileEntries) {
         Credentials c = requireCredentials();
         String name = normalizePagesProjectName(projectName);
         if (fileEntries == null || fileEntries.isEmpty()) {
