@@ -842,3 +842,111 @@ export function compileFirewallExpression(join: FirewallJoin, clauses: VisualCla
     items: clauses.map(clause => ({ type: 'clause', clause })),
   })
 }
+
+/** CF 控制台风格：逐行 And/Or 链（首行无连接符） */
+export interface FlatClauseRow {
+  clause: VisualClauseForm
+  prevJoin?: FirewallJoin
+}
+
+function tryFlattenAst(ast: ExprAst): FlatClauseRow[] | null {
+  if (ast.kind === 'not') return null
+  if (ast.kind === 'clause') return [{ clause: ast.clause }]
+
+  if (ast.kind === 'and' || ast.kind === 'or') {
+    const join = ast.kind
+    if (ast.children.every(c => c.kind === 'clause')) {
+      return ast.children.map((c, i) => ({
+        clause: (c as Extract<ExprAst, { kind: 'clause' }>).clause,
+        prevJoin: i === 0 ? undefined : join,
+      }))
+    }
+    if (ast.children.length === 2) {
+      const [left, right] = ast.children
+      if (right.kind === 'clause') {
+        const leftRows = tryFlattenAst(left)
+        if (leftRows) {
+          return [...leftRows, { clause: right.clause, prevJoin: join }]
+        }
+      }
+    }
+  }
+  return null
+}
+
+/** 解析为 CF 逐行 And/Or 结构；含 NOT/嵌套组时返回 null */
+export function parseFirewallFlatRows(raw: string): FlatClauseRow[] | null {
+  if (!raw?.trim()) return null
+  const ast = parseFirewallAst(raw)
+  if (!ast) return null
+  return tryFlattenAst(ast)
+}
+
+/** 编译 CF 逐行 And/Or 结构为 Wirefilter（左结合链） */
+export function compileFirewallFlatRows(rows: FlatClauseRow[]): string | null {
+  if (!rows.length) return null
+  let expr: string | null = null
+  for (let i = 0; i < rows.length; i++) {
+    const part = compileClauseInner(rows[i].clause)
+    if (!part) return null
+    if (i === 0) {
+      expr = part
+    } else {
+      const join = rows[i].prevJoin ?? 'and'
+      expr = `(${expr} ${join} ${part})`
+    }
+  }
+  return expr
+}
+
+function formatExprAstPretty(ast: ExprAst, depth = 0): string {
+  const pad = (n: number) => '  '.repeat(n)
+
+  if (ast.kind === 'clause') {
+    return compileClauseInner(ast.clause) ?? ''
+  }
+
+  if (ast.kind === 'not') {
+    const child = ast.child
+    if (child.kind === 'or' || child.kind === 'and') {
+      const inner = formatExprAstPretty(child, depth + 1)
+      return `not (\n${inner}\n${pad(depth)})`
+    }
+    return `not (${formatExprAstPretty(child, depth)})`
+  }
+
+  if (ast.kind === 'or' || ast.kind === 'and') {
+    const join = ast.kind
+    if (ast.children.length === 1) return formatExprAstPretty(ast.children[0], depth)
+    const lines: string[] = []
+    for (let i = 0; i < ast.children.length; i++) {
+      const part = formatExprAstPretty(ast.children[i], depth + 1)
+      if (i === 0) {
+        lines.push(part)
+      } else {
+        lines.push(`${pad(depth + 1)}${join} ${part.trim()}`)
+      }
+    }
+    return lines.join('\n')
+  }
+
+  return ''
+}
+
+/** 格式化为 CF 控制台风格的多行表达式（展示用） */
+export function prettyPrintFirewallExpression(raw: string): string {
+  const trimmed = raw?.trim()
+  if (!trimmed) return ''
+  const ast = parseFirewallAst(trimmed)
+  if (!ast) return trimmed
+  const body = formatExprAstPretty(ast, 0)
+  if (ast.kind === 'and' || ast.kind === 'or') {
+    return `(${body}\n)`
+  }
+  return body
+}
+
+/** 提交前压缩空白为单行 Wirefilter */
+export function normalizeFirewallExpression(raw: string): string {
+  return normalizeExpression(raw)
+}

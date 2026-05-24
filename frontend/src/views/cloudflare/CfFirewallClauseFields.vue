@@ -1,25 +1,29 @@
 <template>
   <div>
     <a-row :gutter="8" align="middle">
-      <a-col :xs="24" :sm="7">
-        <div class="cf-mini-label">字段</div>
+      <a-col :xs="24" :sm="compact ? 8 : 7">
+        <div v-if="!compact" class="cf-mini-label">字段</div>
         <a-select
           v-model:value="clause.fieldId"
           :options="fieldOptions"
+          placeholder="Select..."
+          allow-clear
           style="width: 100%"
           @change="onFieldChange"
         />
       </a-col>
-      <a-col :xs="24" :sm="7">
-        <div class="cf-mini-label">运算符</div>
+      <a-col :xs="24" :sm="compact ? 8 : 7">
+        <div v-if="!compact" class="cf-mini-label">运算符</div>
         <a-select
           v-model:value="clause.operator"
           :options="operatorOptions"
+          :disabled="!field"
+          placeholder="Select..."
           style="width: 100%"
         />
       </a-col>
-      <a-col :xs="24" :sm="field?.type === 'bool' ? 7 : 10">
-        <div class="cf-mini-label">值</div>
+      <a-col :xs="24" :sm="compact ? 8 : field?.type === 'bool' ? 7 : 10">
+        <div v-if="!compact" class="cf-mini-label">值</div>
         <a-switch
           v-if="field?.type === 'bool'"
           v-model:checked="clause.boolValue"
@@ -29,15 +33,16 @@
         <a-input
           v-else
           v-model:value="clause.value"
+          :disabled="!field"
           :placeholder="field?.placeholder || '输入匹配值'"
           allow-clear
         />
       </a-col>
-      <a-col v-if="removable" :xs="24" :sm="3" class="cf-clause-del">
+      <a-col v-if="removable && !compact" :xs="24" :sm="3" class="cf-clause-del">
         <a-button type="link" danger size="small" @click="emit('remove')">删除</a-button>
       </a-col>
     </a-row>
-    <p v-if="field?.valueHint" class="cf-value-hint">{{ field.valueHint }}</p>
+    <p v-if="field?.valueHint && !compact" class="cf-value-hint">{{ field.valueHint }}</p>
   </div>
 </template>
 
@@ -47,13 +52,13 @@ import {
   FIREWALL_FIELDS,
   defaultOperatorForField,
   operatorsForField,
-  type OperatorId,
   type VisualClauseForm,
 } from './cfFirewallExpression'
 
 const props = defineProps<{
   clause: VisualClauseForm
   removable?: boolean
+  compact?: boolean
 }>()
 
 const emit = defineEmits<{ remove: [] }>()
