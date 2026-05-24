@@ -246,14 +246,21 @@
               </a-input>
               <p v-if="!workersSubdomain" class="cf-hint">未能读取账户子域，部署后将尝试自动启用 workers.dev。</p>
             </a-form-item>
-            <a-form-item label="Worker preview" required>
-              <textarea
-                v-model="deployForm.script"
-                class="cf-code-editor"
-                spellcheck="false"
-                placeholder="在此编写或修改 Worker 代码（ES Module）"
-              />
-              <p class="cf-hint">可直接编辑代码后再点「部署」。部署将上传脚本并启用 workers.dev 子域。</p>
+            <a-form-item label="Worker 脚本代码" required>
+              <div class="cf-code-editor-wrap">
+                <div class="cf-code-editor-head">
+                  <span>在此编写 ES Module，部署前可随意修改</span>
+                  <span class="cf-code-len">{{ deployForm.script.length }} 字符</span>
+                </div>
+                <a-textarea
+                  v-model:value="deployForm.script"
+                  class="cf-code-editor"
+                  :rows="16"
+                  spellcheck="false"
+                  placeholder="export default { async fetch() { return new Response('Hello'); } };"
+                />
+              </div>
+              <p class="cf-hint">编辑完成后点「部署」，将上传脚本并启用 workers.dev 子域。</p>
             </a-form-item>
             <a-space>
               <a-button @click="backFromDeployWorker">返回</a-button>
@@ -375,13 +382,20 @@
           <a-form-item v-if="editWorkerForm.url" label="workers.dev 地址">
             <a :href="editWorkerForm.url" target="_blank" rel="noopener">{{ editWorkerForm.url }}</a>
           </a-form-item>
-          <a-form-item label="Worker 代码" required>
-            <textarea
-              v-model="editWorkerForm.script"
-              class="cf-code-editor"
-              spellcheck="false"
-              placeholder="Worker ES Module 代码"
-            />
+          <a-form-item label="Worker 脚本代码" required>
+            <div class="cf-code-editor-wrap">
+              <div class="cf-code-editor-head">
+                <span>修改后保存将重新部署到 Cloudflare</span>
+                <span class="cf-code-len">{{ editWorkerForm.script.length }} 字符</span>
+              </div>
+              <a-textarea
+                v-model:value="editWorkerForm.script"
+                class="cf-code-editor"
+                :rows="16"
+                spellcheck="false"
+                placeholder="Worker ES Module 代码"
+              />
+            </div>
           </a-form-item>
         </a-form>
       </a-spin>
@@ -1076,28 +1090,57 @@ defineExpose({ loadAll })
 .cf-template-name { font-weight: 600; }
 .cf-back-link { padding-left: 0; margin-bottom: 8px; }
 .cf-upload-summary { margin: 8px 0 0; font-size: 13px; }
-.cf-code-editor {
-  width: 100%;
-  min-height: 320px;
-  padding: 12px;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 13px;
-  line-height: 1.5;
+.cf-code-editor-wrap {
   border: 1px solid var(--border);
   border-radius: 8px;
-  background: var(--bg-soft, #fafafa);
-  color: inherit;
+  overflow: hidden;
+  background: var(--input-bg);
+}
+.cf-code-editor-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--text-sub);
+  border-bottom: 1px solid var(--border);
+}
+.cf-code-len {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  flex-shrink: 0;
+}
+.cf-code-editor-wrap :deep(textarea.ant-input) {
+  min-height: 320px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 13px;
+  line-height: 1.55;
+  border: none !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  background: transparent !important;
+  color: var(--text-main) !important;
+  caret-color: var(--text-main) !important;
   resize: vertical;
-  box-sizing: border-box;
+}
+.cf-code-editor-wrap :deep(textarea.ant-input::placeholder) {
+  color: var(--text-sub) !important;
+}
+.cf-code-editor-wrap :deep(textarea.ant-input:focus) {
+  box-shadow: none !important;
 }
 .cf-file-preview {
   margin: 0;
+  padding: 6px 8px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
   font-size: 11px;
-  max-height: 48px;
+  max-height: 56px;
   overflow: hidden;
-  white-space: nowrap;
-  text-overflow: ellipsis;
-  color: var(--text-sub);
+  white-space: pre-wrap;
+  word-break: break-all;
+  color: var(--text-main);
+  background: var(--input-bg);
+  border-radius: 4px;
 }
 .mobile-card {
   border: 1px solid var(--border);
