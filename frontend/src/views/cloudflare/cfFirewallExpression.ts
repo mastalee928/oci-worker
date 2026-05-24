@@ -263,32 +263,80 @@ export function firewallActionLabel(action?: string) {
   return ACTION_LABELS[action.toLowerCase()] || action
 }
 
-/** 将 Wirefilter 表达式转为接近 CF 控制台的可读匹配条件 */
-export function humanizeExpression(expr?: string): string {
-  if (!expr?.trim()) return '—'
-  let s = expr.trim().replace(/^\(+|\)+$/g, '').trim()
+function humanizeClauseForm(clause: VisualClauseForm): string {
+  const field = FIREWALL_FIELDS.find(f => f.id === clause.fieldId)
+  if (!field) return ''
+  if (field.type === 'bool') {
+    return clause.boolValue ? 'SSL/HTTPS 已启用' : 'SSL/HTTPS 未启用'
+  }
+  const value = clause.value.trim()
+  if (!value) return ''
+  const opDef = operatorsForField(field).find(o => o.id === clause.operator)
+  const opLabel = opDef?.label ?? '等于'
+  if (clause.operator === 'starts_with') return `${field.label} 开头为 ${value}`
+  if (clause.operator === 'not_starts_with') return `${field.label} 开头不是 ${value}`
+  if (clause.operator === 'ends_with') return `${field.label} 结尾为 ${value}`
+  if (clause.operator === 'not_ends_with') return `${field.label} 结尾不是 ${value}`
+  if (clause.operator === 'contains') return `${field.label} 包含 ${value}`
+  if (clause.operator === 'not_contains') return `${field.label} 不包含 ${value}`
+  if (clause.operator === 'wildcard') return `${field.label} 通配符 ${value}`
+  return `${field.label} ${opLabel} ${value}`
+}
+
+/** 格式化 Or 分支：单条件直接展示，And 组内用 and 连接 */
+function humanizeOrBranch(ast: ExprAst): string {
+  if (ast.kind === 'and') {
+    return ast.children.map(humanizeAstNode).filter(Boolean).join(' and ')
+  }
+  return humanizeAstNode(ast)
+}
+
+function humanizeAstNode(ast: ExprAst): string {
+  if (ast.kind === 'clause') {
+    return humanizeClauseForm(ast.clause)
+  }
+  if (ast.kind === 'not') {
+    const inner = humanizeAstNode(ast.child)
+    return inner ? `not (${inner})` : 'not (…)'
+  }
+  if (ast.kind === 'and') {
+    return ast.children.map(humanizeAstNode).filter(Boolean).join(' and ')
+  }
+  if (ast.kind === 'or') {
+    return ast.children.map(humanizeOrBranch).filter(Boolean).join(', ')
+  }
+  return ''
+}
+
+function humanizeExpressionFallback(expr: string): string {
+  let s = expr.trim()
   const rules: Array<[RegExp, string | ((...args: string[]) => string)]> = [
+    [/ip\.src\.asnum\s+eq\s+(\d+)/gi, (_, v) => `ASN 等于 ${v}`],
     [/http\.host\s+eq\s+"([^"]+)"/gi, (_, v) => `主机名 等于 ${v}`],
-    [/http\.host\s+ne\s+"([^"]+)"/gi, (_, v) => `主机名 不等于 ${v}`],
     [/http\.request\.uri\.path\s+contains\s+"([^"]+)"/gi, (_, v) => `URI 路径 包含 ${v}`],
-    [/not\s+http\.request\.uri\.path\s+contains\s+"([^"]+)"/gi, (_, v) => `URI 路径 不包含 ${v}`],
-    [/http\.request\.uri\.path\s+eq\s+"([^"]+)"/gi, (_, v) => `URI 路径 等于 ${v}`],
     [/starts_with\(http\.request\.uri\.path,\s*"([^"]+)"\)/gi, (_, v) => `URI 路径 开头为 ${v}`],
-    [/not\s+starts_with\(http\.request\.uri\.path,\s*"([^"]+)"\)/gi, (_, v) => `URI 路径 开头不是 ${v}`],
-    [/ends_with\(http\.request\.uri\.path,\s*"([^"]+)"\)/gi, (_, v) => `URI 路径 结尾为 ${v}`],
     [/ip\.src\.country\s+eq\s+"([^"]+)"/gi, (_, v) => `国家/地区 等于 ${v}`],
-    [/ip\.src\.country\s+in\s+\{([^}]+)\}/gi, (_, v) => `国家/地区 包含 ${v.replace(/"/g, '').trim()}`],
     [/ip\.src\s+eq\s+([^\s)]+)/gi, (_, v) => `IP 源地址 等于 ${v}`],
-    [/http\.request\.method\s+eq\s+"([^"]+)"/gi, (_, v) => `请求方法 等于 ${v}`],
     [/\(ssl\)/gi, 'SSL/HTTPS 已启用'],
     [/\(not ssl\)/gi, 'SSL/HTTPS 未启用'],
-    [/\band\b/gi, '且'],
-    [/\bor\b/gi, '或'],
   ]
   for (const [re, rep] of rules) {
     s = s.replace(re, rep as (substring: string, ...args: string[]) => string)
   }
-  return s
+  return s.replace(/\s+/g, ' ').trim()
+}
+
+/** 将 Wirefilter 表达式转为接近 CF 控制台的可读匹配条件（Or 组用逗号，And 组用 and） */
+export function humanizeExpression(expr?: string): string {
+  if (!expr?.trim()) return '—'
+  const ast = parseFirewallAst(expr.trim())
+  if (ast) {
+    const normalized = normalizeAstForVisual(ast)
+    const humanized = humanizeAstNode(normalized)
+    if (humanized) return humanized
+  }
+  const fallback = humanizeExpressionFallback(expr)
+  return fallback || expr.trim()
 }
 
 export function ruleDisplayName(description?: string, expression?: string) {
@@ -874,29 +922,96 @@ function tryFlattenAst(ast: ExprAst): FlatClauseRow[] | null {
   return null
 }
 
-/** 解析为 CF 逐行 And/Or 结构；含 NOT/嵌套组时返回 null */
-export function parseFirewallFlatRows(raw: string): FlatClauseRow[] | null {
-  if (!raw?.trim()) return null
-  const ast = parseFirewallAst(raw)
-  if (!ast) return null
-  return tryFlattenAst(ast)
+/** CF 控制台：And 组 + Or 分隔（与可视化构建器一致） */
+export function visualFormToAndGroups(form: VisualRuleForm): VisualClauseForm[][] | null {
+  if (form.join === 'or') {
+    const groups: VisualClauseForm[][] = []
+    for (const item of form.items) {
+      const rows = visualItemToAndRows(item)
+      if (!rows?.length) return null
+      groups.push(rows)
+    }
+    return groups.length ? groups : null
+  }
+  if (form.join === 'and') {
+    const rows: VisualClauseForm[] = []
+    for (const item of form.items) {
+      if (item.type === 'clause') rows.push(item.clause)
+      else if (item.type === 'group' && item.join === 'and') rows.push(...item.clauses)
+      else return null
+    }
+    return rows.length ? [rows] : null
+  }
+  return null
 }
 
-/** 编译 CF 逐行 And/Or 结构为 Wirefilter（左结合链） */
-export function compileFirewallFlatRows(rows: FlatClauseRow[]): string | null {
-  if (!rows.length) return null
-  let expr: string | null = null
-  for (let i = 0; i < rows.length; i++) {
-    const part = compileClauseInner(rows[i].clause)
-    if (!part) return null
-    if (i === 0) {
-      expr = part
-    } else {
-      const join = rows[i].prevJoin ?? 'and'
-      expr = `(${expr} ${join} ${part})`
+function visualItemToAndRows(item: VisualRuleItem): VisualClauseForm[] | null {
+  if (item.type === 'clause') return [item.clause]
+  if (item.type === 'group' && item.join === 'and') return item.clauses.length ? item.clauses : null
+  return null
+}
+
+export function andGroupsToVisualForm(groups: VisualClauseForm[][]): VisualRuleForm {
+  if (groups.length === 1) {
+    return {
+      join: 'and',
+      items: groups[0].map(clause => ({ type: 'clause', clause })),
     }
   }
-  return expr
+  return {
+    join: 'or',
+    items: groups.map(rows => {
+      if (rows.length === 1) return { type: 'clause', clause: rows[0] }
+      return { type: 'group', join: 'and', clauses: rows }
+    }),
+  }
+}
+
+/** 解析为 CF And 组 + Or 分隔结构；含 NOT/复杂嵌套时返回 null */
+export function parseFirewallAndGroups(raw: string): VisualClauseForm[][] | null {
+  const form = parseFirewallVisualForm(raw)
+  if (!form) return null
+  return visualFormToAndGroups(form)
+}
+
+/** 编译 CF And 组 + Or 分隔结构 */
+export function compileFirewallAndGroups(groups: VisualClauseForm[][]): string | null {
+  if (!groups.length) return null
+  const filtered = groups.filter(g => g.length > 0)
+  if (!filtered.length) return null
+  return compileFirewallVisualForm(andGroupsToVisualForm(filtered))
+}
+
+/** @deprecated 使用 {@link parseFirewallAndGroups} */
+export function parseFirewallFlatRows(raw: string): FlatClauseRow[] | null {
+  const groups = parseFirewallAndGroups(raw)
+  if (!groups) return null
+  const rows: FlatClauseRow[] = []
+  for (let gi = 0; gi < groups.length; gi++) {
+    for (let ri = 0; ri < groups[gi].length; ri++) {
+      rows.push({
+        clause: groups[gi][ri],
+        prevJoin: rows.length === 0 ? undefined : (ri === 0 ? 'or' : 'and'),
+      })
+    }
+  }
+  return rows.length ? rows : null
+}
+
+/** @deprecated 使用 {@link compileFirewallAndGroups} */
+export function compileFirewallFlatRows(rows: FlatClauseRow[]): string | null {
+  if (!rows.length) return null
+  const groups: VisualClauseForm[][] = []
+  let current: VisualClauseForm[] = []
+  for (let i = 0; i < rows.length; i++) {
+    if (i > 0 && rows[i].prevJoin === 'or') {
+      if (current.length) groups.push(current)
+      current = []
+    }
+    current.push(rows[i].clause)
+  }
+  if (current.length) groups.push(current)
+  return compileFirewallAndGroups(groups)
 }
 
 function formatExprAstPretty(ast: ExprAst, depth = 0): string {
@@ -917,12 +1032,13 @@ function formatExprAstPretty(ast: ExprAst, depth = 0): string {
 
   if (ast.kind === 'or' || ast.kind === 'and') {
     const join = ast.kind
-    if (ast.children.length === 1) return formatExprAstPretty(ast.children[0], depth)
     const lines: string[] = []
     for (let i = 0; i < ast.children.length; i++) {
-      const part = formatExprAstPretty(ast.children[i], depth + 1)
+      const part = formatExprAstPretty(ast.children[i], depth + (join === 'or' ? 1 : 1))
       if (i === 0) {
         lines.push(part)
+      } else if (join === 'or') {
+        lines.push(`${pad(depth)}or\n${part}`)
       } else {
         lines.push(`${pad(depth + 1)}${join} ${part.trim()}`)
       }

@@ -169,48 +169,65 @@
                 <a-col :xs="24" :sm="7">值</a-col>
               </a-row>
               <div
-                v-for="(row, idx) in form.rows"
-                :key="row.key"
-                class="cf-builder-row"
+                v-for="(group, gi) in form.groups"
+                :key="group.key"
+                class="cf-builder-block"
               >
-                <div class="cf-builder-rail" :class="{ 'cf-builder-rail--first': idx === 0 }">
-                  <div v-if="idx > 0" class="cf-builder-connector">
-                    <button
-                      type="button"
-                      class="cf-builder-join-tag"
-                      @click="toggleRowJoin(idx)"
-                    >
-                      {{ row.prevJoin === 'or' ? 'Or' : 'And' }}
-                    </button>
+                <div v-if="gi > 0" class="cf-builder-or-separator">
+                  <span class="cf-builder-or-tag">Or</span>
+                </div>
+                <div
+                  class="cf-builder-group"
+                  :class="{ 'cf-builder-group--multi': group.rows.length > 1 }"
+                >
+                  <div
+                    v-if="group.rows.length > 1"
+                    class="cf-builder-group-line"
+                    aria-hidden="true"
+                  />
+                  <div
+                    v-for="(row, ri) in group.rows"
+                    :key="row.key"
+                    class="cf-builder-row"
+                  >
+                    <div class="cf-builder-rail">
+                      <div v-if="ri > 0" class="cf-builder-and-slot">
+                        <span class="cf-builder-join-tag cf-builder-join-tag--and">And</span>
+                      </div>
+                    </div>
+                    <div class="cf-builder-fields">
+                      <FirewallClauseFields :clause="row" compact />
+                    </div>
+                    <div class="cf-builder-actions">
+                      <button type="button" class="cf-builder-add-btn" @click="addAndAfter(gi, ri)">
+                        And
+                      </button>
+                      <button
+                        v-if="isLastRowInGroup(gi, ri)"
+                        type="button"
+                        class="cf-builder-add-btn"
+                        @click="addOrAfter(gi)"
+                      >
+                        Or
+                      </button>
+                      <button
+                        v-if="canRemoveRow(gi, ri)"
+                        type="button"
+                        class="cf-builder-del-btn"
+                        aria-label="删除"
+                        @click="removeBuilderRow(gi, ri)"
+                      >
+                        ×
+                      </button>
+                    </div>
                   </div>
-                </div>
-                <div class="cf-builder-fields">
-                  <FirewallClauseFields :clause="row" compact />
-                </div>
-                <div class="cf-builder-actions">
-                  <a-button size="small" class="cf-builder-add-btn" @click="addRowAfter(idx, 'and')">And</a-button>
-                  <a-button
-                    v-if="idx === form.rows.length - 1"
-                    size="small"
-                    class="cf-builder-add-btn"
-                    @click="addRowAfter(idx, 'or')"
-                  >
-                    Or
-                  </a-button>
-                  <a-button
-                    v-if="form.rows.length > 1"
-                    type="text"
-                    size="small"
-                    class="cf-builder-del-btn"
-                    aria-label="删除"
-                    @click="removeRow(idx)"
-                  >
-                    ×
-                  </a-button>
                 </div>
               </div>
             </div>
             <div class="cf-expr-preview">
+              <div class="cf-expr-preview-head">
+                <span class="cf-expr-preview-title">表达式预览</span>
+              </div>
               <pre class="cf-expr-preview-body">{{ displayPreviewExpression }}</pre>
               <div class="cf-expr-preview-foot">
                 <a-button type="link" size="small" class="cf-expr-link" @click="setFormMode('advanced')">
@@ -263,14 +280,13 @@ import {
 } from '../../api/cloudflare'
 import FirewallClauseFields from './CfFirewallClauseFields.vue'
 import {
-  compileFirewallFlatRows,
+  compileFirewallAndGroups,
+  parseFirewallAndGroups,
   humanizeExpression,
   firewallActionLabel,
   ruleDisplayName,
-  parseFirewallFlatRows,
   prettyPrintFirewallExpression,
   normalizeFirewallExpression,
-  type FirewallJoin,
   type VisualClauseForm,
 } from './cfFirewallExpression'
 
@@ -284,7 +300,8 @@ interface FirewallRule {
   events24h?: number
 }
 
-type BuilderRow = VisualClauseForm & { key: string; prevJoin?: FirewallJoin }
+type BuilderRow = VisualClauseForm & { key: string }
+type BuilderGroup = { key: string; rows: BuilderRow[] }
 
 function newKey() {
   return `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`
@@ -322,7 +339,7 @@ const form = reactive({
   description: '',
   action: 'block',
   mode: 'visual' as 'visual' | 'advanced',
-  rows: [] as BuilderRow[],
+  groups: [] as BuilderGroup[],
   expression: '',
   enabled: true,
 })
@@ -345,15 +362,30 @@ const columns = [
   { title: '', key: 'ops', width: 168, fixed: 'right' as const },
 ]
 
-const previewExpression = computed(() => compileFirewallFlatRows(rowsToFlat()) || '')
+const previewExpression = computed(() => compileFirewallAndGroups(groupsToClauseGroups()) || '')
 
 const displayPreviewExpression = computed(() =>
   previewExpression.value ? prettyPrintFirewallExpression(previewExpression.value) : '',
 )
 
-function formatEvents24h(n?: number) {
-  if (n === undefined || n === null) return '—'
-  return String(n)
+function rowToClause(row: BuilderRow): VisualClauseForm {
+  return {
+    fieldId: row.fieldId,
+    operator: row.operator,
+    value: row.value,
+    boolValue: row.boolValue,
+  }
+}
+
+function groupsToClauseGroups(): VisualClauseForm[][] {
+  return form.groups.map(g => g.rows.map(rowToClause))
+}
+
+function applyAndGroups(groups: VisualClauseForm[][]) {
+  form.groups = groups.map(rows => ({
+    key: newKey(),
+    rows: rows.map(clause => ({ key: newKey(), ...clause })),
+  }))
 }
 
 function createClauseRow(partial?: VisualClauseForm): BuilderRow {
@@ -366,57 +398,57 @@ function createClauseRow(partial?: VisualClauseForm): BuilderRow {
   }
 }
 
-function rowsToFlat() {
-  return form.rows.map((row, idx) => ({
-    clause: {
-      fieldId: row.fieldId,
-      operator: row.operator,
-      value: row.value,
-      boolValue: row.boolValue,
-    },
-    prevJoin: idx === 0 ? undefined : row.prevJoin,
-  }))
+function formatEvents24h(n?: number) {
+  if (n === undefined || n === null) return '—'
+  return String(n)
 }
 
-function applyFlatRows(flat: ReturnType<typeof parseFirewallFlatRows>) {
-  if (!flat?.length) return
-  form.rows = flat.map((item, idx) => ({
-    key: newKey(),
-    ...item.clause,
-    prevJoin: idx === 0 ? undefined : item.prevJoin,
-  }))
+function addAndAfter(gi: number, ri: number) {
+  const group = form.groups[gi]
+  if (!group) return
+  group.rows.splice(ri + 1, 0, createClauseRow())
 }
 
-function addRowAfter(idx: number, join: FirewallJoin) {
-  form.rows.splice(idx + 1, 0, { ...createClauseRow(), prevJoin: join })
+function addOrAfter(gi: number) {
+  form.groups.splice(gi + 1, 0, { key: newKey(), rows: [createClauseRow()] })
 }
 
-function toggleRowJoin(idx: number) {
-  if (idx <= 0) return
-  const row = form.rows[idx]
-  if (!row) return
-  row.prevJoin = row.prevJoin === 'or' ? 'and' : 'or'
+function isLastRowInGroup(gi: number, ri: number) {
+  const group = form.groups[gi]
+  return !!group && ri === group.rows.length - 1
 }
 
-function removeRow(idx: number) {
-  if (form.rows.length <= 1) return
-  const wasFirst = idx === 0
-  form.rows.splice(idx, 1)
-  if (wasFirst && form.rows[0]) form.rows[0].prevJoin = undefined
+function canRemoveRow(gi: number, ri: number) {
+  const group = form.groups[gi]
+  if (!group) return false
+  if (group.rows.length > 1) return true
+  return form.groups.length > 1
+}
+
+function removeBuilderRow(gi: number, ri: number) {
+  const group = form.groups[gi]
+  if (!group) return
+  if (group.rows.length > 1) {
+    group.rows.splice(ri, 1)
+    return
+  }
+  if (form.groups.length > 1) {
+    form.groups.splice(gi, 1)
+  }
 }
 
 function resetVisualForm() {
-  form.rows = [createClauseRow()]
+  form.groups = [{ key: newKey(), rows: [createClauseRow()] }]
 }
 
 function ensureVisualHasRow() {
-  if (form.mode === 'visual' && form.rows.length === 0) resetVisualForm()
+  if (form.mode === 'visual' && form.groups.length === 0) resetVisualForm()
 }
 
 function tryLoadVisualFromExpression(expr: string): boolean {
-  const parsed = parseFirewallFlatRows(expr)
-  if (!parsed) return false
-  applyFlatRows(parsed)
+  const parsed = parseFirewallAndGroups(expr)
+  if (!parsed?.length) return false
+  applyAndGroups(parsed)
   return true
 }
 
@@ -430,7 +462,7 @@ function setFormMode(next: 'visual' | 'advanced') {
   }
   const src = form.expression.trim()
   if (!src) {
-    if (!form.rows.length) resetVisualForm()
+    if (!form.groups.length) resetVisualForm()
     form.mode = 'visual'
     return
   }
@@ -671,6 +703,39 @@ watch(createModalVisible, visible => {
   gap: 8px;
   position: relative;
 }
+.cf-builder-block + .cf-builder-block {
+  margin-top: 4px;
+}
+.cf-builder-or-separator {
+  display: flex;
+  align-items: center;
+  padding: 10px 0 10px 12px;
+}
+.cf-builder-or-tag,
+.cf-builder-join-tag {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 12px;
+  border-radius: 4px;
+  border: 1px solid #9aa3af;
+  background: #ffffff;
+  color: #1f2937;
+  white-space: nowrap;
+  line-height: 1.2;
+}
+.cf-builder-group {
+  position: relative;
+  padding-left: 0;
+}
+.cf-builder-group--multi .cf-builder-group-line {
+  position: absolute;
+  left: 27px;
+  top: 36px;
+  bottom: 36px;
+  width: 2px;
+  background: #9aa3af;
+  pointer-events: none;
+}
 .cf-builder-rail {
   width: 56px;
   flex-shrink: 0;
@@ -680,50 +745,17 @@ watch(createModalVisible, visible => {
   align-self: stretch;
   padding: 4px 0;
 }
-.cf-builder-rail--first {
-  visibility: hidden;
-  pointer-events: none;
-}
-/* 禁止 rail 贯通竖线；CF 每段 And/Or 独立，不连成一条 */
-/* 每两行之间：独立竖线段 + 中间 And/Or，不与其他段连通 */
-.cf-builder-connector {
+.cf-builder-and-slot {
   display: flex;
-  flex-direction: column;
   align-items: center;
   justify-content: center;
   flex: 1;
   min-height: 44px;
   position: relative;
-}
-.cf-builder-connector::before {
-  content: '';
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 50%;
-  width: 2px;
-  margin-left: -1px;
-  background: #9aa3af;
-  z-index: 0;
-}
-.cf-builder-join-tag {
-  position: relative;
   z-index: 1;
-  font-size: 12px;
-  font-weight: 600;
-  padding: 4px 12px;
-  border-radius: 4px;
-  border: 1px solid #9aa3af;
-  background: #ffffff;
-  color: #1f2937;
-  white-space: nowrap;
-  cursor: pointer;
-  line-height: 1.2;
 }
-.cf-builder-join-tag:hover {
-  border-color: #2563eb;
-  color: #2563eb;
-  background: #ffffff;
+.cf-builder-join-tag--and {
+  cursor: default;
 }
 .cf-builder-fields { flex: 1; min-width: 0; padding: 6px 0; }
 .cf-builder-actions {
@@ -734,28 +766,41 @@ watch(createModalVisible, visible => {
   padding: 6px 0;
   min-width: 88px;
 }
-.cf-builder-add-btn.ant-btn {
+.cf-builder-add-btn {
   font-size: 12px;
   padding: 0 10px;
   height: 28px;
   border-radius: 4px;
-  background: #ffffff !important;
-  color: #1f2937 !important;
-  border: 1px solid #9aa3af !important;
+  background: #ffffff;
+  color: #1f2937;
+  border: 1px solid #9aa3af;
+  cursor: pointer;
+  line-height: 28px;
 }
-.cf-builder-add-btn.ant-btn:hover {
-  color: #2563eb !important;
-  border-color: #2563eb !important;
-  background: #ffffff !important;
+.cf-builder-add-btn:hover {
+  color: #2563eb;
+  border-color: #2563eb;
+  background: #ffffff;
 }
-.cf-builder-del-btn.ant-btn {
+.cf-builder-del-btn {
   font-size: 18px;
   line-height: 1;
   padding: 0 4px;
   height: 28px;
-  color: #6b7280 !important;
+  border: none;
+  background: transparent;
+  color: #6b7280;
+  cursor: pointer;
 }
-.cf-builder-del-btn.ant-btn:hover { color: #ef4444 !important; }
+.cf-builder-del-btn:hover { color: #ef4444; }
+.cf-expr-preview-head {
+  margin-bottom: 8px;
+}
+.cf-expr-preview-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-main);
+}
 .cf-join-bar {
   display: flex;
   align-items: center;
