@@ -30,7 +30,7 @@
       </a-form>
     </a-card>
 
-    <a-divider orientation="left">防火墙规则</a-divider>
+    <a-divider orientation="left">自定义规则</a-divider>
 
     <div class="cf-toolbar">
       <a-space wrap>
@@ -95,7 +95,7 @@
       </template>
     </a-table>
     <a-spin v-else :spinning="loading">
-      <a-empty v-if="!loading && rules.length === 0" description="暂无防火墙规则" />
+      <a-empty v-if="!loading && rules.length === 0" description="暂无自定义规则" />
       <div v-for="record in rules" :key="record.id" class="mobile-card">
         <div class="mobile-card-header">
           <a class="mobile-card-title cf-rule-name-link" @click="openEditModal(record)">
@@ -139,13 +139,13 @@
         </a-space>
       </div>
     </a-spin>
-    <p class="cf-hint">防火墙规则（Ingress）。支持可视化构建或手写 Wirefilter 表达式。</p>
+    <p class="cf-hint">自定义规则（Rulesets API，对齐 CF「安全规则 → 自定义规则」）。支持可视化构建或手写 Wirefilter 表达式。</p>
 
     <a-modal
       v-model:open="createModalVisible"
       :mask-closable="false"
       :keyboard="false"
-      :title="editingRuleId ? '编辑防火墙规则' : '添加防火墙规则'"
+      :title="editingRuleId ? '编辑自定义规则' : '添加自定义规则'"
       :confirm-loading="saveLoading"
       :width="isMobile ? 'calc(100vw - 32px)' : 920"
       @ok="submitSave"
@@ -276,6 +276,7 @@ import {
 
 interface FirewallRule {
   id: string
+  rulesetId?: string
   description?: string
   action?: string
   paused?: boolean
@@ -298,6 +299,7 @@ const shieldSaving = ref(false)
 const saveLoading = ref(false)
 const createModalVisible = ref(false)
 const editingRuleId = ref<string | null>(null)
+const editingRulesetId = ref<string | null>(null)
 const rules = ref<FirewallRule[]>([])
 const pauseLoadingMap = ref<Record<string, boolean>>({})
 const deleteLoadingMap = ref<Record<string, boolean>>({})
@@ -441,6 +443,7 @@ function setFormMode(next: 'visual' | 'advanced') {
 
 function openCreateModal() {
   editingRuleId.value = null
+  editingRulesetId.value = null
   form.description = ''
   form.action = 'block'
   form.expression = ''
@@ -452,6 +455,7 @@ function openCreateModal() {
 
 function openEditModal(record: FirewallRule) {
   editingRuleId.value = record.id
+  editingRulesetId.value = record.rulesetId || null
   form.description = record.description || ''
   form.action = record.action || 'block'
   form.expression = record.expression || ''
@@ -530,8 +534,13 @@ async function submitSave() {
   saveLoading.value = true
   try {
     if (editingRuleId.value) {
+      if (!editingRulesetId.value) {
+        message.error('缺少 rulesetId，请刷新后重试')
+        return
+      }
       await updateCfFirewallRule({
         zoneId: props.zoneId,
+        rulesetId: editingRulesetId.value,
         ruleId: editingRuleId.value,
         action: form.action,
         expression,
@@ -561,11 +570,12 @@ async function toggleRulePaused(record: FirewallRule) {
 }
 
 async function onRulePausedChange(record: FirewallRule, paused: boolean) {
-  if (!props.zoneId || !record.id) return
+  if (!props.zoneId || !record.id || !record.rulesetId) return
   pauseLoadingMap.value[record.id] = true
   try {
     await setCfFirewallRulePaused({
       zoneId: props.zoneId,
+      rulesetId: record.rulesetId,
       ruleId: record.id,
       paused,
     })
@@ -579,9 +589,10 @@ async function onRulePausedChange(record: FirewallRule, paused: boolean) {
 }
 
 function confirmDelete(record: FirewallRule) {
-  if (!props.zoneId || !record.id) return
+  const rulesetId = record.rulesetId
+  if (!props.zoneId || !record.id || !rulesetId) return
   Modal.confirm({
-    title: '删除防火墙规则',
+    title: '删除自定义规则',
     content: `确定删除「${ruleDisplayName(record.description, record.expression)}」？此操作不可撤销。`,
     okText: '删除',
     okType: 'danger',
@@ -589,7 +600,11 @@ function confirmDelete(record: FirewallRule) {
     onOk: async () => {
       deleteLoadingMap.value[record.id] = true
       try {
-        await deleteCfFirewallRule({ zoneId: props.zoneId!, ruleId: record.id })
+        await deleteCfFirewallRule({
+          zoneId: props.zoneId!,
+          rulesetId,
+          ruleId: record.id,
+        })
         message.success('规则已删除')
         await load()
       } finally {
@@ -652,9 +667,8 @@ watch(createModalVisible, visible => {
 }
 .cf-builder-row {
   display: flex;
-  align-items: stretch;
+  align-items: flex-start;
   gap: 8px;
-  margin-bottom: 0;
   position: relative;
 }
 .cf-builder-rail {
@@ -662,51 +676,62 @@ watch(createModalVisible, visible => {
   flex-shrink: 0;
   display: flex;
   justify-content: center;
-  position: relative;
+  align-items: center;
+  align-self: stretch;
+  padding: 4px 0;
 }
-.cf-builder-rail--first { visibility: hidden; }
-.cf-builder-rail:not(.cf-builder-rail--first)::before {
-  content: '';
-  position: absolute;
-  top: -12px;
-  bottom: 50%;
-  left: 50%;
-  width: 2px;
-  margin-left: -1px;
-  background: #c5cad1;
+.cf-builder-rail--first {
+  visibility: hidden;
+  pointer-events: none;
 }
+/* 禁止 rail 贯通竖线；CF 每段 And/Or 独立，不连成一条 */
+/* 每两行之间：独立竖线段 + 中间 And/Or，不与其他段连通 */
 .cf-builder-connector {
   display: flex;
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  min-height: 48px;
+  flex: 1;
+  min-height: 44px;
   position: relative;
-  z-index: 1;
+}
+.cf-builder-connector::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 50%;
+  width: 2px;
+  margin-left: -1px;
+  background: #9aa3af;
+  z-index: 0;
 }
 .cf-builder-join-tag {
+  position: relative;
+  z-index: 1;
   font-size: 12px;
   font-weight: 600;
   padding: 4px 12px;
   border-radius: 4px;
-  border: 1px solid #c5cad1;
-  background: #fff;
-  color: var(--text-main);
+  border: 1px solid #9aa3af;
+  background: #ffffff;
+  color: #1f2937;
   white-space: nowrap;
   cursor: pointer;
   line-height: 1.2;
 }
 .cf-builder-join-tag:hover {
-  border-color: var(--primary, #1677ff);
-  color: var(--primary, #1677ff);
+  border-color: #2563eb;
+  color: #2563eb;
+  background: #ffffff;
 }
-.cf-builder-fields { flex: 1; min-width: 0; padding: 8px 0; }
+.cf-builder-fields { flex: 1; min-width: 0; padding: 6px 0; }
 .cf-builder-actions {
   flex-shrink: 0;
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 0;
+  padding: 6px 0;
   min-width: 88px;
 }
 .cf-builder-add-btn.ant-btn {
@@ -714,16 +739,23 @@ watch(createModalVisible, visible => {
   padding: 0 10px;
   height: 28px;
   border-radius: 4px;
-  background: #fff;
+  background: #ffffff !important;
+  color: #1f2937 !important;
+  border: 1px solid #9aa3af !important;
+}
+.cf-builder-add-btn.ant-btn:hover {
+  color: #2563eb !important;
+  border-color: #2563eb !important;
+  background: #ffffff !important;
 }
 .cf-builder-del-btn.ant-btn {
   font-size: 18px;
   line-height: 1;
   padding: 0 4px;
   height: 28px;
-  color: var(--text-sub);
+  color: #6b7280 !important;
 }
-.cf-builder-del-btn.ant-btn:hover { color: #ff4d4f; }
+.cf-builder-del-btn.ant-btn:hover { color: #ef4444 !important; }
 .cf-join-bar {
   display: flex;
   align-items: center;

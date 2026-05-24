@@ -539,6 +539,7 @@ public class CloudflareController {
     public ResponseData<?> firewallPaused(@RequestBody Map<String, Object> params) {
         return ResponseData.ok(cloudflareService.setFirewallRulePaused(
                 parseString(params.get("zoneId")),
+                parseString(params.get("rulesetId")),
                 parseString(params.get("ruleId")),
                 parseBoolean(params.get("paused"), false)));
     }
@@ -548,6 +549,7 @@ public class CloudflareController {
         Boolean paused = params.containsKey("paused") ? parseBoolean(params.get("paused"), false) : null;
         return ResponseData.ok(cloudflareService.updateFirewallRule(
                 parseString(params.get("zoneId")),
+                parseString(params.get("rulesetId")),
                 parseString(params.get("ruleId")),
                 parseString(params.get("action")),
                 params.containsKey("description") ? parseString(params.get("description")) : null,
@@ -557,7 +559,8 @@ public class CloudflareController {
 
     @PostMapping("/security/firewall/delete")
     public ResponseData<?> firewallDelete(@RequestBody Map<String, String> params) {
-        cloudflareService.deleteFirewallRule(params.get("zoneId"), params.get("ruleId"));
+        cloudflareService.deleteFirewallRule(
+                params.get("zoneId"), params.get("rulesetId"), params.get("ruleId"));
         return ResponseData.ok();
     }
 

@@ -720,21 +720,15 @@ public class CloudflareService {
 
     private static final Set<String> FIREWALL_ACTIONS = Set.of(
             "block", "challenge", "js_challenge", "managed_challenge", "allow", "log", "bypass");
+    private static final String CUSTOM_FIREWALL_PHASE = "http_request_firewall_custom";
+    private static final Set<String> CUSTOM_FIREWALL_SKIP_ACTIONS = Set.of("execute", "skip");
+    private static final Set<String> CUSTOM_FIREWALL_RULESET_KINDS = Set.of("zone", "custom", "root");
 
+    /** 自定义规则（Rulesets API，对齐 CF「安全规则 → 自定义规则」） */
     public List<Map<String, Object>> listFirewallRules(String zoneId) {
         Credentials c = requireCredentials();
         requireZoneId(zoneId);
-        String url = CF_API_BASE + "/zones/" + zoneId.trim() + "/firewall/rules?per_page=100";
-        JSONObject json = parseJson(apiGet(c.apiToken(), url));
-        requireSuccess(json, "拉取防火墙规则失败");
-        JSONArray result = json.getJSONArray("result");
-        List<Map<String, Object>> list = new ArrayList<>();
-        if (result == null) {
-            return list;
-        }
-        for (int i = 0; i < result.size(); i++) {
-            list.add(mapFirewallRule(result.getJSONObject(i)));
-        }
+        List<Map<String, Object>> list = listCustomFirewallRulesFromRulesets(c, zoneId.trim());
         Map<String, Integer> eventCounts = fetchFirewallEventCounts24h(c, zoneId.trim());
         for (Map<String, Object> rule : list) {
             String id = (String) rule.get("id");
@@ -749,6 +743,210 @@ public class CloudflareService {
                                                     String description, boolean paused) {
         Credentials c = requireCredentials();
         requireZoneId(zoneId);
+        String act = normalizeFirewallAction(action);
+        if (StrUtil.isBlank(expression)) {
+            throw new OciException("过滤表达式不能为空");
+        }
+        String rulesetId = ensureCustomFirewallEntrypointRulesetId(c, zoneId.trim());
+        Map<String, Object> body = buildCustomFirewallRuleBody(act, expression, description, !paused);
+        String url = CF_API_BASE + "/zones/" + zoneId.trim() + "/rulesets/" + rulesetId + "/rules";
+        JSONObject json = parseJson(apiPost(c.apiToken(), url, body));
+        requireSuccess(json, "创建自定义规则失败");
+        JSONObject ruleset = json.getJSONObject("result");
+        Map<String, Object> created = findCustomFirewallRuleInRuleset(ruleset, null, expression.trim(), act);
+        if (created == null) {
+            throw new OciException("创建自定义规则失败：无返回数据");
+        }
+        return created;
+    }
+
+    public Map<String, Object> setFirewallRulePaused(String zoneId, String rulesetId, String ruleId,
+                                                       boolean paused) {
+        return patchCustomFirewallRule(zoneId, rulesetId, ruleId, null, null, null, !paused);
+    }
+
+    public Map<String, Object> updateFirewallRule(String zoneId, String rulesetId, String ruleId, String action,
+                                                    String description, String expression, Boolean paused) {
+        Boolean enabled = paused != null ? !paused : null;
+        return patchCustomFirewallRule(zoneId, rulesetId, ruleId, action, description, expression, enabled);
+    }
+
+    public void deleteFirewallRule(String zoneId, String rulesetId, String ruleId) {
+        Credentials c = requireCredentials();
+        requireZoneId(zoneId);
+        requireRulesetId(rulesetId);
+        if (StrUtil.isBlank(ruleId)) {
+            throw new OciException("规则 ID 不能为空");
+        }
+        String url = CF_API_BASE + "/zones/" + zoneId.trim() + "/rulesets/" + rulesetId.trim()
+                + "/rules/" + ruleId.trim();
+        apiDelete(c.apiToken(), url);
+    }
+
+    private List<Map<String, Object>> listCustomFirewallRulesFromRulesets(Credentials c, String zoneId) {
+        String listUrl = CF_API_BASE + "/zones/" + zoneId + "/rulesets";
+        JSONObject listJson = parseJson(apiGet(c.apiToken(), listUrl));
+        requireSuccess(listJson, "拉取自定义规则失败");
+        JSONArray rulesets = listJson.getJSONArray("result");
+        List<Map<String, Object>> zoneRules = new ArrayList<>();
+        List<Map<String, Object>> customRules = new ArrayList<>();
+        if (rulesets == null) {
+            return new ArrayList<>();
+        }
+        int zoneOrder = 1;
+        int customOrder = 1;
+        for (int i = 0; i < rulesets.size(); i++) {
+            JSONObject summary = rulesets.getJSONObject(i);
+            String kind = summary.getStr("kind");
+            if (kind == null || !CUSTOM_FIREWALL_RULESET_KINDS.contains(kind)) {
+                continue;
+            }
+            String summaryPhase = summary.getStr("phase");
+            if (summaryPhase != null && !CUSTOM_FIREWALL_PHASE.equals(summaryPhase)) {
+                continue;
+            }
+            String rulesetId = summary.getStr("id");
+            if (StrUtil.isBlank(rulesetId)) {
+                continue;
+            }
+            JSONObject detail = fetchZoneRulesetDetail(c, zoneId, rulesetId);
+            if (detail == null || !CUSTOM_FIREWALL_PHASE.equals(detail.getStr("phase"))) {
+                continue;
+            }
+            JSONArray ruleArr = detail.getJSONArray("rules");
+            if (ruleArr == null) {
+                continue;
+            }
+            boolean entrypoint = "zone".equals(detail.getStr("kind"));
+            for (int j = 0; j < ruleArr.size(); j++) {
+                JSONObject rule = ruleArr.getJSONObject(j);
+                String action = rule.getStr("action");
+                if (action != null && CUSTOM_FIREWALL_SKIP_ACTIONS.contains(action)) {
+                    continue;
+                }
+                Map<String, Object> mapped = mapCustomFirewallRule(rulesetId, rule,
+                        entrypoint ? zoneOrder++ : customOrder++);
+                if (entrypoint) {
+                    zoneRules.add(mapped);
+                } else {
+                    customRules.add(mapped);
+                }
+            }
+        }
+        List<Map<String, Object>> list = new ArrayList<>(zoneRules.size() + customRules.size());
+        list.addAll(zoneRules);
+        list.addAll(customRules);
+        return list;
+    }
+
+    private JSONObject fetchZoneRulesetDetail(Credentials c, String zoneId, String rulesetId) {
+        String detailUrl = CF_API_BASE + "/zones/" + zoneId + "/rulesets/" + rulesetId;
+        JSONObject detailJson = parseJson(apiGet(c.apiToken(), detailUrl));
+        requireSuccess(detailJson, "拉取 Ruleset 详情失败");
+        return detailJson.getJSONObject("result");
+    }
+
+    private JSONObject tryFetchCustomFirewallEntrypoint(Credentials c, String zoneId) {
+        String url = CF_API_BASE + "/zones/" + zoneId + "/rulesets/phases/" + CUSTOM_FIREWALL_PHASE + "/entrypoint";
+        try {
+            JSONObject json = parseJson(apiGet(c.apiToken(), url));
+            requireSuccess(json, "拉取 entrypoint 失败");
+            return json.getJSONObject("result");
+        } catch (OciException e) {
+            if (e.getMessage() != null && e.getMessage().contains("HTTP 404")) {
+                return null;
+            }
+            throw e;
+        }
+    }
+
+    private String ensureCustomFirewallEntrypointRulesetId(Credentials c, String zoneId) {
+        JSONObject entry = tryFetchCustomFirewallEntrypoint(c, zoneId);
+        if (entry != null && StrUtil.isNotBlank(entry.getStr("id"))) {
+            return entry.getStr("id");
+        }
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("kind", "zone");
+        body.put("phase", CUSTOM_FIREWALL_PHASE);
+        body.put("name", "default");
+        body.put("description", "Zone custom firewall rules");
+        body.put("rules", List.of());
+        String url = CF_API_BASE + "/zones/" + zoneId + "/rulesets";
+        JSONObject json = parseJson(apiPost(c.apiToken(), url, body));
+        requireSuccess(json, "创建自定义规则 entrypoint 失败");
+        JSONObject result = json.getJSONObject("result");
+        if (result == null || StrUtil.isBlank(result.getStr("id"))) {
+            throw new OciException("创建自定义规则 entrypoint 失败：无 ruleset ID");
+        }
+        return result.getStr("id");
+    }
+
+    private Map<String, Object> patchCustomFirewallRule(String zoneId, String rulesetId, String ruleId,
+                                                          String action, String description, String expression,
+                                                          Boolean enabled) {
+        Credentials c = requireCredentials();
+        requireZoneId(zoneId);
+        requireRulesetId(rulesetId);
+        if (StrUtil.isBlank(ruleId)) {
+            throw new OciException("规则 ID 不能为空");
+        }
+        JSONObject existing = fetchCustomFirewallRule(c, zoneId.trim(), rulesetId.trim(), ruleId.trim());
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("action", StrUtil.isNotBlank(action)
+                ? normalizeFirewallAction(action) : existing.getStr("action"));
+        body.put("expression", StrUtil.isNotBlank(expression)
+                ? expression.trim() : existing.getStr("expression"));
+        String desc = description != null ? description : existing.getStr("description");
+        if (StrUtil.isNotBlank(desc)) {
+            body.put("description", desc);
+        }
+        boolean ruleEnabled = enabled != null ? enabled : existing.getBool("enabled", true);
+        body.put("enabled", ruleEnabled);
+        String url = CF_API_BASE + "/zones/" + zoneId.trim() + "/rulesets/" + rulesetId.trim()
+                + "/rules/" + ruleId.trim();
+        JSONObject json = parseJson(apiPatch(c.apiToken(), url, body));
+        requireSuccess(json, "更新自定义规则失败");
+        JSONObject ruleset = json.getJSONObject("result");
+        Map<String, Object> updated = findCustomFirewallRuleInRuleset(ruleset, ruleId.trim(), null, null);
+        if (updated != null) {
+            return updated;
+        }
+        Map<String, Object> fallback = mapCustomFirewallRule(rulesetId.trim(), existing, -1);
+        fallback.put("paused", !ruleEnabled);
+        return fallback;
+    }
+
+    private JSONObject fetchCustomFirewallRule(Credentials c, String zoneId, String rulesetId, String ruleId) {
+        JSONObject detail = fetchZoneRulesetDetail(c, zoneId, rulesetId);
+        if (detail == null) {
+            throw new OciException("Ruleset 不存在");
+        }
+        JSONArray rules = detail.getJSONArray("rules");
+        if (rules != null) {
+            for (int i = 0; i < rules.size(); i++) {
+                JSONObject rule = rules.getJSONObject(i);
+                if (ruleId.equals(rule.getStr("id"))) {
+                    return rule;
+                }
+            }
+        }
+        throw new OciException("自定义规则不存在");
+    }
+
+    private static Map<String, Object> buildCustomFirewallRuleBody(String action, String expression,
+                                                                   String description, boolean enabled) {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("action", action);
+        body.put("expression", expression.trim());
+        body.put("enabled", enabled);
+        String desc = StrUtil.trimToNull(description);
+        if (desc != null) {
+            body.put("description", desc);
+        }
+        return body;
+    }
+
+    private static String normalizeFirewallAction(String action) {
         if (StrUtil.isBlank(action)) {
             throw new OciException("防火墙动作不能为空");
         }
@@ -756,88 +954,56 @@ public class CloudflareService {
         if (!FIREWALL_ACTIONS.contains(act)) {
             throw new OciException("不支持的防火墙动作: " + act);
         }
-        if (StrUtil.isBlank(expression)) {
-            throw new OciException("过滤表达式不能为空");
-        }
-        Map<String, Object> filter = new LinkedHashMap<>();
-        filter.put("expression", expression.trim());
-        filter.put("paused", false);
-        String desc = StrUtil.trimToNull(description);
-        if (desc != null) {
-            filter.put("description", desc);
-        }
-        Map<String, Object> rule = new LinkedHashMap<>();
-        rule.put("action", act);
-        rule.put("filter", filter);
-        rule.put("paused", paused);
-        if (desc != null) {
-            rule.put("description", desc);
-        }
-        String url = CF_API_BASE + "/zones/" + zoneId.trim() + "/firewall/rules";
-        JSONObject json = parseJson(apiPost(c.apiToken(), url, List.of(rule)));
-        requireSuccess(json, "创建防火墙规则失败");
-        JSONArray result = json.getJSONArray("result");
-        if (result == null || result.isEmpty()) {
-            throw new OciException("创建防火墙规则失败：无返回数据");
-        }
-        return mapFirewallRule(result.getJSONObject(0));
+        return act;
     }
 
-    public Map<String, Object> setFirewallRulePaused(String zoneId, String ruleId, boolean paused) {
-        Credentials c = requireCredentials();
-        requireZoneId(zoneId);
-        if (StrUtil.isBlank(ruleId)) {
-            throw new OciException("规则 ID 不能为空");
+    private static void requireRulesetId(String rulesetId) {
+        if (StrUtil.isBlank(rulesetId)) {
+            throw new OciException("Ruleset ID 不能为空");
         }
-        String url = CF_API_BASE + "/zones/" + zoneId.trim() + "/firewall/rules/" + ruleId.trim();
-        JSONObject getJson = parseJson(apiGet(c.apiToken(), url));
-        requireSuccess(getJson, "获取防火墙规则失败");
-        JSONObject rule = getJson.getJSONObject("result");
-        if (rule == null) {
-            throw new OciException("防火墙规则不存在");
-        }
-        Map<String, Object> body = buildFirewallRuleUpdateBody(rule, paused, null, null, null);
-        JSONObject json = parseJson(apiPut(c.apiToken(), url, body));
-        requireSuccess(json, paused ? "暂停规则失败" : "启用规则失败");
-        JSONObject result = json.getJSONObject("result");
-        return result != null ? mapFirewallRule(result) : Map.of("id", ruleId, "paused", paused);
     }
 
-    public Map<String, Object> updateFirewallRule(String zoneId, String ruleId, String action,
-                                                    String description, String expression, Boolean paused) {
-        Credentials c = requireCredentials();
-        requireZoneId(zoneId);
-        if (StrUtil.isBlank(ruleId)) {
-            throw new OciException("规则 ID 不能为空");
+    private static Map<String, Object> mapCustomFirewallRule(String rulesetId, JSONObject rule, int order) {
+        Map<String, Object> m = new LinkedHashMap<>();
+        m.put("id", rule.getStr("id"));
+        m.put("rulesetId", rulesetId);
+        m.put("description", rule.getStr("description"));
+        m.put("action", rule.getStr("action"));
+        m.put("expression", rule.getStr("expression"));
+        boolean enabled = rule.getBool("enabled", true);
+        m.put("enabled", enabled);
+        m.put("paused", !enabled);
+        m.put("ref", rule.getStr("ref"));
+        if (order > 0) {
+            m.put("position", order);
         }
-        if (StrUtil.isNotBlank(action)) {
-            String act = action.trim().toLowerCase();
-            if (!FIREWALL_ACTIONS.contains(act)) {
-                throw new OciException("不支持的防火墙动作: " + act);
+        return m;
+    }
+
+    private static Map<String, Object> findCustomFirewallRuleInRuleset(JSONObject ruleset, String ruleId,
+                                                                       String expression, String action) {
+        if (ruleset == null) {
+            return null;
+        }
+        String rulesetId = ruleset.getStr("id");
+        JSONArray rules = ruleset.getJSONArray("rules");
+        if (rules == null || StrUtil.isBlank(rulesetId)) {
+            return null;
+        }
+        Map<String, Object> fallback = null;
+        for (int i = 0; i < rules.size(); i++) {
+            JSONObject rule = rules.getJSONObject(i);
+            if (StrUtil.isNotBlank(ruleId) && ruleId.equals(rule.getStr("id"))) {
+                return mapCustomFirewallRule(rulesetId, rule, -1);
+            }
+            if (StrUtil.isNotBlank(expression) && expression.equals(rule.getStr("expression"))) {
+                String ruleAction = rule.getStr("action");
+                if (action == null || action.equalsIgnoreCase(ruleAction)) {
+                    fallback = mapCustomFirewallRule(rulesetId, rule, -1);
+                }
             }
         }
-        String url = CF_API_BASE + "/zones/" + zoneId.trim() + "/firewall/rules/" + ruleId.trim();
-        JSONObject getJson = parseJson(apiGet(c.apiToken(), url));
-        requireSuccess(getJson, "获取防火墙规则失败");
-        JSONObject rule = getJson.getJSONObject("result");
-        if (rule == null) {
-            throw new OciException("防火墙规则不存在");
-        }
-        Map<String, Object> body = buildFirewallRuleUpdateBody(rule, paused, action, description, expression);
-        JSONObject json = parseJson(apiPut(c.apiToken(), url, body));
-        requireSuccess(json, "更新防火墙规则失败");
-        JSONObject result = json.getJSONObject("result");
-        return result != null ? mapFirewallRule(result) : Map.of("id", ruleId);
-    }
-
-    public void deleteFirewallRule(String zoneId, String ruleId) {
-        Credentials c = requireCredentials();
-        requireZoneId(zoneId);
-        if (StrUtil.isBlank(ruleId)) {
-            throw new OciException("规则 ID 不能为空");
-        }
-        String url = CF_API_BASE + "/zones/" + zoneId.trim() + "/firewall/rules/" + ruleId.trim();
-        apiDelete(c.apiToken(), url);
+        return fallback;
     }
 
     private Map<String, Integer> fetchFirewallEventCounts24h(Credentials c, String zoneId) {
@@ -890,52 +1056,6 @@ public class CloudflareService {
             log.debug("Firewall 24h events GraphQL skipped: {}", e.getMessage());
         }
         return counts;
-    }
-
-    private static Map<String, Object> buildFirewallRuleUpdateBody(JSONObject rule, Boolean paused,
-                                                                    String action, String description,
-                                                                    String expression) {
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("id", rule.getStr("id"));
-        body.put("action", StrUtil.isNotBlank(action) ? action.trim().toLowerCase() : rule.getStr("action"));
-        body.put("description", description != null ? description : rule.getStr("description"));
-        body.put("paused", paused != null ? paused : Boolean.TRUE.equals(rule.getBool("paused")));
-        Object priority = rule.get("priority");
-        if (priority != null && !JSONUtil.isNull(priority)) {
-            body.put("priority", rule.getInt("priority"));
-        }
-        JSONObject filter = rule.getJSONObject("filter");
-        if (filter != null) {
-            Map<String, Object> filterBody = new LinkedHashMap<>();
-            filterBody.put("id", filter.getStr("id"));
-            filterBody.put("expression", StrUtil.isNotBlank(expression)
-                    ? expression.trim() : filter.getStr("expression"));
-            filterBody.put("paused", filter.getBool("paused", false));
-            String filterDesc = filter.getStr("description");
-            if (StrUtil.isNotBlank(filterDesc)) {
-                filterBody.put("description", filterDesc);
-            }
-            body.put("filter", filterBody);
-        }
-        return body;
-    }
-
-    private static Map<String, Object> mapFirewallRule(JSONObject r) {
-        Map<String, Object> m = new LinkedHashMap<>();
-        m.put("id", r.getStr("id"));
-        m.put("description", r.getStr("description"));
-        m.put("action", r.getStr("action"));
-        m.put("paused", Boolean.TRUE.equals(r.getBool("paused")));
-        Object priority = r.get("priority");
-        if (priority != null && !JSONUtil.isNull(priority)) {
-            m.put("priority", r.getInt("priority"));
-        }
-        JSONObject filter = r.getJSONObject("filter");
-        if (filter != null) {
-            m.put("filterId", filter.getStr("id"));
-            m.put("expression", filter.getStr("expression"));
-        }
-        return m;
     }
 
     public List<Map<String, Object>> listWorkersRoutes(String zoneId) {
