@@ -200,8 +200,16 @@
                 <ol>
                   <li>登录 <a href="https://dash.cloudflare.com/" target="_blank" rel="noopener noreferrer">Cloudflare 控制台</a></li>
                   <li>进入 <strong>管理账户 → 账户 API 令牌 → 创建令牌 → 自定义令牌</strong></li>
-                  <li>资源范围：<strong>整个账户</strong>，并包含 <strong>所有区域</strong></li>
-                  <li>权限：对 <strong>Account</strong> 与 <strong>Zone</strong> 勾选所需「编辑」即可（全量编辑 Token 可直接用全部功能；同一项只勾编辑，不必读+编辑双勾）</li>
+                  <li>资源范围：<strong>整个账户</strong>，并包含 <strong>所有区域</strong>（或至少包含要管理的 Zone）</li>
+                  <li>
+                    权限（自定义最小权限时建议至少包含）：
+                    <ul>
+                      <li><strong>Account</strong> → <strong>Cloudflare Tunnel</strong> → <strong>Edit</strong>（Tunnel 连接器、Public Hostname / ingress 路由）</li>
+                      <li><strong>Zone</strong> → <strong>DNS</strong> → <strong>Edit</strong>（DNS 记录、Tunnel 自动 CNAME）</li>
+                      <li>其余 OCIWorker 功能按需勾选对应 <strong>Edit</strong>（如 Zone 设置、防火墙、Workers 等）；同一项只勾 Edit，不必读+编辑双勾</li>
+                    </ul>
+                  </li>
+                  <li>若使用 Cloudflare 提供的「编辑全部区域」等宽权限模板，通常已包含上述能力，无需逐项勾选</li>
                   <li>创建后复制完整 Token；<strong>Account ID</strong> 见创建成功页或仪表盘 Overview 右侧</li>
                 </ol>
                 <p class="cf-settings-help-note">

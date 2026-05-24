@@ -100,33 +100,5 @@ export function buildTunnelInstallScript(opts: {
     `cloudflared tunnel run --token '${safeToken}'${protocolFlag}`,
   ]
 
-  if (os === 'macos') {
-    lines.push(
-      '',
-      '# --- 可选：macOS 后台运行 ---',
-      '# brew services start cloudflared',
-      '# 或使用 launchd，见 Cloudflare 文档',
-    )
-  } else {
-    lines.push(
-      '',
-      '# --- 可选：安装为 systemd 服务 ---',
-      `# sudo cloudflared service install '${safeToken}'`,
-      '# sudo systemctl enable cloudflared && sudo systemctl start cloudflared',
-    )
-    if (protocol === 'http2') {
-      lines.push(
-        '# HTTP/2 服务方式请在 /etc/systemd/system/cloudflared.service 的 [Service] 增加：',
-        '# Environment="TUNNEL_TRANSPORT_PROTOCOL=http2"',
-        '# sudo systemctl daemon-reload && sudo systemctl restart cloudflared',
-      )
-    }
-  }
-
-  lines.push(
-    '',
-    '# 3. 在 OCI Worker → 账户服务 → Tunnel →「路由」配置 Public Hostname（将自动创建 CNAME）',
-  )
-
   return lines.join('\n')
 }

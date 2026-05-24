@@ -242,13 +242,34 @@
         />
         <template v-else>
           <a-form-item label="粘贴到 SSH 终端执行">
-            <a-textarea :value="installScript" :rows="14" readonly class="cf-install-script" />
+            <a-textarea :value="installScript" :rows="8" readonly class="cf-install-script" />
           </a-form-item>
           <a-space wrap>
             <a-button type="primary" @click="copyText(installScript, '安装命令')">
               复制完整命令
             </a-button>
           </a-space>
+          <a-collapse v-model:active-key="installTipsOpen" ghost class="cf-install-tips">
+            <a-collapse-panel key="tips" header="安装后还可做什么？">
+              <ul class="cf-install-tip-list">
+                <li>
+                  <strong>Public Hostname</strong>：关闭本弹窗后点同一条 Tunnel 的「路由」，可配置域名并自动创建 CNAME。
+                </li>
+                <li v-if="installOs !== 'macos'">
+                  <strong>后台运行（Linux systemd）</strong>：测试通过后执行
+                  <code>sudo cloudflared service install</code>，粘贴上方<strong>同一 Token</strong>；
+                  再 <code>sudo systemctl enable --now cloudflared</code>。
+                  <span v-if="installProtocol === 'http2'">
+                    若使用 HTTP/2，请在 <code>cloudflared.service</code> 的 <code>[Service]</code> 增加
+                    <code>Environment=TUNNEL_TRANSPORT_PROTOCOL=http2</code> 后 reload。
+                  </span>
+                </li>
+                <li v-else>
+                  <strong>后台运行（macOS）</strong>：<code>brew services start cloudflared</code>，或见 Cloudflare 文档配置 launchd。
+                </li>
+              </ul>
+            </a-collapse-panel>
+          </a-collapse>
         </template>
       </a-form>
     </a-modal>
@@ -417,6 +438,7 @@ const tokenTunnelName = ref('')
 const installArch = ref<TunnelInstallArch | undefined>(undefined)
 const installOs = ref<TunnelInstallOs | undefined>(undefined)
 const installProtocol = ref<TunnelInstallProtocol | undefined>(undefined)
+const installTipsOpen = ref<string[]>([])
 
 const tokenModalTitle = computed(() =>
   tokenTunnelName.value ? `Tunnel · ${tokenTunnelName.value}` : 'Tunnel 运行 Token')
@@ -439,6 +461,7 @@ function resetInstallOptions() {
   installArch.value = undefined
   installOs.value = undefined
   installProtocol.value = undefined
+  installTipsOpen.value = []
 }
 
 function openTokenModal(name: string, token: string) {
@@ -892,6 +915,18 @@ onMounted(() => loadTunnels())
   font-size: 12px;
 }
 .cf-copy-link { padding-left: 0; margin-top: 4px; }
+.cf-install-tips { margin-top: 12px; }
+.cf-install-tip-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 13px;
+  color: var(--text-sub);
+}
+.cf-install-tip-list li { margin-bottom: 8px; }
+.cf-install-tip-list code {
+  font-size: 12px;
+  padding: 0 4px;
+}
 .cf-routes-hint { margin-bottom: 16px; }
 .cf-routes-hint code { font-size: 12px; }
 .cf-route-form { margin-bottom: 8px; }
