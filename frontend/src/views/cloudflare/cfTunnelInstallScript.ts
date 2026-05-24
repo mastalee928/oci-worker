@@ -102,3 +102,26 @@ export function buildTunnelInstallScript(opts: {
 
   return lines.join('\n')
 }
+
+/** 前台测试通过后，单独复制 systemd 安装命令（避免与安装+运行脚本混在一起） */
+export function buildTunnelSystemdScript(opts: {
+  protocol: TunnelInstallProtocol
+  token: string
+}): string {
+  const safeToken = escapeShellSingleQuoted(opts.token.trim())
+  const lines = [
+    '# 前台 cloudflared tunnel run 测试正常后再执行',
+    `sudo cloudflared service install '${safeToken}'`,
+    'sudo systemctl enable --now cloudflared',
+    'sudo systemctl status cloudflared',
+  ]
+  if (opts.protocol === 'http2') {
+    lines.push(
+      '',
+      '# HTTP/2：编辑 /etc/systemd/system/cloudflared.service，[Service] 增加一行：',
+      '# Environment="TUNNEL_TRANSPORT_PROTOCOL=http2"',
+      '# 然后：sudo systemctl daemon-reload && sudo systemctl restart cloudflared',
+    )
+  }
+  return lines.join('\n')
+}

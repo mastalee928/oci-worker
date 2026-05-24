@@ -241,35 +241,46 @@
           description="请先选择架构、系统与连接协议，再生成可粘贴的 SSH 命令"
         />
         <template v-else>
-          <a-form-item label="粘贴到 SSH 终端执行">
+          <a-form-item label="① 粘贴到 SSH：安装并前台测试">
             <a-textarea :value="installScript" :rows="8" readonly class="cf-install-script" />
           </a-form-item>
           <a-space wrap>
-            <a-button type="primary" @click="copyText(installScript, '安装命令')">
-              复制完整命令
+            <a-button type="primary" @click="copyText(installScript, '安装与运行命令')">
+              复制安装 + 运行
+            </a-button>
+            <a-button
+              v-if="installOs !== 'macos'"
+              @click="copyText(systemdScript, '开机自启命令')"
+            >
+              复制开机自启（systemd）
             </a-button>
           </a-space>
-          <a-collapse v-model:active-key="installTipsOpen" ghost class="cf-install-tips">
-            <a-collapse-panel key="tips" header="安装后还可做什么？">
-              <ul class="cf-install-tip-list">
+
+          <a-alert type="info" show-icon class="cf-install-after-alert">
+            <template #message>安装后说明</template>
+            <template #description>
+              <ol class="cf-install-tip-list cf-install-tip-ol">
                 <li>
-                  <strong>Public Hostname</strong>：关闭本弹窗后点同一条 Tunnel 的「路由」，可配置域名并自动创建 CNAME。
+                  先用上方命令在 SSH 里<strong>前台运行</strong>，确认 Tunnel 状态为 healthy（本页可点「连接」查看）。
+                </li>
+                <li>
+                  <strong>Public Hostname</strong>：关闭本弹窗 → 同一条 Tunnel 点「<strong>路由</strong>」→ 填域名与内网地址，将自动创建橙云 CNAME。
                 </li>
                 <li v-if="installOs !== 'macos'">
-                  <strong>后台运行（Linux systemd）</strong>：测试通过后执行
-                  <code>sudo cloudflared service install</code>，粘贴上方<strong>同一 Token</strong>；
-                  再 <code>sudo systemctl enable --now cloudflared</code>。
-                  <span v-if="installProtocol === 'http2'">
-                    若使用 HTTP/2，请在 <code>cloudflared.service</code> 的 <code>[Service]</code> 增加
+                  <strong>开机自启（Linux）</strong>：测试通过后点「复制开机自启（systemd）」粘贴执行；或手动：
+                  <code>sudo cloudflared service install</code>（参数为上方<strong>同一 Token</strong>）→
+                  <code>sudo systemctl enable --now cloudflared</code>。
+                  <template v-if="installProtocol === 'http2'">
+                    使用 HTTP/2 时须在 <code>cloudflared.service</code> 的 <code>[Service]</code> 增加
                     <code>Environment=TUNNEL_TRANSPORT_PROTOCOL=http2</code> 后 reload。
-                  </span>
+                  </template>
                 </li>
                 <li v-else>
-                  <strong>后台运行（macOS）</strong>：<code>brew services start cloudflared</code>，或见 Cloudflare 文档配置 launchd。
+                  <strong>开机自启（macOS）</strong>：<code>brew services start cloudflared</code>；或按 Cloudflare 文档配置 launchd。
                 </li>
-              </ul>
-            </a-collapse-panel>
-          </a-collapse>
+              </ol>
+            </template>
+          </a-alert>
         </template>
       </a-form>
     </a-modal>
@@ -416,6 +427,7 @@ import {
   tunnelOsOptions,
   tunnelProtocolOptions,
   buildTunnelInstallScript,
+  buildTunnelSystemdScript,
   canBuildTunnelInstallScript,
   type TunnelInstallArch,
   type TunnelInstallOs,
@@ -438,7 +450,6 @@ const tokenTunnelName = ref('')
 const installArch = ref<TunnelInstallArch | undefined>(undefined)
 const installOs = ref<TunnelInstallOs | undefined>(undefined)
 const installProtocol = ref<TunnelInstallProtocol | undefined>(undefined)
-const installTipsOpen = ref<string[]>([])
 
 const tokenModalTitle = computed(() =>
   tokenTunnelName.value ? `Tunnel · ${tokenTunnelName.value}` : 'Tunnel 运行 Token')
@@ -457,11 +468,18 @@ const installScript = computed(() => {
   })
 })
 
+const systemdScript = computed(() => {
+  if (!installScriptReady.value) return ''
+  return buildTunnelSystemdScript({
+    protocol: installProtocol.value!,
+    token: tokenText.value,
+  })
+})
+
 function resetInstallOptions() {
   installArch.value = undefined
   installOs.value = undefined
   installProtocol.value = undefined
-  installTipsOpen.value = []
 }
 
 function openTokenModal(name: string, token: string) {
@@ -915,12 +933,15 @@ onMounted(() => loadTunnels())
   font-size: 12px;
 }
 .cf-copy-link { padding-left: 0; margin-top: 4px; }
-.cf-install-tips { margin-top: 12px; }
+.cf-install-after-alert { margin-top: 16px; }
 .cf-install-tip-list {
   margin: 0;
-  padding-left: 18px;
   font-size: 13px;
   color: var(--text-sub);
+  line-height: 1.6;
+}
+.cf-install-tip-ol {
+  padding-left: 18px;
 }
 .cf-install-tip-list li { margin-bottom: 8px; }
 .cf-install-tip-list code {
