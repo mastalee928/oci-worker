@@ -42,14 +42,29 @@
       v-if="!isMobile"
       :columns="columns"
       :data-source="rules"
-      :loading="loading"
+      :loading="loading || reorderLoading"
       row-key="id"
       size="middle"
       :pagination="false"
-      :scroll="{ x: 960 }"
+      :scroll="{ x: 1024 }"
+      :custom-row="customTableRow"
     >
-      <template #bodyCell="{ column, record }">
-        <template v-if="column.key === 'name'">
+      <template #bodyCell="{ column, record, index }">
+        <template v-if="column.key === 'order'">
+          <div class="cf-order-cell">
+            <div
+              class="cf-drag-handle"
+              title="拖动排序"
+              draggable="true"
+              @dragstart="onRuleDragStart($event, index)"
+              @dragend="onRuleDragEnd"
+            >
+              <span class="cf-drag-grip" aria-hidden="true">⠿</span>
+            </div>
+            <span class="cf-order-num">{{ record.position ?? index + 1 }}</span>
+          </div>
+        </template>
+        <template v-else-if="column.key === 'name'">
           <div class="cf-rule-name">
             <a class="cf-rule-name-link" @click="openEditModal(record)">
               {{ ruleDisplayName(record.description, record.expression) }}
@@ -96,8 +111,9 @@
     </a-table>
     <a-spin v-else :spinning="loading">
       <a-empty v-if="!loading && rules.length === 0" description="暂无自定义规则" />
-      <div v-for="record in rules" :key="record.id" class="mobile-card">
+      <div v-for="(record, index) in rules" :key="record.id" class="mobile-card">
         <div class="mobile-card-header">
+          <span class="cf-order-num mobile-order">#{{ record.position ?? index + 1 }}</span>
           <a class="mobile-card-title cf-rule-name-link" @click="openEditModal(record)">
             {{ ruleDisplayName(record.description, record.expression) }}
           </a>
@@ -275,6 +291,7 @@ import {
   updateCfFirewallRule,
   deleteCfFirewallRule,
   setCfFirewallRulePaused,
+  reorderCfFirewallRule,
   getCfSecurityProtection,
   setCfSecurityProtection,
 } from '../../api/cloudflare'
@@ -293,6 +310,7 @@ import {
 interface FirewallRule {
   id: string
   rulesetId?: string
+  position?: number
   description?: string
   action?: string
   paused?: boolean
@@ -320,6 +338,10 @@ const editingRulesetId = ref<string | null>(null)
 const rules = ref<FirewallRule[]>([])
 const pauseLoadingMap = ref<Record<string, boolean>>({})
 const deleteLoadingMap = ref<Record<string, boolean>>({})
+const reorderLoading = ref(false)
+const dragFromIndex = ref(-1)
+const dragOverIndex = ref(-1)
+const dragOverPos = ref<'top' | 'bottom'>('top')
 
 const shield = reactive({
   security_level: 'medium' as string,
@@ -355,6 +377,7 @@ const actionOptions = [
 ]
 
 const columns = [
+  { title: '顺序', key: 'order', width: 72, align: 'center' as const },
   { title: '名称', key: 'name', width: 180 },
   { title: '匹配条件', key: 'match', ellipsis: true },
   { title: '操作', key: 'action', width: 96 },
@@ -556,6 +579,102 @@ async function loadAll() {
   await Promise.all([loadShield(), load()])
 }
 
+function isFirstInRuleset(index: number, rulesetId: string) {
+  for (let i = 0; i < index; i++) {
+    if (rules.value[i]?.rulesetId === rulesetId) return false
+  }
+  return true
+}
+
+function customTableRow(_record: FirewallRule, index: number) {
+  const cls: string[] = []
+  if (dragFromIndex.value === index) cls.push('cf-rule-row--dragging')
+  if (dragOverIndex.value === index && dragFromIndex.value !== index) {
+    cls.push(dragOverPos.value === 'top' ? 'cf-rule-row--over-top' : 'cf-rule-row--over-bottom')
+  }
+  return {
+    class: cls.join(' '),
+    onDragover: (e: DragEvent) => onRuleDragOver(e, index),
+    onDrop: (e: DragEvent) => onRuleDrop(e, index),
+  }
+}
+
+function onRuleDragStart(e: DragEvent, index: number) {
+  dragFromIndex.value = index
+  if (e.dataTransfer) {
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', String(index))
+  }
+}
+
+function onRuleDragOver(e: DragEvent, index: number) {
+  if (dragFromIndex.value < 0 || reorderLoading.value) return
+  e.preventDefault()
+  const target = e.currentTarget as HTMLElement
+  const rect = target.getBoundingClientRect()
+  const mid = rect.top + rect.height / 2
+  dragOverPos.value = e.clientY < mid ? 'top' : 'bottom'
+  dragOverIndex.value = index
+}
+
+async function onRuleDrop(_e: DragEvent, toIdx: number) {
+  const fromIdx = dragFromIndex.value
+  const dropPos = dragOverPos.value
+  resetRuleDrag()
+  if (fromIdx < 0 || fromIdx === toIdx || !props.zoneId) return
+
+  const moved = rules.value[fromIdx]
+  const target = rules.value[toIdx]
+  if (!moved?.id || !moved.rulesetId) {
+    message.warning('无法排序：缺少规则信息')
+    return
+  }
+  if (!target?.rulesetId || target.rulesetId !== moved.rulesetId) {
+    message.warning('仅可在同一 ruleset 内的规则之间拖动排序')
+    return
+  }
+
+  const payload: {
+    zoneId: string
+    rulesetId: string
+    ruleId: string
+    beforeRuleId?: string
+    afterRuleId?: string
+  } = {
+    zoneId: props.zoneId,
+    rulesetId: moved.rulesetId,
+    ruleId: moved.id,
+  }
+
+  if (dropPos === 'top' && isFirstInRuleset(toIdx, moved.rulesetId)) {
+    payload.beforeRuleId = ''
+  } else if (dropPos === 'top') {
+    payload.beforeRuleId = target.id
+  } else {
+    payload.afterRuleId = target.id
+  }
+
+  reorderLoading.value = true
+  try {
+    await reorderCfFirewallRule(payload)
+    message.success('规则顺序已更新')
+    await load()
+  } catch {
+    await load()
+  } finally {
+    reorderLoading.value = false
+  }
+}
+
+function onRuleDragEnd() {
+  resetRuleDrag()
+}
+
+function resetRuleDrag() {
+  dragFromIndex.value = -1
+  dragOverIndex.value = -1
+}
+
 async function submitSave() {
   if (!props.zoneId) return
   const expression = resolveExpression()
@@ -662,6 +781,55 @@ watch(createModalVisible, visible => {
   color: var(--warning, #faad14);
 }
 .cf-toolbar { margin-bottom: 16px; }
+.cf-order-cell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+.cf-order-num {
+  min-width: 18px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-sub);
+}
+.mobile-order {
+  font-size: 12px;
+  margin-right: 8px;
+  flex-shrink: 0;
+}
+.cf-drag-handle {
+  width: 28px;
+  height: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: #ffffff;
+  border: 1px solid #9aa3af;
+  border-radius: 6px;
+  color: #1f2937;
+  cursor: grab;
+  user-select: none;
+  flex-shrink: 0;
+}
+.cf-drag-handle:active { cursor: grabbing; }
+.cf-drag-handle:hover {
+  color: #2563eb;
+  border-color: #2563eb;
+}
+.cf-drag-grip {
+  font-size: 14px;
+  line-height: 1;
+}
+:deep(.cf-rule-row--dragging) {
+  opacity: 0.55;
+}
+:deep(.cf-rule-row--over-top td) {
+  box-shadow: inset 0 2px 0 #2563eb;
+}
+:deep(.cf-rule-row--over-bottom td) {
+  box-shadow: inset 0 -2px 0 #2563eb;
+}
 .cf-hint { margin-top: 12px; font-size: 12px; color: var(--text-sub); }
 .cf-rule-name {
   display: flex;

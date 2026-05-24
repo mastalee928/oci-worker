@@ -313,6 +313,16 @@ export function deleteCfFirewallRule(data: { zoneId: string; rulesetId: string; 
   return request.post('/cf/security/firewall/delete', data)
 }
 
+export function reorderCfFirewallRule(data: {
+  zoneId: string
+  rulesetId: string
+  ruleId: string
+  beforeRuleId?: string
+  afterRuleId?: string
+}) {
+  return request.post('/cf/security/firewall/reorder', data)
+}
+
 export function listCfWorkersRoutes(data: { zoneId: string }, silent = false) {
   return request.post('/cf/workers/routes/list', data, silent ? cfSilent : undefined)
 }

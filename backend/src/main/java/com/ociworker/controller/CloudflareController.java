@@ -564,6 +564,18 @@ public class CloudflareController {
         return ResponseData.ok();
     }
 
+    @PostMapping("/security/firewall/reorder")
+    public ResponseData<?> firewallReorder(@RequestBody Map<String, String> params) {
+        String before = params.containsKey("beforeRuleId") ? params.get("beforeRuleId") : null;
+        String after = params.get("afterRuleId");
+        return ResponseData.ok(cloudflareService.reorderFirewallRule(
+                params.get("zoneId"),
+                params.get("rulesetId"),
+                params.get("ruleId"),
+                before,
+                after));
+    }
+
     @PostMapping("/security/protection/get")
     public ResponseData<?> securityProtectionGet(@RequestBody Map<String, String> params) {
         return ResponseData.ok(cloudflareService.getSecuritySettings(params.get("zoneId")));

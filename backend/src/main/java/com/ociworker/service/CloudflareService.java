@@ -836,7 +836,41 @@ public class CloudflareService {
         List<Map<String, Object>> list = new ArrayList<>(zoneRules.size() + customRules.size());
         list.addAll(zoneRules);
         list.addAll(customRules);
+        for (int i = 0; i < list.size(); i++) {
+            list.get(i).put("position", i + 1);
+        }
         return list;
+    }
+
+    /** 调整自定义规则在 ruleset 内的顺序（仅传 position，不改规则定义） */
+    public Map<String, Object> reorderFirewallRule(String zoneId, String rulesetId, String ruleId,
+                                                     String beforeRuleId, String afterRuleId) {
+        Credentials c = requireCredentials();
+        requireZoneId(zoneId);
+        requireRulesetId(rulesetId);
+        if (StrUtil.isBlank(ruleId)) {
+            throw new OciException("规则 ID 不能为空");
+        }
+        if (beforeRuleId == null && StrUtil.isBlank(afterRuleId)) {
+            throw new OciException("请指定排序位置");
+        }
+        Map<String, Object> position = new LinkedHashMap<>();
+        if (beforeRuleId != null) {
+            position.put("before", beforeRuleId);
+        } else {
+            position.put("after", afterRuleId.trim());
+        }
+        Map<String, Object> body = Map.of("position", position);
+        String url = CF_API_BASE + "/zones/" + zoneId.trim() + "/rulesets/" + rulesetId.trim()
+                + "/rules/" + ruleId.trim();
+        JSONObject json = parseJson(apiPatch(c.apiToken(), url, body));
+        requireSuccess(json, "调整规则顺序失败");
+        JSONObject ruleset = json.getJSONObject("result");
+        Map<String, Object> updated = findCustomFirewallRuleInRuleset(ruleset, ruleId.trim(), null, null);
+        if (updated != null) {
+            return updated;
+        }
+        return Map.of("id", ruleId, "rulesetId", rulesetId);
     }
 
     private JSONObject fetchZoneRulesetDetail(Credentials c, String zoneId, String rulesetId) {
