@@ -214,7 +214,20 @@ body::after {
   padding-left: 0 !important;
   background: transparent !important;
   color: var(--text-main) !important;
-  caret-color: currentColor !important;
+  caret-color: var(--text-main) !important;
+}
+.ant-input-affix-wrapper .ant-input:focus {
+  caret-color: var(--primary) !important;
+}
+textarea.ant-input {
+  color: var(--text-main) !important;
+  caret-color: var(--text-main) !important;
+  line-height: 1.5715 !important;
+  padding: 8px 11px !important;
+  overflow: auto !important;
+}
+textarea.ant-input:focus {
+  caret-color: var(--primary) !important;
 }
 .ant-input::placeholder, .ant-input-number-input::placeholder {
   color: var(--text-sub) !important;
@@ -251,7 +264,7 @@ body::after {
   padding: 5px 11px 5px 14px !important;
   line-height: 22px !important;
   font-size: 14px !important;
-  caret-color: currentColor !important;
+  caret-color: var(--text-main) !important;
 }
 .ant-input-search .ant-input-affix-wrapper .ant-input {
   flex: 1 1 auto;
@@ -265,7 +278,7 @@ body::after {
   box-shadow: none !important;
   background: transparent !important;
   color: var(--text-main) !important;
-  caret-color: currentColor !important;
+  caret-color: var(--text-main) !important;
   line-height: 22px !important;
   font-size: 14px !important;
   overflow: visible !important;
@@ -287,7 +300,7 @@ body::after {
 /* Select show-search 内联搜索框 */
 .ant-select .ant-select-selection-search-input {
   color: var(--text-main) !important;
-  caret-color: currentColor !important;
+  caret-color: var(--text-main) !important;
   line-height: 22px !important;
   height: 22px !important;
 }

@@ -236,6 +236,7 @@
             v-model:value="form.expression"
             placeholder='如 (http.request.uri.path contains "/admin")'
             :rows="4"
+            class="cf-expr-editor"
           />
         </a-form-item>
 
@@ -729,6 +730,17 @@ watch(() => props.zoneId, () => loadAll(), { immediate: true })
   white-space: pre-wrap;
   word-break: break-all;
   color: var(--text-main);
+  user-select: text;
+}
+.cf-expr-editor :deep(textarea.ant-input) {
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  color: var(--text-main) !important;
+  background: var(--input-bg) !important;
+  caret-color: var(--text-main) !important;
+}
+.cf-expr-editor :deep(textarea.ant-input:focus) {
+  caret-color: var(--primary) !important;
 }
 .mobile-card {
   border: 1px solid var(--border);

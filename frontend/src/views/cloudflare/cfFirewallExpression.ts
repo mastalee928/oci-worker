@@ -158,10 +158,10 @@ export function compileFirewallClause(
 
   switch (operatorId) {
     case 'wildcard':
-      if (!value) return `(${f} wildcard ${quoteRaw('')})`
+      if (!value) return null
       return `(${f} wildcard ${quoteRaw(value)})`
     case 'strict_wildcard':
-      if (!value) return `(${f} strict wildcard ${quoteRaw('')})`
+      if (!value) return null
       return `(${f} strict wildcard ${quoteRaw(value)})`
     case 'eq':
       if (field.type === 'number') {
@@ -522,7 +522,7 @@ export function compileFirewallVisualForm(form: VisualRuleForm): string | null {
       item.type === 'clause'
         ? compileClauseList([item.clause])
         : compileClauseList(item.clauses)
-    if (!compiled) return null
+    if (!compiled) continue
     parts.push(compiled)
   }
   if (parts.length === 1) return parts[0]
