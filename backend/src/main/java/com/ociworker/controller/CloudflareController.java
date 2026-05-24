@@ -107,6 +107,26 @@ public class CloudflareController {
         return ResponseData.ok(cloudflareService.listTunnelConnections(params.get("tunnelId")));
     }
 
+    @PostMapping("/tunnel/routes/list")
+    public ResponseData<?> listTunnelRoutes(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(cloudflareService.listTunnelRoutes(params.get("tunnelId")));
+    }
+
+    @PostMapping("/tunnel/routes/create")
+    public ResponseData<?> createTunnelRoute(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(cloudflareService.addTunnelRoute(
+                params.get("tunnelId"),
+                params.get("zoneId"),
+                params.get("subdomain"),
+                params.get("service")));
+    }
+
+    @PostMapping("/tunnel/routes/delete")
+    public ResponseData<?> deleteTunnelRoute(@RequestBody Map<String, String> params) {
+        cloudflareService.deleteTunnelRoute(params.get("tunnelId"), params.get("hostname"));
+        return ResponseData.ok();
+    }
+
     @PostMapping("/access-rules/list")
     public ResponseData<?> listIpAccessRules() {
         return ResponseData.ok(cloudflareService.listIpAccessRules());

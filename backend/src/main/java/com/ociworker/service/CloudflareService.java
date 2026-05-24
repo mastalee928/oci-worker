@@ -402,6 +402,216 @@ public class CloudflareService {
         return list;
     }
 
+    // -------------------------------------------------------------------------
+    // Tunnel Public Hostname (ingress + auto CNAME)
+    // -------------------------------------------------------------------------
+
+    private static final Set<String> TUNNEL_SERVICE_PREFIXES = Set.of(
+            "http://", "https://", "tcp://", "unix://", "ssh://", "rdp://", "smb://", "http_status:");
+
+    public List<Map<String, Object>> listTunnelRoutes(String tunnelId) {
+        Credentials c = requireCredentials();
+        requireTunnelId(tunnelId);
+        return loadHostnameIngressRules(c, tunnelId.trim());
+    }
+
+    public Map<String, Object> addTunnelRoute(String tunnelId, String zoneId, String subdomain, String service) {
+        Credentials c = requireCredentials();
+        requireTunnelId(tunnelId);
+        requireZoneId(zoneId);
+        String tid = tunnelId.trim();
+        String svc = validateTunnelService(service);
+        Map<String, Object> zone = getZoneDetail(zoneId);
+        String zoneName = String.valueOf(zone.get("name"));
+        String hostname = buildTunnelHostname(zoneName, subdomain);
+        List<Map<String, Object>> rules = loadHostnameIngressRules(c, tid);
+        for (Map<String, Object> r : rules) {
+            if (hostname.equalsIgnoreCase(String.valueOf(r.get("hostname")))) {
+                throw new OciException("该 Public Hostname 已存在: " + hostname);
+            }
+        }
+        Map<String, Object> newRule = new LinkedHashMap<>();
+        newRule.put("hostname", hostname);
+        newRule.put("service", svc);
+        newRule.put("originRequest", Map.of());
+        rules.add(newRule);
+        // 先确保 DNS，再写 ingress，避免 ingress 成功但 DNS 失败后无法重试
+        Map<String, Object> dnsResult = ensureTunnelCname(c, zoneId.trim(), tid, hostname);
+        putTunnelHostnameIngress(c, tid, rules);
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("hostname", hostname);
+        out.put("service", svc);
+        out.put("zoneId", zoneId.trim());
+        out.put("zoneName", zoneName);
+        out.putAll(dnsResult);
+        return out;
+    }
+
+    public void deleteTunnelRoute(String tunnelId, String hostname) {
+        Credentials c = requireCredentials();
+        requireTunnelId(tunnelId);
+        if (StrUtil.isBlank(hostname)) {
+            throw new OciException("Public Hostname 不能为空");
+        }
+        String host = hostname.trim().toLowerCase();
+        List<Map<String, Object>> rules = loadHostnameIngressRules(c, tunnelId.trim());
+        List<Map<String, Object>> kept = new ArrayList<>();
+        boolean removed = false;
+        for (Map<String, Object> r : rules) {
+            String h = String.valueOf(r.get("hostname"));
+            if (host.equalsIgnoreCase(h)) {
+                removed = true;
+                continue;
+            }
+            kept.add(r);
+        }
+        if (!removed) {
+            throw new OciException("未找到 Public Hostname: " + hostname);
+        }
+        putTunnelHostnameIngress(c, tunnelId.trim(), kept);
+    }
+
+    private void requireTunnelId(String tunnelId) {
+        if (StrUtil.isBlank(tunnelId)) {
+            throw new OciException("Tunnel ID 不能为空");
+        }
+    }
+
+    private static String validateTunnelService(String service) {
+        if (StrUtil.isBlank(service)) {
+            throw new OciException("Service URL 不能为空");
+        }
+        String svc = service.trim();
+        boolean ok = TUNNEL_SERVICE_PREFIXES.stream().anyMatch(svc::startsWith);
+        if (!ok) {
+            throw new OciException("Service URL 须以 http://、https://、tcp:// 等协议开头");
+        }
+        return svc;
+    }
+
+    private static String buildTunnelHostname(String zoneName, String subdomain) {
+        if (StrUtil.isBlank(zoneName)) {
+            throw new OciException("Zone 域名无效");
+        }
+        String zone = zoneName.trim().toLowerCase();
+        String sub = StrUtil.blankToDefault(subdomain, "").trim();
+        if (sub.isEmpty() || "@".equals(sub)) {
+            return zone;
+        }
+        if (sub.contains(".")) {
+            String lower = sub.toLowerCase();
+            if (!lower.endsWith("." + zone) && !lower.equals(zone)) {
+                throw new OciException("子域名须属于 Zone: " + zone);
+            }
+            return lower;
+        }
+        return sub.toLowerCase() + "." + zone;
+    }
+
+    private JSONArray fetchTunnelIngressArray(Credentials c, String tunnelId) {
+        String url = CF_API_BASE + "/accounts/" + c.accountId() + "/cfd_tunnel/" + tunnelId + "/configurations";
+        JSONObject json = parseJson(apiGet(c.apiToken(), url));
+        requireSuccess(json, "拉取 Tunnel 配置失败");
+        JSONObject result = json.getJSONObject("result");
+        if (result == null) {
+            return new JSONArray();
+        }
+        JSONObject config = result.getJSONObject("config");
+        if (config == null) {
+            return new JSONArray();
+        }
+        JSONArray ingress = config.getJSONArray("ingress");
+        return ingress != null ? ingress : new JSONArray();
+    }
+
+    private List<Map<String, Object>> loadHostnameIngressRules(Credentials c, String tunnelId) {
+        JSONArray ingress = fetchTunnelIngressArray(c, tunnelId);
+        List<Map<String, Object>> rules = new ArrayList<>();
+        for (int i = 0; i < ingress.size(); i++) {
+            JSONObject row = ingress.getJSONObject(i);
+            if (row == null || isCatchAllIngress(row)) {
+                continue;
+            }
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("hostname", row.getStr("hostname"));
+            m.put("service", row.getStr("service"));
+            if (StrUtil.isNotBlank(row.getStr("path"))) {
+                m.put("path", row.getStr("path"));
+            }
+            JSONObject originRequest = row.getJSONObject("originRequest");
+            if (originRequest != null && !originRequest.isEmpty()) {
+                m.put("originRequest", originRequest);
+            }
+            rules.add(m);
+        }
+        return rules;
+    }
+
+    private static boolean isCatchAllIngress(JSONObject row) {
+        return StrUtil.isBlank(row.getStr("hostname"));
+    }
+
+    private void putTunnelHostnameIngress(Credentials c, String tunnelId, List<Map<String, Object>> hostnameRules) {
+        List<Map<String, Object>> ingress = new ArrayList<>();
+        for (Map<String, Object> rule : hostnameRules) {
+            Map<String, Object> item = new LinkedHashMap<>();
+            item.put("hostname", rule.get("hostname"));
+            item.put("service", rule.get("service"));
+            if (rule.get("path") != null) {
+                item.put("path", rule.get("path"));
+            }
+            Object originRequest = rule.get("originRequest");
+            item.put("originRequest", originRequest != null ? originRequest : Map.of());
+            ingress.add(item);
+        }
+        Map<String, Object> catchAll = new LinkedHashMap<>();
+        catchAll.put("service", "http_status:404");
+        ingress.add(catchAll);
+        Map<String, Object> body = Map.of("config", Map.of("ingress", ingress));
+        String url = CF_API_BASE + "/accounts/" + c.accountId() + "/cfd_tunnel/" + tunnelId + "/configurations";
+        JSONObject json = parseJson(apiPut(c.apiToken(), url, body));
+        requireSuccess(json, "更新 Tunnel 路由失败");
+    }
+
+    private Map<String, Object> ensureTunnelCname(Credentials c, String zoneId, String tunnelId, String hostname) {
+        String target = tunnelId + ".cfargotunnel.com";
+        String url = String.format("%s/zones/%s/dns_records?type=CNAME&name=%s",
+                CF_API_BASE, zoneId, URLEncoder.encode(hostname, StandardCharsets.UTF_8));
+        JSONObject json = parseJson(apiGet(c.apiToken(), url));
+        requireSuccess(json, "查询 DNS 记录失败");
+        JSONArray result = json.getJSONArray("result");
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("dnsCreated", false);
+        out.put("dnsUpdated", false);
+        if (result != null && !result.isEmpty()) {
+            JSONObject rec = result.getJSONObject(0);
+            String recordType = rec.getStr("type");
+            if (!"CNAME".equalsIgnoreCase(recordType)) {
+                throw new OciException("DNS 记录 " + hostname + " 已存在且类型为 "
+                        + recordType + "，请先删除或手动改为 CNAME");
+            }
+            String content = normalizeDnsContent(rec.getStr("content"));
+            if (target.equalsIgnoreCase(content)) {
+                return out;
+            }
+            String recordId = rec.getStr("id");
+            updateDnsRecord(zoneId, recordId, "CNAME", rec.getStr("name"), target, true, 1, null,
+                    "OCI Worker Tunnel");
+            out.put("dnsUpdated", true);
+            return out;
+        }
+        addDnsRecord(zoneId, "CNAME", hostname, target, true, 1, null, "OCI Worker Tunnel");
+        out.put("dnsCreated", true);
+        return out;
+    }
+
+    private static String normalizeDnsContent(String content) {
+        if (content == null) {
+            return "";
+        }
+        return content.endsWith(".") ? content.substring(0, content.length() - 1) : content;
+    }
+
     private static Map<String, Object> mapTunnelConnection(JSONObject conn, JSONObject client) {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("coloName", conn.getStr("colo_name"));

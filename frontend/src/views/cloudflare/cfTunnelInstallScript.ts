@@ -85,7 +85,7 @@ export function buildTunnelInstallScript(opts: {
   token: string
   tunnelName?: string
 }): string {
-  const { arch, os, protocol, token, tunnelName } = opts
+  const { arch, os, protocol, token } = opts
   const safeToken = escapeShellSingleQuoted(token.trim())
   const protocolFlag = protocol === 'http2' ? ' --protocol http2' : ''
   const protocolNote =
@@ -94,10 +94,6 @@ export function buildTunnelInstallScript(opts: {
       : 'QUIC（UDP 7844；若 UDP 不通会自动尝试 HTTP/2）'
 
   const lines: string[] = [
-    '#!/bin/bash',
-    `# Cloudflare Tunnel${tunnelName ? ` · ${tunnelName}` : ''}`,
-    '# 在源站 SSH 登录后粘贴执行。Token 等同密钥，请勿泄露或提交到 Git。',
-    '',
     ...installSteps(os, arch),
     '',
     `# 2. 运行 Tunnel — ${protocolNote}`,
@@ -129,7 +125,7 @@ export function buildTunnelInstallScript(opts: {
 
   lines.push(
     '',
-    '# 3. 在 Cloudflare Zero Trust → Networks → Tunnels 配置 Public Hostname（域名 → 内网地址）',
+    '# 3. 在 OCI Worker → 账户服务 → Tunnel →「路由」配置 Public Hostname（将自动创建 CNAME）',
   )
 
   return lines.join('\n')

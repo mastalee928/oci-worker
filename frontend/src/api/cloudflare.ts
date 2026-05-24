@@ -212,6 +212,23 @@ export function listCfTunnelConnections(data: { tunnelId: string }) {
   return request.post('/cf/tunnel/connections', data)
 }
 
+export function listCfTunnelRoutes(data: { tunnelId: string }) {
+  return request.post('/cf/tunnel/routes/list', data)
+}
+
+export function createCfTunnelRoute(data: {
+  tunnelId: string
+  zoneId: string
+  subdomain?: string
+  service: string
+}) {
+  return request.post('/cf/tunnel/routes/create', data)
+}
+
+export function deleteCfTunnelRoute(data: { tunnelId: string; hostname: string }) {
+  return request.post('/cf/tunnel/routes/delete', data)
+}
+
 export function listCfIpAccessRules() {
   return request.post('/cf/access-rules/list', {})
 }

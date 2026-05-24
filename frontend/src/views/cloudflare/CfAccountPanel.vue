@@ -29,6 +29,7 @@
             </template>
             <template v-else-if="column.key === 'action'">
               <a-space wrap>
+                <a-button type="link" size="small" @click="showRoutes(record)">路由</a-button>
                 <a-button type="link" size="small" @click="showToken(record)">Token</a-button>
                 <a-button type="link" size="small" @click="showConnections(record)">连接</a-button>
                 <a-button type="link" danger size="small" @click="openDeleteTunnel(record)">删除</a-button>
@@ -48,6 +49,7 @@
               <div v-if="item.createdAt" class="mobile-card-row"><span class="label">创建</span><span class="value">{{ item.createdAt }}</span></div>
             </div>
             <a-space wrap class="mobile-card-actions">
+              <a-button size="small" @click="showRoutes(item)">路由</a-button>
               <a-button size="small" @click="showToken(item)">Token</a-button>
               <a-button size="small" @click="showConnections(item)">连接</a-button>
               <a-button size="small" danger @click="openDeleteTunnel(item)">删除</a-button>
@@ -188,7 +190,7 @@
       @after-open-change="onTokenModalOpenChange"
     >
       <a-alert type="warning" show-icon class="cf-token-alert">
-        <template #message>Token 等同密钥，请勿泄露。连接成功后还需在 Cloudflare 配置 Public Hostname。</template>
+        <template #message>Token 等同密钥，请勿泄露。源站连上后请在本页「路由」配置 Public Hostname（自动创建 CNAME）。</template>
       </a-alert>
 
       <a-form layout="vertical" class="cf-token-form">
@@ -267,6 +269,84 @@
       </a-spin>
     </a-drawer>
 
+    <a-drawer
+      v-model:open="routesVisible"
+      :title="routesTitle"
+      :width="isMobile ? '100%' : 560"
+    >
+      <a-spin :spinning="routesLoading">
+        <p class="cf-hint cf-routes-hint">
+          Public Hostname 将写入 Tunnel ingress，并自动创建橙云 CNAME 指向
+          <code v-if="routesTunnel">{{ routesTunnel.id }}.cfargotunnel.com</code>
+          <code v-else>{tunnel_id}.cfargotunnel.com</code>。删除路由不会自动删 DNS。
+        </p>
+        <a-form layout="vertical" class="cf-route-form">
+          <a-form-item label="Zone（域名）" required>
+            <a-select
+              v-model:value="routeForm.zoneId"
+              placeholder="选择 Zone"
+              show-search
+              option-filter-prop="label"
+              :loading="zonesLoading"
+              :options="zoneOptions"
+            />
+          </a-form-item>
+          <a-form-item label="子域名">
+            <a-input
+              v-model:value="routeForm.subdomain"
+              placeholder="留空或 @ 为根域名；如 www、api"
+              allow-clear
+            />
+          </a-form-item>
+          <a-form-item label="内网 Service URL" required>
+            <a-input
+              v-model:value="routeForm.service"
+              placeholder="如 http://127.0.0.1:8080"
+              allow-clear
+            />
+          </a-form-item>
+          <a-button type="primary" :loading="routeSaveLoading" @click="submitCreateRoute">
+            添加 Public Hostname
+          </a-button>
+        </a-form>
+
+        <a-divider orientation="left">已配置路由</a-divider>
+        <div class="cf-routes-list-toolbar">
+          <a-button size="small" :loading="routesLoading" @click="loadTunnelRoutes">刷新</a-button>
+        </div>
+        <a-empty v-if="!routesLoading && tunnelRoutes.length === 0" description="暂无 Public Hostname" />
+        <a-table
+          v-else-if="!isMobile && tunnelRoutes.length > 0"
+          :columns="routeColumns"
+          :data-source="tunnelRoutes"
+          row-key="hostname"
+          size="small"
+          :pagination="false"
+        >
+          <template #bodyCell="{ column, record }">
+            <template v-if="column.key === 'action'">
+              <a-popconfirm title="确定删除此 Public Hostname？" @confirm="handleDeleteRoute(record.hostname)">
+                <a-button type="link" danger size="small">删除</a-button>
+              </a-popconfirm>
+            </template>
+          </template>
+        </a-table>
+        <div v-else-if="isMobile && tunnelRoutes.length > 0">
+          <div v-for="item in tunnelRoutes" :key="item.hostname" class="mobile-card">
+            <div class="mobile-card-header">
+              <span class="mobile-card-title">{{ item.hostname }}</span>
+            </div>
+            <div class="mobile-card-body">
+              <div class="mobile-card-row"><span class="label">Service</span><span class="value">{{ item.service }}</span></div>
+            </div>
+            <a-popconfirm title="确定删除？" @confirm="handleDeleteRoute(item.hostname)">
+              <a-button size="small" danger>删除</a-button>
+            </a-popconfirm>
+          </div>
+        </div>
+      </a-spin>
+    </a-drawer>
+
     <a-modal
       v-model:open="deleteModalVisible"
       title="安全验证 — 删除 Tunnel"
@@ -300,6 +380,10 @@ import {
   deleteCfTunnel,
   getCfTunnelToken,
   listCfTunnelConnections,
+  listCfTunnelRoutes,
+  createCfTunnelRoute,
+  deleteCfTunnelRoute,
+  listCfZonesPage,
   listCfWorkerScripts,
   listCfIpAccessRules,
   createCfIpAccessRule,
@@ -384,6 +468,26 @@ const connVisible = ref(false)
 const connLoading = ref(false)
 const connTitle = ref('连接详情')
 const connections = ref<any[]>([])
+
+const routesVisible = ref(false)
+const routesLoading = ref(false)
+const routeSaveLoading = ref(false)
+const routesTitle = ref('Tunnel 路由')
+const routesTunnel = ref<{ id: string; name: string } | null>(null)
+const tunnelRoutes = ref<{ hostname: string; service: string; path?: string }[]>([])
+const zonesLoading = ref(false)
+const zoneOptions = ref<{ value: string; label: string }[]>([])
+const routeForm = reactive({
+  zoneId: undefined as string | undefined,
+  subdomain: '',
+  service: '',
+})
+
+const routeColumns = [
+  { title: 'Public Hostname', dataIndex: 'hostname', ellipsis: true },
+  { title: 'Service', dataIndex: 'service', ellipsis: true },
+  { title: '操作', key: 'action', width: 80 },
+]
 
 const scriptsLoading = ref(false)
 const scripts = ref<any[]>([])
@@ -511,7 +615,7 @@ const tunnelColumns = [
   { title: 'ID', dataIndex: 'id', ellipsis: true },
   { title: '状态', key: 'status', width: 100 },
   { title: '创建时间', dataIndex: 'createdAt', width: 180 },
-  { title: '操作', key: 'action', width: 220 },
+  { title: '操作', key: 'action', width: 280 },
 ]
 
 const scriptColumns = [
@@ -657,6 +761,91 @@ async function showConnections(record: any) {
   }
 }
 
+async function loadZonesForRoutes() {
+  if (zoneOptions.value.length > 0) return
+  zonesLoading.value = true
+  try {
+    const all: { id: string; name: string; status?: string }[] = []
+    let page = 1
+    let totalPages = 1
+    do {
+      const res = await listCfZonesPage({ page, perPage: 100 })
+      const data = res.data || {}
+      all.push(...(data.records || []))
+      totalPages = data.totalPages || 1
+      page++
+    } while (page <= totalPages)
+    zoneOptions.value = all.map(z => ({
+      value: z.id,
+      label: `${z.name}${z.status ? ` (${z.status})` : ''}`,
+    }))
+  } finally {
+    zonesLoading.value = false
+  }
+}
+
+async function loadTunnelRoutes() {
+  if (!routesTunnel.value?.id) return
+  routesLoading.value = true
+  try {
+    const res = await listCfTunnelRoutes({ tunnelId: routesTunnel.value.id })
+    tunnelRoutes.value = res.data || []
+  } finally {
+    routesLoading.value = false
+  }
+}
+
+function resetRouteForm() {
+  routeForm.zoneId = undefined
+  routeForm.subdomain = ''
+  routeForm.service = ''
+}
+
+async function showRoutes(record: { id: string; name: string }) {
+  routesTunnel.value = record
+  routesTitle.value = `路由 · ${record.name}`
+  resetRouteForm()
+  routesVisible.value = true
+  await Promise.all([loadZonesForRoutes(), loadTunnelRoutes()])
+}
+
+async function submitCreateRoute() {
+  if (!routesTunnel.value?.id) return
+  if (!routeForm.zoneId) {
+    message.warning('请选择 Zone')
+    return
+  }
+  if (!routeForm.service.trim()) {
+    message.warning('请填写内网 Service URL')
+    return
+  }
+  routeSaveLoading.value = true
+  try {
+    const res = await createCfTunnelRoute({
+      tunnelId: routesTunnel.value.id,
+      zoneId: routeForm.zoneId,
+      subdomain: routeForm.subdomain.trim() || undefined,
+      service: routeForm.service.trim(),
+    })
+    const data = res.data || {}
+    const parts = ['Public Hostname 已添加']
+    if (data.dnsCreated) parts.push('CNAME 已创建')
+    else if (data.dnsUpdated) parts.push('CNAME 已更新')
+    message.success(parts.join('，'))
+    resetRouteForm()
+    await loadTunnelRoutes()
+  } finally {
+    routeSaveLoading.value = false
+  }
+}
+
+async function handleDeleteRoute(hostname: string) {
+  if (!routesTunnel.value?.id) return
+  await deleteCfTunnelRoute({ tunnelId: routesTunnel.value.id, hostname })
+  message.success('路由已删除')
+  await loadTunnelRoutes()
+}
+
 onMounted(() => loadTunnels())
 </script>
 
@@ -703,4 +892,8 @@ onMounted(() => loadTunnels())
   font-size: 12px;
 }
 .cf-copy-link { padding-left: 0; margin-top: 4px; }
+.cf-routes-hint { margin-bottom: 16px; }
+.cf-routes-hint code { font-size: 12px; }
+.cf-route-form { margin-bottom: 8px; }
+.cf-routes-list-toolbar { margin-bottom: 12px; }
 </style>
