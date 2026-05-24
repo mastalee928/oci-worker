@@ -367,6 +367,14 @@ export function updateCfWorkerScript(data: { name: string; script: string }) {
   return request.post('/cf/workers/script/update', data)
 }
 
+export function renameCfWorker(data: { name: string; newName: string }) {
+  return request.post('/cf/workers/rename', data)
+}
+
+export function deleteCfWorker(data: { name: string; verifyCode: string }) {
+  return request.post('/cf/workers/delete', data)
+}
+
 export function createCfWorkerHelloWorld(data: { name: string; script?: string }) {
   return request.post('/cf/workers/create/hello-world', data)
 }

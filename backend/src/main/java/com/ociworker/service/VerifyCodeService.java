@@ -60,6 +60,7 @@ public class VerifyCodeService {
             case "cfZonePause" -> "Cloudflare 暂停/恢复区域解析";
             case "cfZoneDelete" -> "Cloudflare 删除区域";
             case "cfTunnelDelete" -> "Cloudflare 删除 Tunnel";
+            case "cfWorkerDelete" -> "Cloudflare 删除 Worker";
             default -> action;
         };
         String msg = String.format("【OCI Worker 安全验证】\n操作：%s\n验证码：%s\n有效期：5分钟\n\n如非本人操作，请检查账户安全。", actionName, code);

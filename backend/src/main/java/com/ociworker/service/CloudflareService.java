@@ -1795,6 +1795,35 @@ public class CloudflareService {
         return deployWorker(scriptName, scriptContent);
     }
 
+    public Map<String, Object> renameWorkerScript(String oldName, String newName) {
+        String oldNorm = normalizeWorkerScriptName(oldName);
+        String newNorm = normalizeWorkerScriptName(newName);
+        if (oldNorm.equals(newNorm)) {
+            throw new OciException("新名称不能与当前名称相同");
+        }
+        Map<String, Object> content = getWorkerScriptContent(oldNorm);
+        String script = String.valueOf(content.get("script"));
+        if (StrUtil.isBlank(script)) {
+            throw new OciException("无法读取 Worker 脚本内容");
+        }
+        Map<String, Object> result = deployWorker(newNorm, script);
+        deleteWorkerScriptInternal(oldNorm);
+        result.put("oldName", oldNorm);
+        result.put("name", newNorm);
+        return result;
+    }
+
+    public void deleteWorkerScript(String scriptName) {
+        deleteWorkerScriptInternal(normalizeWorkerScriptName(scriptName));
+    }
+
+    private void deleteWorkerScriptInternal(String scriptName) {
+        Credentials c = requireCredentials();
+        String url = CF_API_BASE + "/accounts/" + c.accountId() + "/workers/scripts/"
+                + urlEncodePath(scriptName);
+        apiDelete(c.apiToken(), url);
+    }
+
     public Map<String, Object> createWorkerHelloWorld(String scriptName, String scriptContent) {
         String code = StrUtil.isNotBlank(scriptContent) ? scriptContent : WORKER_HELLO_WORLD;
         return deployWorker(scriptName, code);

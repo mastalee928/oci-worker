@@ -99,7 +99,7 @@
       row-key="rowKey"
       size="middle"
       :pagination="false"
-      :scroll="{ x: 980 }"
+      :scroll="{ x: 1100 }"
     >
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'kind'">
@@ -112,12 +112,11 @@
           <span v-else>—</span>
         </template>
         <template v-else-if="column.key === 'actions'">
-          <a-button
-            v-if="record.kind === 'worker'"
-            type="link"
-            size="small"
-            @click="openEditWorker(record)"
-          >编辑代码</a-button>
+          <a-space v-if="record.kind === 'worker'" wrap size="small">
+            <a-button type="link" size="small" @click="openEditWorker(record)">编辑代码</a-button>
+            <a-button type="link" size="small" @click="openRenameWorker(record)">重命名</a-button>
+            <a-button type="link" size="small" danger @click="openDeleteWorker(record)">删除</a-button>
+          </a-space>
           <span v-else class="cf-muted">—</span>
         </template>
       </template>
@@ -139,11 +138,12 @@
               <template v-else>—</template>
             </span>
           </div>
-          <div v-if="item.kind === 'worker'" class="mobile-card-row">
-            <span class="label">操作</span>
-            <span class="value">
-              <a-button type="link" size="small" style="padding: 0" @click="openEditWorker(item)">编辑代码</a-button>
-            </span>
+          <div v-if="item.kind === 'worker'" class="mobile-card-actions">
+            <a-space wrap size="small">
+              <a-button size="small" @click="openEditWorker(item)">编辑代码</a-button>
+              <a-button size="small" @click="openRenameWorker(item)">重命名</a-button>
+              <a-button size="small" danger @click="openDeleteWorker(item)">删除</a-button>
+            </a-space>
           </div>
           <div v-if="item.createdOn" class="mobile-card-row">
             <span class="label">创建</span><span class="value">{{ item.createdOn }}</span>
@@ -404,6 +404,63 @@
         </a-form>
       </a-spin>
     </a-modal>
+
+    <a-modal
+      v-model:open="renameWorkerVisible"
+      :mask-closable="false"
+      :keyboard="false"
+      title="重命名 Worker"
+      :confirm-loading="renameWorkerLoading"
+      ok-text="重命名"
+      cancel-text="取消"
+      destroy-on-close
+      @ok="submitRenameWorker"
+    >
+      <a-form layout="vertical">
+        <a-form-item label="当前名称">
+          <a-input :value="renameWorkerForm.name" readonly />
+        </a-form-item>
+        <a-form-item label="新名称" required>
+          <a-input
+            v-model:value="renameWorkerForm.newName"
+            placeholder="字母、数字、下划线与连字符"
+            allow-clear
+          />
+        </a-form-item>
+        <p class="cf-hint">将复制脚本到新名称并删除旧 Worker；若 Zone 路由仍指向旧名称，请手动更新。</p>
+      </a-form>
+    </a-modal>
+
+    <a-modal
+      v-model:open="deleteWorkerVisible"
+      :mask-closable="false"
+      :keyboard="false"
+      title="安全验证 — 删除 Worker"
+      :width="400"
+      :confirm-loading="deleteWorkerLoading"
+      ok-text="确认删除"
+      :ok-button-props="{ danger: true }"
+      destroy-on-close
+      @ok="confirmDeleteWorker"
+    >
+      <a-alert type="error" show-icon style="margin-bottom: 16px">
+        <template #message>删除 Worker 不可恢复，验证码已发送至 Telegram</template>
+      </a-alert>
+      <p v-if="deleteWorkerTarget" class="cf-delete-target">将删除：<b>{{ deleteWorkerTarget }}</b></p>
+      <a-input
+        v-model:value="deleteWorkerVerifyCode"
+        placeholder="请输入6位验证码"
+        size="large"
+        :maxlength="6"
+        allow-clear
+      />
+      <div class="cf-verify-footer">
+        <span>验证码有效期 5 分钟</span>
+        <a-button type="link" size="small" :loading="deleteWorkerVerifySending" @click="sendDeleteWorkerCode">
+          重新发送
+        </a-button>
+      </div>
+    </a-modal>
   </div>
 </template>
 
@@ -421,9 +478,12 @@ import {
   deployCfWorker,
   getCfWorkerScript,
   updateCfWorkerScript,
+  renameCfWorker,
+  deleteCfWorker,
   createCfPagesFromTemplate,
   deployCfPagesStatic,
 } from '../../api/cloudflare'
+import { sendVerifyCode } from '../../api/system'
 
 const MAX_UPLOAD_FILES = 100
 const MAX_UPLOAD_BYTES = 25 * 1024 * 1024
@@ -491,6 +551,13 @@ const editWorkerLoading = ref(false)
 const editWorkerScriptLoading = ref(false)
 const createVisible = ref(false)
 const editWorkerVisible = ref(false)
+const renameWorkerVisible = ref(false)
+const deleteWorkerVisible = ref(false)
+const renameWorkerLoading = ref(false)
+const deleteWorkerLoading = ref(false)
+const deleteWorkerVerifySending = ref(false)
+const deleteWorkerVerifyCode = ref('')
+const deleteWorkerTarget = ref('')
 const usageLoadError = ref('')
 const appsLoadError = ref('')
 const createStep = ref<CreateStep>('choose')
@@ -526,6 +593,11 @@ const editWorkerForm = reactive({
   name: '',
   script: '',
   url: '',
+})
+
+const renameWorkerForm = reactive({
+  name: '',
+  newName: '',
 })
 
 const uploadTotalBytes = computed(() =>
@@ -617,7 +689,7 @@ const appColumns = [
   { title: '地址', key: 'url', ellipsis: true },
   { title: '创建', dataIndex: 'createdOn', width: 170 },
   { title: '修改', dataIndex: 'modifiedOn', width: 170 },
-  { title: '操作', key: 'actions', width: 100, fixed: 'right' as const },
+  { title: '操作', key: 'actions', width: 220, fixed: 'right' as const },
 ]
 
 function formatNum(n?: number | null) {
@@ -1018,6 +1090,77 @@ async function submitEditWorker() {
   }
 }
 
+function openRenameWorker(record: AppRow) {
+  const name = record.name || record.id
+  if (!name) return
+  renameWorkerForm.name = name
+  renameWorkerForm.newName = ''
+  renameWorkerVisible.value = true
+}
+
+async function submitRenameWorker() {
+  const name = renameWorkerForm.name.trim()
+  const newName = renameWorkerForm.newName.trim()
+  if (!newName) {
+    message.warning('请输入新名称')
+    return Promise.reject()
+  }
+  if (newName === name) {
+    message.warning('新名称不能与当前名称相同')
+    return Promise.reject()
+  }
+  renameWorkerLoading.value = true
+  try {
+    await renameCfWorker({ name, newName })
+    message.success('Worker 已重命名')
+    renameWorkerVisible.value = false
+    await loadApplications()
+  } finally {
+    renameWorkerLoading.value = false
+  }
+}
+
+async function openDeleteWorker(record: AppRow) {
+  const name = record.name || record.id
+  if (!name) return
+  deleteWorkerTarget.value = name
+  deleteWorkerVerifyCode.value = ''
+  deleteWorkerVisible.value = true
+  try {
+    await sendDeleteWorkerCode()
+  } catch {
+    /* sendVerifyCode 已提示 */
+  }
+}
+
+async function sendDeleteWorkerCode() {
+  deleteWorkerVerifySending.value = true
+  try {
+    await sendVerifyCode('cfWorkerDelete')
+    message.success('验证码已发送至 Telegram')
+  } finally {
+    deleteWorkerVerifySending.value = false
+  }
+}
+
+async function confirmDeleteWorker() {
+  const name = deleteWorkerTarget.value.trim()
+  if (!name) return Promise.reject()
+  if (!deleteWorkerVerifyCode.value || deleteWorkerVerifyCode.value.length !== 6) {
+    message.warning('请输入6位验证码')
+    return Promise.reject()
+  }
+  deleteWorkerLoading.value = true
+  try {
+    await deleteCfWorker({ name, verifyCode: deleteWorkerVerifyCode.value })
+    message.success('Worker 已删除')
+    deleteWorkerVisible.value = false
+    await loadApplications()
+  } finally {
+    deleteWorkerLoading.value = false
+  }
+}
+
 defineExpose({ loadAll })
 </script>
 
@@ -1170,4 +1313,17 @@ defineExpose({ loadAll })
 }
 .mobile-card-row .label { color: var(--text-sub); flex-shrink: 0; }
 .mobile-card-row .value { text-align: right; word-break: break-all; }
+.mobile-card-actions { margin-top: 8px; }
+.cf-verify-footer {
+  margin-top: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: var(--text-sub);
+}
+.cf-delete-target {
+  margin-bottom: 12px;
+  color: var(--text-main);
+}
 </style>

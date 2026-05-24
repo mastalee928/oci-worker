@@ -446,6 +446,18 @@ public class CloudflareController {
         return ResponseData.ok(cloudflareService.updateWorkerScript(params.get("name"), params.get("script")));
     }
 
+    @PostMapping("/workers/rename")
+    public ResponseData<?> workerRename(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(cloudflareService.renameWorkerScript(params.get("name"), params.get("newName")));
+    }
+
+    @PostMapping("/workers/delete")
+    public ResponseData<?> workerDelete(@RequestBody Map<String, String> params) {
+        verifyCodeService.verifyCode("cfWorkerDelete", params.get("verifyCode"));
+        cloudflareService.deleteWorkerScript(params.get("name"));
+        return ResponseData.ok();
+    }
+
     @PostMapping("/workers/create/hello-world")
     public ResponseData<?> workerCreateHelloWorld(@RequestBody Map<String, String> params) {
         return ResponseData.ok(cloudflareService.createWorkerHelloWorld(
