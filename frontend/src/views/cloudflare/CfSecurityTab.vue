@@ -334,7 +334,7 @@ import {
   getCfSecurityProtection,
   setCfSecurityProtection,
 } from '../../api/cloudflare'
-import CfFirewallClauseFields from './CfFirewallClauseFields.vue'
+import FirewallClauseFields from './CfFirewallClauseFields.vue'
 import {
   compileFirewallVisualForm,
   humanizeExpression,
