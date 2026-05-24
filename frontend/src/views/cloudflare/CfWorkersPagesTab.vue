@@ -720,13 +720,14 @@ async function loadAll() {
 }
 
 watch(
-  () => props.active,
-  async isActive => {
-    if (isActive && props.cfConfigured) {
+  () => [props.active, props.cfConfigured] as const,
+  async ([isActive, configured]) => {
+    if (isActive && configured) {
       await nextTick()
       loadAll()
     }
   },
+  { immediate: true },
 )
 
 function resetDeployForm() {

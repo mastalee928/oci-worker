@@ -1,6 +1,6 @@
 ﻿<template>
   <div class="cf-account-panel">
-    <a-tabs v-model:active-key="accountTab">
+    <a-tabs v-model:active-key="accountTab" @change="onAccountTabChange">
       <a-tab-pane key="tunnel" tab="Tunnel 连接器">
         <div class="cf-toolbar">
           <a-space wrap>
@@ -118,8 +118,9 @@
         <p class="cf-hint">账户级 IP 访问规则，对账户下所有 Zone 生效。复杂条件请使用「域名 → 安全性」防火墙规则。</p>
       </a-tab-pane>
 
-      <a-tab-pane key="workers" tab="Workers 和 Pages">
+      <a-tab-pane key="workers" tab="Workers 和 Pages" force-render>
         <CfWorkersPagesTab
+          ref="workersPagesRef"
           :cf-configured="cfConfigured"
           :active="accountTab === 'workers'"
         />
@@ -398,7 +399,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch, onMounted } from 'vue'
+import { ref, reactive, computed, watch, onMounted, nextTick } from 'vue'
 import { message } from 'ant-design-vue'
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { useIsMobile } from '../../composables/useIsMobile'
@@ -527,6 +528,7 @@ const routeColumns = [
 ]
 
 const ipRulesLoading = ref(false)
+const workersPagesRef = ref<InstanceType<typeof CfWorkersPagesTab> | null>(null)
 const ipRules = ref<any[]>([])
 const ipCreateVisible = ref(false)
 const ipCreateLoading = ref(false)
@@ -636,6 +638,14 @@ async function handleDeleteIpRule(ruleId: string) {
 watch(accountTab, tab => {
   if (tab === 'ipaccess') loadIpRules()
 })
+
+async function onAccountTabChange(key: string | number) {
+  if (key === 'ipaccess') loadIpRules()
+  if (key === 'workers') {
+    await nextTick()
+    workersPagesRef.value?.loadAll()
+  }
+}
 
 const deleteModalVisible = ref(false)
 const deleteVerifyLoading = ref(false)
