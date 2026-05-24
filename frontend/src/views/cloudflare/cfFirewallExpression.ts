@@ -422,7 +422,7 @@ function normalizeExpression(raw: string): string {
 
 /** 提取 `not (...)` 括号内内容；非此形态返回 null */
 function extractNotParenContent(raw: string): string | null {
-  const s = raw.trim()
+  const s = stripBalancedOuterParens(raw.trim())
   const m = /^not\s+\(/i.exec(s)
   if (!m) return null
   let depth = 0
@@ -593,7 +593,7 @@ function parseAndExpr(s: string): ExprAst | null {
 }
 
 function parseUnaryExpr(s: string): ExprAst | null {
-  const trimmed = s.trim()
+  const trimmed = stripBalancedOuterParens(s.trim())
   const notInner = extractNotParenContent(trimmed)
   if (notInner !== null) {
     const child = parseOrExpr(notInner)

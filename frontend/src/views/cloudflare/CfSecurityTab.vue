@@ -160,7 +160,7 @@
 
         <a-form-item label="匹配条件" required>
           <div class="cf-mode-bar">
-            <a-radio-group v-model:value="form.mode" size="small" @change="onModeChange">
+            <a-radio-group :value="form.mode" size="small" @update:value="setFormMode">
               <a-radio-button value="visual">可视化</a-radio-button>
               <a-radio-button value="advanced">编辑表达式</a-radio-button>
             </a-radio-group>
@@ -575,6 +575,12 @@ function resetVisualForm() {
   form.items = [{ type: 'clause', ...createClauseRow() }]
 }
 
+function ensureVisualHasRow() {
+  if (form.mode === 'visual' && form.items.length === 0) {
+    resetVisualForm()
+  }
+}
+
 function tryLoadVisualFromExpression(expr: string): boolean {
   const parsed = parseFirewallVisualForm(expr)
   if (!parsed) return false
@@ -582,20 +588,24 @@ function tryLoadVisualFromExpression(expr: string): boolean {
   return true
 }
 
-function onModeChange() {
-  if (form.mode === 'advanced') {
+function setFormMode(next: 'visual' | 'advanced') {
+  if (next === form.mode) return
+  if (next === 'advanced') {
     const compiled = previewExpression.value
     if (compiled) form.expression = compiled
+    form.mode = 'advanced'
     return
   }
   const src = form.expression.trim()
   if (!src) {
-    resetVisualForm()
+    if (!form.items.length) resetVisualForm()
+    form.mode = 'visual'
     return
   }
-  if (!tryLoadVisualFromExpression(src)) {
+  if (tryLoadVisualFromExpression(src)) {
+    form.mode = 'visual'
+  } else {
     message.warning('无法将表达式解析为可视化结构，请检查语法或继续使用编辑表达式')
-    form.mode = 'advanced'
   }
 }
 
@@ -603,10 +613,10 @@ function openCreateModal() {
   editingRuleId.value = null
   form.description = ''
   form.action = 'block'
-  form.mode = 'visual'
   form.expression = ''
   form.enabled = true
   resetVisualForm()
+  form.mode = 'visual'
   createModalVisible.value = true
 }
 
@@ -757,6 +767,10 @@ function confirmDelete(record: FirewallRule) {
 }
 
 watch(() => props.zoneId, () => loadAll(), { immediate: true })
+
+watch(createModalVisible, visible => {
+  if (visible) ensureVisualHasRow()
+})
 </script>
 
 <style scoped>
