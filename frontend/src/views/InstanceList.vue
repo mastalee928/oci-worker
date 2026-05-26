@@ -254,7 +254,7 @@
     </template>
 
     <!-- 实例管理抽屉 -->
-    <a-drawer
+    <a-drawer :keyboard="false"
       v-model:open="instancePanelVisible"
       :width="instancePanelWidth"
       :mask-closable="false"
@@ -414,7 +414,7 @@
     </a-drawer>
 
     <!-- 快捷开机任务弹窗 -->
-    <a-modal v-model:open="quickTaskVisible" title="快捷开机任务" :width="isMobile ? '100%' : 600"
+    <a-modal :keyboard="false" v-model:open="quickTaskVisible" title="快捷开机任务" :width="isMobile ? '100%' : 600"
       @ok="handleQuickTask" :confirm-loading="quickTaskLoading" :mask-closable="false">
       <div style="margin-bottom: 12px">
         <a-tag color="blue">{{ quickTaskTenant?.username }}</a-tag>
@@ -544,7 +544,7 @@
     </a-modal>
 
     <!-- 实例详情抽屉 -->
-    <a-drawer
+    <a-drawer :keyboard="false"
       v-model:open="drawerVisible"
       :title="currentInstance?.name || '实例详情'"
       :width="isMobile ? '100%' : 780"
@@ -973,7 +973,7 @@
     </a-drawer>
 
     <!-- 添加安全规则弹窗 -->
-    <a-modal v-model:open="addRuleVisible" title="添加安全规则" @ok="handleAddRule"
+    <a-modal :keyboard="false" v-model:open="addRuleVisible" title="添加安全规则" @ok="handleAddRule"
       :confirm-loading="addRuleLoading" :mask-closable="false">
       <a-form layout="vertical">
         <a-form-item label="方向">
@@ -1008,7 +1008,7 @@
     </a-modal>
 
     <!-- 编辑引导卷弹窗 -->
-    <a-modal v-model:open="editVolVisible" title="编辑引导卷" @ok="handleEditVolume"
+    <a-modal :keyboard="false" v-model:open="editVolVisible" title="编辑引导卷" @ok="handleEditVolume"
       :confirm-loading="editVolLoading" :mask-closable="false">
       <a-form layout="vertical">
         <a-form-item label="名称">
@@ -1031,7 +1031,7 @@
     </a-modal>
 
     <!-- 新建预留IP弹窗 -->
-    <a-modal v-model:open="createRipVisible" title="新建预留 IP" @ok="handleCreateReservedIp"
+    <a-modal :keyboard="false" v-model:open="createRipVisible" title="新建预留 IP" @ok="handleCreateReservedIp"
       :confirm-loading="createRipLoading" :mask-closable="false">
       <a-form layout="vertical">
         <a-form-item label="名称（可选）">
@@ -1042,7 +1042,7 @@
     </a-modal>
 
     <!-- 修改实例弹窗 -->
-    <a-modal v-model:open="editInstanceVisible" title="修改实例" @ok="handleEditInstance"
+    <a-modal :keyboard="false" v-model:open="editInstanceVisible" title="修改实例" @ok="handleEditInstance"
       :confirm-loading="editInstanceLoading" :mask-closable="false" :width="isMobile ? '100%' : 480">
       <a-form layout="vertical" v-if="currentInstance">
         <a-form-item label="实例名称">
@@ -1052,7 +1052,7 @@
       </a-form>
     </a-modal>
 
-    <a-modal
+    <a-modal :keyboard="false"
       v-model:open="forceA2ModalVisible"
       title="A2 强改 A1"
       ok-text="确认执行"
@@ -1080,7 +1080,7 @@
     </a-modal>
 
     <!-- 终止实例验证码弹窗 -->
-    <a-modal v-model:open="verifyModalVisible" title="安全验证 — 终止实例" :width="400"
+    <a-modal :mask-closable="false" :keyboard="false" v-model:open="verifyModalVisible" title="安全验证 — 终止实例" :width="400"
       @ok="handleTerminateWithCode" :confirm-loading="verifyLoading" ok-text="确认终止" ok-type="primary"
       :ok-button-props="{ danger: true }">
       <a-alert type="warning" show-icon style="margin-bottom: 16px">
@@ -1097,7 +1097,7 @@
     </a-modal>
 
     <!-- 删除卷验证码弹窗 -->
-    <a-modal v-model:open="deleteVolModalVisible" title="安全验证 — 删除卷" :width="400"
+    <a-modal :mask-closable="false" :keyboard="false" v-model:open="deleteVolModalVisible" title="安全验证 — 删除卷" :width="400"
       @ok="handleDeleteVolume" :confirm-loading="deleteVolVerifyLoading" ok-text="确认删除" ok-type="primary"
       :ok-button-props="{ danger: true }">
       <a-alert type="warning" show-icon style="margin-bottom: 16px">
@@ -1116,7 +1116,7 @@
     </a-modal>
 
     <!-- 虚拟云网络抽屉 -->
-    <a-drawer v-model:open="vcnVisible" :title="'虚拟云网络 — ' + (vcnTenant?.username || '')"
+    <a-drawer :keyboard="false" v-model:open="vcnVisible" :title="'虚拟云网络 — ' + (vcnTenant?.username || '')"
       :width="isMobile ? '100%' : 960" :mask-closable="false" destroy-on-close>
       <div v-if="vcnTenant" class="vcn-panel-toolbar">
         <span class="instance-panel-toolbar-label">Region</span>

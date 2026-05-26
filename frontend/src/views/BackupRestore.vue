@@ -33,7 +33,7 @@
     </a-row>
 
     <!-- 备份验证码弹窗 -->
-    <a-modal v-model:open="verifyModalVisible" title="安全验证 — 备份数据" :width="isMobile ? '100%' : 400"
+    <a-modal :mask-closable="false" :keyboard="false" v-model:open="verifyModalVisible" title="安全验证 — 备份数据" :width="isMobile ? '100%' : 400"
       @ok="handleBackupWithCode" :confirm-loading="verifyLoading" ok-text="确认备份">
       <a-alert type="info" show-icon style="margin-bottom: 16px">
         <template #message>验证码已发送至 Telegram</template>

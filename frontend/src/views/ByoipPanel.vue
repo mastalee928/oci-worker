@@ -130,7 +130,7 @@
     </div>
 
     <!-- 导入 BYOIP -->
-    <a-modal v-model:open="importVisible" title="导入 BYOIP 网段" :confirm-loading="submitting" @ok="submitImport">
+    <a-modal :mask-closable="false" :keyboard="false" v-model:open="importVisible" title="导入 BYOIP 网段" :confirm-loading="submitting" @ok="submitImport">
       <a-form layout="vertical">
         <a-form-item label="名称"><a-input v-model:value="importForm.displayName" /></a-form-item>
         <a-form-item label="类型" required>
@@ -149,7 +149,7 @@
     </a-modal>
 
     <!-- 验证 Token -->
-    <a-modal v-model:open="tokenVisible" title="RIR 验证 Token" :footer="null" width="640px">
+    <a-modal :mask-closable="false" :keyboard="false" v-model:open="tokenVisible" title="RIR 验证 Token" :footer="null" width="640px">
       <a-alert type="warning" show-icon message="须将此串添加到 RIR，并创建 ROA 授权 Oracle ASN" style="margin-bottom: 12px" />
       <p class="vcn-panel-hint">提交给 RIR 的完整格式（非 API 原始 token）：</p>
       <a-typography-paragraph copyable>{{ tokenDetail.ociValidationToken }}</a-typography-paragraph>
@@ -160,7 +160,7 @@
     </a-modal>
 
     <!-- 已分配子网 -->
-    <a-modal v-model:open="allocatedVisible" title="已分配到公网 IP 池的子网" :footer="null" width="720px">
+    <a-modal :mask-closable="false" :keyboard="false" v-model:open="allocatedVisible" title="已分配到公网 IP 池的子网" :footer="null" width="720px">
       <a-table :data-source="allocatedRanges" :columns="allocatedColumns" row-key="cidrBlock" size="small" :pagination="false">
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'action'">
@@ -176,14 +176,14 @@
     </a-modal>
 
     <!-- 创建 IP 池 -->
-    <a-modal v-model:open="createPoolVisible" title="创建公网 IP 池" :confirm-loading="submitting" @ok="submitCreatePool">
+    <a-modal :mask-closable="false" :keyboard="false" v-model:open="createPoolVisible" title="创建公网 IP 池" :confirm-loading="submitting" @ok="submitCreatePool">
       <a-form layout="vertical">
         <a-form-item label="名称"><a-input v-model:value="poolForm.displayName" /></a-form-item>
       </a-form>
     </a-modal>
 
     <!-- 子网加入池 -->
-    <a-modal v-model:open="addCapVisible" title="BYOIP 子网加入公网 IP 池" :confirm-loading="submitting" @ok="submitAddCapacity">
+    <a-modal :mask-closable="false" :keyboard="false" v-model:open="addCapVisible" title="BYOIP 子网加入公网 IP 池" :confirm-loading="submitting" @ok="submitAddCapacity">
       <a-form layout="vertical">
         <a-form-item label="BYOIP 网段" required>
           <a-select v-model:value="capForm.byoipRangeId" :options="ipv4RangeOptions" show-search option-filter-prop="label" />
@@ -198,7 +198,7 @@
     </a-modal>
 
     <!-- 从池创建 IP -->
-    <a-modal v-model:open="createIpVisible" title="从 BYOIP 池创建 Reserved 公网 IP" :confirm-loading="submitting" @ok="submitCreateIp">
+    <a-modal :mask-closable="false" :keyboard="false" v-model:open="createIpVisible" title="从 BYOIP 池创建 Reserved 公网 IP" :confirm-loading="submitting" @ok="submitCreateIp">
       <a-form layout="vertical">
         <a-form-item label="公网 IP 池" required>
           <a-select v-model:value="ipForm.publicIpPoolId" :options="poolOptions" show-search />
@@ -208,12 +208,12 @@
     </a-modal>
 
     <!-- 重命名 -->
-    <a-modal v-model:open="renameVisible" :title="renameTarget === 'range' ? '重命名 BYOIP 网段' : '重命名公网 IP 池'" :confirm-loading="submitting" @ok="submitRename">
+    <a-modal :mask-closable="false" :keyboard="false" v-model:open="renameVisible" :title="renameTarget === 'range' ? '重命名 BYOIP 网段' : '重命名公网 IP 池'" :confirm-loading="submitting" @ok="submitRename">
       <a-input v-model:value="renameName" placeholder="新名称" />
     </a-modal>
 
     <!-- 移动 BYOIP 到区间 -->
-    <a-modal
+    <a-modal :mask-closable="false" :keyboard="false"
       v-model:open="moveCompartmentVisible"
       title="移动 BYOIP 网段到区间"
       :confirm-loading="submitting"
@@ -241,7 +241,7 @@
     </a-modal>
 
     <!-- IPv6 分配到 VCN -->
-    <a-modal v-model:open="ipv6VcnVisible" title="BYOIPv6 分配到 VCN" :confirm-loading="submitting" @ok="submitIpv6Vcn">
+    <a-modal :mask-closable="false" :keyboard="false" v-model:open="ipv6VcnVisible" title="BYOIPv6 分配到 VCN" :confirm-loading="submitting" @ok="submitIpv6Vcn">
       <a-form layout="vertical">
         <a-form-item label="目标 VCN" required>
           <a-select v-model:value="ipv6Form.vcnId" :options="vcnOptions" show-search option-filter-prop="label" :loading="vcnLoading" />

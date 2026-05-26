@@ -174,14 +174,14 @@
       </div>
     </a-card>
 
-    <a-modal v-model:open="keyModalOpen" title="新密钥" :confirm-loading="keyCreating" @ok="submitKey">
+    <a-modal :mask-closable="false" :keyboard="false" v-model:open="keyModalOpen" title="新密钥" :confirm-loading="keyCreating" @ok="submitKey">
       <a-form layout="vertical">
         <a-form-item label="备注名（可选）">
           <a-input v-model:value="keyName" />
         </a-form-item>
       </a-form>
     </a-modal>
-    <a-modal v-model:open="plainKeyModalOpen" title="密钥已生成" :footer="null" :width="600">
+    <a-modal :mask-closable="false" :keyboard="false" v-model:open="plainKeyModalOpen" title="密钥已生成" :footer="null" :width="600">
       <a-alert
         class="mb-alert"
         type="info"
@@ -193,7 +193,7 @@
       </a-typography-paragraph>
     </a-modal>
 
-    <a-modal
+    <a-modal :mask-closable="false" :keyboard="false"
       v-model:open="keyViewOpen"
       title="密钥详情"
       :footer="null"

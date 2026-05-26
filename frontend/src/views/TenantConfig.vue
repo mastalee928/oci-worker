@@ -346,7 +346,7 @@
     </div>
 
     <!-- 批量移动到分组 -->
-    <a-modal
+    <a-modal :mask-closable="false" :keyboard="false"
       v-model:open="batchMoveVisible"
       title="批量移动到分组"
       :confirm-loading="batchMoveLoading"
@@ -381,7 +381,7 @@
     </a-modal>
 
     <!-- 分组管理器弹窗 -->
-    <a-modal v-model:open="groupMgrVisible" title="管理分组" :width="isMobile ? '100%' : 700" :footer="null" centered>
+    <a-modal :mask-closable="false" :keyboard="false" v-model:open="groupMgrVisible" title="管理分组" :width="isMobile ? '100%' : 700" :footer="null" centered>
       <a-button type="primary" block style="margin-bottom: 20px" @click="openCreateGroupForm">
         <template #icon><PlusOutlined /></template>添加分组
       </a-button>
@@ -448,18 +448,18 @@
     </a-modal>
 
     <!-- 重命名分组弹窗 -->
-    <a-modal v-model:open="renameVisible" title="重命名分组" @ok="handleRenameGroup" :confirm-loading="renameLoading" centered>
+    <a-modal :mask-closable="false" :keyboard="false" v-model:open="renameVisible" title="重命名分组" @ok="handleRenameGroup" :confirm-loading="renameLoading" centered>
       <a-input v-model:value="renameNewName" placeholder="输入新分组名" @press-enter="handleRenameGroup" />
     </a-modal>
 
     <!-- 添加子分组弹窗 -->
-    <a-modal v-model:open="addSubVisible" title="添加子分组" @ok="handleAddSubGroupConfirm" centered>
+    <a-modal :mask-closable="false" :keyboard="false" v-model:open="addSubVisible" title="添加子分组" @ok="handleAddSubGroupConfirm" centered>
       <p style="color: var(--text-sub); margin-bottom: 8px">父分组: <a-tag color="blue">{{ addSubParent }}</a-tag></p>
       <a-input v-model:value="addSubName" placeholder="输入子分组名称" @press-enter="handleAddSubGroupConfirm" />
     </a-modal>
 
     <!-- 新增/编辑弹窗（内嵌快速导入） -->
-    <a-modal
+    <a-modal :keyboard="false"
       v-model:open="modalVisible"
       :title="editingId ? '编辑配置' : '新增配置'"
       :width="isMobile ? '100%' : 680"
@@ -949,7 +949,7 @@ region=ap-tokyo-1"
       </a-tabs>
     </a-modal>
 
-    <a-drawer
+    <a-drawer :mask-closable="false" :keyboard="false"
       v-model:open="announcementDrawerVisible"
       :title="announcementDrawerTitle"
       :width="isMobile ? '100%' : 720"
@@ -1055,7 +1055,7 @@ region=ap-tokyo-1"
     </a-drawer>
 
     <!-- 域管理弹窗 -->
-    <a-modal v-model:open="domainMgmtVisible" :title="'域管理 — ' + (domainMgmtTenant?.username || '')"
+    <a-modal :mask-closable="false" :keyboard="false" v-model:open="domainMgmtVisible" :title="'域管理 — ' + (domainMgmtTenant?.username || '')"
       :width="isMobile ? '100%' : 840" :footer="null" centered :bodyStyle="{ maxHeight: '75vh', overflow: 'auto' }">
       <!-- 域选择器（Tab 之外，全局） -->
       <div class="domain-switcher" v-if="domainList.length > 0 || domainSettingsLoading">

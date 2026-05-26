@@ -83,7 +83,7 @@
           </a-form>
         </a-card>
 
-        <a-modal
+        <a-modal :keyboard="false"
           v-model:open="notifySaveVerifyVisible"
           title="安全验证 — 保存 Telegram 通知配置"
           :width="isMobile ? '100%' : 400"
@@ -525,7 +525,7 @@
           </a-card>
         </div>
 
-        <a-modal v-model:open="backupVerifyVisible" title="安全验证 — 备份数据" :width="isMobile ? '100%' : 400"
+        <a-modal :mask-closable="false" :keyboard="false" v-model:open="backupVerifyVisible" title="安全验证 — 备份数据" :width="isMobile ? '100%' : 400"
           @ok="handleBackupWithCode" :confirm-loading="backupVerifyLoading" ok-text="确认备份">
           <a-alert type="info" show-icon style="margin-bottom: 16px">
             <template #message>验证码已发送至 Telegram</template>

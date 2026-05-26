@@ -110,7 +110,7 @@
       </div>
     </a-spin>
 
-    <a-modal v-model:open="createVisible" title="创建开机任务" :width="isMobile ? '100%' : 600" @ok="handleCreate"
+    <a-modal :keyboard="false" v-model:open="createVisible" title="创建开机任务" :width="isMobile ? '100%' : 600" @ok="handleCreate"
       :confirm-loading="createLoading" :mask-closable="false">
       <a-form :model="createForm" layout="vertical">
         <a-form-item label="选择租户" required>
@@ -238,7 +238,7 @@
     </a-modal>
 
     <!-- 编辑任务弹窗 -->
-    <a-modal v-model:open="editVisible" title="编辑开机任务" :width="isMobile ? '100%' : 600" @ok="handleEdit"
+    <a-modal :keyboard="false" v-model:open="editVisible" title="编辑开机任务" :width="isMobile ? '100%' : 600" @ok="handleEdit"
       :confirm-loading="editLoading" :mask-closable="false">
       <a-form :model="editForm" layout="vertical">
         <ShapeSeriesPicker
@@ -350,7 +350,7 @@
     </a-modal>
 
     <!-- 任务详情弹窗 -->
-    <a-modal v-model:open="detailVisible" title="开机任务详情" :width="isMobile ? '100%' : 720" :footer="null" :mask-closable="true">
+    <a-modal :keyboard="false" v-model:open="detailVisible" title="开机任务详情" :width="isMobile ? '100%' : 720" :footer="null" :mask-closable="false">
       <a-spin :spinning="detailLoading">
         <div v-if="detailData" class="task-detail">
           <!-- 任务元信息 -->

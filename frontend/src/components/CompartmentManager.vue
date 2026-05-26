@@ -77,7 +77,7 @@
     </a-table>
 
     <!-- 创建 -->
-    <a-modal v-model:open="createVisible" title="创建区间" @ok="submitCreate" :confirm-loading="createLoading">
+    <a-modal :mask-closable="false" :keyboard="false" v-model:open="createVisible" title="创建区间" @ok="submitCreate" :confirm-loading="createLoading">
       <a-form layout="vertical">
         <a-form-item label="父区间">
           <a-input :value="createParentLabel" disabled />
@@ -92,7 +92,7 @@
     </a-modal>
 
     <!-- 重命名 -->
-    <a-modal v-model:open="renameVisible" title="重命名区间" @ok="submitRename" :confirm-loading="renameLoading" ok-text="保存">
+    <a-modal :mask-closable="false" :keyboard="false" v-model:open="renameVisible" title="重命名区间" @ok="submitRename" :confirm-loading="renameLoading" ok-text="保存">
       <a-alert type="warning" message="重命名区间需 Telegram 验证码（有效期 5 分钟）" show-icon style="margin-bottom: 12px" />
       <a-form layout="vertical">
         <a-form-item label="Telegram 验证码" required>
@@ -186,7 +186,7 @@
     </a-drawer>
 
     <!-- 迁移资源 -->
-    <a-modal
+    <a-modal :mask-closable="false" :keyboard="false"
       v-model:open="deleteVisible"
       :title="'删除区间 — ' + (deleteTarget?.name || '')"
       @ok="submitDelete"
@@ -201,7 +201,7 @@
       </div>
     </a-modal>
 
-    <a-modal v-model:open="moveResVisible" title="迁移资源到其他区间" @ok="submitMoveResource"
+    <a-modal :mask-closable="false" :keyboard="false" v-model:open="moveResVisible" title="迁移资源到其他区间" @ok="submitMoveResource"
       :confirm-loading="moveResLoading" ok-text="确认迁移">
       <a-alert type="warning" message="迁移资源需 Telegram 验证码（有效期 5 分钟）" show-icon style="margin-bottom: 12px" />
       <a-form layout="vertical">

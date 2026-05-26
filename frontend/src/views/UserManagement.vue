@@ -99,7 +99,7 @@
     </a-spin>
 
     <!-- TG 验证码弹窗（统一）；destroy-on-close 避免与后续业务弹窗叠层时残留焦点/误触 -->
-    <a-modal v-model:open="verifyVisible" :title="'安全验证 — ' + verifyActionLabel" :width="isMobile ? '100%' : 520" :mask-closable="false" destroy-on-close
+    <a-modal :keyboard="false" v-model:open="verifyVisible" :title="'安全验证 — ' + verifyActionLabel" :width="isMobile ? '100%' : 520" :mask-closable="false" destroy-on-close
       @ok="handleVerifyConfirm" :confirm-loading="verifyConfirmLoading" ok-text="确认" cancel-text="取消">
       <div style="margin-bottom: 16px; color: var(--text-sub)">验证码已发送至 Telegram，请查收后输入：</div>
       <a-input v-model:value="verifyCode" placeholder="请输入6位验证码" :maxlength="6" size="large"
@@ -110,7 +110,7 @@
     </a-modal>
 
     <!-- 新增用户弹窗 -->
-    <a-modal v-model:open="createVisible" title="新增用户" :width="isMobile ? '100%' : 520" @ok="handleCreate" :confirm-loading="createLoading" :mask-closable="false">
+    <a-modal :keyboard="false" v-model:open="createVisible" title="新增用户" :width="isMobile ? '100%' : 520" @ok="handleCreate" :confirm-loading="createLoading" :mask-closable="false">
       <a-form :model="createForm" layout="vertical">
         <a-form-item label="Identity Domain">
           <a-select
@@ -168,7 +168,7 @@
     </a-modal>
 
     <!-- 密码结果弹窗 -->
-    <a-modal v-model:open="pwdResultVisible" title="新密码" :footer="null" :mask-closable="false">
+    <a-modal :keyboard="false" v-model:open="pwdResultVisible" title="新密码" :footer="null" :mask-closable="false">
       <a-alert type="success" show-icon>
         <template #message>密码已重置</template>
         <template #description>
@@ -181,7 +181,7 @@
     </a-modal>
 
     <!-- 编辑用户权限（控制台 Capabilities） -->
-    <a-modal
+    <a-modal :keyboard="false"
       v-model:open="capabilitiesVisible"
       title="编辑用户权限"
       :width="isMobile ? '100%' : 520"
@@ -202,7 +202,7 @@
     </a-modal>
 
     <!-- 修改用户信息弹窗 -->
-    <a-modal v-model:open="editVisible" title="修改用户信息" :width="isMobile ? '100%' : 560" @ok="handleUpdateUser" :confirm-loading="editLoading" :mask-closable="false">
+    <a-modal :keyboard="false" v-model:open="editVisible" title="修改用户信息" :width="isMobile ? '100%' : 560" @ok="handleUpdateUser" :confirm-loading="editLoading" :mask-closable="false">
       <a-spin :spinning="editGroupsLoading">
         <a-form :model="editForm" layout="vertical">
           <a-form-item label="用户名">
@@ -237,7 +237,7 @@
     </a-modal>
 
     <!-- MFA 设备列表弹窗 -->
-    <a-modal v-model:open="mfaVisible" title="MFA 设备列表" :footer="null" :width="isMobile ? '100%' : 500">
+    <a-modal :mask-closable="false" :keyboard="false" v-model:open="mfaVisible" title="MFA 设备列表" :footer="null" :width="isMobile ? '100%' : 500">
       <a-spin :spinning="mfaLoading">
         <a-empty v-if="!mfaLoading && mfaDevices.length === 0" description="无 MFA 设备" />
         <a-list v-else :data-source="mfaDevices" size="small">

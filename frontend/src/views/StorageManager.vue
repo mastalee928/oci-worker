@@ -1,12 +1,10 @@
 <template>
-  <a-drawer
+  <a-drawer :mask-closable="false" :keyboard="false"
     :open="open"
     @update:open="(v: boolean) => emit('update:open', v)"
     :title="`存储 — ${tenantName || ''}`"
     width="1280"
     destroy-on-close
-    :mask-closable="false"
-    :keyboard="false"
   >
     <div style="margin-bottom: 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap">
       <span style="color: var(--text-sub); font-size: 12px">Region</span>
@@ -123,11 +121,11 @@
       </a-tab-pane>
     </a-tabs>
 
-    <a-modal v-model:open="renameOpen" title="修改显示名称" @ok="submitRename" :confirm-loading="renameLoading">
+    <a-modal :mask-closable="false" :keyboard="false" v-model:open="renameOpen" title="修改显示名称" @ok="submitRename" :confirm-loading="renameLoading">
       <a-input v-model:value="renameValue" placeholder="新名称" />
     </a-modal>
 
-    <a-modal v-model:open="resizeBootOpen" title="编辑引导卷" width="480px" @ok="submitResizeBoot" :confirm-loading="resizeBootLoading">
+    <a-modal :mask-closable="false" :keyboard="false" v-model:open="resizeBootOpen" title="编辑引导卷" width="480px" @ok="submitResizeBoot" :confirm-loading="resizeBootLoading">
       <a-form layout="vertical" size="small">
         <a-form-item label="容量 (GB)" extra="仅改性能时可与当前值相同">
           <a-input-number v-model:value="resizeBootGb" :min="1" style="width: 100%" placeholder="大小 GB" />
@@ -138,7 +136,7 @@
       </a-form>
     </a-modal>
 
-    <a-modal v-model:open="resizeBlockOpen" title="编辑块卷" width="480px" @ok="submitResizeBlock" :confirm-loading="resizeBlockLoading">
+    <a-modal :mask-closable="false" :keyboard="false" v-model:open="resizeBlockOpen" title="编辑块卷" width="480px" @ok="submitResizeBlock" :confirm-loading="resizeBlockLoading">
       <a-form layout="vertical" size="small">
         <a-form-item label="容量 (GB)" extra="仅改性能时可与当前值相同">
           <a-input-number v-model:value="resizeBlockGb" :min="1" style="width: 100%" placeholder="大小 GB" />
@@ -149,7 +147,7 @@
       </a-form>
     </a-modal>
 
-    <a-modal
+    <a-modal :mask-closable="false" :keyboard="false"
       v-model:open="replBootOpen"
       title="启用引导卷跨区域复制"
       width="560px"
@@ -169,7 +167,7 @@
       </a-form>
     </a-modal>
 
-    <a-modal
+    <a-modal :mask-closable="false" :keyboard="false"
       v-model:open="replBlockOpen"
       title="启用块卷跨区域复制"
       width="560px"
@@ -189,7 +187,7 @@
       </a-form>
     </a-modal>
 
-    <a-modal
+    <a-modal :mask-closable="false" :keyboard="false"
       v-model:open="actBootOpen"
       title="从引导卷副本激活新引导卷"
       width="600px"
@@ -209,7 +207,7 @@
       </a-form>
     </a-modal>
 
-    <a-modal
+    <a-modal :mask-closable="false" :keyboard="false"
       v-model:open="actBlockOpen"
       title="从块卷副本激活新块卷"
       width="600px"
@@ -232,7 +230,7 @@
       </a-form>
     </a-modal>
 
-    <a-modal
+    <a-modal :mask-closable="false" :keyboard="false"
       v-model:open="vgOpen"
       title="新建卷组"
       width="640px"
@@ -262,7 +260,7 @@
       </a-form>
     </a-modal>
 
-    <a-modal
+    <a-modal :mask-closable="false" :keyboard="false"
       v-model:open="policyCreateOpen"
       title="新建卷备份策略"
       width="720px"
@@ -282,7 +280,7 @@
       </a-form>
     </a-modal>
 
-    <a-modal
+    <a-modal :mask-closable="false" :keyboard="false"
       v-model:open="policyEditOpen"
       title="编辑卷备份策略"
       width="720px"
@@ -299,7 +297,7 @@
       </a-form>
     </a-modal>
 
-    <a-modal
+    <a-modal :mask-closable="false" :keyboard="false"
       v-model:open="assignOpen"
       title="新建备份策略绑定"
       width="560px"
@@ -316,7 +314,7 @@
       </a-form>
     </a-modal>
 
-    <a-modal v-model:open="bucketCreateOpen" title="新建存储桶" width="560px" @ok="submitCreateBucket" :confirm-loading="bucketCreateLoading">
+    <a-modal :mask-closable="false" :keyboard="false" v-model:open="bucketCreateOpen" title="新建存储桶" width="560px" @ok="submitCreateBucket" :confirm-loading="bucketCreateLoading">
       <a-form layout="vertical" size="small">
         <a-form-item label="区间">
           <a-select v-model:value="bucketCreateForm.compartmentId" :options="compartmentOptions" show-search option-filter-prop="label" />
@@ -335,7 +333,7 @@
       </a-form>
     </a-modal>
 
-    <a-modal v-model:open="bucketEditOpen" title="更新存储桶" width="560px" @ok="submitEditBucket" :confirm-loading="bucketEditLoading">
+    <a-modal :mask-closable="false" :keyboard="false" v-model:open="bucketEditOpen" title="更新存储桶" width="560px" @ok="submitEditBucket" :confirm-loading="bucketEditLoading">
       <a-form layout="vertical" size="small">
         <a-form-item label="版本控制 versioning">
           <a-select v-model:value="bucketEditForm.versioning" allow-clear placeholder="不修改" :options="versioningOptions" />
@@ -349,7 +347,7 @@
       </a-form>
     </a-modal>
 
-    <a-modal v-model:open="peCreateOpen" title="新建对象存储专用端点" width="560px" @ok="submitCreatePe" :confirm-loading="peCreateLoading">
+    <a-modal :mask-closable="false" :keyboard="false" v-model:open="peCreateOpen" title="新建对象存储专用端点" width="560px" @ok="submitCreatePe" :confirm-loading="peCreateLoading">
       <a-alert
         type="info"
         show-icon
@@ -369,13 +367,13 @@
       </a-form>
     </a-modal>
 
-    <a-modal v-model:open="deleteOpen" :title="'删除 — ' + (deleteTarget?.displayName || deleteTarget?.name || '')" @ok="submitDelete" :confirm-loading="deleteLoading"
+    <a-modal :mask-closable="false" :keyboard="false" v-model:open="deleteOpen" :title="'删除 — ' + (deleteTarget?.displayName || deleteTarget?.name || '')" @ok="submitDelete" :confirm-loading="deleteLoading"
       ok-text="确认删除" :ok-button-props="{ danger: true }">
       <a-alert type="warning" message="删除需要 Telegram 验证码" show-icon style="margin-bottom: 12px" />
       <a-input v-model:value="deleteCode" placeholder="6 位验证码" maxlength="6" />
     </a-modal>
 
-    <a-modal v-model:open="policyOpen" title="编辑桶策略（JSON）" width="720px" @ok="submitPolicy" :confirm-loading="policyLoading" ok-text="保存">
+    <a-modal :mask-closable="false" :keyboard="false" v-model:open="policyOpen" title="编辑桶策略（JSON）" width="720px" @ok="submitPolicy" :confirm-loading="policyLoading" ok-text="保存">
       <a-alert type="info" message="保存前会发送 Telegram 验证码（editBucketPolicy）" show-icon style="margin-bottom: 12px" />
       <a-input v-model:value="policyCode" placeholder="先点「发送验证码」后输入 6 位码" maxlength="6" style="margin-bottom: 8px" />
       <a-button size="small" @click="sendPolicyCode" :loading="policySendLoading">发送验证码</a-button>
