@@ -68,9 +68,9 @@ const routes: RouteRecordRaw[] = [
       },
       {
         path: 'webssh',
-        name: 'Terminal',
+        name: 'WebSSH',
         component: () => import('../views/WebSSH.vue'),
-        meta: { title: '终端', icon: 'CodeOutlined' },
+        meta: { title: 'WebSSH', icon: 'CodeOutlined' },
       },
       {
         path: 'settings',
