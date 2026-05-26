@@ -41,8 +41,11 @@ public final class OciRegionCatalog {
         ZH_LABELS.put("ap-hyderabad-1", "印度南部（海得拉巴）");
         ZH_LABELS.put("ap-singapore-1", "新加坡（新加坡）");
         ZH_LABELS.put("ap-singapore-2", "新加坡西部");
+        ZH_LABELS.put("ap-batam-1", "印度尼西亚北部（巴淡）");
+        ZH_LABELS.put("ap-kulai-2", "马来西亚");
         ZH_LABELS.put("ap-sydney-1", "澳大利亚东部（悉尼）");
         ZH_LABELS.put("ap-melbourne-1", "澳大利亚东南部（墨尔本）");
+        ZH_LABELS.put("sa-bogota-1", "哥伦比亚中部（波哥大）");
         ZH_LABELS.put("sa-saopaulo-1", "巴西东部（圣保罗）");
         ZH_LABELS.put("sa-vinhedo-1", "巴西东南部（维涅杜）");
         ZH_LABELS.put("sa-santiago-1", "智利中部（圣地亚哥）");
