@@ -193,7 +193,13 @@
       </a-typography-paragraph>
     </a-modal>
 
-    <a-modal v-model:open="keyViewOpen" title="密钥详情" :footer="null" :width="640">
+    <a-modal
+      v-model:open="keyViewOpen"
+      title="密钥详情"
+      :footer="null"
+      class="key-view-modal"
+      :width="isMobile ? 'calc(100vw - 32px)' : 920"
+    >
       <a-spin :spinning="keyViewLoading">
       <a-descriptions bordered size="small" :column="1">
         <a-descriptions-item label="备注">{{ keyViewRow?.name || '未命名' }}</a-descriptions-item>
@@ -788,6 +794,16 @@ async function viewKey(k: any) {
   user-select: all;
 }
 .key-plain { word-break: break-all; font-size: 13px; }
+@media (min-width: 768px) {
+  .key-view-modal :deep(.ant-descriptions-item-content) {
+    overflow-x: auto;
+  }
+  .key-view-modal :deep(.ant-typography),
+  .key-view-modal :deep(.key-plain) {
+    white-space: nowrap;
+    word-break: normal;
+  }
+}
 .key-masked { font-size: 12px; user-select: none; }
 .key-card-m { padding: 8px; border: 1px solid var(--border, #e8e8e8); border-radius: 6px; margin-bottom: 8px; }
 .key-card-m .p { font-size: 12px; }

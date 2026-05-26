@@ -37,6 +37,9 @@
             <template v-if="column.key === 'planType'">
               <a-tag :color="record.planType === 'PAYG' ? 'green' : record.planType === 'FREE' ? 'orange' : 'default'">{{ record.planType || '获取中...' }}</a-tag>
             </template>
+            <template v-if="column.key === 'createTime'">
+              {{ formatTenantAddedTime(record.createTime) }}
+            </template>
             <template v-if="column.key === 'action'">
               <a-space>
                 <a-button type="link" size="small" @click="showEditModal(record)">编辑</a-button>
@@ -64,6 +67,10 @@
                 <span class="label">开机任务</span>
                 <a-badge v-if="r.hasRunningTask" status="processing" text="执行中" />
                 <span v-else style="color: #999">无</span>
+              </div>
+              <div class="mobile-card-row">
+                <span class="label">添加日期</span>
+                <span class="value">{{ formatTenantAddedTime(r.createTime) }}</span>
               </div>
             </div>
             <div class="mobile-card-actions">
@@ -153,6 +160,9 @@
                     <template v-if="column.key === 'planType'">
                       <a-tag :color="record.planType === 'PAYG' ? 'green' : record.planType === 'FREE' ? 'orange' : 'default'">{{ record.planType || '获取中...' }}</a-tag>
                     </template>
+                    <template v-if="column.key === 'createTime'">
+                      {{ formatTenantAddedTime(record.createTime) }}
+                    </template>
                     <template v-if="column.key === 'action'">
                       <a-space>
                         <a-button type="link" size="small" @click="showEditModal(record)">编辑</a-button>
@@ -179,6 +189,10 @@
                         <span class="label">任务</span>
                         <a-badge v-if="r.hasRunningTask" status="processing" text="执行中" />
                         <span v-else style="color: #999">无</span>
+                      </div>
+                      <div class="mobile-card-row">
+                        <span class="label">添加日期</span>
+                        <span class="value">{{ formatTenantAddedTime(r.createTime) }}</span>
                       </div>
                     </div>
                     <div class="mobile-card-actions">
@@ -249,6 +263,9 @@
                       <template v-if="column.key === 'planType'">
                         <a-tag :color="record.planType === 'PAYG' ? 'green' : record.planType === 'FREE' ? 'orange' : 'default'">{{ record.planType || '获取中...' }}</a-tag>
                       </template>
+                      <template v-if="column.key === 'createTime'">
+                        {{ formatTenantAddedTime(record.createTime) }}
+                      </template>
                       <template v-if="column.key === 'action'">
                         <a-space>
                           <a-button type="link" size="small" @click="showEditModal(record)">编辑</a-button>
@@ -275,6 +292,10 @@
                           <span class="label">任务</span>
                           <a-badge v-if="r.hasRunningTask" status="processing" text="执行中" />
                           <span v-else style="color: #999">无</span>
+                        </div>
+                        <div class="mobile-card-row">
+                          <span class="label">添加日期</span>
+                          <span class="value">{{ formatTenantAddedTime(r.createTime) }}</span>
                         </div>
                       </div>
                       <div class="mobile-card-actions">
@@ -1211,6 +1232,14 @@ function formatUtcCnDate(v: any): string {
   return `${d.year()}年${d.month() + 1}月${d.date()}日（UTC）`
 }
 
+/** 租户配置列表「添加日期」列 */
+function formatTenantAddedTime(iso?: string | null) {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return String(iso)
+  return d.toLocaleString('zh-CN', { hour12: false })
+}
+
 function formatBillingPeriod(start: string | null | undefined, end: string | null | undefined): string {
   if (!start && !end) return '—'
   const s = start ? formatUtcCnDate(start) : '—'
@@ -1357,7 +1386,7 @@ const columns = [
   { title: '主区域', dataIndex: 'ociRegion', key: 'ociRegion', width: 220 },
   { title: '开机任务', key: 'taskStatus', width: 140 },
   { title: '账户类型', dataIndex: 'planType', key: 'planType', width: 130 },
-  { title: '创建时间', dataIndex: 'createTime', key: 'createTime', width: 180 },
+  { title: '添加日期', key: 'createTime', width: 168 },
   { title: '操作', key: 'action', width: 270 },
 ]
 
