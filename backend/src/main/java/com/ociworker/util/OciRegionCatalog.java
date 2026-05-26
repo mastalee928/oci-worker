@@ -31,6 +31,7 @@ public final class OciRegionCatalog {
         ZH_LABELS.put("eu-milan-1", "意大利西北部（米兰）");
         ZH_LABELS.put("eu-paris-1", "法国中部（巴黎）");
         ZH_LABELS.put("eu-madrid-1", "西班牙中部（马德里）");
+        ZH_LABELS.put("eu-madrid-3", "马德里3");
         ZH_LABELS.put("uk-london-1", "英国南部（伦敦）");
         ZH_LABELS.put("uk-cardiff-1", "英国西部（加的夫）");
         ZH_LABELS.put("ap-tokyo-1", "日本东部（东京）");
@@ -49,6 +50,7 @@ public final class OciRegionCatalog {
         ZH_LABELS.put("sa-saopaulo-1", "巴西东部（圣保罗）");
         ZH_LABELS.put("sa-vinhedo-1", "巴西东南部（维涅杜）");
         ZH_LABELS.put("sa-santiago-1", "智利中部（圣地亚哥）");
+        ZH_LABELS.put("sa-valparaiso-1", "智利西部（瓦尔帕莱索）");
         ZH_LABELS.put("me-jeddah-1", "沙特阿拉伯西部（吉达）");
         ZH_LABELS.put("me-dubai-1", "阿联酋东部（迪拜）");
         ZH_LABELS.put("me-abudhabi-1", "阿联酋中部（阿布扎比）");
