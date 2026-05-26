@@ -1206,6 +1206,9 @@ function parseUrlLogin() {
     if (!path || path === '/') return null;
     path = path.replace(/^\/+/, '').replace(/\/+$/, '');
     if (!path) return null;
+    // OCI Worker 挂在 /webssh/index.html，勿把 webssh 当成 SSH 主机
+    path = path.replace(/^webssh\/?/i, '');
+    if (!path || path === 'index.html') return null;
 
     var parts = path.split('/');
     var host, port, user, pass, authType;
