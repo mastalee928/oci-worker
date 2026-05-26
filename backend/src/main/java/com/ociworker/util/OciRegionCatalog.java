@@ -56,6 +56,7 @@ public final class OciRegionCatalog {
         ZH_LABELS.put("me-abudhabi-1", "阿联酋中部（阿布扎比）");
         ZH_LABELS.put("me-riyadh-1", "沙特阿拉伯中部（利雅得）");
         ZH_LABELS.put("af-johannesburg-1", "南非中部（约翰内斯堡）");
+        ZH_LABELS.put("af-casablanca-1", "摩洛哥西部（卡萨布兰卡）");
         ZH_LABELS.put("il-jerusalem-1", "以色列中部（耶路撒冷）");
         ZH_LABELS.put("mx-queretaro-1", "墨西哥中部（克雷塔罗）");
         ZH_LABELS.put("mx-monterrey-1", "墨西哥东北部（蒙特雷）");
