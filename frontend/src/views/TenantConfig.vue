@@ -135,8 +135,6 @@
             <div v-if="expandedGroups.has(group.key)" class="group-body">
               <template v-if="group.tenants.length">
                 <a-table v-if="!isMobile" :columns="columns" :data-source="group.tenants" :pagination="false"
-                  :virtual="groupTableVirtual(group.tenants.length)"
-                  :scroll="groupTableScroll(group.tenants.length)"
                   :row-selection="{ selectedRowKeys, onChange: onSelectChange }"
                   row-key="id" size="small">
                   <template #bodyCell="{ column, record }">
@@ -233,8 +231,6 @@
               <div v-if="expandedGroups.has(sub.key)" class="group-body">
                 <template v-if="sub.tenants.length">
                   <a-table v-if="!isMobile" :columns="columns" :data-source="sub.tenants" :pagination="false"
-                    :virtual="groupTableVirtual(sub.tenants.length)"
-                    :scroll="groupTableScroll(sub.tenants.length)"
                     :row-selection="{ selectedRowKeys, onChange: onSelectChange }"
                     row-key="id" size="small">
                     <template #bodyCell="{ column, record }">
@@ -1207,14 +1203,6 @@ dayjs.extend(utc)
 const router = useRouter()
 const catalog = useTenantCatalogStore()
 const searchLoading = ref(false)
-const VIRTUAL_TABLE_MIN = 24
-
-function groupTableScroll(count: number) {
-  return count >= VIRTUAL_TABLE_MIN ? { y: 420 } : undefined
-}
-function groupTableVirtual(count: number) {
-  return count >= VIRTUAL_TABLE_MIN
-}
 
 function formatUtcCnDate(v: any): string {
   if (!v) return '—'
