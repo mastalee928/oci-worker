@@ -4,7 +4,7 @@
 # -----------------------------------------------------------------------------
 # Usage:
 #   ociworker                  Interactive menu
-#   ociworker status           Show status of oci-worker (+ webssh)
+#   ociworker status           Show status of oci-worker
 #   ociworker start            Start services
 #   ociworker stop             Stop services
 #   ociworker restart          Restart oci-worker
@@ -17,8 +17,8 @@
 #   ociworker uninstall        Uninstall everything (asks before each step)
 #   ociworker version          Show installer version + jar info
 #
-# WebSSH is started/stopped together with oci-worker automatically; there are
-# no separate webssh-on / webssh-off / logs-webssh commands by design.
+# WebSSH is built into oci-worker.jar (same port as the panel). No separate
+# oci-webssh binary or webssh-on / webssh-off commands.
 #
 # This script never modifies the database schema and never edits files outside
 # /opt/oci-worker, /etc/systemd/system/oci-worker*.service.
@@ -33,10 +33,8 @@ readonly CONFIG_FILE="${INSTALL_DIR}/application.yml"
 readonly JAR_NAME="oci-worker.jar"
 readonly SERVICE_NAME="oci-worker"
 readonly SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
-readonly WEBSSH_SERVICE_NAME="oci-webssh"
-readonly WEBSSH_SERVICE_FILE="/etc/systemd/system/${WEBSSH_SERVICE_NAME}.service"
-readonly WEBSSH_BIN="${INSTALL_DIR}/oci-webssh"
-readonly WEBSSH_PORT=8008
+readonly LEGACY_WEBSSH_SERVICE_NAME="oci-webssh"
+readonly LEGACY_WEBSSH_SERVICE_FILE="/etc/systemd/system/${LEGACY_WEBSSH_SERVICE_NAME}.service"
 readonly REPO="mastalee928/oci-worker"
 readonly INSTALLER_RELEASE_TAG="installer-latest"
 readonly RAW_BASE="https://raw.githubusercontent.com/${REPO}/master"
@@ -360,21 +358,17 @@ cmd_status() {
     require_installed
     section "服务状态"
     systemctl --no-pager --lines=0 status "${SERVICE_NAME}" 2>/dev/null || true
-    if [ -f "${WEBSSH_SERVICE_FILE}" ]; then
-        echo
-        systemctl --no-pager --lines=0 status "${WEBSSH_SERVICE_NAME}" 2>/dev/null || true
-    fi
     echo
     section "基础信息"
     echo "JAR:    $(ls -l "${INSTALL_DIR}/${JAR_NAME}" 2>/dev/null | awk '{print $5,$6,$7,$8}')"
     echo "Config: ${CONFIG_FILE}"
     echo "Port:   $(yaml_get server.port)"
+    echo "WebSSH: 已内置 JAR（与面板同端口，路径 /webssh）"
 }
 
 cmd_start() {
     require_root start
     require_installed
-    [ -f "${WEBSSH_SERVICE_FILE}" ] && systemctl start "${WEBSSH_SERVICE_NAME}" || true
     systemctl start "${SERVICE_NAME}"
     ok "已启动"
 }
@@ -382,7 +376,6 @@ cmd_start() {
 cmd_stop() {
     require_root stop
     systemctl stop "${SERVICE_NAME}" 2>/dev/null || true
-    [ -f "${WEBSSH_SERVICE_FILE}" ] && systemctl stop "${WEBSSH_SERVICE_NAME}" 2>/dev/null || true
     ok "已停止"
 }
 
@@ -428,7 +421,6 @@ cmd_config() {
                 if [[ ! "${new_port}" =~ ^[0-9]+$ ]] || [ "${new_port}" -lt 1 ] || [ "${new_port}" -gt 65535 ]; then
                     warn "端口无效"; continue
                 fi
-                if [ "${new_port}" -eq "${WEBSSH_PORT}" ]; then warn "端口与 WebSSH 冲突"; continue; fi
                 _backup_and_apply server.port "${new_port}" || true
                 ;;
             2)
@@ -708,10 +700,11 @@ cmd_uninstall() {
 
     info "停止服务..."
     systemctl stop "${SERVICE_NAME}" 2>/dev/null || true
-    systemctl stop "${WEBSSH_SERVICE_NAME}" 2>/dev/null || true
+    systemctl stop "${LEGACY_WEBSSH_SERVICE_NAME}" 2>/dev/null || true
     systemctl disable "${SERVICE_NAME}" 2>/dev/null || true
-    systemctl disable "${WEBSSH_SERVICE_NAME}" 2>/dev/null || true
-    rm -f "${SERVICE_FILE}" "${WEBSSH_SERVICE_FILE}"
+    systemctl disable "${LEGACY_WEBSSH_SERVICE_NAME}" 2>/dev/null || true
+    rm -f "${SERVICE_FILE}" "${LEGACY_WEBSSH_SERVICE_FILE}"
+    rm -f "${INSTALL_DIR}/oci-webssh"
     systemctl daemon-reload
 
     if [ "$(ask_yes_no "删除 ${INSTALL_DIR}（含 application.yml、keys、JAR、备份）？" "N")" = "y" ]; then
@@ -743,7 +736,7 @@ cmd_uninstall() {
 cmd_version() {
     section "版本信息"
     [ -f "${INSTALL_DIR}/${JAR_NAME}" ] && ls -lh "${INSTALL_DIR}/${JAR_NAME}" || echo "JAR 未安装"
-    [ -f "${WEBSSH_BIN}" ] && ls -lh "${WEBSSH_BIN}" || echo "WebSSH 二进制未安装"
+    echo "WebSSH: 已内置 JAR（无需 oci-webssh 二进制）"
     if command -v java >/dev/null 2>&1; then java -version 2>&1 | head -n 1; fi
 }
 
