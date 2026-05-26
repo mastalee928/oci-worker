@@ -190,7 +190,8 @@ public class ConsoleService {
             String tempUser = "oci_console_" + System.currentTimeMillis();
             String tempPassword = generateRandomPassword();
             String scriptPath = createConsoleScript(tempUser, sshCommand);
-            createTempSystemUser(tempUser, tempPassword, scriptPath);
+            createTempSystemUser(tempUser, tempPassword);
+            installConsoleForceCommand(tempUser, scriptPath);
 
             ConsoleSession session = new ConsoleSession();
             session.consoleConnectionId = active.getId();
@@ -256,33 +257,32 @@ public class ConsoleService {
             sshCmd = sshCmd
                     .replace("ProxyCommand='ssh ", "ProxyCommand='ssh -i " + userKeyPath + " -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ")
                     .replace("ProxyCommand=\"ssh ", "ProxyCommand=\"ssh -i " + userKeyPath + " -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null ");
-            // WebSSH 已分配 PTY，外层只需 -t；避免 -tt 叠层导致 SHLVL 暴涨
+            // OCI 串口需要完整 TTY；ForceCommand 避免脚本当 login shell 叠层
             sshCmd = sshCmd.replaceFirst("^ssh\\s+-tt\\s+", "ssh ");
             sshCmd = sshCmd.replaceFirst("^ssh\\s+-t\\s+", "ssh ");
             sshCmd = sshCmd.replaceFirst("^ssh ",
-                    "ssh -t -i " + userKeyPath +
+                    "ssh -tt -i " + userKeyPath +
                     " -o StrictHostKeyChecking=no" +
                     " -o UserKnownHostsFile=/dev/null" +
                     " -o ServerAliveInterval=15" +
                     " -o ServerAliveCountMax=3 ");
 
             String script = "#!/bin/bash --noprofile --norc\n" +
-                    "echo '正在连接串行控制台...'\n" +
-                    "echo '退出方式: ~. 或关闭窗口'\n" +
-                    "echo ''\n" +
+                    "echo '正在连接串行控制台...' >&2\n" +
+                    "echo '退出方式: ~. 或关闭窗口' >&2\n" +
+                    "echo '' >&2\n" +
                     "exec " + sshCmd + "\n";
             Files.writeString(scriptPath, script);
             Runtime.getRuntime().exec(new String[]{"chmod", "+x", scriptPath.toAbsolutePath().toString()}).waitFor();
-            ensureLoginShellAllowed(scriptPath.toAbsolutePath().toString());
             return scriptPath.toAbsolutePath().toString();
         } catch (Exception e) {
             throw new OciException("创建控制台脚本失败: " + e.getMessage());
         }
     }
 
-    private void createTempSystemUser(String user, String password, String shell) {
+    private void createTempSystemUser(String user, String password) {
         try {
-            runProcess(new String[]{"useradd", "-m", "-s", shell, user});
+            runProcess(new String[]{"useradd", "-m", "-s", "/bin/bash", user});
 
             ProcessBuilder pb2 = new ProcessBuilder("chpasswd").redirectErrorStream(true);
             Process p2 = pb2.start();
@@ -312,17 +312,54 @@ public class ConsoleService {
         }
     }
 
-    private void ensureLoginShellAllowed(String shellPath) {
+    private void installConsoleForceCommand(String user, String scriptPath) {
         try {
-            Path shells = Path.of("/etc/shells");
-            if (!Files.exists(shells)) return;
-            String content = Files.readString(shells);
-            if (content.lines().anyMatch(line -> line.trim().equals(shellPath))) return;
-            Files.writeString(shells, content.stripTrailing() + System.lineSeparator() + shellPath + System.lineSeparator(),
-                    StandardOpenOption.APPEND);
+            Path dir = Path.of("/etc/ssh/sshd_config.d");
+            Files.createDirectories(dir);
+            Path conf = dir.resolve("oci-worker-console-" + user + ".conf");
+            String body = "Match User " + user + "\n" +
+                    "    ForceCommand " + scriptPath + "\n" +
+                    "    PermitTTY yes\n" +
+                    "    AllowTcpForwarding no\n" +
+                    "    X11Forwarding no\n";
+            Files.writeString(conf, body);
+            reloadSshdQuietly();
+            log.info("【串行控制台】ForceCommand 已安装: {}", conf);
         } catch (Exception e) {
-            log.warn("【串行控制台】写入 /etc/shells 失败: {}", e.getMessage());
+            throw new OciException("安装串口 ForceCommand 失败: " + e.getMessage());
         }
+    }
+
+    private void removeConsoleForceCommand(String user) {
+        try {
+            Files.deleteIfExists(Path.of("/etc/ssh/sshd_config.d/oci-worker-console-" + user + ".conf"));
+            reloadSshdQuietly();
+        } catch (Exception e) {
+            log.warn("【串行控制台】移除 ForceCommand 失败: {} - {}", user, e.getMessage());
+        }
+    }
+
+    private void reloadSshdQuietly() {
+        String[][] cmds = {
+                {"systemctl", "reload", "ssh"},
+                {"systemctl", "reload", "sshd"},
+                {"service", "ssh", "reload"},
+        };
+        for (String[] cmd : cmds) {
+            try {
+                ProcessBuilder pb = new ProcessBuilder(cmd).redirectErrorStream(true);
+                Process p = pb.start();
+                try (InputStream in = p.getInputStream()) {
+                    in.readAllBytes();
+                }
+                p.waitFor();
+                if (p.exitValue() == 0) {
+                    return;
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        log.warn("【串行控制台】sshd reload 未成功，ForceCommand 可能需手动 reload sshd");
     }
 
     /** 避免 /etc/skel 的 bash 配置在临时用户登录时再套一层 shell */
@@ -355,6 +392,7 @@ public class ConsoleService {
 
     private void cleanupTempUser(String user) {
         try {
+            removeConsoleForceCommand(user);
             // Kill ALL processes of this user first
             Process killAll = Runtime.getRuntime().exec(new String[]{"pkill", "-9", "-u", user});
             killAll.waitFor();
