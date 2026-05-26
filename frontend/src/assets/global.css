@@ -207,14 +207,10 @@ body::after {
   color: var(--text-main) !important;
   caret-color: var(--text-main) !important;
 }
-/* 全站 affix 输入框 / 密码框：圆角 + overflow 会裁切光标，与 a-input-search 同修法 */
+/* 全站 affix / 密码框：保留默认高度，仅防 overflow 裁切光标 */
 .ant-input-affix-wrapper {
   overflow: visible !important;
-  display: inline-flex !important;
-  align-items: center !important;
-  padding: 5px 11px 5px 14px !important;
-  min-height: 32px !important;
-  box-sizing: border-box !important;
+  padding-left: 14px !important;
 }
 .ant-input-password {
   overflow: visible !important;
@@ -233,36 +229,14 @@ body::after {
 }
 .ant-input-affix-wrapper > input.ant-input,
 .ant-input-affix-wrapper .ant-input {
-  flex: 1 1 auto;
-  width: 100%;
-  min-width: 0;
-  height: 22px !important;
-  min-height: 22px !important;
-  padding: 0 0 0 4px !important;
-  margin: 0 !important;
-  border: none !important;
-  box-shadow: none !important;
+  padding-left: 4px !important;
   background: transparent !important;
   color: var(--text-main) !important;
   caret-color: var(--text-main) !important;
-  line-height: 22px !important;
-  font-size: 14px !important;
   overflow: visible !important;
 }
 .ant-input-affix-wrapper > input.ant-input:focus,
 .ant-input-affix-wrapper .ant-input:focus {
-  caret-color: var(--primary) !important;
-  box-shadow: none !important;
-}
-/* 无 affix 包裹的独立 input（部分弹窗表单项） */
-input.ant-input:not(textarea.ant-input) {
-  min-height: 32px !important;
-  line-height: 22px !important;
-  padding: 5px 11px 5px 14px !important;
-  box-sizing: border-box !important;
-  overflow: visible !important;
-}
-input.ant-input:not(textarea.ant-input):focus {
   caret-color: var(--primary) !important;
 }
 /* 大号输入（系统设置验证码弹窗等） */
@@ -286,14 +260,6 @@ input.ant-input:not(textarea.ant-input):focus {
 .settings-page-tabs input.ant-input:not(textarea) {
   width: 100% !important;
   max-width: 100% !important;
-}
-.ant-input-number .ant-input-number-input {
-  line-height: 22px !important;
-  height: 22px !important;
-  min-height: 22px !important;
-  padding-top: 5px !important;
-  padding-bottom: 5px !important;
-  overflow: visible !important;
 }
 /* 开机任务 Root 密码：输入框满宽 + 随机生成链接 */
 .task-root-password-item .ant-input-password {
