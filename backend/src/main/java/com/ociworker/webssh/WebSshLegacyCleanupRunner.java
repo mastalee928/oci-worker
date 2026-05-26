@@ -10,7 +10,7 @@ import java.nio.file.Path;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 整合版 WebSSH 在 JAR 内运行；启动时禁用旧 Go 版 oci-webssh，避免用户继续走 8008。
+ * 启动时清理旧版独立 sidecar 服务与二进制（若存在）。
  */
 @Slf4j
 @Component
@@ -30,7 +30,7 @@ public class WebSshLegacyCleanupRunner implements ApplicationRunner {
             runQuiet("systemctl", "disable", LEGACY_UNIT);
             if (Files.exists(LEGACY_BIN)) {
                 Files.deleteIfExists(LEGACY_BIN);
-                log.info("Removed legacy WebSSH binary {}", LEGACY_BIN);
+                log.debug("Removed legacy binary {}", LEGACY_BIN);
             }
             Path unit = Path.of("/etc/systemd/system/" + LEGACY_UNIT);
             if (Files.exists(unit)) {
@@ -38,7 +38,7 @@ public class WebSshLegacyCleanupRunner implements ApplicationRunner {
                 runQuiet("systemctl", "daemon-reload");
             }
         } catch (Exception e) {
-            log.warn("Legacy WebSSH cleanup partial failure: {}", e.getMessage());
+            log.debug("Legacy sidecar cleanup partial failure: {}", e.getMessage());
         }
     }
 

@@ -1,7 +1,6 @@
 name: Release Installer Binaries
 
-# Publishes install.sh + ociworker to installer-latest (no separate WebSSH binary;
-# SSH terminal is built into oci-worker JAR).
+# Publishes install.sh + ociworker to installer-latest.
 
 on:
   push:
@@ -47,8 +46,6 @@ jobs:
         run: |
           {
             echo "Auto-built installer assets from commit ${COMMIT_SHA}."
-            echo
-            echo "WebSSH is integrated in oci-worker JAR (no oci-webssh binary)."
             echo
             echo "Assets:"
             echo "- install.sh   - Smart installer / upgrader"

@@ -81,7 +81,7 @@ public class WebSshTerminalWebSocketHandler implements WebSocketHandler {
                     Thread.sleep(50);
                 }
             } catch (Exception e) {
-                log.debug("WebSSH terminal error: {}", e.getMessage());
+                log.debug("SSH terminal error: {}", e.getMessage());
                 try {
                     sendText(ws, "\033[31m" + e.getMessage() + "\033[0m");
                 } catch (Exception ignored) {
@@ -160,7 +160,7 @@ public class WebSshTerminalWebSocketHandler implements WebSocketHandler {
 
     @Override
     public void handleTransportError(WebSocketSession session, Throwable exception) {
-        log.debug("WebSSH ws transport error: {}", exception.getMessage());
+        log.debug("SSH ws transport error: {}", exception.getMessage());
     }
 
     @Override

@@ -17,9 +17,6 @@
 #   ociworker uninstall        Uninstall everything (asks before each step)
 #   ociworker version          Show installer version + jar info
 #
-# WebSSH is built into oci-worker.jar (same port as the panel). No separate
-# oci-webssh binary or webssh-on / webssh-off commands.
-#
 # This script never modifies the database schema and never edits files outside
 # /opt/oci-worker, /etc/systemd/system/oci-worker*.service.
 # =============================================================================

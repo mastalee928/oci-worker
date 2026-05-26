@@ -1,7 +1,7 @@
 server:
   port: 8818
 
-# New API / OpenAI 兼容 HTTP：独立端口，与面板(8818) 分离；WebSSH 已内置 JAR。Base URL 示例 http://<本机或反代地址>:<openaiApi.port>/v1
+# New API / OpenAI 兼容 HTTP：独立端口，与面板(8818) 分离。Base URL 示例 http://<本机或反代地址>:<openaiApi.port>/v1
 
 webssh:
   timeout-minutes: 120

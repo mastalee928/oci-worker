@@ -9,7 +9,7 @@ import org.springframework.boot.web.server.WebServerFactoryCustomizer;
 import org.springframework.context.annotation.Configuration;
 
 /**
- * 第二监听口：专供 OpenAI 兼容 /v1（面向 New API 等）。面板仍在 {@code server.port}；WebSSH 已内置 JAR。
+ * 第二监听口：专供 OpenAI 兼容 /v1（面向 New API 等）。面板仍在 {@code server.port}。
  */
 @Configuration
 public class OpenAiApiPortConfig implements WebServerFactoryCustomizer<TomcatServletWebServerFactory> {

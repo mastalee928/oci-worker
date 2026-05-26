@@ -927,7 +927,7 @@
               <i class="ri-terminal-line" style="margin-right: 6px"></i>创建控制台连接
             </a-button>
             <div style="margin-top: 8px; color: var(--text-sub); font-size: 12px">
-              创建后会生成一个一键连接链接，通过 WebSSH 直接进入串口终端
+              创建后会生成一个一键连接链接，可直接进入串口终端
             </div>
           </template>
 

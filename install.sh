@@ -4,8 +4,8 @@
 # -----------------------------------------------------------------------------
 # Friendly interactive installer with the following features:
 #   * First-install wizard: JDK / DB / port / systemd / firewall
-#   * Upgrade mode (auto-detected): only refresh JAR; WebSSH is inside the JAR
-#     touches application.yml or the database.
+#   * Upgrade mode (auto-detected): only refresh JAR; does not touch
+#     application.yml or the database.
 #   * 1Panel / Aapanel friendly: supports "use existing MySQL" branch with
 #     connectivity / charset / version / privilege auto-checks.
 #   * Atomic config writes with .bak rollback if the new config breaks startup.
@@ -809,7 +809,7 @@ prompt_web() {
         WEB_PORT="$(ask "OCI Worker Web 端口" "8818")"
         if [[ "${WEB_PORT}" =~ ^[0-9]+$ ]] && [ "${WEB_PORT}" -ge 1 ] && [ "${WEB_PORT}" -le 65535 ]; then
             if [ "${WEB_PORT}" -eq 8008 ]; then
-                warn "端口 8008 为旧版独立 WebSSH 保留，请换一个"
+                warn "端口 8008 不可用，请换一个"
                 continue
             fi
             break
@@ -1043,14 +1043,12 @@ firewall_open_port() {
 }
 
 cleanup_legacy_webssh() {
-    info "清理旧版独立 WebSSH（oci-webssh）..."
     systemctl stop "${LEGACY_WEBSSH_SERVICE}" 2>/dev/null || true
     systemctl disable "${LEGACY_WEBSSH_SERVICE}" 2>/dev/null || true
     rm -f "${LEGACY_WEBSSH_BIN}"
     rm -f "/etc/systemd/system/${LEGACY_WEBSSH_SERVICE}.service"
     systemctl daemon-reload 2>/dev/null || true
     if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "webssh"; then
-        warn "检测到旧 Docker 版 WebSSH 容器，正在停止..."
         docker stop webssh >/dev/null 2>&1 || true
         (cd /opt/oci-worker/webssh 2>/dev/null && docker compose down >/dev/null 2>&1) || true
     fi

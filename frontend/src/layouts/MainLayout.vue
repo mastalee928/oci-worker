@@ -52,7 +52,7 @@
         </a-menu-item>
         <a-menu-item key="webssh">
           <template #icon><i class="ri-terminal-box-line menu-ri"></i></template>
-          WebSSH
+          终端
         </a-menu-item>
         <a-menu-item key="settings" @mouseenter="prefetchRouteChunk('settings')">
           <template #icon><i class="ri-settings-4-line menu-ri"></i></template>

@@ -13,7 +13,7 @@
 - **IP 管理**：一键更换公网 IP，临时/预留 IP 管理，辅助 IP 添加，IPv6 支持
 - **安全列表管理**：入站/出站规则查看、添加、删除，一键放行所有端口
 - **引导卷管理**：查看/编辑引导卷，快捷预设（50/100/150/200 GB，120 VPUs/GB 一键调整）
-- **串行控制台**：通过 OCI 内部通道连接实例串口，WebSSH 一键打开，用于网络异常时紧急救援
+- **串行控制台**：通过 OCI 内部通道连接实例串口，一键打开终端，用于网络异常时紧急救援
 - **虚拟云网络**：VCN / 子网查看，预留 IP 管理（创建、绑定、解绑、删除）
 - **实时日志查看**：WebSocket 实时推送全量后端日志
 - **消息通知**：Telegram Bot 通知（登录、任务、每日播报）
@@ -95,7 +95,7 @@ sudo ociworker update
 
 ### 方式三：重跑安装脚本
 
-`install.sh` 会自动识别为升级模式，**只换 JAR 和 webssh 二进制，不动 `application.yml` 和数据库**：
+`install.sh` 会自动识别为升级模式，**只换 JAR，不动 `application.yml` 和数据库**：
 
 ```bash
 sudo bash /tmp/install.sh
@@ -301,7 +301,6 @@ FLUSH PRIVILEGES;
 ```
 /opt/oci-worker/          # 生产部署目录
 ├── oci-worker.jar        # 应用 JAR
-├── oci-webssh            # WebSSH 二进制（v2 安装器部署）
 ├── application.yml       # 配置文件（权限 600）
 ├── application.yml.bak.* # 配置自动备份历史
 ├── keys/                 # PEM 密钥目录
@@ -312,7 +311,7 @@ FLUSH PRIVILEGES;
 oci-worker/               # 源码目录
 ├── backend/              # Spring Boot 后端（pom.xml + src/）
 ├── frontend/             # Vue 3 前端（package.json + src/）
-├── webssh/               # Go 写的 WebSSH 服务（含 systemd unit）
+├── webssh/               # 终端页静态资源
 ├── install.sh            # v2 智能安装器（推荐）
 ├── ociworker             # v2 管理 CLI 源
 ├── INSTALLER.md          # v2 安装器详细文档

@@ -30,7 +30,7 @@ import java.util.Optional;
 
 /**
  * 系统级 Outbound 代理：OCI SDK、HttpClient 出站、Telegram/Cloudflare/GitHub 等。
- * 不含 WebSSH 本地上游代理（Java HttpClient 显式直连）。
+ * 不含终端模块本地上游代理（Java HttpClient 显式直连）。
  * <p>
  * 行为摘要：HTTP 型经 {@link com.oracle.bmc.http.client.ProxyConfiguration}；SOCKS5/5h 经
  * {@link com.ociworker.util.socks.OciSocksApacheConnectionManager} + {@code Authenticator}，与
