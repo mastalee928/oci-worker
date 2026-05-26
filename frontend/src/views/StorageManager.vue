@@ -624,6 +624,12 @@ watch(region, async (r) => {
   }
 })
 
+function resetStorageUiTabs() {
+  mainTab.value = 'block'
+  objectSub.value = 'buckets'
+  blockView.value = 'bootVolumes'
+}
+
 function clearStorageTenantScopedState() {
   compartmentId.value = undefined
   compartmentOptions.value = []
@@ -636,6 +642,7 @@ function clearStorageTenantScopedState() {
 }
 
 async function initDrawer() {
+  resetStorageUiTabs()
   if (props.userId !== storageContextUserId.value) {
     clearStorageTenantScopedState()
     storageContextUserId.value = props.userId

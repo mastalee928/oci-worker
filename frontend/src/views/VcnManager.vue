@@ -392,10 +392,25 @@
       </a-form>
     </a-modal>
 
-    <!-- Delete verify -->
-    <a-modal v-model:open="showDelete" :title="'删除 ' + deleteLabel" @ok="doDelete" :confirm-loading="deleting" ok-text="确认删除" :ok-button-props="{ danger: true }">
+    <!-- Delete verify：不可点遮罩/Esc 关闭；保留底部「取消」与右上角 X -->
+    <a-modal
+      v-model:open="showDelete"
+      :title="'删除 ' + deleteLabel"
+      :width="400"
+      :mask-closable="false"
+      :keyboard="false"
+      destroy-on-close
+      @ok="doDelete"
+      :confirm-loading="deleting"
+      ok-text="确认删除"
+      :ok-button-props="{ danger: true }"
+    >
       <a-alert type="warning" :message="`确定要删除 ${deleteTarget?.displayName || deleteTarget?.id}？需要 Telegram 验证码`" show-icon style="margin-bottom: 12px" />
-      <a-input v-model:value="deleteCode" placeholder="TG 验证码" />
+      <a-input v-model:value="deleteCode" placeholder="TG 验证码" size="large" :maxlength="6" allow-clear />
+      <div class="vcn-delete-verify-footer">
+        <span>验证码有效期 5 分钟</span>
+        <a-button type="link" size="small" :loading="deleteCodeSending" @click="resendDeleteVerifyCode">重新发送</a-button>
+      </div>
     </a-modal>
 
     <!-- Delete VCN preview + verify -->
@@ -641,6 +656,7 @@ async function doConnectLpg() {
 // ---- delete ----
 const showDelete = ref(false)
 const deleting = ref(false)
+const deleteCodeSending = ref(false)
 const deleteType = ref('')
 const deleteTarget = ref<any>(null)
 const deleteCode = ref('')
@@ -656,6 +672,18 @@ async function askDelete(type: string, row: any) {
   } as any)[type] || type
   try { await sendVerifyCode('deleteVcn') } catch {}
   showDelete.value = true
+}
+
+async function resendDeleteVerifyCode() {
+  deleteCodeSending.value = true
+  try {
+    await sendVerifyCode('deleteVcn')
+    message.success('验证码已重新发送')
+  } catch (e: any) {
+    message.error(e?.message || '发送失败')
+  } finally {
+    deleteCodeSending.value = false
+  }
 }
 
 async function doDelete() {
@@ -987,4 +1015,12 @@ async function doDeleteVcn() {
 
 <style scoped>
 .op-row { display: flex; gap: 8px; margin-bottom: 10px; }
+.vcn-delete-verify-footer {
+  margin-top: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: var(--text-sub);
+}
 </style>
