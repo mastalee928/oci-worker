@@ -1059,7 +1059,6 @@ cleanup_legacy_webssh() {
 security_notice() {
     section "安全提醒"
     cat >&2 <<EOF
-* WebSSH 已内置 OCI Worker，只需放行主端口 ${WEB_PORT}。
 * 推荐：用 Nginx 反向代理 + HTTPS（Let's Encrypt）保护 ${WEB_PORT}。
 EOF
 }
