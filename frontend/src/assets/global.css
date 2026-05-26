@@ -216,6 +216,21 @@ body::after {
   min-height: 32px !important;
   box-sizing: border-box !important;
 }
+.ant-input-password {
+  overflow: visible !important;
+  width: 100%;
+  max-width: 100%;
+}
+/* Form / Space 父级默认 overflow 会裁切靠左光标 */
+.ant-form-item-control-input,
+.ant-form-item-control-input-content,
+.ant-space-item,
+.ant-tabs-tabpane {
+  overflow: visible !important;
+}
+.ant-card .ant-card-body {
+  overflow: visible;
+}
 .ant-input-affix-wrapper > input.ant-input,
 .ant-input-affix-wrapper .ant-input {
   flex: 1 1 auto;
@@ -223,7 +238,7 @@ body::after {
   min-width: 0;
   height: 22px !important;
   min-height: 22px !important;
-  padding: 0 0 0 2px !important;
+  padding: 0 0 0 4px !important;
   margin: 0 !important;
   border: none !important;
   box-shadow: none !important;
@@ -249,6 +264,28 @@ input.ant-input:not(textarea.ant-input) {
 }
 input.ant-input:not(textarea.ant-input):focus {
   caret-color: var(--primary) !important;
+}
+/* 大号输入（系统设置验证码弹窗等） */
+.ant-input-affix-wrapper.ant-input-affix-wrapper-lg {
+  min-height: 40px !important;
+  padding: 8px 11px 8px 15px !important;
+}
+.ant-input-affix-wrapper-lg > input.ant-input,
+.ant-input-affix-wrapper-lg .ant-input {
+  height: 24px !important;
+  min-height: 24px !important;
+  line-height: 24px !important;
+  padding-left: 4px !important;
+}
+/* 系统设置锁屏区、卡片内输入框占满宽度 */
+.lock-panel .ant-input-affix-wrapper,
+.lock-panel .ant-input-password,
+.lock-panel input.ant-input:not(textarea),
+.settings-page-tabs .ant-input-affix-wrapper,
+.settings-page-tabs .ant-input-password,
+.settings-page-tabs input.ant-input:not(textarea) {
+  width: 100% !important;
+  max-width: 100% !important;
 }
 .ant-input-number .ant-input-number-input {
   line-height: 22px !important;
@@ -335,7 +372,7 @@ textarea.ant-input:focus {
   min-width: 0;
   height: 22px !important;
   min-height: 22px !important;
-  padding: 0 0 0 2px !important;
+  padding: 0 0 0 4px !important;
   margin: 0 !important;
   border: none !important;
   box-shadow: none !important;
