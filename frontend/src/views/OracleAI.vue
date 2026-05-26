@@ -51,6 +51,12 @@
           <template v-else-if="column.key === 'keyMasked'">
             <code class="key-masked">{{ record.keyMasked || 'sk-****' }}</code>
           </template>
+          <template v-else-if="column.key === 'createTime'">
+            {{ formatKeyTime(record.createTime) }}
+          </template>
+          <template v-else-if="column.key === 'lastUsed'">
+            {{ formatKeyTime(record.lastUsed) }}
+          </template>
           <template v-else-if="column.key === 'a'">
             <a-space>
               <a-button size="small" type="link" @click="viewKey(record)">查看</a-button>
@@ -191,10 +197,7 @@
       <a-spin :spinning="keyViewLoading">
       <a-descriptions bordered size="small" :column="1">
         <a-descriptions-item label="备注">{{ keyViewRow?.name || '未命名' }}</a-descriptions-item>
-        <a-descriptions-item label="密钥（列表脱敏）">
-          <code>{{ keyViewRow?.keyMasked || 'sk-****' }}</code>
-        </a-descriptions-item>
-        <a-descriptions-item label="完整密钥">
+        <a-descriptions-item label="密钥">
           <template v-if="keyViewPlain">
             <a-typography-paragraph copyable style="margin: 0">
               <code class="key-plain">{{ keyViewPlain }}</code>
@@ -206,8 +209,8 @@
         <a-descriptions-item label="状态">
           <a-tag :color="keyViewRow?.disabled ? 'red' : 'green'">{{ keyViewRow?.disabled ? '已禁用' : '正常' }}</a-tag>
         </a-descriptions-item>
-        <a-descriptions-item label="创建">{{ keyViewRow?.createTime || '-' }}</a-descriptions-item>
-        <a-descriptions-item label="最后使用">{{ keyViewRow?.lastUsed || '-' }}</a-descriptions-item>
+        <a-descriptions-item label="创建">{{ formatKeyTime(keyViewRow?.createTime) }}</a-descriptions-item>
+        <a-descriptions-item label="最后使用">{{ formatKeyTime(keyViewRow?.lastUsed) }}</a-descriptions-item>
         <a-descriptions-item label="Base">
           <a-typography-paragraph copyable :content="publicBaseUrl" style="margin: 0">
             <code class="code-wrap">{{ publicBaseUrl }}</code>
@@ -296,10 +299,17 @@ const keyColumns = [
   { title: '备注', dataIndex: 'name', key: 'name' },
   { title: '密钥', key: 'keyMasked', width: 200 },
   { title: '状态', key: 'dis' },
-  { title: '创建', dataIndex: 'createTime', key: 'createTime' },
-  { title: '最后使用', dataIndex: 'lastUsed', key: 'lastUsed' },
+  { title: '创建', key: 'createTime', width: 168 },
+  { title: '最后使用', key: 'lastUsed', width: 168 },
   { title: '操作', key: 'a', width: 200 },
 ] as any
+
+function formatKeyTime(iso?: string | null) {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return String(iso)
+  return d.toLocaleString('zh-CN', { hour12: false })
+}
 
 /** 下拉挂到 body，避免挂在 .app-content 内与 overflow 滚轮「抢事件」导致难滚回顶部 */
 function selectPopupContainer() {
