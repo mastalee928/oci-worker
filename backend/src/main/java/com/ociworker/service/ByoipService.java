@@ -109,11 +109,15 @@ public class ByoipService {
     public List<Map<String, Object>> listByoipRanges(String userId, String region) {
         OciUser ociUser = requireUser(userId);
         try (OciClientService client = oci(ociUser, region)) {
-            return client.getVirtualNetworkClient().listByoipRanges(
+            var coll = client.getVirtualNetworkClient().listByoipRanges(
                     ListByoipRangesRequest.builder()
                             .compartmentId(client.getCompartmentId())
                             .build()
-            ).getItems().stream().map(this::mapByoipRange).collect(Collectors.toList());
+            ).getByoipRangeCollection();
+            if (coll == null || coll.getItems() == null) {
+                return List.of();
+            }
+            return coll.getItems().stream().map(this::mapByoipRange).collect(Collectors.toList());
         } catch (com.oracle.bmc.model.BmcException e) {
             throw new OciException(tag(ociUser) + "获取 BYOIP 网段失败: " + extractOciErrorMessage(e));
         } catch (Exception e) {
@@ -267,9 +271,13 @@ public class ByoipService {
     public List<Map<String, Object>> listByoipAllocatedRanges(String userId, String byoipRangeId, String region) {
         OciUser ociUser = requireUser(userId);
         try (OciClientService client = oci(ociUser, region)) {
-            return client.getVirtualNetworkClient().listByoipAllocatedRanges(
+            var allocColl = client.getVirtualNetworkClient().listByoipAllocatedRanges(
                     ListByoipAllocatedRangesRequest.builder().byoipRangeId(byoipRangeId).build()
-            ).getItems().stream().map(a -> {
+            ).getByoipAllocatedRangeCollection();
+            if (allocColl == null || allocColl.getItems() == null) {
+                return List.of();
+            }
+            return allocColl.getItems().stream().map(a -> {
                 Map<String, Object> m = new LinkedHashMap<>();
                 m.put("cidrBlock", a.getCidrBlock());
                 m.put("publicIpPoolId", a.getPublicIpPoolId());
@@ -293,8 +301,12 @@ public class ByoipService {
             if (byoipRangeId != null && !byoipRangeId.isBlank()) {
                 req.byoipRangeId(byoipRangeId.trim());
             }
-            return client.getVirtualNetworkClient().listPublicIpPools(req.build())
-                    .getItems().stream().map(this::mapPublicIpPool).collect(Collectors.toList());
+            var poolColl = client.getVirtualNetworkClient().listPublicIpPools(req.build())
+                    .getPublicIpPoolCollection();
+            if (poolColl == null || poolColl.getItems() == null) {
+                return List.of();
+            }
+            return poolColl.getItems().stream().map(this::mapPublicIpPool).collect(Collectors.toList());
         } catch (com.oracle.bmc.model.BmcException e) {
             throw new OciException(tag(ociUser) + "获取公网 IP 池失败: " + extractOciErrorMessage(e));
         } catch (Exception e) {
