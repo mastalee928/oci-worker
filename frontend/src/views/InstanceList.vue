@@ -12,7 +12,7 @@
       </div>
       <div class="toolbar-right">
         <a-segmented v-model:value="tenantViewMode" size="small" :options="[{ label: '卡片', value: 'card' }, { label: '列表', value: 'table' }]" />
-        <a-button @click="loadAllTenants" :loading="globalLoading">
+        <a-button @click="loadAllTenants(true)" :loading="globalLoading">
           <template #icon><ReloadOutlined /></template>刷新
         </a-button>
       </div>
@@ -272,7 +272,7 @@
       </template>
       <template #extra>
         <div v-if="activeTenantData" class="panel-actions">
-          <a-button size="small" @click="loadTenantInstances(activeTenantData)" :loading="activeTenantData.loading">
+          <a-button size="small" @click.stop="refreshActiveTenantInstances" :loading="activeTenantData.loading">
             <template #icon><ReloadOutlined /></template>{{ isMobile ? '' : '刷新' }}
           </a-button>
         </div>
@@ -290,6 +290,9 @@
             placeholder="选择区域"
             @change="onInstancePanelRegionUserChange"
           />
+          <a-button size="small" :loading="activeTenantData.loading" @click="refreshActiveTenantInstances">
+            <template #icon><ReloadOutlined /></template>刷新
+          </a-button>
           <span v-if="instanceSubscribedRegionsLoading" class="instance-panel-region-hint">正在同步订阅区域…</span>
         </div>
 
@@ -1653,6 +1656,12 @@ function selectTenant(td: TenantData) {
   )
 }
 
+function refreshActiveTenantInstances() {
+  const td = activeTenantData.value
+  if (!td) return
+  void loadTenantInstances(td, true)
+}
+
 function onInstancePanelRegionUserChange() {
   const td = activeTenantData.value
   if (!td?.tenant) return
@@ -2223,16 +2232,18 @@ function formatBytes(bytes: number) {
   return (bytes / Math.pow(1024, i)).toFixed(2) + ' ' + units[i]
 }
 
-async function loadAllTenants() {
+async function loadAllTenants(force = false) {
   globalLoading.value = true
   try {
-    await catalog.ensureTenants({ force: false })
+    await catalog.ensureTenants({ force })
     const records = catalog.tenants
     const existingMap = new Map(tenantDataList.value.map(td => [td.tenant.id, td]))
     tenantDataList.value = records.map((t: any) => {
       const existing = existingMap.get(t.id)
       return existing ? { ...existing, tenant: t } : { tenant: t, instances: [], loading: false, collapsed: false }
     })
+    const active = activeTenantData.value
+    if (active) await loadTenantInstances(active)
   } catch (e: any) {
     message.error(e?.message || '加载租户失败')
   } finally {
@@ -2240,14 +2251,19 @@ async function loadAllTenants() {
   }
 }
 
-async function loadTenantInstances(td: TenantData) {
+async function loadTenantInstances(td: TenantData, manual = false) {
   td.loading = true
   try {
     const reg = (instancePanelRegion.value?.trim() || td.tenant.ociRegion || '').trim()
     const res = await getInstanceList({ id: td.tenant.id, region: reg })
     td.instances = res.data || []
-  } catch {
-    td.instances = []
+    if (manual) message.success('实例列表已刷新')
+  } catch (e: any) {
+    if (manual) {
+      message.error(e?.message || '刷新实例列表失败')
+    } else {
+      td.instances = []
+    }
   } finally {
     td.loading = false
   }
@@ -3194,6 +3210,22 @@ onUnmounted(() => {
   font-size: 15px;
   font-weight: 700;
   color: var(--text-main);
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+}
+.drawer-username {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.instance-manager-drawer :deep(.ant-drawer-header-title) {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+.instance-manager-drawer :deep(.ant-drawer-extra) {
+  flex-shrink: 0;
 }
 .panel-actions {
   display: flex;
