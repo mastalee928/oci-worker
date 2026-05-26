@@ -8,7 +8,7 @@
     <title>WebSSH Terminal</title>
     <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🖥️</text></svg>">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/xterm@5.3.0/css/xterm.min.css">
-    <link rel="stylesheet" href="/webssh/static/css/style.css?v=37">
+    <link rel="stylesheet" href="/webssh/static/css/style.css?v=38">
     <!-- Apply persisted settings BEFORE first paint to prevent FOUC -->
     <script>
     (function(){
@@ -300,9 +300,6 @@
     <!-- ==================== TERMINAL VIEW ==================== -->
     <div id="terminalView" class="view">
         <div class="term-topbar glass-bar">
-            <div class="topbar-left">
-                <div class="term-dots"><span class="dot red" onclick="closeActiveTab()"></span><span class="dot yellow" onclick="reconnectTab()"></span><span class="dot green"></span></div>
-            </div>
             <div class="tab-bar" id="tabBar"></div>
             <button class="tab-add-btn" onclick="showAddTab()" title="新建连接">
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
