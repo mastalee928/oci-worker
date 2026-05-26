@@ -619,8 +619,25 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
 .cf-toolbar { margin-bottom: 16px; }
 .cf-dns-search { width: 200px; }
 .cf-dns-type-filter { width: 120px; }
-.cf-toolbar.is-mobile :deep(.ant-space) { width: 100%; }
-.cf-toolbar.is-mobile :deep(.ant-space-item) { width: 100%; }
+/* 移动端：搜索/筛选各占一行，四个操作按钮 2×2 */
+.cf-toolbar.is-mobile :deep(.cf-toolbar-space) {
+  display: grid !important;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  width: 100%;
+}
+.cf-toolbar.is-mobile :deep(.cf-toolbar-space .ant-space-item) {
+  width: auto !important;
+  max-width: none !important;
+  margin: 0 !important;
+}
+.cf-toolbar.is-mobile :deep(.cf-toolbar-space .ant-space-item:nth-child(1)),
+.cf-toolbar.is-mobile :deep(.cf-toolbar-space .ant-space-item:nth-child(2)) {
+  grid-column: 1 / -1;
+}
+.cf-toolbar.is-mobile :deep(.cf-toolbar-space .ant-space-item:nth-child(n + 3) .ant-btn) {
+  width: 100%;
+}
 .cf-toolbar.is-mobile .cf-dns-search,
 .cf-toolbar.is-mobile .cf-dns-type-filter { width: 100%; }
 .cf-hint {

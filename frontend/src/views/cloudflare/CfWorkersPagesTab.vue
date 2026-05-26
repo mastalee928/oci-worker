@@ -111,6 +111,12 @@
           <a v-if="record.url" :href="urlHref(record)" target="_blank" rel="noopener">{{ record.url }}</a>
           <span v-else>—</span>
         </template>
+        <template v-else-if="column.key === 'createdOn'">
+          {{ formatCfTime(record.createdOn) }}
+        </template>
+        <template v-else-if="column.key === 'modifiedOn'">
+          {{ formatCfTime(record.modifiedOn) }}
+        </template>
         <template v-else-if="column.key === 'actions'">
           <a-space v-if="record.kind === 'worker'" wrap size="small">
             <a-button type="link" size="small" @click="openEditWorker(record)">编辑代码</a-button>
@@ -131,22 +137,27 @@
           </a-tag>
         </div>
         <div class="mobile-card-body">
-          <div class="mobile-card-row">
+          <div class="mobile-card-row mobile-card-row--stack">
             <span class="label">地址</span>
             <span class="value">
               <a v-if="item.url" :href="urlHref(item)" target="_blank" rel="noopener">{{ item.url }}</a>
               <template v-else>—</template>
             </span>
           </div>
-          <div v-if="item.kind === 'worker'" class="mobile-card-actions">
-            <a-space wrap size="small">
-              <a-button size="small" @click="openEditWorker(item)">编辑代码</a-button>
-              <a-button size="small" @click="openRenameWorker(item)">重命名</a-button>
-              <a-button size="small" danger @click="openDeleteWorker(item)">删除</a-button>
-            </a-space>
+          <div v-if="item.kind === 'worker'" class="mobile-card-actions-grid">
+            <a-button size="small" block @click="openEditWorker(item)">编辑代码</a-button>
+            <a-button size="small" block @click="openRenameWorker(item)">重命名</a-button>
+            <a-button size="small" danger block @click="openDeleteWorker(item)">删除</a-button>
           </div>
-          <div v-if="item.createdOn" class="mobile-card-row">
-            <span class="label">创建</span><span class="value">{{ item.createdOn }}</span>
+          <div v-if="item.createdOn || item.modifiedOn" class="mobile-card-dates">
+            <div v-if="item.createdOn" class="mobile-card-row mobile-card-row--stack">
+              <span class="label">创建</span>
+              <span class="value">{{ formatCfTime(item.createdOn) }}</span>
+            </div>
+            <div v-if="item.modifiedOn" class="mobile-card-row mobile-card-row--stack">
+              <span class="label">修改</span>
+              <span class="value">{{ formatCfTime(item.modifiedOn) }}</span>
+            </div>
           </div>
         </div>
       </div>
@@ -713,10 +724,17 @@ const appColumns = [
   { title: '类型', key: 'kind', width: 96 },
   { title: '名称', dataIndex: 'name', ellipsis: true },
   { title: '地址', key: 'url', ellipsis: true },
-  { title: '创建', dataIndex: 'createdOn', width: 170 },
-  { title: '修改', dataIndex: 'modifiedOn', width: 170 },
+  { title: '创建', key: 'createdOn', width: 168 },
+  { title: '修改', key: 'modifiedOn', width: 168 },
   { title: '操作', key: 'actions', width: 220, fixed: 'right' as const },
 ]
+
+function formatCfTime(iso?: string) {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return iso
+  return d.toLocaleString('zh-CN', { hour12: false })
+}
 
 function formatNum(n?: number | null) {
   if (n === undefined || n === null) return '—'
@@ -1342,9 +1360,29 @@ defineExpose({ loadAll })
   font-size: 13px;
   margin-bottom: 4px;
 }
+.mobile-card-row--stack {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
+}
 .mobile-card-row .label { color: var(--text-sub); flex-shrink: 0; }
-.mobile-card-row .value { text-align: right; word-break: break-all; }
-.mobile-card-actions { margin-top: 8px; }
+.mobile-card-row .value { word-break: break-all; }
+.mobile-card-row:not(.mobile-card-row--stack) .value { text-align: right; }
+.mobile-card-row--stack .value { text-align: left; }
+.mobile-card-dates {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.mobile-card-actions-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 8px;
+}
+.mobile-card-actions-grid .ant-btn:nth-child(3) {
+  grid-column: 1 / -1;
+}
 .cf-verify-footer {
   margin-top: 12px;
   display: flex;

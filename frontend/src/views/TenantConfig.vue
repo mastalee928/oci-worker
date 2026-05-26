@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="tenant-config-root">
     <div class="table-toolbar">
       <a-space wrap>
