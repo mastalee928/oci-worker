@@ -1,13 +1,20 @@
 <template>
-  <div class="vcn-item byoip-panel">
+  <div class="vcn-item byoip-panel" :class="{ 'byoip-panel--collapsed': collapsed }">
     <div class="vcn-item-header">
-      <div style="display: flex; align-items: center; gap: 8px">
+      <div class="byoip-panel-title">
         <i class="ri-global-line" style="font-size: 18px; color: var(--primary)"></i>
         <span style="font-weight: 700">BYOIP 自有 IP</span>
       </div>
-      <a-button size="small" :loading="loading" @click="loadAll">刷新</a-button>
+      <a-space>
+        <a-button size="small" :loading="loading" @click="onRefresh">刷新</a-button>
+        <a-button size="small" type="text" class="byoip-collapse-btn" @click="toggleCollapsed">
+          <template v-if="collapsed">展开 <DownOutlined /></template>
+          <template v-else>收起 <UpOutlined /></template>
+        </a-button>
+      </a-space>
     </div>
 
+    <div v-show="!collapsed" class="byoip-panel-body">
     <a-spin :spinning="loading">
       <a-tabs v-model:activeKey="tab" size="small">
         <a-tab-pane key="help" tab="流程说明">
@@ -120,6 +127,7 @@
         </a-tab-pane>
       </a-tabs>
     </a-spin>
+    </div>
 
     <!-- 导入 BYOIP -->
     <a-modal v-model:open="importVisible" title="导入 BYOIP 网段" :confirm-loading="submitting" @ok="submitImport">
@@ -250,7 +258,7 @@
 <script setup lang="ts">
 import { ref, reactive, computed, watch } from 'vue'
 import { message, Modal } from 'ant-design-vue'
-import { DownOutlined } from '@ant-design/icons-vue'
+import { DownOutlined, UpOutlined } from '@ant-design/icons-vue'
 import {
   getByoipHelp,
   listByoipRanges,
@@ -283,6 +291,28 @@ const props = defineProps<{
 }>()
 
 const emit = defineEmits<{ changed: [] }>()
+
+const BYOIP_COLLAPSED_KEY = 'ociworker.byoipPanel.collapsed'
+
+function readCollapsed(): boolean {
+  try {
+    const v = localStorage.getItem(BYOIP_COLLAPSED_KEY)
+    if (v === null) return true
+    return v === '1' || v === 'true'
+  } catch {
+    return true
+  }
+}
+
+const collapsed = ref(readCollapsed())
+
+function toggleCollapsed() {
+  collapsed.value = !collapsed.value
+}
+
+function onRefresh() {
+  loadAll()
+}
 
 const tab = ref('help')
 const loading = ref(false)
@@ -369,10 +399,21 @@ async function loadAll() {
   }
 }
 
+watch(collapsed, (v) => {
+  try {
+    localStorage.setItem(BYOIP_COLLAPSED_KEY, v ? '1' : '0')
+  } catch { /* ignore */ }
+  if (!v && props.userId) {
+    loadAll()
+  }
+})
+
 watch(() => [props.userId, props.region], () => {
   if (props.userId) {
     loadHelp()
-    loadAll()
+    if (!collapsed.value) {
+      loadAll()
+    }
   }
 }, { immediate: true })
 
@@ -789,7 +830,38 @@ defineExpose({ loadAll })
 </script>
 
 <style scoped>
-.byoip-panel { margin-top: 12px; }
+.byoip-panel {
+  margin-top: 12px;
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  margin-bottom: 12px;
+}
+.byoip-panel--collapsed {
+  padding-bottom: 16px;
+}
+.vcn-item-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.byoip-panel--collapsed .vcn-item-header {
+  margin-bottom: 0;
+}
+.byoip-panel-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.byoip-collapse-btn {
+  padding-inline: 4px;
+  color: var(--text-sub);
+}
+.byoip-collapse-btn:hover {
+  color: var(--primary);
+}
 .op-row { margin-bottom: 10px; display: flex; gap: 8px; flex-wrap: wrap; }
 .byoip-help-list { margin: 0; padding-left: 18px; font-size: 13px; }
 .vcn-panel-hint { margin: 0 0 10px; font-size: 12px; color: var(--text-sub); line-height: 1.5; }
