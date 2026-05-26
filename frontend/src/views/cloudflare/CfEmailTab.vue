@@ -26,7 +26,7 @@
               type="link"
               size="small"
               danger
-              :loading="disableEmailLoading"
+              :loading="disableEmailSubmitLoading"
               @click="openDisableEmail"
             >
               禁用

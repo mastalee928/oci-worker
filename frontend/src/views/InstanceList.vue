@@ -1024,13 +1024,13 @@
     </a-modal>
 
     <!-- 新建预留IP弹窗 -->
-    <a-modal v-model:open="createRipVisible" title="新建预留IP" @ok="handleCreateReservedIp"
+    <a-modal v-model:open="createRipVisible" title="新建预留 IP" @ok="handleCreateReservedIp"
       :confirm-loading="createRipLoading" :mask-closable="false">
       <a-form layout="vertical">
         <a-form-item label="名称（可选）">
           <a-input v-model:value="createRipName" placeholder="reserved-ip" />
         </a-form-item>
-        <div style="color: #999; font-size: 12px">创建一个未绑定的预留IP。创建后可在列表中绑定到实例。</div>
+        <div style="color: #999; font-size: 12px">创建一个未绑定的预留 IP。创建后可在列表中绑定到实例。</div>
       </a-form>
     </a-modal>
 
@@ -1152,24 +1152,38 @@
               </div>
             </div>
           </div>
-          <a-divider orientation="left" plain>预留IP</a-divider>
-          <a-spin :spinning="reservedIpListLoading">
-            <template v-if="reservedIps.length > 0">
-              <div v-for="rip in reservedIps" :key="rip.id" style="margin-bottom: 6px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap">
+          <div class="vcn-item">
+            <div class="vcn-item-header">
+              <div style="display: flex; align-items: center; gap: 8px">
+                <i class="ri-map-pin-line" style="font-size: 18px; color: var(--primary)"></i>
+                <span style="font-weight: 700">预留 IP</span>
+              </div>
+              <a-space>
+                <a-button size="small" :loading="reservedIpListLoading" @click="loadReservedIps">刷新</a-button>
+                <a-button size="small" type="primary" @click="showCreateReservedIpModal">新建</a-button>
+              </a-space>
+            </div>
+            <a-spin :spinning="reservedIpListLoading">
+              <a-empty v-if="!reservedIpListLoading && ociReservedIps.length === 0" description="暂无预留 IP" />
+              <div v-for="rip in ociReservedIps" :key="rip.id" class="vcn-ip-row">
                 <a-typography-text copyable>{{ rip.ipAddress }}</a-typography-text>
                 <a-tag :color="rip.isAssigned ? 'green' : 'default'">{{ rip.isAssigned ? '已绑定' : '未绑定' }}</a-tag>
-                <span v-if="rip.assignedInstanceName" style="color: var(--text-sub); font-size: 12px">{{ rip.assignedInstanceName }}</span>
+                <span v-if="rip.assignedInstanceName" class="vcn-ip-meta">{{ rip.assignedInstanceName }}</span>
                 <a-popconfirm v-if="!rip.isAssigned" title="确定删除？" @confirm="handleDeleteReservedIp(rip.id)">
                   <a-button type="link" danger size="small">删除</a-button>
                 </a-popconfirm>
                 <a-button v-if="rip.isAssigned" type="link" size="small" @click="handleUnassignReservedIp(rip.id)">解绑</a-button>
               </div>
-            </template>
-            <span v-else style="color: #999; font-size: 13px">暂无预留IP</span>
-          </a-spin>
-          <a-button type="link" size="small" @click="showCreateReservedIpModal" style="margin-top: 4px">
-            <i class="ri-add-line" style="margin-right: 4px"></i>新建预留IP
-          </a-button>
+            </a-spin>
+            <p class="vcn-panel-hint">OCI 分配的预留公网 IP，可绑定到实例。</p>
+          </div>
+
+          <ByoipPanel
+            v-if="vcnTenant"
+            :user-id="vcnTenant.id"
+            :region="vcnPanelRegion"
+            @changed="onByoipChanged"
+          />
         </div>
       </a-spin>
     </a-drawer>
@@ -1239,6 +1253,7 @@ import { listAllVolumes, deleteVolume } from '../api/volume'
 
 const VcnManager = defineAsyncComponent(() => import('./VcnManager.vue'))
 const StorageManager = defineAsyncComponent(() => import('./StorageManager.vue'))
+const ByoipPanel = defineAsyncComponent(() => import('./ByoipPanel.vue'))
 import { createTask, hasRunningTask } from '../api/task'
 import { sendVerifyCode } from '../api/system'
 import { listStorageRegions } from '../api/storage'
@@ -1748,6 +1763,7 @@ const editVolForm = reactive({ bootVolumeId: '', displayName: '', sizeInGBs: 50,
 
 const reservedIps = ref<any[]>([])
 const reservedIpListLoading = ref(false)
+const ociReservedIps = computed(() => reservedIps.value.filter((r: any) => !r.publicIpPoolId))
 const createRipVisible = ref(false)
 const createRipLoading = ref(false)
 const createRipName = ref('')
@@ -2133,7 +2149,6 @@ async function onVcnManagerChanged() {
   } finally {
     vcnListLoading.value = false
   }
-  void loadReservedIps()
 }
 
 const storageManagerOpen = ref(false)
@@ -2193,6 +2208,10 @@ async function onVcnPanelRegionUserChange() {
   } finally {
     vcnListLoading.value = false
   }
+  loadReservedIps()
+}
+
+function onByoipChanged() {
   loadReservedIps()
 }
 
@@ -2793,7 +2812,7 @@ async function loadReservedIps() {
     })
     reservedIps.value = res.data || []
   } catch (e: any) {
-    message.error(e?.message || '加载预留IP失败')
+    message.error(e?.message || '加载预留 IP 失败')
   } finally {
     reservedIpListLoading.value = false
   }
@@ -3224,6 +3243,32 @@ onUnmounted(() => {
   gap: 6px;
   padding: 4px 0;
   font-size: 12px;
+}
+.vcn-ip-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  padding: 6px 0;
+  font-size: 13px;
+}
+.vcn-ip-meta {
+  color: var(--text-sub);
+  font-size: 12px;
+}
+.vcn-panel-hint {
+  margin: 0 0 10px;
+  font-size: 12px;
+  color: var(--text-sub);
+  line-height: 1.5;
+}
+.vcn-byoip-block {
+  margin-top: 10px;
+}
+.vcn-byoip-label {
+  font-size: 12px;
+  color: var(--text-sub);
+  margin-bottom: 4px;
 }
 
 .tenant-table-wrap {

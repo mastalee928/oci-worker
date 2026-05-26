@@ -109,6 +109,8 @@ export function unassignReservedIp(data: { id: string; publicIpId: string } & R)
   return request.post('/oci/instance/unassignReservedIp', data)
 }
 
+export { listByoipRanges, listPublicIpPools, createByoipReservedIp } from './byoip'
+
 export function assignEphemeralIp(data: { id: string; instanceId: string; privateIpId: string } & R) {
   return request.post('/oci/network/assignEphemeralIp', data)
 }

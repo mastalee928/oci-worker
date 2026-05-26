@@ -522,6 +522,7 @@ public class InstanceService {
                 map.put("assignedEntityId", ip.getAssignedEntityId());
                 map.put("privateIpId", ip.getPrivateIpId());
                 map.put("isAssigned", ip.getAssignedEntityId() != null);
+                map.put("publicIpPoolId", ip.getPublicIpPoolId());
                 map.put("timeCreated", ip.getTimeCreated() != null ? ip.getTimeCreated().toString() : null);
                 return map;
             }).collect(Collectors.toList());
