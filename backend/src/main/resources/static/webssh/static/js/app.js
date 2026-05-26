@@ -1293,30 +1293,6 @@ function tryAutoLogin() {
     }, 500);
 }
 
-// ==================== Splash Screen ====================
-(function () {
-    var splashStart = Date.now();
-    var MIN_SPLASH = 1500;
-    var dismissed = false;
-
-    function doFade() {
-        if (dismissed) return;
-        dismissed = true;
-        var el = document.getElementById('splash');
-        if (!el) return;
-        el.classList.add('fade-out');
-        setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 650);
-    }
-
-    function dismissSplash() {
-        var elapsed = Date.now() - splashStart;
-        var delay = Math.max(0, MIN_SPLASH - elapsed);
-        setTimeout(doFade, delay);
-    }
-
-    window.__dismissSplash = dismissSplash;
-})();
-
 // ==================== Init ====================
 initTheme();
 initSettings();
@@ -1325,7 +1301,7 @@ renderConnBookmarks();
 loadProxyConfig();
 tryAutoLogin();
 
-// Fetch server config (footer visibility etc.), then dismiss splash
+// Fetch server config (footer visibility etc.)
 (function () {
     function applyServerConfig(cfg) {
         if (cfg && cfg.showFooter === false) {
@@ -1341,10 +1317,6 @@ tryAutoLogin();
         if (req.status === 200) {
             try { applyServerConfig(JSON.parse(req.responseText)); } catch (e) {}
         }
-        if (window.__dismissSplash) window.__dismissSplash();
-    };
-    req.onerror = req.ontimeout = function () {
-        if (window.__dismissSplash) window.__dismissSplash();
     };
     req.send();
 })();
