@@ -58,6 +58,7 @@
 </template>
 
 <script setup lang="ts">
+defineOptions({ name: 'Dashboard' })
 import { ref, onMounted } from 'vue'
 import { getGlance } from '../api/system'
 

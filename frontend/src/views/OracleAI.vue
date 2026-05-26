@@ -233,6 +233,7 @@
 </template>
 
 <script setup lang="ts">
+defineOptions({ name: 'OracleAI' })
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { message } from 'ant-design-vue'
 import { getTenantList } from '../api/tenant'

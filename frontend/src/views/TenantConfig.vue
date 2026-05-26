@@ -132,9 +132,11 @@
               </div>
             </div>
 
-            <div v-show="expandedGroups.has(group.key)" class="group-body">
+            <div v-if="expandedGroups.has(group.key)" class="group-body">
               <template v-if="group.tenants.length">
                 <a-table v-if="!isMobile" :columns="columns" :data-source="group.tenants" :pagination="false"
+                  :virtual="groupTableVirtual(group.tenants.length)"
+                  :scroll="groupTableScroll(group.tenants.length)"
                   :row-selection="{ selectedRowKeys, onChange: onSelectChange }"
                   row-key="id" size="small">
                   <template #bodyCell="{ column, record }">
@@ -228,9 +230,11 @@
                 </div>
               </div>
 
-              <div v-show="expandedGroups.has(sub.key)" class="group-body">
+              <div v-if="expandedGroups.has(sub.key)" class="group-body">
                 <template v-if="sub.tenants.length">
                   <a-table v-if="!isMobile" :columns="columns" :data-source="sub.tenants" :pagination="false"
+                    :virtual="groupTableVirtual(sub.tenants.length)"
+                    :scroll="groupTableScroll(sub.tenants.length)"
                     :row-selection="{ selectedRowKeys, onChange: onSelectChange }"
                     row-key="id" size="small">
                     <template #bodyCell="{ column, record }">
@@ -303,9 +307,15 @@
     </a-spin>
 
     <div class="tenant-page-float-actions" aria-label="页面快捷操作">
-      <a-tooltip placement="left" title="收起所有一级分组与子分组">
-        <a-button type="default" shape="circle" class="float-action-btn" @click="collapseAllGroups">
-          <template #icon><MenuFoldOutlined /></template>
+      <a-tooltip
+        placement="left"
+        :title="allGroupsExpanded ? '收起所有一级分组与子分组' : '展开所有一级分组与子分组'"
+      >
+        <a-button type="default" shape="circle" class="float-action-btn" @click="toggleAllGroups">
+          <template #icon>
+            <MenuUnfoldOutlined v-if="allGroupsExpanded" />
+            <MenuFoldOutlined v-else />
+          </template>
         </a-button>
       </a-tooltip>
       <a-tooltip placement="left" title="返回页面顶部">
@@ -1169,9 +1179,11 @@ region=ap-tokyo-1"
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
+defineOptions({ name: 'TenantConfig' })
+
+import { ref, reactive, computed, onMounted, onActivated, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { PlusOutlined, ThunderboltOutlined, InboxOutlined, ReloadOutlined, MenuFoldOutlined, VerticalAlignTopOutlined } from '@ant-design/icons-vue'
+import { PlusOutlined, ThunderboltOutlined, InboxOutlined, ReloadOutlined, MenuFoldOutlined, MenuUnfoldOutlined, VerticalAlignTopOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
 import type { UploadFile } from 'ant-design-vue'
 import { getTenantList, addTenant, updateTenant, removeTenant, uploadKey, getTenantFullInfo, getTenantBillingSummary, downloadInvoicePdf, getDomainSettings, updateMfa, updatePasswordExpiry, getAuditLogs, getServiceQuotas, listIamPolicies, getIamPolicy, listAnnouncements, getAnnouncementDetail, getTenantGroups, createGroup, renameGroup, deleteGroup, saveGroupOrder, unlockAuthFactors, getAuthFactors, updateAuthFactors } from '../api/tenant'
@@ -1186,11 +1198,23 @@ import {
   filterOciRegionSelectOption,
 } from '../utils/ociRegionCatalog'
 import dayjs from 'dayjs'
+import { collectGroupExpandKeys, isAllGroupsExpanded } from '../composables/groupExpandToggle'
+import { useTenantCatalogStore } from '../stores/tenantCatalog'
 import utc from 'dayjs/plugin/utc'
 
 dayjs.extend(utc)
 
 const router = useRouter()
+const catalog = useTenantCatalogStore()
+const searchLoading = ref(false)
+const VIRTUAL_TABLE_MIN = 24
+
+function groupTableScroll(count: number) {
+  return count >= VIRTUAL_TABLE_MIN ? { y: 420 } : undefined
+}
+function groupTableVirtual(count: number) {
+  return count >= VIRTUAL_TABLE_MIN
+}
 
 function formatUtcCnDate(v: any): string {
   if (!v) return '—'
@@ -1349,9 +1373,10 @@ const columns = [
   { title: '操作', key: 'action', width: 270 },
 ]
 
-const loading = ref(false)
+const loading = computed(() => catalog.tenantsLoading || searchLoading.value)
 const submitLoading = ref(false)
-const tableData = ref<any[]>([])
+const searchTableData = ref<any[]>([])
+const tableData = computed(() => (searchText.value ? searchTableData.value : catalog.tenants) as any[])
 const searchText = ref('')
 const selectedRowKeys = ref<string[]>([])
 const modalVisible = ref(false)
@@ -1368,7 +1393,7 @@ const formState = reactive({
   groupLevel1: '' as string, groupLevel2: '' as string,
 })
 
-const groupData = ref<{ level1: string[]; level2: Record<string, string[]> }>({ level1: [], level2: {} })
+const groupData = computed(() => catalog.groupData)
 const groupColors = ['#1677ff', '#52c41a', '#fa541c', '#722ed1', '#eb2f96', '#faad14', '#13c2c2']
 
 const renameVisible = ref(false)
@@ -1492,22 +1517,36 @@ let pendingExpandTarget: { groupLevel1?: string; groupLevel2?: string } | null =
 
 async function loadData(expandAfter?: { groupLevel1?: string; groupLevel2?: string }) {
   if (expandAfter) pendingExpandTarget = expandAfter
-  loading.value = true
-  try {
-    const res = await getTenantList({
-      current: 1,
-      size: 9999,
-      keyword: searchText.value,
-    })
-    tableData.value = res.data.records || []
-    pagination.total = res.data.total || 0
-  } catch (e: any) {
-    message.error(e?.message || '加载租户列表失败')
-  } finally {
-    loading.value = false
+  if (searchText.value) {
+    searchLoading.value = true
+    try {
+      const res = await getTenantList({
+        current: pagination.current,
+        size: pagination.pageSize,
+        keyword: searchText.value,
+      })
+      searchTableData.value = res.data.records || []
+      pagination.total = res.data.total || 0
+    } catch (e: any) {
+      message.error(e?.message || '加载租户列表失败')
+    } finally {
+      searchLoading.value = false
+    }
+    return
   }
-  await loadGroups()
+  try {
+    await Promise.all([
+      catalog.ensureTenants({ force: false }),
+      catalog.ensureGroups({ force: false }),
+    ])
+  } catch (e: any) {
+    message.error(e?.message || catalog.tenantsError || '加载租户列表失败')
+  }
   applyDefaultExpandAfterLoad()
+}
+
+async function loadGroups() {
+  await catalog.ensureGroups({ force: true })
 }
 
 function handleTableChange(pag: any) {
@@ -1863,13 +1902,6 @@ const filteredQuotas = computed(() => {
   )
 })
 
-async function loadGroups() {
-  try {
-    const res = await getTenantGroups()
-    groupData.value = res.data || { level1: [], level2: {} }
-  } catch {}
-}
-
 const level2Options = computed(() => {
   if (!formState.groupLevel1) return []
   return groupData.value.level2[formState.groupLevel1] || []
@@ -1999,6 +2031,10 @@ function applyDefaultExpandAfterLoad() {
     expandedGroups.value = new Set()
     return
   }
+  expandAllGroupsFromTree()
+}
+
+function expandAllGroupsFromTree() {
   const next = new Set<string>()
   for (const g of groupTree.value) {
     next.add(g.key)
@@ -2009,8 +2045,18 @@ function applyDefaultExpandAfterLoad() {
   expandedGroups.value = next
 }
 
-function collapseAllGroups() {
-  expandedGroups.value = new Set()
+const tenantExpandableKeys = computed(() => collectGroupExpandKeys(groupTree.value))
+
+const allGroupsExpanded = computed(() =>
+  isAllGroupsExpanded(expandedGroups.value, tenantExpandableKeys.value),
+)
+
+function toggleAllGroups() {
+  if (isAllGroupsExpanded(expandedGroups.value, tenantExpandableKeys.value)) {
+    expandedGroups.value = new Set()
+  } else {
+    expandAllGroupsFromTree()
+  }
 }
 
 function scrollTenantPageTop() {
@@ -2442,6 +2488,7 @@ async function handleSubmit() {
       message.success('添加成功')
     }
     modalVisible.value = false
+    catalog.invalidate()
     await loadData({
       groupLevel1: formState.groupLevel1,
       groupLevel2: formState.groupLevel2,
@@ -2457,6 +2504,8 @@ async function handleDelete(id: string) {
   try {
     await removeTenant({ idList: [id] })
     message.success('删除成功')
+    catalog.invalidate()
+    catalog.removeTenantsFromCache([id])
     loadData()
   } catch (e: any) {
     message.error(e?.message || '删除失败')
@@ -2471,6 +2520,8 @@ function handleBatchDelete() {
       try {
         await removeTenant({ idList: selectedRowKeys.value })
         message.success('删除成功')
+        catalog.invalidate()
+        catalog.removeTenantsFromCache([...selectedRowKeys.value])
         selectedRowKeys.value = []
         loadData()
       } catch (e: any) {
@@ -2481,8 +2532,14 @@ function handleBatchDelete() {
 }
 
 onMounted(async () => {
-  await loadData()
+  void loadData()
   window.addEventListener('resize', checkMobile)
+})
+onActivated(() => {
+  if (!searchText.value) {
+    void catalog.ensureTenants({ silent: true }).catch(() => {})
+    void catalog.ensureGroups({ silent: true }).catch(() => {})
+  }
 })
 onUnmounted(() => window.removeEventListener('resize', checkMobile))
 </script>

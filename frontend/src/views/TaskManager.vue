@@ -427,6 +427,7 @@
 </template>
 
 <script setup lang="ts">
+defineOptions({ name: 'TaskManager' })
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'

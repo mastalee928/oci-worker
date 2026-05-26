@@ -22,31 +22,31 @@
       <a-menu mode="inline" :selected-keys="[currentRoute]" @click="handleMenuClick"
         class="nav-menu" theme="dark">
         <!-- 图标必须用 #icon 插槽，否则与标题挤在 title-content 里，侧栏折叠时文字无法隐藏 -->
-        <a-menu-item key="dashboard">
+        <a-menu-item key="dashboard" @mouseenter="prefetchRouteChunk('dashboard')">
           <template #icon><i class="ri-dashboard-3-line menu-ri"></i></template>
           仪表盘
         </a-menu-item>
-        <a-menu-item key="tenant">
+        <a-menu-item key="tenant" @mouseenter="prefetchRouteChunk('tenant')">
           <template #icon><i class="ri-user-settings-line menu-ri"></i></template>
           租户配置
         </a-menu-item>
-        <a-menu-item key="instance">
+        <a-menu-item key="instance" @mouseenter="prefetchRouteChunk('instance')">
           <template #icon><i class="ri-server-line menu-ri"></i></template>
           实例管理
         </a-menu-item>
-        <a-menu-item key="task">
+        <a-menu-item key="task" @mouseenter="prefetchRouteChunk('task')">
           <template #icon><i class="ri-flashlight-line menu-ri"></i></template>
           开机任务
         </a-menu-item>
-        <a-menu-item key="log">
+        <a-menu-item key="log" @mouseenter="prefetchRouteChunk('log')">
           <template #icon><i class="ri-file-list-3-line menu-ri"></i></template>
           日志查看
         </a-menu-item>
-        <a-menu-item key="oracle-ai">
+        <a-menu-item key="oracle-ai" @mouseenter="prefetchRouteChunk('oracle-ai')">
           <template #icon><i class="ri-magic-line menu-ri"></i></template>
           Oracle AI
         </a-menu-item>
-        <a-menu-item key="cloudflare">
+        <a-menu-item key="cloudflare" @mouseenter="prefetchRouteChunk('cloudflare')">
           <template #icon><i class="ri-cloud-line menu-ri"></i></template>
           Cloudflare
         </a-menu-item>
@@ -54,7 +54,7 @@
           <template #icon><i class="ri-terminal-box-line menu-ri"></i></template>
           WebSSH
         </a-menu-item>
-        <a-menu-item key="settings">
+        <a-menu-item key="settings" @mouseenter="prefetchRouteChunk('settings')">
           <template #icon><i class="ri-settings-4-line menu-ri"></i></template>
           系统设置
         </a-menu-item>
@@ -105,7 +105,13 @@
         </div>
       </header>
       <div :class="['app-content', { 'no-padding': isWebSSH }]">
-        <router-view />
+        <router-view v-slot="{ Component, route: r }">
+          <transition name="app-route-fade" mode="out-in">
+            <keep-alive :include="keepAliveNames">
+              <component :is="Component" :key="r.name || r.path" />
+            </keep-alive>
+          </transition>
+        </router-view>
       </div>
     </a-layout>
 
@@ -117,6 +123,11 @@ import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter, useRoute } from 'vue-router'
 import { useUserStore } from '../stores/user'
 import { useThemeStore } from '../stores/theme'
+import { MAIN_KEEP_ALIVE } from '../constants/keepAlive'
+import { prefetchRouteChunk, prefetchMainRoutesIdle } from '../utils/routePrefetch'
+import { useTenantCatalogStore } from '../stores/tenantCatalog'
+
+const keepAliveNames = [...MAIN_KEEP_ALIVE]
 
 const router = useRouter()
 const route = useRoute()
@@ -148,6 +159,10 @@ watch(mobileMenuOpen, open => {
 onMounted(() => {
   checkMobile()
   window.addEventListener('resize', checkMobile)
+  prefetchMainRoutesIdle()
+  const catalog = useTenantCatalogStore()
+  void catalog.ensureGroups({ silent: true }).catch(() => {})
+  void catalog.ensureTenants({ silent: true }).catch(() => {})
 })
 onUnmounted(() => window.removeEventListener('resize', checkMobile))
 
@@ -175,6 +190,7 @@ const pageTitleIcon = computed(() => {
 })
 
 function handleMenuClick({ key }: { key: string }) {
+  prefetchRouteChunk(key)
   router.push('/' + key)
   if (isMobile.value) mobileMenuOpen.value = false
 }
@@ -188,6 +204,15 @@ function handleLogout() {
 <style scoped>
 .main-layout { min-height: 100vh; }
 .content-layout { min-width: 0; }
+
+.app-route-fade-enter-active,
+.app-route-fade-leave-active {
+  transition: opacity 0.12s ease;
+}
+.app-route-fade-enter-from,
+.app-route-fade-leave-to {
+  opacity: 0;
+}
 
 .sider {
   background: var(--bg-sidebar) !important;

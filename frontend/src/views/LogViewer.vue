@@ -35,6 +35,7 @@
 </template>
 
 <script setup lang="ts">
+defineOptions({ name: 'LogViewer' })
 import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
 import { message } from 'ant-design-vue'
 import request from '../utils/request'

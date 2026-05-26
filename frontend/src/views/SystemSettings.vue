@@ -536,6 +536,7 @@
 </template>
 
 <script setup lang="ts">
+defineOptions({ name: 'SystemSettings' })
 import { h, reactive, ref, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { CaretRightOutlined, InboxOutlined, ReloadOutlined } from '@ant-design/icons-vue'

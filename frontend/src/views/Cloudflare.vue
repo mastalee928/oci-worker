@@ -9,7 +9,7 @@
       description="请先在「系统设置 → Cloudflare」填写 Account ID 与 API Token，并点击测试连接。"
     />
 
-    <a-tabs v-model:active-key="topTab" destroy-inactive-tab-pane>
+    <a-tabs v-model:active-key="topTab">
       <a-tab-pane key="zones" tab="域名">
         <CfZoneWorkspace :cf-configured="cfConfigured" />
       </a-tab-pane>
@@ -21,9 +21,10 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
-import CfZoneWorkspace from './cloudflare/CfZoneWorkspace.vue'
-import CfAccountPanel from './cloudflare/CfAccountPanel.vue'
+defineOptions({ name: 'Cloudflare' })
+import { ref, onMounted, defineAsyncComponent } from 'vue'
+const CfZoneWorkspace = defineAsyncComponent(() => import('./cloudflare/CfZoneWorkspace.vue'))
+const CfAccountPanel = defineAsyncComponent(() => import('./cloudflare/CfAccountPanel.vue'))
 import { getCfAccountConfig } from '../api/cloudflare'
 
 const topTab = ref('zones')

@@ -81,7 +81,13 @@ public class TenantService {
     private String keyDirPath;
 
     public Page<Map<String, Object>> list(PageParams params) {
-        Page<OciUser> page = new Page<>(params.getCurrent(), params.getSize());
+        int pageSize = params.getSize();
+        if (pageSize < 1) {
+            pageSize = 10;
+        } else if (pageSize > 500) {
+            pageSize = 500;
+        }
+        Page<OciUser> page = new Page<>(params.getCurrent(), pageSize);
         LambdaQueryWrapper<OciUser> wrapper = new LambdaQueryWrapper<>();
         if (StrUtil.isNotBlank(params.getKeyword())) {
             wrapper.and(w -> w

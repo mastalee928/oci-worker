@@ -31,6 +31,7 @@
             <span class="group-header-label">{{ g1.label }}</span>
             <a-badge :count="groupTenantCount(g1)" :show-zero="true" class="oci-group-count-badge" style="margin-left: 8px" />
           </template>
+          <template v-if="isGroupPanelOpen(g1.key)">
           <!-- 二级分组 -->
           <template v-if="g1.children && g1.children.length > 0">
             <div v-if="g1.tenants.length > 0" class="group-section">
@@ -76,7 +77,7 @@
                 </div>
               </component>
             </div>
-            <a-collapse class="group-collapse-l2">
+            <a-collapse v-model:activeKey="activeGroupKeys" @change="onCollapseChange" class="group-collapse-l2">
               <a-collapse-panel v-for="l2 in g1.children" :key="l2.key" :collapsible="l2.tenants.length === 0 ? 'disabled' : undefined">
                 <template #header>
                   <span class="group-header-label">{{ l2.label }}</span>
@@ -165,6 +166,7 @@
                 </div>
               </div>
             </div>
+          </template>
           </template>
         </a-collapse-panel>
       </a-collapse>
@@ -1185,12 +1187,34 @@
       :default-region="storageManagerDefaultRegion"
     />
 
+    <div class="tenant-page-float-actions" aria-label="页面快捷操作">
+      <a-tooltip
+        v-if="hasGroups"
+        placement="left"
+        :title="allInstanceGroupsExpanded ? '收起所有一级分组与子分组' : '展开所有一级分组与子分组'"
+      >
+        <a-button type="default" shape="circle" class="float-action-btn" @click="toggleAllInstanceGroups">
+          <template #icon>
+            <MenuUnfoldOutlined v-if="allInstanceGroupsExpanded" />
+            <MenuFoldOutlined v-else />
+          </template>
+        </a-button>
+      </a-tooltip>
+      <a-tooltip placement="left" title="返回页面顶部">
+        <a-button type="default" shape="circle" class="float-action-btn" @click="scrollInstancePageTop">
+          <template #icon><VerticalAlignTopOutlined /></template>
+        </a-button>
+      </a-tooltip>
+    </div>
+
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
-import { ReloadOutlined, EditOutlined, DownOutlined } from '@ant-design/icons-vue'
+defineOptions({ name: 'InstanceList' })
+
+import { ref, reactive, computed, onMounted, onActivated, onUnmounted, watch, defineAsyncComponent } from 'vue'
+import { ReloadOutlined, EditOutlined, DownOutlined, MenuFoldOutlined, MenuUnfoldOutlined, VerticalAlignTopOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
 import {
   getInstanceList, updateInstanceState, terminateInstance,
@@ -1207,10 +1231,13 @@ import {
   getShapesForInstance,
   forceA2ToA1,
 } from '../api/instance'
-import { getTenantList, getTenantGroups } from '../api/tenant'
+import { getTenantGroups } from '../api/tenant'
+import { useTenantCatalogStore } from '../stores/tenantCatalog'
 import { listAllVolumes, deleteVolume } from '../api/volume'
-import VcnManager from './VcnManager.vue'
-import StorageManager from './StorageManager.vue'
+import VirtualTenantCardList from '../components/tenant/VirtualTenantCardList.vue'
+
+const VcnManager = defineAsyncComponent(() => import('./VcnManager.vue'))
+const StorageManager = defineAsyncComponent(() => import('./StorageManager.vue'))
 import { createTask, hasRunningTask } from '../api/task'
 import { sendVerifyCode } from '../api/system'
 import { listStorageRegions } from '../api/storage'
@@ -1234,6 +1261,7 @@ import {
   validateDenseIoFlexTier,
 } from '../constants/ociBmShapeSpecs'
 import { useDenseIoFlexTier } from '../composables/useDenseIoFlexTier'
+import { collectGroupExpandKeys, isAllGroupsExpanded, type GroupExpandNode } from '../composables/groupExpandToggle'
 import ShapeSeriesPicker from '../components/ShapeSeriesPicker.vue'
 import {
   BOOT_VOLUME_VPUS_MAX,
@@ -1246,6 +1274,13 @@ import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc'
 
 dayjs.extend(utc)
+
+const catalog = useTenantCatalogStore()
+const VIRTUAL_CARD_MIN = 12
+
+function isGroupPanelOpen(key: string) {
+  return activeGroupKeys.value.includes(key)
+}
 
 function formatInstanceCreatedDate(v: unknown): string {
   if (v == null || v === '') return '—'
@@ -1335,7 +1370,7 @@ interface GroupNode {
   children?: GroupNode[]
   tenants: TenantData[]
 }
-const groupData = ref<{ level1: string[]; level2: Record<string, string[]> }>({ level1: [], level2: {} })
+const groupData = computed(() => catalog.groupData)
 
 const COLLAPSE_KEY = 'instanceList.groupCollapse'
 function loadCollapseState(): string[] {
@@ -1349,6 +1384,33 @@ function onCollapseChange(keys: string | string[]) {
   const arr = Array.isArray(keys) ? keys : [keys]
   activeGroupKeys.value = arr
   saveCollapseState(arr)
+}
+
+function instanceGroupHasExpandableContent(node: GroupExpandNode, level: 1 | 2): boolean {
+  const g = node as GroupNode
+  if (level === 1) return groupTenantCount(g) > 0
+  return g.tenants.length > 0
+}
+
+const instanceExpandableKeys = computed(() =>
+  collectGroupExpandKeys(groupedTenants.value, instanceGroupHasExpandableContent),
+)
+
+const allInstanceGroupsExpanded = computed(() =>
+  isAllGroupsExpanded(activeGroupKeys.value, instanceExpandableKeys.value),
+)
+
+function toggleAllInstanceGroups() {
+  if (isAllGroupsExpanded(activeGroupKeys.value, instanceExpandableKeys.value)) {
+    activeGroupKeys.value = []
+  } else {
+    activeGroupKeys.value = [...instanceExpandableKeys.value]
+  }
+  saveCollapseState(activeGroupKeys.value)
+}
+
+function scrollInstancePageTop() {
+  window.scrollTo({ top: 0, behavior: 'smooth' })
 }
 
 const groupedTenants = computed<GroupNode[]>(() => {
@@ -1401,8 +1463,7 @@ function groupTenantCount(g: GroupNode): number {
 
 async function loadGroups() {
   try {
-    const res = await getTenantGroups()
-    groupData.value = res.data || { level1: [], level2: {} }
+    await catalog.ensureGroups({ force: false })
   } catch {}
 }
 
@@ -2086,8 +2147,8 @@ function formatBytes(bytes: number) {
 async function loadAllTenants() {
   globalLoading.value = true
   try {
-    const res = await getTenantList({ current: 1, size: 1000 })
-    const records = res.data.records || []
+    await catalog.ensureTenants({ force: false })
+    const records = catalog.tenants
     const existingMap = new Map(tenantDataList.value.map(td => [td.tenant.id, td]))
     tenantDataList.value = records.map((t: any) => {
       const existing = existingMap.get(t.id)
@@ -2844,9 +2905,13 @@ async function doQuickTask() {
 }
 
 onMounted(() => {
-  loadGroups()
-  loadAllTenants()
+  void loadGroups()
+  void loadAllTenants()
   window.addEventListener('resize', checkMobile)
+})
+onActivated(() => {
+  void catalog.ensureTenants({ silent: true }).catch(() => {})
+  void catalog.ensureGroups({ silent: true }).catch(() => {})
 })
 onUnmounted(() => {
   window.removeEventListener('resize', checkMobile)
@@ -3352,5 +3417,21 @@ onUnmounted(() => {
   font-size: 14px;
   height: 32px;
   padding-inline: 10px;
+}
+.tenant-page-float-actions {
+  position: fixed;
+  right: 20px;
+  bottom: 24px;
+  z-index: 100;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  pointer-events: none;
+}
+.tenant-page-float-actions > * {
+  pointer-events: auto;
+}
+.float-action-btn {
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.18);
 }
 </style>
