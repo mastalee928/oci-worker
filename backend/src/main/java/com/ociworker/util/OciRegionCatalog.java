@@ -31,7 +31,7 @@ public final class OciRegionCatalog {
         ZH_LABELS.put("eu-milan-1", "意大利西北部（米兰）");
         ZH_LABELS.put("eu-paris-1", "法国中部（巴黎）");
         ZH_LABELS.put("eu-madrid-1", "西班牙中部（马德里）");
-        ZH_LABELS.put("eu-madrid-3", "马德里3");
+        ZH_LABELS.put("eu-madrid-3", "西班牙中部（马德里3）");
         ZH_LABELS.put("uk-london-1", "英国南部（伦敦）");
         ZH_LABELS.put("uk-cardiff-1", "英国西部（加的夫）");
         ZH_LABELS.put("ap-tokyo-1", "日本东部（东京）");

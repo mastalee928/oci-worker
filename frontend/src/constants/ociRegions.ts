@@ -14,7 +14,7 @@ export const OCI_REGION_MAP: Record<string, string> = {
   'eu-milan-1': '意大利西北部（米兰）',
   'eu-paris-1': '法国中部（巴黎）',
   'eu-madrid-1': '西班牙中部（马德里）',
-  'eu-madrid-3': '马德里3',
+  'eu-madrid-3': '西班牙中部（马德里3）',
   'uk-london-1': '英国南部（伦敦）',
   'uk-cardiff-1': '英国西部（加的夫）',
   'ap-tokyo-1': '日本东部（东京）',
