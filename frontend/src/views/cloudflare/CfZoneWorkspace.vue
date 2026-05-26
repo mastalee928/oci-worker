@@ -15,6 +15,7 @@
       :zone-id="zoneId"
       :cf-configured="cfConfigured"
       @update:zone-id="zoneId = $event"
+      @open-tunnel="$emit('open-tunnel', $event)"
     />
     <CfEmailTab
       v-else-if="activeMenu === 'email' && zoneId"
@@ -59,6 +60,10 @@ import CfRulesTab from './CfRulesTab.vue'
 import { createCfZone } from '../../api/cloudflare'
 
 defineProps<{ cfConfigured: boolean }>()
+
+defineEmits<{
+  'open-tunnel': [payload: { tunnelId: string; tunnelName?: string; zoneId?: string }]
+}>()
 
 const zoneId = ref<string | undefined>(undefined)
 const activeMenu = ref<CfZoneMenuKey>('overview')

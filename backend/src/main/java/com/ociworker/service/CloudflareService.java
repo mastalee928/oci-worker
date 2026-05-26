@@ -34,6 +34,7 @@ import java.time.temporal.ChronoUnit;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -1300,6 +1301,14 @@ public class CloudflareService {
                                                    String search, String type) {
         Credentials c = requireCredentials();
         requireZoneId(zoneId);
+        Map<String, Map<String, Object>> workerByHost = fetchWorkerDomainsByHostname(c, zoneId);
+        Map<String, Map<String, Object>> tunnelByCname = fetchTunnelsByCnameTarget(c);
+        if (StrUtil.isNotBlank(type) && "WORKER".equalsIgnoreCase(type.trim())) {
+            return listWorkerBoundDnsRecordsPage(c, zoneId, page, perPage, search, workerByHost);
+        }
+        if (StrUtil.isNotBlank(type) && "TUNNEL".equalsIgnoreCase(type.trim())) {
+            return listTunnelBoundDnsRecordsPage(c, zoneId, page, perPage, search, tunnelByCname, workerByHost);
+        }
         StringBuilder url = new StringBuilder(String.format("%s/zones/%s/dns_records?page=%d&per_page=%d",
                 CF_API_BASE, zoneId.trim(), page, perPage));
         if (StrUtil.isNotBlank(search)) {
@@ -1314,7 +1323,10 @@ public class CloudflareService {
         List<Map<String, Object>> records = new ArrayList<>();
         if (result != null) {
             for (int i = 0; i < result.size(); i++) {
-                records.add(mapDnsRecord(result.getJSONObject(i)));
+                Map<String, Object> map = mapDnsRecord(result.getJSONObject(i));
+                applyWorkerEnrichment(map, workerByHost);
+                applyTunnelEnrichment(map, tunnelByCname);
+                records.add(map);
             }
         }
         JSONObject info = json.getJSONObject("result_info");
@@ -1329,6 +1341,324 @@ public class CloudflareService {
         out.put("perPage", curPerPage);
         out.put("totalPages", totalPages);
         return out;
+    }
+
+    /** Worker 自定义域：按 CF 控制台展示，合并 workers/domains 与占位 DNS（如 AAAA 100::）。 */
+    private Map<String, Map<String, Object>> fetchWorkerDomainsByHostname(Credentials c, String zoneId) {
+        Map<String, Map<String, Object>> map = new LinkedHashMap<>();
+        int wp = 1;
+        int wPerPage = 50;
+        while (true) {
+            String url = String.format("%s/accounts/%s/workers/domains?zone_id=%s&page=%d&per_page=%d",
+                    CF_API_BASE, c.accountId(), zoneId.trim(), wp, wPerPage);
+            JSONObject json;
+            try {
+                json = parseJson(apiGet(c.apiToken(), url));
+                requireSuccess(json, "拉取 Worker 自定义域失败");
+            } catch (Exception e) {
+                log.debug("workers/domains skipped for zone {}: {}", zoneId, e.getMessage());
+                break;
+            }
+            JSONArray result = json.getJSONArray("result");
+            if (result == null || result.isEmpty()) {
+                break;
+            }
+            for (int i = 0; i < result.size(); i++) {
+                JSONObject d = result.getJSONObject(i);
+                String hostname = d.getStr("hostname");
+                if (StrUtil.isBlank(hostname)) {
+                    continue;
+                }
+                String key = normalizeDnsHostname(hostname);
+                Map<String, Object> info = new LinkedHashMap<>();
+                info.put("workerDomainId", d.getStr("id"));
+                info.put("service", d.getStr("service"));
+                info.put("hostname", hostname);
+                map.put(key, info);
+            }
+            JSONObject info = json.getJSONObject("result_info");
+            int totalPages = info != null ? info.getInt("total_pages", 1) : 1;
+            if (wp >= totalPages) {
+                break;
+            }
+            wp++;
+        }
+        return map;
+    }
+
+    private Map<String, Object> listWorkerBoundDnsRecordsPage(Credentials c, String zoneId, int page,
+                                                               int perPage, String search,
+                                                               Map<String, Map<String, Object>> workerByHost) {
+        List<Map<String, Object>> matched = new ArrayList<>();
+        String searchLower = StrUtil.isNotBlank(search) ? search.trim().toLowerCase() : null;
+        List<String> hosts = new ArrayList<>(workerByHost.keySet());
+        hosts.sort(String::compareTo);
+        for (String hostKey : hosts) {
+            Map<String, Object> wd = workerByHost.get(hostKey);
+            String hostname = (String) wd.get("hostname");
+            if (searchLower != null) {
+                String hay = hostKey;
+                if (hostname != null) {
+                    hay = hay + " " + hostname.toLowerCase();
+                }
+                String service = (String) wd.get("service");
+                if (service != null) {
+                    hay = hay + " " + service.toLowerCase();
+                }
+                if (!hay.contains(searchLower)) {
+                    continue;
+                }
+            }
+            String lookupName = StrUtil.isNotBlank(hostname) ? hostname : hostKey;
+            Map<String, Object> rec = lookupDnsRecordByHostname(c, zoneId, lookupName);
+            if (rec == null) {
+                rec = new LinkedHashMap<>();
+                rec.put("id", "");
+                rec.put("name", lookupName);
+                rec.put("type", "AAAA");
+                rec.put("content", "100::");
+                rec.put("proxied", true);
+                rec.put("ttl", 1);
+            }
+            applyWorkerEnrichment(rec, workerByHost);
+            matched.add(rec);
+        }
+        int total = matched.size();
+        int from = Math.max(0, (page - 1) * perPage);
+        int to = Math.min(total, from + perPage);
+        List<Map<String, Object>> pageRecords = from < to ? matched.subList(from, to) : List.of();
+        int totalPages = total == 0 ? 1 : (total + perPage - 1) / perPage;
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("records", new ArrayList<>(pageRecords));
+        out.put("total", total);
+        out.put("page", page);
+        out.put("perPage", perPage);
+        out.put("totalPages", totalPages);
+        return out;
+    }
+
+    private Map<String, Object> lookupDnsRecordByHostname(Credentials c, String zoneId, String hostname) {
+        if (StrUtil.isBlank(hostname)) {
+            return null;
+        }
+        String url = String.format("%s/zones/%s/dns_records?name=%s&per_page=20",
+                CF_API_BASE, zoneId.trim(), URLEncoder.encode(hostname.trim(), StandardCharsets.UTF_8));
+        JSONObject json = parseJson(apiGet(c.apiToken(), url));
+        requireSuccess(json, "查询 DNS 记录失败");
+        JSONArray result = json.getJSONArray("result");
+        if (result == null) {
+            return null;
+        }
+        String want = normalizeDnsHostname(hostname);
+        for (int i = 0; i < result.size(); i++) {
+            JSONObject r = result.getJSONObject(i);
+            if (want.equals(normalizeDnsHostname(r.getStr("name")))) {
+                return mapDnsRecord(r);
+            }
+        }
+        return null;
+    }
+
+    private static void applyWorkerEnrichment(Map<String, Object> rec,
+                                              Map<String, Map<String, Object>> workerByHost) {
+        if (workerByHost == null || workerByHost.isEmpty() || rec == null) {
+            return;
+        }
+        String name = normalizeDnsHostname((String) rec.get("name"));
+        Map<String, Object> wd = workerByHost.get(name);
+        if (wd == null) {
+            return;
+        }
+        rec.put("rawType", rec.get("type"));
+        rec.put("rawContent", rec.get("content"));
+        rec.put("workerBound", true);
+        rec.put("workerDomainId", wd.get("workerDomainId"));
+        rec.put("workerService", wd.get("service"));
+        rec.put("type", "Worker");
+        Object service = wd.get("service");
+        rec.put("content", service != null ? service.toString() : "");
+    }
+
+    /** Cloudflare Tunnel：CNAME → {tunnelId}.cfargotunnel.com，控制台显示为「隧道」+ 隧道名称。 */
+    private Map<String, Map<String, Object>> fetchTunnelsByCnameTarget(Credentials c) {
+        Map<String, Map<String, Object>> map = new LinkedHashMap<>();
+        int tp = 1;
+        int tPerPage = 50;
+        while (true) {
+            String url = String.format("%s/accounts/%s/cfd_tunnel?per_page=%d&page=%d&is_deleted=false",
+                    CF_API_BASE, c.accountId(), tPerPage, tp);
+            JSONObject json;
+            try {
+                json = parseJson(apiGet(c.apiToken(), url));
+                requireSuccess(json, "拉取 Tunnel 列表失败");
+            } catch (Exception e) {
+                log.debug("cfd_tunnel list skipped: {}", e.getMessage());
+                break;
+            }
+            JSONArray result = json.getJSONArray("result");
+            if (result == null || result.isEmpty()) {
+                break;
+            }
+            for (int i = 0; i < result.size(); i++) {
+                JSONObject t = result.getJSONObject(i);
+                String tunnelId = t.getStr("id");
+                if (StrUtil.isBlank(tunnelId)) {
+                    continue;
+                }
+                String name = t.getStr("name");
+                String cnameTarget = (tunnelId.trim() + ".cfargotunnel.com").toLowerCase();
+                Map<String, Object> info = new LinkedHashMap<>();
+                info.put("tunnelId", tunnelId.trim());
+                info.put("tunnelName", StrUtil.isNotBlank(name) ? name.trim() : tunnelId.trim());
+                map.put(cnameTarget, info);
+            }
+            JSONObject info = json.getJSONObject("result_info");
+            int totalPages = info != null ? info.getInt("total_pages", 1) : 1;
+            if (tp >= totalPages) {
+                break;
+            }
+            tp++;
+        }
+        return map;
+    }
+
+    private Map<String, Object> listTunnelBoundDnsRecordsPage(Credentials c, String zoneId, int page,
+                                                              int perPage, String search,
+                                                              Map<String, Map<String, Object>> tunnelByCname,
+                                                              Map<String, Map<String, Object>> workerByHost) {
+        List<Map<String, Object>> matched = new ArrayList<>();
+        String searchLower = StrUtil.isNotBlank(search) ? search.trim().toLowerCase() : null;
+        int dp = 1;
+        int dPerPage = 100;
+        while (true) {
+            String url = String.format("%s/zones/%s/dns_records?page=%d&per_page=%d&type=CNAME",
+                    CF_API_BASE, zoneId.trim(), dp, dPerPage);
+            JSONObject json = parseJson(apiGet(c.apiToken(), url));
+            requireSuccess(json, "拉取 DNS 记录失败");
+            JSONArray result = json.getJSONArray("result");
+            if (result != null) {
+                for (int i = 0; i < result.size(); i++) {
+                    Map<String, Object> map = mapDnsRecord(result.getJSONObject(i));
+                    applyWorkerEnrichment(map, workerByHost);
+                    applyTunnelEnrichment(map, tunnelByCname);
+                    if (!Boolean.TRUE.equals(map.get("tunnelBound"))) {
+                        continue;
+                    }
+                    if (searchLower != null && !dnsRecordMatchesSearch(map, searchLower)) {
+                        continue;
+                    }
+                    matched.add(map);
+                }
+            }
+            JSONObject info = json.getJSONObject("result_info");
+            int totalPages = info != null ? info.getInt("total_pages", 1) : 1;
+            if (dp >= totalPages) {
+                break;
+            }
+            dp++;
+        }
+        matched.sort(Comparator.comparing(m -> normalizeDnsHostname((String) m.get("name"))));
+        int total = matched.size();
+        int from = Math.max(0, (page - 1) * perPage);
+        int to = Math.min(total, from + perPage);
+        List<Map<String, Object>> pageRecords = from < to ? matched.subList(from, to) : List.of();
+        int totalPages = total == 0 ? 1 : (total + perPage - 1) / perPage;
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("records", new ArrayList<>(pageRecords));
+        out.put("total", total);
+        out.put("page", page);
+        out.put("perPage", perPage);
+        out.put("totalPages", totalPages);
+        return out;
+    }
+
+    private static boolean dnsRecordMatchesSearch(Map<String, Object> rec, String searchLower) {
+        StringBuilder hay = new StringBuilder();
+        Object name = rec.get("name");
+        if (name != null) {
+            hay.append(name.toString().toLowerCase()).append(' ');
+        }
+        Object type = rec.get("type");
+        if (type != null) {
+            hay.append(type.toString().toLowerCase()).append(' ');
+        }
+        Object content = rec.get("content");
+        if (content != null) {
+            hay.append(content.toString().toLowerCase()).append(' ');
+        }
+        Object tunnelName = rec.get("tunnelName");
+        if (tunnelName != null) {
+            hay.append(tunnelName.toString().toLowerCase()).append(' ');
+        }
+        Object workerService = rec.get("workerService");
+        if (workerService != null) {
+            hay.append(workerService.toString().toLowerCase()).append(' ');
+        }
+        return hay.toString().contains(searchLower);
+    }
+
+    private static void applyTunnelEnrichment(Map<String, Object> rec,
+                                              Map<String, Map<String, Object>> tunnelByCname) {
+        if (rec == null || Boolean.TRUE.equals(rec.get("workerBound"))
+                || tunnelByCname == null || tunnelByCname.isEmpty()) {
+            return;
+        }
+        Object typeObj = rec.get("type");
+        if (typeObj == null || !"CNAME".equalsIgnoreCase(typeObj.toString())) {
+            return;
+        }
+        String content = normalizeDnsContent(rec.get("content") != null ? rec.get("content").toString() : "");
+        if (!content.toLowerCase().endsWith(".cfargotunnel.com")) {
+            return;
+        }
+        String key = content.toLowerCase();
+        Map<String, Object> ti = tunnelByCname.get(key);
+        if (ti == null) {
+            String tunnelId = content.substring(0, content.length() - ".cfargotunnel.com".length()).trim();
+            for (Map.Entry<String, Map<String, Object>> e : tunnelByCname.entrySet()) {
+                if (e.getKey().startsWith(tunnelId.toLowerCase())) {
+                    ti = e.getValue();
+                    break;
+                }
+            }
+            if (ti == null && StrUtil.isNotBlank(tunnelId)) {
+                ti = new LinkedHashMap<>();
+                ti.put("tunnelId", tunnelId);
+                ti.put("tunnelName", tunnelId);
+            }
+        }
+        if (ti == null) {
+            return;
+        }
+        rec.put("rawType", rec.get("type"));
+        rec.put("rawContent", rec.get("content"));
+        rec.put("tunnelBound", true);
+        rec.put("tunnelId", ti.get("tunnelId"));
+        rec.put("tunnelName", ti.get("tunnelName"));
+        rec.put("type", "隧道");
+        Object tunnelName = ti.get("tunnelName");
+        rec.put("content", tunnelName != null ? tunnelName.toString() : "");
+    }
+
+    private static String normalizeDnsHostname(String name) {
+        if (name == null) {
+            return "";
+        }
+        String n = name.trim().toLowerCase();
+        if (n.endsWith(".")) {
+            n = n.substring(0, n.length() - 1);
+        }
+        return n;
+    }
+
+    public void deleteWorkerDomain(String workerDomainId) {
+        Credentials c = requireCredentials();
+        if (StrUtil.isBlank(workerDomainId)) {
+            throw new OciException("Worker 自定义域 ID 不能为空");
+        }
+        String url = CF_API_BASE + "/accounts/" + c.accountId() + "/workers/domains/"
+                + workerDomainId.trim();
+        apiDelete(c.apiToken(), url);
     }
 
     /** 向后兼容：仅返回 records 列表 */

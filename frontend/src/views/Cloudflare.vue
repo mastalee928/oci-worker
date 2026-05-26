@@ -11,10 +11,10 @@
 
     <a-tabs v-model:active-key="topTab">
       <a-tab-pane key="zones" tab="域名">
-        <CfZoneWorkspace :cf-configured="cfConfigured" />
+        <CfZoneWorkspace :cf-configured="cfConfigured" @open-tunnel="onOpenTunnel" />
       </a-tab-pane>
       <a-tab-pane key="account" tab="账户服务">
-        <CfAccountPanel :cf-configured="cfConfigured" />
+        <CfAccountPanel ref="accountPanelRef" :cf-configured="cfConfigured" />
       </a-tab-pane>
     </a-tabs>
   </div>
@@ -22,13 +22,23 @@
 
 <script setup lang="ts">
 defineOptions({ name: 'Cloudflare' })
-import { ref, onMounted, defineAsyncComponent } from 'vue'
+import { ref, onMounted, nextTick, defineAsyncComponent } from 'vue'
+import type { ComponentPublicInstance } from 'vue'
 const CfZoneWorkspace = defineAsyncComponent(() => import('./cloudflare/CfZoneWorkspace.vue'))
 const CfAccountPanel = defineAsyncComponent(() => import('./cloudflare/CfAccountPanel.vue'))
 import { getCfAccountConfig } from '../api/cloudflare'
 
 const topTab = ref('zones')
 const cfConfigured = ref(false)
+const accountPanelRef = ref<ComponentPublicInstance<{
+  openTunnelRoutesById: (tunnelId: string, tunnelName?: string, zoneId?: string) => Promise<void>
+}> | null>(null)
+
+async function onOpenTunnel(payload: { tunnelId: string; tunnelName?: string; zoneId?: string }) {
+  topTab.value = 'account'
+  await nextTick()
+  await accountPanelRef.value?.openTunnelRoutesById(payload.tunnelId, payload.tunnelName, payload.zoneId)
+}
 
 async function loadCfConfig() {
   try {

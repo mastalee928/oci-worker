@@ -836,6 +836,29 @@ async function showRoutes(record: { id: string; name: string }) {
   await Promise.all([loadZonesForRoutes(), loadTunnelRoutes()])
 }
 
+/** 从 DNS 等页面跳转：打开指定 Tunnel 的 Public Hostname 路由 */
+async function openTunnelRoutesById(tunnelId: string, tunnelName?: string, zoneId?: string) {
+  if (!tunnelId) {
+    message.warning('缺少 Tunnel ID')
+    return
+  }
+  accountTab.value = 'tunnel'
+  let tunnel = tunnels.value.find((t: { id: string }) => t.id === tunnelId)
+  if (!tunnel) {
+    await loadTunnels()
+    tunnel = tunnels.value.find((t: { id: string }) => t.id === tunnelId)
+  }
+  if (!tunnel) {
+    tunnel = { id: tunnelId, name: tunnelName || tunnelId }
+  }
+  await showRoutes(tunnel)
+  if (zoneId) {
+    routeForm.zoneId = zoneId
+  }
+}
+
+defineExpose({ openTunnelRoutesById })
+
 async function submitCreateRoute() {
   if (!routesTunnel.value?.id) return
   if (!routeForm.zoneId) {

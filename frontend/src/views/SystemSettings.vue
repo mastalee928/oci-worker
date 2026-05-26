@@ -189,55 +189,61 @@
       </a-tab-pane>
 
       <a-tab-pane key="cloudflare" tab="Cloudflare">
-        <a-card class="settings-card-wide">
+        <a-card class="settings-card-wide settings-card-wide--cf">
           <template #title>
             <span><i class="ri-cloud-line" style="margin-right: 8px; vertical-align: middle"></i>Cloudflare 全局凭据</span>
           </template>
-          <a-alert type="info" show-icon style="margin-bottom: 16px" message="如何创建 API 令牌">
-            <template #description>
-              <div class="cf-settings-help">
-                <p><strong>推荐：账户 API 令牌</strong>（以 <code>cfat_</code> 开头，适合 OCIWorker 长期集成）</p>
-                <ol>
-                  <li>登录 <a href="https://dash.cloudflare.com/" target="_blank" rel="noopener noreferrer">Cloudflare 控制台</a></li>
-                  <li>进入 <strong>管理账户 → 账户 API 令牌 → 创建令牌 → 自定义令牌</strong></li>
-                  <li>资源范围：<strong>整个账户</strong>，并包含 <strong>所有区域</strong>（或至少包含要管理的 Zone）</li>
-                  <li>
-                    权限（自定义最小权限时建议至少包含）：
-                    <ul>
-                      <li><strong>Account</strong> → <strong>Cloudflare Tunnel</strong> → <strong>Edit</strong>（Tunnel 连接器、Public Hostname / ingress 路由）</li>
-                      <li><strong>Account</strong> → <strong>Workers Scripts</strong> → <strong>Edit</strong>（创建 / 上传 Worker 脚本）</li>
-                      <li><strong>Account</strong> → <strong>Cloudflare Pages</strong> → <strong>Edit</strong>（Pages 项目、Direct Upload 静态部署）</li>
-                      <li><strong>Account</strong> → <strong>Analytics</strong> → <strong>Read</strong>（Workers 和 Pages「使用情况」用量）</li>
-                      <li><strong>Zone</strong> → <strong>DNS</strong> → <strong>Edit</strong>（DNS 记录、Tunnel 自动 CNAME）</li>
-                      <li><strong>Zone</strong> → <strong>Workers Routes</strong> → <strong>Edit</strong>（域名 → Workers 路由，可选）</li>
-                      <li>其余功能按需勾选对应 <strong>Edit</strong>（防火墙、SSL、缓存等）；同一项只勾 Edit，不必读+编辑双勾</li>
-                    </ul>
-                  </li>
-                  <li>若使用 Cloudflare 提供的「编辑全部区域」等宽权限模板，通常已包含上述能力，无需逐项勾选</li>
-                  <li>创建后复制完整 Token；<strong>Account ID</strong> 见创建成功页或仪表盘 Overview 右侧</li>
-                </ol>
-                <p class="cf-settings-help-note">
-                  备选：用户 API 令牌（非 <code>cfat_</code>）亦可。
-                </p>
-              </div>
-            </template>
-          </a-alert>
-          <a-form layout="vertical">
-            <a-form-item label="Account ID" required>
-              <a-input v-model:value="cfForm.accountId" placeholder="32 位 Account ID" allow-clear />
-            </a-form-item>
-            <a-form-item label="API Token" required>
-              <a-input-password
-                v-model:value="cfForm.apiToken"
-                :placeholder="cfTokenConfigured ? '已配置（留空不修改）' : '粘贴 API Token'"
-                allow-clear
-              />
-            </a-form-item>
-            <a-space>
-              <a-button type="primary" @click="saveCfConfig" :loading="cfSaveLoading">保存设置</a-button>
-              <a-button @click="testCfConfig" :loading="cfTestLoading">测试连接</a-button>
-            </a-space>
-          </a-form>
+          <div class="cf-settings-layout">
+            <div class="cf-settings-layout__help">
+              <a-alert type="info" show-icon message="如何创建 API 令牌" class="cf-settings-help-alert">
+                <template #description>
+                  <div class="cf-settings-help">
+                    <p><strong>推荐：账户 API 令牌</strong>（以 <code>cfat_</code> 开头，适合 OCIWorker 长期集成）</p>
+                    <ol>
+                      <li>登录 <a href="https://dash.cloudflare.com/" target="_blank" rel="noopener noreferrer">Cloudflare 控制台</a></li>
+                      <li>进入 <strong>管理账户 → 账户 API 令牌 → 创建令牌 → 自定义令牌</strong></li>
+                      <li>资源范围：<strong>整个账户</strong>，并包含 <strong>所有区域</strong>（或至少包含要管理的 Zone）</li>
+                      <li>
+                        权限（自定义最小权限时建议至少包含）：
+                        <ul>
+                          <li><strong>Account</strong> → <strong>Cloudflare Tunnel</strong> → <strong>Edit</strong>（Tunnel 连接器、Public Hostname / ingress 路由）</li>
+                          <li><strong>Account</strong> → <strong>Workers Scripts</strong> → <strong>Edit</strong>（创建 / 上传 Worker 脚本）</li>
+                          <li><strong>Account</strong> → <strong>Cloudflare Pages</strong> → <strong>Edit</strong>（Pages 项目、Direct Upload 静态部署）</li>
+                          <li><strong>Account</strong> → <strong>Analytics</strong> → <strong>Read</strong>（Workers 和 Pages「使用情况」用量）</li>
+                          <li><strong>Zone</strong> → <strong>DNS</strong> → <strong>Edit</strong>（DNS 记录、Tunnel 自动 CNAME）</li>
+                          <li><strong>Zone</strong> → <strong>Workers Routes</strong> → <strong>Edit</strong>（域名 → Workers 路由，可选）</li>
+                          <li>其余功能按需勾选对应 <strong>Edit</strong>（防火墙、SSL、缓存等）；同一项只勾 Edit，不必读+编辑双勾</li>
+                        </ul>
+                      </li>
+                      <li>若使用 Cloudflare 提供的「编辑全部区域」等宽权限模板，通常已包含上述能力，无需逐项勾选</li>
+                      <li>创建后复制完整 Token；<strong>Account ID</strong> 见创建成功页或仪表盘 Overview 右侧</li>
+                    </ol>
+                    <p class="cf-settings-help-note">
+                      备选：用户 API 令牌（非 <code>cfat_</code>）亦可。
+                    </p>
+                  </div>
+                </template>
+              </a-alert>
+            </div>
+            <div class="cf-settings-layout__form">
+              <a-form layout="vertical" class="cf-settings-form">
+                <a-form-item label="Account ID" required>
+                  <a-input v-model:value="cfForm.accountId" placeholder="32 位 Account ID" allow-clear />
+                </a-form-item>
+                <a-form-item label="API Token" required>
+                  <a-input-password
+                    v-model:value="cfForm.apiToken"
+                    :placeholder="cfTokenConfigured ? '已配置（留空不修改）' : '粘贴 API Token'"
+                    allow-clear
+                  />
+                </a-form-item>
+                <a-space wrap>
+                  <a-button type="primary" @click="saveCfConfig" :loading="cfSaveLoading">保存设置</a-button>
+                  <a-button @click="testCfConfig" :loading="cfTestLoading">测试连接</a-button>
+                </a-space>
+              </a-form>
+            </div>
+          </div>
         </a-card>
       </a-tab-pane>
 
@@ -1550,6 +1556,9 @@ async function handleRestore() {
   -webkit-backdrop-filter: blur(12px);
   transition: var(--trans);
 }
+.settings-card-wide--cf {
+  max-width: min(960px, 100%);
+}
 .settings-card-oci-proxy {
   max-width: min(880px, 100%);
   width: 100%;
@@ -1750,6 +1759,33 @@ async function handleRestore() {
   font-size: 14px;
 }
 
+.cf-settings-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 380px);
+  gap: 20px;
+  align-items: start;
+}
+.cf-settings-layout__help {
+  min-width: 0;
+}
+.cf-settings-help-alert {
+  margin-bottom: 0;
+  height: 100%;
+}
+.cf-settings-help-alert :deep(.ant-alert) {
+  height: 100%;
+}
+.cf-settings-layout__form {
+  min-width: 0;
+  padding: 16px 18px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 12px);
+  background: var(--bg-card);
+}
+.cf-settings-form :deep(.ant-form-item:last-of-type) {
+  margin-bottom: 16px;
+}
+
 .cf-settings-help {
   font-size: 13px;
   line-height: 1.6;
@@ -1783,6 +1819,12 @@ async function handleRestore() {
   .settings-card-audit,
   .backup-restore-stack {
     max-width: 100% !important;
+  }
+  .cf-settings-layout {
+    grid-template-columns: 1fr;
+  }
+  .cf-settings-layout__form {
+    padding: 14px 12px;
   }
 }
 </style>

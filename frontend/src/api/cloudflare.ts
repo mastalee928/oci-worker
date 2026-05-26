@@ -80,6 +80,10 @@ export function deleteCfDnsRecord(data: { zoneId: string; recordId: string }) {
   return request.post('/cf/dns/delete', data)
 }
 
+export function deleteCfWorkerDomain(data: { workerDomainId: string }) {
+  return request.post('/cf/workers/domain/delete', data)
+}
+
 export function exportCfDnsRecords(data: { zoneId: string }) {
   return request.post('/cf/dns/export', data)
 }

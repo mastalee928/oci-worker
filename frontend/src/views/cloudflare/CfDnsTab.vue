@@ -73,16 +73,36 @@
         :columns="dnsColumns"
         :data-source="dnsRecords"
         :loading="dnsLoading"
-        row-key="id"
+        :row-key="(r: DnsRecord) => r.id || r.workerDomainId || r.name"
         size="middle"
         :scroll="{ x: 1100 }"
         :pagination="dnsPagination"
         @change="onDnsTableChange"
       >
         <template #bodyCell="{ column, record }">
-          <template v-if="column.key === 'proxied'">
+          <template v-if="column.key === 'type'">
+            <a-tag v-if="record.tunnelBound" color="cyan">隧道</a-tag>
+            <a-tag v-else-if="record.workerBound" color="processing">Worker</a-tag>
+            <span v-else>{{ record.type }}</span>
+          </template>
+          <template v-else-if="column.key === 'content'">
+            <a-button
+              v-if="record.tunnelBound && record.tunnelId"
+              type="link"
+              size="small"
+              class="cf-dns-tunnel-link"
+              @click="openTunnelFromDns(record)"
+            >
+              {{ record.content }}
+            </a-button>
+            <span v-else :class="{ 'cf-dns-special-target': record.workerBound }">{{ record.content }}</span>
+          </template>
+          <template v-else-if="column.key === 'proxied'">
             <a-tag v-if="record.proxied" color="orange">代理</a-tag>
             <span v-else>—</span>
+          </template>
+          <template v-else-if="column.key === 'ttl'">
+            {{ formatDnsTtl(record.ttl) }}
           </template>
           <template v-else-if="column.key === 'priority'">
             {{ record.priority ?? '—' }}
@@ -92,8 +112,23 @@
           </template>
           <template v-else-if="column.key === 'action'">
             <a-space wrap>
-              <a-button type="link" size="small" @click="openDnsModal(record)">编辑</a-button>
-              <a-popconfirm title="确定删除此 DNS 记录？" @confirm="handleDeleteDns(record.id)">
+              <a-tooltip
+                v-if="record.workerBound"
+                title="Worker 自定义域请在 Workers 的「域和路由」中修改"
+              >
+                <a-button type="link" size="small" disabled>编辑</a-button>
+              </a-tooltip>
+              <a-tooltip
+                v-else-if="record.tunnelBound"
+                title="Tunnel 路由请在 Tunnel 连接器的 Public Hostname 中修改"
+              >
+                <a-button type="link" size="small" disabled>编辑</a-button>
+              </a-tooltip>
+              <a-button v-else type="link" size="small" @click="openDnsModal(record)">编辑</a-button>
+              <a-popconfirm
+                :title="dnsDeleteConfirmTitle(record)"
+                @confirm="handleDeleteDns(record)"
+              >
                 <a-button type="link" danger size="small">删除</a-button>
               </a-popconfirm>
             </a-space>
@@ -103,20 +138,42 @@
 
       <a-spin v-else :spinning="dnsLoading">
         <a-empty v-if="!dnsLoading && dnsRecords.length === 0" description="暂无 DNS 记录" />
-        <div v-for="item in dnsRecords" :key="item.id" class="mobile-card">
+        <div v-for="item in dnsRecords" :key="item.id || item.workerDomainId || item.name" class="mobile-card">
           <div class="mobile-card-header">
-            <span class="mobile-card-title">{{ item.type }} · {{ item.name }}</span>
+            <span class="mobile-card-title">
+              <template v-if="item.tunnelBound">隧道</template>
+              <template v-else-if="item.workerBound">Worker</template>
+              <template v-else>{{ item.type }}</template>
+              · {{ item.name }}
+            </span>
             <a-tag v-if="item.proxied" color="orange">代理</a-tag>
           </div>
+          <p v-if="item.workerBound" class="cf-dns-special-hint">Worker 充当此主机名的 Origin，请在 Workers「域和路由」中修改。</p>
+          <p v-else-if="item.tunnelBound" class="cf-dns-special-hint">隧道 CNAME 由 Cloudflare Tunnel 管理，请在 Tunnel Public Hostname 中修改。</p>
           <div class="mobile-card-body">
-            <div class="mobile-card-row"><span class="label">内容</span><span class="value">{{ item.content }}</span></div>
-            <div class="mobile-card-row"><span class="label">TTL</span><span class="value">{{ item.ttl }}</span></div>
+            <div class="mobile-card-row">
+              <span class="label">{{ item.tunnelBound ? '隧道' : item.workerBound ? 'Worker' : '内容' }}</span>
+              <a-button
+                v-if="item.tunnelBound && item.tunnelId"
+                type="link"
+                size="small"
+                class="cf-dns-tunnel-link mobile"
+                @click="openTunnelFromDns(item)"
+              >
+                {{ item.content }}
+              </a-button>
+              <span v-else class="value" :class="{ 'cf-dns-special-target': item.workerBound }">{{ item.content }}</span>
+            </div>
+            <div class="mobile-card-row"><span class="label">TTL</span><span class="value">{{ formatDnsTtl(item.ttl) }}</span></div>
             <div v-if="item.priority != null" class="mobile-card-row"><span class="label">优先级</span><span class="value">{{ item.priority }}</span></div>
             <div v-if="item.comment" class="mobile-card-row"><span class="label">备注</span><span class="value">{{ item.comment }}</span></div>
           </div>
           <a-space wrap style="margin-top: 8px">
-            <a-button size="small" @click="openDnsModal(item)">编辑</a-button>
-            <a-popconfirm title="确定删除？" @confirm="handleDeleteDns(item.id)">
+            <a-button v-if="!item.workerBound && !item.tunnelBound" size="small" @click="openDnsModal(item)">编辑</a-button>
+            <a-popconfirm
+              :title="dnsDeleteConfirmTitle(item)"
+              @confirm="handleDeleteDns(item)"
+            >
               <a-button size="small" danger>删除</a-button>
             </a-popconfirm>
           </a-space>
@@ -204,6 +261,7 @@ import {
   addCfDnsRecord,
   updateCfDnsRecord,
   deleteCfDnsRecord,
+  deleteCfWorkerDomain,
   exportCfDnsRecords,
   importCfDnsRecords,
   getCfDnssec,
@@ -219,6 +277,14 @@ interface DnsRecord {
   ttl?: number
   priority?: number
   comment?: string
+  workerBound?: boolean
+  workerDomainId?: string
+  workerService?: string
+  tunnelBound?: boolean
+  tunnelId?: string
+  tunnelName?: string
+  rawType?: string
+  rawContent?: string
 }
 
 const props = defineProps<{
@@ -228,7 +294,20 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'update:zoneId': [value: string | undefined]
+  'open-tunnel': [payload: { tunnelId: string; tunnelName?: string; zoneId?: string }]
 }>()
+
+function openTunnelFromDns(record: DnsRecord) {
+  if (!record.tunnelId) {
+    message.warning('缺少 Tunnel ID，无法打开隧道配置')
+    return
+  }
+  emit('open-tunnel', {
+    tunnelId: record.tunnelId,
+    tunnelName: record.tunnelName || record.content,
+    zoneId: props.zoneId,
+  })
+}
 
 const isMobile = ref(window.innerWidth < 768)
 function checkMobile() { isMobile.value = window.innerWidth < 768 }
@@ -267,17 +346,33 @@ const exportLoading = ref(false)
 
 const DNS_TYPES = ['A', 'AAAA', 'CNAME', 'TXT', 'MX', 'NS', 'SRV', 'CAA', 'HTTPS', 'PTR']
 const dnsTypeOptions = DNS_TYPES.map(v => ({ value: v, label: v }))
-const dnsTypeFilterOptions = [{ value: '', label: '全部类型' }, ...dnsTypeOptions]
+const dnsTypeFilterOptions = [
+  { value: '', label: '全部类型' },
+  { value: 'WORKER', label: 'Worker' },
+  { value: 'TUNNEL', label: '隧道' },
+  ...dnsTypeOptions,
+]
+
+function dnsDeleteConfirmTitle(record: DnsRecord) {
+  if (record.workerBound) return '确定移除此 Worker 自定义域？'
+  if (record.tunnelBound) return '确定删除此隧道 DNS 记录？（不会删除 Tunnel 本身）'
+  return '确定删除此 DNS 记录？'
+}
+
+function formatDnsTtl(ttl?: number) {
+  if (ttl == null || ttl === 1) return '自动'
+  return String(ttl)
+}
 
 const dnsProxiedSupported = computed(() => ['A', 'AAAA', 'CNAME'].includes(dnsForm.type))
 const dnsPrioritySupported = computed(() => ['MX', 'SRV'].includes(dnsForm.type))
 
 const dnsColumns = [
-  { title: '类型', dataIndex: 'type', width: 72 },
+  { title: '类型', key: 'type', width: 88 },
   { title: '名称', dataIndex: 'name', ellipsis: true },
-  { title: '内容', dataIndex: 'content', ellipsis: true },
+  { title: '内容', key: 'content', ellipsis: true },
   { title: '代理', key: 'proxied', width: 72 },
-  { title: 'TTL', dataIndex: 'ttl', width: 72 },
+  { title: 'TTL', key: 'ttl', width: 72 },
   { title: '优先级', key: 'priority', width: 80 },
   { title: '备注', key: 'comment', ellipsis: true, width: 120 },
   { title: '操作', key: 'action', width: 120 },
@@ -380,6 +475,14 @@ async function loadDnsRecords(zoneId?: string, seq?: number) {
 }
 
 function openDnsModal(record?: DnsRecord) {
+  if (record?.workerBound) {
+    message.info('Worker 自定义域请在 Workers「域和路由」中修改，此处仅展示。')
+    return
+  }
+  if (record?.tunnelBound) {
+    message.info('Tunnel 路由请在 Tunnel 连接器的 Public Hostname 中修改，此处仅展示。')
+    return
+  }
   if (record) {
     dnsEditingId.value = record.id
     dnsForm.type = record.type || 'A'
@@ -434,10 +537,23 @@ async function submitDnsRecord() {
   }
 }
 
-async function handleDeleteDns(recordId: string) {
+async function handleDeleteDns(record: DnsRecord) {
   if (!props.zoneId) return
-  await deleteCfDnsRecord({ zoneId: props.zoneId, recordId })
-  message.success('已删除')
+  if (record.workerBound) {
+    if (!record.workerDomainId) {
+      message.warning('缺少 Worker 自定义域 ID，无法删除')
+      return
+    }
+    await deleteCfWorkerDomain({ workerDomainId: record.workerDomainId })
+    message.success('已移除 Worker 自定义域')
+  } else {
+    if (!record.id) {
+      message.warning('缺少 DNS 记录 ID')
+      return
+    }
+    await deleteCfDnsRecord({ zoneId: props.zoneId, recordId: record.id })
+    message.success('已删除')
+  }
   await loadDnsRecords()
 }
 
@@ -544,4 +660,25 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
 }
 .mobile-card-row .label { color: var(--text-sub); flex-shrink: 0; }
 .mobile-card-row .value { text-align: right; word-break: break-all; }
+.cf-dns-special-target {
+  color: var(--primary, #1677ff);
+  font-weight: 500;
+}
+.cf-dns-tunnel-link {
+  padding: 0;
+  height: auto;
+  font-weight: 500;
+}
+.cf-dns-tunnel-link.mobile {
+  height: auto;
+  padding: 0;
+  white-space: normal;
+  text-align: right;
+}
+.cf-dns-special-hint {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--text-sub);
+  line-height: 1.5;
+}
 </style>

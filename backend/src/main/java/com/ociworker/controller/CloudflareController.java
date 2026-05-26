@@ -235,6 +235,12 @@ public class CloudflareController {
         return ResponseData.ok();
     }
 
+    @PostMapping("/workers/domain/delete")
+    public ResponseData<?> deleteWorkerDomain(@RequestBody Map<String, String> params) {
+        cloudflareService.deleteWorkerDomain(params.get("workerDomainId"));
+        return ResponseData.ok();
+    }
+
     @PostMapping("/dns/export")
     public ResponseData<?> exportDns(@RequestBody Map<String, String> params) {
         return ResponseData.ok(cloudflareService.exportDnsRecords(params.get("zoneId")));
