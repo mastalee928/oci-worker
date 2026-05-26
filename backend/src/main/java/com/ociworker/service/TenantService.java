@@ -20,12 +20,14 @@ import com.ociworker.model.entity.OciKv;
 import com.ociworker.model.entity.OciUser;
 import com.ociworker.model.params.IdListParams;
 import com.ociworker.model.params.PageParams;
+import com.ociworker.model.params.TenantBatchMoveGroupParams;
 import com.ociworker.model.params.TenantParams;
 import com.ociworker.util.CommonUtils;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.ByteArrayOutputStream;
@@ -214,6 +216,25 @@ public class TenantService {
     public void remove(IdListParams params) {
         userMapper.deleteBatchIds(params.getIdList());
         log.info("Removed tenant configs: {}", params.getIdList());
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void batchMoveGroup(TenantBatchMoveGroupParams params) {
+        String l1 = params.getGroupLevel1().trim();
+        String l2 = null;
+        if (!"未分组".equals(l1) && StrUtil.isNotBlank(params.getGroupLevel2())) {
+            l2 = params.getGroupLevel2().trim();
+        }
+        for (String id : params.getIdList()) {
+            OciUser user = userMapper.selectById(id);
+            if (user == null) {
+                throw new OciException("配置不存在: " + id);
+            }
+            user.setGroupLevel1(l1);
+            user.setGroupLevel2(l2);
+            userMapper.updateById(user);
+        }
+        log.info("Batch moved {} tenants to group {}/{}", params.getIdList().size(), l1, l2);
     }
 
     public OciUser getById(String id) {

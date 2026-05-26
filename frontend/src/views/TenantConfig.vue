@@ -9,6 +9,9 @@
         <a-button type="primary" @click="showAddModal">
           <template #icon><PlusOutlined /></template>新增配置
         </a-button>
+        <a-button :disabled="!selectedRowKeys.length" @click="openBatchMoveModal">
+          批量移动
+        </a-button>
         <a-button danger :disabled="!selectedRowKeys.length" @click="handleBatchDelete">
           批量删除
         </a-button>
@@ -341,6 +344,41 @@
         </a-button>
       </a-tooltip>
     </div>
+
+    <!-- 批量移动到分组 -->
+    <a-modal
+      v-model:open="batchMoveVisible"
+      title="批量移动到分组"
+      :confirm-loading="batchMoveLoading"
+      :width="isMobile ? 'calc(100vw - 32px)' : 480"
+      @ok="confirmBatchMove"
+    >
+      <p style="margin: 0 0 12px; color: var(--text-sub)">已选择 {{ selectedRowKeys.length }} 个租户</p>
+      <a-form layout="vertical">
+        <a-form-item label="一级分组" required>
+          <a-select
+            v-model:value="batchMoveG1"
+            placeholder="选择一级分组"
+            show-search
+            :filter-option="filterGroupOption"
+            @change="batchMoveG2 = undefined"
+          >
+            <a-select-option v-for="g in batchMoveLevel1Options" :key="g" :value="g">{{ g }}</a-select-option>
+          </a-select>
+        </a-form-item>
+        <a-form-item v-if="batchMoveG1 && batchMoveG1 !== '未分组'" label="二级分组（可选）">
+          <a-select
+            v-model:value="batchMoveG2"
+            placeholder="不选则仅归入一级分组"
+            allow-clear
+            show-search
+            :filter-option="filterGroupOption"
+          >
+            <a-select-option v-for="g in batchMoveLevel2Options" :key="g" :value="g">{{ g }}</a-select-option>
+          </a-select>
+        </a-form-item>
+      </a-form>
+    </a-modal>
 
     <!-- 分组管理器弹窗 -->
     <a-modal v-model:open="groupMgrVisible" title="管理分组" :width="isMobile ? '100%' : 700" :footer="null" centered>
@@ -1203,7 +1241,7 @@ import { useRouter } from 'vue-router'
 import { PlusOutlined, ThunderboltOutlined, InboxOutlined, ReloadOutlined, MenuFoldOutlined, MenuUnfoldOutlined, VerticalAlignTopOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
 import type { UploadFile } from 'ant-design-vue'
-import { getTenantList, addTenant, updateTenant, removeTenant, uploadKey, getTenantFullInfo, getTenantBillingSummary, downloadInvoicePdf, getDomainSettings, updateMfa, updatePasswordExpiry, getAuditLogs, getServiceQuotas, listIamPolicies, getIamPolicy, listAnnouncements, getAnnouncementDetail, getTenantGroups, createGroup, renameGroup, deleteGroup, saveGroupOrder, unlockAuthFactors, getAuthFactors, updateAuthFactors } from '../api/tenant'
+import { getTenantList, addTenant, updateTenant, removeTenant, batchMoveTenantGroup, uploadKey, getTenantFullInfo, getTenantBillingSummary, downloadInvoicePdf, getDomainSettings, updateMfa, updatePasswordExpiry, getAuditLogs, getServiceQuotas, listIamPolicies, getIamPolicy, listAnnouncements, getAnnouncementDetail, getTenantGroups, createGroup, renameGroup, deleteGroup, saveGroupOrder, unlockAuthFactors, getAuthFactors, updateAuthFactors } from '../api/tenant'
 import { sendVerifyCode } from '../api/system'
 import { RightOutlined, DownOutlined, SettingOutlined, FolderOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons-vue'
 import AuditLogTable from '../components/AuditLogTable.vue'
@@ -1396,6 +1434,10 @@ const searchTableData = ref<any[]>([])
 const tableData = computed(() => (searchText.value ? searchTableData.value : catalog.tenants) as any[])
 const searchText = ref('')
 const selectedRowKeys = ref<string[]>([])
+const batchMoveVisible = ref(false)
+const batchMoveLoading = ref(false)
+const batchMoveG1 = ref<string | undefined>(undefined)
+const batchMoveG2 = ref<string | undefined>(undefined)
 const modalVisible = ref(false)
 const editingId = ref('')
 const pagination = reactive({ current: 1, pageSize: 10, total: 0 })
@@ -1936,6 +1978,23 @@ const level2Options = computed(() => {
   if (!formState.groupLevel1) return []
   return groupData.value.level2[formState.groupLevel1] || []
 })
+
+const batchMoveLevel1Options = computed(() => {
+  const set = new Set<string>(groupData.value.level1 || [])
+  set.add('未分组')
+  return Array.from(set)
+})
+
+const batchMoveLevel2Options = computed(() => {
+  const g1 = batchMoveG1.value
+  if (!g1 || g1 === '未分组') return []
+  return groupData.value.level2[g1] || []
+})
+
+function filterGroupOption(input: string, option: any) {
+  const label = option?.label ?? option?.children ?? option?.value ?? ''
+  return String(label).toLowerCase().includes(input.toLowerCase())
+}
 
 interface GroupNode {
   label: string
@@ -2539,6 +2598,48 @@ async function handleDelete(id: string) {
     loadData()
   } catch (e: any) {
     message.error(e?.message || '删除失败')
+  }
+}
+
+async function openBatchMoveModal() {
+  if (!selectedRowKeys.value.length) return
+  batchMoveG1.value = undefined
+  batchMoveG2.value = undefined
+  try {
+    await catalog.ensureGroups({ silent: true })
+  } catch {
+    /* 仍可用已有 groupData */
+  }
+  batchMoveVisible.value = true
+}
+
+async function confirmBatchMove() {
+  if (!selectedRowKeys.value.length) return
+  if (!batchMoveG1.value) {
+    message.warning('请选择一级分组')
+    return Promise.reject()
+  }
+  batchMoveLoading.value = true
+  try {
+    await batchMoveTenantGroup({
+      idList: [...selectedRowKeys.value],
+      groupLevel1: batchMoveG1.value,
+      groupLevel2: batchMoveG2.value || undefined,
+    })
+    const target = {
+      groupLevel1: batchMoveG1.value,
+      groupLevel2: batchMoveG2.value || undefined,
+    }
+    message.success('已移动')
+    batchMoveVisible.value = false
+    selectedRowKeys.value = []
+    catalog.invalidate()
+    await loadData(target)
+  } catch (e: any) {
+    message.error(e?.message || '移动失败')
+    return Promise.reject()
+  } finally {
+    batchMoveLoading.value = false
   }
 }
 

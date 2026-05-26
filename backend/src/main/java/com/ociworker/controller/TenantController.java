@@ -3,6 +3,7 @@ package com.ociworker.controller;
 import com.ociworker.model.params.IdListParams;
 import com.ociworker.model.params.IdParams;
 import com.ociworker.model.params.PageParams;
+import com.ociworker.model.params.TenantBatchMoveGroupParams;
 import com.ociworker.model.params.TenantParams;
 import com.ociworker.model.vo.ResponseData;
 import com.ociworker.service.DomainManagementService;
@@ -59,6 +60,12 @@ public class TenantController {
     @PostMapping("/remove")
     public ResponseData<?> remove(@RequestBody @Valid IdListParams params) {
         tenantService.remove(params);
+        return ResponseData.ok();
+    }
+
+    @PostMapping("/batchMoveGroup")
+    public ResponseData<?> batchMoveGroup(@RequestBody @Valid TenantBatchMoveGroupParams params) {
+        tenantService.batchMoveGroup(params);
         return ResponseData.ok();
     }
 

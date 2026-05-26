@@ -16,6 +16,14 @@ export function removeTenant(data: { idList: string[] }) {
   return request.post('/oci/user/remove', data)
 }
 
+export function batchMoveTenantGroup(data: {
+  idList: string[]
+  groupLevel1: string
+  groupLevel2?: string
+}) {
+  return request.post('/oci/user/batchMoveGroup', data)
+}
+
 export function getTenantDetails(data: { id: string }) {
   return request.post('/oci/user/details', data)
 }
