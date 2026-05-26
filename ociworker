@@ -363,7 +363,6 @@ cmd_status() {
     echo "JAR:    $(ls -l "${INSTALL_DIR}/${JAR_NAME}" 2>/dev/null | awk '{print $5,$6,$7,$8}')"
     echo "Config: ${CONFIG_FILE}"
     echo "Port:   $(yaml_get server.port)"
-    echo "WebSSH: 已内置 JAR（与面板同端口，路径 /webssh）"
 }
 
 cmd_start() {
@@ -736,7 +735,6 @@ cmd_uninstall() {
 cmd_version() {
     section "版本信息"
     [ -f "${INSTALL_DIR}/${JAR_NAME}" ] && ls -lh "${INSTALL_DIR}/${JAR_NAME}" || echo "JAR 未安装"
-    echo "WebSSH: 已内置 JAR（无需 oci-webssh 二进制）"
     if command -v java >/dev/null 2>&1; then java -version 2>&1 | head -n 1; fi
 }
 
