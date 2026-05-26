@@ -1265,30 +1265,65 @@ function parseUrlLogin() {
     return { host: host, port: port || 22, user: user || 'root', pass: pass || '', authType: authType };
 }
 
-function tryConsoleConnect() {
+function parseConsoleParams() {
     var hash = window.location.hash;
-    if (!hash || hash.indexOf('console=1') === -1) return;
-    var params = {};
-    hash.replace(/^#/, '').split('&').forEach(function (p) {
-        var kv = p.split('=');
-        if (kv.length === 2) params[decodeURIComponent(kv[0])] = decodeURIComponent(kv[1]);
-    });
-    if (!params.host || !params.user) return;
-    window.location.hash = '';
-    var host = params.host;
-    var port = parseInt(params.port) || 22;
-    var user = params.user;
-    var pass = params.pass || '';
-    var sshInfo = buildSSHInfoDirect(host, port, user, pass);
-    var session = createSession(host, port, user, sshInfo);
-    showView('terminalView');
-    switchTab(sessions.length - 1);
-    setTimeout(function () {
-        try { session.fitAddon.fit(); } catch (e) {}
-        connectSession(session);
-        setStatus('', '就绪');
-        renderScriptBookmarks();
-    }, 300);
+    if (!hash || hash.indexOf('console=') === -1) return null;
+    try {
+        var params = new URLSearchParams(hash.replace(/^#/, ''));
+        if (params.get('console') !== '1') return null;
+        var host = params.get('host');
+        var user = params.get('user');
+        if (!host || !user) return null;
+        return {
+            host: host,
+            port: parseInt(params.get('port'), 10) || 22,
+            user: user,
+            pass: params.get('pass') || ''
+        };
+    } catch (e) {
+        return null;
+    }
+}
+
+function applyConsoleToLoginForm(info) {
+    document.getElementById('hostname').value = info.host;
+    document.getElementById('port').value = info.port;
+    document.getElementById('username').value = info.user;
+    switchAuthTab('password');
+    document.getElementById('password').value = info.pass;
+}
+
+function tryConsoleConnect() {
+    var info = parseConsoleParams();
+    if (!info) return false;
+    try {
+        var sshInfo = buildSSHInfoDirect(info.host, info.port, info.user, info.pass);
+        var session = createSession(info.host, info.port, info.user, sshInfo);
+        showView('terminalView');
+        switchTab(sessions.length - 1);
+        window.location.hash = '';
+        setTimeout(function () {
+            try { session.fitAddon.fit(); } catch (e) {}
+            connectSession(session);
+            setStatus('', '就绪');
+            renderScriptBookmarks();
+        }, 300);
+        return true;
+    } catch (e) {
+        console.error('tryConsoleConnect failed', e);
+        showToast('串口自动连接失败: ' + (e && e.message ? e.message : e), 'error');
+        applyConsoleToLoginForm(info);
+        setTimeout(function () { connectFromLogin(); }, 200);
+        return false;
+    }
+}
+
+function bootConsoleConnect() {
+    if (tryConsoleConnect()) return;
+    var info = parseConsoleParams();
+    if (!info) return;
+    applyConsoleToLoginForm(info);
+    setTimeout(function () { connectFromLogin(); }, 300);
 }
 
 function tryAutoLogin() {
@@ -1319,11 +1354,15 @@ function tryAutoLogin() {
 
 // ==================== Init ====================
 initTheme();
-initSettings();
-initSysInterval();
-renderConnBookmarks();
-loadProxyConfig();
-tryConsoleConnect();
+bootConsoleConnect();
+try {
+    initSettings();
+    initSysInterval();
+    renderConnBookmarks();
+    loadProxyConfig();
+} catch (e) {
+    console.error('WebSSH init partial failure', e);
+}
 tryAutoLogin();
 
 // Fetch server config (footer visibility etc.)

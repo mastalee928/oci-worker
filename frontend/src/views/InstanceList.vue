@@ -2082,6 +2082,7 @@ async function handleCreateConsole() {
     })
     consoleData.value = res.data
     message.success('控制台连接已创建')
+    openConsoleWebSSH()
   } catch (e: any) {
     message.error(e?.message || '创建控制台连接失败')
   } finally {
