@@ -106,6 +106,30 @@ public class ByoipService {
         return map;
     }
 
+    private Map<String, Object> mapByoipRangeSummary(ByoipRangeSummary r) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("id", r.getId());
+        map.put("compartmentId", r.getCompartmentId());
+        map.put("displayName", r.getDisplayName());
+        map.put("cidrBlock", r.getCidrBlock());
+        map.put("ipv6CidrBlock", r.getIpv6CidrBlock());
+        map.put("ipVersion", r.getIpv6CidrBlock() != null && !r.getIpv6CidrBlock().isBlank() ? "IPV6" : "IPV4");
+        map.put("lifecycleState", r.getLifecycleState() != null ? r.getLifecycleState().getValue() : null);
+        map.put("lifecycleDetails", r.getLifecycleDetails() != null ? r.getLifecycleDetails().getValue() : null);
+        map.put("timeCreated", r.getTimeCreated() != null ? r.getTimeCreated().toString() : null);
+        if (r.getByoipRangeVcnIpv6Allocations() != null) {
+            map.put("vcnIpv6Allocations", r.getByoipRangeVcnIpv6Allocations().stream().map(a -> {
+                Map<String, Object> m = new LinkedHashMap<>();
+                m.put("vcnId", a.getVcnId());
+                m.put("ipv6CidrBlock", a.getIpv6CidrBlock());
+                return m;
+            }).collect(Collectors.toList()));
+        } else {
+            map.put("vcnIpv6Allocations", List.of());
+        }
+        return map;
+    }
+
     public List<Map<String, Object>> listByoipRanges(String userId, String region) {
         OciUser ociUser = requireUser(userId);
         try (OciClientService client = oci(ociUser, region)) {
@@ -117,7 +141,7 @@ public class ByoipService {
             if (coll == null || coll.getItems() == null) {
                 return List.of();
             }
-            return coll.getItems().stream().map(this::mapByoipRange).collect(Collectors.toList());
+            return coll.getItems().stream().map(this::mapByoipRangeSummary).collect(Collectors.toList());
         } catch (com.oracle.bmc.model.BmcException e) {
             throw new OciException(tag(ociUser) + "获取 BYOIP 网段失败: " + extractOciErrorMessage(e));
         } catch (Exception e) {
@@ -281,7 +305,7 @@ public class ByoipService {
                 Map<String, Object> m = new LinkedHashMap<>();
                 m.put("cidrBlock", a.getCidrBlock());
                 m.put("publicIpPoolId", a.getPublicIpPoolId());
-                m.put("byoipRangeId", a.getByoipRangeId());
+                m.put("byoipRangeId", byoipRangeId);
                 return m;
             }).collect(Collectors.toList());
         } catch (com.oracle.bmc.model.BmcException e) {
@@ -306,7 +330,7 @@ public class ByoipService {
             if (poolColl == null || poolColl.getItems() == null) {
                 return List.of();
             }
-            return poolColl.getItems().stream().map(this::mapPublicIpPool).collect(Collectors.toList());
+            return poolColl.getItems().stream().map(this::mapPublicIpPoolSummary).collect(Collectors.toList());
         } catch (com.oracle.bmc.model.BmcException e) {
             throw new OciException(tag(ociUser) + "获取公网 IP 池失败: " + extractOciErrorMessage(e));
         } catch (Exception e) {
@@ -319,6 +343,16 @@ public class ByoipService {
         map.put("id", p.getId());
         map.put("displayName", p.getDisplayName());
         map.put("cidrBlocks", p.getCidrBlocks() != null ? p.getCidrBlocks() : List.of());
+        map.put("lifecycleState", p.getLifecycleState() != null ? p.getLifecycleState().getValue() : null);
+        map.put("timeCreated", p.getTimeCreated() != null ? p.getTimeCreated().toString() : null);
+        return map;
+    }
+
+    private Map<String, Object> mapPublicIpPoolSummary(PublicIpPoolSummary p) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("id", p.getId());
+        map.put("displayName", p.getDisplayName());
+        map.put("cidrBlocks", List.of());
         map.put("lifecycleState", p.getLifecycleState() != null ? p.getLifecycleState().getValue() : null);
         map.put("timeCreated", p.getTimeCreated() != null ? p.getTimeCreated().toString() : null);
         return map;
