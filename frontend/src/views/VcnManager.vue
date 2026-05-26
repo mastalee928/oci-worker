@@ -428,7 +428,11 @@
         </div>
       </div>
       <a-checkbox v-model:checked="cascadeDelete">级联删除子资源</a-checkbox>
-      <a-input v-model:value="deleteVcnCode" placeholder="TG 验证码" style="margin-top: 12px" />
+      <a-input v-model:value="deleteVcnCode" placeholder="TG 验证码" size="large" :maxlength="6" allow-clear style="margin-top: 12px" />
+      <div class="vcn-delete-verify-footer">
+        <span>验证码有效期 5 分钟</span>
+        <a-button type="link" size="small" :loading="deleteCodeSending" @click="resendDeleteVerifyCode">重新发送</a-button>
+      </div>
     </a-modal>
   </a-drawer>
 </template>
