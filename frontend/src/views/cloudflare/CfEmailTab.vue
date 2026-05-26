@@ -21,13 +21,16 @@
             >
               启用 Email Routing
             </a-button>
-            <a-popconfirm
+            <a-button
               v-else
-              title="确定禁用 Email Routing？"
-              @confirm="handleDisableEmail"
+              type="link"
+              size="small"
+              danger
+              :loading="disableEmailLoading"
+              @click="openDisableEmail"
             >
-              <a-button type="link" size="small" danger :loading="emailToggleLoading">禁用</a-button>
-            </a-popconfirm>
+              禁用
+            </a-button>
           </a-space>
         </template>
       </a-alert>
@@ -37,19 +40,10 @@
         <template #extra>
           <a-space wrap>
             <a-button size="small" :loading="emailDnsLoading" @click="loadEmailDns">刷新</a-button>
-            <a-button
-              size="small"
-              type="primary"
-              :loading="emailDnsLockLoading"
-              @click="handleLockEmailDns"
-            >
+            <a-button size="small" type="primary" @click="openEmailDnsMxAction('lock')">
               锁定 MX
             </a-button>
-            <a-button
-              size="small"
-              :loading="emailDnsLockLoading"
-              @click="handleUnlockEmailDns"
-            >
+            <a-button size="small" @click="openEmailDnsMxAction('unlock')">
               解锁 MX
             </a-button>
           </a-space>
@@ -129,9 +123,9 @@
                 >
                   重发验证
                 </a-button>
-                <a-popconfirm title="确定删除此目标邮箱？" @confirm="handleDeleteDestination(record.id)">
-                  <a-button type="link" danger size="small">删除</a-button>
-                </a-popconfirm>
+                <a-button type="link" danger size="small" @click="openDeleteDestination(record)">
+                  删除
+                </a-button>
               </a-space>
             </template>
           </template>
@@ -323,6 +317,92 @@
         </a-form-item>
       </a-form>
     </a-modal>
+
+    <!-- 锁定 / 解锁 Email DNS MX -->
+    <a-modal
+      v-model:open="emailDnsMxVisible"
+      :mask-closable="false"
+      :keyboard="false"
+      :title="emailDnsMxAction === 'lock' ? '锁定 MX' : '解锁 MX'"
+      :ok-text="emailDnsMxAction === 'lock' ? '确认锁定' : '确认解锁'"
+      :ok-button-props="emailDnsMxAction === 'unlock' ? { danger: true } : undefined"
+      :confirm-loading="emailDnsMxSubmitLoading"
+      @ok="submitEmailDnsMxAction"
+    >
+      <p class="cf-delete-target">
+        将对区域 <b>{{ emailSettings?.name || zoneName || zoneId }}</b>
+        {{ emailDnsMxAction === 'lock' ? '锁定' : '解锁' }} Email Routing 相关 MX 记录
+      </p>
+      <a-input
+        v-model:value="emailDnsMxVerifyCode"
+        placeholder="请输入6位验证码"
+        size="large"
+        maxlength="6"
+        @pressEnter="submitEmailDnsMxAction"
+      />
+      <div class="cf-verify-footer">
+        <span class="cf-verify-hint">验证码将发送至已绑定的 Telegram</span>
+        <a-button type="link" size="small" :loading="emailDnsMxVerifySending" @click="sendEmailDnsMxCode">
+          重新发送
+        </a-button>
+      </div>
+    </a-modal>
+
+    <!-- 禁用 Email Routing -->
+    <a-modal
+      v-model:open="disableEmailVisible"
+      :mask-closable="false"
+      :keyboard="false"
+      title="禁用 Email Routing"
+      ok-text="确认禁用"
+      :ok-button-props="{ danger: true }"
+      :confirm-loading="disableEmailSubmitLoading"
+      @ok="submitDisableEmail"
+    >
+      <p class="cf-delete-target">
+        将禁用区域 <b>{{ emailSettings?.name || zoneName || zoneId }}</b> 的 Email Routing
+      </p>
+      <a-input
+        v-model:value="disableEmailVerifyCode"
+        placeholder="请输入6位验证码"
+        size="large"
+        maxlength="6"
+        @pressEnter="submitDisableEmail"
+      />
+      <div class="cf-verify-footer">
+        <span class="cf-verify-hint">验证码将发送至已绑定的 Telegram</span>
+        <a-button type="link" size="small" :loading="disableEmailVerifySending" @click="sendDisableEmailCode">
+          重新发送
+        </a-button>
+      </div>
+    </a-modal>
+
+    <!-- 删除目标邮箱 -->
+    <a-modal
+      v-model:open="deleteDestVisible"
+      :mask-closable="false"
+      :keyboard="false"
+      title="删除目标邮箱"
+      ok-text="确认删除"
+      :ok-button-props="{ danger: true }"
+      :confirm-loading="deleteDestLoading"
+      @ok="submitDeleteDestination"
+    >
+      <p v-if="deleteDestTarget" class="cf-delete-target">将删除：<b>{{ deleteDestTarget.email }}</b></p>
+      <a-input
+        v-model:value="deleteDestVerifyCode"
+        placeholder="请输入6位验证码"
+        size="large"
+        maxlength="6"
+        @pressEnter="submitDeleteDestination"
+      />
+      <div class="cf-verify-footer">
+        <span class="cf-verify-hint">验证码将发送至已绑定的 Telegram</span>
+        <a-button type="link" size="small" :loading="deleteDestVerifySending" @click="sendDeleteDestCode">
+          重新发送
+        </a-button>
+      </div>
+    </a-modal>
   </div>
 </template>
 
@@ -350,6 +430,7 @@ import {
   deleteCfEmailDestination,
   listCfWorkers,
 } from '../../api/cloudflare'
+import { sendVerifyCode } from '../../api/system'
 
 interface EmailDestination {
   id: string
@@ -394,10 +475,18 @@ const zoneName = ref('')
 
 const emailSettings = ref<{ enabled?: boolean; status?: string; name?: string } | null>(null)
 const emailToggleLoading = ref(false)
+const disableEmailVisible = ref(false)
+const disableEmailSubmitLoading = ref(false)
+const disableEmailVerifySending = ref(false)
+const disableEmailVerifyCode = ref('')
 
 const emailDnsLoading = ref(false)
-const emailDnsLockLoading = ref(false)
 const emailDnsRecords = ref<EmailDnsRecord[]>([])
+const emailDnsMxVisible = ref(false)
+const emailDnsMxAction = ref<'lock' | 'unlock'>('lock')
+const emailDnsMxSubmitLoading = ref(false)
+const emailDnsMxVerifySending = ref(false)
+const emailDnsMxVerifyCode = ref('')
 
 const destLoading = ref(false)
 const destCreateLoading = ref(false)
@@ -429,6 +518,11 @@ const ruleForm = reactive({
 })
 
 const catchAllModalVisible = ref(false)
+const deleteDestVisible = ref(false)
+const deleteDestLoading = ref(false)
+const deleteDestVerifySending = ref(false)
+const deleteDestVerifyCode = ref('')
+const deleteDestTarget = ref<EmailDestination | null>(null)
 const catchAllForm = reactive({
   actionType: 'drop' as 'forward' | 'drop' | 'worker',
   destinations: [] as string[],
@@ -561,15 +655,44 @@ async function handleEnableEmail() {
   }
 }
 
-async function handleDisableEmail() {
+async function openDisableEmail() {
   if (!props.zoneId) return
-  emailToggleLoading.value = true
+  disableEmailVerifyCode.value = ''
+  disableEmailVisible.value = true
   try {
-    await disableCfEmailRouting({ zoneId: props.zoneId })
+    await sendDisableEmailCode()
+  } catch {
+    /* sendVerifyCode 已提示 */
+  }
+}
+
+async function sendDisableEmailCode() {
+  disableEmailVerifySending.value = true
+  try {
+    await sendVerifyCode('cfEmailRoutingDisable')
+    message.success('验证码已发送至 Telegram')
+  } finally {
+    disableEmailVerifySending.value = false
+  }
+}
+
+async function submitDisableEmail() {
+  if (!props.zoneId) return Promise.reject()
+  if (!disableEmailVerifyCode.value || disableEmailVerifyCode.value.length !== 6) {
+    message.warning('请输入6位验证码')
+    return Promise.reject()
+  }
+  disableEmailSubmitLoading.value = true
+  try {
+    await disableCfEmailRouting({
+      zoneId: props.zoneId,
+      verifyCode: disableEmailVerifyCode.value,
+    })
     message.success('Email Routing 已禁用')
+    disableEmailVisible.value = false
     await loadEmailSettings()
   } finally {
-    emailToggleLoading.value = false
+    disableEmailSubmitLoading.value = false
   }
 }
 
@@ -591,27 +714,52 @@ async function loadEmailDns(zoneId?: string, seq?: number, silent = false) {
   }
 }
 
-async function handleLockEmailDns() {
+function emailDnsMxVerifyAction() {
+  return emailDnsMxAction.value === 'lock' ? 'cfEmailDnsLock' : 'cfEmailDnsUnlock'
+}
+
+async function openEmailDnsMxAction(action: 'lock' | 'unlock') {
   if (!props.zoneId) return
-  emailDnsLockLoading.value = true
+  emailDnsMxAction.value = action
+  emailDnsMxVerifyCode.value = ''
+  emailDnsMxVisible.value = true
   try {
-    await lockCfEmailDns({ zoneId: props.zoneId })
-    message.success('MX 记录已锁定')
-    await loadEmailDns()
-  } finally {
-    emailDnsLockLoading.value = false
+    await sendEmailDnsMxCode()
+  } catch {
+    /* sendVerifyCode 已提示 */
   }
 }
 
-async function handleUnlockEmailDns() {
-  if (!props.zoneId) return
-  emailDnsLockLoading.value = true
+async function sendEmailDnsMxCode() {
+  emailDnsMxVerifySending.value = true
   try {
-    await unlockCfEmailDns({ zoneId: props.zoneId })
-    message.success('MX 记录已解锁')
+    await sendVerifyCode(emailDnsMxVerifyAction())
+    message.success('验证码已发送至 Telegram')
+  } finally {
+    emailDnsMxVerifySending.value = false
+  }
+}
+
+async function submitEmailDnsMxAction() {
+  if (!props.zoneId) return Promise.reject()
+  if (!emailDnsMxVerifyCode.value || emailDnsMxVerifyCode.value.length !== 6) {
+    message.warning('请输入6位验证码')
+    return Promise.reject()
+  }
+  emailDnsMxSubmitLoading.value = true
+  try {
+    const payload = { zoneId: props.zoneId, verifyCode: emailDnsMxVerifyCode.value }
+    if (emailDnsMxAction.value === 'lock') {
+      await lockCfEmailDns(payload)
+      message.success('MX 记录已锁定')
+    } else {
+      await unlockCfEmailDns(payload)
+      message.success('MX 记录已解锁')
+    }
+    emailDnsMxVisible.value = false
     await loadEmailDns()
   } finally {
-    emailDnsLockLoading.value = false
+    emailDnsMxSubmitLoading.value = false
   }
 }
 
@@ -653,10 +801,46 @@ async function handleResendDestination(record: EmailDestination) {
   }
 }
 
-async function handleDeleteDestination(id: string) {
-  await deleteCfEmailDestination({ destinationId: id })
-  message.success('已删除')
-  await loadDestinations()
+async function openDeleteDestination(record: EmailDestination) {
+  deleteDestTarget.value = record
+  deleteDestVerifyCode.value = ''
+  deleteDestVisible.value = true
+  try {
+    await sendDeleteDestCode()
+  } catch {
+    /* sendVerifyCode 已提示 */
+  }
+}
+
+async function sendDeleteDestCode() {
+  deleteDestVerifySending.value = true
+  try {
+    await sendVerifyCode('cfEmailDestinationDelete')
+    message.success('验证码已发送至 Telegram')
+  } finally {
+    deleteDestVerifySending.value = false
+  }
+}
+
+async function submitDeleteDestination() {
+  const target = deleteDestTarget.value
+  if (!target?.id) return Promise.reject()
+  if (!deleteDestVerifyCode.value || deleteDestVerifyCode.value.length !== 6) {
+    message.warning('请输入6位验证码')
+    return Promise.reject()
+  }
+  deleteDestLoading.value = true
+  try {
+    await deleteCfEmailDestination({
+      destinationId: target.id,
+      verifyCode: deleteDestVerifyCode.value,
+    })
+    message.success('已删除')
+    deleteDestVisible.value = false
+    await loadDestinations()
+  } finally {
+    deleteDestLoading.value = false
+  }
 }
 
 async function loadEmailRules(zoneId?: string, seq?: number, silent = false) {
@@ -876,4 +1060,12 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
 }
 .mobile-card-row .label { color: var(--text-sub); flex-shrink: 0; }
 .mobile-card-row .value { text-align: right; word-break: break-all; }
+.cf-verify-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 12px;
+}
+.cf-verify-hint { font-size: 12px; color: var(--text-sub); }
+.cf-delete-target { margin-bottom: 12px; }
 </style>

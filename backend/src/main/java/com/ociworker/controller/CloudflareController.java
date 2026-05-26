@@ -278,6 +278,7 @@ public class CloudflareController {
 
     @PostMapping("/email/disable")
     public ResponseData<?> emailDisable(@RequestBody Map<String, String> params) {
+        verifyCodeService.verifyCode("cfEmailRoutingDisable", params.get("verifyCode"));
         cloudflareService.disableEmailRouting(params.get("zoneId"));
         return ResponseData.ok();
     }
@@ -289,12 +290,14 @@ public class CloudflareController {
 
     @PostMapping("/email/dns/lock")
     public ResponseData<?> emailDnsLock(@RequestBody Map<String, String> params) {
+        verifyCodeService.verifyCode("cfEmailDnsLock", params.get("verifyCode"));
         cloudflareService.lockEmailDns(params.get("zoneId"));
         return ResponseData.ok();
     }
 
     @PostMapping("/email/dns/unlock")
     public ResponseData<?> emailDnsUnlock(@RequestBody Map<String, String> params) {
+        verifyCodeService.verifyCode("cfEmailDnsUnlock", params.get("verifyCode"));
         cloudflareService.unlockEmailDns(params.get("zoneId"));
         return ResponseData.ok();
     }
@@ -398,6 +401,7 @@ public class CloudflareController {
 
     @PostMapping("/email/destinations/delete")
     public ResponseData<?> emailDestinationsDelete(@RequestBody Map<String, String> params) {
+        verifyCodeService.verifyCode("cfEmailDestinationDelete", params.get("verifyCode"));
         cloudflareService.deleteEmailDestination(params.get("destinationId"));
         return ResponseData.ok();
     }

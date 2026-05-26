@@ -1,63 +1,6 @@
 ﻿<template>
   <div class="cf-account-panel">
     <a-tabs v-model:active-key="accountTab" @change="onAccountTabChange">
-      <a-tab-pane key="tunnel" tab="Tunnel 连接器">
-        <div class="cf-toolbar">
-          <a-space wrap>
-            <a-button type="primary" :disabled="!cfConfigured" @click="openCreateTunnel">
-              <template #icon><PlusOutlined /></template>
-              创建 Tunnel
-            </a-button>
-            <a-button :loading="tunnelLoading" :disabled="!cfConfigured" @click="loadTunnels">
-              <template #icon><ReloadOutlined /></template>
-              刷新
-            </a-button>
-          </a-space>
-        </div>
-        <a-table
-          v-if="!isMobile"
-          :columns="tunnelColumns"
-          :data-source="tunnels"
-          :loading="tunnelLoading"
-          row-key="id"
-          size="middle"
-          :scroll="{ x: 900 }"
-        >
-          <template #bodyCell="{ column, record }">
-            <template v-if="column.key === 'status'">
-              <a-tag :color="statusColor(record.status)">{{ record.status || 'unknown' }}</a-tag>
-            </template>
-            <template v-else-if="column.key === 'action'">
-              <a-space wrap>
-                <a-button type="link" size="small" @click="showRoutes(record)">路由</a-button>
-                <a-button type="link" size="small" @click="showToken(record)">Token</a-button>
-                <a-button type="link" size="small" @click="showConnections(record)">连接</a-button>
-                <a-button type="link" danger size="small" @click="openDeleteTunnel(record)">删除</a-button>
-              </a-space>
-            </template>
-          </template>
-        </a-table>
-        <a-spin v-else :spinning="tunnelLoading">
-          <a-empty v-if="!tunnelLoading && tunnels.length === 0" description="暂无 Tunnel" />
-          <div v-for="item in tunnels" :key="item.id" class="mobile-card">
-            <div class="mobile-card-header">
-              <span class="mobile-card-title">{{ item.name }}</span>
-              <a-tag :color="statusColor(item.status)">{{ item.status }}</a-tag>
-            </div>
-            <div class="mobile-card-body">
-              <div class="mobile-card-row"><span class="label">ID</span><span class="value">{{ item.id }}</span></div>
-              <div v-if="item.createdAt" class="mobile-card-row"><span class="label">创建</span><span class="value">{{ item.createdAt }}</span></div>
-            </div>
-            <a-space wrap class="mobile-card-actions">
-              <a-button size="small" @click="showRoutes(item)">路由</a-button>
-              <a-button size="small" @click="showToken(item)">Token</a-button>
-              <a-button size="small" @click="showConnections(item)">连接</a-button>
-              <a-button size="small" danger @click="openDeleteTunnel(item)">删除</a-button>
-            </a-space>
-          </div>
-        </a-spin>
-      </a-tab-pane>
-
       <a-tab-pane key="ipaccess" tab="IP 访问规则">
         <div class="cf-toolbar">
           <a-space wrap>
@@ -116,6 +59,63 @@
           </div>
         </a-spin>
         <p class="cf-hint">账户级 IP 访问规则，对账户下所有 Zone 生效。复杂条件请使用「域名 → 安全性」防火墙规则。</p>
+      </a-tab-pane>
+
+      <a-tab-pane key="tunnel" tab="Tunnel 连接器">
+        <div class="cf-toolbar">
+          <a-space wrap>
+            <a-button type="primary" :disabled="!cfConfigured" @click="openCreateTunnel">
+              <template #icon><PlusOutlined /></template>
+              创建 Tunnel
+            </a-button>
+            <a-button :loading="tunnelLoading" :disabled="!cfConfigured" @click="loadTunnels">
+              <template #icon><ReloadOutlined /></template>
+              刷新
+            </a-button>
+          </a-space>
+        </div>
+        <a-table
+          v-if="!isMobile"
+          :columns="tunnelColumns"
+          :data-source="tunnels"
+          :loading="tunnelLoading"
+          row-key="id"
+          size="middle"
+          :scroll="{ x: 900 }"
+        >
+          <template #bodyCell="{ column, record }">
+            <template v-if="column.key === 'status'">
+              <a-tag :color="statusColor(record.status)">{{ record.status || 'unknown' }}</a-tag>
+            </template>
+            <template v-else-if="column.key === 'action'">
+              <a-space wrap>
+                <a-button type="link" size="small" @click="showRoutes(record)">路由</a-button>
+                <a-button type="link" size="small" @click="showToken(record)">Token</a-button>
+                <a-button type="link" size="small" @click="showConnections(record)">连接</a-button>
+                <a-button type="link" danger size="small" @click="openDeleteTunnel(record)">删除</a-button>
+              </a-space>
+            </template>
+          </template>
+        </a-table>
+        <a-spin v-else :spinning="tunnelLoading">
+          <a-empty v-if="!tunnelLoading && tunnels.length === 0" description="暂无 Tunnel" />
+          <div v-for="item in tunnels" :key="item.id" class="mobile-card">
+            <div class="mobile-card-header">
+              <span class="mobile-card-title">{{ item.name }}</span>
+              <a-tag :color="statusColor(item.status)">{{ item.status }}</a-tag>
+            </div>
+            <div class="mobile-card-body">
+              <div class="mobile-card-row"><span class="label">ID</span><span class="value">{{ item.id }}</span></div>
+              <div v-if="item.createdAt" class="mobile-card-row"><span class="label">创建</span><span class="value">{{ item.createdAt }}</span></div>
+            </div>
+            <a-space wrap class="mobile-card-actions">
+              <a-button size="small" @click="showRoutes(item)">路由</a-button>
+              <a-button size="small" @click="showToken(item)">Token</a-button>
+              <a-button size="small" @click="showConnections(item)">连接</a-button>
+              <a-button size="small" danger @click="openDeleteTunnel(item)">删除</a-button>
+            </a-space>
+          </div>
+        </a-spin>
       </a-tab-pane>
 
       <a-tab-pane key="workers" tab="Workers 和 Pages" force-render>
@@ -433,7 +433,7 @@ import {
 
 defineProps<{ cfConfigured: boolean }>()
 
-const accountTab = ref('tunnel')
+const accountTab = ref('ipaccess')
 const { isMobile } = useIsMobile()
 
 const tunnelLoading = ref(false)
@@ -637,10 +637,12 @@ async function handleDeleteIpRule(ruleId: string) {
 
 watch(accountTab, tab => {
   if (tab === 'ipaccess') loadIpRules()
+  if (tab === 'tunnel') loadTunnels()
 })
 
 async function onAccountTabChange(key: string | number) {
   if (key === 'ipaccess') loadIpRules()
+  if (key === 'tunnel') loadTunnels()
   if (key === 'workers') {
     await nextTick()
     workersPagesRef.value?.loadAll()
@@ -896,7 +898,7 @@ async function handleDeleteRoute(hostname: string) {
   await loadTunnelRoutes()
 }
 
-onMounted(() => loadTunnels())
+onMounted(() => loadIpRules())
 </script>
 
 <style scoped>

@@ -108,7 +108,7 @@ export function enableCfEmailRouting(data: { zoneId: string }) {
   return request.post('/cf/email/enable', data)
 }
 
-export function disableCfEmailRouting(data: { zoneId: string }) {
+export function disableCfEmailRouting(data: { zoneId: string; verifyCode: string }) {
   return request.post('/cf/email/disable', data)
 }
 
@@ -116,11 +116,11 @@ export function getCfEmailDns(data: { zoneId: string }, silent = false) {
   return request.post('/cf/email/dns/get', data, silent ? cfSilent : undefined)
 }
 
-export function lockCfEmailDns(data: { zoneId: string }) {
+export function lockCfEmailDns(data: { zoneId: string; verifyCode: string }) {
   return request.post('/cf/email/dns/lock', data)
 }
 
-export function unlockCfEmailDns(data: { zoneId: string }) {
+export function unlockCfEmailDns(data: { zoneId: string; verifyCode: string }) {
   return request.post('/cf/email/dns/unlock', data)
 }
 
@@ -188,7 +188,7 @@ export function resendCfEmailDestination(data: { email: string }) {
   return request.post('/cf/email/destinations/resend', data)
 }
 
-export function deleteCfEmailDestination(data: { destinationId: string }) {
+export function deleteCfEmailDestination(data: { destinationId: string; verifyCode: string }) {
   return request.post('/cf/email/destinations/delete', data)
 }
 
