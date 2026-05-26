@@ -219,6 +219,11 @@ public class SystemService {
                       exit 1
                     fi
                     mv "${JAR}.tmp" "$JAR"
+                    systemctl stop oci-webssh 2>/dev/null || true
+                    systemctl disable oci-webssh 2>/dev/null || true
+                    rm -f /opt/oci-worker/oci-webssh
+                    rm -f /etc/systemd/system/oci-webssh.service
+                    systemctl daemon-reload 2>/dev/null || true
                     systemctl restart oci-worker
                     """.formatted(REPO, ASSET_NAME, JAR_PATH);
 

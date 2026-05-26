@@ -1,0 +1,30 @@
+---
+description: WebSSH 已并入 JAR 后，对外发布仓（OCIWorker-dist）须同步的要点
+alwaysApply: false
+---
+
+# WebSSH 整合版 — 公开仓发布备忘
+
+**仅当用户明确要求更新 `OCIworker/OCIworker` 时执行**；日常只改开发仓 `mastalee928/oci-worker`。
+
+## 与开发仓一致的目标
+
+- Release **`latest`**：仅 `oci-worker-1.0.0.jar`（SSH 终端已在 JAR 内）。
+- Release **`installer-latest`**：**仅** `install.sh`、`ociworker`、`SHA256SUMS` 等；**不再**附带 `oci-webssh-linux-*`、`oci-webssh.service`。
+- 安装/升级脚本：**只下载 JAR**，不出现「再装 WebSSH」步骤。
+- 用户 **一键更新** 只换 JAR；更新后须 **自动 stop + disable `oci-webssh`**（与开发仓 `SystemService` / `install.sh` 行为一致），**禁止用户继续走旧 Go 8008**。
+
+## 发布仓构建补丁（`.build/src` 内临时改）
+
+- `SystemService.REPO` → `OCIworker/OCIworker`
+- 一键更新下载地址指向公开仓
+- **不要**恢复 WebSSH 双架构二进制到 `installer-latest`
+
+## 文案（公开仓惯例）
+
+- Git commit：`增加以及优化功能。`
+- Release 说明：`增加以及优化功能。` + 可选 `commit <SHA>`
+
+## 品牌
+
+- 终端 UI **不得**展示原 webssh2 底部「棍之勇者」版权页脚，**不得**在代码/页面链接 `a06342637/webssh2`（开发仓已去除）。

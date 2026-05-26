@@ -3,8 +3,8 @@
 # OCI Worker - Smart Installer (v2)
 # -----------------------------------------------------------------------------
 # Friendly interactive installer with the following features:
-#   * First-install wizard: JDK / DB / port / WebSSH (binary) / systemd / firewall
-#   * Upgrade mode (auto-detected): only refresh JAR + webssh binary, never
+#   * First-install wizard: JDK / DB / port / systemd / firewall
+#   * Upgrade mode (auto-detected): only refresh JAR; WebSSH is inside the JAR
 #     touches application.yml or the database.
 #   * 1Panel / Aapanel friendly: supports "use existing MySQL" branch with
 #     connectivity / charset / version / privilege auto-checks.
@@ -12,7 +12,7 @@
 #
 # This script is INDEPENDENT of the original deploy.sh / update.sh.
 # It does NOT modify anything outside /opt/oci-worker, /etc/systemd/system,
-# /usr/local/bin/ociworker, and (optionally) the firewall rules for port 8008.
+# /usr/local/bin/ociworker.
 #
 # Run as root:
 #   bash <(curl -fsSL https://github.com/<REPO>/releases/download/installer-latest/install.sh)
@@ -34,12 +34,8 @@ readonly JAR_ASSET="oci-worker-1.0.0.jar"
 readonly CONFIG_FILE="${INSTALL_DIR}/application.yml"
 readonly SERVICE_NAME="oci-worker"
 readonly SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
-readonly WEBSSH_BIN="${INSTALL_DIR}/oci-webssh"
-readonly WEBSSH_SERVICE_NAME="oci-webssh"
-readonly WEBSSH_SERVICE_FILE="/etc/systemd/system/${WEBSSH_SERVICE_NAME}.service"
-# WebSSH port is HARD-CODED to 8008 because backend
-# (WebSSHProxyController.java) reverse-proxies to http://127.0.0.1:8008.
-readonly WEBSSH_PORT=8008
+readonly LEGACY_WEBSSH_BIN="${INSTALL_DIR}/oci-webssh"
+readonly LEGACY_WEBSSH_SERVICE="oci-webssh"
 
 readonly REPO="mastalee928/oci-worker"
 # 默认从 GitHub Releases 的 `latest` 下 master 构建的 JAR。
@@ -812,8 +808,8 @@ prompt_web() {
     while true; do
         WEB_PORT="$(ask "OCI Worker Web 端口" "8818")"
         if [[ "${WEB_PORT}" =~ ^[0-9]+$ ]] && [ "${WEB_PORT}" -ge 1 ] && [ "${WEB_PORT}" -le 65535 ]; then
-            if [ "${WEB_PORT}" -eq "${WEBSSH_PORT}" ]; then
-                warn "端口 ${WEBSSH_PORT} 被 WebSSH 占用，请换一个"
+            if [ "${WEB_PORT}" -eq 8008 ]; then
+                warn "端口 8008 为旧版独立 WebSSH 保留，请换一个"
                 continue
             fi
             break
@@ -935,7 +931,7 @@ EOF
 }
 
 # -----------------------------------------------------------------------------
-# JAR / WebSSH binary download
+# JAR download
 # -----------------------------------------------------------------------------
 download_with_retry() {
     # download_with_retry <url> <dest>
@@ -1000,70 +996,6 @@ download_jar() {
     return 0
 }
 
-download_webssh_binary() {
-    info "下载 WebSSH 二进制 (${ARCH})..."
-    local url tmp size
-    url="https://github.com/${REPO}/releases/download/${INSTALLER_RELEASE_TAG}/oci-webssh-linux-${ARCH}"
-    tmp="${WEBSSH_BIN}.tmp"
-    if ! download_with_retry "${url}" "${tmp}"; then
-        rm -f "${tmp}"
-        err "WebSSH 下载失败"
-        return 1
-    fi
-    size="$(file_size "${tmp}")"
-    if [ "${size}" -lt 1000000 ]; then
-        rm -f "${tmp}"
-        err "WebSSH 二进制大小异常（${size} 字节），可能是 404 页面"
-        return 1
-    fi
-    chmod +x "${tmp}"
-    mv "${tmp}" "${WEBSSH_BIN}"
-    ok "WebSSH 二进制已就绪"
-    return 0
-}
-
-write_webssh_systemd() {
-    info "写入 systemd 服务：${WEBSSH_SERVICE_NAME}..."
-    cat > "${WEBSSH_SERVICE_FILE}" <<EOF
-[Unit]
-Description=OCI WebSSH (binary mode, used by oci-worker)
-After=network.target
-PartOf=${SERVICE_NAME}.service
-
-[Service]
-Type=simple
-WorkingDirectory=${INSTALL_DIR}
-ExecStart=${WEBSSH_BIN} -p ${WEBSSH_PORT} -s -t 120
-Restart=on-failure
-RestartSec=5
-LimitNOFILE=65535
-NoNewPrivileges=true
-
-[Install]
-WantedBy=multi-user.target
-EOF
-    systemctl daemon-reload
-    systemctl enable "${WEBSSH_SERVICE_NAME}" >/dev/null 2>&1 || true
-    ok "WebSSH systemd 服务已注册"
-}
-
-handle_existing_docker_webssh() {
-    # If the original deploy.sh installed WebSSH via Docker, ask user before disabling.
-    if command -v docker >/dev/null 2>&1 && \
-       docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "webssh"; then
-        warn "检测到原 Docker 版 WebSSH 容器仍在运行（容器名: webssh）"
-        if [ "$(ask_yes_no "停止并禁用 Docker 版，改用二进制版？（推荐）" "Y")" = "y" ]; then
-            docker stop webssh >/dev/null 2>&1 || true
-            (cd /opt/oci-worker/webssh 2>/dev/null && docker compose down >/dev/null 2>&1) || true
-            ok "Docker 版 WebSSH 已停止"
-        else
-            warn "保留 Docker 版 WebSSH，将跳过二进制版安装（避免 8008 端口冲突）"
-            return 1
-        fi
-    fi
-    return 0
-}
-
 # -----------------------------------------------------------------------------
 # Install / restart with rollback
 # -----------------------------------------------------------------------------
@@ -1110,13 +1042,24 @@ firewall_open_port() {
     fi
 }
 
+cleanup_legacy_webssh() {
+    info "清理旧版独立 WebSSH（oci-webssh）..."
+    systemctl stop "${LEGACY_WEBSSH_SERVICE}" 2>/dev/null || true
+    systemctl disable "${LEGACY_WEBSSH_SERVICE}" 2>/dev/null || true
+    rm -f "${LEGACY_WEBSSH_BIN}"
+    rm -f "/etc/systemd/system/${LEGACY_WEBSSH_SERVICE}.service"
+    systemctl daemon-reload 2>/dev/null || true
+    if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "webssh"; then
+        warn "检测到旧 Docker 版 WebSSH 容器，正在停止..."
+        docker stop webssh >/dev/null 2>&1 || true
+        (cd /opt/oci-worker/webssh 2>/dev/null && docker compose down >/dev/null 2>&1) || true
+    fi
+}
+
 security_notice() {
     section "安全提醒"
     cat >&2 <<EOF
-* WebSSH 端口 ${WEBSSH_PORT} 监听 0.0.0.0（与原 Docker 版一致）。
-  强烈建议：通过云厂商安全组只放行 ${WEB_PORT}（OCI Worker 主端口），
-  不要把 ${WEBSSH_PORT} 暴露公网，避免被未授权访问。
-* OCI Worker 已通过反向代理把 WebSSH 嵌入主面板，从公网访问 ${WEB_PORT} 即可使用全部功能。
+* WebSSH 已内置 OCI Worker，只需放行主端口 ${WEB_PORT}。
 * 推荐：用 Nginx 反向代理 + HTTPS（Let's Encrypt）保护 ${WEB_PORT}。
 EOF
 }
@@ -1200,20 +1143,7 @@ do_install() {
     write_application_yml
     write_systemd_unit
 
-    # WebSSH is optional; failure here should NOT abort the main install.
-    if handle_existing_docker_webssh; then
-        if download_webssh_binary; then
-            write_webssh_systemd
-            if systemctl restart "${WEBSSH_SERVICE_NAME}"; then
-                ok "WebSSH 已启动（端口 ${WEBSSH_PORT}）"
-            else
-                warn "WebSSH 启动失败：journalctl -u ${WEBSSH_SERVICE_NAME} -n 30 --no-pager"
-            fi
-        else
-            warn "WebSSH 下载失败，跳过（不影响主程序）"
-            warn "稍后可重跑 install.sh，或用 ociworker update 重试"
-        fi
-    fi
+    cleanup_legacy_webssh
 
     firewall_open_port "${WEB_PORT}"
     install_ociworker_cli
@@ -1240,8 +1170,6 @@ do_install() {
 防火墙提醒：
   * 已自动放行本机 ufw / firewalld 的 ${WEB_PORT}/tcp
   * 云厂商安全组里也要放行 ${WEB_PORT}/tcp（OCI/AWS/腾讯云等）
-  * 不要放行 ${WEBSSH_PORT}/tcp（WebSSH 已通过反向代理嵌入主面板）
-
 常用管理命令（敲 ociworker 进交互菜单）：
   ociworker status     查看状态
   ociworker logs       查看实时日志
@@ -1276,16 +1204,7 @@ do_upgrade() {
         die "升级失败"
     fi
 
-    # WebSSH binary is optional during upgrade; keep existing if download fails.
-    if handle_existing_docker_webssh; then
-        if download_webssh_binary; then
-            [ -f "${WEBSSH_SERVICE_FILE}" ] || write_webssh_systemd
-            systemctl restart "${WEBSSH_SERVICE_NAME}" 2>/dev/null \
-                || warn "WebSSH 重启失败：journalctl -u ${WEBSSH_SERVICE_NAME} -n 30 --no-pager"
-        else
-            warn "WebSSH 下载失败，保留原 WebSSH（不影响主程序）"
-        fi
-    fi
+    cleanup_legacy_webssh
 
     install_ociworker_cli
 

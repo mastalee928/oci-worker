@@ -1,0 +1,45 @@
+package com.ociworker.webssh;
+
+import org.springframework.stereotype.Component;
+
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.atomic.AtomicInteger;
+
+@Component
+public class WebSshUploadRegistry {
+
+    private final Map<String, AtomicInteger> counters = new ConcurrentHashMap<>();
+
+    public void track(String id) {
+        if (id != null && !id.isBlank()) {
+            counters.put(id, new AtomicInteger(0));
+        }
+    }
+
+    public void add(String id, int bytes) {
+        if (id == null) {
+            return;
+        }
+        AtomicInteger c = counters.get(id);
+        if (c != null) {
+            c.addAndGet(bytes);
+        }
+    }
+
+    public int getAndRemove(String id) {
+        AtomicInteger c = counters.remove(id);
+        return c != null ? c.get() : -1;
+    }
+
+    public Integer peek(String id) {
+        AtomicInteger c = counters.get(id);
+        return c != null ? c.get() : null;
+    }
+
+    public void remove(String id) {
+        if (id != null) {
+            counters.remove(id);
+        }
+    }
+}

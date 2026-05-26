@@ -1,7 +1,8 @@
 package com.ociworker.config;
 
+import com.ociworker.webssh.WebSshTerminalWebSocketHandler;
+import com.ociworker.webssh.WebSshUploadProgressWebSocketHandler;
 import com.ociworker.websocket.LogWebSocketHandler;
-import com.ociworker.websocket.WebSSHProxyHandler;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.socket.config.annotation.EnableWebSocket;
 import org.springframework.web.socket.config.annotation.WebSocketConfigurer;
@@ -16,13 +17,17 @@ public class WebSocketConfig implements WebSocketConfigurer {
     @Resource
     private LogWebSocketHandler logWebSocketHandler;
     @Resource
-    private WebSSHProxyHandler webSSHProxyHandler;
+    private WebSshTerminalWebSocketHandler webSshTerminalWebSocketHandler;
+    @Resource
+    private WebSshUploadProgressWebSocketHandler webSshUploadProgressWebSocketHandler;
 
     @Override
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
         registry.addHandler(logWebSocketHandler, "/ws/log")
                 .setAllowedOrigins("*");
-        registry.addHandler(webSSHProxyHandler, "/webssh-api/term", "/webssh-api/file/progress")
+        registry.addHandler(webSshTerminalWebSocketHandler, "/webssh-api/term")
+                .setAllowedOrigins("*");
+        registry.addHandler(webSshUploadProgressWebSocketHandler, "/webssh-api/file/progress")
                 .setAllowedOrigins("*");
     }
 }
