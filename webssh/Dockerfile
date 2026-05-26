@@ -20,6 +20,6 @@ RUN apk add --no-cache ca-certificates tzdata && \
 
 COPY --from=builder /build/webssh /app/webssh
 
-EXPOSE 8008
+EXPOSE 8888
 
 ENTRYPOINT ["/app/webssh"]

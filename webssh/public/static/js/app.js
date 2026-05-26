@@ -47,7 +47,18 @@ function showToast(msg, type) {
 }
 
 function setStatus(s, t) { var e = document.getElementById('statusIndicator'); e.className = 'status-indicator ' + s; e.querySelector('.status-text').textContent = t; }
-function showView(id) { document.querySelectorAll('.view').forEach(function (v) { v.classList.remove('active'); }); document.getElementById(id).classList.add('active'); }
+function showView(id) {
+    document.querySelectorAll('.view').forEach(function (v) { v.classList.remove('active'); });
+    document.getElementById(id).classList.add('active');
+    var footer = document.querySelector('.global-footer');
+    if (footer) {
+        if (id === 'terminalView') {
+            footer.classList.add('hidden');
+        } else {
+            footer.classList.remove('hidden');
+        }
+    }
+}
 
 // ==================== Login Form ====================
 function switchAuthTab(tab) {
@@ -124,7 +135,6 @@ function loadProxyConfig() {
             document.getElementById('proxyPass').value = cfg.pass || '';
             document.getElementById('enableProxy').checked = true;
             document.getElementById('rememberProxy').checked = true;
-            document.getElementById('proxyPanel').classList.add('show');
         }
     } catch (e) { }
 }
@@ -374,6 +384,16 @@ function fetchSysInfoFor(session) {
         .catch(function () { });
 }
 
+function fmtUptime(secs) {
+    secs = parseInt(secs) || 0;
+    var d = Math.floor(secs / 86400);
+    var h = Math.floor((secs % 86400) / 3600);
+    var m = Math.floor((secs % 3600) / 60);
+    if (d > 0) return d + 'd ' + h + 'h';
+    if (h > 0) return h + 'h ' + m + 'm';
+    return m + 'm';
+}
+
 function renderMetrics(d) {
     var c = document.getElementById('topbarMetrics');
     var mp = pct(d.memUsed, d.memTotal), dp = pct(d.diskUsed, d.diskTotal), cv = parseFloat(d.cpuUsage) || 0;
@@ -385,9 +405,10 @@ function renderMetrics(d) {
         { i: 'hdd', l: 'DISK', v: fmtB(d.diskUsed) + '/' + fmtB(d.diskTotal), c: pillCls(dp) },
         { i: 'zap', l: 'Load', v: d.load || '0' },
         { i: 'down', l: 'IN', v: fmtB(d.rxTotal) },
-        { i: 'up', l: 'OUT', v: fmtB(d.txTotal) }
+        { i: 'up', l: 'OUT', v: fmtB(d.txTotal) },
+        { i: 'clock', l: 'UP', v: fmtUptime(d.uptime) }
     ];
-    var sv = { server: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/></svg>', cpu: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/></svg>', activity: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>', memory: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/></svg>', hdd: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/></svg>', zap: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>', down: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>', up: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>' };
+    var sv = { server: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/></svg>', cpu: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/></svg>', activity: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>', memory: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/></svg>', hdd: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/></svg>', zap: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>', down: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>', up: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>', clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>' };
     c.innerHTML = pills.map(function (p) {
         var cls = p.c ? ' ' + p.c : '';
         return '<div class="metric-pill' + cls + '">' + (sv[p.i] || '') + p.l + (p.v ? ' <span class="metric-value">' + p.v + '</span>' : '') + '</div>';
@@ -1097,6 +1118,22 @@ function toggleParticlesEffect() {
     document.querySelector('.bg-animation').style.display = show ? '' : 'none';
 }
 
+function toggleFooterVisibility() {
+    var show = document.getElementById('toggleFooter').checked;
+    var s = loadSettings();
+    s.footer = show;
+    saveSettings(s);
+    var footer = document.querySelector('.global-footer');
+    if (footer) {
+        footer.style.setProperty('--footer-user-hidden', show ? '' : 'none');
+        if (!show) {
+            footer.classList.add('user-hidden');
+        } else {
+            footer.classList.remove('user-hidden');
+        }
+    }
+}
+
 function changeBlur(val) {
     var s = loadSettings();
     s.blur = parseInt(val);
@@ -1113,8 +1150,14 @@ function resetAllSettings() {
     setBgImage('');
     document.getElementById('particles').style.display = '';
     document.querySelector('.bg-animation').style.display = '';
+    var toggleP = document.getElementById('toggleParticles');
+    if (toggleP) toggleP.checked = true;
     applyCardScale(100);
     applyEdgeScale(100);
+    var footer = document.querySelector('.global-footer');
+    if (footer) footer.classList.remove('user-hidden');
+    var toggleF = document.getElementById('toggleFooter');
+    if (toggleF) toggleF.checked = true;
     renderBgSwatches();
     showToast('已恢复默认', 'success');
 }
@@ -1133,15 +1176,31 @@ function initSettings() {
     if (s.particles === false) {
         document.getElementById('particles').style.display = 'none';
         document.querySelector('.bg-animation').style.display = 'none';
+        var cb = document.getElementById('toggleParticles');
+        if (cb) cb.checked = false;
     }
     if (s.blur != null) {
         document.documentElement.style.setProperty('--blur', s.blur + 'px');
     }
     if (s.cardScale && s.cardScale !== 100) applyCardScale(s.cardScale);
     if (s.edgeScale && s.edgeScale !== 100) applyEdgeScale(s.edgeScale);
+    if (s.footer === false) {
+        var footer = document.querySelector('.global-footer');
+        if (footer) footer.classList.add('user-hidden');
+        var cb2 = document.getElementById('toggleFooter');
+        if (cb2) cb2.checked = false;
+    }
 }
 
 // ==================== URL Auto-Login ====================
+function isPrivateKey(s) {
+    if (!s) return false;
+    var decoded = s;
+    try { decoded = decodeURIComponent(s); } catch (e) {}
+    // Private keys start with -----BEGIN or are very long (>200 chars)
+    return decoded.indexOf('-----BEGIN') === 0 || decoded.indexOf('-----BEGIN') !== -1 || decoded.length > 200;
+}
+
 function parseUrlLogin() {
     var path = location.pathname;
     if (!path || path === '/') return null;
@@ -1149,12 +1208,15 @@ function parseUrlLogin() {
     if (!path) return null;
 
     var parts = path.split('/');
-    var host, port, user, pass;
+    var host, port, user, pass, authType;
 
-    // Format: ip:port/password (2 parts, host:port/pass)
-    // Format: ip:port/user/password (3 parts)
-    // Format: ip/port/password (3 parts, all numeric port)
-    // Format: ip/port/user/password (4 parts)
+    // Supported formats:
+    // ip:port/password                 (2 parts)
+    // ip:port/user/password            (3 parts, host has colon)
+    // ip/port/password                 (3 parts, port is numeric)
+    // ip/user/password                 (3 parts, port is not numeric)
+    // ip/port/user/password            (4 parts)
+    // ip/port/user/privatekey          (4 parts, key detected)
 
     if (parts.length === 2) {
         // ip:port/password OR ip/password
@@ -1185,7 +1247,7 @@ function parseUrlLogin() {
             pass = decodeURIComponent(parts[2]);
         }
     } else if (parts.length === 4) {
-        // ip/port/user/password
+        // ip/port/user/password  OR  ip/port/user/privatekey
         host = parts[0];
         port = parseInt(parts[1]);
         user = decodeURIComponent(parts[2]);
@@ -1195,7 +1257,11 @@ function parseUrlLogin() {
     }
 
     if (!host) return null;
-    return { host: host, port: port || 22, user: user || 'root', pass: pass || '' };
+
+    // Detect if credential is a private key
+    authType = isPrivateKey(pass) ? 'key' : 'password';
+
+    return { host: host, port: port || 22, user: user || 'root', pass: pass || '', authType: authType };
 }
 
 function tryAutoLogin() {
@@ -1206,8 +1272,14 @@ function tryAutoLogin() {
     document.getElementById('hostname').value = info.host;
     document.getElementById('port').value = info.port;
     document.getElementById('username').value = info.user;
-    switchAuthTab('password');
-    document.getElementById('password').value = info.pass;
+
+    if (info.authType === 'key') {
+        switchAuthTab('key');
+        document.getElementById('privateKey').value = info.pass;
+    } else {
+        switchAuthTab('password');
+        document.getElementById('password').value = info.pass;
+    }
 
     // Clean URL without reload
     history.replaceState(null, '', '/');
@@ -1218,6 +1290,30 @@ function tryAutoLogin() {
     }, 500);
 }
 
+// ==================== Splash Screen ====================
+(function () {
+    var splashStart = Date.now();
+    var MIN_SPLASH = 1500;
+    var dismissed = false;
+
+    function doFade() {
+        if (dismissed) return;
+        dismissed = true;
+        var el = document.getElementById('splash');
+        if (!el) return;
+        el.classList.add('fade-out');
+        setTimeout(function () { if (el.parentNode) el.parentNode.removeChild(el); }, 650);
+    }
+
+    function dismissSplash() {
+        var elapsed = Date.now() - splashStart;
+        var delay = Math.max(0, MIN_SPLASH - elapsed);
+        setTimeout(doFade, delay);
+    }
+
+    window.__dismissSplash = dismissSplash;
+})();
+
 // ==================== Init ====================
 initTheme();
 initSettings();
@@ -1225,3 +1321,27 @@ initSysInterval();
 renderConnBookmarks();
 loadProxyConfig();
 tryAutoLogin();
+
+// Fetch server config (footer visibility etc.), then dismiss splash
+(function () {
+    function applyServerConfig(cfg) {
+        if (cfg && cfg.showFooter === false) {
+            var footer = document.querySelector('.global-footer');
+            if (footer) footer.classList.add('server-hidden');
+        }
+    }
+
+    var req = new XMLHttpRequest();
+    req.open('GET', '/config', true);
+    req.timeout = 3000;
+    req.onload = function () {
+        if (req.status === 200) {
+            try { applyServerConfig(JSON.parse(req.responseText)); } catch (e) {}
+        }
+        if (window.__dismissSplash) window.__dismissSplash();
+    };
+    req.onerror = req.ontimeout = function () {
+        if (window.__dismissSplash) window.__dismissSplash();
+    };
+    req.send();
+})();

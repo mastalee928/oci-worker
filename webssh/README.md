@@ -5,7 +5,7 @@
 ## 示例
 效果图在最底下
 #### render.com 托管
-webssh.is-a.shop
+
 
 webssh-te0j.onrender.com
 
@@ -33,26 +33,42 @@ webssh.up.railway.app
 - 毛玻璃 (Glassmorphism) UI + 粒子动画背景
 - 支持 Docker Compose 一键部署
 - 移动端 / iPad 响应式适配
-- 支持以下 URL 格式自动登录：
-```bash
+- 支持以下 URL 格式自动登录（密码 & 私钥均支持）：
 
-URL 格式	解析结果
-你的域名/192.168.1.1:22/192.168.1.1/22/密码/mypass
-你的域名/192.168.1.1:22/mypass	root@192.168.1.1:22，密码 mypass
-你的域名/192.168.1.1:2222/admin/mypass	admin@192.168.1.1:2222
-你的域名/192.168.1.1/22/mypass	root@192.168.1.1:22
-你的域名/192.168.1.1/22/admin/mypass	admin@192.168.1.1:22
-你的域名/192.168.1.1/admin/mypass	admin@192.168.1.1:22（默认端口）
-```
+| URL 格式 | 解析结果 |
+|----------|----------|
+| `你的域名/192.168.1.1:22/mypass` | root@192.168.1.1:22，密码 mypass |
+| `你的域名/192.168.1.1:2222/admin/mypass` | admin@192.168.1.1:2222，密码 mypass |
+| `你的域名/192.168.1.1/22/mypass` | root@192.168.1.1:22，密码 mypass |
+| `你的域名/192.168.1.1/22/admin/mypass` | admin@192.168.1.1:22，密码 mypass |
+| `你的域名/192.168.1.1/admin/mypass` | admin@192.168.1.1:22（默认端口） |
+| `你的域名/192.168.1.1/22/root/-----BEGIN RSA...` | root@192.168.1.1:22，**私钥登录** |
+
+> 自动识别：最后一段若包含 `-----BEGIN` 或长度超过 200 字符，自动切换为私钥认证；否则视为密码。
+
+- 底部版权页脚可在「设置」面板中随时隐藏/显示（适合不想对外展示的部署场景）
 ## 快速开始
 
 ### 1. 一键命令部署（推荐）
 
 ```bash
-git clone https://github.com/a06342637/webssh2.git && cd webssh2 && docker compose up -d
+git clone https://github.com/a06342637/webssh2.git && cd webssh2 && sh setup.sh
 ```
 
-启动成功后，浏览器打开 `http://你的服务器IP:8008` 即可。
+运行后会有一个简短的交互向导，按提示回答即可：
+
+```
+服务端口 [默认 8008，直接回车跳过]:          ← 直接回车使用 8008
+是否显示底部版权页脚？([回车]=显示  n=不显示): ← 回车=显示，输入 n=隐藏
+是否启用 Web 登录验证？(y=启用  [回车]=不启用): ← 可选
+```
+
+回答完成后自动 `docker compose up -d --build` 启动。启动成功后浏览器打开 `http://你的服务器IP:8008` 即可。
+
+> 如果不需要交互向导，也可以直接运行：
+> ```bash
+> git clone https://github.com/a06342637/webssh2.git && cd webssh2 && docker compose up -d
+> ```
 
 ### 2. Docker Compose 部署
 
@@ -80,7 +96,12 @@ git pull && docker compose up -d --build
 
 #### 启用 Web 页面登录验证
 
-编辑 `docker-compose.yml`，取消 `authInfo` 那行的注释并设置账号密码：
+> **什么是 Web 登录验证？**
+> 这是一道浏览器级别的门禁。启用后，访问 WebSSH 页面时浏览器会先弹出一个账号密码对话框，输入正确才能看到 SSH 登录界面。
+> 适用于把 WebSSH 暴露在公网时，防止陌生人直接访问你的 SSH 工具页面。
+> **注意**：这和 SSH 本身的账号密码是两回事，是两层独立的验证。
+
+通过 `setup.sh` 部署时向导会直接询问是否启用。也可以手动编辑 `docker-compose.yml`，取消 `authInfo` 那行的注释并设置账号密码：
 
 ```yaml
 environment:

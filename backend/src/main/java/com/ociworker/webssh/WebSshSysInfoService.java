@@ -27,7 +27,7 @@ public class WebSshSysInfoService {
             "echo \"===LOAD===\"",
             "cat /proc/loadavg 2>/dev/null | awk '{print $1\" \"$2\" \"$3}' || uptime | sed 's/.*load average[s]*: //' | tr ',' ' ' | awk '{print $1\" \"$2\" \"$3}'",
             "echo \"===UPTIME===\"",
-            "uptime -p 2>/dev/null || uptime | sed 's/.*up //' | sed 's/,.*//g'",
+            "cat /proc/uptime 2>/dev/null | awk '{print int($1)}' || echo \"0\"",
             "echo \"===CPU_USAGE===\"",
             "cat /proc/stat 2>/dev/null | awk '/^cpu /{a=$2+$3+$4; t=$2+$3+$4+$5+$6+$7+$8; print a\" \"t}'; sleep 0.5; cat /proc/stat 2>/dev/null | awk '/^cpu /{a=$2+$3+$4; t=$2+$3+$4+$5+$6+$7+$8; print a\" \"t}'",
             "echo \"===TRAFFIC===\"",
@@ -55,13 +55,11 @@ public class WebSshSysInfoService {
         info.put("memUsed", "0");
         info.put("diskTotal", "0");
         info.put("diskUsed", "0");
-        info.put("load1", "0");
-        info.put("load5", "0");
-        info.put("load15", "0");
-        info.put("uptime", "");
+        info.put("load", "0 0 0");
+        info.put("uptime", "0");
         info.put("cpuUsage", "0");
-        info.put("trafficRx", "0");
-        info.put("trafficTx", "0");
+        info.put("rxTotal", "0");
+        info.put("txTotal", "0");
 
         if (raw == null) {
             return info;
@@ -81,11 +79,9 @@ public class WebSshSysInfoService {
             info.put("diskTotal", disk.group(1));
             info.put("diskUsed", disk.group(2));
         }
-        Matcher load = Pattern.compile("===LOAD===\\s*([0-9.]+)\\s+([0-9.]+)\\s+([0-9.]+)").matcher(raw);
+        Matcher load = Pattern.compile("===LOAD===\\s*([0-9.]+\\s+[0-9.]+\\s+[0-9.]+)").matcher(raw);
         if (load.find()) {
-            info.put("load1", load.group(1));
-            info.put("load5", load.group(2));
-            info.put("load15", load.group(3));
+            info.put("load", load.group(1).trim());
         }
         putSection(info, "uptime", raw, "===UPTIME===", "===CPU_USAGE===");
 
@@ -102,8 +98,8 @@ public class WebSshSysInfoService {
         }
         Matcher traffic = Pattern.compile("===TRAFFIC===\\s*([0-9]+)\\s+([0-9]+)").matcher(raw);
         if (traffic.find()) {
-            info.put("trafficRx", traffic.group(1));
-            info.put("trafficTx", traffic.group(2));
+            info.put("rxTotal", traffic.group(1));
+            info.put("txTotal", traffic.group(2));
         }
         return info;
     }

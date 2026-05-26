@@ -25,6 +25,13 @@ public class WebSshApiController {
         this.fileService = fileService;
     }
 
+    @GetMapping("/config")
+    public Map<String, Object> config() {
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("showFooter", false);
+        return body;
+    }
+
     @GetMapping("/check")
     public Map<String, Object> check(@RequestParam("sshInfo") String sshInfo) {
         long start = System.nanoTime();
