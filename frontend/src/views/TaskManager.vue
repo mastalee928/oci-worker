@@ -208,9 +208,13 @@
             </a-form-item>
           </a-col>
           <a-col :xs="24" :sm="8">
-            <a-form-item label="Root 密码">
-              <a-input-password v-model:value="createForm.rootPassword" placeholder="留空=随机生成" />
-              <a-button type="link" size="small" @click="generateRandomPwd" style="padding: 0">随机生成</a-button>
+            <a-form-item label="Root 密码" class="task-root-password-item">
+              <a-input-password
+                v-model:value="createForm.rootPassword"
+                placeholder="留空=随机生成"
+                autocomplete="new-password"
+              />
+              <a-button type="link" size="small" class="task-root-password-gen" @click="generateRandomPwd">随机生成</a-button>
             </a-form-item>
           </a-col>
         </a-row>
