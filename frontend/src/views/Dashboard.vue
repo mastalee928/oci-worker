@@ -77,6 +77,15 @@ onMounted(async () => {
 .page-dashboard {
   padding-top: 2px;
 }
+.page-dashboard .val,
+.page-dashboard .lbl,
+.page-dashboard .dash-panel h3,
+.page-dashboard .action-btn,
+.page-dashboard :deep(.ant-descriptions-item-label),
+.page-dashboard :deep(.ant-descriptions-item-content) {
+  user-select: none;
+  -webkit-user-select: none;
+}
 .dash-stats {
   display: grid;
   grid-template-columns: repeat(4, 1fr);

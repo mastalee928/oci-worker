@@ -1,6 +1,6 @@
 <template>
   <div>
-    <a-tabs v-model:active-key="activeTab">
+    <a-tabs v-model:active-key="activeTab" class="settings-page-tabs">
       <a-tab-pane key="security" tab="安全设置">
         <a-card title="修改登录密码" class="settings-card">
           <div v-if="!pwdTgVerified" class="lock-panel">
@@ -1524,6 +1524,12 @@ async function handleRestore() {
 </script>
 
 <style scoped>
+.settings-page-tabs :deep(.ant-tabs-tab),
+.settings-page-tabs :deep(.ant-tabs-tab-btn) {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
 .backup-restore-stack {
   display: flex;
   flex-direction: column;

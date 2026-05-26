@@ -292,6 +292,11 @@ function handleLogout() {
   background: transparent !important;
   border: none !important;
 }
+.nav-menu :deep(.ant-menu-item),
+.nav-menu :deep(.ant-menu-title-content) {
+  user-select: none;
+  -webkit-user-select: none;
+}
 .nav-menu :deep(.ant-menu-item) {
   text-align: left !important;
   padding-left: 24px !important;
@@ -448,6 +453,8 @@ function handleLogout() {
   color: var(--text-main);
   margin: 0;
   white-space: nowrap;
+  user-select: none;
+  -webkit-user-select: none;
 }
 .page-title i {
   color: var(--primary);
