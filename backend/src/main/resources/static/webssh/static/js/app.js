@@ -1271,59 +1271,117 @@ function parseConsoleParams() {
     try {
         var params = new URLSearchParams(hash.replace(/^#/, ''));
         if (params.get('console') !== '1') return null;
-        var host = params.get('host');
-        var user = params.get('user');
-        if (!host || !user) return null;
-        return {
-            host: host,
-            port: parseInt(params.get('port'), 10) || 22,
-            user: user,
-            pass: params.get('pass') || ''
-        };
+        var connectionId = params.get('connectionId');
+        if (connectionId) {
+            return {
+                mode: 'oci',
+                connectionId: connectionId,
+                label: params.get('label') || 'OCI Serial Console'
+            };
+        }
+        return null;
     } catch (e) {
         return null;
     }
 }
 
-function applyConsoleToLoginForm(info) {
-    document.getElementById('hostname').value = info.host;
-    document.getElementById('port').value = info.port;
-    document.getElementById('username').value = info.user;
-    switchAuthTab('password');
-    document.getElementById('password').value = info.pass;
+function createConsoleSession(connectionId, label) {
+    var id = Date.now() + '_' + Math.random().toString(36).substr(2, 5);
+    var termDiv = document.createElement('div');
+    termDiv.className = 'term-instance';
+    termDiv.id = 'term_' + id;
+    document.getElementById('terminalContainer').appendChild(termDiv);
+
+    var savedFont = getCurrentFontSize();
+    var savedColors = getSavedColors();
+    var isLight = document.documentElement.getAttribute('data-theme') === 'light' || (!document.documentElement.getAttribute('data-theme') && window.matchMedia('(prefers-color-scheme: light)').matches);
+    var defaultFg = isLight ? '#1a1a2e' : '#e8e8f0';
+    var defaultBg = isLight ? 'rgba(0,0,0,0)' : 'rgba(10,10,26,0)';
+    var defaultCursor = isLight ? '#0088cc' : '#00d4ff';
+    var t = new Terminal({
+        cursorBlink: true, cursorStyle: 'bar',
+        fontSize: savedFont,
+        fontFamily: "'JetBrains Mono','Fira Code','Cascadia Code',Consolas,monospace",
+        theme: { background: savedColors.bg === '#0a0a1a' || savedColors.bg === '#e8eaf0' ? defaultBg : savedColors.bg, foreground: savedColors.fg === '#e8e8f0' || savedColors.fg === '#1a1a2e' ? defaultFg : savedColors.fg, cursor: savedColors.cursor === '#00d4ff' || savedColors.cursor === '#0088cc' ? defaultCursor : savedColors.cursor, cursorAccent: isLight ? '#e8eaf0' : '#0a0a1a', selectionBackground: 'rgba(0,136,204,.25)', black: isLight ? '#e8e8f0' : '#1a1a2e', red: '#ff006e', green: isLight ? '#008844' : '#00ff88', yellow: isLight ? '#996600' : '#ffbe0b', blue: isLight ? '#0066cc' : '#00d4ff', magenta: '#7b2ff7', cyan: isLight ? '#0088aa' : '#00d4ff', white: isLight ? '#1a1a2e' : '#e8e8f0', brightBlack: isLight ? '#999' : '#3a3a5e', brightRed: '#ff4488', brightGreen: isLight ? '#00aa55' : '#33ffaa', brightYellow: isLight ? '#aa7700' : '#ffdd33', brightBlue: isLight ? '#0088ff' : '#33ddff', brightMagenta: '#9955ff', brightCyan: isLight ? '#00aacc' : '#33ddff', brightWhite: isLight ? '#000' : '#fff' },
+        allowTransparency: true, scrollback: 10000
+    });
+    var fa = new FitAddon.FitAddon();
+    t.loadAddon(fa);
+    t.loadAddon(new WebLinksAddon.WebLinksAddon());
+    t.open(termDiv);
+
+    var session = {
+        id: id, hostname: label, port: 0, username: 'console',
+        connectionId: connectionId, consoleMode: true,
+        ws: null, term: t, fitAddon: fa, termDiv: termDiv,
+        heartbeat: null, resizeObs: null
+    };
+
+    session.resizeObs = new ResizeObserver(function () { try { fa.fit(); } catch (e) { } });
+    session.resizeObs.observe(termDiv);
+
+    sessions.push(session);
+    return session;
+}
+
+function connectConsoleSession(session) {
+    var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    var cols = session.term.cols, rows = session.term.rows;
+    var wsUrl = proto + '//' + location.host + '/webssh-api/console-term?cols=' + cols + '&rows=' + rows;
+    var ws = new WebSocket(wsUrl);
+    session.ws = ws;
+    var got = false;
+
+    ws.onopen = function () { ws.send(session.connectionId); };
+
+    ws.onmessage = function (e) {
+        if (!got) {
+            got = true;
+            showToast(session.hostname + ' 连接成功', 'success');
+            session.heartbeat = setInterval(function () { if (ws.readyState === 1) ws.send('ping'); }, 30000);
+        }
+        session.term.write(e.data);
+    };
+
+    ws.onerror = function () { showToast(session.hostname + ' 连接失败', 'error'); };
+    ws.onclose = function () {
+        if (session.heartbeat) { clearInterval(session.heartbeat); session.heartbeat = null; }
+        if (!got) showToast(session.hostname + ' 无法连接', 'error');
+    };
+
+    session.term.onData(function (data) { if (ws.readyState === 1) ws.send(data); });
+
+    var resizeHandler = function () {
+        try { session.fitAddon.fit(); } catch (e) { }
+        if (ws.readyState === 1 && session.term) ws.send('resize:' + session.term.rows + ':' + session.term.cols);
+    };
+    addEventListener('resize', resizeHandler);
+    session._resizeHandler = resizeHandler;
 }
 
 function tryConsoleConnect() {
     var info = parseConsoleParams();
-    if (!info) return false;
+    if (!info || info.mode !== 'oci') return false;
     try {
-        var sshInfo = buildSSHInfoDirect(info.host, info.port, info.user, info.pass);
-        var session = createSession(info.host, info.port, info.user, sshInfo);
+        var session = createConsoleSession(info.connectionId, info.label);
         showView('terminalView');
         switchTab(sessions.length - 1);
         window.location.hash = '';
         setTimeout(function () {
             try { session.fitAddon.fit(); } catch (e) {}
-            connectSession(session);
+            connectConsoleSession(session);
             setStatus('', '就绪');
-            renderScriptBookmarks();
         }, 300);
         return true;
     } catch (e) {
         console.error('tryConsoleConnect failed', e);
         showToast('串口自动连接失败: ' + (e && e.message ? e.message : e), 'error');
-        applyConsoleToLoginForm(info);
-        setTimeout(function () { connectFromLogin(); }, 200);
         return false;
     }
 }
 
 function bootConsoleConnect() {
-    if (tryConsoleConnect()) return;
-    var info = parseConsoleParams();
-    if (!info) return;
-    applyConsoleToLoginForm(info);
-    setTimeout(function () { connectFromLogin(); }, 300);
+    tryConsoleConnect();
 }
 
 function tryAutoLogin() {

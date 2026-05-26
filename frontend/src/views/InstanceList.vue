@@ -2091,10 +2091,9 @@ async function handleCreateConsole() {
 }
 
 function openConsoleWebSSH() {
-  if (!consoleData.value) return
-  const { tempUser, tempPassword, sshHost } = consoleData.value
-  const host = sshHost || window.location.hostname
-  const hash = `#console=1&host=${encodeURIComponent(host)}&port=22&user=${encodeURIComponent(tempUser)}&pass=${encodeURIComponent(tempPassword)}`
+  if (!consoleData.value?.connectionId) return
+  const label = currentInstance.value?.displayName || currentInstance.value?.instanceId || 'Serial Console'
+  const hash = `#console=1&connectionId=${encodeURIComponent(consoleData.value.connectionId)}&label=${encodeURIComponent(label)}`
   window.open('/webssh/index.html' + hash, '_blank')
 }
 

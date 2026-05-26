@@ -1,5 +1,6 @@
 package com.ociworker.config;
 
+import com.ociworker.webssh.WebSshConsoleTerminalWebSocketHandler;
 import com.ociworker.webssh.WebSshTerminalWebSocketHandler;
 import com.ociworker.webssh.WebSshUploadProgressWebSocketHandler;
 import com.ociworker.websocket.LogWebSocketHandler;
@@ -19,6 +20,8 @@ public class WebSocketConfig implements WebSocketConfigurer {
     @Resource
     private WebSshTerminalWebSocketHandler webSshTerminalWebSocketHandler;
     @Resource
+    private WebSshConsoleTerminalWebSocketHandler webSshConsoleTerminalWebSocketHandler;
+    @Resource
     private WebSshUploadProgressWebSocketHandler webSshUploadProgressWebSocketHandler;
 
     @Override
@@ -26,6 +29,8 @@ public class WebSocketConfig implements WebSocketConfigurer {
         registry.addHandler(logWebSocketHandler, "/ws/log")
                 .setAllowedOrigins("*");
         registry.addHandler(webSshTerminalWebSocketHandler, "/webssh-api/term")
+                .setAllowedOrigins("*");
+        registry.addHandler(webSshConsoleTerminalWebSocketHandler, "/webssh-api/console-term")
                 .setAllowedOrigins("*");
         registry.addHandler(webSshUploadProgressWebSocketHandler, "/webssh-api/file/progress")
                 .setAllowedOrigins("*");
