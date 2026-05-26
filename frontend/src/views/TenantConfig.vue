@@ -2,7 +2,7 @@
   <div class="tenant-config-root">
     <div class="table-toolbar">
       <a-space wrap>
-        <a-input-search v-model:value="searchText" placeholder="搜索租户" allow-clear @search="loadData" style="width: 200px" />
+        <a-input-search v-model:value="searchText" placeholder="搜索租户" allow-clear @search="onSearchTenants" style="width: 200px" />
         <a-button @click="openGroupManager">
           <template #icon><FolderOutlined /></template>管理分组
         </a-button>
@@ -1516,7 +1516,9 @@ function parseAndFill() {
 let pendingExpandTarget: { groupLevel1?: string; groupLevel2?: string } | null = null
 
 async function loadData(expandAfter?: { groupLevel1?: string; groupLevel2?: string }) {
-  if (expandAfter) pendingExpandTarget = expandAfter
+  if (expandAfter && typeof expandAfter === 'object') {
+    pendingExpandTarget = expandAfter
+  }
   if (searchText.value) {
     searchLoading.value = true
     try {
@@ -1547,6 +1549,17 @@ async function loadData(expandAfter?: { groupLevel1?: string; groupLevel2?: stri
 
 async function loadGroups() {
   await catalog.ensureGroups({ force: true })
+}
+
+function onSearchTenants() {
+  pendingExpandTarget = null
+  pagination.current = 1
+  void loadData()
+}
+
+function invalidateCatalogAndReload() {
+  catalog.invalidate()
+  void loadData()
 }
 
 function handleTableChange(pag: any) {
@@ -2114,7 +2127,7 @@ function onDrop(_e: DragEvent, toIdx: number) {
   localOrder.value = names
 
   resetDrag()
-  saveGroupOrder({ order: names }).then(() => loadGroups()).catch(() => {})
+  saveGroupOrder({ order: names }).then(() => invalidateCatalogAndReload()).catch(() => {})
 }
 
 function onDragEnd() {
@@ -2338,7 +2351,7 @@ async function handleRenameGroup() {
     await renameGroup({ oldName: renameOldName.value, newName: renameNewName.value.trim(), level: renameLevel.value })
     message.success('分组已重命名')
     renameVisible.value = false
-    loadData()
+    invalidateCatalogAndReload()
   } catch (e: any) {
     message.error(e?.message || '重命名失败')
   } finally {
@@ -2354,7 +2367,7 @@ async function handleDeleteGroup(name: string, level: string) {
       try {
         await deleteGroup({ name, level })
         message.success('分组已删除')
-        loadData()
+        invalidateCatalogAndReload()
       } catch (e: any) {
         message.error(e?.message || '删除分组失败')
       }
@@ -2375,7 +2388,7 @@ async function handleAddSubGroupConfirm() {
     await createGroup({ name, level: '2', parent: addSubParent.value })
     addSubVisible.value = false
     message.success('子分组已添加')
-    loadData()
+    invalidateCatalogAndReload()
   } catch (e: any) {
     message.error(e?.message || '添加子分组失败')
   }
@@ -2408,7 +2421,7 @@ async function handleCreateGroup() {
     })
     message.success('分组已创建')
     createGroupFormVisible.value = false
-    loadData()
+    invalidateCatalogAndReload()
   } catch (e: any) {
     message.error(e?.message || '创建分组失败')
   } finally {
@@ -2427,7 +2440,7 @@ async function handleMgrDeleteGroup(name: string, level: string) {
   try {
     await deleteGroup({ name, level })
     message.success('分组已删除')
-    loadData()
+    invalidateCatalogAndReload()
   } catch (e: any) {
     message.error(e?.message || '删除分组失败')
   }

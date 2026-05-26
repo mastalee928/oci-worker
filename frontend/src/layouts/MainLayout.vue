@@ -189,7 +189,8 @@ const pageTitleIcon = computed(() => {
   return icons[currentRoute.value] || 'ri-dashboard-3-line'
 })
 
-function handleMenuClick({ key }: { key: string }) {
+function handleMenuClick(info: { key: string | number }) {
+  const key = String(info.key)
   prefetchRouteChunk(key)
   router.push('/' + key)
   if (isMobile.value) mobileMenuOpen.value = false

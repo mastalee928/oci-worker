@@ -77,12 +77,13 @@
                 </div>
               </component>
             </div>
-            <a-collapse v-model:activeKey="activeGroupKeys" @change="onCollapseChange" class="group-collapse-l2">
+            <a-collapse v-model:activeKey="activeL2Keys" @change="onL2CollapseChange" class="group-collapse-l2">
               <a-collapse-panel v-for="l2 in g1.children" :key="l2.key" :collapsible="l2.tenants.length === 0 ? 'disabled' : undefined">
                 <template #header>
                   <span class="group-header-label">{{ l2.label }}</span>
                   <a-badge :count="l2.tenants.length" :show-zero="true" class="oci-group-count-badge" style="margin-left: 8px" />
                 </template>
+                <template v-if="isL2PanelOpen(l2.key)">
                 <div v-if="tenantViewMode === 'card'" class="tenant-grid">
                   <template v-for="td in l2.tenants" :key="td.tenant.id">
                     <div class="tenant-card" :class="{ 'tenant-card-active': activeTenantId === td.tenant.id }">
@@ -122,6 +123,7 @@
                     </div>
                   </div>
                 </div>
+                </template>
               </a-collapse-panel>
             </a-collapse>
           </template>
@@ -1234,7 +1236,6 @@ import {
 import { getTenantGroups } from '../api/tenant'
 import { useTenantCatalogStore } from '../stores/tenantCatalog'
 import { listAllVolumes, deleteVolume } from '../api/volume'
-import VirtualTenantCardList from '../components/tenant/VirtualTenantCardList.vue'
 
 const VcnManager = defineAsyncComponent(() => import('./VcnManager.vue'))
 const StorageManager = defineAsyncComponent(() => import('./StorageManager.vue'))
@@ -1261,7 +1262,7 @@ import {
   validateDenseIoFlexTier,
 } from '../constants/ociBmShapeSpecs'
 import { useDenseIoFlexTier } from '../composables/useDenseIoFlexTier'
-import { collectGroupExpandKeys, isAllGroupsExpanded, type GroupExpandNode } from '../composables/groupExpandToggle'
+import { isAllGroupsExpanded } from '../composables/groupExpandToggle'
 import ShapeSeriesPicker from '../components/ShapeSeriesPicker.vue'
 import {
   BOOT_VOLUME_VPUS_MAX,
@@ -1280,6 +1281,10 @@ const VIRTUAL_CARD_MIN = 12
 
 function isGroupPanelOpen(key: string) {
   return activeGroupKeys.value.includes(key)
+}
+
+function isL2PanelOpen(key: string) {
+  return activeL2Keys.value.includes(key)
 }
 
 function formatInstanceCreatedDate(v: unknown): string {
@@ -1372,41 +1377,95 @@ interface GroupNode {
 }
 const groupData = computed(() => catalog.groupData)
 
-const COLLAPSE_KEY = 'instanceList.groupCollapse'
-function loadCollapseState(): string[] {
-  try { return JSON.parse(localStorage.getItem(COLLAPSE_KEY) || '[]') } catch { return [] }
+const COLLAPSE_KEY = 'instanceList.groupCollapse.v2'
+
+interface CollapsePersist {
+  l1: string[]
+  l2: string[]
 }
-function saveCollapseState(keys: string[]) {
-  try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify(keys)) } catch {}
+
+function migrateFlatCollapseKeys(flat: string[]): CollapsePersist {
+  const l1: string[] = []
+  const l2: string[] = []
+  for (const k of flat) {
+    if (String(k).includes('/')) l2.push(String(k))
+    else l1.push(String(k))
+  }
+  return { l1, l2 }
 }
-const activeGroupKeys = ref<string[]>(loadCollapseState())
+
+function loadCollapseState(): CollapsePersist {
+  try {
+    const raw = JSON.parse(localStorage.getItem(COLLAPSE_KEY) || 'null')
+    if (raw && Array.isArray(raw.l1)) {
+      return { l1: raw.l1, l2: Array.isArray(raw.l2) ? raw.l2 : [] }
+    }
+    if (Array.isArray(raw)) {
+      return migrateFlatCollapseKeys(raw)
+    }
+  } catch { /* ignore */ }
+  try {
+    const legacy = JSON.parse(localStorage.getItem('instanceList.groupCollapse') || '[]')
+    if (Array.isArray(legacy) && legacy.length) {
+      return migrateFlatCollapseKeys(legacy)
+    }
+  } catch { /* ignore */ }
+  return { l1: [], l2: [] }
+}
+
+function saveCollapseState() {
+  try {
+    const payload: CollapsePersist = { l1: activeGroupKeys.value, l2: activeL2Keys.value }
+    localStorage.setItem(COLLAPSE_KEY, JSON.stringify(payload))
+  } catch { /* ignore */ }
+}
+
+const initialCollapse = loadCollapseState()
+const activeGroupKeys = ref<string[]>(initialCollapse.l1)
+const activeL2Keys = ref<string[]>(initialCollapse.l2)
+
 function onCollapseChange(keys: string | string[]) {
-  const arr = Array.isArray(keys) ? keys : [keys]
-  activeGroupKeys.value = arr
-  saveCollapseState(arr)
+  activeGroupKeys.value = Array.isArray(keys) ? keys.map(String) : [String(keys)]
+  saveCollapseState()
 }
 
-function instanceGroupHasExpandableContent(node: GroupExpandNode, level: 1 | 2): boolean {
-  const g = node as GroupNode
-  if (level === 1) return groupTenantCount(g) > 0
-  return g.tenants.length > 0
+function onL2CollapseChange(keys: string | string[]) {
+  activeL2Keys.value = Array.isArray(keys) ? keys.map(String) : [String(keys)]
+  saveCollapseState()
 }
 
-const instanceExpandableKeys = computed(() =>
-  collectGroupExpandKeys(groupedTenants.value, instanceGroupHasExpandableContent),
-)
+function collectL1ExpandableKeys(nodes: GroupNode[]): string[] {
+  return nodes.filter((g) => groupTenantCount(g) > 0).map((g) => g.key)
+}
 
-const allInstanceGroupsExpanded = computed(() =>
-  isAllGroupsExpanded(activeGroupKeys.value, instanceExpandableKeys.value),
-)
+function collectL2ExpandableKeys(nodes: GroupNode[]): string[] {
+  const keys: string[] = []
+  for (const g of nodes) {
+    if (!g.children) continue
+    for (const c of g.children) {
+      if (c.tenants.length > 0) keys.push(c.key)
+    }
+  }
+  return keys
+}
+
+const allInstanceGroupsExpanded = computed(() => {
+  const l1Keys = collectL1ExpandableKeys(groupedTenants.value)
+  const l2Keys = collectL2ExpandableKeys(groupedTenants.value)
+  return isAllGroupsExpanded(activeGroupKeys.value, l1Keys) && isAllGroupsExpanded(activeL2Keys.value, l2Keys)
+})
 
 function toggleAllInstanceGroups() {
-  if (isAllGroupsExpanded(activeGroupKeys.value, instanceExpandableKeys.value)) {
+  const l1Keys = collectL1ExpandableKeys(groupedTenants.value)
+  const l2Keys = collectL2ExpandableKeys(groupedTenants.value)
+  if (allInstanceGroupsExpanded.value) {
     activeGroupKeys.value = []
+    activeL2Keys.value = []
   } else {
-    activeGroupKeys.value = [...instanceExpandableKeys.value]
+    activeGroupKeys.value = [...l1Keys]
+    activeL2Keys.value = [...l2Keys]
   }
-  saveCollapseState(activeGroupKeys.value)
+  saveCollapseState()
 }
 
 function scrollInstancePageTop() {
@@ -1474,7 +1533,7 @@ watch(searchKeyword, (kw) => {
       if (groupTenantCount(g) > 0) matchedKeys.push(g.key)
     }
     activeGroupKeys.value = matchedKeys
-    saveCollapseState(matchedKeys)
+    saveCollapseState()
   }
 })
 
