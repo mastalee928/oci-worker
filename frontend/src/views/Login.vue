@@ -234,54 +234,49 @@ async function handleTgLogin() {
   color: #94a3b8;
   font-size: 18px;
 }
-.login-form :deep(.login-input.ant-input-affix-wrapper) {
+/* 仅外层垂直居中；内层 input 的 padding/光标沿用全站 affix 规则，勿清零 */
+.login-input {
   display: inline-flex !important;
   align-items: center !important;
   width: 100%;
   height: 48px !important;
   min-height: 48px !important;
-  padding: 0 16px !important;
   background: rgba(15, 23, 42, 0.5) !important;
   border: 1px solid rgba(255, 255, 255, 0.1) !important;
   border-radius: 12px !important;
   font-size: 15px !important;
-  box-sizing: border-box !important;
+  padding: 4px 16px !important;
+  overflow: visible !important;
 }
-.login-form :deep(.login-input.ant-input-affix-wrapper:hover) {
+.login-input:hover {
   border-color: rgba(255, 255, 255, 0.2) !important;
 }
-.login-form :deep(.login-input.ant-input-affix-wrapper-focused),
-.login-form :deep(.login-input.ant-input-affix-wrapper:focus-within) {
+.login-input:where(.ant-input-affix-wrapper-focused),
+.login-input:focus-within {
   border-color: #6366f1 !important;
   background: rgba(15, 23, 42, 0.8) !important;
   box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.15) !important;
 }
-.login-form :deep(.login-input input.ant-input) {
-  flex: 1;
-  min-width: 0;
-  height: 22px !important;
-  min-height: 22px !important;
-  line-height: 22px !important;
-  padding: 0 !important;
-  margin: 0 !important;
+.login-input :deep(input) {
   background: transparent !important;
   border: none !important;
   box-shadow: none !important;
   color: #fff !important;
   font-size: 15px !important;
   caret-color: #fff !important;
+  overflow: visible !important;
 }
-.login-form :deep(.login-input .ant-input-prefix) {
-  display: inline-flex;
-  align-items: center;
+.login-input :deep(.ant-input-prefix) {
   margin-inline-end: 12px;
-  flex-shrink: 0;
 }
-.login-form :deep(.login-input .ant-input-suffix) {
-  display: inline-flex;
-  align-items: center;
-  margin-inline-start: 8px;
+.login-input :deep(.ant-input-suffix) {
   color: #94a3b8;
+}
+/* 覆盖全站 lg 固定内层 24px，避免 48px 外框里文字偏上；不改 padding-left，保留光标位置 */
+.login-input.ant-input-affix-wrapper-lg :deep(input.ant-input) {
+  height: auto !important;
+  min-height: unset !important;
+  line-height: 1.5715 !important;
 }
 .submit-btn {
   width: 100%;
