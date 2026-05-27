@@ -494,6 +494,7 @@ public class OciClientService implements Closeable {
 
         boolean sawOutOfCapacity = false;
         for (AvailabilityDomain ad : availabilityDomains) {
+            String tryNextAdSuffix = hasNextAvailabilityDomain(availabilityDomains, ad) ? "，尝试下一可用域" : "";
             List<Shape> shapes = getShapes(ad.getName()).stream()
                     .filter(s -> s.getShape().equals(targetShape))
                     .collect(Collectors.toList());
@@ -510,8 +511,8 @@ public class OciClientService implements Closeable {
                 Subnet subnet = findOrCreateSubnet(ad.getName());
                 if (subnet == null) {
                     result.setNoPubVcn(true);
-                    log.warn("【开机任务】用户:[{}], AD:[{}] - 无可用公有子网，尝试下一可用域",
-                            user.getUsername(), ad.getName());
+                    log.warn("【开机任务】用户:[{}], AD:[{}] - 无可用公有子网{}",
+                            user.getUsername(), ad.getName(), tryNextAdSuffix);
                     break;
                 }
 
@@ -584,16 +585,16 @@ public class OciClientService implements Closeable {
                     String hint = describeLaunchFailure(e);
                     if (isOutOfHostCapacityError(e)) {
                         sawOutOfCapacity = true;
-                        log.warn("【开机任务】用户:[{}], AD:[{}] - 容量不足，尝试下一可用域。{}",
-                                user.getUsername(), ad.getName(), hint);
+                        log.warn("【开机任务】用户:[{}], AD:[{}] - 容量不足{}。{}",
+                                user.getUsername(), ad.getName(), tryNextAdSuffix, hint);
                     } else {
-                        log.warn("【开机任务】用户:[{}], AD:[{}] - 创建失败，尝试下一可用域。{}",
-                                user.getUsername(), ad.getName(), hint);
+                        log.warn("【开机任务】用户:[{}], AD:[{}] - 创建失败{}。{}",
+                                user.getUsername(), ad.getName(), tryNextAdSuffix, hint);
                     }
                     break;
                 } catch (Exception e) {
-                    log.warn("【开机任务】用户:[{}], AD:[{}] - 创建异常，尝试下一可用域: {}",
-                            user.getUsername(), ad.getName(), e.getMessage());
+                    log.warn("【开机任务】用户:[{}], AD:[{}] - 创建异常{}: {}",
+                            user.getUsername(), ad.getName(), tryNextAdSuffix, e.getMessage());
                     break;
                 }
             }
@@ -602,6 +603,15 @@ public class OciClientService implements Closeable {
             result.setOutOfCapacity(true);
         }
         return result;
+    }
+
+    private static boolean hasNextAvailabilityDomain(List<AvailabilityDomain> ads, AvailabilityDomain current) {
+        for (int i = 0; i < ads.size(); i++) {
+            if (Objects.equals(ads.get(i).getName(), current.getName())) {
+                return i < ads.size() - 1;
+            }
+        }
+        return false;
     }
 
     private static boolean isOutOfHostCapacityError(com.oracle.bmc.model.BmcException e) {
