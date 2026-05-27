@@ -4,7 +4,7 @@
     <div class="bg-glow-2" />
     <div class="login-card">
       <div class="login-header">
-        <i class="ri-server-line logo-icon"></i>
+        <OciLogo :size="52" class="logo-mark" />
         <h2>OCI Worker</h2>
         <p>Oracle Cloud 实例管理面板</p>
       </div>
@@ -81,6 +81,7 @@ import axios from 'axios'
 import { message } from 'ant-design-vue'
 import { useUserStore } from '../stores/user'
 import { login, needSetup, tgLoginAvailable, tgLoginSendCode, tgLogin } from '../api/auth'
+import OciLogo from '../components/OciLogo.vue'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -209,15 +210,12 @@ async function handleTgLogin() {
 .login-header {
   text-align: center;
   margin-bottom: 32px;
+  user-select: none;
+  -webkit-user-select: none;
 }
-.logo-icon {
-  font-size: 48px;
-  display: inline-block;
-  background: linear-gradient(135deg, #818cf8, #c084fc);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  filter: drop-shadow(0 0 10px rgba(99, 102, 241, 0.3));
-  margin-bottom: 10px;
+.logo-mark {
+  display: block;
+  margin: 0 auto 12px;
 }
 .login-header h2 {
   margin: 0;
@@ -295,6 +293,8 @@ async function handleTgLogin() {
   justify-content: center;
   gap: 8px;
   font-family: inherit;
+  user-select: none;
+  -webkit-user-select: none;
 }
 .submit-btn:hover:not(:disabled) {
   transform: translateY(-2px);
@@ -319,6 +319,8 @@ async function handleTgLogin() {
   align-items: center;
   justify-content: center;
   gap: 6px;
+  user-select: none;
+  -webkit-user-select: none;
 }
 .tg-switch:hover {
   color: #a5b4fc;
@@ -327,12 +329,16 @@ async function handleTgLogin() {
   color: #94a3b8;
   font-size: 14px;
   margin-bottom: 24px;
+  user-select: none;
+  -webkit-user-select: none;
 }
 .tg-countdown {
   text-align: center;
   color: #64748b;
   font-size: 12px;
   margin-top: 8px;
+  user-select: none;
+  -webkit-user-select: none;
 }
 .tg-resend {
   text-align: center;
@@ -340,6 +346,8 @@ async function handleTgLogin() {
   font-size: 13px;
   cursor: pointer;
   margin-top: 8px;
+  user-select: none;
+  -webkit-user-select: none;
 }
 .tg-resend:hover {
   color: #a5b4fc;

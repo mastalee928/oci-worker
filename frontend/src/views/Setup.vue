@@ -4,7 +4,7 @@
     <div class="bg-glow-2" />
     <div class="setup-card">
       <div class="setup-header">
-        <i class="ri-server-line logo-icon"></i>
+        <OciLogo :size="52" class="logo-mark" />
         <h2>OCI Worker</h2>
         <p>首次使用，请设置管理员账户</p>
       </div>
@@ -58,6 +58,7 @@ import { useRouter } from 'vue-router'
 import { message } from 'ant-design-vue'
 import { useUserStore } from '../stores/user'
 import { setupAccount, needSetup } from '../api/auth'
+import OciLogo from '../components/OciLogo.vue'
 
 const router = useRouter()
 const userStore = useUserStore()
@@ -181,14 +182,9 @@ async function handleSetup() {
   text-align: center;
   margin-bottom: 24px;
 }
-.logo-icon {
-  font-size: 48px;
-  display: inline-block;
-  background: linear-gradient(135deg, #818cf8, #c084fc);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  filter: drop-shadow(0 0 10px rgba(99, 102, 241, 0.3));
-  margin-bottom: 10px;
+.logo-mark {
+  display: block;
+  margin: 0 auto 12px;
 }
 .setup-header h2 {
   margin: 0;

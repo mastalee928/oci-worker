@@ -16,7 +16,7 @@
       :style="isMobile && !mobileMenuOpen ? { display: 'none' } : {}"
     >
       <div class="brand">
-        <i class="ri-server-line brand-icon"></i>
+        <OciLogo :size="32" class="brand-logo" />
         <span v-if="!collapsed || (isMobile && mobileMenuOpen)" class="brand-text">OCI Worker</span>
       </div>
       <a-menu mode="inline" :selected-keys="[currentRoute]" @click="handleMenuClick"
@@ -127,6 +127,7 @@ import { MAIN_KEEP_ALIVE } from '../constants/keepAlive'
 import { prefetchRouteChunk, prefetchMainRoutesIdle } from '../utils/routePrefetch'
 import { useTenantCatalogStore } from '../stores/tenantCatalog'
 import { getCurrentAccount } from '../api/auth'
+import OciLogo from '../components/OciLogo.vue'
 
 const keepAliveNames = [...MAIN_KEEP_ALIVE]
 
@@ -279,9 +280,8 @@ function handleLogout() {
   justify-content: center;
   padding: 0 8px;
 }
-.brand-icon {
-  font-size: 28px;
-  color: #818cf8;
+.brand-logo {
+  flex-shrink: 0;
 }
 .brand-text {
   font-size: 20px;
