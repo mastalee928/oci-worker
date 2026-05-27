@@ -85,7 +85,7 @@ public class VcnController {
 
     @PostMapping("/subnet/delete")
     public ResponseData<?> deleteSubnet(@RequestBody Map<String, Object> params) {
-        verifyCodeService.verifyCode("deleteVcn", str(params, "verifyCode"));
+        verifyCodeService.verifyCode("deleteVcnSubnet", str(params, "verifyCode"));
         vcnService.deleteSubnet(str(params, "id"), str(params, "subnetId"), reg(params));
         return ResponseData.ok();
     }
@@ -125,7 +125,7 @@ public class VcnController {
 
     @PostMapping("/igw/delete")
     public ResponseData<?> deleteIgw(@RequestBody Map<String, Object> params) {
-        verifyCodeService.verifyCode("deleteVcn", str(params, "verifyCode"));
+        verifyCodeService.verifyCode("deleteVcnIgw", str(params, "verifyCode"));
         vcnService.deleteInternetGateway(str(params, "id"), str(params, "igwId"), reg(params));
         return ResponseData.ok();
     }
@@ -160,7 +160,7 @@ public class VcnController {
 
     @PostMapping("/nat/delete")
     public ResponseData<?> deleteNat(@RequestBody Map<String, Object> params) {
-        verifyCodeService.verifyCode("deleteVcn", str(params, "verifyCode"));
+        verifyCodeService.verifyCode("deleteVcnNat", str(params, "verifyCode"));
         vcnService.deleteNatGateway(str(params, "id"), str(params, "natId"), reg(params));
         return ResponseData.ok();
     }
@@ -188,7 +188,7 @@ public class VcnController {
 
     @PostMapping("/sg/delete")
     public ResponseData<?> deleteSg(@RequestBody Map<String, Object> params) {
-        verifyCodeService.verifyCode("deleteVcn", str(params, "verifyCode"));
+        verifyCodeService.verifyCode("deleteVcnSg", str(params, "verifyCode"));
         vcnService.deleteServiceGateway(str(params, "id"), str(params, "sgId"), reg(params));
         return ResponseData.ok();
     }
@@ -210,7 +210,7 @@ public class VcnController {
 
     @PostMapping("/rt/delete")
     public ResponseData<?> deleteRt(@RequestBody Map<String, Object> params) {
-        verifyCodeService.verifyCode("deleteVcn", str(params, "verifyCode"));
+        verifyCodeService.verifyCode("deleteVcnRt", str(params, "verifyCode"));
         vcnService.deleteRouteTable(str(params, "id"), str(params, "rtId"), reg(params));
         return ResponseData.ok();
     }
@@ -243,7 +243,7 @@ public class VcnController {
 
     @PostMapping("/sl/delete")
     public ResponseData<?> deleteSl(@RequestBody Map<String, Object> params) {
-        verifyCodeService.verifyCode("deleteVcn", str(params, "verifyCode"));
+        verifyCodeService.verifyCode("deleteVcnSl", str(params, "verifyCode"));
         vcnService.deleteSecurityList(str(params, "id"), str(params, "slId"), reg(params));
         return ResponseData.ok();
     }
@@ -288,7 +288,7 @@ public class VcnController {
 
     @PostMapping("/drg/delete")
     public ResponseData<?> deleteDrg(@RequestBody Map<String, Object> params) {
-        verifyCodeService.verifyCode("deleteVcn", str(params, "verifyCode"));
+        verifyCodeService.verifyCode("deleteVcnDrg", str(params, "verifyCode"));
         vcnService.deleteDrg(str(params, "id"), str(params, "drgId"), reg(params));
         return ResponseData.ok();
     }
@@ -314,7 +314,7 @@ public class VcnController {
 
     @PostMapping("/lpg/delete")
     public ResponseData<?> deleteLpg(@RequestBody Map<String, Object> params) {
-        verifyCodeService.verifyCode("deleteVcn", str(params, "verifyCode"));
+        verifyCodeService.verifyCode("deleteVcnLpg", str(params, "verifyCode"));
         vcnService.deleteLocalPeeringGateway(str(params, "id"), str(params, "lpgId"), reg(params));
         return ResponseData.ok();
     }

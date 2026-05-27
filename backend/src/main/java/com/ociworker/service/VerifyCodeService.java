@@ -49,7 +49,15 @@ public class VerifyCodeService {
             case "deleteVolume" -> "删除卷";
             case "deleteStorage" -> "删除存储资源";
             case "editBucketPolicy" -> "修改存储桶策略";
-            case "deleteVcn" -> "删除 VCN 资源";
+            case "deleteVcn" -> "删除 VCN";
+            case "deleteVcnSubnet" -> "删除子网";
+            case "deleteVcnIgw" -> "删除 Internet 网关";
+            case "deleteVcnNat" -> "删除 NAT 网关";
+            case "deleteVcnSg" -> "删除服务网关";
+            case "deleteVcnLpg" -> "删除本地对等连接网关";
+            case "deleteVcnRt" -> "删除路由表";
+            case "deleteVcnSl" -> "删除安全列表";
+            case "deleteVcnDrg" -> "删除 DRG";
             case "authFactors" -> "修改域验证因素设置";
             case "banlist" -> "封禁列表管理";
             case "loginAudit" -> "登录统计查看";

@@ -666,6 +666,19 @@ const deleteTarget = ref<any>(null)
 const deleteCode = ref('')
 const deleteLabel = ref('')
 
+function deleteVerifyAction(type: string) {
+  const m: Record<string, string> = {
+    subnet: 'deleteVcnSubnet',
+    igw: 'deleteVcnIgw',
+    nat: 'deleteVcnNat',
+    sg: 'deleteVcnSg',
+    lpg: 'deleteVcnLpg',
+    rt: 'deleteVcnRt',
+    sl: 'deleteVcnSl',
+  }
+  return m[type] || 'deleteVcn'
+}
+
 async function askDelete(type: string, row: any) {
   deleteType.value = type
   deleteTarget.value = row
@@ -674,14 +687,14 @@ async function askDelete(type: string, row: any) {
     subnet: '子网', igw: 'Internet 网关', nat: 'NAT 网关',
     sg: '服务网关', lpg: 'LPG', rt: '路由表', sl: '安全列表',
   } as any)[type] || type
-  try { await sendVerifyCode('deleteVcn') } catch {}
+  try { await sendVerifyCode(deleteVerifyAction(type)) } catch {}
   showDelete.value = true
 }
 
 async function resendDeleteVerifyCode() {
   deleteCodeSending.value = true
   try {
-    await sendVerifyCode('deleteVcn')
+    await sendVerifyCode(deleteVerifyAction(deleteType.value))
     message.success('验证码已重新发送')
   } catch (e: any) {
     message.error(e?.message || '发送失败')
