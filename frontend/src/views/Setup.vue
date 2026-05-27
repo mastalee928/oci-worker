@@ -124,7 +124,7 @@ async function handleSetup() {
   loading.value = true
   try {
     const res = await setupAccount({ account: form.account, password: form.password })
-    userStore.setToken(res.data.token)
+    userStore.setLoginSession(res.data.token, res.data.account ?? form.account)
     message.success('初始化完成，欢迎使用 OCI Worker！')
     router.push('/')
   } catch {

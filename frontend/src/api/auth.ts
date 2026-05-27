@@ -4,6 +4,10 @@ export function login(data: { account: string; password: string; mfaCode?: strin
   return request.post('/auth/login', data)
 }
 
+export function getCurrentAccount() {
+  return request.get<{ account: string }>('/auth/account')
+}
+
 export function needSetup() {
   return request.get('/auth/needSetup')
 }

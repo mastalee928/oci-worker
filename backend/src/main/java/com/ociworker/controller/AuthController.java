@@ -137,7 +137,7 @@ public class AuthController {
         setKv(CODE_PASSWORD, DigestUtil.sha256Hex(password));
 
         String token = CommonUtils.generateToken(account, DigestUtil.sha256Hex(password));
-        return ResponseData.ok(Map.of("token", token));
+        return ResponseData.ok(Map.of("token", token, "account", account));
     }
 
     /**
@@ -187,7 +187,7 @@ public class AuthController {
         notificationService.sendMessage(NotificationService.TYPE_LOGIN,
                 String.format("【登录通知】✅ 登录成功\n账号: %s\nIP: %s\n时间: %s",
                         params.getAccount(), ip, nowStr()));
-        return ResponseData.ok(Map.of("token", token, "expireHours", 24));
+        return ResponseData.ok(Map.of("token", token, "account", effectiveAccount, "expireHours", 24));
     }
 
     @PostMapping("/tgLoginSendCode")
@@ -311,7 +311,13 @@ public class AuthController {
         notificationService.sendMessage(NotificationService.TYPE_LOGIN,
                 String.format("【登录通知】✅ TG验证码登录成功\nIP: %s\n时间: %s", ip, nowStr()));
 
-        return ResponseData.ok(Map.of("token", token, "expireHours", 24));
+        return ResponseData.ok(Map.of("token", token, "account", effectiveAccount, "expireHours", 24));
+    }
+
+    /** 当前登录用户名（需有效 token） */
+    @GetMapping("/account")
+    public ResponseData<?> currentAccount() {
+        return ResponseData.ok(Map.of("account", getEffectiveAccount()));
     }
 
     @GetMapping("/tgLoginAvailable")
@@ -365,7 +371,7 @@ public class AuthController {
                     account, ip, nowStr()));
         }
 
-        return ResponseData.ok(Map.of("token", newToken, "message", "密码修改成功"));
+        return ResponseData.ok(Map.of("token", newToken, "account", account, "message", "密码修改成功"));
     }
 
     private String nowStr() {

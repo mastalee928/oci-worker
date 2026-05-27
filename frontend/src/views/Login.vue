@@ -116,7 +116,7 @@ async function handleLogin() {
   loading.value = true
   try {
     const res = await login(form)
-    userStore.setToken(res.data.token)
+    userStore.setLoginSession(res.data.token, res.data.account ?? form.account)
     message.success('登录成功')
     router.push('/')
   } catch {
@@ -153,7 +153,7 @@ async function handleTgLogin() {
   tgLoginLoading.value = true
   try {
     const res = await tgLogin({ code: tgCode.value })
-    userStore.setToken(res.data.token)
+    userStore.setLoginSession(res.data.token, res.data.account)
     message.success('登录成功')
     router.push('/')
   } catch {
@@ -234,24 +234,36 @@ async function handleTgLogin() {
   color: #94a3b8;
   font-size: 18px;
 }
-.login-input {
+.login-form :deep(.login-input.ant-input-affix-wrapper) {
+  display: inline-flex !important;
+  align-items: center !important;
+  width: 100%;
   height: 48px !important;
+  min-height: 48px !important;
+  padding: 0 16px !important;
   background: rgba(15, 23, 42, 0.5) !important;
   border: 1px solid rgba(255, 255, 255, 0.1) !important;
   border-radius: 12px !important;
   font-size: 15px !important;
-  padding: 4px 16px !important;
+  box-sizing: border-box !important;
 }
-.login-input:hover {
+.login-form :deep(.login-input.ant-input-affix-wrapper:hover) {
   border-color: rgba(255, 255, 255, 0.2) !important;
 }
-.login-input:where(.ant-input-affix-wrapper-focused),
-.login-input:focus {
+.login-form :deep(.login-input.ant-input-affix-wrapper-focused),
+.login-form :deep(.login-input.ant-input-affix-wrapper:focus-within) {
   border-color: #6366f1 !important;
   background: rgba(15, 23, 42, 0.8) !important;
   box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.15) !important;
 }
-.login-input :deep(input) {
+.login-form :deep(.login-input input.ant-input) {
+  flex: 1;
+  min-width: 0;
+  height: 22px !important;
+  min-height: 22px !important;
+  line-height: 22px !important;
+  padding: 0 !important;
+  margin: 0 !important;
   background: transparent !important;
   border: none !important;
   box-shadow: none !important;
@@ -259,10 +271,16 @@ async function handleTgLogin() {
   font-size: 15px !important;
   caret-color: #fff !important;
 }
-.login-input :deep(.ant-input-prefix) {
+.login-form :deep(.login-input .ant-input-prefix) {
+  display: inline-flex;
+  align-items: center;
   margin-inline-end: 12px;
+  flex-shrink: 0;
 }
-.login-input :deep(.ant-input-suffix) {
+.login-form :deep(.login-input .ant-input-suffix) {
+  display: inline-flex;
+  align-items: center;
+  margin-inline-start: 8px;
   color: #94a3b8;
 }
 .submit-btn {

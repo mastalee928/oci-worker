@@ -383,6 +383,12 @@ textarea.ant-input:focus {
   z-index: 1;
 }
 
+/* Cloudflare 页签标题不可拖选 */
+.cf-page .ant-tabs-tab-btn {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
 .ant-select-dropdown {
   background: var(--bg-sidebar) !important;
   border: 1px solid var(--border) !important;

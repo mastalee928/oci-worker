@@ -2,8 +2,8 @@
   <div>
     <a-tabs v-model:active-key="activeTab" class="settings-page-tabs">
       <a-tab-pane key="security" tab="安全设置">
-        <a-card title="修改登录密码" class="settings-card">
-          <div v-if="!pwdTgVerified" class="lock-panel">
+        <a-card title="修改登录密码" class="settings-card pwd-change-card">
+          <div v-if="!pwdTgVerified" class="lock-panel settings-no-select">
             <i :class="tgConfigured ? 'ri-shield-check-line' : 'ri-lock-2-line'" class="lock-icon"></i>
             <p class="lock-text">{{ tgConfigured ? '修改密码需要 Telegram 验证码' : '请输入登录密码以继续' }}</p>
             <a-space v-if="tgConfigured" direction="vertical" style="width: 100%">
@@ -32,7 +32,7 @@
           </a-form>
         </a-card>
 
-        <a-card title="登录安全说明" class="settings-card" style="margin-top: 16px">
+        <a-card title="登录安全说明" class="settings-card settings-no-select" style="margin-top: 16px">
           <a-descriptions :column="1" bordered size="small">
             <a-descriptions-item label="Token 有效期">24 小时</a-descriptions-item>
             <a-descriptions-item label="关闭浏览器">Token 保持有效，直到过期</a-descriptions-item>
@@ -45,8 +45,8 @@
       </a-tab-pane>
 
       <a-tab-pane key="notify" tab="消息通知">
-        <a-card title="Telegram 通知" class="settings-card-wide">
-          <div v-if="!notifyPwdVerified" class="lock-panel">
+        <a-card title="Telegram 通知" class="settings-card-wide notify-tg-card">
+          <div v-if="!notifyPwdVerified" class="lock-panel settings-no-select">
             <i class="ri-lock-2-line lock-icon"></i>
             <p class="lock-text">请输入登录密码进行配置</p>
             <a-space direction="vertical" style="width: 100%">
@@ -116,7 +116,7 @@
           </div>
         </a-modal>
 
-        <a-card title="通知说明" class="settings-card-wide" style="margin-top: 16px">
+        <a-card title="通知说明" class="settings-card-wide settings-no-select" style="margin-top: 16px">
           <a-descriptions :column="1" bordered size="small">
             <a-descriptions-item label="登录通知">登录成功/失败时发送，包含IP地址、账号、时间</a-descriptions-item>
             <a-descriptions-item label="创建任务">创建开机任务时通知</a-descriptions-item>
@@ -851,7 +851,7 @@ async function handleChangePassword() {
       verifyCode: pwdTgVerifiedCode.value || undefined,
     })
     if (res.data?.token) {
-      localStorage.setItem('token', res.data.token)
+      userStore.setLoginSession(res.data.token, res.data.account)
     }
     message.success('密码修改成功')
     pwdForm.oldPassword = ''
@@ -869,7 +869,7 @@ async function handleChangePassword() {
 }
 
 function handleForceLogout() {
-  localStorage.removeItem('token')
+  userStore.logout()
   router.push('/login')
 }
 
@@ -1552,6 +1552,19 @@ async function handleRestore() {
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   transition: var(--trans);
+}
+.settings-no-select,
+.settings-no-select :deep(.ant-card-head-title),
+.settings-no-select :deep(.ant-descriptions-item-label),
+.settings-no-select :deep(.ant-descriptions-item-content),
+.settings-no-select :deep(.lock-text) {
+  user-select: none;
+  -webkit-user-select: none;
+}
+.notify-tg-card :deep(.ant-card-head-title),
+.pwd-change-card :deep(.ant-card-head-title) {
+  user-select: none;
+  -webkit-user-select: none;
 }
 .settings-card-wide {
   max-width: 560px;

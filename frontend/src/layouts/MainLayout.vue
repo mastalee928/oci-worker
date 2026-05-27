@@ -64,7 +64,7 @@
         <div class="user-card">
           <div class="avatar">{{ avatarLetter }}</div>
           <div v-if="!compactSidebarFooter" class="user-info">
-            <div class="user-name">Admin</div>
+            <div class="user-name">{{ userStore.displayName }}</div>
             <div class="user-status">管理员在线</div>
           </div>
         </div>
@@ -126,6 +126,7 @@ import { useThemeStore } from '../stores/theme'
 import { MAIN_KEEP_ALIVE } from '../constants/keepAlive'
 import { prefetchRouteChunk, prefetchMainRoutesIdle } from '../utils/routePrefetch'
 import { useTenantCatalogStore } from '../stores/tenantCatalog'
+import { getCurrentAccount } from '../api/auth'
 
 const keepAliveNames = [...MAIN_KEEP_ALIVE]
 
@@ -137,7 +138,7 @@ const collapsed = ref(false)
 const mobileMenuOpen = ref(false)
 const isMobile = ref(false)
 
-const avatarLetter = computed(() => 'A')
+const avatarLetter = computed(() => userStore.avatarLetter)
 
 /** 桌面窄栏（64px）用紧凑底栏；移动端抽屉展开时仍为全宽，保持完整用户信息 */
 const compactSidebarFooter = computed(
@@ -163,6 +164,13 @@ onMounted(() => {
   const catalog = useTenantCatalogStore()
   void catalog.ensureGroups({ silent: true }).catch(() => {})
   void catalog.ensureTenants({ silent: true }).catch(() => {})
+  if (userStore.token && !userStore.account.trim()) {
+    void getCurrentAccount()
+      .then((res) => {
+        if (res.data?.account) userStore.setAccount(res.data.account)
+      })
+      .catch(() => {})
+  }
 })
 onUnmounted(() => window.removeEventListener('resize', checkMobile))
 
@@ -342,6 +350,8 @@ function handleLogout() {
   padding: 12px 16px 16px;
   display: flex;
   flex-direction: column;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .user-card {

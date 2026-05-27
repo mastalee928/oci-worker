@@ -19,6 +19,11 @@ function getToken() {
   return t ? t.trim() : ''
 }
 
+function clearSession() {
+  localStorage.removeItem('token')
+  localStorage.removeItem('account')
+}
+
 request.interceptors.request.use((config) => {
   const token = getToken()
   if (token) {
@@ -46,7 +51,7 @@ request.interceptors.response.use(
         message.error(res.message || '请求失败')
       }
       if (res.code === 401) {
-        localStorage.removeItem('token')
+        clearSession()
         redirectTo('/login')
       }
       if (res.code === 403 && res.message?.includes('初始化')) {
@@ -69,7 +74,7 @@ request.interceptors.response.use(
       return Promise.reject(error)
     }
     if (error.response?.status === 401) {
-      localStorage.removeItem('token')
+      clearSession()
       redirectTo('/login')
     } else {
       // 如一键更新时轮询健康接口，服务重启窗口会出现 502，不应打全局红字
