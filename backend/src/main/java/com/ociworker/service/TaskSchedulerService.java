@@ -528,8 +528,9 @@ public class TaskSchedulerService implements SmartLifecycle {
                             user, region, arch, hint, intervalSeconds));
                 }
             } catch (Exception e) {
-                broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s] - 错误: %s，[%d]秒后将重试...",
-                        user, region, arch, e.getMessage(), intervalSeconds));
+                String hint = OciClientService.describeThrowableFailure(e);
+                broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s] - %s，[%d]秒后将重试...",
+                        user, region, arch, hint, intervalSeconds));
             }
         } finally {
             runningTasks.remove(taskId);

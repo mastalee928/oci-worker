@@ -508,7 +508,26 @@ public class OciClientService implements Closeable {
                 Image image = getImage(shape);
                 if (image == null) continue;
 
-                Subnet subnet = findOrCreateSubnet(ad.getName());
+                Subnet subnet;
+                try {
+                    subnet = findOrCreateSubnet(ad.getName());
+                } catch (com.oracle.bmc.model.BmcException e) {
+                    String hint = describeBmcFailure(e);
+                    result.setFailureHint(hint);
+                    if (isVcnCountLimitError(e)) {
+                        log.warn("【开机任务】用户:[{}], AD:[{}] - {}", user.getUsername(), ad.getName(), hint);
+                        break;
+                    }
+                    log.warn("【开机任务】用户:[{}], AD:[{}] - 准备网络失败{}。{}",
+                            user.getUsername(), ad.getName(), tryNextAdSuffix, hint);
+                    break;
+                } catch (Exception e) {
+                    String hint = describeThrowableFailure(e);
+                    result.setFailureHint(hint);
+                    log.warn("【开机任务】用户:[{}], AD:[{}] - 准备网络失败{}。{}",
+                            user.getUsername(), ad.getName(), tryNextAdSuffix, hint);
+                    break;
+                }
                 if (subnet == null) {
                     result.setNoPubVcn(true);
                     log.warn("【开机任务】用户:[{}], AD:[{}] - 无可用公有子网{}",
@@ -575,14 +594,14 @@ public class OciClientService implements Closeable {
                         return result;
                     }
                     if (isBootVolumeQuotaError(e)) {
-                        String hint = describeLaunchFailure(e);
+                        String hint = describeBmcFailure(e);
                         result.setBootVolumeQuotaExceeded(true);
                         result.setFailureHint(hint);
                         log.warn("【开机任务】用户:[{}], AD:[{}] - {}",
                                 user.getUsername(), ad.getName(), hint);
                         return result;
                     }
-                    String hint = describeLaunchFailure(e);
+                    String hint = describeBmcFailure(e);
                     if (isOutOfHostCapacityError(e)) {
                         sawOutOfCapacity = true;
                         log.warn("【开机任务】用户:[{}], AD:[{}] - 容量不足{}。{}",
@@ -593,8 +612,10 @@ public class OciClientService implements Closeable {
                     }
                     break;
                 } catch (Exception e) {
-                    log.warn("【开机任务】用户:[{}], AD:[{}] - 创建异常{}: {}",
-                            user.getUsername(), ad.getName(), tryNextAdSuffix, e.getMessage());
+                    String hint = describeThrowableFailure(e);
+                    result.setFailureHint(hint);
+                    log.warn("【开机任务】用户:[{}], AD:[{}] - 创建异常{}。{}",
+                            user.getUsername(), ad.getName(), tryNextAdSuffix, hint);
                     break;
                 }
             }
@@ -634,28 +655,56 @@ public class OciClientService implements Closeable {
                 && (em.toLowerCase().contains("bootvolume") || em.contains("boot volume"));
     }
 
-    /** 开机失败原因（中文，写入日志/任务播报，不含整段 SDK 堆栈） */
-    private static String describeLaunchFailure(com.oracle.bmc.model.BmcException e) {
+    static String describeThrowableFailure(Throwable e) {
+        if (e instanceof com.oracle.bmc.model.BmcException bmc) {
+            return describeBmcFailure(bmc);
+        }
+        Throwable c = e.getCause();
+        if (c instanceof com.oracle.bmc.model.BmcException bmc) {
+            return describeBmcFailure(bmc);
+        }
+        String msg = e.getMessage();
+        if (msg == null || msg.isBlank()) {
+            return "创建失败";
+        }
+        int cut = Math.min(msg.length(), 200);
+        return msg.substring(0, cut);
+    }
+
+    /** OCI 失败原因（中文，写入日志/任务播报，不含 SDK 长堆栈） */
+    static String describeBmcFailure(com.oracle.bmc.model.BmcException e) {
         String em = e.getMessage() == null ? "" : e.getMessage();
         if (isBootVolumeQuotaError(e)) {
             return "引导卷（启动盘）存储配额已达上限，硬盘配额用尽，创建失败";
+        }
+        if (isVcnCountLimitError(e)) {
+            return "VCN 数量已达配额上限，无法创建虚拟云网络，请删除无用 VCN 或申请提额";
         }
         if (em.contains("QuotaExceeded")) {
             return "OCI 服务配额已达上限，创建失败";
         }
         if (em.contains("Out of host capacity")) {
-            return "主机容量不足（Out of host capacity）";
+            return "主机容量不足";
         }
         if (em.contains("LimitExceeded")) {
-            return "已触发服务限制（LimitExceeded）";
+            return "已触发 OCI 服务限制，创建失败";
         }
         if (e.getStatusCode() == 429) {
-            return "请求过于频繁（429），请稍后重试";
+            return "请求过于频繁，请稍后重试";
         }
         int code = e.getStatusCode();
         int cut = Math.min(em.length(), 200);
         String brief = em.substring(0, cut);
         return code > 0 ? ("OCI 错误 (" + code + "): " + brief) : brief;
+    }
+
+    private static boolean isVcnCountLimitError(com.oracle.bmc.model.BmcException e) {
+        String em = e.getMessage() == null ? "" : e.getMessage();
+        if (em.contains("vcn-count")) {
+            return true;
+        }
+        return em.contains("LimitExceeded")
+                && (em.contains("CreateVcn") || em.contains("service limits were exceeded") && em.toLowerCase().contains("vcn"));
     }
 
     /**
