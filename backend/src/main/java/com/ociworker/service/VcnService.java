@@ -151,63 +151,241 @@ public class VcnService {
         if (ociUser == null) throw new OciException("租户配置不存在");
         try (OciClientService client = oci(ociUser, region)) {
             Vcn vcn = client.getVirtualNetworkClient().getVcn(GetVcnRequest.builder().vcnId(vcnId).build()).getVcn();
-            String cid = vcn.getCompartmentId();
             if (cascade) {
-                deleteAllChildren(client, cid, vcnId);
+                cascadeDeleteVcnChildren(client, vcn);
             }
             client.getVirtualNetworkClient().deleteVcn(DeleteVcnRequest.builder().vcnId(vcnId).build());
             log.info("VCN deleted: {}", vcnId);
-        } catch (OciException e) { throw e; }
-        catch (com.oracle.bmc.model.BmcException e) {
-            if (e.getStatusCode() == 409) throw new OciException("VCN 仍包含子资源，请先开启级联删除或手动清理");
-            throw new OciException("删除 VCN 失败: " + (e.getMessage() != null ? e.getMessage() : "未知错误"));
-        } catch (Exception e) { throw new OciException("删除 VCN 失败: " + e.getMessage()); }
+        } catch (OciException e) {
+            throw e;
+        } catch (com.oracle.bmc.model.BmcException e) {
+            if (e.getStatusCode() == 409) {
+                throw new OciException("删除 VCN 失败：仍有子资源未清理。"
+                        + summarizeRemainingVcnChildren(userId, vcnId, region));
+            }
+            throw new OciException("删除 VCN 失败: " + briefBmcMessage(e));
+        } catch (Exception e) {
+            throw new OciException("删除 VCN 失败: " + e.getMessage());
+        }
     }
 
-    private void deleteAllChildren(OciClientService client, String cid, String vcnId) {
+    /**
+     * OCI 要求：先删子网 → 去掉路由表中指向网关的规则 → 删网关 → 删非默认路由表/安全列表 → 再删 VCN。
+     * 默认路由表/默认安全列表随 VCN 删除，勿单独 Delete。
+     */
+    private void cascadeDeleteVcnChildren(OciClientService client, Vcn vcn) {
+        String cid = vcn.getCompartmentId();
+        String vcnId = vcn.getId();
         var net = client.getVirtualNetworkClient();
-        // Subnets
-        try {
-            for (var s : net.listSubnets(ListSubnetsRequest.builder().compartmentId(cid).vcnId(vcnId).build()).getItems()) {
-                try { net.deleteSubnet(DeleteSubnetRequest.builder().subnetId(s.getId()).build()); } catch (Exception e) { log.warn("deleteSubnet {} failed: {}", s.getId(), e.getMessage()); }
+
+        Set<String> gatewayIds = collectVcnGatewayIds(net, cid, vcnId);
+
+        for (Subnet s : net.listSubnets(ListSubnetsRequest.builder().compartmentId(cid).vcnId(vcnId).build()).getItems()) {
+            if (s.getLifecycleState() == Subnet.LifecycleState.Terminated) {
+                continue;
             }
-        } catch (Exception e) { log.warn("listSubnets failed: {}", e.getMessage()); }
-        // Internet Gateways
-        try {
-            for (var ig : net.listInternetGateways(ListInternetGatewaysRequest.builder().compartmentId(cid).vcnId(vcnId).build()).getItems()) {
-                try { net.deleteInternetGateway(DeleteInternetGatewayRequest.builder().igId(ig.getId()).build()); } catch (Exception e) { log.warn("deleteIGW failed: {}", e.getMessage()); }
+            try {
+                net.deleteSubnet(DeleteSubnetRequest.builder().subnetId(s.getId()).build());
+                log.info("cascade delete subnet: {}", s.getDisplayName());
+            } catch (Exception e) {
+                throw new OciException("级联删除子网失败（" + s.getDisplayName() + "）: " + e.getMessage()
+                        + "。请先终止使用该子网的实例或负载均衡。");
             }
-        } catch (Exception e) { log.warn("listIGW failed: {}", e.getMessage()); }
-        // NAT Gateways
-        try {
-            for (var ng : net.listNatGateways(ListNatGatewaysRequest.builder().compartmentId(cid).vcnId(vcnId).build()).getItems()) {
-                try { net.deleteNatGateway(DeleteNatGatewayRequest.builder().natGatewayId(ng.getId()).build()); } catch (Exception e) { log.warn("deleteNatGateway failed: {}", e.getMessage()); }
+        }
+
+        clearRouteRulesReferencingGateways(net, cid, vcnId, gatewayIds);
+
+        for (InternetGateway ig : net.listInternetGateways(
+                ListInternetGatewaysRequest.builder().compartmentId(cid).vcnId(vcnId).build()).getItems()) {
+            if (ig.getLifecycleState() == InternetGateway.LifecycleState.Terminated) {
+                continue;
             }
-        } catch (Exception e) { log.warn("listNatGateways failed: {}", e.getMessage()); }
-        // Service Gateways
-        try {
-            for (var sg : net.listServiceGateways(ListServiceGatewaysRequest.builder().compartmentId(cid).vcnId(vcnId).build()).getItems()) {
-                try { net.deleteServiceGateway(DeleteServiceGatewayRequest.builder().serviceGatewayId(sg.getId()).build()); } catch (Exception e) { log.warn("deleteSG failed: {}", e.getMessage()); }
+            deleteOrThrow(() -> net.deleteInternetGateway(
+                    DeleteInternetGatewayRequest.builder().igId(ig.getId()).build()),
+                    "Internet Gateway", ig.getDisplayName());
+        }
+        for (NatGateway ng : net.listNatGateways(
+                ListNatGatewaysRequest.builder().compartmentId(cid).vcnId(vcnId).build()).getItems()) {
+            if (ng.getLifecycleState() == NatGateway.LifecycleState.Terminated) {
+                continue;
             }
-        } catch (Exception e) { log.warn("listSG failed: {}", e.getMessage()); }
-        // Local Peering Gateways
-        try {
-            for (var lpg : net.listLocalPeeringGateways(ListLocalPeeringGatewaysRequest.builder().compartmentId(cid).vcnId(vcnId).build()).getItems()) {
-                try { net.deleteLocalPeeringGateway(DeleteLocalPeeringGatewayRequest.builder().localPeeringGatewayId(lpg.getId()).build()); } catch (Exception e) { log.warn("deleteLPG failed: {}", e.getMessage()); }
+            deleteOrThrow(() -> net.deleteNatGateway(
+                    DeleteNatGatewayRequest.builder().natGatewayId(ng.getId()).build()),
+                    "NAT Gateway", ng.getDisplayName());
+        }
+        for (ServiceGateway sg : net.listServiceGateways(
+                ListServiceGatewaysRequest.builder().compartmentId(cid).vcnId(vcnId).build()).getItems()) {
+            if (sg.getLifecycleState() == ServiceGateway.LifecycleState.Terminated) {
+                continue;
             }
-        } catch (Exception e) { log.warn("listLPG failed: {}", e.getMessage()); }
-        // Route tables (skip default)
-        try {
-            for (var rt : net.listRouteTables(ListRouteTablesRequest.builder().compartmentId(cid).vcnId(vcnId).build()).getItems()) {
-                try { net.deleteRouteTable(DeleteRouteTableRequest.builder().rtId(rt.getId()).build()); } catch (Exception e) { log.debug("deleteRouteTable {} failed: {}", rt.getId(), e.getMessage()); }
+            deleteOrThrow(() -> net.deleteServiceGateway(
+                    DeleteServiceGatewayRequest.builder().serviceGatewayId(sg.getId()).build()),
+                    "Service Gateway", sg.getDisplayName());
+        }
+        for (LocalPeeringGateway lpg : net.listLocalPeeringGateways(
+                ListLocalPeeringGatewaysRequest.builder().compartmentId(cid).vcnId(vcnId).build()).getItems()) {
+            if (lpg.getLifecycleState() == LocalPeeringGateway.LifecycleState.Terminated) {
+                continue;
             }
-        } catch (Exception e) { log.warn("listRouteTables failed: {}", e.getMessage()); }
-        // Security lists (skip default)
-        try {
-            for (var sl : net.listSecurityLists(ListSecurityListsRequest.builder().compartmentId(cid).vcnId(vcnId).build()).getItems()) {
-                try { net.deleteSecurityList(DeleteSecurityListRequest.builder().securityListId(sl.getId()).build()); } catch (Exception e) { log.debug("deleteSecurityList failed: {}", e.getMessage()); }
+            deleteOrThrow(() -> net.deleteLocalPeeringGateway(
+                    DeleteLocalPeeringGatewayRequest.builder().localPeeringGatewayId(lpg.getId()).build()),
+                    "Local Peering Gateway", lpg.getDisplayName());
+        }
+
+        String defaultRtId = vcn.getDefaultRouteTableId();
+        for (RouteTable rt : net.listRouteTables(
+                ListRouteTablesRequest.builder().compartmentId(cid).vcnId(vcnId).build()).getItems()) {
+            if (rt.getId().equals(defaultRtId)) {
+                continue;
             }
-        } catch (Exception e) { log.warn("listSecurityLists failed: {}", e.getMessage()); }
+            if (rt.getLifecycleState() == RouteTable.LifecycleState.Terminated) {
+                continue;
+            }
+            try {
+                net.deleteRouteTable(DeleteRouteTableRequest.builder().rtId(rt.getId()).build());
+            } catch (Exception e) {
+                log.debug("deleteRouteTable {} skipped: {}", rt.getDisplayName(), e.getMessage());
+            }
+        }
+
+        String defaultSlId = vcn.getDefaultSecurityListId();
+        for (SecurityList sl : net.listSecurityLists(
+                ListSecurityListsRequest.builder().compartmentId(cid).vcnId(vcnId).build()).getItems()) {
+            if (sl.getId().equals(defaultSlId)) {
+                continue;
+            }
+            if (sl.getLifecycleState() == SecurityList.LifecycleState.Terminated) {
+                continue;
+            }
+            try {
+                net.deleteSecurityList(DeleteSecurityListRequest.builder().securityListId(sl.getId()).build());
+            } catch (Exception e) {
+                log.debug("deleteSecurityList {} skipped: {}", sl.getDisplayName(), e.getMessage());
+            }
+        }
+    }
+
+    private static Set<String> collectVcnGatewayIds(
+            com.oracle.bmc.core.VirtualNetworkClient net, String compartmentId, String vcnId) {
+        Set<String> ids = new HashSet<>();
+        try {
+            for (InternetGateway ig : net.listInternetGateways(
+                    ListInternetGatewaysRequest.builder().compartmentId(compartmentId).vcnId(vcnId).build()).getItems()) {
+                ids.add(ig.getId());
+            }
+            for (NatGateway ng : net.listNatGateways(
+                    ListNatGatewaysRequest.builder().compartmentId(compartmentId).vcnId(vcnId).build()).getItems()) {
+                ids.add(ng.getId());
+            }
+            for (ServiceGateway sg : net.listServiceGateways(
+                    ListServiceGatewaysRequest.builder().compartmentId(compartmentId).vcnId(vcnId).build()).getItems()) {
+                ids.add(sg.getId());
+            }
+            for (LocalPeeringGateway lpg : net.listLocalPeeringGateways(
+                    ListLocalPeeringGatewaysRequest.builder().compartmentId(compartmentId).vcnId(vcnId).build()).getItems()) {
+                ids.add(lpg.getId());
+            }
+        } catch (Exception e) {
+            log.warn("collectVcnGatewayIds failed: {}", e.getMessage());
+        }
+        return ids;
+    }
+
+    /** 删除网关前须去掉所有路由表中指向该网关的规则（含默认路由表）。 */
+    private static void clearRouteRulesReferencingGateways(
+            com.oracle.bmc.core.VirtualNetworkClient net,
+            String compartmentId,
+            String vcnId,
+            Set<String> gatewayIds) {
+        if (gatewayIds.isEmpty()) {
+            return;
+        }
+        try {
+            for (RouteTable rt : net.listRouteTables(
+                    ListRouteTablesRequest.builder().compartmentId(compartmentId).vcnId(vcnId).build()).getItems()) {
+                List<RouteRule> rules = rt.getRouteRules();
+                if (rules == null || rules.isEmpty()) {
+                    continue;
+                }
+                List<RouteRule> kept = new ArrayList<>();
+                boolean removed = false;
+                for (RouteRule r : rules) {
+                    String target = r.getNetworkEntityId();
+                    if (target != null && gatewayIds.contains(target)) {
+                        removed = true;
+                        continue;
+                    }
+                    kept.add(r);
+                }
+                if (!removed) {
+                    continue;
+                }
+                net.updateRouteTable(UpdateRouteTableRequest.builder()
+                        .rtId(rt.getId())
+                        .updateRouteTableDetails(UpdateRouteTableDetails.builder().routeRules(kept).build())
+                        .build());
+                log.info("cleared gateway routes on route table: {}", rt.getDisplayName());
+            }
+        } catch (Exception e) {
+            throw new OciException("级联删除：清理路由表规则失败: " + e.getMessage());
+        }
+    }
+
+    private static void deleteOrThrow(Runnable delete, String resourceType, String displayName) {
+        try {
+            delete.run();
+            log.info("cascade deleted {}: {}", resourceType, displayName);
+        } catch (Exception e) {
+            throw new OciException("级联删除 " + resourceType + "（" + displayName + "）失败: " + e.getMessage());
+        }
+    }
+
+    private String summarizeRemainingVcnChildren(String userId, String vcnId, String region) {
+        try {
+            Map<String, Object> left = previewVcnDelete(userId, vcnId, region);
+            List<String> parts = new ArrayList<>();
+            appendRemaining(parts, "子网", left.get("subnets"));
+            appendRemaining(parts, "Internet Gateway", left.get("internetGateways"));
+            appendRemaining(parts, "NAT Gateway", left.get("natGateways"));
+            appendRemaining(parts, "Service Gateway", left.get("serviceGateways"));
+            appendRemaining(parts, "Local Peering Gateway", left.get("localPeeringGateways"));
+            appendRemaining(parts, "路由表", left.get("routeTables"));
+            appendRemaining(parts, "安全列表", left.get("securityLists"));
+            if (parts.isEmpty()) {
+                return "";
+            }
+            return " 剩余: " + String.join("；", parts);
+        } catch (Exception e) {
+            return "";
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private static void appendRemaining(List<String> parts, String label, Object raw) {
+        if (!(raw instanceof List<?> list) || list.isEmpty()) {
+            return;
+        }
+        List<String> names = new ArrayList<>();
+        for (Object o : list) {
+            if (o instanceof Map<?, ?> m) {
+                Object n = m.get("displayName");
+                if (n != null && !String.valueOf(n).isBlank()) {
+                    names.add(String.valueOf(n));
+                }
+            }
+        }
+        if (!names.isEmpty()) {
+            parts.add(label + "(" + String.join(", ", names) + ")");
+        }
+    }
+
+    private static String briefBmcMessage(com.oracle.bmc.model.BmcException e) {
+        String em = e.getMessage();
+        if (em == null) {
+            return "HTTP " + e.getStatusCode();
+        }
+        int nl = em.indexOf('\n');
+        return nl > 0 ? em.substring(0, nl) : (em.length() > 240 ? em.substring(0, 240) + "…" : em);
     }
 
     // ---------------- Subnets ----------------
