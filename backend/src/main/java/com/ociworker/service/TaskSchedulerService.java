@@ -32,6 +32,7 @@ import org.springframework.stereotype.Service;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
@@ -55,6 +56,8 @@ public class TaskSchedulerService implements SmartLifecycle {
 
     private final Map<String, Future<?>> taskMap = new ConcurrentHashMap<>();
     private final Set<String> runningTasks = ConcurrentHashMap.newKeySet();
+    /** 本任务周期内不再尝试的可用域（停/改/恢复/完成/删除任务或服务重启后清空） */
+    private final ConcurrentHashMap<String, Set<String>> taskExcludedAds = new ConcurrentHashMap<>();
     private static final ObjectMapper JSON = new ObjectMapper();
 
     /** 为 SmartLifecycle：仅在上下文 refresh 完成后置 true，关闭时先于 Web 优雅停机取消开机调度 */
@@ -235,6 +238,7 @@ public class TaskSchedulerService implements SmartLifecycle {
         task.setCreateTime(LocalDateTime.now());
         taskMapper.insert(task);
 
+        clearTaskExcludedAds(task.getId());
         SysUserDTO dto = buildSysUserDTO(ociUser, task);
         scheduleTask(task.getId(), dto, interval);
 
@@ -268,6 +272,7 @@ public class TaskSchedulerService implements SmartLifecycle {
         task.setStatus(TaskStatusEnum.RUNNING.getStatus());
         taskMapper.updateById(task);
 
+        clearTaskExcludedAds(taskId);
         SysUserDTO dto = buildSysUserDTO(ociUser, task);
         scheduleTask(task.getId(), dto, task.getIntervalSeconds());
 
@@ -309,6 +314,7 @@ public class TaskSchedulerService implements SmartLifecycle {
         task.setMemory(normalized[1]);
         taskMapper.updateById(task);
 
+        clearTaskExcludedAds(taskId);
         if (wasRunning) {
             OciUser ociUser = userMapper.selectById(task.getUserId());
             if (ociUser != null) {
@@ -330,6 +336,7 @@ public class TaskSchedulerService implements SmartLifecycle {
             taskMap.remove(taskId);
         }
         taskMapper.deleteById(taskId);
+        clearTaskExcludedAds(taskId);
     }
 
     public void stopTask(String taskId) {
@@ -347,6 +354,13 @@ public class TaskSchedulerService implements SmartLifecycle {
             String name = user != null ? user.getUsername() : "unknown";
             broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s] - 任务已手动停止",
                     name, task.getOciRegion()));
+        }
+        clearTaskExcludedAds(taskId);
+    }
+
+    private void clearTaskExcludedAds(String taskId) {
+        if (taskId != null) {
+            taskExcludedAds.remove(taskId);
         }
     }
 
@@ -433,8 +447,12 @@ public class TaskSchedulerService implements SmartLifecycle {
                     user, region, series, dto.getCreateNumbers(), attempt));
 
             dto.setInstanceDisplayOrdinal(headSc + 1);
+            Set<String> excludedAds = taskExcludedAds.computeIfAbsent(taskId, k -> ConcurrentHashMap.newKeySet());
+            dto.setExcludedAvailabilityDomains(new HashSet<>(excludedAds));
             try (OciClientService client = new OciClientService(dto)) {
                 InstanceDetailDTO result = client.createInstanceData();
+
+                applyAdExcludedNoShapeBroadcast(taskId, user, region, arch, result, excludedAds);
 
                 if (result.isDie()) {
                     completeTask(taskId, TaskStatusEnum.FAILED);
@@ -467,6 +485,12 @@ public class TaskSchedulerService implements SmartLifecycle {
 
                 if (result.isOutOfCapacity()) {
                     broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s] - 各可用域容量不足，[%d]秒后将重试...",
+                            user, region, arch, intervalSeconds));
+                    return;
+                }
+
+                if (result.isAllAdsExcludedNoShape()) {
+                    broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s] - 各可用域均无此 Shape，[%d]秒后将重试...",
                             user, region, arch, intervalSeconds));
                     return;
                 }
@@ -636,11 +660,36 @@ public class TaskSchedulerService implements SmartLifecycle {
             future.cancel(true);
             taskMap.remove(taskId);
         }
+        clearTaskExcludedAds(taskId);
         OciCreateTask task = taskMapper.selectById(taskId);
         if (task != null) {
             task.setStatus(status.getStatus());
             taskMapper.updateById(task);
         }
+    }
+
+    private void applyAdExcludedNoShapeBroadcast(String taskId, String user, String region, String arch,
+                                                  InstanceDetailDTO result, Set<String> excludedAds) {
+        if (result.getAdsExcludedNoShape() == null || result.getAdsExcludedNoShape().isEmpty()) {
+            return;
+        }
+        String shapeLine = StrUtil.isNotBlank(result.getResolvedTargetShape())
+                ? result.getResolvedTargetShape() : arch;
+        for (String adName : result.getAdsExcludedNoShape()) {
+            if (excludedAds.add(adName)) {
+                broadcastLog(String.format(
+                        "【开机任务】用户:[%s],区域:[%s],系统架构:[%s],可用域:[%s] - 当前可用域无此 Shape",
+                        user, region, shapeLine, formatAdForLog(adName)));
+            }
+        }
+    }
+
+    private static String formatAdForLog(String adName) {
+        if (StrUtil.isBlank(adName)) {
+            return "?";
+        }
+        int idx = adName.lastIndexOf("AD-");
+        return idx >= 0 ? adName.substring(idx) : adName;
     }
 
     private SysUserDTO buildSysUserDTO(OciUser ociUser, OciCreateTask task) {

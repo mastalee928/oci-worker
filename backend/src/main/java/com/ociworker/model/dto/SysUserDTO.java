@@ -6,6 +6,7 @@ import lombok.Data;
 import lombok.NoArgsConstructor;
 
 import java.util.List;
+import java.util.Set;
 
 @Data
 @Builder
@@ -30,6 +31,8 @@ public class SysUserDTO {
      * 本次创建在任务目标中的第几台（从 1 起）。仅开机任务在调用 {@code createInstanceData} 前设置，用于 OCI displayName。
      */
     private Integer instanceDisplayOrdinal;
+    /** 本开机任务周期内不再尝试的可用域（进程内记忆，停/改/恢复任务后清空） */
+    private Set<String> excludedAvailabilityDomains;
     private OciCfg ociCfg;
 
     @Data

@@ -28,6 +28,7 @@ import com.ociworker.model.dto.OciProxySnapshot;
 import com.ociworker.model.dto.SysUserDTO;
 import com.ociworker.util.BootVolumeVpusUtil;
 import com.ociworker.util.CommonUtils;
+import com.ociworker.util.ShapeSeriesUtil;
 import com.ociworker.util.VcnIpv6Util;
 import com.ociworker.util.socks.OciSocksApacheConnectionManager;
 import com.oracle.bmc.http.ClientConfigurator;
@@ -466,40 +467,34 @@ public class OciClientService implements Closeable {
         result.setCreateNumbers(user.getCreateNumbers());
 
         List<AvailabilityDomain> availabilityDomains = getAvailabilityDomains();
+        String targetShape = resolveTargetShape(user.getArchitecture());
+        result.setResolvedTargetShape(targetShape);
 
-        // Use sequential stream: OCI SDK ComputeClient is not thread-safe, and this method is @synchronized.
-        List<String> shapeList = availabilityDomains.stream()
-                .flatMap(ad -> getShapes(ad.getName()).stream())
-                .map(Shape::getShape)
-                .distinct()
-                .collect(Collectors.toList());
-
-        String arch = user.getArchitecture();
-        String targetShape;
-        if (arch != null && ("ARM".equalsIgnoreCase(arch) || "AMD".equalsIgnoreCase(arch))) {
-            targetShape = ArchitectureEnum.getShape(arch);
-        } else if (arch != null && shapeList.contains(arch)) {
-            // 任务管理里从 listShapes 选的完整 shape 名（如 VM.Standard3.Flex）
-            targetShape = arch;
-        } else {
-            targetShape = ArchitectureEnum.getShape(arch == null ? "ARM" : arch);
-        }
-
-        if (CollectionUtil.isEmpty(shapeList) || !shapeList.contains(targetShape)) {
-            result.setNoShape(true);
-            log.error("[CreateTask] User:[{}], Region:[{}], Arch:[{}] - Shape not available. Available: {}",
-                    user.getUsername(), user.getOciCfg().getRegion(), user.getArchitecture(), shapeList);
-            return result;
-        }
+        java.util.Set<String> excludedAds = user.getExcludedAvailabilityDomains() != null
+                ? user.getExcludedAvailabilityDomains()
+                : java.util.Set.of();
 
         boolean sawOutOfCapacity = false;
         for (AvailabilityDomain ad : availabilityDomains) {
-            String tryNextAdSuffix = hasNextAvailabilityDomain(availabilityDomains, ad) ? "，尝试下一可用域" : "";
-            List<Shape> shapes = getShapes(ad.getName()).stream()
-                    .filter(s -> s.getShape().equals(targetShape))
-                    .collect(Collectors.toList());
+            if (excludedAds.contains(ad.getName())) {
+                continue;
+            }
+            String tryNextAdSuffix = hasNextAvailabilityDomain(availabilityDomains, ad, excludedAds)
+                    ? "，尝试下一可用域" : "";
+            List<Shape> shapes;
+            try {
+                shapes = getShapes(ad.getName()).stream()
+                        .filter(s -> s.getShape().equals(targetShape))
+                        .collect(Collectors.toList());
+            } catch (Exception e) {
+                markAdExcludedNoShape(result, ad.getName());
+                log.warn("【开机任务】用户:[{}], AD:[{}] - 当前可用域无此 Shape [{}]（ListShapes 失败）",
+                        user.getUsername(), ad.getName(), targetShape);
+                continue;
+            }
             if (shapes.isEmpty()) {
-                log.info("【开机任务】用户:[{}], AD:[{}] - 无目标 Shape [{}]，跳过",
+                markAdExcludedNoShape(result, ad.getName());
+                log.info("【开机任务】用户:[{}], AD:[{}] - 当前可用域无此 Shape [{}]",
                         user.getUsername(), ad.getName(), targetShape);
                 continue;
             }
@@ -623,13 +618,50 @@ public class OciClientService implements Closeable {
         if (sawOutOfCapacity) {
             result.setOutOfCapacity(true);
         }
+        if (!availabilityDomains.isEmpty()) {
+            boolean anyAdLeft = availabilityDomains.stream()
+                    .anyMatch(ad -> !excludedAds.contains(ad.getName())
+                            && (result.getAdsExcludedNoShape() == null
+                            || !result.getAdsExcludedNoShape().contains(ad.getName())));
+            if (!anyAdLeft && !result.isSuccess()) {
+                result.setAllAdsExcludedNoShape(true);
+            }
+        }
         return result;
     }
 
-    private static boolean hasNextAvailabilityDomain(List<AvailabilityDomain> ads, AvailabilityDomain current) {
-        for (int i = 0; i < ads.size(); i++) {
-            if (Objects.equals(ads.get(i).getName(), current.getName())) {
-                return i < ads.size() - 1;
+    private static String resolveTargetShape(String arch) {
+        if (arch != null && ("ARM".equalsIgnoreCase(arch) || "AMD".equalsIgnoreCase(arch))) {
+            return ArchitectureEnum.getShape(arch);
+        }
+        if (ShapeSeriesUtil.isFullShapeName(arch)) {
+            return arch.trim();
+        }
+        return ArchitectureEnum.getShape(arch == null ? "ARM" : arch);
+    }
+
+    private static void markAdExcludedNoShape(InstanceDetailDTO result, String adName) {
+        if (result.getAdsExcludedNoShape() == null) {
+            result.setAdsExcludedNoShape(new java.util.ArrayList<>());
+        }
+        if (!result.getAdsExcludedNoShape().contains(adName)) {
+            result.getAdsExcludedNoShape().add(adName);
+        }
+    }
+
+    private static boolean hasNextAvailabilityDomain(List<AvailabilityDomain> ads, AvailabilityDomain current,
+                                                       java.util.Set<String> excludedAds) {
+        boolean seenCurrent = false;
+        for (AvailabilityDomain ad : ads) {
+            if (excludedAds != null && excludedAds.contains(ad.getName())) {
+                continue;
+            }
+            if (Objects.equals(ad.getName(), current.getName())) {
+                seenCurrent = true;
+                continue;
+            }
+            if (seenCurrent) {
+                return true;
             }
         }
         return false;
@@ -664,6 +696,9 @@ public class OciClientService implements Closeable {
             return describeBmcFailure(bmc);
         }
         String msg = e.getMessage();
+        if (msg != null && msg.contains("ListShapes")) {
+            return "当前可用域无此 Shape";
+        }
         if (msg == null || msg.isBlank()) {
             return "创建失败";
         }
