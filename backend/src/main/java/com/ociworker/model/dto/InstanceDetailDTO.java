@@ -26,4 +26,8 @@ public class InstanceDetailDTO {
     private boolean noShape;
     private boolean noPubVcn;
     private boolean outOfCapacity;
+    /** 引导卷（启动盘）块存储配额已达 OCI 上限 */
+    private boolean bootVolumeQuotaExceeded;
+    /** 供任务播报的简短失败说明 */
+    private String failureHint;
 }

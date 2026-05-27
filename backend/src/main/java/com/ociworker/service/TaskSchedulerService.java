@@ -455,8 +455,18 @@ public class TaskSchedulerService implements SmartLifecycle {
                     return;
                 }
 
+                if (result.isBootVolumeQuotaExceeded()) {
+                    String hint = StrUtil.isNotBlank(result.getFailureHint())
+                            ? result.getFailureHint()
+                            : "引导卷（启动盘）存储配额已达上限，硬盘配额用尽，创建失败";
+                    completeTask(taskId, TaskStatusEnum.FAILED);
+                    broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s] - ❌ %s",
+                            user, region, arch, hint));
+                    return;
+                }
+
                 if (result.isOutOfCapacity()) {
-                    broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s] - 容量不足，[%d]秒后将重试...",
+                    broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s] - 各可用域容量不足，[%d]秒后将重试...",
                             user, region, arch, intervalSeconds));
                     return;
                 }
@@ -511,8 +521,11 @@ public class TaskSchedulerService implements SmartLifecycle {
                                 user, region, arch, need, intervalSeconds));
                     }
                 } else {
-                    broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s] - 创建未成功，[%d]秒后将重试...",
-                            user, region, arch, intervalSeconds));
+                    String hint = StrUtil.isNotBlank(result.getFailureHint())
+                            ? result.getFailureHint()
+                            : "创建未成功";
+                    broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s] - %s，[%d]秒后将重试...",
+                            user, region, arch, hint, intervalSeconds));
                 }
             } catch (Exception e) {
                 broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s] - 错误: %s，[%d]秒后将重试...",

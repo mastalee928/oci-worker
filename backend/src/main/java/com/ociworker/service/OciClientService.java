@@ -492,26 +492,33 @@ public class OciClientService implements Closeable {
             return result;
         }
 
-        try {
-            for (AvailabilityDomain ad : availabilityDomains) {
-                List<Shape> shapes = getShapes(ad.getName()).stream()
-                        .filter(s -> s.getShape().equals(targetShape))
-                        .collect(Collectors.toList());
-                if (shapes.isEmpty()) continue;
+        boolean sawOutOfCapacity = false;
+        for (AvailabilityDomain ad : availabilityDomains) {
+            List<Shape> shapes = getShapes(ad.getName()).stream()
+                    .filter(s -> s.getShape().equals(targetShape))
+                    .collect(Collectors.toList());
+            if (shapes.isEmpty()) {
+                log.info("【开机任务】用户:[{}], AD:[{}] - 无目标 Shape [{}]，跳过",
+                        user.getUsername(), ad.getName(), targetShape);
+                continue;
+            }
 
-                for (Shape shape : shapes) {
-                    Image image = getImage(shape);
-                    if (image == null) continue;
+            for (Shape shape : shapes) {
+                Image image = getImage(shape);
+                if (image == null) continue;
 
-                    Subnet subnet = findOrCreateSubnet(ad.getName());
-                    if (subnet == null) {
-                        result.setNoPubVcn(true);
-                        continue;
-                    }
+                Subnet subnet = findOrCreateSubnet(ad.getName());
+                if (subnet == null) {
+                    result.setNoPubVcn(true);
+                    log.warn("【开机任务】用户:[{}], AD:[{}] - 无可用公有子网，尝试下一可用域",
+                            user.getUsername(), ad.getName());
+                    break;
+                }
 
-                    log.info("【开机任务】用户:[{}],区域:[{}],系统架构:[{}],使用子网:[{}] 创建实例...",
-                            user.getUsername(), user.getOciCfg().getRegion(), user.getArchitecture(), subnet.getDisplayName());
+                log.info("【开机任务】用户:[{}],区域:[{}], AD:[{}], 子网:[{}] 创建实例...",
+                        user.getUsername(), user.getOciCfg().getRegion(), ad.getName(), subnet.getDisplayName());
 
+                try {
                     String cloudInitScript = CommonUtils.getPwdShell(user.getRootPassword(), user.getCustomScript());
                     LaunchInstanceDetails launchDetails = buildLaunchDetails(ad, shape, image, subnet, cloudInitScript);
                     Instance instance = launchInstance(launchDetails);
@@ -561,25 +568,84 @@ public class OciClientService implements Closeable {
                     result.setRootPassword(user.getRootPassword());
                     result.setRegion(user.getOciCfg().getRegion());
                     return result;
+                } catch (com.oracle.bmc.model.BmcException e) {
+                    if (e.getStatusCode() == 401) {
+                        result.setDie(true);
+                        return result;
+                    }
+                    if (isBootVolumeQuotaError(e)) {
+                        String hint = describeLaunchFailure(e);
+                        result.setBootVolumeQuotaExceeded(true);
+                        result.setFailureHint(hint);
+                        log.warn("【开机任务】用户:[{}], AD:[{}] - {}",
+                                user.getUsername(), ad.getName(), hint);
+                        return result;
+                    }
+                    String hint = describeLaunchFailure(e);
+                    if (isOutOfHostCapacityError(e)) {
+                        sawOutOfCapacity = true;
+                        log.warn("【开机任务】用户:[{}], AD:[{}] - 容量不足，尝试下一可用域。{}",
+                                user.getUsername(), ad.getName(), hint);
+                    } else {
+                        log.warn("【开机任务】用户:[{}], AD:[{}] - 创建失败，尝试下一可用域。{}",
+                                user.getUsername(), ad.getName(), hint);
+                    }
+                    break;
+                } catch (Exception e) {
+                    log.warn("【开机任务】用户:[{}], AD:[{}] - 创建异常，尝试下一可用域: {}",
+                            user.getUsername(), ad.getName(), e.getMessage());
+                    break;
                 }
             }
-        } catch (com.oracle.bmc.model.BmcException e) {
-            String em = e.getMessage() == null ? "" : e.getMessage();
-            if (e.getStatusCode() == 401) {
-                result.setDie(true);
-            } else if (e.getStatusCode() == 500 || em.contains("Out of host capacity")
-                    || (e.getStatusCode() == 400 && em.contains("LimitExceeded"))
-                    || e.getStatusCode() == 429) {
-                result.setOutOfCapacity(true);
-            } else {
-                log.error("【开机任务】用户:[{}],区域:[{}] - OCI 错误: {} ({})",
-                        user.getUsername(), user.getOciCfg().getRegion(), em, e.getStatusCode());
-            }
-        } catch (Exception e) {
-            log.error("【开机任务】用户:[{}],区域:[{}] - 异常: {}",
-                    user.getUsername(), user.getOciCfg().getRegion(), e.getMessage());
+        }
+        if (sawOutOfCapacity) {
+            result.setOutOfCapacity(true);
         }
         return result;
+    }
+
+    private static boolean isOutOfHostCapacityError(com.oracle.bmc.model.BmcException e) {
+        if (isBootVolumeQuotaError(e)) {
+            return false;
+        }
+        String em = e.getMessage() == null ? "" : e.getMessage();
+        return e.getStatusCode() == 500 || em.contains("Out of host capacity")
+                || (e.getStatusCode() == 400 && em.contains("LimitExceeded"))
+                || e.getStatusCode() == 429;
+    }
+
+    /** LaunchInstance 返回 bootVolumeQuota / 引导卷 QuotaExceeded */
+    private static boolean isBootVolumeQuotaError(com.oracle.bmc.model.BmcException e) {
+        String em = e.getMessage() == null ? "" : e.getMessage();
+        if (em.contains("bootVolumeQuota")) {
+            return true;
+        }
+        return em.contains("QuotaExceeded")
+                && (em.toLowerCase().contains("bootvolume") || em.contains("boot volume"));
+    }
+
+    /** 开机失败原因（中文，写入日志/任务播报，不含整段 SDK 堆栈） */
+    private static String describeLaunchFailure(com.oracle.bmc.model.BmcException e) {
+        String em = e.getMessage() == null ? "" : e.getMessage();
+        if (isBootVolumeQuotaError(e)) {
+            return "引导卷（启动盘）存储配额已达上限，硬盘配额用尽，创建失败";
+        }
+        if (em.contains("QuotaExceeded")) {
+            return "OCI 服务配额已达上限，创建失败";
+        }
+        if (em.contains("Out of host capacity")) {
+            return "主机容量不足（Out of host capacity）";
+        }
+        if (em.contains("LimitExceeded")) {
+            return "已触发服务限制（LimitExceeded）";
+        }
+        if (e.getStatusCode() == 429) {
+            return "请求过于频繁（429），请稍后重试";
+        }
+        int code = e.getStatusCode();
+        int cut = Math.min(em.length(), 200);
+        String brief = em.substring(0, cut);
+        return code > 0 ? ("OCI 错误 (" + code + "): " + brief) : brief;
     }
 
     /**
