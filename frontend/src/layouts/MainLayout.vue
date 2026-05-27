@@ -16,7 +16,7 @@
       :style="isMobile && !mobileMenuOpen ? { display: 'none' } : {}"
     >
       <div class="brand">
-        <OciLogo :size="32" class="brand-logo" />
+        <OciLogo :size="48" class="brand-logo" />
         <span v-if="!collapsed || (isMobile && mobileMenuOpen)" class="brand-text">OCI Worker</span>
       </div>
       <a-menu mode="inline" :selected-keys="[currentRoute]" @click="handleMenuClick"
@@ -284,7 +284,7 @@ function handleLogout() {
   flex-shrink: 0;
 }
 .brand-text {
-  font-size: 20px;
+  font-size: 22px;
   font-weight: 800;
   background: linear-gradient(135deg, #a5b4fc 0%, #6366f1 100%);
   -webkit-background-clip: text;

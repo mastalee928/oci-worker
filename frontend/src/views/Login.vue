@@ -4,7 +4,7 @@
     <div class="bg-glow-2" />
     <div class="login-card">
       <div class="login-header">
-        <OciLogo :size="52" class="logo-mark" />
+        <OciLogo :size="88" class="logo-mark" />
         <h2>OCI Worker</h2>
         <p>Oracle Cloud 实例管理面板</p>
       </div>
@@ -215,7 +215,7 @@ async function handleTgLogin() {
 }
 .logo-mark {
   display: block;
-  margin: 0 auto 12px;
+  margin: 0 auto 16px;
 }
 .login-header h2 {
   margin: 0;

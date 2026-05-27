@@ -4,7 +4,7 @@
     <div class="bg-glow-2" />
     <div class="setup-card">
       <div class="setup-header">
-        <OciLogo :size="52" class="logo-mark" />
+        <OciLogo :size="88" class="logo-mark" />
         <h2>OCI Worker</h2>
         <p>首次使用，请设置管理员账户</p>
       </div>

@@ -3,14 +3,14 @@ withDefaults(
   defineProps<{
     size?: number | string
   }>(),
-  { size: 32 },
+  { size: 40 },
 )
 </script>
 
 <template>
   <svg
     xmlns="http://www.w3.org/2000/svg"
-    viewBox="0 0 200 200"
+    viewBox="52 46 96 100"
     :width="size"
     :height="size"
     class="oci-logo"
