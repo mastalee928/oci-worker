@@ -768,48 +768,6 @@
           </div>
         </a-tab-pane>
 
-        <a-tab-pane key="allVolumes" tab="卷管理">
-          <a-button @click="loadAllVolumes" :loading="allVolLoading" style="margin-bottom: 12px">加载卷列表</a-button>
-          <a-tabs v-model:activeKey="volSubTab" size="small">
-            <a-tab-pane key="BOOT" tab="引导卷">
-              <a-table :data-source="volumesByType('BOOT')" :columns="allVolColumns" size="small" :pagination="false" row-key="id">
-                <template #bodyCell="{ column, record }">
-                  <template v-if="column.key === 'delAction'">
-                    <a-button type="link" danger size="small" @click="openDeleteVolume(record)">删除</a-button>
-                  </template>
-                </template>
-              </a-table>
-            </a-tab-pane>
-            <a-tab-pane key="BLOCK" tab="块存储卷">
-              <a-table :data-source="volumesByType('BLOCK')" :columns="allVolColumns" size="small" :pagination="false" row-key="id">
-                <template #bodyCell="{ column, record }">
-                  <template v-if="column.key === 'delAction'">
-                    <a-button type="link" danger size="small" @click="openDeleteVolume(record)">删除</a-button>
-                  </template>
-                </template>
-              </a-table>
-            </a-tab-pane>
-            <a-tab-pane key="BOOT_BACKUP" tab="引导卷备份">
-              <a-table :data-source="volumesByType('BOOT_BACKUP')" :columns="allVolColumns" size="small" :pagination="false" row-key="id">
-                <template #bodyCell="{ column, record }">
-                  <template v-if="column.key === 'delAction'">
-                    <a-button type="link" danger size="small" @click="openDeleteVolume(record)">删除</a-button>
-                  </template>
-                </template>
-              </a-table>
-            </a-tab-pane>
-            <a-tab-pane key="BLOCK_BACKUP" tab="块存储备份">
-              <a-table :data-source="volumesByType('BLOCK_BACKUP')" :columns="allVolColumns" size="small" :pagination="false" row-key="id">
-                <template #bodyCell="{ column, record }">
-                  <template v-if="column.key === 'delAction'">
-                    <a-button type="link" danger size="small" @click="openDeleteVolume(record)">删除</a-button>
-                  </template>
-                </template>
-              </a-table>
-            </a-tab-pane>
-          </a-tabs>
-        </a-tab-pane>
-
         <a-tab-pane key="network" tab="网络">
           <a-button @click="loadVcns" :loading="vcnLoading" style="margin-bottom: 12px">加载 VCN</a-button>
           <a-table v-if="!isMobile" :data-source="vcns" :columns="vcnColumns" size="small" :pagination="false" row-key="id">
@@ -1096,25 +1054,6 @@
       </div>
     </a-modal>
 
-    <!-- 删除卷验证码弹窗 -->
-    <a-modal :mask-closable="false" :keyboard="false" v-model:open="deleteVolModalVisible" title="安全验证 — 删除卷" :width="400"
-      @ok="handleDeleteVolume" :confirm-loading="deleteVolVerifyLoading" ok-text="确认删除" ok-type="primary"
-      :ok-button-props="{ danger: true }">
-      <a-alert type="warning" show-icon style="margin-bottom: 16px">
-        <template #message>删除卷不可恢复，验证码已发送至 Telegram</template>
-      </a-alert>
-      <div style="margin-bottom: 12px; color: var(--text-main)">
-        <b>{{ deleteVolTarget?.displayName }}</b>
-        <a-tag style="margin-left: 8px">{{ deleteVolTarget?.type }}</a-tag>
-        <span v-if="deleteVolTarget?.sizeInGBs" style="margin-left: 8px">{{ deleteVolTarget?.sizeInGBs }} GB</span>
-      </div>
-      <a-input v-model:value="deleteVolCode" placeholder="请输入6位验证码" size="large" :maxlength="6" allow-clear />
-      <div style="margin-top: 12px; display: flex; justify-content: space-between; align-items: center">
-        <span style="color: var(--text-sub); font-size: 12px">验证码有效期 5 分钟</span>
-        <a-button type="link" size="small" :loading="verifySending" @click="resendVerifyCode('deleteVolume')">重新发送</a-button>
-      </div>
-    </a-modal>
-
     <!-- 虚拟云网络抽屉 -->
     <a-drawer :keyboard="false" v-model:open="vcnVisible" :title="'虚拟云网络 — ' + (vcnTenant?.username || '')"
       :width="isMobile ? '100%' : 960" :mask-closable="false" destroy-on-close>
@@ -1256,7 +1195,6 @@ import {
 } from '../api/instance'
 import { getTenantGroups } from '../api/tenant'
 import { useTenantCatalogStore } from '../stores/tenantCatalog'
-import { listAllVolumes, deleteVolume } from '../api/volume'
 
 const VcnManager = defineAsyncComponent(() => import('./VcnManager.vue'))
 const StorageManager = defineAsyncComponent(() => import('./StorageManager.vue'))
@@ -1686,73 +1624,6 @@ const volLoading = ref(false)
 const bootVolumes = ref<any[]>([])
 const vcnLoading = ref(false)
 const vcns = ref<any[]>([])
-
-const allVolLoading = ref(false)
-const allVolumes = ref<any[]>([])
-const volSubTab = ref('BOOT')
-const allVolColumns = [
-  { title: '名称', dataIndex: 'displayName', key: 'displayName', ellipsis: true },
-  { title: '大小 (GB)', dataIndex: 'sizeInGBs', key: 'sizeInGBs', width: 100 },
-  { title: '状态', dataIndex: 'lifecycleState', key: 'lifecycleState', width: 100 },
-  { title: '创建时间', dataIndex: 'timeCreated', key: 'timeCreated', width: 180 },
-  { title: '操作', key: 'delAction', width: 80 },
-]
-function volumesByType(type: string) {
-  return allVolumes.value.filter(v => v.type === type)
-}
-async function loadAllVolumes() {
-  if (!currentTenant.value) return
-  allVolLoading.value = true
-  try {
-    const res = await listAllVolumes({ id: currentTenant.value.id })
-    allVolumes.value = res.data || []
-  } catch (e: any) {
-    message.error(e?.message || '加载卷列表失败')
-  } finally {
-    allVolLoading.value = false
-  }
-}
-
-const deleteVolModalVisible = ref(false)
-const deleteVolTarget = ref<any>(null)
-const deleteVolCode = ref('')
-const deleteVolVerifyLoading = ref(false)
-
-async function openDeleteVolume(record: any) {
-  deleteVolTarget.value = record
-  deleteVolCode.value = ''
-  verifySending.value = true
-  try {
-    await sendVerifyCode('deleteVolume')
-    message.success('验证码已发送至 Telegram')
-    deleteVolModalVisible.value = true
-  } catch (e: any) {
-    message.error(e?.message || '发送验证码失败')
-  } finally {
-    verifySending.value = false
-  }
-}
-async function handleDeleteVolume() {
-  if (!deleteVolCode.value || deleteVolCode.value.length !== 6) {
-    message.warning('请输入6位验证码'); return
-  }
-  deleteVolVerifyLoading.value = true
-  try {
-    await deleteVolume({
-      id: currentTenant.value.id,
-      type: deleteVolTarget.value.type,
-      volumeId: deleteVolTarget.value.id,
-      verifyCode: deleteVolCode.value,
-    })
-    message.success('卷已删除')
-    deleteVolModalVisible.value = false
-    loadAllVolumes()
-  } catch (e: any) {
-    message.error(e?.message || '删除失败')
-  } finally {
-    deleteVolVerifyLoading.value = false
-  }
-}
 
 const trafficLoading = ref(false)
 const trafficMinutes = ref(60)
@@ -2275,7 +2146,6 @@ async function loadTenantInstances(td: TenantData, manual = false) {
 
 function onTabChange(key: string) {
   if (key === 'volume') loadBootVolumes()
-  if (key === 'allVolumes') loadAllVolumes()
   if (key === 'shape') loadShapeEditOptions()
 }
 
