@@ -16,7 +16,7 @@
       :style="isMobile && !mobileMenuOpen ? { display: 'none' } : {}"
     >
       <div class="brand">
-        <OciLogo :size="48" class="brand-logo" />
+        <OciLogo :size="46" class="brand-logo" />
         <span v-if="!collapsed || (isMobile && mobileMenuOpen)" class="brand-text">OCI Worker</span>
       </div>
       <a-menu mode="inline" :selected-keys="[currentRoute]" @click="handleMenuClick"
