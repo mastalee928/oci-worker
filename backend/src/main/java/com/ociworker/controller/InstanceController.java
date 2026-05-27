@@ -89,6 +89,61 @@ public class InstanceController {
         return ResponseData.ok();
     }
 
+    @PostMapping("/blockVolumes")
+    public ResponseData<?> blockVolumes(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(instanceService.listBlockVolumesByInstance(
+                params.get("id"), params.get("instanceId"), regStr(params)));
+    }
+
+    @PostMapping("/unattachedBlockVolumes")
+    public ResponseData<?> unattachedBlockVolumes(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(instanceService.listUnattachedBlockVolumesForInstance(
+                params.get("id"), params.get("instanceId"), regStr(params)));
+    }
+
+    @PostMapping("/createBlockVolumeAndAttach")
+    public ResponseData<?> createBlockVolumeAndAttach(@RequestBody Map<String, Object> params) {
+        return ResponseData.ok(instanceService.createBlockVolumeAndAttach(
+                asString(params.get("id")),
+                asString(params.get("instanceId")),
+                asString(params.get("displayName")),
+                asLong(params.get("sizeInGBs")),
+                asLong(params.get("vpusPerGB")),
+                asString(params.get("device")),
+                regObj(params)));
+    }
+
+    @PostMapping("/attachBlockVolume")
+    public ResponseData<?> attachBlockVolume(@RequestBody Map<String, Object> params) {
+        return ResponseData.ok(instanceService.attachBlockVolume(
+                asString(params.get("id")),
+                asString(params.get("instanceId")),
+                asString(params.get("volumeId")),
+                asString(params.get("device")),
+                regObj(params)));
+    }
+
+    @PostMapping("/detachBlockVolume")
+    public ResponseData<?> detachBlockVolume(@RequestBody Map<String, Object> params) {
+        instanceService.detachBlockVolume(
+                asString(params.get("id")),
+                asString(params.get("volumeAttachmentId")),
+                regObj(params));
+        return ResponseData.ok();
+    }
+
+    @PostMapping("/updateBlockVolume")
+    public ResponseData<?> updateBlockVolume(@RequestBody Map<String, Object> params) {
+        instanceService.updateBlockVolume(
+                asString(params.get("id")),
+                asString(params.get("volumeId")),
+                asLong(params.get("sizeInGBs")),
+                asString(params.get("displayName")),
+                asLong(params.get("vpusPerGB")),
+                regObj(params));
+        return ResponseData.ok();
+    }
+
     private static String asString(Object v) {
         return v == null ? null : String.valueOf(v);
     }

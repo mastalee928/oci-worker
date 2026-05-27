@@ -11,6 +11,7 @@ import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.lang.reflect.Constructor;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.stream.Collectors;
@@ -945,6 +946,328 @@ public class InstanceService {
         if (v == null) return "";
         if (v == Math.floor(v)) return String.valueOf(v.intValue());
         return String.valueOf(v);
+    }
+
+    /**
+     * 当前实例已挂载的块存储卷（ListVolumeAttachments + GetVolume，见 OCI Compute Block Storage API）。
+     */
+    public List<Map<String, Object>> listBlockVolumesByInstance(String userId, String instanceId, String region) {
+        OciUser ociUser = userMapper.selectById(userId);
+        if (ociUser == null) throw new OciException("租户配置不存在");
+        if (instanceId == null || instanceId.isBlank()) throw new OciException("instanceId 不能为空");
+
+        try (OciClientService client = oci(ociUser, region)) {
+            Instance instance = getInstanceOrThrow(client, instanceId);
+            String compartmentId = instance.getCompartmentId();
+            String ad = instance.getAvailabilityDomain();
+
+            List<VolumeAttachment> attachments = listActiveVolumeAttachments(client, compartmentId, ad, instanceId);
+            List<Map<String, Object>> result = new ArrayList<>();
+            for (VolumeAttachment att : attachments) {
+                String volumeId = att.getVolumeId();
+                if (volumeId == null) continue;
+                try {
+                    Volume vol = client.getBlockstorageClient().getVolume(
+                            GetVolumeRequest.builder().volumeId(volumeId).build()
+                    ).getVolume();
+                    result.add(blockVolumeRow(att, vol));
+                } catch (Exception e) {
+                    log.warn("Failed to get block volume {}: {}", volumeId, e.getMessage());
+                }
+            }
+            return result;
+        } catch (OciException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new OciException(tag(ociUser) + "获取块存储卷列表失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 同 AD、同区间、AVAILABLE 且未挂载到他处的块存储卷（供 AttachVolume 选择）。
+     */
+    public List<Map<String, Object>> listUnattachedBlockVolumesForInstance(String userId, String instanceId, String region) {
+        OciUser ociUser = userMapper.selectById(userId);
+        if (ociUser == null) throw new OciException("租户配置不存在");
+        if (instanceId == null || instanceId.isBlank()) throw new OciException("instanceId 不能为空");
+
+        try (OciClientService client = oci(ociUser, region)) {
+            Instance instance = getInstanceOrThrow(client, instanceId);
+            String compartmentId = instance.getCompartmentId();
+            String ad = instance.getAvailabilityDomain();
+
+            Set<String> attachedVolumeIds = new HashSet<>();
+            for (VolumeAttachment att : listActiveVolumeAttachments(client, compartmentId, ad, null)) {
+                if (att.getVolumeId() != null) {
+                    attachedVolumeIds.add(att.getVolumeId());
+                }
+            }
+
+            List<Map<String, Object>> result = new ArrayList<>();
+            Set<String> seen = new HashSet<>();
+            String page = null;
+            do {
+                var resp = client.getBlockstorageClient().listVolumes(
+                        ListVolumesRequest.builder()
+                                .compartmentId(compartmentId)
+                                .availabilityDomain(ad)
+                                .lifecycleState(Volume.LifecycleState.Available)
+                                .page(page)
+                                .build());
+                for (Volume v : resp.getItems()) {
+                    if (!seen.add(v.getId())) continue;
+                    if (attachedVolumeIds.contains(v.getId())) continue;
+                    Map<String, Object> m = new LinkedHashMap<>();
+                    m.put("id", v.getId());
+                    m.put("displayName", v.getDisplayName());
+                    m.put("sizeInGBs", v.getSizeInGBs());
+                    m.put("vpusPerGB", v.getVpusPerGB());
+                    m.put("lifecycleState", v.getLifecycleState() != null ? v.getLifecycleState().getValue() : null);
+                    m.put("availabilityDomain", v.getAvailabilityDomain());
+                    result.add(m);
+                }
+                page = resp.getOpcNextPage();
+            } while (page != null);
+            return result;
+        } catch (OciException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new OciException(tag(ociUser) + "获取可挂载块存储卷失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * CreateVolume（Block Storage）后 AttachVolume（Compute），参数遵循 CreateVolumeDetails / AttachVolumeDetails。
+     */
+    public Map<String, Object> createBlockVolumeAndAttach(String userId, String instanceId, String displayName,
+                                                         Long sizeInGBs, Long vpusPerGB, String device, String region) {
+        OciUser ociUser = userMapper.selectById(userId);
+        if (ociUser == null) throw new OciException("租户配置不存在");
+        validateBlockVolumeSize(sizeInGBs);
+        long vpus = resolveVpusPerGb(vpusPerGB);
+
+        try (OciClientService client = oci(ociUser, region)) {
+            Instance instance = getInstanceOrThrow(client, instanceId);
+            String compartmentId = instance.getCompartmentId();
+            String ad = instance.getAvailabilityDomain();
+
+            var createDetails = CreateVolumeDetails.builder()
+                    .compartmentId(compartmentId)
+                    .availabilityDomain(ad)
+                    .displayName(displayName != null && !displayName.isBlank() ? displayName.trim() : "block-volume")
+                    .sizeInGBs(sizeInGBs)
+                    .vpusPerGB(vpus)
+                    .build();
+
+            Volume created = client.getBlockstorageClient().createVolume(
+                    CreateVolumeRequest.builder().createVolumeDetails(createDetails).build()
+            ).getVolume();
+
+            Volume available = waitVolumeUntilAvailable(client, created.getId());
+            VolumeAttachment attachment = attachVolumeToInstance(client, instanceId, available.getId(), device);
+
+            Map<String, Object> out = blockVolumeRow(attachment, available);
+            out.put("message", "块存储卷已创建并提交挂载");
+            return out;
+        } catch (OciException e) {
+            throw e;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new OciException(tag(ociUser) + "创建并挂载块存储卷被中断");
+        } catch (Exception e) {
+            throw new OciException(tag(ociUser) + "创建并挂载块存储卷失败: " + e.getMessage());
+        }
+    }
+
+    public Map<String, Object> attachBlockVolume(String userId, String instanceId, String volumeId, String device, String region) {
+        OciUser ociUser = userMapper.selectById(userId);
+        if (ociUser == null) throw new OciException("租户配置不存在");
+        if (volumeId == null || volumeId.isBlank()) throw new OciException("volumeId 不能为空");
+
+        try (OciClientService client = oci(ociUser, region)) {
+            Instance instance = getInstanceOrThrow(client, instanceId);
+            Volume vol = client.getBlockstorageClient().getVolume(
+                    GetVolumeRequest.builder().volumeId(volumeId).build()
+            ).getVolume();
+
+            if (!Objects.equals(vol.getAvailabilityDomain(), instance.getAvailabilityDomain())) {
+                throw new OciException("块存储卷与实例须在同一可用域 (Availability Domain)");
+            }
+            if (!Objects.equals(vol.getCompartmentId(), instance.getCompartmentId())) {
+                throw new OciException("块存储卷与实例须在同一区间 (Compartment)");
+            }
+            if (vol.getLifecycleState() != Volume.LifecycleState.Available) {
+                throw new OciException("块存储卷须为 AVAILABLE 状态方可挂载，当前: "
+                        + (vol.getLifecycleState() != null ? vol.getLifecycleState().getValue() : "unknown"));
+            }
+
+            VolumeAttachment attachment = attachVolumeToInstance(client, instanceId, volumeId, device);
+            Volume refreshed = client.getBlockstorageClient().getVolume(
+                    GetVolumeRequest.builder().volumeId(volumeId).build()
+            ).getVolume();
+            return blockVolumeRow(attachment, refreshed);
+        } catch (OciException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new OciException(tag(ociUser) + "挂载块存储卷失败: " + e.getMessage());
+        }
+    }
+
+    public void detachBlockVolume(String userId, String volumeAttachmentId, String region) {
+        OciUser ociUser = userMapper.selectById(userId);
+        if (ociUser == null) throw new OciException("租户配置不存在");
+        if (volumeAttachmentId == null || volumeAttachmentId.isBlank()) {
+            throw new OciException("volumeAttachmentId 不能为空");
+        }
+
+        try (OciClientService client = oci(ociUser, region)) {
+            client.getComputeClient().detachVolume(
+                    DetachVolumeRequest.builder()
+                            .volumeAttachmentId(volumeAttachmentId)
+                            .build());
+            log.info("Block volume detached: attachment {}", volumeAttachmentId);
+        } catch (Exception e) {
+            throw new OciException(tag(ociUser) + "卸载块存储卷失败: " + e.getMessage());
+        }
+    }
+
+    public void updateBlockVolume(String userId, String volumeId, Long sizeInGBs, String displayName, Long vpusPerGB, String region) {
+        OciUser ociUser = userMapper.selectById(userId);
+        if (ociUser == null) throw new OciException("租户配置不存在");
+        if (volumeId == null || volumeId.isBlank()) throw new OciException("volumeId 不能为空");
+
+        try (OciClientService client = oci(ociUser, region)) {
+            UpdateVolumeDetails.Builder detailsBuilder = UpdateVolumeDetails.builder();
+            if (displayName != null && !displayName.isBlank()) {
+                detailsBuilder.displayName(displayName.trim());
+            }
+            if (sizeInGBs != null) {
+                validateBlockVolumeSize(sizeInGBs);
+                detailsBuilder.sizeInGBs(sizeInGBs);
+            }
+            if (vpusPerGB != null) {
+                detailsBuilder.vpusPerGB(resolveVpusPerGb(vpusPerGB));
+            }
+            if (displayName == null && sizeInGBs == null && vpusPerGB == null) {
+                throw new OciException("至少提供 displayName、sizeInGBs 或 vpusPerGB 之一");
+            }
+
+            client.getBlockstorageClient().updateVolume(
+                    UpdateVolumeRequest.builder()
+                            .volumeId(volumeId)
+                            .updateVolumeDetails(detailsBuilder.build())
+                            .build());
+            log.info("Block volume updated: {}", volumeId);
+        } catch (OciException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new OciException(tag(ociUser) + "更新块存储卷失败: " + e.getMessage());
+        }
+    }
+
+    private Instance getInstanceOrThrow(OciClientService client, String instanceId) {
+        return client.getComputeClient().getInstance(
+                GetInstanceRequest.builder().instanceId(instanceId).build()
+        ).getInstance();
+    }
+
+    private List<VolumeAttachment> listActiveVolumeAttachments(OciClientService client, String compartmentId,
+                                                               String availabilityDomain, String instanceId) {
+        List<VolumeAttachment> all = new ArrayList<>();
+        String page = null;
+        do {
+            var b = ListVolumeAttachmentsRequest.builder()
+                    .compartmentId(compartmentId)
+                    .availabilityDomain(availabilityDomain);
+            if (instanceId != null && !instanceId.isBlank()) {
+                b.instanceId(instanceId);
+            }
+            var resp = client.getComputeClient().listVolumeAttachments(b.page(page).build());
+            for (VolumeAttachment a : resp.getItems()) {
+                if (a.getLifecycleState() != VolumeAttachment.LifecycleState.Detached) {
+                    all.add(a);
+                }
+            }
+            page = resp.getOpcNextPage();
+        } while (page != null);
+        return all;
+    }
+
+    private VolumeAttachment attachVolumeToInstance(OciClientService client, String instanceId, String volumeId, String device) {
+        try {
+            Constructor<AttachVolumeDetails> ctor = AttachVolumeDetails.class.getDeclaredConstructor(
+                    String.class, String.class, String.class, Boolean.class, Boolean.class, String.class);
+            ctor.setAccessible(true);
+            String devicePath = (device != null && !device.isBlank()) ? device.trim() : null;
+            // 构造参数顺序（OCI SDK）：device, displayName, instanceId, isReadOnly, isShareable, volumeId
+            AttachVolumeDetails details = ctor.newInstance(devicePath, null, instanceId, null, null, volumeId);
+            return client.getComputeClient().attachVolume(
+                    AttachVolumeRequest.builder()
+                            .attachVolumeDetails(details)
+                            .build()
+            ).getVolumeAttachment();
+        } catch (OciException e) {
+            throw e;
+        } catch (ReflectiveOperationException e) {
+            throw new OciException("构建 AttachVolumeDetails 失败: " + e.getMessage());
+        }
+    }
+
+    private Volume waitVolumeUntilAvailable(OciClientService client, String volumeId) throws InterruptedException {
+        for (int i = 0; i < 120; i++) {
+            Volume v = client.getBlockstorageClient().getVolume(
+                    GetVolumeRequest.builder().volumeId(volumeId).build()
+            ).getVolume();
+            Volume.LifecycleState st = v.getLifecycleState();
+            if (st == Volume.LifecycleState.Available) {
+                return v;
+            }
+            if (st == Volume.LifecycleState.Faulty || st == Volume.LifecycleState.Terminated) {
+                throw new OciException("块存储卷状态异常: " + (st != null ? st.getValue() : "unknown"));
+            }
+            Thread.sleep(1000L);
+        }
+        throw new OciException("等待块存储卷进入 AVAILABLE 状态超时（最长 120 秒）");
+    }
+
+    private static Map<String, Object> blockVolumeRow(VolumeAttachment att, Volume vol) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("attachmentId", att.getId());
+        map.put("volumeId", vol.getId());
+        map.put("displayName", vol.getDisplayName());
+        map.put("sizeInGBs", vol.getSizeInGBs());
+        map.put("vpusPerGB", vol.getVpusPerGB());
+        map.put("device", att.getDevice());
+        map.put("volumeLifecycleState", vol.getLifecycleState() != null ? vol.getLifecycleState().getValue() : null);
+        map.put("attachmentLifecycleState", att.getLifecycleState() != null ? att.getLifecycleState().getValue() : null);
+        map.put("timeCreated", vol.getTimeCreated() != null ? vol.getTimeCreated().toString() : null);
+        map.put("availabilityDomain", vol.getAvailabilityDomain());
+        map.put("isHydrated", vol.getIsHydrated());
+        return map;
+    }
+
+    private static void validateBlockVolumeSize(Long sizeInGBs) {
+        if (sizeInGBs == null || sizeInGBs < 50) {
+            throw new OciException("块存储卷容量须至少 50 GB（OCI CreateVolumeDetails.sizeInGBs）");
+        }
+        if (sizeInGBs > 32768) {
+            throw new OciException("块存储卷容量不能超过 32768 GB");
+        }
+    }
+
+    /** OCI Block Volume 性能档位：0 / 10 / 20 / 30–120（步进 10）。默认 10（Balanced）。 */
+    private static long resolveVpusPerGb(Long vpusPerGB) {
+        if (vpusPerGB == null) {
+            return 10L;
+        }
+        long v = vpusPerGB;
+        if (v == 0L || v == 10L || v == 20L) {
+            return v;
+        }
+        if (v >= 30L && v <= 120L && v % 10L == 0L) {
+            return v;
+        }
+        throw new OciException("vpusPerGB 须为 0、10、20 或 30～120（Ultra High 档步进 10），见 OCI Block Volume 性能档位文档");
     }
 
     private String extractOciErrorMessage(com.oracle.bmc.model.BmcException e) {

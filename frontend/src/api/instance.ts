@@ -69,6 +69,42 @@ export function updateBootVolume(data: Record<string, unknown> & R) {
   return request.post('/oci/instance/updateBootVolume', data)
 }
 
+export function getBlockVolumes(data: { id: string; instanceId: string } & R) {
+  return request.post('/oci/instance/blockVolumes', data)
+}
+
+export function getUnattachedBlockVolumes(data: { id: string; instanceId: string } & R) {
+  return request.post('/oci/instance/unattachedBlockVolumes', data)
+}
+
+export function createBlockVolumeAndAttach(data: {
+  id: string
+  instanceId: string
+  displayName?: string
+  sizeInGBs: number
+  vpusPerGB?: number
+  device?: string
+} & R) {
+  return request.post('/oci/instance/createBlockVolumeAndAttach', data)
+}
+
+export function attachBlockVolume(data: {
+  id: string
+  instanceId: string
+  volumeId: string
+  device?: string
+} & R) {
+  return request.post('/oci/instance/attachBlockVolume', data)
+}
+
+export function detachBlockVolume(data: { id: string; volumeAttachmentId: string } & R) {
+  return request.post('/oci/instance/detachBlockVolume', data)
+}
+
+export function updateBlockVolume(data: Record<string, unknown> & R) {
+  return request.post('/oci/instance/updateBlockVolume', data)
+}
+
 export function getVcns(data: { id: string } & R) {
   return request.post('/oci/network/vcns', data)
 }

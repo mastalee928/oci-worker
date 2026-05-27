@@ -768,6 +768,50 @@
           </div>
         </a-tab-pane>
 
+        <a-tab-pane key="blockVolume" tab="块存储">
+          <div style="margin-bottom: 12px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center">
+            <a-button @click="loadBlockVolumes" :loading="blockVolLoading">加载块存储</a-button>
+            <a-button type="primary" @click="openCreateBlockVolume" :disabled="!currentInstance">创建并挂载</a-button>
+            <a-button @click="openAttachBlockVolume" :disabled="!currentInstance">挂载已有卷</a-button>
+          </div>
+          <div v-if="currentInstance" style="font-size: 12px; color: var(--text-sub); margin-bottom: 10px">
+            可用域：{{ currentInstance.availabilityDomain || '—' }} · 区间：{{ currentInstance.compartmentName || currentInstance.compartmentId || '—' }}
+          </div>
+          <a-table v-if="!isMobile" :data-source="blockVolumes" :columns="blockVolColumns" size="small" :pagination="false" row-key="attachmentId">
+            <template #bodyCell="{ column, record }">
+              <template v-if="column.key === 'blockVolAction'">
+                <a-space size="small">
+                  <a-button type="link" size="small" @click="openEditBlockVolume(record)">编辑</a-button>
+                  <a-popconfirm title="确定卸载该块存储卷？卷不会被删除，可在「存储」中再次挂载。" @confirm="handleDetachBlockVolume(record)">
+                    <a-button type="link" danger size="small" :loading="detachBlockVolId === record.attachmentId">卸载</a-button>
+                  </a-popconfirm>
+                </a-space>
+              </template>
+            </template>
+          </a-table>
+          <template v-else>
+            <a-empty v-if="blockVolumes.length === 0" description="暂无已挂载块存储卷" />
+            <div v-for="vol in blockVolumes" :key="vol.attachmentId" class="mobile-card">
+              <div class="mobile-card-header">
+                <span class="mobile-card-title">{{ vol.displayName }}</span>
+                <a-space size="small">
+                  <a-button type="link" size="small" @click="openEditBlockVolume(vol)">编辑</a-button>
+                  <a-popconfirm title="确定卸载？" @confirm="handleDetachBlockVolume(vol)">
+                    <a-button type="link" danger size="small">卸载</a-button>
+                  </a-popconfirm>
+                </a-space>
+              </div>
+              <div class="mobile-card-body">
+                <div class="mobile-card-row"><span class="label">大小</span><span class="value">{{ vol.sizeInGBs }} GB</span></div>
+                <div class="mobile-card-row"><span class="label">VPUs/GB</span><span class="value">{{ vol.vpusPerGB }}</span></div>
+                <div class="mobile-card-row"><span class="label">设备</span><span class="value">{{ vol.device || '—' }}</span></div>
+                <div class="mobile-card-row"><span class="label">卷状态</span><span class="value">{{ vol.volumeLifecycleState }}</span></div>
+                <div class="mobile-card-row"><span class="label">挂载状态</span><span class="value">{{ vol.attachmentLifecycleState }}</span></div>
+              </div>
+            </div>
+          </template>
+        </a-tab-pane>
+
         <a-tab-pane key="network" tab="网络">
           <a-button @click="loadVcns" :loading="vcnLoading" style="margin-bottom: 12px">加载 VCN</a-button>
           <a-table v-if="!isMobile" :data-source="vcns" :columns="vcnColumns" size="small" :pagination="false" row-key="id">
@@ -988,6 +1032,75 @@
       </a-form>
     </a-modal>
 
+    <!-- 创建并挂载块存储卷 -->
+    <a-modal :keyboard="false" v-model:open="createBlockVolVisible" title="创建并挂载块存储卷" @ok="handleCreateBlockVolume"
+      :confirm-loading="createBlockVolLoading" :mask-closable="false" :width="isMobile ? '100%' : 480">
+      <a-form layout="vertical">
+        <a-form-item label="显示名称">
+          <a-input v-model:value="createBlockVolForm.displayName" placeholder="block-volume" />
+        </a-form-item>
+        <a-form-item label="容量 (GB)" extra="OCI 要求 50～32768 GB，步进 1 GB">
+          <a-input-number v-model:value="createBlockVolForm.sizeInGBs" :min="50" :max="32768" style="width: 100%" />
+        </a-form-item>
+        <a-form-item label="性能 (VPUs/GB)" extra="0 最低成本 · 10 均衡 · 20 较高 · 30～120 超高（步进 10）">
+          <a-select v-model:value="createBlockVolForm.vpusPerGB">
+            <a-select-option :value="0">最低成本 (0)</a-select-option>
+            <a-select-option :value="10">均衡 (10)</a-select-option>
+            <a-select-option :value="20">较高性能 (20)</a-select-option>
+            <a-select-option :value="30">高性能 (30)</a-select-option>
+            <a-select-option :value="60">高性能 (60)</a-select-option>
+            <a-select-option :value="120">超高性能 (120)</a-select-option>
+          </a-select>
+        </a-form-item>
+        <a-form-item label="设备路径（可选）" extra="留空由 OCI 自动分配，例如 /dev/orascsi2">
+          <a-input v-model:value="createBlockVolForm.device" placeholder="/dev/orascsi2" allow-clear />
+        </a-form-item>
+      </a-form>
+    </a-modal>
+
+    <!-- 挂载已有块存储卷 -->
+    <a-modal :keyboard="false" v-model:open="attachBlockVolVisible" title="挂载已有块存储卷" @ok="handleAttachBlockVolume"
+      :confirm-loading="attachBlockVolLoading" :mask-closable="false" :width="isMobile ? '100%' : 520">
+      <a-form layout="vertical">
+        <a-form-item label="块存储卷" extra="仅列出与当前实例同可用域、同区间且未挂载的 AVAILABLE 卷">
+          <a-select
+            v-model:value="attachBlockVolForm.volumeId"
+            show-search
+            option-filter-prop="label"
+            placeholder="选择块存储卷"
+            :loading="unattachedBlockVolLoading"
+            :options="unattachedBlockVolOptions"
+          />
+        </a-form-item>
+        <a-form-item label="设备路径（可选）">
+          <a-input v-model:value="attachBlockVolForm.device" placeholder="/dev/orascsi2" allow-clear />
+        </a-form-item>
+      </a-form>
+    </a-modal>
+
+    <!-- 编辑块存储卷 -->
+    <a-modal :keyboard="false" v-model:open="editBlockVolVisible" title="编辑块存储卷" @ok="handleEditBlockVolume"
+      :confirm-loading="editBlockVolLoading" :mask-closable="false" :width="isMobile ? '100%' : 480">
+      <a-form layout="vertical">
+        <a-form-item label="名称">
+          <a-input v-model:value="editBlockVolForm.displayName" />
+        </a-form-item>
+        <a-form-item label="大小 (GB)">
+          <a-input-number v-model:value="editBlockVolForm.sizeInGBs" :min="50" :max="32768" style="width: 100%" />
+          <div style="color: #999; font-size: 12px; margin-top: 4px">只能增大，不能缩小。最小 50 GB</div>
+        </a-form-item>
+        <a-form-item label="性能 (VPUs/GB)">
+          <a-select v-model:value="editBlockVolForm.vpusPerGB">
+            <a-select-option :value="0">最低成本 (0)</a-select-option>
+            <a-select-option :value="10">均衡 (10)</a-select-option>
+            <a-select-option :value="20">较高性能 (20)</a-select-option>
+            <a-select-option :value="30">高性能 (30)</a-select-option>
+            <a-select-option :value="120">超高性能 (120)</a-select-option>
+          </a-select>
+        </a-form-item>
+      </a-form>
+    </a-modal>
+
     <!-- 新建预留IP弹窗 -->
     <a-modal :keyboard="false" v-model:open="createRipVisible" title="新建预留 IP" @ok="handleCreateReservedIp"
       :confirm-loading="createRipLoading" :mask-closable="false">
@@ -1181,7 +1294,10 @@ import { message, Modal } from 'ant-design-vue'
 import {
   getInstanceList, updateInstanceState, terminateInstance,
   getSecurityRules, releaseAllPorts, releaseOciPreset, addSecurityRule, deleteSecurityRule,
-  getBootVolumes, updateBootVolume, getVcns,
+  getBootVolumes, updateBootVolume,
+  getBlockVolumes, getUnattachedBlockVolumes, createBlockVolumeAndAttach,
+  attachBlockVolume, detachBlockVolume, updateBlockVolume,
+  getVcns,
   getTrafficData, changeIp,
   getInstanceNetworkDetail, addIpv6, removeIpv6,
   createReservedIp, listReservedIps, deleteReservedIp,
@@ -1292,6 +1408,16 @@ const secColumns = [
   { title: '描述', dataIndex: 'description', key: 'description', ellipsis: true },
   { title: '操作', key: 'secAction', width: 80 },
 ]
+const blockVolColumns = [
+  { title: '名称', dataIndex: 'displayName', key: 'displayName', ellipsis: true },
+  { title: '大小 (GB)', dataIndex: 'sizeInGBs', key: 'sizeInGBs', width: 90 },
+  { title: 'VPUs/GB', dataIndex: 'vpusPerGB', key: 'vpusPerGB', width: 80 },
+  { title: '设备路径', dataIndex: 'device', key: 'device', width: 120, ellipsis: true },
+  { title: '卷状态', dataIndex: 'volumeLifecycleState', key: 'volumeLifecycleState', width: 100 },
+  { title: '挂载状态', dataIndex: 'attachmentLifecycleState', key: 'attachmentLifecycleState', width: 100 },
+  { title: '操作', key: 'blockVolAction', width: 120 },
+]
+
 const volColumns = [
   { title: '名称', dataIndex: 'displayName', key: 'displayName' },
   { title: '大小 (GB)', dataIndex: 'sizeInGBs', key: 'sizeInGBs', width: 100 },
@@ -1644,6 +1770,24 @@ const ruleForm = reactive({ direction: 'ingress', protocol: 'TCP', source: '0.0.
 const editVolVisible = ref(false)
 const editVolLoading = ref(false)
 const editVolForm = reactive({ bootVolumeId: '', displayName: '', sizeInGBs: 50, vpusPerGB: 10 })
+
+const blockVolumes = ref<any[]>([])
+const blockVolLoading = ref(false)
+const detachBlockVolId = ref('')
+
+const createBlockVolVisible = ref(false)
+const createBlockVolLoading = ref(false)
+const createBlockVolForm = reactive({ displayName: '', sizeInGBs: 100, vpusPerGB: 10, device: '' })
+
+const attachBlockVolVisible = ref(false)
+const attachBlockVolLoading = ref(false)
+const unattachedBlockVolLoading = ref(false)
+const unattachedBlockVolOptions = ref<{ label: string; value: string }[]>([])
+const attachBlockVolForm = reactive({ volumeId: '' as string, device: '' })
+
+const editBlockVolVisible = ref(false)
+const editBlockVolLoading = ref(false)
+const editBlockVolForm = reactive({ volumeId: '', displayName: '', sizeInGBs: 50, vpusPerGB: 10 })
 
 const reservedIps = ref<any[]>([])
 const reservedIpListLoading = ref(false)
@@ -2146,6 +2290,7 @@ async function loadTenantInstances(td: TenantData, manual = false) {
 
 function onTabChange(key: string) {
   if (key === 'volume') loadBootVolumes()
+  if (key === 'blockVolume') loadBlockVolumes()
   if (key === 'shape') loadShapeEditOptions()
 }
 
@@ -2156,6 +2301,7 @@ function openDetail(tenant: any, record: any) {
   ingressRules.value = []
   egressRules.value = []
   bootVolumes.value = []
+  blockVolumes.value = []
   vcns.value = []
   trafficData.value = null
   networkDetail.value = null
@@ -2523,6 +2669,166 @@ async function loadBootVolumes() {
     message.error(e?.message || '加载引导卷失败')
   } finally {
     volLoading.value = false
+  }
+}
+
+async function loadBlockVolumes() {
+  if (!currentInstance.value || !currentTenant.value) return
+  blockVolLoading.value = true
+  try {
+    const res = await getBlockVolumes({
+      id: currentTenant.value.id,
+      instanceId: currentInstance.value.instanceId,
+      ...instanceDetailRegionParam(),
+    })
+    blockVolumes.value = res.data || []
+  } catch (e: any) {
+    message.error(e?.message || '加载块存储失败')
+  } finally {
+    blockVolLoading.value = false
+  }
+}
+
+function defaultBlockVolumeName() {
+  const inst = currentInstance.value
+  if (!inst?.name) return 'block-volume'
+  return `${inst.name}-data`
+}
+
+function openCreateBlockVolume() {
+  createBlockVolForm.displayName = defaultBlockVolumeName()
+  createBlockVolForm.sizeInGBs = 100
+  createBlockVolForm.vpusPerGB = 10
+  createBlockVolForm.device = ''
+  createBlockVolVisible.value = true
+}
+
+async function handleCreateBlockVolume() {
+  if (!currentInstance.value || !currentTenant.value) return
+  if (!createBlockVolForm.sizeInGBs || createBlockVolForm.sizeInGBs < 50) {
+    message.warning('容量须至少 50 GB')
+    return
+  }
+  createBlockVolLoading.value = true
+  try {
+    await createBlockVolumeAndAttach({
+      id: currentTenant.value.id,
+      instanceId: currentInstance.value.instanceId,
+      displayName: createBlockVolForm.displayName?.trim() || defaultBlockVolumeName(),
+      sizeInGBs: createBlockVolForm.sizeInGBs,
+      vpusPerGB: createBlockVolForm.vpusPerGB,
+      device: createBlockVolForm.device?.trim() || undefined,
+      ...instanceDetailRegionParam(),
+    })
+    message.success('块存储卷已创建并提交挂载')
+    createBlockVolVisible.value = false
+    loadBlockVolumes()
+  } catch (e: any) {
+    message.error(e?.message || '创建并挂载失败')
+  } finally {
+    createBlockVolLoading.value = false
+  }
+}
+
+async function loadUnattachedBlockVolumeOptions() {
+  if (!currentInstance.value || !currentTenant.value) return
+  unattachedBlockVolLoading.value = true
+  try {
+    const res = await getUnattachedBlockVolumes({
+      id: currentTenant.value.id,
+      instanceId: currentInstance.value.instanceId,
+      ...instanceDetailRegionParam(),
+    })
+    const rows = res.data || []
+    unattachedBlockVolOptions.value = rows.map((r: any) => ({
+      value: r.id,
+      label: `${r.displayName || r.id} · ${r.sizeInGBs} GB · ${r.vpusPerGB ?? '—'} VPUs`,
+    }))
+  } catch (e: any) {
+    message.error(e?.message || '加载可挂载卷失败')
+    unattachedBlockVolOptions.value = []
+  } finally {
+    unattachedBlockVolLoading.value = false
+  }
+}
+
+function openAttachBlockVolume() {
+  attachBlockVolForm.volumeId = ''
+  attachBlockVolForm.device = ''
+  attachBlockVolVisible.value = true
+  loadUnattachedBlockVolumeOptions()
+}
+
+async function handleAttachBlockVolume() {
+  if (!currentInstance.value || !currentTenant.value) return
+  if (!attachBlockVolForm.volumeId) {
+    message.warning('请选择块存储卷')
+    return
+  }
+  attachBlockVolLoading.value = true
+  try {
+    await attachBlockVolume({
+      id: currentTenant.value.id,
+      instanceId: currentInstance.value.instanceId,
+      volumeId: attachBlockVolForm.volumeId,
+      device: attachBlockVolForm.device?.trim() || undefined,
+      ...instanceDetailRegionParam(),
+    })
+    message.success('已提交挂载')
+    attachBlockVolVisible.value = false
+    loadBlockVolumes()
+  } catch (e: any) {
+    message.error(e?.message || '挂载失败')
+  } finally {
+    attachBlockVolLoading.value = false
+  }
+}
+
+function openEditBlockVolume(record: any) {
+  editBlockVolForm.volumeId = record.volumeId
+  editBlockVolForm.displayName = record.displayName
+  editBlockVolForm.sizeInGBs = record.sizeInGBs != null ? Number(record.sizeInGBs) : 50
+  editBlockVolForm.vpusPerGB = record.vpusPerGB ?? 10
+  editBlockVolVisible.value = true
+}
+
+async function handleEditBlockVolume() {
+  if (!currentTenant.value || !editBlockVolForm.volumeId) return
+  editBlockVolLoading.value = true
+  try {
+    await updateBlockVolume({
+      id: currentTenant.value.id,
+      volumeId: editBlockVolForm.volumeId,
+      displayName: editBlockVolForm.displayName,
+      sizeInGBs: editBlockVolForm.sizeInGBs,
+      vpusPerGB: editBlockVolForm.vpusPerGB,
+      ...instanceDetailRegionParam(),
+    })
+    message.success('块存储卷已更新')
+    editBlockVolVisible.value = false
+    loadBlockVolumes()
+  } catch (e: any) {
+    message.error(e?.message || '更新块存储卷失败')
+  } finally {
+    editBlockVolLoading.value = false
+  }
+}
+
+async function handleDetachBlockVolume(record: any) {
+  if (!currentTenant.value || !record?.attachmentId) return
+  detachBlockVolId.value = record.attachmentId
+  try {
+    await detachBlockVolume({
+      id: currentTenant.value.id,
+      volumeAttachmentId: record.attachmentId,
+      ...instanceDetailRegionParam(),
+    })
+    message.success('已提交卸载')
+    loadBlockVolumes()
+  } catch (e: any) {
+    message.error(e?.message || '卸载失败')
+  } finally {
+    detachBlockVolId.value = ''
   }
 }
 
