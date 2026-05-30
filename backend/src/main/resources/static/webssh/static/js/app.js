@@ -1366,22 +1366,7 @@ function syncConsolePtySize(session) {
     }
 }
 
-/** Keep PTY at 80x24; pick largest font that fits (uniform, no stretch). */
-function getXtermRenderSize(term, xtermEl) {
-    var w = 0;
-    var h = 0;
-    try {
-        var dims = term._core._renderService.dimensions;
-        if (dims && dims.actualCellWidth > 0 && dims.actualCellHeight > 0) {
-            w = Math.ceil(dims.actualCellWidth * term.cols);
-            h = Math.ceil(dims.actualCellHeight * term.rows);
-        }
-    } catch (e) { }
-    if (w < 1 && xtermEl) w = xtermEl.offsetWidth;
-    if (h < 1 && xtermEl) h = xtermEl.offsetHeight;
-    return { w: w, h: h };
-}
-
+/** Keep PTY at 80x24; uniform scale zoom to fit pane (no stretch). */
 function fitConsoleToContainer(session) {
     if (!session || !session.consoleMode || !session.term || !session.termDiv) return;
     var el = session.termDiv;
@@ -1396,37 +1381,32 @@ function fitConsoleToContainer(session) {
     var xtermEl = el.querySelector('.xterm');
     if (!xtermEl) return;
 
+    var baseFont = 14;
+    term.options.fontSize = baseFont;
+    term.resize(CONSOLE_COLS, CONSOLE_ROWS);
     xtermEl.style.transform = '';
     xtermEl.style.transformOrigin = '';
 
     function applyFit() {
-        var lo = 8;
-        var hi = 72;
-        var best = 14;
-        while (lo <= hi) {
-            var mid = Math.floor((lo + hi) / 2);
-            term.options.fontSize = mid;
-            term.resize(CONSOLE_COLS, CONSOLE_ROWS);
-            try { term.refresh(0, CONSOLE_ROWS - 1); } catch (e) { }
-            var size = getXtermRenderSize(term, xtermEl);
-            if (size.w < 1 || size.h < 1) {
-                requestAnimationFrame(applyFit);
-                return;
-            }
-            if (size.w <= availW && size.h <= availH) {
-                best = mid;
-                lo = mid + 1;
-            } else {
-                hi = mid - 1;
-            }
-        }
-        var fontSize = Math.max(8, Math.min(72, best + (session.consoleFontDelta || 0)));
-        term.options.fontSize = fontSize;
-        term.resize(CONSOLE_COLS, CONSOLE_ROWS);
         try { term.refresh(0, CONSOLE_ROWS - 1); } catch (e) { }
+        var bw = xtermEl.offsetWidth;
+        var bh = xtermEl.offsetHeight;
+        if (bw < 1 || bh < 1) {
+            requestAnimationFrame(applyFit);
+            return;
+        }
+        var zoom = Math.pow(1.08, session.consoleFontDelta || 0);
+        var scale = Math.min(availW / bw, availH / bh, 8) * zoom;
+        scale = Math.max(0.4, scale);
+        if (scale > 1.02 || scale < 0.98) {
+            xtermEl.style.transformOrigin = 'center center';
+            xtermEl.style.transform = 'scale(' + scale + ')';
+        } else {
+            xtermEl.style.transform = '';
+        }
         if (sessions[activeIdx] === session) {
             var label = document.getElementById('fontSizeLabel');
-            if (label) label.textContent = fontSize;
+            if (label) label.textContent = Math.round(baseFont * scale);
         }
         syncConsolePtySize(session);
     }
