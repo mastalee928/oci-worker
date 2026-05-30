@@ -226,7 +226,7 @@ function switchTab(idx) {
     var s = sessions[idx];
     setTimeout(function () {
         try {
-            if (s.consoleMode) syncConsolePtySize(s);
+            if (s.consoleMode) fitConsoleToContainer(s);
             else if (s.fitAddon) s.fitAddon.fit();
             s.term.focus();
         } catch (e) { }
@@ -764,17 +764,18 @@ function getCurrentFontSize() {
 function changeFontSize(delta) {
     if (activeIdx < 0 || !sessions[activeIdx]) return;
     var s = sessions[activeIdx];
+    if (s.consoleMode) {
+        s.consoleFontDelta = (s.consoleFontDelta || 0) + delta;
+        fitConsoleToContainer(s);
+        return;
+    }
     var cur = s.term.options.fontSize || 15;
     var nv = Math.max(8, Math.min(30, cur + delta));
     s.term.options.fontSize = nv;
     localStorage.setItem(FONT_KEY, nv);
     document.getElementById('fontSizeLabel').textContent = nv;
-    if (s.consoleMode) {
-        syncConsolePtySize(s);
-    } else {
-        try { s.fitAddon.fit(); } catch (e) { }
-        if (s.ws && s.ws.readyState === 1) s.ws.send('resize:' + s.term.rows + ':' + s.term.cols);
-    }
+    try { s.fitAddon.fit(); } catch (e) { }
+    if (s.ws && s.ws.readyState === 1) s.ws.send('resize:' + s.term.rows + ':' + s.term.cols);
 }
 
 function updateFontSizeLabel() {
@@ -1309,11 +1310,10 @@ function parseConsoleParams() {
 function createConsoleSession(connectionId, label) {
     var id = Date.now() + '_' + Math.random().toString(36).substr(2, 5);
     var termDiv = document.createElement('div');
-    termDiv.className = 'term-instance';
+    termDiv.className = 'term-instance term-instance-console';
     termDiv.id = 'term_' + id;
     document.getElementById('terminalContainer').appendChild(termDiv);
 
-    var savedFont = getCurrentFontSize();
     var savedColors = getSavedColors();
     var isLight = document.documentElement.getAttribute('data-theme') === 'light' || (!document.documentElement.getAttribute('data-theme') && window.matchMedia('(prefers-color-scheme: light)').matches);
     var defaultFg = isLight ? '#1a1a2e' : '#e8e8f0';
@@ -1321,7 +1321,7 @@ function createConsoleSession(connectionId, label) {
     var defaultCursor = isLight ? '#0088cc' : '#00d4ff';
     var t = new Terminal({
         cursorBlink: true, cursorStyle: 'bar',
-        fontSize: savedFont,
+        fontSize: 14,
         fontFamily: "'JetBrains Mono','Fira Code','Cascadia Code',Consolas,monospace",
         theme: { background: savedColors.bg === '#0a0a1a' || savedColors.bg === '#e8eaf0' ? defaultBg : savedColors.bg, foreground: savedColors.fg === '#e8e8f0' || savedColors.fg === '#1a1a2e' ? defaultFg : savedColors.fg, cursor: savedColors.cursor === '#00d4ff' || savedColors.cursor === '#0088cc' ? defaultCursor : savedColors.cursor, cursorAccent: isLight ? '#e8eaf0' : '#0a0a1a', selectionBackground: 'rgba(0,136,204,.25)', black: isLight ? '#e8e8f0' : '#1a1a2e', red: '#ff006e', green: isLight ? '#008844' : '#00ff88', yellow: isLight ? '#996600' : '#ffbe0b', blue: isLight ? '#0066cc' : '#00d4ff', magenta: '#7b2ff7', cyan: isLight ? '#0088aa' : '#00d4ff', white: isLight ? '#1a1a2e' : '#e8e8f0', brightBlack: isLight ? '#999' : '#3a3a5e', brightRed: '#ff4488', brightGreen: isLight ? '#00aa55' : '#33ffaa', brightYellow: isLight ? '#aa7700' : '#ffdd33', brightBlue: isLight ? '#0088ff' : '#33ddff', brightMagenta: '#9955ff', brightCyan: isLight ? '#00aacc' : '#33ddff', brightWhite: isLight ? '#000' : '#fff' },
         allowTransparency: false, scrollback: 10000
@@ -1333,9 +1333,15 @@ function createConsoleSession(connectionId, label) {
     var session = {
         id: id, hostname: label, port: 0, username: 'console',
         connectionId: connectionId, consoleMode: true,
+        consoleFontDelta: 0,
         ws: null, term: t, fitAddon: null, termDiv: termDiv,
         heartbeat: null, resizeObs: null
     };
+
+    session.resizeObs = new ResizeObserver(function () {
+        fitConsoleToContainer(session);
+    });
+    session.resizeObs.observe(termDiv);
 
     sessions.push(session);
     return session;
@@ -1360,9 +1366,49 @@ function syncConsolePtySize(session) {
     }
 }
 
+/** Keep PTY at 80x24 but scale font so the grid fills the terminal pane. */
+function fitConsoleToContainer(session) {
+    if (!session || !session.consoleMode || !session.term || !session.termDiv) return;
+    var el = session.termDiv;
+    if (!el.classList.contains('active')) return;
+    var padX = 28;
+    var padY = 20;
+    var w = Math.max(0, el.clientWidth - padX);
+    var h = Math.max(0, el.clientHeight - padY);
+    if (w < 10 || h < 10) return;
+
+    var term = session.term;
+    var lo = 8;
+    var hi = 72;
+    var best = 12;
+    var xtermEl = el.querySelector('.xterm');
+    while (lo <= hi) {
+        var mid = Math.floor((lo + hi) / 2);
+        term.options.fontSize = mid;
+        term.resize(CONSOLE_COLS, CONSOLE_ROWS);
+        var sw = xtermEl ? xtermEl.offsetWidth : w + 1;
+        var sh = xtermEl ? xtermEl.offsetHeight : h + 1;
+        if (sw <= w && sh <= h) {
+            best = mid;
+            lo = mid + 1;
+        } else {
+            hi = mid - 1;
+        }
+    }
+    var delta = session.consoleFontDelta || 0;
+    var fontSize = Math.max(8, Math.min(72, best + delta));
+    term.options.fontSize = fontSize;
+    term.resize(CONSOLE_COLS, CONSOLE_ROWS);
+    if (sessions[activeIdx] === session) {
+        var label = document.getElementById('fontSizeLabel');
+        if (label) label.textContent = fontSize;
+    }
+    syncConsolePtySize(session);
+}
+
 function connectConsoleSession(session) {
     var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    syncConsolePtySize(session);
+    fitConsoleToContainer(session);
     var wsUrl = proto + '//' + location.host + '/webssh-api/console-term?cols=' + CONSOLE_COLS + '&rows=' + CONSOLE_ROWS;
     var ws = new WebSocket(wsUrl);
     session.ws = ws;
@@ -1378,7 +1424,7 @@ function connectConsoleSession(session) {
             got = true;
             showToast(session.hostname + ' 连接成功', 'success');
             session.heartbeat = setInterval(function () { if (ws.readyState === 1) ws.send('ping'); }, 30000);
-            syncConsolePtySize(session);
+            fitConsoleToContainer(session);
         }
         writeConsoleOutput(session.term, e.data);
     };
@@ -1393,7 +1439,7 @@ function connectConsoleSession(session) {
 
     session.term.onData(function (data) { if (ws.readyState === 1) ws.send(data); });
 
-    var resizeHandler = function () { syncConsolePtySize(session); };
+    var resizeHandler = function () { fitConsoleToContainer(session); };
     addEventListener('resize', resizeHandler);
     session._resizeHandler = resizeHandler;
 }
@@ -1488,7 +1534,7 @@ function tryConsoleConnect() {
         switchTab(sessions.length - 1);
         window.location.hash = '';
         setTimeout(function () {
-            try { syncConsolePtySize(session); } catch (e) {}
+            try { fitConsoleToContainer(session); } catch (e) {}
             connectConsoleSession(session);
             setStatus('', '就绪');
         }, 300);
