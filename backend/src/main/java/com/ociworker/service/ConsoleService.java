@@ -280,9 +280,7 @@ public class ConsoleService {
         Path script = session.execScriptPath != null
                 ? Path.of(session.execScriptPath)
                 : Path.of(KEY_DIR).resolve("console_exec_" + safeId(connectionId) + ".sh");
-        String content = "#!/bin/bash\nexport TERM=vt100\n"
-                + "if [ -t 0 ]; then stty raw -echo intr ^C 2>/dev/null; fi\n"
-                + "exec " + prepared + "\n";
+        String content = "#!/bin/bash\nexport TERM=vt100\nexec " + prepared + "\n";
         Files.writeString(script, content);
         try {
             new ProcessBuilder("chmod", "+x", script.toAbsolutePath().toString())

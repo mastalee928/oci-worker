@@ -1365,11 +1365,13 @@ function connectConsoleSession(session) {
     syncConsolePtySize(session);
     var wsUrl = proto + '//' + location.host + '/webssh-api/console-term?cols=' + CONSOLE_COLS + '&rows=' + CONSOLE_ROWS;
     var ws = new WebSocket(wsUrl);
-    ws.binaryType = 'arraybuffer';
     session.ws = ws;
     var got = false;
 
-    ws.onopen = function () { ws.send(session.connectionId); };
+    ws.onopen = function () {
+        showToast(session.hostname + ' 串口连接中…', 'info');
+        ws.send(session.connectionId);
+    };
 
     ws.onmessage = function (e) {
         if (!got) {
@@ -1381,10 +1383,12 @@ function connectConsoleSession(session) {
         writeConsoleOutput(session.term, e.data);
     };
 
-    ws.onerror = function () { showToast(session.hostname + ' 连接失败', 'error'); };
+    ws.onerror = function () {
+        showToast(session.hostname + ' 连接失败', 'error');
+    };
     ws.onclose = function () {
         if (session.heartbeat) { clearInterval(session.heartbeat); session.heartbeat = null; }
-        if (!got) showToast(session.hostname + ' 无法连接', 'error');
+        if (!got) showToast(session.hostname + ' 无法连接（请重新创建串口会话）', 'error');
     };
 
     session.term.onData(function (data) { if (ws.readyState === 1) ws.send(data); });

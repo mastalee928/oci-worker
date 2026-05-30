@@ -10,7 +10,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
-import org.springframework.web.socket.BinaryMessage;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketHandler;
 import org.springframework.web.socket.WebSocketMessage;
@@ -94,7 +93,7 @@ public class WebSshConsoleTerminalWebSocketHandler implements WebSocketHandler {
                     }
                     int n = stdout.read(buf);
                     if (n > 0) {
-                        sendBinary(ws, buf, n);
+                        sendConsoleOutput(ws, buf, n);
                     } else if (n < 0) {
                         break;
                     }
@@ -181,18 +180,19 @@ public class WebSshConsoleTerminalWebSocketHandler implements WebSocketHandler {
         }
     }
 
-    private static void sendText(WebSocketSession ws, String text) throws Exception {
+    /** ISO-8859-1 keeps serial bytes 0–255 intact (UTF-8 would corrupt UEFI control sequences). */
+    private static void sendConsoleOutput(WebSocketSession ws, byte[] buf, int len) throws Exception {
         if (ws.isOpen()) {
             synchronized (ws) {
-                ws.sendMessage(new TextMessage(text));
+                ws.sendMessage(new TextMessage(new String(buf, 0, len, StandardCharsets.ISO_8859_1)));
             }
         }
     }
 
-    private static void sendBinary(WebSocketSession ws, byte[] buf, int len) throws Exception {
+    private static void sendText(WebSocketSession ws, String text) throws Exception {
         if (ws.isOpen()) {
             synchronized (ws) {
-                ws.sendMessage(new BinaryMessage(buf, 0, len, false));
+                ws.sendMessage(new TextMessage(text));
             }
         }
     }
