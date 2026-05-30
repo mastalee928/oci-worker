@@ -59,16 +59,46 @@
 
 <script setup lang="ts">
 defineOptions({ name: 'Dashboard' })
-import { ref, onMounted } from 'vue'
+import { ref, onActivated, onDeactivated } from 'vue'
 import { getGlance } from '../api/system'
 
 const glance = ref<any>({})
+const METRICS_INTERVAL_MS = 6000
+let metricsTimer: ReturnType<typeof setInterval> | null = null
 
-onMounted(async () => {
+async function loadGlance(full = false) {
   try {
     const res = await getGlance()
-    glance.value = res.data
-  } catch {}
+    const d = res.data || {}
+    if (full) {
+      glance.value = d
+      return
+    }
+    if (d.cpuUsage != null) glance.value.cpuUsage = d.cpuUsage
+    if (d.memoryUsage != null) glance.value.memoryUsage = d.memoryUsage
+  } catch { /* ignore */ }
+}
+
+function startMetricsPolling() {
+  stopMetricsPolling()
+  metricsTimer = setInterval(() => { void loadGlance(false) }, METRICS_INTERVAL_MS)
+}
+
+function stopMetricsPolling() {
+  if (metricsTimer) {
+    clearInterval(metricsTimer)
+    metricsTimer = null
+  }
+}
+
+/** keep-alive：进入仪表盘拉全量并轮询 CPU/内存；离开则停 */
+onActivated(async () => {
+  await loadGlance(true)
+  startMetricsPolling()
+})
+
+onDeactivated(() => {
+  stopMetricsPolling()
 })
 </script>
 

@@ -19,44 +19,17 @@
         <OciLogo :size="46" class="brand-logo" />
         <span v-if="!collapsed || (isMobile && mobileMenuOpen)" class="brand-text">OCI Worker</span>
       </div>
-      <a-menu mode="inline" :selected-keys="[currentRoute]" @click="handleMenuClick"
-        class="nav-menu" theme="dark">
-        <!-- 图标必须用 #icon 插槽，否则与标题挤在 title-content 里，侧栏折叠时文字无法隐藏 -->
-        <a-menu-item key="dashboard" @mouseenter="prefetchRouteChunk('dashboard')">
-          <template #icon><i class="ri-dashboard-3-line menu-ri"></i></template>
-          仪表盘
-        </a-menu-item>
-        <a-menu-item key="tenant" @mouseenter="prefetchRouteChunk('tenant')">
-          <template #icon><i class="ri-user-settings-line menu-ri"></i></template>
-          租户配置
-        </a-menu-item>
-        <a-menu-item key="instance" @mouseenter="prefetchRouteChunk('instance')">
-          <template #icon><i class="ri-server-line menu-ri"></i></template>
-          实例管理
-        </a-menu-item>
-        <a-menu-item key="task" @mouseenter="prefetchRouteChunk('task')">
-          <template #icon><i class="ri-flashlight-line menu-ri"></i></template>
-          开机任务
-        </a-menu-item>
-        <a-menu-item key="log" @mouseenter="prefetchRouteChunk('log')">
-          <template #icon><i class="ri-file-list-3-line menu-ri"></i></template>
-          日志查看
-        </a-menu-item>
-        <a-menu-item key="oracle-ai" @mouseenter="prefetchRouteChunk('oracle-ai')">
-          <template #icon><i class="ri-magic-line menu-ri"></i></template>
-          Oracle AI
-        </a-menu-item>
-        <a-menu-item key="cloudflare" @mouseenter="prefetchRouteChunk('cloudflare')">
-          <template #icon><i class="ri-cloud-line menu-ri"></i></template>
-          Cloudflare
-        </a-menu-item>
-        <a-menu-item key="webssh">
-          <template #icon><i class="ri-terminal-box-line menu-ri"></i></template>
-          WebSSH
-        </a-menu-item>
-        <a-menu-item key="settings" @mouseenter="prefetchRouteChunk('settings')">
-          <template #icon><i class="ri-settings-4-line menu-ri"></i></template>
-          系统设置
+      <a-menu mode="inline" :selected-keys="[currentRoute]" class="nav-menu" theme="dark">
+        <a-menu-item v-for="item in navItems" :key="item.key">
+          <router-link
+            :to="'/' + item.key"
+            class="nav-menu-link"
+            @click="onNavLinkClick($event, item.key)"
+            @mouseenter="item.prefetch && prefetchRouteChunk(item.key)"
+          >
+            <i :class="[item.icon, 'menu-ri']"></i>
+            <span class="nav-menu-label">{{ item.label }}</span>
+          </router-link>
         </a-menu-item>
       </a-menu>
 
@@ -182,26 +155,27 @@ const currentTitle = computed(() => {
   return (r?.meta?.title as string) || 'OCI Worker'
 })
 
+const navItems = [
+  { key: 'dashboard', label: '仪表盘', icon: 'ri-dashboard-3-line', prefetch: true },
+  { key: 'tenant', label: '租户配置', icon: 'ri-user-settings-line', prefetch: true },
+  { key: 'instance', label: '实例管理', icon: 'ri-server-line', prefetch: true },
+  { key: 'task', label: '开机任务', icon: 'ri-flashlight-line', prefetch: true },
+  { key: 'log', label: '日志查看', icon: 'ri-file-list-3-line', prefetch: true },
+  { key: 'oracle-ai', label: 'Oracle AI', icon: 'ri-magic-line', prefetch: true },
+  { key: 'cloudflare', label: 'Cloudflare', icon: 'ri-cloud-line', prefetch: true },
+  { key: 'webssh', label: 'WebSSH', icon: 'ri-terminal-box-line', prefetch: false },
+  { key: 'settings', label: '系统设置', icon: 'ri-settings-4-line', prefetch: true },
+] as const
+
 const pageTitleIcon = computed(() => {
-  const icons: Record<string, string> = {
-    dashboard: 'ri-dashboard-3-line',
-    tenant: 'ri-user-settings-line',
-    instance: 'ri-server-line',
-    task: 'ri-flashlight-line',
-    log: 'ri-file-list-3-line',
-    'oracle-ai': 'ri-magic-line',
-    cloudflare: 'ri-cloud-line',
-    webssh: 'ri-terminal-box-line',
-    settings: 'ri-settings-4-line',
-    user: 'ri-group-line',
-  }
-  return icons[currentRoute.value] || 'ri-dashboard-3-line'
+  const item = navItems.find((n) => n.key === currentRoute.value)
+  return item?.icon || 'ri-dashboard-3-line'
 })
 
-function handleMenuClick(info: { key: string | number }) {
-  const key = String(info.key)
+/** 左键同页导航后关移动端抽屉；Ctrl/中键/右键交给浏览器（新标签等） */
+function onNavLinkClick(e: MouseEvent, key: string) {
+  if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
   prefetchRouteChunk(key)
-  router.push('/' + key)
   if (isMobile.value) mobileMenuOpen.value = false
 }
 
@@ -305,6 +279,13 @@ function handleLogout() {
   user-select: none;
   -webkit-user-select: none;
 }
+.nav-menu :deep(.nav-menu-link) {
+  display: flex;
+  align-items: center;
+  width: 100%;
+  color: inherit;
+  text-decoration: none;
+}
 .nav-menu :deep(.ant-menu-item) {
   text-align: left !important;
   padding-left: 24px !important;
@@ -321,11 +302,12 @@ function handleLogout() {
   overflow: visible !important;
 }
 /* flex 居中时标题节点仍会占位，图标默认 flex-shrink:1 会被挤成 0 宽 → 只见紫底不见图标 */
-.sider-collapsed-desktop .nav-menu :deep(.ant-menu-item-icon) {
-  flex-shrink: 0 !important;
+.sider-collapsed-desktop .nav-menu :deep(.nav-menu-link) {
+  justify-content: center !important;
 }
-.sider-collapsed-desktop .nav-menu :deep(.ant-menu-title-content) {
+.sider-collapsed-desktop .nav-menu :deep(.nav-menu-label) {
   flex: 0 0 0 !important;
+  width: 0 !important;
   min-width: 0 !important;
   max-width: 0 !important;
   margin: 0 !important;
@@ -333,7 +315,10 @@ function handleLogout() {
   overflow: hidden !important;
   opacity: 0 !important;
 }
-.sider-collapsed-desktop .nav-menu :deep(.ant-menu-item-selected .ant-menu-item-icon) {
+.sider-collapsed-desktop .nav-menu :deep(.menu-ri) {
+  flex-shrink: 0 !important;
+}
+.sider-collapsed-desktop .nav-menu :deep(.ant-menu-item-selected .menu-ri) {
   color: #fff !important;
 }
 .sider-collapsed-desktop .menu-ri {
