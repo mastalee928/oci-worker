@@ -336,8 +336,8 @@ input[type="range"]::-webkit-slider-thumb{-webkit-appearance:none;width:16px;hei
    xterm.paddingTop + xterm.paddingBottom from the available height. */
 .term-instance{display:none;flex-direction:column;flex:1;min-height:0;overflow:hidden}
 .term-instance.active{display:flex}
-.term-instance.term-instance-console{align-items:center;justify-content:center}
-.term-instance.term-instance-console .xterm{flex:0 0 auto;padding:10px 14px !important}
+.term-instance.term-instance-console{align-items:flex-start;justify-content:flex-start;overflow:hidden}
+.term-instance.term-instance-console .xterm{flex:0 0 auto;padding:10px 14px !important;transform-origin:0 0}
 .term-instance .xterm{flex:1;min-height:0;overflow:hidden;padding:10px 14px !important}
 .term-instance .xterm-screen{overflow:hidden}
 

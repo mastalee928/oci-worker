@@ -1366,44 +1366,57 @@ function syncConsolePtySize(session) {
     }
 }
 
-/** Keep PTY at 80x24 but scale font so the grid fills the terminal pane. */
+/** Keep PTY at 80x24; CSS scale stretches the grid to fill the terminal pane (平铺). */
+function getXtermRenderSize(term, xtermEl) {
+    var w = 0;
+    var h = 0;
+    try {
+        var dims = term._core._renderService.dimensions;
+        if (dims && dims.actualCellWidth > 0 && dims.actualCellHeight > 0) {
+            w = Math.ceil(dims.actualCellWidth * term.cols);
+            h = Math.ceil(dims.actualCellHeight * term.rows);
+        }
+    } catch (e) { }
+    if (w < 1 && xtermEl) w = xtermEl.offsetWidth;
+    if (h < 1 && xtermEl) h = xtermEl.offsetHeight;
+    return { w: w, h: h };
+}
+
 function fitConsoleToContainer(session) {
     if (!session || !session.consoleMode || !session.term || !session.termDiv) return;
     var el = session.termDiv;
     if (!el.classList.contains('active')) return;
     var padX = 28;
     var padY = 20;
-    var w = Math.max(0, el.clientWidth - padX);
-    var h = Math.max(0, el.clientHeight - padY);
-    if (w < 10 || h < 10) return;
+    var availW = Math.max(0, el.clientWidth - padX);
+    var availH = Math.max(0, el.clientHeight - padY);
+    if (availW < 10 || availH < 10) return;
 
     var term = session.term;
-    var lo = 8;
-    var hi = 72;
-    var best = 12;
     var xtermEl = el.querySelector('.xterm');
-    while (lo <= hi) {
-        var mid = Math.floor((lo + hi) / 2);
-        term.options.fontSize = mid;
-        term.resize(CONSOLE_COLS, CONSOLE_ROWS);
-        var sw = xtermEl ? xtermEl.offsetWidth : w + 1;
-        var sh = xtermEl ? xtermEl.offsetHeight : h + 1;
-        if (sw <= w && sh <= h) {
-            best = mid;
-            lo = mid + 1;
-        } else {
-            hi = mid - 1;
-        }
-    }
-    var delta = session.consoleFontDelta || 0;
-    var fontSize = Math.max(8, Math.min(72, best + delta));
-    term.options.fontSize = fontSize;
+    if (!xtermEl) return;
+
+    term.options.fontSize = 14;
     term.resize(CONSOLE_COLS, CONSOLE_ROWS);
-    if (sessions[activeIdx] === session) {
-        var label = document.getElementById('fontSizeLabel');
-        if (label) label.textContent = fontSize;
+
+    function applyScale() {
+        var size = getXtermRenderSize(term, xtermEl);
+        if (size.w < 1 || size.h < 1) {
+            requestAnimationFrame(applyScale);
+            return;
+        }
+        var zoom = Math.pow(1.08, session.consoleFontDelta || 0);
+        var sx = (availW / size.w) * zoom;
+        var sy = (availH / size.h) * zoom;
+        xtermEl.style.transformOrigin = '0 0';
+        xtermEl.style.transform = 'scale(' + sx + ',' + sy + ')';
+        if (sessions[activeIdx] === session) {
+            var label = document.getElementById('fontSizeLabel');
+            if (label) label.textContent = Math.round(14 * ((sx + sy) / 2));
+        }
+        syncConsolePtySize(session);
     }
-    syncConsolePtySize(session);
+    requestAnimationFrame(function () { requestAnimationFrame(applyScale); });
 }
 
 function connectConsoleSession(session) {
