@@ -223,6 +223,12 @@ input[type="number"]{-moz-appearance:textfield}
 /* ==================== FONT SIZE LABEL ==================== */
 .font-size-label{font-size:13px;font-family:'JetBrains Mono',monospace;color:var(--c1);font-weight:600;min-width:18px;text-align:center;user-select:none}
 .topbar-sep{width:1px;height:18px;background:var(--brd);margin:0 2px;flex-shrink:0}
+.console-instance-actions{display:flex;align-items:center;gap:6px;flex-shrink:0}
+.console-instance-actions.hidden{display:none}
+.console-action-btn{padding:0 10px;height:32px;font-size:12px;font-weight:500;background:var(--inp);border:1px solid var(--brd);border-radius:var(--rx);color:var(--t2);cursor:pointer;transition:all var(--tr);white-space:nowrap;font-family:inherit}
+.console-action-btn:hover:not(:disabled){background:rgba(0,212,255,.1);color:var(--c1);border-color:rgba(0,212,255,.3)}
+.console-action-btn.danger:hover:not(:disabled){background:rgba(255,0,110,.1);color:var(--err);border-color:rgba(255,0,110,.3)}
+.console-action-btn:disabled{opacity:.45;cursor:not-allowed}
 
 /* ==================== COLOR PICKER ==================== */
 .color-picker-wrap{position:relative}

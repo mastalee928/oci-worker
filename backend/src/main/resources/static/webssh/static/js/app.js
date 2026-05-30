@@ -4,6 +4,7 @@
 var sessions = [];
 var activeIdx = -1;
 var sftpCurrentPath = '/';
+var consoleInstanceContext = null;
 
 // ==================== Particles ====================
 (function () {
@@ -1276,7 +1277,11 @@ function parseConsoleParams() {
             return {
                 mode: 'oci',
                 connectionId: connectionId,
-                label: params.get('label') || 'OCI Serial Console'
+                label: params.get('label') || 'OCI Serial Console',
+                userId: params.get('userId') || '',
+                instanceId: params.get('instanceId') || '',
+                region: params.get('region') || '',
+                state: params.get('state') || ''
             };
         }
         return null;
@@ -1359,9 +1364,90 @@ function connectConsoleSession(session) {
     session._resizeHandler = resizeHandler;
 }
 
+function getApiAuthHeaders() {
+    var headers = { 'Content-Type': 'application/json' };
+    try {
+        var t = localStorage.getItem('token');
+        if (t) {
+            t = t.trim();
+            if (t && t.indexOf('Bearer ') !== 0) t = 'Bearer ' + t;
+            headers['Authorization'] = t;
+        }
+    } catch (e) { }
+    return headers;
+}
+
+var consoleActionLabels = { SOFTRESET: '重启', RESET: '断电重启' };
+
+function showConsoleInstanceActions(info) {
+    var el = document.getElementById('consoleInstanceActions');
+    if (!el) return;
+    if (!info || info.mode !== 'oci' || !info.instanceId || !info.userId) {
+        el.classList.add('hidden');
+        consoleInstanceContext = null;
+        return;
+    }
+    consoleInstanceContext = {
+        userId: info.userId,
+        instanceId: info.instanceId,
+        region: info.region || '',
+        state: info.state || ''
+    };
+    el.classList.remove('hidden');
+    var canAct = info.state === 'RUNNING';
+    var btns = el.querySelectorAll('.console-action-btn');
+    for (var i = 0; i < btns.length; i++) {
+        btns[i].disabled = !canAct;
+        btns[i].title = canAct ? (btns[i].getAttribute('data-title') || btns[i].textContent) : '仅 RUNNING 状态可操作';
+    }
+}
+
+function setConsoleActionButtonsDisabled(disabled) {
+    var el = document.getElementById('consoleInstanceActions');
+    if (!el) return;
+    var canAct = consoleInstanceContext && consoleInstanceContext.state === 'RUNNING';
+    var btns = el.querySelectorAll('.console-action-btn');
+    for (var i = 0; i < btns.length; i++) btns[i].disabled = disabled || !canAct;
+}
+
+function consoleInstanceAction(action) {
+    var ctx = consoleInstanceContext;
+    var label = consoleActionLabels[action] || action;
+    if (!ctx || !ctx.userId || !ctx.instanceId) {
+        showToast('缺少实例信息，请从实例详情重新打开串口', 'error');
+        return;
+    }
+    if (ctx.state && ctx.state !== 'RUNNING') {
+        showToast('当前实例非 RUNNING，无法执行「' + label + '」', 'error');
+        return;
+    }
+    if (!confirm('确定对当前实例执行「' + label + '」？\n操作后串口连接可能断开，需手动重连。')) return;
+
+    var body = { id: ctx.userId, instanceId: ctx.instanceId, action: action };
+    if (ctx.region) body.region = ctx.region;
+
+    setConsoleActionButtonsDisabled(true);
+    fetch('/api/oci/instance/updateState', {
+        method: 'POST',
+        headers: getApiAuthHeaders(),
+        body: JSON.stringify(body)
+    }).then(function (r) { return r.json(); }).then(function (res) {
+        setConsoleActionButtonsDisabled(false);
+        if (res && res.code === 0) {
+            showToast('「' + label + '」已提交，串口可能断开，请稍后重连', 'success');
+        } else {
+            showToast((res && res.message) || '操作失败', 'error');
+        }
+    }).catch(function (err) {
+        setConsoleActionButtonsDisabled(false);
+        showToast(err && err.message ? err.message : '网络错误', 'error');
+    });
+}
+
 function tryConsoleConnect() {
     var info = parseConsoleParams();
     if (!info || info.mode !== 'oci') return false;
+    showConsoleInstanceActions(info);
     try {
         var session = createConsoleSession(info.connectionId, info.label);
         showView('terminalView');

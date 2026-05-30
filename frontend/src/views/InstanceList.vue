@@ -553,6 +553,9 @@
     >
       <a-tabs v-model:activeKey="activeTab" @change="onTabChange">
         <a-tab-pane key="info" tab="基本信息">
+          <a-button size="small" @click="refreshInstanceInfo" :loading="instanceInfoLoading" style="margin-bottom: 12px">
+            刷新实例信息
+          </a-button>
           <a-descriptions :column="1" bordered size="small" v-if="currentInstance">
             <a-descriptions-item label="实例名称">
               {{ currentInstance.name }}
@@ -1757,6 +1760,7 @@ const trafficData = ref<any>(null)
 const changeIpLoading = ref(false)
 
 const netDetailLoading = ref(false)
+const instanceInfoLoading = ref(false)
 const networkDetail = ref<any>(null)
 const ipv6AddLoading = ref<Record<string, boolean>>({})
 const ipv6RemoveLoading = ref<Record<string, boolean>>({})
@@ -2121,8 +2125,17 @@ async function handleCreateConsole() {
 function openConsoleWebSSH() {
   if (!consoleData.value?.connectionId) return
   const label = currentInstance.value?.displayName || currentInstance.value?.instanceId || 'Serial Console'
-  const hash = `#console=1&connectionId=${encodeURIComponent(consoleData.value.connectionId)}&label=${encodeURIComponent(label)}`
-  window.open('/webssh/index.html' + hash, '_blank')
+  const params = new URLSearchParams({
+    console: '1',
+    connectionId: consoleData.value.connectionId,
+    label,
+  })
+  if (currentTenant.value?.id != null) params.set('userId', String(currentTenant.value.id))
+  if (currentInstance.value?.instanceId) params.set('instanceId', currentInstance.value.instanceId)
+  const region = instanceDetailRegionParam().region
+  if (region) params.set('region', region)
+  if (currentInstance.value?.state) params.set('state', currentInstance.value.state)
+  window.open('/webssh/index.html#' + params.toString(), '_blank')
 }
 
 async function handleDeleteConsole() {
@@ -2441,6 +2454,34 @@ async function handleChangeIp() {
     message.error(e?.message || '换 IP 失败')
   } finally {
     changeIpLoading.value = false
+  }
+}
+
+async function refreshInstanceInfo() {
+  if (!currentInstance.value || !currentTenant.value) return
+  const instanceId = currentInstance.value.instanceId
+  instanceInfoLoading.value = true
+  try {
+    const res = await getInstanceList({
+      id: currentTenant.value.id,
+      ...instanceDetailRegionParam(),
+    })
+    const fresh = (res.data || []).find((i: any) => i.instanceId === instanceId)
+    if (!fresh) {
+      message.warning('实例不存在或已终止')
+      return
+    }
+    currentInstance.value = { ...currentInstance.value, ...fresh }
+    const td = tenantDataList.value.find(t => t.tenant.id === currentTenant.value.id)
+    if (td) {
+      const idx = td.instances.findIndex((i: any) => i.instanceId === instanceId)
+      if (idx >= 0) td.instances[idx] = { ...td.instances[idx], ...fresh }
+    }
+    message.success('实例信息已刷新')
+  } catch (e: any) {
+    message.error(e?.message || '刷新实例信息失败')
+  } finally {
+    instanceInfoLoading.value = false
   }
 }
 
