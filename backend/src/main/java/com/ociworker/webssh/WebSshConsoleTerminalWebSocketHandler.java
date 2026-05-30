@@ -10,6 +10,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
+import org.springframework.web.socket.BinaryMessage;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketHandler;
 import org.springframework.web.socket.WebSocketMessage;
@@ -29,6 +30,10 @@ import java.util.concurrent.Future;
 @Slf4j
 @Component
 public class WebSshConsoleTerminalWebSocketHandler implements WebSocketHandler {
+
+    /** UEFI / serial console expects classic 80x24; wider grids cause \\r prompt overlap. */
+    private static final int DEFAULT_CONSOLE_COLS = 80;
+    private static final int DEFAULT_CONSOLE_ROWS = 24;
 
     private final ExecutorService ioPool = Executors.newVirtualThreadPerTaskExecutor();
 
@@ -57,8 +62,8 @@ public class WebSshConsoleTerminalWebSocketHandler implements WebSocketHandler {
     }
 
     private void startConsole(WebSocketSession ws, String connectionId) {
-        int cols = parseQueryInt(ws, "cols", 150);
-        int rows = parseQueryInt(ws, "rows", 35);
+        int cols = parseQueryInt(ws, "cols", DEFAULT_CONSOLE_COLS);
+        int rows = parseQueryInt(ws, "rows", DEFAULT_CONSOLE_ROWS);
         String closeTip = parseQuery(ws, "closeTip", "Connection timed out!");
 
         ws.getAttributes().put("started", Boolean.TRUE);
@@ -67,7 +72,7 @@ public class WebSshConsoleTerminalWebSocketHandler implements WebSocketHandler {
             try {
                 Path script = consoleService.getOrCreateExecScript(connectionId);
                 Map<String, String> env = new HashMap<>(System.getenv());
-                env.putIfAbsent("TERM", "xterm-256color");
+                env.put("TERM", "vt100");
 
                 process = new PtyProcessBuilder()
                         .setCommand(new String[]{"/bin/bash", script.toAbsolutePath().toString()})
@@ -89,7 +94,7 @@ public class WebSshConsoleTerminalWebSocketHandler implements WebSocketHandler {
                     }
                     int n = stdout.read(buf);
                     if (n > 0) {
-                        sendText(ws, new String(buf, 0, n, StandardCharsets.UTF_8));
+                        sendBinary(ws, buf, n);
                     } else if (n < 0) {
                         break;
                     }
@@ -180,6 +185,14 @@ public class WebSshConsoleTerminalWebSocketHandler implements WebSocketHandler {
         if (ws.isOpen()) {
             synchronized (ws) {
                 ws.sendMessage(new TextMessage(text));
+            }
+        }
+    }
+
+    private static void sendBinary(WebSocketSession ws, byte[] buf, int len) throws Exception {
+        if (ws.isOpen()) {
+            synchronized (ws) {
+                ws.sendMessage(new BinaryMessage(buf, 0, len, false));
             }
         }
     }

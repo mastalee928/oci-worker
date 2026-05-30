@@ -5,6 +5,9 @@ var sessions = [];
 var activeIdx = -1;
 var sftpCurrentPath = '/';
 var consoleInstanceContext = null;
+/** OCI serial / UEFI: fixed 80x24 avoids \\r prompt overlapping output (Cloud Shell uses similar). */
+var CONSOLE_COLS = 80;
+var CONSOLE_ROWS = 24;
 
 // ==================== Particles ====================
 (function () {
@@ -221,7 +224,13 @@ function switchTab(idx) {
     });
     renderTabs();
     var s = sessions[idx];
-    setTimeout(function () { try { s.fitAddon.fit(); s.term.focus(); } catch (e) { } }, 100);
+    setTimeout(function () {
+        try {
+            if (s.consoleMode) syncConsolePtySize(s);
+            else if (s.fitAddon) s.fitAddon.fit();
+            s.term.focus();
+        } catch (e) { }
+    }, 100);
     updateMetricsForActive();
     updateFontSizeLabel();
 }
@@ -347,7 +356,10 @@ function reconnectTab() {
     if (s.heartbeat) { clearInterval(s.heartbeat); s.heartbeat = null; }
     if (s.sysInfoTimer) { clearInterval(s.sysInfoTimer); s.sysInfoTimer = null; }
     showToast('重新连接 ' + s.hostname + '...', 'info');
-    setTimeout(function () { connectSession(s); }, 300);
+    setTimeout(function () {
+        if (s.consoleMode) connectConsoleSession(s);
+        else connectSession(s);
+    }, 300);
 }
 
 function showAddTab() { document.getElementById('addTabModal').classList.add('show'); document.getElementById('newTabHost').focus(); }
@@ -757,8 +769,12 @@ function changeFontSize(delta) {
     s.term.options.fontSize = nv;
     localStorage.setItem(FONT_KEY, nv);
     document.getElementById('fontSizeLabel').textContent = nv;
-    try { s.fitAddon.fit(); } catch (e) { }
-    if (s.ws && s.ws.readyState === 1) s.ws.send('resize:' + s.term.rows + ':' + s.term.cols);
+    if (s.consoleMode) {
+        syncConsolePtySize(s);
+    } else {
+        try { s.fitAddon.fit(); } catch (e) { }
+        if (s.ws && s.ws.readyState === 1) s.ws.send('resize:' + s.term.rows + ':' + s.term.cols);
+    }
 }
 
 function updateFontSizeLabel() {
@@ -1308,32 +1324,48 @@ function createConsoleSession(connectionId, label) {
         fontSize: savedFont,
         fontFamily: "'JetBrains Mono','Fira Code','Cascadia Code',Consolas,monospace",
         theme: { background: savedColors.bg === '#0a0a1a' || savedColors.bg === '#e8eaf0' ? defaultBg : savedColors.bg, foreground: savedColors.fg === '#e8e8f0' || savedColors.fg === '#1a1a2e' ? defaultFg : savedColors.fg, cursor: savedColors.cursor === '#00d4ff' || savedColors.cursor === '#0088cc' ? defaultCursor : savedColors.cursor, cursorAccent: isLight ? '#e8eaf0' : '#0a0a1a', selectionBackground: 'rgba(0,136,204,.25)', black: isLight ? '#e8e8f0' : '#1a1a2e', red: '#ff006e', green: isLight ? '#008844' : '#00ff88', yellow: isLight ? '#996600' : '#ffbe0b', blue: isLight ? '#0066cc' : '#00d4ff', magenta: '#7b2ff7', cyan: isLight ? '#0088aa' : '#00d4ff', white: isLight ? '#1a1a2e' : '#e8e8f0', brightBlack: isLight ? '#999' : '#3a3a5e', brightRed: '#ff4488', brightGreen: isLight ? '#00aa55' : '#33ffaa', brightYellow: isLight ? '#aa7700' : '#ffdd33', brightBlue: isLight ? '#0088ff' : '#33ddff', brightMagenta: '#9955ff', brightCyan: isLight ? '#00aacc' : '#33ddff', brightWhite: isLight ? '#000' : '#fff' },
-        allowTransparency: true, scrollback: 10000
+        allowTransparency: false, scrollback: 10000
     });
-    var fa = new FitAddon.FitAddon();
-    t.loadAddon(fa);
     t.loadAddon(new WebLinksAddon.WebLinksAddon());
     t.open(termDiv);
+    t.resize(CONSOLE_COLS, CONSOLE_ROWS);
 
     var session = {
         id: id, hostname: label, port: 0, username: 'console',
         connectionId: connectionId, consoleMode: true,
-        ws: null, term: t, fitAddon: fa, termDiv: termDiv,
+        ws: null, term: t, fitAddon: null, termDiv: termDiv,
         heartbeat: null, resizeObs: null
     };
-
-    session.resizeObs = new ResizeObserver(function () { try { fa.fit(); } catch (e) { } });
-    session.resizeObs.observe(termDiv);
 
     sessions.push(session);
     return session;
 }
 
+function writeConsoleOutput(term, data) {
+    if (data instanceof ArrayBuffer) {
+        term.write(new Uint8Array(data));
+    } else if (data instanceof Blob) {
+        data.arrayBuffer().then(function (ab) { term.write(new Uint8Array(ab)); });
+    } else {
+        term.write(data);
+    }
+}
+
+function syncConsolePtySize(session) {
+    if (!session || !session.consoleMode || !session.term) return;
+    session.term.resize(CONSOLE_COLS, CONSOLE_ROWS);
+    var ws = session.ws;
+    if (ws && ws.readyState === 1) {
+        ws.send('resize:' + CONSOLE_ROWS + ':' + CONSOLE_COLS);
+    }
+}
+
 function connectConsoleSession(session) {
     var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    var cols = session.term.cols, rows = session.term.rows;
-    var wsUrl = proto + '//' + location.host + '/webssh-api/console-term?cols=' + cols + '&rows=' + rows;
+    syncConsolePtySize(session);
+    var wsUrl = proto + '//' + location.host + '/webssh-api/console-term?cols=' + CONSOLE_COLS + '&rows=' + CONSOLE_ROWS;
     var ws = new WebSocket(wsUrl);
+    ws.binaryType = 'arraybuffer';
     session.ws = ws;
     var got = false;
 
@@ -1344,8 +1376,9 @@ function connectConsoleSession(session) {
             got = true;
             showToast(session.hostname + ' 连接成功', 'success');
             session.heartbeat = setInterval(function () { if (ws.readyState === 1) ws.send('ping'); }, 30000);
+            syncConsolePtySize(session);
         }
-        session.term.write(e.data);
+        writeConsoleOutput(session.term, e.data);
     };
 
     ws.onerror = function () { showToast(session.hostname + ' 连接失败', 'error'); };
@@ -1356,10 +1389,7 @@ function connectConsoleSession(session) {
 
     session.term.onData(function (data) { if (ws.readyState === 1) ws.send(data); });
 
-    var resizeHandler = function () {
-        try { session.fitAddon.fit(); } catch (e) { }
-        if (ws.readyState === 1 && session.term) ws.send('resize:' + session.term.rows + ':' + session.term.cols);
-    };
+    var resizeHandler = function () { syncConsolePtySize(session); };
     addEventListener('resize', resizeHandler);
     session._resizeHandler = resizeHandler;
 }
@@ -1454,7 +1484,7 @@ function tryConsoleConnect() {
         switchTab(sessions.length - 1);
         window.location.hash = '';
         setTimeout(function () {
-            try { session.fitAddon.fit(); } catch (e) {}
+            try { syncConsolePtySize(session); } catch (e) {}
             connectConsoleSession(session);
             setStatus('', '就绪');
         }, 300);

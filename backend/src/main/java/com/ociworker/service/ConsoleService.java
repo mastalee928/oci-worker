@@ -271,14 +271,18 @@ public class ConsoleService {
 
         if (session.execScriptPath != null) {
             Path existing = Path.of(session.execScriptPath);
-            if (Files.exists(existing)) {
-                return existing;
+            if (!Files.exists(existing)) {
+                session.execScriptPath = null;
             }
         }
 
         String prepared = buildPreparedSshCommand(session.sshCommand);
-        Path script = Path.of(KEY_DIR).resolve("console_exec_" + safeId(connectionId) + ".sh");
-        String content = "#!/bin/bash\nexport TERM=${TERM:-xterm-256color}\nexec " + prepared + "\n";
+        Path script = session.execScriptPath != null
+                ? Path.of(session.execScriptPath)
+                : Path.of(KEY_DIR).resolve("console_exec_" + safeId(connectionId) + ".sh");
+        String content = "#!/bin/bash\nexport TERM=vt100\n"
+                + "if [ -t 0 ]; then stty raw -echo intr ^C 2>/dev/null; fi\n"
+                + "exec " + prepared + "\n";
         Files.writeString(script, content);
         try {
             new ProcessBuilder("chmod", "+x", script.toAbsolutePath().toString())
