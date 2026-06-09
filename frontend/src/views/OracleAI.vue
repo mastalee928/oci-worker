@@ -222,7 +222,38 @@
             show-icon
             message="保存后 OCIworker 会立即监听本机端口；如需外网访问，还需要在系统防火墙和 OCI 安全列表放行对应端口。"
           />
+          <div v-if="isMobile" class="port-mobile-list">
+            <a-spin v-if="portBindingsLoading" />
+            <a-empty v-if="!portBindings.length && !portBindingsLoading" description="暂无端口绑定" />
+            <div v-for="record in portBindings" :key="record.id" class="port-card-m">
+              <div class="port-card-head">
+                <div>
+                  <div class="port-card-title">{{ record.name || `port-${record.port}` }}</div>
+                  <code>{{ portBaseUrl(record.port) }}</code>
+                </div>
+                <a-switch :checked="record.enabled" :loading="portSwitchingId === record.id" @change="(v: boolean) => togglePortBinding(record, v)" />
+              </div>
+              <div class="port-card-grid">
+                <span>端口</span><b>{{ record.port }}</b>
+                <span>租户</span><b>{{ record.tenantName || record.ociUserId || '-' }}</b>
+                <span>区域</span><b>{{ record.ociRegion || '-' }}</b>
+                <span>API Key</span><code class="key-masked">{{ record.keyName || record.keyMasked || 'sk-****' }}</code>
+                <span>Tokens</span><b>{{ record.defaultMaxTokens || '全局默认' }}</b>
+                <span>模型</span><b>{{ modelSummary(record.allowedModels) }}</b>
+                <span>状态</span><a-tag :color="portStatusColor(record)">{{ portStatusText(record) }}</a-tag>
+              </div>
+              <div v-if="record.statusMessage" class="sub-muted status-message">{{ record.statusMessage }}</div>
+              <a-space class="port-card-actions" wrap>
+                <a-button size="small" type="link" @click="revealPortKey(record)">Key</a-button>
+                <a-button size="small" @click="openPortModal(record)">编辑</a-button>
+                <a-popconfirm title="确定删除该端口绑定？" @confirm="removePortBindingRow(record)">
+                  <a-button size="small" danger>删除</a-button>
+                </a-popconfirm>
+              </a-space>
+            </div>
+          </div>
           <a-table
+            v-else
             class="port-table"
             :columns="portColumns"
             :data-source="portBindings"
@@ -230,7 +261,7 @@
             row-key="id"
             size="middle"
             :pagination="false"
-            :scroll="{ x: 1580 }"
+            :scroll="{ x: 1560 }"
           >
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'enabled'">
@@ -266,7 +297,7 @@
               </template>
               <template v-else-if="column.key === 'a'">
                 <a-space class="port-actions" :size="4">
-                  <a-button size="small" type="link" @click="revealPortKey(record)">查看Key</a-button>
+                  <a-button size="small" type="link" @click="revealPortKey(record)">Key</a-button>
                   <a-button size="small" @click="openPortModal(record)">编辑</a-button>
                   <a-popconfirm title="确定删除该端口绑定？" @confirm="removePortBindingRow(record)">
                     <a-button size="small" danger>删除</a-button>
@@ -338,7 +369,7 @@
     </a-modal>
 
 
-    <a-modal :mask-closable="false" :keyboard="false" v-model:open="portModalOpen" :title="portForm.id ? '编辑端口绑定' : '添加端口绑定'" :confirm-loading="portSaving" @ok="savePortBindingRow">
+    <a-modal :mask-closable="false" :keyboard="false" v-model:open="portModalOpen" :title="portForm.id ? '编辑端口绑定' : '添加端口绑定'" :confirm-loading="portSaving" :width="isMobile ? 'calc(100vw - 32px)' : 720" @ok="savePortBindingRow">
       <a-form layout="vertical">
         <a-form-item label="租户">
           <a-select
@@ -390,13 +421,24 @@
             :options="portModelOptions"
             :loading="portModelsLoading"
             placeholder="留空不限制模型"
+            allow-clear
             show-search
             :filter-option="filterModel"
-            :max-tag-count="4"
+            :max-tag-count="6"
+            :max-tag-placeholder="(omittedValues: any[]) => `+${omittedValues?.length || 0}`"
             :get-popup-container="selectPopupContainer"
             :dropdown-style="{ maxHeight: 'min(70vh, 480px)' }"
           />
           <div class="sub-muted form-help">保存后该端口的 /v1/models 只返回这里选择的模型；留空表示不限制。</div>
+          <a-button
+            class="port-model-refresh"
+            size="small"
+            :loading="portModelsLoading"
+            :disabled="!portForm.ociUserId"
+            @click="() => portForm.ociUserId && loadPortModels(portForm.ociUserId, true)"
+          >
+            刷新模型列表
+          </a-button>
         </a-form-item>
         <a-form-item label="启用">
           <a-switch v-model:checked="portForm.enabled" />
@@ -519,16 +561,16 @@ const keyColumns = [
 ] as any
 
 const portColumns = [
-  { title: '开关', key: 'enabled', width: 92, fixed: 'left' },
-  { title: '端口', key: 'port', width: 90 },
-  { title: '租户', key: 'tenant', width: 240 },
-  { title: 'API Key', key: 'key', width: 180 },
-  { title: 'Base URL', key: 'base', width: 300 },
-  { title: 'max_tokens', key: 'maxTokens', width: 120 },
-  { title: '模型', key: 'models', width: 220 },
-  { title: '状态', key: 'status', width: 160 },
-  { title: '最近使用', key: 'lastUsed', width: 160 },
-  { title: '操作', key: 'a', width: 210, fixed: 'right' },
+  { title: '开关', key: 'enabled', width: 84 },
+  { title: '端口', key: 'port', width: 88 },
+  { title: '租户', key: 'tenant', width: 220 },
+  { title: 'API Key', key: 'key', width: 160 },
+  { title: 'Base URL', key: 'base', width: 280 },
+  { title: '上限', key: 'maxTokens', width: 96 },
+  { title: '模型', key: 'models', width: 180 },
+  { title: '状态', key: 'status', width: 130 },
+  { title: '最近使用', key: 'lastUsed', width: 140 },
+  { title: '操作', key: 'a', width: 180 },
 ] as any
 
 function formatKeyTime(iso?: string | null) {
@@ -758,6 +800,53 @@ function modelSummary(models?: string[]) {
   return `${models[0]}, ${models[1]} +${models.length - 2}`
 }
 
+function mapModelOptions(data: any) {
+  let list: any[] = []
+  if (data?.data && Array.isArray(data.data)) {
+    list = data.data
+  } else if (Array.isArray(data)) {
+    list = data
+  }
+  const mapped = list
+    .map((m) => {
+      const id = String(m?.id || m || '').trim()
+      const label = String(m?.displayName || m?.name || m?.id || m || '').trim()
+      if (!id) return null
+      const note = String(m?.ociworkerNote || '').trim()
+      const ociId = String(m?.ociId || '').trim()
+      const finalLabel = `${label || id}`
+      const titleBits = [note, ociId].filter((x) => x && x.trim())
+      const title = titleBits.join(' | ') || finalLabel
+      return { value: id, label: finalLabel, title }
+    })
+    .filter((x) => x) as { label: string; value: string; title?: string }[]
+
+  const seenVal = new Set<string>()
+  const options: { label: string; value: string; title?: string }[] = []
+  for (const opt of mapped) {
+    const v = String(opt?.value || '').trim()
+    if (!v || seenVal.has(v)) continue
+    seenVal.add(v)
+    options.push(opt)
+  }
+  return options
+}
+
+function ensureSelectedModelsInOptions(options: { label: string; value: string; title?: string }[], selected?: string[]) {
+  const existing = new Set(options.map((x: any) => String(x?.value || '')))
+  for (const raw of selected || []) {
+    const s = String(raw || '').trim()
+    if (!s || existing.has(s)) continue
+    options.push({
+      value: s,
+      label: `${s}（不在当前列表）`,
+      title: '不在当前列表（可能是租户/区域变化或模型下线）',
+    })
+    existing.add(s)
+  }
+  return options
+}
+
 async function loadTenants() {
   selectionPersistEnabled.value = false
   tenantsLoading.value = true
@@ -811,34 +900,7 @@ async function loadModelsIfNeeded(alertOnErr: boolean) {
   modelsLoading.value = true
   try {
     const r: any = await listOpenAiModels({ ociUserId: ociUserId.value })
-    const d = r?.data
-    let list: any[] = []
-    if (d?.data && Array.isArray(d.data)) {
-      list = d.data
-    } else if (Array.isArray(d)) {
-      list = d
-    }
-    const mapped = list
-      .map((m) => {
-        const id = String(m?.id || m || '').trim()
-        const label = String(m?.displayName || m?.name || m?.id || m || '').trim()
-        if (!id) return null
-        const note = String(m?.ociworkerNote || '').trim()
-        const ociId = String(m?.ociId || '').trim()
-        const finalLabel = `${label || id}`
-        const titleBits = [note, ociId].filter((x) => x && x.trim())
-        const title = titleBits.join(' | ') || finalLabel
-        return { value: id, label: finalLabel, title }
-      })
-      .filter((x) => x) as any[]
-    const seenVal = new Set<string>()
-    modelOptions.value = []
-    for (const opt of mapped) {
-      const v = String(opt?.value || '').trim()
-      if (!v || seenVal.has(v)) continue
-      seenVal.add(v)
-      modelOptions.value.push(opt)
-    }
+    modelOptions.value = mapModelOptions(r?.data)
 
     // 多选在「模型 options 曾为空」时可能被清空，用后端 UI state 再补一次
     if (!modelPick.value?.length && serverUiState.value?.modelPick?.length) {
@@ -846,19 +908,10 @@ async function loadModelsIfNeeded(alertOnErr: boolean) {
     }
 
     // 防止“已选模型”因 options 刷新而丢失：把已选 value 补进 options（只做展示）
-    const existing = new Set(modelOptions.value.map((x: any) => String(x?.value || '')))
-    const ensure = (v: any) => {
-      const s = String(v || '').trim()
-      if (!s || existing.has(s)) return
-      modelOptions.value.push({
-        value: s,
-        label: `${s}（不在当前列表）`,
-        title: '不在当前列表（可能是租户/区域变化或模型下线）',
-      })
-      existing.add(s)
-    }
-    ;(modelPick.value || []).forEach(ensure)
-    if (chatModel.value) ensure(chatModel.value)
+    modelOptions.value = ensureSelectedModelsInOptions(modelOptions.value, [
+      ...(modelPick.value || []),
+      ...(chatModel.value ? [chatModel.value] : []),
+    ])
 
     if (!chatModel.value && modelOptions.value.length) {
       chatModel.value = modelOptions.value[0].value
@@ -1055,31 +1108,18 @@ async function createPortTenantKey() {
   }
 }
 
-async function loadPortModels(tenantId: string) {
+async function loadPortModels(tenantId: string, alertOnErr = false) {
   portModelsLoading.value = true
   try {
     const r: any = await listOpenAiModels({ ociUserId: tenantId })
-    const data = r?.data?.data || r?.data || []
-    const raw = Array.isArray(data) ? data : []
-    const options = raw
-      .map((x: any) => {
-        const value = String(x?.id || x || '').trim()
-        if (!value) return null
-        const label = String(x?.displayName || x?.id || x || '').trim()
-        return {
-          value,
-          label: label || value,
-          title: String(x?.ociworkerNote || x?.ociId || label || value),
-        }
-      })
-      .filter(Boolean) as { label: string; value: string; title?: string }[]
-    const existing = new Set(options.map((x) => x.value))
-    for (const value of portForm.value.allowedModels || []) {
-      if (value && !existing.has(value)) {
-        options.push({ value, label: `${value} (saved)` })
-      }
+    portModelOptions.value = ensureSelectedModelsInOptions(mapModelOptions(r?.data), portForm.value.allowedModels || [])
+    if (!portModelOptions.value.length && alertOnErr) {
+      message.info('无模型条目或 OCI 返回与预期结构不同，请查看后端日志。')
     }
-    portModelOptions.value = options
+  } catch (e: any) {
+    if (alertOnErr) {
+      message.error(e?.message || '刷新模型失败')
+    }
   } finally {
     portModelsLoading.value = false
   }
@@ -1253,6 +1293,9 @@ async function viewKey(k: any) {
   /* 12px - 16px：按钮行与表格之间的安全间距 */
   margin-bottom: 14px;
 }
+.key-toolbar :deep(.ant-btn) {
+  max-width: 100%;
+}
 .mb-card { margin-bottom: 16px; }
 .mt-card { margin-top: 8px; }
 .ma-hint {
@@ -1269,8 +1312,11 @@ async function viewKey(k: any) {
 .port-table :deep(.ant-table-cell) {
   vertical-align: middle;
 }
-.port-table :deep(.ant-table-cell-fix-right) {
-  background: var(--card-bg, #fff);
+.port-table :deep(.ant-table),
+.port-table :deep(.ant-table-container),
+.port-table :deep(.ant-table-thead > tr > th),
+.port-table :deep(.ant-table-tbody > tr > td) {
+  background: transparent;
 }
 .port-actions {
   white-space: nowrap;
@@ -1281,11 +1327,57 @@ async function viewKey(k: any) {
 }
 .model-summary {
   display: inline-block;
-  max-width: 190px;
+  max-width: 150px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
   vertical-align: bottom;
+}
+.port-mobile-list {
+  display: grid;
+  gap: 10px;
+}
+.port-card-m {
+  border: 1px solid var(--border, #e8e8e8);
+  border-radius: 8px;
+  padding: 10px;
+  background: color-mix(in srgb, var(--card-bg, #fff) 94%, transparent);
+}
+.port-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: flex-start;
+  margin-bottom: 10px;
+}
+.port-card-title {
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.port-card-head code {
+  display: inline-block;
+  max-width: min(72vw, 420px);
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+.port-card-grid {
+  display: grid;
+  grid-template-columns: 74px minmax(0, 1fr);
+  gap: 6px 10px;
+  align-items: center;
+  font-size: 13px;
+}
+.port-card-grid > span {
+  color: var(--text-sub, #666);
+}
+.port-card-grid > b,
+.port-card-grid > code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-weight: 500;
+}
+.port-card-actions {
+  margin-top: 10px;
 }
 .code-wrap {
   word-break: break-all;
@@ -1319,5 +1411,26 @@ async function viewKey(k: any) {
   word-break: break-word;
   font-size: 12px;
   line-height: 1.55;
+}
+@media (max-width: 767px) {
+  .oracle-ai-page {
+    max-width: 100%;
+  }
+  .key-toolbar {
+    align-items: flex-start;
+  }
+  .key-toolbar :deep(.ant-col) {
+    max-width: 100%;
+  }
+  .key-toolbar .sub-muted {
+    display: inline-block;
+    line-height: 1.5;
+  }
+  .sub-bottom {
+    font-size: 12px;
+  }
+  .port-model-refresh {
+    margin-top: 8px;
+  }
 }
 </style>
