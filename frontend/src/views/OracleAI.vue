@@ -344,6 +344,18 @@
       <a-spin :spinning="keyViewLoading">
       <a-descriptions bordered size="small" :column="1">
         <a-descriptions-item label="备注">{{ keyViewRow?.name || '未命名' }}</a-descriptions-item>
+        <template v-if="keyViewPort">
+          <a-descriptions-item label="域名 URL">
+            <a-typography-paragraph copyable :content="keyViewDomainBaseUrl" style="margin: 0">
+              <code class="code-wrap">{{ keyViewDomainBaseUrl }}</code>
+            </a-typography-paragraph>
+          </a-descriptions-item>
+          <a-descriptions-item label="IP URL">
+            <a-typography-paragraph copyable :content="keyViewIpBaseUrl" style="margin: 0">
+              <code class="code-wrap">{{ keyViewIpBaseUrl }}</code>
+            </a-typography-paragraph>
+          </a-descriptions-item>
+        </template>
         <a-descriptions-item label="密钥">
           <template v-if="keyViewPlain">
             <a-typography-paragraph copyable style="margin: 0">
@@ -358,7 +370,7 @@
         </a-descriptions-item>
         <a-descriptions-item label="创建">{{ formatKeyTime(keyViewRow?.createTime) }}</a-descriptions-item>
         <a-descriptions-item label="最后使用">{{ formatKeyTime(keyViewRow?.lastUsed) }}</a-descriptions-item>
-        <a-descriptions-item label="Base">
+        <a-descriptions-item v-if="!keyViewPort" label="Base">
           <a-typography-paragraph copyable :content="publicBaseUrl" style="margin: 0">
             <code class="code-wrap">{{ publicBaseUrl }}</code>
           </a-typography-paragraph>
@@ -561,6 +573,7 @@ const keyName = ref('')
 const baseHint = ref('')
 const openaiProxyEnabled = ref(true)
 const gatewayLoading = ref(false)
+const serverIp = ref('')
 const defaultMaxTokens = ref(2048)
 const defaultMaxTokensInput = ref<number | null>(2048)
 const savingDefaultMaxTokens = ref(false)
@@ -570,6 +583,7 @@ const keyViewRow = ref<any | null>(null)
 const keyViewPlain = ref('')
 const keyViewError = ref('')
 const keyViewLoading = ref(false)
+const keyViewPort = ref<number | null>(null)
 
 const chatApiKey = ref('')
 const chatModel = ref<string | undefined>(undefined)
@@ -639,6 +653,18 @@ function portBaseUrl(port?: number) {
   }
   return `${location.protocol}//${location.hostname}:${p}${openaiPath}`
 }
+
+const keyViewDomainBaseUrl = computed(() => {
+  const port = Number(keyViewPort.value || 0)
+  return port ? portBaseUrl(port) : ''
+})
+
+const keyViewIpBaseUrl = computed(() => {
+  const port = Number(keyViewPort.value || 0)
+  if (!port) return ''
+  const host = serverIp.value || (typeof window !== 'undefined' ? location.hostname : '<host>')
+  return `http://${host}:${port}${openaiPath}`
+})
 
 const LS_CHAT_KEY = 'ociworker.oracleAi.chatTest.v1'
 const restoring = ref(false)
@@ -763,6 +789,7 @@ async function loadGateway() {
     const r: any = await getOracleAiGateway()
     const p = r?.data?.openaiApiPort
     if (p != null) openaiPort.value = p
+    serverIp.value = String(r?.data?.serverIp || '').trim()
     if (typeof r?.data?.openaiProxyEnabled === 'boolean') {
       openaiProxyEnabled.value = r.data.openaiProxyEnabled
     }
@@ -1220,16 +1247,27 @@ async function loadPortModels(tenantId: string, region?: string, alertOnErr = fa
 async function revealPortKey(row: any) {
   const id = row?.openaiKeyId
   if (!id) return
+  keyViewRow.value = {
+    name: row?.keyName || row?.name || `port-${row?.port || ''}`,
+    disabled: !row?.enabled,
+    createTime: row?.createTime,
+    lastUsed: row?.lastUsed,
+  }
+  keyViewPlain.value = ''
+  keyViewError.value = ''
+  keyViewPort.value = Number(row?.port || 0) || null
+  keyViewOpen.value = true
+  keyViewLoading.value = true
   try {
     const r: any = await revealOracleKey({ id })
-    newKeyPlain.value = r?.data?.apiKey || ''
-    if (newKeyPlain.value) {
-      plainKeyModalOpen.value = true
-    } else {
-      message.warning('未返回完整 API Key')
+    keyViewPlain.value = r?.data?.apiKey || ''
+    if (!keyViewPlain.value) {
+      keyViewError.value = '未返回完整 API Key'
     }
   } catch (e: any) {
-    message.error(e?.message || '无法读取完整 API Key')
+    keyViewError.value = e?.message || '无法读取完整 API Key'
+  } finally {
+    keyViewLoading.value = false
   }
 }
 
@@ -1346,6 +1384,7 @@ async function viewKey(k: any) {
   keyViewRow.value = k
   keyViewPlain.value = ''
   keyViewError.value = ''
+  keyViewPort.value = null
   keyViewOpen.value = true
   keyViewLoading.value = true
   try {

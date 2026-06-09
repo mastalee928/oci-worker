@@ -19,12 +19,16 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
 
 import java.net.URI;
+import java.net.Inet4Address;
+import java.net.InetAddress;
+import java.net.NetworkInterface;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -62,9 +66,28 @@ public class OracleAiController {
         m.put("openaiApiPort", openaiApiPort);
         m.put("pathPrefix", "/v1");
         m.put("baseUrlExample", OciGenerativeOpenAiService.gatewayHint(openaiApiPort));
+        m.put("serverIp", detectServerIp());
         m.put("openaiProxyEnabled", gatewayToggleService.isEnabled());
         m.put("defaultMaxTokens", gatewayConfigService.getDefaultMaxTokens());
         return ResponseData.ok(m);
+    }
+
+    private String detectServerIp() {
+        try {
+            String privateCandidate = null;
+            for (NetworkInterface ni : Collections.list(NetworkInterface.getNetworkInterfaces())) {
+                if (!ni.isUp() || ni.isLoopback() || ni.isVirtual()) continue;
+                for (InetAddress addr : Collections.list(ni.getInetAddresses())) {
+                    if (!(addr instanceof Inet4Address) || addr.isLoopbackAddress() || addr.isLinkLocalAddress()) continue;
+                    String ip = addr.getHostAddress();
+                    if (!addr.isSiteLocalAddress()) return ip;
+                    if (privateCandidate == null) privateCandidate = ip;
+                }
+            }
+            return privateCandidate;
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     /**
