@@ -98,6 +98,9 @@ public class OpenAiApiKeyFilter extends OncePerRequestFilter {
             return;
         }
         request.setAttribute(OpenAiApiConstants.ATTR_TENANT_USER_ID, u.getId());
+        if (binding != null && binding.getOciRegion() != null && !binding.getOciRegion().isBlank()) {
+            request.setAttribute(OpenAiApiConstants.ATTR_OCI_REGION, binding.getOciRegion().trim());
+        }
         request.setAttribute(OpenAiApiConstants.ATTR_OPENAI_KEY_ID, key.getId());
         if (binding != null) {
             request.setAttribute(OpenAiApiConstants.ATTR_PORT_BINDING_ID, binding.getId());

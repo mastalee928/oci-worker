@@ -90,6 +90,7 @@ CREATE TABLE IF NOT EXISTS oci_openai_port_binding (
     name VARCHAR(128) DEFAULT NULL,
     port INT NOT NULL,
     oci_user_id VARCHAR(64) NOT NULL,
+    oci_region VARCHAR(64) DEFAULT NULL,
     openai_key_id VARCHAR(64) NOT NULL,
     default_max_tokens INT DEFAULT NULL,
     allowed_models_json TEXT DEFAULT NULL,
@@ -101,5 +102,6 @@ CREATE TABLE IF NOT EXISTS oci_openai_port_binding (
     last_used DATETIME DEFAULT NULL,
     UNIQUE KEY uk_oci_openai_port_binding_port (port),
     INDEX idx_oci_openai_port_binding_user (oci_user_id),
+    INDEX idx_oci_openai_port_binding_region (oci_region),
     INDEX idx_oci_openai_port_binding_key (openai_key_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

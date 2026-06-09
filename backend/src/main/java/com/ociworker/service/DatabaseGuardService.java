@@ -136,6 +136,7 @@ public class DatabaseGuardService {
                 name VARCHAR(128) DEFAULT NULL,
                 port INT NOT NULL,
                 oci_user_id VARCHAR(64) NOT NULL,
+                oci_region VARCHAR(64) DEFAULT NULL,
                 openai_key_id VARCHAR(64) NOT NULL,
                 default_max_tokens INT DEFAULT NULL,
                 allowed_models_json TEXT DEFAULT NULL,
@@ -147,6 +148,7 @@ public class DatabaseGuardService {
                 last_used DATETIME DEFAULT NULL,
                 UNIQUE KEY uk_oci_openai_port_binding_port (port),
                 INDEX idx_oci_openai_port_binding_user (oci_user_id),
+                INDEX idx_oci_openai_port_binding_region (oci_region),
                 INDEX idx_oci_openai_port_binding_key (openai_key_id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """);
@@ -351,6 +353,8 @@ public class DatabaseGuardService {
                 "VARCHAR(32) DEFAULT 'stopped' AFTER enabled");
         addColumnIfMissing(conn, "oci_openai_port_binding", "default_max_tokens",
                 "INT DEFAULT NULL AFTER openai_key_id");
+        addColumnIfMissing(conn, "oci_openai_port_binding", "oci_region",
+                "VARCHAR(64) DEFAULT NULL AFTER oci_user_id");
         addColumnIfMissing(conn, "oci_openai_port_binding", "allowed_models_json",
                 "TEXT DEFAULT NULL AFTER default_max_tokens");
         addColumnIfMissing(conn, "oci_openai_port_binding", "status_message",

@@ -73,12 +73,12 @@ public class OciGenerativeOpenAiService {
             pathAfterV1 = "/" + pathAfterV1;
         }
         final String origPathAfterV1 = pathAfterV1;
-        String regionId = OciRegionUtil.publicRegionId(tenant.getOciRegion());
+        String regionId = effectivePublicRegionId(tenant, request.getAttribute(OpenAiApiConstants.ATTR_OCI_REGION));
         String baseOpenAi = "https://inference.generativeai." + regionId + ".oci.oraclecloud.com/openai/v1";
         String baseRawV1 = "https://inference.generativeai." + regionId + ".oci.oraclecloud.com/v1";
         String query = request.getQueryString();
 
-        RequestSigner signer = newRequestSigner(tenant);
+        RequestSigner signer = newRequestSigner(tenant, regionId);
 
         String method = request.getMethod().toUpperCase();
         String accept = request.getHeader("Accept");
@@ -279,7 +279,11 @@ public class OciGenerativeOpenAiService {
     }
 
     public JsonNode getModelsAsJson(OciUser tenant, String after, String modelId) throws Exception {
-        String regionId = OciRegionUtil.publicRegionId(tenant.getOciRegion());
+        return getModelsAsJson(tenant, null, after, modelId);
+    }
+
+    public JsonNode getModelsAsJson(OciUser tenant, String ociRegion, String after, String modelId) throws Exception {
+        String regionId = effectivePublicRegionId(tenant, ociRegion);
         String managementHost = "generativeai." + regionId + ".oci.oraclecloud.com";
         String tenantId = tenant.getOciTenantId();
         if (tenantId == null || tenantId.isBlank()) {
@@ -287,7 +291,7 @@ public class OciGenerativeOpenAiService {
         }
         if (modelId != null && !modelId.isBlank()) {
             String path = "/" + GA_API_VERSION + "/models/" + encodePathSegmentOciModel(modelId);
-            return managementGetToOpenAiList(tenant, "https://" + managementHost + path, true);
+            return managementGetToOpenAiList(tenant, regionId, "https://" + managementHost + path, true);
         }
         List<JsonNode> all = new ArrayList<>();
         String page = (after != null && !after.isBlank()) ? after : null;
@@ -300,7 +304,7 @@ public class OciGenerativeOpenAiService {
             }
             URI listUri = URI.create("https://" + managementHost + "/" + GA_API_VERSION + "/models?" + q);
             HttpRequest req = buildSignedRequest(
-                    newRequestSigner(tenant),
+                    newRequestSigner(tenant, regionId),
                     "GET",
                     listUri,
                     null,
@@ -489,8 +493,8 @@ public class OciGenerativeOpenAiService {
         return a;
     }
 
-    private JsonNode managementGetToOpenAiList(OciUser tenant, String url, boolean oneItemAsList) throws Exception {
-        RequestSigner signer = newRequestSigner(tenant);
+    private JsonNode managementGetToOpenAiList(OciUser tenant, String regionId, String url, boolean oneItemAsList) throws Exception {
+        RequestSigner signer = newRequestSigner(tenant, regionId);
         URI uri = URI.create(url);
         HttpRequest req = buildSignedRequest(
                 signer,
@@ -652,14 +656,19 @@ public class OciGenerativeOpenAiService {
     }
 
     public static SimpleAuthenticationDetailsProvider buildProvider(OciUser tenant) {
+        return buildProvider(tenant, null);
+    }
+
+    public static SimpleAuthenticationDetailsProvider buildProvider(OciUser tenant, String regionId) {
         if (tenant == null) {
             throw new OciException("租户无效");
         }
+        String effectiveRegion = effectivePublicRegionId(tenant, regionId);
         return SimpleAuthenticationDetailsProvider.builder()
                 .tenantId(tenant.getOciTenantId())
                 .userId(tenant.getOciUserId())
                 .fingerprint(tenant.getOciFingerprint())
-                .region(OciRegionUtil.toRegion(tenant.getOciRegion()))
+                .region(OciRegionUtil.toRegion(effectiveRegion))
                 .privateKeySupplier(() -> {
                     try (var fis = new java.io.FileInputStream(tenant.getOciKeyPath());
                          var baos = new java.io.ByteArrayOutputStream()) {
@@ -681,8 +690,20 @@ public class OciGenerativeOpenAiService {
      * 当前 OCI Java SDK 中 {@link SimpleAuthenticationDetailsProvider} 在运行时即为此类型。
      */
     private static RequestSigner newRequestSigner(OciUser tenant) {
+        return newRequestSigner(tenant, null);
+    }
+
+    private static RequestSigner newRequestSigner(OciUser tenant, String regionId) {
         return DefaultRequestSigner.createRequestSigner(
-                OciBasicForSigning.from(buildProvider(tenant)));
+                OciBasicForSigning.from(buildProvider(tenant, regionId)));
+    }
+
+    private static String effectivePublicRegionId(OciUser tenant, Object region) {
+        String r = region == null ? null : String.valueOf(region).trim();
+        if (r == null || r.isEmpty() || "null".equalsIgnoreCase(r)) {
+            r = tenant == null ? null : tenant.getOciRegion();
+        }
+        return OciRegionUtil.publicRegionId(r);
     }
 
     private static String encodePathSegmentOciModel(String s) {

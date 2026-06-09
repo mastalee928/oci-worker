@@ -254,14 +254,15 @@ public class OracleAiController {
             String id = body == null ? null : trimObj(body.get("id"));
             String name = body == null ? null : trimObj(body.get("name"));
             String ociUserId = body == null ? null : trimObj(body.get("ociUserId"));
+            String ociRegion = body == null ? null : trimObj(body.get("ociRegion"));
             String openaiKeyId = body == null ? null : trimObj(body.get("openaiKeyId"));
             int port = intValue(body == null ? null : body.get("port"), -1);
             Integer defaultMaxTokens = nullableIntValue(body == null ? null : body.get("defaultMaxTokens"));
             List<String> allowedModels = stringListValue(body == null ? null : body.get("allowedModels"));
             boolean enabled = boolValue(body == null ? null : body.get("enabled"), true);
             OciOpenaiPortBinding row = (id == null)
-                    ? portBindingService.create(name, port, ociUserId, openaiKeyId, defaultMaxTokens, allowedModels, enabled)
-                    : portBindingService.update(id, name, port, ociUserId, openaiKeyId, defaultMaxTokens, allowedModels, enabled);
+                    ? portBindingService.create(name, port, ociUserId, ociRegion, openaiKeyId, defaultMaxTokens, allowedModels, enabled)
+                    : portBindingService.update(id, name, port, ociUserId, ociRegion, openaiKeyId, defaultMaxTokens, allowedModels, enabled);
             return ResponseData.ok(portBindingRow(row));
         } catch (com.ociworker.exception.OciException e) {
             return ResponseData.error(e.getMessage());
@@ -306,8 +307,9 @@ public class OracleAiController {
         }
         String after = body.get("after");
         String modelId = body.get("modelId");
+        String ociRegion = trimToNullOrBlank(body.get("ociRegion"));
         try {
-            JsonNode j = generativeOpenAiService.getModelsAsJson(u, after, modelId);
+            JsonNode j = generativeOpenAiService.getModelsAsJson(u, ociRegion, after, modelId);
             return ResponseData.ok(j);
         } catch (com.ociworker.exception.OciException e) {
             return ResponseData.error(e.getMessage());
@@ -543,6 +545,7 @@ public class OracleAiController {
         row.put("name", b.getName());
         row.put("port", b.getPort());
         row.put("ociUserId", b.getOciUserId());
+        row.put("ociRegion", b.getOciRegion());
         row.put("openaiKeyId", b.getOpenaiKeyId());
         row.put("defaultMaxTokens", b.getDefaultMaxTokens());
         row.put("allowedModels", com.ociworker.service.OracleAiPortBindingService.decodeAllowedModels(b.getAllowedModelsJson()));
@@ -557,7 +560,10 @@ public class OracleAiController {
         OciUser u = b.getOciUserId() == null ? null : ociUserMapper.selectById(b.getOciUserId());
         if (u != null) {
             row.put("tenantName", u.getUsername());
-            row.put("ociRegion", u.getOciRegion());
+            if (row.get("ociRegion") == null || String.valueOf(row.get("ociRegion")).isBlank()) {
+                row.put("ociRegion", u.getOciRegion());
+            }
+            row.put("tenantDefaultRegion", u.getOciRegion());
         }
         OciOpenaiKey key = b.getOpenaiKeyId() == null ? null : openaiKeyService.getById(b.getOpenaiKeyId());
         if (key != null) {

@@ -66,12 +66,13 @@ public class OracleAiPortBindingService {
             String name,
             int port,
             String ociUserId,
+            String ociRegion,
             String openaiKeyId,
             Integer defaultMaxTokens,
             List<String> allowedModels,
             boolean enabled) {
         DynamicOpenAiPortService.validateManagedPort(port);
-        validateTenantAndKey(ociUserId, openaiKeyId);
+        OciUser user = validateTenantAndKey(ociUserId, openaiKeyId);
         OciOpenaiPortBinding existing = getByPort(port);
         if (existing != null) {
             throw new OciException("端口已绑定: " + port);
@@ -81,6 +82,7 @@ public class OracleAiPortBindingService {
         row.setName(trimName(name));
         row.setPort(port);
         row.setOciUserId(ociUserId);
+        row.setOciRegion(normalizeRegion(ociRegion, user));
         row.setOpenaiKeyId(openaiKeyId);
         row.setDefaultMaxTokens(normalizeDefaultMaxTokens(defaultMaxTokens));
         row.setAllowedModelsJson(encodeAllowedModels(allowedModels));
@@ -101,6 +103,7 @@ public class OracleAiPortBindingService {
             String name,
             int port,
             String ociUserId,
+            String ociRegion,
             String openaiKeyId,
             Integer defaultMaxTokens,
             List<String> allowedModels,
@@ -110,7 +113,7 @@ public class OracleAiPortBindingService {
             throw new OciException("绑定不存在");
         }
         DynamicOpenAiPortService.validateManagedPort(port);
-        validateTenantAndKey(ociUserId, openaiKeyId);
+        OciUser user = validateTenantAndKey(ociUserId, openaiKeyId);
         OciOpenaiPortBinding samePort = getByPort(port);
         if (samePort != null && !samePort.getId().equals(id)) {
             throw new OciException("端口已绑定: " + port);
@@ -119,6 +122,7 @@ public class OracleAiPortBindingService {
         row.setName(trimName(name));
         row.setPort(port);
         row.setOciUserId(ociUserId);
+        row.setOciRegion(normalizeRegion(ociRegion, user));
         row.setOpenaiKeyId(openaiKeyId);
         row.setDefaultMaxTokens(normalizeDefaultMaxTokens(defaultMaxTokens));
         row.setAllowedModelsJson(encodeAllowedModels(allowedModels));
@@ -212,7 +216,7 @@ public class OracleAiPortBindingService {
         }
     }
 
-    private void validateTenantAndKey(String ociUserId, String openaiKeyId) {
+    private OciUser validateTenantAndKey(String ociUserId, String openaiKeyId) {
         if (ociUserId == null || ociUserId.isBlank()) {
             throw new OciException("请选择租户");
         }
@@ -233,6 +237,18 @@ public class OracleAiPortBindingService {
         if (!ociUserId.equals(key.getOciUserId())) {
             throw new OciException("API Key 不属于所选租户");
         }
+        return user;
+    }
+
+    private static String normalizeRegion(String region, OciUser user) {
+        String r = region == null ? null : region.trim();
+        if (r == null || r.isEmpty()) {
+            r = user == null ? null : user.getOciRegion();
+        }
+        if (r == null) {
+            return null;
+        }
+        return r.length() > 64 ? r.substring(0, 64) : r;
     }
 
     private static String trimName(String name) {

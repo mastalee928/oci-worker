@@ -41,6 +41,7 @@ export function saveOracleAiPortBinding(data: {
   name?: string
   port: number
   ociUserId: string
+  ociRegion?: string
   openaiKeyId: string
   defaultMaxTokens?: number | null
   allowedModels?: string[]
@@ -57,7 +58,7 @@ export function removeOracleAiPortBinding(data: { id: string }) {
   return request.post('/oci/oracle-ai/ports/remove', data)
 }
 
-export function listOpenAiModels(data: { ociUserId: string; after?: string; modelId?: string }) {
+export function listOpenAiModels(data: { ociUserId: string; ociRegion?: string; after?: string; modelId?: string }) {
   return request.post('/oci/oracle-ai/models', data)
 }
 

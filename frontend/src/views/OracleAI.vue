@@ -236,7 +236,7 @@
               <div class="port-card-grid">
                 <span>端口</span><b>{{ record.port }}</b>
                 <span>租户</span><b>{{ record.tenantName || record.ociUserId || '-' }}</b>
-                <span>区域</span><b>{{ record.ociRegion || '-' }}</b>
+                <span>区域</span><b>{{ regionDisplay(record.ociRegion) || '-' }}</b>
                 <span>Tokens</span><b>{{ record.defaultMaxTokens || '全局默认' }}</b>
                 <span>模型</span>
                 <a-tooltip :title="modelTooltip(record.allowedModels)">
@@ -275,7 +275,7 @@
               </template>
               <template v-else-if="column.key === 'tenant'">
                 <div>{{ record.tenantName || record.ociUserId || '-' }}</div>
-                <span class="sub-muted">{{ record.ociRegion || '-' }}</span>
+                <span class="sub-muted">{{ regionDisplay(record.ociRegion) || '-' }}</span>
               </template>
               <template v-else-if="column.key === 'base'">
                 <a-typography-paragraph copyable :content="portBaseUrl(record.port)" style="margin: 0">
@@ -387,6 +387,20 @@
             @change="onPortTenantChange"
           />
         </a-form-item>
+        <a-form-item label="Region">
+          <a-select
+            v-model:value="portForm.ociRegion"
+            :options="portRegionOptions"
+            :loading="portRegionsLoading"
+            placeholder="选择该租户订阅的 Region"
+            show-search
+            :filter-option="filterOciRegionSelectOption"
+            :disabled="!portForm.ociUserId"
+            :get-popup-container="selectPopupContainer"
+            @change="onPortRegionChange"
+          />
+          <div class="sub-muted form-help">该端口会固定转发到这里选择的 OCI Generative AI 区域。</div>
+        </a-form-item>
         <a-form-item label="API Key">
           <a-space direction="vertical" style="width: 100%">
             <a-select
@@ -440,7 +454,7 @@
             size="small"
             :loading="portModelsLoading"
             :disabled="!portForm.ociUserId"
-            @click="() => portForm.ociUserId && loadPortModels(portForm.ociUserId, true)"
+            @click="() => portForm.ociUserId && loadPortModels(portForm.ociUserId, portForm.ociRegion, true)"
           >
             刷新模型列表
           </a-button>
@@ -466,6 +480,11 @@ defineOptions({ name: 'OracleAI' })
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { message } from 'ant-design-vue'
 import { getTenantList } from '../api/tenant'
+import { listOciRegionOptions } from '../api/system'
+import {
+  getOciRegionDisplayName,
+  filterOciRegionSelectOption,
+} from '../utils/ociRegionCatalog'
 import {
   getOracleAiGateway,
   setOracleAiGatewayEnabled,
@@ -505,6 +524,8 @@ const portSaving = ref(false)
 const portKeysLoading = ref(false)
 const portKeyCreating = ref(false)
 const portKeyOptions = ref<{ label: string; value: string }[]>([])
+const portRegionsLoading = ref(false)
+const portRegionOptions = ref<{ label: string; value: string }[]>([])
 const portModelsLoading = ref(false)
 const portModelOptions = ref<{ label: string; value: string; title?: string }[]>([])
 const portForm = ref<{
@@ -512,6 +533,7 @@ const portForm = ref<{
   name?: string
   port: number
   ociUserId?: string
+  ociRegion?: string
   openaiKeyId?: string
   defaultMaxTokens?: number | null
   allowedModels: string[]
@@ -593,6 +615,12 @@ function selectPopupContainer() {
 const selectedRegion = computed(() => {
   return tenantOptions.value.find((x) => x.value === ociUserId.value)?.ociRegion
 })
+
+function regionDisplay(region?: string) {
+  const r = String(region || '').trim()
+  if (!r) return ''
+  return `${getOciRegionDisplayName(r)} (${r})`
+}
 
 const publicBaseUrl = computed(() => {
   if (typeof window === 'undefined') {
@@ -1047,6 +1075,7 @@ async function openPortModal(row?: any) {
     name: row?.name || '',
     port: Number(row?.port || nextPortValue()),
     ociUserId: row?.ociUserId || undefined,
+    ociRegion: row?.ociRegion || row?.tenantDefaultRegion || undefined,
     openaiKeyId: row?.openaiKeyId || undefined,
     defaultMaxTokens: row?.defaultMaxTokens ? Number(row.defaultMaxTokens) : null,
     allowedModels: Array.isArray(row?.allowedModels) ? row.allowedModels : [],
@@ -1054,22 +1083,66 @@ async function openPortModal(row?: any) {
   }
   portModalOpen.value = true
   portKeyOptions.value = []
+  portRegionOptions.value = []
   portModelOptions.value = []
   if (portForm.value.ociUserId) {
     await loadPortKeys(portForm.value.ociUserId)
-    await loadPortModels(portForm.value.ociUserId)
+    await loadPortRegions(portForm.value.ociUserId, portForm.value.ociRegion)
+    await loadPortModels(portForm.value.ociUserId, portForm.value.ociRegion)
   }
 }
 
 async function onPortTenantChange() {
   portForm.value.openaiKeyId = undefined
+  portForm.value.ociRegion = undefined
   portForm.value.allowedModels = []
   if (portForm.value.ociUserId) {
     await loadPortKeys(portForm.value.ociUserId)
-    await loadPortModels(portForm.value.ociUserId)
+    await loadPortRegions(portForm.value.ociUserId)
+    await loadPortModels(portForm.value.ociUserId, portForm.value.ociRegion)
   } else {
     portKeyOptions.value = []
+    portRegionOptions.value = []
     portModelOptions.value = []
+  }
+}
+
+async function onPortRegionChange() {
+  portForm.value.allowedModels = []
+  portModelOptions.value = []
+  if (portForm.value.ociUserId) {
+    await loadPortModels(portForm.value.ociUserId, portForm.value.ociRegion, true)
+  }
+}
+
+async function loadPortRegions(tenantId: string, preferred?: string) {
+  portRegionsLoading.value = true
+  try {
+    const r: any = await listOciRegionOptions(tenantId)
+    const rows = Array.isArray(r?.data) ? r.data : []
+    const options = rows
+      .map((x: any) => ({
+        value: String(x.regionId || '').trim(),
+        label: x.label || String(x.regionId || '').trim(),
+      }))
+      .filter((x: any) => x.value)
+    const tenantDefault = tenantOptions.value.find((x) => x.value === tenantId)?.ociRegion || ''
+    const selected = String(preferred || portForm.value.ociRegion || tenantDefault || '').trim()
+    if (selected && !options.some((x: any) => x.value === selected)) {
+      options.unshift({ value: selected, label: regionDisplay(selected) })
+    }
+    portRegionOptions.value = options
+    if (!portForm.value.ociRegion) {
+      portForm.value.ociRegion = selected || options[0]?.value
+    }
+  } catch {
+    const fallback = String(preferred || tenantOptions.value.find((x) => x.value === tenantId)?.ociRegion || '').trim()
+    portRegionOptions.value = fallback ? [{ value: fallback, label: regionDisplay(fallback) }] : []
+    if (!portForm.value.ociRegion) {
+      portForm.value.ociRegion = fallback || undefined
+    }
+  } finally {
+    portRegionsLoading.value = false
   }
 }
 
@@ -1118,10 +1191,10 @@ async function createPortTenantKey() {
   }
 }
 
-async function loadPortModels(tenantId: string, alertOnErr = false) {
+async function loadPortModels(tenantId: string, region?: string, alertOnErr = false) {
   portModelsLoading.value = true
   try {
-    const r: any = await listOpenAiModels({ ociUserId: tenantId })
+    const r: any = await listOpenAiModels({ ociUserId: tenantId, ociRegion: region })
     portModelOptions.value = ensureSelectedModelsInOptions(mapModelOptions(r?.data), portForm.value.allowedModels || [])
     if (!portModelOptions.value.length && alertOnErr) {
       message.info('无模型条目或 OCI 返回与预期结构不同，请查看后端日志。')
@@ -1168,6 +1241,7 @@ async function savePortBindingRow() {
       name: f.name,
       port: Math.trunc(Number(f.port)),
       ociUserId: f.ociUserId,
+      ociRegion: f.ociRegion,
       openaiKeyId: f.openaiKeyId,
       defaultMaxTokens: f.defaultMaxTokens ? Math.trunc(Number(f.defaultMaxTokens)) : null,
       allowedModels: f.allowedModels || [],
