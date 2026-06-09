@@ -34,49 +34,6 @@
           <template v-if="isGroupPanelOpen(g1.key)">
           <!-- 二级分组 -->
           <template v-if="g1.children && g1.children.length > 0">
-            <div v-if="g1.tenants.length > 0" class="group-section">
-              <component :is="tenantViewMode === 'card' ? 'div' : 'div'">
-                <div v-if="tenantViewMode === 'card'" class="tenant-grid">
-                  <template v-for="td in g1.tenants" :key="td.tenant.id">
-                    <div class="tenant-card" :class="{ 'tenant-card-active': activeTenantId === td.tenant.id }">
-                      <div class="tc-header"><i class="ri-cloud-line tc-icon"></i><div class="tc-info"><div class="tc-name">{{ td.tenant.username }}</div><div class="tc-region">{{ td.tenant.ociRegion }}</div></div></div>
-                      <div class="tc-tags"><a-tag v-if="td.tenant.planType" :color="td.tenant.planType === 'FREE' ? 'default' : 'green'" size="small">{{ td.tenant.planType }}</a-tag><a-tag v-if="td.tenant.tenantName" size="small" color="blue">{{ td.tenant.tenantName }}</a-tag></div>
-                      <div class="tc-actions"><a-button type="primary" block @click="selectTenant(td)" :loading="td.loading"><i class="ri-server-line" style="margin-right:6px"></i>实例管理</a-button><a-button block @click="openVcnPanel(td.tenant)"><i class="ri-share-line" style="margin-right:6px"></i>虚拟云网络</a-button><a-button block @click="openStoragePanel(td.tenant)"><i class="ri-database-2-line" style="margin-right:6px"></i>存储</a-button><a-button block @click="openQuickTask(td.tenant)"><i class="ri-play-circle-line" style="margin-right:6px"></i>快捷开机</a-button></div>
-                    </div>
-                  </template>
-                </div>
-                <div v-else>
-                  <component :is="'div'" v-for="td in g1.tenants" :key="td.tenant.id" class="group-table-row" :class="{ 'tenant-row-active': td.tenant.id === activeTenantId }">
-                    <div class="gtr-main">
-                      <div class="gtr-ident">
-                        <span class="gtr-name">{{ td.tenant.username }}</span>
-                        <span v-if="td.tenant.tenantName" class="gtr-tenantnm">{{ td.tenant.tenantName }}</span>
-                      </div>
-                      <span class="gtr-region"><a-tag>{{ td.tenant.ociRegion }}</a-tag></span>
-                    </div>
-                    <a-space v-if="!isMobile" class="gtr-actions" size="small" wrap>
-                      <a-button type="primary" size="small" @click="selectTenant(td)" :loading="td.loading">实例管理</a-button>
-                      <a-button size="small" @click="openVcnPanel(td.tenant)">VCN</a-button>
-                      <a-button size="small" @click="openStoragePanel(td.tenant)">存储</a-button>
-                      <a-button size="small" @click="openQuickTask(td.tenant)">快捷开机</a-button>
-                    </a-space>
-                    <div v-else class="gtr-actions gtr-actions-mobile">
-                      <a-button type="primary" size="small" @click="selectTenant(td)" :loading="td.loading">实例管理</a-button>
-                      <a-dropdown placement="bottomRight" :trigger="['click']">
-                        <a-button size="small">更多 <DownOutlined /></a-button>
-                        <template #overlay>
-                          <a-menu>
-                            <a-menu-item key="vcn" @click="openVcnPanel(td.tenant)">VCN</a-menu-item>
-                            <a-menu-item key="storage" @click="openStoragePanel(td.tenant)">存储</a-menu-item>
-                            <a-menu-item key="quick" @click="openQuickTask(td.tenant)">快捷开机</a-menu-item>
-                          </a-menu>
-                        </template>
-                      </a-dropdown>
-                    </div>
-                  </component>
-                </div>
-              </component>
-            </div>
             <a-collapse v-model:activeKey="activeL2Keys" @change="onL2CollapseChange" class="group-collapse-l2">
               <a-collapse-panel v-for="l2 in g1.children" :key="l2.key" :collapsible="l2.tenants.length === 0 ? 'disabled' : undefined">
                 <template #header>
@@ -126,6 +83,49 @@
                 </template>
               </a-collapse-panel>
             </a-collapse>
+            <div v-if="g1.tenants.length > 0" class="group-section">
+              <component :is="tenantViewMode === 'card' ? 'div' : 'div'">
+                <div v-if="tenantViewMode === 'card'" class="tenant-grid">
+                  <template v-for="td in g1.tenants" :key="td.tenant.id">
+                    <div class="tenant-card" :class="{ 'tenant-card-active': activeTenantId === td.tenant.id }">
+                      <div class="tc-header"><i class="ri-cloud-line tc-icon"></i><div class="tc-info"><div class="tc-name">{{ td.tenant.username }}</div><div class="tc-region">{{ td.tenant.ociRegion }}</div></div></div>
+                      <div class="tc-tags"><a-tag v-if="td.tenant.planType" :color="td.tenant.planType === 'FREE' ? 'default' : 'green'" size="small">{{ td.tenant.planType }}</a-tag><a-tag v-if="td.tenant.tenantName" size="small" color="blue">{{ td.tenant.tenantName }}</a-tag></div>
+                      <div class="tc-actions"><a-button type="primary" block @click="selectTenant(td)" :loading="td.loading"><i class="ri-server-line" style="margin-right:6px"></i>实例管理</a-button><a-button block @click="openVcnPanel(td.tenant)"><i class="ri-share-line" style="margin-right:6px"></i>虚拟云网络</a-button><a-button block @click="openStoragePanel(td.tenant)"><i class="ri-database-2-line" style="margin-right:6px"></i>存储</a-button><a-button block @click="openQuickTask(td.tenant)"><i class="ri-play-circle-line" style="margin-right:6px"></i>快捷开机</a-button></div>
+                    </div>
+                  </template>
+                </div>
+                <div v-else>
+                  <component :is="'div'" v-for="td in g1.tenants" :key="td.tenant.id" class="group-table-row" :class="{ 'tenant-row-active': td.tenant.id === activeTenantId }">
+                    <div class="gtr-main">
+                      <div class="gtr-ident">
+                        <span class="gtr-name">{{ td.tenant.username }}</span>
+                        <span v-if="td.tenant.tenantName" class="gtr-tenantnm">{{ td.tenant.tenantName }}</span>
+                      </div>
+                      <span class="gtr-region"><a-tag>{{ td.tenant.ociRegion }}</a-tag></span>
+                    </div>
+                    <a-space v-if="!isMobile" class="gtr-actions" size="small" wrap>
+                      <a-button type="primary" size="small" @click="selectTenant(td)" :loading="td.loading">实例管理</a-button>
+                      <a-button size="small" @click="openVcnPanel(td.tenant)">VCN</a-button>
+                      <a-button size="small" @click="openStoragePanel(td.tenant)">存储</a-button>
+                      <a-button size="small" @click="openQuickTask(td.tenant)">快捷开机</a-button>
+                    </a-space>
+                    <div v-else class="gtr-actions gtr-actions-mobile">
+                      <a-button type="primary" size="small" @click="selectTenant(td)" :loading="td.loading">实例管理</a-button>
+                      <a-dropdown placement="bottomRight" :trigger="['click']">
+                        <a-button size="small">更多 <DownOutlined /></a-button>
+                        <template #overlay>
+                          <a-menu>
+                            <a-menu-item key="vcn" @click="openVcnPanel(td.tenant)">VCN</a-menu-item>
+                            <a-menu-item key="storage" @click="openStoragePanel(td.tenant)">存储</a-menu-item>
+                            <a-menu-item key="quick" @click="openQuickTask(td.tenant)">快捷开机</a-menu-item>
+                          </a-menu>
+                        </template>
+                      </a-dropdown>
+                    </div>
+                  </component>
+                </div>
+              </component>
+            </div>
           </template>
           <!-- 无二级分组时直接平铺 -->
           <template v-else>

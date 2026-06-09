@@ -142,77 +142,6 @@
               </div>
             </div>
 
-            <div v-if="expandedGroups.has(group.key)" class="group-body">
-              <template v-if="group.tenants.length">
-                <a-table v-if="!isMobile" :columns="columns" :data-source="group.tenants" :pagination="false"
-                  :row-selection="{ selectedRowKeys, onChange: onSelectChange }"
-                  row-key="id" size="small">
-                  <template #bodyCell="{ column, record }">
-                    <template v-if="column.key === 'tenantName'">
-                      <span v-if="record.tenantName">{{ record.tenantName }}</span>
-                      <span v-else style="color: var(--text-sub); font-size: 12px">获取中...</span>
-                    </template>
-                    <template v-if="column.key === 'ociRegion'">
-                      <a-tag color="blue">{{ getOciRegionDisplayName(record.ociRegion) }}</a-tag>
-                      <div style="font-size: 11px; color: var(--text-sub); margin-top: 2px">{{ record.ociRegion }}</div>
-                    </template>
-                    <template v-if="column.key === 'taskStatus'">
-                      <a-badge v-if="record.hasRunningTask" status="processing" text="执行开机任务中" />
-                      <span v-else style="color: #999">无开机任务</span>
-                    </template>
-                    <template v-if="column.key === 'planType'">
-                      <a-tag :color="record.planType === 'PAYG' ? 'green' : record.planType === 'FREE' ? 'orange' : 'default'">{{ record.planType || '获取中...' }}</a-tag>
-                    </template>
-                    <template v-if="column.key === 'createTime'">
-                      {{ formatTenantAddedTime(record.createTime) }}
-                    </template>
-                    <template v-if="column.key === 'action'">
-                      <a-space>
-                        <a-button type="link" size="small" @click="showEditModal(record)">编辑</a-button>
-                        <a-button type="link" size="small" @click="openDomainMgmt(record)">域</a-button>
-                        <a-button type="link" size="small" @click="openTenantMgmt(record)">租户</a-button>
-                        <a-button type="link" size="small" @click="goUserManagement(record)">用户</a-button>
-                        <a-popconfirm title="确定删除?" @confirm="handleDelete(record.id)">
-                          <a-button type="link" danger size="small">删除</a-button>
-                        </a-popconfirm>
-                      </a-space>
-                    </template>
-                  </template>
-                </a-table>
-                <template v-else>
-                  <div v-for="r in group.tenants" :key="r.id" class="mobile-card">
-                    <div class="mobile-card-header">
-                      <span class="mobile-card-title">{{ r.username }}</span>
-                      <a-tag :color="r.planType === 'PAYG' ? 'green' : r.planType === 'FREE' ? 'orange' : 'default'" style="margin:0">{{ r.planType || '?' }}</a-tag>
-                    </div>
-                    <div class="mobile-card-body">
-                      <div class="mobile-card-row"><span class="label">租户名</span><span class="value">{{ r.tenantName || '获取中...' }}</span></div>
-                      <div class="mobile-card-row"><span class="label">主区域</span><a-tag color="blue" style="margin:0">{{ getOciRegionDisplayName(r.ociRegion) }}</a-tag></div>
-                      <div class="mobile-card-row">
-                        <span class="label">任务</span>
-                        <a-badge v-if="r.hasRunningTask" status="processing" text="执行中" />
-                        <span v-else style="color: #999">无</span>
-                      </div>
-                      <div class="mobile-card-row">
-                        <span class="label">添加日期</span>
-                        <span class="value">{{ formatTenantAddedTime(r.createTime) }}</span>
-                      </div>
-                    </div>
-                    <div class="mobile-card-actions">
-                      <a-button type="link" size="small" @click="showEditModal(r)">编辑</a-button>
-                      <a-button type="link" size="small" @click="openDomainMgmt(r)">域</a-button>
-                      <a-button type="link" size="small" @click="openTenantMgmt(r)">租户</a-button>
-                      <a-button type="link" size="small" @click="goUserManagement(r)">用户</a-button>
-                      <a-popconfirm title="确定删除?" @confirm="handleDelete(r.id)">
-                        <a-button type="link" danger size="small">删除</a-button>
-                      </a-popconfirm>
-                    </div>
-                  </div>
-                </template>
-              </template>
-            </div>
-          </div>
-
           <!-- 二级子分组卡片 -->
           <template v-if="group.children && expandedGroups.has(group.key)">
             <div v-for="sub in group.children" :key="sub.key" class="group-card subgroup-card">
@@ -320,6 +249,79 @@
             </div>
           </template>
         </div>
+          <div v-if="expandedGroups.has(group.key) && group.tenants.length" class="group-card subgroup-card">
+            <div class="group-body">
+              <template v-if="group.tenants.length">
+                <a-table v-if="!isMobile" :columns="columns" :data-source="group.tenants" :pagination="false"
+                  :row-selection="{ selectedRowKeys, onChange: onSelectChange }"
+                  row-key="id" size="small">
+                  <template #bodyCell="{ column, record }">
+                    <template v-if="column.key === 'tenantName'">
+                      <span v-if="record.tenantName">{{ record.tenantName }}</span>
+                      <span v-else style="color: var(--text-sub); font-size: 12px">获取中...</span>
+                    </template>
+                    <template v-if="column.key === 'ociRegion'">
+                      <a-tag color="blue">{{ getOciRegionDisplayName(record.ociRegion) }}</a-tag>
+                      <div style="font-size: 11px; color: var(--text-sub); margin-top: 2px">{{ record.ociRegion }}</div>
+                    </template>
+                    <template v-if="column.key === 'taskStatus'">
+                      <a-badge v-if="record.hasRunningTask" status="processing" text="执行开机任务中" />
+                      <span v-else style="color: #999">无开机任务</span>
+                    </template>
+                    <template v-if="column.key === 'planType'">
+                      <a-tag :color="record.planType === 'PAYG' ? 'green' : record.planType === 'FREE' ? 'orange' : 'default'">{{ record.planType || '获取中...' }}</a-tag>
+                    </template>
+                    <template v-if="column.key === 'createTime'">
+                      {{ formatTenantAddedTime(record.createTime) }}
+                    </template>
+                    <template v-if="column.key === 'action'">
+                      <a-space>
+                        <a-button type="link" size="small" @click="showEditModal(record)">编辑</a-button>
+                        <a-button type="link" size="small" @click="openDomainMgmt(record)">域</a-button>
+                        <a-button type="link" size="small" @click="openTenantMgmt(record)">租户</a-button>
+                        <a-button type="link" size="small" @click="goUserManagement(record)">用户</a-button>
+                        <a-popconfirm title="确定删除?" @confirm="handleDelete(record.id)">
+                          <a-button type="link" danger size="small">删除</a-button>
+                        </a-popconfirm>
+                      </a-space>
+                    </template>
+                  </template>
+                </a-table>
+                <template v-else>
+                  <div v-for="r in group.tenants" :key="r.id" class="mobile-card">
+                    <div class="mobile-card-header">
+                      <span class="mobile-card-title">{{ r.username }}</span>
+                      <a-tag :color="r.planType === 'PAYG' ? 'green' : r.planType === 'FREE' ? 'orange' : 'default'" style="margin:0">{{ r.planType || '?' }}</a-tag>
+                    </div>
+                    <div class="mobile-card-body">
+                      <div class="mobile-card-row"><span class="label">租户名</span><span class="value">{{ r.tenantName || '获取中...' }}</span></div>
+                      <div class="mobile-card-row"><span class="label">主区域</span><a-tag color="blue" style="margin:0">{{ getOciRegionDisplayName(r.ociRegion) }}</a-tag></div>
+                      <div class="mobile-card-row">
+                        <span class="label">任务</span>
+                        <a-badge v-if="r.hasRunningTask" status="processing" text="执行中" />
+                        <span v-else style="color: #999">无</span>
+                      </div>
+                      <div class="mobile-card-row">
+                        <span class="label">添加日期</span>
+                        <span class="value">{{ formatTenantAddedTime(r.createTime) }}</span>
+                      </div>
+                    </div>
+                    <div class="mobile-card-actions">
+                      <a-button type="link" size="small" @click="showEditModal(r)">编辑</a-button>
+                      <a-button type="link" size="small" @click="openDomainMgmt(r)">域</a-button>
+                      <a-button type="link" size="small" @click="openTenantMgmt(r)">租户</a-button>
+                      <a-button type="link" size="small" @click="goUserManagement(r)">用户</a-button>
+                      <a-popconfirm title="确定删除?" @confirm="handleDelete(r.id)">
+                        <a-button type="link" danger size="small">删除</a-button>
+                      </a-popconfirm>
+                    </div>
+                  </div>
+                </template>
+              </template>
+            </div>
+          </div>
+          </div>
+
         <div v-if="!groupTree.length && !loading" style="text-align: center; padding: 40px; color: var(--text-sub)">
           暂无租户配置
         </div>
