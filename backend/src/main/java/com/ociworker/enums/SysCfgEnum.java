@@ -1,4 +1,4 @@
-﻿package com.ociworker.enums;
+package com.ociworker.enums;
 
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -42,7 +42,11 @@ public enum SysCfgEnum {
     /** 閫楀彿鍒嗛殧璁惧 ID锛堜笌 Cookie ow_did 涓€鑷达級 */
     LOGIN_DEVICE_DENYLIST("login_device_denylist", "sys"),
     /** true / false锛氫负 true 鏃堕櫎鐧藉悕鍗曟帴鍙ｅ涓€寰?503 */
-    SITE_ACCESS_PAUSED("site_access_paused", "sys"),\n\n    /** 阿里云DNS AccessKey */\n    ALIDNS_ACCESS_KEY_ID("alidns_access_key_id", "sys"),\n    ALIDNS_ACCESS_KEY_SECRET("alidns_access_key_secret", "sys"),
+    SITE_ACCESS_PAUSED("site_access_paused", "sys"),
+
+    /** 阿里云DNS AccessKey */
+    ALIDNS_ACCESS_KEY_ID("alidns_access_key_id", "sys"),
+    ALIDNS_ACCESS_KEY_SECRET("alidns_access_key_secret", "sys"),
     ;
 
     private final String code;

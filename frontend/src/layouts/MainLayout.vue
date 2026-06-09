@@ -38,18 +38,18 @@
           <div class="avatar">{{ avatarLetter }}</div>
           <div v-if="!compactSidebarFooter" class="user-info">
             <div class="user-name">{{ userStore.displayName }}</div>
-            <div class="user-status">绠＄悊鍛樺湪绾?/div>
+            <div class="user-status">管理员在线</div>
           </div>
         </div>
         <button
           type="button"
           class="btn-logout"
           :class="{ 'btn-logout--icon-only': compactSidebarFooter }"
-          :title="compactSidebarFooter ? '瀹夊叏閫€鍑? : undefined"
+          :title="compactSidebarFooter ? '安全退出' : undefined"
           @click="handleLogout"
         >
           <i class="ri-logout-box-r-line"></i>
-          <span v-if="!compactSidebarFooter">瀹夊叏閫€鍑?/span>
+          <span v-if="!compactSidebarFooter">安全退出</span>
         </button>
       </div>
     </a-layout-sider>
@@ -156,15 +156,16 @@ const currentTitle = computed(() => {
 })
 
 const navItems = [
-  { key: 'dashboard', label: '浠〃鐩?, icon: 'ri-dashboard-3-line', prefetch: true },
-  { key: 'tenant', label: '绉熸埛閰嶇疆', icon: 'ri-user-settings-line', prefetch: true },
-  { key: 'instance', label: '瀹炰緥绠＄悊', icon: 'ri-server-line', prefetch: true },
-  { key: 'task', label: '寮€鏈轰换鍔?, icon: 'ri-flashlight-line', prefetch: true },
-  { key: 'log', label: '鏃ュ織鏌ョ湅', icon: 'ri-file-list-3-line', prefetch: true },
+  { key: 'dashboard', label: '仪表盘', icon: 'ri-dashboard-3-line', prefetch: true },
+  { key: 'tenant', label: '租户配置', icon: 'ri-user-settings-line', prefetch: true },
+  { key: 'instance', label: '实例管理', icon: 'ri-server-line', prefetch: true },
+  { key: 'task', label: '开机任务', icon: 'ri-flashlight-line', prefetch: true },
+  { key: 'log', label: '日志查看', icon: 'ri-file-list-3-line', prefetch: true },
   { key: 'oracle-ai', label: 'Oracle AI', icon: 'ri-magic-line', prefetch: true },
-  { key: 'alidns', label: '阿里云DNS', icon: 'ri-global-line', prefetch: true },\n  { key: 'cloudflare', label: 'Cloudflare', icon: 'ri-cloud-line', prefetch: true },
+  { key: 'alidns', label: '阿里云DNS', icon: 'ri-global-line', prefetch: true },
+  { key: 'cloudflare', label: 'Cloudflare', icon: 'ri-cloud-line', prefetch: true },
   { key: 'webssh', label: 'WebSSH', icon: 'ri-terminal-box-line', prefetch: false },
-  { key: 'settings', label: '绯荤粺璁剧疆', icon: 'ri-settings-4-line', prefetch: true },
+  { key: 'settings', label: '系统设置', icon: 'ri-settings-4-line', prefetch: true },
 ] as const
 
 const pageTitleIcon = computed(() => {

@@ -1,4 +1,4 @@
-﻿package com.ociworker.service;
+package com.ociworker.service;
 
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONArray;
@@ -6,8 +6,6 @@ import cn.hutool.json.JSONObject;
 import cn.hutool.json.JSONUtil;
 import com.ociworker.enums.SysCfgEnum;
 import com.ociworker.exception.OciException;
-import com.ociworker.mapper.SysCfgMapper;
-import com.ociworker.model.entity.SysCfg;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -32,16 +30,14 @@ public class AliDNSService {
     private static final String DNS_API = "https://alidns.aliyuncs.com";
 
     @Resource
-    private SysCfgMapper sysCfgMapper;
+    private NotificationService notificationService;
 
     private String getAccessKeyId() {
-        SysCfg cfg = sysCfgMapper.selectById(SysCfgEnum.ALIDNS_ACCESS_KEY_ID.name());
-        return cfg != null ? cfg.getVal() : null;
+        return notificationService.getKvValue(SysCfgEnum.ALIDNS_ACCESS_KEY_ID);
     }
 
     private String getAccessKeySecret() {
-        SysCfg cfg = sysCfgMapper.selectById(SysCfgEnum.ALIDNS_ACCESS_KEY_SECRET.name());
-        return cfg != null ? cfg.getVal() : null;
+        return notificationService.getKvValue(SysCfgEnum.ALIDNS_ACCESS_KEY_SECRET);
     }
 
     public boolean isConfigured() {
@@ -51,8 +47,8 @@ public class AliDNSService {
     }
 
     public void saveAccountConfig(String accessKeyId, String accessKeySecret) {
-        sysCfgMapper.insertOrUpdate(SysCfgEnum.ALIDNS_ACCESS_KEY_ID.name(), accessKeyId);
-        sysCfgMapper.insertOrUpdate(SysCfgEnum.ALIDNS_ACCESS_KEY_SECRET.name(), accessKeySecret);
+        notificationService.saveKvValue(SysCfgEnum.ALIDNS_ACCESS_KEY_ID, StrUtil.trimToEmpty(accessKeyId));
+        notificationService.saveKvValue(SysCfgEnum.ALIDNS_ACCESS_KEY_SECRET, StrUtil.trimToEmpty(accessKeySecret));
     }
 
     public Map<String, Object> getAccountConfigForDisplay() {

@@ -1,4 +1,4 @@
-﻿package com.ociworker.controller;
+package com.ociworker.controller;
 
 import com.ociworker.service.AliDNSService;
 import com.ociworker.model.vo.ResponseData;
