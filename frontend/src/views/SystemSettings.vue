@@ -188,6 +188,38 @@
         </a-card>
       </a-tab-pane>
 
+      <a-tab-pane key="alidns" tab="阿里云DNS">
+        <a-card class="settings-card-wide settings-card-wide--alidns">
+          <template #title>
+            <span><i class="ri-global-line" style="margin-right: 8px; vertical-align: middle"></i>阿里云DNS 凭据</span>
+          </template>
+          <div class="alidns-settings-layout">
+            <a-alert
+              type="info"
+              show-icon
+              message="AccessKey 权限"
+              description="建议为 OCI Worker 单独创建 RAM 用户，并授予 AliyunDNSFullAccess 或最小化 DNS 只读/编辑权限。"
+            />
+            <a-form layout="vertical" class="alidns-settings-form">
+              <a-form-item label="AccessKey ID" required>
+                <a-input v-model:value="alidnsForm.accessKeyId" placeholder="填写 AccessKey ID" allow-clear />
+              </a-form-item>
+              <a-form-item label="AccessKey Secret" required>
+                <a-input-password
+                  v-model:value="alidnsForm.accessKeySecret"
+                  :placeholder="alidnsSecretConfigured ? '已配置（留空不修改）' : '填写 AccessKey Secret'"
+                  allow-clear
+                />
+              </a-form-item>
+              <a-space wrap>
+                <a-button type="primary" @click="saveAlidnsConfig" :loading="alidnsSaveLoading">保存设置</a-button>
+                <a-button @click="testAlidnsConfig" :loading="alidnsTestLoading">测试连接</a-button>
+              </a-space>
+            </a-form>
+          </div>
+        </a-card>
+      </a-tab-pane>
+
       <a-tab-pane key="cloudflare" tab="Cloudflare">
         <a-card class="settings-card-wide settings-card-wide--cf">
           <template #title>
@@ -552,6 +584,7 @@ import { useUserStore } from '../stores/user'
 import { sendVerifyCode } from '../api/system'
 import request from '../utils/request'
 import { getCfAccountConfig, saveCfAccountConfig, testCfAccountConfig } from '../api/cloudflare'
+import { getAliDNSAccountConfig, saveAliDNSAccountConfig, testAliDNSAccountConfig } from '../api/alidns'
 
 const userStore = useUserStore()
 
@@ -609,6 +642,14 @@ const cfForm = reactive({
   apiToken: '',
 })
 
+const alidnsSaveLoading = ref(false)
+const alidnsTestLoading = ref(false)
+const alidnsSecretConfigured = ref(false)
+const alidnsForm = reactive({
+  accessKeyId: '',
+  accessKeySecret: '',
+})
+
 const notifyTypeOptions = [
   { label: '登录通知', value: 'login' },
   { label: '创建任务', value: 'task_create' },
@@ -650,6 +691,9 @@ watch(activeTab, (k, prev) => {
   if (k === 'cloudflare') {
     loadCfConfig()
   }
+  if (k === 'alidns') {
+    loadAlidnsConfig()
+  }
 })
 
 onMounted(async () => {
@@ -659,6 +703,7 @@ onMounted(async () => {
   loadNotifyConfig()
   loadOciProxy()
   loadCfConfig()
+  loadAlidnsConfig()
   try {
     const res = await request.get('/sys/tgStatus')
     tgConfigured.value = res.data?.configured === true
@@ -767,6 +812,65 @@ async function testCfConfig() {
     message.error(e?.message || '测试失败')
   } finally {
     cfTestLoading.value = false
+  }
+}
+
+async function loadAlidnsConfig() {
+  try {
+    const res = await getAliDNSAccountConfig()
+    const d = res.data
+    alidnsForm.accessKeyId = d?.accessKeyId || ''
+    alidnsSecretConfigured.value = d?.secretConfigured === true || d?.configured === true
+    alidnsForm.accessKeySecret = ''
+  } catch {
+    /* ignore */
+  }
+}
+
+async function saveAlidnsConfig() {
+  if (!alidnsForm.accessKeyId.trim()) {
+    message.warning('请填写 AccessKey ID')
+    return
+  }
+  if (!alidnsSecretConfigured.value && !alidnsForm.accessKeySecret.trim()) {
+    message.warning('请填写 AccessKey Secret')
+    return
+  }
+  alidnsSaveLoading.value = true
+  try {
+    await saveAliDNSAccountConfig({
+      accessKeyId: alidnsForm.accessKeyId.trim(),
+      accessKeySecret: alidnsForm.accessKeySecret,
+    })
+    message.success('已保存')
+    await loadAlidnsConfig()
+  } catch (e: any) {
+    message.error(e?.message || '保存失败')
+  } finally {
+    alidnsSaveLoading.value = false
+  }
+}
+
+async function testAlidnsConfig() {
+  if (!alidnsForm.accessKeyId.trim()) {
+    message.warning('请填写 AccessKey ID')
+    return
+  }
+  if (!alidnsSecretConfigured.value && !alidnsForm.accessKeySecret.trim()) {
+    message.warning('请填写 AccessKey Secret')
+    return
+  }
+  alidnsTestLoading.value = true
+  try {
+    const res = await testAliDNSAccountConfig({
+      accessKeyId: alidnsForm.accessKeyId.trim(),
+      accessKeySecret: alidnsForm.accessKeySecret,
+    })
+    message.success(res.data != null ? String(res.data) : '连接成功')
+  } catch (e: any) {
+    message.error(e?.message || '测试失败')
+  } finally {
+    alidnsTestLoading.value = false
   }
 }
 

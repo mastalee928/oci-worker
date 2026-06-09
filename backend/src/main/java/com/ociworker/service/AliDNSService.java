@@ -47,25 +47,36 @@ public class AliDNSService {
     }
 
     public void saveAccountConfig(String accessKeyId, String accessKeySecret) {
-        notificationService.saveKvValue(SysCfgEnum.ALIDNS_ACCESS_KEY_ID, StrUtil.trimToEmpty(accessKeyId));
-        notificationService.saveKvValue(SysCfgEnum.ALIDNS_ACCESS_KEY_SECRET, StrUtil.trimToEmpty(accessKeySecret));
+        if (StrUtil.isNotBlank(accessKeyId)) {
+            notificationService.saveKvValue(SysCfgEnum.ALIDNS_ACCESS_KEY_ID, accessKeyId.trim());
+        }
+        if (StrUtil.isNotBlank(accessKeySecret)) {
+            notificationService.saveKvValue(SysCfgEnum.ALIDNS_ACCESS_KEY_SECRET, accessKeySecret.trim());
+        }
     }
 
     public Map<String, Object> getAccountConfigForDisplay() {
         String ak = getAccessKeyId();
-        boolean configured = StrUtil.isNotBlank(ak);
+        String sk = getAccessKeySecret();
+        boolean configured = StrUtil.isNotBlank(ak) && StrUtil.isNotBlank(sk);
         Map<String, Object> r = new LinkedHashMap<>();
         r.put("configured", configured);
-        r.put("accessKeyId", configured ? ak.substring(0, Math.min(8, ak.length())) + "****" : null);
+        r.put("accessKeyId", StrUtil.nullToEmpty(ak));
+        r.put("secretConfigured", StrUtil.isNotBlank(sk));
         return r;
     }
 
     public String testAccountConfig(String accessKeyId, String accessKeySecret) {
         try {
+            String resolvedAccessKeyId = StrUtil.blankToDefault(StrUtil.trimToNull(accessKeyId), getAccessKeyId());
+            String resolvedAccessKeySecret = StrUtil.blankToDefault(StrUtil.trimToNull(accessKeySecret), getAccessKeySecret());
+            if (StrUtil.isBlank(resolvedAccessKeyId) || StrUtil.isBlank(resolvedAccessKeySecret)) {
+                throw new OciException("请先填写 AccessKey ID 和 AccessKey Secret");
+            }
             Map<String, String> params = new LinkedHashMap<>();
             params.put("Action", "DescribeDomains");
             params.put("Version", "2015-01-09");
-            params.put("AccessKeyId", accessKeyId);
+            params.put("AccessKeyId", resolvedAccessKeyId);
             params.put("SignatureMethod", "HMAC-SHA1");
             params.put("SignatureVersion", "1.0");
             params.put("SignatureNonce", UUID.randomUUID().toString());
@@ -74,7 +85,7 @@ public class AliDNSService {
             params.put("PageNumber", "1");
             params.put("PageSize", "1");
 
-            String signature = sign(params, accessKeySecret, "GET");
+            String signature = sign(params, resolvedAccessKeySecret, "GET");
             params.put("Signature", signature);
 
             String url = DNS_API + "?" + buildQuery(params);
