@@ -885,9 +885,10 @@ function ensureSelectedModelsInOptions(options: { label: string; value: string; 
   return options
 }
 
-async function loadTenants() {
+async function loadTenants(options?: { silent?: boolean }) {
+  const silent = options?.silent === true
   selectionPersistEnabled.value = false
-  tenantsLoading.value = true
+  if (!silent) tenantsLoading.value = true
   try {
     const res: any = await getTenantList({ current: 1, size: 5000, keyword: '' })
     const rec = res.data?.records || []
@@ -898,9 +899,9 @@ async function loadTenants() {
     }))
     reapplyOracleAiSelectionFromStorage()
   } catch (e: any) {
-    message.error(e?.message || '加载租户失败')
+    if (!silent) message.error(e?.message || '加载租户失败')
   } finally {
-    tenantsLoading.value = false
+    if (!silent) tenantsLoading.value = false
     selectionPersistEnabled.value = true
   }
 }
@@ -1070,6 +1071,9 @@ function nextPortValue() {
 }
 
 async function openPortModal(row?: any) {
+  if (!row) {
+    await loadTenants({ silent: true })
+  }
   portForm.value = {
     id: row?.id,
     name: row?.name || '',
