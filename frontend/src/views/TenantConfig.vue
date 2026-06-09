@@ -248,7 +248,6 @@
               </div>
             </div>
           </template>
-        </div>
           <div v-if="expandedGroups.has(group.key) && group.tenants.length" class="group-card subgroup-card">
             <div class="group-body">
               <template v-if="group.tenants.length">
@@ -321,6 +320,7 @@
             </div>
           </div>
           </div>
+        </div>
 
         <div v-if="!groupTree.length && !loading" style="text-align: center; padding: 40px; color: var(--text-sub)">
           暂无租户配置

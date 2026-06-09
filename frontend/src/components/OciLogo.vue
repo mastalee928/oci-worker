@@ -36,7 +36,7 @@ withDefaults(
   flex-shrink: 0;
 }
 .oci-logo-ring {
-  stroke: #ffffff;
+  stroke: var(--oci-logo-ring, #ffffff);
 }
 .oci-logo-mark {
   stroke: #7c4dff;
@@ -44,7 +44,7 @@ withDefaults(
 .oci-logo-dot {
   fill: #7c4dff;
 }
-:global([data-theme='light']) .oci-logo-ring {
-  stroke: #c74634;
+:global([data-theme='light']) {
+  --oci-logo-ring: #c74634;
 }
 </style>
