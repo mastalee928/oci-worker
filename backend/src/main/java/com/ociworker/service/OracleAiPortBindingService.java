@@ -2,6 +2,8 @@ package com.ociworker.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ociworker.exception.OciException;
 import com.ociworker.mapper.OciOpenaiKeyMapper;
 import com.ociworker.mapper.OciOpenaiPortBindingMapper;
@@ -19,10 +21,15 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 @Service
 public class OracleAiPortBindingService {
+
+    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     @Resource
     private OciOpenaiPortBindingMapper bindingMapper;
@@ -55,7 +62,14 @@ public class OracleAiPortBindingService {
     }
 
     @Transactional(rollbackFor = Exception.class)
-    public OciOpenaiPortBinding create(String name, int port, String ociUserId, String openaiKeyId, Integer defaultMaxTokens, boolean enabled) {
+    public OciOpenaiPortBinding create(
+            String name,
+            int port,
+            String ociUserId,
+            String openaiKeyId,
+            Integer defaultMaxTokens,
+            List<String> allowedModels,
+            boolean enabled) {
         DynamicOpenAiPortService.validateManagedPort(port);
         validateTenantAndKey(ociUserId, openaiKeyId);
         OciOpenaiPortBinding existing = getByPort(port);
@@ -69,6 +83,7 @@ public class OracleAiPortBindingService {
         row.setOciUserId(ociUserId);
         row.setOpenaiKeyId(openaiKeyId);
         row.setDefaultMaxTokens(normalizeDefaultMaxTokens(defaultMaxTokens));
+        row.setAllowedModelsJson(encodeAllowedModels(allowedModels));
         row.setEnabled(enabled ? 1 : 0);
         row.setStatus("stopped");
         row.setCreateTime(LocalDateTime.now());
@@ -81,7 +96,15 @@ public class OracleAiPortBindingService {
     }
 
     @Transactional(rollbackFor = Exception.class)
-    public OciOpenaiPortBinding update(String id, String name, int port, String ociUserId, String openaiKeyId, Integer defaultMaxTokens, boolean enabled) {
+    public OciOpenaiPortBinding update(
+            String id,
+            String name,
+            int port,
+            String ociUserId,
+            String openaiKeyId,
+            Integer defaultMaxTokens,
+            List<String> allowedModels,
+            boolean enabled) {
         OciOpenaiPortBinding row = bindingMapper.selectById(id);
         if (row == null) {
             throw new OciException("绑定不存在");
@@ -98,6 +121,7 @@ public class OracleAiPortBindingService {
         row.setOciUserId(ociUserId);
         row.setOpenaiKeyId(openaiKeyId);
         row.setDefaultMaxTokens(normalizeDefaultMaxTokens(defaultMaxTokens));
+        row.setAllowedModelsJson(encodeAllowedModels(allowedModels));
         row.setEnabled(enabled ? 1 : 0);
         row.setUpdateTime(LocalDateTime.now());
         bindingMapper.updateById(row);
@@ -227,5 +251,63 @@ public class OracleAiPortBindingService {
             return null;
         }
         return OracleAiGatewayConfigService.normalizeDefaultMaxTokens(value);
+    }
+
+    public static List<String> decodeAllowedModels(String json) {
+        List<String> out = new ArrayList<>();
+        if (json == null || json.isBlank()) {
+            return out;
+        }
+        try {
+            JsonNode root = MAPPER.readTree(json);
+            if (root != null && root.isArray()) {
+                for (JsonNode n : root) {
+                    if (n != null && n.isTextual()) {
+                        String s = n.asText().trim();
+                        if (!s.isBlank()) {
+                            out.add(s);
+                        }
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return normalizeAllowedModels(out);
+    }
+
+    public static List<String> normalizeAllowedModels(List<String> input) {
+        if (input == null || input.isEmpty()) {
+            return List.of();
+        }
+        Set<String> set = new LinkedHashSet<>();
+        for (String raw : input) {
+            if (raw == null) {
+                continue;
+            }
+            String s = raw.trim();
+            if (s.isBlank()) {
+                continue;
+            }
+            if (s.length() > 256) {
+                s = s.substring(0, 256);
+            }
+            set.add(s);
+            if (set.size() >= 200) {
+                break;
+            }
+        }
+        return new ArrayList<>(set);
+    }
+
+    private static String encodeAllowedModels(List<String> input) {
+        List<String> normalized = normalizeAllowedModels(input);
+        if (normalized.isEmpty()) {
+            return null;
+        }
+        try {
+            return MAPPER.writeValueAsString(normalized);
+        } catch (Exception e) {
+            throw new OciException("allowedModels 保存失败");
+        }
     }
 }

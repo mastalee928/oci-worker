@@ -104,6 +104,9 @@ public class OpenAiApiKeyFilter extends OncePerRequestFilter {
             if (binding.getDefaultMaxTokens() != null && binding.getDefaultMaxTokens() > 0) {
                 request.setAttribute(OpenAiApiConstants.ATTR_DEFAULT_MAX_TOKENS, binding.getDefaultMaxTokens());
             }
+            if (binding.getAllowedModelsJson() != null && !binding.getAllowedModelsJson().isBlank()) {
+                request.setAttribute(OpenAiApiConstants.ATTR_ALLOWED_MODELS_JSON, binding.getAllowedModelsJson());
+            }
         }
         try {
             openaiKeyService.updateLastUsed(key.getId());

@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="oracle-ai-page">
     <a-tabs v-model:activeKey="activeModeTab" class="mode-tabs">
       <a-tab-pane key="single" tab="单账户模式">
@@ -223,13 +223,14 @@
             message="保存后 OCIworker 会立即监听本机端口；如需外网访问，还需要在系统防火墙和 OCI 安全列表放行对应端口。"
           />
           <a-table
+            class="port-table"
             :columns="portColumns"
             :data-source="portBindings"
             :loading="portBindingsLoading"
             row-key="id"
             size="middle"
             :pagination="false"
-            :scroll="{ x: 1100 }"
+            :scroll="{ x: 1580 }"
           >
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'enabled'">
@@ -253,6 +254,9 @@
               <template v-else-if="column.key === 'maxTokens'">
                 {{ record.defaultMaxTokens || '全局默认' }}
               </template>
+              <template v-else-if="column.key === 'models'">
+                <span class="model-summary">{{ modelSummary(record.allowedModels) }}</span>
+              </template>
               <template v-else-if="column.key === 'status'">
                 <a-tag :color="portStatusColor(record)">{{ portStatusText(record) }}</a-tag>
                 <div v-if="record.statusMessage" class="sub-muted status-message">{{ record.statusMessage }}</div>
@@ -261,7 +265,7 @@
                 {{ formatKeyTime(record.lastUsed) }}
               </template>
               <template v-else-if="column.key === 'a'">
-                <a-space>
+                <a-space class="port-actions" :size="4">
                   <a-button size="small" type="link" @click="revealPortKey(record)">查看Key</a-button>
                   <a-button size="small" @click="openPortModal(record)">编辑</a-button>
                   <a-popconfirm title="确定删除该端口绑定？" @confirm="removePortBindingRow(record)">
@@ -379,16 +383,33 @@
         <a-form-item label="备注">
           <a-input v-model:value="portForm.name" placeholder="sub2api-channel-1" />
         </a-form-item>
+        <a-form-item label="模型">
+          <a-select
+            v-model:value="portForm.allowedModels"
+            mode="multiple"
+            :options="portModelOptions"
+            :loading="portModelsLoading"
+            placeholder="留空不限制模型"
+            show-search
+            :filter-option="filterModel"
+            :max-tag-count="4"
+            :get-popup-container="selectPopupContainer"
+            :dropdown-style="{ maxHeight: 'min(70vh, 480px)' }"
+          />
+          <div class="sub-muted form-help">保存后该端口的 /v1/models 只返回这里选择的模型；留空表示不限制。</div>
+        </a-form-item>
         <a-form-item label="启用">
           <a-switch v-model:checked="portForm.enabled" />
         </a-form-item>
       </a-form>
     </a-modal>
-    <a-divider />
-    <div class="sub sub-bottom">
-      说明：未带 <code>max_tokens</code> 时网关会补默认 4000；请求体里 <code>force_non_stream: true</code> 会强制非流式。
-      Multi-Agent 在网关内会走 <code>/v1/responses</code>；新库若缺列需执行
-      <code>upgrade-oci-generative-tenant-columns.sql</code>。
+    <div class="sub sub-bottom" v-if="activeModeTab === 'single'">
+      说明：未带 <code>max_tokens</code> 时使用当前默认值；请求体里 <code>force_non_stream: true</code> 会强制非流式。
+      Multi-Agent 在网关内会走 <code>/v1/responses</code>。
+    </div>
+    <div class="sub sub-bottom" v-else>
+      说明：多账户端口用于给 sub2api / New API 做负载均衡；端口范围 <code>30000-39999</code>。
+      每个端口可单独设置 <code>max_tokens</code> 和模型列表；模型留空表示不限制。
     </div>
   </div>
 </template>
@@ -437,6 +458,8 @@ const portSaving = ref(false)
 const portKeysLoading = ref(false)
 const portKeyCreating = ref(false)
 const portKeyOptions = ref<{ label: string; value: string }[]>([])
+const portModelsLoading = ref(false)
+const portModelOptions = ref<{ label: string; value: string; title?: string }[]>([])
 const portForm = ref<{
   id?: string
   name?: string
@@ -444,10 +467,12 @@ const portForm = ref<{
   ociUserId?: string
   openaiKeyId?: string
   defaultMaxTokens?: number | null
+  allowedModels: string[]
   enabled: boolean
 }>({
   port: 30000,
   defaultMaxTokens: null,
+  allowedModels: [],
   enabled: true,
 })
 const modelPick = ref<string[]>([])
@@ -494,15 +519,16 @@ const keyColumns = [
 ] as any
 
 const portColumns = [
-  { title: '开关', key: 'enabled', width: 86, fixed: 'left' },
+  { title: '开关', key: 'enabled', width: 92, fixed: 'left' },
   { title: '端口', key: 'port', width: 90 },
-  { title: '租户', key: 'tenant', width: 220 },
+  { title: '租户', key: 'tenant', width: 240 },
   { title: 'API Key', key: 'key', width: 180 },
-  { title: 'Base URL', key: 'base', width: 260 },
+  { title: 'Base URL', key: 'base', width: 300 },
   { title: 'max_tokens', key: 'maxTokens', width: 120 },
+  { title: '模型', key: 'models', width: 220 },
   { title: '状态', key: 'status', width: 160 },
   { title: '最近使用', key: 'lastUsed', width: 160 },
-  { title: '操作', key: 'a', width: 150, fixed: 'right' },
+  { title: '操作', key: 'a', width: 210, fixed: 'right' },
 ] as any
 
 function formatKeyTime(iso?: string | null) {
@@ -724,6 +750,12 @@ function filterModel(input: string, opt: any) {
   return (String(opt?.label || '')
     .toLowerCase()
     .includes((input || '').toLowerCase()))
+}
+
+function modelSummary(models?: string[]) {
+  if (!Array.isArray(models) || !models.length) return 'All'
+  if (models.length <= 2) return models.join(', ')
+  return `${models[0]}, ${models[1]} +${models.length - 2}`
 }
 
 async function loadTenants() {
@@ -954,21 +986,27 @@ async function openPortModal(row?: any) {
     ociUserId: row?.ociUserId || undefined,
     openaiKeyId: row?.openaiKeyId || undefined,
     defaultMaxTokens: row?.defaultMaxTokens ? Number(row.defaultMaxTokens) : null,
+    allowedModels: Array.isArray(row?.allowedModels) ? row.allowedModels : [],
     enabled: row?.enabled !== false,
   }
   portModalOpen.value = true
   portKeyOptions.value = []
+  portModelOptions.value = []
   if (portForm.value.ociUserId) {
     await loadPortKeys(portForm.value.ociUserId)
+    await loadPortModels(portForm.value.ociUserId)
   }
 }
 
 async function onPortTenantChange() {
   portForm.value.openaiKeyId = undefined
+  portForm.value.allowedModels = []
   if (portForm.value.ociUserId) {
     await loadPortKeys(portForm.value.ociUserId)
+    await loadPortModels(portForm.value.ociUserId)
   } else {
     portKeyOptions.value = []
+    portModelOptions.value = []
   }
 }
 
@@ -1017,6 +1055,36 @@ async function createPortTenantKey() {
   }
 }
 
+async function loadPortModels(tenantId: string) {
+  portModelsLoading.value = true
+  try {
+    const r: any = await listOpenAiModels({ ociUserId: tenantId })
+    const data = r?.data?.data || r?.data || []
+    const raw = Array.isArray(data) ? data : []
+    const options = raw
+      .map((x: any) => {
+        const value = String(x?.id || x || '').trim()
+        if (!value) return null
+        const label = String(x?.displayName || x?.id || x || '').trim()
+        return {
+          value,
+          label: label || value,
+          title: String(x?.ociworkerNote || x?.ociId || label || value),
+        }
+      })
+      .filter(Boolean) as { label: string; value: string; title?: string }[]
+    const existing = new Set(options.map((x) => x.value))
+    for (const value of portForm.value.allowedModels || []) {
+      if (value && !existing.has(value)) {
+        options.push({ value, label: `${value} (saved)` })
+      }
+    }
+    portModelOptions.value = options
+  } finally {
+    portModelsLoading.value = false
+  }
+}
+
 async function revealPortKey(row: any) {
   const id = row?.openaiKeyId
   if (!id) return
@@ -1052,6 +1120,7 @@ async function savePortBindingRow() {
       ociUserId: f.ociUserId,
       openaiKeyId: f.openaiKeyId,
       defaultMaxTokens: f.defaultMaxTokens ? Math.trunc(Number(f.defaultMaxTokens)) : null,
+      allowedModels: f.allowedModels || [],
       enabled: f.enabled,
     })
     portModalOpen.value = false
@@ -1197,6 +1266,27 @@ async function viewKey(k: any) {
 .max-token-form :deep(.ant-form-item) { margin-bottom: 6px; }
 .max-token-input { width: 220px; max-width: calc(100vw - 96px); }
 .max-token-help { margin: 0; }
+.port-table :deep(.ant-table-cell) {
+  vertical-align: middle;
+}
+.port-table :deep(.ant-table-cell-fix-right) {
+  background: var(--card-bg, #fff);
+}
+.port-actions {
+  white-space: nowrap;
+}
+.port-actions :deep(.ant-btn-link) {
+  padding-left: 4px;
+  padding-right: 4px;
+}
+.model-summary {
+  display: inline-block;
+  max-width: 190px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
 .code-wrap {
   word-break: break-all;
   user-select: all;

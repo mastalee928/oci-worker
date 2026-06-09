@@ -92,6 +92,7 @@ CREATE TABLE IF NOT EXISTS oci_openai_port_binding (
     oci_user_id VARCHAR(64) NOT NULL,
     openai_key_id VARCHAR(64) NOT NULL,
     default_max_tokens INT DEFAULT NULL,
+    allowed_models_json TEXT DEFAULT NULL,
     enabled TINYINT(1) NOT NULL DEFAULT 1,
     status VARCHAR(32) DEFAULT 'stopped',
     status_message VARCHAR(512) DEFAULT NULL,

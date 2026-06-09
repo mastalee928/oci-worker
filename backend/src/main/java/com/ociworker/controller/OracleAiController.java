@@ -24,6 +24,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.util.HashMap;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
@@ -256,10 +257,11 @@ public class OracleAiController {
             String openaiKeyId = body == null ? null : trimObj(body.get("openaiKeyId"));
             int port = intValue(body == null ? null : body.get("port"), -1);
             Integer defaultMaxTokens = nullableIntValue(body == null ? null : body.get("defaultMaxTokens"));
+            List<String> allowedModels = stringListValue(body == null ? null : body.get("allowedModels"));
             boolean enabled = boolValue(body == null ? null : body.get("enabled"), true);
             OciOpenaiPortBinding row = (id == null)
-                    ? portBindingService.create(name, port, ociUserId, openaiKeyId, defaultMaxTokens, enabled)
-                    : portBindingService.update(id, name, port, ociUserId, openaiKeyId, defaultMaxTokens, enabled);
+                    ? portBindingService.create(name, port, ociUserId, openaiKeyId, defaultMaxTokens, allowedModels, enabled)
+                    : portBindingService.update(id, name, port, ociUserId, openaiKeyId, defaultMaxTokens, allowedModels, enabled);
             return ResponseData.ok(portBindingRow(row));
         } catch (com.ociworker.exception.OciException e) {
             return ResponseData.error(e.getMessage());
@@ -515,6 +517,23 @@ public class OracleAiController {
         return def;
     }
 
+    private static List<String> stringListValue(Object v) {
+        List<String> out = new ArrayList<>();
+        if (v instanceof List<?> list) {
+            for (Object o : list) {
+                if (o != null) {
+                    out.add(String.valueOf(o));
+                }
+            }
+        } else if (v != null) {
+            String s = String.valueOf(v).trim();
+            if (!s.isBlank()) {
+                out.add(s);
+            }
+        }
+        return com.ociworker.service.OracleAiPortBindingService.normalizeAllowedModels(out);
+    }
+
     private Map<String, Object> portBindingRow(OciOpenaiPortBinding b) {
         Map<String, Object> row = new HashMap<>();
         if (b == null) {
@@ -526,6 +545,7 @@ public class OracleAiController {
         row.put("ociUserId", b.getOciUserId());
         row.put("openaiKeyId", b.getOpenaiKeyId());
         row.put("defaultMaxTokens", b.getDefaultMaxTokens());
+        row.put("allowedModels", com.ociworker.service.OracleAiPortBindingService.decodeAllowedModels(b.getAllowedModelsJson()));
         row.put("enabled", b.getEnabled() != null && b.getEnabled() == 1);
         row.put("status", b.getStatus());
         row.put("statusMessage", b.getStatusMessage());

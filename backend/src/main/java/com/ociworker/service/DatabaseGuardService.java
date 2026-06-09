@@ -138,6 +138,7 @@ public class DatabaseGuardService {
                 oci_user_id VARCHAR(64) NOT NULL,
                 openai_key_id VARCHAR(64) NOT NULL,
                 default_max_tokens INT DEFAULT NULL,
+                allowed_models_json TEXT DEFAULT NULL,
                 enabled TINYINT(1) NOT NULL DEFAULT 1,
                 status VARCHAR(32) DEFAULT 'stopped',
                 status_message VARCHAR(512) DEFAULT NULL,
@@ -350,6 +351,8 @@ public class DatabaseGuardService {
                 "VARCHAR(32) DEFAULT 'stopped' AFTER enabled");
         addColumnIfMissing(conn, "oci_openai_port_binding", "default_max_tokens",
                 "INT DEFAULT NULL AFTER openai_key_id");
+        addColumnIfMissing(conn, "oci_openai_port_binding", "allowed_models_json",
+                "TEXT DEFAULT NULL AFTER default_max_tokens");
         addColumnIfMissing(conn, "oci_openai_port_binding", "status_message",
                 "VARCHAR(512) DEFAULT NULL AFTER status");
         addColumnIfMissing(conn, "oci_openai_port_binding", "update_time",

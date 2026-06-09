@@ -30,9 +30,11 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.util.Iterator;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.function.IntSupplier;
 
 /**
@@ -95,6 +97,19 @@ public class OciGenerativeOpenAiService {
         }
         final byte[] origBody = body;
         final int requestDefaultMaxTokens = requestDefaultMaxTokens(request);
+        final List<String> requestAllowedModels = requestAllowedModels(request);
+        if ("GET".equalsIgnoreCase(method) && isModelsPath(origPathAfterV1) && !requestAllowedModels.isEmpty()) {
+            writeJson(response, allowedModelsToOpenAiList(requestAllowedModels));
+            return;
+        }
+        String requestedModel = extractModelFromBody(origBody, contentType);
+        if ((isChatCompletionsPath(origPathAfterV1) || isResponsesPath(origPathAfterV1))
+                && !isAllowedModel(requestedModel, requestAllowedModels)) {
+            writeOpenAiError(response, 400, "invalid_request_error",
+                    "Model is not allowed for this port binding: " + requestedModel,
+                    "model_not_allowed");
+            return;
+        }
         // 记录原始 /v1 之后路径，便于排障
         request.setAttribute("ociworker.debug.origPathAfterV1", origPathAfterV1);
 
@@ -683,6 +698,88 @@ public class OciGenerativeOpenAiService {
 
     private static boolean isResponsesPath(String p) {
         return p != null && (p.equals("/responses") || p.endsWith("/responses"));
+    }
+
+    private static boolean isModelsPath(String p) {
+        return p != null && (p.equals("/models") || p.endsWith("/models"));
+    }
+
+    private static String extractModelFromBody(byte[] body, String contentType) {
+        if (body == null || body.length == 0) {
+            return null;
+        }
+        if (contentType != null && !contentType.isBlank() && !contentType.toLowerCase().contains("json")) {
+            return null;
+        }
+        try {
+            JsonNode root = MAPPER.readTree(body);
+            if (root != null && root.isObject()) {
+                return textOrNull((ObjectNode) root, "model");
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
+    private static boolean isAllowedModel(String model, List<String> allowedModels) {
+        if (allowedModels == null || allowedModels.isEmpty()) {
+            return true;
+        }
+        if (model == null || model.isBlank()) {
+            return false;
+        }
+        Set<String> allowed = new HashSet<>();
+        for (String item : allowedModels) {
+            if (item != null && !item.isBlank()) {
+                allowed.add(item.trim());
+            }
+        }
+        return allowed.contains(model.trim());
+    }
+
+    private static List<String> requestAllowedModels(HttpServletRequest request) {
+        if (request == null) {
+            return List.of();
+        }
+        Object v = request.getAttribute(OpenAiApiConstants.ATTR_ALLOWED_MODELS_JSON);
+        if (v == null) {
+            return List.of();
+        }
+        return OracleAiPortBindingService.decodeAllowedModels(String.valueOf(v));
+    }
+
+    private static ObjectNode allowedModelsToOpenAiList(List<String> models) {
+        ArrayNode data = MAPPER.createArrayNode();
+        if (models != null) {
+            for (String model : models) {
+                if (model == null || model.isBlank()) {
+                    continue;
+                }
+                ObjectNode row = MAPPER.createObjectNode();
+                row.put("id", model.trim());
+                row.put("object", "model");
+                data.add(row);
+            }
+        }
+        return buildOpenAiModelList(data);
+    }
+
+    private static void writeJson(HttpServletResponse response, JsonNode body) throws IOException {
+        response.setStatus(200);
+        response.setContentType("application/json; charset=utf-8");
+        response.getOutputStream().write(MAPPER.writeValueAsBytes(body));
+    }
+
+    private static void writeOpenAiError(HttpServletResponse response, int status, String type, String message, String code) throws IOException {
+        response.setStatus(status);
+        response.setContentType("application/json; charset=utf-8");
+        ObjectNode root = MAPPER.createObjectNode();
+        ObjectNode error = MAPPER.createObjectNode();
+        error.put("type", type);
+        error.put("message", message);
+        error.put("code", code);
+        root.set("error", error);
+        response.getOutputStream().write(MAPPER.writeValueAsBytes(root));
     }
 
     /**

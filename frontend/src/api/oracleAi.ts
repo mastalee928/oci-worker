@@ -43,6 +43,7 @@ export function saveOracleAiPortBinding(data: {
   ociUserId: string
   openaiKeyId: string
   defaultMaxTokens?: number | null
+  allowedModels?: string[]
   enabled?: boolean
 }) {
   return request.post('/oci/oracle-ai/ports/save', data)

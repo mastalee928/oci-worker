@@ -16,6 +16,7 @@ public class OciOpenaiPortBinding {
     private String ociUserId;
     private String openaiKeyId;
     private Integer defaultMaxTokens;
+    private String allowedModelsJson;
     private Integer enabled;
     private String status;
     private String statusMessage;
