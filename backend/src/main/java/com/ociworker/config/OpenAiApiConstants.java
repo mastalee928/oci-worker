@@ -7,6 +7,8 @@ public final class OpenAiApiConstants {
 
     public static final String ATTR_TENANT_USER_ID = "ociworker.openai.ociUserId";
     public static final String ATTR_OPENAI_KEY_ID = "ociworker.openai.keyId";
+    public static final String ATTR_PORT_BINDING_ID = "ociworker.openai.portBindingId";
+    public static final String ATTR_DEFAULT_MAX_TOKENS = "ociworker.openai.defaultMaxTokens";
 
     private OpenAiApiConstants() {
     }

@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.oracle.bmc.auth.SimpleAuthenticationDetailsProvider;
 import com.oracle.bmc.http.signing.DefaultRequestSigner;
 import com.oracle.bmc.http.signing.RequestSigner;
+import com.ociworker.config.OpenAiApiConstants;
 import com.ociworker.exception.OciException;
 import com.ociworker.model.entity.OciUser;
 import com.ociworker.util.OciBasicForSigning;
@@ -93,6 +94,7 @@ public class OciGenerativeOpenAiService {
             body = request.getInputStream().readAllBytes();
         }
         final byte[] origBody = body;
+        final int requestDefaultMaxTokens = requestDefaultMaxTokens(request);
         // 记录原始 /v1 之后路径，便于排障
         request.setAttribute("ociworker.debug.origPathAfterV1", origPathAfterV1);
 
@@ -123,7 +125,7 @@ public class OciGenerativeOpenAiService {
                 request.setAttribute("ociworker.rewrite.useRawV1Base", Boolean.TRUE);
                 request.setAttribute("ociworker.rewrite.model", "multi-agent");
                 pathAfterV1 = "/responses";
-                body = transformChatCompletionsToResponsesJson(origBody);
+                body = transformChatCompletionsToResponsesJson(origBody, requestDefaultMaxTokens);
                 try {
                     if (request != null && body != null) {
                         request.setAttribute("ociworker.debug.responsesInputShape.before", describeResponsesInputShape(body));
@@ -154,7 +156,7 @@ public class OciGenerativeOpenAiService {
                         }
                         request.setAttribute("ociworker.rewrite.useRawV1Base", Boolean.TRUE);
                         pathAfterV1 = "/responses";
-                        body = transformChatCompletionsToResponsesJson(origBody);
+                        body = transformChatCompletionsToResponsesJson(origBody, requestDefaultMaxTokens);
                         // Cursor 走 chat/completions 时会被改写成 /responses；但 OCI 对 ModelInput 更严格，
                         // 这里对改写后的 body 再做一次宽松规范化，避免 422: untagged enum ModelInput 反序列化失败。
                         try {
@@ -171,19 +173,19 @@ public class OciGenerativeOpenAiService {
                         }
                         // responses 与 chat completions 的补默认策略不同，这里让下游按 OCI 行为处理
                     } else if (isChatCompletionsPath(origPathAfterV1)) {
-                        body = transformChatCompletionsJson(origBody);
+                        body = transformChatCompletionsJson(origBody, requestDefaultMaxTokens);
                     }
                     } else if (isChatCompletionsPath(origPathAfterV1)) {
-                    body = transformChatCompletionsJson(origBody);
+                    body = transformChatCompletionsJson(origBody, requestDefaultMaxTokens);
                 }
                 } catch (Exception e) {
-                    body = transformChatCompletionsJson(origBody);
+                    body = transformChatCompletionsJson(origBody, requestDefaultMaxTokens);
                 }
             } else if (body != null && body.length > 0 && looksLikeJson) {
-                body = transformChatCompletionsJson(body);
+                body = transformChatCompletionsJson(body, requestDefaultMaxTokens);
             }
         } else if (isChatCompletionsPath(origPathAfterV1) && body != null && body.length > 0 && looksLikeJson) {
-            body = transformChatCompletionsJson(body);
+            body = transformChatCompletionsJson(body, requestDefaultMaxTokens);
         }
 
         // 对直接调用 /v1/responses 的请求：OCI 对 input 的 ModelInput 格式较严格。
@@ -721,7 +723,7 @@ public class OciGenerativeOpenAiService {
                 if (msgs != null && msgs.isArray()) {
                     ObjectNode fauxChat = MAPPER.createObjectNode();
                     fauxChat.set("messages", msgs);
-                    byte[] mapped = transformChatCompletionsToResponsesJson(MAPPER.writeValueAsBytes(fauxChat));
+                    byte[] mapped = transformChatCompletionsToResponsesJson(MAPPER.writeValueAsBytes(fauxChat), defaultMaxTokens());
                     JsonNode mappedRoot = MAPPER.readTree(mapped);
                     if (mappedRoot != null && mappedRoot.isObject() && mappedRoot.get("input") != null) {
                         in.set("input", mappedRoot.get("input"));
@@ -977,7 +979,23 @@ public class OciGenerativeOpenAiService {
         }
     }
 
-    private static byte[] transformChatCompletionsJson(byte[] input) {
+    private static int requestDefaultMaxTokens(HttpServletRequest request) {
+        if (request != null) {
+            Object v = request.getAttribute(OpenAiApiConstants.ATTR_DEFAULT_MAX_TOKENS);
+            if (v instanceof Number n) {
+                return OracleAiGatewayConfigService.normalizeDefaultMaxTokens(n.intValue());
+            }
+            if (v != null) {
+                try {
+                    return OracleAiGatewayConfigService.normalizeDefaultMaxTokens(Integer.parseInt(String.valueOf(v)));
+                } catch (Exception ignored) {
+                }
+            }
+        }
+        return defaultMaxTokens();
+    }
+
+    private static byte[] transformChatCompletionsJson(byte[] input, int defaultMaxTokens) {
         try {
             JsonNode root = MAPPER.readTree(input);
             if (root == null || !root.isObject()) {
@@ -985,7 +1003,7 @@ public class OciGenerativeOpenAiService {
             }
             ObjectNode o = (ObjectNode) root;
             if (o.get("max_tokens") == null || o.get("max_tokens").isNull() || o.get("max_tokens").isMissingNode()) {
-                o.put("max_tokens", defaultMaxTokens());
+                o.put("max_tokens", OracleAiGatewayConfigService.normalizeDefaultMaxTokens(defaultMaxTokens));
             }
             JsonNode force = o.get("force_non_stream");
             if (force != null && (force.isBoolean() && force.asBoolean()
@@ -999,7 +1017,7 @@ public class OciGenerativeOpenAiService {
         }
     }
 
-    private static byte[] transformChatCompletionsToResponsesJson(byte[] input) {
+    private static byte[] transformChatCompletionsToResponsesJson(byte[] input, int defaultMaxTokens) {
         try {
             JsonNode root = MAPPER.readTree(input);
             if (root == null || !root.isObject()) {
@@ -1073,10 +1091,10 @@ public class OciGenerativeOpenAiService {
                 if (mt.isNumber()) {
                     out.put("max_output_tokens", mt.intValue());
                 } else {
-                    out.put("max_output_tokens", mt.asInt(defaultMaxTokens()));
+                    out.put("max_output_tokens", mt.asInt(OracleAiGatewayConfigService.normalizeDefaultMaxTokens(defaultMaxTokens)));
                 }
             } else {
-                out.put("max_output_tokens", defaultMaxTokens());
+                out.put("max_output_tokens", OracleAiGatewayConfigService.normalizeDefaultMaxTokens(defaultMaxTokens));
             }
             JsonNode temp = in.get("temperature");
             if (temp != null && !temp.isNull() && !temp.isMissingNode()) {

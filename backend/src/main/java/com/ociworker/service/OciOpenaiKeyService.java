@@ -77,6 +77,13 @@ public class OciOpenaiKeyService {
     }
 
     /** 列表用脱敏展示，不含完整密钥 */
+    public OciOpenaiKey getById(String id) {
+        if (id == null || id.isBlank()) {
+            return null;
+        }
+        return openaiKeyMapper.selectById(id);
+    }
+
     public String maskForList(OciOpenaiKey k) {
         if (k == null) {
             return "sk-****";

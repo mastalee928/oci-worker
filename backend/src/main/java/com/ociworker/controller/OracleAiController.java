@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.ociworker.model.entity.OciOpenaiKey;
+import com.ociworker.model.entity.OciOpenaiPortBinding;
 import com.ociworker.model.entity.OciUser;
 import com.ociworker.model.entity.OciKv;
 import com.ociworker.model.vo.ResponseData;
@@ -45,6 +46,8 @@ public class OracleAiController {
     private com.ociworker.service.OracleAiGatewayToggleService gatewayToggleService;
     @Resource
     private com.ociworker.service.OracleAiGatewayConfigService gatewayConfigService;
+    @Resource
+    private com.ociworker.service.OracleAiPortBindingService portBindingService;
     @Resource
     private OciKvMapper kvMapper;
 
@@ -238,6 +241,58 @@ public class OracleAiController {
         return ResponseData.ok();
     }
 
+    @PostMapping("/ports/list")
+    public ResponseData<?> listPortBindings() {
+        List<OciOpenaiPortBinding> list = portBindingService.list();
+        return ResponseData.ok(list.stream().map(this::portBindingRow).collect(Collectors.toList()));
+    }
+
+    @PostMapping("/ports/save")
+    public ResponseData<?> savePortBinding(@RequestBody Map<String, Object> body) {
+        try {
+            String id = body == null ? null : trimObj(body.get("id"));
+            String name = body == null ? null : trimObj(body.get("name"));
+            String ociUserId = body == null ? null : trimObj(body.get("ociUserId"));
+            String openaiKeyId = body == null ? null : trimObj(body.get("openaiKeyId"));
+            int port = intValue(body == null ? null : body.get("port"), -1);
+            Integer defaultMaxTokens = nullableIntValue(body == null ? null : body.get("defaultMaxTokens"));
+            boolean enabled = boolValue(body == null ? null : body.get("enabled"), true);
+            OciOpenaiPortBinding row = (id == null)
+                    ? portBindingService.create(name, port, ociUserId, openaiKeyId, defaultMaxTokens, enabled)
+                    : portBindingService.update(id, name, port, ociUserId, openaiKeyId, defaultMaxTokens, enabled);
+            return ResponseData.ok(portBindingRow(row));
+        } catch (com.ociworker.exception.OciException e) {
+            return ResponseData.error(e.getMessage());
+        } catch (Exception e) {
+            return ResponseData.error(e.getMessage() != null ? e.getMessage() : "保存失败");
+        }
+    }
+
+    @PostMapping("/ports/setEnabled")
+    public ResponseData<?> setPortBindingEnabled(@RequestBody Map<String, Object> body) {
+        String id = body == null ? null : trimObj(body.get("id"));
+        if (id == null) {
+            return ResponseData.error("id 必填");
+        }
+        boolean enabled = boolValue(body.get("enabled"), true);
+        try {
+            portBindingService.setEnabled(id, enabled);
+            return ResponseData.ok();
+        } catch (com.ociworker.exception.OciException e) {
+            return ResponseData.error(e.getMessage());
+        }
+    }
+
+    @PostMapping("/ports/remove")
+    public ResponseData<?> removePortBinding(@RequestBody Map<String, Object> body) {
+        String id = body == null ? null : trimObj(body.get("id"));
+        if (id == null) {
+            return ResponseData.error("id 必填");
+        }
+        portBindingService.remove(id);
+        return ResponseData.ok();
+    }
+
     @PostMapping("/models")
     public ResponseData<?> models(@RequestBody Map<String, String> body) {
         if (body == null || body.get("ociUserId") == null) {
@@ -405,5 +460,91 @@ public class OracleAiController {
         }
         String t = s.trim();
         return t.isEmpty() ? null : t;
+    }
+
+    private static String trimObj(Object v) {
+        return v == null ? null : trimToNullOrBlank(String.valueOf(v));
+    }
+
+    private static int intValue(Object v, int def) {
+        if (v == null) {
+            return def;
+        }
+        try {
+            if (v instanceof Number n) {
+                return n.intValue();
+            }
+            return Integer.parseInt(String.valueOf(v).trim());
+        } catch (Exception ignored) {
+            return def;
+        }
+    }
+
+    private static Integer nullableIntValue(Object v) {
+        if (v == null) {
+            return null;
+        }
+        String s = String.valueOf(v).trim();
+        if (s.isEmpty() || "null".equalsIgnoreCase(s)) {
+            return null;
+        }
+        try {
+            if (v instanceof Number n) {
+                return n.intValue();
+            }
+            return Integer.parseInt(s);
+        } catch (Exception e) {
+            throw new IllegalArgumentException("defaultMaxTokens 必须是数字");
+        }
+    }
+
+    private static boolean boolValue(Object v, boolean def) {
+        if (v == null) {
+            return def;
+        }
+        if (v instanceof Boolean b) {
+            return b;
+        }
+        String s = String.valueOf(v).trim();
+        if ("true".equalsIgnoreCase(s) || "1".equals(s)) {
+            return true;
+        }
+        if ("false".equalsIgnoreCase(s) || "0".equals(s)) {
+            return false;
+        }
+        return def;
+    }
+
+    private Map<String, Object> portBindingRow(OciOpenaiPortBinding b) {
+        Map<String, Object> row = new HashMap<>();
+        if (b == null) {
+            return row;
+        }
+        row.put("id", b.getId());
+        row.put("name", b.getName());
+        row.put("port", b.getPort());
+        row.put("ociUserId", b.getOciUserId());
+        row.put("openaiKeyId", b.getOpenaiKeyId());
+        row.put("defaultMaxTokens", b.getDefaultMaxTokens());
+        row.put("enabled", b.getEnabled() != null && b.getEnabled() == 1);
+        row.put("status", b.getStatus());
+        row.put("statusMessage", b.getStatusMessage());
+        row.put("createTime", b.getCreateTime());
+        row.put("updateTime", b.getUpdateTime());
+        row.put("lastUsed", b.getLastUsed());
+        row.put("baseUrl", "http://<host>:" + b.getPort() + "/v1");
+
+        OciUser u = b.getOciUserId() == null ? null : ociUserMapper.selectById(b.getOciUserId());
+        if (u != null) {
+            row.put("tenantName", u.getUsername());
+            row.put("ociRegion", u.getOciRegion());
+        }
+        OciOpenaiKey key = b.getOpenaiKeyId() == null ? null : openaiKeyService.getById(b.getOpenaiKeyId());
+        if (key != null) {
+            row.put("keyMasked", openaiKeyService.maskForList(key));
+            row.put("keyName", key.getName());
+            row.put("keyDisabled", key.getDisabled() != null && key.getDisabled() == 1);
+        }
+        return row;
     }
 }

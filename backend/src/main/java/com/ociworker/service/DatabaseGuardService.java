@@ -130,6 +130,26 @@ public class DatabaseGuardService {
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """);
 
+        TABLE_DDL.put("oci_openai_port_binding", """
+            CREATE TABLE IF NOT EXISTS oci_openai_port_binding (
+                id VARCHAR(64) PRIMARY KEY,
+                name VARCHAR(128) DEFAULT NULL,
+                port INT NOT NULL,
+                oci_user_id VARCHAR(64) NOT NULL,
+                openai_key_id VARCHAR(64) NOT NULL,
+                default_max_tokens INT DEFAULT NULL,
+                enabled TINYINT(1) NOT NULL DEFAULT 1,
+                status VARCHAR(32) DEFAULT 'stopped',
+                status_message VARCHAR(512) DEFAULT NULL,
+                create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                update_time DATETIME DEFAULT NULL,
+                last_used DATETIME DEFAULT NULL,
+                UNIQUE KEY uk_oci_openai_port_binding_port (port),
+                INDEX idx_oci_openai_port_binding_user (oci_user_id),
+                INDEX idx_oci_openai_port_binding_key (openai_key_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            """);
+
         TABLE_DDL.put("oci_login_audit", """
             CREATE TABLE IF NOT EXISTS oci_login_audit (
                 id VARCHAR(64) PRIMARY KEY,
@@ -326,6 +346,16 @@ public class DatabaseGuardService {
                 "MEDIUMTEXT NULL COMMENT 'JSON: 访问入口、网络与链路、客户端与能力' AFTER user_agent");
         addColumnIfMissing(conn, "oci_openai_key", "key_encrypted",
                 "TEXT NULL COMMENT 'AES 加密完整 sk，供面板查看' AFTER key_prefix");
+        addColumnIfMissing(conn, "oci_openai_port_binding", "status",
+                "VARCHAR(32) DEFAULT 'stopped' AFTER enabled");
+        addColumnIfMissing(conn, "oci_openai_port_binding", "default_max_tokens",
+                "INT DEFAULT NULL AFTER openai_key_id");
+        addColumnIfMissing(conn, "oci_openai_port_binding", "status_message",
+                "VARCHAR(512) DEFAULT NULL AFTER status");
+        addColumnIfMissing(conn, "oci_openai_port_binding", "update_time",
+                "DATETIME DEFAULT NULL AFTER create_time");
+        addColumnIfMissing(conn, "oci_openai_port_binding", "last_used",
+                "DATETIME DEFAULT NULL AFTER update_time");
     }
 
     private void addColumnIfMissing(Connection conn, String table, String column, String definition) {

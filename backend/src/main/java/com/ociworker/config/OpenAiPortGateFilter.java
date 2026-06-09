@@ -1,5 +1,6 @@
 package com.ociworker.config;
 
+import com.ociworker.service.DynamicOpenAiPortService;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -45,7 +46,8 @@ public class OpenAiPortGateFilter extends OncePerRequestFilter {
             filterChain.doFilter(request, response);
             return;
         }
-        if (request.getLocalPort() != openaiApiPort) {
+        int localPort = request.getLocalPort();
+        if (localPort != openaiApiPort && !DynamicOpenAiPortService.isManagedPort(localPort)) {
             response.setStatus(404);
             response.setContentType("application/json; charset=utf-8");
             String msg = "{\"error\":{\"message\":\"OpenAI 兼容 API 请使用 :"

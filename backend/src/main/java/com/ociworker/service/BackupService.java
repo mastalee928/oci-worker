@@ -40,7 +40,15 @@ public class BackupService {
         this.dataSource = dataSource;
     }
 
-    private static final String[] TABLES = {"oci_user", "oci_create_task", "oci_kv", "cf_cfg", "ip_data"};
+    private static final String[] TABLES = {
+            "oci_user",
+            "oci_create_task",
+            "oci_kv",
+            "cf_cfg",
+            "ip_data",
+            "oci_openai_key",
+            "oci_openai_port_binding"
+    };
 
     public byte[] createBackup(String password) {
         try {

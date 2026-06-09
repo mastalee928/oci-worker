@@ -32,6 +32,30 @@ export function removeOracleKey(data: { id: string }) {
   return request.post('/oci/oracle-ai/keys/remove', data)
 }
 
+export function listOracleAiPortBindings() {
+  return request.post('/oci/oracle-ai/ports/list', {})
+}
+
+export function saveOracleAiPortBinding(data: {
+  id?: string
+  name?: string
+  port: number
+  ociUserId: string
+  openaiKeyId: string
+  defaultMaxTokens?: number | null
+  enabled?: boolean
+}) {
+  return request.post('/oci/oracle-ai/ports/save', data)
+}
+
+export function setOracleAiPortBindingEnabled(data: { id: string; enabled: boolean }) {
+  return request.post('/oci/oracle-ai/ports/setEnabled', data)
+}
+
+export function removeOracleAiPortBinding(data: { id: string }) {
+  return request.post('/oci/oracle-ai/ports/remove', data)
+}
+
 export function listOpenAiModels(data: { ociUserId: string; after?: string; modelId?: string }) {
   return request.post('/oci/oracle-ai/models', data)
 }

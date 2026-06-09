@@ -1,8 +1,11 @@
 package com.ociworker.config;
 
 import com.ociworker.model.entity.OciOpenaiKey;
+import com.ociworker.model.entity.OciOpenaiPortBinding;
 import com.ociworker.model.entity.OciUser;
+import com.ociworker.service.DynamicOpenAiPortService;
 import com.ociworker.service.OciOpenaiKeyService;
+import com.ociworker.service.OracleAiPortBindingService;
 import jakarta.annotation.Resource;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -28,6 +31,8 @@ public class OpenAiApiKeyFilter extends OncePerRequestFilter {
     private OciOpenaiKeyService openaiKeyService;
     @Resource
     private OciUserMapper ociUserMapper;
+    @Resource
+    private OracleAiPortBindingService portBindingService;
 
     @Override
     protected void doFilterInternal(
@@ -68,15 +73,43 @@ public class OpenAiApiKeyFilter extends OncePerRequestFilter {
             writeError(response, 403, "permission_error", "API Key 已禁用", "key_disabled");
             return;
         }
-        OciUser u = ociUserMapper.selectById(key.getOciUserId());
+        int localPort = request.getLocalPort();
+        OciOpenaiPortBinding binding = null;
+        String tenantId = key.getOciUserId();
+        if (DynamicOpenAiPortService.isManagedPort(localPort)) {
+            binding = portBindingService.getByPort(localPort);
+            if (binding == null) {
+                writeError(response, 404, "invalid_request_error", "中转端口未绑定", "unknown_channel");
+                return;
+            }
+            if (binding.getEnabled() == null || binding.getEnabled() != 1) {
+                writeError(response, 403, "permission_error", "中转端口已禁用", "channel_disabled");
+                return;
+            }
+            if (!key.getId().equals(binding.getOpenaiKeyId())) {
+                writeError(response, 403, "permission_error", "API Key 不属于该中转端口", "key_not_allowed_for_channel");
+                return;
+            }
+            tenantId = binding.getOciUserId();
+        }
+        OciUser u = ociUserMapper.selectById(tenantId);
         if (u == null) {
             writeError(response, 403, "invalid_request_error", "绑定的租户已删除", "tenant_gone");
             return;
         }
         request.setAttribute(OpenAiApiConstants.ATTR_TENANT_USER_ID, u.getId());
         request.setAttribute(OpenAiApiConstants.ATTR_OPENAI_KEY_ID, key.getId());
+        if (binding != null) {
+            request.setAttribute(OpenAiApiConstants.ATTR_PORT_BINDING_ID, binding.getId());
+            if (binding.getDefaultMaxTokens() != null && binding.getDefaultMaxTokens() > 0) {
+                request.setAttribute(OpenAiApiConstants.ATTR_DEFAULT_MAX_TOKENS, binding.getDefaultMaxTokens());
+            }
+        }
         try {
             openaiKeyService.updateLastUsed(key.getId());
+            if (binding != null) {
+                portBindingService.touchLastUsed(binding.getId());
+            }
         } catch (Exception ignored) {
         }
         filterChain.doFilter(request, response);

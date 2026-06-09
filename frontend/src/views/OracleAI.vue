@@ -1,5 +1,7 @@
 <template>
   <div class="oracle-ai-page">
+    <a-tabs v-model:activeKey="activeModeTab" class="mode-tabs">
+      <a-tab-pane key="single" tab="单账户模式">
     <a-card class="mb-card" title="Oracle 生成式 AI 网关" :bordered="false">
       <a-space direction="vertical" style="width: 100%">
         <div class="sub top-line">
@@ -199,6 +201,80 @@
       </div>
     </a-card>
 
+      </a-tab-pane>
+
+      <a-tab-pane key="multi" tab="多账户中转">
+        <a-card title="独立中转端口" :bordered="false" class="mt-card">
+          <a-row class="key-toolbar" :gutter="[8, 8]" align="middle">
+            <a-col>
+              <a-button type="primary" @click="openPortModal()">添加端口绑定</a-button>
+            </a-col>
+            <a-col>
+              <a-button :loading="portBindingsLoading" @click="loadPortBindings">刷新</a-button>
+            </a-col>
+            <a-col>
+              <span class="sub-muted">端口范围 30000-39999，保存后立即生效。</span>
+            </a-col>
+          </a-row>
+          <a-alert
+            class="mb-alert"
+            type="info"
+            show-icon
+            message="保存后 OCIworker 会立即监听本机端口；如需外网访问，还需要在系统防火墙和 OCI 安全列表放行对应端口。"
+          />
+          <a-table
+            :columns="portColumns"
+            :data-source="portBindings"
+            :loading="portBindingsLoading"
+            row-key="id"
+            size="middle"
+            :pagination="false"
+            :scroll="{ x: 1100 }"
+          >
+            <template #bodyCell="{ column, record }">
+              <template v-if="column.key === 'enabled'">
+                <a-switch :checked="record.enabled" :loading="portSwitchingId === record.id" @change="(v: boolean) => togglePortBinding(record, v)" />
+              </template>
+              <template v-else-if="column.key === 'port'">
+                <code>{{ record.port }}</code>
+              </template>
+              <template v-else-if="column.key === 'tenant'">
+                <div>{{ record.tenantName || record.ociUserId || '-' }}</div>
+                <span class="sub-muted">{{ record.ociRegion || '-' }}</span>
+              </template>
+              <template v-else-if="column.key === 'key'">
+                <code class="key-masked">{{ record.keyName || record.keyMasked || 'sk-****' }}</code>
+              </template>
+              <template v-else-if="column.key === 'base'">
+                <a-typography-paragraph copyable :content="portBaseUrl(record.port)" style="margin: 0">
+                  <code class="code-wrap">{{ portBaseUrl(record.port) }}</code>
+                </a-typography-paragraph>
+              </template>
+              <template v-else-if="column.key === 'maxTokens'">
+                {{ record.defaultMaxTokens || '全局默认' }}
+              </template>
+              <template v-else-if="column.key === 'status'">
+                <a-tag :color="portStatusColor(record)">{{ portStatusText(record) }}</a-tag>
+                <div v-if="record.statusMessage" class="sub-muted status-message">{{ record.statusMessage }}</div>
+              </template>
+              <template v-else-if="column.key === 'lastUsed'">
+                {{ formatKeyTime(record.lastUsed) }}
+              </template>
+              <template v-else-if="column.key === 'a'">
+                <a-space>
+                  <a-button size="small" type="link" @click="revealPortKey(record)">查看Key</a-button>
+                  <a-button size="small" @click="openPortModal(record)">编辑</a-button>
+                  <a-popconfirm title="确定删除该端口绑定？" @confirm="removePortBindingRow(record)">
+                    <a-button size="small" danger>删除</a-button>
+                  </a-popconfirm>
+                </a-space>
+              </template>
+            </template>
+          </a-table>
+        </a-card>
+      </a-tab-pane>
+    </a-tabs>
+
     <a-modal :mask-closable="false" :keyboard="false" v-model:open="keyModalOpen" title="新密钥" :confirm-loading="keyCreating" @ok="submitKey">
       <a-form layout="vertical">
         <a-form-item label="备注名（可选）">
@@ -257,6 +333,57 @@
       />
     </a-modal>
 
+
+    <a-modal :mask-closable="false" :keyboard="false" v-model:open="portModalOpen" :title="portForm.id ? '编辑端口绑定' : '添加端口绑定'" :confirm-loading="portSaving" @ok="savePortBindingRow">
+      <a-form layout="vertical">
+        <a-form-item label="租户">
+          <a-select
+            v-model:value="portForm.ociUserId"
+            :options="tenantOptions"
+            placeholder="选择 OCI 租户"
+            show-search
+            :filter-option="filterTenant"
+            :get-popup-container="selectPopupContainer"
+            @change="onPortTenantChange"
+          />
+        </a-form-item>
+        <a-form-item label="API Key">
+          <a-space direction="vertical" style="width: 100%">
+            <a-select
+              v-model:value="portForm.openaiKeyId"
+              :options="portKeyOptions"
+              :loading="portKeysLoading"
+              placeholder="选择该租户的 API Key"
+              :get-popup-container="selectPopupContainer"
+            />
+            <a-button size="small" :disabled="!portForm.ociUserId" :loading="portKeyCreating" @click="createPortTenantKey">
+              生成该租户 API Key
+            </a-button>
+          </a-space>
+        </a-form-item>
+        <a-form-item label="端口">
+          <a-input-number v-model:value="portForm.port" :min="30000" :max="39999" :precision="0" style="width: 100%" />
+        </a-form-item>
+        <a-form-item label="默认 max_tokens">
+          <a-input-number
+            v-model:value="portForm.defaultMaxTokens"
+            :min="1"
+            :max="200000"
+            :precision="0"
+            :controls="false"
+            placeholder="留空使用全局默认"
+            style="width: 100%"
+          />
+          <div class="sub-muted form-help">仅在请求未显式传 max_tokens 时生效。</div>
+        </a-form-item>
+        <a-form-item label="备注">
+          <a-input v-model:value="portForm.name" placeholder="sub2api-channel-1" />
+        </a-form-item>
+        <a-form-item label="启用">
+          <a-switch v-model:checked="portForm.enabled" />
+        </a-form-item>
+      </a-form>
+    </a-modal>
     <a-divider />
     <div class="sub sub-bottom">
       说明：未带 <code>max_tokens</code> 时网关会补默认 4000；请求体里 <code>force_non_stream: true</code> 会强制非流式。
@@ -280,6 +407,10 @@ import {
   createOracleKey,
   setOracleKeyDisabled,
   removeOracleKey,
+  listOracleAiPortBindings,
+  saveOracleAiPortBinding,
+  setOracleAiPortBindingEnabled,
+  removeOracleAiPortBinding,
   listOpenAiModels,
   oracleAiChatTest,
   getOracleAiUiState,
@@ -287,6 +418,7 @@ import {
 } from '../api/oracleAi'
 
 const tenantsLoading = ref(false)
+const activeModeTab = ref('single')
 const keysLoading = ref(false)
 const modelsLoading = ref(false)
 const keyCreating = ref(false)
@@ -297,6 +429,27 @@ const ociUserId = ref<string | undefined>(undefined)
 // 注意：后端 id 可能是 number；这里统一用 string，避免 localStorage 回填比较失败
 const tenantOptions = ref<{ label: string; value: string; ociRegion: string }[]>([])
 const keys = ref<any[]>([])
+const portBindings = ref<any[]>([])
+const portBindingsLoading = ref(false)
+const portSwitchingId = ref('')
+const portModalOpen = ref(false)
+const portSaving = ref(false)
+const portKeysLoading = ref(false)
+const portKeyCreating = ref(false)
+const portKeyOptions = ref<{ label: string; value: string }[]>([])
+const portForm = ref<{
+  id?: string
+  name?: string
+  port: number
+  ociUserId?: string
+  openaiKeyId?: string
+  defaultMaxTokens?: number | null
+  enabled: boolean
+}>({
+  port: 30000,
+  defaultMaxTokens: null,
+  enabled: true,
+})
 const modelPick = ref<string[]>([])
 const modelOptions = ref<
   {
@@ -340,6 +493,18 @@ const keyColumns = [
   { title: '操作', key: 'a', width: 200 },
 ] as any
 
+const portColumns = [
+  { title: '开关', key: 'enabled', width: 86, fixed: 'left' },
+  { title: '端口', key: 'port', width: 90 },
+  { title: '租户', key: 'tenant', width: 220 },
+  { title: 'API Key', key: 'key', width: 180 },
+  { title: 'Base URL', key: 'base', width: 260 },
+  { title: 'max_tokens', key: 'maxTokens', width: 120 },
+  { title: '状态', key: 'status', width: 160 },
+  { title: '最近使用', key: 'lastUsed', width: 160 },
+  { title: '操作', key: 'a', width: 150, fixed: 'right' },
+] as any
+
 function formatKeyTime(iso?: string | null) {
   if (!iso) return '—'
   const d = new Date(iso)
@@ -364,6 +529,15 @@ const publicBaseUrl = computed(() => {
   const h = location.hostname
   return `${p}//${h}:${openaiPort.value}${openaiPath}`
 })
+
+function portBaseUrl(port?: number) {
+  const p = Number(port || 0)
+  if (!p) return ''
+  if (typeof window === 'undefined') {
+    return `http://<host>:${p}${openaiPath}`
+  }
+  return `${location.protocol}//${location.hostname}:${p}${openaiPath}`
+}
 
 const LS_CHAT_KEY = 'ociworker.oracleAi.chatTest.v1'
 const restoring = ref(false)
@@ -475,6 +649,7 @@ onMounted(() => {
   }
   loadGateway()
   loadTenants()
+  loadPortBindings()
 })
 
 onUnmounted(() => {
@@ -751,6 +926,178 @@ async function refreshKeys() {
   } finally {
     keysLoading.value = false
   }
+}
+
+async function loadPortBindings() {
+  portBindingsLoading.value = true
+  try {
+    const r: any = await listOracleAiPortBindings()
+    portBindings.value = Array.isArray(r?.data) ? r.data : []
+  } finally {
+    portBindingsLoading.value = false
+  }
+}
+
+function nextPortValue() {
+  const used = new Set((portBindings.value || []).map((x: any) => Number(x?.port)).filter((x: number) => Number.isFinite(x)))
+  for (let p = 30000; p <= 39999; p++) {
+    if (!used.has(p)) return p
+  }
+  return 30000
+}
+
+async function openPortModal(row?: any) {
+  portForm.value = {
+    id: row?.id,
+    name: row?.name || '',
+    port: Number(row?.port || nextPortValue()),
+    ociUserId: row?.ociUserId || undefined,
+    openaiKeyId: row?.openaiKeyId || undefined,
+    defaultMaxTokens: row?.defaultMaxTokens ? Number(row.defaultMaxTokens) : null,
+    enabled: row?.enabled !== false,
+  }
+  portModalOpen.value = true
+  portKeyOptions.value = []
+  if (portForm.value.ociUserId) {
+    await loadPortKeys(portForm.value.ociUserId)
+  }
+}
+
+async function onPortTenantChange() {
+  portForm.value.openaiKeyId = undefined
+  if (portForm.value.ociUserId) {
+    await loadPortKeys(portForm.value.ociUserId)
+  } else {
+    portKeyOptions.value = []
+  }
+}
+
+async function loadPortKeys(tenantId: string) {
+  portKeysLoading.value = true
+  try {
+    const r: any = await listOracleKeys({ ociUserId: tenantId })
+    const raw = Array.isArray(r?.data) ? r.data : r?.data?.records || []
+    portKeyOptions.value = raw
+      .filter((x: any) => !x.disabled)
+      .map((x: any) => ({
+        value: x.id,
+        label: `${x.name || '未命名'} (${x.keyMasked || 'sk-****'})`,
+      }))
+    if (!portForm.value.openaiKeyId && portKeyOptions.value.length) {
+      portForm.value.openaiKeyId = portKeyOptions.value[0].value
+    }
+  } finally {
+    portKeysLoading.value = false
+  }
+}
+
+async function createPortTenantKey() {
+  const tenantId = portForm.value.ociUserId
+  if (!tenantId) return
+  portKeyCreating.value = true
+  try {
+    const r: any = await createOracleKey({
+      ociUserId: tenantId,
+      name: portForm.value.name || `port-${portForm.value.port}`,
+    })
+    const id = r?.data?.id
+    newKeyPlain.value = r?.data?.apiKey || ''
+    await loadPortKeys(tenantId)
+    if (id) {
+      portForm.value.openaiKeyId = id
+    }
+    if (newKeyPlain.value) {
+      plainKeyModalOpen.value = true
+    }
+    message.success('已生成 API Key')
+  } catch (e: any) {
+    message.error(e?.message || '生成失败')
+  } finally {
+    portKeyCreating.value = false
+  }
+}
+
+async function revealPortKey(row: any) {
+  const id = row?.openaiKeyId
+  if (!id) return
+  try {
+    const r: any = await revealOracleKey({ id })
+    newKeyPlain.value = r?.data?.apiKey || ''
+    if (newKeyPlain.value) {
+      plainKeyModalOpen.value = true
+    } else {
+      message.warning('未返回完整 API Key')
+    }
+  } catch (e: any) {
+    message.error(e?.message || '无法读取完整 API Key')
+  }
+}
+
+async function savePortBindingRow() {
+  const f = portForm.value
+  if (!f.ociUserId || !f.openaiKeyId) {
+    message.warning('请选择租户和 API Key')
+    return
+  }
+  if (!Number.isFinite(Number(f.port)) || Number(f.port) < 30000 || Number(f.port) > 39999) {
+    message.warning('端口必须在 30000-39999 之间')
+    return
+  }
+  portSaving.value = true
+  try {
+    await saveOracleAiPortBinding({
+      id: f.id,
+      name: f.name,
+      port: Math.trunc(Number(f.port)),
+      ociUserId: f.ociUserId,
+      openaiKeyId: f.openaiKeyId,
+      defaultMaxTokens: f.defaultMaxTokens ? Math.trunc(Number(f.defaultMaxTokens)) : null,
+      enabled: f.enabled,
+    })
+    portModalOpen.value = false
+    message.success('已保存，端口已同步')
+    await loadPortBindings()
+  } catch (e: any) {
+    message.error(e?.message || '保存失败')
+  } finally {
+    portSaving.value = false
+  }
+}
+
+async function togglePortBinding(row: any, enabled: boolean) {
+  if (!row?.id) return
+  portSwitchingId.value = row.id
+  try {
+    await setOracleAiPortBindingEnabled({ id: row.id, enabled })
+    message.success(enabled ? '已启用' : '已禁用')
+    await loadPortBindings()
+  } catch (e: any) {
+    message.error(e?.message || '操作失败')
+    await loadPortBindings()
+  } finally {
+    portSwitchingId.value = ''
+  }
+}
+
+async function removePortBindingRow(row: any) {
+  if (!row?.id) return
+  await removeOracleAiPortBinding({ id: row.id })
+  message.success('已删除')
+  await loadPortBindings()
+}
+
+function portStatusText(row: any) {
+  if (!row?.enabled) return '已禁用'
+  if (row?.status === 'listening') return '监听中'
+  if (row?.status === 'failed') return '启动失败'
+  return row?.status || '未监听'
+}
+
+function portStatusColor(row: any) {
+  if (!row?.enabled) return 'default'
+  if (row?.status === 'listening') return 'green'
+  if (row?.status === 'failed') return 'red'
+  return 'orange'
 }
 
 function openKeyModal() {
