@@ -3253,7 +3253,14 @@ onUnmounted(() => {
 }
 .group-collapse { margin-bottom: 16px; }
 .group-collapse :deep(.ant-collapse-header) { font-weight: 600; font-size: 14px; }
-.group-collapse-l2 { margin-top: 8px; }
+.group-collapse-l2 {
+  margin-top: 8px;
+  background: transparent;
+}
+.group-collapse-l2 :deep(.ant-collapse-item) {
+  background: transparent;
+  border-color: var(--border);
+}
 .group-collapse-l2 :deep(.ant-collapse-header) { font-weight: 500; font-size: 13px; padding-left: 12px !important; }
 .group-header-label { vertical-align: middle; }
 .group-section { margin-bottom: 8px; }

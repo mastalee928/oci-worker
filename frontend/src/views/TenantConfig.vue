@@ -2838,6 +2838,16 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
 .subgroup-card {
   margin-left: 32px;
   margin-top: 10px;
+  background: transparent;
+  border-color: rgba(148, 163, 184, 0.18);
+  box-shadow: none;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+.subgroup-card::before { display: none; }
+.subgroup-card:hover {
+  border-color: rgba(129, 140, 248, 0.28);
+  box-shadow: none;
 }
 .group-bar-left {
   display: flex;
