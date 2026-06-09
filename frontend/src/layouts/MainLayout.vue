@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <a-layout class="main-layout">
     <div v-if="mobileMenuOpen && isMobile" class="mobile-overlay" @click="mobileMenuOpen = false" />
 
@@ -38,18 +38,18 @@
           <div class="avatar">{{ avatarLetter }}</div>
           <div v-if="!compactSidebarFooter" class="user-info">
             <div class="user-name">{{ userStore.displayName }}</div>
-            <div class="user-status">管理员在线</div>
+            <div class="user-status">绠＄悊鍛樺湪绾?/div>
           </div>
         </div>
         <button
           type="button"
           class="btn-logout"
           :class="{ 'btn-logout--icon-only': compactSidebarFooter }"
-          :title="compactSidebarFooter ? '安全退出' : undefined"
+          :title="compactSidebarFooter ? '瀹夊叏閫€鍑? : undefined"
           @click="handleLogout"
         >
           <i class="ri-logout-box-r-line"></i>
-          <span v-if="!compactSidebarFooter">安全退出</span>
+          <span v-if="!compactSidebarFooter">瀹夊叏閫€鍑?/span>
         </button>
       </div>
     </a-layout-sider>
@@ -69,10 +69,10 @@
           </h2>
         </div>
         <div class="header-actions">
-          <button class="header-btn" @click="themeStore.toggleWallpaper" title="切换壁纸背景">
+          <button class="header-btn" @click="themeStore.toggleWallpaper" title="鍒囨崲澹佺焊鑳屾櫙">
             <i :class="themeStore.wallpaperActive ? 'ri-image-fill' : 'ri-image-line'"></i>
           </button>
-          <button class="header-btn" @click="themeStore.toggleTheme" title="切换主题">
+          <button class="header-btn" @click="themeStore.toggleTheme" title="鍒囨崲涓婚">
             <i :class="themeStore.isDark ? 'ri-sun-line' : 'ri-moon-line'"></i>
           </button>
         </div>
@@ -114,18 +114,18 @@ const isMobile = ref(false)
 
 const avatarLetter = computed(() => userStore.avatarLetter)
 
-/** 桌面窄栏（64px）用紧凑底栏；移动端抽屉展开时仍为全宽，保持完整用户信息 */
+/** 妗岄潰绐勬爮锛?4px锛夌敤绱у噾搴曟爮锛涚Щ鍔ㄧ鎶藉眽灞曞紑鏃朵粛涓哄叏瀹斤紝淇濇寔瀹屾暣鐢ㄦ埛淇℃伅 */
 const compactSidebarFooter = computed(
   () => collapsed.value && !(isMobile.value && mobileMenuOpen.value),
 )
 
 function checkMobile() {
   isMobile.value = window.innerWidth < 768
-  /** 移动端抽屉展开时要走「展开菜单」（图标+完整标题），不能与桌面折叠态混用 */
+  /** 绉诲姩绔娊灞夊睍寮€鏃惰璧般€屽睍寮€鑿滃崟銆嶏紙鍥炬爣+瀹屾暣鏍囬锛夛紝涓嶈兘涓庢闈㈡姌鍙犳€佹贩鐢?*/
   if (isMobile.value && !mobileMenuOpen.value) collapsed.value = true
 }
 
-/** 移动端：抽屉打开 → 收起 Sider 的 collapsed，菜单恢复为内联全文；合上 → 再收起省状态 */
+/** 绉诲姩绔細鎶藉眽鎵撳紑 鈫?鏀惰捣 Sider 鐨?collapsed锛岃彍鍗曟仮澶嶄负鍐呰仈鍏ㄦ枃锛涘悎涓?鈫?鍐嶆敹璧风渷鐘舵€?*/
 watch(mobileMenuOpen, open => {
   if (!isMobile.value) return
   collapsed.value = open ? false : true
@@ -156,15 +156,15 @@ const currentTitle = computed(() => {
 })
 
 const navItems = [
-  { key: 'dashboard', label: '仪表盘', icon: 'ri-dashboard-3-line', prefetch: true },
-  { key: 'tenant', label: '租户配置', icon: 'ri-user-settings-line', prefetch: true },
-  { key: 'instance', label: '实例管理', icon: 'ri-server-line', prefetch: true },
-  { key: 'task', label: '开机任务', icon: 'ri-flashlight-line', prefetch: true },
-  { key: 'log', label: '日志查看', icon: 'ri-file-list-3-line', prefetch: true },
+  { key: 'dashboard', label: '浠〃鐩?, icon: 'ri-dashboard-3-line', prefetch: true },
+  { key: 'tenant', label: '绉熸埛閰嶇疆', icon: 'ri-user-settings-line', prefetch: true },
+  { key: 'instance', label: '瀹炰緥绠＄悊', icon: 'ri-server-line', prefetch: true },
+  { key: 'task', label: '寮€鏈轰换鍔?, icon: 'ri-flashlight-line', prefetch: true },
+  { key: 'log', label: '鏃ュ織鏌ョ湅', icon: 'ri-file-list-3-line', prefetch: true },
   { key: 'oracle-ai', label: 'Oracle AI', icon: 'ri-magic-line', prefetch: true },
-  { key: 'cloudflare', label: 'Cloudflare', icon: 'ri-cloud-line', prefetch: true },
+  { key: 'alidns', label: '阿里云DNS', icon: 'ri-global-line', prefetch: true },\n  { key: 'cloudflare', label: 'Cloudflare', icon: 'ri-cloud-line', prefetch: true },
   { key: 'webssh', label: 'WebSSH', icon: 'ri-terminal-box-line', prefetch: false },
-  { key: 'settings', label: '系统设置', icon: 'ri-settings-4-line', prefetch: true },
+  { key: 'settings', label: '绯荤粺璁剧疆', icon: 'ri-settings-4-line', prefetch: true },
 ] as const
 
 const pageTitleIcon = computed(() => {
@@ -172,7 +172,7 @@ const pageTitleIcon = computed(() => {
   return item?.icon || 'ri-dashboard-3-line'
 })
 
-/** 左键同页导航后关移动端抽屉；Ctrl/中键/右键交给浏览器（新标签等） */
+/** 宸﹂敭鍚岄〉瀵艰埅鍚庡叧绉诲姩绔娊灞夛紱Ctrl/涓敭/鍙抽敭浜ょ粰娴忚鍣紙鏂版爣绛剧瓑锛?*/
 function onNavLinkClick(e: MouseEvent, key: string) {
   if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
   prefetchRouteChunk(key)
@@ -290,7 +290,7 @@ function handleLogout() {
   text-align: left !important;
   padding-left: 24px !important;
 }
-/* 桌面侧栏收起（64px）：上面两条会盖住 Ant 的居中逻辑，图标会整体偏右，需在 .sider-collapsed-desktop 下覆盖 */
+/* 妗岄潰渚ф爮鏀惰捣锛?4px锛夛細涓婇潰涓ゆ潯浼氱洊浣?Ant 鐨勫眳涓€昏緫锛屽浘鏍囦細鏁翠綋鍋忓彸锛岄渶鍦?.sider-collapsed-desktop 涓嬭鐩?*/
 .sider-collapsed-desktop .nav-menu :deep(.ant-menu-item) {
   display: flex !important;
   align-items: center !important;
@@ -301,7 +301,7 @@ function handleLogout() {
   margin: 2px 4px !important;
   overflow: visible !important;
 }
-/* flex 居中时标题节点仍会占位，图标默认 flex-shrink:1 会被挤成 0 宽 → 只见紫底不见图标 */
+/* flex 灞呬腑鏃舵爣棰樿妭鐐逛粛浼氬崰浣嶏紝鍥炬爣榛樿 flex-shrink:1 浼氳鎸ゆ垚 0 瀹?鈫?鍙绱簳涓嶈鍥炬爣 */
 .sider-collapsed-desktop .nav-menu :deep(.nav-menu-link) {
   justify-content: center !important;
 }

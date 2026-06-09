@@ -1,4 +1,4 @@
-package com.ociworker.enums;
+﻿package com.ociworker.enums;
 
 import lombok.AllArgsConstructor;
 import lombok.Getter;
@@ -9,13 +9,13 @@ public enum SysCfgEnum {
     TG_BOT_TOKEN("tg_bot_token", "sys"),
     TG_CHAT_ID("tg_chat_id", "sys"),
     TG_NOTIFY_TYPES("tg_notify_types", "sys"),
-    /** 每日播报发送时刻，24 小时制 HH:mm，东八区 Asia/Shanghai */
+    /** 姣忔棩鎾姤鍙戦€佹椂鍒伙紝24 灏忔椂鍒?HH:mm锛屼笢鍏尯 Asia/Shanghai */
     TG_DAILY_REPORT_TIME("tg_daily_report_time", "sys"),
     /**
-     * getUpdates 的 offset：下一条拉取应传入的 update_id（即「已处理的最大 update_id + 1」），持久化避免重启重复处理。
+     * getUpdates 鐨?offset锛氫笅涓€鏉℃媺鍙栧簲浼犲叆鐨?update_id锛堝嵆銆屽凡澶勭悊鐨勬渶澶?update_id + 1銆嶏級锛屾寔涔呭寲閬垮厤閲嶅惎閲嶅澶勭悊銆?
      */
     TG_UPDATES_NEXT_OFFSET("tg_updates_next_offset", "sys"),
-    /** 通知身份变更回滚：暂存旧 Bot Token（15 分钟内可拒绝恢复） */
+    /** 閫氱煡韬唤鍙樻洿鍥炴粴锛氭殏瀛樻棫 Bot Token锛?5 鍒嗛挓鍐呭彲鎷掔粷鎭㈠锛?*/
     TG_ROLLBACK_OLD_BOT_TOKEN("tg_rollback_old_bot_token", "sys"),
     TG_ROLLBACK_OLD_CHAT_ID("tg_rollback_old_chat_id", "sys"),
     TG_ROLLBACK_EXPIRE_AT("tg_rollback_expire_at", "sys"),
@@ -30,19 +30,19 @@ public enum SysCfgEnum {
     OCI_PROXY_PASS("oci_proxy_pass", "sys"),
     OCI_PROXY_FULL_URL("oci_proxy_full_url", "sys"),
 
-    /** Cloudflare 全局 API Token（Account 级） */
+    /** Cloudflare 鍏ㄥ眬 API Token锛圓ccount 绾э級 */
     CF_API_TOKEN("cf_api_token", "sys"),
     CF_ACCOUNT_ID("cf_account_id", "sys"),
 
     MFA_SECRET("mfa_secret", "sys"),
     MFA_ENABLED("mfa_enabled", "sys"),
 
-    /** 逗号分隔 IPv4/IPv6，用于拦截密码/TG 登录入口 */
+    /** 閫楀彿鍒嗛殧 IPv4/IPv6锛岀敤浜庢嫤鎴瘑鐮?TG 鐧诲綍鍏ュ彛 */
     LOGIN_IP_DENYLIST("login_ip_denylist", "sys"),
-    /** 逗号分隔设备 ID（与 Cookie ow_did 一致） */
+    /** 閫楀彿鍒嗛殧璁惧 ID锛堜笌 Cookie ow_did 涓€鑷达級 */
     LOGIN_DEVICE_DENYLIST("login_device_denylist", "sys"),
-    /** true / false：为 true 时除白名单接口外一律 503 */
-    SITE_ACCESS_PAUSED("site_access_paused", "sys"),
+    /** true / false锛氫负 true 鏃堕櫎鐧藉悕鍗曟帴鍙ｅ涓€寰?503 */
+    SITE_ACCESS_PAUSED("site_access_paused", "sys"),\n\n    /** 阿里云DNS AccessKey */\n    ALIDNS_ACCESS_KEY_ID("alidns_access_key_id", "sys"),\n    ALIDNS_ACCESS_KEY_SECRET("alidns_access_key_secret", "sys"),
     ;
 
     private final String code;
