@@ -19,19 +19,18 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
 
 import java.net.URI;
-import java.net.Inet4Address;
-import java.net.InetAddress;
-import java.net.NetworkInterface;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.time.Instant;
 import java.util.HashMap;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
+import java.util.regex.Pattern;
 
 @Slf4j
 @RestController
@@ -58,6 +57,15 @@ public class OracleAiController {
 
     private static final String UI_STATE_TYPE = "ui_state";
     private static final String UI_STATE_CODE = "oracle_ai.page_state.v1";
+    private static final Pattern IPV4_PATTERN = Pattern.compile(
+            "^(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)(\\.(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)){3}$");
+    private static final List<String> PUBLIC_IPV4_ENDPOINTS = List.of(
+            "https://ipv4.icanhazip.com",
+            "https://v4.ident.me",
+            "https://api.ipify.org");
+    private static final Duration PUBLIC_IP_CACHE_TTL = Duration.ofMinutes(10);
+    private volatile String cachedPublicIp;
+    private volatile Instant cachedPublicIpAt = Instant.EPOCH;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @PostMapping("/gateway")
@@ -73,21 +81,32 @@ public class OracleAiController {
     }
 
     private String detectServerIp() {
-        try {
-            String privateCandidate = null;
-            for (NetworkInterface ni : Collections.list(NetworkInterface.getNetworkInterfaces())) {
-                if (!ni.isUp() || ni.isLoopback() || ni.isVirtual()) continue;
-                for (InetAddress addr : Collections.list(ni.getInetAddresses())) {
-                    if (!(addr instanceof Inet4Address) || addr.isLoopbackAddress() || addr.isLinkLocalAddress()) continue;
-                    String ip = addr.getHostAddress();
-                    if (!addr.isSiteLocalAddress()) return ip;
-                    if (privateCandidate == null) privateCandidate = ip;
-                }
-            }
-            return privateCandidate;
-        } catch (Exception ignored) {
-            return null;
+        String cached = cachedPublicIp;
+        if (cached != null && !cached.isBlank()
+                && Duration.between(cachedPublicIpAt, Instant.now()).compareTo(PUBLIC_IP_CACHE_TTL) < 0) {
+            return cached;
         }
+        for (String endpoint : PUBLIC_IPV4_ENDPOINTS) {
+            try {
+                HttpRequest req = HttpRequest.newBuilder(URI.create(endpoint))
+                        .timeout(Duration.ofSeconds(2))
+                        .GET()
+                        .build();
+                HttpResponse<String> resp = HttpClient.newHttpClient()
+                        .send(req, HttpResponse.BodyHandlers.ofString());
+                if (resp.statusCode() >= 200 && resp.statusCode() < 300) {
+                    String ip = resp.body() == null ? "" : resp.body().trim();
+                    if (IPV4_PATTERN.matcher(ip).matches()) {
+                        cachedPublicIp = ip;
+                        cachedPublicIpAt = Instant.now();
+                        return ip;
+                    }
+                }
+            } catch (Exception e) {
+                log.debug("Failed to detect public IPv4 from {}: {}", endpoint, e.getMessage());
+            }
+        }
+        return "";
     }
 
     /**
