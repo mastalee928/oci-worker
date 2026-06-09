@@ -561,8 +561,8 @@ const keyName = ref('')
 const baseHint = ref('')
 const openaiProxyEnabled = ref(true)
 const gatewayLoading = ref(false)
-const defaultMaxTokens = ref(4000)
-const defaultMaxTokensInput = ref<number | null>(4000)
+const defaultMaxTokens = ref(2048)
+const defaultMaxTokensInput = ref<number | null>(2048)
 const savingDefaultMaxTokens = ref(false)
 
 const keyViewOpen = ref(false)
@@ -1086,9 +1086,11 @@ async function openPortModal(row?: any) {
   portRegionOptions.value = []
   portModelOptions.value = []
   if (portForm.value.ociUserId) {
-    await loadPortKeys(portForm.value.ociUserId)
-    await loadPortRegions(portForm.value.ociUserId, portForm.value.ociRegion)
-    await loadPortModels(portForm.value.ociUserId, portForm.value.ociRegion)
+    const tenantId = portForm.value.ociUserId
+    const keyTask = loadPortKeys(tenantId).catch(() => {})
+    await loadPortRegions(tenantId, portForm.value.ociRegion)
+    await loadPortModels(tenantId, portForm.value.ociRegion)
+    await keyTask
   }
 }
 
@@ -1096,14 +1098,15 @@ async function onPortTenantChange() {
   portForm.value.openaiKeyId = undefined
   portForm.value.ociRegion = undefined
   portForm.value.allowedModels = []
+  portKeyOptions.value = []
+  portRegionOptions.value = []
+  portModelOptions.value = []
   if (portForm.value.ociUserId) {
-    await loadPortKeys(portForm.value.ociUserId)
-    await loadPortRegions(portForm.value.ociUserId)
-    await loadPortModels(portForm.value.ociUserId, portForm.value.ociRegion)
-  } else {
-    portKeyOptions.value = []
-    portRegionOptions.value = []
-    portModelOptions.value = []
+    const tenantId = portForm.value.ociUserId
+    const keyTask = loadPortKeys(tenantId).catch(() => {})
+    await loadPortRegions(tenantId)
+    await loadPortModels(tenantId, portForm.value.ociRegion)
+    await keyTask
   }
 }
 
@@ -1160,6 +1163,8 @@ async function loadPortKeys(tenantId: string) {
     if (!portForm.value.openaiKeyId && portKeyOptions.value.length) {
       portForm.value.openaiKeyId = portKeyOptions.value[0].value
     }
+  } catch {
+    portKeyOptions.value = []
   } finally {
     portKeysLoading.value = false
   }

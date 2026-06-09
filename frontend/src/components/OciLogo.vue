@@ -45,6 +45,6 @@ withDefaults(
   fill: #7c4dff;
 }
 :global([data-theme='light']) .oci-logo-ring {
-  stroke: #0f172a;
+  stroke: #c74634;
 }
 </style>

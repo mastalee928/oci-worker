@@ -16,7 +16,7 @@ public class OracleAiGatewayConfigService {
     private static final String TYPE = "sys_config";
     private static final String CODE_DEFAULT_MAX_TOKENS = "oracle_ai_default_max_tokens";
     private static final long CACHE_TTL_MS = 2000;
-    public static final int FALLBACK_DEFAULT_MAX_TOKENS = 4000;
+    public static final int FALLBACK_DEFAULT_MAX_TOKENS = 2048;
 
     @Resource
     private OciKvMapper kvMapper;
