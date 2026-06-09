@@ -44,6 +44,8 @@ public class OracleAiController {
     @Resource
     private com.ociworker.service.OracleAiGatewayToggleService gatewayToggleService;
     @Resource
+    private com.ociworker.service.OracleAiGatewayConfigService gatewayConfigService;
+    @Resource
     private OciKvMapper kvMapper;
 
     private static final String UI_STATE_TYPE = "ui_state";
@@ -57,6 +59,7 @@ public class OracleAiController {
         m.put("pathPrefix", "/v1");
         m.put("baseUrlExample", OciGenerativeOpenAiService.gatewayHint(openaiApiPort));
         m.put("openaiProxyEnabled", gatewayToggleService.isEnabled());
+        m.put("defaultMaxTokens", gatewayConfigService.getDefaultMaxTokens());
         return ResponseData.ok(m);
     }
 
@@ -141,6 +144,29 @@ public class OracleAiController {
         boolean enabled = v instanceof Boolean ? (Boolean) v : (v != null && "true".equalsIgnoreCase(String.valueOf(v)));
         gatewayToggleService.setEnabled(enabled);
         return ResponseData.ok(Map.of("openaiProxyEnabled", enabled));
+    }
+
+    @PostMapping("/gateway/default-max-tokens")
+    public ResponseData<?> setDefaultMaxTokens(@RequestBody Map<String, Object> body) {
+        Object raw = body == null ? null : body.get("defaultMaxTokens");
+        if (raw == null) {
+            raw = body == null ? null : body.get("max_tokens");
+        }
+        if (raw == null) {
+            return ResponseData.error("defaultMaxTokens 必填");
+        }
+        int value;
+        try {
+            if (raw instanceof Number n) {
+                value = n.intValue();
+            } else {
+                value = Integer.parseInt(String.valueOf(raw).trim());
+            }
+        } catch (Exception e) {
+            return ResponseData.error("defaultMaxTokens 必须是数字");
+        }
+        int saved = gatewayConfigService.setDefaultMaxTokens(value);
+        return ResponseData.ok(Map.of("defaultMaxTokens", saved));
     }
 
     @PostMapping("/keys/create")

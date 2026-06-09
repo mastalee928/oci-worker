@@ -12,6 +12,7 @@ import com.ociworker.model.entity.OciUser;
 import com.ociworker.util.OciBasicForSigning;
 import com.ociworker.util.OciDuplicatableByteArrayInputStream;
 import com.ociworker.util.OciRegionUtil;
+import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -31,6 +32,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.function.IntSupplier;
 
 /**
  * 经 OCI IAM 签名将请求转发至 Generative AI OpenAI 兼容端点（推理面）。
@@ -41,15 +43,23 @@ import java.util.Map;
 @Service
 public class OciGenerativeOpenAiService {
 
-    public static final int DEFAULT_MAX_TOKENS = 4000;
+    public static final int DEFAULT_MAX_TOKENS = OracleAiGatewayConfigService.FALLBACK_DEFAULT_MAX_TOKENS;
     private static final String V1 = "/v1";
     private static final String GA_API_VERSION = "20231130";
     private static final int LIST_PAGE_LIMIT = 200;
     private static final int LIST_MAX_PAGES = 50;
     private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static volatile IntSupplier defaultMaxTokensSupplier = () -> DEFAULT_MAX_TOKENS;
 
     @Resource
     private OciProxyConfigService ociProxyConfigService;
+    @Resource
+    private OracleAiGatewayConfigService gatewayConfigService;
+
+    @PostConstruct
+    public void initDefaultMaxTokensSupplier() {
+        defaultMaxTokensSupplier = gatewayConfigService::getDefaultMaxTokens;
+    }
 
     public void proxy(OciUser tenant, HttpServletRequest request, HttpServletResponse response) throws IOException {
         String pathAfterV1 = extractPathAfterV1(request);
@@ -959,6 +969,14 @@ public class OciGenerativeOpenAiService {
         return false;
     }
 
+    private static int defaultMaxTokens() {
+        try {
+            return OracleAiGatewayConfigService.normalizeDefaultMaxTokens(defaultMaxTokensSupplier.getAsInt());
+        } catch (Exception ignored) {
+            return DEFAULT_MAX_TOKENS;
+        }
+    }
+
     private static byte[] transformChatCompletionsJson(byte[] input) {
         try {
             JsonNode root = MAPPER.readTree(input);
@@ -967,7 +985,7 @@ public class OciGenerativeOpenAiService {
             }
             ObjectNode o = (ObjectNode) root;
             if (o.get("max_tokens") == null || o.get("max_tokens").isNull() || o.get("max_tokens").isMissingNode()) {
-                o.put("max_tokens", DEFAULT_MAX_TOKENS);
+                o.put("max_tokens", defaultMaxTokens());
             }
             JsonNode force = o.get("force_non_stream");
             if (force != null && (force.isBoolean() && force.asBoolean()
@@ -1055,10 +1073,10 @@ public class OciGenerativeOpenAiService {
                 if (mt.isNumber()) {
                     out.put("max_output_tokens", mt.intValue());
                 } else {
-                    out.put("max_output_tokens", mt.asInt(DEFAULT_MAX_TOKENS));
+                    out.put("max_output_tokens", mt.asInt(defaultMaxTokens()));
                 }
             } else {
-                out.put("max_output_tokens", DEFAULT_MAX_TOKENS);
+                out.put("max_output_tokens", defaultMaxTokens());
             }
             JsonNode temp = in.get("temperature");
             if (temp != null && !temp.isNull() && !temp.isMissingNode()) {

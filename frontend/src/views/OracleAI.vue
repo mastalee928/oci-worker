@@ -85,6 +85,31 @@
       </template>
     </a-card>
 
+    <a-card title="默认 max_tokens" :bordered="false" class="mt-card">
+      <a-form layout="vertical" class="max-token-form">
+        <a-form-item label="max_tokens">
+          <a-space wrap align="center">
+            <a-input-number
+              v-model:value="defaultMaxTokensInput"
+              :min="1"
+              :max="200000"
+              :precision="0"
+              :controls="false"
+              class="max-token-input"
+            />
+            <a-button type="primary" :loading="savingDefaultMaxTokens" @click="saveDefaultMaxTokens">
+              保存
+            </a-button>
+            <a-button :loading="gatewayLoading" @click="loadGateway">刷新</a-button>
+            <span class="sub-muted">当前默认: {{ defaultMaxTokens }}</span>
+          </a-space>
+        </a-form-item>
+        <div class="sub max-token-help">
+          仅影响未显式传 <code>max_tokens</code> 的 AI 请求，保存后立即生效。
+        </div>
+      </a-form>
+    </a-card>
+
     <a-card title="租户与模型" :bordered="false" class="mt-card" :loading="tenantsLoading">
       <a-form layout="vertical">
         <a-form-item label="选择租户（Region=该租户 OCI 区域）">
@@ -249,6 +274,7 @@ import { getTenantList } from '../api/tenant'
 import {
   getOracleAiGateway,
   setOracleAiGatewayEnabled,
+  setOracleAiDefaultMaxTokens,
   listOracleKeys,
   revealOracleKey,
   createOracleKey,
@@ -287,6 +313,10 @@ const newKeyPlain = ref('')
 const keyName = ref('')
 const baseHint = ref('')
 const openaiProxyEnabled = ref(true)
+const gatewayLoading = ref(false)
+const defaultMaxTokens = ref(4000)
+const defaultMaxTokensInput = ref<number | null>(4000)
+const savingDefaultMaxTokens = ref(false)
 
 const keyViewOpen = ref(false)
 const keyViewRow = ref<any | null>(null)
@@ -452,6 +482,7 @@ onUnmounted(() => {
 })
 
 async function loadGateway() {
+  gatewayLoading.value = true
   try {
     const r: any = await getOracleAiGateway()
     const p = r?.data?.openaiApiPort
@@ -459,11 +490,38 @@ async function loadGateway() {
     if (typeof r?.data?.openaiProxyEnabled === 'boolean') {
       openaiProxyEnabled.value = r.data.openaiProxyEnabled
     }
+    const mt = Number(r?.data?.defaultMaxTokens)
+    if (Number.isFinite(mt) && mt > 0) {
+      defaultMaxTokens.value = Math.trunc(mt)
+      defaultMaxTokensInput.value = Math.trunc(mt)
+    }
     baseHint.value = r?.data?.baseUrlExample
       ? `Base 示例: ${r.data.baseUrlExample}`
       : `对外访问需在防火墙放行 TCP ${openaiPort.value}。`
   } catch {
     baseHint.value = `请放行 TCP 端口 ${openaiPort.value} 供 New API/客户端访问。`
+  } finally {
+    gatewayLoading.value = false
+  }
+}
+
+async function saveDefaultMaxTokens() {
+  const value = Number(defaultMaxTokensInput.value)
+  if (!Number.isFinite(value) || value < 1) {
+    message.warning('请输入大于 0 的 max_tokens')
+    return
+  }
+  savingDefaultMaxTokens.value = true
+  try {
+    const r: any = await setOracleAiDefaultMaxTokens({ defaultMaxTokens: Math.trunc(value) })
+    const saved = Number(r?.data?.defaultMaxTokens)
+    defaultMaxTokens.value = Number.isFinite(saved) && saved > 0 ? Math.trunc(saved) : Math.trunc(value)
+    defaultMaxTokensInput.value = defaultMaxTokens.value
+    message.success('已保存，立即生效')
+  } catch (e: any) {
+    message.error(e?.message || '保存失败')
+  } finally {
+    savingDefaultMaxTokens.value = false
   }
 }
 
@@ -789,6 +847,9 @@ async function viewKey(k: any) {
 }
 .ma-hint code { font-size: 11px; }
 .mb-alert { margin: 0 0 8px; }
+.max-token-form :deep(.ant-form-item) { margin-bottom: 6px; }
+.max-token-input { width: 220px; max-width: calc(100vw - 96px); }
+.max-token-help { margin: 0; }
 .code-wrap {
   word-break: break-all;
   user-select: all;
