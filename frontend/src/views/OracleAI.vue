@@ -237,14 +237,17 @@
                 <span>端口</span><b>{{ record.port }}</b>
                 <span>租户</span><b>{{ record.tenantName || record.ociUserId || '-' }}</b>
                 <span>区域</span><b>{{ record.ociRegion || '-' }}</b>
-                <span>API Key</span><code class="key-masked">{{ record.keyName || record.keyMasked || 'sk-****' }}</code>
                 <span>Tokens</span><b>{{ record.defaultMaxTokens || '全局默认' }}</b>
-                <span>模型</span><b>{{ modelSummary(record.allowedModels) }}</b>
+                <span>模型</span>
+                <a-tooltip :title="modelTooltip(record.allowedModels)">
+                  <b class="model-summary">{{ modelSummary(record.allowedModels) }}</b>
+                </a-tooltip>
                 <span>状态</span><a-tag :color="portStatusColor(record)">{{ portStatusText(record) }}</a-tag>
+                <span>Key备注</span><code class="key-masked">{{ record.keyName || record.keyMasked || 'sk-****' }}</code>
               </div>
               <div v-if="record.statusMessage" class="sub-muted status-message">{{ record.statusMessage }}</div>
               <a-space class="port-card-actions" wrap>
-                <a-button size="small" type="link" @click="revealPortKey(record)">Key</a-button>
+                <a-button size="small" @click="revealPortKey(record)">查看密钥</a-button>
                 <a-button size="small" @click="openPortModal(record)">编辑</a-button>
                 <a-popconfirm title="确定删除该端口绑定？" @confirm="removePortBindingRow(record)">
                   <a-button size="small" danger>删除</a-button>
@@ -261,7 +264,7 @@
             row-key="id"
             size="middle"
             :pagination="false"
-            :scroll="{ x: 1560 }"
+            :scroll="{ x: 1610 }"
           >
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'enabled'">
@@ -274,9 +277,6 @@
                 <div>{{ record.tenantName || record.ociUserId || '-' }}</div>
                 <span class="sub-muted">{{ record.ociRegion || '-' }}</span>
               </template>
-              <template v-else-if="column.key === 'key'">
-                <code class="key-masked">{{ record.keyName || record.keyMasked || 'sk-****' }}</code>
-              </template>
               <template v-else-if="column.key === 'base'">
                 <a-typography-paragraph copyable :content="portBaseUrl(record.port)" style="margin: 0">
                   <code class="code-wrap">{{ portBaseUrl(record.port) }}</code>
@@ -286,18 +286,23 @@
                 {{ record.defaultMaxTokens || '全局默认' }}
               </template>
               <template v-else-if="column.key === 'models'">
-                <span class="model-summary">{{ modelSummary(record.allowedModels) }}</span>
+                <a-tooltip :title="modelTooltip(record.allowedModels)">
+                  <span class="model-summary">{{ modelSummary(record.allowedModels) }}</span>
+                </a-tooltip>
               </template>
               <template v-else-if="column.key === 'status'">
                 <a-tag :color="portStatusColor(record)">{{ portStatusText(record) }}</a-tag>
                 <div v-if="record.statusMessage" class="sub-muted status-message">{{ record.statusMessage }}</div>
+              </template>
+              <template v-else-if="column.key === 'key'">
+                <code class="key-masked">{{ record.keyName || record.keyMasked || 'sk-****' }}</code>
               </template>
               <template v-else-if="column.key === 'lastUsed'">
                 {{ formatKeyTime(record.lastUsed) }}
               </template>
               <template v-else-if="column.key === 'a'">
                 <a-space class="port-actions" :size="4">
-                  <a-button size="small" type="link" @click="revealPortKey(record)">Key</a-button>
+                  <a-button size="small" @click="revealPortKey(record)">查看密钥</a-button>
                   <a-button size="small" @click="openPortModal(record)">编辑</a-button>
                   <a-popconfirm title="确定删除该端口绑定？" @confirm="removePortBindingRow(record)">
                     <a-button size="small" danger>删除</a-button>
@@ -564,13 +569,13 @@ const portColumns = [
   { title: '开关', key: 'enabled', width: 84 },
   { title: '端口', key: 'port', width: 88 },
   { title: '租户', key: 'tenant', width: 220 },
-  { title: 'API Key', key: 'key', width: 160 },
+  { title: '状态', key: 'status', width: 130 },
   { title: 'Base URL', key: 'base', width: 280 },
   { title: '上限', key: 'maxTokens', width: 96 },
   { title: '模型', key: 'models', width: 180 },
-  { title: '状态', key: 'status', width: 130 },
+  { title: 'Key备注', key: 'key', width: 170 },
   { title: '最近使用', key: 'lastUsed', width: 140 },
-  { title: '操作', key: 'a', width: 180 },
+  { title: '操作', key: 'a', width: 220 },
 ] as any
 
 function formatKeyTime(iso?: string | null) {
@@ -795,9 +800,14 @@ function filterModel(input: string, opt: any) {
 }
 
 function modelSummary(models?: string[]) {
-  if (!Array.isArray(models) || !models.length) return 'All'
+  if (!Array.isArray(models) || !models.length) return '不限制'
   if (models.length <= 2) return models.join(', ')
   return `${models[0]}, ${models[1]} +${models.length - 2}`
+}
+
+function modelTooltip(models?: string[]) {
+  if (!Array.isArray(models) || !models.length) return '不限制模型'
+  return models.join('\n')
 }
 
 function mapModelOptions(data: any) {
