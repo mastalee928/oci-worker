@@ -186,9 +186,12 @@ public class AliDNSService {
         putIfNotBlank(params, "DomainName", domainName);
         putIfNotBlank(params, "DomainType", domainType);
         JSONObject json = request("DescribeSupportLines", params);
-        JSONArray lines = json.getJSONArray("RecordLines");
-        if (lines == null && json.getJSONObject("RecordLines") != null) {
-            lines = json.getJSONObject("RecordLines").getJSONArray("RecordLine");
+        Object recordLinesObj = json.get("RecordLines");
+        JSONArray lines = null;
+        if (recordLinesObj instanceof JSONArray) {
+            lines = (JSONArray) recordLinesObj;
+        } else if (recordLinesObj instanceof JSONObject) {
+            lines = ((JSONObject) recordLinesObj).getJSONArray("RecordLine");
         }
         List<Map<String, Object>> result = new ArrayList<>();
         if (lines != null) {
@@ -205,9 +208,9 @@ public class AliDNSService {
         if (result.isEmpty()) {
             result.add(defaultLine("default", "默认"));
             result.add(defaultLine("telecom", "中国电信"));
-            result.add(defaultLine("unicom", "中国联通"));
+            result.add(defaultLine("unicom", "中国联�?));
             result.add(defaultLine("mobile", "中国移动"));
-            result.add(defaultLine("edu", "中国教育网"));
+            result.add(defaultLine("edu", "中国教育�?));
             result.add(defaultLine("oversea", "海外"));
         }
         return result;
@@ -222,7 +225,7 @@ public class AliDNSService {
         String accessKeyId = StrUtil.blankToDefault(StrUtil.trimToNull(accessKeyIdOverride), getAccessKeyId());
         String accessKeySecret = StrUtil.blankToDefault(StrUtil.trimToNull(accessKeySecretOverride), getAccessKeySecret());
         if (StrUtil.isBlank(accessKeyId) || StrUtil.isBlank(accessKeySecret)) {
-            throw new OciException("阿里云DNS未配置");
+            throw new OciException("阿里云DNS未配�?);
         }
         try {
             Map<String, String> params = new LinkedHashMap<>();
@@ -262,13 +265,13 @@ public class AliDNSService {
             requireDomain(domainName);
         }
         if (StrUtil.isBlank(rr)) {
-            throw new OciException("请填写主机记录");
+            throw new OciException("请填写主机记�?);
         }
         if (StrUtil.isBlank(type)) {
             throw new OciException("请选择记录类型");
         }
         if (StrUtil.isBlank(value)) {
-            throw new OciException("请填写记录值");
+            throw new OciException("请填写记录�?);
         }
         Map<String, String> params = new LinkedHashMap<>();
         if (!update) {
