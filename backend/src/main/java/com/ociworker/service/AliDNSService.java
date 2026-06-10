@@ -193,8 +193,6 @@ public class AliDNSService {
         } else if (recordLinesObj instanceof JSONObject) {
             lines = ((JSONObject) recordLinesObj).getJSONArray("RecordLine");
         }
-            lines = json.getJSONObject("RecordLines").getJSONArray("RecordLine");
-        }
         List<Map<String, Object>> result = new ArrayList<>();
         if (lines != null) {
             for (int i = 0; i < lines.size(); i++) {
