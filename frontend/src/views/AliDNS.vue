@@ -235,7 +235,7 @@ type DomainRow = {
   recordCount?: number
   recordCount?: number
   dnsStatus?: "normal" | "not_system"
-type DnsRecord = {
+}
   recordId: string
   rr: string
   type: string
@@ -337,10 +337,6 @@ async function loadDomains(page = domainPage.value) {
     if (!selectedDomain.value && domains.value.length > 0) {
       await selectDomain(domains.value[0].domainName)
     }
-  } finally {
-    domainLoading.value = false
-  } finally {
-    domainLoading.value = false
   }
   // Load DNS status for all domains
   await loadDomainDnsStatus()
