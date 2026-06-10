@@ -40,12 +40,13 @@
             :key="domain.domainName"
             type="button"
             class="domain-item"
+            <span class="domain-status" :class="{ 'status-normal': domain.dnsStatus === 'normal', 'status-not_system': domain.dnsStatus === 'not_system' }" :title="domain.dnsStatus === 'normal' ? '正常' : '未使用系统分配DNS地址'"></span>
             :class="{ active: selectedDomain === domain.domainName }"
             @click="selectDomain(domain.domainName)"
           >
             <span class="domain-name">{{ domain.domainName }}</span>
-            <span class="domain-status" :class="`status-${domain.dnsStatus || `normal`}`" :title="domain.dnsStatus === `not_system` ? `未使用系统分配DNS地址` : `正常`"></span>
-            <span class="domain-name">{{ domain.domainName }}</span>
+            <span class="domain-meta">{{ domain.recordCount || 0 }} 条记录</span>
+          </button>
         </a-spin>
         <a-pagination
           v-if="domainTotal > domainPerPage"
@@ -222,9 +223,10 @@ import {
   listAliDNSDomains,
   listAliDNSLines,
   listAliDNSRecords,
+  listAliDNSDomainDnsServers,
   setAliDNSRecordStatus,
   updateAliDNSRecord,
-  listAliDNSDomainDnsServers,
+} from '../api/alidns'
 
 defineOptions({ name: 'AliDNS' })
 
@@ -233,9 +235,10 @@ type DomainRow = {
   domainName: string
   punyCode?: string
   recordCount?: number
-  recordCount?: number
-  dnsStatus?: "normal" | "not_system"
+  dnsStatus?: 'normal' | 'not_system'
 }
+
+type DnsRecord = {
   recordId: string
   rr: string
   type: string
@@ -333,13 +336,12 @@ async function loadDomains(page = domainPage.value) {
     const data = res.data || {}
     domains.value = data.records || data || []
     domainTotal.value = data.total ?? domains.value.length
-    domainPage.value = page
-    if (!selectedDomain.value && domains.value.length > 0) {
+    domainPage.value = page`n    await loadDomainDnsStatus()`n    if (!selectedDomain.value && domains.value.length > 0) {
       await selectDomain(domains.value[0].domainName)
     }
+  } finally {
+    domainLoading.value = false
   }
-  // Load DNS status for all domains
-  await loadDomainDnsStatus()
 }
 
 async function loadDomainDnsStatus() {
@@ -348,12 +350,12 @@ async function loadDomainDnsStatus() {
     const promises = domains.value.map(async (domain) => {
       try {
         const res = await listAliDNSDomainDnsServers(domain.domainName)
-        const servers = res.data || []
-        const serverList = servers.map((s: any) => s.server || '').join(',')
-        const isSystemDns = serverList.includes('alidns') || serverList.includes('hichina')
-        domain.dnsStatus = isSystemDns ? 'normal' : 'not_system'
+        const servers: any[] = res.data || []
+        const serverList = servers.map((s: any) => (typeof s === 'string' ? s : s.server || ''))
+        const hasSystemDns = serverList.some((s: string) => s.includes('alidns') || s.includes('hichina'))
+        domain.dnsStatus = hasSystemDns ? 'normal' : 'not_system'
       } catch {
-        domain.dnsStatus = 'normal'
+        domain.dnsStatus = 'not_system'
       }
     })
     await Promise.all(promises)
@@ -540,21 +542,22 @@ onMounted(async () => {
   border-color: var(--primary);
   background: var(--primary-light);
 }
+.domain-name {
+
 .domain-status {
+  display: inline-block;
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  flex-shrink: 0;
   margin-right: 6px;
+  flex-shrink: 0;
 }
-.domain-status.status-normal {
+.status-normal {
   background: #52c41a;
 }
-.domain-status.status-not_system {
+.status-not_system {
   background: #ff4d4f;
 }
-
-.domain-name {
   font-weight: 600;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -628,3 +631,7 @@ onMounted(async () => {
   }
 }
 </style>
+
+
+
+
