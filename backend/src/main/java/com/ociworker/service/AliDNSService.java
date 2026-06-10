@@ -215,8 +215,6 @@ public class AliDNSService {
         } else if (recordLinesObj instanceof JSONObject) {
             lines = ((JSONObject) recordLinesObj).getJSONArray("RecordLine");
         }
-            lines = json.getJSONObject("RecordLines").getJSONArray("RecordLine");
-        }
         List<Map<String, Object>> result = new ArrayList<>();
         if (lines != null) {
             for (int i = 0; i < lines.size(); i++) {
@@ -231,10 +229,10 @@ public class AliDNSService {
         }
         if (result.isEmpty()) {
             result.add(defaultLine("default", "???"));
-            result.add(defaultLine("telecom", "?§Û?????"));
-            result.add(defaultLine("unicom", "?§Û????"));
-            result.add(defaultLine("mobile", "?§Û????"));
-            result.add(defaultLine("edu", "?§Û???????"));
+            result.add(defaultLine("telecom", "????????"));
+            result.add(defaultLine("unicom", "???????"));
+            result.add(defaultLine("mobile", "???????"));
+            result.add(defaultLine("edu", "??????????"));
             result.add(defaultLine("oversea", "????"));
         }
         return result;
@@ -249,7 +247,7 @@ public class AliDNSService {
         String accessKeyId = StrUtil.blankToDefault(StrUtil.trimToNull(accessKeyIdOverride), getAccessKeyId());
         String accessKeySecret = StrUtil.blankToDefault(StrUtil.trimToNull(accessKeySecretOverride), getAccessKeySecret());
         if (StrUtil.isBlank(accessKeyId) || StrUtil.isBlank(accessKeySecret)) {
-            throw new OciException("??????DNS¦Ä????");
+            throw new OciException("??????DNS??????");
         }
         try {
             Map<String, String> params = new LinkedHashMap<>();
@@ -289,13 +287,13 @@ public class AliDNSService {
             requireDomain(domainName);
         }
         if (StrUtil.isBlank(rr)) {
-            throw new OciException("????§Õ???????");
+            throw new OciException("?????????????");
         }
         if (StrUtil.isBlank(type)) {
             throw new OciException("???????????");
         }
         if (StrUtil.isBlank(value)) {
-            throw new OciException("????§Õ????");
+            throw new OciException("??????????");
         }
         Map<String, String> params = new LinkedHashMap<>();
         if (!update) {
