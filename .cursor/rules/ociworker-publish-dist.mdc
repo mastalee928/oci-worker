@@ -26,6 +26,16 @@ alwaysApply: true
 
 同步时从开发仓 **只读复制** 到 `OCIWorker-dist` 再改；是否允许改开发仓以用户当次指令为准。
 
+## 公开仓硬性禁令（发布前必对照 `publish-repo.mdc`）
+
+用户裁定，写入发布仓规则，同步/发布时 **必须** 遵守：
+
+1. **禁止暴露开发仓（含一切描述字眼）**  
+   对外脚本、文档、JAR、Release 说明中不得出现 `mastalee928/oci-worker`、`ui-latest`、`feature/ui-polish`、`OCI_WORKER_UI`、动效/Orbis 渠道、开发仓 curl 示例等（详见 `OCIWorker-dist/.cursor/rules/publish-repo.mdc`「禁令一」）。
+
+2. **公开仓不发布动效版与 Docker 版**  
+   仅 `latest` 单 JAR + `installer-latest` 安装脚本；不得建 `ui-latest`、不得附整应用 Docker 分发包（详见发布仓规则「禁令二」）。
+
 ## GitHub 账号（`gh` / push）
 
 | 场景 | 使用账号 |

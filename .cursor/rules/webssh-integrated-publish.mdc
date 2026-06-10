@@ -23,3 +23,8 @@ alwaysApply: false
 ## 终端 UI
 
 - **不得**展示原 webssh2 底部「棍之勇者」版权页脚，**不得**在页面链接 `a06342637/webssh2`（开发仓已去除）。
+
+## 与 `publish-repo.mdc` 一致
+
+- **禁令一**：禁止暴露开发仓及一切相关描述字眼（见发布仓 `publish-repo.mdc`）。
+- **禁令二**：公开仓不发布动效版（`ui-latest` 等）与 Docker 整包版；`installer-latest` 仅 `install.sh`、`ociworker`、`SHA256SUMS`。

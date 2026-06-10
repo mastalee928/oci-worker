@@ -24,7 +24,7 @@
       </div>
       <div class="dash-stat-card">
         <div class="icon-wrap" style="background: var(--danger-bg); color: var(--danger)">
-          <i class="ri-ram-line"></i>
+          <i class="ri-stack-line"></i>
         </div>
         <div class="val">{{ glance.memoryUsage || '0' }}%</div>
         <div class="lbl">内存使用率</div>

@@ -70,6 +70,7 @@ declare module 'vue' {
     AuditLogTable: typeof import('./components/AuditLogTable.vue')['default']
     AUploadDragger: typeof import('ant-design-vue/es')['UploadDragger']
     CompartmentManager: typeof import('./components/CompartmentManager.vue')['default']
+    OciLogo: typeof import('./components/OciLogo.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     ShapeSeriesPicker: typeof import('./components/ShapeSeriesPicker.vue')['default']

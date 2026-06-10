@@ -6,7 +6,7 @@
       show-icon
       class="alidns-alert"
       message="尚未配置阿里云DNS"
-      description="请先在「系统设置」→「阿里云DNS」填写 AccessKey ID 和 AccessKey Secret，并点击测试连接。"
+      description="请先在「系统设置」→「阿里云DNS」填�?AccessKey ID �?AccessKey Secret，并点击测试连接�?
     />
 
     <div class="alidns-toolbar">
@@ -23,7 +23,7 @@
       <a-input-search
         v-model:value="recordSearch"
         class="alidns-record-search"
-        placeholder="搜索主机记录或记录值"
+        placeholder="搜索主机记录或记录�?
         allow-clear
         :disabled="!selectedDomain"
         @search="loadRecords(1)"
@@ -44,7 +44,7 @@
             @click="selectDomain(domain.domainName)"
           >
             <span class="domain-name">{{ domain.domainName }}</span>
-            <span class="domain-meta">{{ domain.recordCount || 0 }} 条记录</span>
+            <span class="domain-status" :class="`status-${domain.dnsStatus || `normal`}`" :title="domain.dnsStatus === `not_system` ? `δʹ��ϵͳ����DNS��ַ` : `����`"></span>
           </button>
         </a-spin>
         <a-pagination
@@ -146,11 +146,11 @@
                 @change="(checked: boolean) => toggleRecordStatus(record, checked)"
               />
             </div>
-            <div class="mobile-record-row"><span>记录值</span><strong>{{ record.value }}</strong></div>
+            <div class="mobile-record-row"><span>记录�?/span><strong>{{ record.value }}</strong></div>
             <div class="mobile-record-row"><span>线路</span><strong>{{ lineLabel(record.line) }}</strong></div>
-            <div class="mobile-record-row"><span>TTL</span><strong>{{ record.ttl || '—' }}</strong></div>
+            <div class="mobile-record-row"><span>TTL</span><strong>{{ record.ttl || '�? }}</strong></div>
             <div v-if="record.priority != null" class="mobile-record-row">
-              <span>优先级</span><strong>{{ record.priority }}</strong>
+              <span>优先�?/span><strong>{{ record.priority }}</strong>
             </div>
             <a-space wrap class="mobile-record-actions">
               <a-button size="small" @click="openRecordModal(record)">编辑</a-button>
@@ -185,9 +185,9 @@
           <a-select v-model:value="recordForm.type" :options="typeOptions" />
         </a-form-item>
         <a-form-item label="主机记录" required>
-          <a-input v-model:value="recordForm.rr" placeholder="如 www 或 @" />
+          <a-input v-model:value="recordForm.rr" placeholder="�?www �?@" />
         </a-form-item>
-        <a-form-item label="记录值" required>
+        <a-form-item label="记录�? required>
           <a-input v-model:value="recordForm.value" placeholder="IP、域名或文本" />
         </a-form-item>
         <a-form-item label="智能线路">
@@ -202,7 +202,7 @@
         <a-form-item label="TTL">
           <a-input-number v-model:value="recordForm.ttl" :min="1" style="width: 100%" />
         </a-form-item>
-        <a-form-item v-if="prioritySupported" label="优先级">
+        <a-form-item v-if="prioritySupported" label="优先�?>
           <a-input-number v-model:value="recordForm.priority" :min="0" :max="65535" style="width: 100%" />
         </a-form-item>
       </a-form>
@@ -303,16 +303,16 @@ const recordPagination = computed(() => ({
   pageSize: recordPerPage.value,
   total: recordTotal.value,
   showSizeChanger: true,
-  showTotal: (total: number) => `共 ${total} 条`,
+  showTotal: (total: number) => `�?${total} 条`,
 }))
 
 const recordColumns = [
   { title: '类型', key: 'type', width: 90 },
   { title: '主机记录', key: 'name', ellipsis: true },
-  { title: '记录值', dataIndex: 'value', key: 'value', ellipsis: true },
+  { title: '记录�?, dataIndex: 'value', key: 'value', ellipsis: true },
   { title: '线路', key: 'line', width: 130 },
   { title: 'TTL', dataIndex: 'ttl', key: 'ttl', width: 90 },
-  { title: '优先级', dataIndex: 'priority', key: 'priority', width: 90 },
+  { title: '优先�?, dataIndex: 'priority', key: 'priority', width: 90 },
   { title: '启用', key: 'status', width: 80 },
   { title: '操作', key: 'actions', width: 130 },
 ]
@@ -339,6 +339,35 @@ async function loadDomains(page = domainPage.value) {
     }
   } finally {
     domainLoading.value = false
+  }
+
+  // Load DNS status for all domains
+  await loadDomainDnsStatus()
+
+  } finally {
+    domainLoading.value = false
+  }
+}
+async function loadDomainDnsStatus() {
+  if (!domains.value.length) return
+  try {
+    const promises = domains.value.map(async (domain) => {
+      try {
+        const res = await listAliDNSDomainDnsServers(domain.domainName)
+        const servers = res.data || []
+        const serverList = servers.map((s: any) => s.server || '').join(',')
+        const isSystemDns = serverList.includes('alidns') || serverList.includes('hichina')
+        domain.dnsStatus = isSystemDns ? 'normal' : 'not_system'
+      } catch {
+        domain.dnsStatus = 'normal'
+      }
+    })
+    await Promise.all(promises)
+  } catch {
+    // ignore
+  }
+}
+
   }
 }
 
@@ -399,8 +428,8 @@ function openRecordModal(record?: DnsRecord) {
 }
 
 async function saveRecord() {
-  if (!recordForm.rr.trim()) return message.warning('请填写主机记录')
-  if (!recordForm.value.trim()) return message.warning('请填写记录值')
+  if (!recordForm.rr.trim()) return message.warning('请填写主机记�?)
+  if (!recordForm.value.trim()) return message.warning('请填写记录�?)
   recordSaveLoading.value = true
   try {
     const payload = {
@@ -417,7 +446,7 @@ async function saveRecord() {
     } else {
       await addAliDNSRecord(payload)
     }
-    message.success('已保存')
+    message.success('已保�?)
     recordModalVisible.value = false
     await loadRecords(recordPage.value)
     await loadDomains(domainPage.value)
@@ -430,7 +459,7 @@ async function saveRecord() {
 
 async function deleteRecord(record: DnsRecord) {
   await deleteAliDNSRecord(record.recordId)
-  message.success('已删除')
+  message.success('已删�?)
   await loadRecords(recordPage.value)
   await loadDomains(domainPage.value)
 }
@@ -440,7 +469,7 @@ async function toggleRecordStatus(record: DnsRecord, checked: boolean) {
   try {
     await setAliDNSRecordStatus(record.recordId, checked ? 'ENABLE' : 'DISABLE')
     record.status = checked ? 'ENABLE' : 'DISABLE'
-    message.success(checked ? '已启用' : '已暂停')
+    message.success(checked ? '已启�? : '已暂�?)
   } catch (e: any) {
     message.error(e?.message || '操作失败')
   } finally {
@@ -520,6 +549,20 @@ onMounted(async () => {
   border-color: var(--primary);
   background: var(--primary-light);
 }
+.domain-status {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-right: 6px;
+}
+.domain-status.status-normal {
+  background: #52c41a;
+}
+.domain-status.status-not_system {
+  background: #ff4d4f;
+}
+
 .domain-name {
   font-weight: 600;
   overflow: hidden;

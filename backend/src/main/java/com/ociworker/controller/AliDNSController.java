@@ -38,6 +38,10 @@ public class AliDNSController {
         return ResponseData.ok(aliDNSService.listDomains(page, perPage));
     }
 
+    @PostMapping("/domains/dns-servers")
+    public ResponseData<?> listDomainDnsServers(@RequestBody Map<String, Object> params) {
+        return ResponseData.ok(aliDNSService.listDomainDnsServers(parseString(params.get("domainName"))));
+    }
     @PostMapping("/records/list")
     public ResponseData<?> listRecords(@RequestBody Map<String, Object> params) {
         return ResponseData.ok(aliDNSService.listRecords(
@@ -94,3 +98,4 @@ public class AliDNSController {
         }
     }
 }
+

@@ -1,4 +1,4 @@
-﻿import request from '../utils/request'
+import request from '../utils/request'
 
 export function getAliDNSAccountConfig() {
   return request.get('/alidns/account/config')
@@ -63,3 +63,8 @@ export function setAliDNSRecordStatus(recordId: string, status: 'ENABLE' | 'DISA
 export function listAliDNSLines(domainName?: string) {
   return request.post('/alidns/lines/list', { domainName })
 }
+
+export function listAliDNSDomainDnsServers(domainName: string) {
+  return request.post('/alidns/domains/dns-servers', { domainName })
+}
+
