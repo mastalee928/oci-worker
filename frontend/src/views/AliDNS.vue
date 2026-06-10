@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="alidns-page">
     <a-alert
       v-if="!configured"
