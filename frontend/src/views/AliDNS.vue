@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="alidns-page">
     <a-alert
       v-if="!configured"
@@ -44,8 +44,8 @@
             @click="selectDomain(domain.domainName)"
           >
             <span class="domain-name">{{ domain.domainName }}</span>
-            <span class="domain-meta">{{ domain.recordCount || 0 }} 条记录</span>
-          </button>
+            <span class="domain-status" :class="`status-${domain.dnsStatus || `normal`}`" :title="domain.dnsStatus === `not_system` ? `未使用系统分配DNS地址` : `正常`"></span>
+            <span class="domain-name">{{ domain.domainName }}</span>
         </a-spin>
         <a-pagination
           v-if="domainTotal > domainPerPage"
@@ -224,7 +224,7 @@ import {
   listAliDNSRecords,
   setAliDNSRecordStatus,
   updateAliDNSRecord,
-} from '../api/alidns'
+  listAliDNSDomainDnsServers,
 
 defineOptions({ name: 'AliDNS' })
 
@@ -233,8 +233,8 @@ type DomainRow = {
   domainName: string
   punyCode?: string
   recordCount?: number
-}
-
+  recordCount?: number
+  dnsStatus?: "normal" | "not_system"
 type DnsRecord = {
   recordId: string
   rr: string
@@ -339,6 +339,30 @@ async function loadDomains(page = domainPage.value) {
     }
   } finally {
     domainLoading.value = false
+  } finally {
+    domainLoading.value = false
+  }
+  // Load DNS status for all domains
+  await loadDomainDnsStatus()
+}
+
+async function loadDomainDnsStatus() {
+  if (!domains.value.length) return
+  try {
+    const promises = domains.value.map(async (domain) => {
+      try {
+        const res = await listAliDNSDomainDnsServers(domain.domainName)
+        const servers = res.data || []
+        const serverList = servers.map((s: any) => s.server || '').join(',')
+        const isSystemDns = serverList.includes('alidns') || serverList.includes('hichina')
+        domain.dnsStatus = isSystemDns ? 'normal' : 'not_system'
+      } catch {
+        domain.dnsStatus = 'normal'
+      }
+    })
+    await Promise.all(promises)
+  } catch {
+    // ignore
   }
 }
 
@@ -520,6 +544,20 @@ onMounted(async () => {
   border-color: var(--primary);
   background: var(--primary-light);
 }
+.domain-status {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  margin-right: 6px;
+}
+.domain-status.status-normal {
+  background: #52c41a;
+}
+.domain-status.status-not_system {
+  background: #ff4d4f;
+}
+
 .domain-name {
   font-weight: 600;
   overflow: hidden;
