@@ -76,9 +76,9 @@ public class AliDNSService {
                 "PageSize", "1"
         ), accessKeyId, accessKeySecret);
         if (json.containsKey("Domains") || json.containsKey("Domain")) {
-            return "è¿æ¥æˆåŠŸ";
+            return "Á¬½Ó³É¹¦";
         }
-        return "è¿æ¥æˆåŠŸ";
+        return "Á¬½Ó³É¹¦";
     }
 
     public Map<String, Object> listDomains(int page, int perPage) {
@@ -152,7 +152,7 @@ public class AliDNSService {
     public Map<String, Object> updateRecord(Map<String, Object> input) {
         String recordId = parseString(input.get("recordId"));
         if (StrUtil.isBlank(recordId)) {
-            throw new OciException("ç¼ºå°‘è®°å½• ID");
+            throw new OciException("È±ÉÙ¼ÇÂ¼ ID");
         }
         Map<String, String> params = buildRecordParams(input, true);
         params.put("RecordId", recordId.trim());
@@ -164,21 +164,43 @@ public class AliDNSService {
 
     public void deleteRecord(String recordId) {
         if (StrUtil.isBlank(recordId)) {
-            throw new OciException("ç¼ºå°‘è®°å½• ID");
+            throw new OciException("È±ÉÙ¼ÇÂ¼ ID");
         }
         request("DeleteDomainRecord", Map.of("RecordId", recordId.trim()));
     }
 
     public Map<String, Object> setRecordStatus(String recordId, String status) {
         if (StrUtil.isBlank(recordId)) {
-            throw new OciException("ç¼ºå°‘è®°å½• ID");
+            throw new OciException("È±ÉÙ¼ÇÂ¼ ID");
         }
-        String normalized = "DISABLE".equalsIgnoreCase(status) || "æš‚åœ".equals(status) ? "DISABLE" : "ENABLE";
+        String normalized = "DISABLE".equalsIgnoreCase(status) || "ÔİÍ£".equals(status) ? "DISABLE" : "ENABLE";
         JSONObject json = request("SetDomainRecordStatus", Map.of(
                 "RecordId", recordId.trim(),
                 "Status", normalized
         ));
         return mapRecord(json);
+    }
+
+    public List<Map<String, Object>> listDomainDnsServers(String domainName) {
+        requireDomain(domainName);
+        Map<String, String> params = new LinkedHashMap<>();
+        params.put("DomainName", domainName.trim());
+        JSONObject json = request("DescribeDomainDnsServers", params);
+        JSONArray servers = json.getJSONArray("DnsServers");
+        if (servers == null && json.getJSONObject("DnsServers") != null) {
+            servers = json.getJSONObject("DnsServers").getJSONArray("DnsServer");
+        }
+        List<Map<String, Object>> result = new ArrayList<>();
+        if (servers != null) {
+            for (int i = 0; i < servers.size(); i++) {
+                JSONObject srv = servers.getJSONObject(i);
+                Map<String, Object> item = new LinkedHashMap<>();
+                item.put("server", srv.getStr("Server"));
+                item.put("status", srv.getStr("Status"));
+                result.add(item);
+            }
+        }
+        return result;
     }
 
     public List<Map<String, Object>> listSupportLines(String domainName, String domainType) {
@@ -203,12 +225,12 @@ public class AliDNSService {
             }
         }
         if (result.isEmpty()) {
-            result.add(defaultLine("default", "é»˜è®¤"));
-            result.add(defaultLine("telecom", "ä¸­å›½ç”µä¿¡"));
-            result.add(defaultLine("unicom", "ä¸­å›½è”é€š"));
-            result.add(defaultLine("mobile", "ä¸­å›½ç§»åŠ¨"));
-            result.add(defaultLine("edu", "ä¸­å›½æ•™è‚²ç½‘"));
-            result.add(defaultLine("oversea", "æµ·å¤–"));
+            result.add(defaultLine("default", "Ä¬ÈÏ"));
+            result.add(defaultLine("telecom", "ÖĞ¹úµçĞÅ"));
+            result.add(defaultLine("unicom", "ÖĞ¹úÁªÍ¨"));
+            result.add(defaultLine("mobile", "ÖĞ¹úÒÆ¶¯"));
+            result.add(defaultLine("edu", "ÖĞ¹ú½ÌÓıÍø"));
+            result.add(defaultLine("oversea", "º£Íâ"));
         }
         return result;
     }
@@ -222,7 +244,7 @@ public class AliDNSService {
         String accessKeyId = StrUtil.blankToDefault(StrUtil.trimToNull(accessKeyIdOverride), getAccessKeyId());
         String accessKeySecret = StrUtil.blankToDefault(StrUtil.trimToNull(accessKeySecretOverride), getAccessKeySecret());
         if (StrUtil.isBlank(accessKeyId) || StrUtil.isBlank(accessKeySecret)) {
-            throw new OciException("é˜¿é‡Œäº‘DNSæœªé…ç½®");
+            throw new OciException("°¢ÀïÔÆDNSÎ´ÅäÖÃ");
         }
         try {
             Map<String, String> params = new LinkedHashMap<>();
@@ -243,13 +265,13 @@ public class AliDNSService {
             HttpResponse<String> response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
             JSONObject json = JSONUtil.parseObj(response.body());
             if (json.containsKey("Code")) {
-                throw new OciException(json.getStr("Message", "é˜¿é‡Œäº‘DNSè¯·æ±‚å¤±è´¥"));
+                throw new OciException(json.getStr("Message", "°¢ÀïÔÆDNSÇëÇóÊ§°Ü"));
             }
             return json;
         } catch (OciException e) {
             throw e;
         } catch (Exception e) {
-            throw new OciException("é˜¿é‡Œäº‘DNSè¯·æ±‚å¤±è´¥: " + e.getMessage());
+            throw new OciException("°¢ÀïÔÆDNSÇëÇóÊ§°Ü: " + e.getMessage());
         }
     }
 
@@ -262,13 +284,13 @@ public class AliDNSService {
             requireDomain(domainName);
         }
         if (StrUtil.isBlank(rr)) {
-            throw new OciException("è¯·å¡«å†™ä¸»æœºè®°å½•");
+            throw new OciException("ÇëÌîĞ´Ö÷»ú¼ÇÂ¼");
         }
         if (StrUtil.isBlank(type)) {
-            throw new OciException("è¯·é€‰æ‹©è®°å½•ç±»å‹");
+            throw new OciException("ÇëÑ¡Ôñ¼ÇÂ¼ÀàĞÍ");
         }
         if (StrUtil.isBlank(value)) {
-            throw new OciException("è¯·å¡«å†™è®°å½•å€¼");
+            throw new OciException("ÇëÌîĞ´¼ÇÂ¼Öµ");
         }
         Map<String, String> params = new LinkedHashMap<>();
         if (!update) {
@@ -349,7 +371,7 @@ public class AliDNSService {
 
     private void requireDomain(String domainName) {
         if (StrUtil.isBlank(domainName)) {
-            throw new OciException("ç¼ºå°‘åŸŸå");
+            throw new OciException("È±ÉÙÓòÃû");
         }
     }
 
