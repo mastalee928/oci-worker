@@ -1,4 +1,4 @@
-package com.ociworker.service;
+﻿package com.ociworker.service;
 
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONArray;
@@ -189,12 +189,12 @@ public class AliDNSService {
     public List<Map<String, Object>> listSupportLines(String domainName, String domainType) {
         // DescribeSupportLines is not a standard AliDNS API - return static line list
         List<Map<String, Object>> result = new ArrayList<>();
-        result.add(defaultLine("default", "默认"));
-        result.add(defaultLine("telecom", "电信"));
-        result.add(defaultLine("unicom", "联通"));
-        result.add(defaultLine("mobile", "移动"));
-        result.add(defaultLine("edu", "教育网"));
-        result.add(defaultLine("oversea", "海外"));
+        result.add(defaultLine("default", "榛樿"));
+        result.add(defaultLine("telecom", "鐢典俊"));
+        result.add(defaultLine("unicom", "鑱旈€?));
+        result.add(defaultLine("mobile", "绉诲姩"));
+        result.add(defaultLine("edu", "鏁欒偛缃?));
+        result.add(defaultLine("oversea", "娴峰"));
         return result;
     }
 
@@ -283,7 +283,7 @@ public class AliDNSService {
         item.put("type", row.getStr("Type"));
         item.put("value", row.getStr("Value"));
         item.put("line", row.getStr("Line"));
-        item.put("lineName", row.getStr("Line"));
+        item.put("lineName", row.getStr("LineName"));
         item.put("ttl", row.getInt("TTL"));
         item.put("priority", row.getInt("Priority"));
         item.put("status", row.getStr("Status"));
@@ -390,3 +390,4 @@ public class AliDNSService {
         return null;
     }
 }
+

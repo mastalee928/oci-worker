@@ -119,7 +119,7 @@
               <span class="record-name">{{ record.rr }}.{{ selectedDomain }}</span>
             </template>
             <template v-else-if="column.key === 'line'">
-              {{ lineLabel(record.line) }}
+              {{ record.lineName || record.line || '默认' }}
             </template>
             <template v-else-if="column.key === 'status'">
               <a-switch
@@ -156,7 +156,7 @@
               />
             </div>
             <div class="mobile-record-row"><span>记录值</span><strong>{{ record.value }}</strong></div>
-            <div class="mobile-record-row"><span>线路</span><strong>{{ lineLabel(record.line) }}</strong></div>
+            <div class="mobile-record-row"><span>线路</span><strong>{{ record.lineName || record.line || '默认' }}</strong></div>
             <div class="mobile-record-row"><span>TTL</span><strong>{{ record.ttl || '—' }}</strong></div>
             <div v-if="record.priority != null" class="mobile-record-row">
               <span>优先级</span><strong>{{ record.priority }}</strong>
@@ -399,10 +399,9 @@ async function loadRecords(page = recordPage.value) {
       domainName: selectedDomain.value,
       page,
       perPage: recordPerPage.value,
-      rrKeyWord: keyword,
-      valueKeyWord: keyword,
-      typeKeyWord: typeFilter.value,
-      line: lineFilter.value,
+      rrKeyWord: keyword || undefined,
+      typeKeyWord: typeFilter.value || undefined,
+      line: lineFilter.value || undefined,
     })
     const data = res.data || {}
     records.value = data.records || []
@@ -641,6 +640,9 @@ onMounted(async () => {
   }
 }
 </style>
+
+
+
 
 
 
