@@ -568,10 +568,21 @@ onMounted(async () => {
   width: min(360px, 100%);
 }
 .alidns-layout {
-  display: grid;
-  grid-template-columns: minmax(220px, 300px) minmax(0, 1fr);
+  display: flex;
+  flex-direction: column;
   gap: 16px;
   align-items: start;
+}
+.alidns-domain-panel {
+  max-height: 230px;
+  overflow-y: auto;
+}
+.alidns-domain-panel::-webkit-scrollbar {
+  width: 6px;
+}
+.alidns-domain-panel::-webkit-scrollbar-thumb {
+  background: #c0c4cc;
+  border-radius: 3px;
 }
 .alidns-domain-panel,
 .alidns-record-panel {
@@ -703,9 +714,7 @@ onMounted(async () => {
     flex-direction: column;
     align-items: stretch;
   }
-  .alidns-layout {
-    grid-template-columns: 1fr;
-  }
+  
   .record-filter,
   .alidns-record-search {
     width: 100%;
