@@ -42,9 +42,17 @@
             class="domain-item"
             :class="{ active: selectedDomain === domain.domainName }"
             @click="selectDomain(domain.domainName)"
-            <span :class="['domain-status', { 'status-normal': domain.dnsStatus === 'normal', 'status-not_system': domain.dnsStatus === 'not_system' }]" :title="domain.dnsStatus === 'normal' ? '正常' : '未使用系统分配DNS地址'"></span>
           >
+            <!-- 状态小圆点（已正确移入 button 标签内部） -->
+            <span 
+              :class="['domain-status', { 'status-normal': domain.dnsStatus === 'normal', 'status-not_system': domain.dnsStatus === 'not_system' }]" 
+              :title="domain.dnsStatus === 'normal' ? '正常' : '未使用系统分配DNS地址'"
+            ></span>
+            
+            <!-- 域名名称 -->
             <span class="domain-name">{{ domain.domainName }}</span>
+            
+            <!-- 记录数量 -->
             <span class="domain-meta">{{ domain.recordCount || 0 }} 条记录</span>
           </button>
         </a-spin>
