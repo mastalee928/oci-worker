@@ -433,7 +433,6 @@ public class AliDNSService {
     }
 
     private String getDomainDnsStatus(String domainName) {
-    private String getDomainDnsStatus(String domainName) {
         try {
             JSONObject json = request("DescribeDomainDnsServers", Map.of("DomainName", domainName));
             log.info("DescribeDomainDnsServers[{}] raw keys: {}", domainName, json.keySet());
