@@ -36,6 +36,7 @@ public class AliDNSService {
     private static final String DNS_API = "https://alidns.aliyuncs.com";
     private static final String API_VERSION = "2015-01-09";
 
+    private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(10)).build();
     @Resource
     private NotificationService notificationService;
 
@@ -76,9 +77,9 @@ public class AliDNSService {
                 "PageSize", "1"
         ), accessKeyId, accessKeySecret);
         if (json.containsKey("Domains") || json.containsKey("Domain")) {
-            return "??????";
+            return "连接成功";
         }
-        return "??????";
+        return "连接失败";
     }
 
     public Map<String, Object> listDomains(int page, int perPage) {
@@ -101,6 +102,11 @@ public class AliDNSService {
                 item.put("groupName", row.getStr("GroupName"));
                 item.put("recordCount", row.getInt("RecordCount", 0));
                 item.put("versionName", row.getStr("VersionName"));
+                try {
+                    JSONArray srvList = request("DescribeDomainDnsServers", Map.of("DomainName", row.getStr("DomainName"))).getJSONArray("DnsServers");
+                    boolean hasSystem = srvList != null && srvList.stream().anyMatch(s -> { String sn = ((JSONObject) s).getStr("Server"); return sn != null && (sn.contains("alidns") || sn.contains("hichina")); });
+                    item.put("dnsStatus", hasSystem ? "normal" : "not_system");
+                } catch (Exception e) { item.put("dnsStatus", "not_system"); }
                 records.add(item);
             }
         }
@@ -122,7 +128,7 @@ public class AliDNSService {
         putIfNotBlank(params, "RRKeyWord", rrKeyWord);
         putIfNotBlank(params, "TypeKeyWord", typeKeyWord);
         putIfNotBlank(params, "ValueKeyWord", valueKeyWord);
-        putIfNotBlank(params, "Line", normalizeLine(line));
+        putIfNotBlank(params, "Line", line);
         JSONObject json = request("DescribeDomainRecords", params);
         JSONArray array = json.getJSONObject("DomainRecords") != null
                 ? json.getJSONObject("DomainRecords").getJSONArray("Record")
@@ -152,10 +158,10 @@ public class AliDNSService {
     public Map<String, Object> updateRecord(Map<String, Object> input) {
         String recordId = parseString(input.get("recordId"));
         if (StrUtil.isBlank(recordId)) {
-            throw new OciException("????? ID");
+            throw new OciException("记录ID不能为空");
         }
         Map<String, String> params = buildRecordParams(input, true);
-        params.put("RecordId", recordId.trim());
+        params.put("DomainName", parseString(input.get("domainName")).trim());
         JSONObject json = request("UpdateDomainRecord", params);
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("recordId", json.getStr("RecordId"));
@@ -164,16 +170,16 @@ public class AliDNSService {
 
     public void deleteRecord(String recordId) {
         if (StrUtil.isBlank(recordId)) {
-            throw new OciException("????? ID");
+            throw new OciException("记录ID不能为空");
         }
         request("DeleteDomainRecord", Map.of("RecordId", recordId.trim()));
     }
 
     public Map<String, Object> setRecordStatus(String recordId, String status) {
         if (StrUtil.isBlank(recordId)) {
-            throw new OciException("????? ID");
+            throw new OciException("记录ID不能为空");
         }
-        String normalized = "DISABLE".equalsIgnoreCase(status) || "???".equals(status) ? "DISABLE" : "ENABLE";
+        String normalized = "DISABLE".equalsIgnoreCase(status)  ? "DISABLE" : "ENABLE";
         JSONObject json = request("SetDomainRecordStatus", Map.of(
                 "RecordId", recordId.trim(),
                 "Status", normalized
@@ -228,12 +234,12 @@ public class AliDNSService {
             }
         }
         if (result.isEmpty()) {
-            result.add(defaultLine("default", "???"));
-            result.add(defaultLine("telecom", "????????"));
-            result.add(defaultLine("unicom", "???????"));
-            result.add(defaultLine("mobile", "???????"));
-            result.add(defaultLine("edu", "??????????"));
-            result.add(defaultLine("oversea", "????"));
+            result.add(defaultLine("default", "默认"));
+            result.add(defaultLine("telecom", "中国电信"));
+            result.add(defaultLine("unicom", "中国联通"));
+            result.add(defaultLine("mobile", "中国移动"));
+            result.add(defaultLine("edu", "教育网"));
+            result.add(defaultLine("oversea", "海外"));
         }
         return result;
     }
@@ -247,7 +253,7 @@ public class AliDNSService {
         String accessKeyId = StrUtil.blankToDefault(StrUtil.trimToNull(accessKeyIdOverride), getAccessKeyId());
         String accessKeySecret = StrUtil.blankToDefault(StrUtil.trimToNull(accessKeySecretOverride), getAccessKeySecret());
         if (StrUtil.isBlank(accessKeyId) || StrUtil.isBlank(accessKeySecret)) {
-            throw new OciException("??????DNS??????");
+            throw new OciException("阿里云DNS未配置");
         }
         try {
             Map<String, String> params = new LinkedHashMap<>();
@@ -265,16 +271,16 @@ public class AliDNSService {
             params.put("Signature", sign(params, accessKeySecret, "GET"));
             String url = DNS_API + "?" + buildQuery(params);
             HttpRequest request = HttpRequest.newBuilder(URI.create(url)).GET().build();
-            HttpResponse<String> response = HttpClient.newHttpClient().send(request, HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> response = HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
             JSONObject json = JSONUtil.parseObj(response.body());
             if (json.containsKey("Code")) {
-                throw new OciException(json.getStr("Message", "??????DNS???????"));
+                throw new OciException(json.getStr("Message", "阿里云DNS调用失败"));
             }
             return json;
         } catch (OciException e) {
             throw e;
         } catch (Exception e) {
-            throw new OciException("??????DNS???????: " + e.getMessage());
+            throw new OciException("阿里云DNS调用异常: " + e.getMessage());
         }
     }
 
@@ -287,13 +293,13 @@ public class AliDNSService {
             requireDomain(domainName);
         }
         if (StrUtil.isBlank(rr)) {
-            throw new OciException("?????????????");
+            throw new OciException("请填写主机记录");
         }
         if (StrUtil.isBlank(type)) {
-            throw new OciException("???????????");
+            throw new OciException("请填写记录类型");
         }
         if (StrUtil.isBlank(value)) {
-            throw new OciException("??????????");
+            throw new OciException("请填写记录值");
         }
         Map<String, String> params = new LinkedHashMap<>();
         if (!update) {
@@ -323,7 +329,7 @@ public class AliDNSService {
         item.put("type", row.getStr("Type"));
         item.put("value", row.getStr("Value"));
         item.put("line", row.getStr("Line"));
-        item.put("lineName", row.getStr("Line"));
+        item.put("lineName", firstNonBlank(row.getStr("LineName"), row.getStr("Line")));
         item.put("ttl", row.getInt("TTL"));
         item.put("priority", row.getInt("Priority"));
         item.put("status", row.getStr("Status"));
@@ -374,7 +380,7 @@ public class AliDNSService {
 
     private void requireDomain(String domainName) {
         if (StrUtil.isBlank(domainName)) {
-            throw new OciException("???????");
+            throw new OciException("请输入域名");
         }
     }
 
@@ -430,6 +436,5 @@ public class AliDNSService {
         return null;
     }
 }
-
 
 
