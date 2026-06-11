@@ -474,6 +474,8 @@ public class AliDNSService {
             throw new OciException("阿里云DNS调用异常: " + e.getMessage());
         }
     }
+
+    private String getDomainDnsStatus(String domainName) {
         try {
             JSONObject json = requestPost("DescribeDomainDnsServers", Map.of("DomainName", domainName));
             log.info("DescribeDomainDnsServers[{}] raw keys: {}", domainName, json.keySet());
