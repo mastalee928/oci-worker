@@ -84,14 +84,41 @@ public class AliDNSService {
     }
 
     public String testAccountConfig(String accessKeyId, String accessKeySecret) {
-        JSONObject json = request("DescribeDomains", Map.of(
-                "PageNumber", "1",
-                "PageSize", "1"
-        ), accessKeyId, accessKeySecret);
-        if (json != null && (json.containsKey("Domains") || json.containsKey("Domain"))) {
+
+        try {
+
+            JSONObject json = request(
+                    "DescribeDomains",
+                    Map.of(
+                            "PageNumber", "1",
+                            "PageSize", "1"
+                    ),
+                    accessKeyId,
+                    accessKeySecret
+            );
+
+            if (json == null) {
+                return "FAILED";
+            }
+
+            if (json.containsKey("Code")) {
+
+                log.error(
+                        "AliDNS Test Failed: {}",
+                        json.toStringPretty()
+                );
+
+                return "FAILED";
+            }
+
             return "SUCCESS";
+
+        } catch (Exception e) {
+
+            log.error("AliDNS Test Error", e);
+
+            return "FAILED";
         }
-        return "FAILED";
     }
 
     public Map<String, Object> listDomains(int page, int perPage) {
