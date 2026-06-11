@@ -187,7 +187,7 @@ public class AliDNSService {
         requireDomain(domainName);
         Map<String, String> params = new LinkedHashMap<>();
         params.put("DomainName", domainName.trim());
-        JSONObject json = request("DescribeDomainDnsServers", params);
+        JSONObject json = requestPost("DescribeDomainDnsServers", params);
         JSONArray servers = json.getJSONArray("DnsServers");
         if (servers == null && json.getJSONObject("DnsServers") != null) {
             servers = json.getJSONObject("DnsServers").getJSONArray("DnsServer");
@@ -433,8 +433,49 @@ public class AliDNSService {
     }
 
     private String getDomainDnsStatus(String domainName) {
+    private JSONObject requestPost(String action, Map<String, String> actionParams) {
+        String ak = StrUtil.blankToDefault(StrUtil.trimToNull(getAccessKeyId()), "");
+        String sk = StrUtil.blankToDefault(StrUtil.trimToNull(getAccessKeySecret()), "");
+        if (StrUtil.isBlank(ak) || StrUtil.isBlank(sk)) {
+            throw new OciException("阿里云DNS未配置");
+        }
         try {
-            JSONObject json = request("DescribeDomainDnsServers", Map.of("DomainName", domainName));
+            Map<String, String> params = new LinkedHashMap<>();
+            params.put("Action", action);
+            params.put("Version", API_VERSION);
+            params.put("AccessKeyId", ak);
+            params.put("SignatureMethod", "HMAC-SHA1");
+            params.put("SignatureVersion", "1.0");
+            params.put("SignatureNonce", UUID.randomUUID().toString());
+            params.put("Timestamp", DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss'Z'").withZone(ZoneOffset.UTC).format(Instant.now()));
+            params.put("Format", "JSON");
+            if (actionParams != null) params.putAll(actionParams);
+            params.put("Signature", sign(params, sk, "POST"));
+            StringBuilder body = new StringBuilder();
+            boolean first = true;
+            for (Map.Entry<String, String> e : params.entrySet()) {
+                if (!first) body.append("&");
+                first = false;
+                body.append(percentEncode(e.getKey())).append("=").append(percentEncode(e.getValue()));
+            }
+            HttpRequest request = HttpRequest.newBuilder(URI.create(DNS_API))
+                .header("Content-Type", "application/x-www-form-urlencoded")
+                .POST(HttpRequest.BodyPublishers.ofString(body.toString()))
+                .build();
+            HttpResponse<String> response = HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
+            JSONObject json = JSONUtil.parseObj(response.body());
+            String code = json.getStr("Code");
+            if (code != null && !"200".equals(code)) {
+                throw new OciException(json.getStr("Message", "阿里云DNS调用失败"));
+            }
+            return json;
+        } catch (OciException e) { throw e; }
+        catch (Exception e) {
+            throw new OciException("阿里云DNS调用异常: " + e.getMessage());
+        }
+    }
+        try {
+            JSONObject json = requestPost("DescribeDomainDnsServers", Map.of("DomainName", domainName));
             log.info("DescribeDomainDnsServers[{}] raw keys: {}", domainName, json.keySet());
             log.info("DescribeDomainDnsServers[{}] DnsServers val: {}", domainName, json.get("DnsServers") != null ? json.get("DnsServers").getClass().getSimpleName() : "null");
             JSONArray srvList = json.getJSONArray("DnsServers");
