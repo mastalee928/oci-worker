@@ -83,14 +83,13 @@ public class AliDNSService {
 
     public Map<String, Object> listDomains(int page, int perPage) {
         JSONObject json = request("DescribeDomains", Map.of(
-        JSONObject json = request("DescribeDomains", Map.of(
                 "PageNumber", String.valueOf(Math.max(page, 1)),
                 "PageSize", String.valueOf(Math.max(perPage, 1))
         ), getAccessKeyId(), getAccessKeySecret());
+        ), getAccessKeyId(), getAccessKeySecret());
+        JSONArray domains = json.getJSONObject("Domains") != null
                 ? json.getJSONObject("Domains").getJSONArray("Domain")
                 : new JSONArray();
-        List<Map<String, Object>> records = new ArrayList<>();
-        if (domains != null) {
             for (int i = 0; i < domains.size(); i++) {
                 JSONObject row = domains.getJSONObject(i);
                 Map<String, Object> item = new LinkedHashMap<>();
