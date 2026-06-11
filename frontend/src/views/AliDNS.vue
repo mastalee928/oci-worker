@@ -43,11 +43,15 @@
             :class="{ active: selectedDomain === domain.domainName }"
             @click="selectDomain(domain.domainName)"
           >
-            <!-- 状态小圆点（已正确移入 button 标签内部） -->
+            <!-- DNS 状态标签 -->
             <span 
-              :class="['domain-status', { 'status-normal': domain.dnsStatus === 'normal', 'status-not_system': domain.dnsStatus === 'not_system' }]" 
-              :title="domain.dnsStatus === 'normal' ? '正常' : '未使用系统分配DNS地址'"
-            ></span>
+              v-if="domain.dnsStatus === 'normal'"
+              class="domain-status domain-status-normal"
+            >正常</span>
+            <span 
+              v-else-if="domain.dnsStatus === 'not_system'"
+              class="domain-status domain-status-not-system"
+            >未绑定DNS</span>
             
             <!-- 域名名称 -->
             <span class="domain-name">{{ domain.domainName }}</span>
@@ -560,12 +564,24 @@ onMounted(async () => {
 }
 
 .domain-status {
-  display: inline-block;
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  margin-right: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px 10px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.5;
   flex-shrink: 0;
+  white-space: nowrap;
+}
+.domain-status-normal {
+  background: #52c41a;
+  color: #fff;
+}
+.domain-status-not-system {
+  background: #8c8c8c;
+  color: #fff;
 }
 .status-normal {
   background: #52c41a;
