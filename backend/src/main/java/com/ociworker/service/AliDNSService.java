@@ -433,26 +433,29 @@ public class AliDNSService {
     }
 
     private String getDomainDnsStatus(String domainName) {
+    private String getDomainDnsStatus(String domainName) {
         try {
             JSONObject json = request("DescribeDomainDnsServers", Map.of("DomainName", domainName));
+            log.info("DescribeDomainDnsServers[{}] raw keys: {}", domainName, json.keySet());
+            log.info("DescribeDomainDnsServers[{}] DnsServers val: {}", domainName, json.get("DnsServers") != null ? json.get("DnsServers").getClass().getSimpleName() : "null");
             JSONArray srvList = json.getJSONArray("DnsServers");
             if (srvList == null && json.getJSONObject("DnsServers") != null) {
                 srvList = json.getJSONObject("DnsServers").getJSONArray("DnsServer");
             }
+            log.info("DescribeDomainDnsServers[{}] srvList: {}", domainName, srvList);
             if (srvList != null) {
                 for (int i = 0; i < srvList.size(); i++) {
                     JSONObject srv = srvList.getJSONObject(i);
                     String server = srv != null ? srv.getStr("Server") : null;
+                    log.info("DescribeDomainDnsServers[{}] server[{}]: {}", domainName, i, server);
                     if (server != null && (server.contains("alidns") || server.contains("hichina"))) {
                         return "normal";
                     }
                 }
             }
         } catch (Exception e) {
-            // ignore
+            log.error("DescribeDomainDnsServers[{}] error: {}", domainName, e.getMessage());
         }
         return "not_system";
     }
 }
-
-
