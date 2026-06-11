@@ -184,21 +184,17 @@ public class AliDNSService {
     }
 
     public List<Map<String, Object>> listDomainDnsServers(String domainName) {
+
         requireDomain(domainName);
-        Map<String, String> params = new LinkedHashMap<>();
-        params.put("DomainName", domainName.trim());
-        JSONObject json = requestPost("DescribeDomainDnsServers", params);
+        JSONObject json = request("DescribeDomainInfo", Map.of("DomainName", domainName.trim()));
         JSONArray servers = json.getJSONArray("DnsServers");
-        if (servers == null && json.getJSONObject("DnsServers") != null) {
-            servers = json.getJSONObject("DnsServers").getJSONArray("DnsServer");
-        }
         List<Map<String, Object>> result = new ArrayList<>();
         if (servers != null) {
             for (int i = 0; i < servers.size(); i++) {
-                JSONObject srv = servers.getJSONObject(i);
+                String server = servers.getStr(i);
                 Map<String, Object> item = new LinkedHashMap<>();
-                item.put("server", srv.getStr("Server"));
-                item.put("status", srv.getStr("Status"));
+                item.put("server", server);
+                item.put("status", "active");
                 result.add(item);
             }
         }
@@ -476,15 +472,11 @@ public class AliDNSService {
     }
     private String getDomainDnsStatus(String domainName) {
         try {
-            JSONObject json = requestPost("DescribeDomainDnsServers", Map.of("DomainName", domainName));
+            JSONObject json = request("DescribeDomainInfo", Map.of("DomainName", domainName));
             JSONArray srvList = json.getJSONArray("DnsServers");
-            if (srvList == null && json.getJSONObject("DnsServers") != null) {
-                srvList = json.getJSONObject("DnsServers").getJSONArray("DnsServer");
-            }
             if (srvList != null) {
                 for (int i = 0; i < srvList.size(); i++) {
-                    JSONObject srv = srvList.getJSONObject(i);
-                    String server = srv != null ? srv.getStr("Server") : null;
+                    String server = srvList.getStr(i);
                     if (server != null && (server.contains("alidns") || server.contains("hichina"))) {
                         return "normal";
                     }
@@ -495,4 +487,5 @@ public class AliDNSService {
         }
         return "not_system";
     }
+
 }
