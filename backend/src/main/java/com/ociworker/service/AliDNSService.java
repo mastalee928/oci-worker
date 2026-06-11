@@ -269,7 +269,7 @@ public class AliDNSService {
             HttpRequest request = HttpRequest.newBuilder(URI.create(url)).GET().build();
             HttpResponse<String> response = HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
             JSONObject json = JSONUtil.parseObj(response.body());
-            if (json.containsKey("Code")) {
+            String code = json.getStr("Code"); if (code != null && !"200".equals(code)) {
                 throw new OciException(json.getStr("Message", "阿里云DNS调用失败"));
             }
             return json;
