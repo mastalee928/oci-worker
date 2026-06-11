@@ -204,39 +204,39 @@ public class AliDNSService {
     }
 
     public List<Map<String, Object>> listSupportLines(String domainName, String domainType) {
-    public List<Map<String, Object>> listSupportLines(String domainName, String domainType) {
-        // DescribeSupportLines requires special endpoint/version; skip API call to avoid signature errors
+        Map<String, String> params = new LinkedHashMap<>();
+        // DescribeSupportLines only accepts DomainType (PUBLIC/PRIVATE), not DomainName
+        putIfNotBlank(params, "DomainType", domainType);
+        JSONObject json = request("DescribeSupportLines", params);
+        Object recordLinesObj = json.get("RecordLines");
+        JSONArray lines = null;
+        if (recordLinesObj instanceof JSONArray) {
+            lines = (JSONArray) recordLinesObj;
+        } else if (recordLinesObj instanceof JSONObject) {
+            lines = ((JSONObject) recordLinesObj).getJSONArray("RecordLine");
+        }
         List<Map<String, Object>> result = new ArrayList<>();
-        result.add(defaultLine("default", "默认"));
-        result.add(defaultLine("telecom", "电信"));
-        result.add(defaultLine("unicom", "联通"));
-        result.add(defaultLine("mobile", "移动"));
-        result.add(defaultLine("edu", "教育网"));
-        result.add(defaultLine("oversea", "海外"));
+        if (lines != null) {
+            for (int i = 0; i < lines.size(); i++) {
+                JSONObject line = lines.getJSONObject(i);
+                Map<String, Object> item = new LinkedHashMap<>();
+                item.put("lineCode", firstNonBlank(line.getStr("LineCode"), line.getStr("LineCodeEn"), line.getStr("Code")));
+                item.put("lineName", firstNonBlank(line.getStr("LineName"), line.getStr("LineDisplayName"), line.getStr("Name")));
+                item.put("fatherCode", line.getStr("FatherCode"));
+                item.put("lineDisplayName", firstNonBlank(line.getStr("LineDisplayName"), line.getStr("LineName")));
+                result.add(item);
+            }
+        }
+        if (result.isEmpty()) {
+            result.add(defaultLine("default", "???"));
+            result.add(defaultLine("telecom", "????????"));
+            result.add(defaultLine("unicom", "???????"));
+            result.add(defaultLine("mobile", "???????"));
+            result.add(defaultLine("edu", "??????????"));
+            result.add(defaultLine("oversea", "????"));
+        }
         return result;
     }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
     private JSONObject request(String action, Map<String, String> actionParams) {
         return request(action, actionParams, null, null);
