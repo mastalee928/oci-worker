@@ -478,11 +478,16 @@ public class AliDNSService {
                 for (int i = 0; i < srvList.size(); i++) {
                     JSONObject srv = srvList.getJSONObject(i);
                     String server = srv != null ? srv.getStr("Server") : null;
+                    if (server != null && (server.contains("alidns") || server.contains("hichina"))) {
                         return "normal";
                     }
                 }
             }
         } catch (Exception e) {
+            // ignore
+        }
+        return "not_system";
+    }
             // ignore
         }
         return "not_system";
