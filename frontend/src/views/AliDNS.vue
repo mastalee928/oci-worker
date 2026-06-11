@@ -553,6 +553,11 @@ onMounted(async () => {
   background: var(--primary-light);
 }
 .domain-name {
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 
 .domain-status {
   display: inline-block;
@@ -567,11 +572,6 @@ onMounted(async () => {
 }
 .status-not_system {
   background: #ff4d4f;
-}
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 .domain-meta {
   flex-shrink: 0;
@@ -641,6 +641,7 @@ onMounted(async () => {
   }
 }
 </style>
+
 
 
 
