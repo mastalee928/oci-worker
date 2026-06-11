@@ -450,7 +450,7 @@ public class AliDNSService {
             params.put("Timestamp", DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ss'Z'").withZone(ZoneOffset.UTC).format(Instant.now()));
             params.put("Format", "JSON");
             if (actionParams != null) params.putAll(actionParams);
-            params.put("Signature", sign(params, sk, "POST"));
+            try { params.put("Signature", sign(params, sk, "POST")); } catch (Exception ex) { throw new OciException("签名失败: " + ex.getMessage()); }
             StringBuilder body = new StringBuilder();
             boolean first = true;
             for (Map.Entry<String, String> e : params.entrySet()) {
@@ -462,19 +462,18 @@ public class AliDNSService {
                 .header("Content-Type", "application/x-www-form-urlencoded")
                 .POST(HttpRequest.BodyPublishers.ofString(body.toString()))
                 .build();
-            HttpResponse<String> response = HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> response;
+            try { response = HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofString()); } catch (InterruptedException ex) { Thread.currentThread().interrupt(); throw new OciException("网络请求中断"); }
             JSONObject json = JSONUtil.parseObj(response.body());
             String code = json.getStr("Code");
             if (code != null && !"200".equals(code)) {
                 throw new OciException(json.getStr("Message", "阿里云DNS调用失败"));
             }
             return json;
-        } catch (OciException e) {
-            throw e;
+        } catch (Exception e) {
             throw new OciException("阿里云DNS调用异常: " + e.getMessage());
         }
     }
-
     private String getDomainDnsStatus(String domainName) {
         try {
             JSONObject json = requestPost("DescribeDomainDnsServers", Map.of("DomainName", domainName));
