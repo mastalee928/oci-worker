@@ -1,18 +1,38 @@
-package com.ociworker.service;
+﻿package com.ociworker.service;
 
-import cn.hutool.core.util.StrUtil;
-import cn.hutool.json.JSONArray;
-import cn.hutool.json.JSONObject;
-import cn.hutool.json.JSONUtil;
-import com.ociworker.enums.SysCfgEnum;
-import com.ociworker.exception.OciException;
-import jakarta.annotation.Resource;
-import lombok.extern.slf4j.Slf4j;
-import org.springframework.stereotype.Service;
 
-import javax.crypto.Mac;
-import javax.crypto.spec.SecretKeySpec;
-import java.net.URI;
+    public List<Map<String, Object>> listDomainDnsServers(String domainName) {
+        requireDomain(domainName);
+        JSONObject json = request("DescribeDomainInfo", Map.of("DomainName", domainName.trim()));
+        List<Map<String, Object>> result = new ArrayList<>();
+        Object dnsServersObj = json.get("DnsServers");
+        JSONArray dnsServers = null;
+        if (dnsServersObj instanceof JSONArray) {
+            dnsServers = (JSONArray) dnsServersObj;
+        } else if (dnsServersObj instanceof JSONObject) {
+            JSONObject obj = (JSONObject) dnsServersObj;
+            dnsServers = obj.getJSONArray("DnsServer");
+            if (dnsServers == null) {
+                dnsServers = obj.getJSONArray("DnsServers");
+            }
+        }
+        if (dnsServers != null) {
+            for (int i = 0; i < dnsServers.size(); i++) {
+                Object item = dnsServers.get(i);
+                Map<String, Object> entry = new LinkedHashMap<>();
+                if (item instanceof String) {
+                    entry.put("server", item);
+                } else if (item instanceof JSONObject) {
+                    JSONObject srv = (JSONObject) item;
+                    entry.put("server", firstNonBlank(srv.getStr("Server"), srv.getStr("server"), srv.getStr("Value")));
+                    entry.put("status", srv.getStr("Status"));
+                }
+                result.add(entry);
+            }
+        }
+        return result;
+    }
+
 import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
