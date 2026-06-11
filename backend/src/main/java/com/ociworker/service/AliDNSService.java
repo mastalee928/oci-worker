@@ -129,20 +129,31 @@ public class AliDNSService {
         
         List<Map<String, Object>> records = new ArrayList<>();
         
-        if (json != null && json.getJSONObject("Domains") != null) {
-            JSONArray domains = json.getJSONObject("Domains").getJSONArray("Domain");
-            if (domains != null) {
-                for (int i = 0; i < domains.size(); i++) {
-                    JSONObject row = domains.getJSONObject(i);
-                    Map<String, Object> item = new LinkedHashMap<>();
-                    item.put("domainId", row.getStr("DomainId"));
-                    item.put("domainName", row.getStr("DomainName"));
-                    item.put("punyCode", row.getStr("PunyCode"));
-                    item.put("groupId", row.getStr("GroupId"));
-                    item.put("groupName", row.getStr("GroupName"));
-                    item.put("recordCount", row.getInt("RecordCount", 0));
-                    item.put("versionName", row.getStr("VersionName"));
-                    records.add(item);
+        if (json != null) {
+
+            JSONObject domainsObj = json.getJSONObject("Domains");
+
+            if (domainsObj != null) {
+
+                JSONArray domains = domainsObj.getJSONArray("Domain");
+
+                if (domains != null) {
+
+                    for (int i = 0; i < domains.size(); i++) {
+
+                        JSONObject row = domains.getJSONObject(i);
+                        Map<String, Object> item = new LinkedHashMap<>();
+
+                        item.put("domainId", row.getStr("DomainId"));
+                        item.put("domainName", row.getStr("DomainName"));
+                        item.put("punyCode", row.getStr("PunyCode"));
+                        item.put("groupId", row.getStr("GroupId"));
+                        item.put("groupName", row.getStr("GroupName"));
+                        item.put("recordCount", row.getInt("RecordCount", 0));
+                        item.put("versionName", row.getStr("VersionName"));
+
+                        records.add(item);
+                    }
                 }
             }
         }
