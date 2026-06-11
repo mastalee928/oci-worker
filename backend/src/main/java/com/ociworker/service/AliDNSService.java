@@ -58,12 +58,27 @@ public class AliDNSService {
         );
     }
 
+    private String maskAccessKey(String accessKeyId) {
+
+        if (StrUtil.isBlank(accessKeyId)) {
+            return "";
+        }
+
+        if (accessKeyId.length() <= 8) {
+            return "****";
+        }
+
+        return accessKeyId.substring(0, 4)
+                + "********"
+                + accessKeyId.substring(accessKeyId.length() - 4);
+    }
+
     public Map<String, Object> getAccountConfigForDisplay() {
         String accessKeyId = getAccessKeyId();
         String accessKeySecret = getAccessKeySecret();
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("configured", StrUtil.isNotBlank(accessKeyId) && StrUtil.isNotBlank(accessKeySecret));
-        result.put("accessKeyId", StrUtil.nullToEmpty(accessKeyId));
+        result.put("accessKeyId", maskAccessKey(accessKeyId));
         result.put("secretConfigured", StrUtil.isNotBlank(accessKeySecret));
         return result;
     }
