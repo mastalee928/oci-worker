@@ -302,7 +302,7 @@ public class AliDNSService {
             params.put("DomainName", domainName.trim());
         }
         params.put("RR", rr.trim());
-        params.put("Type", type.trim().toUpperCase());
+        if (!update) { params.put("Type", type.trim().toUpperCase()); }
         params.put("Value", value.trim());
         params.put("Line", normalizeLine(parseString(input.get("line"))));
         putIfNotBlank(params, "Lang", parseString(input.get("lang")));
@@ -311,7 +311,7 @@ public class AliDNSService {
             params.put("TTL", String.valueOf(ttl));
         }
         Integer priority = parseInteger(input.get("priority"));
-        if (priority != null && priority >= 0 && supportsPriority(type)) {
+        if (priority != null && priority >= 0 && type != null && supportsPriority(type)) {
             params.put("Priority", String.valueOf(priority));
         }
         return params;
