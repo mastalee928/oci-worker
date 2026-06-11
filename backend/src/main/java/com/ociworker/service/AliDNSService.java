@@ -10,24 +10,10 @@ import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-import javax.crypto.Mac;
-import javax.crypto.spec.SecretKeySpec;
-import java.net.URI;
-import java.net.URLEncoder;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.nio.charset.StandardCharsets;
-import java.time.Instant;
-import java.time.ZoneOffset;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.Base64;
-import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
 @Slf4j
 @Service
@@ -75,10 +61,10 @@ public class AliDNSService {
                 "PageNumber", "1",
                 "PageSize", "1"
         ), accessKeyId, accessKeySecret);
-        if (json.containsKey("Domains") || json.containsKey("Domain")) {
-            return "??????";
+        if (json != null && (json.containsKey("Domains") || json.containsKey("Domain"))) {
+            return "SUCCESS";
         }
-        return "??????";
+        return "FAILED";
     }
 
     public Map<String, Object> listDomains(int page, int perPage) {
@@ -86,27 +72,38 @@ public class AliDNSService {
                 "PageNumber", String.valueOf(Math.max(page, 1)),
                 "PageSize", String.valueOf(Math.max(perPage, 1))
         ), getAccessKeyId(), getAccessKeySecret());
-        JSONArray domains = json.getJSONObject("Domains") != null
-                ? json.getJSONObject("Domains").getJSONArray("Domain")
-                : new JSONArray();
-            for (int i = 0; i < domains.size(); i++) {
-                JSONObject row = domains.getJSONObject(i);
-                Map<String, Object> item = new LinkedHashMap<>();
-                item.put("domainId", row.getStr("DomainId"));
-                item.put("domainName", row.getStr("DomainName"));
-                item.put("punyCode", row.getStr("PunyCode"));
-                item.put("groupId", row.getStr("GroupId"));
-                item.put("groupName", row.getStr("GroupName"));
-                item.put("recordCount", row.getInt("RecordCount", 0));
-                item.put("versionName", row.getStr("VersionName"));
-                records.add(item);
+        
+        List<Map<String, Object>> records = new ArrayList<>();
+        
+        if (json != null && json.getJSONObject("Domains") != null) {
+            JSONArray domains = json.getJSONObject("Domains").getJSONArray("Domain");
+            if (domains != null) {
+                for (int i = 0; i < domains.size(); i++) {
+                    JSONObject row = domains.getJSONObject(i);
+                    Map<String, Object> item = new LinkedHashMap<>();
+                    item.put("domainId", row.getStr("DomainId"));
+                    item.put("domainName", row.getStr("DomainName"));
+                    item.put("punyCode", row.getStr("PunyCode"));
+                    item.put("groupId", row.getStr("GroupId"));
+                    item.put("groupName", row.getStr("GroupName"));
+                    item.put("recordCount", row.getInt("RecordCount", 0));
+                    item.put("versionName", row.getStr("VersionName"));
+                    records.add(item);
+                }
             }
         }
+        
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("records", records);
-        result.put("total", json.getInt("TotalCount", records.size()));
-        result.put("page", json.getInt("PageNumber", page));
-        result.put("perPage", json.getInt("PageSize", perPage));
+        if (json != null) {
+            result.put("total", json.getInt("TotalCount", records.size()));
+            result.put("page", json.getInt("PageNumber", page));
+            result.put("perPage", json.getInt("PageSize", perPage));
+        } else {
+            result.put("total", records.size());
+            result.put("page", page);
+            result.put("perPage", perPage);
+        }
         return result;
     }
 
@@ -159,7 +156,6 @@ public class AliDNSService {
         return result;
     }
 
-    // ??? ??????????????????? ???
     private void requireDomain(String domainName) {
         if (domainName == null || domainName.trim().isEmpty()) {
             throw new IllegalArgumentException("Domain name cannot be empty");
@@ -176,16 +172,8 @@ public class AliDNSService {
         return (line == null || line.trim().isEmpty()) ? "default" : line.trim();
     }
 
-    private String getAccessKeyId() {
-        return "YOUR_ACCESS_KEY_ID"; // ?????????????
-    }
-
-    private String getAccessKeySecret() {
-        return "YOUR_ACCESS_KEY_SECRET"; // ?????????????
-    }
-
     private JSONObject request(String action, Map<String, String> params, String ak, String sk) {
-        // ?????????? API ????
+        // 請保留您原本檔案頂部那些加密（Mac/SecretKeySpec）、HttpClient 請求的實作程式碼
         return new JSONObject(); 
     }
-} // <??? ?????????????? AliDNSService ?
+}
