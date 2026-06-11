@@ -1,43 +1,23 @@
 package com.ociworker.service;
-
-
-    public List<Map<String, Object>> listDomainDnsServers(String domainName) {
-        requireDomain(domainName);
-        JSONObject json = request("DescribeDomainInfo", Map.of("DomainName", domainName.trim()));
+}
+    }
+    public List<Map<String, Object>> listSupportLines(String domainName, String domainType) {
+        // DescribeSupportLines is not a standard AliDNS API - return static line list
         List<Map<String, Object>> result = new ArrayList<>();
-        Object dnsServersObj = json.get("DnsServers");
-        JSONArray dnsServers = null;
-        if (dnsServersObj instanceof JSONArray) {
-            dnsServers = (JSONArray) dnsServersObj;
-        } else if (dnsServersObj instanceof JSONObject) {
-            JSONObject obj = (JSONObject) dnsServersObj;
-            dnsServers = obj.getJSONArray("DnsServer");
-            if (dnsServers == null) {
-                dnsServers = obj.getJSONArray("DnsServers");
-            }
-        }
-        if (dnsServers != null) {
-            for (int i = 0; i < dnsServers.size(); i++) {
-                Object item = dnsServers.get(i);
-                Map<String, Object> entry = new LinkedHashMap<>();
-                if (item instanceof String) {
-                    entry.put("server", item);
-                } else if (item instanceof JSONObject) {
-                    JSONObject srv = (JSONObject) item;
-                    entry.put("server", firstNonBlank(srv.getStr("Server"), srv.getStr("server"), srv.getStr("Value")));
-                    entry.put("status", srv.getStr("Status"));
-                }
-                result.add(entry);
+        Map<String, Object> line1 = new LinkedHashMap<>(); line1.put("lineCode", "default"); line1.put("lineName", "\u9ed8\u8ba4"); result.add(line1);
+        Map<String, Object> line2 = new LinkedHashMap<>(); line2.put("lineCode", "telecom"); line2.put("lineName", "\u4e2d\u56fd\u7535\u4fe1"); result.add(line2);
+        Map<String, Object> line3 = new LinkedHashMap<>(); line3.put("lineCode", "unicom"); line3.put("lineName", "\u4e2d\u56fd\u8054\u901a"); result.add(line3);
+        Map<String, Object> line4 = new LinkedHashMap<>(); line4.put("lineCode", "mobile"); line4.put("lineName", "\u4e2d\u56fd\u79fb\u52a8"); result.add(line4);
+        Map<String, Object> line5 = new LinkedHashMap<>(); line5.put("lineCode", "edu"); line5.put("lineName", "\u6559\u80b2\u7f51"); result.add(line5);
+        Map<String, Object> line6 = new LinkedHashMap<>(); line6.put("lineCode", "oversea"); line6.put("lineName", "\u5883\u5916"); result.add(line6);
+        return result;
+    }
+
             }
         }
         return result;
     }
 
-import java.net.URLEncoder;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
@@ -203,30 +183,58 @@ public class AliDNSService {
 
     public List<Map<String, Object>> listDomainDnsServers(String domainName) {
         requireDomain(domainName);
-        JSONObject json = request("DescribeDomainInfo", Map.of("DomainName", domainName.trim()));
+        Map<String, String> params = new LinkedHashMap<>();
+        params.put("DomainName", domainName.trim());
+        JSONObject json = request("DescribeDomainDnsServers", params);
+        JSONArray servers = json.getJSONArray("DnsServers");
+        if (servers == null && json.getJSONObject("DnsServers") != null) {
+            servers = json.getJSONObject("DnsServers").getJSONArray("DnsServer");
+        }
         List<Map<String, Object>> result = new ArrayList<>();
-        if (json.containsKey("DnsServers")) {
-            JSONArray dnsServers = json.getJSONArray("DnsServers");
-            if (dnsServers != null) {
-                for (int i = 0; i < dnsServers.size(); i++) {
-                    Map<String, Object> item = new LinkedHashMap<>();
-                    item.put("server", dnsServers.getStr(i));
-                    result.add(item);
-                }
+        if (servers != null) {
+            for (int i = 0; i < servers.size(); i++) {
+                JSONObject srv = servers.getJSONObject(i);
+                Map<String, Object> item = new LinkedHashMap<>();
+                item.put("server", srv.getStr("Server"));
+                item.put("status", srv.getStr("Status"));
+                result.add(item);
             }
         }
         return result;
     }
 
     public List<Map<String, Object>> listSupportLines(String domainName, String domainType) {
-        // DescribeSupportLines is not a standard AliDNS API - return static line list
+        Map<String, String> params = new LinkedHashMap<>();
+        // DescribeSupportLines only accepts DomainType (PUBLIC/PRIVATE), not DomainName
+        putIfNotBlank(params, "DomainType", domainType);
+        JSONObject json = request("DescribeSupportLines", params);
+        Object recordLinesObj = json.get("RecordLines");
+        JSONArray lines = null;
+        if (recordLinesObj instanceof JSONArray) {
+            lines = (JSONArray) recordLinesObj;
+        } else if (recordLinesObj instanceof JSONObject) {
+            lines = ((JSONObject) recordLinesObj).getJSONArray("RecordLine");
+        }
         List<Map<String, Object>> result = new ArrayList<>();
-        Map<String, Object> line1 = new LinkedHashMap<>(); line1.put("lineCode", "default"); line1.put("lineName", "\u9ed8\u8ba4"); result.add(line1);
-        Map<String, Object> line2 = new LinkedHashMap<>(); line2.put("lineCode", "telecom"); line2.put("lineName", "\u4e2d\u56fd\u7535\u4fe1"); result.add(line2);
-        Map<String, Object> line3 = new LinkedHashMap<>(); line3.put("lineCode", "unicom"); line3.put("lineName", "\u4e2d\u56fd\u8054\u901a"); result.add(line3);
-        Map<String, Object> line4 = new LinkedHashMap<>(); line4.put("lineCode", "mobile"); line4.put("lineName", "\u4e2d\u56fd\u79fb\u52a8"); result.add(line4);
-        Map<String, Object> line5 = new LinkedHashMap<>(); line5.put("lineCode", "edu"); line5.put("lineName", "\u6559\u80b2\u7f51"); result.add(line5);
-        Map<String, Object> line6 = new LinkedHashMap<>(); line6.put("lineCode", "oversea"); line6.put("lineName", "\u5883\u5916"); result.add(line6);
+        if (lines != null) {
+            for (int i = 0; i < lines.size(); i++) {
+                JSONObject line = lines.getJSONObject(i);
+                Map<String, Object> item = new LinkedHashMap<>();
+                item.put("lineCode", firstNonBlank(line.getStr("LineCode"), line.getStr("LineCodeEn"), line.getStr("Code")));
+                item.put("lineName", firstNonBlank(line.getStr("LineName"), line.getStr("LineDisplayName"), line.getStr("Name")));
+                item.put("fatherCode", line.getStr("FatherCode"));
+                item.put("lineDisplayName", firstNonBlank(line.getStr("LineDisplayName"), line.getStr("LineName")));
+                result.add(item);
+            }
+        }
+        if (result.isEmpty()) {
+            result.add(defaultLine("default", "???"));
+            result.add(defaultLine("telecom", "????????"));
+            result.add(defaultLine("unicom", "???????"));
+            result.add(defaultLine("mobile", "???????"));
+            result.add(defaultLine("edu", "??????????"));
+            result.add(defaultLine("oversea", "????"));
+        }
         return result;
     }
 
@@ -315,7 +323,7 @@ public class AliDNSService {
         item.put("type", row.getStr("Type"));
         item.put("value", row.getStr("Value"));
         item.put("line", row.getStr("Line"));
-        item.put("lineName", row.getStr("LineName"));
+        item.put("lineName", row.getStr("Line"));
         item.put("ttl", row.getInt("TTL"));
         item.put("priority", row.getInt("Priority"));
         item.put("status", row.getStr("Status"));
@@ -422,5 +430,3 @@ public class AliDNSService {
         return null;
     }
 }
-
-
