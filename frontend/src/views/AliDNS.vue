@@ -387,7 +387,15 @@ async function loadLines() {
     const res = await listAliDNSLines(selectedDomain.value)
     lines.value = res.data || []
   } catch {
-    lines.value = [{ lineCode: 'default', lineName: '默认' }]
+    // Fallback to static lines if API fails
+    lines.value = [
+      { lineCode: "default", lineName: "默认" },
+      { lineCode: "telecom", lineName: "中国电信" },
+      { lineCode: "unicom", lineName: "中国联通" },
+      { lineCode: "mobile", lineName: "中国移动" },
+      { lineCode: "edu", lineName: "教育网" },
+      { lineCode: "oversea", lineName: "境外" },
+    ]
   }
 }
 
@@ -481,8 +489,21 @@ async function toggleRecordStatus(record: DnsRecord, checked: boolean) {
 }
 
 function lineLabel(code?: string) {
+  if (!code) return '默认'
   const found = lines.value.find((line) => line.lineCode === code)
-  return found?.lineDisplayName || found?.lineName || code || '默认'
+  if (found) {
+    return found.lineDisplayName || found.lineName || code
+  }
+  // Fallback static mapping
+  const staticMap: Record<string, string> = {
+    'default': '默认',
+    'telecom': '中国电信',
+    'unicom': '中国联通',
+    'mobile': '中国移动',
+    'edu': '教育网',
+    'oversea': '境外',
+  }
+  return staticMap[code] || code
 }
 
 onMounted(async () => {
@@ -641,6 +662,8 @@ onMounted(async () => {
   }
 }
 </style>
+
+
 
 
 
