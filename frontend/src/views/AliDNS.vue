@@ -336,7 +336,9 @@ async function loadDomains(page = domainPage.value) {
     const data = res.data || {}
     domains.value = data.records || data || []
     domainTotal.value = data.total ?? domains.value.length
-    domainPage.value = page`n    await loadDomainDnsStatus()`n    if (!selectedDomain.value && domains.value.length > 0) {
+    domainPage.value = page
+    await loadDomainDnsStatus()
+    if (!selectedDomain.value && domains.value.length > 0) {
       await selectDomain(domains.value[0].domainName)
     }
   } finally {
