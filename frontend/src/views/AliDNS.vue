@@ -40,9 +40,9 @@
             :key="domain.domainName"
             type="button"
             class="domain-item"
-            <span class="domain-status" :class="{ 'status-normal': domain.dnsStatus === 'normal', 'status-not_system': domain.dnsStatus === 'not_system' }" :title="domain.dnsStatus === 'normal' ? '正常' : '未使用系统分配DNS地址'"></span>
             :class="{ active: selectedDomain === domain.domainName }"
             @click="selectDomain(domain.domainName)"
+            <span class="domain-status" :class="{ 'status-normal': domain.dnsStatus === 'normal', 'status-not_system': domain.dnsStatus === 'not_system' }" :title="domain.dnsStatus === 'normal' ? '正常' : '未使用系统分配DNS地址'"></span>
           >
             <span class="domain-name">{{ domain.domainName }}</span>
             <span class="domain-meta">{{ domain.recordCount || 0 }} 条记录</span>
