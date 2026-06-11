@@ -1,3 +1,5 @@
+
+        const domainSelectOptions = computed(() => domains.value.map(d => ({ label: d.domainName, value: d.domainName })));
 <template>
   <div class="alidns-page">
     <a-alert
@@ -33,7 +35,20 @@
     <div class="alidns-layout">
       <section class="alidns-domain-panel">
         <div class="panel-title">域名</div>
-        <a-spin :spinning="domainLoading">
+
+        <!-- 移动端：下拉选择 -->
+        <a-select
+          v-if="isMobile"
+          :value="selectedDomain"
+          :loading="domainLoading"
+          :options="domainSelectOptions"
+          :placeholder="domains.length === 0 ? '暂无域名' : '选择域名'"
+          class="mobile-domain-select"
+          @change="selectDomain"
+        />
+
+        <!-- 桌面端：按钮列表 -->
+        <a-spin v-else :spinning="domainLoading">
           <a-empty v-if="domains.length === 0" description="暂无域名" />
           <button
             v-for="domain in domains"
@@ -269,6 +284,11 @@ type LineRow = {
 }
 
 const { isMobile } = useIsMobile()
+
+// Mobile domain dropdown options
+const domainSelectOptions = computed(() =>
+  domains.value.map((d: DomainRow) => ({ label: d.domainName, value: d.domainName }))
+);
 
 const configured = ref(false)
 const domains = ref<DomainRow[]>([])
@@ -655,6 +675,11 @@ onMounted(async () => {
   .alidns-record-search {
     width: 100%;
   }
+}
+
+.mobile-domain-select {
+  width: 100%;
+  margin-bottom: 8px;
 }
 </style>
 
