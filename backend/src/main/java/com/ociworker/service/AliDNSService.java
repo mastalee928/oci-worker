@@ -488,9 +488,5 @@ public class AliDNSService {
         }
         return "not_system";
     }
-            // ignore
-        }
-        return "not_system";
-    }
 
 }
