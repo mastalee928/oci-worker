@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <div class="alidns-page">
     <a-alert
       v-if="!configured"
@@ -231,7 +231,7 @@ import {
   listAliDNSDomains,
   listAliDNSLines,
   listAliDNSRecords,
-  listAliDNSDomainDnsServers,
+
   setAliDNSRecordStatus,
   updateAliDNSRecord,
 } from '../api/alidns'
@@ -346,32 +346,11 @@ async function loadDomains(page = domainPage.value) {
     domains.value = data.records || data || []
     domainTotal.value = data.total ?? domains.value.length
     domainPage.value = page
-    await loadDomainDnsStatus()
     if (!selectedDomain.value && domains.value.length > 0) {
       await selectDomain(domains.value[0].domainName)
     }
   } finally {
     domainLoading.value = false
-  }
-}
-
-async function loadDomainDnsStatus() {
-  if (!domains.value.length) return
-  try {
-    const promises = domains.value.map(async (domain) => {
-      try {
-        const res = await listAliDNSDomainDnsServers(domain.domainName)
-        const servers: any[] = res.data || []
-        const serverList = servers.map((s: any) => (typeof s === 'string' ? s : s.server || ''))
-        const hasSystemDns = serverList.some((s: string) => s.includes('alidns') || s.includes('hichina'))
-        domain.dnsStatus = hasSystemDns ? 'normal' : 'not_system'
-      } catch {
-        domain.dnsStatus = 'not_system'
-      }
-    })
-    await Promise.all(promises)
-  } catch {
-    // ignore
   }
 }
 

@@ -102,11 +102,7 @@ public class AliDNSService {
                 item.put("groupName", row.getStr("GroupName"));
                 item.put("recordCount", row.getInt("RecordCount", 0));
                 item.put("versionName", row.getStr("VersionName"));
-                try {
-                    JSONArray srvList = request("DescribeDomainDnsServers", Map.of("DomainName", row.getStr("DomainName"))).getJSONArray("DnsServers");
-                    boolean hasSystem = srvList != null && srvList.stream().anyMatch(s -> { String sn = ((JSONObject) s).getStr("Server"); return sn != null && (sn.contains("alidns") || sn.contains("hichina")); });
-                    item.put("dnsStatus", hasSystem ? "normal" : "not_system");
-                } catch (Exception e) { item.put("dnsStatus", "not_system"); }
+                item.put("dnsStatus", getDomainDnsStatus(row.getStr("DomainName")));
                 records.add(item);
             }
         }
@@ -434,6 +430,28 @@ public class AliDNSService {
             }
         }
         return null;
+    }
+
+    private String getDomainDnsStatus(String domainName) {
+        try {
+            JSONObject json = request("DescribeDomainDnsServers", Map.of("DomainName", domainName));
+            JSONArray srvList = json.getJSONArray("DnsServers");
+            if (srvList == null && json.getJSONObject("DnsServers") != null) {
+                srvList = json.getJSONObject("DnsServers").getJSONArray("DnsServer");
+            }
+            if (srvList != null) {
+                for (int i = 0; i < srvList.size(); i++) {
+                    JSONObject srv = srvList.getJSONObject(i);
+                    String server = srv != null ? srv.getStr("Server") : null;
+                    if (server != null && (server.contains("alidns") || server.contains("hichina"))) {
+                        return "normal";
+                    }
+                }
+            }
+        } catch (Exception e) {
+            // ignore
+        }
+        return "not_system";
     }
 }
 
