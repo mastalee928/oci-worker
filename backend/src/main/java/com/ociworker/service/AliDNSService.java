@@ -38,12 +38,24 @@ public class AliDNSService {
     }
 
     public void saveAccountConfig(String accessKeyId, String accessKeySecret) {
-        if (StrUtil.isNotBlank(accessKeyId)) {
-            notificationService.saveKvValue(SysCfgEnum.ALIDNS_ACCESS_KEY_ID, accessKeyId.trim());
+
+        if (StrUtil.isBlank(accessKeyId)) {
+            throw new OciException("AccessKeyId cannot be empty");
         }
-        if (StrUtil.isNotBlank(accessKeySecret)) {
-            notificationService.saveKvValue(SysCfgEnum.ALIDNS_ACCESS_KEY_SECRET, accessKeySecret.trim());
+
+        if (StrUtil.isBlank(accessKeySecret)) {
+            throw new OciException("AccessKeySecret cannot be empty");
         }
+
+        notificationService.saveKvValue(
+                SysCfgEnum.ALIDNS_ACCESS_KEY_ID,
+                accessKeyId.trim()
+        );
+
+        notificationService.saveKvValue(
+                SysCfgEnum.ALIDNS_ACCESS_KEY_SECRET,
+                accessKeySecret.trim()
+        );
     }
 
     public Map<String, Object> getAccountConfigForDisplay() {
