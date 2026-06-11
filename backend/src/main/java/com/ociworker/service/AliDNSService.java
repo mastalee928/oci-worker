@@ -1,4 +1,4 @@
-package com.ociworker.service;
+﻿package com.ociworker.service;
 
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONArray;
@@ -205,7 +205,7 @@ public class AliDNSService {
 
     public List<Map<String, Object>> listSupportLines(String domainName, String domainType) {
         Map<String, String> params = new LinkedHashMap<>();
-        putIfNotBlank(params, "DomainName", domainName);
+        // DescribeSupportLines only accepts DomainType (PUBLIC/PRIVATE), not DomainName
         putIfNotBlank(params, "DomainType", domainType);
         JSONObject json = request("DescribeSupportLines", params);
         Object recordLinesObj = json.get("RecordLines");
