@@ -182,7 +182,9 @@ public class AliDNSService {
         putIfNotBlank(params, "RRKeyWord", rrKeyWord);
         putIfNotBlank(params, "TypeKeyWord", typeKeyWord);
         putIfNotBlank(params, "ValueKeyWord", valueKeyWord);
-        putIfNotBlank(params, "Line", normalizeLine(line));
+        if (StrUtil.isNotBlank(line)) {
+            params.put("Line", line.trim());
+        }
 
         JSONObject json = request("DescribeDomainRecords", params, getAccessKeyId(), getAccessKeySecret());
         List<Map<String, Object>> records = new ArrayList<>();
@@ -231,9 +233,6 @@ public class AliDNSService {
         if (value != null && !value.trim().isEmpty()) {
             params.put(key, value.trim());
         }
-    }
-
-    private String normalizeLine(String line) {
         return (line == null || line.trim().isEmpty()) ? "default" : line.trim();
     }
 
