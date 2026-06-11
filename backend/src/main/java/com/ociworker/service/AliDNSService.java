@@ -121,16 +121,30 @@ public class AliDNSService {
         putIfNotBlank(params, "TypeKeyWord", typeKeyWord);
         putIfNotBlank(params, "ValueKeyWord", valueKeyWord);
         putIfNotBlank(params, "Line", normalizeLine(line));
+        
         JSONObject json = request("DescribeDomainRecords", params, getAccessKeyId(), getAccessKeySecret());
-        JSONArray array = json.getJSONObject("DomainRecords") != null
-                ? json.getJSONObject("DomainRecords").getJSONArray("Record")
-                : new JSONArray();
         List<Map<String, Object>> records = new ArrayList<>();
-        if (array != null) {
-            for (int i = 0; i < array.size(); i++) {
-                records.add(mapRecord(array.getJSONObject(i)));
+        
+        if (json.getJSONObject("DomainRecords") != null) {
+            JSONArray array = json.getJSONObject("DomainRecords").getJSONArray("Record");
+            if (array != null) {
+                for (int i = 0; i < array.size(); i++) {
+                    JSONObject row = array.getJSONObject(i);
+                    Map<String, Object> item = new LinkedHashMap<>();
+                    item.put("recordId", row.getStr("RecordId"));
+                    item.put("domainName", row.getStr("DomainName"));
+                    item.put("rr", row.getStr("RR"));
+                    item.put("type", row.getStr("Type"));
+                    item.put("value", row.getStr("Value"));
+                    item.put("ttl", row.getLong("TTL", 600L));
+                    item.put("line", row.getStr("Line"));
+                    item.put("status", row.getStr("Status"));
+                    item.put("locked", row.getBool("Locked", false));
+                    records.add(item);
+                }
             }
         }
+        
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("records", records);
         result.put("total", json.getInt("TotalCount", records.size()));
