@@ -102,7 +102,7 @@ public class AliDNSService {
                 item.put("groupName", row.getStr("GroupName"));
                 item.put("recordCount", row.getInt("RecordCount", 0));
                 item.put("versionName", row.getStr("VersionName"));
-                item.put("dnsStatus", getDomainDnsStatus(row.getStr("DomainName")));
+                item.put("dnsStatus", parseDnsServersFromDomain(row.getJSONObject("DnsServers")));
                 records.add(item);
             }
         }
@@ -470,21 +470,35 @@ public class AliDNSService {
             throw new OciException("阿里云DNS调用异常: " + e.getMessage());
         }
     }
-    private String getDomainDnsStatus(String domainName) {
-        try {
-            JSONObject json = request("DescribeDomainInfo", Map.of("DomainName", domainName));
-            JSONArray srvList = json.getJSONArray("DnsServers");
-            if (srvList != null) {
-                for (int i = 0; i < srvList.size(); i++) {
-                    JSONObject srv = srvList.getJSONObject(i);
-                    String server = srv != null ? srv.getStr("Server") : null;
-                    if (server != null && (server.contains("alidns") || server.contains("hichina"))) {
-                        return "normal";
+    /** Parse DnsServers from DescribeDomains Domain entry. Returns "normal" or "not_system". */
+    private String parseDnsServersFromDomain(JSONObject dnsServers) {
+        if (dnsServers == null) return "not_system";
+        Object dnsServerObj = dnsServers.get("DnsServer");
+        if (dnsServerObj == null) return "not_system";
+        if (dnsServerObj instanceof JSONArray arr) {
+            for (int i = 0; i < arr.size(); i++) {
+                Object item = arr.get(i);
+                String serverStr = String.valueOf(item);
+                // DnsServers in DescribeDomains may be double-encoded JSON:
+                // [{"DnsServer": ["ns1.alidns.com","ns2.alidns.com"]}]
+                if (serverStr.startsWith("{")) {
+                    try {
+                        JSONObject inner = JSONUtil.parseObj(serverStr);
+                        JSONArray innerArr = inner.getJSONArray("DnsServer");
+                        if (innerArr != null) {
+                            for (int j = 0; j < innerArr.size(); j++) {
+                                if (String.valueOf(innerArr.get(j)).contains("alidns")) return "normal";
+                            }
+                        }
+                    } catch (Exception ignored) {
+                        if (serverStr.contains("alidns")) return "normal";
                     }
+                } else {
+                    if (serverStr.contains("alidns")) return "normal";
                 }
             }
-        } catch (Exception e) {
-            // ignore
+        } else if (dnsServerObj instanceof String s) {
+            if (s.contains("alidns")) return "normal";
         }
         return "not_system";
     }
