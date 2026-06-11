@@ -252,6 +252,7 @@ type DnsRecord = {
   type: string
   value: string
   line?: string
+  lineName?: string
   ttl?: number
   priority?: number
   status?: string
@@ -640,6 +641,7 @@ onMounted(async () => {
   }
 }
 </style>
+
 
 
 
