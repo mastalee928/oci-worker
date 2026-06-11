@@ -476,8 +476,8 @@ public class AliDNSService {
             JSONArray srvList = json.getJSONArray("DnsServers");
             if (srvList != null) {
                 for (int i = 0; i < srvList.size(); i++) {
-                    String server = srvList.getStr(i);
-                    if (server != null && (server.contains("alidns") || server.contains("hichina"))) {
+                    JSONObject srv = srvList.getJSONObject(i);
+                    String server = srv != null ? srv.getStr("Server") : null;
                         return "normal";
                     }
                 }
