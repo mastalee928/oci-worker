@@ -83,10 +83,10 @@ public class AliDNSService {
 
     public Map<String, Object> listDomains(int page, int perPage) {
         JSONObject json = request("DescribeDomains", Map.of(
+        JSONObject json = request("DescribeDomains", Map.of(
                 "PageNumber", String.valueOf(Math.max(page, 1)),
                 "PageSize", String.valueOf(Math.max(perPage, 1))
-        ));
-        JSONArray domains = json.getJSONObject("Domains") != null
+        ), getAccessKeyId(), getAccessKeySecret());
                 ? json.getJSONObject("Domains").getJSONArray("Domain")
                 : new JSONArray();
         List<Map<String, Object>> records = new ArrayList<>();
@@ -123,7 +123,7 @@ public class AliDNSService {
         putIfNotBlank(params, "TypeKeyWord", typeKeyWord);
         putIfNotBlank(params, "ValueKeyWord", valueKeyWord);
         putIfNotBlank(params, "Line", normalizeLine(line));
-        JSONObject json = request("DescribeDomainRecords", params);
+        JSONObject json = request("DescribeDomainRecords", params, getAccessKeyId(), getAccessKeySecret());
         JSONArray array = json.getJSONObject("DomainRecords") != null
                 ? json.getJSONObject("DomainRecords").getJSONArray("Record")
                 : new JSONArray();
@@ -143,7 +143,7 @@ public class AliDNSService {
 
     public Map<String, Object> addRecord(Map<String, Object> input) {
         Map<String, String> params = buildRecordParams(input, false);
-        JSONObject json = request("AddDomainRecord", params);
+        JSONObject json = request("AddDomainRecord", params, getAccessKeyId(), getAccessKeySecret());
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("recordId", json.getStr("RecordId"));
         return result;
@@ -156,7 +156,7 @@ public class AliDNSService {
         }
         Map<String, String> params = buildRecordParams(input, true);
         params.put("RecordId", recordId.trim());
-        JSONObject json = request("UpdateDomainRecord", params);
+        JSONObject json = request("UpdateDomainRecord", params, getAccessKeyId(), getAccessKeySecret());
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("recordId", json.getStr("RecordId"));
         return result;
@@ -166,7 +166,7 @@ public class AliDNSService {
         if (StrUtil.isBlank(recordId)) {
             throw new OciException("????? ID");
         }
-        request("DeleteDomainRecord", Map.of("RecordId", recordId.trim()));
+        request("DeleteDomainRecord", Map.of("RecordId", recordId.trim()), getAccessKeyId(), getAccessKeySecret());
     }
 
     public Map<String, Object> setRecordStatus(String recordId, String status) {
@@ -177,7 +177,7 @@ public class AliDNSService {
         JSONObject json = request("SetDomainRecordStatus", Map.of(
                 "RecordId", recordId.trim(),
                 "Status", normalized
-        ));
+        ), getAccessKeyId(), getAccessKeySecret());
         return mapRecord(json);
     }
 
@@ -185,7 +185,7 @@ public class AliDNSService {
         requireDomain(domainName);
         Map<String, String> params = new LinkedHashMap<>();
         params.put("DomainName", domainName.trim());
-        JSONObject json = request("DescribeDomainDnsServers", params);
+        JSONObject json = request("DescribeDomainDnsServers", params, getAccessKeyId(), getAccessKeySecret());
         JSONArray servers = json.getJSONArray("DnsServers");
         if (servers == null && json.getJSONObject("DnsServers") != null) {
             servers = json.getJSONObject("DnsServers").getJSONArray("DnsServer");
@@ -207,7 +207,7 @@ public class AliDNSService {
         Map<String, String> params = new LinkedHashMap<>();
         putIfNotBlank(params, "DomainName", domainName);
         putIfNotBlank(params, "DomainType", domainType);
-        JSONObject json = request("DescribeSupportLines", params);
+        JSONObject json = request("DescribeSupportLines", params, getAccessKeyId(), getAccessKeySecret());
         Object recordLinesObj = json.get("RecordLines");
         JSONArray lines = null;
         if (recordLinesObj instanceof JSONArray) {
