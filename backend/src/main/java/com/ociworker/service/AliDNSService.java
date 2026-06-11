@@ -1,4 +1,4 @@
-﻿package com.ociworker.service;
+package com.ociworker.service;
 
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONArray;
@@ -189,12 +189,12 @@ public class AliDNSService {
     public List<Map<String, Object>> listSupportLines(String domainName, String domainType) {
         // DescribeSupportLines is not a standard AliDNS API - return static line list
         List<Map<String, Object>> result = new ArrayList<>();
-        result.add(defaultLine("default", "榛樿"));
-        result.add(defaultLine("telecom", "鐢典俊"));
-        result.add(defaultLine("unicom", "鑱旈€?));
-        result.add(defaultLine("mobile", "绉诲姩"));
-        result.add(defaultLine("edu", "鏁欒偛缃?));
-        result.add(defaultLine("oversea", "娴峰"));
+        Map<String, Object> line1 = new LinkedHashMap<>(); line1.put("lineCode", "default"); line1.put("lineName", "默认"); result.add(line1);
+        Map<String, Object> line2 = new LinkedHashMap<>(); line2.put("lineCode", "telecom"); line2.put("lineName", "电信"); result.add(line2);
+        Map<String, Object> line3 = new LinkedHashMap<>(); line3.put("lineCode", "unicom"); line3.put("lineName", "联通"); result.add(line3);
+        Map<String, Object> line4 = new LinkedHashMap<>(); line4.put("lineCode", "mobile"); line4.put("lineName", "移动"); result.add(line4);
+        Map<String, Object> line5 = new LinkedHashMap<>(); line5.put("lineCode", "edu"); line5.put("lineName", "教育网"); result.add(line5);
+        Map<String, Object> line6 = new LinkedHashMap<>(); line6.put("lineCode", "oversea"); line6.put("lineName", "海外"); result.add(line6);
         return result;
     }
 
@@ -390,4 +390,5 @@ public class AliDNSService {
         return null;
     }
 }
+
 
