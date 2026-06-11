@@ -432,7 +432,7 @@ public class AliDNSService {
         return null;
     }
 
-    private String getDomainDnsStatus(String domainName) {
+
     private JSONObject requestPost(String action, Map<String, String> actionParams) {
         String ak = StrUtil.blankToDefault(StrUtil.trimToNull(getAccessKeyId()), "");
         String sk = StrUtil.blankToDefault(StrUtil.trimToNull(getAccessKeySecret()), "");
@@ -469,8 +469,8 @@ public class AliDNSService {
                 throw new OciException(json.getStr("Message", "阿里云DNS调用失败"));
             }
             return json;
-        } catch (OciException e) { throw e; }
-        catch (Exception e) {
+        } catch (OciException e) {
+            throw e;
             throw new OciException("阿里云DNS调用异常: " + e.getMessage());
         }
     }
@@ -478,25 +478,21 @@ public class AliDNSService {
     private String getDomainDnsStatus(String domainName) {
         try {
             JSONObject json = requestPost("DescribeDomainDnsServers", Map.of("DomainName", domainName));
-            log.info("DescribeDomainDnsServers[{}] raw keys: {}", domainName, json.keySet());
-            log.info("DescribeDomainDnsServers[{}] DnsServers val: {}", domainName, json.get("DnsServers") != null ? json.get("DnsServers").getClass().getSimpleName() : "null");
             JSONArray srvList = json.getJSONArray("DnsServers");
             if (srvList == null && json.getJSONObject("DnsServers") != null) {
                 srvList = json.getJSONObject("DnsServers").getJSONArray("DnsServer");
             }
-            log.info("DescribeDomainDnsServers[{}] srvList: {}", domainName, srvList);
             if (srvList != null) {
                 for (int i = 0; i < srvList.size(); i++) {
                     JSONObject srv = srvList.getJSONObject(i);
                     String server = srv != null ? srv.getStr("Server") : null;
-                    log.info("DescribeDomainDnsServers[{}] server[{}]: {}", domainName, i, server);
                     if (server != null && (server.contains("alidns") || server.contains("hichina"))) {
                         return "normal";
                     }
                 }
             }
         } catch (Exception e) {
-            log.error("DescribeDomainDnsServers[{}] error: {}", domainName, e.getMessage());
+            // ignore
         }
         return "not_system";
     }
