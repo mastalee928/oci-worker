@@ -138,7 +138,7 @@
               <span class="record-name">{{ record.rr }}.{{ selectedDomain }}</span>
             </template>
             <template v-else-if="column.key === 'line'">
-              {{ record.lineName || record.line || '默认' }}
+              {{ lineLabel(record.line) }}
             </template>
             <template v-else-if="column.key === 'status'">
               <a-switch
@@ -175,7 +175,7 @@
               />
             </div>
             <div class="mobile-record-row"><span>记录值</span><strong>{{ record.value }}</strong></div>
-            <div class="mobile-record-row"><span>线路</span><strong>{{ record.lineName || record.line || '默认' }}</strong></div>
+            <div class="mobile-record-row"><span>线路</span><strong>{{ lineLabel(record.line) }}</strong></div>
             <div class="mobile-record-row"><span>TTL</span><strong>{{ record.ttl || '—' }}</strong></div>
             <div v-if="record.priority != null" class="mobile-record-row">
               <span>优先级</span><strong>{{ record.priority }}</strong>
@@ -416,7 +416,7 @@ async function loadRecords(page = recordPage.value) {
       line: lineFilter.value || undefined,
     })
     const data = res.data || {}
-    records.value = data.records || []
+    records.value = sortRecords(data.records || [])
     recordTotal.value = data.total ?? records.value.length
     recordPage.value = page
   } finally {
@@ -507,6 +507,41 @@ function lineLabel(code?: string) {
     'oversea': '境外',
   }
   return staticMap[code] || code
+}
+
+// Sort records by type priority, then by line priority
+const TYPE_PRIORITY: Record<string, number> = {
+  A: 0,
+  AAAA: 1,
+  CNAME: 2,
+  MX: 3,
+  TXT: 4,
+}
+const LINE_PRIORITY: Record<string, number> = {
+  默认: 0,
+  中国电信: 1,
+  中国联通: 2,
+  中国移动: 3,
+  教育网: 4,
+  境外: 5,
+  搜索引擎: 6,
+  中国地区: 7,
+}
+
+function sortRecords(list: DnsRecord[]): DnsRecord[] {
+  return [...list].sort((a, b) => {
+    // Primary: type priority
+    const aTp = TYPE_PRIORITY[a.type] ?? 999;
+    const bTp = TYPE_PRIORITY[b.type] ?? 999;
+    if (aTp !== bTp) return aTp - bTp;
+    // Secondary: line priority (only for A and AAAA)
+    if (a.type === 'A' || a.type === 'AAAA') {
+      const aLn = LINE_PRIORITY[a.lineName || '默认'] ?? 999;
+      const bLn = LINE_PRIORITY[b.lineName || '默认'] ?? 999;
+      if (aLn !== bLn) return aLn - bLn;
+    }
+    return 0;
+  });
 }
 
 onMounted(async () => {
