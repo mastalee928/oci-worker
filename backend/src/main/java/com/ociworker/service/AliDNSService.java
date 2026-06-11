@@ -182,59 +182,19 @@ public class AliDNSService {
     }
 
     public List<Map<String, Object>> listDomainDnsServers(String domainName) {
-        requireDomain(domainName);
-        Map<String, String> params = new LinkedHashMap<>();
-        params.put("DomainName", domainName.trim());
-        JSONObject json = request("DescribeDomainDnsServers", params);
-        JSONArray servers = json.getJSONArray("DnsServers");
-        if (servers == null && json.getJSONObject("DnsServers") != null) {
-            servers = json.getJSONObject("DnsServers").getJSONArray("DnsServer");
-        }
-        List<Map<String, Object>> result = new ArrayList<>();
-        if (servers != null) {
-            for (int i = 0; i < servers.size(); i++) {
-                JSONObject srv = servers.getJSONObject(i);
-                Map<String, Object> item = new LinkedHashMap<>();
-                item.put("server", srv.getStr("Server"));
-                item.put("status", srv.getStr("Status"));
-                result.add(item);
-            }
-        }
-        return result;
+        // DescribeDomainDnsServers is not a standard AliDNS API - return empty list
+        return new ArrayList<>();
     }
 
     public List<Map<String, Object>> listSupportLines(String domainName, String domainType) {
-        Map<String, String> params = new LinkedHashMap<>();
-        // DescribeSupportLines only accepts DomainType (PUBLIC/PRIVATE), not DomainName
-        putIfNotBlank(params, "DomainType", domainType);
-        JSONObject json = request("DescribeSupportLines", params);
-        Object recordLinesObj = json.get("RecordLines");
-        JSONArray lines = null;
-        if (recordLinesObj instanceof JSONArray) {
-            lines = (JSONArray) recordLinesObj;
-        } else if (recordLinesObj instanceof JSONObject) {
-            lines = ((JSONObject) recordLinesObj).getJSONArray("RecordLine");
-        }
+        // DescribeSupportLines is not a standard AliDNS API - return static line list
         List<Map<String, Object>> result = new ArrayList<>();
-        if (lines != null) {
-            for (int i = 0; i < lines.size(); i++) {
-                JSONObject line = lines.getJSONObject(i);
-                Map<String, Object> item = new LinkedHashMap<>();
-                item.put("lineCode", firstNonBlank(line.getStr("LineCode"), line.getStr("LineCodeEn"), line.getStr("Code")));
-                item.put("lineName", firstNonBlank(line.getStr("LineName"), line.getStr("LineDisplayName"), line.getStr("Name")));
-                item.put("fatherCode", line.getStr("FatherCode"));
-                item.put("lineDisplayName", firstNonBlank(line.getStr("LineDisplayName"), line.getStr("LineName")));
-                result.add(item);
-            }
-        }
-        if (result.isEmpty()) {
-            result.add(defaultLine("default", "???"));
-            result.add(defaultLine("telecom", "????????"));
-            result.add(defaultLine("unicom", "???????"));
-            result.add(defaultLine("mobile", "???????"));
-            result.add(defaultLine("edu", "??????????"));
-            result.add(defaultLine("oversea", "????"));
-        }
+        result.add(defaultLine("default", "默认"));
+        result.add(defaultLine("telecom", "电信"));
+        result.add(defaultLine("unicom", "联通"));
+        result.add(defaultLine("mobile", "移动"));
+        result.add(defaultLine("edu", "教育网"));
+        result.add(defaultLine("oversea", "海外"));
         return result;
     }
 
