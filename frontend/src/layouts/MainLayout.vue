@@ -166,6 +166,7 @@ const navItems = [
   { key: 'webssh', label: 'WebSSH', icon: 'ri-terminal-box-line', prefetch: false },
   { key: 'log', label: '日志查看', icon: 'ri-file-list-3-line', prefetch: true },
   { key: 'settings', label: '系统设置', icon: 'ri-settings-4-line', prefetch: true }
+] as const
 
 const pageTitleIcon = computed(() => {
   const item = navItems.find((n) => n.key === currentRoute.value)
