@@ -119,7 +119,7 @@
           <div v-if="isMobile" class="mobile-filters">
             <select v-model="typeFilter" :disabled="!selectedDomain" @change="loadRecords(1)" class="native-select">
               <option value="" disabled>??</option>
-              <option v-for="t in typeOptions" :key="t" :value="t">{{ t }}</option>
+              <template v-for="t in typeNames" :key="t"><option :value="t">{{ t }}</option></template>
             </select>
             <select v-model="lineFilter" :disabled="!selectedDomain" @change="loadRecords(1)" class="native-select">
               <option value="" disabled>??</option>
@@ -334,7 +334,9 @@ const recordForm = reactive({
   priority: null as number | null,
 })
 
-const typeOptions = ['A', 'AAAA', 'CNAME', 'TXT', 'MX', 'NS', 'SRV', 'CAA'].map((value) => ({ label: value, value }))
+const typeNames = ["A", "AAAA", "CNAME", "TXT", "MX", "NS", "SRV", "CAA"];
+
+const typeOptions = ["A", "AAAA", 'CNAME', 'TXT', 'MX', 'NS', 'SRV', 'CAA'].map((value) => ({ label: value, value }))
 
 const lineOptions = computed(() => {
   const base = lines.value
