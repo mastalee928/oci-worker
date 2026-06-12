@@ -448,6 +448,7 @@
         <a-form-item label="模型">
           <template v-if="isMobile">
             <select
+              class="mobile-model-select"
               multiple
               :value="portForm.allowedModels"
               @change="(e: Event) => { const sel = e.target as HTMLSelectElement; portForm.allowedModels = Array.from(sel.selectedOptions, (o: HTMLOptionElement) => o.value) }"
@@ -1578,6 +1579,26 @@ async function viewKey(k: any) {
   }
   .port-model-refresh {
     margin-top: 8px;
+  }
+  .mobile-model-select {
+    width: 100%;
+    min-height: 80px;
+    background: var(--card-bg, #1a1f2e);
+    color: #e0e0e0;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 6px;
+    padding: 4px;
+    font-size: 14px;
+  }
+  .mobile-model-select option {
+    background: var(--card-bg, #1a1f2e);
+    color: #e0e0e0;
+  }
+  .mobile-model-select option:checked,
+  .mobile-model-select option:focus,
+  .mobile-model-select option:hover {
+    background: rgba(24, 144, 255, 0.3);
+    color: #fff;
   }
 }
 </style>
