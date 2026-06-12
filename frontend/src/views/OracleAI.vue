@@ -1470,10 +1470,10 @@ async function viewKey(k: any) {
   gap: 10px;
 }
 .port-card-m {
-  border: 1px solid var(--border, #e8e8e8);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.06));
   border-radius: 8px;
   padding: 10px;
-  background: color-mix(in srgb, var(--card-bg, #fff) 94%, transparent);
+  background: var(--bg-card, rgba(30, 41, 59, 0.4));
 }
 .port-card-head {
   display: flex;
