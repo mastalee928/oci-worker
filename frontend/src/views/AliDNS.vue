@@ -612,7 +612,6 @@ onMounted(async () => {
   width: 100%;
   display: flex;
   align-items: center;
-  justify-content: space-between;
   gap: 8px;
   border: 1px solid transparent;
   border-radius: 8px;
@@ -630,6 +629,7 @@ onMounted(async () => {
 }
 .domain-name {
   font-weight: 600;
+  flex: 1;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
