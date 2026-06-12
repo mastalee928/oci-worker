@@ -450,7 +450,7 @@
             <select
               multiple
               :value="portForm.allowedModels"
-              @change="(e) => { portForm.allowedModels = Array.from(e.target.selectedOptions, o => o.value) }"
+              @change="(e: Event) => { const sel = e.target as HTMLSelectElement; portForm.allowedModels = Array.from(sel.selectedOptions, (o: HTMLOptionElement) => o.value) }"
               size="6"
               style="width:100%;min-height:80px"
               :disabled="portModelsLoading"
