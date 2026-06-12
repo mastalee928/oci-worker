@@ -576,9 +576,8 @@ onMounted(async () => {
   max-width: 1400px;
 }
 .alidns-domain-panel {
-  width: 280px;
   flex-shrink: 0;
-  max-height: 230px;
+  max-height: 400px;
   overflow-y: auto;
 }
 .alidns-domain-panel::-webkit-scrollbar {
