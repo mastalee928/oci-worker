@@ -118,11 +118,11 @@
           </a-space>
           <div v-if="isMobile" class="mobile-filters">
             <select v-model="typeFilter" :disabled="!selectedDomain" @change="loadRecords(1)" class="native-select">
-              <option value="" disabled>??</option>
+              <option value="" disabled>选择类型</option>
               <template v-for="t in typeNames" :key="t"><option :value="t">{{ t }}</option></template>
             </select>
             <select v-model="lineFilter" :disabled="!selectedDomain" @change="loadRecords(1)" class="native-select">
-              <option value="" disabled>??</option>
+              <option value="" disabled>选择类型</option>
               <option v-for="l in lineOptions" :key="l.value" :value="l.value">{{ l.label }}</option>
             </select>
             <a-button :loading="recordLoading" :disabled="!selectedDomain" @click="loadRecords(recordPage)" class="mobile-refresh-btn">
