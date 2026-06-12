@@ -1,4 +1,4 @@
-<template>
+﻿<template>
   <div class="alidns-page">
     <a-alert
       v-if="!configured"
@@ -95,7 +95,7 @@
               v-model:value="typeFilter"
               class="record-filter"
               allow-clear
-              placeholder="??"
+              placeholder="类型"
               :options="typeOptions"
               :disabled="!selectedDomain"
               @change="loadRecords(1)"
@@ -106,7 +106,7 @@
               allow-clear
               show-search
               option-filter-prop="label"
-              placeholder="??"
+              placeholder="线路"
               :options="lineOptions"
               :disabled="!selectedDomain"
               @change="loadRecords(1)"
@@ -118,11 +118,11 @@
           </a-space>
           <div v-if="isMobile" class="mobile-filters">
             <select v-model="typeFilter" :disabled="!selectedDomain" @change="loadRecords(1)" class="native-select">
-              <option value="" disabled>选择类型</option>
+              <option value="">选择类型</option>
               <template v-for="t in typeNames" :key="t"><option :value="t">{{ t }}</option></template>
             </select>
             <select v-model="lineFilter" :disabled="!selectedDomain" @change="loadRecords(1)" class="native-select">
-              <option value="" disabled>选择类型</option>
+              <option value="">选择线路</option>
               <option v-for="l in lineOptions" :key="l.value" :value="l.value">{{ l.label }}</option>
             </select>
             <a-button :loading="recordLoading" :disabled="!selectedDomain" @click="loadRecords(recordPage)" class="mobile-refresh-btn">
