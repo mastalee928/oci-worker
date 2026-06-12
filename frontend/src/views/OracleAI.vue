@@ -453,7 +453,7 @@
             :loading="portModelsLoading"
             placeholder="留空不限制模型"
             allow-clear
-            show-search
+
             :filter-option="filterModel"
             :max-tag-count="6"
             :max-tag-placeholder="(omittedValues: any[]) => `+${omittedValues?.length || 0}`"
