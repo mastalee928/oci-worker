@@ -1,5 +1,3 @@
-
-        const domainSelectOptions = computed(() => domains.value.map(d => ({ label: d.domainName, value: d.domainName })));
 <template>
   <div class="alidns-page">
     <a-alert
