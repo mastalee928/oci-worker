@@ -1,4 +1,4 @@
-﻿<template>
+<template>
   <a-layout class="main-layout">
     <div v-if="mobileMenuOpen && isMobile" class="mobile-overlay" @click="mobileMenuOpen = false" />
 
@@ -160,12 +160,11 @@ const navItems = [
   { key: 'tenant', label: '租户配置', icon: 'ri-user-settings-line', prefetch: true },
   { key: 'instance', label: '实例管理', icon: 'ri-server-line', prefetch: true },
   { key: 'task', label: '开机任务', icon: 'ri-flashlight-line', prefetch: true },
-  { key: 'log', label: '日志查看', icon: 'ri-file-list-3-line', prefetch: true },
   { key: 'oracle-ai', label: 'Oracle AI', icon: 'ri-magic-line', prefetch: true },
-  { key: 'alidns', label: '阿里云DNS', icon: 'ri-global-line', prefetch: true },
   { key: 'cloudflare', label: 'Cloudflare', icon: 'ri-cloud-line', prefetch: true },
+  { key: 'alidns', label: '阿里云DNS', icon: 'ri-global-line', prefetch: true },
   { key: 'webssh', label: 'WebSSH', icon: 'ri-terminal-box-line', prefetch: false },
-  { key: 'settings', label: '系统设置', icon: 'ri-settings-4-line', prefetch: true },
+  { key: 'log', label: '日志查看', icon: 'ri-file-list-3-line', prefetch: true }
 ] as const
 
 const pageTitleIcon = computed(() => {
