@@ -571,14 +571,15 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  align-items: start;
+  align-items: stretch;
   width: 100%;
-  max-width: 1200px;
+  max-width: 1400px;
 }
 .alidns-domain-panel {
+  width: 280px;
+  flex-shrink: 0;
   max-height: 230px;
   overflow-y: auto;
-  min-width: 280px;
 }
 .alidns-domain-panel::-webkit-scrollbar {
   width: 6px;
