@@ -571,9 +571,12 @@ onMounted(async () => {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  align-items: stretch;
   width: 100%;
   max-width: 1400px;
+}
+.alidns-domain-panel,
+.alidns-record-panel {
+  width: 100%;
 }
 .alidns-domain-panel {
   flex-shrink: 0;
