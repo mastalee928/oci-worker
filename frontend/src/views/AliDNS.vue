@@ -8,7 +8,7 @@
       show-icon
       class="alidns-alert"
       message="尚未配置阿里云DNS"
-      description="请先在「系统设置」→「阿里云DNS」填写 AccessKey ID 和 AccessKey Secret，并点击测试连接。"
+      description="请先在「系统设置」→「阿里云DNS」填�?AccessKey ID �?AccessKey Secret，并点击测试连接�?
     />
 
     <div class="alidns-toolbar">
@@ -25,7 +25,7 @@
       <a-input-search
         v-model:value="recordSearch"
         class="alidns-record-search"
-        placeholder="搜索主机记录或记录值"
+        placeholder="搜索主机记录或记录�?
         allow-clear
         :disabled="!selectedDomain"
         @search="loadRecords(1)"
@@ -58,7 +58,7 @@
             :class="{ active: selectedDomain === domain.domainName }"
             @click="selectDomain(domain.domainName)"
           >
-            <!-- DNS 状态标签 -->
+            <!-- DNS 状态标�?-->
             <span 
               v-if="domain.dnsStatus === 'normal'"
               class="domain-status domain-status-normal"
@@ -72,7 +72,7 @@
             <span class="domain-name">{{ domain.domainName }}</span>
             
             <!-- 记录数量 -->
-            <span class="domain-meta">{{ domain.recordCount || 0 }} 条记录</span>
+            <span class="domain-meta">{{ domain.recordCount || 0 }} 条记�?/span>
           </button>
         </a-spin>
         <a-pagination
@@ -174,11 +174,11 @@
                 @change="(checked: boolean) => toggleRecordStatus(record, checked)"
               />
             </div>
-            <div class="mobile-record-row"><span>记录值</span><strong>{{ record.value }}</strong></div>
+            <div class="mobile-record-row"><span>记录�?/span><strong>{{ record.value }}</strong></div>
             <div class="mobile-record-row"><span>线路</span><strong>{{ lineLabel(record.line) }}</strong></div>
-            <div class="mobile-record-row"><span>TTL</span><strong>{{ record.ttl || '—' }}</strong></div>
+            <div class="mobile-record-row"><span>TTL</span><strong>{{ record.ttl || '�? }}</strong></div>
             <div v-if="record.priority != null" class="mobile-record-row">
-              <span>优先级</span><strong>{{ record.priority }}</strong>
+              <span>优先�?/span><strong>{{ record.priority }}</strong>
             </div>
             <a-space wrap class="mobile-record-actions">
               <a-button size="small" @click="openRecordModal(record)">编辑</a-button>
@@ -213,9 +213,9 @@
           <a-select v-model:value="recordForm.type" :options="typeOptions" />
         </a-form-item>
         <a-form-item label="主机记录" required>
-          <a-input v-model:value="recordForm.rr" placeholder="如 www 或 @" />
+          <a-input v-model:value="recordForm.rr" placeholder="�?www �?@" />
         </a-form-item>
-        <a-form-item label="记录值" required>
+        <a-form-item label="记录�? required>
           <a-input v-model:value="recordForm.value" placeholder="IP、域名或文本" />
         </a-form-item>
         <a-form-item label="智能线路">
@@ -230,7 +230,7 @@
         <a-form-item label="TTL">
           <a-input-number v-model:value="recordForm.ttl" :min="1" style="width: 100%" />
         </a-form-item>
-        <a-form-item v-if="prioritySupported" label="优先级">
+        <a-form-item v-if="prioritySupported" label="优先�?>
           <a-input-number v-model:value="recordForm.priority" :min="0" :max="65535" style="width: 100%" />
         </a-form-item>
       </a-form>
@@ -339,16 +339,16 @@ const recordPagination = computed(() => ({
   pageSize: recordPerPage.value,
   total: recordTotal.value,
   showSizeChanger: true,
-  showTotal: (total: number) => `共 ${total} 条`,
+  showTotal: (total: number) => `�?${total} 条`,
 }))
 
 const recordColumns = [
   { title: '类型', key: 'type', width: 90 },
   { title: '主机记录', key: 'name', ellipsis: true },
-  { title: '记录值', dataIndex: 'value', key: 'value', ellipsis: true },
+  { title: '记录�?, dataIndex: 'value', key: 'value', ellipsis: true },
   { title: '线路', key: 'line', width: 130 },
   { title: 'TTL', dataIndex: 'ttl', key: 'ttl', width: 90 },
-  { title: '优先级', dataIndex: 'priority', key: 'priority', width: 90 },
+  { title: '优先�?, dataIndex: 'priority', key: 'priority', width: 90 },
   { title: '启用', key: 'status', width: 80 },
   { title: '操作', key: 'actions', width: 130 },
 ]
@@ -394,9 +394,9 @@ async function loadLines() {
     lines.value = [
       { lineCode: "default", lineName: "默认" },
       { lineCode: "telecom", lineName: "中国电信" },
-      { lineCode: "unicom", lineName: "中国联通" },
+      { lineCode: "unicom", lineName: "中国联�? },
       { lineCode: "mobile", lineName: "中国移动" },
-      { lineCode: "edu", lineName: "教育网" },
+      { lineCode: "edu", lineName: "教育�? },
       { lineCode: "oversea", lineName: "境外" },
     ]
   }
@@ -442,8 +442,8 @@ function openRecordModal(record?: DnsRecord) {
 }
 
 async function saveRecord() {
-  if (!recordForm.rr.trim()) return message.warning('请填写主机记录')
-  if (!recordForm.value.trim()) return message.warning('请填写记录值')
+  if (!recordForm.rr.trim()) return message.warning('请填写主机记�?)
+  if (!recordForm.value.trim()) return message.warning('请填写记录�?)
   recordSaveLoading.value = true
   try {
     const payload = {
@@ -460,7 +460,7 @@ async function saveRecord() {
     } else {
       await addAliDNSRecord(payload)
     }
-    message.success('已保存')
+    message.success('已保�?)
     recordModalVisible.value = false
     await loadRecords(recordPage.value)
     await loadDomains(domainPage.value)
@@ -473,7 +473,7 @@ async function saveRecord() {
 
 async function deleteRecord(record: DnsRecord) {
   await deleteAliDNSRecord(record.recordId)
-  message.success('已删除')
+  message.success('已删�?)
   await loadRecords(recordPage.value)
   await loadDomains(domainPage.value)
 }
@@ -483,7 +483,7 @@ async function toggleRecordStatus(record: DnsRecord, checked: boolean) {
   try {
     await setAliDNSRecordStatus(record.recordId, checked ? 'ENABLE' : 'DISABLE')
     record.status = checked ? 'ENABLE' : 'DISABLE'
-    message.success(checked ? '已启用' : '已暂停')
+    message.success(checked ? '已启�? : '已暂�?)
   } catch (e: any) {
     message.error(e?.message || '操作失败')
   } finally {
@@ -501,9 +501,9 @@ function lineLabel(code?: string) {
   const staticMap: Record<string, string> = {
     'default': '默认',
     'telecom': '中国电信',
-    'unicom': '中国联通',
+    'unicom': '中国联�?,
     'mobile': '中国移动',
-    'edu': '教育网',
+    'edu': '教育�?,
     'oversea': '境外',
   }
   return staticMap[code] || code
@@ -520,9 +520,9 @@ const TYPE_PRIORITY: Record<string, number> = {
 const LINE_PRIORITY: Record<string, number> = {
   默认: 0,
   中国电信: 1,
-  中国联通: 2,
+  中国联�? 2,
   中国移动: 3,
-  教育网: 4,
+  教育�? 4,
   境外: 5,
   搜索引擎: 6,
   中国地区: 7,
@@ -572,10 +572,13 @@ onMounted(async () => {
   flex-direction: column;
   gap: 16px;
   align-items: start;
+  width: 100%;
+  max-width: 1200px;
 }
 .alidns-domain-panel {
   max-height: 230px;
   overflow-y: auto;
+  min-width: 280px;
 }
 .alidns-domain-panel::-webkit-scrollbar {
   width: 6px;
