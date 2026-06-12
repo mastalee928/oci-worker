@@ -446,7 +446,6 @@
           <a-input v-model:value="portForm.name" placeholder="sub2api-channel-1" />
         </a-form-item>
         <a-form-item label="模型">
-        <a-form-item label="模型">
           <template v-if="isMobile">
             <select
               multiple
@@ -478,7 +477,7 @@
             :loading="portModelsLoading"
             placeholder="留空不限制模型"
             allow-clear
-
+            show-search
             :filter-option="filterModel"
             :max-tag-count="6"
             :max-tag-placeholder="(omittedValues: any[]) => `+${omittedValues?.length || 0}`"
@@ -486,6 +485,8 @@
             :dropdown-style="{ maxHeight: 'min(70vh, 480px)' }"
           />
         </a-form-item>
+
+        <a-form-item label="启用">
           <a-switch v-model:checked="portForm.enabled" />
         </a-form-item>
       </a-form>
