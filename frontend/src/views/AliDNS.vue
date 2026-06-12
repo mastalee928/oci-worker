@@ -241,7 +241,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { message } from 'ant-design-vue'
-import { PlusOutlined, ReloadOutlined } from '@ant-design/icons-vue'
+import { PlusOutlined, ReloadOutlined, DownOutlined } from '@ant-design/icons-vue'
 import { useIsMobile } from '../composables/useIsMobile'
 import {
   addAliDNSRecord,
@@ -306,6 +306,11 @@ const recordTotal = ref(0)
 const recordSearch = ref('')
 const typeFilter = ref<string | undefined>()
 const lineFilter = ref<string | undefined>()
+const lineFilterLabel = computed(() => {
+  if (!lineFilter.value) return '线路'
+  const found = lines.value.find((l) => l.lineCode === lineFilter.value)
+  return found?.lineDisplayName || found?.lineName || lineFilter.value
+})
 
 const lines = ref<LineRow[]>([])
 const recordModalVisible = ref(false)
@@ -713,6 +718,14 @@ onMounted(async () => {
 }
 .mobile-record-actions {
   margin-top: 12px;
+}
+.mobile-filters {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.mobile-filters .ant-btn {
+  flex-shrink: 0;
 }
 @media (max-width: 900px) {
   .alidns-toolbar,
