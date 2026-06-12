@@ -113,7 +113,7 @@
             />
             <a-button :loading="recordLoading" :disabled="!selectedDomain" @click="loadRecords(recordPage)">
               <template #icon><ReloadOutlined /></template>
-              ????
+              刷新
             </a-button>
           </a-space>
           <div v-if="isMobile" class="mobile-filters">
@@ -127,7 +127,7 @@
             </select>
             <a-button :loading="recordLoading" :disabled="!selectedDomain" @click="loadRecords(recordPage)" class="mobile-refresh-btn">
               <template #icon><ReloadOutlined /></template>
-              ????
+              刷新
             </a-button>
           </div>
         </div>
