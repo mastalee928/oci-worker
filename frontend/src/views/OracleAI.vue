@@ -446,45 +446,30 @@
           <a-input v-model:value="portForm.name" placeholder="sub2api-channel-1" />
         </a-form-item>
         <a-form-item label="模型">
-<template v-if="isMobile">
-              <select
-                multiple
-                :value="portForm.allowedModels"
-                @change="(e) => { portForm.allowedModels = Array.from(e.target.selectedOptions, o => o.value) }"
-                size="6"
-                style="width:100%;min-height:80px"
-                :disabled="portModelsLoading"
-              >
-                <option v-if="!portModelOptions.length" disabled>暂无可用模型</option>
-                <option v-for="m in portModelOptions" :key="m.value" :value="m.value">{{ m.label }}</option>
-              </select>
-              <div class="sub-muted form-help">保存后该端口的 /v1/models 只返回这里选择的模型；留空表示不限制。</div>
-              <a-button
-                class="port-model-refresh"
-                size="small"
-                :loading="portModelsLoading"
-                :disabled="!portForm.ociUserId"
-                @click="() => portForm.ociUserId && loadPortModels(portForm.ociUserId, portForm.region, true)"
-              >
-                刷新模型列表
-              </a-button>
-            </template>
+          <a-select
+            v-model:value="portForm.allowedModels"
+            mode="multiple"
+            :options="portModelOptions"
+            :loading="portModelsLoading"
+            placeholder="留空不限制模型"
+            allow-clear
 
-<a-select
-              v-else
-              v-model:value="portForm.allowedModels"
-              mode="multiple"
-              :options="portModelOptions"
-              :loading="portModelsLoading"
-              placeholder="留空不限制模型"
-              allow-clear
-
-              :filter-option="filterModel"
-              :max-tag-count="6"
-              :max-tag-placeholder="(omittedValues: any[]) => `+${omittedValues?.length || 0}`"
-              :get-popup-container="selectPopupContainer"
-              :dropdown-style="{ maxHeight: 'min(70vh, 480px)' }"
-            />
+            :filter-option="filterModel"
+            :max-tag-count="6"
+            :max-tag-placeholder="(omittedValues: any[]) => `+${omittedValues?.length || 0}`"
+            :get-popup-container="selectPopupContainer"
+            :dropdown-style="{ maxHeight: 'min(70vh, 480px)' }"
+          />
+          <div class="sub-muted form-help">保存后该端口的 /v1/models 只返回这里选择的模型；留空表示不限制。</div>
+          <a-button
+            class="port-model-refresh"
+            size="small"
+            :loading="portModelsLoading"
+            :disabled="!portForm.ociUserId"
+            @click="() => portForm.ociUserId && loadPortModels(portForm.ociUserId, portForm.ociRegion, true)"
+          >
+            刷新模型列表
+          </a-button>
         </a-form-item>
         <a-form-item label="启用">
           <a-switch v-model:checked="portForm.enabled" />
