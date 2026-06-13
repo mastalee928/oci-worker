@@ -1404,6 +1404,7 @@ dayjs.extend(utc)
 
 const catalog = useTenantCatalogStore()
 const VIRTUAL_CARD_MIN = 12
+let instanceListActivatedOnce = false
 
 function isGroupPanelOpen(key: string) {
   return activeGroupKeys.value.includes(key)
@@ -2521,7 +2522,12 @@ async function loadTenantInstances(td: TenantData, manual = false) {
   try {
     const reg = (instancePanelRegion.value?.trim() || td.tenant.ociRegion || '').trim()
     const res = await getInstanceList({ id: td.tenant.id, region: reg })
-    td.instances = res.data || []
+    const rows = res.data || []
+    td.instances = rows
+    if (currentTenant.value?.id === td.tenant.id && currentInstance.value?.instanceId) {
+      const fresh = rows.find((i: any) => i.instanceId === currentInstance.value.instanceId)
+      if (fresh) currentInstance.value = { ...currentInstance.value, ...fresh }
+    }
     if (manual) message.success('实例列表已刷新')
   } catch (e: any) {
     if (manual) {
@@ -3462,8 +3468,12 @@ onMounted(() => {
   window.addEventListener('beforeunload', handleShapeEditBeforeUnload)
 })
 onActivated(() => {
-  void catalog.ensureTenants({ silent: true }).catch(() => {})
-  void catalog.ensureGroups({ silent: true }).catch(() => {})
+  if (!instanceListActivatedOnce) {
+    instanceListActivatedOnce = true
+    return
+  }
+  void loadGroups()
+  void loadAllTenants(false)
 })
 onUnmounted(() => {
   window.removeEventListener('resize', checkMobile)
