@@ -51,6 +51,7 @@ public class SystemService {
     private StorageService storageService;
 
     private static final String REPO = "mastalee928/oci-worker";
+    private static final String PUBLIC_RELEASE_REPO = "OCIworker/OCIworker";
     private static final String JAR_PATH = "/opt/oci-worker/oci-worker.jar";
     private static final String ASSET_NAME = "oci-worker-1.0.0.jar";
     private static final ObjectMapper JSON = new ObjectMapper();
@@ -147,6 +148,8 @@ public class SystemService {
                 result.put("notice", "无法从 GitHub Release 说明中解析构建 commit，请去仓库 Releases 核对");
             } else if (currentCommit.equalsIgnoreCase(latestCommit)) {
                 result.put("hasUpdate", false);
+            } else if (PUBLIC_RELEASE_REPO.equalsIgnoreCase(REPO)) {
+                result.put("hasUpdate", true);
             } else {
                 // 比较：base=线上下载包 commit，head=本机 JAR 内嵌 commit
                 // ahead = 本机更新；behind = 本机更旧，应提示更新

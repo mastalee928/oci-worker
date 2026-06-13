@@ -2,6 +2,7 @@ package com.ociworker.exception;
 
 import com.ociworker.model.vo.ResponseData;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.catalina.connector.ClientAbortException;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -29,6 +30,11 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(org.springframework.web.servlet.resource.NoResourceFoundException.class)
     public ResponseData<?> handleNoResourceFound(org.springframework.web.servlet.resource.NoResourceFoundException e) {
         return ResponseData.error(404, "资源不存在");
+    }
+
+    @ExceptionHandler(ClientAbortException.class)
+    public void handleClientAbortException(ClientAbortException e) {
+        log.debug("Client aborted request: {}", e.getMessage());
     }
 
     @ExceptionHandler(com.oracle.bmc.model.BmcException.class)
