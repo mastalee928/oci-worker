@@ -1404,7 +1404,20 @@ dayjs.extend(utc)
 
 const catalog = useTenantCatalogStore()
 const VIRTUAL_CARD_MIN = 12
+const INSTANCE_LIST_CACHE_TTL_MS = 60_000
 let instanceListActivatedOnce = false
+
+interface InstanceListCacheEntry {
+  rows: any[]
+  fetchedAt: number
+}
+
+interface LoadTenantInstancesOptions {
+  force?: boolean
+  notify?: boolean
+}
+
+const instanceListCache = new Map<string, InstanceListCacheEntry>()
 
 function isGroupPanelOpen(key: string) {
   return activeGroupKeys.value.includes(key)
@@ -1713,6 +1726,25 @@ function savePanelRegionLs(prefix: string, tenant: any, region: string) {
   } catch {}
 }
 
+function instanceListRegion(td: TenantData) {
+  return (instancePanelRegion.value?.trim() || td.tenant.ociRegion || '').trim()
+}
+
+function instanceListCacheKey(td: TenantData, region: string) {
+  return `${td.tenant.id || ''}::${region || ''}`
+}
+
+function getInstanceListCache(td: TenantData, region: string) {
+  return instanceListCache.get(instanceListCacheKey(td, region))
+}
+
+function setInstanceListCache(td: TenantData, region: string, rows: any[]) {
+  instanceListCache.set(instanceListCacheKey(td, region), {
+    rows,
+    fetchedAt: Date.now(),
+  })
+}
+
 function detailOciRegion(): string | undefined {
   const r = currentInstance.value?.region
   return r && String(r).trim() ? String(r).trim() : undefined
@@ -1756,7 +1788,8 @@ async function prefetchSubscribedRegions(
   }
 }
 
-function selectTenant(td: TenantData) {
+async function selectTenant(td: TenantData) {
+  const tenantId = td.tenant.id
   activeTenantId.value = td.tenant.id
   const def = td.tenant.ociRegion || ''
   instancePanelRegion.value = loadPanelRegionFromLs('instancePanel.region', td.tenant, def) || def
@@ -1764,11 +1797,13 @@ function selectTenant(td: TenantData) {
     ? [{ label: instancePanelRegion.value, value: instancePanelRegion.value }]
     : []
   savePanelRegionLs('instancePanel.region', td.tenant, instancePanelRegion.value)
-  loadTenantInstances(td)
-  void prefetchSubscribedRegions(
-    td.tenant.id,
+  await loadTenantInstances(td)
+  if (activeTenantId.value !== tenantId) return
+  await prefetchSubscribedRegions(
+    tenantId,
     instancePanelRegion.value,
     (ids) => {
+      if (activeTenantId.value !== tenantId) return
       instanceRegionOptions.value = ids.map((x) => ({ label: x, value: x }))
     },
     instanceSubscribedRegionsLoading,
@@ -2009,7 +2044,7 @@ function applyShapeEditResult(result?: Record<string, any>) {
   if (result.name) inst.name = result.name
   void loadShapeEditOptions()
   const td = tenantDataList.value.find(t => t.tenant.id === currentTenant.value.id)
-  if (td) scheduleReload(() => loadTenantInstances(td), 3000)
+  if (td) scheduleReload(() => loadTenantInstances(td, { force: true }), 3000)
 }
 
 function handleShapeEditTaskStatus(status: ShapeEditTaskStatus) {
@@ -2165,7 +2200,7 @@ async function handleApplyShapeEdit() {
     if (res.data?.memoryInGBs != null) inst.memoryInGBs = res.data.memoryInGBs
     if (res.data?.name) inst.name = res.data.name
     const td = tenantDataList.value.find(t => t.tenant.id === currentTenant.value.id)
-    if (td) scheduleReload(() => loadTenantInstances(td), 3000)
+    if (td) scheduleReload(() => loadTenantInstances(td, { force: true }), 3000)
   } catch (e: any) {
     message.error(e?.message || '形状变更失败')
   } finally {
@@ -2222,7 +2257,7 @@ async function handleForceA2ToA1Confirm() {
     resetForceA2Modal()
     await loadShapeEditOptions()
     const td = tenantDataList.value.find(t => t.tenant.id === currentTenant.value.id)
-    if (td) scheduleReload(() => loadTenantInstances(td), 3000)
+    if (td) scheduleReload(() => loadTenantInstances(td, { force: true }), 3000)
   } catch (e: any) {
     const msg = String(e?.message || '')
     if (msg.includes('当前实例 Shape 不是') && msg.includes('请检查当前 Shape')) {
@@ -2508,8 +2543,6 @@ async function loadAllTenants(force = false) {
       const existing = existingMap.get(t.id)
       return existing ? { ...existing, tenant: t } : { tenant: t, instances: [], loading: false, collapsed: false }
     })
-    const active = activeTenantData.value
-    if (active) await loadTenantInstances(active)
   } catch (e: any) {
     message.error(e?.message || '加载租户失败')
   } finally {
@@ -2517,22 +2550,41 @@ async function loadAllTenants(force = false) {
   }
 }
 
-async function loadTenantInstances(td: TenantData, manual = false) {
+async function loadTenantInstances(td: TenantData, options: LoadTenantInstancesOptions | boolean = {}) {
+  const opts = typeof options === 'boolean'
+    ? { force: options, notify: options }
+    : options
+  const force = opts.force === true
+  const notify = opts.notify === true
+  const reg = instanceListRegion(td)
+  const cached = getInstanceListCache(td, reg)
+
+  if (cached) {
+    td.instances = cached.rows
+    if (!force && Date.now() - cached.fetchedAt < INSTANCE_LIST_CACHE_TTL_MS) {
+      return
+    }
+  }
+
   td.loading = true
   try {
-    const reg = (instancePanelRegion.value?.trim() || td.tenant.ociRegion || '').trim()
     const res = await getInstanceList({ id: td.tenant.id, region: reg })
     const rows = res.data || []
+    setInstanceListCache(td, reg, rows)
+
+    const sameVisibleRegion = activeTenantId.value !== td.tenant.id || instanceListRegion(td) === reg
+    if (!sameVisibleRegion) return
+
     td.instances = rows
     if (currentTenant.value?.id === td.tenant.id && currentInstance.value?.instanceId) {
       const fresh = rows.find((i: any) => i.instanceId === currentInstance.value.instanceId)
       if (fresh) currentInstance.value = { ...currentInstance.value, ...fresh }
     }
-    if (manual) message.success('实例列表已刷新')
+    if (notify) message.success('实例列表已刷新')
   } catch (e: any) {
-    if (manual) {
+    if (notify) {
       message.error(e?.message || '刷新实例列表失败')
-    } else {
+    } else if (!cached) {
       td.instances = []
     }
   } finally {
@@ -2576,7 +2628,7 @@ async function handleAction(tenant: any, record: any, action: string) {
     await updateInstanceState({ id: tenant.id, instanceId: record.instanceId, action, region: reg })
     message.success('操作已提交')
     const td = tenantDataList.value.find(t => t.tenant.id === tenant.id)
-    if (td) scheduleReload(() => loadTenantInstances(td), 3000)
+    if (td) scheduleReload(() => loadTenantInstances(td, { force: true }), 3000)
   } catch (e: any) {
     message.error(e?.message || '操作失败')
   } finally {
@@ -2672,7 +2724,7 @@ async function handleTerminateWithCode() {
     verifyModalVisible.value = false
     drawerVisible.value = false
     const td = tenantDataList.value.find(t => t.tenant.id === currentTenant.value.id)
-    if (td) scheduleReload(() => loadTenantInstances(td), 3000)
+    if (td) scheduleReload(() => loadTenantInstances(td, { force: true }), 3000)
   } catch (e: any) {
     message.error(e?.message || '终止失败')
   } finally {
@@ -3359,7 +3411,7 @@ async function handleEditInstance() {
     if (res.data?.name) currentInstance.value.name = res.data.name
     editInstanceVisible.value = false
     const td = tenantDataList.value.find(t => t.tenant.id === currentTenant.value.id)
-    if (td) loadTenantInstances(td)
+    if (td) loadTenantInstances(td, { force: true })
   } catch (e: any) {
     message.error(e?.message || '修改实例失败')
   } finally {
