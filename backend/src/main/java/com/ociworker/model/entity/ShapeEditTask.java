@@ -22,6 +22,9 @@ public class ShapeEditTask {
     private final String tenantId;
     private final String instanceId;
     private final String region;
+    private final String targetShape;
+    private final Float targetOcpus;
+    private final Float targetMemoryInGBs;
     private final int maxRetries;
     private final long retryIntervalMillis;
     private final Callable<Map<String, Object>> operation;
@@ -41,6 +44,9 @@ public class ShapeEditTask {
                          String tenantId,
                          String instanceId,
                          String region,
+                         String targetShape,
+                         Float targetOcpus,
+                         Float targetMemoryInGBs,
                          int maxRetries,
                          long retryIntervalMillis,
                          Callable<Map<String, Object>> operation) {
@@ -48,6 +54,9 @@ public class ShapeEditTask {
         this.tenantId = tenantId;
         this.instanceId = instanceId;
         this.region = region;
+        this.targetShape = targetShape;
+        this.targetOcpus = targetOcpus;
+        this.targetMemoryInGBs = targetMemoryInGBs;
         this.maxRetries = maxRetries;
         this.retryIntervalMillis = retryIntervalMillis;
         this.operation = operation;

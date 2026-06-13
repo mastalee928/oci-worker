@@ -646,6 +646,9 @@ public class InstanceService {
                         userId,
                         instanceId,
                         region,
+                        shape,
+                        ocpus,
+                        memoryInGBs,
                         () -> updateInstanceOnce(userId, instanceId, displayName, shape, ocpus, memoryInGBs, region));
                 return status;
             }

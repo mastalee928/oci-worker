@@ -23,6 +23,8 @@ public class TelegramInboundUpdateDispatcher {
     private TelegramBotCommandService telegramBotCommandService;
     @Resource
     private TgNotifyConfigRollbackService tgNotifyConfigRollbackService;
+    @Resource
+    private ShapeEditTaskManager shapeEditTaskManager;
 
     public void dispatchUpdateJson(String updateJson) {
         dispatchUpdateJson(updateJson, null);
@@ -52,7 +54,9 @@ public class TelegramInboundUpdateDispatcher {
                 if ("copy_noop".equals(data)) {
                     notificationService.answerTelegramCallbackQuery(id, "", false, receivingBotToken);
                 } else if (!tgNotifyConfigRollbackService.tryHandleTelegramCallback(data, id, receivingBotToken)) {
-                    loginSecurityService.handleTelegramCallback(data, id, receivingBotToken);
+                    if (!shapeEditTaskManager.tryHandleTelegramCallback(data, id, receivingBotToken)) {
+                        loginSecurityService.handleTelegramCallback(data, id, receivingBotToken);
+                    }
                 }
             }
             JsonNode msg = root.get("message");

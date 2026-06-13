@@ -96,6 +96,34 @@ public class NotificationService {
         sendTelegramHtml(html, null);
     }
 
+    public void sendHtmlWithTypeAndInlineKeyboard(
+            String notifyType, String html, List<List<Map<String, String>>> inlineKeyboard) {
+        if (!isTypeEnabled(notifyType)) return;
+        try {
+            String botToken = getKvValue(SysCfgEnum.TG_BOT_TOKEN);
+            String chatId = getKvValue(SysCfgEnum.TG_CHAT_ID);
+            if (StrUtil.isBlank(botToken) || StrUtil.isBlank(chatId) || StrUtil.isBlank(html)) return;
+
+            String url = String.format("https://api.telegram.org/bot%s/sendMessage", botToken);
+            Map<String, Object> body = new java.util.LinkedHashMap<>();
+            body.put("chat_id", chatId);
+            body.put("text", html);
+            body.put("parse_mode", "HTML");
+            if (inlineKeyboard != null && !inlineKeyboard.isEmpty()) {
+                body.put("reply_markup", Map.of("inline_keyboard", inlineKeyboard));
+            }
+            HttpClient c = ociProxyConfigService.newOutboundHttpClient();
+            HttpRequest req = HttpRequest.newBuilder(URI.create(url))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(JSONUtil.toJsonStr(body)))
+                    .timeout(Duration.ofSeconds(10))
+                    .build();
+            c.send(req, HttpResponse.BodyHandlers.discarding());
+        } catch (Exception e) {
+            log.warn("Failed to send Telegram HTML keyboard message: {}", e.getMessage());
+        }
+    }
+
     public void sendTelegramHtml(String html, String copyText) {
         try {
             String botToken = getKvValue(SysCfgEnum.TG_BOT_TOKEN);

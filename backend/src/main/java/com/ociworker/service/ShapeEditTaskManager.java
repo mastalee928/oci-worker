@@ -3,11 +3,13 @@ package com.ociworker.service;
 import com.ociworker.exception.OciException;
 import com.ociworker.model.dto.ShapeEditTaskStatus;
 import com.ociworker.model.entity.ShapeEditTask;
+import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
@@ -18,8 +20,12 @@ import java.util.concurrent.ConcurrentHashMap;
 @Service
 public class ShapeEditTaskManager {
     private static final int MAX_RETRIES = 480;
-    private static final long RETRY_INTERVAL_MILLIS = 20_000L;
-    private static final Duration TERMINAL_TTL = Duration.ofMinutes(5);
+    private static final long RETRY_INTERVAL_MILLIS = 30_000L;
+    private static final Duration TERMINAL_TTL = Duration.ofHours(2);
+    private static final String CALLBACK_RETRY_PREFIX = "se|";
+
+    @Resource
+    private NotificationService notificationService;
 
     private final ConcurrentHashMap<String, ShapeEditTask> tasks = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, String> instanceTaskIndex = new ConcurrentHashMap<>();
@@ -27,6 +33,9 @@ public class ShapeEditTaskManager {
     public synchronized ShapeEditTaskStatus startTask(String tenantId,
                                                       String instanceId,
                                                       String region,
+                                                      String targetShape,
+                                                      Float targetOcpus,
+                                                      Float targetMemoryInGBs,
                                                       Callable<Map<String, Object>> operation) {
         cleanupTerminalTasks();
         String instanceKey = instanceKey(tenantId, instanceId, region);
@@ -45,6 +54,9 @@ public class ShapeEditTaskManager {
                 tenantId,
                 instanceId,
                 region,
+                targetShape,
+                targetOcpus,
+                targetMemoryInGBs,
                 MAX_RETRIES,
                 RETRY_INTERVAL_MILLIS,
                 operation);
@@ -69,7 +81,81 @@ public class ShapeEditTaskManager {
         worker.setDaemon(true);
         task.bindThread(worker);
         worker.start();
+        logTaskEvent("created", task, null);
+        notifyTaskCreated(task);
         return task.toStatus();
+    }
+
+    public synchronized ShapeEditTaskStatus restartTask(String taskId) {
+        cleanupTerminalTasks();
+        ShapeEditTask old = tasks.get(taskId);
+        if (old == null) {
+            throw new OciException("形状编辑任务不存在或已过期");
+        }
+        if (!old.isTerminal()) {
+            return old.toStatus();
+        }
+        if (old.getStatus() == ShapeEditTask.Status.SUCCESS) {
+            throw new OciException("形状编辑任务已成功，无需继续重试");
+        }
+
+        String instanceKey = instanceKey(old.getTenantId(), old.getInstanceId(), old.getRegion());
+        String existingTaskId = instanceTaskIndex.get(instanceKey);
+        if (existingTaskId != null) {
+            ShapeEditTask existing = tasks.get(existingTaskId);
+            if (existing != null && !existing.isTerminal()) {
+                return existing.toStatus();
+            }
+            instanceTaskIndex.remove(instanceKey, existingTaskId);
+        }
+
+        String newTaskId = UUID.randomUUID().toString();
+        ShapeEditTask task = new ShapeEditTask(
+                newTaskId,
+                old.getTenantId(),
+                old.getInstanceId(),
+                old.getRegion(),
+                old.getTargetShape(),
+                old.getTargetOcpus(),
+                old.getTargetMemoryInGBs(),
+                MAX_RETRIES,
+                RETRY_INTERVAL_MILLIS,
+                old.getOperation());
+        instanceTaskIndex.put(instanceKey, newTaskId);
+        tasks.put(newTaskId, task);
+        Thread worker = new Thread(() -> runTask(task, instanceKey), "shape-edit-task-" + newTaskId);
+        worker.setDaemon(true);
+        task.bindThread(worker);
+        worker.start();
+        logTaskEvent("continued", task, null);
+        notifyTaskContinued(task, old.getTaskId());
+        return task.toStatus();
+    }
+
+    public boolean tryHandleTelegramCallback(String rawData, String callbackQueryId, String answeringBotToken) {
+        if (rawData == null || !rawData.startsWith(CALLBACK_RETRY_PREFIX)) {
+            return false;
+        }
+        String taskId = rawData.substring(CALLBACK_RETRY_PREFIX.length());
+        if (taskId.length() > 64) {
+            notificationService.answerTelegramCallbackQuery(callbackQueryId, "无效任务", false, answeringBotToken);
+            return true;
+        }
+        try {
+            ShapeEditTaskStatus status = restartTask(taskId);
+            notificationService.answerTelegramCallbackQuery(
+                    callbackQueryId,
+                    "已继续后台重试: " + status.getTaskId(),
+                    false,
+                    answeringBotToken);
+        } catch (Exception e) {
+            notificationService.answerTelegramCallbackQuery(
+                    callbackQueryId,
+                    e.getMessage() == null ? "无法继续重试" : e.getMessage(),
+                    true,
+                    answeringBotToken);
+        }
+        return true;
     }
 
     public ShapeEditTaskStatus getStatus(String taskId) {
@@ -95,7 +181,12 @@ public class ShapeEditTaskManager {
 
     public ShapeEditTaskStatus stop(String taskId) {
         ShapeEditTask task = taskOrThrow(taskId);
+        boolean wasTerminal = task.isTerminal();
         task.stop();
+        if (!wasTerminal) {
+            logTaskEvent("stopped", task, null);
+            notifyTaskStopped(task);
+        }
         return task.toStatus();
     }
 
@@ -132,12 +223,15 @@ public class ShapeEditTaskManager {
 
                 task.incrementRetryCount();
                 task.markRunning("重试中 (第 " + task.getRetryCount() + " 次)");
+                logTaskEvent("retrying", task, null);
                 try {
                     Map<String, Object> result = task.getOperation().call();
                     if (task.isStopRequested() || task.isTerminal()) {
                         return;
                     }
                     task.markSuccess(result);
+                    logTaskEvent("success", task, null);
+                    notifyTaskSuccess(task);
                     return;
                 } catch (Throwable e) {
                     if (task.isStopRequested() || task.isTerminal()) {
@@ -145,24 +239,31 @@ public class ShapeEditTaskManager {
                     }
                     if (!isOutOfStock(e)) {
                         task.markFailed("失败: " + briefMessage(e));
+                        logTaskEvent("failed", task, e);
+                        notifyTaskFailed(task);
                         return;
                     }
                     task.markWaiting("仍然缺货，等待下一次重试 (第 " + task.getRetryCount() + " 次)");
-                    log.info("Shape edit task {} out of stock on retry {}/{}: {}",
-                            task.getTaskId(), task.getRetryCount(), task.getMaxRetries(), briefMessage(e));
+                    logTaskEvent("out_of_stock", task, e);
                 }
             }
             if (!task.isTerminal()) {
                 task.markStopped("重试超时，已自动停止");
+                logTaskEvent("timeout_stopped", task, null);
+                notifyTaskStopped(task);
             }
         } catch (InterruptedException e) {
             if (!task.isTerminal()) {
                 task.markStopped("已停止");
+                logTaskEvent("interrupted_stopped", task, e);
+                notifyTaskStopped(task);
             }
             Thread.currentThread().interrupt();
         } catch (Throwable e) {
             if (!task.isTerminal()) {
                 task.markFailed("失败: " + briefMessage(e));
+                logTaskEvent("failed", task, e);
+                notifyTaskFailed(task);
             }
         } finally {
             instanceTaskIndex.remove(instanceKey, task.getTaskId());
@@ -184,6 +285,135 @@ public class ShapeEditTaskManager {
             slept += step;
         }
         return task.isStopRequested();
+    }
+
+    private void logTaskEvent(String event, ShapeEditTask task, Throwable error) {
+        String errorText = error == null ? "" : briefMessage(error);
+        String msg = "Shape edit task event={} taskId={} tenantId={} region={} instanceId={} "
+                + "targetShape={} ocpus={} memoryInGBs={} retry={}/{} status={} message={} error={}";
+        if ("failed".equals(event) || event.contains("stopped")) {
+            log.warn(msg,
+                    event,
+                    task.getTaskId(),
+                    task.getTenantId(),
+                    task.getRegion(),
+                    task.getInstanceId(),
+                    task.getTargetShape(),
+                    task.getTargetOcpus(),
+                    task.getTargetMemoryInGBs(),
+                    task.getRetryCount(),
+                    task.getMaxRetries(),
+                    task.getStatus(),
+                    task.getMessage(),
+                    errorText);
+            return;
+        }
+        log.info(msg,
+                event,
+                task.getTaskId(),
+                task.getTenantId(),
+                task.getRegion(),
+                task.getInstanceId(),
+                task.getTargetShape(),
+                task.getTargetOcpus(),
+                task.getTargetMemoryInGBs(),
+                task.getRetryCount(),
+                task.getMaxRetries(),
+                task.getStatus(),
+                task.getMessage(),
+                errorText);
+    }
+
+    private void notifyTaskCreated(ShapeEditTask task) {
+        notificationService.sendHtmlWithType(
+                NotificationService.TYPE_INSTANCE,
+                taskHtml("实例形状后台重试已创建", task, null));
+    }
+
+    private void notifyTaskContinued(ShapeEditTask task, String oldTaskId) {
+        notificationService.sendHtmlWithType(
+                NotificationService.TYPE_INSTANCE,
+                taskHtml("实例形状后台重试已继续", task, "来源任务: " + oldTaskId));
+    }
+
+    private void notifyTaskSuccess(ShapeEditTask task) {
+        notificationService.sendHtmlWithType(
+                NotificationService.TYPE_INSTANCE,
+                taskHtml("实例形状修改成功", task, resultLine(task)));
+    }
+
+    private void notifyTaskFailed(ShapeEditTask task) {
+        notificationService.sendHtmlWithTypeAndInlineKeyboard(
+                NotificationService.TYPE_INSTANCE,
+                taskHtml("实例形状后台重试失败", task, null),
+                retryKeyboard(task));
+    }
+
+    private void notifyTaskStopped(ShapeEditTask task) {
+        notificationService.sendHtmlWithTypeAndInlineKeyboard(
+                NotificationService.TYPE_INSTANCE,
+                taskHtml("实例形状后台重试已停止", task, null),
+                retryKeyboard(task));
+    }
+
+    private List<List<Map<String, String>>> retryKeyboard(ShapeEditTask task) {
+        return List.of(List.of(Map.of(
+                "text", "继续重试形状编辑",
+                "callback_data", CALLBACK_RETRY_PREFIX + task.getTaskId())));
+    }
+
+    private String taskHtml(String title, ShapeEditTask task, String extraLine) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("<b>").append(html(title)).append("</b>\n\n");
+        sb.append("任务ID: <code>").append(html(task.getTaskId())).append("</code>\n");
+        sb.append("租户ID: <code>").append(html(task.getTenantId())).append("</code>\n");
+        sb.append("区域: <code>").append(html(display(task.getRegion()))).append("</code>\n");
+        sb.append("实例ID: <code>").append(html(task.getInstanceId())).append("</code>\n");
+        sb.append("目标 Shape: <code>").append(html(display(task.getTargetShape()))).append("</code>\n");
+        sb.append("OCPU/内存: <code>")
+                .append(html(display(task.getTargetOcpus())))
+                .append(" / ")
+                .append(html(display(task.getTargetMemoryInGBs())))
+                .append(" GB</code>\n");
+        sb.append("重试进度: <code>")
+                .append(task.getRetryCount())
+                .append("/")
+                .append(task.getMaxRetries())
+                .append("</code>\n");
+        sb.append("状态: <code>").append(html(String.valueOf(task.getStatus()))).append("</code>\n");
+        sb.append("消息: ").append(html(display(task.getMessage())));
+        if (extraLine != null && !extraLine.isBlank()) {
+            sb.append("\n").append(html(extraLine));
+        }
+        return sb.toString();
+    }
+
+    private String resultLine(ShapeEditTask task) {
+        Map<String, Object> result = task.getResult();
+        if (result == null || result.isEmpty()) {
+            return null;
+        }
+        Object shape = result.get("shape");
+        Object ocpus = result.get("ocpus");
+        Object memory = result.get("memoryInGBs");
+        if (shape == null && ocpus == null && memory == null) {
+            return null;
+        }
+        return "实际结果: " + display(shape) + " / " + display(ocpus) + " OCPU / " + display(memory) + " GB";
+    }
+
+    private static String display(Object value) {
+        return value == null || String.valueOf(value).isBlank() ? "-" : String.valueOf(value);
+    }
+
+    private static String html(String value) {
+        if (value == null) {
+            return "";
+        }
+        return value
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;");
     }
 
     private ShapeEditTask taskOrThrow(String taskId) {
