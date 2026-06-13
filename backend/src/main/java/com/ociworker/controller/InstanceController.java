@@ -3,6 +3,7 @@ package com.ociworker.controller;
 import com.ociworker.model.vo.ResponseData;
 import com.ociworker.service.ConsoleService;
 import com.ociworker.service.InstanceService;
+import com.ociworker.service.ShapeEditTaskManager;
 import com.ociworker.service.VerifyCodeService;
 import jakarta.annotation.Resource;
 import org.springframework.web.bind.annotation.*;
@@ -19,6 +20,8 @@ public class InstanceController {
     private VerifyCodeService verifyCodeService;
     @Resource
     private ConsoleService consoleService;
+    @Resource
+    private ShapeEditTaskManager shapeEditTaskManager;
 
     @PostMapping("/list")
     public ResponseData<?> list(@RequestBody Map<String, String> params) {
@@ -53,6 +56,26 @@ public class InstanceController {
                 asFloat(params.get("ocpus")),
                 asFloat(params.get("memoryInGBs")),
                 regObj(params)));
+    }
+
+    @GetMapping("/shapeEditTask/{taskId}")
+    public ResponseData<?> shapeEditTask(@PathVariable String taskId) {
+        return ResponseData.ok(shapeEditTaskManager.getStatus(taskId));
+    }
+
+    @PostMapping("/shapeEditTask/{taskId}/pause")
+    public ResponseData<?> pauseShapeEditTask(@PathVariable String taskId) {
+        return ResponseData.ok(shapeEditTaskManager.pause(taskId));
+    }
+
+    @PostMapping("/shapeEditTask/{taskId}/resume")
+    public ResponseData<?> resumeShapeEditTask(@PathVariable String taskId) {
+        return ResponseData.ok(shapeEditTaskManager.resume(taskId));
+    }
+
+    @PostMapping("/shapeEditTask/{taskId}/stop")
+    public ResponseData<?> stopShapeEditTask(@PathVariable String taskId) {
+        return ResponseData.ok(shapeEditTaskManager.stop(taskId));
     }
 
     @PostMapping("/shapes")

@@ -2,6 +2,24 @@ import request from '../utils/request'
 
 type R = { region?: string }
 
+export type ShapeEditTaskState = 'PENDING' | 'RUNNING' | 'PAUSED' | 'SUCCESS' | 'FAILED' | 'STOPPED'
+
+export interface ShapeEditTaskStatus {
+  taskId: string
+  instanceId: string
+  tenantId: string
+  region?: string
+  status: ShapeEditTaskState
+  message?: string
+  retryCount: number
+  maxRetries: number
+  pending: boolean
+  paused: boolean
+  stopped: boolean
+  terminal: boolean
+  result?: Record<string, any>
+}
+
 export function getInstanceList(data: { id: string } & R) {
   return request.post('/oci/instance/list', data)
 }
@@ -27,6 +45,22 @@ export function updateInstance(data: {
   memoryInGBs?: number
 } & R) {
   return request.post('/oci/instance/updateInstance', data)
+}
+
+export function getShapeEditTaskStatus(taskId: string) {
+  return request.get<ShapeEditTaskStatus>(`/oci/instance/shapeEditTask/${taskId}`)
+}
+
+export function pauseShapeEditTask(taskId: string) {
+  return request.post<ShapeEditTaskStatus>(`/oci/instance/shapeEditTask/${taskId}/pause`)
+}
+
+export function resumeShapeEditTask(taskId: string) {
+  return request.post<ShapeEditTaskStatus>(`/oci/instance/shapeEditTask/${taskId}/resume`)
+}
+
+export function stopShapeEditTask(taskId: string) {
+  return request.post<ShapeEditTaskStatus>(`/oci/instance/shapeEditTask/${taskId}/stop`)
 }
 
 export function getAvailableShapes(data: { id: string } & R) {

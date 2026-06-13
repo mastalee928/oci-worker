@@ -5,6 +5,7 @@ import com.oracle.bmc.core.requests.*;
 import com.ociworker.exception.OciException;
 import com.ociworker.util.ShapeFlexLimitsUtil;
 import com.ociworker.mapper.OciUserMapper;
+import com.ociworker.model.dto.ShapeEditTaskStatus;
 import com.ociworker.model.dto.SysUserDTO;
 import com.ociworker.model.entity.OciUser;
 import jakarta.annotation.Resource;
@@ -28,6 +29,8 @@ public class InstanceService {
     private OciUserMapper userMapper;
     @Resource
     private NotificationService notificationService;
+    @Resource
+    private ShapeEditTaskManager shapeEditTaskManager;
 
     private String tag(OciUser u) { return "[" + u.getUsername() + "] "; }
 
@@ -630,78 +633,110 @@ public class InstanceService {
         }
     }
 
-    public Map<String, Object> updateInstance(String userId, String instanceId,
-                                               String displayName, String shape,
-                                               Float ocpus, Float memoryInGBs, String region) {
+    public Object updateInstance(String userId, String instanceId,
+                                 String displayName, String shape,
+                                 Float ocpus, Float memoryInGBs, String region) {
+        try {
+            return updateInstanceOnce(userId, instanceId, displayName, shape, ocpus, memoryInGBs, region);
+        } catch (OciException e) {
+            throw e;
+        } catch (com.oracle.bmc.model.BmcException e) {
+            if (isShapeEditRequest(shape, ocpus, memoryInGBs) && ShapeEditTaskManager.isOutOfStock(e)) {
+                ShapeEditTaskStatus status = shapeEditTaskManager.startTask(
+                        userId,
+                        instanceId,
+                        region,
+                        () -> updateInstanceOnce(userId, instanceId, displayName, shape, ocpus, memoryInGBs, region));
+                return status;
+            }
+            OciUser ociUser = userMapper.selectById(userId);
+            String prefix = ociUser == null ? "" : tag(ociUser);
+            throw new OciException(prefix + "修改实例失败: " + extractOciErrorMessage(e));
+        } catch (Exception e) {
+            OciUser ociUser = userMapper.selectById(userId);
+            String prefix = ociUser == null ? "" : tag(ociUser);
+            throw new OciException(prefix + "修改实例失败: " + e.getMessage());
+        }
+    }
+
+    private Map<String, Object> updateInstanceOnce(String userId, String instanceId,
+                                                   String displayName, String shape,
+                                                   Float ocpus, Float memoryInGBs, String region) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
 
         try (OciClientService client = oci(ociUser, region)) {
-            Instance current = client.getComputeClient().getInstance(
-                    GetInstanceRequest.builder().instanceId(instanceId).build()
-            ).getInstance();
-
-            String targetShape = shape != null && !shape.isBlank() ? shape.trim() : current.getShape();
-            List<Shape> compatible = client.getShapes(current.getAvailabilityDomain(), current.getImageId());
-            Shape shapeMeta = findShapeMeta(compatible, targetShape);
-            if (shapeMeta == null) {
-                throw new OciException(tag(ociUser) + "目标 Shape 与当前实例镜像不兼容: " + targetShape);
-            }
-
-            boolean flex = isFlexibleShape(targetShape);
-            Float useOcpus = ocpus;
-            Float useMemory = memoryInGBs;
-            if (flex) {
-                if (useOcpus == null && current.getShapeConfig() != null) {
-                    useOcpus = current.getShapeConfig().getOcpus();
-                }
-                if (useMemory == null && current.getShapeConfig() != null) {
-                    useMemory = current.getShapeConfig().getMemoryInGBs();
-                }
-                validateFlexResources(shapeMeta, useOcpus, useMemory);
-            } else if (ocpus != null || memoryInGBs != null) {
-                throw new OciException(tag(ociUser) + "非 Flex Shape 仅可更换形状，不能单独调整 OCPU/内存");
-            }
-
-            UpdateInstanceDetails.Builder detailsBuilder = UpdateInstanceDetails.builder();
-
-            if (displayName != null && !displayName.isBlank()) {
-                detailsBuilder.displayName(displayName);
-            }
-
-            if (shape != null && !shape.isBlank() && !shape.trim().equals(current.getShape())) {
-                detailsBuilder.shape(shape.trim());
-            }
-
-            if (flex && (useOcpus != null || useMemory != null)) {
-                UpdateInstanceShapeConfigDetails.Builder shapeBuilder =
-                        UpdateInstanceShapeConfigDetails.builder();
-                if (useOcpus != null) shapeBuilder.ocpus(useOcpus);
-                if (useMemory != null) shapeBuilder.memoryInGBs(useMemory);
-                detailsBuilder.shapeConfig(shapeBuilder.build());
-            }
-
-            Instance updated = client.getComputeClient().updateInstance(
-                    UpdateInstanceRequest.builder()
-                            .instanceId(instanceId)
-                            .updateInstanceDetails(detailsBuilder.build())
-                            .build()
-            ).getInstance();
-
-            Map<String, Object> result = new LinkedHashMap<>();
-            result.put("instanceId", updated.getId());
-            result.put("name", updated.getDisplayName());
-            result.put("shape", updated.getShape());
-            if (updated.getShapeConfig() != null) {
-                result.put("ocpus", updated.getShapeConfig().getOcpus());
-                result.put("memoryInGBs", updated.getShapeConfig().getMemoryInGBs());
-            }
-            return result;
-        } catch (com.oracle.bmc.model.BmcException e) {
-            throw new OciException(tag(ociUser) + "修改实例失败: " + extractOciErrorMessage(e));
-        } catch (Exception e) {
-            throw new OciException(tag(ociUser) + "修改实例失败: " + e.getMessage());
+            return updateInstanceOnce(client, ociUser, instanceId, displayName, shape, ocpus, memoryInGBs);
         }
+    }
+
+    private Map<String, Object> updateInstanceOnce(OciClientService client, OciUser ociUser, String instanceId,
+                                                   String displayName, String shape,
+                                                   Float ocpus, Float memoryInGBs) {
+        Instance current = client.getComputeClient().getInstance(
+                GetInstanceRequest.builder().instanceId(instanceId).build()
+        ).getInstance();
+
+        String targetShape = shape != null && !shape.isBlank() ? shape.trim() : current.getShape();
+        List<Shape> compatible = client.getShapes(current.getAvailabilityDomain(), current.getImageId());
+        Shape shapeMeta = findShapeMeta(compatible, targetShape);
+        if (shapeMeta == null) {
+            throw new OciException(tag(ociUser) + "目标 Shape 与当前实例镜像不兼容: " + targetShape);
+        }
+
+        boolean flex = isFlexibleShape(targetShape);
+        Float useOcpus = ocpus;
+        Float useMemory = memoryInGBs;
+        if (flex) {
+            if (useOcpus == null && current.getShapeConfig() != null) {
+                useOcpus = current.getShapeConfig().getOcpus();
+            }
+            if (useMemory == null && current.getShapeConfig() != null) {
+                useMemory = current.getShapeConfig().getMemoryInGBs();
+            }
+            validateFlexResources(shapeMeta, useOcpus, useMemory);
+        } else if (ocpus != null || memoryInGBs != null) {
+            throw new OciException(tag(ociUser) + "非 Flex Shape 仅可更换形状，不能单独调整 OCPU/内存");
+        }
+
+        UpdateInstanceDetails.Builder detailsBuilder = UpdateInstanceDetails.builder();
+
+        if (displayName != null && !displayName.isBlank()) {
+            detailsBuilder.displayName(displayName);
+        }
+
+        if (shape != null && !shape.isBlank() && !shape.trim().equals(current.getShape())) {
+            detailsBuilder.shape(shape.trim());
+        }
+
+        if (flex && (useOcpus != null || useMemory != null)) {
+            UpdateInstanceShapeConfigDetails.Builder shapeBuilder =
+                    UpdateInstanceShapeConfigDetails.builder();
+            if (useOcpus != null) shapeBuilder.ocpus(useOcpus);
+            if (useMemory != null) shapeBuilder.memoryInGBs(useMemory);
+            detailsBuilder.shapeConfig(shapeBuilder.build());
+        }
+
+        Instance updated = client.getComputeClient().updateInstance(
+                UpdateInstanceRequest.builder()
+                        .instanceId(instanceId)
+                        .updateInstanceDetails(detailsBuilder.build())
+                        .build()
+        ).getInstance();
+
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("instanceId", updated.getId());
+        result.put("name", updated.getDisplayName());
+        result.put("shape", updated.getShape());
+        if (updated.getShapeConfig() != null) {
+            result.put("ocpus", updated.getShapeConfig().getOcpus());
+            result.put("memoryInGBs", updated.getShapeConfig().getMemoryInGBs());
+        }
+        return result;
+    }
+
+    private static boolean isShapeEditRequest(String shape, Float ocpus, Float memoryInGBs) {
+        return (shape != null && !shape.isBlank()) || ocpus != null || memoryInGBs != null;
     }
 
     /**
