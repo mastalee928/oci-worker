@@ -863,7 +863,13 @@
               列表按当前实例镜像与可用域从 OCI ListShapes 拉取；Flex 规格须落在 API 返回的 OCPU/内存上下限内。提交后 OCI 可能自动停止并重启实例以生效。
             </template>
           </a-alert>
-          <a-alert v-if="shapeEditTask" :type="shapeEditTaskAlertType" show-icon style="margin-bottom: 16px">
+          <a-alert
+            v-if="shapeEditTask"
+            ref="shapeEditTaskAlertRef"
+            :type="shapeEditTaskAlertType"
+            show-icon
+            style="margin-bottom: 16px"
+          >
             <template #message>
               <div class="shape-edit-task-head">
                 <span>{{ shapeEditTaskTitle }}</span>
@@ -1323,7 +1329,7 @@
 <script setup lang="ts">
 defineOptions({ name: 'InstanceList' })
 
-import { ref, reactive, computed, onMounted, onActivated, onUnmounted, watch, defineAsyncComponent } from 'vue'
+import { ref, reactive, computed, nextTick, onMounted, onActivated, onUnmounted, watch, defineAsyncComponent } from 'vue'
 import {
   ReloadOutlined,
   EditOutlined,
@@ -1891,6 +1897,7 @@ const shapeEditLoading = ref(false)
 const shapeEditSaving = ref(false)
 const shapeEditTask = ref<ShapeEditTaskStatus | null>(null)
 const shapeEditTaskActionLoading = ref(false)
+const shapeEditTaskAlertRef = ref<any>(null)
 let shapeEditTaskPollTimer: ReturnType<typeof setInterval> | null = null
 const shapeEditOptions = ref<any[]>([])
 const shapeForm = reactive({ shape: '' as string, ocpus: 1 as number, memoryInGBs: 6 as number })
@@ -2035,6 +2042,14 @@ function startShapeEditTaskPolling(taskId: string) {
   }, 2000)
 }
 
+function revealShapeEditTaskAlert() {
+  activeTab.value = 'shape'
+  void nextTick(() => {
+    const el = shapeEditTaskAlertRef.value?.$el ?? shapeEditTaskAlertRef.value
+    el?.scrollIntoView?.({ behavior: 'smooth', block: 'nearest' })
+  })
+}
+
 function applyShapeEditResult(result?: Record<string, any>) {
   if (!result || !currentInstance.value || !currentTenant.value) return
   const inst = currentInstance.value
@@ -2049,7 +2064,11 @@ function applyShapeEditResult(result?: Record<string, any>) {
 
 function handleShapeEditTaskStatus(status: ShapeEditTaskStatus) {
   const previousStatus = shapeEditTask.value?.status
+  const previousTaskId = shapeEditTask.value?.taskId
   shapeEditTask.value = status
+  if (previousTaskId !== status.taskId) {
+    revealShapeEditTaskAlert()
+  }
   if (!status.terminal) return
 
   stopShapeEditTaskPolling()
