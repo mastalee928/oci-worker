@@ -214,7 +214,7 @@ public class TenantService {
     }
 
     public void remove(IdListParams params) {
-        userMapper.deleteBatchIds(params.getIdList());
+        userMapper.deleteByIds(params.getIdList());
         log.info("Removed tenant configs: {}", params.getIdList());
     }
 

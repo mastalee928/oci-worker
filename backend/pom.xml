@@ -275,6 +275,12 @@
                     <encoding>UTF-8</encoding>
                     <!-- Spring @RequestParam 等默认可用参数名依赖此标志；未开启时须写全 @RequestParam("name") -->
                     <parameters>true</parameters>
+                    <proc>full</proc>
+                    <showWarnings>true</showWarnings>
+                    <compilerArgs>
+                        <arg>-Xlint:deprecation</arg>
+                        <arg>-Xlint:unchecked</arg>
+                    </compilerArgs>
                 </configuration>
             </plugin>
             <plugin>

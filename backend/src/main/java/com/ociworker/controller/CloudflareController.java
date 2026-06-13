@@ -148,6 +148,7 @@ public class CloudflareController {
     }
 
     /** @deprecated legacy cf_cfg table */
+    @Deprecated
     @PostMapping("/cfg/list")
     public ResponseData<?> listCfg(@RequestBody Map<String, Integer> params) {
         return ResponseData.ok(cloudflareService.listCfgPage(
@@ -167,6 +168,7 @@ public class CloudflareController {
         return ResponseData.ok();
     }
 
+    @SuppressWarnings("deprecation")
     @PostMapping("/dns/list")
     public ResponseData<?> listDns(@RequestBody Map<String, Object> params) {
         String zoneId = (String) params.get("zoneId");
@@ -624,6 +626,7 @@ public class CloudflareController {
     }
 
     /** @deprecated 不支持 cfat_ 账户令牌 */
+    @Deprecated
     @PostMapping("/rules/pagerules/list")
     public ResponseData<?> pageRulesList(@RequestBody Map<String, String> params) {
         return ResponseData.ok(cloudflareService.listPageRules(params.get("zoneId")));

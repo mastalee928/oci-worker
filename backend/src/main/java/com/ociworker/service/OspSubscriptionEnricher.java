@@ -11,7 +11,6 @@ import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.Date;
-import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -138,9 +137,8 @@ final class OspSubscriptionEnricher {
             return;
         }
         if (node.isObject()) {
-            Iterator<Map.Entry<String, JsonNode>> it = node.fields();
-            while (it.hasNext()) {
-                collectOcidsFromJsonNode(it.next().getValue(), ids);
+            for (Map.Entry<String, JsonNode> entry : node.properties()) {
+                collectOcidsFromJsonNode(entry.getValue(), ids);
             }
         } else if (node.isArray()) {
             for (JsonNode child : node) {
@@ -379,9 +377,7 @@ final class OspSubscriptionEnricher {
     private static void scanJsonNode(JsonNode node, Map<String, Object> result) {
         if (node == null || node.isNull()) return;
         if (node.isObject()) {
-            Iterator<Map.Entry<String, JsonNode>> it = node.fields();
-            while (it.hasNext()) {
-                Map.Entry<String, JsonNode> e = it.next();
+            for (Map.Entry<String, JsonNode> e : node.properties()) {
                 String key = e.getKey();
                 JsonNode val = e.getValue();
                 String lower = key.toLowerCase(Locale.ROOT);

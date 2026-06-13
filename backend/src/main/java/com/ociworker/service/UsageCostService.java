@@ -369,6 +369,7 @@ public class UsageCostService {
         return sum;
     }
 
+    @SafeVarargs
     private static String pickCurrency(List<UsageSummary>... lists) {
         for (List<UsageSummary> rows : lists) {
             if (rows == null) continue;

@@ -1204,6 +1204,7 @@ public class CloudflareService {
     }
 
     /** @deprecated Page Rules 不支持 cfat_ 账户令牌，请用 {@link #listZoneRules} */
+    @Deprecated
     public List<Map<String, Object>> listPageRules(String zoneId) {
         Credentials c = requireCredentials();
         requireZoneId(zoneId);
@@ -3034,6 +3035,7 @@ public class CloudflareService {
     }
 
     /** @deprecated use zoneId + global token */
+    @Deprecated
     public List<Map<String, Object>> listDnsRecordsByCfgId(String cfgId, int page, int perPage) {
         CfCfg cfg = cfCfgMapper.selectById(cfgId);
         if (cfg == null) {
