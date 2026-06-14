@@ -675,7 +675,7 @@ region=ap-tokyo-1"
                     <div class="budget-target-cell">{{ formatBudgetTarget(record) }}</div>
                   </template>
                 </a-table-column>
-                <a-table-column title="预算（USD）" key="amount" :width="120">
+                <a-table-column title="预算" key="amount" :width="110">
                   <template #default="{ record }">{{ formatBudgetAmount(record) }}</template>
                 </a-table-column>
                 <a-table-column title="已用" key="actual" :width="170">
@@ -1127,7 +1127,7 @@ region=ap-tokyo-1"
         <a-form-item label="名称" required>
           <a-input v-model:value="budgetForm.displayName" allow-clear />
         </a-form-item>
-        <a-form-item label="金额（USD）" required>
+        <a-form-item label="金额" required>
           <a-input-number v-model:value="budgetForm.amount" :min="1" style="width: 100%" />
         </a-form-item>
         <a-form-item label="描述">
@@ -2704,7 +2704,7 @@ function filterBudgetCompartmentOption(input: string, option: any) {
 }
 
 function budgetCurrencyCode(): string {
-  return 'USD'
+  return tenantInfoData.value?.currencyCode || billingData.value?.currencyCode || ''
 }
 
 function toBudgetNumber(v: any): number | null {
