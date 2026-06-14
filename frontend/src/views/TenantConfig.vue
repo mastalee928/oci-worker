@@ -572,7 +572,7 @@ region=ap-tokyo-1"
       :width="isMobile ? '100%' : 840" :footer="null" centered :bodyStyle="{ maxHeight: '75vh', overflow: 'auto' }"
       :mask-closable="false" :keyboard="false">
       <a-tabs v-model:activeKey="tenantTab" @change="onTenantTabChange">
-        <a-tab-pane key="account" tab="账户信息">
+        <a-tab-pane key="account" tab="租户信息">
       <a-spin :spinning="tenantInfoLoading">
         <a-descriptions :column="1" bordered size="small" style="margin-top: 8px">
           <a-descriptions-item label="租户名称">{{ tenantInfoData.tenantName || '—' }}</a-descriptions-item>
@@ -645,166 +645,107 @@ region=ap-tokyo-1"
         </a-descriptions>
       </a-spin>
         </a-tab-pane>
-        <a-tab-pane key="budgets" tab="成本预算">
-          <a-spin :spinning="budgetsLoading">
-            <div class="budget-toolbar">
-              <a-space wrap>
-                <a-button type="primary" size="small" @click="openCreateBudget">
-                  <template #icon><PlusOutlined /></template>新建预算
-                </a-button>
-                <a-button size="small" :loading="budgetsLoading" @click="loadBudgets">
-                  <template #icon><ReloadOutlined /></template>刷新
-                </a-button>
-                <a v-if="budgetsData?.links?.budgets" :href="budgetsData.links.budgets" target="_blank" rel="noopener noreferrer" style="font-size: 12px">控制台</a>
-              </a-space>
-            </div>
-
-            <template v-if="budgetsList.length">
-              <a-table
-                v-if="!isMobile"
-                class="budget-table"
-                size="small"
-                :data-source="budgetsList"
-                :pagination="{ pageSize: 8 }"
-                row-key="id"
-                :row-class-name="budgetRowClassName"
-                @row="budgetTableRow"
-              >
-                <a-table-column title="名称" data-index="displayName" key="displayName" :ellipsis="true" />
-                <a-table-column title="目标" key="target" :ellipsis="true">
-                  <template #default="{ record }">
-                    <div class="budget-target-cell">{{ formatBudgetTarget(record) }}</div>
-                  </template>
-                </a-table-column>
-                <a-table-column title="预算" key="amount" :width="110">
-                  <template #default="{ record }">{{ formatBudgetAmount(record) }}</template>
-                </a-table-column>
-                <a-table-column title="已用" key="actual" :width="170">
-                  <template #default="{ record }">
-                    <a-progress
-                      :percent="budgetProgressPercent(record)"
-                      :status="budgetProgressStatus(record)"
-                      size="small"
-                    />
-                    <div class="budget-spend-line">{{ formatBudgetSpend(record.actualSpend, record.amount) }}</div>
-                  </template>
-                </a-table-column>
-                <a-table-column title="周期" key="period" :width="100">
-                  <template #default="{ record }">{{ formatBudgetProcessingPeriod(record.processingPeriodType) }}</template>
-                </a-table-column>
-                <a-table-column title="状态" key="state" :width="90">
-                  <template #default="{ record }">
-                    <a-tag :color="record.lifecycleState === 'ACTIVE' ? 'green' : 'default'">{{ record.lifecycleState || '—' }}</a-tag>
-                  </template>
-                </a-table-column>
-                <a-table-column title="操作" key="action" :width="150">
-                  <template #default="{ record }">
-                    <a-space size="small">
-                      <a-button type="link" size="small" @click.stop="openEditBudget(record)">编辑</a-button>
-                      <a-popconfirm title="确定删除该成本预算？" @confirm="handleDeleteBudget(record)">
-                        <a-button type="link" danger size="small" @click.stop>删除</a-button>
-                      </a-popconfirm>
-                    </a-space>
-                  </template>
-                </a-table-column>
-              </a-table>
-
-              <div v-else>
-                <div v-for="b in budgetsList" :key="b.id" class="mobile-card budget-mobile-card" :class="{ 'budget-mobile-card-active': b.id === selectedBudgetId }" @click="selectBudget(b)">
-                  <div class="mobile-card-header">
-                    <span class="mobile-card-title">{{ b.displayName || '—' }}</span>
-                    <a-tag style="margin:0" :color="b.lifecycleState === 'ACTIVE' ? 'green' : 'default'">{{ b.lifecycleState || '—' }}</a-tag>
-                  </div>
-                  <div class="mobile-card-body">
-                    <div class="mobile-card-row"><span class="label">预算</span><span class="value">{{ formatBudgetAmount(b) }}</span></div>
-                    <div class="mobile-card-row"><span class="label">已用</span><span class="value">{{ formatBudgetSpend(b.actualSpend, b.amount) }}</span></div>
-                    <div class="mobile-card-row"><span class="label">预测</span><span class="value">{{ formatBudgetSpend(b.forecastedSpend, b.amount) }}</span></div>
-                    <div class="mobile-card-row"><span class="label">周期</span><span class="value">{{ formatBudgetProcessingPeriod(b.processingPeriodType) }}</span></div>
-                    <div class="mobile-card-row"><span class="label">目标</span><span class="value">{{ formatBudgetTarget(b) }}</span></div>
-                    <a-progress :percent="budgetProgressPercent(b)" :status="budgetProgressStatus(b)" size="small" />
-                  </div>
-                  <div class="mobile-card-actions">
-                    <a-button type="link" size="small" @click.stop="openEditBudget(b)">编辑</a-button>
-                    <a-popconfirm title="确定删除该成本预算？" @confirm="handleDeleteBudget(b)">
-                      <a-button type="link" danger size="small" @click.stop>删除</a-button>
-                    </a-popconfirm>
-                  </div>
+        <a-tab-pane key="compartments" tab="区间">
+          <CompartmentManager
+            v-if="tenantTab === 'compartments' && tenantMgmtTenant?.id"
+            :tenant-id="tenantMgmtTenant.id"
+          />
+        </a-tab-pane>
+        <a-tab-pane key="iam" tab="IAM策略">
+          <a-alert type="info" show-icon style="margin-bottom: 10px"
+            message="对应 OCI 控制台「身份与安全性 → 身份 → 策略」（经典 IAM Policy API），与身份域内的安全策略无关。只读列表。" />
+          <a-space style="margin-bottom: 12px" wrap>
+            <a-button type="primary" @click="loadIamPolicies" :loading="iamPoliciesLoading">
+              <template #icon><ReloadOutlined /></template>加载策略
+            </a-button>
+            <a-input-search v-model:value="iamPolicySearch" placeholder="搜索名称/描述" allow-clear style="width: 220px" />
+          </a-space>
+          <a-table v-if="!isMobile" :data-source="filteredIamPolicies" :loading="iamPoliciesLoading" size="small"
+            :pagination="{ pageSize: 15 }" row-key="id"
+            v-model:expanded-row-keys="iamExpandedRowKeys"
+            @expand="onIamExpand">
+            <template #expandedRowRender="{ record }">
+              <a-spin :spinning="iamPolicyDetailLoading === record.id">
+                <div v-if="(iamPolicyStatements[record.id] || []).length" class="iam-statements">
+                  <div v-for="(st, si) in iamPolicyStatements[record.id]" :key="si" class="iam-statement-line">{{ si + 1 }}. {{ st }}</div>
                 </div>
-              </div>
-
-              <div class="budget-alert-section" v-if="selectedBudget">
-                <div class="budget-alert-header">
-                  <div>
-                    <div class="budget-alert-title">预算告警规则</div>
-                    <div class="budget-alert-subtitle">{{ selectedBudget.displayName || '—' }} · {{ selectedBudget.alertRules?.length || 0 }} 条规则</div>
-                  </div>
-                  <a-space size="small" wrap>
-                    <a-button size="small" :loading="budgetAlertRulesLoading" @click="reloadSelectedBudgetAlertRules">
-                      <template #icon><ReloadOutlined /></template>刷新告警
-                    </a-button>
-                    <a-button size="small" type="primary" @click="openCreateBudgetAlertRule(selectedBudget)">
-                      <template #icon><PlusOutlined /></template>新建告警
-                    </a-button>
-                  </a-space>
-                </div>
-
-                <a-table
-                  v-if="!isMobile"
-                  size="small"
-                  :data-source="selectedBudgetAlertRules"
-                  :pagination="false"
-                  row-key="id"
-                >
-                  <a-table-column title="名称" data-index="displayName" key="displayName" :ellipsis="true" />
-                  <a-table-column title="类型" key="type" :width="90">
-                    <template #default="{ record }">{{ formatBudgetAlertType(record.type) }}</template>
-                  </a-table-column>
-                  <a-table-column title="阈值" key="threshold" :width="120">
-                    <template #default="{ record }">{{ formatBudgetAlertThreshold(record) }}</template>
-                  </a-table-column>
-                  <a-table-column title="电子邮件收件人" data-index="recipients" key="recipients" :ellipsis="true" />
-                  <a-table-column title="状态" key="state" :width="90">
-                    <template #default="{ record }">
-                      <a-tag :color="record.lifecycleState === 'ACTIVE' ? 'green' : 'default'">{{ record.lifecycleState || '—' }}</a-tag>
-                    </template>
-                  </a-table-column>
-                  <a-table-column title="操作" key="action" :width="140">
-                    <template #default="{ record }">
-                      <a-space size="small">
-                        <a-button type="link" size="small" @click="openEditBudgetAlertRule(record)">编辑</a-button>
-                        <a-popconfirm title="确定删除该告警规则？" @confirm="handleDeleteBudgetAlertRule(record)">
-                          <a-button type="link" danger size="small">删除</a-button>
-                        </a-popconfirm>
-                      </a-space>
-                    </template>
-                  </a-table-column>
-                </a-table>
-
-                <div v-else>
-                  <a-empty v-if="selectedBudgetAlertRules.length === 0" description="暂无告警规则" />
-                  <div v-for="r in selectedBudgetAlertRules" :key="r.id" class="mobile-card">
-                    <div class="mobile-card-header">
-                      <span class="mobile-card-title">{{ r.displayName || '—' }}</span>
-                      <a-tag style="margin:0" :color="r.lifecycleState === 'ACTIVE' ? 'green' : 'default'">{{ r.lifecycleState || '—' }}</a-tag>
-                    </div>
-                    <div class="mobile-card-body">
-                      <div class="mobile-card-row"><span class="label">类型</span><span class="value">{{ formatBudgetAlertType(r.type) }}</span></div>
-                      <div class="mobile-card-row"><span class="label">阈值</span><span class="value">{{ formatBudgetAlertThreshold(r) }}</span></div>
-                      <div class="mobile-card-row"><span class="label">电子邮件收件人</span><span class="value">{{ r.recipients || '—' }}</span></div>
-                      <div class="mobile-card-row"><span class="label">电子邮件</span><span class="value">{{ r.message || '—' }}</span></div>
-                    </div>
-                    <div class="mobile-card-actions">
-                      <a-button type="link" size="small" @click="openEditBudgetAlertRule(r)">编辑</a-button>
-                      <a-popconfirm title="确定删除该告警规则？" @confirm="handleDeleteBudgetAlertRule(r)">
-                        <a-button type="link" danger size="small">删除</a-button>
-                      </a-popconfirm>
-                    </div>
-                  </div>
-                </div>
-              </div>
+                <a-empty v-else description="展开后加载策略语句" />
+              </a-spin>
             </template>
-
-            <a-empty v-else :description="budgetsLoading ? '正在加载成本预算' : '暂无成本预算'" />
+            <a-table-column title="名称" data-index="name" key="name" :width="160" :ellipsis="true" />
+            <a-table-column title="描述" data-index="description" key="description" :ellipsis="true" />
+            <a-table-column title="语句数" data-index="statementCount" key="statementCount" :width="72" />
+            <a-table-column title="状态" data-index="lifecycleState" key="lifecycleState" :width="88" />
+            <a-table-column title="Compartment" data-index="compartmentId" key="compartmentId" :width="120" :ellipsis="true">
+              <template #default="{ text }">
+                <span style="font-size: 11px">{{ shortOcId(text) }}</span>
+              </template>
+            </a-table-column>
+            <a-table-column title="创建时间" data-index="timeCreated" key="timeCreated" :width="168">
+              <template #default="{ text }">{{ formatUtcCnDate(text) }}</template>
+            </a-table-column>
+          </a-table>
+          <a-spin v-else :spinning="iamPoliciesLoading">
+            <a-empty v-if="!iamPoliciesLoading && filteredIamPolicies.length === 0" description="请点击「加载策略」" />
+            <div v-for="p in filteredIamPolicies" :key="p.id" class="mobile-card">
+              <div class="mobile-card-header">
+                <span class="mobile-card-title">{{ p.name }}</span>
+                <a-tag style="margin:0">{{ p.statementCount ?? 0 }} 条</a-tag>
+              </div>
+              <div class="mobile-card-body">
+                <div class="mobile-card-row"><span class="label">描述</span><span class="value">{{ p.description || '—' }}</span></div>
+                <div class="mobile-card-row"><span class="label">状态</span><span class="value">{{ p.lifecycleState || '—' }}</span></div>
+              </div>
+            </div>
+          </a-spin>
+        </a-tab-pane>
+        <a-tab-pane key="quotas" tab="账户配额">
+          <a-space style="margin-bottom: 12px">
+            <a-button type="primary" @click="loadQuotas" :loading="quotasLoading">
+              <template #icon><ReloadOutlined /></template>查询配额
+            </a-button>
+            <a-input-search v-model:value="quotaSearch" placeholder="搜索服务/配额名" allow-clear style="width: 220px" />
+          </a-space>
+          <a-table v-if="!isMobile" :data-source="filteredQuotas" :loading="quotasLoading" size="small"
+            :pagination="{ pageSize: 20 }" :row-key="(r: any) => r.serviceName + r.limitName + r.availabilityDomain">
+            <a-table-column title="服务" data-index="serviceName" key="serviceName" :width="140">
+              <template #default="{ text }">
+                <a-tag>{{ text }}</a-tag>
+              </template>
+            </a-table-column>
+            <a-table-column title="配额名称" data-index="limitName" key="limitName" :ellipsis="true" />
+            <a-table-column title="AD" data-index="availabilityDomain" key="ad" :width="120" :ellipsis="true">
+              <template #default="{ text }">
+                <span style="font-size: 12px">{{ text || '全局' }}</span>
+              </template>
+            </a-table-column>
+            <a-table-column title="上限" data-index="limit" key="limit" :width="80" />
+            <a-table-column title="已用" data-index="used" key="used" :width="80">
+              <template #default="{ text }">
+                <span>{{ text ?? '—' }}</span>
+              </template>
+            </a-table-column>
+            <a-table-column title="可用" data-index="available" key="available" :width="80">
+              <template #default="{ text }">
+                <a-tag v-if="text !== null && text !== undefined" :color="text === 0 ? 'red' : 'green'">{{ text }}</a-tag>
+                <span v-else>—</span>
+              </template>
+            </a-table-column>
+          </a-table>
+          <a-spin v-else :spinning="quotasLoading">
+            <a-empty v-if="!quotasLoading && filteredQuotas.length === 0" description="无配额数据" />
+            <div v-for="(q, qi) in filteredQuotas" :key="qi" class="mobile-card">
+              <div class="mobile-card-header">
+                <a-tag style="margin:0">{{ q.serviceName }}</a-tag>
+                <a-tag v-if="q.available !== null && q.available !== undefined" :color="q.available === 0 ? 'red' : 'green'" style="margin:0">可用: {{ q.available }}</a-tag>
+              </div>
+              <div class="mobile-card-body">
+                <div class="mobile-card-row"><span class="label">配额</span><span class="value">{{ q.limitName }}</span></div>
+                <div class="mobile-card-row"><span class="label">AD</span><span class="value">{{ q.availabilityDomain || '全局' }}</span></div>
+                <div class="mobile-card-row"><span class="label">上限</span><span class="value">{{ q.limit }}</span></div>
+                <div class="mobile-card-row"><span class="label">已用</span><span class="value">{{ q.used ?? '—' }}</span></div>
+              </div>
+            </div>
           </a-spin>
         </a-tab-pane>
         <a-tab-pane key="billing" tab="账务信息">
@@ -963,58 +904,168 @@ region=ap-tokyo-1"
           <a-empty v-else :description="billingLoading ? '正在加载账务数据' : '暂无账务数据'" />
         </a-spin>
         </a-tab-pane>
-        <a-tab-pane key="compartments" tab="区间">
-          <CompartmentManager
-            v-if="tenantTab === 'compartments' && tenantMgmtTenant?.id"
-            :tenant-id="tenantMgmtTenant.id"
-          />
-        </a-tab-pane>
-        <a-tab-pane key="iam" tab="IAM 策略">
-          <a-alert type="info" show-icon style="margin-bottom: 10px"
-            message="对应 OCI 控制台「身份与安全性 → 身份 → 策略」（经典 IAM Policy API），与身份域内的安全策略无关。只读列表。" />
-          <a-space style="margin-bottom: 12px" wrap>
-            <a-button type="primary" @click="loadIamPolicies" :loading="iamPoliciesLoading">
-              <template #icon><ReloadOutlined /></template>加载策略
-            </a-button>
-            <a-input-search v-model:value="iamPolicySearch" placeholder="搜索名称/描述" allow-clear style="width: 220px" />
-          </a-space>
-          <a-table v-if="!isMobile" :data-source="filteredIamPolicies" :loading="iamPoliciesLoading" size="small"
-            :pagination="{ pageSize: 15 }" row-key="id"
-            v-model:expanded-row-keys="iamExpandedRowKeys"
-            @expand="onIamExpand">
-            <template #expandedRowRender="{ record }">
-              <a-spin :spinning="iamPolicyDetailLoading === record.id">
-                <div v-if="(iamPolicyStatements[record.id] || []).length" class="iam-statements">
-                  <div v-for="(st, si) in iamPolicyStatements[record.id]" :key="si" class="iam-statement-line">{{ si + 1 }}. {{ st }}</div>
-                </div>
-                <a-empty v-else description="展开后加载策略语句" />
-              </a-spin>
-            </template>
-            <a-table-column title="名称" data-index="name" key="name" :width="160" :ellipsis="true" />
-            <a-table-column title="描述" data-index="description" key="description" :ellipsis="true" />
-            <a-table-column title="语句数" data-index="statementCount" key="statementCount" :width="72" />
-            <a-table-column title="状态" data-index="lifecycleState" key="lifecycleState" :width="88" />
-            <a-table-column title="Compartment" data-index="compartmentId" key="compartmentId" :width="120" :ellipsis="true">
-              <template #default="{ text }">
-                <span style="font-size: 11px">{{ shortOcId(text) }}</span>
-              </template>
-            </a-table-column>
-            <a-table-column title="创建时间" data-index="timeCreated" key="timeCreated" :width="168">
-              <template #default="{ text }">{{ formatUtcCnDate(text) }}</template>
-            </a-table-column>
-          </a-table>
-          <a-spin v-else :spinning="iamPoliciesLoading">
-            <a-empty v-if="!iamPoliciesLoading && filteredIamPolicies.length === 0" description="请点击「加载策略」" />
-            <div v-for="p in filteredIamPolicies" :key="p.id" class="mobile-card">
-              <div class="mobile-card-header">
-                <span class="mobile-card-title">{{ p.name }}</span>
-                <a-tag style="margin:0">{{ p.statementCount ?? 0 }} 条</a-tag>
-              </div>
-              <div class="mobile-card-body">
-                <div class="mobile-card-row"><span class="label">描述</span><span class="value">{{ p.description || '—' }}</span></div>
-                <div class="mobile-card-row"><span class="label">状态</span><span class="value">{{ p.lifecycleState || '—' }}</span></div>
-              </div>
+        <a-tab-pane key="budgets" tab="成本预算">
+          <a-spin :spinning="budgetsLoading">
+            <div class="budget-toolbar">
+              <a-space wrap>
+                <a-button type="primary" size="small" @click="openCreateBudget">
+                  <template #icon><PlusOutlined /></template>新建预算
+                </a-button>
+                <a-button size="small" :loading="budgetsLoading" @click="loadBudgets">
+                  <template #icon><ReloadOutlined /></template>刷新
+                </a-button>
+                <a v-if="budgetsData?.links?.budgets" :href="budgetsData.links.budgets" target="_blank" rel="noopener noreferrer" style="font-size: 12px">控制台</a>
+              </a-space>
             </div>
+
+            <template v-if="budgetsList.length">
+              <a-table
+                v-if="!isMobile"
+                class="budget-table"
+                size="small"
+                :data-source="budgetsList"
+                :pagination="{ pageSize: 8 }"
+                row-key="id"
+                :row-class-name="budgetRowClassName"
+                @row="budgetTableRow"
+              >
+                <a-table-column title="名称" data-index="displayName" key="displayName" :ellipsis="true" />
+                <a-table-column title="目标" key="target" :ellipsis="true">
+                  <template #default="{ record }">
+                    <a-tooltip :title="formatBudgetTargetTooltip(record)">
+                      <div class="budget-target-cell">{{ formatBudgetTarget(record) }}</div>
+                    </a-tooltip>
+                  </template>
+                </a-table-column>
+                <a-table-column title="预算" key="amount" :width="110">
+                  <template #default="{ record }">{{ formatBudgetAmount(record) }}</template>
+                </a-table-column>
+                <a-table-column title="已用" key="actual" :width="170">
+                  <template #default="{ record }">
+                    <a-progress
+                      :percent="budgetProgressPercent(record)"
+                      :status="budgetProgressStatus(record)"
+                      size="small"
+                    />
+                    <div class="budget-spend-line">{{ formatBudgetSpend(record.actualSpend, record.amount) }}</div>
+                  </template>
+                </a-table-column>
+                <a-table-column title="周期" key="period" :width="100">
+                  <template #default="{ record }">{{ formatBudgetProcessingPeriod(record.processingPeriodType) }}</template>
+                </a-table-column>
+                <a-table-column title="状态" key="state" :width="90">
+                  <template #default="{ record }">
+                    <a-tag :color="record.lifecycleState === 'ACTIVE' ? 'green' : 'default'">{{ record.lifecycleState || '—' }}</a-tag>
+                  </template>
+                </a-table-column>
+                <a-table-column title="操作" key="action" :width="150">
+                  <template #default="{ record }">
+                    <a-space size="small">
+                      <a-button type="link" size="small" @click.stop="openEditBudget(record)">编辑</a-button>
+                      <a-popconfirm title="确定删除该成本预算？" @confirm="handleDeleteBudget(record)">
+                        <a-button type="link" danger size="small" @click.stop>删除</a-button>
+                      </a-popconfirm>
+                    </a-space>
+                  </template>
+                </a-table-column>
+              </a-table>
+
+              <div v-else>
+                <div v-for="b in budgetsList" :key="b.id" class="mobile-card budget-mobile-card" :class="{ 'budget-mobile-card-active': b.id === selectedBudgetId }" @click="selectBudget(b)">
+                  <div class="mobile-card-header">
+                    <span class="mobile-card-title">{{ b.displayName || '—' }}</span>
+                    <a-tag style="margin:0" :color="b.lifecycleState === 'ACTIVE' ? 'green' : 'default'">{{ b.lifecycleState || '—' }}</a-tag>
+                  </div>
+                  <div class="mobile-card-body">
+                    <div class="mobile-card-row"><span class="label">预算</span><span class="value">{{ formatBudgetAmount(b) }}</span></div>
+                    <div class="mobile-card-row"><span class="label">已用</span><span class="value">{{ formatBudgetSpend(b.actualSpend, b.amount) }}</span></div>
+                    <div class="mobile-card-row"><span class="label">预测</span><span class="value">{{ formatBudgetSpend(b.forecastedSpend, b.amount) }}</span></div>
+                    <div class="mobile-card-row"><span class="label">周期</span><span class="value">{{ formatBudgetProcessingPeriod(b.processingPeriodType) }}</span></div>
+                    <div class="mobile-card-row"><span class="label">目标</span><span class="value">{{ formatBudgetTarget(b) }}</span></div>
+                    <a-progress :percent="budgetProgressPercent(b)" :status="budgetProgressStatus(b)" size="small" />
+                  </div>
+                  <div class="mobile-card-actions">
+                    <a-button type="link" size="small" @click.stop="openEditBudget(b)">编辑</a-button>
+                    <a-popconfirm title="确定删除该成本预算？" @confirm="handleDeleteBudget(b)">
+                      <a-button type="link" danger size="small" @click.stop>删除</a-button>
+                    </a-popconfirm>
+                  </div>
+                </div>
+              </div>
+
+              <div class="budget-alert-section" v-if="selectedBudget">
+                <div class="budget-alert-header">
+                  <div>
+                    <div class="budget-alert-title">预算告警规则</div>
+                    <div class="budget-alert-subtitle">{{ selectedBudget.displayName || '—' }} · {{ selectedBudget.alertRules?.length || 0 }} 条规则</div>
+                  </div>
+                  <a-space size="small" wrap>
+                    <a-button size="small" :loading="budgetAlertRulesLoading" @click="reloadSelectedBudgetAlertRules">
+                      <template #icon><ReloadOutlined /></template>刷新告警
+                    </a-button>
+                    <a-button size="small" type="primary" @click="openCreateBudgetAlertRule(selectedBudget)">
+                      <template #icon><PlusOutlined /></template>新建告警
+                    </a-button>
+                  </a-space>
+                </div>
+
+                <a-table
+                  v-if="!isMobile"
+                  size="small"
+                  :data-source="selectedBudgetAlertRules"
+                  :pagination="false"
+                  row-key="id"
+                >
+                  <a-table-column title="名称" data-index="displayName" key="displayName" :ellipsis="true" />
+                  <a-table-column title="类型" key="type" :width="90">
+                    <template #default="{ record }">{{ formatBudgetAlertType(record.type) }}</template>
+                  </a-table-column>
+                  <a-table-column title="阈值" key="threshold" :width="120">
+                    <template #default="{ record }">{{ formatBudgetAlertThreshold(record) }}</template>
+                  </a-table-column>
+                  <a-table-column title="电子邮件收件人" data-index="recipients" key="recipients" :ellipsis="true" />
+                  <a-table-column title="状态" key="state" :width="90">
+                    <template #default="{ record }">
+                      <a-tag :color="record.lifecycleState === 'ACTIVE' ? 'green' : 'default'">{{ record.lifecycleState || '—' }}</a-tag>
+                    </template>
+                  </a-table-column>
+                  <a-table-column title="操作" key="action" :width="140">
+                    <template #default="{ record }">
+                      <a-space size="small">
+                        <a-button type="link" size="small" @click="openEditBudgetAlertRule(record)">编辑</a-button>
+                        <a-popconfirm title="确定删除该告警规则？" @confirm="handleDeleteBudgetAlertRule(record)">
+                          <a-button type="link" danger size="small">删除</a-button>
+                        </a-popconfirm>
+                      </a-space>
+                    </template>
+                  </a-table-column>
+                </a-table>
+
+                <div v-else>
+                  <a-empty v-if="selectedBudgetAlertRules.length === 0" description="暂无告警规则" />
+                  <div v-for="r in selectedBudgetAlertRules" :key="r.id" class="mobile-card">
+                    <div class="mobile-card-header">
+                      <span class="mobile-card-title">{{ r.displayName || '—' }}</span>
+                      <a-tag style="margin:0" :color="r.lifecycleState === 'ACTIVE' ? 'green' : 'default'">{{ r.lifecycleState || '—' }}</a-tag>
+                    </div>
+                    <div class="mobile-card-body">
+                      <div class="mobile-card-row"><span class="label">类型</span><span class="value">{{ formatBudgetAlertType(r.type) }}</span></div>
+                      <div class="mobile-card-row"><span class="label">阈值</span><span class="value">{{ formatBudgetAlertThreshold(r) }}</span></div>
+                      <div class="mobile-card-row"><span class="label">电子邮件收件人</span><span class="value">{{ r.recipients || '—' }}</span></div>
+                      <div class="mobile-card-row"><span class="label">电子邮件</span><span class="value">{{ r.message || '—' }}</span></div>
+                    </div>
+                    <div class="mobile-card-actions">
+                      <a-button type="link" size="small" @click="openEditBudgetAlertRule(r)">编辑</a-button>
+                      <a-popconfirm title="确定删除该告警规则？" @confirm="handleDeleteBudgetAlertRule(r)">
+                        <a-button type="link" danger size="small">删除</a-button>
+                      </a-popconfirm>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </template>
+
+            <a-empty v-else :description="budgetsLoading ? '正在加载成本预算' : '暂无成本预算'" />
           </a-spin>
         </a-tab-pane>
         <a-tab-pane key="announcements" tab="云公告">
@@ -1057,55 +1108,6 @@ region=ap-tokyo-1"
               <div class="mobile-card-body">
                 <div class="mobile-card-row"><span class="label">类型</span><span class="value">{{ a.announcementType || '—' }}</span></div>
                 <div class="mobile-card-row"><span class="label">时间</span><span class="value">{{ formatUtcCnDate(a.timeCreated) }}</span></div>
-              </div>
-            </div>
-          </a-spin>
-        </a-tab-pane>
-        <a-tab-pane key="quotas" tab="账户配额">
-          <a-space style="margin-bottom: 12px">
-            <a-button type="primary" @click="loadQuotas" :loading="quotasLoading">
-              <template #icon><ReloadOutlined /></template>查询配额
-            </a-button>
-            <a-input-search v-model:value="quotaSearch" placeholder="搜索服务/配额名" allow-clear style="width: 220px" />
-          </a-space>
-          <a-table v-if="!isMobile" :data-source="filteredQuotas" :loading="quotasLoading" size="small"
-            :pagination="{ pageSize: 20 }" :row-key="(r: any) => r.serviceName + r.limitName + r.availabilityDomain">
-            <a-table-column title="服务" data-index="serviceName" key="serviceName" :width="140">
-              <template #default="{ text }">
-                <a-tag>{{ text }}</a-tag>
-              </template>
-            </a-table-column>
-            <a-table-column title="配额名称" data-index="limitName" key="limitName" :ellipsis="true" />
-            <a-table-column title="AD" data-index="availabilityDomain" key="ad" :width="120" :ellipsis="true">
-              <template #default="{ text }">
-                <span style="font-size: 12px">{{ text || '全局' }}</span>
-              </template>
-            </a-table-column>
-            <a-table-column title="上限" data-index="limit" key="limit" :width="80" />
-            <a-table-column title="已用" data-index="used" key="used" :width="80">
-              <template #default="{ text }">
-                <span>{{ text ?? '—' }}</span>
-              </template>
-            </a-table-column>
-            <a-table-column title="可用" data-index="available" key="available" :width="80">
-              <template #default="{ text }">
-                <a-tag v-if="text !== null && text !== undefined" :color="text === 0 ? 'red' : 'green'">{{ text }}</a-tag>
-                <span v-else>—</span>
-              </template>
-            </a-table-column>
-          </a-table>
-          <a-spin v-else :spinning="quotasLoading">
-            <a-empty v-if="!quotasLoading && filteredQuotas.length === 0" description="无配额数据" />
-            <div v-for="(q, qi) in filteredQuotas" :key="qi" class="mobile-card">
-              <div class="mobile-card-header">
-                <a-tag style="margin:0">{{ q.serviceName }}</a-tag>
-                <a-tag v-if="q.available !== null && q.available !== undefined" :color="q.available === 0 ? 'red' : 'green'" style="margin:0">可用: {{ q.available }}</a-tag>
-              </div>
-              <div class="mobile-card-body">
-                <div class="mobile-card-row"><span class="label">配额</span><span class="value">{{ q.limitName }}</span></div>
-                <div class="mobile-card-row"><span class="label">AD</span><span class="value">{{ q.availabilityDomain || '全局' }}</span></div>
-                <div class="mobile-card-row"><span class="label">上限</span><span class="value">{{ q.limit }}</span></div>
-                <div class="mobile-card-row"><span class="label">已用</span><span class="value">{{ q.used ?? '—' }}</span></div>
               </div>
             </div>
           </a-spin>
@@ -2698,6 +2700,23 @@ function normalizeBudgetCompartmentLabel(label: any): string {
   return String(label || '').replace(/\s*\(root\)/g, '（根）')
 }
 
+function budgetCompartmentDepth(item: any): number {
+  const label = normalizeBudgetCompartmentLabel(item?.pathLabel || item?.name)
+  if (!label) return 0
+  return Math.max(0, label.split('/').length - 1)
+}
+
+function budgetCompartmentOptionLabel(item: any): string {
+  if (item?.root) return normalizeBudgetCompartmentLabel(item?.pathLabel || item?.name) || tenantRootCompartmentDisplay()
+  const depth = budgetCompartmentDepth(item)
+  const name = String(item?.name || item?.pathLabel || '').trim()
+  return `${'　'.repeat(Math.max(1, depth))}${name}`
+}
+
+function budgetCompartmentSearchLabel(item: any): string {
+  return normalizeBudgetCompartmentLabel(item?.pathLabel || item?.name)
+}
+
 function budgetCompartmentItems(): any[] {
   const items = budgetCompartmentsData.value?.items
   return Array.isArray(items) ? items : []
@@ -2713,35 +2732,40 @@ function formatBudgetCompartmentDisplay(compartmentId: string | null | undefined
   const id = (compartmentId || '').trim()
   if (!id) return tenantRootCompartmentDisplay()
   const known = findBudgetCompartment(id)
-  if (known) return normalizeBudgetCompartmentLabel(known.pathLabel || known.name)
+  if (known) return known.root
+    ? (normalizeBudgetCompartmentLabel(known.pathLabel || known.name) || tenantRootCompartmentDisplay())
+    : String(known.name || shortOcId(id))
   return id === tenantRootCompartmentId() ? tenantRootCompartmentDisplay() : shortOcId(id)
 }
 
 function buildBudgetCompartmentOptions(currentId: string | null | undefined) {
   const rootId = tenantRootCompartmentId()
   const seen = new Set<string>()
-  const options: Array<{ label: string; value: string; title?: string }> = []
+  const options: Array<{ label: string; value: string; title?: string; searchLabel?: string }> = []
 
   for (const item of budgetCompartmentItems()) {
     const id = String(item?.id || '').trim()
     if (!id || seen.has(id)) continue
-    const label = normalizeBudgetCompartmentLabel(item?.pathLabel || item?.name || id)
-    options.push({ label, value: id, title: id })
+    const label = budgetCompartmentOptionLabel(item)
+    options.push({ label, value: id, title: id, searchLabel: `${budgetCompartmentSearchLabel(item)} ${id}` })
     seen.add(id)
   }
 
   if (rootId && !seen.has(rootId)) {
-    options.unshift({ label: tenantRootCompartmentDisplay(), value: rootId, title: rootId })
+    options.unshift({ label: tenantRootCompartmentDisplay(), value: rootId, title: rootId, searchLabel: `${tenantRootCompartmentDisplay()} ${rootId}` })
     seen.add(rootId)
   }
 
   const cur = (currentId || '').trim()
-  if (cur && !seen.has(cur)) options.push({ label: formatBudgetCompartmentDisplay(cur), value: cur, title: cur })
+  if (cur && !seen.has(cur)) {
+    const label = formatBudgetCompartmentDisplay(cur)
+    options.push({ label, value: cur, title: cur, searchLabel: `${label} ${cur}` })
+  }
   return options
 }
 
 function filterBudgetCompartmentOption(input: string, option: any) {
-  const text = `${option?.label || ''} ${option?.value || ''}`.toLowerCase()
+  const text = `${option?.label || ''} ${option?.searchLabel || ''} ${option?.value || ''}`.toLowerCase()
   return text.includes(input.toLowerCase())
 }
 
@@ -2797,6 +2821,16 @@ function formatBudgetTarget(record: any): string {
   const target = firstBudgetTarget(record)
   if (targetType === 'TAG') return target ? `标签 ${target}` : '标签'
   return target ? `区间 ${formatBudgetCompartmentDisplay(target)}` : '区间'
+}
+
+function formatBudgetTargetTooltip(record: any): string {
+  const targetType = normalizeBudgetTargetType(record?.targetType)
+  const target = firstBudgetTarget(record)
+  if (!target) return formatBudgetTarget(record)
+  if (targetType === 'TAG') return `标签 ${target}`
+  const known = findBudgetCompartment(target)
+  const label = known ? budgetCompartmentSearchLabel(known) : formatBudgetCompartmentDisplay(target)
+  return `区间 ${label}\n${target}`
 }
 
 function formatBudgetAmount(record: any): string {
@@ -3982,10 +4016,12 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
 }
 .budget-target-cell {
   max-width: 220px;
+  overflow: hidden;
   color: var(--text-sub);
   font-size: 12px;
   line-height: 1.5;
-  word-break: break-all;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .budget-spend-line {
   margin-top: 2px;
