@@ -12,7 +12,6 @@ import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
-import java.lang.reflect.Constructor;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.stream.Collectors;
@@ -1078,7 +1077,8 @@ public class InstanceService {
      * CreateVolume（Block Storage）后 AttachVolume（Compute），参数遵循 CreateVolumeDetails / AttachVolumeDetails。
      */
     public Map<String, Object> createBlockVolumeAndAttach(String userId, String instanceId, String displayName,
-                                                         Long sizeInGBs, Long vpusPerGB, String device, String region) {
+                                                         Long sizeInGBs, Long vpusPerGB, String device,
+                                                         String attachmentType, String region) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
         validateBlockVolumeSize(sizeInGBs);
@@ -1102,7 +1102,7 @@ public class InstanceService {
             ).getVolume();
 
             Volume available = waitVolumeUntilAvailable(client, created.getId());
-            VolumeAttachment attachment = attachVolumeToInstance(client, instanceId, available.getId(), device);
+            VolumeAttachment attachment = attachVolumeToInstance(client, instanceId, available.getId(), device, attachmentType);
 
             Map<String, Object> out = blockVolumeRow(attachment, available);
             out.put("message", "块存储卷已创建并提交挂载");
@@ -1117,7 +1117,8 @@ public class InstanceService {
         }
     }
 
-    public Map<String, Object> attachBlockVolume(String userId, String instanceId, String volumeId, String device, String region) {
+    public Map<String, Object> attachBlockVolume(String userId, String instanceId, String volumeId,
+                                                 String device, String attachmentType, String region) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
         if (volumeId == null || volumeId.isBlank()) throw new OciException("volumeId 不能为空");
@@ -1139,7 +1140,7 @@ public class InstanceService {
                         + (vol.getLifecycleState() != null ? vol.getLifecycleState().getValue() : "unknown"));
             }
 
-            VolumeAttachment attachment = attachVolumeToInstance(client, instanceId, volumeId, device);
+            VolumeAttachment attachment = attachVolumeToInstance(client, instanceId, volumeId, device, attachmentType);
             Volume refreshed = client.getBlockstorageClient().getVolume(
                     GetVolumeRequest.builder().volumeId(volumeId).build()
             ).getVolume();
@@ -1231,24 +1232,51 @@ public class InstanceService {
         return all;
     }
 
-    private VolumeAttachment attachVolumeToInstance(OciClientService client, String instanceId, String volumeId, String device) {
-        try {
-            Constructor<AttachVolumeDetails> ctor = AttachVolumeDetails.class.getDeclaredConstructor(
-                    String.class, String.class, String.class, Boolean.class, Boolean.class, String.class);
-            ctor.setAccessible(true);
-            String devicePath = (device != null && !device.isBlank()) ? device.trim() : null;
-            // 构造参数顺序（OCI SDK）：device, displayName, instanceId, isReadOnly, isShareable, volumeId
-            AttachVolumeDetails details = ctor.newInstance(devicePath, null, instanceId, null, null, volumeId);
-            return client.getComputeClient().attachVolume(
-                    AttachVolumeRequest.builder()
-                            .attachVolumeDetails(details)
-                            .build()
-            ).getVolumeAttachment();
-        } catch (OciException e) {
-            throw e;
-        } catch (ReflectiveOperationException e) {
-            throw new OciException("构建 AttachVolumeDetails 失败: " + e.getMessage());
+    private VolumeAttachment attachVolumeToInstance(OciClientService client, String instanceId, String volumeId,
+                                                    String device, String attachmentType) {
+        AttachVolumeDetails details = buildAttachVolumeDetails(instanceId, volumeId, device, attachmentType);
+        return client.getComputeClient().attachVolume(
+                AttachVolumeRequest.builder()
+                        .attachVolumeDetails(details)
+                        .build()
+        ).getVolumeAttachment();
+    }
+
+    private static AttachVolumeDetails buildAttachVolumeDetails(String instanceId, String volumeId,
+                                                                String device, String attachmentType) {
+        String devicePath = (device != null && !device.isBlank()) ? device.trim() : null;
+        return switch (resolveBlockAttachmentType(attachmentType)) {
+            case "iscsi" -> {
+                var builder = AttachIScsiVolumeDetails.builder()
+                        .instanceId(instanceId)
+                        .volumeId(volumeId);
+                if (devicePath != null) {
+                    builder.device(devicePath);
+                }
+                yield builder.build();
+            }
+            case "paravirtualized" -> {
+                var builder = AttachParavirtualizedVolumeDetails.builder()
+                        .instanceId(instanceId)
+                        .volumeId(volumeId);
+                if (devicePath != null) {
+                    builder.device(devicePath);
+                }
+                yield builder.build();
+            }
+            default -> throw new OciException("不支持的块存储挂载类型");
+        };
+    }
+
+    private static String resolveBlockAttachmentType(String attachmentType) {
+        if (attachmentType == null || attachmentType.isBlank()) {
+            return "paravirtualized";
         }
+        return switch (attachmentType.trim().toLowerCase(Locale.ROOT).replace("-", "_")) {
+            case "paravirtualized", "pv" -> "paravirtualized";
+            case "iscsi" -> "iscsi";
+            default -> throw new OciException("块存储挂载类型仅支持 paravirtualized 或 iscsi");
+        };
     }
 
     private Volume waitVolumeUntilAvailable(OciClientService client, String volumeId) throws InterruptedException {

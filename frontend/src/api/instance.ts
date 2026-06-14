@@ -3,6 +3,7 @@ import request from '../utils/request'
 type R = { region?: string }
 
 export type ShapeEditTaskState = 'PENDING' | 'RUNNING' | 'PAUSED' | 'SUCCESS' | 'FAILED' | 'STOPPED'
+export type BlockVolumeAttachmentType = 'paravirtualized' | 'iscsi'
 
 export interface ShapeEditTaskStatus {
   taskId: string
@@ -118,6 +119,7 @@ export function createBlockVolumeAndAttach(data: {
   sizeInGBs: number
   vpusPerGB?: number
   device?: string
+  attachmentType?: BlockVolumeAttachmentType
 } & R) {
   return request.post('/oci/instance/createBlockVolumeAndAttach', data)
 }
@@ -127,6 +129,7 @@ export function attachBlockVolume(data: {
   instanceId: string
   volumeId: string
   device?: string
+  attachmentType?: BlockVolumeAttachmentType
 } & R) {
   return request.post('/oci/instance/attachBlockVolume', data)
 }

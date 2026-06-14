@@ -1093,8 +1093,11 @@
             <a-select-option :value="120">超高性能 (120)</a-select-option>
           </a-select>
         </a-form-item>
-        <a-form-item label="设备路径（可选）" extra="留空由 OCI 自动分配，例如 /dev/orascsi2">
-          <a-input v-model:value="createBlockVolForm.device" placeholder="/dev/orascsi2" allow-clear />
+        <a-form-item label="挂载类型" extra="Paravirtualized 会自动连接；iSCSI 需要在实例内连接和挂载">
+          <a-segmented v-model:value="createBlockVolForm.attachmentType" :options="blockAttachmentTypeOptions" />
+        </a-form-item>
+        <a-form-item label="设备路径（可选）" extra="留空由 OCI 自动分配，例如 /dev/oracleoci/oraclevdb">
+          <a-input v-model:value="createBlockVolForm.device" placeholder="/dev/oracleoci/oraclevdb" allow-clear />
         </a-form-item>
       </a-form>
     </a-modal>
@@ -1113,8 +1116,11 @@
             :options="unattachedBlockVolOptions"
           />
         </a-form-item>
+        <a-form-item label="挂载类型" extra="Paravirtualized 会自动连接；iSCSI 需要在实例内连接和挂载">
+          <a-segmented v-model:value="attachBlockVolForm.attachmentType" :options="blockAttachmentTypeOptions" />
+        </a-form-item>
         <a-form-item label="设备路径（可选）">
-          <a-input v-model:value="attachBlockVolForm.device" placeholder="/dev/orascsi2" allow-clear />
+          <a-input v-model:value="attachBlockVolForm.device" placeholder="/dev/oracleoci/oraclevdb" allow-clear />
         </a-form-item>
       </a-form>
     </a-modal>
@@ -1870,13 +1876,27 @@ const detachBlockVolId = ref('')
 
 const createBlockVolVisible = ref(false)
 const createBlockVolLoading = ref(false)
-const createBlockVolForm = reactive({ displayName: '', sizeInGBs: 100, vpusPerGB: 10, device: '' })
+const blockAttachmentTypeOptions = [
+  { label: 'Paravirtualized', value: 'paravirtualized' },
+  { label: 'iSCSI', value: 'iscsi' },
+]
+const createBlockVolForm = reactive({
+  displayName: '',
+  sizeInGBs: 100,
+  vpusPerGB: 10,
+  device: '',
+  attachmentType: 'paravirtualized' as 'paravirtualized' | 'iscsi',
+})
 
 const attachBlockVolVisible = ref(false)
 const attachBlockVolLoading = ref(false)
 const unattachedBlockVolLoading = ref(false)
 const unattachedBlockVolOptions = ref<{ label: string; value: string }[]>([])
-const attachBlockVolForm = reactive({ volumeId: '' as string, device: '' })
+const attachBlockVolForm = reactive({
+  volumeId: '' as string,
+  device: '',
+  attachmentType: 'paravirtualized' as 'paravirtualized' | 'iscsi',
+})
 
 const editBlockVolVisible = ref(false)
 const editBlockVolLoading = ref(false)
@@ -3053,6 +3073,7 @@ function openCreateBlockVolume() {
   createBlockVolForm.sizeInGBs = 100
   createBlockVolForm.vpusPerGB = 10
   createBlockVolForm.device = ''
+  createBlockVolForm.attachmentType = 'paravirtualized'
   createBlockVolVisible.value = true
 }
 
@@ -3071,6 +3092,7 @@ async function handleCreateBlockVolume() {
       sizeInGBs: createBlockVolForm.sizeInGBs,
       vpusPerGB: createBlockVolForm.vpusPerGB,
       device: createBlockVolForm.device?.trim() || undefined,
+      attachmentType: createBlockVolForm.attachmentType,
       ...instanceDetailRegionParam(),
     })
     message.success('块存储卷已创建并提交挂载')
@@ -3108,6 +3130,7 @@ async function loadUnattachedBlockVolumeOptions() {
 function openAttachBlockVolume() {
   attachBlockVolForm.volumeId = ''
   attachBlockVolForm.device = ''
+  attachBlockVolForm.attachmentType = 'paravirtualized'
   attachBlockVolVisible.value = true
   loadUnattachedBlockVolumeOptions()
 }
@@ -3125,6 +3148,7 @@ async function handleAttachBlockVolume() {
       instanceId: currentInstance.value.instanceId,
       volumeId: attachBlockVolForm.volumeId,
       device: attachBlockVolForm.device?.trim() || undefined,
+      attachmentType: attachBlockVolForm.attachmentType,
       ...instanceDetailRegionParam(),
     })
     message.success('已提交挂载')

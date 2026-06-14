@@ -133,6 +133,7 @@ public class InstanceController {
                 asLong(params.get("sizeInGBs")),
                 asLong(params.get("vpusPerGB")),
                 asString(params.get("device")),
+                asString(params.get("attachmentType")),
                 regObj(params)));
     }
 
@@ -143,6 +144,7 @@ public class InstanceController {
                 asString(params.get("instanceId")),
                 asString(params.get("volumeId")),
                 asString(params.get("device")),
+                asString(params.get("attachmentType")),
                 regObj(params)));
     }
 
