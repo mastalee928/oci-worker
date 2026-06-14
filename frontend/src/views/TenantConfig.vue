@@ -1671,49 +1671,59 @@ region=ap-tokyo-1"
                   </a-form>
                 </section>
 
-                <section class="notification-panel">
-                  <div class="notification-panel-header">
-                    <div class="notification-panel-title">管理员通知</div>
-                    <a-tag style="margin:0">{{ notificationAdminEvents.length }} 项</a-tag>
-                  </div>
-                  <a-empty v-if="notificationAdminEvents.length === 0" description="暂无管理员通知" />
-                  <div v-else class="notification-event-list">
-                    <div v-for="event in notificationAdminEvents" :key="event.eventId" class="notification-event-row">
-                      <div class="notification-event-copy">
-                        <div class="notification-event-name">{{ formatNotificationEventName(event.eventId) }}</div>
-                        <div class="notification-event-id">{{ event.eventId }}</div>
+                <a-collapse
+                  v-model:activeKey="notificationEventActiveKeys"
+                  class="notification-collapse"
+                  :bordered="false"
+                >
+                  <a-collapse-panel key="admin" class="notification-collapse-panel">
+                    <template #header>
+                      <div class="notification-collapse-title">
+                        <span>管理员通知</span>
+                        <a-tag style="margin:0">{{ notificationAdminEvents.length }} 项</a-tag>
                       </div>
-                      <a-switch
-                        :checked="!!event.enabled"
-                        checked-children="是"
-                        un-checked-children="否"
-                        @change="(v: any) => (event.enabled = v)"
-                      />
+                    </template>
+                    <a-empty v-if="notificationAdminEvents.length === 0" description="暂无管理员通知" />
+                    <div v-else class="notification-event-list">
+                      <div v-for="event in notificationAdminEvents" :key="event.eventId" class="notification-event-row">
+                        <div class="notification-event-copy">
+                          <div class="notification-event-name">{{ formatNotificationEventName(event.eventId) }}</div>
+                          <div class="notification-event-id">{{ event.eventId }}</div>
+                        </div>
+                        <a-switch
+                          :checked="!!event.enabled"
+                          checked-children="是"
+                          un-checked-children="否"
+                          @change="(v: any) => (event.enabled = v)"
+                        />
+                      </div>
                     </div>
-                  </div>
-                </section>
+                  </a-collapse-panel>
 
-                <section class="notification-panel">
-                  <div class="notification-panel-header">
-                    <div class="notification-panel-title">最终用户通知</div>
-                    <a-tag style="margin:0">{{ notificationEndUserEvents.length }} 项</a-tag>
-                  </div>
-                  <a-empty v-if="notificationEndUserEvents.length === 0" description="暂无最终用户通知" />
-                  <div v-else class="notification-event-list">
-                    <div v-for="event in notificationEndUserEvents" :key="event.eventId" class="notification-event-row">
-                      <div class="notification-event-copy">
-                        <div class="notification-event-name">{{ formatNotificationEventName(event.eventId) }}</div>
-                        <div class="notification-event-id">{{ event.eventId }}</div>
+                  <a-collapse-panel key="endUser" class="notification-collapse-panel">
+                    <template #header>
+                      <div class="notification-collapse-title">
+                        <span>最终用户通知</span>
+                        <a-tag style="margin:0">{{ notificationEndUserEvents.length }} 项</a-tag>
                       </div>
-                      <a-switch
-                        :checked="!!event.enabled"
-                        checked-children="是"
-                        un-checked-children="否"
-                        @change="(v: any) => (event.enabled = v)"
-                      />
+                    </template>
+                    <a-empty v-if="notificationEndUserEvents.length === 0" description="暂无最终用户通知" />
+                    <div v-else class="notification-event-list">
+                      <div v-for="event in notificationEndUserEvents" :key="event.eventId" class="notification-event-row">
+                        <div class="notification-event-copy">
+                          <div class="notification-event-name">{{ formatNotificationEventName(event.eventId) }}</div>
+                          <div class="notification-event-id">{{ event.eventId }}</div>
+                        </div>
+                        <a-switch
+                          :checked="!!event.enabled"
+                          checked-children="是"
+                          un-checked-children="否"
+                          @change="(v: any) => (event.enabled = v)"
+                        />
+                      </div>
                     </div>
-                  </div>
-                </section>
+                  </a-collapse-panel>
+                </a-collapse>
               </div>
 
               <div class="notification-actions">
@@ -2331,6 +2341,7 @@ const notificationLoading = ref(false)
 const notificationSaving = ref(false)
 const notificationData = ref<any | null>(null)
 const notificationRecipientsText = ref('')
+const notificationEventActiveKeys = ref<string[]>([])
 const quotasLoading = ref(false)
 const quotasList = ref<any[]>([])
 const quotaSearch = ref('')
@@ -2515,6 +2526,7 @@ function onAuditDaysChange() {
 function resetNotificationState() {
   notificationData.value = null
   notificationRecipientsText.value = ''
+  notificationEventActiveKeys.value = []
 }
 
 function normalizeDomainNotification(raw: any) {
@@ -4447,6 +4459,38 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
 }
 .notification-form-grid :deep(.ant-form-item) {
   margin-bottom: 8px;
+}
+.notification-collapse {
+  display: grid;
+  gap: 12px;
+  background: transparent;
+}
+.notification-collapse :deep(.ant-collapse-item) {
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 8px);
+  background: var(--bg-card);
+}
+.notification-collapse :deep(.ant-collapse-header) {
+  align-items: center !important;
+  padding: 12px !important;
+  color: var(--text-main) !important;
+}
+.notification-collapse :deep(.ant-collapse-content) {
+  border-top: 1px solid var(--border);
+  background: transparent;
+}
+.notification-collapse :deep(.ant-collapse-content-box) {
+  padding: 12px !important;
+}
+.notification-collapse-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  width: 100%;
+  font-size: 14px;
+  font-weight: 600;
 }
 .notification-event-list {
   display: grid;
