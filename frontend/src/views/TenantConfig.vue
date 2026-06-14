@@ -1068,6 +1068,89 @@ region=ap-tokyo-1"
             <a-empty v-else :description="budgetsLoading ? '正在加载成本预算' : '暂无成本预算'" />
           </a-spin>
         </a-tab-pane>
+        <a-tab-pane key="regions" tab="区域管理">
+          <a-spin :spinning="regionsLoading">
+            <div class="region-toolbar">
+              <a-space wrap>
+                <a-button type="primary" size="small" :loading="regionsLoading" @click="loadRegions">
+                  <template #icon><ReloadOutlined /></template>刷新
+                </a-button>
+                <a-input-search
+                  v-model:value="regionSearch"
+                  placeholder="搜索区域/标识符"
+                  allow-clear
+                  class="region-search"
+                />
+                <a v-if="regionsData?.links?.regions" :href="regionsData.links.regions" target="_blank" rel="noopener noreferrer" style="font-size: 12px">控制台</a>
+              </a-space>
+            </div>
+
+            <a-table
+              v-if="!isMobile"
+              class="region-table"
+              :data-source="filteredRegions"
+              :loading="regionsLoading"
+              size="small"
+              :pagination="{ pageSize: 10 }"
+              row-key="regionKey"
+            >
+              <a-table-column title="区域" key="region" :ellipsis="true">
+                <template #default="{ record }">
+                  <div class="region-name-cell">
+                    <span class="region-name-main">{{ formatRegionDisplay(record) }}</span>
+                    <a-tag v-if="record.isHomeRegion" color="blue" style="margin:0">主区域</a-tag>
+                  </div>
+                  <div class="region-key-line">{{ record.regionKey || '—' }}</div>
+                </template>
+              </a-table-column>
+              <a-table-column title="区域标识符" data-index="regionName" key="regionName" :width="190" :ellipsis="true" />
+              <a-table-column title="订阅状态" key="status" :width="120">
+                <template #default="{ record }">
+                  <a-tag :color="regionStatusColor(record.status)">{{ formatRegionStatus(record.status) }}</a-tag>
+                </template>
+              </a-table-column>
+              <a-table-column title="操作" key="action" :width="100">
+                <template #default="{ record }">
+                  <a-button
+                    v-if="record.canSubscribe"
+                    type="primary"
+                    size="small"
+                    :loading="regionSubscribeSendingKey === record.regionKey"
+                    @click="confirmSubscribeRegion(record)"
+                  >
+                    订阅
+                  </a-button>
+                  <span v-else class="region-action-empty">—</span>
+                </template>
+              </a-table-column>
+            </a-table>
+
+            <div v-else>
+              <a-empty v-if="!regionsLoading && filteredRegions.length === 0" description="暂无区域数据" />
+              <div v-for="r in filteredRegions" :key="r.regionKey || r.regionName" class="mobile-card region-mobile-card">
+                <div class="mobile-card-header">
+                  <span class="mobile-card-title">{{ formatRegionDisplay(r) }}</span>
+                  <a-tag :color="regionStatusColor(r.status)" style="margin:0">{{ formatRegionStatus(r.status) }}</a-tag>
+                </div>
+                <div class="mobile-card-body">
+                  <div class="mobile-card-row"><span class="label">标识符</span><span class="value">{{ r.regionName || '—' }}</span></div>
+                  <div class="mobile-card-row"><span class="label">区域 Key</span><span class="value">{{ r.regionKey || '—' }}</span></div>
+                  <div class="mobile-card-row"><span class="label">主区域</span><span class="value">{{ r.isHomeRegion ? '是' : '否' }}</span></div>
+                </div>
+                <div v-if="r.canSubscribe" class="mobile-card-actions">
+                  <a-button
+                    type="primary"
+                    size="small"
+                    :loading="regionSubscribeSendingKey === r.regionKey"
+                    @click="confirmSubscribeRegion(r)"
+                  >
+                    订阅
+                  </a-button>
+                </div>
+              </div>
+            </div>
+          </a-spin>
+        </a-tab-pane>
         <a-tab-pane key="announcements" tab="云公告">
           <a-space style="margin-bottom: 12px" wrap>
             <a-button type="primary" @click="loadAnnouncements" :loading="announcementsLoading">
@@ -1113,6 +1196,36 @@ region=ap-tokyo-1"
           </a-spin>
         </a-tab-pane>
       </a-tabs>
+    </a-modal>
+
+    <a-modal
+      :mask-closable="false"
+      :keyboard="false"
+      v-model:open="regionSubscribeVerifyVisible"
+      title="安全验证 — 订阅区域"
+      :width="isMobile ? '100%' : 420"
+      :confirm-loading="regionSubscribeLoading"
+      ok-text="确认订阅"
+      @ok="submitRegionSubscribe"
+    >
+      <a-alert type="info" show-icon message="验证码已发送至 Telegram" style="margin-bottom: 12px" />
+      <div class="region-verify-target">
+        <div class="region-verify-name">{{ regionSubscribeTargetDisplay }}</div>
+        <div class="region-verify-meta">{{ regionSubscribeTarget?.regionName || '—' }} · {{ regionSubscribeTarget?.regionKey || '—' }}</div>
+      </div>
+      <a-input
+        v-model:value="regionSubscribeCode"
+        placeholder="请输入 6 位验证码"
+        size="large"
+        :maxlength="6"
+        inputmode="numeric"
+        allow-clear
+        @pressEnter="submitRegionSubscribe"
+      />
+      <div class="region-verify-actions">
+        <span>验证码有效期 5 分钟</span>
+        <a-button type="link" size="small" :loading="regionSubscribeCodeSending" @click="resendRegionSubscribeCode">重新发送</a-button>
+      </div>
     </a-modal>
 
     <a-modal
@@ -1534,7 +1647,7 @@ import { useRouter } from 'vue-router'
 import { PlusOutlined, ThunderboltOutlined, InboxOutlined, ReloadOutlined, MenuFoldOutlined, MenuUnfoldOutlined, VerticalAlignTopOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
 import type { UploadFile } from 'ant-design-vue'
-import { getTenantList, addTenant, updateTenant, removeTenant, batchMoveTenantGroup, uploadKey, getTenantFullInfo, getTenantBillingSummary, downloadInvoicePdf, listBudgets, createBudget, updateBudget, deleteBudget, listBudgetAlertRules, createBudgetAlertRule, updateBudgetAlertRule, deleteBudgetAlertRule, getDomainSettings, updateMfa, updatePasswordExpiry, getAuditLogs, getServiceQuotas, listIamPolicies, getIamPolicy, listAnnouncements, getAnnouncementDetail, getTenantGroups, createGroup, renameGroup, deleteGroup, saveGroupOrder, unlockAuthFactors, getAuthFactors, updateAuthFactors } from '../api/tenant'
+import { getTenantList, addTenant, updateTenant, removeTenant, batchMoveTenantGroup, uploadKey, getTenantFullInfo, getTenantBillingSummary, downloadInvoicePdf, listBudgets, createBudget, updateBudget, deleteBudget, listBudgetAlertRules, createBudgetAlertRule, updateBudgetAlertRule, deleteBudgetAlertRule, listTenantRegions, subscribeTenantRegion, getDomainSettings, updateMfa, updatePasswordExpiry, getAuditLogs, getServiceQuotas, listIamPolicies, getIamPolicy, listAnnouncements, getAnnouncementDetail, getTenantGroups, createGroup, renameGroup, deleteGroup, saveGroupOrder, unlockAuthFactors, getAuthFactors, updateAuthFactors } from '../api/tenant'
 import type { BudgetAlertType, BudgetProcessingPeriodType, BudgetTargetType, BudgetThresholdType } from '../api/tenant'
 import { listCompartmentPicker } from '../api/compartment'
 import { sendVerifyCode } from '../api/system'
@@ -1846,6 +1959,33 @@ const selectedBudgetAlertRules = computed<any[]>(() =>
   Array.isArray(selectedBudget.value?.alertRules) ? selectedBudget.value.alertRules : [])
 const budgetCompartmentOptions = computed(() => buildBudgetCompartmentOptions(budgetForm.compartmentId))
 const budgetTargetCompartmentOptions = computed(() => buildBudgetCompartmentOptions(budgetForm.target))
+
+const regionsLoading = ref(false)
+const regionsData = ref<any | null>(null)
+const regionSearch = ref('')
+const regionSubscribeVerifyVisible = ref(false)
+const regionSubscribeLoading = ref(false)
+const regionSubscribeCodeSending = ref(false)
+const regionSubscribeSendingKey = ref('')
+const regionSubscribeCode = ref('')
+const regionSubscribeTarget = ref<any | null>(null)
+const regionsList = computed<any[]>(() => Array.isArray(regionsData.value?.items) ? regionsData.value.items : [])
+const filteredRegions = computed<any[]>(() => {
+  const kw = regionSearch.value.trim().toLowerCase()
+  if (!kw) return regionsList.value
+  return regionsList.value.filter((r: any) => {
+    const haystack = [
+      formatRegionDisplay(r),
+      r.regionName,
+      r.regionKey,
+      formatRegionStatus(r.status),
+      r.isHomeRegion ? '主区域' : '',
+    ].filter(Boolean).join(' ').toLowerCase()
+    return haystack.includes(kw)
+  })
+})
+const regionSubscribeTargetDisplay = computed(() =>
+  regionSubscribeTarget.value ? formatRegionDisplay(regionSubscribeTarget.value) : '—')
 
 const iamPoliciesLoading = ref(false)
 const iamPoliciesList = ref<any[]>([])
@@ -2595,6 +2735,11 @@ async function openTenantMgmt(record: any) {
   billingData.value = null
   budgetsData.value = null
   selectedBudgetId.value = ''
+  regionsData.value = null
+  regionSearch.value = ''
+  regionSubscribeVerifyVisible.value = false
+  regionSubscribeTarget.value = null
+  regionSubscribeCode.value = ''
   budgetCompartmentsData.value = null
   budgetCompartmentsLoadedTenantId.value = ''
   budgetFormVisible.value = false
@@ -2607,6 +2752,7 @@ function onTenantTabChange(key: string) {
     if (!budgetsData.value && !budgetsLoading.value) loadBudgets()
     if (!budgetCompartmentsData.value && !budgetCompartmentsLoading.value) loadBudgetCompartments()
   }
+  if (key === 'regions' && !regionsData.value && !regionsLoading.value) loadRegions()
   if (key === 'billing' && !billingData.value) loadTenantBilling()
   if (key === 'quotas' && !quotasList.value.length && !quotasLoading.value) loadQuotas()
   if (key === 'iam' && !iamPoliciesList.value.length) loadIamPolicies()
@@ -3221,6 +3367,119 @@ async function handleDeleteBudgetAlertRule(record: any) {
     message.success('预算告警已删除')
   } catch (e: any) {
     message.error(e?.message || '删除预算告警失败')
+  }
+}
+
+function formatRegionDisplay(record: any): string {
+  const regionName = String(record?.regionName || '').trim()
+  const label = regionName ? getOciRegionDisplayName(regionName) : ''
+  return label || regionName || record?.regionKey || '—'
+}
+
+function formatRegionStatus(status: string | null | undefined): string {
+  const s = String(status || '').toUpperCase()
+  if (s === 'READY') return '订阅'
+  if (s === 'IN_PROGRESS') return '处理中'
+  if (s === 'NOT_SUBSCRIBED') return '未订阅'
+  return status || '未知'
+}
+
+function regionStatusColor(status: string | null | undefined): string {
+  const s = String(status || '').toUpperCase()
+  if (s === 'READY') return 'green'
+  if (s === 'IN_PROGRESS') return 'processing'
+  if (s === 'NOT_SUBSCRIBED') return 'default'
+  return 'default'
+}
+
+async function loadRegions() {
+  const tenantId = currentTenantMgmtId()
+  if (!tenantId) return
+  regionsLoading.value = true
+  try {
+    const res = await listTenantRegions({ id: tenantId })
+    const data = res.data || {}
+    regionsData.value = { ...data, items: Array.isArray(data.items) ? data.items : [] }
+    if (!regionsList.value.length) {
+      message.info('未找到区域数据（或当前 API 用户无区域订阅读权限）')
+    }
+  } catch (e: any) {
+    message.error(e?.message || '获取区域列表失败')
+  } finally {
+    regionsLoading.value = false
+  }
+}
+
+function confirmSubscribeRegion(record: any) {
+  if (!record?.regionKey || !record.canSubscribe) return
+  Modal.confirm({
+    title: '注意！订阅成功后无法取消订阅区域。',
+    content: `${formatRegionDisplay(record)}（${record.regionName || record.regionKey}）`,
+    okText: '继续',
+    cancelText: '取消',
+    async onOk() {
+      await openRegionSubscribeVerify(record)
+    },
+  })
+}
+
+async function openRegionSubscribeVerify(record: any) {
+  regionSubscribeTarget.value = record
+  regionSubscribeCode.value = ''
+  regionSubscribeSendingKey.value = record.regionKey || ''
+  try {
+    await sendVerifyCode('subscribeRegion')
+    message.success('验证码已发送至 Telegram')
+    regionSubscribeVerifyVisible.value = true
+  } catch (e: any) {
+    message.error(e?.message || '发送验证码失败')
+    throw e
+  } finally {
+    regionSubscribeSendingKey.value = ''
+  }
+}
+
+async function resendRegionSubscribeCode() {
+  if (!regionSubscribeTarget.value?.regionKey) return
+  regionSubscribeCodeSending.value = true
+  try {
+    await sendVerifyCode('subscribeRegion')
+    regionSubscribeCode.value = ''
+    message.success('验证码已重新发送')
+  } catch (e: any) {
+    message.error(e?.message || '发送失败')
+  } finally {
+    regionSubscribeCodeSending.value = false
+  }
+}
+
+async function submitRegionSubscribe() {
+  const tenantId = currentTenantMgmtId()
+  const regionKey = regionSubscribeTarget.value?.regionKey
+  if (!tenantId || !regionKey) return
+  if (!regionSubscribeCode.value || regionSubscribeCode.value.length !== 6) {
+    message.warning('请输入 6 位验证码')
+    return
+  }
+
+  regionSubscribeLoading.value = true
+  try {
+    await subscribeTenantRegion({
+      id: tenantId,
+      regionKey,
+      verifyCode: regionSubscribeCode.value,
+    })
+    message.success('区域订阅已提交，激活可能需要几分钟')
+    regionSubscribeVerifyVisible.value = false
+    regionSubscribeCode.value = ''
+    await loadRegions()
+    if (tenantMgmtTenant.value) {
+      await loadTenantAccountInfo(tenantMgmtTenant.value)
+    }
+  } catch (e: any) {
+    message.error(e?.message || '订阅区域失败')
+  } finally {
+    regionSubscribeLoading.value = false
   }
 }
 
@@ -4083,6 +4342,73 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   max-width: 100%;
 }
 
+.region-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 8px 0 12px;
+}
+.region-search {
+  width: 240px;
+}
+.region-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.region-name-main {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-main);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.region-key-line {
+  margin-top: 2px;
+  color: var(--text-sub);
+  font-size: 12px;
+  line-height: 1.4;
+}
+.region-action-empty {
+  color: var(--text-sub);
+  font-size: 12px;
+}
+.region-mobile-card {
+  margin-bottom: 10px;
+}
+.region-verify-target {
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  background: var(--input-bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 8px);
+}
+.region-verify-name {
+  overflow: hidden;
+  color: var(--text-main);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.region-verify-meta {
+  margin-top: 4px;
+  color: var(--text-sub);
+  font-size: 12px;
+  word-break: break-all;
+}
+.region-verify-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+  color: var(--text-sub);
+  font-size: 12px;
+}
+
 @media (max-width: 768px) {
   .table-toolbar {
     flex-direction: column;
@@ -4130,6 +4456,26 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   }
   .budget-form :deep(.ant-col) {
     width: 100%;
+  }
+  .region-toolbar {
+    align-items: flex-start;
+    margin-top: 6px;
+  }
+  .region-toolbar :deep(.ant-space) {
+    width: 100%;
+    gap: 8px !important;
+  }
+  .region-search {
+    width: 100%;
+  }
+  .region-mobile-card .value {
+    min-width: 0;
+    text-align: right;
+    word-break: break-word;
+  }
+  .region-verify-actions {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
 

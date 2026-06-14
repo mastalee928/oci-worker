@@ -64,6 +64,7 @@ public class VerifyCodeService {
             case "deleteCompartment" -> "删除区间";
             case "updateCompartment" -> "重命名区间";
             case "moveCompartmentResource" -> "迁移区间资源";
+            case "subscribeRegion" -> "订阅区域";
             case "notifyConfig" -> "修改 Telegram 通知配置";
             case "cfZonePause" -> "Cloudflare 暂停/恢复区域解析";
             case "cfZoneDelete" -> "Cloudflare 删除区域";

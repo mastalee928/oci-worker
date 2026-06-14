@@ -114,6 +114,14 @@ export function deleteBudgetAlertRule(data: { id: string; budgetId: string; aler
   return request.post('/oci/user/budget/alertRule/delete', data)
 }
 
+export function listTenantRegions(data: { id: string }) {
+  return request.post('/oci/user/regions', data)
+}
+
+export function subscribeTenantRegion(data: { id: string; regionKey: string; verifyCode: string }) {
+  return request.post('/oci/user/region/subscribe', data)
+}
+
 export function uploadKey(formData: FormData) {
   return request.post('/oci/user/uploadKey', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },

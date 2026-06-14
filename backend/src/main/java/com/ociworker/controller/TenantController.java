@@ -11,6 +11,7 @@ import com.ociworker.service.DomainManagementService;
 import com.ociworker.service.AnnouncementService;
 import com.ociworker.service.CompartmentService;
 import com.ociworker.service.IamPolicyService;
+import com.ociworker.service.RegionManagementService;
 import com.ociworker.service.TenantService;
 import com.ociworker.service.VerifyCodeService;
 import jakarta.annotation.Resource;
@@ -42,6 +43,8 @@ public class TenantController {
     private VerifyCodeService verifyCodeService;
     @Resource
     private BudgetService budgetService;
+    @Resource
+    private RegionManagementService regionManagementService;
 
     @PostMapping("/list")
     public ResponseData<?> list(@RequestBody PageParams params) {
@@ -149,6 +152,17 @@ public class TenantController {
     public ResponseData<?> deleteBudgetAlertRule(@RequestBody java.util.Map<String, Object> params) {
         budgetService.deleteAlertRule(str(params, "id"), str(params, "budgetId"), str(params, "alertRuleId"));
         return ResponseData.ok();
+    }
+
+    @PostMapping("/regions")
+    public ResponseData<?> regions(@RequestBody java.util.Map<String, Object> params) {
+        return ResponseData.ok(regionManagementService.listRegions(str(params, "id")));
+    }
+
+    @PostMapping("/region/subscribe")
+    public ResponseData<?> subscribeRegion(@RequestBody java.util.Map<String, Object> params) {
+        verifyCodeService.verifyCode("subscribeRegion", str(params, "verifyCode"));
+        return ResponseData.ok(regionManagementService.subscribeRegion(str(params, "id"), str(params, "regionKey")));
     }
 
     private static String str(java.util.Map<String, Object> params, String key) {
