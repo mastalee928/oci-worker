@@ -13,6 +13,7 @@ import com.oracle.bmc.identity.requests.CreateRegionSubscriptionRequest;
 import com.oracle.bmc.identity.requests.GetTenancyRequest;
 import com.oracle.bmc.identity.requests.ListRegionSubscriptionsRequest;
 import com.oracle.bmc.identity.requests.ListRegionsRequest;
+import com.oracle.bmc.model.BmcException;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -87,7 +88,7 @@ public class RegionManagementService {
         } catch (OciException e) {
             throw e;
         } catch (Exception e) {
-            throw new OciException(tag(user) + "订阅区域失败: " + safeMessage(e));
+            throw new OciException(tag(user) + "订阅区域失败: " + regionSubscribeErrorMessage(e));
         }
     }
 
@@ -272,6 +273,26 @@ public class RegionManagementService {
 
     private static String safeMessage(Exception e) {
         return e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+    }
+
+    private static String regionSubscribeErrorMessage(Exception e) {
+        if (e instanceof BmcException bmc) {
+            String serviceCode = bmc.getServiceCode();
+            if (bmc.getStatusCode() == 409
+                    && "TenantCapacityExceeded".equalsIgnoreCase(serviceCode)) {
+                return regionCapacityExceededMessage();
+            }
+        }
+        String message = safeMessage(e);
+        if (message.contains("TenantCapacityExceeded")
+                || message.contains("maximum number of allowed subscribed regions")) {
+            return regionCapacityExceededMessage();
+        }
+        return message;
+    }
+
+    private static String regionCapacityExceededMessage() {
+        return "您已超出允许订阅区域的最大数量。请参阅“限制、配额和使用情况”页面了解更多详情。";
     }
 
     private String tag(OciUser user) {
