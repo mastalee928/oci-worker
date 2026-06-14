@@ -140,6 +140,29 @@ export function updatePasswordExpiry(data: { id: string; domainId?: string; days
   return request.post('/oci/user/updatePasswordExpiry', data)
 }
 
+export interface DomainNotificationPayload {
+  id: string
+  domainId: string
+  notificationEnabled?: boolean
+  testModeEnabled?: boolean
+  testRecipients?: string[] | string
+  sendNotificationToOldAndNewPrimaryEmailsWhenAdminChangesPrimaryEmail?: boolean
+  fromEmailAddress?: {
+    value?: string
+    displayName?: string
+    validate?: 'email' | 'domain' | string
+  }
+  eventSettings?: Array<{ eventId: string; enabled: boolean }>
+}
+
+export function getDomainNotifications(data: { id: string; domainId: string }) {
+  return request.post('/oci/user/domainNotifications', data)
+}
+
+export function updateDomainNotifications(data: DomainNotificationPayload) {
+  return request.post('/oci/user/updateDomainNotifications', data)
+}
+
 export function getAuditLogs(data: { id: string; days?: number }) {
   return request.post('/oci/user/auditLogs', data)
 }

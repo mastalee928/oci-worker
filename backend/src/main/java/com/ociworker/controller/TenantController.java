@@ -206,6 +206,18 @@ public class TenantController {
         return ResponseData.ok();
     }
 
+    @PostMapping("/domainNotifications")
+    public ResponseData<?> domainNotifications(@RequestBody java.util.Map<String, Object> params) {
+        return ResponseData.ok(domainManagementService.getNotificationSettings(
+                str(params, "id"), str(params, "domainId")));
+    }
+
+    @PostMapping("/updateDomainNotifications")
+    public ResponseData<?> updateDomainNotifications(@RequestBody java.util.Map<String, Object> params) {
+        return ResponseData.ok(domainManagementService.updateNotificationSettings(
+                str(params, "id"), str(params, "domainId"), params));
+    }
+
     @PostMapping("/auditLogs")
     public ResponseData<?> auditLogs(@RequestBody java.util.Map<String, Object> params) {
         int days = 7;

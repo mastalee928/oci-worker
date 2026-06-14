@@ -361,6 +361,246 @@ public class DomainManagementService {
         throw new OciException("未找到指定 domain: " + domainId);
     }
 
+    // ---------------- Notification Settings ----------------
+
+    public Map<String, Object> getNotificationSettings(String tenantId, String domainId) {
+        try (OciClientService client = buildClient(tenantId)) {
+            var domains = listDomains(client, true);
+            var target = findDomain(domains, domainId);
+            try (IdentityDomainsClient dc = newDomainClient(client, (String) target.get("url"))) {
+                return notificationSettingToMap(target, firstNotificationSetting(dc));
+            }
+        } catch (OciException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new OciException("读取域通知设置失败: " + (e.getMessage() == null ? "未知错误" : e.getMessage()));
+        }
+    }
+
+    public Map<String, Object> updateNotificationSettings(String tenantId, String domainId, Map<String, Object> payload) {
+        try (OciClientService client = buildClient(tenantId)) {
+            var domains = listDomains(client, true);
+            var target = findDomain(domains, domainId);
+            try (IdentityDomainsClient dc = newDomainClient(client, (String) target.get("url"))) {
+                NotificationSetting current = firstNotificationSetting(dc);
+                NotificationSetting.Builder builder = current.toBuilder();
+                int changed = 0;
+
+                changed += replaceBoolean(payload, "notificationEnabled", current.getNotificationEnabled(), builder::notificationEnabled);
+                changed += replaceBoolean(payload, "testModeEnabled", current.getTestModeEnabled(), builder::testModeEnabled);
+                changed += replaceBoolean(payload,
+                        "sendNotificationToOldAndNewPrimaryEmailsWhenAdminChangesPrimaryEmail",
+                        current.getSendNotificationToOldAndNewPrimaryEmailsWhenAdminChangesPrimaryEmail(),
+                        builder::sendNotificationToOldAndNewPrimaryEmailsWhenAdminChangesPrimaryEmail);
+
+                if (payload != null && payload.containsKey("testRecipients")) {
+                    List<String> next = normalizeStringList(payload.get("testRecipients"));
+                    if (!Objects.equals(next, current.getTestRecipients())) {
+                        builder.testRecipients(next);
+                        changed++;
+                    }
+                }
+
+                if (payload != null && payload.get("fromEmailAddress") instanceof Map<?, ?> rawFromEmail) {
+                    NotificationSettingsFromEmailAddress currentEmail = current.getFromEmailAddress();
+                    NotificationSettingsFromEmailAddress.Builder emailBuilder = currentEmail == null
+                            ? NotificationSettingsFromEmailAddress.builder()
+                            : currentEmail.toBuilder();
+                    int emailChanged = 0;
+
+                    if (rawFromEmail.containsKey("value")) {
+                        String value = trimToNull(rawFromEmail.get("value"));
+                        if (value == null) throw new OciException("发件人电子邮件地址不能为空");
+                        if (currentEmail == null || !Objects.equals(value, currentEmail.getValue())) {
+                            emailBuilder.value(value);
+                            emailChanged++;
+                        }
+                    }
+                    if (rawFromEmail.containsKey("displayName")) {
+                        String displayName = trimToNull(rawFromEmail.get("displayName"));
+                        if (currentEmail == null || !Objects.equals(displayName, currentEmail.getDisplayName())) {
+                            emailBuilder.displayName(displayName);
+                            emailChanged++;
+                        }
+                    }
+                    if (rawFromEmail.containsKey("validate")) {
+                        String validateRaw = trimToNull(rawFromEmail.get("validate"));
+                        NotificationSettingsFromEmailAddress.Validate validate = validateRaw == null
+                                ? null
+                                : NotificationSettingsFromEmailAddress.Validate.create(validateRaw);
+                        if (currentEmail == null || !Objects.equals(validate, currentEmail.getValidate())) {
+                            emailBuilder.validate(validate);
+                            emailChanged++;
+                        }
+                    }
+                    if (emailChanged > 0) {
+                        builder.fromEmailAddress(emailBuilder.build());
+                        changed += emailChanged;
+                    }
+                }
+
+                if (payload != null && payload.get("eventSettings") instanceof List<?> rawEvents) {
+                    List<NotificationSettingsEventSettings> nextEvents = normalizeEventSettings(rawEvents, current.getEventSettings());
+                    if (!eventSettingsEqual(nextEvents, current.getEventSettings())) {
+                        builder.eventSettings(nextEvents);
+                        changed++;
+                    }
+                }
+
+                Map<String, Object> result = new LinkedHashMap<>();
+                result.put("domainId", target.get("id"));
+                result.put("displayName", target.get("displayName"));
+                result.put("changedOps", changed);
+                if (changed == 0) {
+                    result.put("skipped", true);
+                    return result;
+                }
+
+                var resp = dc.putNotificationSetting(PutNotificationSettingRequest.builder()
+                        .notificationSettingId(current.getId())
+                        .notificationSetting(builder.build())
+                        .build());
+                result.put("notification", notificationSettingToMap(target, resp.getNotificationSetting()));
+                log.info("NotificationSetting put: tenant={} domain={} changedFields={}",
+                        tenantId, target.get("displayName"), changed);
+                return result;
+            }
+        } catch (OciException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new OciException("更新域通知设置失败: " + (e.getMessage() == null ? "未知错误" : e.getMessage()));
+        }
+    }
+
+    private NotificationSetting firstNotificationSetting(IdentityDomainsClient dc) {
+        var resp = dc.listNotificationSettings(ListNotificationSettingsRequest.builder().limit(1).build());
+        var items = resp.getNotificationSettings() == null
+                ? null : resp.getNotificationSettings().getResources();
+        if (items == null || items.isEmpty()) throw new OciException("未找到 NotificationSettings");
+        NotificationSetting listed = items.get(0);
+        if (listed.getId() == null || listed.getId().isBlank()) return listed;
+        return dc.getNotificationSetting(GetNotificationSettingRequest.builder()
+                .notificationSettingId(listed.getId())
+                .build()).getNotificationSetting();
+    }
+
+    private Map<String, Object> notificationSettingToMap(Map<String, Object> domain, NotificationSetting setting) {
+        Map<String, Object> r = new LinkedHashMap<>();
+        r.put("domainId", domain.get("id"));
+        r.put("displayName", domain.get("displayName"));
+        r.put("type", domain.get("type"));
+        r.put("settingId", setting.getId());
+        r.put("ocid", setting.getOcid());
+        r.put("domainOcid", setting.getDomainOcid());
+        r.put("compartmentOcid", setting.getCompartmentOcid());
+        r.put("tenancyOcid", setting.getTenancyOcid());
+        r.put("notificationEnabled", Boolean.TRUE.equals(setting.getNotificationEnabled()));
+        r.put("testModeEnabled", Boolean.TRUE.equals(setting.getTestModeEnabled()));
+        r.put("testRecipients", setting.getTestRecipients() == null ? List.of() : setting.getTestRecipients());
+        r.put("sendNotificationToOldAndNewPrimaryEmailsWhenAdminChangesPrimaryEmail",
+                Boolean.TRUE.equals(setting.getSendNotificationToOldAndNewPrimaryEmailsWhenAdminChangesPrimaryEmail()));
+
+        Map<String, Object> email = new LinkedHashMap<>();
+        var from = setting.getFromEmailAddress();
+        if (from != null) {
+            email.put("value", from.getValue());
+            email.put("displayName", from.getDisplayName());
+            email.put("validate", from.getValidate() == null ? null : from.getValidate().getValue());
+            email.put("validationStatus", from.getValidationStatus() == null ? null : from.getValidationStatus().getValue());
+        }
+        r.put("fromEmailAddress", email);
+
+        List<Map<String, Object>> events = new ArrayList<>();
+        if (setting.getEventSettings() != null) {
+            for (var e : setting.getEventSettings()) {
+                Map<String, Object> m = new LinkedHashMap<>();
+                m.put("eventId", e.getEventId());
+                m.put("enabled", Boolean.TRUE.equals(e.getEnabled()));
+                events.add(m);
+            }
+        }
+        r.put("eventSettings", events);
+        return r;
+    }
+
+    private int replaceBoolean(Map<String, Object> payload, String key, Boolean current,
+                               java.util.function.Consumer<Boolean> setter) {
+        if (payload == null || !payload.containsKey(key)) return 0;
+        Boolean next = asBoolean(payload.get(key));
+        if (Objects.equals(next, current)) return 0;
+        setter.accept(next);
+        return 1;
+    }
+
+    private Boolean asBoolean(Object value) {
+        if (value == null) return null;
+        if (value instanceof Boolean b) return b;
+        if (value instanceof Number n) return n.intValue() != 0;
+        String s = String.valueOf(value).trim().toLowerCase(Locale.ROOT);
+        if (s.isEmpty()) return null;
+        return "true".equals(s) || "1".equals(s) || "yes".equals(s) || "y".equals(s) || "启用".equals(s) || "是".equals(s);
+    }
+
+    private String trimToNull(Object value) {
+        if (value == null) return null;
+        String s = String.valueOf(value).trim();
+        return s.isEmpty() ? null : s;
+    }
+
+    private List<String> normalizeStringList(Object value) {
+        List<String> raw = new ArrayList<>();
+        if (value instanceof Collection<?> list) {
+            for (var item : list) raw.add(String.valueOf(item == null ? "" : item));
+        } else if (value != null) {
+            raw.addAll(Arrays.asList(String.valueOf(value).split("[,，;；\\n\\r]+")));
+        }
+        LinkedHashSet<String> cleaned = new LinkedHashSet<>();
+        for (String item : raw) {
+            String s = item == null ? "" : item.trim();
+            if (!s.isEmpty()) cleaned.add(s);
+        }
+        return new ArrayList<>(cleaned);
+    }
+
+    private List<NotificationSettingsEventSettings> normalizeEventSettings(
+            List<?> rawEvents, List<NotificationSettingsEventSettings> currentEvents) {
+        Map<String, NotificationSettingsEventSettings> existing = new LinkedHashMap<>();
+        if (currentEvents != null) {
+            for (var e : currentEvents) {
+                if (e.getEventId() != null) existing.put(e.getEventId(), e);
+            }
+        }
+        List<NotificationSettingsEventSettings> next = new ArrayList<>();
+        for (var raw : rawEvents) {
+            if (!(raw instanceof Map<?, ?> m)) continue;
+            String eventId = trimToNull(m.get("eventId"));
+            if (eventId == null) continue;
+            Boolean enabled = m.containsKey("enabled")
+                    ? asBoolean(m.get("enabled"))
+                    : (existing.get(eventId) == null ? null : existing.get(eventId).getEnabled());
+            NotificationSettingsEventSettings.Builder b = existing.containsKey(eventId)
+                    ? existing.get(eventId).toBuilder()
+                    : NotificationSettingsEventSettings.builder().eventId(eventId);
+            b.enabled(Boolean.TRUE.equals(enabled));
+            next.add(b.build());
+        }
+        return next;
+    }
+
+    private boolean eventSettingsEqual(List<NotificationSettingsEventSettings> a,
+                                       List<NotificationSettingsEventSettings> b) {
+        if (a == null) a = List.of();
+        if (b == null) b = List.of();
+        if (a.size() != b.size()) return false;
+        for (int i = 0; i < a.size(); i++) {
+            var left = a.get(i);
+            var right = b.get(i);
+            if (!Objects.equals(left.getEventId(), right.getEventId())) return false;
+            if (!Objects.equals(Boolean.TRUE.equals(left.getEnabled()), Boolean.TRUE.equals(right.getEnabled()))) return false;
+        }
+        return true;
+    }
+
     // ---------------- Audit Events (Identity Domain built-in) ----------------
 
     /**

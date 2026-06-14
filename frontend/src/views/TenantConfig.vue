@@ -1609,6 +1609,114 @@ region=ap-tokyo-1"
             </a-spin>
           </div>
         </a-tab-pane>
+        <a-tab-pane key="notifications" tab="通知">
+          <a-spin :spinning="notificationLoading">
+            <template v-if="notificationData">
+              <div class="domain-notification-layout">
+                <section class="notification-panel">
+                  <div class="notification-panel-header">
+                    <div class="notification-panel-title">一般通知</div>
+                    <div class="notification-inline-control">
+                      <span>为所有的身份域用户启用通知</span>
+                      <a-switch
+                        :checked="!!notificationData.notificationEnabled"
+                        checked-children="已启用"
+                        un-checked-children="已关闭"
+                        @change="(v: any) => (notificationData.notificationEnabled = v)"
+                      />
+                    </div>
+                  </div>
+                  <a-form layout="vertical" size="small" class="notification-form-grid">
+                    <a-form-item label="发件人电子邮件地址">
+                      <a-input v-model:value="notificationData.fromEmailAddress.value" allow-clear />
+                    </a-form-item>
+                    <a-form-item label="发件人显示名">
+                      <a-input v-model:value="notificationData.fromEmailAddress.displayName" allow-clear />
+                    </a-form-item>
+                    <a-form-item label="发件邮箱验证方式">
+                      <a-select v-model:value="notificationData.fromEmailAddress.validate" :options="notificationValidateOptions" />
+                    </a-form-item>
+                    <a-form-item label="发件邮箱验证状态">
+                      <a-tag :color="notificationValidationStatusColor(notificationData.fromEmailAddress.validationStatus)">
+                        {{ formatNotificationValidationStatus(notificationData.fromEmailAddress.validationStatus) }}
+                      </a-tag>
+                    </a-form-item>
+                  </a-form>
+                </section>
+
+                <section class="notification-panel">
+                  <div class="notification-panel-header">
+                    <div>
+                      <div class="notification-panel-title">收件人</div>
+                      <div class="notification-panel-subtitle">通过电子邮件通知发送给选定收件人来测试这些通知。</div>
+                    </div>
+                    <div class="notification-inline-control">
+                      <span>限定的收件人列表</span>
+                      <a-switch
+                        :checked="!!notificationData.testModeEnabled"
+                        checked-children="是"
+                        un-checked-children="否"
+                        @change="(v: any) => (notificationData.testModeEnabled = v)"
+                      />
+                    </div>
+                  </div>
+                  <a-form layout="vertical" size="small">
+                    <a-form-item label="测试收件人电子邮件地址">
+                      <a-textarea
+                        v-model:value="notificationRecipientsText"
+                        :auto-size="{ minRows: 2, maxRows: 5 }"
+                        allow-clear
+                      />
+                    </a-form-item>
+                  </a-form>
+                </section>
+
+                <section class="notification-panel">
+                  <div class="notification-panel-header">
+                    <div class="notification-panel-title">管理员通知</div>
+                    <a-tag style="margin:0">{{ notificationEvents.length }} 项</a-tag>
+                  </div>
+                  <a-empty v-if="notificationEvents.length === 0" description="暂无事件设置" />
+                  <div v-else class="notification-event-list">
+                    <div v-for="event in notificationEvents" :key="event.eventId" class="notification-event-row">
+                      <div class="notification-event-copy">
+                        <div class="notification-event-name">{{ formatNotificationEventName(event.eventId) }}</div>
+                        <div class="notification-event-id">{{ event.eventId }}</div>
+                      </div>
+                      <a-switch
+                        :checked="!!event.enabled"
+                        checked-children="是"
+                        un-checked-children="否"
+                        @change="(v: any) => (event.enabled = v)"
+                      />
+                    </div>
+                  </div>
+                </section>
+              </div>
+
+              <div class="notification-actions">
+                <a-button size="small" :loading="notificationLoading" @click="loadDomainNotifications">
+                  <template #icon><ReloadOutlined /></template>刷新
+                </a-button>
+                <a-button
+                  size="small"
+                  type="primary"
+                  :loading="notificationSaving"
+                  @click="saveDomainNotifications"
+                >
+                  保存
+                </a-button>
+              </div>
+            </template>
+            <a-empty v-else :description="notificationLoading ? '正在加载通知设置' : '请选择域后加载通知设置'">
+              <template #extra>
+                <a-button type="primary" size="small" :disabled="!selectedDomainId" @click="loadDomainNotifications">
+                  加载通知设置
+                </a-button>
+              </template>
+            </a-empty>
+          </a-spin>
+        </a-tab-pane>
         <a-tab-pane key="logs" tab="登录日志">
           <a-space style="margin-bottom: 12px" wrap>
             <a-button type="primary" @click="loadAuditLogs" :loading="auditLogsLoading" :disabled="!selectedDomainId">
@@ -1647,7 +1755,7 @@ import { useRouter } from 'vue-router'
 import { PlusOutlined, ThunderboltOutlined, InboxOutlined, ReloadOutlined, MenuFoldOutlined, MenuUnfoldOutlined, VerticalAlignTopOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
 import type { UploadFile } from 'ant-design-vue'
-import { getTenantList, addTenant, updateTenant, removeTenant, batchMoveTenantGroup, uploadKey, getTenantFullInfo, getTenantBillingSummary, downloadInvoicePdf, listBudgets, createBudget, updateBudget, deleteBudget, listBudgetAlertRules, createBudgetAlertRule, updateBudgetAlertRule, deleteBudgetAlertRule, listTenantRegions, subscribeTenantRegion, getDomainSettings, updateMfa, updatePasswordExpiry, getAuditLogs, getServiceQuotas, listIamPolicies, getIamPolicy, listAnnouncements, getAnnouncementDetail, getTenantGroups, createGroup, renameGroup, deleteGroup, saveGroupOrder, unlockAuthFactors, getAuthFactors, updateAuthFactors } from '../api/tenant'
+import { getTenantList, addTenant, updateTenant, removeTenant, batchMoveTenantGroup, uploadKey, getTenantFullInfo, getTenantBillingSummary, downloadInvoicePdf, listBudgets, createBudget, updateBudget, deleteBudget, listBudgetAlertRules, createBudgetAlertRule, updateBudgetAlertRule, deleteBudgetAlertRule, listTenantRegions, subscribeTenantRegion, getDomainSettings, updateMfa, updatePasswordExpiry, getDomainNotifications, updateDomainNotifications, getAuditLogs, getServiceQuotas, listIamPolicies, getIamPolicy, listAnnouncements, getAnnouncementDetail, getTenantGroups, createGroup, renameGroup, deleteGroup, saveGroupOrder, unlockAuthFactors, getAuthFactors, updateAuthFactors } from '../api/tenant'
 import type { BudgetAlertType, BudgetProcessingPeriodType, BudgetTargetType, BudgetThresholdType } from '../api/tenant'
 import { listCompartmentPicker } from '../api/compartment'
 import { sendVerifyCode } from '../api/system'
@@ -2197,6 +2305,10 @@ const pwdExpiryUpdatingId = ref('')
 const auditLogsLoading = ref(false)
 const auditLogs = ref<any[]>([])
 const auditDays = ref(7)
+const notificationLoading = ref(false)
+const notificationSaving = ref(false)
+const notificationData = ref<any | null>(null)
+const notificationRecipientsText = ref('')
 const quotasLoading = ref(false)
 const quotasList = ref<any[]>([])
 const quotaSearch = ref('')
@@ -2222,14 +2334,95 @@ const selectedFactorDomain = computed<any | null>(() =>
 const selectedAuditDomain = computed<any | null>(() =>
   auditLogs.value.find((d: any) => d.domainId === selectedDomainId.value) || null,
 )
+const notificationEvents = computed<any[]>(() =>
+  Array.isArray(notificationData.value?.eventSettings) ? notificationData.value.eventSettings : [],
+)
+const notificationValidateOptions = [
+  { label: '电子邮件地址', value: 'email' },
+  { label: '域', value: 'domain' },
+]
 
 function handleDomainChange(domainId: string) {
   if (!domainId || domainId === selectedDomainId.value) return
   selectedDomainId.value = domainId
+  resetNotificationState()
+  if (domainTab.value === 'notifications') void loadDomainNotifications()
 }
+
+watch(() => domainTab.value, (tab) => {
+  if (tab === 'notifications' && selectedDomainId.value && !notificationData.value) {
+    void loadDomainNotifications()
+  }
+})
 
 function onAuditDaysChange() {
   auditLogs.value = []
+}
+
+function resetNotificationState() {
+  notificationData.value = null
+  notificationRecipientsText.value = ''
+}
+
+function normalizeDomainNotification(raw: any) {
+  const from = raw?.fromEmailAddress || {}
+  const validate = String(from.validate || 'email').toLowerCase()
+  return {
+    ...(raw || {}),
+    notificationEnabled: !!raw?.notificationEnabled,
+    testModeEnabled: !!raw?.testModeEnabled,
+    testRecipients: Array.isArray(raw?.testRecipients) ? raw.testRecipients : [],
+    sendNotificationToOldAndNewPrimaryEmailsWhenAdminChangesPrimaryEmail:
+      !!raw?.sendNotificationToOldAndNewPrimaryEmailsWhenAdminChangesPrimaryEmail,
+    fromEmailAddress: {
+      value: from.value || '',
+      displayName: from.displayName || '',
+      validate: validate === 'domain' ? 'domain' : 'email',
+      validationStatus: from.validationStatus || '',
+    },
+    eventSettings: Array.isArray(raw?.eventSettings)
+      ? raw.eventSettings.map((e: any) => ({ eventId: e.eventId || '', enabled: !!e.enabled })).filter((e: any) => e.eventId)
+      : [],
+  }
+}
+
+function parseNotificationRecipients(text: string): string[] {
+  return Array.from(new Set(
+    String(text || '')
+      .split(/[,，;；\n\r]+/)
+      .map((s) => s.trim())
+      .filter(Boolean),
+  ))
+}
+
+function formatNotificationValidationStatus(status: string | null | undefined): string {
+  const s = String(status || '').toUpperCase()
+  if (s === 'VERIFIED') return '已验证'
+  if (s === 'PENDING') return '待验证'
+  return '—'
+}
+
+function notificationValidationStatusColor(status: string | null | undefined): string {
+  const s = String(status || '').toUpperCase()
+  if (s === 'VERIFIED') return 'green'
+  if (s === 'PENDING') return 'orange'
+  return 'default'
+}
+
+function formatNotificationEventName(eventId: string | null | undefined): string {
+  const id = String(eventId || '').trim()
+  if (!id) return '未知事件'
+  const normalized = id.replace(/[_-]/g, ' ').toLowerCase()
+  if (normalized.includes('job') && normalized.includes('start')) return '作业已启动'
+  if (normalized.includes('job') && (normalized.includes('cancel') || normalized.includes('canceled') || normalized.includes('cancelled'))) return '作业已取消'
+  if (normalized.includes('job') && (normalized.includes('complete') || normalized.includes('completed'))) return '作业已完成'
+  if (normalized.includes('job') && (normalized.includes('fail') || normalized.includes('failed') || normalized.includes('error'))) return '作业失败'
+  if (normalized.includes('limit')) return '已超出限额限制'
+  if (normalized.includes('sender') && normalized.includes('verification') && normalized.includes('start')) return '已启动发件人电子邮件验证'
+  if (normalized.includes('sender') && normalized.includes('verification')) return '发件人电子邮件地址验证'
+  if (normalized.includes('email') && normalized.includes('verification')) return '电子邮件验证'
+  if (normalized.includes('sync') && normalized.includes('summary')) return '同步作业概要'
+  return id
 }
 
 // ------- 验证因素 -------
@@ -2345,6 +2538,7 @@ async function openDomainMgmt(record: any) {
   domainList.value = []
   selectedDomainId.value = ''
   auditLogs.value = []
+  resetNotificationState()
   resetAuthFactorState()
   domainMgmtVisible.value = true
   await loadDomainSettings()
@@ -2398,6 +2592,65 @@ async function handlePwdExpiryChange(domain: any) {
     message.error(e?.message || '更新密码策略失败')
   } finally {
     pwdExpiryUpdatingId.value = ''
+  }
+}
+
+async function loadDomainNotifications() {
+  if (!domainMgmtTenant.value?.id || !selectedDomainId.value) {
+    message.warning('请先选择域')
+    return
+  }
+  notificationLoading.value = true
+  try {
+    const res = await getDomainNotifications({ id: domainMgmtTenant.value.id, domainId: selectedDomainId.value })
+    notificationData.value = normalizeDomainNotification(res.data || {})
+    notificationRecipientsText.value = (notificationData.value.testRecipients || []).join('\n')
+  } catch (e: any) {
+    message.error(e?.message || '读取域通知设置失败')
+  } finally {
+    notificationLoading.value = false
+  }
+}
+
+async function saveDomainNotifications() {
+  if (!domainMgmtTenant.value?.id || !selectedDomainId.value || !notificationData.value) return
+  const fromEmail = notificationData.value.fromEmailAddress || {}
+  if (!String(fromEmail.value || '').trim()) {
+    message.warning('请填写发件人电子邮件地址')
+    return
+  }
+  notificationSaving.value = true
+  try {
+    const res = await updateDomainNotifications({
+      id: domainMgmtTenant.value.id,
+      domainId: selectedDomainId.value,
+      notificationEnabled: !!notificationData.value.notificationEnabled,
+      testModeEnabled: !!notificationData.value.testModeEnabled,
+      testRecipients: parseNotificationRecipients(notificationRecipientsText.value),
+      sendNotificationToOldAndNewPrimaryEmailsWhenAdminChangesPrimaryEmail:
+        !!notificationData.value.sendNotificationToOldAndNewPrimaryEmailsWhenAdminChangesPrimaryEmail,
+      fromEmailAddress: {
+        value: String(fromEmail.value || '').trim(),
+        displayName: String(fromEmail.displayName || '').trim(),
+        validate: fromEmail.validate || 'email',
+      },
+      eventSettings: notificationEvents.value.map((e: any) => ({
+        eventId: e.eventId,
+        enabled: !!e.enabled,
+      })),
+    })
+    if (res.data?.skipped) {
+      message.info('未检测到变更')
+    } else {
+      message.success('域通知设置已保存')
+    }
+    const next = res.data?.notification || notificationData.value
+    notificationData.value = normalizeDomainNotification(next)
+    notificationRecipientsText.value = (notificationData.value.testRecipients || []).join('\n')
+  } catch (e: any) {
+    message.error(e?.message || '保存域通知设置失败')
+  } finally {
+    notificationSaving.value = false
   }
 }
 
@@ -3923,6 +4176,88 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
 }
 .factor-label { font-size: 12px; color: var(--text-sub); }
 .factor-hint { font-size: 11px; color: var(--text-sub); opacity: 0.7; font-family: monospace; }
+.domain-notification-layout {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.notification-panel {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 8px);
+  background: var(--bg-card);
+  padding: 12px;
+}
+.notification-panel-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.notification-panel-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+.notification-panel-subtitle {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-sub);
+  line-height: 1.5;
+}
+.notification-inline-control {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  color: var(--text-sub);
+  font-size: 12px;
+  text-align: right;
+}
+.notification-form-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  column-gap: 12px;
+}
+.notification-form-grid :deep(.ant-form-item) {
+  margin-bottom: 8px;
+}
+.notification-event-list {
+  display: grid;
+  gap: 8px;
+}
+.notification-event-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 8px);
+  background: var(--bg-main, transparent);
+}
+.notification-event-copy {
+  min-width: 0;
+}
+.notification-event-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-main);
+}
+.notification-event-id {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--text-sub);
+  word-break: break-all;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+.notification-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 12px;
+  flex-wrap: wrap;
+}
 .table-toolbar {
   margin-bottom: 16px;
   display: flex;
@@ -4476,6 +4811,39 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   .region-verify-actions {
     align-items: flex-start;
     flex-direction: column;
+  }
+  .domain-switcher {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .domain-switcher :deep(.ant-select) {
+    width: 100% !important;
+    min-width: 0 !important;
+  }
+  .notification-panel-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .notification-inline-control {
+    justify-content: space-between;
+    width: 100%;
+    text-align: left;
+  }
+  .notification-form-grid {
+    grid-template-columns: 1fr;
+  }
+  .notification-event-row {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .notification-event-row :deep(.ant-switch) {
+    align-self: flex-end;
+  }
+  .notification-actions {
+    justify-content: stretch;
+  }
+  .notification-actions :deep(.ant-btn) {
+    flex: 1 1 120px;
   }
 }
 
