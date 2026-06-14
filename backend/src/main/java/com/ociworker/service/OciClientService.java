@@ -589,14 +589,22 @@ public class OciClientService implements Closeable {
                         return result;
                     }
                     if (isBootVolumeQuotaError(e)) {
-                        String hint = describeBmcFailure(e);
+                        String hint = describeBmcFailure(e, shape.getShape());
                         result.setBootVolumeQuotaExceeded(true);
                         result.setFailureHint(hint);
                         log.warn("【开机任务】用户:[{}], AD:[{}] - {}",
                                 user.getUsername(), ad.getName(), hint);
                         return result;
                     }
-                    String hint = describeBmcFailure(e);
+                    if (isZeroFlexShapeQuotaError(e)) {
+                        String hint = describeBmcFailure(e, shape.getShape());
+                        result.setUnrecoverableLaunchFailure(true);
+                        result.setFailureHint(hint);
+                        log.warn("【开机任务】用户:[{}], AD:[{}] - 创建失败。{}，任务将停止",
+                                user.getUsername(), ad.getName(), hint);
+                        return result;
+                    }
+                    String hint = describeBmcFailure(e, shape.getShape());
                     if (isOutOfHostCapacityError(e)) {
                         sawOutOfCapacity = true;
                         log.warn("【开机任务】用户:[{}], AD:[{}] - 容量不足{}。{}",
@@ -687,6 +695,14 @@ public class OciClientService implements Closeable {
                 && (em.toLowerCase().contains("bootvolume") || em.contains("boot volume"));
     }
 
+    /** 免费试用或无该 Flex Shape 配额时，OCI 可能返回可用 OCPU/内存比例 0-0。继续重试不会成功。 */
+    private static boolean isZeroFlexShapeQuotaError(com.oracle.bmc.model.BmcException e) {
+        String em = e.getMessage() == null ? "" : e.getMessage();
+        return e.getStatusCode() == 400
+                && em.contains("Invalid ratio of memory in GB to OCPUs")
+                && em.contains("Valid ratio range: 0 - 0");
+    }
+
     static String describeThrowableFailure(Throwable e) {
         if (e instanceof com.oracle.bmc.model.BmcException bmc) {
             return describeBmcFailure(bmc);
@@ -708,9 +724,18 @@ public class OciClientService implements Closeable {
 
     /** OCI 失败原因（中文，写入日志/任务播报，不含 SDK 长堆栈） */
     static String describeBmcFailure(com.oracle.bmc.model.BmcException e) {
+        return describeBmcFailure(e, null);
+    }
+
+    /** OCI 失败原因（中文，写入日志/任务播报，不含 SDK 长堆栈） */
+    static String describeBmcFailure(com.oracle.bmc.model.BmcException e, String shapeName) {
         String em = e.getMessage() == null ? "" : e.getMessage();
         if (isBootVolumeQuotaError(e)) {
             return "引导卷（启动盘）存储配额已达上限，硬盘配额用尽，创建失败";
+        }
+        if (isZeroFlexShapeQuotaError(e)) {
+            String shape = StrUtil.isNotBlank(shapeName) ? shapeName : "目标 Flex Shape";
+            return "当前账号没有 " + shape + " 的 OCPU/内存配额";
         }
         if (isVcnCountLimitError(e)) {
             return "VCN 数量已达配额上限，无法创建虚拟云网络，请删除无用 VCN 或申请提额";

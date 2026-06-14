@@ -31,6 +31,8 @@ public class InstanceDetailDTO {
     private boolean outOfCapacity;
     /** 引导卷（启动盘）块存储配额已达 OCI 上限 */
     private boolean bootVolumeQuotaExceeded;
+    /** 账户/配额类不可恢复失败，继续重试也不会成功，应停止开机任务 */
+    private boolean unrecoverableLaunchFailure;
     /** 供任务播报的简短失败说明 */
     private String failureHint;
     /** 本次尝试解析出的目标 Shape（完整名） */

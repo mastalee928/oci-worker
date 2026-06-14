@@ -235,6 +235,7 @@ public class TaskSchedulerService implements SmartLifecycle {
         task.setStatus(TaskStatusEnum.RUNNING.getStatus());
         task.setAttemptCount(0);
         task.setSuccessCount(0);
+        task.setFailureReason(null);
         task.setCreateTime(LocalDateTime.now());
         taskMapper.insert(task);
 
@@ -270,6 +271,7 @@ public class TaskSchedulerService implements SmartLifecycle {
         if (ociUser == null) throw new OciException("租户配置不存在");
 
         task.setStatus(TaskStatusEnum.RUNNING.getStatus());
+        task.setFailureReason(null);
         taskMapper.updateById(task);
 
         clearTaskExcludedAds(taskId);
@@ -312,6 +314,9 @@ public class TaskSchedulerService implements SmartLifecycle {
                 task.getArchitecture(), task.getOcpus(), task.getMemory(), "更新开机任务");
         task.setOcpus(normalized[0]);
         task.setMemory(normalized[1]);
+        if (wasRunning) {
+            task.setFailureReason(null);
+        }
         taskMapper.updateById(task);
 
         clearTaskExcludedAds(taskId);
@@ -483,6 +488,27 @@ public class TaskSchedulerService implements SmartLifecycle {
                     return;
                 }
 
+                if (result.isUnrecoverableLaunchFailure()) {
+                    String hint = StrUtil.isNotBlank(result.getFailureHint())
+                            ? result.getFailureHint()
+                            : "账户或配额限制导致实例无法创建";
+                    String stopReason = hint + "。任务已停止。";
+                    String failureReason = "❌ " + stopReason;
+                    completeTask(taskId, TaskStatusEnum.FAILED, failureReason);
+                    broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s] - %s",
+                            user, region, arch, failureReason));
+                    String shapeForNotify = StrUtil.isNotBlank(result.getResolvedTargetShape())
+                            ? result.getResolvedTargetShape() : arch;
+                    String html = "❌ <b>开机任务失败</b>\n\n"
+                            + "👤 <b>租户：</b>" + user + "\n"
+                            + "🌍 <b>区域：</b>" + region + "\n"
+                            + "⚙️ <b>架构：</b>" + series + "\n"
+                            + targetShapeLineForNotify(shapeForNotify)
+                            + "📛 <b>原因：</b>" + stopReason;
+                    notificationService.sendHtmlWithType(NotificationService.TYPE_TASK_RESULT, html);
+                    return;
+                }
+
                 if (result.isOutOfCapacity()) {
                     broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s] - 各可用域容量不足，[%d]秒后将重试...",
                             user, region, arch, intervalSeconds));
@@ -649,12 +675,17 @@ public class TaskSchedulerService implements SmartLifecycle {
         data.put("recordedInstanceCount", recD);
         data.put("progressOverTarget", scD > tgtD || recD > tgtD);
         data.put("createTime", task.getCreateTime());
+        data.put("failureReason", task.getFailureReason());
         data.put("rootPassword", task.getRootPassword());
         data.put("instances", inst);
         return data;
     }
 
     private void completeTask(String taskId, TaskStatusEnum status) {
+        completeTask(taskId, status, null);
+    }
+
+    private void completeTask(String taskId, TaskStatusEnum status, String failureReason) {
         Future<?> future = taskMap.get(taskId);
         if (future != null) {
             future.cancel(true);
@@ -664,6 +695,7 @@ public class TaskSchedulerService implements SmartLifecycle {
         OciCreateTask task = taskMapper.selectById(taskId);
         if (task != null) {
             task.setStatus(status.getStatus());
+            task.setFailureReason(failureReason);
             taskMapper.updateById(task);
         }
     }

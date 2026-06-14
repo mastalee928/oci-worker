@@ -390,6 +390,13 @@
                 <pre class="script-block">{{ detailData.customScript }}</pre>
               </a-descriptions-item>
             </a-descriptions>
+            <a-alert
+              v-if="detailData.failureReason"
+              type="error"
+              show-icon
+              :message="detailData.failureReason"
+              class="task-failure-alert"
+            />
           </div>
 
           <!-- 已创建实例 -->
@@ -920,6 +927,9 @@ onMounted(() => loadData())
   word-break: break-all;
   max-height: 200px;
   overflow: auto;
+}
+.task-failure-alert {
+  margin-top: 12px;
 }
 @media (max-width: 768px) {
   .table-toolbar :deep(.ant-space) {

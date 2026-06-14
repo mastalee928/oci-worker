@@ -345,6 +345,7 @@ public class DatabaseGuardService {
         addColumnIfMissing(conn, "oci_create_task", "assign_ipv6", "TINYINT(1) DEFAULT 0 AFTER assign_public_ip");
         addColumnIfMissing(conn, "oci_create_task", "success_count", "INT DEFAULT 0 AFTER attempt_count");
         addColumnIfMissing(conn, "oci_create_task", "created_instances", "TEXT DEFAULT NULL AFTER success_count");
+        addColumnIfMissing(conn, "oci_create_task", "failure_reason", "TEXT DEFAULT NULL AFTER created_instances");
         addColumnIfMissing(conn, "oci_login_audit", "login_detail",
                 "MEDIUMTEXT NULL COMMENT 'JSON: 访问入口、网络与链路、客户端与能力' AFTER user_agent");
         addColumnIfMissing(conn, "oci_openai_key", "key_encrypted",
