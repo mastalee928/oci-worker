@@ -1,6 +1,7 @@
 <template>
   <a-alert v-if="error" type="warning" show-icon :message="error" style="margin-bottom: 8px" />
-  <a-table v-if="!isMobile" :data-source="rows" size="small" :pagination="{ pageSize: 20 }" class="audit-log-table"
+  <a-empty v-if="!rows?.length" description="无日志" />
+  <a-table v-else-if="!isMobile" :data-source="rows" size="small" :pagination="{ pageSize: 20 }" class="audit-log-table"
     :row-key="(r: any) => (r.eventTime + '|' + r.eventId + '|' + (r.actorName || '') + '|' + (r.clientIp || ''))"
     :scroll="{ x: 1250 }">
     <a-table-column data-index="eventTime" key="eventTime" :width="168">
@@ -53,7 +54,6 @@
     </a-table-column>
   </a-table>
   <div v-else>
-    <a-empty v-if="!rows?.length" description="无日志" />
     <div v-for="(log, li) in rows" :key="li" class="mobile-card">
       <div class="mobile-card-header">
         <span style="font-size: 12px">{{ formatTime(log.eventTime) }}</span>

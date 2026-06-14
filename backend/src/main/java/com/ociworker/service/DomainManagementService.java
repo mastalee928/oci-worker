@@ -652,23 +652,7 @@ public class DomainManagementService {
             Date endTime = new Date();
             Date startTime = Date.from(java.time.Instant.now().minus(Duration.ofDays(window)));
 
-            List<AuditEvent> events = new ArrayList<>();
-            try (AuditClient auditClient = AuditClient.builder().build(client.getProvider())) {
-                String tenancyId = client.getProvider().getTenantId();
-                String page = null;
-                int maxEvents = 12000;
-                do {
-                    var reqB = ListEventsRequest.builder()
-                            .compartmentId(tenancyId)
-                            .startTime(startTime)
-                            .endTime(endTime);
-                    if (page != null) reqB.page(page);
-                    var resp = auditClient.listEvents(reqB.build());
-                    if (resp.getItems() != null) events.addAll(resp.getItems());
-                    page = resp.getOpcNextPage();
-                } while (page != null && !page.isEmpty() && events.size() < maxEvents);
-                log.info("OCI Audit listEvents rawTotal={} windowDays={}", events.size(), window);
-            }
+            List<AuditEvent> events = listLoginAuditEvents(client, startTime, endTime, window);
 
             Map<String, List<Map<String, Object>>> grouped = new LinkedHashMap<>();
             for (var d : domains) grouped.put((String) d.get("id"), new ArrayList<>());
@@ -676,11 +660,10 @@ public class DomainManagementService {
 
             Map<String, String> nameToId = new HashMap<>();
             for (var d : domains) {
-                Object n = d.get("displayName");
-                if (n != null) nameToId.put(String.valueOf(n).trim().toLowerCase(Locale.ROOT), (String) d.get("id"));
+                String id = (String) d.get("id");
+                putDomainAlias(nameToId, d.get("displayName"), id);
+                putDomainAlias(nameToId, d.get("type"), id);
             }
-
-            String fallbackDomainId = resolveLoginLogFallbackDomainId(domains);
 
             for (AuditEvent ev : events) {
                 String etFull = ev.getEventType();
@@ -762,11 +745,10 @@ public class DomainManagementService {
                 }
             }
 
-            if (!unknown.isEmpty()) {
-                String target = fallbackDomainId != null && grouped.containsKey(fallbackDomainId)
-                        ? fallbackDomainId
-                        : (String) domains.getFirst().get("id");
-                grouped.get(target).addAll(unknown);
+            int unresolvedCount = unknown.size();
+            if (domains.size() == 1 && !unknown.isEmpty()) {
+                grouped.get((String) domains.getFirst().get("id")).addAll(unknown);
+                unknown.clear();
             }
 
             for (var d : domains) {
@@ -781,6 +763,9 @@ public class DomainManagementService {
                     return tb.compareTo(ta);
                 });
                 entry.put("logs", logs);
+                if (unresolvedCount > 0 && domains.size() > 1) {
+                    entry.put("notice", "另有 " + unresolvedCount + " 条登录日志未包含可识别的身份域字段，已避免错误归类到 Default。");
+                }
                 result.add(entry);
             }
         } catch (OciException e) {
@@ -789,6 +774,113 @@ public class DomainManagementService {
             throw new OciException("获取登录日志失败: " + (e.getMessage() == null ? "未知错误" : e.getMessage()));
         }
         return result;
+    }
+
+    private List<AuditEvent> listLoginAuditEvents(OciClientService client, Date startTime, Date endTime, int windowDays) {
+        String tenancyId = client.getProvider().getTenantId();
+        LinkedHashSet<String> regions = resolveAuditRegionNames(client);
+        Map<String, AuditEvent> dedup = new LinkedHashMap<>();
+        int maxEventsPerRegion = 12000;
+        int successfulRegions = 0;
+        Exception firstFailure = null;
+
+        for (String regionName : regions) {
+            List<AuditEvent> regionEvents = new ArrayList<>();
+            try (AuditClient auditClient = AuditClient.builder().build(client.getProvider())) {
+                if (regionName != null && !regionName.isBlank()) {
+                    auditClient.setRegion(regionName);
+                }
+                String page = null;
+                do {
+                    var reqB = ListEventsRequest.builder()
+                            .compartmentId(tenancyId)
+                            .startTime(startTime)
+                            .endTime(endTime);
+                    if (page != null) reqB.page(page);
+                    var resp = auditClient.listEvents(reqB.build());
+                    if (resp.getItems() != null) regionEvents.addAll(resp.getItems());
+                    page = resp.getOpcNextPage();
+                } while (page != null && !page.isEmpty() && regionEvents.size() < maxEventsPerRegion);
+                for (AuditEvent event : regionEvents) {
+                    dedup.putIfAbsent(auditEventKey(event), event);
+                }
+                successfulRegions++;
+                log.info("OCI Audit listEvents region={} rawTotal={} windowDays={}",
+                        regionName, regionEvents.size(), windowDays);
+            } catch (Exception e) {
+                if (firstFailure == null) firstFailure = e;
+                log.warn("OCI Audit listEvents failed region={}: {}", regionName, e.getMessage());
+            }
+        }
+
+        if (successfulRegions == 0 && firstFailure != null) {
+            throw new OciException("OCI Audit 查询失败: " + (firstFailure.getMessage() == null ? "未知错误" : firstFailure.getMessage()));
+        }
+        log.info("OCI Audit listEvents mergedTotal={} regions={} windowDays={}", dedup.size(), regions, windowDays);
+        return new ArrayList<>(dedup.values());
+    }
+
+    private LinkedHashSet<String> resolveAuditRegionNames(OciClientService client) {
+        LinkedHashSet<String> regions = new LinkedHashSet<>();
+        String homeRegion = resolveHomeRegionName(client);
+        if (homeRegion != null && !homeRegion.isBlank()) regions.add(homeRegion);
+        String configuredRegion = client.getUser() == null || client.getUser().getOciCfg() == null
+                ? null
+                : client.getUser().getOciCfg().getRegion();
+        if (configuredRegion != null && !configuredRegion.isBlank()) regions.add(configuredRegion);
+        if (regions.isEmpty()) regions.add(null);
+        return regions;
+    }
+
+    private String resolveHomeRegionName(OciClientService client) {
+        String tenancyId = client.getProvider().getTenantId();
+        try {
+            var identity = client.getIdentityClient();
+            var subscriptions = identity.listRegionSubscriptions(
+                    com.oracle.bmc.identity.requests.ListRegionSubscriptionsRequest.builder()
+                            .tenancyId(tenancyId)
+                            .build()).getItems();
+            if (subscriptions != null) {
+                for (var sub : subscriptions) {
+                    if (Boolean.TRUE.equals(sub.getIsHomeRegion()) && sub.getRegionName() != null && !sub.getRegionName().isBlank()) {
+                        return sub.getRegionName();
+                    }
+                }
+            }
+            String homeKey = null;
+            try {
+                var tenancy = identity.getTenancy(com.oracle.bmc.identity.requests.GetTenancyRequest.builder()
+                        .tenancyId(tenancyId)
+                        .build()).getTenancy();
+                homeKey = tenancy == null ? null : tenancy.getHomeRegionKey();
+            } catch (Exception e) {
+                log.warn("Failed to resolve tenancy home region key: {}", e.getMessage());
+            }
+            if (homeKey != null && subscriptions != null) {
+                for (var sub : subscriptions) {
+                    if (homeKey.equalsIgnoreCase(String.valueOf(sub.getRegionKey()))
+                            && sub.getRegionName() != null && !sub.getRegionName().isBlank()) {
+                        return sub.getRegionName();
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to resolve audit home region: {}", e.getMessage());
+        }
+        return null;
+    }
+
+    private String auditEventKey(AuditEvent ev) {
+        if (ev == null) return UUID.randomUUID().toString();
+        com.oracle.bmc.audit.model.Data data = ev.getData();
+        String eventTime = ev.getEventTime() == null ? "" : ev.getEventTime().toInstant().toString();
+        String resourceId = data == null || data.getResourceId() == null ? "" : data.getResourceId();
+        String principal = "";
+        if (data != null && data.getIdentity() != null && data.getIdentity().getPrincipalId() != null) {
+            principal = data.getIdentity().getPrincipalId();
+        }
+        String eventName = data == null || data.getEventName() == null ? "" : data.getEventName();
+        return eventTime + "|" + ev.getEventType() + "|" + eventName + "|" + resourceId + "|" + principal;
     }
 
     @SuppressWarnings("unchecked")
@@ -807,6 +899,44 @@ public class DomainManagementService {
         Object v2 = map == null ? null : map.get(k2);
         if (v2 != null && String.valueOf(v2).trim().length() > 0) return v2;
         return null;
+    }
+
+    private static void putDomainAlias(Map<String, String> aliases, Object rawName, String domainId) {
+        if (aliases == null || domainId == null || rawName == null) return;
+        String text = String.valueOf(rawName).trim();
+        if (text.isEmpty()) return;
+        aliases.put(text.toLowerCase(Locale.ROOT), domainId);
+        aliases.put(normalizeDomainAlias(text), domainId);
+    }
+
+    private static String normalizeDomainAlias(String value) {
+        return value == null
+                ? ""
+                : value.trim().toLowerCase(Locale.ROOT).replaceAll("[\\s_\\-]+", "");
+    }
+
+    private static String findDomainIdByName(Map<String, String> nameToId, Object rawName) {
+        if (nameToId == null || rawName == null) return null;
+        String text = String.valueOf(rawName).trim();
+        if (text.isEmpty()) return null;
+        String exact = nameToId.get(text.toLowerCase(Locale.ROOT));
+        if (exact != null) return exact;
+        return nameToId.get(normalizeDomainAlias(text));
+    }
+
+    private static String extractDomainOcid(String value) {
+        if (value == null) return null;
+        int start = value.indexOf("ocid1.domain.");
+        if (start < 0) return null;
+        int end = value.length();
+        for (int i = start; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (Character.isWhitespace(c) || c == ',' || c == '"' || c == '\'' || c == ')' || c == ']') {
+                end = i;
+                break;
+            }
+        }
+        return value.substring(start, end);
     }
 
     /**
@@ -841,26 +971,29 @@ public class DomainManagementService {
     private static String resolveLoginLogDomainId(com.oracle.bmc.audit.model.Data data, Map<String, String> nameToId) {
         if (data == null) return null;
         String rid = data.getResourceId();
-        if (rid != null && rid.contains("ocid1.domain.")) return rid;
+        String ridDomain = extractDomainOcid(rid);
+        if (ridDomain != null) return ridDomain;
 
         Map<String, Object> addl = castStringObjectMap(data.getAdditionalDetails());
-        if (addl == null) return null;
-        Object did = firstNonBlank(addl, "domainOcid", "domainId");
-        String ds = did != null ? String.valueOf(did).trim() : "";
-        if (ds.startsWith("ocid1.domain.")) return ds;
-        Object dn = addl.get("domainDisplayName");
-        if (dn == null || String.valueOf(dn).isBlank()) return null;
-        return nameToId.get(String.valueOf(dn).trim().toLowerCase(Locale.ROOT));
-    }
-
-    /** 无法解析域时将日志归并入「默认域」（type=DEFAULT），否则第一条域 — 避免静默丢失 unknown */
-    private static String resolveLoginLogFallbackDomainId(List<Map<String, Object>> domains) {
-        if (domains == null || domains.isEmpty()) return null;
-        for (var d : domains) {
-            if ("DEFAULT".equalsIgnoreCase(String.valueOf(d.get("type")))) return (String) d.get("id");
+        if (addl != null) {
+            for (String key : List.of("domainOcid", "domainId", "identityDomainId", "identityDomainOcid")) {
+                Object raw = addl.get(key);
+                String domainOcid = extractDomainOcid(raw == null ? null : String.valueOf(raw));
+                if (domainOcid != null) return domainOcid;
+            }
+            for (String key : List.of(
+                    "domainDisplayName",
+                    "domainName",
+                    "identityDomainName",
+                    "identityDomain",
+                    "idcsTenant",
+                    "tenantName",
+                    "ssoIdentityProvider")) {
+                String found = findDomainIdByName(nameToId, addl.get(key));
+                if (found != null) return found;
+            }
         }
-        for (var d : domains) if ("Default".equals(d.get("displayName"))) return (String) d.get("id");
-        return (String) domains.getFirst().get("id");
+        return findDomainIdByName(nameToId, data.getResourceName());
     }
 
     // ---------------- Authentication Factor Settings ----------------

@@ -1791,7 +1791,8 @@ region=ap-tokyo-1"
             </span>
           </a-space>
           <a-spin :spinning="auditLogsLoading">
-            <a-empty v-if="!auditLogsLoading && !selectedAuditDomain" description="请点击「加载」按钮拉取当前域的登录日志" />
+            <a-empty v-if="!auditLogsLoading && !auditLogsLoaded" description="请点击「加载」按钮拉取当前域的登录日志" />
+            <a-empty v-else-if="!auditLogsLoading && !selectedAuditDomain" description="未读取到当前域的登录日志结果，请重新加载" />
             <div v-else-if="selectedAuditDomain">
               <AuditLogTable :rows="selectedAuditDomain.logs || []"
                 :error="selectedAuditDomain.error || selectedAuditDomain.notice" :is-mobile="isMobile" />
@@ -2360,6 +2361,7 @@ const selectedDomainId = ref('')
 const mfaUpdatingId = ref('')
 const pwdExpiryUpdatingId = ref('')
 const auditLogsLoading = ref(false)
+const auditLogsLoaded = ref(false)
 const auditLogs = ref<any[]>([])
 const auditDays = ref(7)
 const notificationLoading = ref(false)
@@ -2550,6 +2552,7 @@ watch(() => domainTab.value, (tab) => {
 
 function onAuditDaysChange() {
   auditLogs.value = []
+  auditLogsLoaded.value = false
 }
 
 async function sendNotificationCode() {
@@ -2845,6 +2848,7 @@ async function openDomainMgmt(record: any) {
   domainList.value = []
   selectedDomainId.value = ''
   auditLogs.value = []
+  auditLogsLoaded.value = false
   resetNotificationState()
   resetAuthFactorState()
   domainMgmtVisible.value = true
@@ -2985,9 +2989,11 @@ async function loadAuditLogs() {
     return
   }
   auditLogsLoading.value = true
+  auditLogsLoaded.value = false
   try {
     const res = await getAuditLogs({ id: domainMgmtTenant.value.id, days: auditDays.value })
     auditLogs.value = Array.isArray(res.data) ? res.data : []
+    auditLogsLoaded.value = true
     const cur = auditLogs.value.find((d: any) => d.domainId === selectedDomainId.value)
     const count = cur?.logs?.length || 0
     if (!count && !cur?.error && !cur?.notice) {
