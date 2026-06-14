@@ -5,6 +5,7 @@ import com.ociworker.model.params.IdParams;
 import com.ociworker.model.params.PageParams;
 import com.ociworker.model.params.TenantBatchMoveGroupParams;
 import com.ociworker.model.params.TenantParams;
+import com.ociworker.service.BudgetService;
 import com.ociworker.model.vo.ResponseData;
 import com.ociworker.service.DomainManagementService;
 import com.ociworker.service.AnnouncementService;
@@ -39,6 +40,8 @@ public class TenantController {
     private AnnouncementService announcementService;
     @Resource
     private VerifyCodeService verifyCodeService;
+    @Resource
+    private BudgetService budgetService;
 
     @PostMapping("/list")
     public ResponseData<?> list(@RequestBody PageParams params) {
@@ -104,6 +107,53 @@ public class TenantController {
                 .contentType(MediaType.APPLICATION_PDF)
                 .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename*=UTF-8''" + encoded)
                 .body(pdf);
+    }
+
+    @PostMapping("/budgets")
+    public ResponseData<?> budgets(@RequestBody java.util.Map<String, Object> params) {
+        return ResponseData.ok(budgetService.listBudgets(str(params, "id")));
+    }
+
+    @PostMapping("/budget/create")
+    public ResponseData<?> createBudget(@RequestBody java.util.Map<String, Object> params) {
+        return ResponseData.ok(budgetService.createBudget(str(params, "id"), params));
+    }
+
+    @PostMapping("/budget/update")
+    public ResponseData<?> updateBudget(@RequestBody java.util.Map<String, Object> params) {
+        return ResponseData.ok(budgetService.updateBudget(str(params, "id"), params));
+    }
+
+    @PostMapping("/budget/delete")
+    public ResponseData<?> deleteBudget(@RequestBody java.util.Map<String, Object> params) {
+        budgetService.deleteBudget(str(params, "id"), str(params, "budgetId"));
+        return ResponseData.ok();
+    }
+
+    @PostMapping("/budget/alertRules")
+    public ResponseData<?> budgetAlertRules(@RequestBody java.util.Map<String, Object> params) {
+        return ResponseData.ok(budgetService.listAlertRules(str(params, "id"), str(params, "budgetId")));
+    }
+
+    @PostMapping("/budget/alertRule/create")
+    public ResponseData<?> createBudgetAlertRule(@RequestBody java.util.Map<String, Object> params) {
+        return ResponseData.ok(budgetService.createAlertRule(str(params, "id"), params));
+    }
+
+    @PostMapping("/budget/alertRule/update")
+    public ResponseData<?> updateBudgetAlertRule(@RequestBody java.util.Map<String, Object> params) {
+        return ResponseData.ok(budgetService.updateAlertRule(str(params, "id"), params));
+    }
+
+    @PostMapping("/budget/alertRule/delete")
+    public ResponseData<?> deleteBudgetAlertRule(@RequestBody java.util.Map<String, Object> params) {
+        budgetService.deleteAlertRule(str(params, "id"), str(params, "budgetId"), str(params, "alertRuleId"));
+        return ResponseData.ok();
+    }
+
+    private static String str(java.util.Map<String, Object> params, String key) {
+        if (params == null || params.get(key) == null) return null;
+        return String.valueOf(params.get(key));
     }
 
     @PostMapping("/uploadKey")

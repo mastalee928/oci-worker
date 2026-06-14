@@ -47,6 +47,73 @@ export function downloadInvoicePdf(data: { id: string; invoiceId: string; fileNa
   return request.post('/oci/user/invoicePdf', data, { responseType: 'blob' as any })
 }
 
+export type BudgetTargetType = 'COMPARTMENT' | 'TAG'
+export type BudgetProcessingPeriodType = 'MONTH' | 'INVOICE' | 'SINGLE_USE'
+export type BudgetAlertType = 'ACTUAL' | 'FORECAST'
+export type BudgetThresholdType = 'PERCENTAGE' | 'ABSOLUTE'
+
+export interface BudgetPayload {
+  id: string
+  budgetId?: string
+  displayName: string
+  description?: string
+  amount: number | string
+  compartmentId?: string
+  targetType?: BudgetTargetType
+  target?: string
+  targets?: string[]
+  resetPeriod?: 'MONTHLY'
+  processingPeriodType?: BudgetProcessingPeriodType
+  budgetProcessingPeriodStartOffset?: number | null
+  startDate?: string
+  endDate?: string
+}
+
+export interface BudgetAlertRulePayload {
+  id: string
+  budgetId: string
+  alertRuleId?: string
+  displayName: string
+  description?: string
+  type?: BudgetAlertType
+  threshold: number | string
+  thresholdType?: BudgetThresholdType
+  recipients: string
+  message?: string
+}
+
+export function listBudgets(data: { id: string }) {
+  return request.post('/oci/user/budgets', data)
+}
+
+export function createBudget(data: BudgetPayload) {
+  return request.post('/oci/user/budget/create', data)
+}
+
+export function updateBudget(data: BudgetPayload & { budgetId: string }) {
+  return request.post('/oci/user/budget/update', data)
+}
+
+export function deleteBudget(data: { id: string; budgetId: string }) {
+  return request.post('/oci/user/budget/delete', data)
+}
+
+export function listBudgetAlertRules(data: { id: string; budgetId: string }) {
+  return request.post('/oci/user/budget/alertRules', data)
+}
+
+export function createBudgetAlertRule(data: BudgetAlertRulePayload) {
+  return request.post('/oci/user/budget/alertRule/create', data)
+}
+
+export function updateBudgetAlertRule(data: BudgetAlertRulePayload & { alertRuleId: string }) {
+  return request.post('/oci/user/budget/alertRule/update', data)
+}
+
+export function deleteBudgetAlertRule(data: { id: string; budgetId: string; alertRuleId: string }) {
+  return request.post('/oci/user/budget/alertRule/delete', data)
+}
+
 export function uploadKey(formData: FormData) {
   return request.post('/oci/user/uploadKey', formData, {
     headers: { 'Content-Type': 'multipart/form-data' },
