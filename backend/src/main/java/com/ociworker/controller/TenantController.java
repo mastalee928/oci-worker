@@ -209,13 +209,20 @@ public class TenantController {
     @PostMapping("/domainNotifications")
     public ResponseData<?> domainNotifications(@RequestBody java.util.Map<String, Object> params) {
         return ResponseData.ok(domainManagementService.getNotificationSettings(
-                str(params, "id"), str(params, "domainId")));
+                str(params, "id"), str(params, "domainId"), str(params, "accessToken")));
+    }
+
+    @PostMapping("/domainNotificationsUnlock")
+    public ResponseData<?> domainNotificationsUnlock(@RequestBody java.util.Map<String, String> params) {
+        String code = params == null ? null : params.get("verifyCode");
+        String token = domainManagementService.unlockDomainNotifications(code);
+        return ResponseData.ok(java.util.Map.of("accessToken", token));
     }
 
     @PostMapping("/updateDomainNotifications")
     public ResponseData<?> updateDomainNotifications(@RequestBody java.util.Map<String, Object> params) {
         return ResponseData.ok(domainManagementService.updateNotificationSettings(
-                str(params, "id"), str(params, "domainId"), params));
+                str(params, "id"), str(params, "domainId"), str(params, "accessToken"), params));
     }
 
     @PostMapping("/auditLogs")

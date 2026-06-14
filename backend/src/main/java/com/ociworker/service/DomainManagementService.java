@@ -36,6 +36,9 @@ public class DomainManagementService {
     /** token -> expireAt（验证因素 Tab 解锁后 10 分钟内可读写） */
     private static final java.util.Map<String, Long> AUTH_FACTOR_TOKENS = new java.util.concurrent.ConcurrentHashMap<>();
     private static final long AUTH_FACTOR_TOKEN_TTL_MS = 10 * 60 * 1000L;
+    /** token -> expireAt（域通知 Tab 解锁后 10 分钟内可读写） */
+    private static final java.util.Map<String, Long> DOMAIN_NOTIFICATION_TOKENS = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final long DOMAIN_NOTIFICATION_TOKEN_TTL_MS = 10 * 60 * 1000L;
 
     /** 以 TG 验证码换取短期 accessToken */
     public String unlockAuthFactors(String inputCode) {
@@ -55,6 +58,27 @@ public class DomainManagementService {
         if (System.currentTimeMillis() > exp) {
             AUTH_FACTOR_TOKENS.remove(token);
             throw new OciException("会话已过期，请重新解锁");
+        }
+    }
+
+    /** 以 TG 验证码换取域通知短期 accessToken */
+    public String unlockDomainNotifications(String inputCode) {
+        if (inputCode == null || inputCode.isBlank()) throw new OciException("请输入验证码");
+        verifyCodeService.verifyCode("domainNotifications", inputCode);
+        long now = System.currentTimeMillis();
+        DOMAIN_NOTIFICATION_TOKENS.entrySet().removeIf(e -> e.getValue() < now);
+        String token = java.util.UUID.randomUUID().toString();
+        DOMAIN_NOTIFICATION_TOKENS.put(token, now + DOMAIN_NOTIFICATION_TOKEN_TTL_MS);
+        return token;
+    }
+
+    private void requireDomainNotificationToken(String token) {
+        if (token == null || token.isBlank()) throw new OciException("域通知会话未解锁，请先通过 TG 验证码解锁");
+        Long exp = DOMAIN_NOTIFICATION_TOKENS.get(token);
+        if (exp == null) throw new OciException("域通知会话已失效，请重新解锁");
+        if (System.currentTimeMillis() > exp) {
+            DOMAIN_NOTIFICATION_TOKENS.remove(token);
+            throw new OciException("域通知会话已过期，请重新解锁");
         }
     }
 
@@ -363,7 +387,8 @@ public class DomainManagementService {
 
     // ---------------- Notification Settings ----------------
 
-    public Map<String, Object> getNotificationSettings(String tenantId, String domainId) {
+    public Map<String, Object> getNotificationSettings(String tenantId, String domainId, String token) {
+        requireDomainNotificationToken(token);
         try (OciClientService client = buildClient(tenantId)) {
             var domains = listDomains(client, true);
             var target = findDomain(domains, domainId);
@@ -377,7 +402,8 @@ public class DomainManagementService {
         }
     }
 
-    public Map<String, Object> updateNotificationSettings(String tenantId, String domainId, Map<String, Object> payload) {
+    public Map<String, Object> updateNotificationSettings(String tenantId, String domainId, String token, Map<String, Object> payload) {
+        requireDomainNotificationToken(token);
         try (OciClientService client = buildClient(tenantId)) {
             var domains = listDomains(client, true);
             var target = findDomain(domains, domainId);

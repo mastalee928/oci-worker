@@ -143,6 +143,7 @@ export function updatePasswordExpiry(data: { id: string; domainId?: string; days
 export interface DomainNotificationPayload {
   id: string
   domainId: string
+  accessToken?: string
   notificationEnabled?: boolean
   testModeEnabled?: boolean
   testRecipients?: string[] | string
@@ -155,7 +156,11 @@ export interface DomainNotificationPayload {
   eventSettings?: Array<{ eventId: string; enabled: boolean }>
 }
 
-export function getDomainNotifications(data: { id: string; domainId: string }) {
+export function unlockDomainNotifications(data: { verifyCode: string }) {
+  return request.post('/oci/user/domainNotificationsUnlock', data)
+}
+
+export function getDomainNotifications(data: { id: string; domainId: string; accessToken?: string }) {
   return request.post('/oci/user/domainNotifications', data)
 }
 

@@ -1610,7 +1610,31 @@ region=ap-tokyo-1"
           </div>
         </a-tab-pane>
         <a-tab-pane key="notifications" tab="通知">
-          <a-spin :spinning="notificationLoading">
+          <div v-if="!notificationToken" class="factor-lock notification-lock">
+            <i class="ri-shield-keyhole-line factor-lock-icon"></i>
+            <div class="factor-lock-title">修改域通知需要 Telegram 二次验证</div>
+            <div class="factor-lock-desc">
+              该设置对应「身份域 → 设置 → 通知」。解锁后可查看和保存域通知配置，切换域不需要重新验证。
+            </div>
+            <a-space class="notification-lock-actions" wrap>
+              <a-button @click="sendNotificationCode" :loading="notificationCodeSending">
+                <template #icon><i class="ri-send-plane-line"></i></template>
+                获取验证码
+              </a-button>
+              <a-input v-model:value="notificationCodeInput" placeholder="6 位验证码" :maxlength="6" style="width: 140px" />
+              <a-button type="primary" :loading="notificationUnlocking" @click="doUnlockNotifications">解锁</a-button>
+            </a-space>
+          </div>
+          <div v-else>
+            <a-alert type="success" show-icon style="margin-bottom: 12px"
+              message="已通过 TG 验证，10 分钟内可编辑域通知；切换域不需要重新验证。" />
+            <div class="notification-toolbar">
+              <div class="notification-toolbar-title">当前域通知配置</div>
+              <a-button size="small" :loading="notificationLoading" :disabled="!selectedDomainId" @click="loadDomainNotifications">
+                <template #icon><ReloadOutlined /></template>刷新当前域
+              </a-button>
+            </div>
+            <a-spin :spinning="notificationLoading">
             <template v-if="notificationData">
               <div class="domain-notification-layout">
                 <section class="notification-panel">
@@ -1747,7 +1771,8 @@ region=ap-tokyo-1"
                 </a-button>
               </template>
             </a-empty>
-          </a-spin>
+            </a-spin>
+          </div>
         </a-tab-pane>
         <a-tab-pane key="logs" tab="登录日志">
           <a-space style="margin-bottom: 12px" wrap>
@@ -1787,7 +1812,7 @@ import { useRouter } from 'vue-router'
 import { PlusOutlined, ThunderboltOutlined, InboxOutlined, ReloadOutlined, MenuFoldOutlined, MenuUnfoldOutlined, VerticalAlignTopOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
 import type { UploadFile } from 'ant-design-vue'
-import { getTenantList, addTenant, updateTenant, removeTenant, batchMoveTenantGroup, uploadKey, getTenantFullInfo, getTenantBillingSummary, downloadInvoicePdf, listBudgets, createBudget, updateBudget, deleteBudget, listBudgetAlertRules, createBudgetAlertRule, updateBudgetAlertRule, deleteBudgetAlertRule, listTenantRegions, subscribeTenantRegion, getDomainSettings, updateMfa, updatePasswordExpiry, getDomainNotifications, updateDomainNotifications, getAuditLogs, getServiceQuotas, listIamPolicies, getIamPolicy, listAnnouncements, getAnnouncementDetail, getTenantGroups, createGroup, renameGroup, deleteGroup, saveGroupOrder, unlockAuthFactors, getAuthFactors, updateAuthFactors } from '../api/tenant'
+import { getTenantList, addTenant, updateTenant, removeTenant, batchMoveTenantGroup, uploadKey, getTenantFullInfo, getTenantBillingSummary, downloadInvoicePdf, listBudgets, createBudget, updateBudget, deleteBudget, listBudgetAlertRules, createBudgetAlertRule, updateBudgetAlertRule, deleteBudgetAlertRule, listTenantRegions, subscribeTenantRegion, getDomainSettings, updateMfa, updatePasswordExpiry, unlockDomainNotifications, getDomainNotifications, updateDomainNotifications, getAuditLogs, getServiceQuotas, listIamPolicies, getIamPolicy, listAnnouncements, getAnnouncementDetail, getTenantGroups, createGroup, renameGroup, deleteGroup, saveGroupOrder, unlockAuthFactors, getAuthFactors, updateAuthFactors } from '../api/tenant'
 import type { BudgetAlertType, BudgetProcessingPeriodType, BudgetTargetType, BudgetThresholdType } from '../api/tenant'
 import { listCompartmentPicker } from '../api/compartment'
 import { sendVerifyCode } from '../api/system'
@@ -2342,6 +2367,10 @@ const notificationSaving = ref(false)
 const notificationData = ref<any | null>(null)
 const notificationRecipientsText = ref('')
 const notificationEventActiveKeys = ref<string[]>([])
+const notificationCodeSending = ref(false)
+const notificationCodeInput = ref('')
+const notificationUnlocking = ref(false)
+const notificationToken = ref('')
 const quotasLoading = ref(false)
 const quotasList = ref<any[]>([])
 const quotaSearch = ref('')
@@ -2509,12 +2538,12 @@ const NOTIFICATION_EVENT_LABELS: Record<string, string> = {
 function handleDomainChange(domainId: string) {
   if (!domainId || domainId === selectedDomainId.value) return
   selectedDomainId.value = domainId
-  resetNotificationState()
-  if (domainTab.value === 'notifications') void loadDomainNotifications()
+  resetNotificationState(true)
+  if (domainTab.value === 'notifications' && notificationToken.value) void loadDomainNotifications()
 }
 
 watch(() => domainTab.value, (tab) => {
-  if (tab === 'notifications' && selectedDomainId.value && !notificationData.value) {
+  if (tab === 'notifications' && selectedDomainId.value && notificationToken.value && !notificationData.value) {
     void loadDomainNotifications()
   }
 })
@@ -2523,10 +2552,50 @@ function onAuditDaysChange() {
   auditLogs.value = []
 }
 
-function resetNotificationState() {
+async function sendNotificationCode() {
+  notificationCodeSending.value = true
+  try {
+    await sendVerifyCode('domainNotifications')
+    message.success('验证码已发送至 Telegram')
+  } catch (e: any) {
+    message.error(e?.message || '发送验证码失败')
+  } finally {
+    notificationCodeSending.value = false
+  }
+}
+
+async function doUnlockNotifications() {
+  if (!notificationCodeInput.value || notificationCodeInput.value.length !== 6) {
+    return message.warning('请输入 6 位验证码')
+  }
+  notificationUnlocking.value = true
+  try {
+    const r = await unlockDomainNotifications({ verifyCode: notificationCodeInput.value })
+    notificationToken.value = r.data?.accessToken || ''
+    notificationCodeInput.value = ''
+    if (!notificationToken.value) throw new Error('未获取到访问令牌')
+    await loadDomainNotifications()
+    message.success('已解锁')
+  } catch (e: any) {
+    message.error(e?.message || '解锁失败')
+  } finally {
+    notificationUnlocking.value = false
+  }
+}
+
+function resetNotificationState(keepToken = false) {
   notificationData.value = null
   notificationRecipientsText.value = ''
   notificationEventActiveKeys.value = []
+  if (!keepToken) {
+    notificationCodeInput.value = ''
+    notificationToken.value = ''
+  }
+}
+
+function isUnlockExpiredMessage(msg: any): boolean {
+  const text = String(msg || '')
+  return text.includes('解锁') || text.includes('失效') || text.includes('过期')
 }
 
 function normalizeDomainNotification(raw: any) {
@@ -2783,7 +2852,10 @@ async function openDomainMgmt(record: any) {
 }
 
 watch(() => domainMgmtVisible.value, (v) => {
-  if (!v) resetAuthFactorState()
+  if (!v) {
+    resetAuthFactorState()
+    resetNotificationState()
+  }
 })
 
 async function loadDomainSettings() {
@@ -2838,13 +2910,22 @@ async function loadDomainNotifications() {
     message.warning('请先选择域')
     return
   }
+  if (!notificationToken.value) {
+    message.warning('请先通过 TG 验证码解锁域通知')
+    return
+  }
   notificationLoading.value = true
   try {
-    const res = await getDomainNotifications({ id: domainMgmtTenant.value.id, domainId: selectedDomainId.value })
+    const res = await getDomainNotifications({
+      id: domainMgmtTenant.value.id,
+      domainId: selectedDomainId.value,
+      accessToken: notificationToken.value,
+    })
     notificationData.value = normalizeDomainNotification(res.data || {})
     notificationRecipientsText.value = (notificationData.value.testRecipients || []).join('\n')
   } catch (e: any) {
     message.error(e?.message || '读取域通知设置失败')
+    if (isUnlockExpiredMessage(e?.message)) resetNotificationState()
   } finally {
     notificationLoading.value = false
   }
@@ -2852,6 +2933,10 @@ async function loadDomainNotifications() {
 
 async function saveDomainNotifications() {
   if (!domainMgmtTenant.value?.id || !selectedDomainId.value || !notificationData.value) return
+  if (!notificationToken.value) {
+    message.warning('请先通过 TG 验证码解锁域通知')
+    return
+  }
   const fromEmail = notificationData.value.fromEmailAddress || {}
   if (!String(fromEmail.value || '').trim()) {
     message.warning('请填写发件人电子邮件地址')
@@ -2862,6 +2947,7 @@ async function saveDomainNotifications() {
     const res = await updateDomainNotifications({
       id: domainMgmtTenant.value.id,
       domainId: selectedDomainId.value,
+      accessToken: notificationToken.value,
       notificationEnabled: !!notificationData.value.notificationEnabled,
       testModeEnabled: !!notificationData.value.testModeEnabled,
       testRecipients: parseNotificationRecipients(notificationRecipientsText.value),
@@ -2887,6 +2973,7 @@ async function saveDomainNotifications() {
     notificationRecipientsText.value = (notificationData.value.testRecipients || []).join('\n')
   } catch (e: any) {
     message.error(e?.message || '保存域通知设置失败')
+    if (isUnlockExpiredMessage(e?.message)) resetNotificationState()
   } finally {
     notificationSaving.value = false
   }
@@ -4401,6 +4488,10 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
 }
 .factor-lock-title { font-size: 15px; font-weight: 600; margin-bottom: 6px; }
 .factor-lock-desc { font-size: 12px; color: var(--text-sub); max-width: 520px; margin: 0 auto; line-height: 1.6; }
+.notification-lock-actions {
+  justify-content: center;
+  margin-top: 14px;
+}
 .factor-section-title {
   font-weight: 600;
   font-size: 13px;
@@ -4418,6 +4509,23 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+.notification-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm, 8px);
+  background: var(--bg-card);
+}
+.notification-toolbar-title {
+  min-width: 0;
+  color: var(--text-main);
+  font-size: 13px;
+  font-weight: 600;
 }
 .notification-panel {
   border: 1px solid var(--border);
@@ -5102,6 +5210,13 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   .notification-form-grid {
     grid-template-columns: 1fr;
   }
+  .notification-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .notification-toolbar :deep(.ant-btn) {
+    width: 100%;
+  }
   .notification-event-row {
     align-items: flex-start;
     flex-direction: column;
@@ -5114,6 +5229,17 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   }
   .notification-actions :deep(.ant-btn) {
     flex: 1 1 120px;
+  }
+  .notification-lock-actions {
+    width: 100%;
+    justify-content: stretch;
+  }
+  .notification-lock-actions :deep(.ant-space-item) {
+    flex: 1 1 100%;
+  }
+  .notification-lock-actions :deep(.ant-input),
+  .notification-lock-actions :deep(.ant-btn) {
+    width: 100% !important;
   }
 }
 

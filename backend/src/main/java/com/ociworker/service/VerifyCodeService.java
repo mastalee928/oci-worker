@@ -59,6 +59,7 @@ public class VerifyCodeService {
             case "deleteVcnSl" -> "删除安全列表";
             case "deleteVcnDrg" -> "删除 DRG";
             case "authFactors" -> "修改域验证因素设置";
+            case "domainNotifications" -> "修改域通知";
             case "banlist" -> "封禁列表管理";
             case "loginAudit" -> "登录统计查看";
             case "deleteCompartment" -> "删除区间";
