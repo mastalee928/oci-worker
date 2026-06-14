@@ -110,17 +110,22 @@ public class SystemService {
             JsonNode root = JSON.readTree(response.body());
             result.put("latestTag", root.path("tag_name").asText(""));
 
-            String publishedAt = root.path("published_at").asText("");
-            if (!publishedAt.isEmpty()) {
-                result.put("publishedAt", publishedAt);
-            }
-
             long jarSize = 0;
+            String releasePublishedAt = root.path("published_at").asText("");
+            String assetUpdatedAt = "";
             for (JsonNode a : root.withArray("assets")) {
                 if (ASSET_NAME.equals(a.path("name").asText())) {
                     jarSize = a.path("size").asLong(0);
+                    assetUpdatedAt = a.path("updated_at").asText("");
+                    if (assetUpdatedAt.isEmpty()) {
+                        assetUpdatedAt = a.path("created_at").asText("");
+                    }
                     break;
                 }
+            }
+            String publishedAt = !assetUpdatedAt.isEmpty() ? assetUpdatedAt : releasePublishedAt;
+            if (!publishedAt.isEmpty()) {
+                result.put("publishedAt", publishedAt);
             }
             if (jarSize > 0) {
                 result.put("latestSize", jarSize);
