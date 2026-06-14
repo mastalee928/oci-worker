@@ -662,6 +662,7 @@ region=ap-tokyo-1"
             <template v-if="budgetsList.length">
               <a-table
                 v-if="!isMobile"
+                class="budget-table"
                 size="small"
                 :data-source="budgetsList"
                 :pagination="{ pageSize: 8 }"
@@ -696,10 +697,9 @@ region=ap-tokyo-1"
                     <a-tag :color="record.lifecycleState === 'ACTIVE' ? 'green' : 'default'">{{ record.lifecycleState || '—' }}</a-tag>
                   </template>
                 </a-table-column>
-                <a-table-column title="操作" key="action" :width="210">
+                <a-table-column title="操作" key="action" :width="150">
                   <template #default="{ record }">
                     <a-space size="small">
-                      <a-button type="link" size="small" @click.stop="openBudgetAlertPanel(record)">告警</a-button>
                       <a-button type="link" size="small" @click.stop="openEditBudget(record)">编辑</a-button>
                       <a-popconfirm title="确定删除该成本预算？" @confirm="handleDeleteBudget(record)">
                         <a-button type="link" danger size="small" @click.stop>删除</a-button>
@@ -724,7 +724,6 @@ region=ap-tokyo-1"
                     <a-progress :percent="budgetProgressPercent(b)" :status="budgetProgressStatus(b)" size="small" />
                   </div>
                   <div class="mobile-card-actions">
-                    <a-button type="link" size="small" @click.stop="openBudgetAlertPanel(b)">告警</a-button>
                     <a-button type="link" size="small" @click.stop="openEditBudget(b)">编辑</a-button>
                     <a-popconfirm title="确定删除该成本预算？" @confirm="handleDeleteBudget(b)">
                       <a-button type="link" danger size="small" @click.stop>删除</a-button>
@@ -733,11 +732,11 @@ region=ap-tokyo-1"
                 </div>
               </div>
 
-              <div class="budget-alert-section" v-if="selectedBudget" ref="budgetAlertSectionRef">
+              <div class="budget-alert-section" v-if="selectedBudget">
                 <div class="budget-alert-header">
                   <div>
-                    <div class="budget-alert-title">{{ selectedBudget.displayName || '—' }}</div>
-                    <div class="budget-alert-subtitle">{{ selectedBudget.alertRules?.length || 0 }} 条告警规则</div>
+                    <div class="budget-alert-title">预算告警规则</div>
+                    <div class="budget-alert-subtitle">{{ selectedBudget.displayName || '—' }} · {{ selectedBudget.alertRules?.length || 0 }} 条规则</div>
                   </div>
                   <a-space size="small" wrap>
                     <a-button size="small" :loading="budgetAlertRulesLoading" @click="reloadSelectedBudgetAlertRules">
@@ -1164,8 +1163,10 @@ region=ap-tokyo-1"
           <a-select
             v-model:value="budgetForm.compartmentId"
             :options="budgetCompartmentOptions"
+            :loading="budgetCompartmentsLoading"
             :disabled="budgetFormMode === 'edit'"
             show-search
+            option-filter-prop="label"
             :filter-option="filterBudgetCompartmentOption"
           />
         </a-form-item>
@@ -1186,8 +1187,10 @@ region=ap-tokyo-1"
                 v-if="budgetForm.targetType === 'COMPARTMENT'"
                 v-model:value="budgetForm.target"
                 :options="budgetTargetCompartmentOptions"
+                :loading="budgetCompartmentsLoading"
                 :disabled="budgetFormMode === 'edit'"
                 show-search
+                option-filter-prop="label"
                 :filter-option="filterBudgetCompartmentOption"
               />
               <a-input v-else v-model:value="budgetForm.target" :disabled="budgetFormMode === 'edit'" allow-clear />
@@ -1524,13 +1527,14 @@ region=ap-tokyo-1"
 <script setup lang="ts">
 defineOptions({ name: 'TenantConfig' })
 
-import { ref, reactive, computed, nextTick, onMounted, onActivated, onUnmounted, watch } from 'vue'
+import { ref, reactive, computed, onMounted, onActivated, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { PlusOutlined, ThunderboltOutlined, InboxOutlined, ReloadOutlined, MenuFoldOutlined, MenuUnfoldOutlined, VerticalAlignTopOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
 import type { UploadFile } from 'ant-design-vue'
 import { getTenantList, addTenant, updateTenant, removeTenant, batchMoveTenantGroup, uploadKey, getTenantFullInfo, getTenantBillingSummary, downloadInvoicePdf, listBudgets, createBudget, updateBudget, deleteBudget, listBudgetAlertRules, createBudgetAlertRule, updateBudgetAlertRule, deleteBudgetAlertRule, getDomainSettings, updateMfa, updatePasswordExpiry, getAuditLogs, getServiceQuotas, listIamPolicies, getIamPolicy, listAnnouncements, getAnnouncementDetail, getTenantGroups, createGroup, renameGroup, deleteGroup, saveGroupOrder, unlockAuthFactors, getAuthFactors, updateAuthFactors } from '../api/tenant'
 import type { BudgetAlertType, BudgetProcessingPeriodType, BudgetTargetType, BudgetThresholdType } from '../api/tenant'
+import { listCompartmentPicker } from '../api/compartment'
 import { sendVerifyCode } from '../api/system'
 import { RightOutlined, DownOutlined, SettingOutlined, FolderOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons-vue'
 import AuditLogTable from '../components/AuditLogTable.vue'
@@ -1781,7 +1785,9 @@ const budgetsLoading = ref(false)
 const budgetsData = ref<any | null>(null)
 const selectedBudgetId = ref('')
 const budgetAlertRulesLoading = ref(false)
-const budgetAlertSectionRef = ref<HTMLElement | null>(null)
+const budgetCompartmentsLoading = ref(false)
+const budgetCompartmentsData = ref<any | null>(null)
+const budgetCompartmentsLoadedTenantId = ref('')
 const budgetFormVisible = ref(false)
 const budgetFormLoading = ref(false)
 const budgetFormMode = ref<'create' | 'edit'>('create')
@@ -2587,13 +2593,18 @@ async function openTenantMgmt(record: any) {
   billingData.value = null
   budgetsData.value = null
   selectedBudgetId.value = ''
+  budgetCompartmentsData.value = null
+  budgetCompartmentsLoadedTenantId.value = ''
   budgetFormVisible.value = false
   budgetAlertFormVisible.value = false
   await loadTenantAccountInfo(record)
 }
 
 function onTenantTabChange(key: string) {
-  if (key === 'budgets' && !budgetsData.value && !budgetsLoading.value) loadBudgets()
+  if (key === 'budgets') {
+    if (!budgetsData.value && !budgetsLoading.value) loadBudgets()
+    if (!budgetCompartmentsData.value && !budgetCompartmentsLoading.value) loadBudgetCompartments()
+  }
   if (key === 'billing' && !billingData.value) loadTenantBilling()
   if (key === 'quotas' && !quotasList.value.length && !quotasLoading.value) loadQuotas()
   if (key === 'iam' && !iamPoliciesList.value.length) loadIamPolicies()
@@ -2683,18 +2694,49 @@ function tenantRootCompartmentDisplay(): string {
   return `${name}（根）`
 }
 
+function normalizeBudgetCompartmentLabel(label: any): string {
+  return String(label || '').replace(/\s*\(root\)/g, '（根）')
+}
+
+function budgetCompartmentItems(): any[] {
+  const items = budgetCompartmentsData.value?.items
+  return Array.isArray(items) ? items : []
+}
+
+function findBudgetCompartment(compartmentId: string | null | undefined): any | null {
+  const id = (compartmentId || '').trim()
+  if (!id) return null
+  return budgetCompartmentItems().find((c: any) => c?.id === id) || null
+}
+
 function formatBudgetCompartmentDisplay(compartmentId: string | null | undefined): string {
   const id = (compartmentId || '').trim()
   if (!id) return tenantRootCompartmentDisplay()
+  const known = findBudgetCompartment(id)
+  if (known) return normalizeBudgetCompartmentLabel(known.pathLabel || known.name)
   return id === tenantRootCompartmentId() ? tenantRootCompartmentDisplay() : shortOcId(id)
 }
 
 function buildBudgetCompartmentOptions(currentId: string | null | undefined) {
   const rootId = tenantRootCompartmentId()
-  const options: Array<{ label: string; value: string }> = []
-  if (rootId) options.push({ label: tenantRootCompartmentDisplay(), value: rootId })
+  const seen = new Set<string>()
+  const options: Array<{ label: string; value: string; title?: string }> = []
+
+  for (const item of budgetCompartmentItems()) {
+    const id = String(item?.id || '').trim()
+    if (!id || seen.has(id)) continue
+    const label = normalizeBudgetCompartmentLabel(item?.pathLabel || item?.name || id)
+    options.push({ label, value: id, title: id })
+    seen.add(id)
+  }
+
+  if (rootId && !seen.has(rootId)) {
+    options.unshift({ label: tenantRootCompartmentDisplay(), value: rootId, title: rootId })
+    seen.add(rootId)
+  }
+
   const cur = (currentId || '').trim()
-  if (cur && cur !== rootId) options.push({ label: formatBudgetCompartmentDisplay(cur), value: cur })
+  if (cur && !seen.has(cur)) options.push({ label: formatBudgetCompartmentDisplay(cur), value: cur, title: cur })
   return options
 }
 
@@ -2864,6 +2906,26 @@ function upsertBudgetAlertRuleRow(rule: any) {
   setBudgetAlertRules(budgetId, rules)
 }
 
+async function loadBudgetCompartments(force = false) {
+  const tenantId = currentTenantMgmtId()
+  if (!tenantId) return
+  if (!force && budgetCompartmentsLoadedTenantId.value === tenantId && budgetCompartmentsData.value) return
+  budgetCompartmentsLoading.value = true
+  try {
+    const res = await listCompartmentPicker({ id: tenantId })
+    const data = res.data || {}
+    const items = Array.isArray(data.items) ? data.items : []
+    budgetCompartmentsData.value = { ...data, items }
+    budgetCompartmentsLoadedTenantId.value = tenantId
+  } catch (e: any) {
+    budgetCompartmentsData.value = null
+    budgetCompartmentsLoadedTenantId.value = ''
+    message.error(e?.message || '获取区间列表失败')
+  } finally {
+    budgetCompartmentsLoading.value = false
+  }
+}
+
 async function loadBudgets() {
   const tenantId = currentTenantMgmtId()
   if (!tenantId) return
@@ -2902,14 +2964,6 @@ function budgetTableRow(record: any) {
   return { onClick: () => selectBudget(record) }
 }
 
-async function openBudgetAlertPanel(record: any) {
-  if (!record?.id) return
-  selectedBudgetId.value = record.id
-  await reloadSelectedBudgetAlertRules()
-  await nextTick()
-  budgetAlertSectionRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-}
-
 async function reloadSelectedBudgetAlertRules() {
   const tenantId = currentTenantMgmtId()
   const budgetId = selectedBudget.value?.id || selectedBudgetId.value
@@ -2933,6 +2987,7 @@ function onBudgetTargetTypeChange(value: BudgetTargetType) {
 }
 
 function openCreateBudget() {
+  void loadBudgetCompartments()
   const rootCompartmentId = tenantRootCompartmentId()
   Object.assign(budgetForm, {
     budgetId: '',
@@ -2953,6 +3008,7 @@ function openCreateBudget() {
 }
 
 function openEditBudget(record: any) {
+  void loadBudgetCompartments()
   Object.assign(budgetForm, {
     budgetId: record?.id || '',
     displayName: record?.displayName || '',
@@ -3937,8 +3993,14 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   font-size: 12px;
   line-height: 1.4;
 }
+:deep(.budget-table .ant-table-row) {
+  cursor: pointer;
+}
 :deep(.budget-row-selected) > td {
   background: rgba(22, 119, 255, 0.08) !important;
+}
+:deep(.budget-row-selected) > td:first-child {
+  box-shadow: inset 2px 0 0 var(--primary, #1677ff);
 }
 .budget-alert-section {
   margin-top: 14px;
