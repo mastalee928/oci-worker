@@ -233,8 +233,9 @@ public class TenantController {
         else if (raw != null) {
             try { days = Integer.parseInt(String.valueOf(raw)); } catch (Exception ignored) {}
         }
-        String id = params == null ? null : String.valueOf(params.get("id"));
-        return ResponseData.ok(domainManagementService.getAuditLogs(id, days));
+        String id = str(params, "id");
+        String domainId = str(params, "domainId");
+        return ResponseData.ok(domainManagementService.getAuditLogs(id, days, domainId));
     }
 
     @PostMapping("/quotas")

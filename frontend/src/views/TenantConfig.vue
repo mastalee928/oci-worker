@@ -2540,8 +2540,11 @@ const NOTIFICATION_EVENT_LABELS: Record<string, string> = {
 function handleDomainChange(domainId: string) {
   if (!domainId || domainId === selectedDomainId.value) return
   selectedDomainId.value = domainId
+  auditLogs.value = []
+  auditLogsLoaded.value = false
   resetNotificationState(true)
   if (domainTab.value === 'notifications' && notificationToken.value) void loadDomainNotifications()
+  if (domainTab.value === 'logs') void loadAuditLogs()
 }
 
 watch(() => domainTab.value, (tab) => {
@@ -2991,7 +2994,11 @@ async function loadAuditLogs() {
   auditLogsLoading.value = true
   auditLogsLoaded.value = false
   try {
-    const res = await getAuditLogs({ id: domainMgmtTenant.value.id, days: auditDays.value })
+    const res = await getAuditLogs({
+      id: domainMgmtTenant.value.id,
+      days: auditDays.value,
+      domainId: selectedDomainId.value,
+    })
     auditLogs.value = Array.isArray(res.data) ? res.data : []
     auditLogsLoaded.value = true
     const cur = auditLogs.value.find((d: any) => d.domainId === selectedDomainId.value)

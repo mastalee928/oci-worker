@@ -4,6 +4,7 @@ import com.ociworker.exception.OciException;
 import com.ociworker.mapper.OciUserMapper;
 import com.ociworker.model.dto.SysUserDTO;
 import com.ociworker.model.entity.OciUser;
+import com.oracle.bmc.ClientConfiguration;
 import com.oracle.bmc.audit.AuditClient;
 import com.oracle.bmc.audit.model.AuditEvent;
 import com.oracle.bmc.audit.requests.ListEventsRequest;
@@ -26,6 +27,9 @@ public class DomainManagementService {
     private static final String DEFAULT_PASSWORD_POLICY_NAME = "DefaultPasswordPolicy";
     private static final String CONSENT_SCHEMA =
             "urn:ietf:params:scim:schemas:oracle:idcs:extension:ociconsolesignonpolicyconsent:Policy";
+    private static final long AUDIT_QUERY_BUDGET_MS = 35_000L;
+    private static final int AUDIT_READ_TIMEOUT_MS = 15_000;
+    private static final int AUDIT_MAX_PAGES_PER_REGION = 8;
 
     @Resource
     private OciUserMapper userMapper;
@@ -643,6 +647,10 @@ public class DomainManagementService {
      * 应按 {@code data.additionalDetails.eventId} 识别 SSO/控制台登录类事件（与 Oracle「从 OCI Audit 生成 IAM 报表」文档一致）。
      */
     public List<Map<String, Object>> getAuditLogs(String tenantId, int days) {
+        return getAuditLogs(tenantId, days, null);
+    }
+
+    public List<Map<String, Object>> getAuditLogs(String tenantId, int days, String domainId) {
         List<Map<String, Object>> result = new ArrayList<>();
         try (OciClientService client = buildClient(tenantId)) {
             var domains = listDomains(client, true);
@@ -651,8 +659,6 @@ public class DomainManagementService {
             int window = Math.max(1, Math.min(days, 30));
             Date endTime = new Date();
             Date startTime = Date.from(java.time.Instant.now().minus(Duration.ofDays(window)));
-
-            List<AuditEvent> events = listLoginAuditEvents(client, startTime, endTime, window);
 
             Map<String, List<Map<String, Object>>> grouped = new LinkedHashMap<>();
             for (var d : domains) grouped.put((String) d.get("id"), new ArrayList<>());
@@ -665,6 +671,15 @@ public class DomainManagementService {
                 putDomainAlias(nameToId, d.get("type"), id);
             }
 
+            String selectedDomainId = trimToNull(domainId);
+            if (selectedDomainId != null && !grouped.containsKey(selectedDomainId)) {
+                selectedDomainId = null;
+            }
+
+            AuditQueryResult query = listLoginAuditEvents(
+                    client, startTime, endTime, window, nameToId, selectedDomainId, domains.size());
+
+            List<AuditEvent> events = query.events();
             for (AuditEvent ev : events) {
                 String etFull = ev.getEventType();
                 String scmEventId = null;
@@ -745,11 +760,12 @@ public class DomainManagementService {
                 }
             }
 
-            int unresolvedCount = unknown.size();
+            int unresolvedCount = unknown.size() + query.unresolvedSkippedCount();
             if (domains.size() == 1 && !unknown.isEmpty()) {
                 grouped.get((String) domains.getFirst().get("id")).addAll(unknown);
                 unknown.clear();
             }
+            String queryNotice = buildAuditQueryNotice(query);
 
             for (var d : domains) {
                 Map<String, Object> entry = new LinkedHashMap<>();
@@ -764,7 +780,10 @@ public class DomainManagementService {
                 });
                 entry.put("logs", logs);
                 if (unresolvedCount > 0 && domains.size() > 1) {
-                    entry.put("notice", "另有 " + unresolvedCount + " 条登录日志未包含可识别的身份域字段，已避免错误归类到 Default。");
+                    appendNotice(entry, "另有 " + unresolvedCount + " 条登录日志未包含可识别的身份域字段，已避免错误归类到 Default。");
+                }
+                if (queryNotice != null && (selectedDomainId == null || Objects.equals(selectedDomainId, d.get("id")))) {
+                    appendNotice(entry, queryNotice);
                 }
                 result.add(entry);
             }
@@ -776,48 +795,136 @@ public class DomainManagementService {
         return result;
     }
 
-    private List<AuditEvent> listLoginAuditEvents(OciClientService client, Date startTime, Date endTime, int windowDays) {
+    private AuditQueryResult listLoginAuditEvents(OciClientService client,
+                                                  Date startTime,
+                                                  Date endTime,
+                                                  int windowDays,
+                                                  Map<String, String> nameToId,
+                                                  String targetDomainId,
+                                                  int domainCount) {
         String tenancyId = client.getProvider().getTenantId();
         LinkedHashSet<String> regions = resolveAuditRegionNames(client);
         Map<String, AuditEvent> dedup = new LinkedHashMap<>();
-        int maxEventsPerRegion = 12000;
+        Set<String> unresolvedSkipped = new LinkedHashSet<>();
+        ClientConfiguration auditConfig = ClientConfiguration.builder()
+                .connectionTimeoutMillis(10_000)
+                .readTimeoutMillis(AUDIT_READ_TIMEOUT_MS)
+                .build();
+        long deadlineNanos = System.nanoTime() + Duration.ofMillis(AUDIT_QUERY_BUDGET_MS).toNanos();
         int successfulRegions = 0;
+        int failedRegions = 0;
+        int totalRawEvents = 0;
+        int totalPages = 0;
+        boolean partial = false;
+        boolean stopAll = false;
         Exception firstFailure = null;
 
         for (String regionName : regions) {
-            List<AuditEvent> regionEvents = new ArrayList<>();
-            try (AuditClient auditClient = AuditClient.builder().build(client.getProvider())) {
+            if (System.nanoTime() >= deadlineNanos) {
+                partial = true;
+                break;
+            }
+            int regionRawEvents = 0;
+            int regionPages = 0;
+            int regionMatchedEvents = 0;
+            try (AuditClient auditClient = AuditClient.builder()
+                    .configuration(auditConfig)
+                    .build(client.getProvider())) {
                 if (regionName != null && !regionName.isBlank()) {
                     auditClient.setRegion(regionName);
                 }
                 String page = null;
                 do {
+                    if (System.nanoTime() >= deadlineNanos) {
+                        partial = true;
+                        stopAll = true;
+                        break;
+                    }
+                    if (regionPages >= AUDIT_MAX_PAGES_PER_REGION) {
+                        partial = true;
+                        break;
+                    }
                     var reqB = ListEventsRequest.builder()
                             .compartmentId(tenancyId)
                             .startTime(startTime)
                             .endTime(endTime);
                     if (page != null) reqB.page(page);
                     var resp = auditClient.listEvents(reqB.build());
-                    if (resp.getItems() != null) regionEvents.addAll(resp.getItems());
+                    regionPages++;
+                    totalPages++;
+                    if (resp.getItems() != null) {
+                        regionRawEvents += resp.getItems().size();
+                        totalRawEvents += resp.getItems().size();
+                        for (AuditEvent event : resp.getItems()) {
+                            if (!matchesLoginAuditEvent(event)) continue;
+                            if (targetDomainId != null) {
+                                String eventDomainId = resolveLoginLogDomainId(event.getData(), nameToId);
+                                if (eventDomainId == null && domainCount > 1) {
+                                    unresolvedSkipped.add(auditEventKey(event));
+                                    continue;
+                                }
+                                if (eventDomainId != null && !Objects.equals(targetDomainId, eventDomainId)) {
+                                    continue;
+                                }
+                            }
+                            String key = auditEventKey(event);
+                            if (!dedup.containsKey(key)) {
+                                regionMatchedEvents++;
+                            }
+                            dedup.putIfAbsent(key, event);
+                        }
+                    }
                     page = resp.getOpcNextPage();
-                } while (page != null && !page.isEmpty() && regionEvents.size() < maxEventsPerRegion);
-                for (AuditEvent event : regionEvents) {
-                    dedup.putIfAbsent(auditEventKey(event), event);
-                }
+                } while (page != null && !page.isEmpty());
                 successfulRegions++;
-                log.info("OCI Audit listEvents region={} rawTotal={} windowDays={}",
-                        regionName, regionEvents.size(), windowDays);
+                log.info("OCI Audit listEvents region={} pages={} rawTotal={} matchedTotal={} windowDays={}",
+                        regionName, regionPages, regionRawEvents, regionMatchedEvents, windowDays);
             } catch (Exception e) {
+                failedRegions++;
                 if (firstFailure == null) firstFailure = e;
                 log.warn("OCI Audit listEvents failed region={}: {}", regionName, e.getMessage());
             }
+            if (stopAll) break;
         }
 
         if (successfulRegions == 0 && firstFailure != null) {
             throw new OciException("OCI Audit 查询失败: " + (firstFailure.getMessage() == null ? "未知错误" : firstFailure.getMessage()));
         }
-        log.info("OCI Audit listEvents mergedTotal={} regions={} windowDays={}", dedup.size(), regions, windowDays);
-        return new ArrayList<>(dedup.values());
+        log.info("OCI Audit listEvents mergedTotal={} rawTotal={} pages={} regions={} windowDays={} partial={}",
+                dedup.size(), totalRawEvents, totalPages, regions, windowDays, partial);
+        return new AuditQueryResult(new ArrayList<>(dedup.values()), partial, totalRawEvents, totalPages,
+                successfulRegions, failedRegions, unresolvedSkipped.size());
+    }
+
+    private record AuditQueryResult(List<AuditEvent> events,
+                                    boolean partial,
+                                    int rawEvents,
+                                    int pages,
+                                    int successfulRegions,
+                                    int failedRegions,
+                                    int unresolvedSkippedCount) {
+    }
+
+    private static String buildAuditQueryNotice(AuditQueryResult query) {
+        if (query == null) return null;
+        List<String> notices = new ArrayList<>();
+        if (query.partial()) {
+            notices.add("登录日志查询已达到时间或分页上限，仅显示已扫描到的最近部分日志；可缩短时间窗口后重试。");
+        }
+        if (query.failedRegions() > 0 && query.successfulRegions() > 0) {
+            notices.add("部分区域的 Audit 查询失败，结果可能不完整。");
+        }
+        return notices.isEmpty() ? null : String.join(" ", notices);
+    }
+
+    private static void appendNotice(Map<String, Object> entry, String notice) {
+        if (entry == null || notice == null || notice.isBlank()) return;
+        Object current = entry.get("notice");
+        if (current == null || String.valueOf(current).isBlank()) {
+            entry.put("notice", notice);
+        } else {
+            entry.put("notice", current + " " + notice);
+        }
     }
 
     private LinkedHashSet<String> resolveAuditRegionNames(OciClientService client) {
@@ -966,6 +1073,20 @@ public class DomainManagementService {
             return matchesLoginAuditScmEventId(scmEventIdNullable);
         }
         return matchesLoginAuditByLegacyEventType(eventTypeFull);
+    }
+
+    private static boolean matchesLoginAuditEvent(AuditEvent event) {
+        if (event == null) return false;
+        String scmEventId = null;
+        com.oracle.bmc.audit.model.Data data = event.getData();
+        Map<String, Object> addl = data != null && data.getAdditionalDetails() != null
+                ? castStringObjectMap(data.getAdditionalDetails())
+                : null;
+        if (addl != null) {
+            Object eid = addl.get("eventId");
+            if (eid != null) scmEventId = String.valueOf(eid).trim();
+        }
+        return matchesLoginAuditEvent(scmEventId, event.getEventType());
     }
 
     private static String resolveLoginLogDomainId(com.oracle.bmc.audit.model.Data data, Map<String, String> nameToId) {

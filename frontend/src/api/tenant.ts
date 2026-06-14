@@ -168,7 +168,7 @@ export function updateDomainNotifications(data: DomainNotificationPayload) {
   return request.post('/oci/user/updateDomainNotifications', data)
 }
 
-export function getAuditLogs(data: { id: string; days?: number }) {
+export function getAuditLogs(data: { id: string; days?: number; domainId?: string }) {
   return request.post('/oci/user/auditLogs', data)
 }
 
