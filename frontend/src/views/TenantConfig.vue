@@ -675,7 +675,7 @@ region=ap-tokyo-1"
                     <div class="budget-target-cell">{{ formatBudgetTarget(record) }}</div>
                   </template>
                 </a-table-column>
-                <a-table-column title="预算" key="amount" :width="110">
+                <a-table-column title="预算（USD）" key="amount" :width="120">
                   <template #default="{ record }">{{ formatBudgetAmount(record) }}</template>
                 </a-table-column>
                 <a-table-column title="已用" key="actual" :width="170">
@@ -699,7 +699,7 @@ region=ap-tokyo-1"
                 <a-table-column title="操作" key="action" :width="210">
                   <template #default="{ record }">
                     <a-space size="small">
-                      <a-button type="link" size="small" @click.stop="selectBudget(record)">告警</a-button>
+                      <a-button type="link" size="small" @click.stop="openBudgetAlertPanel(record)">告警</a-button>
                       <a-button type="link" size="small" @click.stop="openEditBudget(record)">编辑</a-button>
                       <a-popconfirm title="确定删除该成本预算？" @confirm="handleDeleteBudget(record)">
                         <a-button type="link" danger size="small" @click.stop>删除</a-button>
@@ -724,7 +724,7 @@ region=ap-tokyo-1"
                     <a-progress :percent="budgetProgressPercent(b)" :status="budgetProgressStatus(b)" size="small" />
                   </div>
                   <div class="mobile-card-actions">
-                    <a-button type="link" size="small" @click.stop="selectBudget(b)">告警</a-button>
+                    <a-button type="link" size="small" @click.stop="openBudgetAlertPanel(b)">告警</a-button>
                     <a-button type="link" size="small" @click.stop="openEditBudget(b)">编辑</a-button>
                     <a-popconfirm title="确定删除该成本预算？" @confirm="handleDeleteBudget(b)">
                       <a-button type="link" danger size="small" @click.stop>删除</a-button>
@@ -733,7 +733,7 @@ region=ap-tokyo-1"
                 </div>
               </div>
 
-              <div class="budget-alert-section" v-if="selectedBudget">
+              <div class="budget-alert-section" v-if="selectedBudget" ref="budgetAlertSectionRef">
                 <div class="budget-alert-header">
                   <div>
                     <div class="budget-alert-title">{{ selectedBudget.displayName || '—' }}</div>
@@ -763,7 +763,7 @@ region=ap-tokyo-1"
                   <a-table-column title="阈值" key="threshold" :width="120">
                     <template #default="{ record }">{{ formatBudgetAlertThreshold(record) }}</template>
                   </a-table-column>
-                  <a-table-column title="接收人" data-index="recipients" key="recipients" :ellipsis="true" />
+                  <a-table-column title="电子邮件收件人" data-index="recipients" key="recipients" :ellipsis="true" />
                   <a-table-column title="状态" key="state" :width="90">
                     <template #default="{ record }">
                       <a-tag :color="record.lifecycleState === 'ACTIVE' ? 'green' : 'default'">{{ record.lifecycleState || '—' }}</a-tag>
@@ -791,8 +791,8 @@ region=ap-tokyo-1"
                     <div class="mobile-card-body">
                       <div class="mobile-card-row"><span class="label">类型</span><span class="value">{{ formatBudgetAlertType(r.type) }}</span></div>
                       <div class="mobile-card-row"><span class="label">阈值</span><span class="value">{{ formatBudgetAlertThreshold(r) }}</span></div>
-                      <div class="mobile-card-row"><span class="label">接收人</span><span class="value">{{ r.recipients || '—' }}</span></div>
-                      <div class="mobile-card-row"><span class="label">消息</span><span class="value">{{ r.message || '—' }}</span></div>
+                      <div class="mobile-card-row"><span class="label">电子邮件收件人</span><span class="value">{{ r.recipients || '—' }}</span></div>
+                      <div class="mobile-card-row"><span class="label">电子邮件</span><span class="value">{{ r.message || '—' }}</span></div>
                     </div>
                     <div class="mobile-card-actions">
                       <a-button type="link" size="small" @click="openEditBudgetAlertRule(r)">编辑</a-button>
@@ -1127,7 +1127,7 @@ region=ap-tokyo-1"
         <a-form-item label="名称" required>
           <a-input v-model:value="budgetForm.displayName" allow-clear />
         </a-form-item>
-        <a-form-item label="金额" required>
+        <a-form-item label="金额（USD）" required>
           <a-input-number v-model:value="budgetForm.amount" :min="1" style="width: 100%" />
         </a-form-item>
         <a-form-item label="描述">
@@ -1145,7 +1145,7 @@ region=ap-tokyo-1"
             </a-form-item>
           </a-col>
         </a-row>
-        <a-form-item label="月起始日偏移">
+        <a-form-item label="每月中的第几天开始处理预算">
           <a-input-number v-model:value="budgetForm.budgetProcessingPeriodStartOffset" :min="1" :max="31" style="width: 100%" allow-clear />
         </a-form-item>
         <a-row v-if="budgetForm.processingPeriodType === 'SINGLE_USE'" :gutter="12">
@@ -1160,18 +1160,37 @@ region=ap-tokyo-1"
             </a-form-item>
           </a-col>
         </a-row>
-        <a-form-item label="预算所在区间 OCID" required>
-          <a-input v-model:value="budgetForm.compartmentId" :disabled="budgetFormMode === 'edit'" allow-clear />
+        <a-form-item label="预算所在区间" required>
+          <a-select
+            v-model:value="budgetForm.compartmentId"
+            :options="budgetCompartmentOptions"
+            :disabled="budgetFormMode === 'edit'"
+            show-search
+            :filter-option="filterBudgetCompartmentOption"
+          />
         </a-form-item>
         <a-row :gutter="12">
           <a-col :xs="24" :sm="8">
             <a-form-item label="目标类型" required>
-              <a-select v-model:value="budgetForm.targetType" :options="budgetTargetTypeOptions" :disabled="budgetFormMode === 'edit'" />
+              <a-select
+                v-model:value="budgetForm.targetType"
+                :options="budgetTargetTypeOptions"
+                :disabled="budgetFormMode === 'edit'"
+                @change="onBudgetTargetTypeChange"
+              />
             </a-form-item>
           </a-col>
           <a-col :xs="24" :sm="16">
-            <a-form-item label="目标" required>
-              <a-input v-model:value="budgetForm.target" :disabled="budgetFormMode === 'edit'" allow-clear />
+            <a-form-item :label="budgetForm.targetType === 'TAG' ? '目标标签' : '目标区间'" required>
+              <a-select
+                v-if="budgetForm.targetType === 'COMPARTMENT'"
+                v-model:value="budgetForm.target"
+                :options="budgetTargetCompartmentOptions"
+                :disabled="budgetFormMode === 'edit'"
+                show-search
+                :filter-option="filterBudgetCompartmentOption"
+              />
+              <a-input v-else v-model:value="budgetForm.target" :disabled="budgetFormMode === 'edit'" allow-clear />
             </a-form-item>
           </a-col>
         </a-row>
@@ -1206,13 +1225,13 @@ region=ap-tokyo-1"
         <a-form-item label="阈值" required>
           <a-input-number v-model:value="budgetAlertForm.threshold" :min="1" style="width: 100%" />
         </a-form-item>
-        <a-form-item label="接收人" required>
-          <a-input v-model:value="budgetAlertForm.recipients" allow-clear />
+        <a-form-item label="电子邮件收件人" required>
+          <a-input v-model:value="budgetAlertForm.recipients" placeholder="name@example.com, team@example.com" allow-clear />
         </a-form-item>
-        <a-form-item label="消息">
+        <a-form-item label="电子邮件">
           <a-textarea v-model:value="budgetAlertForm.message" :rows="2" allow-clear />
         </a-form-item>
-        <a-form-item label="描述">
+        <a-form-item label="描述（可选）">
           <a-textarea v-model:value="budgetAlertForm.description" :rows="2" allow-clear />
         </a-form-item>
       </a-form>
@@ -1505,7 +1524,7 @@ region=ap-tokyo-1"
 <script setup lang="ts">
 defineOptions({ name: 'TenantConfig' })
 
-import { ref, reactive, computed, onMounted, onActivated, onUnmounted, watch } from 'vue'
+import { ref, reactive, computed, nextTick, onMounted, onActivated, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { PlusOutlined, ThunderboltOutlined, InboxOutlined, ReloadOutlined, MenuFoldOutlined, MenuUnfoldOutlined, VerticalAlignTopOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
@@ -1762,6 +1781,7 @@ const budgetsLoading = ref(false)
 const budgetsData = ref<any | null>(null)
 const selectedBudgetId = ref('')
 const budgetAlertRulesLoading = ref(false)
+const budgetAlertSectionRef = ref<HTMLElement | null>(null)
 const budgetFormVisible = ref(false)
 const budgetFormLoading = ref(false)
 const budgetFormMode = ref<'create' | 'edit'>('create')
@@ -1798,7 +1818,7 @@ const budgetTargetTypeOptions = [
   { label: '标签', value: 'TAG' },
 ]
 const budgetProcessingPeriodOptions = [
-  { label: '自然月', value: 'MONTH' },
+  { label: '每月', value: 'MONTH' },
   { label: '发票周期', value: 'INVOICE' },
   { label: '一次性', value: 'SINGLE_USE' },
 ]
@@ -1816,6 +1836,8 @@ const selectedBudget = computed<any | null>(() =>
   budgetsList.value.find((b: any) => b.id === selectedBudgetId.value) || budgetsList.value[0] || null)
 const selectedBudgetAlertRules = computed<any[]>(() =>
   Array.isArray(selectedBudget.value?.alertRules) ? selectedBudget.value.alertRules : [])
+const budgetCompartmentOptions = computed(() => buildBudgetCompartmentOptions(budgetForm.compartmentId))
+const budgetTargetCompartmentOptions = computed(() => buildBudgetCompartmentOptions(budgetForm.target))
 
 const iamPoliciesLoading = ref(false)
 const iamPoliciesList = ref<any[]>([])
@@ -2653,8 +2675,36 @@ function tenantRootCompartmentId(): string {
     || ''
 }
 
+function tenantRootCompartmentDisplay(): string {
+  const name = tenantInfoData.value?.tenantName
+    || tenantMgmtTenant.value?.tenantName
+    || tenantMgmtTenant.value?.username
+    || 'root'
+  return `${name}（根）`
+}
+
+function formatBudgetCompartmentDisplay(compartmentId: string | null | undefined): string {
+  const id = (compartmentId || '').trim()
+  if (!id) return tenantRootCompartmentDisplay()
+  return id === tenantRootCompartmentId() ? tenantRootCompartmentDisplay() : shortOcId(id)
+}
+
+function buildBudgetCompartmentOptions(currentId: string | null | undefined) {
+  const rootId = tenantRootCompartmentId()
+  const options: Array<{ label: string; value: string }> = []
+  if (rootId) options.push({ label: tenantRootCompartmentDisplay(), value: rootId })
+  const cur = (currentId || '').trim()
+  if (cur && cur !== rootId) options.push({ label: formatBudgetCompartmentDisplay(cur), value: cur })
+  return options
+}
+
+function filterBudgetCompartmentOption(input: string, option: any) {
+  const text = `${option?.label || ''} ${option?.value || ''}`.toLowerCase()
+  return text.includes(input.toLowerCase())
+}
+
 function budgetCurrencyCode(): string {
-  return tenantInfoData.value?.currencyCode || billingData.value?.currencyCode || ''
+  return 'USD'
 }
 
 function toBudgetNumber(v: any): number | null {
@@ -2704,7 +2754,7 @@ function formatBudgetTarget(record: any): string {
   const targetType = normalizeBudgetTargetType(record?.targetType)
   const target = firstBudgetTarget(record)
   if (targetType === 'TAG') return target ? `标签 ${target}` : '标签'
-  return target ? `区间 ${shortOcId(target)}` : '区间'
+  return target ? `区间 ${formatBudgetCompartmentDisplay(target)}` : '区间'
 }
 
 function formatBudgetAmount(record: any): string {
@@ -2743,7 +2793,7 @@ function budgetProgressStatus(record: any) {
 function formatBudgetProcessingPeriod(v: any): string {
   const s = normalizeBudgetProcessingPeriodType(v)
   const map: Record<BudgetProcessingPeriodType, string> = {
-    MONTH: '自然月',
+    MONTH: '每月',
     INVOICE: '发票周期',
     SINGLE_USE: '一次性',
   }
@@ -2852,6 +2902,14 @@ function budgetTableRow(record: any) {
   return { onClick: () => selectBudget(record) }
 }
 
+async function openBudgetAlertPanel(record: any) {
+  if (!record?.id) return
+  selectedBudgetId.value = record.id
+  await reloadSelectedBudgetAlertRules()
+  await nextTick()
+  budgetAlertSectionRef.value?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
 async function reloadSelectedBudgetAlertRules() {
   const tenantId = currentTenantMgmtId()
   const budgetId = selectedBudget.value?.id || selectedBudgetId.value
@@ -2870,6 +2928,10 @@ async function reloadSelectedBudgetAlertRules() {
   }
 }
 
+function onBudgetTargetTypeChange(value: BudgetTargetType) {
+  budgetForm.target = value === 'COMPARTMENT' ? tenantRootCompartmentId() : ''
+}
+
 function openCreateBudget() {
   const rootCompartmentId = tenantRootCompartmentId()
   Object.assign(budgetForm, {
@@ -2882,7 +2944,7 @@ function openCreateBudget() {
     target: rootCompartmentId,
     resetPeriod: 'MONTHLY',
     processingPeriodType: 'MONTH' as BudgetProcessingPeriodType,
-    budgetProcessingPeriodStartOffset: null,
+    budgetProcessingPeriodStartOffset: 1,
     startDate: '',
     endDate: '',
   })
