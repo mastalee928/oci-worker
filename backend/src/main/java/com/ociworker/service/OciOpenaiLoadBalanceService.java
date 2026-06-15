@@ -294,8 +294,23 @@ public class OciOpenaiLoadBalanceService {
         return selectMember(requestedModel, 0L, Set.of());
     }
 
+    public int eligibleMemberCount(String requestedModel, long estimatedTokens) {
+        return eligibleCandidates(requestedModel, estimatedTokens, Set.of(), LocalDateTime.now()).size();
+    }
+
     public Selection selectMember(String requestedModel, long estimatedTokens, Set<String> excludedMemberIds) {
         LocalDateTime now = LocalDateTime.now();
+        List<Candidate> candidates = eligibleCandidates(requestedModel, estimatedTokens, excludedMemberIds, now);
+        Candidate selected = candidates.stream()
+                .min(Comparator.comparingDouble(Candidate::loadRate)
+                        .thenComparing(candidate -> candidate.member().getLastUsed(), Comparator.nullsFirst(Comparator.naturalOrder()))
+                        .thenComparing(candidate -> candidate.member().getCreateTime(), Comparator.nullsFirst(Comparator.naturalOrder())))
+                .orElseThrow(() -> new OciException("没有可用的负载均衡成员"));
+        inFlight.computeIfAbsent(selected.member().getId(), ignored -> new AtomicInteger()).incrementAndGet();
+        return new Selection(selected.member(), selected.binding());
+    }
+
+    private List<Candidate> eligibleCandidates(String requestedModel, long estimatedTokens, Set<String> excludedMemberIds, LocalDateTime now) {
         List<Candidate> candidates = new ArrayList<>();
         for (OciOpenaiLbMember member : memberMapper.selectList(new LambdaQueryWrapper<OciOpenaiLbMember>()
                 .eq(OciOpenaiLbMember::getEnabled, 1))) {
@@ -337,13 +352,7 @@ public class OciOpenaiLoadBalanceService {
             double score = adaptiveScore(member, current, weight, now);
             candidates.add(new Candidate(member, binding, score));
         }
-        Candidate selected = candidates.stream()
-                .min(Comparator.comparingDouble(Candidate::loadRate)
-                        .thenComparing(candidate -> candidate.member().getLastUsed(), Comparator.nullsFirst(Comparator.naturalOrder()))
-                        .thenComparing(candidate -> candidate.member().getCreateTime(), Comparator.nullsFirst(Comparator.naturalOrder())))
-                .orElseThrow(() -> new OciException("没有可用的负载均衡成员"));
-        inFlight.computeIfAbsent(selected.member().getId(), ignored -> new AtomicInteger()).incrementAndGet();
-        return new Selection(selected.member(), selected.binding());
+        return candidates;
     }
 
     public void finishRequest(String memberId, int status) {
@@ -442,10 +451,16 @@ public class OciOpenaiLoadBalanceService {
         OciOpenaiLbMemberModelState state = memberModelStateMapper.selectOne(new LambdaQueryWrapper<OciOpenaiLbMemberModelState>()
                 .eq(OciOpenaiLbMemberModelState::getMemberId, memberId)
                 .eq(OciOpenaiLbMemberModelState::getModel, model));
-        return state != null
-                && "unavailable".equalsIgnoreCase(state.getStatus())
-                && state.getUnavailableUntil() != null
-                && state.getUnavailableUntil().isAfter(now);
+        if (state == null
+                || !"unavailable".equalsIgnoreCase(state.getStatus())
+                || state.getUnavailableUntil() == null
+                || !state.getUnavailableUntil().isAfter(now)) {
+            return false;
+        }
+        Integer lastStatus = state.getLastStatus();
+        return lastStatus == null
+                || lastStatus < 500
+                || isModelAvailabilityFailure(lastStatus, state.getLastError());
     }
 
     private void updateModelState(String memberId, String requestedModel, boolean success, int status, String errorMessage) {
@@ -453,7 +468,7 @@ public class OciOpenaiLoadBalanceService {
         if (memberId == null || memberId.isBlank() || model == null) {
             return;
         }
-        if (!success && !isModelAvailabilityFailure(status)) {
+        if (!success && !isModelAvailabilityFailure(status, errorMessage)) {
             return;
         }
         try {
@@ -501,8 +516,21 @@ public class OciOpenaiLoadBalanceService {
         }
     }
 
-    private static boolean isModelAvailabilityFailure(int status) {
-        return status == 400 || status == 404 || status == 422 || status >= 500;
+    private static boolean isModelAvailabilityFailure(int status, String errorMessage) {
+        if (status == 400 || status == 404 || status == 422) {
+            return true;
+        }
+        if (status < 500) {
+            return false;
+        }
+        String message = errorMessage == null ? "" : errorMessage.toLowerCase();
+        return message.contains("model")
+                && (message.contains("not found")
+                || message.contains("not available")
+                || message.contains("not supported")
+                || message.contains("unsupported")
+                || message.contains("unknown model")
+                || message.contains("invalid model"));
     }
 
     private static double adaptiveScore(OciOpenaiLbMember member, int current, int weight, LocalDateTime now) {

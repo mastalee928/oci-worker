@@ -427,7 +427,13 @@
                 <span>端口</span><b>{{ record.port || '-' }}</b>
                 <span>租户</span><b>{{ record.tenantName || record.ociUserId || '-' }}</b>
                 <span>区域</span><b>{{ regionDisplay(record.ociRegion) || '-' }}</b>
-                <span>状态</span><a-tag :color="lbMemberStatusColor(record)">{{ lbMemberStatusText(record) }}</a-tag>
+                <span>状态</span>
+                <div class="lb-status-stack">
+                  <div class="lb-status-tags">
+                    <a-tag :color="lbMemberStatusColor(record)">{{ lbMemberStatusText(record) }}</a-tag>
+                    <a-tag v-if="record.healthStatus" class="lb-health-tag" :color="lbHealthColor(record)">{{ lbHealthText(record) }}</a-tag>
+                  </div>
+                </div>
                 <span>权重</span><b>{{ record.weight || 1 }}</b>
                 <span>并发</span><b>{{ record.inFlight || 0 }}</b>
                 <span>用量</span>
@@ -466,12 +472,14 @@
                   <b class="model-summary">{{ modelSummary(record.allowedModels) }}</b>
                 </a-tooltip>
               </div>
-              <div v-if="record.lastError || isLbCoolingDown(record)" class="sub-muted status-message">
-                {{ record.lastError || '' }} {{ isLbCoolingDown(record) ? `冷却到 ${lbCooldownText(record)}` : '' }}
+              <div v-if="lbStatusMessages(record).length" class="lb-status-messages">
+                <div v-for="m in lbStatusMessages(record)" :key="m.key" class="sub-muted status-message">
+                  <span class="lb-status-label">{{ m.label }}</span>{{ m.text }}
+                </div>
               </div>
               <div v-if="lbUnavailableModelStates(record).length" class="lb-model-state-list">
                 <a-tag v-for="s in lbUnavailableModelStates(record)" :key="s.model" color="red">
-                  {{ s.model }} 剔除到 {{ formatKeyTime(s.unavailableUntil) }}
+                  模型剔除：{{ s.model }} 到 {{ formatKeyTime(s.unavailableUntil) }}
                 </a-tag>
                 <a-button size="small" type="link" @click="clearLbModelState(record)">清除</a-button>
               </div>
@@ -507,14 +515,18 @@
                 <span class="sub-muted">{{ regionDisplay(record.ociRegion) || '-' }}</span>
               </template>
               <template v-else-if="column.key === 'status'">
-                <a-tag :color="lbMemberStatusColor(record)">{{ lbMemberStatusText(record) }}</a-tag>
-                <a-tag v-if="record.healthStatus" class="lb-health-tag" :color="lbHealthColor(record)">{{ lbHealthText(record) }}</a-tag>
-                <div v-if="record.lastError" class="sub-muted status-message">{{ record.lastError }}</div>
-                <div v-if="isLbCoolingDown(record)" class="sub-muted status-message">冷却到 {{ lbCooldownText(record) }}</div>
-                <div v-if="record.healthMessage" class="sub-muted status-message">{{ record.healthMessage }}</div>
+                <div class="lb-status-tags">
+                  <a-tag :color="lbMemberStatusColor(record)">{{ lbMemberStatusText(record) }}</a-tag>
+                  <a-tag v-if="record.healthStatus" class="lb-health-tag" :color="lbHealthColor(record)">{{ lbHealthText(record) }}</a-tag>
+                </div>
+                <div v-if="lbStatusMessages(record).length" class="lb-status-messages">
+                  <div v-for="m in lbStatusMessages(record)" :key="m.key" class="sub-muted status-message">
+                    <span class="lb-status-label">{{ m.label }}</span>{{ m.text }}
+                  </div>
+                </div>
                 <div v-if="lbUnavailableModelStates(record).length" class="lb-model-state-list">
                   <a-tag v-for="s in lbUnavailableModelStates(record)" :key="s.model" color="red">
-                    {{ s.model }} 剔除到 {{ formatKeyTime(s.unavailableUntil) }}
+                    模型剔除：{{ s.model }} 到 {{ formatKeyTime(s.unavailableUntil) }}
                   </a-tag>
                   <a-button size="small" type="link" @click="clearLbModelState(record)">清除</a-button>
                 </div>
@@ -2194,12 +2206,12 @@ function isLbCoolingDown(row: any) {
 }
 
 function lbMemberStatusText(row: any) {
-  if (!row?.enabled) return '已禁用'
+  if (!row?.enabled) return '成员禁用'
   if (!row?.bindingEnabled) return '端口停用'
   if (row?.keyDisabled) return 'Key禁用'
   if (isLbCoolingDown(row)) return '冷却中'
   if (row?.bindingStatus === 'failed') return '端口异常'
-  if (row?.bindingStatus === 'listening') return '可用'
+  if (row?.bindingStatus === 'listening') return '端口可用'
   return row?.bindingStatus || '待监听'
 }
 
@@ -2213,12 +2225,12 @@ function lbMemberStatusColor(row: any) {
 
 function lbHealthText(row: any) {
   const s = String(row?.healthStatus || '').toLowerCase()
-  if (s === 'healthy') return '健康'
-  if (s === 'unhealthy') return '异常'
-  if (s === 'cooling') return '冷却'
-  if (s === 'recovering') return '恢复中'
-  if (s === 'disabled') return '禁用'
-  return '未知'
+  if (s === 'healthy') return '调度健康'
+  if (s === 'unhealthy') return '调度异常'
+  if (s === 'cooling') return '调度冷却'
+  if (s === 'recovering') return '恢复观察'
+  if (s === 'disabled') return '调度禁用'
+  return '调度未知'
 }
 
 function lbHealthColor(row: any) {
@@ -2228,6 +2240,37 @@ function lbHealthColor(row: any) {
   if (s === 'cooling') return 'orange'
   if (s === 'recovering') return 'blue'
   return 'default'
+}
+
+function lbStatusMessages(row: any) {
+  const messages: { key: string; label: string; text: string }[] = []
+  const lastError = normalizeStatusMessage(row?.lastError)
+  const healthMessage = normalizeStatusMessage(row?.healthMessage)
+  const healthStatus = String(row?.healthStatus || '').toLowerCase()
+  if (lastError) {
+    messages.push({ key: 'lastError', label: '最近错误', text: lastError })
+  }
+  if (isLbCoolingDown(row)) {
+    messages.push({ key: 'cooldown', label: '冷却', text: `到 ${lbCooldownText(row)}` })
+  }
+  const healthIsNoise = healthStatus === 'healthy' && (!healthMessage || healthMessage === '端口监听中')
+  if (healthMessage && !healthIsNoise && healthMessage !== lastError) {
+    const label = healthStatus === 'unhealthy'
+      ? '异常原因'
+      : healthStatus === 'recovering'
+        ? '恢复观察'
+        : healthStatus === 'cooling'
+          ? '冷却原因'
+          : '说明'
+    messages.push({ key: 'healthMessage', label, text: healthMessage })
+  }
+  return messages
+}
+
+function normalizeStatusMessage(value: any) {
+  const text = String(value || '').trim()
+  if (!text) return ''
+  return text.length > 180 ? `${text.slice(0, 180)}...` : text
 }
 
 function lbLimitSummary(row: any) {
@@ -2495,6 +2538,29 @@ async function viewKey(k: any) {
 }
 .lb-health-tag {
   margin-top: 4px;
+}
+.lb-status-stack {
+  min-width: 0;
+}
+.lb-status-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+}
+.lb-status-tags :deep(.ant-tag) {
+  margin-inline-end: 0;
+}
+.lb-status-messages {
+  display: grid;
+  gap: 3px;
+  margin-top: 4px;
+}
+.lb-status-label {
+  display: inline-block;
+  margin-right: 4px;
+  color: var(--text, #333);
+  font-weight: 500;
 }
 .lb-request-table code {
   font-size: 12px;

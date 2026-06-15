@@ -97,14 +97,15 @@ public class OpenAiV1Controller {
         boolean stream = isStreamRequest(body, request.getContentType());
         long estimatedTokens = estimateTokens(body, request.getContentType());
         Set<String> triedMembers = new HashSet<>();
-        int maxAttempts = stream ? 1 : 2;
+        int eligibleCount = loadBalanceService.eligibleMemberCount(requestedModel, estimatedTokens);
+        int maxAttempts = stream ? 1 : Math.max(2, Math.min(6, eligibleCount <= 0 ? 2 : eligibleCount));
         String lastError = null;
         int lastStatus = 503;
         loadBalanceService.touchKey((String) request.getAttribute(OpenAiApiConstants.ATTR_LB_KEY_ID));
         for (int attempt = 0; attempt < maxAttempts; attempt++) {
             OciOpenaiLoadBalanceService.Selection selection;
             try {
-                selection = loadBalanceService.selectMember(requestedModel, estimatedTokens, triedMembers);
+                selection = selectMemberWithBriefWait(requestedModel, estimatedTokens, triedMembers);
             } catch (OciException e) {
                 if (attempt == 0) {
                     error(response, 503, e.getMessage());
@@ -224,6 +225,30 @@ public class OpenAiV1Controller {
             }
         }
         error(response, lastStatus, lastError != null ? lastError : "没有可用的负载均衡成员");
+    }
+
+    private OciOpenaiLoadBalanceService.Selection selectMemberWithBriefWait(
+            String requestedModel,
+            long estimatedTokens,
+            Set<String> triedMembers) {
+        OciException last = null;
+        for (int i = 0; i < 4; i++) {
+            try {
+                return loadBalanceService.selectMember(requestedModel, estimatedTokens, triedMembers);
+            } catch (OciException e) {
+                last = e;
+                if (i >= 3) {
+                    break;
+                }
+                try {
+                    Thread.sleep(250L * (i + 1));
+                } catch (InterruptedException interrupted) {
+                    Thread.currentThread().interrupt();
+                    throw e;
+                }
+            }
+        }
+        throw last == null ? new OciException("没有可用的负载均衡成员") : last;
     }
 
     private void configureProxyAttributes(HttpServletRequest request, OciOpenaiLoadBalanceService.Selection selection) {
