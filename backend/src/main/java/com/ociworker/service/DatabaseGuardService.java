@@ -191,6 +191,9 @@ public class DatabaseGuardService {
                 last_latency_ms INT DEFAULT NULL,
                 last_status INT DEFAULT NULL,
                 last_error_type VARCHAR(64) DEFAULT NULL,
+                ewma_success_rate DOUBLE DEFAULT NULL,
+                ewma_latency_ms BIGINT DEFAULT NULL,
+                recovery_until DATETIME DEFAULT NULL,
                 last_used DATETIME DEFAULT NULL,
                 create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 update_time DATETIME DEFAULT NULL,
@@ -482,6 +485,12 @@ public class DatabaseGuardService {
                 "INT DEFAULT NULL AFTER last_latency_ms");
         addColumnIfMissing(conn, "oci_openai_lb_member", "last_error_type",
                 "VARCHAR(64) DEFAULT NULL AFTER last_status");
+        addColumnIfMissing(conn, "oci_openai_lb_member", "ewma_success_rate",
+                "DOUBLE DEFAULT NULL AFTER last_error_type");
+        addColumnIfMissing(conn, "oci_openai_lb_member", "ewma_latency_ms",
+                "BIGINT DEFAULT NULL AFTER ewma_success_rate");
+        addColumnIfMissing(conn, "oci_openai_lb_member", "recovery_until",
+                "DATETIME DEFAULT NULL AFTER ewma_latency_ms");
     }
 
     private void addColumnIfMissing(Connection conn, String table, String column, String definition) {

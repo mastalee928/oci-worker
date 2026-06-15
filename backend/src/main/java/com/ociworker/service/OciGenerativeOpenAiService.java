@@ -1321,6 +1321,8 @@ public class OciGenerativeOpenAiService {
                 long maxStreamMs = timeoutMs(request, OpenAiApiConstants.ATTR_STREAM_MAX_SECONDS, 7200);
                 boolean firstChunk = true;
                 int chunks = 0;
+                long outputChars = 0L;
+                StringBuilder sseBuffer = new StringBuilder(8192);
                 int n;
                 while ((n = timedRead(in, buf, firstChunk ? firstChunkTimeoutMs : idleTimeoutMs)) != -1) {
                     long elapsedMs = (System.nanoTime() - startNanos) / 1_000_000L;
@@ -1339,6 +1341,12 @@ public class OciGenerativeOpenAiService {
                     chunks++;
                     if (request != null) {
                         request.setAttribute(OpenAiApiConstants.ATTR_STREAM_CHUNK_COUNT, chunks);
+                    }
+                    outputChars += estimateStreamOutputChars(sseBuffer, buf, n);
+                    if (request != null && outputChars > 0) {
+                        long estimatedTokens = Math.max(1L, (outputChars + 3L) / 4L);
+                        request.setAttribute(OpenAiApiConstants.ATTR_STREAM_ESTIMATED_TOKENS, estimatedTokens);
+                        request.setAttribute(OpenAiApiConstants.ATTR_USAGE_TOKENS, estimatedTokens);
                     }
                     out.write(buf, 0, n);
                     out.flush();
@@ -1386,6 +1394,97 @@ public class OciGenerativeOpenAiService {
             throw error[0];
         }
         return read[0];
+    }
+
+    private static long estimateStreamOutputChars(StringBuilder pending, byte[] buf, int len) {
+        if (pending == null || buf == null || len <= 0) {
+            return 0L;
+        }
+        pending.append(new String(buf, 0, len, StandardCharsets.UTF_8));
+        long chars = 0L;
+        int idx;
+        while ((idx = indexOfLineBreak(pending)) >= 0) {
+            String line = pending.substring(0, idx).strip();
+            pending.delete(0, idx + 1);
+            if (!line.startsWith("data:")) {
+                continue;
+            }
+            String payload = line.substring(5).trim();
+            if (payload.isEmpty() || "[DONE]".equals(payload)) {
+                continue;
+            }
+            chars += streamPayloadTextChars(payload);
+        }
+        if (pending.length() > 65536) {
+            pending.delete(0, pending.length() - 8192);
+        }
+        return chars;
+    }
+
+    private static int indexOfLineBreak(StringBuilder value) {
+        for (int i = 0; i < value.length(); i++) {
+            char ch = value.charAt(i);
+            if (ch == '\n') {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private static long streamPayloadTextChars(String payload) {
+        try {
+            JsonNode root = MAPPER.readTree(payload);
+            return streamTextChars(root);
+        } catch (Exception ignored) {
+            return 0L;
+        }
+    }
+
+    private static long streamTextChars(JsonNode node) {
+        if (node == null || node.isNull()) {
+            return 0L;
+        }
+        if (node.isArray()) {
+            long total = 0L;
+            for (JsonNode child : node) {
+                total += streamTextChars(child);
+            }
+            return total;
+        }
+        if (!node.isObject()) {
+            return 0L;
+        }
+        long total = 0L;
+        for (var it = node.fields(); it.hasNext(); ) {
+            Map.Entry<String, JsonNode> entry = it.next();
+            String key = entry.getKey() == null ? "" : entry.getKey().toLowerCase(java.util.Locale.ROOT);
+            JsonNode value = entry.getValue();
+            if (isStreamTextKey(key) && value != null && value.isTextual()) {
+                total += value.asText("").length();
+                continue;
+            }
+            if (shouldDescendStreamField(key)) {
+                total += streamTextChars(value);
+            }
+        }
+        return total;
+    }
+
+    private static boolean isStreamTextKey(String key) {
+        return "content".equals(key)
+                || "text".equals(key)
+                || "delta".equals(key)
+                || "output_text".equals(key);
+    }
+
+    private static boolean shouldDescendStreamField(String key) {
+        return !"model".equals(key)
+                && !"id".equals(key)
+                && !"object".equals(key)
+                && !"type".equals(key)
+                && !"role".equals(key)
+                && !"finish_reason".equals(key)
+                && !"index".equals(key);
     }
 
     private static long timeoutMs(HttpServletRequest request, String attr, int defaultSeconds) {

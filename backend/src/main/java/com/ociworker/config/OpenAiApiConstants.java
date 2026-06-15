@@ -21,6 +21,7 @@ public final class OpenAiApiConstants {
     public static final String ATTR_STREAM_FIRST_CHUNK_MS = "ociworker.openai.streamFirstChunkMs";
     public static final String ATTR_STREAM_CHUNK_COUNT = "ociworker.openai.streamChunkCount";
     public static final String ATTR_STREAM_TIMEOUT_TYPE = "ociworker.openai.streamTimeoutType";
+    public static final String ATTR_STREAM_ESTIMATED_TOKENS = "ociworker.openai.streamEstimatedTokens";
     public static final String ATTR_STREAM_FIRST_CHUNK_TIMEOUT_SECONDS = "ociworker.openai.streamFirstChunkTimeoutSeconds";
     public static final String ATTR_STREAM_IDLE_TIMEOUT_SECONDS = "ociworker.openai.streamIdleTimeoutSeconds";
     public static final String ATTR_STREAM_MAX_SECONDS = "ociworker.openai.streamMaxSeconds";

@@ -553,6 +553,9 @@
                 <div v-if="record.lastStatus" class="sub-muted status-message">
                   HTTP {{ record.lastStatus }} · {{ record.lastLatencyMs || 0 }}ms
                 </div>
+                <div v-if="record.ewmaSuccessRate || record.ewmaLatencyMs" class="sub-muted status-message">
+                  EWMA {{ lbEwmaText(record) }}
+                </div>
               </template>
               <template v-else-if="column.key === 'a'">
                 <a-space class="port-actions" :size="4">
@@ -2131,6 +2134,7 @@ function lbHealthText(row: any) {
   if (s === 'healthy') return '健康'
   if (s === 'unhealthy') return '异常'
   if (s === 'cooling') return '冷却'
+  if (s === 'recovering') return '恢复中'
   if (s === 'disabled') return '禁用'
   return '未知'
 }
@@ -2140,6 +2144,7 @@ function lbHealthColor(row: any) {
   if (s === 'healthy') return 'green'
   if (s === 'unhealthy') return 'red'
   if (s === 'cooling') return 'orange'
+  if (s === 'recovering') return 'blue'
   return 'default'
 }
 
@@ -2150,6 +2155,15 @@ function lbLimitSummary(row: any) {
   if (row?.tpmLimit) parts.push(`TPM≤${row.tpmLimit}`)
   if (row?.contextLimit) parts.push(`CTX≤${row.contextLimit}`)
   return parts.length ? parts.join(' · ') : '不限流'
+}
+
+function lbEwmaText(row: any) {
+  const pieces = []
+  const rate = Number(row?.ewmaSuccessRate)
+  if (Number.isFinite(rate) && rate >= 0) pieces.push(`${Math.round(rate * 100)}%`)
+  const latency = Number(row?.ewmaLatencyMs)
+  if (Number.isFinite(latency) && latency > 0) pieces.push(`${Math.round(latency)}ms`)
+  return pieces.join(' · ') || '-'
 }
 
 function lbRequestStatusText(row: any) {

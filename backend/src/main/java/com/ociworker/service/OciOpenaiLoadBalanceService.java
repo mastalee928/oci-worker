@@ -79,6 +79,10 @@ public class OciOpenaiLoadBalanceService {
 
     @Value("${web.password}")
     private String webPassword;
+    @Value("${ociworker.openaiLoadBalance.requestLogRetentionDays:7}")
+    private int requestLogRetentionDays;
+    @Value("${ociworker.openaiLoadBalance.requestLogMaxRows:5000}")
+    private int requestLogMaxRows;
 
     private final Map<String, AtomicInteger> inFlight = new ConcurrentHashMap<>();
 
@@ -303,16 +307,7 @@ public class OciOpenaiLoadBalanceService {
                     && recentTokenCount(member.getId(), now.minusMinutes(1)) + Math.max(0L, estimatedTokens) > member.getTpmLimit()) {
                 continue;
             }
-            double score = current / (double) weight;
-            if ("unhealthy".equalsIgnoreCase(member.getHealthStatus())) {
-                score += 1.5D;
-            }
-            if (member.getFailCount() != null && member.getFailCount() > 0) {
-                score += Math.min(1D, member.getFailCount() * 0.1D);
-            }
-            if (member.getLastLatencyMs() != null && member.getLastLatencyMs() > 0) {
-                score += Math.min(1D, member.getLastLatencyMs() / 30000D);
-            }
+            double score = adaptiveScore(member, current, weight, now);
             candidates.add(new Candidate(member, binding, score));
         }
         Candidate selected = candidates.stream()
@@ -358,12 +353,16 @@ public class OciOpenaiLoadBalanceService {
         }
         member.setLastErrorType(trimTo(errorType, 64));
         member.setHealthCheckedAt(now);
+        updateEwma(member, success, latencyMs);
         if (success) {
             member.setFailCount(0);
             member.setCooldownUntil(null);
             member.setLastError(null);
             member.setHealthStatus("healthy");
             member.setHealthMessage(null);
+            if (member.getRecoveryUntil() != null && member.getRecoveryUntil().isBefore(now)) {
+                member.setRecoveryUntil(null);
+            }
         } else {
             String msg = errorMessage == null || errorMessage.isBlank() ? "HTTP " + status : errorMessage;
             member.setLastError(trimTo(msg, 512));
@@ -372,7 +371,9 @@ public class OciOpenaiLoadBalanceService {
             if (shouldCooldown) {
                 int failCount = member.getFailCount() == null ? 1 : member.getFailCount() + 1;
                 member.setFailCount(failCount);
-                member.setCooldownUntil(now.plusSeconds(Math.min(300, 10L * failCount)));
+                LocalDateTime cooldownUntil = now.plusSeconds(Math.min(300, 10L * failCount));
+                member.setCooldownUntil(cooldownUntil);
+                member.setRecoveryUntil(cooldownUntil.plusSeconds(Math.min(600, 30L * failCount)));
             }
         }
         memberMapper.updateById(member);
@@ -392,6 +393,57 @@ public class OciOpenaiLoadBalanceService {
         member.setLastUsed(now);
         member.setUpdateTime(now);
         memberMapper.updateById(member);
+    }
+
+    private static double adaptiveScore(OciOpenaiLbMember member, int current, int weight, LocalDateTime now) {
+        double score = current / (double) weight;
+        if ("unhealthy".equalsIgnoreCase(member.getHealthStatus())) {
+            score += 1.5D;
+        } else if ("cooling".equalsIgnoreCase(member.getHealthStatus())) {
+            score += 1D;
+        }
+        if (member.getFailCount() != null && member.getFailCount() > 0) {
+            score += Math.min(1.5D, member.getFailCount() * 0.15D);
+        }
+        Double successRate = member.getEwmaSuccessRate();
+        if (successRate != null) {
+            score += Math.max(0D, 1D - Math.min(1D, successRate)) * 2.5D;
+        }
+        Long latency = member.getEwmaLatencyMs();
+        if (latency == null && member.getLastLatencyMs() != null) {
+            latency = member.getLastLatencyMs().longValue();
+        }
+        if (latency != null && latency > 0) {
+            score += Math.min(2D, latency / 60000D);
+        }
+        if (member.getRecoveryUntil() != null && member.getRecoveryUntil().isAfter(now)) {
+            score += 2D;
+        }
+        return score;
+    }
+
+    private static void updateEwma(OciOpenaiLbMember member, boolean success, Long latencyMs) {
+        double alpha = 0.25D;
+        double sample = success ? 1D : 0D;
+        Double oldRate = member.getEwmaSuccessRate();
+        member.setEwmaSuccessRate(oldRate == null ? sample : clamp01(oldRate * (1D - alpha) + sample * alpha));
+        if (latencyMs != null && latencyMs >= 0) {
+            Long oldLatency = member.getEwmaLatencyMs();
+            long next = oldLatency == null
+                    ? latencyMs
+                    : Math.round(oldLatency * (1D - alpha) + latencyMs * alpha);
+            member.setEwmaLatencyMs(Math.max(0L, next));
+        }
+    }
+
+    private static double clamp01(double value) {
+        if (value < 0D) {
+            return 0D;
+        }
+        if (value > 1D) {
+            return 1D;
+        }
+        return value;
     }
 
     private void releaseInFlight(String memberId) {
@@ -535,6 +587,28 @@ public class OciOpenaiLoadBalanceService {
         }
     }
 
+    @Scheduled(cron = "${ociworker.openaiLoadBalance.requestLogCleanupCron:0 17 3 * * ?}")
+    public void cleanupRequestLogs() {
+        try {
+            int days = Math.max(1, requestLogRetentionDays);
+            int keepRows = Math.max(100, requestLogMaxRows);
+            LocalDateTime cutoff = LocalDateTime.now().minusDays(days);
+            int oldDeleted = requestLogMapper.delete(new LambdaQueryWrapper<OciOpenaiLbRequestLog>()
+                    .lt(OciOpenaiLbRequestLog::getCreateTime, cutoff));
+            long count = requestLogMapper.selectCount(null);
+            int overflowDeleted = 0;
+            if (count > keepRows) {
+                overflowDeleted = requestLogMapper.deleteBeyondLatest(keepRows);
+            }
+            if (oldDeleted > 0 || overflowDeleted > 0) {
+                log.info("OpenAI LB request log cleanup: oldDeleted={} overflowDeleted={} keepRows={} days={}",
+                        oldDeleted, overflowDeleted, keepRows, days);
+            }
+        } catch (Exception e) {
+            log.debug("OpenAI LB request log cleanup failed: {}", e.getMessage());
+        }
+    }
+
     private void recordUsage(String memberId, boolean success, long tokenCount) {
         LocalDateTime hour = LocalDateTime.now().withMinute(0).withSecond(0).withNano(0);
         long tokens = Math.max(0L, tokenCount);
@@ -589,6 +663,9 @@ public class OciOpenaiLoadBalanceService {
         if (member.getCooldownUntil() != null && member.getCooldownUntil().isAfter(now)) {
             return new HealthCheckResult("cooling", "冷却到 " + member.getCooldownUntil());
         }
+        if (member.getRecoveryUntil() != null && member.getRecoveryUntil().isAfter(now)) {
+            return new HealthCheckResult("recovering", "恢复观察到 " + member.getRecoveryUntil());
+        }
         if ("failed".equalsIgnoreCase(binding.getStatus())) {
             return new HealthCheckResult("unhealthy", binding.getStatusMessage() == null ? "端口启动失败" : binding.getStatusMessage());
         }
@@ -637,6 +714,9 @@ public class OciOpenaiLoadBalanceService {
         row.put("lastLatencyMs", member.getLastLatencyMs());
         row.put("lastStatus", member.getLastStatus());
         row.put("lastErrorType", member.getLastErrorType());
+        row.put("ewmaSuccessRate", member.getEwmaSuccessRate());
+        row.put("ewmaLatencyMs", member.getEwmaLatencyMs());
+        row.put("recoveryUntil", member.getRecoveryUntil());
         row.put("lastUsed", member.getLastUsed());
         row.put("inFlight", inFlight.getOrDefault(member.getId(), new AtomicInteger()).get());
         row.put("usage5h", usageStats(member.getId(), LocalDateTime.now().minusHours(5)));

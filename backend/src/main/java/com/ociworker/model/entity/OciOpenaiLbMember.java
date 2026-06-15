@@ -32,6 +32,9 @@ public class OciOpenaiLbMember {
     private Integer lastLatencyMs;
     private Integer lastStatus;
     private String lastErrorType;
+    private Double ewmaSuccessRate;
+    private Long ewmaLatencyMs;
+    private LocalDateTime recoveryUntil;
     private LocalDateTime lastUsed;
     private LocalDateTime createTime;
     private LocalDateTime updateTime;

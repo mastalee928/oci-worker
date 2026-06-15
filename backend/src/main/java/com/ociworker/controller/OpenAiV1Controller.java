@@ -251,6 +251,7 @@ public class OpenAiV1Controller {
         request.removeAttribute(OpenAiApiConstants.ATTR_STREAM_FIRST_CHUNK_MS);
         request.removeAttribute(OpenAiApiConstants.ATTR_STREAM_CHUNK_COUNT);
         request.removeAttribute(OpenAiApiConstants.ATTR_STREAM_TIMEOUT_TYPE);
+        request.removeAttribute(OpenAiApiConstants.ATTR_STREAM_ESTIMATED_TOKENS);
     }
 
     private static void setPositiveAttr(HttpServletRequest request, String name, Integer value) {
