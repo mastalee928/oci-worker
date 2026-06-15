@@ -442,6 +442,9 @@
                       :status="lbUsageProgressStatus(record.usage5h, record.requestLimit5h)"
                       size="small"
                     />
+                    <div v-else class="lb-usage-unlimited">
+                      <span></span><em>未设上限</em>
+                    </div>
                   </div>
                   <div class="lb-usage-item">
                     <a-tooltip :title="lbUsageTooltip(record.usage7d, record.requestLimit7d)">
@@ -453,6 +456,9 @@
                       :status="lbUsageProgressStatus(record.usage7d, record.requestLimit7d)"
                       size="small"
                     />
+                    <div v-else class="lb-usage-unlimited">
+                      <span></span><em>未设上限</em>
+                    </div>
                   </div>
                 </div>
                 <span>模型</span>
@@ -514,6 +520,9 @@
                       :status="lbUsageProgressStatus(record.usage5h, record.requestLimit5h)"
                       size="small"
                     />
+                    <div v-else class="lb-usage-unlimited">
+                      <span></span><em>未设上限</em>
+                    </div>
                   </div>
                   <div class="lb-usage-item">
                     <a-tooltip :title="lbUsageTooltip(record.usage7d, record.requestLimit7d)">
@@ -525,6 +534,9 @@
                       :status="lbUsageProgressStatus(record.usage7d, record.requestLimit7d)"
                       size="small"
                     />
+                    <div v-else class="lb-usage-unlimited">
+                      <span></span><em>未设上限</em>
+                    </div>
                   </div>
                 </div>
               </template>
@@ -2150,6 +2162,26 @@ async function viewKey(k: any) {
 }
 .lb-usage-pair :deep(.ant-progress-line) {
   margin-bottom: 0;
+}
+.lb-usage-unlimited {
+  display: grid;
+  grid-template-columns: minmax(54px, 1fr) auto;
+  gap: 6px;
+  align-items: center;
+  margin-top: 2px;
+}
+.lb-usage-unlimited span {
+  height: 6px;
+  border-radius: 999px;
+  background: linear-gradient(90deg, rgba(96, 165, 250, 0.34), rgba(148, 163, 184, 0.16));
+  border: 1px solid rgba(148, 163, 184, 0.18);
+}
+.lb-usage-unlimited em {
+  color: var(--text-sub, #666);
+  font-size: 11px;
+  font-style: normal;
+  line-height: 1;
+  white-space: nowrap;
 }
 .port-table :deep(.ant-table-cell) {
   vertical-align: middle;
