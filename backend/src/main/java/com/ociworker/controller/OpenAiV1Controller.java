@@ -14,6 +14,7 @@ import jakarta.servlet.ServletInputStream;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletRequestWrapper;
 import jakarta.servlet.http.HttpServletResponse;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestMethod;
@@ -23,7 +24,9 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.util.UUID;
 
+@Slf4j
 @Controller
 public class OpenAiV1Controller {
 
@@ -59,9 +62,7 @@ public class OpenAiV1Controller {
         } catch (OciException e) {
             error(response, 502, e.getMessage() != null ? e.getMessage() : "OCI 错误");
         } catch (IOException e) {
-            if (!response.isCommitted() && (e.getMessage() == null
-                    || !e.getMessage().toLowerCase().contains("broken")
-                    && !e.getMessage().toLowerCase().contains("aborted"))) {
+            if (!response.isCommitted() && !isClientAbort(e)) {
                 error(response, 502, e.getMessage() != null ? e.getMessage() : "转发出错");
             }
         } catch (Exception e) {
@@ -70,6 +71,9 @@ public class OpenAiV1Controller {
     }
 
     private void v1LoadBalanceProxy(HttpServletRequest request, HttpServletResponse response) throws IOException {
+        String lbRequestId = UUID.randomUUID().toString();
+        request.setAttribute(OpenAiApiConstants.ATTR_LB_REQUEST_ID, lbRequestId);
+        response.setHeader("x-ociworker-lb-request-id", lbRequestId);
         String pathAfterV1 = extractPathAfterV1(request);
         if ("GET".equalsIgnoreCase(request.getMethod()) && isModelsPath(pathAfterV1)) {
             response.setStatus(200);
@@ -97,6 +101,8 @@ public class OpenAiV1Controller {
         request.setAttribute(OpenAiApiConstants.ATTR_OPENAI_KEY_ID, binding.getOpenaiKeyId());
         request.setAttribute(OpenAiApiConstants.ATTR_PORT_BINDING_ID, binding.getId());
         request.setAttribute(OpenAiApiConstants.ATTR_LB_MEMBER_ID, selection.member().getId());
+        response.setHeader("x-ociworker-lb-member-id", selection.member().getId());
+        response.setHeader("x-ociworker-lb-port", String.valueOf(binding.getPort()));
         if (binding.getOciRegion() != null && !binding.getOciRegion().isBlank()) {
             request.setAttribute(OpenAiApiConstants.ATTR_OCI_REGION, binding.getOciRegion().trim());
         }
@@ -110,19 +116,35 @@ public class OpenAiV1Controller {
             loadBalanceService.touchKey((String) request.getAttribute(OpenAiApiConstants.ATTR_LB_KEY_ID));
             HttpServletRequest proxyRequest = body == null ? request : new CachedBodyRequest(request, body);
             generativeOpenAiService.proxy(user, proxyRequest, response);
+            if (Boolean.TRUE.equals(request.getAttribute(OpenAiApiConstants.ATTR_CLIENT_ABORTED))) {
+                loadBalanceService.finishClientAborted(selection.member().getId());
+                log.info("OpenAI LB client aborted requestId={} memberId={} port={}",
+                        lbRequestId, selection.member().getId(), binding.getPort());
+                return;
+            }
             loadBalanceService.finishRequest(selection.member().getId(), response.getStatus(), usageTokens(request));
         } catch (OciException e) {
             loadBalanceService.finishRequest(selection.member().getId(), 502);
+            log.warn("OpenAI LB upstream error requestId={} memberId={} port={} message={}",
+                    lbRequestId, selection.member().getId(), binding.getPort(), e.getMessage());
             error(response, 502, e.getMessage() != null ? e.getMessage() : "OCI 错误");
         } catch (IOException e) {
-            loadBalanceService.finishRequest(selection.member().getId(), response.getStatus() >= 400 ? response.getStatus() : 499);
-            if (!response.isCommitted() && (e.getMessage() == null
-                    || !e.getMessage().toLowerCase().contains("broken")
-                    && !e.getMessage().toLowerCase().contains("aborted"))) {
+            if (isClientAbort(e)) {
+                loadBalanceService.finishClientAborted(selection.member().getId());
+                log.info("OpenAI LB client aborted requestId={} memberId={} port={} message={}",
+                        lbRequestId, selection.member().getId(), binding.getPort(), e.getMessage());
+                return;
+            }
+            loadBalanceService.finishRequest(selection.member().getId(), response.getStatus() >= 400 ? response.getStatus() : 502);
+            log.warn("OpenAI LB IO error requestId={} memberId={} port={} message={}",
+                    lbRequestId, selection.member().getId(), binding.getPort(), e.getMessage());
+            if (!response.isCommitted()) {
                 error(response, 502, e.getMessage() != null ? e.getMessage() : "转发出错");
             }
         } catch (Exception e) {
             loadBalanceService.finishRequest(selection.member().getId(), 500);
+            log.warn("OpenAI LB internal error requestId={} memberId={} port={} message={}",
+                    lbRequestId, selection.member().getId(), binding.getPort(), e.getMessage());
             error(response, 500, e.getMessage() != null ? e.getMessage() : "internal_error");
         }
     }
@@ -144,6 +166,15 @@ public class OpenAiV1Controller {
 
     private static boolean isModelsPath(String pathAfterV1) {
         return pathAfterV1 != null && (pathAfterV1.equals("/models") || pathAfterV1.endsWith("/models"));
+    }
+
+    private static boolean isClientAbort(IOException e) {
+        String message = e == null || e.getMessage() == null ? "" : e.getMessage().toLowerCase();
+        return message.contains("broken pipe")
+                || message.contains("aborted")
+                || message.contains("connection reset")
+                || message.contains("reset by peer")
+                || message.contains("clientabort");
     }
 
     private static String extractPathAfterV1(HttpServletRequest request) {

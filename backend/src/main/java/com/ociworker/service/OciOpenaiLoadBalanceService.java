@@ -260,10 +260,7 @@ public class OciOpenaiLoadBalanceService {
         if (memberId == null || memberId.isBlank()) {
             return;
         }
-        AtomicInteger current = inFlight.get(memberId);
-        if (current != null) {
-            current.updateAndGet(value -> Math.max(0, value - 1));
-        }
+        releaseInFlight(memberId);
         OciOpenaiLbMember member = memberMapper.selectById(memberId);
         if (member == null) {
             return;
@@ -287,6 +284,28 @@ public class OciOpenaiLoadBalanceService {
         }
         memberMapper.updateById(member);
         recordUsage(memberId, success, tokenCount);
+    }
+
+    public void finishClientAborted(String memberId) {
+        if (memberId == null || memberId.isBlank()) {
+            return;
+        }
+        releaseInFlight(memberId);
+        OciOpenaiLbMember member = memberMapper.selectById(memberId);
+        if (member == null) {
+            return;
+        }
+        LocalDateTime now = LocalDateTime.now();
+        member.setLastUsed(now);
+        member.setUpdateTime(now);
+        memberMapper.updateById(member);
+    }
+
+    private void releaseInFlight(String memberId) {
+        AtomicInteger current = inFlight.get(memberId);
+        if (current != null) {
+            current.updateAndGet(value -> Math.max(0, value - 1));
+        }
     }
 
     public ObjectNode modelsJson() {

@@ -14,6 +14,8 @@ public final class OpenAiApiConstants {
     public static final String ATTR_LB_REQUEST = "ociworker.openai.lbRequest";
     public static final String ATTR_LB_KEY_ID = "ociworker.openai.lbKeyId";
     public static final String ATTR_LB_MEMBER_ID = "ociworker.openai.lbMemberId";
+    public static final String ATTR_LB_REQUEST_ID = "ociworker.openai.lbRequestId";
+    public static final String ATTR_CLIENT_ABORTED = "ociworker.openai.clientAborted";
     public static final String ATTR_USAGE_TOKENS = "ociworker.openai.usageTokens";
 
     private OpenAiApiConstants() {

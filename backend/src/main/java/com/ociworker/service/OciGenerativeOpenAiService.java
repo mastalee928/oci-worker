@@ -1320,7 +1320,8 @@ public class OciGenerativeOpenAiService {
             Thread.currentThread().interrupt();
             throw new OciException("流式请求中断");
         } catch (IOException e) {
-            if (e.getMessage() != null && e.getMessage().contains("Broken pipe")) {
+            if (isClientAbort(e)) {
+                markClientAborted(request);
                 return;
             }
             throw e;
@@ -1421,11 +1422,27 @@ public class OciGenerativeOpenAiService {
             Thread.currentThread().interrupt();
             throw new OciException("请求中断");
         } catch (IOException e) {
-            if (e.getMessage() != null && e.getMessage().contains("Broken pipe")) {
+            if (isClientAbort(e)) {
+                markClientAborted(request);
                 return;
             }
             throw e;
         }
+    }
+
+    private static void markClientAborted(HttpServletRequest request) {
+        if (request != null) {
+            request.setAttribute(OpenAiApiConstants.ATTR_CLIENT_ABORTED, Boolean.TRUE);
+        }
+    }
+
+    private static boolean isClientAbort(IOException e) {
+        String message = e == null || e.getMessage() == null ? "" : e.getMessage().toLowerCase(java.util.Locale.ROOT);
+        return message.contains("broken pipe")
+                || message.contains("aborted")
+                || message.contains("connection reset")
+                || message.contains("reset by peer")
+                || message.contains("clientabort");
     }
 
     private static void captureUsageTokens(HttpServletRequest request, String body) {
