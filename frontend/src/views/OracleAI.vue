@@ -2540,7 +2540,7 @@ async function viewKey(k: any) {
   white-space: nowrap;
 }
 .lb-health-tag {
-  margin-top: 4px;
+  margin-top: 0;
 }
 .lb-status-stack {
   min-width: 0;
