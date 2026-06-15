@@ -58,6 +58,53 @@ export function removeOracleAiPortBinding(data: { id: string }) {
   return request.post('/oci/oracle-ai/ports/remove', data)
 }
 
+export function getOracleAiLbOverview() {
+  return request.post('/oci/oracle-ai/lb/overview', {})
+}
+
+export function createOracleAiLbKey(data: { name?: string }) {
+  return request.post('/oci/oracle-ai/lb/keys/create', data)
+}
+
+export function listOracleAiLbKeys() {
+  return request.post('/oci/oracle-ai/lb/keys/list', {})
+}
+
+export function revealOracleAiLbKey(data: { id: string }) {
+  return request.post('/oci/oracle-ai/lb/keys/reveal', data)
+}
+
+export function setOracleAiLbKeyDisabled(data: { id: string; disabled: boolean }) {
+  return request.post('/oci/oracle-ai/lb/keys/setDisabled', data)
+}
+
+export function removeOracleAiLbKey(data: { id: string }) {
+  return request.post('/oci/oracle-ai/lb/keys/remove', data)
+}
+
+export function listOracleAiLbMembers() {
+  return request.post('/oci/oracle-ai/lb/members/list', {})
+}
+
+export function saveOracleAiLbMember(data: {
+  id?: string
+  portBindingId: string
+  weight?: number | null
+  enabled?: boolean
+  requestLimit5h?: number | null
+  requestLimit7d?: number | null
+}) {
+  return request.post('/oci/oracle-ai/lb/members/save', data)
+}
+
+export function setOracleAiLbMemberEnabled(data: { id: string; enabled: boolean }) {
+  return request.post('/oci/oracle-ai/lb/members/setEnabled', data)
+}
+
+export function removeOracleAiLbMember(data: { id: string }) {
+  return request.post('/oci/oracle-ai/lb/members/remove', data)
+}
+
 export function listOpenAiModels(data: { ociUserId: string; ociRegion?: string; after?: string; modelId?: string }) {
   return request.post('/oci/oracle-ai/models', data)
 }

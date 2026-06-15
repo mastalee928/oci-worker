@@ -11,6 +11,10 @@ public final class OpenAiApiConstants {
     public static final String ATTR_PORT_BINDING_ID = "ociworker.openai.portBindingId";
     public static final String ATTR_DEFAULT_MAX_TOKENS = "ociworker.openai.defaultMaxTokens";
     public static final String ATTR_ALLOWED_MODELS_JSON = "ociworker.openai.allowedModelsJson";
+    public static final String ATTR_LB_REQUEST = "ociworker.openai.lbRequest";
+    public static final String ATTR_LB_KEY_ID = "ociworker.openai.lbKeyId";
+    public static final String ATTR_LB_MEMBER_ID = "ociworker.openai.lbMemberId";
+    public static final String ATTR_USAGE_TOKENS = "ociworker.openai.usageTokens";
 
     private OpenAiApiConstants() {
     }

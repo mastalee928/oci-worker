@@ -313,6 +313,241 @@
           </a-table>
         </a-card>
       </a-tab-pane>
+
+      <a-tab-pane key="lb" tab="负载均衡">
+        <a-card title="固定负载均衡入口" :bordered="false" class="mt-card" :loading="lbOverviewLoading">
+          <a-space direction="vertical" style="width: 100%">
+            <div class="sub top-line">
+              <div>
+                Base：
+                <code>http://&lt;主机或域名&gt;:{{ lbPort }}/v1</code>
+                <span class="sub-muted">（Header：<code>Authorization: Bearer sk-lb-...</code>）</span>
+              </div>
+              <a-space>
+                <a-tag :color="lbRunning ? 'green' : 'orange'">{{ lbRunning ? '监听中' : '未监听' }}</a-tag>
+                <a-button size="small" :loading="lbOverviewLoading || lbKeysLoading || lbMembersLoading" @click="loadLbAll">刷新</a-button>
+              </a-space>
+            </div>
+            <a-typography-paragraph copyable :content="lbIpBaseUrl">
+              <code class="code-wrap">{{ lbIpBaseUrl }}</code>
+            </a-typography-paragraph>
+            <div class="lb-overview">
+              <span>Key：{{ lbOverview.keyCount ?? lbKeys.length }}</span>
+              <span>成员：{{ lbOverview.memberCount ?? lbMembers.length }}</span>
+              <span>端口：{{ lbPort }}</span>
+            </div>
+          </a-space>
+        </a-card>
+
+        <a-card title="LB Key" :bordered="false" class="mt-card">
+          <a-row class="key-toolbar" :gutter="[8, 8]" align="middle">
+            <a-col>
+              <a-button type="primary" @click="openLbKeyModal">生成 LB Key</a-button>
+            </a-col>
+            <a-col>
+              <a-button :loading="lbKeysLoading" @click="loadLbKeys">刷新</a-button>
+            </a-col>
+          </a-row>
+          <a-table
+            v-if="!isMobile"
+            :columns="lbKeyColumns"
+            :data-source="lbKeys"
+            :loading="lbKeysLoading"
+            row-key="id"
+            size="middle"
+            :pagination="false"
+          >
+            <template #bodyCell="{ column, record }">
+              <template v-if="column.key === 'dis'">
+                <a-tag :color="record.disabled ? 'red' : 'green'">{{ record.disabled ? '已禁用' : '正常' }}</a-tag>
+              </template>
+              <template v-else-if="column.key === 'keyMasked'">
+                <code class="key-masked">{{ record.keyMasked || 'sk-lb-****' }}</code>
+              </template>
+              <template v-else-if="column.key === 'createTime'">
+                {{ formatKeyTime(record.createTime) }}
+              </template>
+              <template v-else-if="column.key === 'lastUsed'">
+                {{ formatKeyTime(record.lastUsed) }}
+              </template>
+              <template v-else-if="column.key === 'a'">
+                <a-space>
+                  <a-button size="small" type="link" @click="viewLbKey(record)">查看</a-button>
+                  <a-button size="small" :loading="lbKeySwitchingId === record.id" @click="toggleLbKey(record)">
+                    {{ record.disabled ? '启用' : '禁用' }}
+                  </a-button>
+                  <a-popconfirm title="确定删除？客户端需改密钥。" @confirm="removeLbKeyRow(record)">
+                    <a-button size="small" danger>删除</a-button>
+                  </a-popconfirm>
+                </a-space>
+              </template>
+            </template>
+          </a-table>
+          <template v-else>
+            <a-empty v-if="!lbKeys.length && !lbKeysLoading" description="无 LB Key" />
+            <div v-for="k in lbKeys" :key="k.id" class="key-card-m">
+              <div>
+                <b>{{ k.name || '未命名' }}</b> <code class="p">{{ k.keyMasked || 'sk-lb-****' }}</code>
+              </div>
+              <a-button size="small" type="link" @click="viewLbKey(k)">查看</a-button>
+              <a-button size="small" :loading="lbKeySwitchingId === k.id" @click="toggleLbKey(k)">
+                {{ k.disabled ? '启用' : '禁用' }}
+              </a-button>
+              <a-popconfirm title="确定删除？" @confirm="removeLbKeyRow(k)">
+                <a-button size="small" danger>删除</a-button>
+              </a-popconfirm>
+            </div>
+          </template>
+        </a-card>
+
+        <a-card title="负载成员" :bordered="false" class="mt-card">
+          <a-row class="key-toolbar" :gutter="[8, 8]" align="middle">
+            <a-col>
+              <a-button type="primary" @click="openLbMemberModal()">添加成员</a-button>
+            </a-col>
+            <a-col>
+              <a-button :loading="lbMembersLoading" @click="loadLbMembers">刷新</a-button>
+            </a-col>
+            <a-col>
+              <a-button :loading="portBindingsLoading" @click="loadPortBindings">刷新中转端口</a-button>
+            </a-col>
+          </a-row>
+          <div v-if="isMobile" class="port-mobile-list">
+            <a-spin v-if="lbMembersLoading" />
+            <a-empty v-if="!lbMembers.length && !lbMembersLoading" description="暂无成员" />
+            <div v-for="record in lbMembers" :key="record.id" class="port-card-m">
+              <div class="port-card-head">
+                <div>
+                  <div class="port-card-title">{{ lbMemberName(record) }}</div>
+                  <code>{{ lbMemberPortUrl(record) }}</code>
+                </div>
+                <a-switch :checked="record.enabled" :loading="lbMemberSwitchingId === record.id" @change="(v: boolean) => toggleLbMember(record, v)" />
+              </div>
+              <div class="port-card-grid">
+                <span>端口</span><b>{{ record.port || '-' }}</b>
+                <span>租户</span><b>{{ record.tenantName || record.ociUserId || '-' }}</b>
+                <span>区域</span><b>{{ regionDisplay(record.ociRegion) || '-' }}</b>
+                <span>状态</span><a-tag :color="lbMemberStatusColor(record)">{{ lbMemberStatusText(record) }}</a-tag>
+                <span>权重</span><b>{{ record.weight || 1 }}</b>
+                <span>并发</span><b>{{ record.inFlight || 0 }}</b>
+                <span>用量</span>
+                <div class="lb-usage-pair lb-usage-mobile">
+                  <div class="lb-usage-item">
+                    <a-tooltip :title="lbUsageTooltip(record.usage5h, record.requestLimit5h)">
+                      <div class="lb-usage-head"><span>5h</span><b>{{ lbUsageText(record.usage5h, record.requestLimit5h) }}</b></div>
+                    </a-tooltip>
+                    <a-progress
+                      v-if="record.requestLimit5h"
+                      :percent="lbUsagePercent(record.usage5h, record.requestLimit5h)"
+                      :status="lbUsageProgressStatus(record.usage5h, record.requestLimit5h)"
+                      size="small"
+                    />
+                  </div>
+                  <div class="lb-usage-item">
+                    <a-tooltip :title="lbUsageTooltip(record.usage7d, record.requestLimit7d)">
+                      <div class="lb-usage-head"><span>7d</span><b>{{ lbUsageText(record.usage7d, record.requestLimit7d) }}</b></div>
+                    </a-tooltip>
+                    <a-progress
+                      v-if="record.requestLimit7d"
+                      :percent="lbUsagePercent(record.usage7d, record.requestLimit7d)"
+                      :status="lbUsageProgressStatus(record.usage7d, record.requestLimit7d)"
+                      size="small"
+                    />
+                  </div>
+                </div>
+                <span>模型</span>
+                <a-tooltip :title="modelTooltip(record.allowedModels)">
+                  <b class="model-summary">{{ modelSummary(record.allowedModels) }}</b>
+                </a-tooltip>
+              </div>
+              <div v-if="record.lastError || isLbCoolingDown(record)" class="sub-muted status-message">
+                {{ record.lastError || '' }} {{ isLbCoolingDown(record) ? `冷却到 ${lbCooldownText(record)}` : '' }}
+              </div>
+              <a-space class="port-card-actions" wrap>
+                <a-button size="small" @click="openLbMemberModal(record)">编辑</a-button>
+                <a-popconfirm title="确定删除该成员？" @confirm="removeLbMemberRow(record)">
+                  <a-button size="small" danger>删除</a-button>
+                </a-popconfirm>
+              </a-space>
+            </div>
+          </div>
+          <a-table
+            v-else
+            class="port-table"
+            :columns="lbMemberColumns"
+            :data-source="lbMembers"
+            :loading="lbMembersLoading"
+            row-key="id"
+            size="middle"
+            :pagination="false"
+            :scroll="{ x: 1510 }"
+          >
+            <template #bodyCell="{ column, record }">
+              <template v-if="column.key === 'enabled'">
+                <a-switch :checked="record.enabled" :loading="lbMemberSwitchingId === record.id" @change="(v: boolean) => toggleLbMember(record, v)" />
+              </template>
+              <template v-else-if="column.key === 'port'">
+                <div><code>{{ record.port || '-' }}</code></div>
+                <span class="sub-muted">{{ lbMemberName(record) }}</span>
+              </template>
+              <template v-else-if="column.key === 'tenant'">
+                <div>{{ record.tenantName || record.ociUserId || '-' }}</div>
+                <span class="sub-muted">{{ regionDisplay(record.ociRegion) || '-' }}</span>
+              </template>
+              <template v-else-if="column.key === 'status'">
+                <a-tag :color="lbMemberStatusColor(record)">{{ lbMemberStatusText(record) }}</a-tag>
+                <div v-if="record.lastError" class="sub-muted status-message">{{ record.lastError }}</div>
+                <div v-if="isLbCoolingDown(record)" class="sub-muted status-message">冷却到 {{ lbCooldownText(record) }}</div>
+              </template>
+              <template v-else-if="column.key === 'load'">
+                <span>{{ record.weight || 1 }} / {{ record.inFlight || 0 }}</span>
+              </template>
+              <template v-else-if="column.key === 'usage'">
+                <div class="lb-usage-pair">
+                  <div class="lb-usage-item">
+                    <a-tooltip :title="lbUsageTooltip(record.usage5h, record.requestLimit5h)">
+                      <div class="lb-usage-head"><span>5h</span><b>{{ lbUsageText(record.usage5h, record.requestLimit5h) }}</b></div>
+                    </a-tooltip>
+                    <a-progress
+                      v-if="record.requestLimit5h"
+                      :percent="lbUsagePercent(record.usage5h, record.requestLimit5h)"
+                      :status="lbUsageProgressStatus(record.usage5h, record.requestLimit5h)"
+                      size="small"
+                    />
+                  </div>
+                  <div class="lb-usage-item">
+                    <a-tooltip :title="lbUsageTooltip(record.usage7d, record.requestLimit7d)">
+                      <div class="lb-usage-head"><span>7d</span><b>{{ lbUsageText(record.usage7d, record.requestLimit7d) }}</b></div>
+                    </a-tooltip>
+                    <a-progress
+                      v-if="record.requestLimit7d"
+                      :percent="lbUsagePercent(record.usage7d, record.requestLimit7d)"
+                      :status="lbUsageProgressStatus(record.usage7d, record.requestLimit7d)"
+                      size="small"
+                    />
+                  </div>
+                </div>
+              </template>
+              <template v-else-if="column.key === 'models'">
+                <a-tooltip :title="modelTooltip(record.allowedModels)">
+                  <span class="model-summary">{{ modelSummary(record.allowedModels) }}</span>
+                </a-tooltip>
+              </template>
+              <template v-else-if="column.key === 'lastUsed'">
+                {{ formatKeyTime(record.lastUsed) }}
+              </template>
+              <template v-else-if="column.key === 'a'">
+                <a-space class="port-actions" :size="4">
+                  <a-button size="small" @click="openLbMemberModal(record)">编辑</a-button>
+                  <a-popconfirm title="确定删除该成员？" @confirm="removeLbMemberRow(record)">
+                    <a-button size="small" danger>删除</a-button>
+                  </a-popconfirm>
+                </a-space>
+              </template>
+            </template>
+          </a-table>
+        </a-card>
+      </a-tab-pane>
     </a-tabs>
 
     <a-modal :mask-closable="false" :keyboard="false" v-model:open="keyModalOpen" title="新密钥" :confirm-loading="keyCreating" @ok="submitKey">
@@ -492,13 +727,80 @@
         </a-form-item>
       </a-form>
     </a-modal>
+
+    <a-modal :mask-closable="false" :keyboard="false" v-model:open="lbKeyModalOpen" title="新 LB Key" :confirm-loading="lbKeyCreating" @ok="submitLbKey">
+      <a-form layout="vertical">
+        <a-form-item label="备注名（可选）">
+          <a-input v-model:value="lbKeyName" placeholder="newapi-lb" />
+        </a-form-item>
+      </a-form>
+    </a-modal>
+
+    <a-modal
+      :mask-closable="false"
+      :keyboard="false"
+      v-model:open="lbMemberModalOpen"
+      :title="lbMemberForm.id ? '编辑负载成员' : '添加负载成员'"
+      :confirm-loading="lbMemberSaving"
+      :width="isMobile ? 'calc(100vw - 32px)' : 640"
+      @ok="saveLbMemberRow"
+    >
+      <a-form layout="vertical">
+        <a-form-item label="中转端口">
+          <a-select
+            v-model:value="lbMemberForm.portBindingId"
+            :options="lbMemberPortOptions"
+            placeholder="选择 30000-39999 端口绑定"
+            show-search
+            :filter-option="filterModel"
+            :get-popup-container="selectPopupContainer"
+          />
+        </a-form-item>
+        <a-form-item label="权重">
+          <a-input-number v-model:value="lbMemberForm.weight" :min="1" :max="1000" :precision="0" style="width: 100%" />
+        </a-form-item>
+        <a-row :gutter="12">
+          <a-col :xs="24" :sm="12">
+            <a-form-item label="5小时请求上限">
+              <a-input-number
+                v-model:value="lbMemberForm.requestLimit5h"
+                :min="1"
+                :precision="0"
+                :controls="false"
+                placeholder="留空不限"
+                style="width: 100%"
+              />
+            </a-form-item>
+          </a-col>
+          <a-col :xs="24" :sm="12">
+            <a-form-item label="7天请求上限">
+              <a-input-number
+                v-model:value="lbMemberForm.requestLimit7d"
+                :min="1"
+                :precision="0"
+                :controls="false"
+                placeholder="留空不限"
+                style="width: 100%"
+              />
+            </a-form-item>
+          </a-col>
+        </a-row>
+        <a-form-item label="启用">
+          <a-switch v-model:checked="lbMemberForm.enabled" />
+        </a-form-item>
+      </a-form>
+    </a-modal>
     <div class="sub sub-bottom" v-if="activeModeTab === 'single'">
       说明：未带 <code>max_tokens</code> 时使用当前默认值；请求体里 <code>force_non_stream: true</code> 会强制非流式。
       Multi-Agent 在网关内会走 <code>/v1/responses</code>。
     </div>
-    <div class="sub sub-bottom" v-else>
+    <div class="sub sub-bottom" v-else-if="activeModeTab === 'multi'">
       说明：多账户端口用于给 sub2api / New API 做负载均衡；端口范围 <code>30000-39999</code>。
       每个端口可单独设置 <code>max_tokens</code> 和模型列表；模型留空表示不限制。
+    </div>
+    <div class="sub sub-bottom" v-else>
+      说明：固定负载均衡入口监听 <code>{{ lbPort }}</code>，成员来自已保存的多账户中转端口。
+      用量为本地网关统计窗口，格式为 <code>请求/成功/失败</code>。
     </div>
   </div>
 </template>
@@ -526,6 +828,16 @@ import {
   saveOracleAiPortBinding,
   setOracleAiPortBindingEnabled,
   removeOracleAiPortBinding,
+  getOracleAiLbOverview,
+  createOracleAiLbKey,
+  listOracleAiLbKeys,
+  revealOracleAiLbKey,
+  setOracleAiLbKeyDisabled,
+  removeOracleAiLbKey,
+  listOracleAiLbMembers,
+  saveOracleAiLbMember,
+  setOracleAiLbMemberEnabled,
+  removeOracleAiLbMember,
   listOpenAiModels,
   oracleAiChatTest,
   getOracleAiUiState,
@@ -571,6 +883,33 @@ const portForm = ref<{
   defaultMaxTokens: null,
   allowedModels: [],
   enabled: true,
+})
+const lbOverview = ref<any>({})
+const lbKeys = ref<any[]>([])
+const lbMembers = ref<any[]>([])
+const lbOverviewLoading = ref(false)
+const lbKeysLoading = ref(false)
+const lbMembersLoading = ref(false)
+const lbKeyModalOpen = ref(false)
+const lbKeyCreating = ref(false)
+const lbKeyName = ref('')
+const lbKeySwitchingId = ref('')
+const lbMemberSwitchingId = ref('')
+const lbMemberModalOpen = ref(false)
+const lbMemberSaving = ref(false)
+const lbMemberForm = ref<{
+  id?: string
+  portBindingId: string
+  weight: number
+  enabled: boolean
+  requestLimit5h?: number | null
+  requestLimit7d?: number | null
+}>({
+  portBindingId: '',
+  weight: 1,
+  enabled: true,
+  requestLimit5h: null,
+  requestLimit7d: null,
 })
 const modelPick = ref<string[]>([])
 const modelOptions = ref<
@@ -630,6 +969,27 @@ const portColumns = [
   { title: '操作', key: 'a', width: 220 },
 ] as any
 
+const lbKeyColumns = [
+  { title: '备注', dataIndex: 'name', key: 'name' },
+  { title: '密钥', key: 'keyMasked', width: 220 },
+  { title: '状态', key: 'dis', width: 100 },
+  { title: '创建', key: 'createTime', width: 168 },
+  { title: '最后使用', key: 'lastUsed', width: 168 },
+  { title: '操作', key: 'a', width: 210 },
+] as any
+
+const lbMemberColumns = [
+  { title: '开关', key: 'enabled', width: 84 },
+  { title: '端口', key: 'port', width: 108 },
+  { title: '租户', key: 'tenant', width: 220 },
+  { title: '状态', key: 'status', width: 150 },
+  { title: '权重/并发', key: 'load', width: 116 },
+  { title: '用量窗口', key: 'usage', width: 260 },
+  { title: '模型', key: 'models', width: 170 },
+  { title: '最近使用', key: 'lastUsed', width: 140 },
+  { title: '操作', key: 'a', width: 170 },
+] as any
+
 function formatKeyTime(iso?: string | null) {
   if (!iso) return '—'
   const d = new Date(iso)
@@ -670,14 +1030,52 @@ function portBaseUrl(port?: number) {
   return `${location.protocol}//${location.hostname}:${p}${openaiPath}`
 }
 
+const lbPort = computed(() => {
+  const port = Number(lbOverview.value?.port || 50000)
+  return Number.isFinite(port) && port > 0 ? Math.trunc(port) : 50000
+})
+
+const lbBaseUrl = computed(() => {
+  const host = typeof window !== 'undefined' ? location.hostname : '<host>'
+  return `http://${host}:${lbPort.value}${openaiPath}`
+})
+
+const lbIpBaseUrl = computed(() => {
+  const host = serverIp.value || (typeof window !== 'undefined' ? location.hostname : '<服务器IP>')
+  return `http://${host}:${lbPort.value}${openaiPath}`
+})
+
+const lbRunning = computed(() => lbOverview.value?.running === true)
+
+const lbMemberPortOptions = computed(() => {
+  const current = String(lbMemberForm.value.portBindingId || '')
+  const used = new Set(
+    (lbMembers.value || [])
+      .map((x: any) => String(x?.portBindingId || ''))
+      .filter((x: string) => x && x !== current),
+  )
+  return (portBindings.value || []).map((row: any) => {
+    const name = row?.name || `port-${row?.port || ''}`
+    const tenant = row?.tenantName || row?.ociUserId || '-'
+    const region = regionDisplay(row?.ociRegion) || '-'
+    return {
+      value: row.id,
+      label: `${row.port} · ${name} · ${tenant} · ${region}`,
+      disabled: used.has(String(row?.id || '')),
+    }
+  })
+})
+
 const keyViewDomainBaseUrl = computed(() => {
   const port = Number(keyViewPort.value || 0)
+  if (port === lbPort.value) return lbBaseUrl.value
   return port ? portBaseUrl(port) : ''
 })
 
 const keyViewIpBaseUrl = computed(() => {
   const port = Number(keyViewPort.value || 0)
   if (!port) return ''
+  if (port === lbPort.value) return lbIpBaseUrl.value
   const host = serverIp.value || (typeof window !== 'undefined' ? location.hostname : '<host>')
   return `http://${host}:${port}${openaiPath}`
 })
@@ -793,6 +1191,7 @@ onMounted(() => {
   loadGateway()
   loadTenants()
   loadPortBindings()
+  loadLbAll()
 })
 
 onUnmounted(() => {
@@ -977,6 +1376,15 @@ watch(
   { deep: true },
 )
 
+watch(
+  () => activeModeTab.value,
+  (tab) => {
+    if (tab === 'lb') {
+      loadLbAll()
+    }
+  },
+)
+
 async function loadModelsIfNeeded(alertOnErr: boolean) {
   if (!ociUserId.value) return
   modelsLoading.value = true
@@ -1103,6 +1511,187 @@ async function loadPortBindings() {
   } finally {
     portBindingsLoading.value = false
   }
+}
+
+async function loadLbOverview() {
+  lbOverviewLoading.value = true
+  try {
+    const r: any = await getOracleAiLbOverview()
+    lbOverview.value = r?.data || {}
+  } finally {
+    lbOverviewLoading.value = false
+  }
+}
+
+async function loadLbKeys() {
+  lbKeysLoading.value = true
+  try {
+    const r: any = await listOracleAiLbKeys()
+    lbKeys.value = Array.isArray(r?.data) ? r.data : []
+  } finally {
+    lbKeysLoading.value = false
+  }
+}
+
+async function loadLbMembers() {
+  lbMembersLoading.value = true
+  try {
+    const r: any = await listOracleAiLbMembers()
+    lbMembers.value = Array.isArray(r?.data) ? r.data : []
+  } finally {
+    lbMembersLoading.value = false
+  }
+}
+
+async function loadLbAll() {
+  await Promise.all([
+    loadLbOverview().catch(() => {}),
+    loadLbKeys().catch(() => {}),
+    loadLbMembers().catch(() => {}),
+  ])
+}
+
+function openLbKeyModal() {
+  lbKeyName.value = ''
+  lbKeyModalOpen.value = true
+}
+
+async function submitLbKey() {
+  lbKeyCreating.value = true
+  try {
+    const r: any = await createOracleAiLbKey({ name: lbKeyName.value || undefined })
+    newKeyPlain.value = r?.data?.apiKey || ''
+    lbKeyModalOpen.value = false
+    if (newKeyPlain.value) {
+      plainKeyModalOpen.value = true
+    }
+    message.success('已创建（请立即复制）')
+    await loadLbKeys()
+    await loadLbOverview()
+  } catch (e: any) {
+    message.error(e?.message || '生成失败')
+  } finally {
+    lbKeyCreating.value = false
+  }
+}
+
+async function viewLbKey(row: any) {
+  if (!row?.id) return
+  keyViewRow.value = row
+  keyViewPlain.value = ''
+  keyViewError.value = ''
+  keyViewPort.value = lbPort.value
+  keyViewOpen.value = true
+  keyViewLoading.value = true
+  try {
+    const r: any = await revealOracleAiLbKey({ id: row.id })
+    keyViewPlain.value = r?.data?.apiKey || ''
+    if (!keyViewPlain.value) {
+      keyViewError.value = '未返回完整 LB Key'
+    }
+  } catch (e: any) {
+    keyViewError.value = e?.message || '无法读取完整 LB Key'
+  } finally {
+    keyViewLoading.value = false
+  }
+}
+
+async function toggleLbKey(row: any) {
+  if (!row?.id) return
+  lbKeySwitchingId.value = row.id
+  try {
+    await setOracleAiLbKeyDisabled({ id: row.id, disabled: !row.disabled })
+    message.success('已更新')
+    await loadLbKeys()
+  } catch (e: any) {
+    message.error(e?.message || '操作失败')
+  } finally {
+    lbKeySwitchingId.value = ''
+  }
+}
+
+async function removeLbKeyRow(row: any) {
+  if (!row?.id) return
+  await removeOracleAiLbKey({ id: row.id })
+  message.success('已删除')
+  await loadLbKeys()
+  await loadLbOverview()
+}
+
+async function openLbMemberModal(row?: any) {
+  if (!portBindings.value.length) {
+    await loadPortBindings()
+  }
+  if (!portBindings.value.length) {
+    message.warning('请先添加 30000-39999 中转端口')
+    return
+  }
+  const used = new Set((lbMembers.value || []).map((x: any) => String(x?.portBindingId || '')).filter(Boolean))
+  const firstAvailable = (portBindings.value || []).find((x: any) => !used.has(String(x?.id || ''))) || portBindings.value[0]
+  lbMemberForm.value = {
+    id: row?.id,
+    portBindingId: row?.portBindingId || firstAvailable?.id || '',
+    weight: Number(row?.weight || 1),
+    enabled: row?.enabled !== false,
+    requestLimit5h: row?.requestLimit5h ? Number(row.requestLimit5h) : null,
+    requestLimit7d: row?.requestLimit7d ? Number(row.requestLimit7d) : null,
+  }
+  lbMemberModalOpen.value = true
+}
+
+async function saveLbMemberRow() {
+  const f = lbMemberForm.value
+  if (!f.portBindingId) {
+    message.warning('请选择中转端口')
+    return
+  }
+  const weight = Number(f.weight || 1)
+  if (!Number.isFinite(weight) || weight < 1) {
+    message.warning('权重必须大于 0')
+    return
+  }
+  lbMemberSaving.value = true
+  try {
+    await saveOracleAiLbMember({
+      id: f.id,
+      portBindingId: f.portBindingId,
+      weight: Math.trunc(weight),
+      enabled: f.enabled,
+      requestLimit5h: f.requestLimit5h ? Math.trunc(Number(f.requestLimit5h)) : null,
+      requestLimit7d: f.requestLimit7d ? Math.trunc(Number(f.requestLimit7d)) : null,
+    })
+    lbMemberModalOpen.value = false
+    message.success('已保存')
+    await loadLbMembers()
+    await loadLbOverview()
+  } catch (e: any) {
+    message.error(e?.message || '保存失败')
+  } finally {
+    lbMemberSaving.value = false
+  }
+}
+
+async function toggleLbMember(row: any, enabled: boolean) {
+  if (!row?.id) return
+  lbMemberSwitchingId.value = row.id
+  try {
+    await setOracleAiLbMemberEnabled({ id: row.id, enabled })
+    message.success(enabled ? '已启用' : '已禁用')
+    await loadLbMembers()
+  } catch (e: any) {
+    message.error(e?.message || '操作失败')
+    await loadLbMembers()
+  } finally {
+    lbMemberSwitchingId.value = ''
+  }
+}
+
+async function removeLbMemberRow(row: any) {
+  if (!row?.id) return
+  await removeOracleAiLbMember({ id: row.id })
+  message.success('已删除')
+  await loadLbMembers()
+  await loadLbOverview()
 }
 
 function nextPortValue() {
@@ -1356,6 +1945,76 @@ function portStatusColor(row: any) {
   return 'orange'
 }
 
+function isLbCoolingDown(row: any) {
+  const t = row?.cooldownUntil ? new Date(row.cooldownUntil).getTime() : 0
+  return Number.isFinite(t) && t > Date.now()
+}
+
+function lbMemberStatusText(row: any) {
+  if (!row?.enabled) return '已禁用'
+  if (!row?.bindingEnabled) return '端口停用'
+  if (row?.keyDisabled) return 'Key禁用'
+  if (isLbCoolingDown(row)) return '冷却中'
+  if (row?.bindingStatus === 'failed') return '端口异常'
+  if (row?.bindingStatus === 'listening') return '可用'
+  return row?.bindingStatus || '待监听'
+}
+
+function lbMemberStatusColor(row: any) {
+  if (!row?.enabled) return 'default'
+  if (!row?.bindingEnabled || row?.keyDisabled || row?.bindingStatus === 'failed') return 'red'
+  if (isLbCoolingDown(row)) return 'orange'
+  if (row?.bindingStatus === 'listening') return 'green'
+  return 'orange'
+}
+
+function lbUsageText(stats: any, limit?: number | null) {
+  const requests = Number(stats?.requestCount || 0)
+  const success = Number(stats?.successCount || 0)
+  const failure = Number(stats?.failureCount || 0)
+  const tokens = Number(stats?.tokenCount || 0)
+  const base = `${requests}/${success}/${failure}`
+  const tokenText = tokens > 0 ? ` · ${tokens} tokens` : ''
+  if (!limit) return `${base}${tokenText}`
+  const percent = Math.min(999, Math.round((requests / Number(limit)) * 100))
+  return `${base} · ${percent}%${tokenText}`
+}
+
+function lbUsagePercent(stats: any, limit?: number | null) {
+  const lim = Number(limit || 0)
+  if (!Number.isFinite(lim) || lim <= 0) return 0
+  const requests = Number(stats?.requestCount || 0)
+  if (!Number.isFinite(requests) || requests <= 0) return 0
+  return Math.min(100, Math.round((requests / lim) * 100))
+}
+
+function lbUsageProgressStatus(stats: any, limit?: number | null) {
+  return lbUsagePercent(stats, limit) >= 100 ? 'exception' : 'normal'
+}
+
+function lbUsageTooltip(stats: any, limit?: number | null) {
+  const requests = Number(stats?.requestCount || 0)
+  const success = Number(stats?.successCount || 0)
+  const failure = Number(stats?.failureCount || 0)
+  const tokens = Number(stats?.tokenCount || 0)
+  const pieces = [`请求 ${requests}`, `成功 ${success}`, `失败 ${failure}`, `Tokens ${tokens}`]
+  if (limit) pieces.push(`上限 ${limit}`)
+  return pieces.join(' / ')
+}
+
+function lbMemberName(row: any) {
+  return row?.bindingName || (row?.port ? `port-${row.port}` : '未命名成员')
+}
+
+function lbMemberPortUrl(row: any) {
+  return row?.port ? portBaseUrl(Number(row.port)) : ''
+}
+
+function lbCooldownText(row: any) {
+  if (!row?.cooldownUntil) return ''
+  return formatKeyTime(row.cooldownUntil)
+}
+
 function openKeyModal() {
   keyName.value = ''
   keyModalOpen.value = true
@@ -1457,6 +2116,41 @@ async function viewKey(k: any) {
 .max-token-form :deep(.ant-form-item) { margin-bottom: 6px; }
 .max-token-input { width: 220px; max-width: calc(100vw - 96px); }
 .max-token-help { margin: 0; }
+.lb-overview {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 16px;
+  color: var(--text-sub, #666);
+  font-size: 13px;
+}
+.lb-usage-pair {
+  display: grid;
+  gap: 6px;
+  min-width: 220px;
+}
+.lb-usage-item {
+  min-width: 0;
+}
+.lb-usage-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+  color: var(--text-sub, #666);
+  font-size: 12px;
+  line-height: 1.35;
+}
+.lb-usage-head b {
+  color: inherit;
+  font-weight: 500;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.lb-usage-pair :deep(.ant-progress-line) {
+  margin-bottom: 0;
+}
 .port-table :deep(.ant-table-cell) {
   vertical-align: middle;
 }
@@ -1519,9 +2213,13 @@ async function viewKey(k: any) {
   color: var(--text-sub, #666);
 }
 .port-card-grid > b,
-.port-card-grid > code {
+.port-card-grid > code,
+.port-card-grid > div {
   min-width: 0;
   overflow-wrap: anywhere;
+}
+.port-card-grid > b,
+.port-card-grid > code {
   font-weight: 500;
 }
 .port-card-actions {
@@ -1579,6 +2277,9 @@ async function viewKey(k: any) {
   }
   .port-model-refresh {
     margin-top: 8px;
+  }
+  .lb-usage-pair {
+    min-width: 0;
   }
   .mobile-model-select {
     width: 100%;

@@ -53,6 +53,8 @@ public class OracleAiController {
     @Resource
     private com.ociworker.service.OracleAiPortBindingService portBindingService;
     @Resource
+    private com.ociworker.service.OciOpenaiLoadBalanceService loadBalanceService;
+    @Resource
     private OciKvMapper kvMapper;
 
     private static final String UI_STATE_TYPE = "ui_state";
@@ -335,6 +337,105 @@ public class OracleAiController {
             return ResponseData.error("id 必填");
         }
         portBindingService.remove(id);
+        return ResponseData.ok();
+    }
+
+    @PostMapping("/lb/overview")
+    public ResponseData<?> lbOverview() {
+        return ResponseData.ok(loadBalanceService.overview());
+    }
+
+    @PostMapping("/lb/keys/create")
+    public ResponseData<?> createLbKey(@RequestBody Map<String, String> body) {
+        String name = body == null ? null : body.get("name");
+        var created = loadBalanceService.createKey(name);
+        Map<String, String> data = new HashMap<>();
+        data.put("id", created.id());
+        data.put("apiKey", created.plainKey());
+        data.put("keyPrefix", created.keyPrefix());
+        data.put("keyMasked", created.keyMasked());
+        data.put("baseUrl", "http://<host>:" + com.ociworker.service.DynamicOpenAiPortService.loadBalancePort() + "/v1");
+        return ResponseData.ok(data);
+    }
+
+    @PostMapping("/lb/keys/list")
+    public ResponseData<?> listLbKeys() {
+        return ResponseData.ok(loadBalanceService.listKeys());
+    }
+
+    @PostMapping("/lb/keys/reveal")
+    public ResponseData<?> revealLbKey(@RequestBody Map<String, String> body) {
+        String id = body == null ? null : body.get("id");
+        if (id == null || id.isBlank()) {
+            return ResponseData.error("id 必填");
+        }
+        try {
+            return ResponseData.ok(Map.of("apiKey", loadBalanceService.revealPlainKey(id)));
+        } catch (com.ociworker.exception.OciException e) {
+            return ResponseData.error(e.getMessage());
+        }
+    }
+
+    @PostMapping("/lb/keys/setDisabled")
+    public ResponseData<?> setLbKeyDisabled(@RequestBody Map<String, Object> body) {
+        String id = body == null ? null : trimObj(body.get("id"));
+        if (id == null) {
+            return ResponseData.error("id 必填");
+        }
+        loadBalanceService.setKeyDisabled(id, boolValue(body.get("disabled"), true));
+        return ResponseData.ok();
+    }
+
+    @PostMapping("/lb/keys/remove")
+    public ResponseData<?> removeLbKey(@RequestBody Map<String, String> body) {
+        String id = body == null ? null : body.get("id");
+        if (id == null || id.isBlank()) {
+            return ResponseData.error("id 必填");
+        }
+        loadBalanceService.removeKey(id);
+        return ResponseData.ok();
+    }
+
+    @PostMapping("/lb/members/list")
+    public ResponseData<?> listLbMembers() {
+        return ResponseData.ok(loadBalanceService.listMembers());
+    }
+
+    @PostMapping("/lb/members/save")
+    public ResponseData<?> saveLbMember(@RequestBody Map<String, Object> body) {
+        try {
+            var row = loadBalanceService.saveMember(
+                    body == null ? null : trimObj(body.get("id")),
+                    body == null ? null : trimObj(body.get("portBindingId")),
+                    nullableIntValue(body == null ? null : body.get("weight")),
+                    boolValue(body == null ? null : body.get("enabled"), true),
+                    nullableIntValue(body == null ? null : body.get("requestLimit5h")),
+                    nullableIntValue(body == null ? null : body.get("requestLimit7d")));
+            return ResponseData.ok(Map.of("id", row.getId()));
+        } catch (com.ociworker.exception.OciException e) {
+            return ResponseData.error(e.getMessage());
+        } catch (Exception e) {
+            return ResponseData.error(e.getMessage() != null ? e.getMessage() : "保存失败");
+        }
+    }
+
+    @PostMapping("/lb/members/setEnabled")
+    public ResponseData<?> setLbMemberEnabled(@RequestBody Map<String, Object> body) {
+        String id = body == null ? null : trimObj(body.get("id"));
+        if (id == null) {
+            return ResponseData.error("id 必填");
+        }
+        loadBalanceService.setMemberEnabled(id, boolValue(body.get("enabled"), true));
+        return ResponseData.ok();
+    }
+
+    @PostMapping("/lb/members/remove")
+    public ResponseData<?> removeLbMember(@RequestBody Map<String, Object> body) {
+        String id = body == null ? null : trimObj(body.get("id"));
+        if (id == null) {
+            return ResponseData.error("id 必填");
+        }
+        loadBalanceService.removeMember(id);
         return ResponseData.ok();
     }
 

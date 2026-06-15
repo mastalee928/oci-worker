@@ -2,6 +2,7 @@ package com.ociworker.service;
 
 import lombok.extern.slf4j.Slf4j;
 import org.apache.catalina.connector.Connector;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.web.context.WebServerInitializedEvent;
 import org.springframework.boot.web.embedded.tomcat.TomcatWebServer;
 import org.springframework.core.Ordered;
@@ -18,9 +19,16 @@ public class DynamicOpenAiPortService {
 
     public static final int MIN_PORT = 30000;
     public static final int MAX_PORT = 39999;
+    public static final int LOAD_BALANCE_PORT = 50000;
+    private static volatile int configuredLoadBalancePort = LOAD_BALANCE_PORT;
 
     private final Map<Integer, Connector> connectors = new ConcurrentHashMap<>();
     private volatile org.apache.catalina.Service tomcatService;
+
+    @Value("${ociworker.openaiLoadBalance.port:50000}")
+    public void setConfiguredLoadBalancePort(int port) {
+        configuredLoadBalancePort = port > 0 ? port : LOAD_BALANCE_PORT;
+    }
 
     @EventListener
     @Order(Ordered.HIGHEST_PRECEDENCE)
@@ -34,8 +42,28 @@ public class DynamicOpenAiPortService {
         return port >= MIN_PORT && port <= MAX_PORT;
     }
 
+    public static boolean isLoadBalancePort(int port) {
+        return port == loadBalancePort();
+    }
+
+    public static boolean isOpenAiGatewayPort(int port) {
+        return isManagedPort(port) || isLoadBalancePort(port);
+    }
+
     public synchronized void startPort(int port) {
         validateManagedPort(port);
+        startConnector(port, "multi-account");
+    }
+
+    public synchronized void startLoadBalancePort() {
+        startConnector(loadBalancePort(), "load-balance");
+    }
+
+    public static int loadBalancePort() {
+        return configuredLoadBalancePort;
+    }
+
+    private void startConnector(int port, String label) {
         if (connectors.containsKey(port)) {
             return;
         }
@@ -48,7 +76,7 @@ public class DynamicOpenAiPortService {
         try {
             svc.addConnector(connector);
             connectors.put(port, connector);
-            log.info("OpenAI multi-account connector started on port {}", port);
+            log.info("OpenAI {} connector started on port {}", label, port);
         } catch (Exception e) {
             try {
                 svc.removeConnector(connector);

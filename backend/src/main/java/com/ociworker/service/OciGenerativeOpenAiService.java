@@ -1355,6 +1355,7 @@ public class OciGenerativeOpenAiService {
             }
             response.setStatus(code);
             String b = resp.body() != null ? resp.body() : "";
+            captureUsageTokens(request, b);
             if (code >= 400
                     && request != null
                     && b != null) {
@@ -1425,6 +1426,59 @@ public class OciGenerativeOpenAiService {
             }
             throw e;
         }
+    }
+
+    private static void captureUsageTokens(HttpServletRequest request, String body) {
+        if (request == null || body == null || body.isBlank()) {
+            return;
+        }
+        try {
+            JsonNode root = MAPPER.readTree(body);
+            long tokens = usageTokens(root);
+            if (tokens > 0) {
+                request.setAttribute(OpenAiApiConstants.ATTR_USAGE_TOKENS, tokens);
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    private static long usageTokens(JsonNode root) {
+        if (root == null || !root.isObject()) {
+            return 0L;
+        }
+        JsonNode usage = root.get("usage");
+        if (usage == null || !usage.isObject()) {
+            return 0L;
+        }
+        long total = longField(usage, "total_tokens", "totalTokens", "totalTokenCount");
+        if (total > 0) {
+            return total;
+        }
+        long prompt = longField(usage, "prompt_tokens", "promptTokens", "input_tokens", "inputTokens");
+        long completion = longField(usage, "completion_tokens", "completionTokens", "output_tokens", "outputTokens");
+        return Math.max(0L, prompt + completion);
+    }
+
+    private static long longField(JsonNode node, String... names) {
+        if (node == null || names == null) {
+            return 0L;
+        }
+        for (String name : names) {
+            JsonNode v = node.get(name);
+            if (v == null || v.isNull() || v.isMissingNode()) {
+                continue;
+            }
+            if (v.isNumber()) {
+                return Math.max(0L, v.asLong());
+            }
+            if (v.isTextual()) {
+                try {
+                    return Math.max(0L, Long.parseLong(v.asText().trim()));
+                } catch (Exception ignored) {
+                }
+            }
+        }
+        return 0L;
     }
 
     private static String textOrNull(ObjectNode o, String field) {

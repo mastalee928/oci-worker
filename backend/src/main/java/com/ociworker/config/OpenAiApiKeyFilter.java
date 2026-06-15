@@ -1,9 +1,11 @@
 package com.ociworker.config;
 
 import com.ociworker.model.entity.OciOpenaiKey;
+import com.ociworker.model.entity.OciOpenaiLbKey;
 import com.ociworker.model.entity.OciOpenaiPortBinding;
 import com.ociworker.model.entity.OciUser;
 import com.ociworker.service.DynamicOpenAiPortService;
+import com.ociworker.service.OciOpenaiLoadBalanceService;
 import com.ociworker.service.OciOpenaiKeyService;
 import com.ociworker.service.OracleAiPortBindingService;
 import jakarta.annotation.Resource;
@@ -33,6 +35,8 @@ public class OpenAiApiKeyFilter extends OncePerRequestFilter {
     private OciUserMapper ociUserMapper;
     @Resource
     private OracleAiPortBindingService portBindingService;
+    @Resource
+    private OciOpenaiLoadBalanceService loadBalanceService;
 
     @Override
     protected void doFilterInternal(
@@ -64,6 +68,22 @@ public class OpenAiApiKeyFilter extends OncePerRequestFilter {
             writeError(response, 401, "invalid_request_error", "Bearer token 为空", "auth_empty");
             return;
         }
+        int localPort = request.getLocalPort();
+        if (DynamicOpenAiPortService.isLoadBalancePort(localPort)) {
+            OciOpenaiLbKey lbKey = loadBalanceService.findKeyByPlain(token);
+            if (lbKey == null) {
+                writeError(response, 401, "invalid_request_error", "负载均衡 Key 无效", "invalid_lb_key");
+                return;
+            }
+            if (lbKey.getDisabled() != null && lbKey.getDisabled() == 1) {
+                writeError(response, 403, "permission_error", "负载均衡 Key 已禁用", "lb_key_disabled");
+                return;
+            }
+            request.setAttribute(OpenAiApiConstants.ATTR_LB_REQUEST, Boolean.TRUE);
+            request.setAttribute(OpenAiApiConstants.ATTR_LB_KEY_ID, lbKey.getId());
+            filterChain.doFilter(request, response);
+            return;
+        }
         OciOpenaiKey key = openaiKeyService.findByPlainKey(token);
         if (key == null) {
             writeError(response, 401, "invalid_request_error", "API Key 无效", "invalid_api_key");
@@ -73,7 +93,6 @@ public class OpenAiApiKeyFilter extends OncePerRequestFilter {
             writeError(response, 403, "permission_error", "API Key 已禁用", "key_disabled");
             return;
         }
-        int localPort = request.getLocalPort();
         OciOpenaiPortBinding binding = null;
         String tenantId = key.getOciUserId();
         if (DynamicOpenAiPortService.isManagedPort(localPort)) {

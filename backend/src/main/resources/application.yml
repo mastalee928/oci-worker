@@ -9,6 +9,9 @@ ociworker:
   openaiApi:
     # 0 = 不启用第二端口；>0 且与 server.port 不同时，Tomcat 额外监听该口供 /v1 等 OpenAI 路由
     port: 8080
+  openaiLoadBalance:
+    # 固定负载均衡入口。默认 50000，Base URL 为 http://<本机或域名>:50000/v1
+    port: 50000
   telegram:
     # Bot 更新由服务端 getUpdates 长轮询接收（无需 Webhook、无需公网 HTTPS 指向本机）。
     # 以下两项已废弃，保留仅为兼容旧环境变量占位（代码不再读取）。
