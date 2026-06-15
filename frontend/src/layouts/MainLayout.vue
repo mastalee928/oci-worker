@@ -97,8 +97,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useUserStore } from '../stores/user'
 import { useThemeStore } from '../stores/theme'
 import { MAIN_KEEP_ALIVE } from '../constants/keepAlive'
-import { prefetchRouteChunk, prefetchMainRoutesIdle } from '../utils/routePrefetch'
-import { useTenantCatalogStore } from '../stores/tenantCatalog'
+import { prefetchRouteChunk } from '../utils/routePrefetch'
 import { getCurrentAccount } from '../api/auth'
 import OciLogo from '../components/OciLogo.vue'
 
@@ -134,10 +133,6 @@ watch(mobileMenuOpen, open => {
 onMounted(() => {
   checkMobile()
   window.addEventListener('resize', checkMobile)
-  prefetchMainRoutesIdle()
-  const catalog = useTenantCatalogStore()
-  void catalog.ensureGroups({ silent: true }).catch(() => {})
-  void catalog.ensureTenants({ silent: true }).catch(() => {})
   if (userStore.token && !userStore.account.trim()) {
     void getCurrentAccount()
       .then((res) => {
