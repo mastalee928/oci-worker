@@ -1,3 +1,11 @@
+@font-face {
+  font-family: 'Inter';
+  font-style: normal;
+  font-weight: 400 800;
+  font-display: swap;
+  src: url('./fonts/inter-latin-wght-normal.woff2') format('woff2');
+}
+
 /* ========== CSS Variables ========== */
 :root {
   --primary: #818cf8;
