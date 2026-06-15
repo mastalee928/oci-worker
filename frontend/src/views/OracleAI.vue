@@ -824,11 +824,19 @@
       v-model:open="lbMemberModalOpen"
       :title="lbMemberForm.id ? '编辑负载成员' : '添加负载成员'"
       :confirm-loading="lbMemberSaving"
+      :ok-button-props="{ disabled: !lbMemberCanSubmit }"
       :width="isMobile ? 'calc(100vw - 32px)' : 640"
       @ok="saveLbMemberRow"
     >
       <a-form layout="vertical">
         <a-form-item label="中转端口">
+          <a-alert
+            v-if="!lbMemberForm.id && !lbMemberPortOptions.length"
+            class="mb-alert"
+            type="info"
+            message="当前没有可添加的中转端口"
+            show-icon
+          />
           <template v-if="isMobile && !lbMemberForm.id">
             <select
               class="mobile-model-select"
@@ -1246,7 +1254,11 @@ const lbMemberPortOptions = computed(() => {
       .map((x: any) => String(x?.portBindingId || ''))
       .filter((x: string) => x && x !== current && !currentMany.has(x)),
   )
-  return (portBindings.value || []).map((row: any) => {
+  const rows = (portBindings.value || []).filter((row: any) => {
+    if (lbMemberForm.value.id) return true
+    return !used.has(String(row?.id || ''))
+  })
+  return rows.map((row: any) => {
     const name = row?.name || `port-${row?.port || ''}`
     const tenant = row?.tenantName || row?.ociUserId || '-'
     const region = regionDisplay(row?.ociRegion) || '-'
@@ -1256,6 +1268,12 @@ const lbMemberPortOptions = computed(() => {
       disabled: used.has(String(row?.id || '')),
     }
   })
+})
+
+const lbMemberCanSubmit = computed(() => {
+  if (lbMemberSaving.value) return false
+  if (lbMemberForm.value.id) return !!lbMemberForm.value.portBindingId
+  return (lbMemberForm.value.portBindingIds || []).some((x: string) => String(x || '').trim())
 })
 
 const keyViewDomainBaseUrl = computed(() => {
@@ -1830,7 +1848,9 @@ async function openLbMemberModal(row?: any) {
     return
   }
   const used = new Set((lbMembers.value || []).map((x: any) => String(x?.portBindingId || '')).filter(Boolean))
-  const firstAvailable = (portBindings.value || []).find((x: any) => !used.has(String(x?.id || ''))) || portBindings.value[0]
+  const firstAvailable = row
+    ? (portBindings.value || []).find((x: any) => String(x?.id || '') === String(row?.portBindingId || ''))
+    : (portBindings.value || []).find((x: any) => !used.has(String(x?.id || '')))
   lbMemberForm.value = {
     id: row?.id,
     portBindingId: row?.portBindingId || firstAvailable?.id || '',
