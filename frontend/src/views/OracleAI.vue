@@ -817,12 +817,52 @@
     >
       <a-form layout="vertical">
         <a-form-item label="中转端口">
+          <template v-if="isMobile && !lbMemberForm.id">
+            <select
+              class="mobile-model-select"
+              multiple
+              :value="lbMemberForm.portBindingIds"
+              @change="(e: Event) => { const sel = e.target as HTMLSelectElement; lbMemberForm.portBindingIds = Array.from(sel.selectedOptions, (o: HTMLOptionElement) => o.value) }"
+              size="6"
+              style="width:100%;min-height:80px"
+            >
+              <option v-for="p in lbMemberPortOptions" :key="p.value" :value="p.value" :disabled="p.disabled">
+                {{ p.label }}
+              </option>
+            </select>
+            <div class="sub-muted form-help">可一次选择多个端口，保存后会按相同权重和保护参数批量加入。</div>
+          </template>
+          <template v-else-if="isMobile">
+            <select
+              class="mobile-model-select"
+              :value="lbMemberForm.portBindingId"
+              @change="(e: Event) => { lbMemberForm.portBindingId = (e.target as HTMLSelectElement).value; lbMemberForm.portBindingIds = [lbMemberForm.portBindingId].filter(Boolean) }"
+              size="6"
+              style="width:100%;min-height:80px"
+            >
+              <option v-for="p in lbMemberPortOptions" :key="p.value" :value="p.value" :disabled="p.disabled">
+                {{ p.label }}
+              </option>
+            </select>
+          </template>
           <a-select
+            v-else-if="!lbMemberForm.id"
+            v-model:value="lbMemberForm.portBindingIds"
+            mode="multiple"
+            :options="lbMemberPortOptions"
+            placeholder="选择一个或多个 30000-39999 端口绑定"
+            :show-search="false"
+            allow-clear
+            :max-tag-count="4"
+            :max-tag-placeholder="(omittedValues: any[]) => `+${omittedValues?.length || 0}`"
+            :get-popup-container="selectPopupContainer"
+          />
+          <a-select
+            v-else
             v-model:value="lbMemberForm.portBindingId"
             :options="lbMemberPortOptions"
             placeholder="选择 30000-39999 端口绑定"
-            show-search
-            :filter-option="filterModel"
+            :show-search="false"
             :get-popup-container="selectPopupContainer"
           />
         </a-form-item>
@@ -1012,6 +1052,7 @@ const lbMemberSaving = ref(false)
 const lbMemberForm = ref<{
   id?: string
   portBindingId: string
+  portBindingIds: string[]
   weight: number
   enabled: boolean
   requestLimit5h?: number | null
@@ -1025,6 +1066,7 @@ const lbMemberForm = ref<{
   streamMaxSeconds?: number | null
 }>({
   portBindingId: '',
+  portBindingIds: [],
   weight: 1,
   enabled: true,
   requestLimit5h: null,
@@ -1185,10 +1227,11 @@ const lbRunning = computed(() => lbOverview.value?.running === true)
 
 const lbMemberPortOptions = computed(() => {
   const current = String(lbMemberForm.value.portBindingId || '')
+  const currentMany = new Set((lbMemberForm.value.portBindingIds || []).map((x: string) => String(x || '')).filter(Boolean))
   const used = new Set(
     (lbMembers.value || [])
       .map((x: any) => String(x?.portBindingId || ''))
-      .filter((x: string) => x && x !== current),
+      .filter((x: string) => x && x !== current && !currentMany.has(x)),
   )
   return (portBindings.value || []).map((row: any) => {
     const name = row?.name || `port-${row?.port || ''}`
@@ -1778,6 +1821,7 @@ async function openLbMemberModal(row?: any) {
   lbMemberForm.value = {
     id: row?.id,
     portBindingId: row?.portBindingId || firstAvailable?.id || '',
+    portBindingIds: row?.portBindingId ? [row.portBindingId] : (firstAvailable?.id ? [firstAvailable.id] : []),
     weight: Number(row?.weight || 1),
     enabled: row?.enabled !== false,
     requestLimit5h: row?.requestLimit5h ? Number(row.requestLimit5h) : null,
@@ -1795,7 +1839,10 @@ async function openLbMemberModal(row?: any) {
 
 async function saveLbMemberRow() {
   const f = lbMemberForm.value
-  if (!f.portBindingId) {
+  const selectedPortBindingIds = Array.from(
+    new Set((f.id ? [f.portBindingId] : (f.portBindingIds || [])).map((x: string) => String(x || '').trim()).filter(Boolean)),
+  )
+  if (!selectedPortBindingIds.length) {
     message.warning('请选择中转端口')
     return
   }
@@ -1806,23 +1853,25 @@ async function saveLbMemberRow() {
   }
   lbMemberSaving.value = true
   try {
-    await saveOracleAiLbMember({
-      id: f.id,
-      portBindingId: f.portBindingId,
-      weight: Math.trunc(weight),
-      enabled: f.enabled,
-      requestLimit5h: f.requestLimit5h ? Math.trunc(Number(f.requestLimit5h)) : null,
-      requestLimit7d: f.requestLimit7d ? Math.trunc(Number(f.requestLimit7d)) : null,
-      maxConcurrency: f.maxConcurrency ? Math.trunc(Number(f.maxConcurrency)) : null,
-      rpmLimit: f.rpmLimit ? Math.trunc(Number(f.rpmLimit)) : null,
-      tpmLimit: f.tpmLimit ? Math.trunc(Number(f.tpmLimit)) : null,
-      contextLimit: f.contextLimit ? Math.trunc(Number(f.contextLimit)) : null,
-      streamFirstChunkTimeoutSeconds: f.streamFirstChunkTimeoutSeconds ? Math.trunc(Number(f.streamFirstChunkTimeoutSeconds)) : null,
-      streamIdleTimeoutSeconds: f.streamIdleTimeoutSeconds ? Math.trunc(Number(f.streamIdleTimeoutSeconds)) : null,
-      streamMaxSeconds: f.streamMaxSeconds ? Math.trunc(Number(f.streamMaxSeconds)) : null,
-    })
+    for (const portBindingId of selectedPortBindingIds) {
+      await saveOracleAiLbMember({
+        id: f.id,
+        portBindingId,
+        weight: Math.trunc(weight),
+        enabled: f.enabled,
+        requestLimit5h: f.requestLimit5h ? Math.trunc(Number(f.requestLimit5h)) : null,
+        requestLimit7d: f.requestLimit7d ? Math.trunc(Number(f.requestLimit7d)) : null,
+        maxConcurrency: f.maxConcurrency ? Math.trunc(Number(f.maxConcurrency)) : null,
+        rpmLimit: f.rpmLimit ? Math.trunc(Number(f.rpmLimit)) : null,
+        tpmLimit: f.tpmLimit ? Math.trunc(Number(f.tpmLimit)) : null,
+        contextLimit: f.contextLimit ? Math.trunc(Number(f.contextLimit)) : null,
+        streamFirstChunkTimeoutSeconds: f.streamFirstChunkTimeoutSeconds ? Math.trunc(Number(f.streamFirstChunkTimeoutSeconds)) : null,
+        streamIdleTimeoutSeconds: f.streamIdleTimeoutSeconds ? Math.trunc(Number(f.streamIdleTimeoutSeconds)) : null,
+        streamMaxSeconds: f.streamMaxSeconds ? Math.trunc(Number(f.streamMaxSeconds)) : null,
+      })
+    }
     lbMemberModalOpen.value = false
-    message.success('已保存')
+    message.success(f.id ? '已保存' : `已添加 ${selectedPortBindingIds.length} 个成员`)
     await loadLbMembers()
     await loadLbOverview()
   } catch (e: any) {
