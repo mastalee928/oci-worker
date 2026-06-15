@@ -178,6 +178,19 @@ public class DatabaseGuardService {
                 last_error VARCHAR(512) DEFAULT NULL,
                 request_limit5h INT DEFAULT NULL,
                 request_limit7d INT DEFAULT NULL,
+                max_concurrency INT DEFAULT NULL,
+                rpm_limit INT DEFAULT NULL,
+                tpm_limit BIGINT DEFAULT NULL,
+                context_limit INT DEFAULT NULL,
+                stream_first_chunk_timeout_seconds INT DEFAULT NULL,
+                stream_idle_timeout_seconds INT DEFAULT NULL,
+                stream_max_seconds INT DEFAULT NULL,
+                health_status VARCHAR(32) DEFAULT 'unknown',
+                health_message VARCHAR(512) DEFAULT NULL,
+                health_checked_at DATETIME DEFAULT NULL,
+                last_latency_ms INT DEFAULT NULL,
+                last_status INT DEFAULT NULL,
+                last_error_type VARCHAR(64) DEFAULT NULL,
                 last_used DATETIME DEFAULT NULL,
                 create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 update_time DATETIME DEFAULT NULL,
@@ -200,6 +213,35 @@ public class DatabaseGuardService {
                 update_time DATETIME DEFAULT NULL,
                 UNIQUE KEY uk_oci_openai_lb_usage_member_window (member_id, window_start),
                 INDEX idx_oci_openai_lb_usage_window_start (window_start)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            """);
+
+        TABLE_DDL.put("oci_openai_lb_request_log", """
+            CREATE TABLE IF NOT EXISTS oci_openai_lb_request_log (
+                id VARCHAR(64) PRIMARY KEY,
+                request_id VARCHAR(64) NOT NULL,
+                lb_key_id VARCHAR(64) DEFAULT NULL,
+                member_id VARCHAR(64) DEFAULT NULL,
+                port_binding_id VARCHAR(64) DEFAULT NULL,
+                port INT DEFAULT NULL,
+                model VARCHAR(256) DEFAULT NULL,
+                stream TINYINT(1) NOT NULL DEFAULT 0,
+                estimated_prompt_tokens BIGINT DEFAULT 0,
+                status_code INT DEFAULT NULL,
+                status VARCHAR(32) DEFAULT NULL,
+                error_type VARCHAR(64) DEFAULT NULL,
+                error_message VARCHAR(512) DEFAULT NULL,
+                latency_ms BIGINT DEFAULT NULL,
+                first_chunk_ms BIGINT DEFAULT NULL,
+                chunk_count INT DEFAULT 0,
+                token_count BIGINT DEFAULT 0,
+                client_aborted TINYINT(1) NOT NULL DEFAULT 0,
+                retry_count INT NOT NULL DEFAULT 0,
+                create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                update_time DATETIME DEFAULT NULL,
+                INDEX idx_oci_openai_lb_req_time (create_time DESC),
+                INDEX idx_oci_openai_lb_req_member_time (member_id, create_time),
+                INDEX idx_oci_openai_lb_req_request (request_id)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """);
 
@@ -414,6 +456,32 @@ public class DatabaseGuardService {
                 "DATETIME DEFAULT NULL AFTER create_time");
         addColumnIfMissing(conn, "oci_openai_port_binding", "last_used",
                 "DATETIME DEFAULT NULL AFTER update_time");
+        addColumnIfMissing(conn, "oci_openai_lb_member", "max_concurrency",
+                "INT DEFAULT NULL AFTER request_limit7d");
+        addColumnIfMissing(conn, "oci_openai_lb_member", "rpm_limit",
+                "INT DEFAULT NULL AFTER max_concurrency");
+        addColumnIfMissing(conn, "oci_openai_lb_member", "tpm_limit",
+                "BIGINT DEFAULT NULL AFTER rpm_limit");
+        addColumnIfMissing(conn, "oci_openai_lb_member", "context_limit",
+                "INT DEFAULT NULL AFTER tpm_limit");
+        addColumnIfMissing(conn, "oci_openai_lb_member", "stream_first_chunk_timeout_seconds",
+                "INT DEFAULT NULL AFTER context_limit");
+        addColumnIfMissing(conn, "oci_openai_lb_member", "stream_idle_timeout_seconds",
+                "INT DEFAULT NULL AFTER stream_first_chunk_timeout_seconds");
+        addColumnIfMissing(conn, "oci_openai_lb_member", "stream_max_seconds",
+                "INT DEFAULT NULL AFTER stream_idle_timeout_seconds");
+        addColumnIfMissing(conn, "oci_openai_lb_member", "health_status",
+                "VARCHAR(32) DEFAULT 'unknown' AFTER stream_max_seconds");
+        addColumnIfMissing(conn, "oci_openai_lb_member", "health_message",
+                "VARCHAR(512) DEFAULT NULL AFTER health_status");
+        addColumnIfMissing(conn, "oci_openai_lb_member", "health_checked_at",
+                "DATETIME DEFAULT NULL AFTER health_message");
+        addColumnIfMissing(conn, "oci_openai_lb_member", "last_latency_ms",
+                "INT DEFAULT NULL AFTER health_checked_at");
+        addColumnIfMissing(conn, "oci_openai_lb_member", "last_status",
+                "INT DEFAULT NULL AFTER last_latency_ms");
+        addColumnIfMissing(conn, "oci_openai_lb_member", "last_error_type",
+                "VARCHAR(64) DEFAULT NULL AFTER last_status");
     }
 
     private void addColumnIfMissing(Connection conn, String table, String column, String definition) {

@@ -11,12 +11,14 @@ import com.ociworker.exception.OciException;
 import com.ociworker.mapper.OciOpenaiKeyMapper;
 import com.ociworker.mapper.OciOpenaiLbKeyMapper;
 import com.ociworker.mapper.OciOpenaiLbMemberMapper;
+import com.ociworker.mapper.OciOpenaiLbRequestLogMapper;
 import com.ociworker.mapper.OciOpenaiLbUsageWindowMapper;
 import com.ociworker.mapper.OciOpenaiPortBindingMapper;
 import com.ociworker.mapper.OciUserMapper;
 import com.ociworker.model.entity.OciOpenaiKey;
 import com.ociworker.model.entity.OciOpenaiLbKey;
 import com.ociworker.model.entity.OciOpenaiLbMember;
+import com.ociworker.model.entity.OciOpenaiLbRequestLog;
 import com.ociworker.model.entity.OciOpenaiLbUsageWindow;
 import com.ociworker.model.entity.OciOpenaiPortBinding;
 import com.ociworker.model.entity.OciUser;
@@ -29,6 +31,7 @@ import org.springframework.boot.web.context.WebServerInitializedEvent;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
 import org.springframework.context.event.EventListener;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -59,6 +62,8 @@ public class OciOpenaiLoadBalanceService {
     private OciOpenaiLbKeyMapper lbKeyMapper;
     @Resource
     private OciOpenaiLbMemberMapper memberMapper;
+    @Resource
+    private OciOpenaiLbRequestLogMapper requestLogMapper;
     @Resource
     private OciOpenaiLbUsageWindowMapper usageWindowMapper;
     @Resource
@@ -173,7 +178,14 @@ public class OciOpenaiLoadBalanceService {
             Integer weight,
             boolean enabled,
             Integer requestLimit5h,
-            Integer requestLimit7d) {
+            Integer requestLimit7d,
+            Integer maxConcurrency,
+            Integer rpmLimit,
+            Long tpmLimit,
+            Integer contextLimit,
+            Integer streamFirstChunkTimeoutSeconds,
+            Integer streamIdleTimeoutSeconds,
+            Integer streamMaxSeconds) {
         if (portBindingId == null || portBindingId.isBlank()) {
             throw new OciException("请选择中转成员");
         }
@@ -198,6 +210,13 @@ public class OciOpenaiLoadBalanceService {
         row.setEnabled(enabled ? 1 : 0);
         row.setRequestLimit5h(normalizeLimit(requestLimit5h));
         row.setRequestLimit7d(normalizeLimit(requestLimit7d));
+        row.setMaxConcurrency(normalizeLimit(maxConcurrency));
+        row.setRpmLimit(normalizeLimit(rpmLimit));
+        row.setTpmLimit(normalizeLongLimit(tpmLimit));
+        row.setContextLimit(normalizeLimit(contextLimit));
+        row.setStreamFirstChunkTimeoutSeconds(normalizeTimeout(streamFirstChunkTimeoutSeconds, 5, 600));
+        row.setStreamIdleTimeoutSeconds(normalizeTimeout(streamIdleTimeoutSeconds, 5, 600));
+        row.setStreamMaxSeconds(normalizeTimeout(streamMaxSeconds, 30, 21600));
         row.setUpdateTime(LocalDateTime.now());
         if (memberMapper.selectById(row.getId()) == null) {
             memberMapper.insert(row);
@@ -223,11 +242,38 @@ public class OciOpenaiLoadBalanceService {
         memberMapper.deleteById(id);
     }
 
+    @Scheduled(fixedDelayString = "${ociworker.openaiLoadBalance.healthCheckIntervalMs:60000}")
+    public void refreshMemberHealth() {
+        LocalDateTime now = LocalDateTime.now();
+        for (OciOpenaiLbMember member : memberMapper.selectList(null)) {
+            try {
+                HealthCheckResult health = localHealth(member, now);
+                if (health == null) {
+                    continue;
+                }
+                member.setHealthStatus(health.status());
+                member.setHealthMessage(health.message());
+                member.setHealthCheckedAt(now);
+                member.setUpdateTime(now);
+                memberMapper.updateById(member);
+            } catch (Exception e) {
+                log.debug("OpenAI LB member health refresh failed memberId={} message={}", member.getId(), e.getMessage());
+            }
+        }
+    }
+
     public Selection selectMember(String requestedModel) {
+        return selectMember(requestedModel, 0L, Set.of());
+    }
+
+    public Selection selectMember(String requestedModel, long estimatedTokens, Set<String> excludedMemberIds) {
         LocalDateTime now = LocalDateTime.now();
         List<Candidate> candidates = new ArrayList<>();
         for (OciOpenaiLbMember member : memberMapper.selectList(new LambdaQueryWrapper<OciOpenaiLbMember>()
                 .eq(OciOpenaiLbMember::getEnabled, 1))) {
+            if (excludedMemberIds != null && excludedMemberIds.contains(member.getId())) {
+                continue;
+            }
             OciOpenaiPortBinding binding = portBindingMapper.selectById(member.getPortBindingId());
             if (binding == null || binding.getEnabled() == null || binding.getEnabled() != 1) {
                 continue;
@@ -241,7 +287,33 @@ public class OciOpenaiLoadBalanceService {
             }
             int weight = member.getWeight() == null || member.getWeight() < 1 ? 1 : member.getWeight();
             int current = inFlight.computeIfAbsent(member.getId(), ignored -> new AtomicInteger()).get();
-            candidates.add(new Candidate(member, binding, current / (double) weight));
+            if (member.getMaxConcurrency() != null && member.getMaxConcurrency() > 0
+                    && current >= member.getMaxConcurrency()) {
+                continue;
+            }
+            if (estimatedTokens > 0 && member.getContextLimit() != null && member.getContextLimit() > 0
+                    && estimatedTokens > member.getContextLimit()) {
+                continue;
+            }
+            if (member.getRpmLimit() != null && member.getRpmLimit() > 0
+                    && recentRequestCount(member.getId(), now.minusMinutes(1)) >= member.getRpmLimit()) {
+                continue;
+            }
+            if (member.getTpmLimit() != null && member.getTpmLimit() > 0
+                    && recentTokenCount(member.getId(), now.minusMinutes(1)) + Math.max(0L, estimatedTokens) > member.getTpmLimit()) {
+                continue;
+            }
+            double score = current / (double) weight;
+            if ("unhealthy".equalsIgnoreCase(member.getHealthStatus())) {
+                score += 1.5D;
+            }
+            if (member.getFailCount() != null && member.getFailCount() > 0) {
+                score += Math.min(1D, member.getFailCount() * 0.1D);
+            }
+            if (member.getLastLatencyMs() != null && member.getLastLatencyMs() > 0) {
+                score += Math.min(1D, member.getLastLatencyMs() / 30000D);
+            }
+            candidates.add(new Candidate(member, binding, score));
         }
         Candidate selected = candidates.stream()
                 .min(Comparator.comparingDouble(Candidate::loadRate)
@@ -257,6 +329,16 @@ public class OciOpenaiLoadBalanceService {
     }
 
     public void finishRequest(String memberId, int status, long tokenCount) {
+        finishRequest(memberId, status, tokenCount, null, null, null);
+    }
+
+    public void finishRequest(
+            String memberId,
+            int status,
+            long tokenCount,
+            Long latencyMs,
+            String errorType,
+            String errorMessage) {
         if (memberId == null || memberId.isBlank()) {
             return;
         }
@@ -270,12 +352,23 @@ public class OciOpenaiLoadBalanceService {
         LocalDateTime now = LocalDateTime.now();
         member.setLastUsed(now);
         member.setUpdateTime(now);
+        member.setLastStatus(status);
+        if (latencyMs != null && latencyMs >= 0) {
+            member.setLastLatencyMs((int) Math.min(Integer.MAX_VALUE, latencyMs));
+        }
+        member.setLastErrorType(trimTo(errorType, 64));
+        member.setHealthCheckedAt(now);
         if (success) {
             member.setFailCount(0);
             member.setCooldownUntil(null);
             member.setLastError(null);
+            member.setHealthStatus("healthy");
+            member.setHealthMessage(null);
         } else {
-            member.setLastError("HTTP " + status);
+            String msg = errorMessage == null || errorMessage.isBlank() ? "HTTP " + status : errorMessage;
+            member.setLastError(trimTo(msg, 512));
+            member.setHealthStatus("unhealthy");
+            member.setHealthMessage(trimTo(msg, 512));
             if (shouldCooldown) {
                 int failCount = member.getFailCount() == null ? 1 : member.getFailCount() + 1;
                 member.setFailCount(failCount);
@@ -399,6 +492,49 @@ public class OciOpenaiLoadBalanceService {
         return row;
     }
 
+    public List<Map<String, Object>> recentRequests(int limit) {
+        int safeLimit = Math.max(1, Math.min(200, limit <= 0 ? 50 : limit));
+        return requestLogMapper.selectList(new LambdaQueryWrapper<OciOpenaiLbRequestLog>()
+                        .orderByDesc(OciOpenaiLbRequestLog::getCreateTime)
+                        .last("LIMIT " + safeLimit))
+                .stream()
+                .map(this::requestLogRow)
+                .collect(Collectors.toList());
+    }
+
+    public void recordRequestLog(RequestLogInput input) {
+        if (input == null || input.requestId() == null || input.requestId().isBlank()) {
+            return;
+        }
+        try {
+            OciOpenaiLbRequestLog row = new OciOpenaiLbRequestLog();
+            row.setId(CommonUtils.generateId());
+            row.setRequestId(input.requestId());
+            row.setLbKeyId(input.lbKeyId());
+            row.setMemberId(input.memberId());
+            row.setPortBindingId(input.portBindingId());
+            row.setPort(input.port());
+            row.setModel(trimTo(input.model(), 256));
+            row.setStream(input.stream() ? 1 : 0);
+            row.setEstimatedPromptTokens(Math.max(0L, input.estimatedTokens()));
+            row.setStatusCode(input.statusCode());
+            row.setStatus(trimTo(input.status(), 32));
+            row.setErrorType(trimTo(input.errorType(), 64));
+            row.setErrorMessage(trimTo(input.errorMessage(), 512));
+            row.setLatencyMs(input.latencyMs() == null ? null : Math.max(0L, input.latencyMs()));
+            row.setFirstChunkMs(input.firstChunkMs() == null ? null : Math.max(0L, input.firstChunkMs()));
+            row.setChunkCount(input.chunkCount() == null ? 0 : Math.max(0, input.chunkCount()));
+            row.setTokenCount(Math.max(0L, input.tokenCount()));
+            row.setClientAborted(input.clientAborted() ? 1 : 0);
+            row.setRetryCount(Math.max(0, input.retryCount()));
+            row.setCreateTime(LocalDateTime.now());
+            row.setUpdateTime(LocalDateTime.now());
+            requestLogMapper.insert(row);
+        } catch (Exception e) {
+            log.debug("Failed to record OpenAI LB request log: {}", e.getMessage());
+        }
+    }
+
     private void recordUsage(String memberId, boolean success, long tokenCount) {
         LocalDateTime hour = LocalDateTime.now().withMinute(0).withSecond(0).withNano(0);
         long tokens = Math.max(0L, tokenCount);
@@ -432,6 +568,39 @@ public class OciOpenaiLoadBalanceService {
         return status == 429 || status == 499 || status >= 500;
     }
 
+    private HealthCheckResult localHealth(OciOpenaiLbMember member, LocalDateTime now) {
+        if (member == null) {
+            return null;
+        }
+        if (member.getEnabled() == null || member.getEnabled() != 1) {
+            return new HealthCheckResult("disabled", "成员已禁用");
+        }
+        OciOpenaiPortBinding binding = portBindingMapper.selectById(member.getPortBindingId());
+        if (binding == null) {
+            return new HealthCheckResult("unhealthy", "绑定端口不存在");
+        }
+        if (binding.getEnabled() == null || binding.getEnabled() != 1) {
+            return new HealthCheckResult("unhealthy", "中转端口已停用");
+        }
+        OciOpenaiKey key = binding.getOpenaiKeyId() == null ? null : openaiKeyMapper.selectById(binding.getOpenaiKeyId());
+        if (key != null && key.getDisabled() != null && key.getDisabled() == 1) {
+            return new HealthCheckResult("unhealthy", "成员 API Key 已禁用");
+        }
+        if (member.getCooldownUntil() != null && member.getCooldownUntil().isAfter(now)) {
+            return new HealthCheckResult("cooling", "冷却到 " + member.getCooldownUntil());
+        }
+        if ("failed".equalsIgnoreCase(binding.getStatus())) {
+            return new HealthCheckResult("unhealthy", binding.getStatusMessage() == null ? "端口启动失败" : binding.getStatusMessage());
+        }
+        if ("listening".equalsIgnoreCase(binding.getStatus())) {
+            if (member.getFailCount() != null && member.getFailCount() > 0) {
+                return new HealthCheckResult("unhealthy", member.getLastError() == null ? "最近请求失败" : member.getLastError());
+            }
+            return new HealthCheckResult("healthy", "端口监听中");
+        }
+        return new HealthCheckResult("unknown", binding.getStatus() == null ? "端口未监听" : "端口状态 " + binding.getStatus());
+    }
+
     private Map<String, Object> keyRow(OciOpenaiLbKey key) {
         Map<String, Object> row = new HashMap<>();
         row.put("id", key.getId());
@@ -455,6 +624,19 @@ public class OciOpenaiLoadBalanceService {
         row.put("lastError", member.getLastError());
         row.put("requestLimit5h", member.getRequestLimit5h());
         row.put("requestLimit7d", member.getRequestLimit7d());
+        row.put("maxConcurrency", member.getMaxConcurrency());
+        row.put("rpmLimit", member.getRpmLimit());
+        row.put("tpmLimit", member.getTpmLimit());
+        row.put("contextLimit", member.getContextLimit());
+        row.put("streamFirstChunkTimeoutSeconds", member.getStreamFirstChunkTimeoutSeconds());
+        row.put("streamIdleTimeoutSeconds", member.getStreamIdleTimeoutSeconds());
+        row.put("streamMaxSeconds", member.getStreamMaxSeconds());
+        row.put("healthStatus", member.getHealthStatus());
+        row.put("healthMessage", member.getHealthMessage());
+        row.put("healthCheckedAt", member.getHealthCheckedAt());
+        row.put("lastLatencyMs", member.getLastLatencyMs());
+        row.put("lastStatus", member.getLastStatus());
+        row.put("lastErrorType", member.getLastErrorType());
         row.put("lastUsed", member.getLastUsed());
         row.put("inFlight", inFlight.getOrDefault(member.getId(), new AtomicInteger()).get());
         row.put("usage5h", usageStats(member.getId(), LocalDateTime.now().minusHours(5)));
@@ -502,6 +684,56 @@ public class OciOpenaiLoadBalanceService {
         return new UsageStats(requests, success, failure, tokens);
     }
 
+    private long recentRequestCount(String memberId, LocalDateTime since) {
+        if (memberId == null || since == null) {
+            return 0L;
+        }
+        return requestLogMapper.selectCount(new LambdaQueryWrapper<OciOpenaiLbRequestLog>()
+                .eq(OciOpenaiLbRequestLog::getMemberId, memberId)
+                .ge(OciOpenaiLbRequestLog::getCreateTime, since));
+    }
+
+    private long recentTokenCount(String memberId, LocalDateTime since) {
+        long tokens = 0L;
+        if (memberId == null || since == null) {
+            return tokens;
+        }
+        List<OciOpenaiLbRequestLog> rows = requestLogMapper.selectList(new LambdaQueryWrapper<OciOpenaiLbRequestLog>()
+                .eq(OciOpenaiLbRequestLog::getMemberId, memberId)
+                .ge(OciOpenaiLbRequestLog::getCreateTime, since));
+        for (OciOpenaiLbRequestLog row : rows) {
+            long actual = row.getTokenCount() == null ? 0L : row.getTokenCount();
+            long estimated = row.getEstimatedPromptTokens() == null ? 0L : row.getEstimatedPromptTokens();
+            tokens += Math.max(actual, estimated);
+        }
+        return tokens;
+    }
+
+    private Map<String, Object> requestLogRow(OciOpenaiLbRequestLog logRow) {
+        Map<String, Object> row = new HashMap<>();
+        row.put("id", logRow.getId());
+        row.put("requestId", logRow.getRequestId());
+        row.put("lbKeyId", logRow.getLbKeyId());
+        row.put("memberId", logRow.getMemberId());
+        row.put("portBindingId", logRow.getPortBindingId());
+        row.put("port", logRow.getPort());
+        row.put("model", logRow.getModel());
+        row.put("stream", logRow.getStream() != null && logRow.getStream() == 1);
+        row.put("estimatedPromptTokens", logRow.getEstimatedPromptTokens());
+        row.put("statusCode", logRow.getStatusCode());
+        row.put("status", logRow.getStatus());
+        row.put("errorType", logRow.getErrorType());
+        row.put("errorMessage", logRow.getErrorMessage());
+        row.put("latencyMs", logRow.getLatencyMs());
+        row.put("firstChunkMs", logRow.getFirstChunkMs());
+        row.put("chunkCount", logRow.getChunkCount());
+        row.put("tokenCount", logRow.getTokenCount());
+        row.put("clientAborted", logRow.getClientAborted() != null && logRow.getClientAborted() == 1);
+        row.put("retryCount", logRow.getRetryCount());
+        row.put("createTime", logRow.getCreateTime());
+        return row;
+    }
+
     private String maskForList(OciOpenaiLbKey key) {
         if (key == null) {
             return KEY_PREFIX + "****";
@@ -545,11 +777,58 @@ public class OciOpenaiLoadBalanceService {
         return value;
     }
 
+    private static Long normalizeLongLimit(Long value) {
+        if (value == null || value <= 0) {
+            return null;
+        }
+        return value;
+    }
+
+    private static Integer normalizeTimeout(Integer value, int min, int max) {
+        if (value == null || value <= 0) {
+            return null;
+        }
+        return Math.max(min, Math.min(max, value));
+    }
+
+    private static String trimTo(String value, int maxLen) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        if (trimmed.isEmpty()) {
+            return null;
+        }
+        return trimmed.length() > maxLen ? trimmed.substring(0, maxLen) : trimmed;
+    }
+
     public record KeyCreateResult(String id, String plainKey, String keyPrefix, String keyMasked) {}
 
     public record Selection(OciOpenaiLbMember member, OciOpenaiPortBinding binding) {}
 
     private record Candidate(OciOpenaiLbMember member, OciOpenaiPortBinding binding, double loadRate) {}
 
+    private record HealthCheckResult(String status, String message) {}
+
     public record UsageStats(int requestCount, int successCount, int failureCount, long tokenCount) {}
+
+    public record RequestLogInput(
+            String requestId,
+            String lbKeyId,
+            String memberId,
+            String portBindingId,
+            Integer port,
+            String model,
+            boolean stream,
+            long estimatedTokens,
+            Integer statusCode,
+            String status,
+            String errorType,
+            String errorMessage,
+            Long latencyMs,
+            Long firstChunkMs,
+            Integer chunkCount,
+            long tokenCount,
+            boolean clientAborted,
+            int retryCount) {}
 }

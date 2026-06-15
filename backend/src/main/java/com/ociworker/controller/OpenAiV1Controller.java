@@ -10,10 +10,13 @@ import com.ociworker.service.OciGenerativeOpenAiService;
 import com.ociworker.service.OciOpenaiLoadBalanceService;
 import jakarta.annotation.Resource;
 import jakarta.servlet.ReadListener;
+import jakarta.servlet.ServletOutputStream;
 import jakarta.servlet.ServletInputStream;
+import jakarta.servlet.WriteListener;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletRequestWrapper;
 import jakarta.servlet.http.HttpServletResponse;
+import jakarta.servlet.http.HttpServletResponseWrapper;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Controller;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -21,9 +24,17 @@ import org.springframework.web.bind.annotation.RequestMethod;
 
 import java.io.BufferedReader;
 import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.InputStreamReader;
+import java.io.PrintWriter;
 import java.nio.charset.StandardCharsets;
+import java.util.Collection;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 @Slf4j
@@ -83,26 +94,139 @@ public class OpenAiV1Controller {
         }
         byte[] body = shouldReadBody(request.getMethod()) ? request.getInputStream().readAllBytes() : null;
         String requestedModel = extractModelFromBody(body, request.getContentType());
-        OciOpenaiLoadBalanceService.Selection selection;
-        try {
-            selection = loadBalanceService.selectMember(requestedModel);
-        } catch (OciException e) {
-            error(response, 503, e.getMessage());
-            return;
+        boolean stream = isStreamRequest(body, request.getContentType());
+        long estimatedTokens = estimateTokens(body, request.getContentType());
+        Set<String> triedMembers = new HashSet<>();
+        int maxAttempts = stream ? 1 : 2;
+        String lastError = null;
+        int lastStatus = 503;
+        loadBalanceService.touchKey((String) request.getAttribute(OpenAiApiConstants.ATTR_LB_KEY_ID));
+        for (int attempt = 0; attempt < maxAttempts; attempt++) {
+            OciOpenaiLoadBalanceService.Selection selection;
+            try {
+                selection = loadBalanceService.selectMember(requestedModel, estimatedTokens, triedMembers);
+            } catch (OciException e) {
+                if (attempt == 0) {
+                    error(response, 503, e.getMessage());
+                    return;
+                }
+                break;
+            }
+            triedMembers.add(selection.member().getId());
+            var binding = selection.binding();
+            OciUser user = ociUserMapper.selectById(binding.getOciUserId());
+            long started = System.nanoTime();
+            if (user == null) {
+                long latency = elapsedMs(started);
+                loadBalanceService.finishRequest(selection.member().getId(), 403, 0L, latency, "tenant_missing", "负载均衡成员绑定的租户不存在");
+                recordAttempt(request, lbRequestId, selection, requestedModel, stream, estimatedTokens, 403,
+                        "failed", "tenant_missing", "负载均衡成员绑定的租户不存在", latency, attempt);
+                error(response, 403, "负载均衡成员绑定的租户不存在");
+                return;
+            }
+            resetProxyAttributes(request);
+            configureProxyAttributes(request, selection);
+            HttpServletResponse targetResponse = stream ? response : new BufferingResponse(response);
+            try {
+                if (stream) {
+                    response.setHeader("x-ociworker-lb-member-id", selection.member().getId());
+                    response.setHeader("x-ociworker-lb-port", String.valueOf(binding.getPort()));
+                }
+                HttpServletRequest proxyRequest = body == null ? request : new CachedBodyRequest(request, body);
+                generativeOpenAiService.proxy(user, proxyRequest, targetResponse);
+                long latency = elapsedMs(started);
+                if (Boolean.TRUE.equals(request.getAttribute(OpenAiApiConstants.ATTR_CLIENT_ABORTED))) {
+                    loadBalanceService.finishClientAborted(selection.member().getId());
+                    recordAttempt(request, lbRequestId, selection, requestedModel, stream, estimatedTokens,
+                            statusFrom(request, targetResponse), "client_aborted", "client_aborted", null, latency, attempt);
+                    log.info("OpenAI LB client aborted requestId={} memberId={} port={}",
+                            lbRequestId, selection.member().getId(), binding.getPort());
+                    return;
+                }
+                int status = statusFrom(request, targetResponse);
+                long tokens = usageTokens(request);
+                boolean retry = !stream && attempt + 1 < maxAttempts && isRetryableStatus(status);
+                loadBalanceService.finishRequest(selection.member().getId(), status, tokens, latency,
+                        retry ? "retryable_status" : null, retry ? "HTTP " + status : null);
+                recordAttempt(request, lbRequestId, selection, requestedModel, stream, estimatedTokens, status,
+                        status >= 200 && status < 400 ? "success" : "failed",
+                        retry ? "retryable_status" : null, retry ? "HTTP " + status : null, latency, attempt);
+                if (retry) {
+                    lastStatus = status;
+                    lastError = "上游 HTTP " + status;
+                    log.warn("OpenAI LB retrying requestId={} failedMember={} port={} status={}",
+                            lbRequestId, selection.member().getId(), binding.getPort(), status);
+                    continue;
+                }
+                response.setHeader("x-ociworker-lb-member-id", selection.member().getId());
+                response.setHeader("x-ociworker-lb-port", String.valueOf(binding.getPort()));
+                if (targetResponse instanceof BufferingResponse buffered) {
+                    buffered.copyTo(response);
+                }
+                return;
+            } catch (OciException e) {
+                long latency = elapsedMs(started);
+                String message = e.getMessage() != null ? e.getMessage() : "OCI 错误";
+                loadBalanceService.finishRequest(selection.member().getId(), 502, 0L, latency, errorType(request, "oci_error"), message);
+                recordAttempt(request, lbRequestId, selection, requestedModel, stream, estimatedTokens, 502,
+                        "failed", errorType(request, "oci_error"), message, latency, attempt);
+                lastStatus = 502;
+                lastError = message;
+                log.warn("OpenAI LB upstream error requestId={} memberId={} port={} message={}",
+                        lbRequestId, selection.member().getId(), binding.getPort(), message);
+                if (!stream && attempt + 1 < maxAttempts) {
+                    continue;
+                }
+                error(response, 502, message);
+                return;
+            } catch (IOException e) {
+                long latency = elapsedMs(started);
+                if (isClientAbort(e)) {
+                    loadBalanceService.finishClientAborted(selection.member().getId());
+                    recordAttempt(request, lbRequestId, selection, requestedModel, stream, estimatedTokens,
+                            statusFrom(request, targetResponse), "client_aborted", "client_aborted", e.getMessage(), latency, attempt);
+                    log.info("OpenAI LB client aborted requestId={} memberId={} port={} message={}",
+                            lbRequestId, selection.member().getId(), binding.getPort(), e.getMessage());
+                    return;
+                }
+                String type = errorType(request, "io_error");
+                int status = statusFrom(request, targetResponse);
+                status = status >= 400 ? status : 502;
+                loadBalanceService.finishRequest(selection.member().getId(), status, 0L, latency, type, e.getMessage());
+                recordAttempt(request, lbRequestId, selection, requestedModel, stream, estimatedTokens, status,
+                        "failed", type, e.getMessage(), latency, attempt);
+                lastStatus = status;
+                lastError = e.getMessage() != null ? e.getMessage() : "转发出错";
+                log.warn("OpenAI LB IO error requestId={} memberId={} port={} message={}",
+                        lbRequestId, selection.member().getId(), binding.getPort(), e.getMessage());
+                if (!stream && attempt + 1 < maxAttempts) {
+                    continue;
+                }
+                if (!response.isCommitted()) {
+                    error(response, status, lastError);
+                }
+                return;
+            } catch (Exception e) {
+                long latency = elapsedMs(started);
+                String message = e.getMessage() != null ? e.getMessage() : "internal_error";
+                loadBalanceService.finishRequest(selection.member().getId(), 500, 0L, latency, "internal_error", message);
+                recordAttempt(request, lbRequestId, selection, requestedModel, stream, estimatedTokens, 500,
+                        "failed", "internal_error", message, latency, attempt);
+                log.warn("OpenAI LB internal error requestId={} memberId={} port={} message={}",
+                        lbRequestId, selection.member().getId(), binding.getPort(), message);
+                error(response, 500, message);
+                return;
+            }
         }
+        error(response, lastStatus, lastError != null ? lastError : "没有可用的负载均衡成员");
+    }
+
+    private void configureProxyAttributes(HttpServletRequest request, OciOpenaiLoadBalanceService.Selection selection) {
         var binding = selection.binding();
-        OciUser user = ociUserMapper.selectById(binding.getOciUserId());
-        if (user == null) {
-            loadBalanceService.finishRequest(selection.member().getId(), 403);
-            error(response, 403, "负载均衡成员绑定的租户不存在");
-            return;
-        }
-        request.setAttribute(OpenAiApiConstants.ATTR_TENANT_USER_ID, user.getId());
+        request.setAttribute(OpenAiApiConstants.ATTR_TENANT_USER_ID, binding.getOciUserId());
         request.setAttribute(OpenAiApiConstants.ATTR_OPENAI_KEY_ID, binding.getOpenaiKeyId());
         request.setAttribute(OpenAiApiConstants.ATTR_PORT_BINDING_ID, binding.getId());
         request.setAttribute(OpenAiApiConstants.ATTR_LB_MEMBER_ID, selection.member().getId());
-        response.setHeader("x-ociworker-lb-member-id", selection.member().getId());
-        response.setHeader("x-ociworker-lb-port", String.valueOf(binding.getPort()));
         if (binding.getOciRegion() != null && !binding.getOciRegion().isBlank()) {
             request.setAttribute(OpenAiApiConstants.ATTR_OCI_REGION, binding.getOciRegion().trim());
         }
@@ -112,40 +236,26 @@ public class OpenAiV1Controller {
         if (binding.getAllowedModelsJson() != null && !binding.getAllowedModelsJson().isBlank()) {
             request.setAttribute(OpenAiApiConstants.ATTR_ALLOWED_MODELS_JSON, binding.getAllowedModelsJson());
         }
-        try {
-            loadBalanceService.touchKey((String) request.getAttribute(OpenAiApiConstants.ATTR_LB_KEY_ID));
-            HttpServletRequest proxyRequest = body == null ? request : new CachedBodyRequest(request, body);
-            generativeOpenAiService.proxy(user, proxyRequest, response);
-            if (Boolean.TRUE.equals(request.getAttribute(OpenAiApiConstants.ATTR_CLIENT_ABORTED))) {
-                loadBalanceService.finishClientAborted(selection.member().getId());
-                log.info("OpenAI LB client aborted requestId={} memberId={} port={}",
-                        lbRequestId, selection.member().getId(), binding.getPort());
-                return;
-            }
-            loadBalanceService.finishRequest(selection.member().getId(), response.getStatus(), usageTokens(request));
-        } catch (OciException e) {
-            loadBalanceService.finishRequest(selection.member().getId(), 502);
-            log.warn("OpenAI LB upstream error requestId={} memberId={} port={} message={}",
-                    lbRequestId, selection.member().getId(), binding.getPort(), e.getMessage());
-            error(response, 502, e.getMessage() != null ? e.getMessage() : "OCI 错误");
-        } catch (IOException e) {
-            if (isClientAbort(e)) {
-                loadBalanceService.finishClientAborted(selection.member().getId());
-                log.info("OpenAI LB client aborted requestId={} memberId={} port={} message={}",
-                        lbRequestId, selection.member().getId(), binding.getPort(), e.getMessage());
-                return;
-            }
-            loadBalanceService.finishRequest(selection.member().getId(), response.getStatus() >= 400 ? response.getStatus() : 502);
-            log.warn("OpenAI LB IO error requestId={} memberId={} port={} message={}",
-                    lbRequestId, selection.member().getId(), binding.getPort(), e.getMessage());
-            if (!response.isCommitted()) {
-                error(response, 502, e.getMessage() != null ? e.getMessage() : "转发出错");
-            }
-        } catch (Exception e) {
-            loadBalanceService.finishRequest(selection.member().getId(), 500);
-            log.warn("OpenAI LB internal error requestId={} memberId={} port={} message={}",
-                    lbRequestId, selection.member().getId(), binding.getPort(), e.getMessage());
-            error(response, 500, e.getMessage() != null ? e.getMessage() : "internal_error");
+        setPositiveAttr(request, OpenAiApiConstants.ATTR_STREAM_FIRST_CHUNK_TIMEOUT_SECONDS,
+                selection.member().getStreamFirstChunkTimeoutSeconds());
+        setPositiveAttr(request, OpenAiApiConstants.ATTR_STREAM_IDLE_TIMEOUT_SECONDS,
+                selection.member().getStreamIdleTimeoutSeconds());
+        setPositiveAttr(request, OpenAiApiConstants.ATTR_STREAM_MAX_SECONDS,
+                selection.member().getStreamMaxSeconds());
+    }
+
+    private static void resetProxyAttributes(HttpServletRequest request) {
+        request.removeAttribute(OpenAiApiConstants.ATTR_CLIENT_ABORTED);
+        request.removeAttribute(OpenAiApiConstants.ATTR_USAGE_TOKENS);
+        request.removeAttribute(OpenAiApiConstants.ATTR_UPSTREAM_STATUS);
+        request.removeAttribute(OpenAiApiConstants.ATTR_STREAM_FIRST_CHUNK_MS);
+        request.removeAttribute(OpenAiApiConstants.ATTR_STREAM_CHUNK_COUNT);
+        request.removeAttribute(OpenAiApiConstants.ATTR_STREAM_TIMEOUT_TYPE);
+    }
+
+    private static void setPositiveAttr(HttpServletRequest request, String name, Integer value) {
+        if (value != null && value > 0) {
+            request.setAttribute(name, value);
         }
     }
 
@@ -224,6 +334,156 @@ public class OpenAiV1Controller {
         return 0L;
     }
 
+    private void recordAttempt(
+            HttpServletRequest request,
+            String lbRequestId,
+            OciOpenaiLoadBalanceService.Selection selection,
+            String model,
+            boolean stream,
+            long estimatedTokens,
+            int statusCode,
+            String status,
+            String errorType,
+            String errorMessage,
+            long latencyMs,
+            int retryCount) {
+        loadBalanceService.recordRequestLog(new OciOpenaiLoadBalanceService.RequestLogInput(
+                lbRequestId,
+                (String) request.getAttribute(OpenAiApiConstants.ATTR_LB_KEY_ID),
+                selection.member().getId(),
+                selection.binding().getId(),
+                selection.binding().getPort(),
+                model,
+                stream,
+                estimatedTokens,
+                statusCode,
+                status,
+                errorType,
+                errorMessage,
+                latencyMs,
+                longAttr(request, OpenAiApiConstants.ATTR_STREAM_FIRST_CHUNK_MS),
+                intAttr(request, OpenAiApiConstants.ATTR_STREAM_CHUNK_COUNT),
+                usageTokens(request),
+                Boolean.TRUE.equals(request.getAttribute(OpenAiApiConstants.ATTR_CLIENT_ABORTED)),
+                retryCount));
+    }
+
+    private static int statusFrom(HttpServletRequest request, HttpServletResponse response) {
+        Object upstream = request == null ? null : request.getAttribute(OpenAiApiConstants.ATTR_UPSTREAM_STATUS);
+        if (upstream instanceof Number n) {
+            return n.intValue();
+        }
+        int status = response == null ? 0 : response.getStatus();
+        return status > 0 ? status : 200;
+    }
+
+    private static boolean isRetryableStatus(int status) {
+        return status == 429 || status >= 500;
+    }
+
+    private static long elapsedMs(long startedNanos) {
+        return Math.max(0L, (System.nanoTime() - startedNanos) / 1_000_000L);
+    }
+
+    private static String errorType(HttpServletRequest request, String fallback) {
+        Object timeout = request == null ? null : request.getAttribute(OpenAiApiConstants.ATTR_STREAM_TIMEOUT_TYPE);
+        if (timeout != null && !String.valueOf(timeout).isBlank()) {
+            return "stream_" + timeout;
+        }
+        return fallback;
+    }
+
+    private static Long longAttr(HttpServletRequest request, String attr) {
+        Object value = request == null ? null : request.getAttribute(attr);
+        if (value instanceof Number n) {
+            return n.longValue();
+        }
+        if (value != null) {
+            try {
+                return Long.parseLong(String.valueOf(value).trim());
+            } catch (Exception ignored) {
+            }
+        }
+        return null;
+    }
+
+    private static Integer intAttr(HttpServletRequest request, String attr) {
+        Long value = longAttr(request, attr);
+        return value == null ? null : (int) Math.min(Integer.MAX_VALUE, Math.max(0L, value));
+    }
+
+    private static boolean isStreamRequest(byte[] body, String contentType) {
+        if (body == null || body.length == 0) {
+            return false;
+        }
+        if (contentType != null && !contentType.isBlank() && !contentType.toLowerCase().contains("json")) {
+            return false;
+        }
+        try {
+            JsonNode root = MAPPER.readTree(body);
+            JsonNode stream = root == null ? null : root.get("stream");
+            return stream != null && stream.isBoolean() && stream.asBoolean();
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private static long estimateTokens(byte[] body, String contentType) {
+        if (body == null || body.length == 0) {
+            return 0L;
+        }
+        if (contentType != null && !contentType.isBlank() && !contentType.toLowerCase().contains("json")) {
+            return Math.max(1L, body.length / 4L);
+        }
+        try {
+            JsonNode root = MAPPER.readTree(body);
+            long chars = countTextChars(root);
+            long maxTokens = numericField(root, "max_tokens", "maxTokens", "max_output_tokens", "maxOutputTokens");
+            long estimate = Math.max(1L, (chars + 3L) / 4L);
+            return estimate + Math.max(0L, maxTokens);
+        } catch (Exception ignored) {
+            return Math.max(1L, body.length / 4L);
+        }
+    }
+
+    private static long countTextChars(JsonNode node) {
+        if (node == null || node.isNull()) {
+            return 0L;
+        }
+        if (node.isTextual()) {
+            return node.asText("").length();
+        }
+        long total = 0L;
+        if (node.isArray()) {
+            for (JsonNode child : node) {
+                total += countTextChars(child);
+            }
+        } else if (node.isObject()) {
+            for (var it = node.fields(); it.hasNext(); ) {
+                Map.Entry<String, JsonNode> entry = it.next();
+                String key = entry.getKey() == null ? "" : entry.getKey().toLowerCase();
+                if ("model".equals(key) || "stream".equals(key)) {
+                    continue;
+                }
+                total += countTextChars(entry.getValue());
+            }
+        }
+        return total;
+    }
+
+    private static long numericField(JsonNode root, String... names) {
+        if (root == null || !root.isObject()) {
+            return 0L;
+        }
+        for (String name : names) {
+            JsonNode value = root.get(name);
+            if (value != null && value.isNumber()) {
+                return Math.max(0L, value.asLong());
+            }
+        }
+        return 0L;
+    }
+
     private static final class CachedBodyRequest extends HttpServletRequestWrapper {
         private final byte[] body;
 
@@ -270,6 +530,164 @@ public class OpenAiV1Controller {
         @Override
         public long getContentLengthLong() {
             return body.length;
+        }
+    }
+
+    private static final class BufferingResponse extends HttpServletResponseWrapper {
+        private final ByteArrayOutputStream body = new ByteArrayOutputStream(8192);
+        private final Map<String, Collection<String>> headers = new LinkedHashMap<>();
+        private ServletOutputStream outputStream;
+        private PrintWriter writer;
+        private int status = 200;
+        private String contentType;
+        private String characterEncoding = StandardCharsets.UTF_8.name();
+
+        private BufferingResponse(HttpServletResponse response) {
+            super(response);
+        }
+
+        @Override
+        public void setStatus(int sc) {
+            this.status = sc;
+        }
+
+        @Override
+        public int getStatus() {
+            return status;
+        }
+
+        @Override
+        public void sendError(int sc) {
+            this.status = sc;
+        }
+
+        @Override
+        public void sendError(int sc, String msg) throws IOException {
+            this.status = sc;
+            if (msg != null) {
+                body.write(msg.getBytes(StandardCharsets.UTF_8));
+            }
+        }
+
+        @Override
+        public void setHeader(String name, String value) {
+            if (name != null) {
+                headers.put(name, new java.util.ArrayList<>(value == null ? List.of() : List.of(value)));
+            }
+        }
+
+        @Override
+        public void addHeader(String name, String value) {
+            if (name != null && value != null) {
+                headers.computeIfAbsent(name, ignored -> new java.util.ArrayList<>()).add(value);
+            }
+        }
+
+        @Override
+        public Collection<String> getHeaderNames() {
+            return headers.keySet();
+        }
+
+        @Override
+        public Collection<String> getHeaders(String name) {
+            return headers.getOrDefault(name, List.of());
+        }
+
+        @Override
+        public String getHeader(String name) {
+            Collection<String> values = getHeaders(name);
+            return values.isEmpty() ? null : values.iterator().next();
+        }
+
+        @Override
+        public void setContentType(String type) {
+            this.contentType = type;
+            setHeader("content-type", type);
+        }
+
+        @Override
+        public String getContentType() {
+            return contentType;
+        }
+
+        @Override
+        public void setCharacterEncoding(String charset) {
+            if (charset != null && !charset.isBlank()) {
+                this.characterEncoding = charset;
+            }
+        }
+
+        @Override
+        public String getCharacterEncoding() {
+            return characterEncoding;
+        }
+
+        @Override
+        public ServletOutputStream getOutputStream() {
+            if (outputStream == null) {
+                outputStream = new ServletOutputStream() {
+                    @Override
+                    public boolean isReady() {
+                        return true;
+                    }
+
+                    @Override
+                    public void setWriteListener(WriteListener writeListener) {
+                    }
+
+                    @Override
+                    public void write(int b) {
+                        body.write(b);
+                    }
+                };
+            }
+            return outputStream;
+        }
+
+        @Override
+        public PrintWriter getWriter() {
+            if (writer == null) {
+                writer = new PrintWriter(body, true, StandardCharsets.UTF_8);
+            }
+            return writer;
+        }
+
+        @Override
+        public void flushBuffer() {
+            if (writer != null) {
+                writer.flush();
+            }
+        }
+
+        @Override
+        public boolean isCommitted() {
+            return false;
+        }
+
+        private void copyTo(HttpServletResponse response) throws IOException {
+            flushBuffer();
+            response.setStatus(status);
+            for (Map.Entry<String, Collection<String>> entry : headers.entrySet()) {
+                String name = entry.getKey();
+                if (name == null || "transfer-encoding".equalsIgnoreCase(name)
+                        || "connection".equalsIgnoreCase(name)
+                        || "content-length".equalsIgnoreCase(name)) {
+                    continue;
+                }
+                boolean first = true;
+                for (String value : entry.getValue()) {
+                    if (value == null) {
+                        continue;
+                    }
+                    if (first) {
+                        response.setHeader(name, value);
+                        first = false;
+                    } else {
+                        response.addHeader(name, value);
+                    }
+                }
+            }
+            response.getOutputStream().write(body.toByteArray());
         }
     }
 }

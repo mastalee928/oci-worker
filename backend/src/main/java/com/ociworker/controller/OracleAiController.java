@@ -410,7 +410,14 @@ public class OracleAiController {
                     nullableIntValue(body == null ? null : body.get("weight")),
                     boolValue(body == null ? null : body.get("enabled"), true),
                     nullableIntValue(body == null ? null : body.get("requestLimit5h")),
-                    nullableIntValue(body == null ? null : body.get("requestLimit7d")));
+                    nullableIntValue(body == null ? null : body.get("requestLimit7d")),
+                    nullableIntValue(body == null ? null : body.get("maxConcurrency")),
+                    nullableIntValue(body == null ? null : body.get("rpmLimit")),
+                    nullableLongValue(body == null ? null : body.get("tpmLimit")),
+                    nullableIntValue(body == null ? null : body.get("contextLimit")),
+                    nullableIntValue(body == null ? null : body.get("streamFirstChunkTimeoutSeconds")),
+                    nullableIntValue(body == null ? null : body.get("streamIdleTimeoutSeconds")),
+                    nullableIntValue(body == null ? null : body.get("streamMaxSeconds")));
             return ResponseData.ok(Map.of("id", row.getId()));
         } catch (com.ociworker.exception.OciException e) {
             return ResponseData.error(e.getMessage());
@@ -437,6 +444,12 @@ public class OracleAiController {
         }
         loadBalanceService.removeMember(id);
         return ResponseData.ok();
+    }
+
+    @PostMapping("/lb/requests/list")
+    public ResponseData<?> listLbRequests(@RequestBody(required = false) Map<String, Object> body) {
+        int limit = intValue(body == null ? null : body.get("limit"), 50);
+        return ResponseData.ok(loadBalanceService.recentRequests(limit));
     }
 
     @PostMapping("/models")
@@ -642,6 +655,24 @@ public class OracleAiController {
             return Integer.parseInt(s);
         } catch (Exception e) {
             throw new IllegalArgumentException("defaultMaxTokens 必须是数字");
+        }
+    }
+
+    private static Long nullableLongValue(Object v) {
+        if (v == null) {
+            return null;
+        }
+        String s = String.valueOf(v).trim();
+        if (s.isEmpty() || "null".equalsIgnoreCase(s)) {
+            return null;
+        }
+        try {
+            if (v instanceof Number n) {
+                return n.longValue();
+            }
+            return Long.parseLong(s);
+        } catch (Exception e) {
+            throw new IllegalArgumentException("数值必须是数字");
         }
     }
 

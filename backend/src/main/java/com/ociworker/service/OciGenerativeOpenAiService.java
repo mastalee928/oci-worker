@@ -28,6 +28,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.Iterator;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -251,6 +252,11 @@ public class OciGenerativeOpenAiService {
         }
         URI target = URI.create(u.toString());
 
+        boolean useStreamCopy =
+                (isChatCompletionsPath(origPathAfterV1) || isResponsesPath(origPathAfterV1))
+                        && isStreamRequest(origBody, contentType)
+                        && !Boolean.TRUE.equals(request.getAttribute("ociworker.rewrite.chatToResponses"))
+                        && !Boolean.TRUE.equals(request.getAttribute("ociworker.rewrite.forceBuffer"));
         HttpRequest httpRequest = buildSignedRequest(
                 signer,
                 method,
@@ -259,14 +265,10 @@ public class OciGenerativeOpenAiService {
                 contentType,
                 accept,
                 tenant != null ? tenant.getOciTenantId() : null,
-                extractOciGenerativeForwardHeaders(request, tenant));
+                extractOciGenerativeForwardHeaders(request, tenant),
+                useStreamCopy ? Duration.ofMillis(timeoutMs(request, OpenAiApiConstants.ATTR_STREAM_FIRST_CHUNK_TIMEOUT_SECONDS, 60)) : Duration.ofHours(1L));
         HttpClient client = pickHttpClient();
 
-        boolean useStreamCopy =
-                (isChatCompletionsPath(origPathAfterV1) || isResponsesPath(origPathAfterV1))
-                        && isStreamRequest(origBody, contentType)
-                        && !Boolean.TRUE.equals(request.getAttribute("ociworker.rewrite.chatToResponses"))
-                        && !Boolean.TRUE.equals(request.getAttribute("ociworker.rewrite.forceBuffer"));
         if (useStreamCopy) {
             longCopyStream(client, httpRequest, response, request);
         } else {
@@ -1236,6 +1238,9 @@ public class OciGenerativeOpenAiService {
         try {
             HttpResponse<InputStream> resp = client.send(httpRequest, HttpResponse.BodyHandlers.ofInputStream());
             int code = resp.statusCode();
+            if (request != null) {
+                request.setAttribute(OpenAiApiConstants.ATTR_UPSTREAM_STATUS, code);
+            }
             for (var e : resp.headers().map().entrySet()) {
                 String k = e.getKey();
                 if (k == null) {
@@ -1310,8 +1315,31 @@ public class OciGenerativeOpenAiService {
                 }
                 response.setBufferSize(8192);
                 byte[] buf = new byte[16384];
+                long startNanos = System.nanoTime();
+                long firstChunkTimeoutMs = timeoutMs(request, OpenAiApiConstants.ATTR_STREAM_FIRST_CHUNK_TIMEOUT_SECONDS, 60);
+                long idleTimeoutMs = timeoutMs(request, OpenAiApiConstants.ATTR_STREAM_IDLE_TIMEOUT_SECONDS, 180);
+                long maxStreamMs = timeoutMs(request, OpenAiApiConstants.ATTR_STREAM_MAX_SECONDS, 7200);
+                boolean firstChunk = true;
+                int chunks = 0;
                 int n;
-                while ((n = in.read(buf)) != -1) {
+                while ((n = timedRead(in, buf, firstChunk ? firstChunkTimeoutMs : idleTimeoutMs)) != -1) {
+                    long elapsedMs = (System.nanoTime() - startNanos) / 1_000_000L;
+                    if (firstChunk) {
+                        firstChunk = false;
+                        if (request != null) {
+                            request.setAttribute(OpenAiApiConstants.ATTR_STREAM_FIRST_CHUNK_MS, elapsedMs);
+                        }
+                    }
+                    if (maxStreamMs > 0 && elapsedMs > maxStreamMs) {
+                        if (request != null) {
+                            request.setAttribute(OpenAiApiConstants.ATTR_STREAM_TIMEOUT_TYPE, "max_stream");
+                        }
+                        throw new OciException("流式响应超过最大时长，已断开上游连接");
+                    }
+                    chunks++;
+                    if (request != null) {
+                        request.setAttribute(OpenAiApiConstants.ATTR_STREAM_CHUNK_COUNT, chunks);
+                    }
                     out.write(buf, 0, n);
                     out.flush();
                 }
@@ -1324,8 +1352,57 @@ public class OciGenerativeOpenAiService {
                 markClientAborted(request);
                 return;
             }
+            if (request != null && e.getMessage() != null
+                    && e.getMessage().toLowerCase(java.util.Locale.ROOT).contains("stream idle timeout")) {
+                request.setAttribute(OpenAiApiConstants.ATTR_STREAM_TIMEOUT_TYPE, "idle");
+            }
             throw e;
         }
+    }
+
+    private static int timedRead(InputStream in, byte[] buf, long timeoutMs) throws IOException, InterruptedException {
+        if (timeoutMs <= 0) {
+            return in.read(buf);
+        }
+        final int[] read = new int[]{Integer.MIN_VALUE};
+        final IOException[] error = new IOException[1];
+        Thread reader = Thread.ofVirtual().name("oci-openai-stream-read").start(() -> {
+            try {
+                read[0] = in.read(buf);
+            } catch (IOException e) {
+                error[0] = e;
+            }
+        });
+        reader.join(timeoutMs);
+        if (reader.isAlive()) {
+            try {
+                in.close();
+            } catch (IOException ignored) {
+            }
+            reader.interrupt();
+            throw new IOException("stream idle timeout after " + timeoutMs + "ms");
+        }
+        if (error[0] != null) {
+            throw error[0];
+        }
+        return read[0];
+    }
+
+    private static long timeoutMs(HttpServletRequest request, String attr, int defaultSeconds) {
+        long seconds = defaultSeconds;
+        Object value = request == null ? null : request.getAttribute(attr);
+        if (value instanceof Number n) {
+            seconds = n.longValue();
+        } else if (value != null) {
+            try {
+                seconds = Long.parseLong(String.valueOf(value).trim());
+            } catch (Exception ignored) {
+            }
+        }
+        if (seconds <= 0) {
+            return 0L;
+        }
+        return Math.min(21600L, seconds) * 1000L;
     }
 
     private void bufferAndCopy(
@@ -1334,6 +1411,9 @@ public class OciGenerativeOpenAiService {
         try {
             HttpResponse<String> resp = client.send(httpRequest, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
             int code = resp.statusCode();
+            if (request != null) {
+                request.setAttribute(OpenAiApiConstants.ATTR_UPSTREAM_STATUS, code);
+            }
             resp.headers().map().forEach((k, vals) -> {
                 if (k == null || vals == null) {
                     return;
@@ -1744,6 +1824,20 @@ public class OciGenerativeOpenAiService {
             String clientAccept,
             String opcCompartmentId,
             Map<String, String> extraSignedHeaders) {
+        return buildSignedRequest(signer, method, uri, body, contentType, clientAccept, opcCompartmentId,
+                extraSignedHeaders, Duration.ofHours(1L));
+    }
+
+    private HttpRequest buildSignedRequest(
+            RequestSigner signer,
+            String method,
+            URI uri,
+            byte[] body,
+            String contentType,
+            String clientAccept,
+            String opcCompartmentId,
+            Map<String, String> extraSignedHeaders,
+            Duration timeout) {
         Map<String, List<String>> headers = new LinkedHashMap<>();
         headers.put("host", list(h(uri.getHost())));
         headers.put("accept", list(h(clientAccept)));
@@ -1780,7 +1874,7 @@ public class OciGenerativeOpenAiService {
         HttpRequest.Builder b = HttpRequest.newBuilder()
                 .uri(uri)
                 .version(HttpClient.Version.HTTP_1_1)
-                .timeout(java.time.Duration.ofHours(1L));
+                .timeout(timeout == null || timeout.isNegative() || timeout.isZero() ? Duration.ofHours(1L) : timeout);
         applyToBuilder(b, headers);
         applyToBuilder(b, signed);
         if (body == null || body.length == 0) {

@@ -93,6 +93,13 @@ export function saveOracleAiLbMember(data: {
   enabled?: boolean
   requestLimit5h?: number | null
   requestLimit7d?: number | null
+  maxConcurrency?: number | null
+  rpmLimit?: number | null
+  tpmLimit?: number | null
+  contextLimit?: number | null
+  streamFirstChunkTimeoutSeconds?: number | null
+  streamIdleTimeoutSeconds?: number | null
+  streamMaxSeconds?: number | null
 }) {
   return request.post('/oci/oracle-ai/lb/members/save', data)
 }
@@ -103,6 +110,10 @@ export function setOracleAiLbMemberEnabled(data: { id: string; enabled: boolean 
 
 export function removeOracleAiLbMember(data: { id: string }) {
   return request.post('/oci/oracle-ai/lb/members/remove', data)
+}
+
+export function listOracleAiLbRequests(data: { limit?: number } = {}) {
+  return request.post('/oci/oracle-ai/lb/requests/list', data)
 }
 
 export function listOpenAiModels(data: { ociUserId: string; ociRegion?: string; after?: string; modelId?: string }) {

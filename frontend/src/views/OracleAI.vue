@@ -502,11 +502,14 @@
               </template>
               <template v-else-if="column.key === 'status'">
                 <a-tag :color="lbMemberStatusColor(record)">{{ lbMemberStatusText(record) }}</a-tag>
+                <a-tag v-if="record.healthStatus" class="lb-health-tag" :color="lbHealthColor(record)">{{ lbHealthText(record) }}</a-tag>
                 <div v-if="record.lastError" class="sub-muted status-message">{{ record.lastError }}</div>
                 <div v-if="isLbCoolingDown(record)" class="sub-muted status-message">冷却到 {{ lbCooldownText(record) }}</div>
+                <div v-if="record.healthMessage" class="sub-muted status-message">{{ record.healthMessage }}</div>
               </template>
               <template v-else-if="column.key === 'load'">
-                <span>{{ record.weight || 1 }} / {{ record.inFlight || 0 }}</span>
+                <div>{{ record.weight || 1 }} / {{ record.inFlight || 0 }}</div>
+                <div class="sub-muted status-message">{{ lbLimitSummary(record) }}</div>
               </template>
               <template v-else-if="column.key === 'usage'">
                 <div class="lb-usage-pair">
@@ -547,6 +550,9 @@
               </template>
               <template v-else-if="column.key === 'lastUsed'">
                 {{ formatKeyTime(record.lastUsed) }}
+                <div v-if="record.lastStatus" class="sub-muted status-message">
+                  HTTP {{ record.lastStatus }} · {{ record.lastLatencyMs || 0 }}ms
+                </div>
               </template>
               <template v-else-if="column.key === 'a'">
                 <a-space class="port-actions" :size="4">
@@ -555,6 +561,55 @@
                     <a-button size="small" danger>删除</a-button>
                   </a-popconfirm>
                 </a-space>
+              </template>
+            </template>
+          </a-table>
+        </a-card>
+
+        <a-card title="最近请求" :bordered="false" class="mt-card">
+          <a-row class="key-toolbar" :gutter="[8, 8]" align="middle">
+            <a-col>
+              <a-button :loading="lbRequestsLoading" @click="loadLbRequests">刷新</a-button>
+            </a-col>
+            <a-col>
+              <span class="sub-muted">记录最近的 LB 调度、重试、断流和超时。</span>
+            </a-col>
+          </a-row>
+          <a-table
+            class="port-table lb-request-table"
+            :columns="lbRequestColumns"
+            :data-source="lbRequests"
+            :loading="lbRequestsLoading"
+            row-key="id"
+            size="small"
+            :pagination="{ pageSize: 10, size: 'small' }"
+            :scroll="{ x: 1120 }"
+          >
+            <template #bodyCell="{ column, record }">
+              <template v-if="column.key === 'request'">
+                <code>{{ shortId(record.requestId) }}</code>
+                <div class="sub-muted status-message">{{ formatKeyTime(record.createTime) }}</div>
+              </template>
+              <template v-else-if="column.key === 'member'">
+                <code>{{ record.port || '-' }}</code>
+                <div class="sub-muted status-message">retry {{ record.retryCount || 0 }}</div>
+              </template>
+              <template v-else-if="column.key === 'mode'">
+                <a-tag :color="record.stream ? 'blue' : 'default'">{{ record.stream ? 'stream' : 'json' }}</a-tag>
+              </template>
+              <template v-else-if="column.key === 'status'">
+                <a-tag :color="lbRequestStatusColor(record)">{{ lbRequestStatusText(record) }}</a-tag>
+                <div v-if="record.errorType || record.errorMessage" class="sub-muted status-message">
+                  {{ record.errorType || '' }} {{ record.errorMessage || '' }}
+                </div>
+              </template>
+              <template v-else-if="column.key === 'latency'">
+                <div>{{ record.latencyMs ?? '-' }}ms</div>
+                <div v-if="record.firstChunkMs" class="sub-muted status-message">首块 {{ record.firstChunkMs }}ms</div>
+              </template>
+              <template v-else-if="column.key === 'tokens'">
+                <div>{{ record.tokenCount || 0 }}</div>
+                <div class="sub-muted status-message">估 {{ record.estimatedPromptTokens || 0 }}</div>
               </template>
             </template>
           </a-table>
@@ -797,6 +852,45 @@
             </a-form-item>
           </a-col>
         </a-row>
+        <a-row :gutter="12">
+          <a-col :xs="24" :sm="12">
+            <a-form-item label="最大并发">
+              <a-input-number v-model:value="lbMemberForm.maxConcurrency" :min="1" :precision="0" :controls="false" placeholder="留空不限" style="width: 100%" />
+            </a-form-item>
+          </a-col>
+          <a-col :xs="24" :sm="12">
+            <a-form-item label="RPM 上限">
+              <a-input-number v-model:value="lbMemberForm.rpmLimit" :min="1" :precision="0" :controls="false" placeholder="留空不限" style="width: 100%" />
+            </a-form-item>
+          </a-col>
+          <a-col :xs="24" :sm="12">
+            <a-form-item label="TPM 上限">
+              <a-input-number v-model:value="lbMemberForm.tpmLimit" :min="1" :precision="0" :controls="false" placeholder="留空不限" style="width: 100%" />
+            </a-form-item>
+          </a-col>
+          <a-col :xs="24" :sm="12">
+            <a-form-item label="上下文上限">
+              <a-input-number v-model:value="lbMemberForm.contextLimit" :min="1" :precision="0" :controls="false" placeholder="留空继承" style="width: 100%" />
+            </a-form-item>
+          </a-col>
+        </a-row>
+        <a-row :gutter="12">
+          <a-col :xs="24" :sm="8">
+            <a-form-item label="首块超时(秒)">
+              <a-input-number v-model:value="lbMemberForm.streamFirstChunkTimeoutSeconds" :min="5" :max="600" :precision="0" :controls="false" placeholder="默认60" style="width: 100%" />
+            </a-form-item>
+          </a-col>
+          <a-col :xs="24" :sm="8">
+            <a-form-item label="空闲超时(秒)">
+              <a-input-number v-model:value="lbMemberForm.streamIdleTimeoutSeconds" :min="5" :max="600" :precision="0" :controls="false" placeholder="默认180" style="width: 100%" />
+            </a-form-item>
+          </a-col>
+          <a-col :xs="24" :sm="8">
+            <a-form-item label="最长流(秒)">
+              <a-input-number v-model:value="lbMemberForm.streamMaxSeconds" :min="30" :max="21600" :precision="0" :controls="false" placeholder="默认7200" style="width: 100%" />
+            </a-form-item>
+          </a-col>
+        </a-row>
         <a-form-item label="启用">
           <a-switch v-model:checked="lbMemberForm.enabled" />
         </a-form-item>
@@ -850,6 +944,7 @@ import {
   saveOracleAiLbMember,
   setOracleAiLbMemberEnabled,
   removeOracleAiLbMember,
+  listOracleAiLbRequests,
   listOpenAiModels,
   oracleAiChatTest,
   getOracleAiUiState,
@@ -899,9 +994,11 @@ const portForm = ref<{
 const lbOverview = ref<any>({})
 const lbKeys = ref<any[]>([])
 const lbMembers = ref<any[]>([])
+const lbRequests = ref<any[]>([])
 const lbOverviewLoading = ref(false)
 const lbKeysLoading = ref(false)
 const lbMembersLoading = ref(false)
+const lbRequestsLoading = ref(false)
 const lbKeyModalOpen = ref(false)
 const lbKeyCreating = ref(false)
 const lbKeyName = ref('')
@@ -916,12 +1013,26 @@ const lbMemberForm = ref<{
   enabled: boolean
   requestLimit5h?: number | null
   requestLimit7d?: number | null
+  maxConcurrency?: number | null
+  rpmLimit?: number | null
+  tpmLimit?: number | null
+  contextLimit?: number | null
+  streamFirstChunkTimeoutSeconds?: number | null
+  streamIdleTimeoutSeconds?: number | null
+  streamMaxSeconds?: number | null
 }>({
   portBindingId: '',
   weight: 1,
   enabled: true,
   requestLimit5h: null,
   requestLimit7d: null,
+  maxConcurrency: null,
+  rpmLimit: null,
+  tpmLimit: null,
+  contextLimit: null,
+  streamFirstChunkTimeoutSeconds: null,
+  streamIdleTimeoutSeconds: null,
+  streamMaxSeconds: null,
 })
 const modelPick = ref<string[]>([])
 const modelOptions = ref<
@@ -994,12 +1105,22 @@ const lbMemberColumns = [
   { title: '开关', key: 'enabled', width: 84 },
   { title: '端口', key: 'port', width: 108 },
   { title: '租户', key: 'tenant', width: 220 },
-  { title: '状态', key: 'status', width: 150 },
-  { title: '权重/并发', key: 'load', width: 116 },
+  { title: '状态', key: 'status', width: 190 },
+  { title: '权重/并发', key: 'load', width: 170 },
   { title: '用量窗口', key: 'usage', width: 260 },
   { title: '模型', key: 'models', width: 170 },
   { title: '最近使用', key: 'lastUsed', width: 140 },
   { title: '操作', key: 'a', width: 170 },
+] as any
+
+const lbRequestColumns = [
+  { title: '请求', key: 'request', width: 170 },
+  { title: '成员', key: 'member', width: 90 },
+  { title: '模型', dataIndex: 'model', key: 'model', width: 220, ellipsis: true },
+  { title: '模式', key: 'mode', width: 90 },
+  { title: '状态', key: 'status', width: 240 },
+  { title: '耗时', key: 'latency', width: 120 },
+  { title: 'Tokens', key: 'tokens', width: 110 },
 ] as any
 
 function formatKeyTime(iso?: string | null) {
@@ -1555,11 +1676,22 @@ async function loadLbMembers() {
   }
 }
 
+async function loadLbRequests() {
+  lbRequestsLoading.value = true
+  try {
+    const r: any = await listOracleAiLbRequests({ limit: 80 })
+    lbRequests.value = Array.isArray(r?.data) ? r.data : []
+  } finally {
+    lbRequestsLoading.value = false
+  }
+}
+
 async function loadLbAll() {
   await Promise.all([
     loadLbOverview().catch(() => {}),
     loadLbKeys().catch(() => {}),
     loadLbMembers().catch(() => {}),
+    loadLbRequests().catch(() => {}),
   ])
 }
 
@@ -1647,6 +1779,13 @@ async function openLbMemberModal(row?: any) {
     enabled: row?.enabled !== false,
     requestLimit5h: row?.requestLimit5h ? Number(row.requestLimit5h) : null,
     requestLimit7d: row?.requestLimit7d ? Number(row.requestLimit7d) : null,
+    maxConcurrency: row?.maxConcurrency ? Number(row.maxConcurrency) : null,
+    rpmLimit: row?.rpmLimit ? Number(row.rpmLimit) : null,
+    tpmLimit: row?.tpmLimit ? Number(row.tpmLimit) : null,
+    contextLimit: row?.contextLimit ? Number(row.contextLimit) : null,
+    streamFirstChunkTimeoutSeconds: row?.streamFirstChunkTimeoutSeconds ? Number(row.streamFirstChunkTimeoutSeconds) : null,
+    streamIdleTimeoutSeconds: row?.streamIdleTimeoutSeconds ? Number(row.streamIdleTimeoutSeconds) : null,
+    streamMaxSeconds: row?.streamMaxSeconds ? Number(row.streamMaxSeconds) : null,
   }
   lbMemberModalOpen.value = true
 }
@@ -1671,6 +1810,13 @@ async function saveLbMemberRow() {
       enabled: f.enabled,
       requestLimit5h: f.requestLimit5h ? Math.trunc(Number(f.requestLimit5h)) : null,
       requestLimit7d: f.requestLimit7d ? Math.trunc(Number(f.requestLimit7d)) : null,
+      maxConcurrency: f.maxConcurrency ? Math.trunc(Number(f.maxConcurrency)) : null,
+      rpmLimit: f.rpmLimit ? Math.trunc(Number(f.rpmLimit)) : null,
+      tpmLimit: f.tpmLimit ? Math.trunc(Number(f.tpmLimit)) : null,
+      contextLimit: f.contextLimit ? Math.trunc(Number(f.contextLimit)) : null,
+      streamFirstChunkTimeoutSeconds: f.streamFirstChunkTimeoutSeconds ? Math.trunc(Number(f.streamFirstChunkTimeoutSeconds)) : null,
+      streamIdleTimeoutSeconds: f.streamIdleTimeoutSeconds ? Math.trunc(Number(f.streamIdleTimeoutSeconds)) : null,
+      streamMaxSeconds: f.streamMaxSeconds ? Math.trunc(Number(f.streamMaxSeconds)) : null,
     })
     lbMemberModalOpen.value = false
     message.success('已保存')
@@ -1980,6 +2126,54 @@ function lbMemberStatusColor(row: any) {
   return 'orange'
 }
 
+function lbHealthText(row: any) {
+  const s = String(row?.healthStatus || '').toLowerCase()
+  if (s === 'healthy') return '健康'
+  if (s === 'unhealthy') return '异常'
+  if (s === 'cooling') return '冷却'
+  if (s === 'disabled') return '禁用'
+  return '未知'
+}
+
+function lbHealthColor(row: any) {
+  const s = String(row?.healthStatus || '').toLowerCase()
+  if (s === 'healthy') return 'green'
+  if (s === 'unhealthy') return 'red'
+  if (s === 'cooling') return 'orange'
+  return 'default'
+}
+
+function lbLimitSummary(row: any) {
+  const parts = []
+  if (row?.maxConcurrency) parts.push(`并发≤${row.maxConcurrency}`)
+  if (row?.rpmLimit) parts.push(`RPM≤${row.rpmLimit}`)
+  if (row?.tpmLimit) parts.push(`TPM≤${row.tpmLimit}`)
+  if (row?.contextLimit) parts.push(`CTX≤${row.contextLimit}`)
+  return parts.length ? parts.join(' · ') : '不限流'
+}
+
+function lbRequestStatusText(row: any) {
+  if (row?.clientAborted) return '客户端断开'
+  const code = Number(row?.statusCode || 0)
+  if (row?.status === 'success' || (code >= 200 && code < 400)) return `HTTP ${code || 200}`
+  return code ? `HTTP ${code}` : row?.status || '失败'
+}
+
+function lbRequestStatusColor(row: any) {
+  if (row?.clientAborted) return 'default'
+  const code = Number(row?.statusCode || 0)
+  if (code >= 200 && code < 400) return 'green'
+  if (code === 429) return 'orange'
+  if (code >= 500) return 'red'
+  return row?.status === 'success' ? 'green' : 'red'
+}
+
+function shortId(id?: string) {
+  const s = String(id || '')
+  if (s.length <= 12) return s || '-'
+  return `${s.slice(0, 8)}…${s.slice(-4)}`
+}
+
 function lbUsageText(stats: any, limit?: number | null) {
   const requests = Number(stats?.requestCount || 0)
   const success = Number(stats?.successCount || 0)
@@ -2182,6 +2376,12 @@ async function viewKey(k: any) {
   font-style: normal;
   line-height: 1;
   white-space: nowrap;
+}
+.lb-health-tag {
+  margin-top: 4px;
+}
+.lb-request-table code {
+  font-size: 12px;
 }
 .port-table :deep(.ant-table-cell) {
   vertical-align: middle;
