@@ -295,12 +295,15 @@ public class OciOpenaiLoadBalanceService {
     }
 
     public int eligibleMemberCount(String requestedModel, long estimatedTokens) {
-        return eligibleCandidates(requestedModel, estimatedTokens, Set.of(), LocalDateTime.now()).size();
+        return eligibleCandidates(requestedModel, estimatedTokens, Set.of(), LocalDateTime.now(), true).size();
     }
 
     public Selection selectMember(String requestedModel, long estimatedTokens, Set<String> excludedMemberIds) {
         LocalDateTime now = LocalDateTime.now();
-        List<Candidate> candidates = eligibleCandidates(requestedModel, estimatedTokens, excludedMemberIds, now);
+        List<Candidate> candidates = eligibleCandidates(requestedModel, estimatedTokens, excludedMemberIds, now, false);
+        if (candidates.isEmpty()) {
+            candidates = eligibleCandidates(requestedModel, estimatedTokens, excludedMemberIds, now, true);
+        }
         Candidate selected = candidates.stream()
                 .min(Comparator.comparingDouble(Candidate::loadRate)
                         .thenComparing(candidate -> candidate.member().getLastUsed(), Comparator.nullsFirst(Comparator.naturalOrder()))
@@ -310,7 +313,7 @@ public class OciOpenaiLoadBalanceService {
         return new Selection(selected.member(), selected.binding());
     }
 
-    private List<Candidate> eligibleCandidates(String requestedModel, long estimatedTokens, Set<String> excludedMemberIds, LocalDateTime now) {
+    private List<Candidate> eligibleCandidates(String requestedModel, long estimatedTokens, Set<String> excludedMemberIds, LocalDateTime now, boolean includeCooling) {
         List<Candidate> candidates = new ArrayList<>();
         for (OciOpenaiLbMember member : memberMapper.selectList(new LambdaQueryWrapper<OciOpenaiLbMember>()
                 .eq(OciOpenaiLbMember::getEnabled, 1))) {
@@ -321,7 +324,8 @@ public class OciOpenaiLoadBalanceService {
             if (binding == null || binding.getEnabled() == null || binding.getEnabled() != 1) {
                 continue;
             }
-            if (member.getCooldownUntil() != null && member.getCooldownUntil().isAfter(now)) {
+            boolean cooling = member.getCooldownUntil() != null && member.getCooldownUntil().isAfter(now);
+            if (cooling && !includeCooling) {
                 continue;
             }
             List<String> models = OracleAiPortBindingService.decodeAllowedModels(binding.getAllowedModelsJson());
@@ -350,6 +354,9 @@ public class OciOpenaiLoadBalanceService {
                 continue;
             }
             double score = adaptiveScore(member, current, weight, now);
+            if (cooling) {
+                score += 4D;
+            }
             candidates.add(new Candidate(member, binding, score));
         }
         return candidates;
@@ -782,7 +789,7 @@ public class OciOpenaiLoadBalanceService {
     }
 
     private static boolean shouldCooldown(int status) {
-        return status == 429 || status == 499 || status >= 500;
+        return status == 429 || status == 499 || status == 502 || status == 503 || status == 504;
     }
 
     private HealthCheckResult localHealth(OciOpenaiLbMember member, LocalDateTime now) {

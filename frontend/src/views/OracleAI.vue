@@ -2247,13 +2247,16 @@ function lbStatusMessages(row: any) {
   const lastError = normalizeStatusMessage(row?.lastError)
   const healthMessage = normalizeStatusMessage(row?.healthMessage)
   const healthStatus = String(row?.healthStatus || '').toLowerCase()
-  if (lastError) {
+  const showLastError = lastError && healthStatus !== 'healthy'
+  if (showLastError) {
     messages.push({ key: 'lastError', label: '最近错误', text: lastError })
   }
   if (isLbCoolingDown(row)) {
     messages.push({ key: 'cooldown', label: '冷却', text: `到 ${lbCooldownText(row)}` })
   }
-  const healthIsNoise = healthStatus === 'healthy' && (!healthMessage || healthMessage === '端口监听中')
+  const healthIsNoise = (healthStatus === 'healthy' && (!healthMessage || healthMessage === '端口监听中'))
+    || (healthStatus === 'cooling' && healthMessage.startsWith('冷却到'))
+    || (healthStatus === 'recovering' && healthMessage.startsWith('恢复观察到'))
   if (healthMessage && !healthIsNoise && healthMessage !== lastError) {
     const label = healthStatus === 'unhealthy'
       ? '异常原因'
