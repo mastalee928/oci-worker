@@ -668,8 +668,9 @@ public class DomainManagementService {
             if (domains.isEmpty()) throw new OciException("未找到 Identity Domain");
 
             int window = Math.max(1, Math.min(days, 30));
-            Date endTime = new Date();
-            Date startTime = Date.from(java.time.Instant.now().minus(Duration.ofDays(window)));
+            Instant endInstant = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MINUTES);
+            Date endTime = Date.from(endInstant);
+            Date startTime = Date.from(endInstant.minus(Duration.ofDays(window)));
 
             Map<String, List<Map<String, Object>>> grouped = new LinkedHashMap<>();
             for (var d : domains) grouped.put((String) d.get("id"), new ArrayList<>());
@@ -687,8 +688,16 @@ public class DomainManagementService {
                 selectedDomainId = null;
             }
 
-            AuditQueryResult query = listLoginAuditEvents(
-                    client, startTime, endTime, window, nameToId, selectedDomainId, domains.size());
+            AuditQueryResult query;
+            try {
+                query = listLoginAuditEvents(
+                        client, startTime, endTime, window, nameToId, selectedDomainId, domains.size());
+            } catch (Exception e) {
+                String message = describeAuditQueryFailure(e);
+                log.warn("OCI Audit query returned domain-level warning tenantId={} days={} domainId={}: {}",
+                        tenantId, window, selectedDomainId, e.getMessage());
+                return buildAuditFailureEntries(domains, selectedDomainId, message);
+            }
 
             List<AuditEvent> events = query.events();
             for (AuditEvent ev : events) {
@@ -804,6 +813,45 @@ public class DomainManagementService {
             throw new OciException("获取登录日志失败: " + (e.getMessage() == null ? "未知错误" : e.getMessage()));
         }
         return result;
+    }
+
+    private static List<Map<String, Object>> buildAuditFailureEntries(List<Map<String, Object>> domains,
+                                                                       String selectedDomainId,
+                                                                       String message) {
+        List<Map<String, Object>> result = new ArrayList<>();
+        for (var d : domains) {
+            Map<String, Object> entry = new LinkedHashMap<>();
+            Object id = d.get("id");
+            entry.put("domainId", id);
+            entry.put("displayName", d.get("displayName"));
+            entry.put("type", d.get("type"));
+            entry.put("logs", new ArrayList<>());
+            if (selectedDomainId == null || Objects.equals(selectedDomainId, id)) {
+                entry.put("error", message);
+            }
+            result.add(entry);
+        }
+        return result;
+    }
+
+    private static String describeAuditQueryFailure(Exception e) {
+        if (isTransientAuditFailure(e)) {
+            return "OCI Audit 读取超时，未能取得登录日志；已避免页面继续等待。可缩短时间窗口或稍后重试。";
+        }
+        if (e instanceof com.oracle.bmc.model.BmcException b) {
+            int status = b.getStatusCode();
+            if (status == 401 || status == 403) {
+                return "当前 API 用户没有读取 OCI Audit 日志的权限，请检查 IAM 策略是否允许读取租户 Audit 事件。";
+            }
+            if (status == 404) {
+                return "OCI Audit 端点或区域不可用，请确认租户主区域和订阅区域是否正确。";
+            }
+        }
+        String raw = e == null || e.getMessage() == null ? "" : e.getMessage().trim();
+        if (raw.isEmpty()) return "OCI Audit 查询失败，请稍后重试。";
+        raw = raw.replaceAll("\\s*\\(opc-request-id:.*", "");
+        if (raw.length() > 180) raw = raw.substring(0, 180) + "...";
+        return "OCI Audit 查询失败：" + raw;
     }
 
     private AuditQueryResult listLoginAuditEvents(OciClientService client,
