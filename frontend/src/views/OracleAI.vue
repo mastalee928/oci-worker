@@ -469,6 +469,12 @@
               <div v-if="record.lastError || isLbCoolingDown(record)" class="sub-muted status-message">
                 {{ record.lastError || '' }} {{ isLbCoolingDown(record) ? `冷却到 ${lbCooldownText(record)}` : '' }}
               </div>
+              <div v-if="lbUnavailableModelStates(record).length" class="lb-model-state-list">
+                <a-tag v-for="s in lbUnavailableModelStates(record)" :key="s.model" color="red">
+                  {{ s.model }} 剔除到 {{ formatKeyTime(s.unavailableUntil) }}
+                </a-tag>
+                <a-button size="small" type="link" @click="clearLbModelState(record)">清除</a-button>
+              </div>
               <a-space class="port-card-actions" wrap>
                 <a-button size="small" @click="openLbMemberModal(record)">编辑</a-button>
                 <a-popconfirm title="确定删除该成员？" @confirm="removeLbMemberRow(record)">
@@ -506,6 +512,12 @@
                 <div v-if="record.lastError" class="sub-muted status-message">{{ record.lastError }}</div>
                 <div v-if="isLbCoolingDown(record)" class="sub-muted status-message">冷却到 {{ lbCooldownText(record) }}</div>
                 <div v-if="record.healthMessage" class="sub-muted status-message">{{ record.healthMessage }}</div>
+                <div v-if="lbUnavailableModelStates(record).length" class="lb-model-state-list">
+                  <a-tag v-for="s in lbUnavailableModelStates(record)" :key="s.model" color="red">
+                    {{ s.model }} 剔除到 {{ formatKeyTime(s.unavailableUntil) }}
+                  </a-tag>
+                  <a-button size="small" type="link" @click="clearLbModelState(record)">清除</a-button>
+                </div>
               </template>
               <template v-else-if="column.key === 'load'">
                 <div>{{ record.weight || 1 }} / {{ record.inFlight || 0 }}</div>
@@ -987,6 +999,7 @@ import {
   saveOracleAiLbMember,
   setOracleAiLbMemberEnabled,
   removeOracleAiLbMember,
+  clearOracleAiLbMemberModelState,
   listOracleAiLbRequests,
   listOpenAiModels,
   oracleAiChatTest,
@@ -2231,6 +2244,26 @@ function lbRequestStatusColor(row: any) {
   return row?.status === 'success' ? 'green' : 'red'
 }
 
+function lbUnavailableModelStates(row: any) {
+  const now = Date.now()
+  return (Array.isArray(row?.modelStates) ? row.modelStates : []).filter((s: any) => {
+    if (String(s?.status || '').toLowerCase() !== 'unavailable') return false
+    const until = s?.unavailableUntil ? new Date(s.unavailableUntil).getTime() : 0
+    return Number.isFinite(until) && until > now
+  })
+}
+
+async function clearLbModelState(row: any, model?: string) {
+  if (!row?.id) return
+  try {
+    await clearOracleAiLbMemberModelState({ id: row.id, model })
+    message.success('已清除模型剔除状态')
+    await loadLbMembers()
+  } catch (e: any) {
+    message.error(e?.message || '清除失败')
+  }
+}
+
 function shortId(id?: string) {
   const s = String(id || '')
   if (s.length <= 12) return s || '-'
@@ -2445,6 +2478,13 @@ async function viewKey(k: any) {
 }
 .lb-request-table code {
   font-size: 12px;
+}
+.lb-model-state-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  align-items: center;
+  margin-top: 4px;
 }
 .port-table :deep(.ant-table-cell) {
   vertical-align: middle;

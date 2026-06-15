@@ -112,6 +112,10 @@ export function removeOracleAiLbMember(data: { id: string }) {
   return request.post('/oci/oracle-ai/lb/members/remove', data)
 }
 
+export function clearOracleAiLbMemberModelState(data: { id: string; model?: string }) {
+  return request.post('/oci/oracle-ai/lb/members/model-state/clear', data)
+}
+
 export function listOracleAiLbRequests(data: { limit?: number } = {}) {
   return request.post('/oci/oracle-ai/lb/requests/list', data)
 }

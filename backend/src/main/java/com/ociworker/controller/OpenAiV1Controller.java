@@ -118,7 +118,8 @@ public class OpenAiV1Controller {
             long started = System.nanoTime();
             if (user == null) {
                 long latency = elapsedMs(started);
-                loadBalanceService.finishRequest(selection.member().getId(), 403, 0L, latency, "tenant_missing", "负载均衡成员绑定的租户不存在");
+                loadBalanceService.finishRequest(selection.member().getId(), 403, 0L, latency,
+                        "tenant_missing", "负载均衡成员绑定的租户不存在", requestedModel);
                 recordAttempt(request, lbRequestId, selection, requestedModel, stream, estimatedTokens, 403,
                         "failed", "tenant_missing", "负载均衡成员绑定的租户不存在", latency, attempt);
                 error(response, 403, "负载均衡成员绑定的租户不存在");
@@ -146,14 +147,15 @@ public class OpenAiV1Controller {
                 int status = statusFrom(request, targetResponse);
                 long tokens = usageTokens(request);
                 boolean retry = !stream && attempt + 1 < maxAttempts && isRetryableStatus(status);
+                String statusError = status >= 400 ? responseBodySnippet(targetResponse, "HTTP " + status) : null;
                 loadBalanceService.finishRequest(selection.member().getId(), status, tokens, latency,
-                        retry ? "retryable_status" : null, retry ? "HTTP " + status : null);
+                        retry ? "retryable_status" : null, retry ? statusError : null, requestedModel);
                 recordAttempt(request, lbRequestId, selection, requestedModel, stream, estimatedTokens, status,
                         status >= 200 && status < 400 ? "success" : "failed",
-                        retry ? "retryable_status" : null, retry ? "HTTP " + status : null, latency, attempt);
+                        retry ? "retryable_status" : null, retry ? statusError : null, latency, attempt);
                 if (retry) {
                     lastStatus = status;
-                    lastError = "上游 HTTP " + status;
+                    lastError = statusError;
                     log.warn("OpenAI LB retrying requestId={} failedMember={} port={} status={}",
                             lbRequestId, selection.member().getId(), binding.getPort(), status);
                     continue;
@@ -167,7 +169,8 @@ public class OpenAiV1Controller {
             } catch (OciException e) {
                 long latency = elapsedMs(started);
                 String message = e.getMessage() != null ? e.getMessage() : "OCI 错误";
-                loadBalanceService.finishRequest(selection.member().getId(), 502, 0L, latency, errorType(request, "oci_error"), message);
+                loadBalanceService.finishRequest(selection.member().getId(), 502, 0L, latency,
+                        errorType(request, "oci_error"), message, requestedModel);
                 recordAttempt(request, lbRequestId, selection, requestedModel, stream, estimatedTokens, 502,
                         "failed", errorType(request, "oci_error"), message, latency, attempt);
                 lastStatus = 502;
@@ -192,7 +195,8 @@ public class OpenAiV1Controller {
                 String type = errorType(request, "io_error");
                 int status = statusFrom(request, targetResponse);
                 status = status >= 400 ? status : 502;
-                loadBalanceService.finishRequest(selection.member().getId(), status, 0L, latency, type, e.getMessage());
+                loadBalanceService.finishRequest(selection.member().getId(), status, 0L, latency,
+                        type, e.getMessage(), requestedModel);
                 recordAttempt(request, lbRequestId, selection, requestedModel, stream, estimatedTokens, status,
                         "failed", type, e.getMessage(), latency, attempt);
                 lastStatus = status;
@@ -209,7 +213,8 @@ public class OpenAiV1Controller {
             } catch (Exception e) {
                 long latency = elapsedMs(started);
                 String message = e.getMessage() != null ? e.getMessage() : "internal_error";
-                loadBalanceService.finishRequest(selection.member().getId(), 500, 0L, latency, "internal_error", message);
+                loadBalanceService.finishRequest(selection.member().getId(), 500, 0L, latency,
+                        "internal_error", message, requestedModel);
                 recordAttempt(request, lbRequestId, selection, requestedModel, stream, estimatedTokens, 500,
                         "failed", "internal_error", message, latency, attempt);
                 log.warn("OpenAI LB internal error requestId={} memberId={} port={} message={}",
@@ -380,6 +385,17 @@ public class OpenAiV1Controller {
 
     private static boolean isRetryableStatus(int status) {
         return status == 429 || status >= 500;
+    }
+
+    private static String responseBodySnippet(HttpServletResponse response, String fallback) {
+        if (response instanceof BufferingResponse buffered) {
+            String body = buffered.bodyText();
+            if (body != null && !body.isBlank()) {
+                String value = body.trim();
+                return value.length() > 500 ? value.substring(0, 500) : value;
+            }
+        }
+        return fallback;
     }
 
     private static long elapsedMs(long startedNanos) {
@@ -689,6 +705,11 @@ public class OpenAiV1Controller {
                 }
             }
             response.getOutputStream().write(body.toByteArray());
+        }
+
+        private String bodyText() {
+            flushBuffer();
+            return body.toString(StandardCharsets.UTF_8);
         }
     }
 }

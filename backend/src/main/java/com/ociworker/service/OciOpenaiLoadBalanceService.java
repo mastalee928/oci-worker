@@ -11,6 +11,7 @@ import com.ociworker.exception.OciException;
 import com.ociworker.mapper.OciOpenaiKeyMapper;
 import com.ociworker.mapper.OciOpenaiLbKeyMapper;
 import com.ociworker.mapper.OciOpenaiLbMemberMapper;
+import com.ociworker.mapper.OciOpenaiLbMemberModelStateMapper;
 import com.ociworker.mapper.OciOpenaiLbRequestLogMapper;
 import com.ociworker.mapper.OciOpenaiLbUsageWindowMapper;
 import com.ociworker.mapper.OciOpenaiPortBindingMapper;
@@ -18,6 +19,7 @@ import com.ociworker.mapper.OciUserMapper;
 import com.ociworker.model.entity.OciOpenaiKey;
 import com.ociworker.model.entity.OciOpenaiLbKey;
 import com.ociworker.model.entity.OciOpenaiLbMember;
+import com.ociworker.model.entity.OciOpenaiLbMemberModelState;
 import com.ociworker.model.entity.OciOpenaiLbRequestLog;
 import com.ociworker.model.entity.OciOpenaiLbUsageWindow;
 import com.ociworker.model.entity.OciOpenaiPortBinding;
@@ -63,6 +65,8 @@ public class OciOpenaiLoadBalanceService {
     @Resource
     private OciOpenaiLbMemberMapper memberMapper;
     @Resource
+    private OciOpenaiLbMemberModelStateMapper memberModelStateMapper;
+    @Resource
     private OciOpenaiLbRequestLogMapper requestLogMapper;
     @Resource
     private OciOpenaiLbUsageWindowMapper usageWindowMapper;
@@ -83,6 +87,10 @@ public class OciOpenaiLoadBalanceService {
     private int requestLogRetentionDays;
     @Value("${ociworker.openaiLoadBalance.requestLogMaxRows:5000}")
     private int requestLogMaxRows;
+    @Value("${ociworker.openaiLoadBalance.modelFailThreshold:1}")
+    private int modelFailThreshold;
+    @Value("${ociworker.openaiLoadBalance.modelUnavailableHours:24}")
+    private int modelUnavailableHours;
 
     private final Map<String, AtomicInteger> inFlight = new ConcurrentHashMap<>();
 
@@ -244,6 +252,22 @@ public class OciOpenaiLoadBalanceService {
     @Transactional(rollbackFor = Exception.class)
     public void removeMember(String id) {
         memberMapper.deleteById(id);
+        memberModelStateMapper.delete(new LambdaQueryWrapper<OciOpenaiLbMemberModelState>()
+                .eq(OciOpenaiLbMemberModelState::getMemberId, id));
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public void clearMemberModelState(String memberId, String model) {
+        if (memberId == null || memberId.isBlank()) {
+            return;
+        }
+        LambdaQueryWrapper<OciOpenaiLbMemberModelState> wrapper = new LambdaQueryWrapper<OciOpenaiLbMemberModelState>()
+                .eq(OciOpenaiLbMemberModelState::getMemberId, memberId);
+        String normalizedModel = normalizeModel(model);
+        if (normalizedModel != null) {
+            wrapper.eq(OciOpenaiLbMemberModelState::getModel, normalizedModel);
+        }
+        memberModelStateMapper.delete(wrapper);
     }
 
     @Scheduled(fixedDelayString = "${ociworker.openaiLoadBalance.healthCheckIntervalMs:60000}")
@@ -287,6 +311,9 @@ public class OciOpenaiLoadBalanceService {
             }
             List<String> models = OracleAiPortBindingService.decodeAllowedModels(binding.getAllowedModelsJson());
             if (!modelAllowed(requestedModel, models)) {
+                continue;
+            }
+            if (modelUnavailable(member.getId(), requestedModel, now)) {
                 continue;
             }
             int weight = member.getWeight() == null || member.getWeight() < 1 ? 1 : member.getWeight();
@@ -334,6 +361,17 @@ public class OciOpenaiLoadBalanceService {
             Long latencyMs,
             String errorType,
             String errorMessage) {
+        finishRequest(memberId, status, tokenCount, latencyMs, errorType, errorMessage, null);
+    }
+
+    public void finishRequest(
+            String memberId,
+            int status,
+            long tokenCount,
+            Long latencyMs,
+            String errorType,
+            String errorMessage,
+            String requestedModel) {
         if (memberId == null || memberId.isBlank()) {
             return;
         }
@@ -378,6 +416,7 @@ public class OciOpenaiLoadBalanceService {
         }
         memberMapper.updateById(member);
         recordUsage(memberId, success, tokenCount);
+        updateModelState(memberId, requestedModel, success, status, errorMessage);
     }
 
     public void finishClientAborted(String memberId) {
@@ -393,6 +432,77 @@ public class OciOpenaiLoadBalanceService {
         member.setLastUsed(now);
         member.setUpdateTime(now);
         memberMapper.updateById(member);
+    }
+
+    private boolean modelUnavailable(String memberId, String requestedModel, LocalDateTime now) {
+        String model = normalizeModel(requestedModel);
+        if (memberId == null || memberId.isBlank() || model == null) {
+            return false;
+        }
+        OciOpenaiLbMemberModelState state = memberModelStateMapper.selectOne(new LambdaQueryWrapper<OciOpenaiLbMemberModelState>()
+                .eq(OciOpenaiLbMemberModelState::getMemberId, memberId)
+                .eq(OciOpenaiLbMemberModelState::getModel, model));
+        return state != null
+                && "unavailable".equalsIgnoreCase(state.getStatus())
+                && state.getUnavailableUntil() != null
+                && state.getUnavailableUntil().isAfter(now);
+    }
+
+    private void updateModelState(String memberId, String requestedModel, boolean success, int status, String errorMessage) {
+        String model = normalizeModel(requestedModel);
+        if (memberId == null || memberId.isBlank() || model == null) {
+            return;
+        }
+        if (!success && !isModelAvailabilityFailure(status)) {
+            return;
+        }
+        try {
+            LocalDateTime now = LocalDateTime.now();
+            OciOpenaiLbMemberModelState state = memberModelStateMapper.selectOne(new LambdaQueryWrapper<OciOpenaiLbMemberModelState>()
+                    .eq(OciOpenaiLbMemberModelState::getMemberId, memberId)
+                    .eq(OciOpenaiLbMemberModelState::getModel, model));
+            if (state == null) {
+                state = new OciOpenaiLbMemberModelState();
+                state.setId(CommonUtils.generateId());
+                state.setMemberId(memberId);
+                state.setModel(model);
+                state.setFailCount(0);
+                state.setSuccessCount(0);
+                state.setCreateTime(now);
+            }
+            state.setLastStatus(status);
+            state.setLastCheckedAt(now);
+            state.setUpdateTime(now);
+            if (success) {
+                state.setStatus("available");
+                state.setFailCount(0);
+                state.setSuccessCount((state.getSuccessCount() == null ? 0 : state.getSuccessCount()) + 1);
+                state.setUnavailableUntil(null);
+                state.setLastError(null);
+            } else {
+                int failures = (state.getFailCount() == null ? 0 : state.getFailCount()) + 1;
+                state.setFailCount(failures);
+                state.setLastError(trimTo(errorMessage == null || errorMessage.isBlank() ? "HTTP " + status : errorMessage, 512));
+                if (failures >= Math.max(1, modelFailThreshold)) {
+                    state.setStatus("unavailable");
+                    state.setUnavailableUntil(now.plusHours(Math.max(1, modelUnavailableHours)));
+                } else {
+                    state.setStatus("suspect");
+                }
+            }
+            if (memberModelStateMapper.selectById(state.getId()) == null) {
+                memberModelStateMapper.insert(state);
+            } else {
+                memberModelStateMapper.updateById(state);
+            }
+        } catch (Exception e) {
+            log.debug("Failed to update LB member model state memberId={} model={} status={} message={}",
+                    memberId, model, status, e.getMessage());
+        }
+    }
+
+    private static boolean isModelAvailabilityFailure(int status) {
+        return status == 400 || status == 404 || status == 422 || status >= 500;
     }
 
     private static double adaptiveScore(OciOpenaiLbMember member, int current, int weight, LocalDateTime now) {
@@ -454,6 +564,7 @@ public class OciOpenaiLoadBalanceService {
     }
 
     public ObjectNode modelsJson() {
+        LocalDateTime now = LocalDateTime.now();
         Set<String> models = new LinkedHashSet<>();
         for (OciOpenaiLbMember member : memberMapper.selectList(new LambdaQueryWrapper<OciOpenaiLbMember>()
                 .eq(OciOpenaiLbMember::getEnabled, 1))) {
@@ -463,7 +574,11 @@ public class OciOpenaiLoadBalanceService {
             }
             List<String> allowedModels = OracleAiPortBindingService.decodeAllowedModels(binding.getAllowedModelsJson());
             if (!allowedModels.isEmpty()) {
-                models.addAll(allowedModels);
+                for (String model : allowedModels) {
+                    if (!modelUnavailable(member.getId(), model, now)) {
+                        models.add(model);
+                    }
+                }
                 continue;
             }
             OciUser user = binding.getOciUserId() == null ? null : userMapper.selectById(binding.getOciUserId());
@@ -717,6 +832,7 @@ public class OciOpenaiLoadBalanceService {
         row.put("ewmaSuccessRate", member.getEwmaSuccessRate());
         row.put("ewmaLatencyMs", member.getEwmaLatencyMs());
         row.put("recoveryUntil", member.getRecoveryUntil());
+        row.put("modelStates", memberModelStates(member.getId()));
         row.put("lastUsed", member.getLastUsed());
         row.put("inFlight", inFlight.getOrDefault(member.getId(), new AtomicInteger()).get());
         row.put("usage5h", usageStats(member.getId(), LocalDateTime.now().minusHours(5)));
@@ -762,6 +878,34 @@ public class OciOpenaiLoadBalanceService {
             tokens += row.getTokenCount() == null ? 0 : row.getTokenCount();
         }
         return new UsageStats(requests, success, failure, tokens);
+    }
+
+    private List<Map<String, Object>> memberModelStates(String memberId) {
+        if (memberId == null || memberId.isBlank()) {
+            return List.of();
+        }
+        return memberModelStateMapper.selectList(new LambdaQueryWrapper<OciOpenaiLbMemberModelState>()
+                        .eq(OciOpenaiLbMemberModelState::getMemberId, memberId)
+                        .orderByDesc(OciOpenaiLbMemberModelState::getUpdateTime))
+                .stream()
+                .map(this::memberModelStateRow)
+                .collect(Collectors.toList());
+    }
+
+    private Map<String, Object> memberModelStateRow(OciOpenaiLbMemberModelState state) {
+        Map<String, Object> row = new HashMap<>();
+        row.put("id", state.getId());
+        row.put("memberId", state.getMemberId());
+        row.put("model", state.getModel());
+        row.put("status", state.getStatus());
+        row.put("failCount", state.getFailCount());
+        row.put("successCount", state.getSuccessCount());
+        row.put("unavailableUntil", state.getUnavailableUntil());
+        row.put("lastStatus", state.getLastStatus());
+        row.put("lastError", state.getLastError());
+        row.put("lastCheckedAt", state.getLastCheckedAt());
+        row.put("updateTime", state.getUpdateTime());
+        return row;
     }
 
     private long recentRequestCount(String memberId, LocalDateTime since) {
@@ -880,6 +1024,17 @@ public class OciOpenaiLoadBalanceService {
             return null;
         }
         return trimmed.length() > maxLen ? trimmed.substring(0, maxLen) : trimmed;
+    }
+
+    private static String normalizeModel(String model) {
+        if (model == null) {
+            return null;
+        }
+        String value = model.trim();
+        if (value.isEmpty()) {
+            return null;
+        }
+        return value.length() > 256 ? value.substring(0, 256) : value;
     }
 
     public record KeyCreateResult(String id, String plainKey, String keyPrefix, String keyMasked) {}

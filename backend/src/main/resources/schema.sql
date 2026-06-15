@@ -193,3 +193,21 @@ CREATE TABLE IF NOT EXISTS oci_openai_lb_request_log (
     INDEX idx_oci_openai_lb_req_member_time (member_id, create_time),
     INDEX idx_oci_openai_lb_req_request (request_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS oci_openai_lb_member_model_state (
+    id VARCHAR(64) PRIMARY KEY,
+    member_id VARCHAR(64) NOT NULL,
+    model VARCHAR(256) NOT NULL,
+    status VARCHAR(32) NOT NULL DEFAULT 'unknown',
+    fail_count INT NOT NULL DEFAULT 0,
+    success_count INT NOT NULL DEFAULT 0,
+    unavailable_until DATETIME DEFAULT NULL,
+    last_status INT DEFAULT NULL,
+    last_error VARCHAR(512) DEFAULT NULL,
+    last_checked_at DATETIME DEFAULT NULL,
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    update_time DATETIME DEFAULT NULL,
+    UNIQUE KEY uk_oci_openai_lb_member_model (member_id, model),
+    INDEX idx_oci_openai_lb_member_model_status (status),
+    INDEX idx_oci_openai_lb_member_model_unavailable (unavailable_until)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

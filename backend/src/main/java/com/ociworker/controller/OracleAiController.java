@@ -446,6 +446,16 @@ public class OracleAiController {
         return ResponseData.ok();
     }
 
+    @PostMapping("/lb/members/model-state/clear")
+    public ResponseData<?> clearLbMemberModelState(@RequestBody Map<String, Object> body) {
+        String id = body == null ? null : trimObj(body.get("id"));
+        if (id == null) {
+            return ResponseData.error("id 必填");
+        }
+        loadBalanceService.clearMemberModelState(id, trimObj(body.get("model")));
+        return ResponseData.ok();
+    }
+
     @PostMapping("/lb/requests/list")
     public ResponseData<?> listLbRequests(@RequestBody(required = false) Map<String, Object> body) {
         int limit = intValue(body == null ? null : body.get("limit"), 50);
