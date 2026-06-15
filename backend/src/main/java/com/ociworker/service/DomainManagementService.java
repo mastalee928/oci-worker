@@ -2,21 +2,29 @@ package com.ociworker.service;
 
 import com.ociworker.exception.OciException;
 import com.ociworker.mapper.OciUserMapper;
+import com.ociworker.model.dto.OciProxySnapshot;
 import com.ociworker.model.dto.SysUserDTO;
 import com.ociworker.model.entity.OciUser;
+import com.ociworker.util.socks.OciSocksApacheConnectionManager;
 import com.oracle.bmc.ClientConfiguration;
 import com.oracle.bmc.audit.AuditClient;
 import com.oracle.bmc.audit.model.AuditEvent;
 import com.oracle.bmc.audit.requests.ListEventsRequest;
+import com.oracle.bmc.http.ClientConfigurator;
+import com.oracle.bmc.http.client.ProxyConfiguration;
+import com.oracle.bmc.http.client.StandardClientProperties;
+import com.oracle.bmc.http.client.jersey3.ApacheClientProperties;
 import com.oracle.bmc.identity.requests.ListDomainsRequest;
 import com.oracle.bmc.identitydomains.IdentityDomainsClient;
 import com.oracle.bmc.identitydomains.model.*;
 import com.oracle.bmc.identitydomains.requests.*;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.http.conn.HttpClientConnectionManager;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.util.*;
 
 @Slf4j
@@ -27,9 +35,12 @@ public class DomainManagementService {
     private static final String DEFAULT_PASSWORD_POLICY_NAME = "DefaultPasswordPolicy";
     private static final String CONSENT_SCHEMA =
             "urn:ietf:params:scim:schemas:oracle:idcs:extension:ociconsolesignonpolicyconsent:Policy";
-    private static final long AUDIT_QUERY_BUDGET_MS = 35_000L;
-    private static final int AUDIT_READ_TIMEOUT_MS = 15_000;
-    private static final int AUDIT_MAX_PAGES_PER_REGION = 8;
+    private static final long AUDIT_QUERY_BUDGET_MS = 45_000L;
+    private static final int AUDIT_READ_TIMEOUT_MS = 10_000;
+    private static final int AUDIT_SLICE_HOURS = 6;
+    private static final int AUDIT_RETRY_SLICE_HOURS = 1;
+    private static final int AUDIT_MAX_PAGES_PER_SLICE = 2;
+    private static final int AUDIT_MAX_LOGIN_EVENTS = 500;
 
     @Resource
     private OciUserMapper userMapper;
@@ -806,6 +817,7 @@ public class DomainManagementService {
         LinkedHashSet<String> regions = resolveAuditRegionNames(client);
         Map<String, AuditEvent> dedup = new LinkedHashMap<>();
         Set<String> unresolvedSkipped = new LinkedHashSet<>();
+        AuditQueryState state = new AuditQueryState(dedup, unresolvedSkipped);
         ClientConfiguration auditConfig = ClientConfiguration.builder()
                 .connectionTimeoutMillis(10_000)
                 .readTimeoutMillis(AUDIT_READ_TIMEOUT_MS)
@@ -813,87 +825,280 @@ public class DomainManagementService {
         long deadlineNanos = System.nanoTime() + Duration.ofMillis(AUDIT_QUERY_BUDGET_MS).toNanos();
         int successfulRegions = 0;
         int failedRegions = 0;
-        int totalRawEvents = 0;
-        int totalPages = 0;
-        boolean partial = false;
+        int nonTransientFailures = 0;
         boolean stopAll = false;
         Exception firstFailure = null;
 
         for (String regionName : regions) {
             if (System.nanoTime() >= deadlineNanos) {
-                partial = true;
+                state.partial = true;
                 break;
             }
-            int regionRawEvents = 0;
-            int regionPages = 0;
-            int regionMatchedEvents = 0;
-            try (AuditClient auditClient = AuditClient.builder()
-                    .configuration(auditConfig)
-                    .build(client.getProvider())) {
+            state.resetRegionCounters();
+            boolean regionSuccessful = false;
+            try (AuditClientHandle audit = newAuditClient(client, auditConfig)) {
+                AuditClient auditClient = audit.client();
                 if (regionName != null && !regionName.isBlank()) {
                     auditClient.setRegion(regionName);
                 }
-                String page = null;
-                do {
+
+                Instant minStart = startTime.toInstant();
+                Instant cursorEnd = endTime.toInstant();
+                while (cursorEnd.isAfter(minStart)) {
                     if (System.nanoTime() >= deadlineNanos) {
-                        partial = true;
+                        state.partial = true;
                         stopAll = true;
                         break;
                     }
-                    if (regionPages >= AUDIT_MAX_PAGES_PER_REGION) {
-                        partial = true;
+                    if (dedup.size() >= AUDIT_MAX_LOGIN_EVENTS) {
+                        state.partial = true;
+                        stopAll = true;
                         break;
                     }
-                    var reqB = ListEventsRequest.builder()
-                            .compartmentId(tenancyId)
-                            .startTime(startTime)
-                            .endTime(endTime);
-                    if (page != null) reqB.page(page);
-                    var resp = auditClient.listEvents(reqB.build());
-                    regionPages++;
-                    totalPages++;
-                    if (resp.getItems() != null) {
-                        regionRawEvents += resp.getItems().size();
-                        totalRawEvents += resp.getItems().size();
-                        for (AuditEvent event : resp.getItems()) {
-                            if (!matchesLoginAuditEvent(event)) continue;
-                            if (targetDomainId != null) {
-                                String eventDomainId = resolveLoginLogDomainId(event.getData(), nameToId);
-                                if (eventDomainId == null && domainCount > 1) {
-                                    unresolvedSkipped.add(auditEventKey(event));
-                                    continue;
-                                }
-                                if (eventDomainId != null && !Objects.equals(targetDomainId, eventDomainId)) {
-                                    continue;
-                                }
-                            }
-                            String key = auditEventKey(event);
-                            if (!dedup.containsKey(key)) {
-                                regionMatchedEvents++;
-                            }
-                            dedup.putIfAbsent(key, event);
-                        }
-                    }
-                    page = resp.getOpcNextPage();
-                } while (page != null && !page.isEmpty());
-                successfulRegions++;
-                log.info("OCI Audit listEvents region={} pages={} rawTotal={} matchedTotal={} windowDays={}",
-                        regionName, regionPages, regionRawEvents, regionMatchedEvents, windowDays);
+
+                    Instant sliceStart = cursorEnd.minus(Duration.ofHours(AUDIT_SLICE_HOURS));
+                    if (sliceStart.isBefore(minStart)) sliceStart = minStart;
+                    boolean sliceOk = queryAuditSlice(
+                            auditClient,
+                            tenancyId,
+                            Date.from(sliceStart),
+                            Date.from(cursorEnd),
+                            regionName,
+                            deadlineNanos,
+                            nameToId,
+                            targetDomainId,
+                            domainCount,
+                            state,
+                            true);
+                    regionSuccessful = regionSuccessful || sliceOk;
+                    cursorEnd = sliceStart;
+                }
+                if (regionSuccessful) successfulRegions++;
+                else failedRegions++;
+                log.info("OCI Audit listEvents region={} pages={} rawTotal={} matchedTotal={} windowDays={} partial={}",
+                        regionName, state.regionPages, state.regionRawEvents, state.regionMatchedEvents, windowDays, state.partial);
             } catch (Exception e) {
                 failedRegions++;
                 if (firstFailure == null) firstFailure = e;
+                if (isTransientAuditFailure(e)) {
+                    state.transientFailures++;
+                    state.partial = true;
+                } else {
+                    nonTransientFailures++;
+                }
                 log.warn("OCI Audit listEvents failed region={}: {}", regionName, e.getMessage());
             }
             if (stopAll) break;
         }
 
-        if (successfulRegions == 0 && firstFailure != null) {
+        if (successfulRegions == 0 && firstFailure != null && nonTransientFailures > 0) {
             throw new OciException("OCI Audit 查询失败: " + (firstFailure.getMessage() == null ? "未知错误" : firstFailure.getMessage()));
         }
-        log.info("OCI Audit listEvents mergedTotal={} rawTotal={} pages={} regions={} windowDays={} partial={}",
-                dedup.size(), totalRawEvents, totalPages, regions, windowDays, partial);
-        return new AuditQueryResult(new ArrayList<>(dedup.values()), partial, totalRawEvents, totalPages,
-                successfulRegions, failedRegions, unresolvedSkipped.size());
+        log.info("OCI Audit listEvents mergedTotal={} rawTotal={} pages={} regions={} windowDays={} partial={} transientFailures={}",
+                dedup.size(), state.totalRawEvents, state.totalPages, regions, windowDays, state.partial, state.transientFailures);
+        return new AuditQueryResult(new ArrayList<>(dedup.values()), state.partial, state.totalRawEvents, state.totalPages,
+                successfulRegions, failedRegions, state.transientFailures, unresolvedSkipped.size());
+    }
+
+    private boolean queryAuditSlice(AuditClient auditClient,
+                                    String tenancyId,
+                                    Date startTime,
+                                    Date endTime,
+                                    String regionName,
+                                    long deadlineNanos,
+                                    Map<String, String> nameToId,
+                                    String targetDomainId,
+                                    int domainCount,
+                                    AuditQueryState state,
+                                    boolean allowRetrySplit) {
+        boolean success = queryAuditSliceOnce(
+                auditClient, tenancyId, startTime, endTime, deadlineNanos, nameToId, targetDomainId, domainCount, state);
+        if (success || !allowRetrySplit || !state.lastFailureWasTransient) return success;
+
+        long hours = Math.max(1L, Duration.between(startTime.toInstant(), endTime.toInstant()).toHours());
+        if (hours <= AUDIT_RETRY_SLICE_HOURS || System.nanoTime() >= deadlineNanos) return false;
+
+        boolean anySuccess = false;
+        Instant minStart = startTime.toInstant();
+        Instant cursorEnd = endTime.toInstant();
+        log.warn("OCI Audit listEvents region={} window={}..{} timed out, retrying with {}h slices",
+                regionName, startTime.toInstant(), endTime.toInstant(), AUDIT_RETRY_SLICE_HOURS);
+        while (cursorEnd.isAfter(minStart) && System.nanoTime() < deadlineNanos && state.events.size() < AUDIT_MAX_LOGIN_EVENTS) {
+            Instant subStart = cursorEnd.minus(Duration.ofHours(AUDIT_RETRY_SLICE_HOURS));
+            if (subStart.isBefore(minStart)) subStart = minStart;
+            boolean subOk = queryAuditSliceOnce(
+                    auditClient,
+                    tenancyId,
+                    Date.from(subStart),
+                    Date.from(cursorEnd),
+                    deadlineNanos,
+                    nameToId,
+                    targetDomainId,
+                    domainCount,
+                    state);
+            anySuccess = anySuccess || subOk;
+            cursorEnd = subStart;
+        }
+        return anySuccess;
+    }
+
+    private boolean queryAuditSliceOnce(AuditClient auditClient,
+                                        String tenancyId,
+                                        Date startTime,
+                                        Date endTime,
+                                        long deadlineNanos,
+                                        Map<String, String> nameToId,
+                                        String targetDomainId,
+                                        int domainCount,
+                                        AuditQueryState state) {
+        state.lastFailureWasTransient = false;
+        String page = null;
+        int pages = 0;
+        try {
+            do {
+                if (System.nanoTime() >= deadlineNanos) {
+                    state.partial = true;
+                    return false;
+                }
+                if (pages >= AUDIT_MAX_PAGES_PER_SLICE) {
+                    state.partial = true;
+                    return true;
+                }
+
+                var reqB = ListEventsRequest.builder()
+                        .compartmentId(tenancyId)
+                        .startTime(startTime)
+                        .endTime(endTime);
+                if (page != null) reqB.page(page);
+                var resp = auditClient.listEvents(reqB.build());
+
+                pages++;
+                state.totalPages++;
+                state.regionPages++;
+                if (resp.getItems() != null) {
+                    state.totalRawEvents += resp.getItems().size();
+                    state.regionRawEvents += resp.getItems().size();
+                    for (AuditEvent event : resp.getItems()) {
+                        if (state.events.size() >= AUDIT_MAX_LOGIN_EVENTS) {
+                            state.partial = true;
+                            return true;
+                        }
+                        if (!matchesLoginAuditEvent(event)) continue;
+                        if (targetDomainId != null) {
+                            String eventDomainId = resolveLoginLogDomainId(event.getData(), nameToId);
+                            if (eventDomainId == null && domainCount > 1) {
+                                state.unresolvedSkipped.add(auditEventKey(event));
+                                continue;
+                            }
+                            if (eventDomainId != null && !Objects.equals(targetDomainId, eventDomainId)) {
+                                continue;
+                            }
+                        }
+                        String key = auditEventKey(event);
+                        if (!state.events.containsKey(key)) {
+                            state.regionMatchedEvents++;
+                        }
+                        state.events.putIfAbsent(key, event);
+                    }
+                }
+                page = resp.getOpcNextPage();
+            } while (page != null && !page.isEmpty());
+            return true;
+        } catch (Exception e) {
+            if (!isTransientAuditFailure(e)) {
+                throw e;
+            }
+            state.partial = true;
+            state.transientFailures++;
+            state.lastFailureWasTransient = true;
+            if (state.firstTransientFailure == null) state.firstTransientFailure = e;
+            log.warn("OCI Audit listEvents transient failure window={}..{}: {}",
+                    startTime.toInstant(), endTime.toInstant(), e.getMessage());
+            return false;
+        }
+    }
+
+    private AuditClientHandle newAuditClient(OciClientService client, ClientConfiguration auditConfig) {
+        var builder = AuditClient.builder().configuration(auditConfig);
+        OciProxyConfigService ps = OciProxyConfigService.instance();
+        OciProxySnapshot snap = ps == null ? null : ps.snapshot();
+        final HttpClientConnectionManager socksPool;
+
+        if (ps == null || !ps.ociUsesExplicitClientProxy()) {
+            OciProxyConfigService.clearInProcessHttpSocksProxySystemProperties();
+        }
+        if (snap != null && snap.usesSocksForOci()) {
+            socksPool = OciSocksApacheConnectionManager.create(snap);
+            ClientConfigurator cfg = b -> {
+                b.property(ApacheClientProperties.CONNECTION_MANAGER, socksPool);
+                b.property(ApacheClientProperties.CONNECTION_MANAGER_SHARED, Boolean.TRUE);
+            };
+            builder.additionalClientConfigurator(cfg);
+        } else {
+            socksPool = null;
+            Optional<ProxyConfiguration> ocx = ps == null ? Optional.empty() : ps.getOciProxyConfiguration();
+            if (ocx.isPresent()) {
+                ProxyConfiguration pc = ocx.get();
+                builder.additionalClientConfigurator(c -> c.property(StandardClientProperties.PROXY, pc));
+            } else {
+                builder.additionalClientConfigurator(OciProxyConfigService.ociSdkJerseyDirectConfigurator());
+            }
+        }
+        return new AuditClientHandle(builder.build(client.getProvider()), socksPool);
+    }
+
+    private static boolean isTransientAuditFailure(Exception e) {
+        if (e == null) return false;
+        if (e instanceof com.oracle.bmc.model.BmcException b && b.getStatusCode() == -1) return true;
+        String msg = String.valueOf(e.getMessage()).toLowerCase(Locale.ROOT);
+        return msg.contains("sockettimeoutexception")
+                || msg.contains("read timed out")
+                || msg.contains("connect timed out")
+                || msg.contains("processingexception")
+                || msg.contains("timeout");
+    }
+
+    private static class AuditQueryState {
+        final Map<String, AuditEvent> events;
+        final Set<String> unresolvedSkipped;
+        int totalRawEvents;
+        int totalPages;
+        int regionRawEvents;
+        int regionPages;
+        int regionMatchedEvents;
+        int transientFailures;
+        boolean partial;
+        boolean lastFailureWasTransient;
+        Exception firstTransientFailure;
+
+        AuditQueryState(Map<String, AuditEvent> events, Set<String> unresolvedSkipped) {
+            this.events = events;
+            this.unresolvedSkipped = unresolvedSkipped;
+        }
+
+        void resetRegionCounters() {
+            regionRawEvents = 0;
+            regionPages = 0;
+            regionMatchedEvents = 0;
+            lastFailureWasTransient = false;
+        }
+    }
+
+    private record AuditClientHandle(AuditClient client,
+                                     HttpClientConnectionManager socksPool) implements AutoCloseable {
+        @Override
+        public void close() {
+            try {
+                client.close();
+            } finally {
+                if (socksPool != null) {
+                    try {
+                        socksPool.shutdown();
+                    } catch (Exception ignored) {
+                    }
+                }
+            }
+        }
     }
 
     private record AuditQueryResult(List<AuditEvent> events,
@@ -902,13 +1107,18 @@ public class DomainManagementService {
                                     int pages,
                                     int successfulRegions,
                                     int failedRegions,
+                                    int transientFailures,
                                     int unresolvedSkippedCount) {
     }
 
     private static String buildAuditQueryNotice(AuditQueryResult query) {
         if (query == null) return null;
         List<String> notices = new ArrayList<>();
-        if (query.partial()) {
+        if (query.transientFailures() > 0 && query.successfulRegions() == 0) {
+            notices.add("OCI Audit 读取超时，未能取得登录日志；已避免页面继续等待。可缩短时间窗口或稍后重试。");
+        } else if (query.transientFailures() > 0) {
+            notices.add("OCI Audit 部分时间片读取超时，已跳过超时片段并显示已获取的日志；可缩短时间窗口后重试。");
+        } else if (query.partial()) {
             notices.add("登录日志查询已达到时间或分页上限，仅显示已扫描到的最近部分日志；可缩短时间窗口后重试。");
         }
         if (query.failedRegions() > 0 && query.successfulRegions() > 0) {
