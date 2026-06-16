@@ -118,6 +118,10 @@
         </a-spin>
       </a-tab-pane>
 
+      <a-tab-pane key="mesh" tab="Mesh 组网">
+        <CfMeshTab :cf-configured="cfConfigured" />
+      </a-tab-pane>
+
       <a-tab-pane key="workers" tab="Workers 和 Pages" force-render>
         <CfWorkersPagesTab
           ref="workersPagesRef"
@@ -404,6 +408,7 @@ import { message } from 'ant-design-vue'
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { useIsMobile } from '../../composables/useIsMobile'
 import CfWorkersPagesTab from './CfWorkersPagesTab.vue'
+import CfMeshTab from './CfMeshTab.vue'
 import {
   listCfTunnels,
   createCfTunnel,

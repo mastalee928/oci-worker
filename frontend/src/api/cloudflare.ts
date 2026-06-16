@@ -413,3 +413,56 @@ export function deployCfPagesStatic(data: {
 }) {
   return request.post('/cf/pages/deploy/static', data)
 }
+
+export function listCfMeshConnectors(silent = false) {
+  return request.post('/cf/mesh/connectors/list', {}, silent ? cfSilent : undefined)
+}
+
+export function createCfMeshConnector(data: { name: string }) {
+  return request.post('/cf/mesh/connectors/create', data)
+}
+
+export function deleteCfMeshConnector(data: { tunnelId: string }) {
+  return request.post('/cf/mesh/connectors/delete', data)
+}
+
+export function getCfMeshConnectorToken(data: { tunnelId: string }) {
+  return request.post('/cf/mesh/connectors/token', data)
+}
+
+export function listCfMeshConnectorConnections(data: { tunnelId: string }, silent = false) {
+  return request.post('/cf/mesh/connectors/connections', data, silent ? cfSilent : undefined)
+}
+
+export function listCfMeshRoutes(data: { tunnelId?: string } = {}, silent = false) {
+  return request.post('/cf/mesh/routes/list', data, silent ? cfSilent : undefined)
+}
+
+export function createCfMeshRoute(data: {
+  tunnelId: string
+  network: string
+  virtualNetworkId?: string
+  comment?: string
+}) {
+  return request.post('/cf/mesh/routes/create', data)
+}
+
+export function deleteCfMeshRoute(data: { routeId: string }) {
+  return request.post('/cf/mesh/routes/delete', data)
+}
+
+export function listCfMeshVirtualNetworks(silent = false) {
+  return request.post('/cf/mesh/virtual-networks/list', {}, silent ? cfSilent : undefined)
+}
+
+export function createCfMeshVirtualNetwork(data: {
+  name: string
+  comment?: string
+  defaultNetwork?: boolean
+}) {
+  return request.post('/cf/mesh/virtual-networks/create', data)
+}
+
+export function deleteCfMeshVirtualNetwork(data: { virtualNetworkId: string }) {
+  return request.post('/cf/mesh/virtual-networks/delete', data)
+}

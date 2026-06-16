@@ -127,6 +127,71 @@ public class CloudflareController {
         return ResponseData.ok();
     }
 
+    @PostMapping("/mesh/connectors/list")
+    public ResponseData<?> listMeshConnectors() {
+        return ResponseData.ok(cloudflareService.listMeshConnectors());
+    }
+
+    @PostMapping("/mesh/connectors/create")
+    public ResponseData<?> createMeshConnector(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(cloudflareService.createMeshConnector(params.get("name")));
+    }
+
+    @PostMapping("/mesh/connectors/delete")
+    public ResponseData<?> deleteMeshConnector(@RequestBody Map<String, String> params) {
+        cloudflareService.deleteMeshConnector(params.get("tunnelId"));
+        return ResponseData.ok();
+    }
+
+    @PostMapping("/mesh/connectors/token")
+    public ResponseData<?> getMeshConnectorToken(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(cloudflareService.getMeshConnectorToken(params.get("tunnelId")));
+    }
+
+    @PostMapping("/mesh/connectors/connections")
+    public ResponseData<?> listMeshConnectorConnections(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(cloudflareService.listMeshConnectorConnections(params.get("tunnelId")));
+    }
+
+    @PostMapping("/mesh/routes/list")
+    public ResponseData<?> listMeshRoutes(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(cloudflareService.listMeshRoutes(params.get("tunnelId")));
+    }
+
+    @PostMapping("/mesh/routes/create")
+    public ResponseData<?> createMeshRoute(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(cloudflareService.createMeshRoute(
+                params.get("tunnelId"),
+                params.get("network"),
+                params.get("virtualNetworkId"),
+                params.get("comment")));
+    }
+
+    @PostMapping("/mesh/routes/delete")
+    public ResponseData<?> deleteMeshRoute(@RequestBody Map<String, String> params) {
+        cloudflareService.deleteMeshRoute(params.get("routeId"));
+        return ResponseData.ok();
+    }
+
+    @PostMapping("/mesh/virtual-networks/list")
+    public ResponseData<?> listMeshVirtualNetworks() {
+        return ResponseData.ok(cloudflareService.listMeshVirtualNetworks());
+    }
+
+    @PostMapping("/mesh/virtual-networks/create")
+    public ResponseData<?> createMeshVirtualNetwork(@RequestBody Map<String, Object> params) {
+        return ResponseData.ok(cloudflareService.createMeshVirtualNetwork(
+                parseString(params.get("name")),
+                parseString(params.get("comment")),
+                parseBoolean(params.get("defaultNetwork"), false)));
+    }
+
+    @PostMapping("/mesh/virtual-networks/delete")
+    public ResponseData<?> deleteMeshVirtualNetwork(@RequestBody Map<String, String> params) {
+        cloudflareService.deleteMeshVirtualNetwork(params.get("virtualNetworkId"));
+        return ResponseData.ok();
+    }
+
     @PostMapping("/access-rules/list")
     public ResponseData<?> listIpAccessRules() {
         return ResponseData.ok(cloudflareService.listIpAccessRules());

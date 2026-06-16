@@ -410,6 +410,187 @@ public class CloudflareService {
     }
 
     // -------------------------------------------------------------------------
+    // Cloudflare Mesh (WARP Connector + private network routes)
+    // -------------------------------------------------------------------------
+
+    public List<Map<String, Object>> listMeshConnectors() {
+        Credentials c = requireCredentials();
+        String url = CF_API_BASE + "/accounts/" + c.accountId() + "/warp_connector?per_page=100";
+        JSONObject json = parseJson(apiGet(c.apiToken(), url));
+        requireSuccess(json, "拉取 Mesh 节点失败");
+        JSONArray result = json.getJSONArray("result");
+        List<Map<String, Object>> list = new ArrayList<>();
+        if (result == null) {
+            return list;
+        }
+        for (int i = 0; i < result.size(); i++) {
+            list.add(mapMeshConnector(result.getJSONObject(i)));
+        }
+        return list;
+    }
+
+    public Map<String, Object> createMeshConnector(String name) {
+        Credentials c = requireCredentials();
+        if (StrUtil.isBlank(name)) {
+            throw new OciException("节点名称不能为空");
+        }
+        String url = CF_API_BASE + "/accounts/" + c.accountId() + "/warp_connector";
+        JSONObject json = parseJson(apiPost(c.apiToken(), url, Map.of("name", name.trim())));
+        requireSuccess(json, "创建 Mesh 节点失败");
+        JSONObject result = json.getJSONObject("result");
+        if (result == null) {
+            throw new OciException("创建 Mesh 节点失败：无返回数据");
+        }
+        return mapMeshConnector(result);
+    }
+
+    public void deleteMeshConnector(String tunnelId) {
+        Credentials c = requireCredentials();
+        requireTunnelId(tunnelId);
+        String url = CF_API_BASE + "/accounts/" + c.accountId() + "/warp_connector/" + tunnelId.trim();
+        apiDelete(c.apiToken(), url);
+    }
+
+    public String getMeshConnectorToken(String tunnelId) {
+        Credentials c = requireCredentials();
+        requireTunnelId(tunnelId);
+        String url = CF_API_BASE + "/accounts/" + c.accountId() + "/warp_connector/" + tunnelId.trim() + "/token";
+        JSONObject json = parseJson(apiGet(c.apiToken(), url));
+        requireSuccess(json, "获取 Mesh 节点 Token 失败");
+        String token = json.getStr("result");
+        if (StrUtil.isBlank(token)) {
+            throw new OciException("Mesh 节点 Token 为空");
+        }
+        return token;
+    }
+
+    public List<Map<String, Object>> listMeshConnectorConnections(String tunnelId) {
+        Credentials c = requireCredentials();
+        requireTunnelId(tunnelId);
+        String url = CF_API_BASE + "/accounts/" + c.accountId() + "/warp_connector/" + tunnelId.trim() + "/connections";
+        JSONObject json = parseJson(apiGet(c.apiToken(), url));
+        requireSuccess(json, "拉取 Mesh 节点连接失败");
+        JSONArray result = json.getJSONArray("result");
+        List<Map<String, Object>> list = new ArrayList<>();
+        if (result == null) {
+            return list;
+        }
+        for (int i = 0; i < result.size(); i++) {
+            JSONObject client = result.getJSONObject(i);
+            JSONArray conns = client.getJSONArray("conns");
+            if (conns != null && !conns.isEmpty()) {
+                for (int j = 0; j < conns.size(); j++) {
+                    list.add(mapTunnelConnection(conns.getJSONObject(j), client));
+                }
+            } else {
+                list.add(mapTunnelConnection(client, null));
+            }
+        }
+        return list;
+    }
+
+    public List<Map<String, Object>> listMeshRoutes(String tunnelId) {
+        Credentials c = requireCredentials();
+        StringBuilder url = new StringBuilder(CF_API_BASE)
+                .append("/accounts/").append(c.accountId())
+                .append("/teamnet/routes?per_page=100&tun_types=warp_connector");
+        if (StrUtil.isNotBlank(tunnelId)) {
+            url.append("&tunnel_id=").append(urlEncodePath(tunnelId.trim()));
+        }
+        JSONObject json = parseJson(apiGet(c.apiToken(), url.toString()));
+        requireSuccess(json, "拉取 Mesh 路由失败");
+        JSONArray result = json.getJSONArray("result");
+        List<Map<String, Object>> list = new ArrayList<>();
+        if (result == null) {
+            return list;
+        }
+        for (int i = 0; i < result.size(); i++) {
+            list.add(mapMeshRoute(result.getJSONObject(i)));
+        }
+        return list;
+    }
+
+    public Map<String, Object> createMeshRoute(String tunnelId, String network, String virtualNetworkId, String comment) {
+        Credentials c = requireCredentials();
+        requireTunnelId(tunnelId);
+        if (StrUtil.isBlank(network)) {
+            throw new OciException("私网网段不能为空");
+        }
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("network", network.trim());
+        body.put("tunnel_id", tunnelId.trim());
+        if (StrUtil.isNotBlank(virtualNetworkId)) {
+            body.put("virtual_network_id", virtualNetworkId.trim());
+        }
+        if (StrUtil.isNotBlank(comment)) {
+            body.put("comment", comment.trim());
+        }
+        String url = CF_API_BASE + "/accounts/" + c.accountId() + "/teamnet/routes";
+        JSONObject json = parseJson(apiPost(c.apiToken(), url, body));
+        requireSuccess(json, "创建 Mesh 路由失败");
+        JSONObject result = json.getJSONObject("result");
+        if (result == null) {
+            throw new OciException("创建 Mesh 路由失败：无返回数据");
+        }
+        return mapMeshRoute(result);
+    }
+
+    public void deleteMeshRoute(String routeId) {
+        Credentials c = requireCredentials();
+        if (StrUtil.isBlank(routeId)) {
+            throw new OciException("路由 ID 不能为空");
+        }
+        String url = CF_API_BASE + "/accounts/" + c.accountId() + "/teamnet/routes/" + routeId.trim();
+        apiDelete(c.apiToken(), url);
+    }
+
+    public List<Map<String, Object>> listMeshVirtualNetworks() {
+        Credentials c = requireCredentials();
+        String url = CF_API_BASE + "/accounts/" + c.accountId() + "/teamnet/virtual_networks?per_page=100";
+        JSONObject json = parseJson(apiGet(c.apiToken(), url));
+        requireSuccess(json, "拉取虚拟网络失败");
+        JSONArray result = json.getJSONArray("result");
+        List<Map<String, Object>> list = new ArrayList<>();
+        if (result == null) {
+            return list;
+        }
+        for (int i = 0; i < result.size(); i++) {
+            list.add(mapMeshVirtualNetwork(result.getJSONObject(i)));
+        }
+        return list;
+    }
+
+    public Map<String, Object> createMeshVirtualNetwork(String name, String comment, boolean isDefaultNetwork) {
+        Credentials c = requireCredentials();
+        if (StrUtil.isBlank(name)) {
+            throw new OciException("虚拟网络名称不能为空");
+        }
+        Map<String, Object> body = new LinkedHashMap<>();
+        body.put("name", name.trim());
+        body.put("is_default_network", isDefaultNetwork);
+        if (StrUtil.isNotBlank(comment)) {
+            body.put("comment", comment.trim());
+        }
+        String url = CF_API_BASE + "/accounts/" + c.accountId() + "/teamnet/virtual_networks";
+        JSONObject json = parseJson(apiPost(c.apiToken(), url, body));
+        requireSuccess(json, "创建虚拟网络失败");
+        JSONObject result = json.getJSONObject("result");
+        if (result == null) {
+            throw new OciException("创建虚拟网络失败：无返回数据");
+        }
+        return mapMeshVirtualNetwork(result);
+    }
+
+    public void deleteMeshVirtualNetwork(String virtualNetworkId) {
+        Credentials c = requireCredentials();
+        if (StrUtil.isBlank(virtualNetworkId)) {
+            throw new OciException("虚拟网络 ID 不能为空");
+        }
+        String url = CF_API_BASE + "/accounts/" + c.accountId() + "/teamnet/virtual_networks/" + virtualNetworkId.trim();
+        apiDelete(c.apiToken(), url);
+    }
+
+    // -------------------------------------------------------------------------
     // Tunnel Public Hostname (ingress + auto CNAME)
     // -------------------------------------------------------------------------
 
@@ -3343,6 +3524,45 @@ public class CloudflareService {
         map.put("deletedAt", t.getStr("deleted_at"));
         map.put("remoteConfig", t.getBool("remote_config"));
         map.put("connections", t.getJSONArray("connections"));
+        return map;
+    }
+
+    private static Map<String, Object> mapMeshConnector(JSONObject t) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("id", t.getStr("id"));
+        map.put("name", t.getStr("name"));
+        map.put("status", t.getStr("status"));
+        map.put("tunType", t.getStr("tun_type"));
+        map.put("createdAt", t.getStr("created_at"));
+        map.put("deletedAt", t.getStr("deleted_at"));
+        map.put("activeAt", t.getStr("conns_active_at"));
+        map.put("inactiveAt", t.getStr("conns_inactive_at"));
+        JSONArray connections = t.getJSONArray("connections");
+        map.put("connections", connections);
+        map.put("connectionCount", connections == null ? 0 : connections.size());
+        return map;
+    }
+
+    private static Map<String, Object> mapMeshRoute(JSONObject r) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("id", r.getStr("id"));
+        map.put("network", r.getStr("network"));
+        map.put("tunnelId", r.getStr("tunnel_id"));
+        map.put("virtualNetworkId", r.getStr("virtual_network_id"));
+        map.put("comment", r.getStr("comment"));
+        map.put("createdAt", r.getStr("created_at"));
+        map.put("deletedAt", r.getStr("deleted_at"));
+        return map;
+    }
+
+    private static Map<String, Object> mapMeshVirtualNetwork(JSONObject v) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("id", v.getStr("id"));
+        map.put("name", v.getStr("name"));
+        map.put("comment", v.getStr("comment"));
+        map.put("defaultNetwork", v.getBool("is_default_network", false));
+        map.put("createdAt", v.getStr("created_at"));
+        map.put("deletedAt", v.getStr("deleted_at"));
         return map;
     }
 
