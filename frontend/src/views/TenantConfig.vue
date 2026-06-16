@@ -20,7 +20,7 @@
 
     <a-spin :spinning="loading">
       <!-- 搜索模式：平铺 -->
-      <template v-if="searchText">
+      <template v-if="normalizedSearchText">
         <a-table v-if="!isMobile" :columns="columns" :data-source="tableData" :loading="loading"
           :row-selection="{ selectedRowKeys, onChange: onSelectChange }" :pagination="false"
           row-key="id" size="middle">
@@ -2033,8 +2033,9 @@ const columns = [
 const loading = computed(() => catalog.tenantsLoading || searchLoading.value)
 const submitLoading = ref(false)
 const searchTableData = ref<any[]>([])
-const tableData = computed(() => (searchText.value ? searchTableData.value : catalog.tenants) as any[])
 const searchText = ref('')
+const normalizedSearchText = computed(() => searchText.value.trim())
+const tableData = computed(() => (normalizedSearchText.value ? searchTableData.value : catalog.tenants) as any[])
 const selectedRowKeys = ref<string[]>([])
 const batchMoveVisible = ref(false)
 const batchMoveLoading = ref(false)
@@ -2266,28 +2267,38 @@ function parseAndFill() {
 
 /** 新增/编辑保存后展开目标分组；普通 loadData 不设置 */
 let pendingExpandTarget: { groupLevel1?: string; groupLevel2?: string } | null = null
+let tenantSearchTimer: ReturnType<typeof setTimeout> | null = null
+let tenantSearchRequestSeq = 0
 
 async function loadData(expandAfter?: { groupLevel1?: string; groupLevel2?: string }) {
   if (expandAfter && typeof expandAfter === 'object') {
     pendingExpandTarget = expandAfter
   }
-  if (searchText.value) {
+  const keyword = normalizedSearchText.value
+  if (keyword) {
+    const requestSeq = ++tenantSearchRequestSeq
     searchLoading.value = true
     try {
       const res = await getTenantList({
         current: pagination.current,
         size: pagination.pageSize,
-        keyword: searchText.value,
+        keyword,
       })
-      searchTableData.value = res.data.records || []
-      pagination.total = res.data.total || 0
+      if (requestSeq === tenantSearchRequestSeq && normalizedSearchText.value === keyword) {
+        searchTableData.value = res.data.records || []
+        pagination.total = res.data.total || 0
+      }
     } catch (e: any) {
       message.error(e?.message || '加载租户列表失败')
     } finally {
-      searchLoading.value = false
+      if (requestSeq === tenantSearchRequestSeq) {
+        searchLoading.value = false
+      }
     }
     return
   }
+  tenantSearchRequestSeq += 1
+  searchTableData.value = []
   try {
     await Promise.all([
       catalog.ensureTenants({ force: false }),
@@ -2306,8 +2317,24 @@ async function loadGroups() {
 function onSearchTenants() {
   pendingExpandTarget = null
   pagination.current = 1
+  if (tenantSearchTimer) {
+    clearTimeout(tenantSearchTimer)
+    tenantSearchTimer = null
+  }
   void loadData()
 }
+
+watch(searchText, () => {
+  pendingExpandTarget = null
+  pagination.current = 1
+  if (tenantSearchTimer) {
+    clearTimeout(tenantSearchTimer)
+  }
+  tenantSearchTimer = setTimeout(() => {
+    tenantSearchTimer = null
+    void loadData()
+  }, 250)
+})
 
 function invalidateCatalogAndReload() {
   catalog.invalidate()
@@ -4544,12 +4571,18 @@ onMounted(async () => {
   window.addEventListener('resize', checkMobile)
 })
 onActivated(() => {
-  if (!searchText.value) {
+  if (!normalizedSearchText.value) {
     void catalog.ensureTenants({ silent: true }).catch(() => {})
     void catalog.ensureGroups({ silent: true }).catch(() => {})
   }
 })
-onUnmounted(() => window.removeEventListener('resize', checkMobile))
+onUnmounted(() => {
+  if (tenantSearchTimer) {
+    clearTimeout(tenantSearchTimer)
+    tenantSearchTimer = null
+  }
+  window.removeEventListener('resize', checkMobile)
+})
 </script>
 
 <style scoped>
