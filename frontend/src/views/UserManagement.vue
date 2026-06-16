@@ -42,6 +42,12 @@
       @change="handleTableChange"
     >
       <template #bodyCell="{ column, record }">
+        <template v-if="column.key === 'name'">
+          <span class="ellipsis-text" :title="String(record.name || '')">{{ record.name || '—' }}</span>
+        </template>
+        <template v-if="column.key === 'email'">
+          <span class="ellipsis-text" :title="String(record.email || '')">{{ record.email || '—' }}</span>
+        </template>
         <template v-if="column.key === 'state'">
           <a-badge :status="record.state === 'ACTIVE' ? 'success' : 'error'" :text="record.state === 'ACTIVE' ? '正常' : '已禁用'" />
         </template>
@@ -92,7 +98,7 @@
       <a-empty v-if="!loading && users.length === 0" description="暂无用户" />
       <div v-for="u in users" :key="u.rowKey || u.id" class="mobile-card">
         <div class="mobile-card-header">
-          <span class="mobile-card-title">{{ u.name }}</span>
+          <span class="mobile-card-title" :title="String(u.name || '')">{{ u.name }}</span>
           <a-dropdown :trigger="['click']">
             <a-button size="small" :loading="!!currentActionLoading[u.id]">
               操作 <i class="ri-arrow-down-s-line" style="margin-left: 4px"></i>
@@ -116,7 +122,7 @@
           </a-dropdown>
         </div>
         <div class="mobile-card-body">
-          <div class="mobile-card-row"><span class="label">邮箱</span><span class="value">{{ u.email || '—' }}</span></div>
+          <div class="mobile-card-row"><span class="label">邮箱</span><span class="value" :title="String(u.email || '')">{{ u.email || '—' }}</span></div>
           <div class="mobile-card-row">
             <span class="label">状态</span>
             <a-badge :status="u.state === 'ACTIVE' ? 'success' : 'error'" :text="u.state === 'ACTIVE' ? '正常' : '已禁用'" />
@@ -544,9 +550,9 @@ const tablePagination = computed(() => ({
 }))
 
 const columns = [
-  { title: '用户名', dataIndex: 'name', key: 'name' },
+  { title: '用户名', dataIndex: 'name', key: 'name', width: 280, ellipsis: true },
   { title: '域', key: 'domainName', width: 180, ellipsis: true },
-  { title: '邮箱', dataIndex: 'email', key: 'email', ellipsis: true },
+  { title: '邮箱', dataIndex: 'email', key: 'email', width: 280, ellipsis: true },
   { title: '状态', key: 'state', width: 100 },
   { title: 'MFA', key: 'isMfaActivated', width: 100 },
   { title: '上次登录时间', key: 'lastSuccessfulLoginTime', width: 176 },
@@ -991,6 +997,14 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
 .mobile-pagination {
   margin-top: 12px;
   text-align: right;
+}
+.ellipsis-text {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+  white-space: nowrap;
 }
 .menu-icon {
   margin-right: 8px;
