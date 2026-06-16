@@ -316,8 +316,7 @@
             <a-select
               v-model:value="routeForm.zoneId"
               placeholder="选择 Zone"
-              show-search
-              option-filter-prop="label"
+              :show-search="false"
               :loading="zonesLoading"
               :options="zoneOptions"
             />

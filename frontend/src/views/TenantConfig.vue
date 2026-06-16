@@ -1205,12 +1205,6 @@ region=ap-tokyo-1"
         description="MFA 是身份域登录安全策略，改动会影响该域内用户登录控制台。"
         style="margin-bottom: 12px"
       />
-      <div class="region-verify-target">
-        <div class="region-verify-name">{{ mfaTargetEnabled ? '启用 MFA' : '关闭 MFA' }}</div>
-        <div class="region-verify-meta">
-          {{ mfaTargetDomain?.displayName || mfaTargetDomain?.name || '—' }} · {{ mfaTargetDomain?.domainId || '—' }}
-        </div>
-      </div>
       <a-input
         v-model:value="mfaVerifyCode"
         placeholder="请输入 6 位验证码"

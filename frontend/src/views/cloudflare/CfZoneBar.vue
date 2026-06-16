@@ -5,8 +5,7 @@
       :disabled="!cfConfigured"
       :loading="zonesLoading"
       placeholder="选择区域（Zone）"
-      show-search
-      option-filter-prop="label"
+      :show-search="false"
       class="cf-zone-select"
       :options="zoneOptions"
       @update:value="onSelectChange"
