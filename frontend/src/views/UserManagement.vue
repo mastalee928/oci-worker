@@ -12,10 +12,35 @@
         <a-button @click="loadUsers" :loading="loading">
           <template #icon><ReloadOutlined /></template>刷新
         </a-button>
+        <a-input-search
+          v-model:value="userKeyword"
+          class="user-search"
+          allow-clear
+          placeholder="搜索用户名 / 邮箱"
+          @change="handleUserKeywordChange"
+          @search="handleUserSearch"
+          @press-enter="handleUserSearch"
+        />
+        <a-select
+          v-if="identityDomains.length > 1"
+          v-model:value="selectedDomainId"
+          class="domain-filter"
+          :options="domainFilterOptions"
+          @change="handleDomainFilterChange"
+        />
       </a-space>
     </div>
 
-    <a-table v-if="!isMobile" :columns="columns" :data-source="users" :loading="loading" row-key="rowKey" size="middle">
+    <a-table
+      v-if="!isMobile"
+      :columns="columns"
+      :data-source="users"
+      :loading="loading"
+      :pagination="tablePagination"
+      row-key="rowKey"
+      size="middle"
+      @change="handleTableChange"
+    >
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'state'">
           <a-badge :status="record.state === 'ACTIVE' ? 'success' : 'error'" :text="record.state === 'ACTIVE' ? '正常' : '已禁用'" />
@@ -105,6 +130,17 @@
           <div class="mobile-card-row"><span class="label">创建时间</span><span class="value">{{ formatUserTime(u.timeCreated) }}</span></div>
         </div>
       </div>
+      <a-pagination
+        v-if="userPage.total > userPage.size"
+        v-model:current="userPage.current"
+        v-model:page-size="userPage.size"
+        class="mobile-pagination"
+        :total="userPage.total"
+        size="small"
+        show-size-changer
+        @change="handleMobilePageChange"
+        @show-size-change="handleMobilePageChange"
+      />
     </a-spin>
 
     <!-- TG 验证码弹窗（统一）；destroy-on-close 避免与后续业务弹窗叠层时残留焦点/误触 -->
@@ -295,6 +331,9 @@ const loading = ref(false)
 const users = ref<any[]>([])
 const tenantInfo = ref<any>(null)
 const currentActionLoading = reactive<Record<string, boolean>>({})
+const userKeyword = ref('')
+const selectedDomainId = ref('__all')
+const userPage = reactive({ current: 1, size: 10, total: 0 })
 
 const createVisible = ref(false)
 const createLoading = ref(false)
@@ -325,10 +364,24 @@ const createDomainGroupOptions = computed(() =>
 const identityDomains = ref<any[]>([])
 const identityDomainsLoading = ref(false)
 const identityDomainsLoadError = ref(false)
+const domainFilterOptions = computed(() => [
+  { value: '__all', label: '全部域' },
+  ...identityDomains.value.map((d: any) => ({
+    value: d.id,
+    label: formatDomainLabel(d),
+  })),
+])
 
 function filterDomainOption(input: string, option: any) {
   const label = String(option?.label ?? '')
   return label.toLowerCase().includes(input.toLowerCase())
+}
+
+function formatDomainLabel(domain: any): string {
+  const name = String(domain?.displayName || domain?.domainName || domain?.id || '—').trim()
+  const type = String(domain?.type || domain?.domainType || '').trim()
+  if (!type || type === 'DEFAULT' || name === 'OracleIdentityCloudService') return name
+  return `${name} / ${type}`
 }
 
 /** 将域下拉拉到当前 Modal 内，避免选项点击穿透到其它弹窗的「确定」触发验证码校验 */
@@ -474,11 +527,21 @@ function formatUserTime(v: unknown): string {
 }
 
 function formatUserDomain(record: any): string {
-  const name = String(record?.domainName || 'Default').trim()
-  const type = String(record?.domainType || '').trim()
-  if (!type || type === 'DEFAULT') return name
-  return `${name} / ${type}`
+  return formatDomainLabel({
+    displayName: record?.domainName || 'Default',
+    type: record?.domainType || '',
+    id: record?.domainId,
+  })
 }
+
+const tablePagination = computed(() => ({
+  current: userPage.current,
+  pageSize: userPage.size,
+  total: userPage.total,
+  showSizeChanger: true,
+  pageSizeOptions: ['10', '20', '50', '100'],
+  showTotal: (total: number) => `共 ${total} 个用户`,
+}))
 
 const columns = [
   { title: '用户名', dataIndex: 'name', key: 'name' },
@@ -499,16 +562,62 @@ async function loadTenantInfo() {
   } catch {}
 }
 
-async function loadUsers() {
+async function loadUsers(options: { keepPage?: boolean } = {}) {
+  if (!options.keepPage) {
+    userPage.current = 1
+  }
   loading.value = true
   try {
-    const res = await listUsers({ tenantId })
-    users.value = res.data || []
+    const res = await listUsers({
+      tenantId,
+      domainId: selectedDomainId.value,
+      keyword: userKeyword.value.trim(),
+      current: userPage.current,
+      size: userPage.size,
+    })
+    if (Array.isArray(res.data)) {
+      users.value = res.data
+      userPage.total = res.data.length
+      return
+    }
+    users.value = res.data?.records || []
+    userPage.current = Number(res.data?.current || userPage.current)
+    userPage.size = Number(res.data?.size || userPage.size)
+    userPage.total = Number(res.data?.total || 0)
+    if (Array.isArray(res.data?.domains)) {
+      identityDomains.value = res.data.domains
+    }
   } catch (e: any) {
     message.error(e?.message || '加载用户列表失败')
   } finally {
     loading.value = false
   }
+}
+
+function handleUserSearch() {
+  loadUsers()
+}
+
+function handleUserKeywordChange() {
+  if (!userKeyword.value) {
+    loadUsers()
+  }
+}
+
+function handleDomainFilterChange() {
+  loadUsers()
+}
+
+function handleTableChange(pagination: any) {
+  userPage.current = Number(pagination?.current || 1)
+  userPage.size = Number(pagination?.pageSize || userPage.size)
+  loadUsers({ keepPage: true })
+}
+
+function handleMobilePageChange(page: number, pageSize: number) {
+  userPage.current = page
+  userPage.size = pageSize
+  loadUsers({ keepPage: true })
 }
 
 async function openVerifyAction(actionKey: string, record: any, callback: (code: string) => Promise<void> | void) {
@@ -873,6 +982,16 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
   margin-bottom: 16px;
   transition: var(--trans);
 }
+.user-search {
+  width: 260px;
+}
+.domain-filter {
+  min-width: 180px;
+}
+.mobile-pagination {
+  margin-top: 12px;
+  text-align: right;
+}
 .menu-icon {
   margin-right: 8px;
   font-size: 16px;
@@ -889,6 +1008,13 @@ onUnmounted(() => window.removeEventListener('resize', checkMobile))
     flex-wrap: wrap;
     width: 100%;
     gap: 8px !important;
+  }
+  .user-search,
+  .domain-filter {
+    width: 100%;
+  }
+  .mobile-pagination {
+    text-align: center;
   }
 }
 </style>

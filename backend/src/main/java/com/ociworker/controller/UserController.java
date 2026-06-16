@@ -25,8 +25,13 @@ public class UserController {
     private VerifyCodeService verifyCodeService;
 
     @PostMapping("/list")
-    public ResponseData<?> listUsers(@RequestBody Map<String, String> params) {
-        return ResponseData.ok(userManagementService.listUsers(params.get("tenantId")));
+    public ResponseData<?> listUsers(@RequestBody Map<String, Object> params) {
+        String tenantId = params.get("tenantId") == null ? null : String.valueOf(params.get("tenantId"));
+        String domainId = params.get("domainId") == null ? null : String.valueOf(params.get("domainId"));
+        String keyword = params.get("keyword") == null ? null : String.valueOf(params.get("keyword"));
+        int current = parsePositiveInt(params.get("current"), 1);
+        int size = parsePositiveInt(params.get("size"), 10);
+        return ResponseData.ok(userManagementService.listUsers(tenantId, domainId, keyword, current, size));
     }
 
     /**
@@ -132,6 +137,18 @@ public class UserController {
             }
         }
         return ids;
+    }
+
+    private static int parsePositiveInt(Object raw, int fallback) {
+        if (raw == null) {
+            return fallback;
+        }
+        try {
+            int value = Integer.parseInt(String.valueOf(raw));
+            return value > 0 ? value : fallback;
+        } catch (Exception ignored) {
+            return fallback;
+        }
     }
 
     @PostMapping("/updateUserState")

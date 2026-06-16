@@ -95,16 +95,51 @@ public class UserManagementService {
         return tenant;
     }
 
-    public List<Map<String, Object>> listUsers(String tenantId) {
+    public Map<String, Object> listUsers(String tenantId, String domainId, String keyword, int current, int size) {
         OciUser tenant = getTenant(tenantId);
-        List<Map<String, Object>> domainUsers = listUsersFromIdentityDomains(tenant);
-        if (!domainUsers.isEmpty()) {
-            return domainUsers;
+        int page = Math.max(1, current);
+        int pageSize = Math.min(Math.max(1, size), 100);
+        String normalizedDomainId = StrUtil.trimToNull(domainId);
+        if ("__all".equals(normalizedDomainId)) {
+            normalizedDomainId = null;
         }
-        return listClassicUsers(tenant);
+        String normalizedKeyword = StrUtil.trimToNull(keyword);
+
+        List<Map<String, Object>> domains = List.of();
+        List<Map<String, Object>> records = List.of();
+        int total = 0;
+        try (OciClientService oci = domainManagementService.openOciClient(tenant.getId())) {
+            domains = domainManagementService.listDomains(oci, true);
+            if (!domains.isEmpty()) {
+                DomainUserPage domainPage = listDomainUsersPaged(
+                        oci, domains, normalizedDomainId, normalizedKeyword, page, pageSize);
+                records = domainPage.records();
+                total = domainPage.total();
+            }
+        } catch (Exception e) {
+            log.warn("Failed to list users from identity domains: {}", e.getMessage());
+        }
+
+        if (domains.isEmpty()) {
+            List<Map<String, Object>> classicUsers = listClassicUsers(tenant, normalizedKeyword);
+            total = classicUsers.size();
+            int from = Math.min((page - 1) * pageSize, total);
+            int to = Math.min(from + pageSize, total);
+            records = classicUsers.subList(from, to);
+        }
+
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("records", records);
+        out.put("total", total);
+        out.put("current", page);
+        out.put("size", pageSize);
+        out.put("domains", domains);
+        out.put("domainId", normalizedDomainId);
+        out.put("keyword", normalizedKeyword);
+        return out;
     }
 
-    private List<Map<String, Object>> listClassicUsers(OciUser tenant) {
+    private List<Map<String, Object>> listClassicUsers(OciUser tenant, String keyword) {
         List<Map<String, Object>> result = new ArrayList<>();
         try (IdentityClient client = buildClient(tenant)) {
             ListUsersResponse response = client.listUsers(
@@ -114,6 +149,9 @@ public class UserManagementService {
             );
 
             for (User user : response.getItems()) {
+                if (!classicUserMatches(user, keyword)) {
+                    continue;
+                }
                 Map<String, Object> map = classicUserToMap(user);
                 boolean hasMfa = false;
                 try {
@@ -127,6 +165,20 @@ public class UserManagementService {
             }
         }
         return result;
+    }
+
+    private boolean classicUserMatches(User user, String keyword) {
+        if (StrUtil.isBlank(keyword)) {
+            return true;
+        }
+        String q = keyword.toLowerCase(Locale.ROOT);
+        return containsIgnoreCase(user.getName(), q)
+                || containsIgnoreCase(user.getEmail(), q)
+                || containsIgnoreCase(user.getDescription(), q);
+    }
+
+    private boolean containsIgnoreCase(String value, String lowerKeyword) {
+        return value != null && value.toLowerCase(Locale.ROOT).contains(lowerKeyword);
     }
 
     private Map<String, Object> classicUserToMap(User user) {
@@ -150,50 +202,93 @@ public class UserManagementService {
         return map;
     }
 
-    private List<Map<String, Object>> listUsersFromIdentityDomains(OciUser tenant) {
+    private DomainUserPage listDomainUsersPaged(
+            OciClientService oci,
+            List<Map<String, Object>> domains,
+            String domainId,
+            String keyword,
+            int current,
+            int size) {
         List<Map<String, Object>> result = new ArrayList<>();
-        Set<String> seenRowKeys = new LinkedHashSet<>();
-        try (OciClientService oci = domainManagementService.openOciClient(tenant.getId())) {
-            List<Map<String, Object>> domains = domainManagementService.listDomains(oci, true);
-            for (Map<String, Object> domain : domains) {
-                String url = (String) domain.get("url");
-                if (StrUtil.isBlank(url)) {
+        int total = 0;
+        int offset = (current - 1) * size;
+        int remaining = size;
+        String filter = buildUserFilter(keyword);
+        for (Map<String, Object> domain : domains) {
+            if (StrUtil.isNotBlank(domainId) && !domainId.equals(String.valueOf(domain.get("id")))) {
+                continue;
+            }
+            String url = (String) domain.get("url");
+            if (StrUtil.isBlank(url)) {
+                continue;
+            }
+            try (IdentityDomainsClient dc = IdentityDomainsClient.builder().build(oci.getProvider())) {
+                dc.setEndpoint(url);
+                DomainUserPage countPage = queryDomainUsers(dc, domain, filter, 1, 1);
+                int domainTotal = countPage.total();
+                total += domainTotal;
+                if (remaining <= 0) {
                     continue;
                 }
-                try (IdentityDomainsClient dc = IdentityDomainsClient.builder().build(oci.getProvider())) {
-                    dc.setEndpoint(url);
-                    String page = null;
-                    do {
-                        var builder = com.oracle.bmc.identitydomains.requests.ListUsersRequest.builder()
-                                .attributes(SCIM_USER_LIST_ATTRIBUTES)
-                                .limit(200);
-                        if (page != null) {
-                            builder.page(page);
-                        }
-                        com.oracle.bmc.identitydomains.responses.ListUsersResponse response =
-                                dc.listUsers(builder.build());
-                        com.oracle.bmc.identitydomains.model.Users users = response.getUsers();
-                        if (users != null && users.getResources() != null) {
-                            for (com.oracle.bmc.identitydomains.model.User user : users.getResources()) {
-                                Map<String, Object> map = domainUserToMap(user, domain);
-                                String rowKey = map.get("rowKey") == null ? null : String.valueOf(map.get("rowKey"));
-                                if (StrUtil.isBlank(rowKey) || !seenRowKeys.add(rowKey)) {
-                                    continue;
-                                }
-                                result.add(map);
-                            }
-                        }
-                        page = response.getOpcNextPage();
-                    } while (StrUtil.isNotBlank(page));
-                } catch (Exception e) {
-                    log.warn("Failed to list users in identity domain {}: {}",
-                            domain.get("displayName"), e.getMessage());
+                if (offset >= domainTotal) {
+                    offset -= domainTotal;
+                    continue;
                 }
+                int startIndex = offset + 1;
+                int count = Math.min(remaining, domainTotal - offset);
+                DomainUserPage page = queryDomainUsers(dc, domain, filter, startIndex, count);
+                result.addAll(page.records());
+                remaining -= page.records().size();
+                offset = 0;
+            } catch (Exception e) {
+                log.warn("Failed to list users in identity domain {}: {}",
+                        domain.get("displayName"), e.getMessage());
             }
-        } catch (Exception e) {
-            log.warn("Failed to list identity domain users: {}", e.getMessage());
         }
-        return result;
+        return new DomainUserPage(total, result);
+    }
+
+    private DomainUserPage queryDomainUsers(
+            IdentityDomainsClient dc,
+            Map<String, Object> domain,
+            String filter,
+            int startIndex,
+            int count) {
+        var builder = com.oracle.bmc.identitydomains.requests.ListUsersRequest.builder()
+                .attributes(SCIM_USER_LIST_ATTRIBUTES)
+                .startIndex(startIndex)
+                .count(count);
+        if (StrUtil.isNotBlank(filter)) {
+            builder.filter(filter);
+        }
+        com.oracle.bmc.identitydomains.responses.ListUsersResponse response = dc.listUsers(builder.build());
+        com.oracle.bmc.identitydomains.model.Users users = response.getUsers();
+        int total = users == null || users.getTotalResults() == null ? 0 : users.getTotalResults();
+        List<Map<String, Object>> records = new ArrayList<>();
+        if (users != null && users.getResources() != null) {
+            Set<String> seenRowKeys = new LinkedHashSet<>();
+            for (com.oracle.bmc.identitydomains.model.User user : users.getResources()) {
+                Map<String, Object> map = domainUserToMap(user, domain);
+                String rowKey = map.get("rowKey") == null ? null : String.valueOf(map.get("rowKey"));
+                if (StrUtil.isBlank(rowKey) || !seenRowKeys.add(rowKey)) {
+                    continue;
+                }
+                records.add(map);
+            }
+        }
+        return new DomainUserPage(total, records);
+    }
+
+    private String buildUserFilter(String keyword) {
+        if (StrUtil.isBlank(keyword)) {
+            return null;
+        }
+        String q = escapeScimFilterValue(keyword.trim());
+        return "(userName co \"" + q + "\" or displayName co \"" + q + "\" or emails.value co \"" + q + "\")";
+    }
+
+    private String escapeScimFilterValue(String value) {
+        return value.replace("\\", "\\\\").replace("\"", "\\\"");
     }
 
     private Map<String, Object> domainUserToMap(
@@ -221,6 +316,8 @@ public class UserManagementService {
         map.put("isMfaActivated", "Enrolled".equalsIgnoreCase(mfaStatus));
         return map;
     }
+
+    private record DomainUserPage(int total, List<Map<String, Object>> records) {}
 
     public Map<String, Object> createUser(UserParams params) {
         OciUser tenant = getTenant(params.getTenantId());

@@ -1,6 +1,12 @@
 import request from '../utils/request'
 
-export function listUsers(data: { tenantId: string }) {
+export function listUsers(data: {
+  tenantId: string
+  domainId?: string
+  keyword?: string
+  current?: number
+  size?: number
+}) {
   return request.post('/oci/identity/list', data)
 }
 
