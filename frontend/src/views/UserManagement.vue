@@ -15,7 +15,7 @@
       </a-space>
     </div>
 
-    <a-table v-if="!isMobile" :columns="columns" :data-source="users" :loading="loading" row-key="id" size="middle">
+    <a-table v-if="!isMobile" :columns="columns" :data-source="users" :loading="loading" row-key="rowKey" size="middle">
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'state'">
           <a-badge :status="record.state === 'ACTIVE' ? 'success' : 'error'" :text="record.state === 'ACTIVE' ? '正常' : '已禁用'" />
@@ -65,7 +65,7 @@
     <!-- 移动端卡片列表 -->
     <a-spin v-else :spinning="loading">
       <a-empty v-if="!loading && users.length === 0" description="暂无用户" />
-      <div v-for="u in users" :key="u.id" class="mobile-card">
+      <div v-for="u in users" :key="u.rowKey || u.id" class="mobile-card">
         <div class="mobile-card-header">
           <span class="mobile-card-title">{{ u.name }}</span>
           <a-dropdown :trigger="['click']">
