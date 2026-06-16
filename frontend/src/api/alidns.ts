@@ -20,10 +20,14 @@ export function listAliDNSRecords(params: {
   domainName: string
   page?: number
   perPage?: number
+  keyWord?: string
+  searchMode?: 'LIKE' | 'EXACT' | 'ADVANCED' | 'COMBINATION'
   rrKeyWord?: string
   typeKeyWord?: string
+  type?: string
   valueKeyWord?: string
   line?: string
+  status?: 'ENABLE' | 'DISABLE'
 }) {
   return request.post('/alidns/records/list', params)
 }

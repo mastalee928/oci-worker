@@ -114,17 +114,27 @@ public class AliDNSService {
         return result;
     }
 
-    public Map<String, Object> listRecords(String domainName, String rrKeyWord, String typeKeyWord,
-                                           String valueKeyWord, String line, int page, int perPage) {
+    public Map<String, Object> listRecords(String domainName, String keyWord, String searchMode,
+                                           String rrKeyWord, String typeKeyWord, String type,
+                                           String valueKeyWord, String line, String status,
+                                           int page, int perPage) {
         requireDomain(domainName);
         Map<String, String> params = new LinkedHashMap<>();
         params.put("DomainName", domainName.trim());
         params.put("PageNumber", String.valueOf(Math.max(page, 1)));
         params.put("PageSize", String.valueOf(Math.max(perPage, 1)));
-        putIfNotBlank(params, "RRKeyWord", rrKeyWord);
-        putIfNotBlank(params, "TypeKeyWord", typeKeyWord);
-        putIfNotBlank(params, "ValueKeyWord", valueKeyWord);
-        putIfNotBlank(params, "Line", line);
+        String normalizedSearchMode = normalizeSearchMode(searchMode, keyWord);
+        putIfNotBlank(params, "SearchMode", normalizedSearchMode);
+        if ("LIKE".equals(normalizedSearchMode) || "EXACT".equals(normalizedSearchMode)) {
+            putIfNotBlank(params, "KeyWord", keyWord);
+        } else {
+            putIfNotBlank(params, "RRKeyWord", rrKeyWord);
+            putIfNotBlank(params, "TypeKeyWord", typeKeyWord);
+            putIfNotBlank(params, "Type", firstNonBlank(type, typeKeyWord));
+            putIfNotBlank(params, "ValueKeyWord", valueKeyWord);
+            putIfNotBlank(params, "Line", line);
+            putIfNotBlank(params, "Status", normalizeQueryStatus(status));
+        }
         JSONObject json = request("DescribeDomainRecords", params);
         JSONArray array = json.getJSONObject("DomainRecords") != null
                 ? json.getJSONObject("DomainRecords").getJSONArray("Record")
@@ -152,12 +162,12 @@ public class AliDNSService {
     }
 
     public Map<String, Object> updateRecord(Map<String, Object> input) {
-        String recordId = parseString(input.get("recordId"));
+        String recordId = firstNonBlank(parseString(input.get("recordId")), parseString(input.get("RecordId")));
         if (StrUtil.isBlank(recordId)) {
             throw new OciException("记录ID不能为空");
         }
         Map<String, String> params = buildRecordParams(input, true);
-        params.put("DomainName", parseString(input.get("domainName")).trim());
+        params.put("RecordId", recordId.trim());
         JSONObject json = request("UpdateDomainRecord", params);
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("recordId", json.getStr("RecordId"));
@@ -175,7 +185,10 @@ public class AliDNSService {
         if (StrUtil.isBlank(recordId)) {
             throw new OciException("记录ID不能为空");
         }
-        String normalized = "DISABLE".equalsIgnoreCase(status)  ? "DISABLE" : "ENABLE";
+        if (StrUtil.isBlank(status)) {
+            throw new OciException("记录状态不能为空");
+        }
+        String normalized = "DISABLE".equalsIgnoreCase(status) || "Disable".equalsIgnoreCase(status) ? "Disable" : "Enable";
         JSONObject json = request("SetDomainRecordStatus", Map.of(
                 "RecordId", recordId.trim(),
                 "Status", normalized
@@ -187,7 +200,13 @@ public class AliDNSService {
 
         requireDomain(domainName);
         JSONObject json = request("DescribeDomainInfo", Map.of("DomainName", domainName.trim()));
-        JSONArray servers = json.getJSONArray("DnsServers");
+        JSONArray servers = null;
+        Object dnsServersObj = json.get("DnsServers");
+        if (dnsServersObj instanceof JSONArray arr) {
+            servers = arr;
+        } else if (dnsServersObj instanceof JSONObject obj) {
+            servers = obj.getJSONArray("DnsServer");
+        }
         List<Map<String, Object>> result = new ArrayList<>();
         if (servers != null) {
             for (int i = 0; i < servers.size(); i++) {
@@ -203,8 +222,7 @@ public class AliDNSService {
 
     public List<Map<String, Object>> listSupportLines(String domainName, String domainType) {
         Map<String, String> params = new LinkedHashMap<>();
-        // DescribeSupportLines only accepts DomainType (PUBLIC/PRIVATE), not DomainName
-        putIfNotBlank(params, "DomainType", domainType);
+        putIfNotBlank(params, "DomainName", domainName);
         JSONObject json = request("DescribeSupportLines", params);
         Object recordLinesObj = json.get("RecordLines");
         JSONArray lines = null;
@@ -298,7 +316,7 @@ public class AliDNSService {
             params.put("DomainName", domainName.trim());
         }
         params.put("RR", rr.trim());
-        if (!update) { params.put("Type", type.trim().toUpperCase()); }
+        params.put("Type", type.trim().toUpperCase());
         params.put("Value", value.trim());
         params.put("Line", normalizeLine(parseString(input.get("line"))));
         putIfNotBlank(params, "Lang", parseString(input.get("lang")));
@@ -307,7 +325,13 @@ public class AliDNSService {
             params.put("TTL", String.valueOf(ttl));
         }
         Integer priority = parseInteger(input.get("priority"));
-        if (priority != null && priority >= 0 && type != null && supportsPriority(type)) {
+        if (supportsPriority(type)) {
+            if (priority == null) {
+                throw new OciException("MX记录请填写优先级");
+            }
+            if (priority < 1 || priority > 50) {
+                throw new OciException("MX记录优先级范围为1-50");
+            }
             params.put("Priority", String.valueOf(priority));
         }
         return params;
@@ -324,7 +348,7 @@ public class AliDNSService {
         item.put("lineName", firstNonBlank(row.getStr("LineName"), row.getStr("Line")));
         item.put("ttl", row.getInt("TTL"));
         item.put("priority", row.getInt("Priority"));
-        item.put("status", row.getStr("Status"));
+        item.put("status", normalizeRecordStatus(row.getStr("Status")));
         Boolean locked = row.getBool("Locked");
         item.put("locked", locked != null && locked);
         item.put("weight", row.getInt("Weight"));
@@ -386,8 +410,26 @@ public class AliDNSService {
         return StrUtil.blankToDefault(StrUtil.trimToNull(line), "default");
     }
 
+    private String normalizeSearchMode(String searchMode, String keyWord) {
+        String mode = StrUtil.trimToEmpty(searchMode).toUpperCase();
+        if (("LIKE".equals(mode) || "EXACT".equals(mode)) && StrUtil.isBlank(keyWord)) {
+            return null;
+        }
+        if ("LIKE".equals(mode) || "EXACT".equals(mode) || "ADVANCED".equals(mode) || "COMBINATION".equals(mode)) {
+            return mode;
+        }
+        return StrUtil.isNotBlank(keyWord) ? "LIKE" : null;
+    }
+
+    private String normalizeQueryStatus(String status) {
+        if (StrUtil.isBlank(status)) {
+            return null;
+        }
+        return "DISABLE".equalsIgnoreCase(status) || "Disable".equalsIgnoreCase(status) ? "Disable" : "Enable";
+    }
+
     private boolean supportsPriority(String type) {
-        return "MX".equalsIgnoreCase(type) || "SRV".equalsIgnoreCase(type);
+        return "MX".equalsIgnoreCase(type);
     }
 
     private String parseString(Object value) {
@@ -426,6 +468,13 @@ public class AliDNSService {
             }
         }
         return null;
+    }
+
+    private String normalizeRecordStatus(String status) {
+        if (StrUtil.isBlank(status)) {
+            return null;
+        }
+        return "Disable".equalsIgnoreCase(status) || "DISABLE".equalsIgnoreCase(status) ? "DISABLE" : "ENABLE";
     }
 
 

@@ -46,10 +46,14 @@ public class AliDNSController {
     public ResponseData<?> listRecords(@RequestBody Map<String, Object> params) {
         return ResponseData.ok(aliDNSService.listRecords(
                 parseString(params.get("domainName")),
+                parseString(params.get("keyWord")),
+                parseString(params.get("searchMode")),
                 parseString(params.get("rrKeyWord")),
                 parseString(params.get("typeKeyWord")),
+                parseString(params.get("type")),
                 parseString(params.get("valueKeyWord")),
                 parseString(params.get("line")),
+                parseString(params.get("status")),
                 parseInteger(params.get("page"), 1),
                 parseInteger(params.get("perPage"), 50)));
     }
@@ -66,14 +70,14 @@ public class AliDNSController {
 
     @PostMapping("/records/delete")
     public ResponseData<?> deleteRecord(@RequestBody Map<String, Object> params) {
-        aliDNSService.deleteRecord(parseString(params.get("recordId")));
+        aliDNSService.deleteRecord(firstNonBlank(parseString(params.get("recordId")), parseString(params.get("RecordId"))));
         return ResponseData.ok();
     }
 
     @PostMapping("/records/status")
     public ResponseData<?> setRecordStatus(@RequestBody Map<String, Object> params) {
         return ResponseData.ok(aliDNSService.setRecordStatus(
-                parseString(params.get("recordId")),
+                firstNonBlank(parseString(params.get("recordId")), parseString(params.get("RecordId"))),
                 parseString(params.get("status"))));
     }
 
@@ -86,6 +90,14 @@ public class AliDNSController {
 
     private String parseString(Object value) {
         return value == null ? null : String.valueOf(value);
+    }
+
+    private String firstNonBlank(String... values) {
+        if (values == null) return null;
+        for (String value : values) {
+            if (value != null && !value.isBlank()) return value;
+        }
+        return null;
     }
 
     private int parseInteger(Object value, int def) {

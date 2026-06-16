@@ -20,14 +20,26 @@
           添加解析
         </a-button>
       </a-space>
-      <a-input-search
-        v-model:value="recordSearch"
-        class="alidns-record-search"
-        placeholder="搜索主机记录或记录值"
-        allow-clear
-        :disabled="!selectedDomain"
-        @search="loadRecords(1)"
-      />
+      <div class="alidns-record-search">
+        <a-select
+          v-model:value="searchMode"
+          class="search-mode-select"
+          :options="searchModeOptions"
+          :show-search="false"
+          :disabled="!selectedDomain"
+          @change="onSearchModeChange"
+        />
+        <a-input-search
+          v-if="simpleSearchMode"
+          v-model:value="recordSearch"
+          class="record-keyword-input"
+          :placeholder="searchMode === 'EXACT' ? '精确搜索关键字' : '模糊搜索主机记录或记录值'"
+          allow-clear
+          :disabled="!selectedDomain"
+          @search="loadRecords(1)"
+        />
+        <a-button v-else :disabled="!selectedDomain" @click="loadRecords(1)">查询</a-button>
+      </div>
     </div>
 
     <div class="alidns-layout">
@@ -91,16 +103,37 @@
             <div class="panel-subtitle">支持默认线路、中国移动、中国联通、中国电信等智能 DNS 线路</div>
           </div>
           <a-space wrap v-if="!isMobile">
+            <template v-if="advancedSearchMode">
+              <a-input
+                v-model:value="rrFilter"
+                class="record-filter"
+                allow-clear
+                placeholder="主机记录"
+                :disabled="!selectedDomain"
+                @pressEnter="loadRecords(1)"
+              />
+              <a-input
+                v-model:value="valueFilter"
+                class="record-filter"
+                allow-clear
+                placeholder="记录值"
+                :disabled="!selectedDomain"
+                @pressEnter="loadRecords(1)"
+              />
+            </template>
             <a-select
+              v-if="advancedSearchMode"
               v-model:value="typeFilter"
               class="record-filter"
               allow-clear
               placeholder="类型"
               :options="typeOptions"
+              :show-search="false"
               :disabled="!selectedDomain"
               @change="loadRecords(1)"
             />
             <a-select
+              v-if="advancedSearchMode"
               v-model:value="lineFilter"
               class="record-filter"
               allow-clear
@@ -111,20 +144,52 @@
               :disabled="!selectedDomain"
               @change="loadRecords(1)"
             />
+            <a-select
+              v-if="advancedSearchMode"
+              v-model:value="statusFilter"
+              class="record-filter"
+              allow-clear
+              placeholder="状态"
+              :options="statusOptions"
+              :show-search="false"
+              :disabled="!selectedDomain"
+              @change="loadRecords(1)"
+            />
             <a-button :loading="recordLoading" :disabled="!selectedDomain" @click="loadRecords(recordPage)">
               <template #icon><ReloadOutlined /></template>
               刷新
             </a-button>
           </a-space>
           <div v-if="isMobile" class="mobile-filters">
-            <select v-model="typeFilter" :disabled="!selectedDomain" @change="loadRecords(1)" class="native-select">
-              <option value="">选择类型</option>
-              <template v-for="t in typeNames" :key="t"><option :value="t">{{ t }}</option></template>
-            </select>
-            <select v-model="lineFilter" :disabled="!selectedDomain" @change="loadRecords(1)" class="native-select">
-              <option value="">选择线路</option>
-              <option v-for="l in lineOptions" :key="l.value" :value="l.value">{{ l.label }}</option>
-            </select>
+            <template v-if="advancedSearchMode">
+              <a-input
+                v-model:value="rrFilter"
+                allow-clear
+                placeholder="主机记录"
+                :disabled="!selectedDomain"
+                @pressEnter="loadRecords(1)"
+              />
+              <a-input
+                v-model:value="valueFilter"
+                allow-clear
+                placeholder="记录值"
+                :disabled="!selectedDomain"
+                @pressEnter="loadRecords(1)"
+              />
+              <select v-model="typeFilter" :disabled="!selectedDomain" @change="loadRecords(1)" class="native-select">
+                <option value="">选择类型</option>
+                <template v-for="t in typeNames" :key="t"><option :value="t">{{ t }}</option></template>
+              </select>
+              <select v-model="lineFilter" :disabled="!selectedDomain" @change="loadRecords(1)" class="native-select">
+                <option value="">选择线路</option>
+                <option v-for="l in lineOptions" :key="l.value" :value="l.value">{{ l.label }}</option>
+              </select>
+              <select v-model="statusFilter" :disabled="!selectedDomain" @change="loadRecords(1)" class="native-select">
+                <option value="">选择状态</option>
+                <option value="ENABLE">已启用</option>
+                <option value="DISABLE">已暂停</option>
+              </select>
+            </template>
             <a-button :loading="recordLoading" :disabled="!selectedDomain" @click="loadRecords(recordPage)" class="mobile-refresh-btn">
               <template #icon><ReloadOutlined /></template>
               刷新
@@ -139,7 +204,7 @@
           :data-source="records"
           :loading="recordLoading"
           :pagination="recordPagination"
-          row-key="recordId"
+          :row-key="recordRowKey"
           size="small"
           @change="onRecordTableChange"
         >
@@ -156,8 +221,8 @@
             <template v-else-if="column.key === 'status'">
               <a-switch
                 size="small"
-                :checked="record.status === 'ENABLE'"
-                :loading="statusLoadingId === record.recordId"
+                :checked="isRecordEnabled(record)"
+                :loading="statusLoadingId === getRecordId(record)"
                 @change="(checked: boolean) => toggleRecordStatus(record, checked)"
               />
             </template>
@@ -174,7 +239,7 @@
 
         <a-spin v-else :spinning="recordLoading">
           <a-empty v-if="records.length === 0" description="暂无解析记录" />
-          <div v-for="record in records" :key="record.recordId" class="mobile-record-card">
+          <div v-for="(record, index) in records" :key="recordRowKey(record, index)" class="mobile-record-card">
             <div class="mobile-record-head">
               <div>
                 <span class="mobile-record-title">{{ record.rr }}.{{ selectedDomain }}</span>
@@ -182,8 +247,8 @@
               </div>
               <a-switch
                 size="small"
-                :checked="record.status === 'ENABLE'"
-                :loading="statusLoadingId === record.recordId"
+                :checked="isRecordEnabled(record)"
+                :loading="statusLoadingId === getRecordId(record)"
                 @change="(checked: boolean) => toggleRecordStatus(record, checked)"
               />
             </div>
@@ -223,7 +288,7 @@
     >
       <a-form layout="vertical">
         <a-form-item label="记录类型" required>
-          <a-select v-model:value="recordForm.type" :options="typeOptions" />
+          <a-select v-model:value="recordForm.type" :options="typeOptions" :show-search="false" />
         </a-form-item>
         <a-form-item label="主机记录" required>
           <a-input v-model:value="recordForm.rr" placeholder="如 www 或 @" />
@@ -244,7 +309,7 @@
           <a-input-number v-model:value="recordForm.ttl" :min="1" style="width: 100%" />
         </a-form-item>
         <a-form-item v-if="prioritySupported" label="优先级">
-          <a-input-number v-model:value="recordForm.priority" :min="0" :max="65535" style="width: 100%" />
+          <a-input-number v-model:value="recordForm.priority" :min="1" :max="50" style="width: 100%" />
         </a-form-item>
       </a-form>
     </a-modal>
@@ -279,7 +344,9 @@ type DomainRow = {
 }
 
 type DnsRecord = {
-  recordId: string
+  recordId?: string
+  RecordId?: string
+  id?: string
   rr: string
   type: string
   value: string
@@ -317,8 +384,12 @@ const recordPage = ref(1)
 const recordPerPage = ref(50)
 const recordTotal = ref(0)
 const recordSearch = ref('')
+const searchMode = ref<'LIKE' | 'EXACT' | 'ADVANCED' | 'COMBINATION'>('LIKE')
+const rrFilter = ref('')
+const valueFilter = ref('')
 const typeFilter = ref<string | undefined>()
 const lineFilter = ref<string | undefined>()
+const statusFilter = ref<'ENABLE' | 'DISABLE' | undefined>()
 
 const lines = ref<LineRow[]>([])
 const recordModalVisible = ref(false)
@@ -337,6 +408,16 @@ const recordForm = reactive({
 const typeNames = ["A", "AAAA", "CNAME", "TXT", "MX", "NS", "SRV", "CAA"];
 
 const typeOptions = ["A", "AAAA", 'CNAME', 'TXT', 'MX', 'NS', 'SRV', 'CAA'].map((value) => ({ label: value, value }))
+const statusOptions = [
+  { label: '已启用', value: 'ENABLE' },
+  { label: '已暂停', value: 'DISABLE' },
+]
+const searchModeOptions = [
+  { label: '模糊', value: 'LIKE' },
+  { label: '精确', value: 'EXACT' },
+  { label: '高级', value: 'ADVANCED' },
+  { label: '组合精确', value: 'COMBINATION' },
+]
 
 const lineOptions = computed(() => {
   const base = lines.value
@@ -348,7 +429,9 @@ const lineOptions = computed(() => {
   return base.length > 0 ? base : [{ label: '默认', value: 'default' }]
 })
 
-const prioritySupported = computed(() => ['MX', 'SRV'].includes(recordForm.type))
+const prioritySupported = computed(() => recordForm.type === 'MX')
+const simpleSearchMode = computed(() => searchMode.value === 'LIKE' || searchMode.value === 'EXACT')
+const advancedSearchMode = computed(() => searchMode.value === 'ADVANCED' || searchMode.value === 'COMBINATION')
 const recordPagination = computed(() => ({
   current: recordPage.value,
   pageSize: recordPerPage.value,
@@ -422,14 +505,22 @@ async function loadRecords(page = recordPage.value) {
   recordLoading.value = true
   try {
     const keyword = recordSearch.value.trim()
-    const res = await listAliDNSRecords({
+    const params = {
       domainName: selectedDomain.value,
       page,
       perPage: recordPerPage.value,
-      rrKeyWord: keyword || undefined,
-      typeKeyWord: typeFilter.value || undefined,
-      line: lineFilter.value || undefined,
-    })
+      searchMode: searchMode.value,
+    } as Parameters<typeof listAliDNSRecords>[0]
+    if (simpleSearchMode.value) {
+      params.keyWord = keyword || undefined
+    } else {
+      params.rrKeyWord = rrFilter.value.trim() || undefined
+      params.valueKeyWord = valueFilter.value.trim() || undefined
+      params.type = typeFilter.value || undefined
+      params.line = lineFilter.value || undefined
+      params.status = statusFilter.value || undefined
+    }
+    const res = await listAliDNSRecords(params)
     const data = res.data || {}
     records.value = sortRecords(data.records || [])
     recordTotal.value = data.total ?? records.value.length
@@ -444,9 +535,31 @@ function onRecordTableChange(pagination: any) {
   loadRecords(pagination.current || 1)
 }
 
+function onSearchModeChange() {
+  recordPage.value = 1
+  loadRecords(1)
+}
+
+function getRecordId(record?: Partial<DnsRecord> | null) {
+  return String(record?.recordId || record?.RecordId || record?.id || '').trim()
+}
+
+function recordRowKey(record: DnsRecord, index?: number) {
+  return getRecordId(record) || `${record.rr}-${record.type}-${record.line || 'default'}-${index ?? ''}`
+}
+
+function isRecordEnabled(record: DnsRecord) {
+  return String(record.status || '').toUpperCase() === 'ENABLE'
+}
+
 function openRecordModal(record?: DnsRecord) {
   if (!selectedDomain.value) return
-  editingRecordId.value = record?.recordId || ''
+  const recordId = getRecordId(record)
+  if (record && !recordId) {
+    message.error('缺少 RecordId，无法编辑')
+    return
+  }
+  editingRecordId.value = recordId
   recordForm.rr = record?.rr || '@'
   recordForm.type = record?.type || 'A'
   recordForm.value = record?.value || ''
@@ -459,6 +572,9 @@ function openRecordModal(record?: DnsRecord) {
 async function saveRecord() {
   if (!recordForm.rr.trim()) return message.warning('请填写主机记录')
   if (!recordForm.value.trim()) return message.warning('请填写记录值')
+  if (prioritySupported.value && (recordForm.priority == null || recordForm.priority < 1 || recordForm.priority > 50)) {
+    return message.warning('MX记录优先级范围为1-50')
+  }
   recordSaveLoading.value = true
   try {
     const payload = {
@@ -487,16 +603,26 @@ async function saveRecord() {
 }
 
 async function deleteRecord(record: DnsRecord) {
-  await deleteAliDNSRecord(record.recordId)
+  const recordId = getRecordId(record)
+  if (!recordId) {
+    message.error('缺少 RecordId，无法删除')
+    return
+  }
+  await deleteAliDNSRecord(recordId)
   message.success('已删除')
   await loadRecords(recordPage.value)
   await loadDomains(domainPage.value)
 }
 
 async function toggleRecordStatus(record: DnsRecord, checked: boolean) {
-  statusLoadingId.value = record.recordId
+  const recordId = getRecordId(record)
+  if (!recordId) {
+    message.error('缺少 RecordId，无法操作')
+    return
+  }
+  statusLoadingId.value = recordId
   try {
-    await setAliDNSRecordStatus(record.recordId, checked ? 'ENABLE' : 'DISABLE')
+    await setAliDNSRecordStatus(recordId, checked ? 'ENABLE' : 'DISABLE')
     record.status = checked ? 'ENABLE' : 'DISABLE'
     message.success(checked ? '已启用' : '已暂停')
   } catch (e: any) {
@@ -581,6 +707,17 @@ onMounted(async () => {
 }
 .alidns-record-search {
   width: min(360px, 100%);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.search-mode-select {
+  width: 108px;
+  flex-shrink: 0;
+}
+.record-keyword-input {
+  min-width: 0;
+  flex: 1;
 }
 .alidns-layout {
   display: flex;
@@ -734,6 +871,10 @@ onMounted(async () => {
   gap: 8px;
   flex-wrap: wrap;
 }
+.mobile-filters :deep(.ant-input-affix-wrapper) {
+  flex: 1 1 calc(50% - 4px);
+  min-width: 140px;
+}
 /* Native mobile select - system picker on Android/iOS */
 .native-select {
   flex: 1;
@@ -764,6 +905,9 @@ onMounted(async () => {
   .record-filter,
   .alidns-record-search {
     width: 100%;
+  }
+  .record-keyword-input {
+    min-width: 0;
   }
 }
 
