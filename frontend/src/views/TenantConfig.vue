@@ -46,8 +46,8 @@
             <template v-if="column.key === 'action'">
               <a-space>
                 <a-button type="link" size="small" @click="showEditModal(record)">编辑</a-button>
-                <a-button type="link" size="small" @click="openDomainMgmt(record)">域</a-button>
                 <a-button type="link" size="small" @click="openTenantMgmt(record)">租户</a-button>
+                <a-button type="link" size="small" @click="openDomainMgmt(record)">域</a-button>
                 <a-button type="link" size="small" @click="goUserManagement(record)">用户</a-button>
                 <a-popconfirm title="确定删除?" @confirm="handleDelete(record.id)">
                   <a-button type="link" danger size="small">删除</a-button>
@@ -78,8 +78,8 @@
             </div>
             <div class="mobile-card-actions">
               <a-button type="link" size="small" @click="showEditModal(r)">编辑</a-button>
-              <a-button type="link" size="small" @click="openDomainMgmt(r)">域</a-button>
               <a-button type="link" size="small" @click="openTenantMgmt(r)">租户</a-button>
+              <a-button type="link" size="small" @click="openDomainMgmt(r)">域</a-button>
               <a-button type="link" size="small" @click="goUserManagement(r)">用户</a-button>
               <a-popconfirm title="确定删除?" @confirm="handleDelete(r.id)">
                 <a-button type="link" danger size="small">删除</a-button>
@@ -201,8 +201,8 @@
                       <template v-if="column.key === 'action'">
                         <a-space>
                           <a-button type="link" size="small" @click="showEditModal(record)">编辑</a-button>
-                          <a-button type="link" size="small" @click="openDomainMgmt(record)">域</a-button>
                           <a-button type="link" size="small" @click="openTenantMgmt(record)">租户</a-button>
+                          <a-button type="link" size="small" @click="openDomainMgmt(record)">域</a-button>
                           <a-button type="link" size="small" @click="goUserManagement(record)">用户</a-button>
                           <a-popconfirm title="确定删除?" @confirm="handleDelete(record.id)">
                             <a-button type="link" danger size="small">删除</a-button>
@@ -232,8 +232,8 @@
                       </div>
                       <div class="mobile-card-actions">
                         <a-button type="link" size="small" @click="showEditModal(r)">编辑</a-button>
-                        <a-button type="link" size="small" @click="openDomainMgmt(r)">域</a-button>
                         <a-button type="link" size="small" @click="openTenantMgmt(r)">租户</a-button>
+                        <a-button type="link" size="small" @click="openDomainMgmt(r)">域</a-button>
                         <a-button type="link" size="small" @click="goUserManagement(r)">用户</a-button>
                         <a-popconfirm title="确定删除?" @confirm="handleDelete(r.id)">
                           <a-button type="link" danger size="small">删除</a-button>
@@ -276,8 +276,8 @@
                     <template v-if="column.key === 'action'">
                       <a-space>
                         <a-button type="link" size="small" @click="showEditModal(record)">编辑</a-button>
-                        <a-button type="link" size="small" @click="openDomainMgmt(record)">域</a-button>
                         <a-button type="link" size="small" @click="openTenantMgmt(record)">租户</a-button>
+                        <a-button type="link" size="small" @click="openDomainMgmt(record)">域</a-button>
                         <a-button type="link" size="small" @click="goUserManagement(record)">用户</a-button>
                         <a-popconfirm title="确定删除?" @confirm="handleDelete(record.id)">
                           <a-button type="link" danger size="small">删除</a-button>
@@ -307,8 +307,8 @@
                     </div>
                     <div class="mobile-card-actions">
                       <a-button type="link" size="small" @click="showEditModal(r)">编辑</a-button>
-                      <a-button type="link" size="small" @click="openDomainMgmt(r)">域</a-button>
                       <a-button type="link" size="small" @click="openTenantMgmt(r)">租户</a-button>
+                      <a-button type="link" size="small" @click="openDomainMgmt(r)">域</a-button>
                       <a-button type="link" size="small" @click="goUserManagement(r)">用户</a-button>
                       <a-popconfirm title="确定删除?" @confirm="handleDelete(r.id)">
                         <a-button type="link" danger size="small">删除</a-button>
@@ -1185,6 +1185,45 @@ region=ap-tokyo-1"
           </a-spin>
         </a-tab-pane>
       </a-tabs>
+    </a-modal>
+
+    <a-modal
+      :mask-closable="false"
+      :keyboard="false"
+      v-model:open="mfaVerifyVisible"
+      title="安全验证 — MFA 多因素认证"
+      :width="isMobile ? '100%' : 420"
+      :confirm-loading="mfaVerifyLoading"
+      :ok-text="mfaTargetEnabled ? '确认启用' : '确认关闭'"
+      @ok="submitMfaChange"
+      @cancel="cancelMfaVerify"
+    >
+      <a-alert
+        type="warning"
+        show-icon
+        message="验证码已发送至 Telegram"
+        description="MFA 是身份域登录安全策略，改动会影响该域内用户登录控制台。"
+        style="margin-bottom: 12px"
+      />
+      <div class="region-verify-target">
+        <div class="region-verify-name">{{ mfaTargetEnabled ? '启用 MFA' : '关闭 MFA' }}</div>
+        <div class="region-verify-meta">
+          {{ mfaTargetDomain?.displayName || mfaTargetDomain?.name || '—' }} · {{ mfaTargetDomain?.domainId || '—' }}
+        </div>
+      </div>
+      <a-input
+        v-model:value="mfaVerifyCode"
+        placeholder="请输入 6 位验证码"
+        size="large"
+        :maxlength="6"
+        inputmode="numeric"
+        allow-clear
+        @pressEnter="submitMfaChange"
+      />
+      <div class="region-verify-actions">
+        <span>验证码有效期 5 分钟</span>
+        <a-button type="link" size="small" :loading="mfaVerifyCodeSending" @click="resendMfaVerifyCode">重新发送</a-button>
+      </div>
     </a-modal>
 
     <a-modal
@@ -2125,10 +2164,11 @@ const regionSubscribeSendingKey = ref('')
 const regionSubscribeCode = ref('')
 const regionSubscribeTarget = ref<any | null>(null)
 const regionsList = computed<any[]>(() => Array.isArray(regionsData.value?.items) ? regionsData.value.items : [])
+const sortedRegionsList = computed<any[]>(() => sortTenantRegions(regionsList.value))
 const filteredRegions = computed<any[]>(() => {
   const kw = regionSearch.value.trim().toLowerCase()
-  if (!kw) return regionsList.value
-  return regionsList.value.filter((r: any) => {
+  if (!kw) return sortedRegionsList.value
+  return sortTenantRegions(regionsList.value.filter((r: any) => {
     const haystack = [
       formatRegionDisplay(r),
       r.regionName,
@@ -2137,7 +2177,7 @@ const filteredRegions = computed<any[]>(() => {
       r.isHomeRegion ? '主区域' : '',
     ].filter(Boolean).join(' ').toLowerCase()
     return haystack.includes(kw)
-  })
+  }))
 })
 const regionSubscribeTargetDisplay = computed(() =>
   regionSubscribeTarget.value ? formatRegionDisplay(regionSubscribeTarget.value) : '—')
@@ -2348,6 +2388,12 @@ const domainSettingsLoading = ref(false)
 const domainList = ref<any[]>([])
 const selectedDomainId = ref('')
 const mfaUpdatingId = ref('')
+const mfaVerifyVisible = ref(false)
+const mfaVerifyLoading = ref(false)
+const mfaVerifyCodeSending = ref(false)
+const mfaVerifyCode = ref('')
+const mfaTargetDomain = ref<any | null>(null)
+const mfaTargetEnabled = ref(false)
 const pwdExpiryUpdatingId = ref('')
 const auditLogsLoading = ref(false)
 const auditLogsLoaded = ref(false)
@@ -2871,16 +2917,72 @@ async function loadDomainSettings() {
 }
 
 async function handleMfaChange(domain: any, checked: boolean) {
-  const prev = domain.mfaEnabled
+  if (!domainMgmtTenant.value?.id || !domain?.domainId) return
+  mfaTargetDomain.value = domain
+  mfaTargetEnabled.value = checked
+  mfaVerifyCode.value = ''
   mfaUpdatingId.value = domain.domainId
   try {
-    await updateMfa({ id: domainMgmtTenant.value.id, domainId: domain.domainId, enabled: checked })
-    domain.mfaEnabled = checked
-    message.success(checked ? 'MFA 已启用' : 'MFA 已关闭')
+    await sendVerifyCode('domainMfa')
+    message.success('验证码已发送至 Telegram')
+    mfaVerifyVisible.value = true
+  } catch (e: any) {
+    message.error(e?.message || '发送验证码失败')
+    mfaTargetDomain.value = null
+    mfaUpdatingId.value = ''
+  }
+}
+
+function cancelMfaVerify() {
+  mfaVerifyVisible.value = false
+  mfaVerifyCode.value = ''
+  mfaTargetDomain.value = null
+  mfaUpdatingId.value = ''
+}
+
+async function resendMfaVerifyCode() {
+  if (!mfaTargetDomain.value?.domainId) return
+  mfaVerifyCodeSending.value = true
+  try {
+    await sendVerifyCode('domainMfa')
+    mfaVerifyCode.value = ''
+    message.success('验证码已重新发送')
+  } catch (e: any) {
+    message.error(e?.message || '发送失败')
+  } finally {
+    mfaVerifyCodeSending.value = false
+  }
+}
+
+async function submitMfaChange() {
+  const tenantId = domainMgmtTenant.value?.id
+  const domain = mfaTargetDomain.value
+  if (!tenantId || !domain?.domainId) return
+  if (!mfaVerifyCode.value || mfaVerifyCode.value.length !== 6) {
+    message.warning('请输入 6 位验证码')
+    return
+  }
+
+  const prev = domain.mfaEnabled
+  mfaVerifyLoading.value = true
+  mfaUpdatingId.value = domain.domainId
+  try {
+    await updateMfa({
+      id: tenantId,
+      domainId: domain.domainId,
+      enabled: mfaTargetEnabled.value,
+      verifyCode: mfaVerifyCode.value,
+    })
+    domain.mfaEnabled = mfaTargetEnabled.value
+    message.success(mfaTargetEnabled.value ? 'MFA 已启用' : 'MFA 已关闭')
+    mfaVerifyVisible.value = false
+    mfaVerifyCode.value = ''
+    mfaTargetDomain.value = null
   } catch (e: any) {
     domain.mfaEnabled = prev
     message.error(e?.message || '更新 MFA 策略失败')
   } finally {
+    mfaVerifyLoading.value = false
     mfaUpdatingId.value = ''
   }
 }
@@ -3962,6 +4064,27 @@ function formatRegionStatus(status: string | null | undefined): string {
   if (s === 'IN_PROGRESS') return '处理中'
   if (s === 'NOT_SUBSCRIBED') return '未订阅'
   return status || '未知'
+}
+
+function regionStatusRank(status: string | null | undefined): number {
+  const s = String(status || '').toUpperCase()
+  if (s === 'READY') return 0
+  if (s === 'IN_PROGRESS') return 1
+  if (s === 'NOT_SUBSCRIBED') return 2
+  return 3
+}
+
+function sortTenantRegions(list: any[]): any[] {
+  return list
+    .map((item, index) => ({ item, index }))
+    .sort((a, b) => {
+      const homeDiff = Number(Boolean(b.item?.isHomeRegion)) - Number(Boolean(a.item?.isHomeRegion))
+      if (homeDiff !== 0) return homeDiff
+      const rankDiff = regionStatusRank(a.item?.status) - regionStatusRank(b.item?.status)
+      if (rankDiff !== 0) return rankDiff
+      return a.index - b.index
+    })
+    .map(entry => entry.item)
 }
 
 function regionStatusColor(status: string | null | undefined): string {

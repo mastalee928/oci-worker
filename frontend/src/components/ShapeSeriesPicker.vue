@@ -16,10 +16,9 @@
           <a-select
             v-model:value="architectureModel"
             placeholder="选择 Shape"
-            show-search
+            :show-search="false"
             :loading="loading"
             :options="shapeOptions"
-            :filter-option="filterShapeOption"
             :disabled="!shapeOptions.length"
             @change="onShapeChange"
           />
@@ -88,10 +87,6 @@ const architectureModel = computed({
 const shapeOptions = computed(() =>
   shapeOptionsForSeries(seriesModel.value, apiShapes.value, rawShapes.value),
 )
-
-function filterShapeOption(input: string, option: { label?: string }) {
-  return String(option?.label ?? '').toLowerCase().includes(input.toLowerCase())
-}
 
 function syncSeriesFromArchitecture() {
   seriesModel.value = seriesFromArchitecture(architectureModel.value, apiShapes.value)

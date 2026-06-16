@@ -182,9 +182,10 @@ public class TenantController {
 
     @PostMapping("/updateMfa")
     public ResponseData<?> updateMfa(@RequestBody java.util.Map<String, Object> params) {
+        verifyCodeService.verifyCode("domainMfa", str(params, "verifyCode"));
         domainManagementService.updateMfaSetting(
-                (String) params.get("id"),
-                (String) params.get("domainId"),
+                str(params, "id"),
+                str(params, "domainId"),
                 Boolean.TRUE.equals(params.get("enabled")));
         return ResponseData.ok();
     }

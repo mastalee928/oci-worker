@@ -132,7 +132,7 @@ export function getDomainSettings(data: { id: string }) {
   return request.post('/oci/user/domainSettings', data)
 }
 
-export function updateMfa(data: { id: string; domainId?: string; enabled: boolean }) {
+export function updateMfa(data: { id: string; domainId?: string; enabled: boolean; verifyCode: string }) {
   return request.post('/oci/user/updateMfa', data)
 }
 

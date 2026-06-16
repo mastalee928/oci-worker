@@ -425,10 +425,9 @@
           <a-select
             v-model:value="quickTaskForm.ociRegion"
             placeholder="默认同上；可改为 tenancy 已订阅的其它区"
-            show-search
+            :show-search="false"
             allow-clear
             :options="ociRegionSelectOptions"
-            :filter-option="filterOciRegionSelectOption"
           />
         </a-form-item>
         <ShapeSeriesPicker
