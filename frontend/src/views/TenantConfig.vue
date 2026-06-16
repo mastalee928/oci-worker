@@ -596,17 +596,6 @@ region=ap-tokyo-1"
           <a-descriptions-item label="支付方式">
             {{ tenantInfoData.paymentMethodLabel || formatPaymentMethod(tenantInfoData.paymentMethod) || '—' }}
           </a-descriptions-item>
-          <a-descriptions-item label="试用期内已消费">
-            <template v-if="tenantInfoData.subscriptionUsage?.summary != null">
-              {{ tenantInfoData.subscriptionUsage.summary.totalConsumedLabel
-                ?? tenantInfoData.subscriptionUsage.summary.totalConsumed
-                ?? '0' }}
-              <span v-if="tenantInfoData.subscriptionUsage.timeUsageStarted" style="display: block; font-size: 11px; color: var(--text-sub); margin-top: 2px">
-                自 {{ formatUtcCnDate(tenantInfoData.subscriptionUsage.timeUsageStarted) }}（Usage API）
-              </span>
-            </template>
-            <span v-else>—</span>
-          </a-descriptions-item>
           <a-descriptions-item label="账户类型">
             <a-tag v-if="tenantInfoData.accountType" color="orange">{{ formatAccountType(tenantInfoData.accountType) }}</a-tag>
             <span v-else>—</span>
