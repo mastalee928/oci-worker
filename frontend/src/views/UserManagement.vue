@@ -23,8 +23,14 @@
         <template v-if="column.key === 'isMfaActivated'">
           <a-tag :color="record.isMfaActivated ? 'green' : 'default'">{{ record.isMfaActivated ? '已启用' : '未启用' }}</a-tag>
         </template>
+        <template v-if="column.key === 'domainName'">
+          <a-tag color="blue">{{ formatUserDomain(record) }}</a-tag>
+        </template>
+        <template v-if="column.key === 'lastSuccessfulLoginTime'">
+          <span :title="String(record.lastSuccessfulLoginTime ?? '')">{{ formatUserTime(record.lastSuccessfulLoginTime) }}</span>
+        </template>
         <template v-if="column.key === 'timeCreated'">
-          <span :title="String(record.timeCreated ?? '')">{{ formatUserTimeCreated(record.timeCreated) }}</span>
+          <span :title="String(record.timeCreated ?? '')">{{ formatUserTime(record.timeCreated) }}</span>
         </template>
         <template v-if="column.key === 'action'">
           <a-dropdown :trigger="['click']">
@@ -94,6 +100,9 @@
             <span class="label">MFA</span>
             <a-tag :color="u.isMfaActivated ? 'green' : 'default'" style="margin: 0">{{ u.isMfaActivated ? '已启用' : '未启用' }}</a-tag>
           </div>
+          <div class="mobile-card-row"><span class="label">域</span><span class="value">{{ formatUserDomain(u) }}</span></div>
+          <div class="mobile-card-row"><span class="label">上次登录</span><span class="value">{{ formatUserTime(u.lastSuccessfulLoginTime) }}</span></div>
+          <div class="mobile-card-row"><span class="label">创建时间</span><span class="value">{{ formatUserTime(u.timeCreated) }}</span></div>
         </div>
       </div>
     </a-spin>
@@ -456,7 +465,7 @@ const ACTION_LABELS: Record<string, string> = {
 
 const NEEDS_VERIFY = new Set(Object.keys(ACTION_LABELS))
 
-function formatUserTimeCreated(v: unknown): string {
+function formatUserTime(v: unknown): string {
   if (v == null || v === '') return '—'
   const s = String(v).trim()
   const d = dayjs(s)
@@ -464,11 +473,20 @@ function formatUserTimeCreated(v: unknown): string {
   return d.format('YYYY-MM-DD HH:mm:ss')
 }
 
+function formatUserDomain(record: any): string {
+  const name = String(record?.domainName || 'Default').trim()
+  const type = String(record?.domainType || '').trim()
+  if (!type || type === 'DEFAULT') return name
+  return `${name} / ${type}`
+}
+
 const columns = [
   { title: '用户名', dataIndex: 'name', key: 'name' },
+  { title: '域', key: 'domainName', width: 180, ellipsis: true },
   { title: '邮箱', dataIndex: 'email', key: 'email', ellipsis: true },
   { title: '状态', key: 'state', width: 100 },
   { title: 'MFA', key: 'isMfaActivated', width: 100 },
+  { title: '上次登录时间', key: 'lastSuccessfulLoginTime', width: 176 },
   { title: '创建时间', key: 'timeCreated', width: 176 },
   { title: '操作', key: 'action', width: 100 },
 ]

@@ -37,6 +37,18 @@ public class UserManagementService {
     private static final String SCIM_SCHEMA_PATCH_OP = "urn:ietf:params:scim:api:messages:2.0:PatchOp";
     private static final String SCHEMA_USER_PASSWORD_CHANGER =
             "urn:ietf:params:scim:schemas:oracle:idcs:UserPasswordChanger";
+    private static final String SCIM_USER_LIST_ATTRIBUTES = String.join(",",
+            "id",
+            "ocid",
+            "userName",
+            "displayName",
+            "emails",
+            "description",
+            "active",
+            "meta",
+            "urn:ietf:params:scim:schemas:oracle:idcs:extension:userState:User:lastSuccessfulLoginDate",
+            "urn:ietf:params:scim:schemas:oracle:idcs:extension:userState:User:previousSuccessfulLoginDate",
+            "urn:ietf:params:scim:schemas:oracle:idcs:extension:mfa:User:mfaStatus");
 
     public static final List<String> CAPABILITY_KEYS = List.of(
             "canUseConsolePassword",
@@ -85,6 +97,8 @@ public class UserManagementService {
 
     public List<Map<String, Object>> listUsers(String tenantId) {
         OciUser tenant = getTenant(tenantId);
+        List<Map<String, Object>> result = new ArrayList<>();
+        Set<String> seenUserIds = new LinkedHashSet<>();
         try (IdentityClient client = buildClient(tenant)) {
             ListUsersResponse response = client.listUsers(
                     ListUsersRequest.builder()
@@ -92,15 +106,8 @@ public class UserManagementService {
                             .build()
             );
 
-            List<Map<String, Object>> result = new ArrayList<>();
             for (User user : response.getItems()) {
-                Map<String, Object> map = new LinkedHashMap<>();
-                map.put("id", user.getId());
-                map.put("name", user.getName());
-                map.put("email", user.getEmail());
-                map.put("description", user.getDescription());
-                map.put("state", user.getLifecycleState().getValue());
-                map.put("timeCreated", user.getTimeCreated() != null ? user.getTimeCreated().toString() : null);
+                Map<String, Object> map = classicUserToMap(user);
 
                 boolean hasMfa = false;
                 try {
@@ -111,9 +118,104 @@ public class UserManagementService {
                 map.put("isMfaActivated", hasMfa);
 
                 result.add(map);
+                seenUserIds.add(String.valueOf(map.get("id")));
             }
-            return result;
         }
+        appendIdentityDomainUsers(tenant, result, seenUserIds);
+        return result;
+    }
+
+    private Map<String, Object> classicUserToMap(User user) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("id", user.getId());
+        map.put("name", user.getName());
+        map.put("email", user.getEmail());
+        map.put("description", user.getDescription());
+        map.put("state", user.getLifecycleState() == null ? null : user.getLifecycleState().getValue());
+        map.put("domainId", null);
+        map.put("domainName", "Default");
+        map.put("domainType", "DEFAULT");
+        map.put("lastSuccessfulLoginTime", user.getLastSuccessfulLoginTime() != null
+                ? user.getLastSuccessfulLoginTime().toString()
+                : null);
+        map.put("previousSuccessfulLoginTime", user.getPreviousSuccessfulLoginTime() != null
+                ? user.getPreviousSuccessfulLoginTime().toString()
+                : null);
+        map.put("timeCreated", user.getTimeCreated() != null ? user.getTimeCreated().toString() : null);
+        return map;
+    }
+
+    private void appendIdentityDomainUsers(
+            OciUser tenant,
+            List<Map<String, Object>> result,
+            Set<String> seenUserIds) {
+        try (OciClientService oci = domainManagementService.openOciClient(tenant.getId())) {
+            List<Map<String, Object>> domains = domainManagementService.listDomains(oci, true);
+            for (Map<String, Object> domain : domains) {
+                if (isDefaultDomainForClassicIam(domain)) {
+                    continue;
+                }
+                String url = (String) domain.get("url");
+                if (StrUtil.isBlank(url)) {
+                    continue;
+                }
+                try (IdentityDomainsClient dc = IdentityDomainsClient.builder().build(oci.getProvider())) {
+                    dc.setEndpoint(url);
+                    String page = null;
+                    do {
+                        var builder = com.oracle.bmc.identitydomains.requests.ListUsersRequest.builder()
+                                .attributes(SCIM_USER_LIST_ATTRIBUTES)
+                                .limit(200);
+                        if (page != null) {
+                            builder.page(page);
+                        }
+                        com.oracle.bmc.identitydomains.responses.ListUsersResponse response =
+                                dc.listUsers(builder.build());
+                        com.oracle.bmc.identitydomains.model.Users users = response.getUsers();
+                        if (users != null && users.getResources() != null) {
+                            for (com.oracle.bmc.identitydomains.model.User user : users.getResources()) {
+                                Map<String, Object> map = domainUserToMap(user, domain);
+                                String id = map.get("id") == null ? null : String.valueOf(map.get("id"));
+                                if (StrUtil.isBlank(id) || !seenUserIds.add(id)) {
+                                    continue;
+                                }
+                                result.add(map);
+                            }
+                        }
+                        page = response.getOpcNextPage();
+                    } while (StrUtil.isNotBlank(page));
+                } catch (Exception e) {
+                    log.warn("Failed to list users in identity domain {}: {}",
+                            domain.get("displayName"), e.getMessage());
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to append identity domain users: {}", e.getMessage());
+        }
+    }
+
+    private Map<String, Object> domainUserToMap(
+            com.oracle.bmc.identitydomains.model.User user,
+            Map<String, Object> domain) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        String id = StrUtil.isNotBlank(user.getOcid()) ? user.getOcid() : user.getId();
+        map.put("id", id);
+        map.put("scimId", user.getId());
+        map.put("name", StrUtil.blankToDefault(user.getUserName(), user.getDisplayName()));
+        map.put("email", firstEmailValue(user, null));
+        map.put("description", user.getDescription());
+        map.put("state", Boolean.FALSE.equals(user.getActive()) ? "INACTIVE" : "ACTIVE");
+        map.put("domainId", domain.get("id"));
+        map.put("domainName", domain.get("displayName"));
+        map.put("domainType", domain.get("type"));
+        var userState = user.getUrnIetfParamsScimSchemasOracleIdcsExtensionUserStateUser();
+        map.put("lastSuccessfulLoginTime", userState != null ? userState.getLastSuccessfulLoginDate() : null);
+        map.put("previousSuccessfulLoginTime", userState != null ? userState.getPreviousSuccessfulLoginDate() : null);
+        map.put("timeCreated", user.getMeta() != null ? user.getMeta().getCreated() : null);
+        var mfa = user.getUrnIetfParamsScimSchemasOracleIdcsExtensionMfaUser();
+        String mfaStatus = mfa == null || mfa.getMfaStatus() == null ? null : mfa.getMfaStatus().getValue();
+        map.put("isMfaActivated", "Enrolled".equalsIgnoreCase(mfaStatus));
+        return map;
     }
 
     public Map<String, Object> createUser(UserParams params) {

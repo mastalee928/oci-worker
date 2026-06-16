@@ -186,11 +186,11 @@ public class TelegramBotCommandService {
         sb.append("检测失败：").append(failed.size()).append('\n');
         if (!invalid.isEmpty()) {
             sb.append("\n失效列表：\n");
-            appendResults(sb, invalid);
+            appendResultNames(sb, invalid);
         }
         if (!failed.isEmpty()) {
             sb.append("\n检测失败列表：\n");
-            appendResults(sb, failed);
+            appendResultNames(sb, failed);
         }
         if (invalid.isEmpty() && failed.isEmpty()) {
             sb.append("\n所有账户配置正常");
@@ -198,13 +198,9 @@ public class TelegramBotCommandService {
         return sb.toString().trim();
     }
 
-    private static void appendResults(StringBuilder sb, List<TenantHealthCheckService.TenantHealthResult> results) {
+    private static void appendResultNames(StringBuilder sb, List<TenantHealthCheckService.TenantHealthResult> results) {
         for (TenantHealthCheckService.TenantHealthResult result : results) {
-            sb.append("· ").append(result.name());
-            if (StrUtil.isNotBlank(result.reason())) {
-                sb.append("：").append(result.reason());
-            }
-            sb.append('\n');
+            sb.append("· ").append(result.name()).append('\n');
         }
     }
 

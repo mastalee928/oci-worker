@@ -325,7 +325,7 @@ public class DomainManagementService {
                 ops.add(Operations.builder()
                         .op(Operations.Op.Replace)
                         .path(CONSENT_SCHEMA + ":justification")
-                        .value(enabled ? "MFA enabled via oci-worker" : "MFA disabled via oci-worker")
+                        .value("Other")
                         .build());
 
                 PatchOp patch = PatchOp.builder()
