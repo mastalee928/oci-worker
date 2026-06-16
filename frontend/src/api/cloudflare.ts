@@ -422,7 +422,7 @@ export function createCfMeshConnector(data: { name: string }) {
   return request.post('/cf/mesh/connectors/create', data)
 }
 
-export function deleteCfMeshConnector(data: { tunnelId: string }) {
+export function deleteCfMeshConnector(data: { tunnelId: string; forceDeleteRoutes?: boolean }) {
   return request.post('/cf/mesh/connectors/delete', data)
 }
 

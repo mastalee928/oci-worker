@@ -444,11 +444,28 @@ public class CloudflareService {
         return mapMeshConnector(result);
     }
 
-    public void deleteMeshConnector(String tunnelId) {
+    public void deleteMeshConnector(String tunnelId, boolean deleteRoutesFirst) {
         Credentials c = requireCredentials();
         requireTunnelId(tunnelId);
-        String url = CF_API_BASE + "/accounts/" + c.accountId() + "/warp_connector/" + tunnelId.trim();
-        apiDelete(c.apiToken(), url);
+        String tid = tunnelId.trim();
+        if (deleteRoutesFirst) {
+            for (Map<String, Object> route : listMeshRoutes(tid)) {
+                Object routeId = route.get("id");
+                if (routeId != null && StrUtil.isNotBlank(String.valueOf(routeId))) {
+                    deleteMeshRoute(String.valueOf(routeId));
+                }
+            }
+        }
+        String url = CF_API_BASE + "/accounts/" + c.accountId() + "/warp_connector/" + tid;
+        try {
+            apiDelete(c.apiToken(), url);
+        } catch (OciException e) {
+            String msg = e.getMessage();
+            if (msg != null && (msg.contains("private network routes") || msg.contains("\"code\":1023"))) {
+                throw new OciException("该 Mesh 节点仍绑定私网 CIDR 路由，请先删除路由，或在页面确认联动删除");
+            }
+            throw e;
+        }
     }
 
     public String getMeshConnectorToken(String tunnelId) {

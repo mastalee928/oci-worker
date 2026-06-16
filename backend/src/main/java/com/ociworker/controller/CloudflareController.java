@@ -138,8 +138,10 @@ public class CloudflareController {
     }
 
     @PostMapping("/mesh/connectors/delete")
-    public ResponseData<?> deleteMeshConnector(@RequestBody Map<String, String> params) {
-        cloudflareService.deleteMeshConnector(params.get("tunnelId"));
+    public ResponseData<?> deleteMeshConnector(@RequestBody Map<String, Object> params) {
+        cloudflareService.deleteMeshConnector(
+                parseString(params.get("tunnelId")),
+                parseBoolean(params.get("forceDeleteRoutes"), false));
         return ResponseData.ok();
     }
 

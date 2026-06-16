@@ -181,7 +181,7 @@
             <a-space wrap>
               <a-button type="link" size="small" @click="selectNodeForScript(record)">脚本</a-button>
               <a-button type="link" size="small" @click="showConnections(record)">连接</a-button>
-              <a-popconfirm title="确定删除这个 Mesh 节点？" @confirm="deleteNode(record)">
+              <a-popconfirm :title="deleteNodeConfirmTitle(record)" @confirm="deleteNode(record)">
                 <a-button type="link" danger size="small">删除</a-button>
               </a-popconfirm>
             </a-space>
@@ -203,7 +203,7 @@
           <a-space wrap>
             <a-button size="small" @click="selectNodeForScript(item)">脚本</a-button>
             <a-button size="small" @click="showConnections(item)">连接</a-button>
-            <a-popconfirm title="确定删除这个 Mesh 节点？" @confirm="deleteNode(item)">
+            <a-popconfirm :title="deleteNodeConfirmTitle(item)" @confirm="deleteNode(item)">
               <a-button size="small" danger>删除</a-button>
             </a-popconfirm>
           </a-space>
@@ -733,13 +733,21 @@ async function selectNodeForScript(node: MeshConnector) {
 }
 
 async function deleteNode(node: MeshConnector) {
-  await deleteCfMeshConnector({ tunnelId: node.id })
-  message.success('Mesh 节点已删除')
+  const count = routeCount(node.id)
+  await deleteCfMeshConnector({ tunnelId: node.id, forceDeleteRoutes: true })
+  message.success(count > 0 ? `已删除 ${count} 条路由和 Mesh 节点` : 'Mesh 节点已删除')
   if (selectedNode.value?.id === node.id) {
     selectedNode.value = null
     selectedToken.value = ''
   }
   await loadAll()
+}
+
+function deleteNodeConfirmTitle(node: MeshConnector) {
+  const count = routeCount(node.id)
+  return count > 0
+    ? `该节点绑定 ${count} 条私网路由，删除节点前会先删除这些路由。确定继续？`
+    : '确定删除这个 Mesh 节点？'
 }
 
 async function showConnections(node: MeshConnector) {
@@ -914,9 +922,74 @@ function buildRedHatScript(token: string) {
 
 <style scoped>
 .cf-mesh-tab {
+  --mesh-surface: #ffffff;
+  --mesh-surface-soft: #fbfcfe;
+  --mesh-surface-muted: #f8fafc;
+  --mesh-border: #e5e7eb;
+  --mesh-border-soft: #edf0f5;
+  --mesh-text: #111827;
+  --mesh-subtext: #4b5563;
+  --mesh-muted: #6b7280;
   display: flex;
   flex-direction: column;
   gap: 16px;
+  color: var(--mesh-text);
+}
+
+.cf-mesh-tab :deep(.ant-form-item-label > label),
+.cf-mesh-tab :deep(.ant-table),
+.cf-mesh-tab :deep(.ant-table-cell),
+.cf-mesh-tab :deep(.ant-collapse),
+.cf-mesh-tab :deep(.ant-tabs),
+.cf-mesh-tab :deep(.ant-checkbox-wrapper) {
+  color: var(--mesh-text);
+}
+
+.cf-mesh-tab :deep(.ant-input),
+.cf-mesh-tab :deep(.ant-input-affix-wrapper),
+.cf-mesh-tab :deep(.ant-input-number),
+.cf-mesh-tab :deep(.ant-select-selector),
+.cf-mesh-tab :deep(textarea.ant-input) {
+  background: var(--mesh-surface) !important;
+  border-color: #d9d9d9 !important;
+  color: var(--mesh-text) !important;
+}
+
+.cf-mesh-tab :deep(.ant-input::placeholder),
+.cf-mesh-tab :deep(textarea.ant-input::placeholder) {
+  color: #9ca3af !important;
+}
+
+.cf-mesh-tab :deep(.ant-select-selection-placeholder),
+.cf-mesh-tab :deep(.ant-select-selection-item) {
+  color: var(--mesh-subtext) !important;
+}
+
+.cf-mesh-tab :deep(.ant-table) {
+  background: var(--mesh-surface);
+}
+
+.cf-mesh-tab :deep(.ant-table-thead > tr > th) {
+  background: var(--mesh-surface-muted) !important;
+  color: var(--mesh-subtext) !important;
+  border-bottom-color: var(--mesh-border) !important;
+}
+
+.cf-mesh-tab :deep(.ant-table-tbody > tr > td) {
+  background: var(--mesh-surface) !important;
+  color: var(--mesh-text) !important;
+  border-bottom-color: var(--mesh-border-soft) !important;
+}
+
+.cf-mesh-tab :deep(.ant-table-tbody > tr:hover > td) {
+  background: #f3f7ff !important;
+}
+
+.cf-mesh-tab :deep(.ant-empty-description),
+.cf-mesh-tab :deep(.ant-pagination),
+.cf-mesh-tab :deep(.ant-collapse-content),
+.cf-mesh-tab :deep(.ant-collapse-header) {
+  color: var(--mesh-subtext) !important;
 }
 
 .mesh-alert {
@@ -941,9 +1014,9 @@ function buildRedHatScript(token: string) {
   grid-template-columns: minmax(0, 1fr) 64px minmax(0, 1fr) 64px minmax(0, 1fr);
   align-items: center;
   padding: 16px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--mesh-border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--mesh-surface);
 }
 
 .mesh-kpi {
@@ -957,6 +1030,7 @@ function buildRedHatScript(token: string) {
 .mesh-kpi strong {
   font-size: 22px;
   line-height: 1.2;
+  color: var(--mesh-text);
 }
 
 .mesh-kpi small,
@@ -964,7 +1038,7 @@ function buildRedHatScript(token: string) {
 .mesh-section-head p,
 .script-head p,
 .topology-node small {
-  color: #6b7280;
+  color: var(--mesh-muted);
 }
 
 .mesh-line {
@@ -974,9 +1048,9 @@ function buildRedHatScript(token: string) {
 
 .mesh-section {
   padding: 16px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--mesh-border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--mesh-surface);
 }
 
 .mesh-dashboard {
@@ -988,9 +1062,9 @@ function buildRedHatScript(token: string) {
 .mesh-chart {
   min-width: 0;
   padding: 14px;
-  border: 1px solid #e5e7eb;
+  border: 1px solid var(--mesh-border);
   border-radius: 8px;
-  background: #fff;
+  background: var(--mesh-surface);
 }
 
 .mesh-chart-head {
@@ -1039,7 +1113,7 @@ function buildRedHatScript(token: string) {
   flex-wrap: wrap;
   gap: 8px 12px;
   margin-top: 10px;
-  color: #6b7280;
+  color: var(--mesh-muted);
   font-size: 12px;
 }
 
@@ -1067,7 +1141,7 @@ function buildRedHatScript(token: string) {
   grid-template-columns: minmax(80px, 120px) minmax(0, 1fr) 28px;
   align-items: center;
   gap: 8px;
-  color: #4b5563;
+  color: var(--mesh-subtext);
   font-size: 12px;
 }
 
@@ -1106,7 +1180,7 @@ function buildRedHatScript(token: string) {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #6b7280;
+  color: var(--mesh-muted);
 }
 
 .check-row :deep(svg) {
@@ -1124,6 +1198,7 @@ function buildRedHatScript(token: string) {
 .mesh-section h3 {
   margin: 0 0 4px;
   font-size: 16px;
+  color: var(--mesh-text);
 }
 
 .mesh-section p {
@@ -1145,9 +1220,9 @@ function buildRedHatScript(token: string) {
   display: flex;
   gap: 10px;
   padding: 12px;
-  border: 1px solid #edf0f5;
+  border: 1px solid var(--mesh-border-soft);
   border-radius: 8px;
-  background: #fafafa;
+  background: var(--mesh-surface-muted);
 }
 
 .mesh-guide-item span {
@@ -1171,9 +1246,16 @@ function buildRedHatScript(token: string) {
 
 .script-panel {
   padding: 12px;
-  border: 1px solid #edf0f5;
+  border: 1px solid var(--mesh-border-soft);
   border-radius: 8px;
-  background: #fbfcfe;
+  background: var(--mesh-surface-soft);
+}
+
+.script-head strong,
+.mesh-chart strong,
+.diagnose-grid strong,
+.topology-node strong {
+  color: var(--mesh-text);
 }
 
 .mesh-tutorial {
@@ -1184,12 +1266,12 @@ function buildRedHatScript(token: string) {
 
 .advanced-panel {
   margin-top: 14px;
-  background: #fff;
+  background: var(--mesh-surface);
 }
 
 .advanced-hint {
   margin: 4px 0 12px;
-  color: #6b7280;
+  color: var(--mesh-muted);
   font-size: 12px;
 }
 
@@ -1205,14 +1287,14 @@ function buildRedHatScript(token: string) {
 
 .diagnose-grid > div {
   padding: 12px;
-  border: 1px solid #edf0f5;
+  border: 1px solid var(--mesh-border-soft);
   border-radius: 8px;
-  background: #fbfcfe;
+  background: var(--mesh-surface-soft);
 }
 
 .diagnose-grid p {
   margin-top: 6px;
-  color: #6b7280;
+  color: var(--mesh-muted);
 }
 
 .topology {
@@ -1262,11 +1344,11 @@ function buildRedHatScript(token: string) {
 }
 
 .mobile-card {
-  border: 1px solid #edf0f5;
+  border: 1px solid var(--mesh-border-soft);
   border-radius: 8px;
   padding: 12px;
   margin-bottom: 10px;
-  background: #fff;
+  background: var(--mesh-surface);
 }
 
 .mobile-card-header {
@@ -1296,7 +1378,7 @@ function buildRedHatScript(token: string) {
 }
 
 .mobile-card-row .label {
-  color: #6b7280;
+  color: var(--mesh-muted);
   flex: 0 0 auto;
 }
 
