@@ -262,6 +262,7 @@ public class NotificationService {
             commands.add(Map.of("command", "logs", "description", "抢机任务"));
             commands.add(Map.of("command", "state", "description", "系统状态"));
             commands.add(Map.of("command", "bans", "description", "禁止名单与解除"));
+            commands.add(Map.of("command", "checkaccs", "description", "账户测活"));
             Map<String, Object> body = Map.of("commands", commands);
             HttpClient c = ociProxyConfigService.newOutboundHttpClient();
             HttpRequest req = HttpRequest.newBuilder(URI.create(url))
@@ -270,7 +271,7 @@ public class NotificationService {
                     .timeout(Duration.ofSeconds(15))
                     .build();
             c.send(req, HttpResponse.BodyHandlers.discarding());
-            log.info("Telegram setMyCommands registered (start/stop/logs/state/bans)");
+            log.info("Telegram setMyCommands registered (start/stop/logs/state/bans/checkaccs)");
         } catch (Exception e) {
             log.warn("Failed to register Telegram bot commands: {}", e.getMessage());
         }
