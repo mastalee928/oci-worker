@@ -69,10 +69,10 @@
           </h2>
         </div>
         <div class="header-actions">
-          <button class="header-btn" @click="themeStore.toggleWallpaper" title="鍒囨崲澹佺焊鑳屾櫙">
+          <button class="header-btn" @click="themeStore.toggleWallpaper" title="切换壁纸背景">
             <i :class="themeStore.wallpaperActive ? 'ri-image-fill' : 'ri-image-line'"></i>
           </button>
-          <button class="header-btn" @click="themeStore.toggleTheme" title="鍒囨崲涓婚">
+          <button class="header-btn" @click="themeStore.toggleTheme" title="切换主题">
             <i :class="themeStore.isDark ? 'ri-sun-line' : 'ri-moon-line'"></i>
           </button>
         </div>
@@ -113,18 +113,18 @@ const isMobile = ref(false)
 
 const avatarLetter = computed(() => userStore.avatarLetter)
 
-/** 妗岄潰绐勬爮锛?4px锛夌敤绱у噾搴曟爮锛涚Щ鍔ㄧ鎶藉眽灞曞紑鏃朵粛涓哄叏瀹斤紝淇濇寔瀹屾暣鐢ㄦ埛淇℃伅 */
+/** 桌面窄栏（64px）使用紧凑底栏；移动端抽屉展开时保持完整用户信息。 */
 const compactSidebarFooter = computed(
   () => collapsed.value && !(isMobile.value && mobileMenuOpen.value),
 )
 
 function checkMobile() {
   isMobile.value = window.innerWidth < 768
-  /** 绉诲姩绔娊灞夊睍寮€鏃惰璧般€屽睍寮€鑿滃崟銆嶏紙鍥炬爣+瀹屾暣鏍囬锛夛紝涓嶈兘涓庢闈㈡姌鍙犳€佹贩鐢?*/
+  /** 移动端关闭抽屉时保持侧边栏折叠，避免与桌面折叠状态混用。 */
   if (isMobile.value && !mobileMenuOpen.value) collapsed.value = true
 }
 
-/** 绉诲姩绔細鎶藉眽鎵撳紑 鈫?鏀惰捣 Sider 鐨?collapsed锛岃彍鍗曟仮澶嶄负鍐呰仈鍏ㄦ枃锛涘悎涓?鈫?鍐嶆敹璧风渷鐘舵€?*/
+/** 移动端：抽屉打开时展开 Sider，关闭后再折叠。 */
 watch(mobileMenuOpen, open => {
   if (!isMobile.value) return
   collapsed.value = open ? false : true
@@ -168,7 +168,7 @@ const pageTitleIcon = computed(() => {
   return item?.icon || 'ri-dashboard-3-line'
 })
 
-/** 宸﹂敭鍚岄〉瀵艰埅鍚庡叧绉诲姩绔娊灞夛紱Ctrl/涓敭/鍙抽敭浜ょ粰娴忚鍣紙鏂版爣绛剧瓑锛?*/
+/** 左键同页导航后关闭移动端抽屉；Ctrl/中键/右键交给浏览器处理。 */
 function onNavLinkClick(e: MouseEvent, key: string) {
   if (e.button !== 0 || e.metaKey || e.ctrlKey || e.shiftKey || e.altKey) return
   prefetchRouteChunk(key)
@@ -286,7 +286,7 @@ function handleLogout() {
   text-align: left !important;
   padding-left: 24px !important;
 }
-/* 妗岄潰渚ф爮鏀惰捣锛?4px锛夛細涓婇潰涓ゆ潯浼氱洊浣?Ant 鐨勫眳涓€昏緫锛屽浘鏍囦細鏁翠綋鍋忓彸锛岄渶鍦?.sider-collapsed-desktop 涓嬭鐩?*/
+/* 桌面侧栏收起（64px）：覆盖 Ant 的居中逻辑，避免图标整体偏右。 */
 .sider-collapsed-desktop .nav-menu :deep(.ant-menu-item) {
   display: flex !important;
   align-items: center !important;
@@ -297,7 +297,7 @@ function handleLogout() {
   margin: 2px 4px !important;
   overflow: visible !important;
 }
-/* flex 灞呬腑鏃舵爣棰樿妭鐐逛粛浼氬崰浣嶏紝鍥炬爣榛樿 flex-shrink:1 浼氳鎸ゆ垚 0 瀹?鈫?鍙绱簳涓嶈鍥炬爣 */
+/* flex 居中时标题节点仍会占位，固定图标宽度避免被挤成 0。 */
 .sider-collapsed-desktop .nav-menu :deep(.nav-menu-link) {
   justify-content: center !important;
 }
