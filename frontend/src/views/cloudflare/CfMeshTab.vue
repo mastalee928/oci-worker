@@ -922,18 +922,46 @@ function buildRedHatScript(token: string) {
 
 <style scoped>
 .cf-mesh-tab {
-  --mesh-surface: #ffffff;
-  --mesh-surface-soft: #fbfcfe;
-  --mesh-surface-muted: #f8fafc;
-  --mesh-border: #e5e7eb;
-  --mesh-border-soft: #edf0f5;
-  --mesh-text: #111827;
-  --mesh-subtext: #4b5563;
-  --mesh-muted: #6b7280;
+  --mesh-surface: var(--bg-card);
+  --mesh-surface-soft: rgba(15, 23, 42, 0.35);
+  --mesh-surface-muted: rgba(15, 23, 42, 0.48);
+  --mesh-control-bg: var(--input-bg);
+  --mesh-control-border: var(--border);
+  --mesh-border: var(--border);
+  --mesh-border-soft: var(--border);
+  --mesh-text: var(--text-main);
+  --mesh-subtext: var(--text-sub);
+  --mesh-muted: var(--text-sub);
+  --mesh-track: rgba(148, 163, 184, 0.2);
+  --mesh-row-hover: var(--primary-light);
+  --mesh-topology-bg: rgba(59, 130, 246, 0.08);
+  --mesh-topology-border: rgba(129, 140, 248, 0.24);
+  --mesh-cloud-bg: rgba(16, 185, 129, 0.1);
+  --mesh-cloud-border: rgba(16, 185, 129, 0.28);
+  --mesh-path: rgba(129, 140, 248, 0.55);
+  --mesh-inactive: rgba(148, 163, 184, 0.35);
   display: flex;
   flex-direction: column;
   gap: 16px;
   color: var(--mesh-text);
+}
+
+:global([data-theme='light']) .cf-mesh-tab {
+  --mesh-surface: rgba(255, 255, 255, 0.88);
+  --mesh-surface-soft: rgba(248, 250, 252, 0.86);
+  --mesh-surface-muted: rgba(248, 250, 252, 0.9);
+  --mesh-control-bg: rgba(255, 255, 255, 0.92);
+  --mesh-control-border: rgba(15, 23, 42, 0.12);
+  --mesh-border: rgba(15, 23, 42, 0.08);
+  --mesh-border-soft: rgba(15, 23, 42, 0.06);
+  --mesh-track: rgba(15, 23, 42, 0.08);
+  --mesh-row-hover: rgba(99, 102, 241, 0.08);
+  --mesh-topology-bg: #f7fbff;
+  --mesh-topology-border: #d9e6ff;
+  --mesh-cloud-bg: #f6ffed;
+  --mesh-cloud-border: #b7eb8f;
+  --mesh-path: #91caff;
+  --mesh-inactive: #d9d9d9;
 }
 
 .cf-mesh-tab :deep(.ant-form-item-label > label),
@@ -950,23 +978,29 @@ function buildRedHatScript(token: string) {
 .cf-mesh-tab :deep(.ant-input-number),
 .cf-mesh-tab :deep(.ant-select-selector),
 .cf-mesh-tab :deep(textarea.ant-input) {
-  background: var(--mesh-surface) !important;
-  border-color: #d9d9d9 !important;
+  background: var(--mesh-control-bg) !important;
+  border-color: var(--mesh-control-border) !important;
   color: var(--mesh-text) !important;
 }
 
 .cf-mesh-tab :deep(.ant-input::placeholder),
+.cf-mesh-tab :deep(.ant-input-number-input::placeholder),
 .cf-mesh-tab :deep(textarea.ant-input::placeholder) {
-  color: #9ca3af !important;
+  color: var(--mesh-muted) !important;
 }
 
 .cf-mesh-tab :deep(.ant-select-selection-placeholder),
-.cf-mesh-tab :deep(.ant-select-selection-item) {
+.cf-mesh-tab :deep(.ant-select-selection-item),
+.cf-mesh-tab :deep(.ant-select-arrow),
+.cf-mesh-tab :deep(.ant-input-number-input) {
   color: var(--mesh-subtext) !important;
 }
 
+.cf-mesh-tab :deep(.ant-table-wrapper .ant-table),
+.cf-mesh-tab :deep(.ant-table-container),
+.cf-mesh-tab :deep(.ant-table-content),
 .cf-mesh-tab :deep(.ant-table) {
-  background: var(--mesh-surface);
+  background: var(--mesh-surface) !important;
 }
 
 .cf-mesh-tab :deep(.ant-table-thead > tr > th) {
@@ -982,7 +1016,7 @@ function buildRedHatScript(token: string) {
 }
 
 .cf-mesh-tab :deep(.ant-table-tbody > tr:hover > td) {
-  background: #f3f7ff !important;
+  background: var(--mesh-row-hover) !important;
 }
 
 .cf-mesh-tab :deep(.ant-empty-description),
@@ -990,6 +1024,15 @@ function buildRedHatScript(token: string) {
 .cf-mesh-tab :deep(.ant-collapse-content),
 .cf-mesh-tab :deep(.ant-collapse-header) {
   color: var(--mesh-subtext) !important;
+}
+
+.cf-mesh-tab :deep(.ant-table-placeholder > td),
+.cf-mesh-tab :deep(.ant-collapse),
+.cf-mesh-tab :deep(.ant-collapse-item),
+.cf-mesh-tab :deep(.ant-collapse-content),
+.cf-mesh-tab :deep(.ant-collapse-content-box) {
+  background: transparent !important;
+  border-color: var(--mesh-border) !important;
 }
 
 .mesh-alert {
@@ -1085,7 +1128,7 @@ function buildRedHatScript(token: string) {
   display: flex;
   overflow: hidden;
   border-radius: 999px;
-  background: #f0f0f0;
+  background: var(--mesh-track);
 }
 
 .mesh-stack-seg.healthy,
@@ -1105,7 +1148,7 @@ function buildRedHatScript(token: string) {
 
 .mesh-stack-seg.inactive,
 .mesh-legend i.inactive {
-  background: #d9d9d9;
+  background: var(--mesh-inactive);
 }
 
 .mesh-legend {
@@ -1159,7 +1202,7 @@ function buildRedHatScript(token: string) {
 .route-bar {
   height: 8px;
   border-radius: 999px;
-  background: #edf0f5;
+  background: var(--mesh-track);
   overflow: hidden;
 }
 
@@ -1188,7 +1231,7 @@ function buildRedHatScript(token: string) {
 }
 
 .check-row.ok {
-  color: #2f6f22;
+  color: var(--success-text);
 }
 
 .check-row.ok :deep(svg) {
@@ -1314,9 +1357,9 @@ function buildRedHatScript(token: string) {
 .topology-node {
   min-height: 92px;
   padding: 12px;
-  border: 1px solid #d9e6ff;
+  border: 1px solid var(--mesh-topology-border);
   border-radius: 8px;
-  background: #f7fbff;
+  background: var(--mesh-topology-bg);
   display: flex;
   flex-direction: column;
   gap: 6px;
@@ -1329,8 +1372,8 @@ function buildRedHatScript(token: string) {
 }
 
 .topology-node.cloud {
-  background: #f6ffed;
-  border-color: #b7eb8f;
+  background: var(--mesh-cloud-bg);
+  border-color: var(--mesh-cloud-border);
 }
 
 .topology-node.cloud :deep(svg) {
@@ -1340,7 +1383,7 @@ function buildRedHatScript(token: string) {
 .topology-path {
   align-self: center;
   height: 2px;
-  background: #91caff;
+  background: var(--mesh-path);
 }
 
 .mobile-card {
