@@ -3334,7 +3334,7 @@ async function handleAddAuxIp() {
         displayName: 'aux-' + Date.now(),
         ...instanceDetailRegionParam(),
       })
-      ipId = res.data?.id
+      ipId = res.data?.publicIpId || res.data?.id
       ipAddr = res.data?.ipAddress || ''
       if (!ipId) throw new Error('创建预留IP失败')
       message.success('预留IP已创建: ' + ipAddr)

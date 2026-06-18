@@ -492,6 +492,7 @@ public class InstanceService {
             ).getPublicIp();
 
             return Map.of(
+                    "id", reservedIp.getId(),
                     "publicIpId", reservedIp.getId(),
                     "ipAddress", reservedIp.getIpAddress()
             );
