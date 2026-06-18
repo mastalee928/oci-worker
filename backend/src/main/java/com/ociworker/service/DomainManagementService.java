@@ -1563,10 +1563,21 @@ public class DomainManagementService {
     private static void applyHeaders(HttpRequest.Builder builder, Map<String, List<String>> headers) {
         for (Map.Entry<String, List<String>> e : headers.entrySet()) {
             if (e.getValue() == null) continue;
+            if (isJavaHttpClientRestrictedHeader(e.getKey())) continue;
             for (String value : e.getValue()) {
                 if (value != null) builder.header(e.getKey(), value);
             }
         }
+    }
+
+    private static boolean isJavaHttpClientRestrictedHeader(String name) {
+        if (name == null) return false;
+        String key = name.toLowerCase(Locale.ROOT);
+        return "host".equals(key)
+                || "connection".equals(key)
+                || "content-length".equals(key)
+                || "expect".equals(key)
+                || "upgrade".equals(key);
     }
 
     private static void appendQuery(StringBuilder sb, String key, String value) {
