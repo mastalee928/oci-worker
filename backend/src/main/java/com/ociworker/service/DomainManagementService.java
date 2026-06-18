@@ -1032,8 +1032,14 @@ public class DomainManagementService {
         if (item == null || item.isMissingNode() || item.isNull()) return null;
         String eventTime = firstText(item, "timestamp", "eventTime", "timeCreated", "timeOccurred", "meta.created");
         String eventId = firstText(item, "eventId", "eventType", "type");
-        String actorName = firstText(item, "actorName", "actor.userName", "userName", "principalName", "actorDisplayName");
-        String actorDisplayName = firstText(item, "actorDisplayName", "actor.displayName", "actorName", "userName");
+        String actorName = firstText(item,
+                "actor.userName",
+                "userName",
+                "ssoUserName",
+                "principalName",
+                "actorName",
+                "actorDisplayName");
+        String actorDisplayName = firstText(item, "actorDisplayName", "actor.displayName", "displayName", "actorName", "userName");
         String clientIp = firstText(item, "clientIp", "ssoUserIP", "ipAddress", "clientIPAddress", "client.ip");
         String message = firstText(item, "message", "eventSummary", "details", "reason", "status");
 

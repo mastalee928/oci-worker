@@ -19,8 +19,8 @@
     <a-table-column data-index="actorName" key="actorName" :width="196" :ellipsis="{ showTitle: false }">
       <template #title><span class="audit-th">用户</span></template>
       <template #default="{ record }">
-        <a-tooltip :title="String(record.actorDisplayName || record.actorName || '').trim() || undefined">
-          <span style="font-size: 12px">{{ record.actorDisplayName || record.actorName || '—' }}</span>
+        <a-tooltip :title="actorTooltip(record)">
+          <span style="font-size: 12px">{{ actorText(record) }}</span>
         </a-tooltip>
       </template>
     </a-table-column>
@@ -60,7 +60,7 @@
         <a-tag :color="eventColor(log.eventId)" style="margin:0; font-size: 11px">{{ eventLabel(log.eventId) }}</a-tag>
       </div>
       <div class="mobile-card-body">
-        <div class="mobile-card-row"><span class="label">用户</span><span class="value">{{ log.actorDisplayName || log.actorName || '—' }}</span></div>
+        <div class="mobile-card-row"><span class="label">用户</span><span class="value">{{ actorText(log) }}</span></div>
         <div class="mobile-card-row"><span class="label">IP</span><span class="value">{{ log.clientIp || '—' }}</span></div>
         <div v-if="log.ssoIdentityProvider" class="mobile-card-row"><span class="label">提供者</span><span class="value">{{ log.ssoIdentityProvider }}</span></div>
         <div v-if="log.ssoProtectedResource" class="mobile-card-row"><span class="label">资源</span><span class="value">{{ log.ssoProtectedResource }}</span></div>
@@ -80,6 +80,17 @@ defineProps<{
 function formatTime(t?: string) {
   if (!t) return '—'
   return t.replace('T', ' ').substring(0, 19)
+}
+
+function actorText(record: any) {
+  return String(record?.actorName || record?.actorDisplayName || '').trim() || '—'
+}
+
+function actorTooltip(record: any) {
+  const name = String(record?.actorName || '').trim()
+  const display = String(record?.actorDisplayName || '').trim()
+  if (display && display !== name) return `${name || '—'} (${display})`
+  return name || display || undefined
 }
 
 function eventLabel(id?: string) {
