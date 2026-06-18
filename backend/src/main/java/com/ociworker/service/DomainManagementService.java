@@ -1,5 +1,7 @@
 package com.ociworker.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ociworker.exception.OciException;
 import com.ociworker.mapper.OciUserMapper;
 import com.ociworker.model.dto.OciProxySnapshot;
@@ -14,6 +16,8 @@ import com.oracle.bmc.http.ClientConfigurator;
 import com.oracle.bmc.http.client.ProxyConfiguration;
 import com.oracle.bmc.http.client.StandardClientProperties;
 import com.oracle.bmc.http.client.jersey3.ApacheClientProperties;
+import com.oracle.bmc.http.signing.DefaultRequestSigner;
+import com.oracle.bmc.http.signing.RequestSigner;
 import com.oracle.bmc.identity.requests.ListDomainsRequest;
 import com.oracle.bmc.identitydomains.IdentityDomainsClient;
 import com.oracle.bmc.identitydomains.model.*;
@@ -23,14 +27,23 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.http.conn.HttpClientConnectionManager;
 import org.springframework.stereotype.Service;
 
+import java.io.IOException;
+import java.net.URI;
+import java.net.URLEncoder;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.OffsetDateTime;
 import java.util.*;
 
 @Slf4j
 @Service
 public class DomainManagementService {
 
+    private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final String OCI_CONSOLE_POLICY_ID = "OciConsolePolicy";
     private static final String DEFAULT_PASSWORD_POLICY_NAME = "DefaultPasswordPolicy";
     private static final String CONSENT_SCHEMA =
@@ -41,6 +54,8 @@ public class DomainManagementService {
     private static final int AUDIT_RETRY_SLICE_HOURS = 1;
     private static final int AUDIT_MAX_PAGES_PER_SLICE = 2;
     private static final int AUDIT_MAX_LOGIN_EVENTS = 500;
+    private static final int DOMAIN_AUDIT_PAGE_SIZE = 100;
+    private static final int DOMAIN_AUDIT_MAX_PAGES = 10;
 
     @Resource
     private OciUserMapper userMapper;
@@ -652,11 +667,7 @@ public class DomainManagementService {
         return getAuditLogs(tenantId, 7);
     }
 
-    /**
-     * 身份域「登录」相关审计。
-     * 身份域 SCIM {@code /admin/v1/AuditEvents} 新数据已由官方迁到租户级 {@link AuditClient}{@code #listEvents}；
-     * 应按 {@code data.additionalDetails.eventId} 识别 SSO/控制台登录类事件（与 Oracle「从 OCI Audit 生成 IAM 报表」文档一致）。
-     */
+    /** 身份域审计日志，优先读取 Identity Domains {@code /admin/v1/AuditEvents}，失败时回落 OCI Audit。 */
     public List<Map<String, Object>> getAuditLogs(String tenantId, int days) {
         return getAuditLogs(tenantId, days, null);
     }
@@ -686,6 +697,13 @@ public class DomainManagementService {
             String selectedDomainId = trimToNull(domainId);
             if (selectedDomainId != null && !grouped.containsKey(selectedDomainId)) {
                 selectedDomainId = null;
+            }
+
+            try {
+                return listIdentityDomainAuditLogs(client, domains, startTime.toInstant(), endTime.toInstant(), selectedDomainId);
+            } catch (Exception e) {
+                log.warn("Identity Domain AuditEvents query failed tenantId={} days={} domainId={}, fallback to OCI Audit: {}",
+                        tenantId, window, selectedDomainId, e.getMessage());
             }
 
             AuditQueryResult query;
@@ -813,6 +831,167 @@ public class DomainManagementService {
             throw new OciException("获取登录日志失败: " + (e.getMessage() == null ? "未知错误" : e.getMessage()));
         }
         return result;
+    }
+
+    private List<Map<String, Object>> listIdentityDomainAuditLogs(OciClientService client,
+                                                                  List<Map<String, Object>> domains,
+                                                                  Instant startTime,
+                                                                  Instant endTime,
+                                                                  String selectedDomainId) {
+        List<Map<String, Object>> result = new ArrayList<>();
+        HttpClient http = newDomainAuditHttpClient();
+        RequestSigner signer = DefaultRequestSigner.createRequestSigner(client.getProvider());
+
+        for (var d : domains) {
+            Map<String, Object> entry = new LinkedHashMap<>();
+            Object id = d.get("id");
+            entry.put("domainId", id);
+            entry.put("displayName", d.get("displayName"));
+            entry.put("type", d.get("type"));
+
+            List<Map<String, Object>> logs = new ArrayList<>();
+            if (selectedDomainId == null || Objects.equals(selectedDomainId, id)) {
+                String domainUrl = trimToNull(d.get("url"));
+                if (domainUrl == null) {
+                    throw new OciException("Identity Domain URL 为空，无法读取审计日志");
+                }
+                logs = fetchIdentityDomainAuditEvents(http, signer, domainUrl, startTime, endTime);
+            }
+            logs.sort((a, b) -> String.valueOf(b.getOrDefault("eventTime", ""))
+                    .compareTo(String.valueOf(a.getOrDefault("eventTime", ""))));
+            entry.put("logs", logs);
+            result.add(entry);
+        }
+        return result;
+    }
+
+    private HttpClient newDomainAuditHttpClient() {
+        OciProxyConfigService proxy = OciProxyConfigService.instance();
+        if (proxy != null) return proxy.newOutboundHttpClient();
+        return HttpClient.newBuilder()
+                .version(HttpClient.Version.HTTP_1_1)
+                .connectTimeout(Duration.ofSeconds(10))
+                .build();
+    }
+
+    private List<Map<String, Object>> fetchIdentityDomainAuditEvents(HttpClient http,
+                                                                     RequestSigner signer,
+                                                                     String domainUrl,
+                                                                     Instant startTime,
+                                                                     Instant endTime) {
+        List<Map<String, Object>> rows = new ArrayList<>();
+        String baseUrl = normalizeDomainUrl(domainUrl) + "/admin/v1/AuditEvents";
+        int startIndex = 1;
+        int pages = 0;
+        while (rows.size() < AUDIT_MAX_LOGIN_EVENTS && pages < DOMAIN_AUDIT_MAX_PAGES) {
+            pages++;
+            JsonNode root = readIdentityDomainAuditPage(http, signer, baseUrl, startTime, endTime, startIndex, true);
+            JsonNode resources = root.path("Resources");
+            if (!resources.isArray() || resources.isEmpty()) break;
+
+            for (JsonNode item : resources) {
+                Map<String, Object> row = mapIdentityDomainAuditEvent(item);
+                if (row == null) continue;
+                if (!auditRowWithinWindow(row, startTime, endTime)) continue;
+                rows.add(row);
+                if (rows.size() >= AUDIT_MAX_LOGIN_EVENTS) break;
+            }
+
+            int fetched = resources.size();
+            int total = root.path("totalResults").asInt(-1);
+            if (fetched <= 0 || fetched < DOMAIN_AUDIT_PAGE_SIZE) break;
+            startIndex += fetched;
+            if (total > 0 && startIndex > total) break;
+        }
+        return rows;
+    }
+
+    private JsonNode readIdentityDomainAuditPage(HttpClient http,
+                                                 RequestSigner signer,
+                                                 String baseUrl,
+                                                 Instant startTime,
+                                                 Instant endTime,
+                                                 int startIndex,
+                                                 boolean withSort) {
+        URI uri = identityDomainAuditUri(baseUrl, startTime, endTime, startIndex, withSort);
+        HttpResponse<String> resp = sendSignedIdentityDomainGet(http, signer, uri);
+        if (resp.statusCode() == 400 && withSort) {
+            uri = identityDomainAuditUri(baseUrl, startTime, endTime, startIndex, false);
+            resp = sendSignedIdentityDomainGet(http, signer, uri);
+        }
+        if (resp.statusCode() / 100 != 2) {
+            throw new OciException("Identity Domain AuditEvents 查询失败: HTTP "
+                    + resp.statusCode() + " " + truncateHttpBody(resp.body()));
+        }
+        try {
+            return MAPPER.readTree(resp.body());
+        } catch (IOException e) {
+            throw new OciException("Identity Domain AuditEvents 返回内容解析失败: " + e.getMessage());
+        }
+    }
+
+    private URI identityDomainAuditUri(String baseUrl,
+                                       Instant startTime,
+                                       Instant endTime,
+                                       int startIndex,
+                                       boolean withSort) {
+        String filter = "timestamp ge \"" + startTime + "\" and timestamp le \"" + endTime + "\"";
+        StringBuilder sb = new StringBuilder(baseUrl);
+        appendQuery(sb, "filter", filter);
+        appendQuery(sb, "count", String.valueOf(DOMAIN_AUDIT_PAGE_SIZE));
+        appendQuery(sb, "startIndex", String.valueOf(startIndex));
+        if (withSort) {
+            appendQuery(sb, "sortBy", "timestamp");
+            appendQuery(sb, "sortOrder", "descending");
+        }
+        return URI.create(sb.toString());
+    }
+
+    private HttpResponse<String> sendSignedIdentityDomainGet(HttpClient http, RequestSigner signer, URI uri) {
+        Map<String, List<String>> headers = new LinkedHashMap<>();
+        headers.put("accept", listHeader("application/json"));
+        headers.put("host", listHeader(uri.getHost()));
+        try {
+            Map<String, List<String>> signed = castSignedHeaders(signer.signRequest(uri, "GET", headers, null));
+            HttpRequest.Builder b = HttpRequest.newBuilder(uri)
+                    .GET()
+                    .timeout(Duration.ofSeconds(30));
+            applyHeaders(b, headers);
+            applyHeaders(b, signed);
+            return http.send(b.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new OciException("Identity Domain AuditEvents 查询被中断: " + e.getMessage());
+        } catch (IOException e) {
+            throw new OciException("Identity Domain AuditEvents 查询失败: " + e.getMessage());
+        }
+    }
+
+    private Map<String, Object> mapIdentityDomainAuditEvent(JsonNode item) {
+        if (item == null || item.isMissingNode() || item.isNull()) return null;
+        String eventTime = firstText(item, "timestamp", "eventTime", "timeCreated", "timeOccurred", "meta.created");
+        String eventId = firstText(item, "eventId", "eventType", "type");
+        String actorName = firstText(item, "actorName", "actor.userName", "userName", "principalName", "actorDisplayName");
+        String actorDisplayName = firstText(item, "actorDisplayName", "actor.displayName", "actorName", "userName");
+        String clientIp = firstText(item, "clientIp", "ssoUserIP", "ipAddress", "clientIPAddress", "client.ip");
+        String message = firstText(item, "message", "eventSummary", "details", "reason", "status");
+
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("eventTime", eventTime);
+        row.put("eventId", eventId == null ? "" : eventId);
+        row.put("auditEventType", firstText(item, "eventType", "eventId"));
+        row.put("actorName", actorName);
+        row.put("principalId", firstText(item, "actorId", "actorOcid", "principalId", "actor.value"));
+        row.put("actorDisplayName", actorDisplayName == null ? actorName : actorDisplayName);
+        row.put("ssoIdentityProvider", firstText(item, "ssoIdentityProvider", "identityProvider"));
+        row.put("ssoApplicationType", firstText(item, "ssoApplicationType", "applicationType", "clientName"));
+        row.put("ssoProtectedResource", firstText(item, "ssoProtectedResource", "protectedResource", "applicationDisplayName", "resourceName"));
+        row.put("ssoUserAgent", firstText(item, "ssoUserAgent", "userAgent", "client.userAgent"));
+        row.put("clientIp", clientIp);
+        row.put("ssoAuthFactor", firstText(item, "ssoAuthFactor", "authFactor"));
+        row.put("ssoCompletedFactors", firstText(item, "ssoCompletedFactors", "completedFactors"));
+        row.put("message", message);
+        return row;
     }
 
     private static List<Map<String, Object>> buildAuditFailureEntries(List<Map<String, Object>> domains,
@@ -1256,6 +1435,121 @@ public class DomainManagementService {
             if (e.getKey() != null) out.put(String.valueOf(e.getKey()), e.getValue());
         }
         return out;
+    }
+
+    private static List<String> listHeader(String value) {
+        List<String> list = new ArrayList<>(1);
+        list.add(value);
+        return list;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Map<String, List<String>> castSignedHeaders(Object signed) {
+        if (!(signed instanceof Map<?, ?> raw)) {
+            throw new OciException("签名结果格式异常");
+        }
+        Map<String, List<String>> out = new LinkedHashMap<>();
+        for (Map.Entry<?, ?> e : raw.entrySet()) {
+            if (e.getKey() == null) continue;
+            Object v = e.getValue();
+            if (v instanceof List<?> rawList) {
+                List<String> values = new ArrayList<>();
+                for (Object item : rawList) {
+                    if (item != null) values.add(String.valueOf(item));
+                }
+                out.put(String.valueOf(e.getKey()), values);
+            } else if (v != null) {
+                out.put(String.valueOf(e.getKey()), listHeader(String.valueOf(v)));
+            }
+        }
+        return out;
+    }
+
+    private static void applyHeaders(HttpRequest.Builder builder, Map<String, List<String>> headers) {
+        for (Map.Entry<String, List<String>> e : headers.entrySet()) {
+            if (e.getValue() == null) continue;
+            for (String value : e.getValue()) {
+                if (value != null) builder.header(e.getKey(), value);
+            }
+        }
+    }
+
+    private static void appendQuery(StringBuilder sb, String key, String value) {
+        sb.append(sb.indexOf("?") >= 0 ? '&' : '?')
+                .append(encodeQuery(key))
+                .append('=')
+                .append(encodeQuery(value));
+    }
+
+    private static String encodeQuery(String value) {
+        return URLEncoder.encode(value == null ? "" : value, StandardCharsets.UTF_8)
+                .replace("+", "%20");
+    }
+
+    private static String normalizeDomainUrl(String url) {
+        String s = url == null ? "" : url.trim();
+        if (s.isEmpty()) throw new OciException("Identity Domain URL 为空，无法读取审计日志");
+        if (!s.startsWith("http://") && !s.startsWith("https://")) {
+            s = "https://" + s;
+        }
+        while (s.endsWith("/")) {
+            s = s.substring(0, s.length() - 1);
+        }
+        return s;
+    }
+
+    private static String truncateHttpBody(String body) {
+        if (body == null || body.isBlank()) return "";
+        String text = body.replaceAll("\\s+", " ").trim();
+        return text.length() > 300 ? text.substring(0, 300) + "..." : text;
+    }
+
+    private static String firstText(JsonNode node, String... paths) {
+        if (node == null || node.isMissingNode() || node.isNull()) return null;
+        for (String path : paths) {
+            JsonNode value = nodeAtPath(node, path);
+            String text = jsonText(value);
+            if (text != null && !text.isBlank()) return text.trim();
+        }
+        return null;
+    }
+
+    private static JsonNode nodeAtPath(JsonNode node, String path) {
+        if (node == null || path == null || path.isBlank()) return null;
+        JsonNode cur = node;
+        for (String part : path.split("\\.")) {
+            if (cur == null || cur.isMissingNode() || cur.isNull()) return null;
+            cur = cur.get(part);
+        }
+        return cur;
+    }
+
+    private static String jsonText(JsonNode node) {
+        if (node == null || node.isMissingNode() || node.isNull()) return null;
+        if (node.isValueNode()) return node.asText();
+        return node.toString();
+    }
+
+    private static boolean auditRowWithinWindow(Map<String, Object> row, Instant startTime, Instant endTime) {
+        String eventTime = row == null ? null : String.valueOf(row.getOrDefault("eventTime", "")).trim();
+        if (eventTime.isEmpty()) return true;
+        Instant instant = parseAuditInstant(eventTime);
+        if (instant == null) return true;
+        return !instant.isBefore(startTime) && !instant.isAfter(endTime);
+    }
+
+    private static Instant parseAuditInstant(String value) {
+        if (value == null || value.isBlank()) return null;
+        String text = value.trim();
+        try {
+            return Instant.parse(text);
+        } catch (Exception ignored) {
+        }
+        try {
+            return OffsetDateTime.parse(text).toInstant();
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     private static Object firstNonBlank(Map<String, Object> map, String k1, String k2) {

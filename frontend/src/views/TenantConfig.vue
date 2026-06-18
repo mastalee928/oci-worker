@@ -1808,9 +1808,6 @@ region=ap-tokyo-1"
               <a-select-option :value="14">最近 14 天</a-select-option>
               <a-select-option :value="30">最近 30 天</a-select-option>
             </a-select>
-            <span style="font-size: 12px; color: var(--text-sub)">
-              来源：OCI Audit（租户 compartment + 时间窗），身份域登录事件以 <code style="font-size:11px">additionalDetails.eventId</code> 为准（与 Oracle IAM 审计迁移文档一致）
-            </span>
           </a-space>
           <a-spin :spinning="auditLogsLoading">
             <a-empty v-if="!auditLogsLoading && !auditLogsLoaded" description="请点击「加载」按钮拉取当前域的登录日志" />
@@ -3113,11 +3110,6 @@ async function loadAuditLogs() {
     })
     auditLogs.value = Array.isArray(res.data) ? res.data : []
     auditLogsLoaded.value = true
-    const cur = auditLogs.value.find((d: any) => d.domainId === selectedDomainId.value)
-    const count = cur?.logs?.length || 0
-    if (!count && !cur?.error && !cur?.notice) {
-      message.info('最近时间窗口内未检索到登录相关日志')
-    }
   } catch (e: any) {
     message.error(e?.message || '获取登录日志失败')
   } finally {
