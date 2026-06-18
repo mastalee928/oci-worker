@@ -18,6 +18,8 @@ public class InstanceDetailDTO {
     private Double ocpus;
     private Double memory;
     private Integer disk;
+    /** 实际引导卷 VPUs/GB；创建后会读取/校准，用于日志和任务详情 */
+    private Integer vpusPerGB;
     private String publicIp;
     private String privateIp;
     /** 勾选 IPv6 且分配成功时的地址 */

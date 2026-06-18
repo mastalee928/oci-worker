@@ -417,7 +417,7 @@
               <a-table-column title="规格" key="spec" :width="140">
                 <template #default="{ record }">
                   <div style="font-weight:600">{{ record.ocpus }}C / {{ record.memory }}G</div>
-                  <div style="font-size:11px;color:var(--text-sub)">{{ record.disk }}GB · {{ record.shape }}</div>
+                  <div style="font-size:11px;color:var(--text-sub)">{{ formatTaskConfigDisk(record.disk, record.vpusPerGB) }} · {{ record.shape }}</div>
                 </template>
               </a-table-column>
               <a-table-column title="公网 IP" data-index="publicIp" :width="160">

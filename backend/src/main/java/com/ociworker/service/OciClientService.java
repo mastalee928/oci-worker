@@ -578,6 +578,7 @@ public class OciClientService implements Closeable {
                     result.setShape(shape.getShape());
                     fillResultHardwareFromLaunch(result, instance, shape);
                     result.setDisk(user.getDisk());
+                    ensureBootVolumeConfig(instance, result);
                     result.setPublicIp(publicIp);
                     result.setImage(image.getId());
                     result.setRootPassword(user.getRootPassword());
@@ -793,6 +794,111 @@ public class OciClientService implements Closeable {
                 result.setMemory(fixedShapeDefaultMemoryGb(shapeName));
             }
         }
+    }
+
+    private void ensureBootVolumeConfig(Instance instance, InstanceDetailDTO result) {
+        String bootVolumeId = waitForBootVolumeId(instance);
+        int targetVpus = BootVolumeVpusUtil.normalize(user.getVpusPerGB());
+        long targetSize = user.getDisk() != null ? user.getDisk() : 50L;
+        result.setVpusPerGB(targetVpus);
+        if (StrUtil.isBlank(bootVolumeId)) {
+            log.warn("【开机任务】用户:[{}],实例:[{}] - 未找到引导卷，无法校准 VPUs/GB",
+                    user.getUsername(), instance.getId());
+            return;
+        }
+        try {
+            BootVolume current = blockstorageClient.getBootVolume(
+                    GetBootVolumeRequest.builder().bootVolumeId(bootVolumeId).build()).getBootVolume();
+            Long currentVpus = current.getVpusPerGB();
+            Long currentSize = current.getSizeInGBs();
+            boolean needUpdate = currentVpus == null || currentVpus.intValue() != targetVpus
+                    || currentSize == null || currentSize.longValue() != targetSize;
+            if (needUpdate) {
+                UpdateBootVolumeDetails.Builder details = UpdateBootVolumeDetails.builder()
+                        .vpusPerGB((long) targetVpus);
+                if (currentSize == null || currentSize.longValue() != targetSize) {
+                    details.sizeInGBs(targetSize);
+                }
+                blockstorageClient.updateBootVolume(UpdateBootVolumeRequest.builder()
+                        .bootVolumeId(bootVolumeId)
+                        .updateBootVolumeDetails(details.build())
+                        .build());
+                log.info("【开机任务】用户:[{}],实例:[{}],引导卷:[{}] - 已校准为 {}GB/{}VPUs",
+                        user.getUsername(), instance.getId(), bootVolumeId, targetSize, targetVpus);
+            }
+            BootVolume after = needUpdate
+                    ? waitForBootVolumeConfig(bootVolumeId, targetSize, targetVpus)
+                    : current;
+            if (after.getSizeInGBs() != null) {
+                result.setDisk(after.getSizeInGBs().intValue());
+            }
+            if (after.getVpusPerGB() != null) {
+                result.setVpusPerGB(after.getVpusPerGB().intValue());
+            }
+        } catch (Exception e) {
+            log.warn("【开机任务】用户:[{}],实例:[{}],引导卷:[{}] - 校准 VPUs/GB 失败: {}",
+                    user.getUsername(), instance.getId(), bootVolumeId, e.getMessage());
+        }
+    }
+
+    private BootVolume waitForBootVolumeConfig(String bootVolumeId, long targetSize, int targetVpus) {
+        BootVolume last = null;
+        for (int i = 0; i < 10; i++) {
+            try {
+                last = blockstorageClient.getBootVolume(
+                        GetBootVolumeRequest.builder().bootVolumeId(bootVolumeId).build()).getBootVolume();
+                Long size = last.getSizeInGBs();
+                Long vpus = last.getVpusPerGB();
+                if (size != null && size.longValue() == targetSize
+                        && vpus != null && vpus.intValue() == targetVpus) {
+                    return last;
+                }
+            } catch (Exception e) {
+                log.debug("等待引导卷配置生效失败 bootVolumeId={} attempt={} err={}",
+                        bootVolumeId, i + 1, e.getMessage());
+            }
+            try {
+                Thread.sleep(3000L);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                break;
+            }
+        }
+        return last != null ? last : blockstorageClient.getBootVolume(
+                GetBootVolumeRequest.builder().bootVolumeId(bootVolumeId).build()).getBootVolume();
+    }
+
+    private String waitForBootVolumeId(Instance instance) {
+        if (instance == null || StrUtil.isBlank(instance.getId())) {
+            return null;
+        }
+        for (int i = 0; i < 12; i++) {
+            try {
+                ListBootVolumeAttachmentsResponse response = computeClient.listBootVolumeAttachments(
+                        ListBootVolumeAttachmentsRequest.builder()
+                                .compartmentId(compartmentId)
+                                .availabilityDomain(instance.getAvailabilityDomain())
+                                .instanceId(instance.getId())
+                                .build());
+                if (response.getItems() != null) {
+                    for (BootVolumeAttachment attachment : response.getItems()) {
+                        if (attachment != null && StrUtil.isNotBlank(attachment.getBootVolumeId())) {
+                            return attachment.getBootVolumeId();
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                log.debug("等待引导卷挂载信息失败 instanceId={} attempt={} err={}",
+                        instance.getId(), i + 1, e.getMessage());
+            }
+            try {
+                Thread.sleep(5000L);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return null;
+            }
+        }
+        return null;
     }
 
     private static double fixedShapeDefaultMemoryGb(String shapeName) {

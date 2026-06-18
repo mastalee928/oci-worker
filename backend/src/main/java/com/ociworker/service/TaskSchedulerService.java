@@ -244,8 +244,10 @@ public class TaskSchedulerService implements SmartLifecycle {
         scheduleTask(task.getId(), dto, interval);
 
         String series = ShapeSeriesUtil.resolveSeries(architecture);
-        String logMsg = String.format("【开机任务】用户:[%s],区域:[%s],架构:[%s],数量:[%d] - 任务已创建",
-                ociUser.getUsername(), effectiveRegion, series, createNumbers);
+        String diskConfig = BootVolumeVpusUtil.formatDiskWithVpus(disk != null ? disk : 50, task.getVpusPerGB());
+        String logMsg = String.format("【开机任务】用户:[%s],区域:[%s],架构:[%s]%s,配置:[%sC/%sGB/%s],数量:[%d] - 任务已创建",
+                ociUser.getUsername(), effectiveRegion, series, targetShapeForLog(architecture),
+                normalized[0], normalized[1], diskConfig, createNumbers);
         broadcastLog(logMsg);
 
         String pwd = rootPassword != null ? rootPassword : "随机";
@@ -255,7 +257,7 @@ public class TaskSchedulerService implements SmartLifecycle {
                 + "⚙️ <b>架构：</b>" + series + "\n"
                 + targetShapeLineForNotify(architecture)
                 + "📊 <b>配置：</b>" + normalized[0] + "C / " + normalized[1] + "GB / "
-                + BootVolumeVpusUtil.formatDiskWithVpus(disk != null ? disk : 50, task.getVpusPerGB()) + "\n"
+                + diskConfig + "\n"
                 + "🔢 <b>数量：</b>" + createNumbers + "\n"
                 + "🔑 <b>密码：</b><code>" + pwd + "</code>";
         notificationService.sendHtmlWithType(NotificationService.TYPE_TASK_CREATE, html);
@@ -443,6 +445,8 @@ public class TaskSchedulerService implements SmartLifecycle {
             }
             dto.setOcpus(launchNorm[0]);
             dto.setMemory(launchNorm[1]);
+            dto.setDisk(head.getDisk());
+            dto.setVpusPerGB(BootVolumeVpusUtil.normalize(head.getVpusPerGB()));
             user = dto.getUsername();
             region = dto.getOciCfg().getRegion();
             arch = dto.getArchitecture();
@@ -537,15 +541,19 @@ public class TaskSchedulerService implements SmartLifecycle {
                         appendCreatedInstance(taskId, result);
                         String shapeName = StrUtil.isNotBlank(result.getShape()) ? result.getShape() : arch;
                         String successSeries = ShapeSeriesUtil.resolveSeries(shapeName);
-                        broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],架构:[%s] - 实例创建成功(%d/%d)！IP:%s%s",
-                                user, region, successSeries, successCount, targetCount, result.getPublicIp(),
+                        String resultDiskConfig = BootVolumeVpusUtil.formatDiskWithVpus(
+                                result.getDisk() != null ? result.getDisk() : (dto.getDisk() != null ? dto.getDisk() : 50),
+                                result.getVpusPerGB() != null ? result.getVpusPerGB() : BootVolumeVpusUtil.normalize(dto.getVpusPerGB()));
+                        broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],架构:[%s],Shape:[%s],配置:[%sC/%sGB/%s] - 实例创建成功(%d/%d)！IP:%s%s",
+                                user, region, successSeries, shapeName, result.getOcpus(), result.getMemory(), resultDiskConfig,
+                                successCount, targetCount, result.getPublicIp(),
                                 StrUtil.isNotBlank(result.getIpv6Address()) ? " IPv6:" + result.getIpv6Address() : ""));
                         String html = "🎉 <b>实例创建成功！</b>（" + successCount + "/" + targetCount + "）\n\n"
                                 + "👤 <b>租户：</b>" + user + "\n"
                                 + "🌍 <b>区域：</b>" + region + "\n"
                                 + "⚙️ <b>架构：</b>" + successSeries + "\n"
                                 + "💻 <b>Shape：</b><code>" + shapeName + "</code>\n"
-                                + "📊 <b>配置：</b>" + result.getOcpus() + "C / " + result.getMemory() + "GB / " + result.getDisk() + "GB\n"
+                                + "📊 <b>配置：</b>" + result.getOcpus() + "C / " + result.getMemory() + "GB / " + resultDiskConfig + "\n"
                                 + "🌐 <b>公网IP：</b><code>" + result.getPublicIp() + "</code>\n"
                                 + (StrUtil.isNotBlank(result.getIpv6Address())
                                 ? "🌐 <b>IPv6：</b><code>" + result.getIpv6Address() + "</code>\n" : "")
@@ -618,6 +626,7 @@ public class TaskSchedulerService implements SmartLifecycle {
             item.put("ocpus", result.getOcpus());
             item.put("memory", result.getMemory());
             item.put("disk", result.getDisk());
+            item.put("vpusPerGB", result.getVpusPerGB());
             item.put("publicIp", result.getPublicIp());
             item.put("privateIp", result.getPrivateIp());
             if (StrUtil.isNotBlank(result.getIpv6Address())) {
@@ -686,11 +695,7 @@ public class TaskSchedulerService implements SmartLifecycle {
     }
 
     private void completeTask(String taskId, TaskStatusEnum status, String failureReason) {
-        Future<?> future = taskMap.get(taskId);
-        if (future != null) {
-            future.cancel(true);
-            taskMap.remove(taskId);
-        }
+        taskMap.remove(taskId);
         clearTaskExcludedAds(taskId);
         OciCreateTask task = taskMapper.selectById(taskId);
         if (task != null) {
@@ -784,6 +789,13 @@ public class TaskSchedulerService implements SmartLifecycle {
     private static String targetShapeLineForNotify(String shapeOrArchitecture) {
         if (ShapeSeriesUtil.isFullShapeName(shapeOrArchitecture)) {
             return "💻 <b>Shape：</b><code>" + shapeOrArchitecture.trim() + "</code>\n";
+        }
+        return "";
+    }
+
+    private static String targetShapeForLog(String shapeOrArchitecture) {
+        if (ShapeSeriesUtil.isFullShapeName(shapeOrArchitecture)) {
+            return ",Shape:[" + shapeOrArchitecture.trim() + "]";
         }
         return "";
     }
