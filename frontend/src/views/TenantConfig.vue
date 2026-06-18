@@ -1818,6 +1818,29 @@ region=ap-tokyo-1"
             </div>
           </a-spin>
         </a-tab-pane>
+        <a-tab-pane key="audit" tab="审计日志">
+          <a-space style="margin-bottom: 12px" wrap>
+            <a-button type="primary" @click="loadDomainAuditLogs" :loading="domainAuditLogsLoading" :disabled="!selectedDomainId">
+              <template #icon><ReloadOutlined /></template>加载最近{{ domainAuditDays }}天审计日志
+            </a-button>
+            <a-select v-model:value="domainAuditDays" style="width: 120px" @change="onDomainAuditDaysChange">
+              <a-select-option :value="1">最近 1 天</a-select-option>
+              <a-select-option :value="3">最近 3 天</a-select-option>
+              <a-select-option :value="7">最近 7 天</a-select-option>
+              <a-select-option :value="14">最近 14 天</a-select-option>
+              <a-select-option :value="30">最近 30 天</a-select-option>
+            </a-select>
+          </a-space>
+          <a-spin :spinning="domainAuditLogsLoading">
+            <a-empty v-if="!domainAuditLogsLoading && !domainAuditLogsLoaded" description="请点击「加载」按钮拉取当前域的审计日志" />
+            <a-empty v-else-if="!domainAuditLogsLoading && !selectedDomainAudit" description="未读取到当前域的审计日志结果，请重新加载" />
+            <div v-else-if="selectedDomainAudit">
+              <AuditLogTable :rows="selectedDomainAudit.logs || []"
+                :error="selectedDomainAudit.error || selectedDomainAudit.notice" :is-mobile="isMobile"
+                :event-labels="NOTIFICATION_EVENT_LABELS" />
+            </div>
+          </a-spin>
+        </a-tab-pane>
         
       </a-tabs>
     </a-modal>
@@ -2418,6 +2441,11 @@ const auditLogsLoaded = ref(false)
 const auditLogs = ref<any[]>([])
 const auditDays = ref(7)
 let auditLogsRequestSeq = 0
+const domainAuditLogsLoading = ref(false)
+const domainAuditLogsLoaded = ref(false)
+const domainAuditLogs = ref<any[]>([])
+const domainAuditDays = ref(7)
+let domainAuditLogsRequestSeq = 0
 const notificationLoading = ref(false)
 const notificationSaving = ref(false)
 const notificationData = ref<any | null>(null)
@@ -2451,6 +2479,9 @@ const selectedFactorDomain = computed<any | null>(() =>
 )
 const selectedAuditDomain = computed<any | null>(() =>
   auditLogs.value.find((d: any) => d.domainId === selectedDomainId.value) || null,
+)
+const selectedDomainAudit = computed<any | null>(() =>
+  domainAuditLogs.value.find((d: any) => d.domainId === selectedDomainId.value) || null,
 )
 const notificationEvents = computed<any[]>(() =>
   Array.isArray(notificationData.value?.eventSettings) ? notificationData.value.eventSettings : [],
@@ -2598,9 +2629,14 @@ function handleDomainChange(domainId: string) {
   auditLogs.value = []
   auditLogsLoaded.value = false
   auditLogsLoading.value = false
+  domainAuditLogsRequestSeq++
+  domainAuditLogs.value = []
+  domainAuditLogsLoaded.value = false
+  domainAuditLogsLoading.value = false
   resetNotificationState(true)
   if (domainTab.value === 'notifications' && notificationToken.value) void loadDomainNotifications()
   if (domainTab.value === 'logs') void loadAuditLogs()
+  if (domainTab.value === 'audit') void loadDomainAuditLogs()
 }
 
 watch(() => domainTab.value, (tab) => {
@@ -2614,6 +2650,13 @@ function onAuditDaysChange() {
   auditLogs.value = []
   auditLogsLoaded.value = false
   auditLogsLoading.value = false
+}
+
+function onDomainAuditDaysChange() {
+  domainAuditLogsRequestSeq++
+  domainAuditLogs.value = []
+  domainAuditLogsLoaded.value = false
+  domainAuditLogsLoading.value = false
 }
 
 async function sendNotificationCode() {
@@ -2912,6 +2955,10 @@ async function openDomainMgmt(record: any) {
   auditLogs.value = []
   auditLogsLoaded.value = false
   auditLogsLoading.value = false
+  domainAuditLogsRequestSeq++
+  domainAuditLogs.value = []
+  domainAuditLogsLoaded.value = false
+  domainAuditLogsLoading.value = false
   resetNotificationState()
   resetAuthFactorState()
   domainMgmtVisible.value = true
@@ -3122,6 +3169,7 @@ async function loadAuditLogs() {
       id: tenantId,
       days: auditDays.value,
       domainId,
+      mode: 'login',
     })
     if (seq !== auditLogsRequestSeq || domainId !== selectedDomainId.value) return
     auditLogs.value = Array.isArray(res.data) ? res.data : []
@@ -3134,6 +3182,43 @@ async function loadAuditLogs() {
   } finally {
     if (seq === auditLogsRequestSeq) {
       auditLogsLoading.value = false
+    }
+  }
+}
+
+async function loadDomainAuditLogs() {
+  if (!selectedDomainId.value) {
+    message.warning('请先选择域')
+    return
+  }
+  const seq = ++domainAuditLogsRequestSeq
+  const tenantId = domainMgmtTenant.value?.id
+  const domainId = selectedDomainId.value
+  if (!tenantId) {
+    message.warning('请先选择租户')
+    return
+  }
+  domainAuditLogsLoading.value = true
+  domainAuditLogsLoaded.value = false
+  domainAuditLogs.value = []
+  try {
+    const res = await getAuditLogs({
+      id: tenantId,
+      days: domainAuditDays.value,
+      domainId,
+      mode: 'audit',
+    })
+    if (seq !== domainAuditLogsRequestSeq || domainId !== selectedDomainId.value) return
+    domainAuditLogs.value = Array.isArray(res.data) ? res.data : []
+    domainAuditLogsLoaded.value = true
+  } catch (e: any) {
+    if (seq !== domainAuditLogsRequestSeq) return
+    domainAuditLogs.value = []
+    domainAuditLogsLoaded.value = true
+    message.error(e?.message || '获取审计日志失败')
+  } finally {
+    if (seq === domainAuditLogsRequestSeq) {
+      domainAuditLogsLoading.value = false
     }
   }
 }

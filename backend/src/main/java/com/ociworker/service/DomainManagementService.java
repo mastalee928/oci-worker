@@ -58,6 +58,8 @@ public class DomainManagementService {
     private static final int DOMAIN_AUDIT_READ_TIMEOUT_SECONDS = 8;
     private static final int DOMAIN_AUDIT_PAGE_SIZE = 100;
     private static final int DOMAIN_AUDIT_MAX_PAGES = 3;
+    private static final String AUDIT_MODE_LOGIN = "login";
+    private static final String AUDIT_MODE_AUDIT = "audit";
 
     @Resource
     private OciUserMapper userMapper;
@@ -599,7 +601,7 @@ public class DomainManagementService {
         return "true".equals(s) || "1".equals(s) || "yes".equals(s) || "y".equals(s) || "启用".equals(s) || "是".equals(s);
     }
 
-    private String trimToNull(Object value) {
+    private static String trimToNull(Object value) {
         if (value == null) return null;
         String s = String.valueOf(value).trim();
         return s.isEmpty() ? null : s;
@@ -675,10 +677,15 @@ public class DomainManagementService {
     }
 
     public List<Map<String, Object>> getAuditLogs(String tenantId, int days, String domainId) {
+        return getAuditLogs(tenantId, days, domainId, AUDIT_MODE_LOGIN);
+    }
+
+    public List<Map<String, Object>> getAuditLogs(String tenantId, int days, String domainId, String mode) {
         List<Map<String, Object>> result = new ArrayList<>();
         try (OciClientService client = buildClient(tenantId)) {
             var domains = listDomains(client, true);
             if (domains.isEmpty()) throw new OciException("未找到 Identity Domain");
+            String auditMode = normalizeAuditMode(mode);
 
             int window = Math.max(1, Math.min(days, 30));
             Instant endInstant = Instant.now().truncatedTo(java.time.temporal.ChronoUnit.MINUTES);
@@ -702,12 +709,12 @@ public class DomainManagementService {
             }
 
             try {
-                return listIdentityDomainAuditLogs(client, domains, startTime.toInstant(), endTime.toInstant(), selectedDomainId);
+                return listIdentityDomainAuditLogs(client, domains, startTime.toInstant(), endTime.toInstant(), selectedDomainId, auditMode);
             } catch (Exception e) {
                 String message = describeIdentityDomainAuditFailure(e);
                 log.warn("Identity Domain AuditEvents query failed tenantId={} days={} domainId={}: {}",
                         tenantId, window, selectedDomainId, e.getMessage());
-                if (selectedDomainId != null) {
+                if (selectedDomainId != null || AUDIT_MODE_AUDIT.equals(auditMode)) {
                     return buildAuditFailureEntries(domains, selectedDomainId, message);
                 }
             }
@@ -761,7 +768,12 @@ public class DomainManagementService {
                         if (an != null && !String.valueOf(an).isBlank()) {
                             actorName = String.valueOf(an).trim();
                         }
-                        Object a = firstNonBlank(addl, "ssoProtectedResource", "protectedResource");
+                        Object a = firstNonBlank(addl,
+                                "ssoProtectedResource",
+                                "protectedResource",
+                                "target",
+                                "targetName",
+                                "targetDisplayName");
                         if (a != null) ssoProtectedResource = String.valueOf(a);
                         Object ap = firstNonBlank(addl, "ssoApplicationType", "applicationDisplayName");
                         if (ap != null) ssoApp = String.valueOf(ap);
@@ -843,7 +855,8 @@ public class DomainManagementService {
                                                                   List<Map<String, Object>> domains,
                                                                   Instant startTime,
                                                                   Instant endTime,
-                                                                  String selectedDomainId) {
+                                                                  String selectedDomainId,
+                                                                  String mode) {
         List<Map<String, Object>> result = new ArrayList<>();
         HttpClient http = newDomainAuditHttpClient();
         RequestSigner signer = DefaultRequestSigner.createRequestSigner(client.getProvider());
@@ -863,7 +876,7 @@ public class DomainManagementService {
                     throw new OciException("Identity Domain URL 为空，无法读取审计日志");
                 }
                 DomainAuditQueryResult query = fetchIdentityDomainAuditEvents(
-                        http, signer, domainUrl, startTime, endTime, deadlineNanos);
+                        http, signer, domainUrl, startTime, endTime, deadlineNanos, mode);
                 logs = query.rows();
                 String notice = buildIdentityDomainAuditNotice(query);
                 if (notice != null) appendNotice(entry, notice);
@@ -890,9 +903,12 @@ public class DomainManagementService {
                                                                   String domainUrl,
                                                                   Instant startTime,
                                                                   Instant endTime,
-                                                                  long deadlineNanos) {
+                                                                  long deadlineNanos,
+                                                                  String mode) {
         List<Map<String, Object>> rows = new ArrayList<>();
         String baseUrl = normalizeDomainUrl(domainUrl) + "/admin/v1/AuditEvents";
+        boolean loginMode = AUDIT_MODE_LOGIN.equals(mode);
+        boolean auditMode = AUDIT_MODE_AUDIT.equals(mode);
         int startIndex = 1;
         int pages = 0;
         int rawEvents = 0;
@@ -906,7 +922,7 @@ public class DomainManagementService {
             }
             pages++;
             JsonNode root = readIdentityDomainAuditPage(
-                    http, signer, baseUrl, startTime, endTime, startIndex, true, true, deadlineNanos);
+                    http, signer, baseUrl, startTime, endTime, startIndex, true, loginMode, deadlineNanos);
             JsonNode resources = root.path("Resources");
             if (!resources.isArray() || resources.isEmpty()) break;
             rawEvents += resources.size();
@@ -915,6 +931,9 @@ public class DomainManagementService {
                 Map<String, Object> row = mapIdentityDomainAuditEvent(item);
                 if (row == null) continue;
                 if (!auditRowWithinWindow(row, startTime, endTime)) continue;
+                boolean loginRow = matchesLoginAuditRow(row);
+                if (loginMode && !loginRow) continue;
+                if (auditMode && loginRow) continue;
                 rows.add(row);
                 if (rows.size() >= AUDIT_MAX_LOGIN_EVENTS) break;
             }
@@ -1052,7 +1071,14 @@ public class DomainManagementService {
         row.put("actorDisplayName", actorDisplayName == null ? actorName : actorDisplayName);
         row.put("ssoIdentityProvider", firstText(item, "ssoIdentityProvider", "identityProvider"));
         row.put("ssoApplicationType", firstText(item, "ssoApplicationType", "applicationType", "clientName"));
-        row.put("ssoProtectedResource", firstText(item, "ssoProtectedResource", "protectedResource", "applicationDisplayName", "resourceName"));
+        row.put("ssoProtectedResource", firstText(item,
+                "ssoProtectedResource",
+                "protectedResource",
+                "target",
+                "targetName",
+                "targetDisplayName",
+                "applicationDisplayName",
+                "resourceName"));
         row.put("ssoUserAgent", firstText(item, "ssoUserAgent", "userAgent", "client.userAgent"));
         row.put("clientIp", clientIp);
         row.put("ssoAuthFactor", firstText(item, "ssoAuthFactor", "authFactor"));
@@ -1102,7 +1128,7 @@ public class DomainManagementService {
 
     private static String describeIdentityDomainAuditFailure(Exception e) {
         if (isTransientAuditFailure(e)) {
-            return "身份域登录日志读取超时，未能取得登录日志；可缩短时间窗口或稍后重试。";
+            return "身份域审计日志读取超时，未能取得日志；可缩短时间窗口或稍后重试。";
         }
         String raw = e == null || e.getMessage() == null ? "" : e.getMessage().trim();
         if (raw.contains("HTTP 401") || raw.contains("HTTP 403")) {
@@ -1112,9 +1138,15 @@ public class DomainManagementService {
             return "当前身份域的审计日志端点不可用，请确认域地址和权限是否正常。";
         }
         raw = raw.replaceAll("\\s*\\(opc-request-id:.*", "");
-        if (raw.isEmpty()) return "身份域登录日志读取失败，请稍后重试。";
+        if (raw.isEmpty()) return "身份域审计日志读取失败，请稍后重试。";
         if (raw.length() > 180) raw = raw.substring(0, 180) + "...";
-        return "身份域登录日志读取失败：" + raw;
+        return "身份域审计日志读取失败：" + raw;
+    }
+
+    private static String normalizeAuditMode(String mode) {
+        String value = mode == null ? "" : mode.trim().toLowerCase(Locale.ROOT);
+        if (AUDIT_MODE_AUDIT.equals(value)) return AUDIT_MODE_AUDIT;
+        return AUDIT_MODE_LOGIN;
     }
 
     private AuditQueryResult listLoginAuditEvents(OciClientService client,
@@ -1664,11 +1696,12 @@ public class DomainManagementService {
         }
     }
 
-    private static Object firstNonBlank(Map<String, Object> map, String k1, String k2) {
-        Object v1 = map == null ? null : map.get(k1);
-        if (v1 != null && String.valueOf(v1).trim().length() > 0) return v1;
-        Object v2 = map == null ? null : map.get(k2);
-        if (v2 != null && String.valueOf(v2).trim().length() > 0) return v2;
+    private static Object firstNonBlank(Map<String, Object> map, String... keys) {
+        if (map == null || keys == null) return null;
+        for (String key : keys) {
+            Object value = map.get(key);
+            if (value != null && !String.valueOf(value).trim().isEmpty()) return value;
+        }
         return null;
     }
 
@@ -1737,6 +1770,13 @@ public class DomainManagementService {
             return matchesLoginAuditScmEventId(scmEventIdNullable);
         }
         return matchesLoginAuditByLegacyEventType(eventTypeFull);
+    }
+
+    private static boolean matchesLoginAuditRow(Map<String, Object> row) {
+        if (row == null) return false;
+        String eventId = trimToNull(row.get("eventId"));
+        String auditEventType = trimToNull(row.get("auditEventType"));
+        return matchesLoginAuditEvent(eventId, auditEventType);
     }
 
     private static boolean matchesLoginAuditEvent(AuditEvent event) {

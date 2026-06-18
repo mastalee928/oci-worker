@@ -236,7 +236,8 @@ public class TenantController {
         }
         String id = str(params, "id");
         String domainId = str(params, "domainId");
-        return ResponseData.ok(domainManagementService.getAuditLogs(id, days, domainId));
+        String mode = str(params, "mode");
+        return ResponseData.ok(domainManagementService.getAuditLogs(id, days, domainId, mode));
     }
 
     @PostMapping("/quotas")

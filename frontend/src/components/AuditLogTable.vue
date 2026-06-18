@@ -39,7 +39,7 @@
       </template>
     </a-table-column>
     <a-table-column data-index="ssoProtectedResource" key="ssoProtectedResource" :width="216" :ellipsis="{ showTitle: false }">
-      <template #title><span class="audit-th">应用/资源</span></template>
+      <template #title><span class="audit-th">应用/目标</span></template>
       <template #default="{ text }">
         <a-tooltip :title="text || undefined">
           <span style="font-size: 12px">{{ text || '—' }}</span>
@@ -63,7 +63,7 @@
         <div class="mobile-card-row"><span class="label">用户</span><span class="value">{{ actorText(log) }}</span></div>
         <div class="mobile-card-row"><span class="label">IP</span><span class="value">{{ log.clientIp || '—' }}</span></div>
         <div v-if="log.ssoIdentityProvider" class="mobile-card-row"><span class="label">提供者</span><span class="value">{{ log.ssoIdentityProvider }}</span></div>
-        <div v-if="log.ssoProtectedResource" class="mobile-card-row"><span class="label">资源</span><span class="value">{{ log.ssoProtectedResource }}</span></div>
+        <div v-if="log.ssoProtectedResource" class="mobile-card-row"><span class="label">目标</span><span class="value">{{ log.ssoProtectedResource }}</span></div>
         <div v-if="log.message" class="mobile-card-row"><span class="label">备注</span><span class="value">{{ log.message }}</span></div>
       </div>
     </div>
@@ -71,10 +71,11 @@
 </template>
 
 <script setup lang="ts">
-defineProps<{
+const props = defineProps<{
   rows: any[]
   error?: string
   isMobile?: boolean
+  eventLabels?: Record<string, string>
 }>()
 
 function formatTime(t?: string) {
@@ -106,6 +107,7 @@ function eventLabel(id?: string) {
     'sso.app.access.failure': '应用访问失败',
     'sso.auth.factor.initiated': 'MFA 因素发起',
   }
+  if (props.eventLabels?.[id]) return props.eventLabels[id]
   if (map[id]) return map[id]
   if (id.endsWith('.success')) return id.replace(/\.success$/, '') + ' 成功'
   if (id.endsWith('.failure')) return id.replace(/\.failure$/, '') + ' 失败'
