@@ -117,6 +117,8 @@ public class InstanceService {
                     .build();
             client.getComputeClient().instanceAction(request);
             log.info("Instance {} action: {}", instanceId, action);
+        } catch (com.oracle.bmc.model.BmcException e) {
+            throw new OciException(tag(ociUser) + "操作失败: " + extractInstanceActionErrorMessage(e));
         } catch (Exception e) {
             throw new OciException(tag(ociUser) + "操作失败: " + e.getMessage());
         }
@@ -1361,6 +1363,18 @@ public class InstanceService {
             return "请求过于频繁，请稍后重试。";
         }
         return msg.length() > 150 ? msg.substring(0, 150) + "..." : msg;
+    }
+
+    private String extractInstanceActionErrorMessage(com.oracle.bmc.model.BmcException e) {
+        String msg = e.getMessage();
+        if (msg == null || msg.isEmpty()) {
+            return "OCI 调用失败（无详细信息）";
+        }
+        if (msg.contains("InstanceAction operation in Compute service")
+                && msg.contains("is disabled and will not accept any action requests")) {
+            return "实例已被禁用，不会接受任何操作请求。请联系客户支持以重新启用。";
+        }
+        return extractOciErrorMessage(e);
     }
 
     private SysUserDTO buildBasicDTO(OciUser ociUser) {

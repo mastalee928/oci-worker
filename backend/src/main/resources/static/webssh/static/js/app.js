@@ -96,12 +96,6 @@ document.getElementById('loginForm').addEventListener('submit', function (e) {
     connectFromLogin();
 });
 
-document.addEventListener('keydown', function (e) {
-    if (e.key === 'Escape' && document.getElementById('terminalView').classList.contains('active')) {
-        closeActiveTab();
-    }
-});
-
 // ==================== Proxy Config ====================
 var PROXY_KEY = 'webssh_proxy';
 
