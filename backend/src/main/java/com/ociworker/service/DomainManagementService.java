@@ -54,8 +54,10 @@ public class DomainManagementService {
     private static final int AUDIT_RETRY_SLICE_HOURS = 1;
     private static final int AUDIT_MAX_PAGES_PER_SLICE = 2;
     private static final int AUDIT_MAX_LOGIN_EVENTS = 500;
+    private static final long DOMAIN_AUDIT_QUERY_BUDGET_MS = 12_000L;
+    private static final int DOMAIN_AUDIT_READ_TIMEOUT_SECONDS = 8;
     private static final int DOMAIN_AUDIT_PAGE_SIZE = 100;
-    private static final int DOMAIN_AUDIT_MAX_PAGES = 10;
+    private static final int DOMAIN_AUDIT_MAX_PAGES = 3;
 
     @Resource
     private OciUserMapper userMapper;
@@ -702,8 +704,12 @@ public class DomainManagementService {
             try {
                 return listIdentityDomainAuditLogs(client, domains, startTime.toInstant(), endTime.toInstant(), selectedDomainId);
             } catch (Exception e) {
-                log.warn("Identity Domain AuditEvents query failed tenantId={} days={} domainId={}, fallback to OCI Audit: {}",
+                String message = describeIdentityDomainAuditFailure(e);
+                log.warn("Identity Domain AuditEvents query failed tenantId={} days={} domainId={}: {}",
                         tenantId, window, selectedDomainId, e.getMessage());
+                if (selectedDomainId != null) {
+                    return buildAuditFailureEntries(domains, selectedDomainId, message);
+                }
             }
 
             AuditQueryResult query;
@@ -841,6 +847,7 @@ public class DomainManagementService {
         List<Map<String, Object>> result = new ArrayList<>();
         HttpClient http = newDomainAuditHttpClient();
         RequestSigner signer = DefaultRequestSigner.createRequestSigner(client.getProvider());
+        long deadlineNanos = System.nanoTime() + Duration.ofMillis(DOMAIN_AUDIT_QUERY_BUDGET_MS).toNanos();
 
         for (var d : domains) {
             Map<String, Object> entry = new LinkedHashMap<>();
@@ -855,7 +862,11 @@ public class DomainManagementService {
                 if (domainUrl == null) {
                     throw new OciException("Identity Domain URL 为空，无法读取审计日志");
                 }
-                logs = fetchIdentityDomainAuditEvents(http, signer, domainUrl, startTime, endTime);
+                DomainAuditQueryResult query = fetchIdentityDomainAuditEvents(
+                        http, signer, domainUrl, startTime, endTime, deadlineNanos);
+                logs = query.rows();
+                String notice = buildIdentityDomainAuditNotice(query);
+                if (notice != null) appendNotice(entry, notice);
             }
             logs.sort((a, b) -> String.valueOf(b.getOrDefault("eventTime", ""))
                     .compareTo(String.valueOf(a.getOrDefault("eventTime", ""))));
@@ -874,20 +885,31 @@ public class DomainManagementService {
                 .build();
     }
 
-    private List<Map<String, Object>> fetchIdentityDomainAuditEvents(HttpClient http,
-                                                                     RequestSigner signer,
-                                                                     String domainUrl,
-                                                                     Instant startTime,
-                                                                     Instant endTime) {
+    private DomainAuditQueryResult fetchIdentityDomainAuditEvents(HttpClient http,
+                                                                  RequestSigner signer,
+                                                                  String domainUrl,
+                                                                  Instant startTime,
+                                                                  Instant endTime,
+                                                                  long deadlineNanos) {
         List<Map<String, Object>> rows = new ArrayList<>();
         String baseUrl = normalizeDomainUrl(domainUrl) + "/admin/v1/AuditEvents";
         int startIndex = 1;
         int pages = 0;
+        int rawEvents = 0;
+        boolean partial = false;
+        boolean timedOut = false;
         while (rows.size() < AUDIT_MAX_LOGIN_EVENTS && pages < DOMAIN_AUDIT_MAX_PAGES) {
+            if (System.nanoTime() >= deadlineNanos) {
+                partial = true;
+                timedOut = true;
+                break;
+            }
             pages++;
-            JsonNode root = readIdentityDomainAuditPage(http, signer, baseUrl, startTime, endTime, startIndex, true);
+            JsonNode root = readIdentityDomainAuditPage(
+                    http, signer, baseUrl, startTime, endTime, startIndex, true, true, deadlineNanos);
             JsonNode resources = root.path("Resources");
             if (!resources.isArray() || resources.isEmpty()) break;
+            rawEvents += resources.size();
 
             for (JsonNode item : resources) {
                 Map<String, Object> row = mapIdentityDomainAuditEvent(item);
@@ -902,8 +924,12 @@ public class DomainManagementService {
             if (fetched <= 0 || fetched < DOMAIN_AUDIT_PAGE_SIZE) break;
             startIndex += fetched;
             if (total > 0 && startIndex > total) break;
+            if (rows.size() >= AUDIT_MAX_LOGIN_EVENTS || pages >= DOMAIN_AUDIT_MAX_PAGES) {
+                partial = true;
+                break;
+            }
         }
-        return rows;
+        return new DomainAuditQueryResult(rows, partial, timedOut, pages, rawEvents);
     }
 
     private JsonNode readIdentityDomainAuditPage(HttpClient http,
@@ -912,12 +938,22 @@ public class DomainManagementService {
                                                  Instant startTime,
                                                  Instant endTime,
                                                  int startIndex,
-                                                 boolean withSort) {
-        URI uri = identityDomainAuditUri(baseUrl, startTime, endTime, startIndex, withSort);
-        HttpResponse<String> resp = sendSignedIdentityDomainGet(http, signer, uri);
+                                                 boolean withSort,
+                                                 boolean withLoginFilter,
+                                                 long deadlineNanos) {
+        URI uri = identityDomainAuditUri(baseUrl, startTime, endTime, startIndex, withSort, withLoginFilter);
+        HttpResponse<String> resp = sendSignedIdentityDomainGet(http, signer, uri, deadlineNanos);
         if (resp.statusCode() == 400 && withSort) {
-            uri = identityDomainAuditUri(baseUrl, startTime, endTime, startIndex, false);
-            resp = sendSignedIdentityDomainGet(http, signer, uri);
+            uri = identityDomainAuditUri(baseUrl, startTime, endTime, startIndex, false, withLoginFilter);
+            resp = sendSignedIdentityDomainGet(http, signer, uri, deadlineNanos);
+        }
+        if (resp.statusCode() == 400 && withLoginFilter) {
+            uri = identityDomainAuditUri(baseUrl, startTime, endTime, startIndex, withSort, false);
+            resp = sendSignedIdentityDomainGet(http, signer, uri, deadlineNanos);
+            if (resp.statusCode() == 400 && withSort) {
+                uri = identityDomainAuditUri(baseUrl, startTime, endTime, startIndex, false, false);
+                resp = sendSignedIdentityDomainGet(http, signer, uri, deadlineNanos);
+            }
         }
         if (resp.statusCode() / 100 != 2) {
             throw new OciException("Identity Domain AuditEvents 查询失败: HTTP "
@@ -934,8 +970,9 @@ public class DomainManagementService {
                                        Instant startTime,
                                        Instant endTime,
                                        int startIndex,
-                                       boolean withSort) {
-        String filter = "timestamp ge \"" + startTime + "\" and timestamp le \"" + endTime + "\"";
+                                       boolean withSort,
+                                       boolean withLoginFilter) {
+        String filter = identityDomainAuditFilter(startTime, endTime, withLoginFilter);
         StringBuilder sb = new StringBuilder(baseUrl);
         appendQuery(sb, "filter", filter);
         appendQuery(sb, "count", String.valueOf(DOMAIN_AUDIT_PAGE_SIZE));
@@ -947,7 +984,21 @@ public class DomainManagementService {
         return URI.create(sb.toString());
     }
 
-    private HttpResponse<String> sendSignedIdentityDomainGet(HttpClient http, RequestSigner signer, URI uri) {
+    private static String identityDomainAuditFilter(Instant startTime, Instant endTime, boolean withLoginFilter) {
+        String timeFilter = "timestamp ge \"" + startTime + "\" and timestamp le \"" + endTime + "\"";
+        if (!withLoginFilter) return timeFilter;
+        String loginFilter = "(eventId sw \"sso.session.\""
+                + " or eventId eq \"sso.authentication.failure\""
+                + " or eventId sw \"sso.app.access.\""
+                + " or eventId sw \"admin.authentication.\""
+                + " or eventId eq \"sso.auth.factor.initiated\")";
+        return timeFilter + " and " + loginFilter;
+    }
+
+    private HttpResponse<String> sendSignedIdentityDomainGet(HttpClient http,
+                                                             RequestSigner signer,
+                                                             URI uri,
+                                                             long deadlineNanos) {
         Map<String, List<String>> headers = new LinkedHashMap<>();
         headers.put("accept", listHeader("application/json"));
         headers.put("host", listHeader(uri.getHost()));
@@ -955,7 +1006,7 @@ public class DomainManagementService {
             Map<String, List<String>> signed = castSignedHeaders(signer.signRequest(uri, "GET", headers, null));
             HttpRequest.Builder b = HttpRequest.newBuilder(uri)
                     .GET()
-                    .timeout(Duration.ofSeconds(30));
+                    .timeout(domainAuditRequestTimeout(deadlineNanos));
             applyHeaders(b, headers);
             applyHeaders(b, signed);
             return http.send(b.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
@@ -965,6 +1016,16 @@ public class DomainManagementService {
         } catch (IOException e) {
             throw new OciException("Identity Domain AuditEvents 查询失败: " + e.getMessage());
         }
+    }
+
+    private static Duration domainAuditRequestTimeout(long deadlineNanos) {
+        long remainingNanos = deadlineNanos - System.nanoTime();
+        if (remainingNanos <= 0) {
+            throw new OciException("Identity Domain AuditEvents 查询超时");
+        }
+        Duration remaining = Duration.ofNanos(remainingNanos);
+        Duration cap = Duration.ofSeconds(DOMAIN_AUDIT_READ_TIMEOUT_SECONDS);
+        return remaining.compareTo(cap) < 0 ? remaining : cap;
     }
 
     private Map<String, Object> mapIdentityDomainAuditEvent(JsonNode item) {
@@ -1031,6 +1092,23 @@ public class DomainManagementService {
         raw = raw.replaceAll("\\s*\\(opc-request-id:.*", "");
         if (raw.length() > 180) raw = raw.substring(0, 180) + "...";
         return "OCI Audit 查询失败：" + raw;
+    }
+
+    private static String describeIdentityDomainAuditFailure(Exception e) {
+        if (isTransientAuditFailure(e)) {
+            return "身份域登录日志读取超时，未能取得登录日志；可缩短时间窗口或稍后重试。";
+        }
+        String raw = e == null || e.getMessage() == null ? "" : e.getMessage().trim();
+        if (raw.contains("HTTP 401") || raw.contains("HTTP 403")) {
+            return "当前 API 用户没有读取身份域审计事件的权限，请检查 Identity Domains 审计日志读取权限。";
+        }
+        if (raw.contains("HTTP 404")) {
+            return "当前身份域的审计日志端点不可用，请确认域地址和权限是否正常。";
+        }
+        raw = raw.replaceAll("\\s*\\(opc-request-id:.*", "");
+        if (raw.isEmpty()) return "身份域登录日志读取失败，请稍后重试。";
+        if (raw.length() > 180) raw = raw.substring(0, 180) + "...";
+        return "身份域登录日志读取失败：" + raw;
     }
 
     private AuditQueryResult listLoginAuditEvents(OciClientService client,
@@ -1282,7 +1360,9 @@ public class DomainManagementService {
                 || msg.contains("read timed out")
                 || msg.contains("connect timed out")
                 || msg.contains("processingexception")
-                || msg.contains("timeout");
+                || msg.contains("timed out")
+                || msg.contains("timeout")
+                || msg.contains("超时");
     }
 
     private static class AuditQueryState {
@@ -1338,6 +1418,13 @@ public class DomainManagementService {
                                     int unresolvedSkippedCount) {
     }
 
+    private record DomainAuditQueryResult(List<Map<String, Object>> rows,
+                                          boolean partial,
+                                          boolean timedOut,
+                                          int pages,
+                                          int rawEvents) {
+    }
+
     private static String buildAuditQueryNotice(AuditQueryResult query) {
         if (query == null) return null;
         List<String> notices = new ArrayList<>();
@@ -1352,6 +1439,14 @@ public class DomainManagementService {
             notices.add("部分区域的 Audit 查询失败，结果可能不完整。");
         }
         return notices.isEmpty() ? null : String.join(" ", notices);
+    }
+
+    private static String buildIdentityDomainAuditNotice(DomainAuditQueryResult query) {
+        if (query == null || !query.partial()) return null;
+        if (query.timedOut()) {
+            return "身份域登录日志查询耗时较长，已停止继续等待；仅显示已获取的最近部分日志。";
+        }
+        return "身份域登录日志较多，仅显示已扫描到的最近部分日志。";
     }
 
     private static void appendNotice(Map<String, Object> entry, String notice) {

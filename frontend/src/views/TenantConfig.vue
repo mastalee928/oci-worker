@@ -2417,6 +2417,7 @@ const auditLogsLoading = ref(false)
 const auditLogsLoaded = ref(false)
 const auditLogs = ref<any[]>([])
 const auditDays = ref(7)
+let auditLogsRequestSeq = 0
 const notificationLoading = ref(false)
 const notificationSaving = ref(false)
 const notificationData = ref<any | null>(null)
@@ -2593,8 +2594,10 @@ const NOTIFICATION_EVENT_LABELS: Record<string, string> = {
 function handleDomainChange(domainId: string) {
   if (!domainId || domainId === selectedDomainId.value) return
   selectedDomainId.value = domainId
+  auditLogsRequestSeq++
   auditLogs.value = []
   auditLogsLoaded.value = false
+  auditLogsLoading.value = false
   resetNotificationState(true)
   if (domainTab.value === 'notifications' && notificationToken.value) void loadDomainNotifications()
   if (domainTab.value === 'logs') void loadAuditLogs()
@@ -2607,8 +2610,10 @@ watch(() => domainTab.value, (tab) => {
 })
 
 function onAuditDaysChange() {
+  auditLogsRequestSeq++
   auditLogs.value = []
   auditLogsLoaded.value = false
+  auditLogsLoading.value = false
 }
 
 async function sendNotificationCode() {
@@ -2903,8 +2908,10 @@ async function openDomainMgmt(record: any) {
   domainTab.value = 'security'
   domainList.value = []
   selectedDomainId.value = ''
+  auditLogsRequestSeq++
   auditLogs.value = []
   auditLogsLoaded.value = false
+  auditLogsLoading.value = false
   resetNotificationState()
   resetAuthFactorState()
   domainMgmtVisible.value = true
@@ -3100,20 +3107,34 @@ async function loadAuditLogs() {
     message.warning('请先选择域')
     return
   }
+  const seq = ++auditLogsRequestSeq
+  const tenantId = domainMgmtTenant.value?.id
+  const domainId = selectedDomainId.value
+  if (!tenantId) {
+    message.warning('请先选择租户')
+    return
+  }
   auditLogsLoading.value = true
   auditLogsLoaded.value = false
+  auditLogs.value = []
   try {
     const res = await getAuditLogs({
-      id: domainMgmtTenant.value.id,
+      id: tenantId,
       days: auditDays.value,
-      domainId: selectedDomainId.value,
+      domainId,
     })
+    if (seq !== auditLogsRequestSeq || domainId !== selectedDomainId.value) return
     auditLogs.value = Array.isArray(res.data) ? res.data : []
     auditLogsLoaded.value = true
   } catch (e: any) {
+    if (seq !== auditLogsRequestSeq) return
+    auditLogs.value = []
+    auditLogsLoaded.value = true
     message.error(e?.message || '获取登录日志失败')
   } finally {
-    auditLogsLoading.value = false
+    if (seq === auditLogsRequestSeq) {
+      auditLogsLoading.value = false
+    }
   }
 }
 
