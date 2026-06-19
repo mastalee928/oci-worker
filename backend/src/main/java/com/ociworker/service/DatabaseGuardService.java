@@ -36,7 +36,7 @@ public class DatabaseGuardService {
                 username VARCHAR(64),
                 tenant_name VARCHAR(64),
                 tenant_create_time DATETIME,
-                oci_tenant_id VARCHAR(128),
+                oci_tenant_id VARCHAR(128) NOT NULL,
                 oci_user_id VARCHAR(128),
                 oci_fingerprint VARCHAR(128) NOT NULL,
                 oci_region VARCHAR(32) NOT NULL,
@@ -47,6 +47,7 @@ public class DatabaseGuardService {
                 generative_openai_project VARCHAR(512) DEFAULT NULL,
                 generative_conversation_store_id VARCHAR(512) DEFAULT NULL,
                 create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY uk_oci_user_tenant_id (oci_tenant_id),
                 INDEX idx_oci_user_create_time (create_time DESC)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """);
@@ -454,6 +455,7 @@ public class DatabaseGuardService {
         addColumnIfMissing(conn, "oci_user", "group_level2", "VARCHAR(64) DEFAULT NULL AFTER group_level1");
         addColumnIfMissing(conn, "oci_user", "generative_openai_project", "VARCHAR(512) DEFAULT NULL AFTER group_level2");
         addColumnIfMissing(conn, "oci_user", "generative_conversation_store_id", "VARCHAR(512) DEFAULT NULL AFTER generative_openai_project");
+        addUniqueIndexIfMissing(conn, "oci_user", "uk_oci_user_tenant_id", "oci_tenant_id");
         addColumnIfMissing(conn, "oci_create_task", "custom_script", "TEXT DEFAULT NULL AFTER operation_system");
         addColumnIfMissing(conn, "oci_create_task", "vpus_per_gb", "INT DEFAULT 10 AFTER disk");
         addColumnIfMissing(conn, "oci_create_task", "assign_public_ip", "TINYINT(1) DEFAULT 1 AFTER custom_script");
@@ -524,6 +526,52 @@ public class DatabaseGuardService {
         } catch (SQLException e) {
             log.warn("【数据库守护】检查/添加字段 {}.{} 失败: {}", table, column, e.getMessage());
         }
+    }
+
+    private void addUniqueIndexIfMissing(Connection conn, String table, String indexName, String column) {
+        try {
+            if (indexExists(conn, table, indexName)) {
+                return;
+            }
+            List<String> duplicates = findDuplicateValues(conn, table, column);
+            if (!duplicates.isEmpty()) {
+                log.warn("【数据库守护】{}.{} 存在重复值，暂不自动添加唯一索引 {}。请先合并重复项: {}",
+                        table, column, indexName, String.join(", ", duplicates));
+                return;
+            }
+            try (Statement stmt = conn.createStatement()) {
+                stmt.execute("ALTER TABLE `" + table + "` ADD UNIQUE KEY `" + indexName + "` (`" + column + "`)");
+                log.info("【数据库守护】自动添加唯一索引 {}.{}", table, indexName);
+            }
+        } catch (SQLException e) {
+            log.warn("【数据库守护】检查/添加唯一索引 {}.{} 失败: {}", table, indexName, e.getMessage());
+        }
+    }
+
+    private boolean indexExists(Connection conn, String table, String indexName) throws SQLException {
+        DatabaseMetaData meta = conn.getMetaData();
+        try (ResultSet rs = meta.getIndexInfo(conn.getCatalog(), null, table, false, false)) {
+            while (rs.next()) {
+                String existing = rs.getString("INDEX_NAME");
+                if (indexName.equalsIgnoreCase(existing)) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private List<String> findDuplicateValues(Connection conn, String table, String column) throws SQLException {
+        List<String> duplicates = new ArrayList<>();
+        String sql = "SELECT TRIM(`" + column + "`) AS value, COUNT(*) AS count FROM `" + table + "` " +
+                "WHERE `" + column + "` IS NOT NULL AND TRIM(`" + column + "`) <> '' " +
+                "GROUP BY TRIM(`" + column + "`) HAVING COUNT(*) > 1 LIMIT 5";
+        try (Statement stmt = conn.createStatement(); ResultSet rs = stmt.executeQuery(sql)) {
+            while (rs.next()) {
+                duplicates.add(rs.getString("value") + "×" + rs.getLong("count"));
+            }
+        }
+        return duplicates;
     }
 
     private Set<String> getExistingTables(Connection conn) throws SQLException {

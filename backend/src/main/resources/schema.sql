@@ -3,7 +3,7 @@ CREATE TABLE IF NOT EXISTS oci_user (
     username VARCHAR(64),
     tenant_name VARCHAR(64),
     tenant_create_time DATETIME,
-    oci_tenant_id VARCHAR(128),
+    oci_tenant_id VARCHAR(128) NOT NULL,
     oci_user_id VARCHAR(128),
     oci_fingerprint VARCHAR(128) NOT NULL,
     oci_region VARCHAR(32) NOT NULL,
@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS oci_user (
     generative_openai_project VARCHAR(512) DEFAULT NULL,
     generative_conversation_store_id VARCHAR(512) DEFAULT NULL,
     create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_oci_user_tenant_id (oci_tenant_id),
     INDEX idx_oci_user_create_time (create_time DESC)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 

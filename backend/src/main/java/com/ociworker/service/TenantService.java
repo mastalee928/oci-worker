@@ -25,6 +25,7 @@ import com.ociworker.model.params.TenantParams;
 import com.ociworker.util.CommonUtils;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -39,6 +40,8 @@ import java.time.LocalDateTime;
 import java.util.*;
 import java.util.Locale;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -53,6 +56,8 @@ public class TenantService {
     private OciCreateTaskMapper taskMapper;
     @Resource
     private OciKvMapper kvMapper;
+
+    private final ConcurrentMap<String, Object> tenantLocks = new ConcurrentHashMap<>();
     @Resource
     private UsageCostService usageCostService;
 
@@ -128,38 +133,89 @@ public class TenantService {
     }
 
     public void add(TenantParams params) {
-        long duplicateCount = userMapper.selectCount(
-                new LambdaQueryWrapper<OciUser>()
-                        .eq(OciUser::getOciTenantId, params.getOciTenantId())
-                        .eq(OciUser::getOciUserId, params.getOciUserId())
-                        .eq(OciUser::getOciRegion, params.getOciRegion()));
+        normalizeTenantParams(params);
+        ensureRequiredTenantParams(params);
+        Object lock = tenantLocks.computeIfAbsent(params.getOciTenantId(), k -> new Object());
+        synchronized (lock) {
+            ensureTenantAvailable(params.getOciTenantId(), null);
+
+            long nameCount = userMapper.selectCount(
+                    new LambdaQueryWrapper<OciUser>().eq(OciUser::getUsername, params.getUsername()));
+            if (nameCount > 0) {
+                throw new OciException("名称「" + params.getUsername() + "」已被使用，请更换名称");
+            }
+
+            validateOciCredentials(params);
+
+            OciUser user = new OciUser();
+            user.setId(CommonUtils.generateId());
+            user.setUsername(params.getUsername());
+            user.setOciTenantId(params.getOciTenantId());
+            user.setOciUserId(params.getOciUserId());
+            user.setOciFingerprint(params.getOciFingerprint());
+            user.setOciRegion(params.getOciRegion());
+            user.setOciKeyPath(params.getOciKeyPath());
+            user.setGroupLevel1(StrUtil.isBlank(params.getGroupLevel1()) ? "未分组" : params.getGroupLevel1());
+            user.setGroupLevel2(StrUtil.isBlank(params.getGroupLevel2()) ? null : params.getGroupLevel2());
+            user.setCreateTime(LocalDateTime.now());
+            try {
+                userMapper.insert(user);
+            } catch (DuplicateKeyException e) {
+                throw duplicateTenantException();
+            }
+            log.info("Added tenant config: {}", params.getUsername());
+
+            Thread.ofVirtual().start(() -> fetchTenantInfo(user));
+        }
+    }
+
+    private void normalizeTenantParams(TenantParams params) {
+        params.setUsername(trim(params.getUsername()));
+        params.setOciTenantId(trim(params.getOciTenantId()));
+        params.setOciUserId(trim(params.getOciUserId()));
+        params.setOciFingerprint(trim(params.getOciFingerprint()));
+        params.setOciRegion(trim(params.getOciRegion()));
+        params.setOciKeyPath(trim(params.getOciKeyPath()));
+        params.setGroupLevel1(trim(params.getGroupLevel1()));
+        params.setGroupLevel2(trim(params.getGroupLevel2()));
+    }
+
+    private String trim(String value) {
+        return value == null ? null : value.trim();
+    }
+
+    private void ensureRequiredTenantParams(TenantParams params) {
+        if (StrUtil.isBlank(params.getUsername())) {
+            throw new OciException("名称不能为空");
+        }
+        if (StrUtil.isBlank(params.getOciTenantId())) {
+            throw new OciException("Tenant OCID 不能为空");
+        }
+        if (StrUtil.isBlank(params.getOciUserId())) {
+            throw new OciException("User OCID 不能为空");
+        }
+        if (StrUtil.isBlank(params.getOciFingerprint())) {
+            throw new OciException("Fingerprint 不能为空");
+        }
+        if (StrUtil.isBlank(params.getOciRegion())) {
+            throw new OciException("Region 不能为空");
+        }
+    }
+
+    private void ensureTenantAvailable(String ociTenantId, String excludeId) {
+        LambdaQueryWrapper<OciUser> wrapper = new LambdaQueryWrapper<OciUser>()
+                .eq(OciUser::getOciTenantId, ociTenantId);
+        if (StrUtil.isNotBlank(excludeId)) {
+            wrapper.ne(OciUser::getId, excludeId);
+        }
+        long duplicateCount = userMapper.selectCount(wrapper);
         if (duplicateCount > 0) {
-            throw new OciException("该租户配置已存在（相同 Tenant ID + User ID + Region），请勿重复添加");
+            throw duplicateTenantException();
         }
+    }
 
-        long nameCount = userMapper.selectCount(
-                new LambdaQueryWrapper<OciUser>().eq(OciUser::getUsername, params.getUsername()));
-        if (nameCount > 0) {
-            throw new OciException("名称「" + params.getUsername() + "」已被使用，请更换名称");
-        }
-
-        validateOciCredentials(params);
-
-        OciUser user = new OciUser();
-        user.setId(CommonUtils.generateId());
-        user.setUsername(params.getUsername());
-        user.setOciTenantId(params.getOciTenantId());
-        user.setOciUserId(params.getOciUserId());
-        user.setOciFingerprint(params.getOciFingerprint());
-        user.setOciRegion(params.getOciRegion());
-        user.setOciKeyPath(params.getOciKeyPath());
-        user.setGroupLevel1(StrUtil.isBlank(params.getGroupLevel1()) ? "未分组" : params.getGroupLevel1());
-        user.setGroupLevel2(StrUtil.isBlank(params.getGroupLevel2()) ? null : params.getGroupLevel2());
-        user.setCreateTime(LocalDateTime.now());
-        userMapper.insert(user);
-        log.info("Added tenant config: {}", params.getUsername());
-
-        Thread.ofVirtual().start(() -> fetchTenantInfo(user));
+    private OciException duplicateTenantException() {
+        return new OciException("该租户已存在（相同 tenancy），请勿重复添加");
     }
 
     private void validateOciCredentials(TenantParams params) {
@@ -195,21 +251,31 @@ public class TenantService {
         if (StrUtil.isBlank(params.getId())) {
             throw new OciException("ID不能为空");
         }
+        normalizeTenantParams(params);
+        ensureRequiredTenantParams(params);
         OciUser user = userMapper.selectById(params.getId());
         if (user == null) {
             throw new OciException("配置不存在");
         }
-        user.setUsername(params.getUsername());
-        user.setOciTenantId(params.getOciTenantId());
-        user.setOciUserId(params.getOciUserId());
-        user.setOciFingerprint(params.getOciFingerprint());
-        user.setOciRegion(params.getOciRegion());
-        if (StrUtil.isNotBlank(params.getOciKeyPath())) {
-            user.setOciKeyPath(params.getOciKeyPath());
+        Object lock = tenantLocks.computeIfAbsent(params.getOciTenantId(), k -> new Object());
+        synchronized (lock) {
+            ensureTenantAvailable(params.getOciTenantId(), params.getId());
+            user.setUsername(params.getUsername());
+            user.setOciTenantId(params.getOciTenantId());
+            user.setOciUserId(params.getOciUserId());
+            user.setOciFingerprint(params.getOciFingerprint());
+            user.setOciRegion(params.getOciRegion());
+            if (StrUtil.isNotBlank(params.getOciKeyPath())) {
+                user.setOciKeyPath(params.getOciKeyPath());
+            }
+            user.setGroupLevel1(StrUtil.isBlank(params.getGroupLevel1()) ? null : params.getGroupLevel1());
+            user.setGroupLevel2(StrUtil.isBlank(params.getGroupLevel2()) ? null : params.getGroupLevel2());
+            try {
+                userMapper.updateById(user);
+            } catch (DuplicateKeyException e) {
+                throw duplicateTenantException();
+            }
         }
-        user.setGroupLevel1(StrUtil.isBlank(params.getGroupLevel1()) ? null : params.getGroupLevel1());
-        user.setGroupLevel2(StrUtil.isBlank(params.getGroupLevel2()) ? null : params.getGroupLevel2());
-        userMapper.updateById(user);
         log.info("Updated tenant config: {}", params.getUsername());
     }
 

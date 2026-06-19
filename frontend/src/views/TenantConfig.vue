@@ -4534,6 +4534,7 @@ function handleRemoveFile() {
 }
 
 async function handleSubmit() {
+  if (submitLoading.value) return
   if (!formState.username || !formState.ociTenantId || !formState.ociUserId || !formState.ociFingerprint || !formState.ociRegion) {
     message.warning('请填写所有必填项')
     return
