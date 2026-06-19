@@ -3,17 +3,19 @@
   <a-empty v-if="!rows?.length" description="无日志" />
   <a-table v-else-if="!isMobile" :data-source="rows" size="small" :pagination="{ pageSize: 20 }" class="audit-log-table"
     :row-key="(r: any) => (r.eventTime + '|' + r.eventId + '|' + (r.actorName || '') + '|' + (r.clientIp || ''))"
-    :scroll="{ x: 1250 }">
+    :scroll="{ x: 1320 }">
     <a-table-column data-index="eventTime" key="eventTime" :width="168">
       <template #title><span class="audit-th">时间</span></template>
       <template #default="{ text }">
         <span style="font-size: 12px">{{ formatTime(text) }}</span>
       </template>
     </a-table-column>
-    <a-table-column data-index="eventId" key="eventId" :width="112">
+    <a-table-column data-index="eventId" key="eventId" :width="170" :ellipsis="{ showTitle: false }">
       <template #title><span class="audit-th">事件</span></template>
       <template #default="{ text }">
-        <a-tag :color="eventColor(text)" style="font-size: 11px; margin: 0">{{ eventLabel(text) }}</a-tag>
+        <a-tooltip :title="eventTooltip(text)">
+          <a-tag :color="eventColor(text)" class="audit-event-tag">{{ eventLabel(text) }}</a-tag>
+        </a-tooltip>
       </template>
     </a-table-column>
     <a-table-column data-index="actorName" key="actorName" :width="196" :ellipsis="{ showTitle: false }">
@@ -57,7 +59,9 @@
     <div v-for="(log, li) in rows" :key="li" class="mobile-card">
       <div class="mobile-card-header">
         <span style="font-size: 12px">{{ formatTime(log.eventTime) }}</span>
-        <a-tag :color="eventColor(log.eventId)" style="margin:0; font-size: 11px">{{ eventLabel(log.eventId) }}</a-tag>
+        <a-tooltip :title="eventTooltip(log.eventId)">
+          <a-tag :color="eventColor(log.eventId)" class="audit-event-tag mobile-event-tag">{{ eventLabel(log.eventId) }}</a-tag>
+        </a-tooltip>
       </div>
       <div class="mobile-card-body">
         <div class="mobile-card-row"><span class="label">用户</span><span class="value">{{ actorText(log) }}</span></div>
@@ -114,6 +118,12 @@ function eventLabel(id?: string) {
   return id
 }
 
+function eventTooltip(id?: string) {
+  if (!id) return undefined
+  const label = eventLabel(id)
+  return label && label !== id ? `${label} (${id})` : id
+}
+
 function eventColor(id?: string) {
   if (!id) return 'default'
   if (id.endsWith('.success')) return 'green'
@@ -133,5 +143,17 @@ function eventColor(id?: string) {
 }
 .audit-log-table :deep(.ant-table-cell) {
   overflow: hidden;
+}
+.audit-event-tag {
+  max-width: 146px;
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: middle;
+  white-space: nowrap;
+  font-size: 11px;
+}
+.mobile-event-tag {
+  max-width: min(46vw, 180px);
 }
 </style>
