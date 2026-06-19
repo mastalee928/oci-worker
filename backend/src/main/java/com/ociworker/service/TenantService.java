@@ -83,6 +83,7 @@ public class TenantService {
     private static final String GROUP_L1_PREFIX = "group_l1:";
     private static final String GROUP_L2_PREFIX = "group_l2:";
     private static final String GROUP_ORDER_CODE = "group_order_l1";
+    private static final String GROUP_ORDER_L2_PREFIX = "group_order_l2:";
 
     @Value("${oci-cfg.key-dir-path}")
     private String keyDirPath;
@@ -1001,29 +1002,49 @@ public class TenantService {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("level1", ordered);
         Map<String, List<String>> l2 = new LinkedHashMap<>();
-        level2Map.forEach((k, v) -> l2.put(k, new ArrayList<>(v)));
+        level2Map.forEach((k, v) -> l2.put(k, applySavedGroupOrder(k, v)));
         result.put("level2", l2);
         return result;
     }
 
     public void saveGroupOrder(List<String> order) {
+        saveGroupOrder(order, null);
+    }
+
+    public void saveGroupOrder(List<String> order, String parent) {
         if (order == null || order.isEmpty()) return;
+        String code = StrUtil.isBlank(parent) ? GROUP_ORDER_CODE : GROUP_ORDER_L2_PREFIX + parent.trim();
         String value = String.join(",", order);
         OciKv kv = kvMapper.selectOne(new LambdaQueryWrapper<OciKv>()
-                .eq(OciKv::getType, GROUP_TYPE).eq(OciKv::getCode, GROUP_ORDER_CODE));
+                .eq(OciKv::getType, GROUP_TYPE).eq(OciKv::getCode, code));
         if (kv != null) {
             kv.setValue(value);
             kvMapper.updateById(kv);
         } else {
             kv = new OciKv();
             kv.setId(CommonUtils.generateId());
-            kv.setCode(GROUP_ORDER_CODE);
+            kv.setCode(code);
             kv.setValue(value);
             kv.setType(GROUP_TYPE);
             kv.setCreateTime(LocalDateTime.now());
             kvMapper.insert(kv);
         }
-        log.info("Saved group order: {}", value);
+        log.info("Saved group order {}: {}", code, value);
+    }
+
+    private List<String> applySavedGroupOrder(String parent, Set<String> values) {
+        Set<String> remaining = new TreeSet<>(values);
+        List<String> ordered = new ArrayList<>();
+        OciKv orderKv = kvMapper.selectOne(new LambdaQueryWrapper<OciKv>()
+                .eq(OciKv::getType, GROUP_TYPE).eq(OciKv::getCode, GROUP_ORDER_L2_PREFIX + parent));
+        if (orderKv != null && StrUtil.isNotBlank(orderKv.getValue())) {
+            for (String name : orderKv.getValue().split(",")) {
+                String n = name.trim();
+                if (remaining.remove(n)) ordered.add(n);
+            }
+        }
+        ordered.addAll(remaining);
+        return ordered;
     }
 
     public void createGroup(String name, String level, String parent) {
@@ -1079,6 +1100,7 @@ public class TenantService {
         }
         // update oci_kv records
         if ("1".equals(level)) {
+            updateGroupOrderValue(GROUP_ORDER_CODE, oldName, newName);
             OciKv kv = kvMapper.selectOne(new LambdaQueryWrapper<OciKv>()
                     .eq(OciKv::getType, GROUP_TYPE).eq(OciKv::getCode, GROUP_L1_PREFIX + oldName));
             if (kv != null) {
@@ -1093,6 +1115,12 @@ public class TenantService {
                 l2.setCode(GROUP_L2_PREFIX + newName);
                 kvMapper.updateById(l2);
             }
+            OciKv l2OrderKv = kvMapper.selectOne(new LambdaQueryWrapper<OciKv>()
+                    .eq(OciKv::getType, GROUP_TYPE).eq(OciKv::getCode, GROUP_ORDER_L2_PREFIX + oldName));
+            if (l2OrderKv != null) {
+                l2OrderKv.setCode(GROUP_ORDER_L2_PREFIX + newName);
+                kvMapper.updateById(l2OrderKv);
+            }
         } else if ("2".equals(level)) {
             List<OciKv> kvs = kvMapper.selectList(new LambdaQueryWrapper<OciKv>()
                     .eq(OciKv::getType, GROUP_TYPE).likeRight(OciKv::getCode, GROUP_L2_PREFIX)
@@ -1101,6 +1129,7 @@ public class TenantService {
                 kv.setValue(newName);
                 kvMapper.updateById(kv);
             }
+            updateAllSubGroupOrderValues(oldName, newName);
         }
         log.info("Renamed group [{}] {} -> {}", level, oldName, newName);
     }
@@ -1123,16 +1152,86 @@ public class TenantService {
         }
         // remove oci_kv records
         if ("1".equals(level)) {
+            removeGroupOrderValue(GROUP_ORDER_CODE, name);
             kvMapper.delete(new LambdaQueryWrapper<OciKv>()
                     .eq(OciKv::getType, GROUP_TYPE).eq(OciKv::getCode, GROUP_L1_PREFIX + name));
             kvMapper.delete(new LambdaQueryWrapper<OciKv>()
                     .eq(OciKv::getType, GROUP_TYPE).eq(OciKv::getCode, GROUP_L2_PREFIX + name));
+            kvMapper.delete(new LambdaQueryWrapper<OciKv>()
+                    .eq(OciKv::getType, GROUP_TYPE).eq(OciKv::getCode, GROUP_ORDER_L2_PREFIX + name));
         } else if ("2".equals(level)) {
             kvMapper.delete(new LambdaQueryWrapper<OciKv>()
                     .eq(OciKv::getType, GROUP_TYPE).likeRight(OciKv::getCode, GROUP_L2_PREFIX)
                     .eq(OciKv::getValue, name));
+            removeAllSubGroupOrderValues(name);
         }
         log.info("Deleted group [{}] {}", level, name);
+    }
+
+    private void updateAllSubGroupOrderValues(String oldName, String newName) {
+        List<OciKv> orderKvs = kvMapper.selectList(new LambdaQueryWrapper<OciKv>()
+                .eq(OciKv::getType, GROUP_TYPE).likeRight(OciKv::getCode, GROUP_ORDER_L2_PREFIX));
+        for (OciKv kv : orderKvs) {
+            replaceGroupOrderValue(kv, oldName, newName);
+        }
+    }
+
+    private void removeAllSubGroupOrderValues(String name) {
+        List<OciKv> orderKvs = kvMapper.selectList(new LambdaQueryWrapper<OciKv>()
+                .eq(OciKv::getType, GROUP_TYPE).likeRight(OciKv::getCode, GROUP_ORDER_L2_PREFIX));
+        for (OciKv kv : orderKvs) {
+            removeGroupOrderValue(kv, name);
+        }
+    }
+
+    private void updateGroupOrderValue(String code, String oldName, String newName) {
+        OciKv kv = kvMapper.selectOne(new LambdaQueryWrapper<OciKv>()
+                .eq(OciKv::getType, GROUP_TYPE).eq(OciKv::getCode, code));
+        replaceGroupOrderValue(kv, oldName, newName);
+    }
+
+    private void removeGroupOrderValue(String code, String name) {
+        OciKv kv = kvMapper.selectOne(new LambdaQueryWrapper<OciKv>()
+                .eq(OciKv::getType, GROUP_TYPE).eq(OciKv::getCode, code));
+        removeGroupOrderValue(kv, name);
+    }
+
+    private void replaceGroupOrderValue(OciKv kv, String oldName, String newName) {
+        if (kv == null || StrUtil.isBlank(kv.getValue())) return;
+        List<String> names = new ArrayList<>();
+        boolean changed = false;
+        for (String part : kv.getValue().split(",")) {
+            String n = part.trim();
+            if (n.isEmpty()) continue;
+            if (n.equals(oldName)) {
+                n = newName;
+                changed = true;
+            }
+            if (!names.contains(n)) names.add(n);
+        }
+        if (changed) {
+            kv.setValue(String.join(",", names));
+            kvMapper.updateById(kv);
+        }
+    }
+
+    private void removeGroupOrderValue(OciKv kv, String name) {
+        if (kv == null || StrUtil.isBlank(kv.getValue())) return;
+        List<String> names = new ArrayList<>();
+        boolean changed = false;
+        for (String part : kv.getValue().split(",")) {
+            String n = part.trim();
+            if (n.isEmpty()) continue;
+            if (n.equals(name)) {
+                changed = true;
+                continue;
+            }
+            if (!names.contains(n)) names.add(n);
+        }
+        if (changed) {
+            kv.setValue(String.join(",", names));
+            kvMapper.updateById(kv);
+        }
     }
 
     public String uploadKey(MultipartFile file) throws IOException {

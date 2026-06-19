@@ -375,7 +375,8 @@ public class TenantController {
                 if (o != null) order.add(String.valueOf(o));
             }
         }
-        tenantService.saveGroupOrder(order);
+        Object parentRaw = params == null ? null : params.get("parent");
+        tenantService.saveGroupOrder(order, parentRaw == null ? null : String.valueOf(parentRaw));
         return ResponseData.ok();
     }
 

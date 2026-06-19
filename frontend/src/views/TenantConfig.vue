@@ -144,10 +144,17 @@
 
           <!-- 二级子分组卡片 -->
           <template v-if="group.children && expandedGroups.has(group.key)">
-            <div v-for="sub in group.children" :key="sub.key" class="group-card subgroup-card">
+            <div v-for="(sub, si) in group.children" :key="sub.key" class="group-card subgroup-card"
+              @dragover="onSubDragOver($event, group.label, Number(si))"
+              @drop="onSubDrop($event, group.label, Number(si))"
+              :class="{ 'sub-drag-over-top': subDragParent === group.label && subDragOverIndex === Number(si) && subDragOverPos === 'top' && subDragFromIndex !== Number(si),
+                         'sub-drag-over-bottom': subDragParent === group.label && subDragOverIndex === Number(si) && subDragOverPos === 'bottom' && subDragFromIndex !== Number(si),
+                         'dragging': subDragParent === group.label && subDragFromIndex === Number(si) }">
               <div class="group-card-header subgroup-header">
                 <div class="group-card-header-main">
-                <div class="drag-handle" title="拖动排序">
+                <div class="drag-handle" title="拖动排序" draggable="true"
+                  @dragstart.stop="onSubDragStart($event, group.label, Number(si))"
+                  @dragend="onSubDragEnd">
                   <span style="font-size: 12px; line-height: 1;">⠿</span>
                 </div>
                 <div class="collapse-btn" @click="toggleGroup(sub.key)">
@@ -3350,7 +3357,15 @@ const groupTree = computed<GroupNode[]>(() => {
     }
 
     const children: GroupNode[] = []
-    for (const [l2, l2Items] of l2Map) {
+    const orderedL2Keys: string[] = []
+    for (const l2 of l2Names) {
+      if (l2Map.has(l2) && !orderedL2Keys.includes(l2)) orderedL2Keys.push(l2)
+    }
+    for (const l2 of l2Map.keys()) {
+      if (!orderedL2Keys.includes(l2)) orderedL2Keys.push(l2)
+    }
+    for (const l2 of orderedL2Keys) {
+      const l2Items = l2Map.get(l2) || []
       children.push({ label: l2, key: `${l1}/${l2}`, tenants: l2Items })
     }
 
@@ -3455,19 +3470,104 @@ const dragFromIndex = ref(-1)
 const dragOverIndex = ref(-1)
 const dragOverPos = ref<'top' | 'bottom'>('top')
 const localOrder = ref<string[]>([])
+const subDragParent = ref('')
+const subDragFromIndex = ref(-1)
+const subDragOverIndex = ref(-1)
+const subDragOverPos = ref<'top' | 'bottom'>('top')
+const localSubOrders = ref<Record<string, string[]>>({})
 
 const displayGroups = computed(() => {
-  if (localOrder.value.length === 0) return groupTree.value
-  const map = new Map<string, any>()
-  for (const g of groupTree.value) map.set(g.label, g)
-  const result: any[] = []
-  for (const name of localOrder.value) {
-    const g = map.get(name)
-    if (g) { result.push(g); map.delete(name) }
-  }
-  for (const g of map.values()) result.push(g)
-  return result
+  const source = localOrder.value.length === 0 ? groupTree.value : (() => {
+    const map = new Map<string, any>()
+    for (const g of groupTree.value) map.set(g.label, g)
+    const result: any[] = []
+    for (const name of localOrder.value) {
+      const g = map.get(name)
+      if (g) { result.push(g); map.delete(name) }
+    }
+    for (const g of map.values()) result.push(g)
+    return result
+  })()
+  if (!Object.keys(localSubOrders.value).length) return source
+  return source.map((g: any) => {
+    const order = localSubOrders.value[g.label]
+    if (!order?.length || !g.children?.length) return g
+    const map = new Map<string, any>()
+    for (const c of g.children) map.set(c.label, c)
+    const children: any[] = []
+    for (const name of order) {
+      const child = map.get(name)
+      if (child) { children.push(child); map.delete(name) }
+    }
+    for (const child of map.values()) children.push(child)
+    return { ...g, children }
+  })
 })
+
+const renderedGroupChildren = (parent: string) => {
+  const group = displayGroups.value.find((g: any) => g.label === parent)
+  return group?.children || []
+}
+
+function onSubDragStart(e: DragEvent, parent: string, idx: number) {
+  subDragParent.value = parent
+  subDragFromIndex.value = idx
+  const map = new Map<string, any>()
+  for (const child of renderedGroupChildren(parent)) map.set(child.label, child)
+  localSubOrders.value = {
+    ...localSubOrders.value,
+    [parent]: Array.from(map.keys()),
+  }
+  if (e.dataTransfer) {
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', `${parent}:${idx}`)
+    e.dataTransfer.setDragImage(e.target as HTMLElement, 0, 0)
+  }
+}
+
+function onSubDragOver(e: DragEvent, parent: string, idx: number) {
+  if (subDragFromIndex.value < 0 || subDragParent.value !== parent) return
+  e.preventDefault()
+  e.stopPropagation()
+  const target = e.currentTarget as HTMLElement
+  const rect = target.getBoundingClientRect()
+  const mid = rect.top + rect.height / 2
+  subDragOverPos.value = e.clientY < mid ? 'top' : 'bottom'
+  subDragOverIndex.value = idx
+}
+
+function onSubDrop(e: DragEvent, parent: string, toIdx: number) {
+  const fromIdx = subDragFromIndex.value
+  if (fromIdx < 0 || subDragParent.value !== parent) return
+  e.preventDefault()
+  e.stopPropagation()
+  if (fromIdx === toIdx) {
+    resetSubDrag()
+    return
+  }
+
+  const names = [...(localSubOrders.value[parent] || renderedGroupChildren(parent).map((c: any) => c.label))]
+  const [moved] = names.splice(fromIdx, 1)
+  let insertIdx = subDragOverPos.value === 'bottom' ? toIdx + 1 : toIdx
+  if (fromIdx < insertIdx) insertIdx -= 1
+  if (insertIdx < 0) insertIdx = 0
+  if (insertIdx > names.length) insertIdx = names.length
+  names.splice(insertIdx, 0, moved)
+  localSubOrders.value = { ...localSubOrders.value, [parent]: names }
+
+  resetSubDrag()
+  saveGroupOrder({ parent, order: names }).then(() => invalidateCatalogAndReload()).catch(() => {})
+}
+
+function onSubDragEnd() {
+  resetSubDrag()
+}
+
+function resetSubDrag() {
+  subDragParent.value = ''
+  subDragFromIndex.value = -1
+  subDragOverIndex.value = -1
+}
 
 function onDragStart(e: DragEvent, idx: number) {
   dragFromIndex.value = idx
@@ -4984,6 +5084,28 @@ onUnmounted(() => {
 .subgroup-card:hover {
   border-color: rgba(129, 140, 248, 0.28);
   box-shadow: none;
+}
+.subgroup-card.dragging {
+  opacity: 0.45;
+}
+.subgroup-card.sub-drag-over-top::before,
+.subgroup-card.sub-drag-over-bottom::after {
+  content: '';
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  height: 3px;
+  display: block;
+  background: var(--primary, #1677ff);
+  border-radius: 2px;
+  box-shadow: 0 0 8px var(--primary, #1677ff);
+  z-index: 2;
+}
+.subgroup-card.sub-drag-over-top::before {
+  top: 0;
+}
+.subgroup-card.sub-drag-over-bottom::after {
+  bottom: 0;
 }
 .group-bar-left {
   display: flex;

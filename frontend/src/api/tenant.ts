@@ -221,7 +221,7 @@ export function createGroup(data: { name: string; level: string; parent?: string
   return request.post('/oci/user/createGroup', data)
 }
 
-export function saveGroupOrder(data: { order: string[] }) {
+export function saveGroupOrder(data: { order: string[]; parent?: string }) {
   return request.post('/oci/user/saveGroupOrder', data)
 }
 
