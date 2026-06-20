@@ -844,10 +844,10 @@
           <div class="traffic-panel">
             <div class="traffic-toolbar">
               <div class="traffic-range-tools">
-                <a-segmented v-model:value="trafficMinutes" :options="trafficWindowOptions" @change="onTrafficWindowChange" />
+                <a-segmented v-model:value="trafficRangeMode" :options="trafficWindowOptions" @change="onTrafficWindowChange" />
                 <a-range-picker
                   v-model:value="trafficDateRange"
-                  class="traffic-date-range"
+                  :class="['traffic-date-range', { 'traffic-date-range-active': trafficUseCustomRange }]"
                   format="YYYY-MM-DD"
                   :placeholder="['开始日期', '结束日期']"
                   :disabled-date="disabledTrafficDate"
@@ -892,27 +892,69 @@
                         <div class="traffic-svg-wrap" @mouseleave="hideTrafficTooltip">
                           <svg class="traffic-chart-svg" viewBox="0 0 640 220" preserveAspectRatio="none" role="img">
                             <line v-for="y in trafficChartGrid" :key="y" x1="0" x2="640" :y1="y" :y2="y" class="traffic-grid-line" />
-                            <polyline :points="trafficChart.inbound" class="traffic-line traffic-line-inbound" />
-                            <polyline :points="trafficChart.outbound" class="traffic-line traffic-line-outbound" />
+                            <polyline
+                              v-if="trafficVisibleSeries.inbound"
+                              :points="trafficChart.inbound"
+                              :class="['traffic-line', 'traffic-line-inbound', { 'traffic-line-dim': trafficHoverPoint?.series === 'outbound' }]"
+                            />
+                            <polyline
+                              v-if="trafficVisibleSeries.outbound"
+                              :points="trafficChart.outbound"
+                              :class="['traffic-line', 'traffic-line-outbound', { 'traffic-line-dim': trafficHoverPoint?.series === 'inbound' }]"
+                            />
                             <g v-for="point in trafficChart.points" :key="'in-' + point.timestamp">
                               <circle
+                                v-if="trafficVisibleSeries.inbound && trafficChart.showPoints"
                                 :cx="point.x"
                                 :cy="point.inboundY"
                                 r="4"
                                 class="traffic-point traffic-point-inbound"
-                                @mouseenter="showTrafficTooltip(point, 'inbound')"
+                                @mouseenter="showTrafficTooltip(point, 'inbound', 'small')"
                               />
                               <circle
+                                v-if="trafficVisibleSeries.outbound && trafficChart.showPoints"
                                 :cx="point.x"
                                 :cy="point.outboundY"
                                 r="4"
                                 class="traffic-point traffic-point-outbound"
-                                @mouseenter="showTrafficTooltip(point, 'outbound')"
+                                @mouseenter="showTrafficTooltip(point, 'outbound', 'small')"
+                              />
+                              <circle
+                                v-if="trafficVisibleSeries.inbound"
+                                :cx="point.x"
+                                :cy="point.inboundY"
+                                r="9"
+                                class="traffic-hit-point"
+                                @mouseenter="showTrafficTooltip(point, 'inbound', 'small')"
+                              />
+                              <circle
+                                v-if="trafficVisibleSeries.outbound"
+                                :cx="point.x"
+                                :cy="point.outboundY"
+                                r="9"
+                                class="traffic-hit-point"
+                                @mouseenter="showTrafficTooltip(point, 'outbound', 'small')"
+                              />
+                            </g>
+                            <g v-if="trafficHoverPoint?.scope === 'small'">
+                              <circle
+                                v-if="trafficVisibleSeries.inbound"
+                                :cx="trafficHoverPoint.point.x"
+                                :cy="trafficHoverPoint.point.inboundY"
+                                r="5"
+                                class="traffic-active-point traffic-point-inbound"
+                              />
+                              <circle
+                                v-if="trafficVisibleSeries.outbound"
+                                :cx="trafficHoverPoint.point.x"
+                                :cy="trafficHoverPoint.point.outboundY"
+                                r="5"
+                                class="traffic-active-point traffic-point-outbound"
                               />
                             </g>
                           </svg>
                           <div
-                            v-if="trafficHoverPoint"
+                            v-if="trafficHoverPoint?.scope === 'small'"
                             class="traffic-hover-card"
                             :class="`traffic-hover-card-${trafficHoverPoint.placement}`"
                             :style="{ left: `${trafficHoverPoint.left}%`, top: `${trafficHoverPoint.top}%` }"
@@ -933,9 +975,12 @@
                     <a-empty v-else description="暂无趋势数据" />
                   </div>
                   <div class="traffic-legend">
-                    <span><i class="traffic-dot inbound"></i>入站</span>
-                    <span><i class="traffic-dot outbound"></i>出站</span>
+                    <span :class="['traffic-legend-item', { disabled: !trafficVisibleSeries.inbound }]" @click="toggleTrafficSeries('inbound')"><i class="traffic-dot inbound"></i>入站</span>
+                    <span :class="['traffic-legend-item', { disabled: !trafficVisibleSeries.outbound }]" @click="toggleTrafficSeries('outbound')"><i class="traffic-dot outbound"></i>出站</span>
                     <span>峰值 {{ formatBytes(trafficChart.max) }}</span>
+                    <a-button size="small" class="traffic-expand-btn" @click="openTrafficChartModal">
+                      <template #icon><FullscreenOutlined /></template>{{ isMobile ? '' : '大图' }}
+                    </a-button>
                   </div>
                 </div>
                 <a-collapse v-if="trafficVnics.length > 1" class="traffic-vnic-collapse">
@@ -1136,6 +1181,123 @@
         </div>
       </template>
     </a-drawer>
+
+    <a-modal
+      v-model:open="trafficChartModalOpen"
+      title="流量趋势"
+      :footer="null"
+      :width="isMobile ? '100%' : '82vw'"
+      :keyboard="false"
+      :mask-closable="true"
+      wrap-class-name="traffic-chart-modal-wrap"
+      :body-style="{ padding: isMobile ? '10px' : '16px' }"
+      :mask-style="{ backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }"
+      @cancel="hideTrafficTooltip"
+    >
+      <div class="traffic-chart-card traffic-chart-card-large">
+        <div class="traffic-chart-head">
+          <span>趋势</span>
+          <span>{{ trafficRangeLabel }} · 每 {{ trafficData?.interval || '—' }}</span>
+        </div>
+        <div class="traffic-chart-canvas traffic-chart-canvas-large">
+          <div v-if="trafficLargeChart.hasData" class="traffic-chart-plot">
+            <div class="traffic-y-scale">
+              <span>{{ formatBytes(trafficLargeChart.max) }}</span>
+              <span>0 B</span>
+            </div>
+            <div class="traffic-plot-wrap">
+              <div class="traffic-svg-wrap" @mouseleave="hideTrafficTooltip">
+                <svg class="traffic-chart-svg" viewBox="0 0 640 220" preserveAspectRatio="none" role="img">
+                  <line v-for="y in trafficChartGrid" :key="y" x1="0" x2="640" :y1="y" :y2="y" class="traffic-grid-line" />
+                  <polyline
+                    v-if="trafficVisibleSeries.inbound"
+                    :points="trafficLargeChart.inbound"
+                    :class="['traffic-line', 'traffic-line-inbound', { 'traffic-line-dim': trafficHoverPoint?.series === 'outbound' }]"
+                  />
+                  <polyline
+                    v-if="trafficVisibleSeries.outbound"
+                    :points="trafficLargeChart.outbound"
+                    :class="['traffic-line', 'traffic-line-outbound', { 'traffic-line-dim': trafficHoverPoint?.series === 'inbound' }]"
+                  />
+                  <g v-for="point in trafficLargeChart.points" :key="'large-' + point.timestamp">
+                    <circle
+                      v-if="trafficVisibleSeries.inbound && trafficLargeChart.showPoints"
+                      :cx="point.x"
+                      :cy="point.inboundY"
+                      r="3.5"
+                      class="traffic-point traffic-point-inbound"
+                      @mouseenter="showTrafficTooltip(point, 'inbound', 'large')"
+                    />
+                    <circle
+                      v-if="trafficVisibleSeries.outbound && trafficLargeChart.showPoints"
+                      :cx="point.x"
+                      :cy="point.outboundY"
+                      r="3.5"
+                      class="traffic-point traffic-point-outbound"
+                      @mouseenter="showTrafficTooltip(point, 'outbound', 'large')"
+                    />
+                    <circle
+                      v-if="trafficVisibleSeries.inbound"
+                      :cx="point.x"
+                      :cy="point.inboundY"
+                      r="8"
+                      class="traffic-hit-point"
+                      @mouseenter="showTrafficTooltip(point, 'inbound', 'large')"
+                    />
+                    <circle
+                      v-if="trafficVisibleSeries.outbound"
+                      :cx="point.x"
+                      :cy="point.outboundY"
+                      r="8"
+                      class="traffic-hit-point"
+                      @mouseenter="showTrafficTooltip(point, 'outbound', 'large')"
+                    />
+                  </g>
+                  <g v-if="trafficHoverPoint?.scope === 'large'">
+                    <circle
+                      v-if="trafficVisibleSeries.inbound"
+                      :cx="trafficHoverPoint.point.x"
+                      :cy="trafficHoverPoint.point.inboundY"
+                      r="5"
+                      class="traffic-active-point traffic-point-inbound"
+                    />
+                    <circle
+                      v-if="trafficVisibleSeries.outbound"
+                      :cx="trafficHoverPoint.point.x"
+                      :cy="trafficHoverPoint.point.outboundY"
+                      r="5"
+                      class="traffic-active-point traffic-point-outbound"
+                    />
+                  </g>
+                </svg>
+                <div
+                  v-if="trafficHoverPoint?.scope === 'large'"
+                  class="traffic-hover-card"
+                  :class="`traffic-hover-card-${trafficHoverPoint.placement}`"
+                  :style="{ left: `${trafficHoverPoint.left}%`, top: `${trafficHoverPoint.top}%` }"
+                >
+                  <div class="traffic-hover-title">{{ trafficHoverPoint.point.label }}</div>
+                  <div class="traffic-hover-row"><span>入站</span><strong>{{ formatBytes(trafficHoverPoint.point.inbound) }}</strong></div>
+                  <div class="traffic-hover-row"><span>出站</span><strong>{{ formatBytes(trafficHoverPoint.point.outbound) }}</strong></div>
+                  <div class="traffic-hover-row total"><span>总量</span><strong>{{ formatBytes(trafficHoverPoint.point.total) }}</strong></div>
+                </div>
+              </div>
+              <div class="traffic-x-scale">
+                <span>{{ trafficStartLabel }}</span>
+                <span class="traffic-x-axis-label">时间</span>
+                <span>{{ trafficEndLabel }}</span>
+              </div>
+            </div>
+          </div>
+          <a-empty v-else description="暂无趋势数据" />
+        </div>
+        <div class="traffic-legend">
+          <span :class="['traffic-legend-item', { disabled: !trafficVisibleSeries.inbound }]" @click="toggleTrafficSeries('inbound')"><i class="traffic-dot inbound"></i>入站</span>
+          <span :class="['traffic-legend-item', { disabled: !trafficVisibleSeries.outbound }]" @click="toggleTrafficSeries('outbound')"><i class="traffic-dot outbound"></i>出站</span>
+          <span>峰值 {{ formatBytes(trafficLargeChart.max) }}</span>
+        </div>
+      </div>
+    </a-modal>
 
     <!-- 添加安全规则弹窗 -->
     <a-modal :keyboard="false" v-model:open="addRuleVisible" title="添加安全规则" @ok="handleAddRule"
@@ -1468,6 +1630,7 @@ import {
   PauseCircleOutlined,
   PlayCircleOutlined,
   StopOutlined,
+  FullscreenOutlined,
 } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
 import {
@@ -1648,6 +1811,9 @@ const trafficVnicColumns = [
 ]
 
 type TrafficSeries = 'inbound' | 'outbound'
+type TrafficRangeMode = number | 'custom'
+type TrafficChartScope = 'small' | 'large'
+
 interface TrafficChartPoint {
   timestamp: string
   label: string
@@ -1663,7 +1829,18 @@ interface TrafficHoverPoint {
   left: number
   top: number
   placement: 'above' | 'below'
+  series: TrafficSeries
+  scope: TrafficChartScope
   point: TrafficChartPoint
+}
+
+interface TrafficChartModel {
+  hasData: boolean
+  inbound: string
+  outbound: string
+  max: number
+  points: TrafficChartPoint[]
+  showPoints: boolean
 }
 
 const isMobile = ref(window.innerWidth < 768)
@@ -2009,9 +2186,12 @@ const vcns = ref<any[]>([])
 
 const trafficLoading = ref(false)
 const trafficMinutes = ref(60)
+const trafficRangeMode = ref<TrafficRangeMode>(60)
 const trafficData = ref<any>(null)
 const trafficDateRange = ref<[Dayjs, Dayjs] | null>(null)
 const trafficHoverPoint = ref<TrafficHoverPoint | null>(null)
+const trafficChartModalOpen = ref(false)
+const trafficVisibleSeries = reactive<Record<TrafficSeries, boolean>>({ inbound: true, outbound: true })
 const trafficWindowLabel = computed(() => trafficWindowOptions.find(item => item.value === trafficMinutes.value)?.label || '1h')
 const trafficUseCustomRange = computed(() => {
   const range = trafficDateRange.value
@@ -2026,7 +2206,10 @@ const trafficStartLabel = computed(() => formatTrafficAxisTime(trafficData.value
 const trafficEndLabel = computed(() => formatTrafficAxisTime(trafficData.value?.endTime, trafficEffectiveMinutes.value))
 const trafficVnics = computed(() => Array.isArray(trafficData.value?.vnics) ? trafficData.value.vnics : [])
 const trafficChartGrid = [24, 67, 110, 153, 196]
-const trafficChart = computed(() => {
+const trafficChart = computed(() => buildTrafficChart(40))
+const trafficLargeChart = computed(() => buildTrafficChart('all'))
+
+function buildTrafficChart(pointLimit: number | 'all'): TrafficChartModel {
   const rows = Array.isArray(trafficData.value?.points) ? trafficData.value.points : []
   const points: Array<{ timestamp: string; label: string; inbound: number; outbound: number; total: number }> = rows.map((point: any) => ({
     timestamp: String(point?.timestamp || ''),
@@ -2037,7 +2220,7 @@ const trafficChart = computed(() => {
   }))
   const max = Math.max(0, ...points.map(point => Math.max(point.inbound, point.outbound)))
   if (!points.length || max <= 0) {
-    return { hasData: false, inbound: '', outbound: '', max: 0, points: [] as TrafficChartPoint[] }
+    return { hasData: false, inbound: '', outbound: '', max: 0, points: [], showPoints: false }
   }
 
   const width = 640
@@ -2076,8 +2259,9 @@ const trafficChart = computed(() => {
     outbound: toPolyline('outbound'),
     max,
     points: chartPoints,
+    showPoints: pointLimit === 'all' || chartPoints.length <= pointLimit,
   }
-})
+}
 const changeIpLoading = ref(false)
 
 const netDetailLoading = ref(false)
@@ -2840,6 +3024,8 @@ function validateTrafficDateRange(showMessage = true) {
 }
 
 function onTrafficWindowChange() {
+  if (trafficRangeMode.value === 'custom') return
+  trafficMinutes.value = Number(trafficRangeMode.value)
   trafficDateRange.value = null
   trafficHoverPoint.value = null
   loadTraffic()
@@ -2848,13 +3034,15 @@ function onTrafficWindowChange() {
 function onTrafficDateRangeChange() {
   trafficHoverPoint.value = null
   if (!trafficUseCustomRange.value) {
+    trafficRangeMode.value = trafficMinutes.value
     loadTraffic()
     return
   }
+  trafficRangeMode.value = 'custom'
   if (validateTrafficDateRange()) loadTraffic()
 }
 
-function showTrafficTooltip(point: TrafficChartPoint, series: TrafficSeries) {
+function showTrafficTooltip(point: TrafficChartPoint, series: TrafficSeries, scope: TrafficChartScope) {
   const y = series === 'inbound' ? point.inboundY : point.outboundY
   const xPercent = (point.x / 640) * 100
   const yPercent = (y / 220) * 100
@@ -2864,12 +3052,27 @@ function showTrafficTooltip(point: TrafficChartPoint, series: TrafficSeries) {
     left: Math.min(maxLeft, Math.max(minLeft, xPercent)),
     top: Math.min(84, Math.max(10, yPercent)),
     placement: yPercent < 34 ? 'below' : 'above',
+    series,
+    scope,
     point,
   }
 }
 
 function hideTrafficTooltip() {
   trafficHoverPoint.value = null
+}
+
+function toggleTrafficSeries(series: TrafficSeries) {
+  const other: TrafficSeries = series === 'inbound' ? 'outbound' : 'inbound'
+  if (trafficVisibleSeries[series] && !trafficVisibleSeries[other]) return
+  trafficVisibleSeries[series] = !trafficVisibleSeries[series]
+  trafficHoverPoint.value = null
+}
+
+function openTrafficChartModal() {
+  if (!trafficChart.value.hasData) return
+  trafficHoverPoint.value = null
+  trafficChartModalOpen.value = true
 }
 
 async function loadAllTenants(force = false) {
@@ -2951,7 +3154,9 @@ function openDetail(tenant: any, record: any) {
   vcns.value = []
   trafficData.value = null
   trafficDateRange.value = null
+  trafficRangeMode.value = trafficMinutes.value
   trafficHoverPoint.value = null
+  trafficChartModalOpen.value = false
   networkDetail.value = null
   consoleData.value = null
   shapeEditOptions.value = []
@@ -4127,6 +4332,11 @@ onUnmounted(() => {
   cursor: pointer;
   caret-color: transparent;
 }
+.traffic-date-range-active {
+  border-color: var(--primary);
+  box-shadow: 0 0 0 1px rgba(99, 102, 241, 0.22);
+  border-radius: 6px;
+}
 .traffic-summary-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -4168,6 +4378,11 @@ onUnmounted(() => {
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--bg-sidebar);
+}
+.traffic-chart-card-large {
+  background: transparent;
+  border: 0;
+  padding: 0;
 }
 .traffic-chart-head {
   display: flex;
@@ -4317,12 +4532,28 @@ onUnmounted(() => {
   stroke-width: 3;
   stroke-linecap: round;
   stroke-linejoin: round;
+  opacity: 0.88;
+  transition: opacity 0.16s ease, stroke-width 0.16s ease;
+}
+.traffic-line-dim {
+  opacity: 0.34;
 }
 .traffic-line-inbound {
   stroke: #1677ff;
 }
 .traffic-line-outbound {
   stroke: #52c41a;
+}
+.traffic-hit-point {
+  fill: transparent;
+  stroke: transparent;
+  cursor: pointer;
+  pointer-events: all;
+}
+.traffic-active-point {
+  stroke: var(--bg-card);
+  stroke-width: 2.5;
+  pointer-events: none;
 }
 .traffic-legend {
   display: flex;
@@ -4332,6 +4563,19 @@ onUnmounted(() => {
   margin-top: 10px;
   color: var(--text-sub);
   font-size: 12px;
+}
+.traffic-legend-item {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  user-select: none;
+  transition: opacity 0.16s ease;
+}
+.traffic-legend-item.disabled {
+  opacity: 0.42;
+}
+.traffic-expand-btn {
+  margin-left: auto;
 }
 .traffic-dot {
   display: inline-block;
@@ -4345,6 +4589,16 @@ onUnmounted(() => {
 }
 .traffic-dot.outbound {
   background: #52c41a;
+}
+.traffic-chart-canvas-large {
+  height: min(70vh, 620px);
+}
+:global(.traffic-chart-modal-wrap .ant-modal) {
+  max-width: calc(100vw - 32px);
+}
+:global(.traffic-chart-modal-wrap .ant-modal-content) {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
 }
 .traffic-vnic-collapse {
   background: transparent;
@@ -4568,6 +4822,11 @@ onUnmounted(() => {
   .traffic-date-range {
     width: 100%;
   }
+  .traffic-expand-btn {
+    margin-left: 0;
+    width: 36px;
+    padding-inline: 0;
+  }
   .traffic-summary-grid {
     grid-template-columns: 1fr;
   }
@@ -4593,6 +4852,20 @@ onUnmounted(() => {
   .traffic-hover-card {
     min-width: 132px;
     padding: 8px 10px;
+  }
+  .traffic-chart-canvas-large {
+    height: calc(100vh - 168px);
+    min-height: 360px;
+  }
+  :global(.traffic-chart-modal-wrap .ant-modal) {
+    top: 0;
+    margin: 0;
+    max-width: 100vw;
+    padding-bottom: 0;
+  }
+  :global(.traffic-chart-modal-wrap .ant-modal-content) {
+    min-height: 100vh;
+    border-radius: 0;
   }
   .panel-actions {
     gap: 4px;
