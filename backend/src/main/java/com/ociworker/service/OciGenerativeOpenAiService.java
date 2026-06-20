@@ -1455,7 +1455,7 @@ public class OciGenerativeOpenAiService {
             return 0L;
         }
         long total = 0L;
-        for (var it = node.fields(); it.hasNext(); ) {
+        for (var it = node.properties().iterator(); it.hasNext(); ) {
             Map.Entry<String, JsonNode> entry = it.next();
             String key = entry.getKey() == null ? "" : entry.getKey().toLowerCase(java.util.Locale.ROOT);
             JsonNode value = entry.getValue();

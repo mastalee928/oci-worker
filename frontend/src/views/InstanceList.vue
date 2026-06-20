@@ -2049,10 +2049,11 @@ const isMobile = ref(window.innerWidth < 768)
 function checkMobile() {
   isMobile.value = window.innerWidth < 768
   if (isMobile.value) {
-    clearFloatingTenantCard()
+    if (floatingTenantCard.phase !== 'idle') floatingTenantCard.phase = 'idle'
     return
   }
-  if (floatingTenantCard.tenant) refreshFloatingTenantCard()
+  const tenant = resolveFloatingTenantFromWorkspace()
+  if (tenant) refreshFloatingTenantCard(tenant)
 }
 
 const tenantViewMode = ref<'card' | 'table'>('card')
@@ -2399,13 +2400,14 @@ function calculateFloatingTenantRect(sourceRect?: DOMRect | null) {
   const roomy = drawerLeft >= 320
   const gap = roomy ? 24 : 12
   const minWidth = roomy ? 220 : 168
-  if (drawerLeft < minWidth + gap) return null
   const availableWidth = Math.max(0, drawerLeft - gap * 2)
   const baseWidth = sourceRect?.width || Number.parseFloat(floatingTenantCard.width) || 260
   const baseHeight = sourceRect?.height || Number.parseFloat(floatingTenantCard.height) || 220
-  const width = Math.min(roomy ? 320 : 220, Math.max(minWidth, Math.min(baseWidth, availableWidth)))
+  const fallbackWidth = Math.max(minWidth, Math.min(220, window.innerWidth - gap * 2))
+  const width = Math.min(roomy ? 320 : 220, Math.max(minWidth, Math.min(baseWidth, availableWidth || fallbackWidth)))
   const height = Math.max(180, Math.min(baseHeight, window.innerHeight - 96))
-  const left = Math.max(gap, drawerLeft - width - gap)
+  const maxLeft = Math.max(gap, window.innerWidth - width - gap)
+  const left = Math.max(gap, Math.min(drawerLeft - width - gap, maxLeft))
   const preferredTop = sourceRect ? sourceRect.top - 90 : Number.parseFloat(floatingTenantCard.top) || 88
   const top = Math.max(72, Math.min(window.innerHeight - height - gap, preferredTop))
   return { left, top, width, height }
@@ -2439,6 +2441,29 @@ function refreshFloatingTenantCard(tenant = floatingTenantCard.tenant) {
   if (!tenant || isMobile.value) return
   const source = findTenantCardElement(String(tenant?.id || ''))
   assignFloatingTenantCard(tenant, source?.getBoundingClientRect() || null, 'docked')
+}
+
+function resolveFloatingTenantFromWorkspace() {
+  if (floatingTenantCard.tenant) return floatingTenantCard.tenant
+  if (tenantWorkspaceKind.value === 'instance') {
+    return activeTenantData.value?.tenant || currentTenant.value || null
+  }
+  if (tenantWorkspaceKind.value === 'vcn') {
+    return vcnTenant.value || currentTenant.value || null
+  }
+  if (tenantWorkspaceKind.value === 'storage') {
+    const tenant = findTenantDataById(storageManagerUserId.value)?.tenant
+    if (tenant) return tenant
+    if (storageManagerUserId.value) {
+      return {
+        id: storageManagerUserId.value,
+        username: storageManagerTenantName.value || '租户',
+        tenantName: storageManagerTenantName.value || '',
+        ociRegion: storageManagerDefaultRegion.value || '',
+      }
+    }
+  }
+  return null
 }
 
 function clearFloatingTenantCard() {

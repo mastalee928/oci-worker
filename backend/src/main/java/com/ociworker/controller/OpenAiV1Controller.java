@@ -501,7 +501,7 @@ public class OpenAiV1Controller {
                 total += countTextChars(child);
             }
         } else if (node.isObject()) {
-            for (var it = node.fields(); it.hasNext(); ) {
+            for (var it = node.properties().iterator(); it.hasNext(); ) {
                 Map.Entry<String, JsonNode> entry = it.next();
                 String key = entry.getKey() == null ? "" : entry.getKey().toLowerCase();
                 if ("model".equals(key) || "stream".equals(key)) {
