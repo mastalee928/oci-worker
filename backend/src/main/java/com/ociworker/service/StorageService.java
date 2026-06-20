@@ -145,19 +145,19 @@ public class StorageService {
                 String cid = compartment.getId();
                 String cname = compartment.getName();
 
-                Map<String, String> instanceNames = Map.of();
+                Map<String, Map<String, Object>> instanceSummaries = Map.of();
                 if (want.test("bootVolumes") || want.test("blockVolumes")) {
-                    instanceNames = loadInstanceNames(client, cid);
+                    instanceSummaries = loadInstanceSummaries(client, cid);
                 }
 
                 Map<String, List<Map<String, Object>>> bootAttach = new HashMap<>();
                 if (want.test("bootVolumes")) {
-                    bootAttach = loadBootVolumeAttachments(client, cid, instanceNames, availabilityDomains);
+                    bootAttach = loadBootVolumeAttachments(client, cid, instanceSummaries, availabilityDomains);
                 }
 
                 Map<String, List<Map<String, Object>>> volAttach = new HashMap<>();
                 if (want.test("blockVolumes")) {
-                    volAttach = loadVolumeAttachments(client, cid, instanceNames, availabilityDomains);
+                    volAttach = loadVolumeAttachments(client, cid, instanceSummaries, availabilityDomains);
                 }
 
                 int bootStart = bootVolumes.size();
@@ -453,6 +453,21 @@ public class StorageService {
                                     .volumeId(volumeId)
                                     .updateVolumeDetails(b.build())
                                     .build()).getVolume());
+                }
+                case "listBootVolumeAttachTargets" -> {
+                    String bootVolumeId = stringParam(params, "bootVolumeId");
+                    String compartmentId = stringParam(params, "compartmentId");
+                    yield listBootVolumeAttachTargets(client, bootVolumeId, compartmentId);
+                }
+                case "attachBootVolume" -> {
+                    String bootVolumeId = stringParam(params, "bootVolumeId");
+                    String instanceId = stringParam(params, "instanceId");
+                    yield attachBootVolume(client, bootVolumeId, instanceId);
+                }
+                case "detachBootVolume" -> {
+                    String attachmentId = stringParam(params, "bootVolumeAttachmentId");
+                    detachBootVolume(client, attachmentId);
+                    yield Map.of("message", "已提交分离引导卷");
                 }
                 case "updateBootVolumeReplica", "updateBlockVolumeReplica" ->
                         throw new OciException("当前 OCI Java SDK 已不再暴露副本更新接口，请在 OCI 控制台修改副本显示名称");
@@ -760,8 +775,136 @@ public class StorageService {
                 .build();
     }
 
-    private Map<String, String> loadInstanceNames(OciClientService client, String compartmentId) {
-        Map<String, String> names = new HashMap<>();
+    private List<Map<String, Object>> listBootVolumeAttachTargets(OciClientService client, String bootVolumeId,
+                                                                  String compartmentIdOpt) {
+        if (bootVolumeId == null || bootVolumeId.isBlank()) {
+            throw new OciException("bootVolumeId 不能为空");
+        }
+        BootVolume bootVolume = client.getBlockstorageClient().getBootVolume(
+                GetBootVolumeRequest.builder().bootVolumeId(bootVolumeId).build()
+        ).getBootVolume();
+        String ad = bootVolume.getAvailabilityDomain();
+        String bootCompartmentId = bootVolume.getCompartmentId();
+        List<Map<String, Object>> out = new ArrayList<>();
+        for (Compartment compartment : resolveCompartments(client, compartmentIdOpt)) {
+            String page = null;
+            do {
+                var resp = client.getComputeClient().listInstances(
+                        ListInstancesRequest.builder()
+                                .compartmentId(compartment.getId())
+                                .page(page)
+                                .build());
+                for (Instance instance : resp.getItems()) {
+                    Instance.LifecycleState state = instance.getLifecycleState();
+                    if (state != Instance.LifecycleState.Running && state != Instance.LifecycleState.Stopped) {
+                        continue;
+                    }
+                    if (!Objects.equals(ad, instance.getAvailabilityDomain())) {
+                        continue;
+                    }
+                    out.add(instanceSummary(instance, compartment.getName()));
+                }
+                page = resp.getOpcNextPage();
+            } while (page != null);
+        }
+        out.sort(Comparator
+                .comparing((Map<String, Object> m) -> Objects.equals(bootCompartmentId, m.get("compartmentId")) ? 0 : 1)
+                .thenComparing(m -> Objects.equals("RUNNING", m.get("state")) ? 0 : 1)
+                .thenComparing(m -> Objects.toString(m.get("name"), "")));
+        return out;
+    }
+
+    private Map<String, Object> attachBootVolume(OciClientService client, String bootVolumeId, String instanceId) {
+        if (bootVolumeId == null || bootVolumeId.isBlank()) {
+            throw new OciException("bootVolumeId 不能为空");
+        }
+        if (instanceId == null || instanceId.isBlank()) {
+            throw new OciException("instanceId 不能为空");
+        }
+        BootVolume bootVolume = client.getBlockstorageClient().getBootVolume(
+                GetBootVolumeRequest.builder().bootVolumeId(bootVolumeId).build()
+        ).getBootVolume();
+        Instance instance = client.getComputeClient().getInstance(
+                GetInstanceRequest.builder().instanceId(instanceId).build()
+        ).getInstance();
+        if (!Objects.equals(bootVolume.getAvailabilityDomain(), instance.getAvailabilityDomain())) {
+            throw new OciException("引导卷与目标实例必须在同一可用域 (Availability Domain)");
+        }
+        if (bootVolume.getLifecycleState() != BootVolume.LifecycleState.Available) {
+            throw new OciException("引导卷须为 AVAILABLE 状态方可挂载，当前: "
+                    + (bootVolume.getLifecycleState() != null ? bootVolume.getLifecycleState().getValue() : "unknown"));
+        }
+        BootVolumeAttachment attachment = client.getComputeClient().attachBootVolume(
+                AttachBootVolumeRequest.builder()
+                        .attachBootVolumeDetails(AttachBootVolumeDetails.builder()
+                                .bootVolumeId(bootVolumeId)
+                                .instanceId(instanceId)
+                                .build())
+                        .build()
+        ).getBootVolumeAttachment();
+        Map<String, Object> row = bootVolumeAttachmentRow(attachment, instance);
+        row.put("message", "已提交挂载引导卷");
+        return row;
+    }
+
+    private void detachBootVolume(OciClientService client, String bootVolumeAttachmentId) {
+        if (bootVolumeAttachmentId == null || bootVolumeAttachmentId.isBlank()) {
+            throw new OciException("bootVolumeAttachmentId 不能为空");
+        }
+        BootVolumeAttachment attachment = client.getComputeClient().getBootVolumeAttachment(
+                GetBootVolumeAttachmentRequest.builder()
+                        .bootVolumeAttachmentId(bootVolumeAttachmentId)
+                        .build()
+        ).getBootVolumeAttachment();
+        Instance instance = client.getComputeClient().getInstance(
+                GetInstanceRequest.builder().instanceId(attachment.getInstanceId()).build()
+        ).getInstance();
+        if (instance.getLifecycleState() != Instance.LifecycleState.Stopped) {
+            throw new OciException("分离引导卷前必须先停止实例，当前实例状态: "
+                    + (instance.getLifecycleState() != null ? instance.getLifecycleState().getValue() : "unknown"));
+        }
+        client.getComputeClient().detachBootVolume(
+                DetachBootVolumeRequest.builder()
+                        .bootVolumeAttachmentId(bootVolumeAttachmentId)
+                        .build());
+    }
+
+    private static Map<String, Object> instanceSummary(Instance instance, String compartmentName) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("instanceId", instance.getId());
+        row.put("name", instance.getDisplayName());
+        row.put("state", instance.getLifecycleState() != null ? instance.getLifecycleState().getValue() : null);
+        row.put("shape", instance.getShape());
+        row.put("availabilityDomain", instance.getAvailabilityDomain());
+        row.put("compartmentId", instance.getCompartmentId());
+        if (compartmentName != null) {
+            row.put("compartmentName", compartmentName);
+        }
+        row.put("timeCreated", instance.getTimeCreated() != null ? instance.getTimeCreated().toString() : null);
+        return row;
+    }
+
+    private static Map<String, Object> bootVolumeAttachmentRow(BootVolumeAttachment attachment, Instance instance) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("id", attachment.getId());
+        row.put("bootVolumeAttachmentId", attachment.getId());
+        row.put("bootVolumeId", attachment.getBootVolumeId());
+        row.put("instanceId", attachment.getInstanceId());
+        row.put("instanceName", instance != null ? instance.getDisplayName() : null);
+        row.put("instanceState", instance != null && instance.getLifecycleState() != null ? instance.getLifecycleState().getValue() : null);
+        row.put("lifecycleState", attachment.getLifecycleState() != null ? attachment.getLifecycleState().getValue() : null);
+        row.put("availabilityDomain", attachment.getAvailabilityDomain());
+        row.put("compartmentId", attachment.getCompartmentId());
+        row.put("displayName", attachment.getDisplayName());
+        row.put("encryptionInTransitType", enumValue(attachment.getEncryptionInTransitType()));
+        row.put("isPvEncryptionInTransitEnabled", attachment.getIsPvEncryptionInTransitEnabled());
+        row.put("timeCreated", attachment.getTimeCreated() != null ? attachment.getTimeCreated().toString() : null);
+        row.put("timeUpdated", attachment.getTimeUpdated() != null ? attachment.getTimeUpdated().toString() : null);
+        return row;
+    }
+
+    private Map<String, Map<String, Object>> loadInstanceSummaries(OciClientService client, String compartmentId) {
+        Map<String, Map<String, Object>> instances = new HashMap<>();
         for (Instance.LifecycleState state : List.of(
                 Instance.LifecycleState.Running,
                 Instance.LifecycleState.Stopped,
@@ -776,16 +919,16 @@ public class StorageService {
                                 .page(page)
                                 .build());
                 for (Instance i : resp.getItems()) {
-                    names.put(i.getId(), i.getDisplayName());
+                    instances.put(i.getId(), instanceSummary(i, null));
                 }
                 page = resp.getOpcNextPage();
             } while (page != null);
         }
-        return names;
+        return instances;
     }
 
     private Map<String, List<Map<String, Object>>> loadBootVolumeAttachments(OciClientService client, String compartmentId,
-                                                                             Map<String, String> instanceNames,
+                                                                             Map<String, Map<String, Object>> instanceSummaries,
                                                                              List<String> availabilityDomains) {
         Map<String, List<Map<String, Object>>> map = new HashMap<>();
         for (String ad : availabilityDomains) {
@@ -800,9 +943,22 @@ public class StorageService {
                 for (BootVolumeAttachment a : resp.getItems()) {
                     if (a.getLifecycleState() == BootVolumeAttachment.LifecycleState.Detached) continue;
                     Map<String, Object> row = new LinkedHashMap<>();
+                    row.put("id", a.getId());
+                    row.put("bootVolumeAttachmentId", a.getId());
+                    row.put("bootVolumeId", a.getBootVolumeId());
                     row.put("instanceId", a.getInstanceId());
-                    row.put("instanceName", instanceNames.getOrDefault(a.getInstanceId(), ""));
+                    Map<String, Object> instance = instanceSummaries.getOrDefault(a.getInstanceId(), Map.of());
+                    row.put("instanceName", stringValue(instance.get("name")));
+                    row.put("instanceState", stringValue(instance.get("state")));
+                    row.put("instanceCompartmentId", stringValue(instance.get("compartmentId")));
                     row.put("lifecycleState", a.getLifecycleState() != null ? a.getLifecycleState().getValue() : null);
+                    row.put("availabilityDomain", a.getAvailabilityDomain());
+                    row.put("displayName", a.getDisplayName());
+                    row.put("compartmentId", a.getCompartmentId());
+                    row.put("encryptionInTransitType", enumValue(a.getEncryptionInTransitType()));
+                    row.put("isPvEncryptionInTransitEnabled", a.getIsPvEncryptionInTransitEnabled());
+                    row.put("timeCreated", a.getTimeCreated() != null ? a.getTimeCreated().toString() : null);
+                    row.put("timeUpdated", a.getTimeUpdated() != null ? a.getTimeUpdated().toString() : null);
                     map.computeIfAbsent(a.getBootVolumeId(), k -> new ArrayList<>()).add(row);
                 }
                 page = resp.getOpcNextPage();
@@ -812,7 +968,7 @@ public class StorageService {
     }
 
     private Map<String, List<Map<String, Object>>> loadVolumeAttachments(OciClientService client, String compartmentId,
-                                                                        Map<String, String> instanceNames,
+                                                                        Map<String, Map<String, Object>> instanceSummaries,
                                                                         List<String> availabilityDomains) {
         Map<String, List<Map<String, Object>>> map = new HashMap<>();
         for (String ad : availabilityDomains) {
@@ -830,7 +986,9 @@ public class StorageService {
                     if (volId == null) continue;
                     Map<String, Object> row = new LinkedHashMap<>();
                     row.put("instanceId", a.getInstanceId());
-                    row.put("instanceName", instanceNames.getOrDefault(a.getInstanceId(), ""));
+                    Map<String, Object> instance = instanceSummaries.getOrDefault(a.getInstanceId(), Map.of());
+                    row.put("instanceName", stringValue(instance.get("name")));
+                    row.put("instanceState", stringValue(instance.get("state")));
                     row.put("lifecycleState", a.getLifecycleState() != null ? a.getLifecycleState().getValue() : null);
                     map.computeIfAbsent(volId, k -> new ArrayList<>()).add(row);
                 }
@@ -1282,6 +1440,20 @@ public class StorageService {
             return "已挂载: " + nm;
         }
         return "已挂载: " + attachments.size() + " 处";
+    }
+
+    private static String stringValue(Object value) {
+        return value == null ? "" : String.valueOf(value);
+    }
+
+    private static String enumValue(Object value) {
+        if (value == null) return null;
+        try {
+            Object v = value.getClass().getMethod("getValue").invoke(value);
+            return v == null ? null : String.valueOf(v);
+        } catch (Exception ignored) {
+            return String.valueOf(value);
+        }
     }
 
     private static Map<String, Object> toMap(Object model) {

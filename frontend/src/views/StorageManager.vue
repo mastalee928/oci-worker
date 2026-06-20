@@ -66,7 +66,20 @@
               {{ formatCompartmentCell(record) }}
             </template>
             <template v-else-if="column.key === 'attachmentSummary'">
-              {{ record.attachmentSummary || '—' }}
+              <div v-if="blockView === 'bootVolumes'">
+                <template v-if="bootVolumeAttachments(record).length">
+                  <div v-for="att in bootVolumeAttachments(record)" :key="att.bootVolumeAttachmentId || att.id" style="display: flex; align-items: center; gap: 4px; min-width: 0">
+                    <a-tag :color="stateTagColor(att.instanceState)" style="margin-inline-end: 0">{{ att.instanceState || '—' }}</a-tag>
+                    <span :title="bootAttachmentTitle(att)" style="overflow: hidden; text-overflow: ellipsis; white-space: nowrap">
+                      {{ bootAttachmentName(att) }}
+                    </span>
+                  </div>
+                </template>
+                <span v-else>未挂载</span>
+              </div>
+              <template v-else>
+                {{ record.attachmentSummary || '—' }}
+              </template>
             </template>
             <template v-else-if="column.key === 'spec'">
               <span style="font-size: 12px">{{ specCell(record) }}</span>
@@ -78,6 +91,9 @@
               <a-space size="small" wrap>
                 <a-button v-if="canRenameBlock" type="link" size="small" @click="openRename(record)">改名</a-button>
                 <a-button v-if="canResizeBoot" type="link" size="small" @click="openResizeBoot(record)">编辑</a-button>
+                <a-button v-if="canAttachBootVolume(record)" type="link" size="small" @click="openAttachBootVolume(record)">挂载</a-button>
+                <a-button v-if="canDetachBootVolume(record)" type="link" danger size="small" @click="handleDetachBootVolume(record)">分离</a-button>
+                <a-button v-if="canShowBootIscsi(record)" type="link" size="small" @click="openBootIscsi(record)">iSCSI</a-button>
                 <a-button v-if="canResizeBlock" type="link" size="small" @click="openResizeBlock(record)">编辑</a-button>
                 <a-button v-if="canEnableBootReplication" type="link" size="small" @click="openEnableBootReplication(record)">启用复制</a-button>
                 <a-button v-if="canEnableBlockReplication" type="link" size="small" @click="openEnableBlockReplication(record)">启用复制</a-button>
@@ -154,6 +170,80 @@
           <a-input-number v-model:value="resizeBlockVpus" :min="10" :max="120" :step="10" style="width: 100%" placeholder="VPUs per GB" />
         </a-form-item>
       </a-form>
+    </a-modal>
+
+    <a-modal
+      :mask-closable="false"
+      :keyboard="false"
+      v-model:open="attachBootOpen"
+      title="挂载引导卷"
+      :width="isMobile ? '96vw' : '560px'"
+      @ok="submitAttachBootVolume"
+      :confirm-loading="attachBootLoading"
+    >
+      <a-form layout="vertical" size="small">
+        <a-form-item label="引导卷">
+          <a-input :value="attachBootTarget?.displayName || attachBootTarget?.id || ''" disabled />
+        </a-form-item>
+        <a-form-item label="目标实例" extra="仅列出当前 Region、同一可用域的 RUNNING / STOPPED 实例">
+          <select
+            v-if="isMobile"
+            v-model="attachBootForm.instanceId"
+            style="width: 100%; height: 32px; border: 1px solid var(--border-color, #d9d9d9); border-radius: 6px; padding: 0 8px; background: var(--bg-container, #fff); color: var(--text-color, inherit)"
+            :disabled="attachBootTargetLoading"
+          >
+            <option value="">请选择目标实例</option>
+            <option v-for="item in attachBootTargets" :key="item.instanceId" :value="item.instanceId">
+              {{ bootAttachTargetLabel(item) }}
+            </option>
+          </select>
+          <a-select
+            v-else
+            v-model:value="attachBootForm.instanceId"
+            :options="bootAttachTargetOptions"
+            :loading="attachBootTargetLoading"
+            :show-search="false"
+            placeholder="请选择目标实例"
+            style="width: 100%"
+          />
+        </a-form-item>
+      </a-form>
+    </a-modal>
+
+    <a-modal
+      :mask-closable="false"
+      :keyboard="false"
+      v-model:open="bootIscsiOpen"
+      title="iSCSI 命令和信息"
+      :width="isMobile ? '96vw' : '720px'"
+      :footer="null"
+    >
+      <a-alert
+        type="warning"
+        show-icon
+        style="margin-bottom: 12px"
+        message="分离之前必须卸载驱动器并断开连接；如写入 /etc/fstab，请包含 _netdev 和 nofail。"
+      />
+      <a-collapse v-model:activeKey="bootIscsiActiveKeys">
+        <a-collapse-panel key="linux" header="Linux">
+          <div style="font-weight: 600; margin-bottom: 6px">连接</div>
+          <a-textarea :value="bootIscsiConnectCommands" :rows="3" readonly style="font-family: Consolas, monospace; font-size: 12px" />
+          <a-button type="link" size="small" @click="copyText(bootIscsiConnectCommands)">复制</a-button>
+          <div style="font-weight: 600; margin: 10px 0 6px">断开连接</div>
+          <a-textarea :value="bootIscsiDisconnectCommands" :rows="2" readonly style="font-family: Consolas, monospace; font-size: 12px" />
+          <a-button type="link" size="small" @click="copyText(bootIscsiDisconnectCommands)">复制</a-button>
+          <div style="display: grid; gap: 8px; margin-top: 12px">
+            <div><strong>IP 地址和端口:</strong> {{ bootIscsiIpPort }} <a-button type="link" size="small" @click="copyText(bootIscsiIpPort)">复制</a-button></div>
+            <div><strong>卷 IQN:</strong> {{ bootIscsiIqn }} <a-button type="link" size="small" @click="copyText(bootIscsiIqn)">复制</a-button></div>
+          </div>
+        </a-collapse-panel>
+        <a-collapse-panel key="windows" header="Windows">
+          <div style="display: grid; gap: 8px">
+            <div><strong>目标门户:</strong> {{ bootIscsiIpPort }}</div>
+            <div><strong>目标 IQN:</strong> {{ bootIscsiIqn }}</div>
+          </div>
+        </a-collapse-panel>
+      </a-collapse>
     </a-modal>
 
     <a-modal :mask-closable="false" :keyboard="false"
@@ -392,8 +482,8 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
-import { message } from 'ant-design-vue'
+import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
+import { message, Modal } from 'ant-design-vue'
 import {
   listStorageRegions,
   listStorageCompartments,
@@ -403,6 +493,7 @@ import {
   putBucketPolicy,
   storageMutate,
 } from '../api/storage'
+import { updateInstanceState } from '../api/instance'
 import { sendVerifyCode } from '../api/system'
 
 const props = withDefaults(
@@ -421,6 +512,7 @@ type CompartmentOption = { label: string; value: string; isRoot?: boolean }
 const regionLoading = ref(false)
 const compartmentLoading = ref(false)
 const loading = ref(false)
+const isMobile = ref(typeof window !== 'undefined' ? window.innerWidth < 768 : false)
 /** 上次完成存储抽屉初始化的租户；与 props.userId 不一致时必须清空筛选与缓存数据，避免跨租户误用 OCID */
 const storageContextUserId = ref('')
 const region = ref('')
@@ -482,6 +574,21 @@ const versioningOptions = [
   { label: 'Suspended', value: 'Suspended' },
 ]
 
+function updateMobileState() {
+  if (typeof window !== 'undefined') {
+    isMobile.value = window.innerWidth < 768
+  }
+}
+
+onMounted(() => {
+  updateMobileState()
+  window.addEventListener('resize', updateMobileState)
+})
+
+onUnmounted(() => {
+  window.removeEventListener('resize', updateMobileState)
+})
+
 const blockColumnsResolved = computed(() => {
   const v = blockView.value
   const cols: any[] = [
@@ -503,12 +610,12 @@ const blockColumnsResolved = computed(() => {
   }
   cols.push({ title: '区间', dataIndex: 'compartmentName', key: 'compartmentName', width: 120, ellipsis: true })
   if (v === 'bootVolumes' || v === 'blockVolumes') {
-    cols.push({ title: '挂载', key: 'attachmentSummary', width: 140, ellipsis: true })
+    cols.push({ title: '挂载', key: 'attachmentSummary', width: v === 'bootVolumes' ? 220 : 140, ellipsis: true })
   }
   if (v === 'volumeBackupPolicyAssignments') {
     cols.push({ title: '策略 / 资产', key: 'policyAsset', width: 180 })
   }
-  cols.push({ title: '操作', key: 'actions', width: 320 })
+  cols.push({ title: '操作', key: 'actions', width: v === 'bootVolumes' ? 420 : 320 })
   return cols
 })
 
@@ -541,6 +648,46 @@ function formatCompartmentCell(record: any) {
   const option = cid ? compartmentOptions.value.find(item => item.value === cid) : null
   if (option?.isRoot) return 'root'
   return record?.compartmentName || option?.label || '—'
+}
+
+function bootVolumeAttachments(record: any): any[] {
+  const rows = Array.isArray(record?.attachments) ? record.attachments : []
+  return rows.filter((item: any) => String(item?.lifecycleState || '').toUpperCase() !== 'DETACHED')
+}
+
+function firstBootVolumeAttachment(record: any): any | null {
+  return bootVolumeAttachments(record)[0] || null
+}
+
+function bootAttachmentName(att: any) {
+  return att?.instanceName || shortId(att?.instanceId)
+}
+
+function bootAttachmentTitle(att: any) {
+  const parts = [att?.instanceName || att?.instanceId, att?.instanceState, att?.lifecycleState, att?.availabilityDomain]
+  return parts.filter(Boolean).join(' · ')
+}
+
+function stateTagColor(state: string | undefined) {
+  const value = String(state || '').toUpperCase()
+  if (value === 'RUNNING') return 'green'
+  if (value === 'STOPPED') return 'red'
+  if (value === 'STOPPING' || value === 'STARTING') return 'orange'
+  return 'default'
+}
+
+function canAttachBootVolume(record: any) {
+  return blockView.value === 'bootVolumes'
+    && String(record?.lifecycleState || '').toUpperCase() === 'AVAILABLE'
+    && bootVolumeAttachments(record).length === 0
+}
+
+function canDetachBootVolume(record: any) {
+  return blockView.value === 'bootVolumes' && bootVolumeAttachments(record).length > 0
+}
+
+function canShowBootIscsi(record: any) {
+  return blockView.value === 'bootVolumes' && bootVolumeAttachments(record).length > 0
 }
 
 const bucketColumns = [
@@ -1136,6 +1283,167 @@ async function submitResizeBlock() {
     message.error(e?.message || '更新失败')
   } finally {
     resizeBlockLoading.value = false
+  }
+}
+
+const attachBootOpen = ref(false)
+const attachBootTarget = ref<any>(null)
+const attachBootTargets = ref<any[]>([])
+const attachBootTargetLoading = ref(false)
+const attachBootLoading = ref(false)
+const attachBootForm = ref({ instanceId: '' })
+
+const bootAttachTargetOptions = computed(() =>
+  attachBootTargets.value.map(item => ({
+    label: bootAttachTargetLabel(item),
+    value: item.instanceId,
+  })),
+)
+
+function bootAttachTargetLabel(item: any) {
+  const name = item?.name || item?.instanceId || '实例'
+  const state = item?.state || '—'
+  const compartment = item?.compartmentName || '—'
+  return `${name} · ${state} · ${compartment}`
+}
+
+async function openAttachBootVolume(row: any) {
+  if (!props.userId || !region.value || !row?.id) return
+  attachBootTarget.value = row
+  attachBootForm.value = { instanceId: '' }
+  attachBootTargets.value = []
+  attachBootOpen.value = true
+  attachBootTargetLoading.value = true
+  try {
+    const res = await storageMutate({
+      action: 'listBootVolumeAttachTargets',
+      id: props.userId,
+      region: region.value,
+      bootVolumeId: row.id,
+    })
+    attachBootTargets.value = Array.isArray(res.data) ? res.data : []
+  } catch (e: any) {
+    message.error(e?.message || '加载目标实例失败')
+  } finally {
+    attachBootTargetLoading.value = false
+  }
+}
+
+async function submitAttachBootVolume() {
+  if (!props.userId || !region.value || !attachBootTarget.value?.id) return
+  if (!attachBootForm.value.instanceId) return message.warning('请选择目标实例')
+  attachBootLoading.value = true
+  try {
+    await storageMutate({
+      action: 'attachBootVolume',
+      id: props.userId,
+      region: region.value,
+      bootVolumeId: attachBootTarget.value.id,
+      instanceId: attachBootForm.value.instanceId,
+    })
+    message.success('已提交挂载引导卷')
+    attachBootOpen.value = false
+    await loadAll()
+  } catch (e: any) {
+    message.error(e?.message || '挂载引导卷失败')
+  } finally {
+    attachBootLoading.value = false
+  }
+}
+
+function handleDetachBootVolume(row: any) {
+  const att = firstBootVolumeAttachment(row)
+  if (!att?.bootVolumeAttachmentId && !att?.id) {
+    message.warning('未找到引导卷附加关系')
+    return
+  }
+  const state = String(att.instanceState || '').toUpperCase()
+  if (state !== 'STOPPED') {
+    Modal.confirm({
+      title: '需要先停止实例',
+      content: `引导卷当前挂载在 ${bootAttachmentName(att)}，实例状态为 ${att.instanceState || '未知'}。请先断电停止实例后再分离引导卷。`,
+      okText: '断电停止',
+      cancelText: '取消',
+      okButtonProps: { danger: true },
+      async onOk() {
+        await stopBootVolumeInstance(att)
+      },
+    })
+    return
+  }
+  Modal.confirm({
+    title: '分离引导卷',
+    content: `确认从 ${bootAttachmentName(att)} 分离该引导卷？`,
+    okText: '确认分离',
+    cancelText: '取消',
+    okButtonProps: { danger: true },
+    async onOk() {
+      await detachBootVolumeAttachment(att)
+    },
+  })
+}
+
+async function stopBootVolumeInstance(att: any) {
+  if (!props.userId || !region.value || !att?.instanceId) return
+  try {
+    await updateInstanceState({
+      id: props.userId,
+      region: region.value,
+      instanceId: att.instanceId,
+      action: 'STOP',
+    })
+    message.success('已提交断电停止')
+    await loadAll()
+  } catch (e: any) {
+    message.error(e?.message || '断电停止失败')
+    throw e
+  }
+}
+
+async function detachBootVolumeAttachment(att: any) {
+  if (!props.userId || !region.value) return
+  try {
+    await storageMutate({
+      action: 'detachBootVolume',
+      id: props.userId,
+      region: region.value,
+      bootVolumeAttachmentId: att.bootVolumeAttachmentId || att.id,
+    })
+    message.success('已提交分离引导卷')
+    await loadAll()
+  } catch (e: any) {
+    message.error(e?.message || '分离引导卷失败')
+    throw e
+  }
+}
+
+const bootIscsiOpen = ref(false)
+const bootIscsiRow = ref<any>(null)
+const bootIscsiActiveKeys = ref(['linux'])
+const bootIscsiIpPort = '169.254.2.2:3260'
+const bootIscsiIqn = 'iqn.2015-02.oracle.boot:uefi'
+const bootIscsiConnectCommands = [
+  `sudo iscsiadm -m node -o new -T ${bootIscsiIqn} -p ${bootIscsiIpPort}`,
+  `sudo iscsiadm -m node -o update -T ${bootIscsiIqn} -n node.startup -v automatic`,
+  `sudo iscsiadm -m node -T ${bootIscsiIqn} -p ${bootIscsiIpPort} -l`,
+].join('\n')
+const bootIscsiDisconnectCommands = [
+  `sudo iscsiadm -m node -T ${bootIscsiIqn} -p ${bootIscsiIpPort} -u`,
+  `sudo iscsiadm -m node -o delete -T ${bootIscsiIqn} -p ${bootIscsiIpPort}`,
+].join('\n')
+
+function openBootIscsi(row: any) {
+  bootIscsiRow.value = row
+  bootIscsiActiveKeys.value = ['linux']
+  bootIscsiOpen.value = true
+}
+
+async function copyText(text: string) {
+  try {
+    await navigator.clipboard.writeText(text)
+    message.success('已复制')
+  } catch {
+    message.error('复制失败')
   }
 }
 
