@@ -841,19 +841,88 @@
         </a-tab-pane>
 
         <a-tab-pane key="traffic" tab="流量统计">
-          <a-space style="margin-bottom: 12px">
-            <a-select v-model:value="trafficMinutes" style="width: 140px">
-              <a-select-option :value="60">最近 1 小时</a-select-option>
-              <a-select-option :value="360">最近 6 小时</a-select-option>
-              <a-select-option :value="1440">最近 24 小时</a-select-option>
-            </a-select>
-            <a-button @click="loadTraffic" :loading="trafficLoading">查询</a-button>
-          </a-space>
-          <a-empty v-if="!trafficData" description="点击查询加载流量数据" />
-          <a-descriptions v-else :column="1" bordered size="small">
-            <a-descriptions-item label="入站流量">{{ formatBytes(trafficData.inbound) }}</a-descriptions-item>
-            <a-descriptions-item label="出站流量">{{ formatBytes(trafficData.outbound) }}</a-descriptions-item>
-          </a-descriptions>
+          <div class="traffic-panel">
+            <div class="traffic-toolbar">
+              <a-segmented v-model:value="trafficMinutes" :options="trafficWindowOptions" @change="loadTraffic" />
+              <a-button @click="loadTraffic" :loading="trafficLoading">
+                <template #icon><ReloadOutlined /></template>刷新
+              </a-button>
+            </div>
+            <a-empty v-if="!trafficData && !trafficLoading" description="点击刷新加载流量数据" />
+            <a-spin v-else :spinning="trafficLoading">
+              <template v-if="trafficData">
+                <div class="traffic-summary-grid">
+                  <div class="traffic-summary-card inbound">
+                    <span>入站</span>
+                    <strong>{{ formatBytes(trafficData.inbound) }}</strong>
+                  </div>
+                  <div class="traffic-summary-card outbound">
+                    <span>出站</span>
+                    <strong>{{ formatBytes(trafficData.outbound) }}</strong>
+                  </div>
+                  <div class="traffic-summary-card total">
+                    <span>总量</span>
+                    <strong>{{ formatBytes(trafficData.total) }}</strong>
+                  </div>
+                </div>
+                <div class="traffic-chart-card">
+                  <div class="traffic-chart-head">
+                    <span>趋势</span>
+                    <span>{{ trafficWindowLabel }} · {{ trafficData.interval || '—' }}</span>
+                  </div>
+                  <div class="traffic-chart-canvas">
+                    <svg v-if="trafficChart.hasData" viewBox="0 0 640 220" preserveAspectRatio="none" role="img">
+                      <line v-for="y in trafficChartGrid" :key="y" x1="0" x2="640" :y1="y" :y2="y" class="traffic-grid-line" />
+                      <polyline :points="trafficChart.inbound" class="traffic-line traffic-line-inbound" />
+                      <polyline :points="trafficChart.outbound" class="traffic-line traffic-line-outbound" />
+                    </svg>
+                    <a-empty v-else description="暂无趋势数据" />
+                  </div>
+                  <div class="traffic-legend">
+                    <span><i class="traffic-dot inbound"></i>入站</span>
+                    <span><i class="traffic-dot outbound"></i>出站</span>
+                    <span>峰值 {{ formatBytes(trafficChart.max) }}</span>
+                  </div>
+                </div>
+                <a-collapse v-if="trafficVnics.length > 1" class="traffic-vnic-collapse">
+                  <a-collapse-panel key="vnics" :header="'网卡明细 · ' + trafficVnics.length">
+                    <a-table
+                      v-if="!isMobile"
+                      :columns="trafficVnicColumns"
+                      :data-source="trafficVnics"
+                      :pagination="false"
+                      row-key="vnicId"
+                      size="small"
+                    >
+                      <template #bodyCell="{ column, record }">
+                        <template v-if="column.key === 'vnic'">
+                          <div class="traffic-vnic-name">{{ record.displayName || shortOcId(record.vnicId) }}</div>
+                          <div class="traffic-vnic-id">{{ shortOcId(record.vnicId) }}</div>
+                        </template>
+                        <template v-if="column.key === 'inbound'">{{ formatBytes(record.inbound) }}</template>
+                        <template v-if="column.key === 'outbound'">{{ formatBytes(record.outbound) }}</template>
+                        <template v-if="column.key === 'total'">{{ formatBytes(record.total) }}</template>
+                      </template>
+                    </a-table>
+                    <div v-else class="traffic-vnic-mobile-list">
+                      <div v-for="vnic in trafficVnics" :key="vnic.vnicId" class="mobile-card">
+                        <div class="mobile-card-header">
+                          <span class="mobile-card-title">{{ vnic.displayName || shortOcId(vnic.vnicId) }}</span>
+                        </div>
+                        <div class="mobile-card-body">
+                          <div class="mobile-card-row"><span class="label">私有 IP</span><span class="value">{{ vnic.privateIp || '—' }}</span></div>
+                          <div class="mobile-card-row"><span class="label">公网 IP</span><span class="value">{{ vnic.publicIp || '—' }}</span></div>
+                          <div class="mobile-card-row"><span class="label">入站</span><span class="value">{{ formatBytes(vnic.inbound) }}</span></div>
+                          <div class="mobile-card-row"><span class="label">出站</span><span class="value">{{ formatBytes(vnic.outbound) }}</span></div>
+                          <div class="mobile-card-row"><span class="label">总量</span><span class="value">{{ formatBytes(vnic.total) }}</span></div>
+                        </div>
+                      </div>
+                    </div>
+                  </a-collapse-panel>
+                </a-collapse>
+              </template>
+            </a-spin>
+          </div>
         </a-tab-pane>
 
         <a-tab-pane key="shape" tab="形状编辑">
@@ -1507,6 +1576,22 @@ const vcnColumns = [
   { title: '操作', key: 'vcnAction', width: 100 },
 ]
 
+const trafficWindowOptions = [
+  { label: '1h', value: 60 },
+  { label: '24h', value: 1440 },
+  { label: '7d', value: 10080 },
+  { label: '30d', value: 43200 },
+]
+
+const trafficVnicColumns = [
+  { title: '网卡', key: 'vnic', width: 260 },
+  { title: '私有 IP', dataIndex: 'privateIp', key: 'privateIp', width: 140 },
+  { title: '公网 IP', dataIndex: 'publicIp', key: 'publicIp', width: 140 },
+  { title: '入站', key: 'inbound', width: 120 },
+  { title: '出站', key: 'outbound', width: 120 },
+  { title: '总量', key: 'total', width: 120 },
+]
+
 const isMobile = ref(window.innerWidth < 768)
 function checkMobile() { isMobile.value = window.innerWidth < 768 }
 
@@ -1851,6 +1936,39 @@ const vcns = ref<any[]>([])
 const trafficLoading = ref(false)
 const trafficMinutes = ref(60)
 const trafficData = ref<any>(null)
+const trafficWindowLabel = computed(() => trafficWindowOptions.find(item => item.value === trafficMinutes.value)?.label || '1h')
+const trafficVnics = computed(() => Array.isArray(trafficData.value?.vnics) ? trafficData.value.vnics : [])
+const trafficChartGrid = [24, 67, 110, 153, 196]
+const trafficChart = computed(() => {
+  const rows = Array.isArray(trafficData.value?.points) ? trafficData.value.points : []
+  const points: Array<{ inbound: number; outbound: number }> = rows.map((point: any) => ({
+    inbound: Number(point?.inbound) || 0,
+    outbound: Number(point?.outbound) || 0,
+  }))
+  const max = Math.max(0, ...points.map(point => Math.max(point.inbound, point.outbound)))
+  if (!points.length || max <= 0) {
+    return { hasData: false, inbound: '', outbound: '', max: 0 }
+  }
+
+  const width = 640
+  const height = 220
+  const padX = 8
+  const padY = 18
+  const plotW = width - padX * 2
+  const plotH = height - padY * 2
+  const toPolyline = (key: 'inbound' | 'outbound') => points.map((point, index) => {
+    const x = padX + (points.length === 1 ? plotW / 2 : (index * plotW) / (points.length - 1))
+    const y = padY + plotH - (point[key] / max) * plotH
+    return `${x.toFixed(1)},${y.toFixed(1)}`
+  }).join(' ')
+
+  return {
+    hasData: true,
+    inbound: toPolyline('inbound'),
+    outbound: toPolyline('outbound'),
+    max,
+  }
+})
 const changeIpLoading = ref(false)
 
 const netDetailLoading = ref(false)
@@ -2564,11 +2682,17 @@ function onByoipChanged() {
   loadReservedIps()
 }
 
-function formatBytes(bytes: number) {
-  if (!bytes || bytes === 0) return '0 B'
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  const i = Math.floor(Math.log(bytes) / Math.log(1024))
-  return (bytes / Math.pow(1024, i)).toFixed(2) + ' ' + units[i]
+function formatBytes(value: unknown) {
+  const bytes = Number(value)
+  if (!Number.isFinite(bytes) || bytes <= 0) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB']
+  const i = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1)
+  return `${(bytes / Math.pow(1024, i)).toFixed(2)} ${units[i]}`
+}
+
+function shortOcId(value?: string) {
+  if (!value) return '—'
+  return value.length > 18 ? `${value.slice(0, 10)}...${value.slice(-6)}` : value
 }
 
 async function loadAllTenants(force = false) {
@@ -2633,6 +2757,7 @@ async function loadTenantInstances(td: TenantData, options: LoadTenantInstancesO
 function onTabChange(key: string) {
   if (key === 'volume') loadBootVolumes()
   if (key === 'blockVolume') loadBlockVolumes()
+  if (key === 'traffic' && !trafficData.value) loadTraffic()
   if (key === 'shape') loadShapeEditOptions()
 }
 
@@ -3483,7 +3608,7 @@ async function loadTraffic() {
       minutes: trafficMinutes.value,
       ...instanceDetailRegionParam(),
     })
-    trafficData.value = res.data || { inbound: 0, outbound: 0 }
+    trafficData.value = res.data || { inbound: 0, outbound: 0, total: 0, points: [], vnics: [] }
   } catch (e: any) { message.error(e?.message || '加载流量数据失败') }
   finally { trafficLoading.value = false }
 }
@@ -3782,6 +3907,188 @@ onUnmounted(() => {
   color: var(--text-sub);
   line-height: 1.3;
 }
+.traffic-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.traffic-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.traffic-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 14px;
+}
+.traffic-summary-card {
+  min-height: 86px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-sidebar);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  gap: 8px;
+}
+.traffic-summary-card span {
+  color: var(--text-sub);
+  font-size: 12px;
+}
+.traffic-summary-card strong {
+  color: var(--text-main);
+  font-size: 20px;
+  line-height: 1.2;
+  word-break: break-word;
+}
+.traffic-summary-card.inbound {
+  border-left: 3px solid #1677ff;
+}
+.traffic-summary-card.outbound {
+  border-left: 3px solid #52c41a;
+}
+.traffic-summary-card.total {
+  border-left: 3px solid #faad14;
+}
+.traffic-chart-card {
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-sidebar);
+}
+.traffic-chart-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--text-main);
+  font-weight: 600;
+  margin-bottom: 10px;
+}
+.traffic-chart-head span:last-child {
+  color: var(--text-sub);
+  font-size: 12px;
+  font-weight: 400;
+}
+.traffic-chart-canvas {
+  height: 220px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: rgba(127, 127, 127, 0.04);
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.traffic-chart-canvas svg {
+  width: 100%;
+  height: 100%;
+}
+.traffic-grid-line {
+  stroke: rgba(127, 127, 127, 0.22);
+  stroke-width: 1;
+}
+.traffic-line {
+  fill: none;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.traffic-line-inbound {
+  stroke: #1677ff;
+}
+.traffic-line-outbound {
+  stroke: #52c41a;
+}
+.traffic-legend {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  color: var(--text-sub);
+  font-size: 12px;
+}
+.traffic-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-right: 6px;
+}
+.traffic-dot.inbound {
+  background: #1677ff;
+}
+.traffic-dot.outbound {
+  background: #52c41a;
+}
+.traffic-vnic-collapse {
+  background: transparent;
+}
+.traffic-vnic-name {
+  color: var(--text-main);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.traffic-vnic-id {
+  color: var(--text-sub);
+  font-size: 12px;
+  margin-top: 2px;
+}
+.traffic-vnic-mobile-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.mobile-card {
+  background: var(--bg-sidebar);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px;
+}
+.mobile-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.mobile-card-title {
+  color: var(--text-main);
+  font-weight: 600;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mobile-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+.mobile-card-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 13px;
+}
+.mobile-card-row .label {
+  color: var(--text-sub);
+  flex: 0 0 auto;
+}
+.mobile-card-row .value {
+  color: var(--text-main);
+  min-width: 0;
+  text-align: right;
+  overflow-wrap: anywhere;
+}
 @media (min-width: 769px) {
   .instance-panel-region-hint {
     flex: 0 0 auto;
@@ -3927,6 +4234,25 @@ onUnmounted(() => {
   .instance-panel-region-hint {
     margin-left: 0;
     width: 100%;
+  }
+  .traffic-toolbar {
+    align-items: stretch;
+  }
+  .traffic-toolbar :deep(.ant-segmented) {
+    width: 100%;
+  }
+  .traffic-summary-grid {
+    grid-template-columns: 1fr;
+  }
+  .traffic-summary-card {
+    min-height: 76px;
+  }
+  .traffic-chart-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .traffic-chart-canvas {
+    height: 180px;
   }
   .panel-actions {
     gap: 4px;
