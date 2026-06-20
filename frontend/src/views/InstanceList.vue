@@ -851,6 +851,7 @@
                   format="YYYY-MM-DD"
                   :placeholder="['开始日期', '结束日期']"
                   :disabled-date="disabledTrafficDate"
+                  :input-read-only="true"
                   allow-clear
                   @change="onTrafficDateRangeChange"
                 />
@@ -883,7 +884,6 @@
                   </div>
                   <div class="traffic-chart-canvas">
                     <div v-if="trafficChart.hasData" class="traffic-chart-plot">
-                      <div class="traffic-y-axis-label">周期流量</div>
                       <div class="traffic-y-scale">
                         <span>{{ formatBytes(trafficChart.max) }}</span>
                         <span>0 B</span>
@@ -914,6 +914,7 @@
                           <div
                             v-if="trafficHoverPoint"
                             class="traffic-hover-card"
+                            :class="`traffic-hover-card-${trafficHoverPoint.placement}`"
                             :style="{ left: `${trafficHoverPoint.left}%`, top: `${trafficHoverPoint.top}%` }"
                           >
                             <div class="traffic-hover-title">{{ trafficHoverPoint.point.label }}</div>
@@ -1661,6 +1662,7 @@ interface TrafficChartPoint {
 interface TrafficHoverPoint {
   left: number
   top: number
+  placement: 'above' | 'below'
   point: TrafficChartPoint
 }
 
@@ -2854,9 +2856,14 @@ function onTrafficDateRangeChange() {
 
 function showTrafficTooltip(point: TrafficChartPoint, series: TrafficSeries) {
   const y = series === 'inbound' ? point.inboundY : point.outboundY
+  const xPercent = (point.x / 640) * 100
+  const yPercent = (y / 220) * 100
+  const minLeft = isMobile.value ? 30 : 14
+  const maxLeft = isMobile.value ? 70 : 86
   trafficHoverPoint.value = {
-    left: Math.min(92, Math.max(8, (point.x / 640) * 100)),
-    top: Math.min(82, Math.max(12, (y / 220) * 100)),
+    left: Math.min(maxLeft, Math.max(minLeft, xPercent)),
+    top: Math.min(84, Math.max(10, yPercent)),
+    placement: yPercent < 34 ? 'below' : 'above',
     point,
   }
 }
@@ -4116,6 +4123,10 @@ onUnmounted(() => {
   width: 260px;
   max-width: 100%;
 }
+.traffic-date-range :deep(input) {
+  cursor: pointer;
+  caret-color: transparent;
+}
 .traffic-summary-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -4177,7 +4188,7 @@ onUnmounted(() => {
   border: 1px solid var(--border);
   border-radius: 6px;
   background: rgba(127, 127, 127, 0.04);
-  overflow: hidden;
+  overflow: visible;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -4186,21 +4197,10 @@ onUnmounted(() => {
   width: 100%;
   height: 100%;
   display: grid;
-  grid-template-columns: 18px 64px minmax(0, 1fr);
+  grid-template-columns: 64px minmax(0, 1fr);
   gap: 6px;
   padding: 10px 12px 8px 8px;
   box-sizing: border-box;
-}
-.traffic-y-axis-label {
-  writing-mode: vertical-rl;
-  transform: rotate(180deg);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-sub);
-  font-size: 12px;
-  line-height: 1;
-  white-space: nowrap;
 }
 .traffic-y-scale {
   display: flex;
@@ -4222,6 +4222,7 @@ onUnmounted(() => {
   position: relative;
   flex: 1;
   min-height: 0;
+  overflow: visible;
 }
 .traffic-chart-svg {
   width: 100%;
@@ -4252,13 +4253,19 @@ onUnmounted(() => {
   position: absolute;
   z-index: 3;
   min-width: 150px;
+  max-width: min(210px, calc(100% - 16px));
   padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: 8px;
   background: var(--bg-card);
   box-shadow: var(--shadow-card);
-  transform: translate(-50%, -108%);
   pointer-events: none;
+}
+.traffic-hover-card-above {
+  transform: translate(-50%, calc(-100% - 10px));
+}
+.traffic-hover-card-below {
+  transform: translate(-50%, 10px);
 }
 .traffic-hover-title {
   color: var(--text-main);
@@ -4575,14 +4582,17 @@ onUnmounted(() => {
     height: 230px;
   }
   .traffic-chart-plot {
-    grid-template-columns: 16px 52px minmax(0, 1fr);
+    grid-template-columns: 52px minmax(0, 1fr);
     gap: 4px;
     padding: 8px;
   }
   .traffic-y-scale,
-  .traffic-x-scale,
-  .traffic-y-axis-label {
+  .traffic-x-scale {
     font-size: 11px;
+  }
+  .traffic-hover-card {
+    min-width: 132px;
+    padding: 8px 10px;
   }
   .panel-actions {
     gap: 4px;
