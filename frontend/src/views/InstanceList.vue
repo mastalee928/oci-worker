@@ -1762,6 +1762,35 @@
       </div>
     </div>
 
+    <div v-if="tenantDockCardVisible" class="tenant-dock-card" :style="tenantDockCardStyle">
+      <div class="tenant-dock-card-inner">
+        <div class="tenant-roll-head">
+          <i class="ri-cloud-line tenant-roll-icon"></i>
+          <div class="tenant-roll-text">
+            <div class="tenant-roll-name">{{ tenantDockCard.username }}</div>
+            <div class="tenant-roll-region">{{ tenantDockCard.region }}</div>
+          </div>
+        </div>
+        <div class="tenant-roll-tags">
+          <span v-if="tenantDockCard.planType" class="tenant-roll-tag">{{ tenantDockCard.planType }}</span>
+          <span v-if="tenantDockCard.tenantName" class="tenant-roll-tag tenant-roll-tag-blue">{{ tenantDockCard.tenantName }}</span>
+        </div>
+        <div class="tenant-dock-actions">
+          <button
+            v-for="item in tenantWorkspaceActionItems"
+            :key="item.key"
+            type="button"
+            class="tenant-dock-action"
+            :class="{ 'tenant-dock-action-active': tenantWorkspaceKind === item.key }"
+            @click.stop="switchTenantDockPanel(item.key)"
+          >
+            <i :class="item.icon"></i>
+            <span>{{ item.label }}</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
     <div class="tenant-page-float-actions" aria-label="页面快捷操作">
       <a-tooltip
         v-if="hasGroups"
@@ -2022,7 +2051,15 @@ interface TrafficChartModel {
 }
 
 const isMobile = ref(window.innerWidth < 768)
-function checkMobile() { isMobile.value = window.innerWidth < 768 }
+function checkMobile() {
+  isMobile.value = window.innerWidth < 768
+  if (isMobile.value) {
+    tenantRollCard.visible = false
+    clearTenantDockCard()
+    return
+  }
+  if (tenantDockCard.visible) refreshTenantDockCard()
+}
 
 const tenantViewMode = ref<'card' | 'table'>('card')
 const searchKeyword = ref('')
@@ -2222,7 +2259,10 @@ const instancePanelVisible = computed({
     if (!val) {
       instancePanelOpen.value = false
       activeTenantId.value = ''
-      if (tenantWorkspaceKind.value === 'instance') tenantWorkspaceKind.value = null
+      if (!tenantWorkspaceTransitioning.value) {
+        if (tenantWorkspaceKind.value === 'instance') tenantWorkspaceKind.value = null
+        clearTenantDockCard()
+      }
     }
   },
 })
@@ -2252,6 +2292,11 @@ const tenantWorkspaceLabels: Record<TenantWorkspaceKind, string> = {
   vcn: '虚拟云网络',
   storage: '存储',
 }
+const tenantWorkspaceActionItems: { key: TenantWorkspaceKind; label: string; icon: string }[] = [
+  { key: 'instance', label: '实例管理', icon: 'ri-server-line' },
+  { key: 'vcn', label: '虚拟云网络', icon: 'ri-share-line' },
+  { key: 'storage', label: '存储', icon: 'ri-database-2-line' },
+]
 const tenantRollCard = reactive({
   visible: false,
   tenantId: '',
@@ -2270,6 +2315,31 @@ const tenantRollCard = reactive({
   midDy: '-28px',
   scale: '0.72',
 })
+const tenantDockCard = reactive<{
+  visible: boolean
+  tenant: any | null
+  tenantId: string
+  username: string
+  tenantName: string
+  region: string
+  planType: string
+  left: string
+  top: string
+  width: string
+  height: string
+}>({
+  visible: false,
+  tenant: null,
+  tenantId: '',
+  username: '',
+  tenantName: '',
+  region: '',
+  planType: '',
+  left: '0px',
+  top: '0px',
+  width: '260px',
+  height: '220px',
+})
 const tenantRollCardStyle = computed<Record<string, string>>(() => ({
   left: tenantRollCard.left,
   top: tenantRollCard.top,
@@ -2281,16 +2351,29 @@ const tenantRollCardStyle = computed<Record<string, string>>(() => ({
   '--tenant-roll-mid-dy': tenantRollCard.midDy,
   '--tenant-roll-scale': tenantRollCard.scale,
 }))
+const tenantDockCardStyle = computed<Record<string, string>>(() => ({
+  left: tenantDockCard.left,
+  top: tenantDockCard.top,
+  width: tenantDockCard.width,
+  minHeight: tenantDockCard.height,
+}))
+const tenantDockCardVisible = computed(() => !isMobile.value && tenantDockCard.visible && !!tenantDockCard.tenantId)
 const TENANT_ROLL_DURATION_MS = 720
 const TENANT_DRAWER_DELAY_MS = 240
 let tenantRollTimer: ReturnType<typeof setTimeout> | null = null
 let tenantWorkspaceOpenTimer: ReturnType<typeof setTimeout> | null = null
 
-function beginTenantWorkspace(kind: TenantWorkspaceKind, tenant: any) {
+type TenantWorkspaceOpenOptions = { dockSwitch?: boolean }
+
+function beginTenantWorkspace(kind: TenantWorkspaceKind, tenant: any, options: TenantWorkspaceOpenOptions = {}) {
   tenantWorkspaceKind.value = kind
   if (isMobile.value) return
   tenantWorkspaceTransitioning.value = true
-  startTenantRollCard(kind, tenant)
+  if (options.dockSwitch) {
+    refreshTenantDockCard(tenant)
+  } else {
+    startTenantRollCard(kind, tenant)
+  }
 }
 
 function scheduleTenantWorkspaceOpen(openPanel: () => void) {
@@ -2309,7 +2392,12 @@ function scheduleTenantWorkspaceOpen(openPanel: () => void) {
 }
 
 function isTenantRollSource(tenant: any) {
-  return !isMobile.value && tenantRollCard.visible && tenantRollCard.tenantId === String(tenant?.id || '')
+  const tenantId = String(tenant?.id || '')
+  return (
+    !isMobile.value &&
+    ((tenantRollCard.visible && tenantRollCard.tenantId === tenantId) ||
+      (tenantDockCard.visible && tenantDockCard.tenantId === tenantId))
+  )
 }
 
 function closeTenantWorkspacePanels(except: TenantWorkspaceKind) {
@@ -2332,15 +2420,81 @@ function desktopWorkspaceWidthPx() {
   return Math.min(1280, Math.max(960, window.innerWidth * 0.68))
 }
 
+function calculateTenantDockRect(sourceRect?: DOMRect | null) {
+  if (typeof window === 'undefined') return null
+  const drawerWidth = desktopWorkspaceWidthPx()
+  const drawerLeft = window.innerWidth - drawerWidth
+  const gap = 24
+  const availableWidth = drawerLeft - gap * 2
+  if (availableWidth < 220) return null
+  const baseWidth = sourceRect?.width || Number.parseFloat(tenantDockCard.width) || 260
+  const baseHeight = sourceRect?.height || Number.parseFloat(tenantDockCard.height) || 220
+  const width = Math.min(320, Math.max(220, Math.min(baseWidth, availableWidth)))
+  const height = Math.max(180, Math.min(baseHeight, window.innerHeight - 96))
+  const left = Math.max(gap, drawerLeft - width - gap)
+  const preferredTop = sourceRect ? sourceRect.top - 90 : Number.parseFloat(tenantDockCard.top) || 88
+  const top = Math.max(72, Math.min(window.innerHeight - height - gap, preferredTop))
+  return { left, top, width, height }
+}
+
+function applyTenantDockCard(tenant: any, rect?: DOMRect | null, visible = true) {
+  const dockRect = calculateTenantDockRect(rect)
+  Object.assign(tenantDockCard, {
+    visible: visible && !!dockRect,
+    tenant,
+    tenantId: String(tenant?.id || ''),
+    username: tenant?.username || tenant?.tenantName || '租户',
+    tenantName: tenant?.tenantName || '',
+    region: tenant?.ociRegion || '',
+    planType: tenant?.planType || '',
+    left: `${dockRect?.left || 0}px`,
+    top: `${dockRect?.top || 0}px`,
+    width: `${dockRect?.width || 260}px`,
+    height: `${dockRect?.height || 220}px`,
+  })
+  return dockRect
+}
+
+function refreshTenantDockCard(tenant = tenantDockCard.tenant) {
+  if (!tenant || isMobile.value) return
+  const source = findTenantCardElement(String(tenant?.id || ''))
+  applyTenantDockCard(tenant, source?.getBoundingClientRect() || null, true)
+}
+
+function clearTenantDockCard() {
+  tenantDockCard.visible = false
+  tenantDockCard.tenant = null
+  tenantDockCard.tenantId = ''
+}
+
+function findTenantDataById(tenantId: string) {
+  return tenantDataList.value.find((td) => td.tenant?.id === tenantId) || null
+}
+
+function switchTenantDockPanel(kind: TenantWorkspaceKind) {
+  const tenant = tenantDockCard.tenant
+  if (!tenant || isMobile.value) return
+  if (tenantWorkspaceKind.value === kind) return
+  if (kind === 'instance') {
+    const td = findTenantDataById(String(tenant.id || ''))
+    if (td) void selectTenant(td, { dockSwitch: true })
+    return
+  }
+  if (kind === 'vcn') {
+    void openVcnPanel(tenant, { dockSwitch: true })
+    return
+  }
+  openStoragePanel(tenant, { dockSwitch: true })
+}
+
 function startTenantRollCard(kind: TenantWorkspaceKind, tenant: any) {
   const source = findTenantCardElement(String(tenant?.id || ''))
   if (!source || typeof window === 'undefined') return
   const rect = source.getBoundingClientRect()
   if (rect.width <= 0 || rect.height <= 0) return
-  const drawerWidth = desktopWorkspaceWidthPx()
-  const drawerLeft = window.innerWidth - drawerWidth
-  const targetLeft = Math.max(24, Math.min(drawerLeft - rect.width - 24, drawerLeft - rect.width * 1.65))
-  const targetTop = Math.max(72, Math.min(window.innerHeight - rect.height - 24, rect.top - 90))
+  const dockRect = applyTenantDockCard(tenant, rect, false)
+  const targetLeft = dockRect?.left ?? Math.max(24, rect.left)
+  const targetTop = dockRect?.top ?? Math.max(72, Math.min(window.innerHeight - rect.height - 24, rect.top - 90))
   const dx = targetLeft - rect.left
   const dy = targetTop - rect.top
 
@@ -2367,6 +2521,9 @@ function startTenantRollCard(kind: TenantWorkspaceKind, tenant: any) {
     tenantRollCard.visible = true
     tenantRollTimer = window.setTimeout(() => {
       tenantRollCard.visible = false
+      if (tenantWorkspaceKind.value === kind && tenantDockCard.tenantId === String(tenant?.id || '')) {
+        tenantDockCard.visible = !!dockRect
+      }
       tenantRollTimer = null
     }, TENANT_ROLL_DURATION_MS)
   })
@@ -2461,9 +2618,9 @@ async function prefetchSubscribedRegions(
   }
 }
 
-async function selectTenant(td: TenantData) {
+async function selectTenant(td: TenantData, options: TenantWorkspaceOpenOptions = {}) {
   const tenantId = td.tenant.id
-  beginTenantWorkspace('instance', td.tenant)
+  beginTenantWorkspace('instance', td.tenant, options)
   closeTenantWorkspacePanels('instance')
   activeTenantId.value = td.tenant.id
   if (!isMobile.value) instancePanelOpen.value = false
@@ -3299,13 +3456,19 @@ const storageManagerUserId = ref('')
 const storageManagerTenantName = ref('')
 const storageManagerDefaultRegion = ref('')
 watch(vcnVisible, (open) => {
-  if (!open && tenantWorkspaceKind.value === 'vcn' && !tenantWorkspaceTransitioning.value) tenantWorkspaceKind.value = null
+  if (!open && tenantWorkspaceKind.value === 'vcn' && !tenantWorkspaceTransitioning.value) {
+    tenantWorkspaceKind.value = null
+    clearTenantDockCard()
+  }
 })
 watch(storageManagerOpen, (open) => {
-  if (!open && tenantWorkspaceKind.value === 'storage' && !tenantWorkspaceTransitioning.value) tenantWorkspaceKind.value = null
+  if (!open && tenantWorkspaceKind.value === 'storage' && !tenantWorkspaceTransitioning.value) {
+    tenantWorkspaceKind.value = null
+    clearTenantDockCard()
+  }
 })
-function openStoragePanel(tenant: any) {
-  beginTenantWorkspace('storage', tenant)
+function openStoragePanel(tenant: any, options: TenantWorkspaceOpenOptions = {}) {
+  beginTenantWorkspace('storage', tenant, options)
   closeTenantWorkspacePanels('storage')
   storageManagerUserId.value = tenant.id
   storageManagerTenantName.value = tenant.username || tenant.tenantName || ''
@@ -3318,8 +3481,8 @@ function openStoragePanel(tenant: any) {
   })
 }
 
-async function openVcnPanel(tenant: any) {
-  beginTenantWorkspace('vcn', tenant)
+async function openVcnPanel(tenant: any, options: TenantWorkspaceOpenOptions = {}) {
+  beginTenantWorkspace('vcn', tenant, options)
   closeTenantWorkspacePanels('vcn')
   vcnTenant.value = tenant
   vcnList.value = []
@@ -4726,7 +4889,9 @@ onUnmounted(() => {
   will-change: transform, opacity, filter;
   animation: tenantCardRoll 720ms cubic-bezier(0.18, 0.9, 0.22, 1) forwards;
 }
-.tenant-roll-card-inner {
+.tenant-roll-card-inner,
+.tenant-dock-card-inner {
+  position: relative;
   height: 100%;
   padding: 18px;
   border: 1px solid var(--tenant-roll-card-border);
@@ -4739,7 +4904,8 @@ onUnmounted(() => {
   overflow: hidden;
   transform: translateZ(1px);
 }
-.tenant-roll-card-inner::before {
+.tenant-roll-card-inner::before,
+.tenant-dock-card-inner::before {
   content: '';
   position: absolute;
   top: 0;
@@ -4747,6 +4913,67 @@ onUnmounted(() => {
   right: 0;
   height: 3px;
   background: linear-gradient(90deg, var(--primary), #8b5cf6);
+}
+.tenant-dock-card {
+  position: fixed;
+  z-index: 1120;
+  pointer-events: auto;
+  animation: tenantDockSettle 180ms ease-out both;
+}
+.tenant-dock-card-inner {
+  display: flex;
+  flex-direction: column;
+}
+.tenant-dock-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: auto;
+  padding-top: 14px;
+}
+.tenant-dock-action {
+  width: 100%;
+  min-height: 34px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.22);
+  color: var(--text-main);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 700;
+  line-height: 1;
+  cursor: pointer;
+  transition: border-color 0.18s ease, background 0.18s ease, color 0.18s ease, transform 0.18s ease;
+}
+.tenant-dock-action:hover {
+  border-color: rgba(129, 140, 248, 0.56);
+  background: var(--primary-light);
+  color: var(--primary);
+  transform: translateY(-1px);
+}
+.tenant-dock-action-active,
+.tenant-dock-action-active:hover {
+  border-color: rgba(129, 140, 248, 0.6);
+  background: linear-gradient(135deg, #4f46e5, #7c3aed);
+  color: #fff;
+  box-shadow: 0 8px 18px rgba(79, 70, 229, 0.28);
+  transform: none;
+}
+:global([data-theme="light"]) .tenant-dock-action {
+  background: rgba(255, 255, 255, 0.58);
+}
+@keyframes tenantDockSettle {
+  from {
+    opacity: 0;
+    transform: translateY(-4px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 .tenant-roll-head {
   display: flex;
