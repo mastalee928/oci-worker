@@ -22,11 +22,17 @@
       <!-- 搜索模式：平铺 -->
       <template v-if="normalizedSearchText">
         <a-table v-if="!isMobile" :columns="columns" :data-source="tableData" :loading="loading"
+          :scroll="{ x: tenantTableScrollX }"
           :row-selection="{ selectedRowKeys, onChange: onSelectChange }" :pagination="false"
           row-key="id" size="middle">
           <template #bodyCell="{ column, record }">
+            <template v-if="column.key === 'username'">
+              <span class="tenant-name-cell" :title="record.username">{{ record.username }}</span>
+            </template>
             <template v-if="column.key === 'tenantName'">
-              <span v-if="record.tenantName">{{ record.tenantName }}</span>
+              <a-tooltip v-if="record.tenantName" :title="record.tenantName">
+                <span class="tenant-table-text-cell">{{ record.tenantName }}</span>
+              </a-tooltip>
               <span v-else style="color: var(--text-sub); font-size: 12px">获取中...</span>
             </template>
             <template v-if="column.key === 'ociRegion'">
@@ -184,11 +190,17 @@
               <div v-if="expandedGroups.has(sub.key)" class="group-body">
                 <template v-if="sub.tenants.length">
                   <a-table v-if="!isMobile" :columns="columns" :data-source="sub.tenants" :pagination="false"
+                    :scroll="{ x: tenantTableScrollX }"
                     :row-selection="{ selectedRowKeys, onChange: onSelectChange }"
                     row-key="id" size="small">
                     <template #bodyCell="{ column, record }">
+                      <template v-if="column.key === 'username'">
+                        <span class="tenant-name-cell" :title="record.username">{{ record.username }}</span>
+                      </template>
                       <template v-if="column.key === 'tenantName'">
-                        <span v-if="record.tenantName">{{ record.tenantName }}</span>
+                        <a-tooltip v-if="record.tenantName" :title="record.tenantName">
+                          <span class="tenant-table-text-cell">{{ record.tenantName }}</span>
+                        </a-tooltip>
                         <span v-else style="color: var(--text-sub); font-size: 12px">获取中...</span>
                       </template>
                       <template v-if="column.key === 'ociRegion'">
@@ -259,11 +271,17 @@
             <div class="group-body">
               <template v-if="group.tenants.length">
                 <a-table v-if="!isMobile" :columns="columns" :data-source="group.tenants" :pagination="false"
+                  :scroll="{ x: tenantTableScrollX }"
                   :row-selection="{ selectedRowKeys, onChange: onSelectChange }"
                   row-key="id" size="small">
                   <template #bodyCell="{ column, record }">
+                    <template v-if="column.key === 'username'">
+                      <span class="tenant-name-cell" :title="record.username">{{ record.username }}</span>
+                    </template>
                     <template v-if="column.key === 'tenantName'">
-                      <span v-if="record.tenantName">{{ record.tenantName }}</span>
+                      <a-tooltip v-if="record.tenantName" :title="record.tenantName">
+                        <span class="tenant-table-text-cell">{{ record.tenantName }}</span>
+                      </a-tooltip>
                       <span v-else style="color: var(--text-sub); font-size: 12px">获取中...</span>
                     </template>
                     <template v-if="column.key === 'ociRegion'">
@@ -2041,13 +2059,17 @@ function formatCountryCn(v: any): string {
   return raw
 }
 
+const tenantTableScrollX = 1328
+const showTenantCreateTimeColumn = false
+const tenantCreateTimeColumn = { title: '添加日期', key: 'createTime', width: 168 }
+
 const columns = [
-  { title: '名称', dataIndex: 'username', key: 'username', ellipsis: true },
-  { title: '租户名', dataIndex: 'tenantName', key: 'tenantName', width: 150, ellipsis: true },
+  { title: '名称', dataIndex: 'username', key: 'username', width: 300 },
+  { title: '租户名', dataIndex: 'tenantName', key: 'tenantName', width: 220, ellipsis: true },
   { title: '主区域', dataIndex: 'ociRegion', key: 'ociRegion', width: 220 },
   { title: '开机任务', key: 'taskStatus', width: 140 },
   { title: '账户类型', dataIndex: 'planType', key: 'planType', width: 130 },
-  { title: '添加日期', key: 'createTime', width: 168 },
+  ...(showTenantCreateTimeColumn ? [tenantCreateTimeColumn] : []),
   { title: '操作', key: 'action', width: 270 },
 ]
 
@@ -5260,6 +5282,21 @@ onUnmounted(() => {
 }
 .tenant-config-root {
   position: relative;
+}
+
+.tenant-name-cell {
+  display: inline-block;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.tenant-table-text-cell {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+  white-space: nowrap;
 }
 
 .tenant-form-compact :deep(.ant-form-item) {
