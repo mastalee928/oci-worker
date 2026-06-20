@@ -737,6 +737,10 @@ public class StorageService {
         if (compartmentIdOpt == null || compartmentIdOpt.isBlank()) {
             return client.listAllCompartments();
         }
+        String tenantId = client.getProvider().getTenantId();
+        if (tenantId != null && tenantId.equals(compartmentIdOpt)) {
+            return List.of(rootCompartment(tenantId));
+        }
         try {
             var c = client.getIdentityClient().getCompartment(
                     GetCompartmentRequest.builder().compartmentId(compartmentIdOpt).build()
@@ -745,6 +749,15 @@ public class StorageService {
         } catch (Exception e) {
             throw new OciException("读取区间失败: " + e.getMessage());
         }
+    }
+
+    private static Compartment rootCompartment(String tenantId) {
+        return Compartment.builder()
+                .id(tenantId)
+                .name("root")
+                .compartmentId(tenantId)
+                .lifecycleState(Compartment.LifecycleState.Active)
+                .build();
     }
 
     private Map<String, String> loadInstanceNames(OciClientService client, String compartmentId) {

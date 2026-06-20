@@ -62,7 +62,10 @@
           :scroll="{ x: 'max-content' }"
         >
           <template #bodyCell="{ column, record }">
-            <template v-if="column.key === 'attachmentSummary'">
+            <template v-if="column.key === 'compartmentName'">
+              {{ formatCompartmentCell(record) }}
+            </template>
+            <template v-else-if="column.key === 'attachmentSummary'">
               {{ record.attachmentSummary || '—' }}
             </template>
             <template v-else-if="column.key === 'spec'">
@@ -95,7 +98,10 @@
             </div>
             <a-table :data-source="buckets" :columns="bucketColumns" size="small" row-key="rowKey" :pagination="{ pageSize: 12 }">
               <template #bodyCell="{ column, record }">
-                <template v-if="column.key === 'actions'">
+                <template v-if="column.key === 'compartmentName'">
+                  {{ formatCompartmentCell(record) }}
+                </template>
+                <template v-else-if="column.key === 'actions'">
                   <a-space size="small" wrap>
                     <a-button type="link" size="small" @click="openEditBucket(record)">编辑桶</a-button>
                     <a-button type="link" size="small" @click="openBucketPolicy(record)">桶策略</a-button>
@@ -111,7 +117,10 @@
             </div>
             <a-table :data-source="privateEndpoints" :columns="peColumns" size="small" row-key="id" :pagination="{ pageSize: 12 }">
               <template #bodyCell="{ column, record }">
-                <template v-if="column.key === 'actions'">
+                <template v-if="column.key === 'compartmentName'">
+                  {{ formatCompartmentCell(record) }}
+                </template>
+                <template v-else-if="column.key === 'actions'">
                   <a-button type="link" danger size="small" @click="openDelete(record)">删除</a-button>
                 </template>
               </template>
@@ -407,6 +416,8 @@ const props = withDefaults(
 )
 const emit = defineEmits<{ (e: 'update:open', v: boolean): void }>()
 
+type CompartmentOption = { label: string; value: string; isRoot?: boolean }
+
 const regionLoading = ref(false)
 const compartmentLoading = ref(false)
 const loading = ref(false)
@@ -415,7 +426,7 @@ const storageContextUserId = ref('')
 const region = ref('')
 const compartmentId = ref<string | undefined>(undefined)
 const regionOptions = ref<{ label: string; value: string }[]>([])
-const compartmentOptions = ref<{ label: string; value: string }[]>([])
+const compartmentOptions = ref<CompartmentOption[]>([])
 
 /** 程序化选中 root 区间时跳过 watch(compartmentId)，避免重复 loadAll */
 let suppressCompartmentLoadAll = false
@@ -511,6 +522,25 @@ function specCell(record: any) {
 function shortId(id: string | undefined) {
   if (!id) return '—'
   return id.length > 14 ? `…${id.slice(-10)}` : id
+}
+
+function formatCompartmentOptionLabel(compartment: any) {
+  if (compartment?.isRoot) return 'root'
+  const name = String(compartment?.name || compartment?.id || '').trim()
+  const suffix = String(compartment?.id || '').slice(-8)
+  return suffix ? `${name} (${suffix})` : (name || '—')
+}
+
+function rootCompartmentId() {
+  return compartmentOptions.value.find(item => item.isRoot)?.value || ''
+}
+
+function formatCompartmentCell(record: any) {
+  const cid = String(record?.compartmentId || '').trim()
+  if (cid && cid === rootCompartmentId()) return 'root'
+  const option = cid ? compartmentOptions.value.find(item => item.value === cid) : null
+  if (option?.isRoot) return 'root'
+  return record?.compartmentName || option?.label || '—'
 }
 
 const bucketColumns = [
@@ -681,8 +711,9 @@ async function loadCompartments(): Promise<any[]> {
     const res = await listStorageCompartments({ id: props.userId, region: region.value })
     const list = res.data || []
     compartmentOptions.value = list.map((c: any) => ({
-      label: `${c.name || c.id} (${(c.id || '').slice(-8)})`,
+      label: formatCompartmentOptionLabel(c),
       value: c.id,
+      isRoot: c.isRoot === true,
     }))
     return list
   } catch {
