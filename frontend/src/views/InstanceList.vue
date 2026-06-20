@@ -43,7 +43,7 @@
                 <template v-if="isL2PanelOpen(l2.key)">
                 <div v-if="tenantViewMode === 'card'" class="tenant-grid">
                   <template v-for="td in l2.tenants" :key="td.tenant.id">
-                    <div class="tenant-card" :data-tenant-id="td.tenant.id" :class="{ 'tenant-card-active': activeTenantId === td.tenant.id, 'tenant-card-roll-source': isTenantRollSource(td.tenant) }">
+                    <div class="tenant-card" :data-tenant-id="td.tenant.id" :class="{ 'tenant-card-active': activeTenantId === td.tenant.id, 'tenant-card-floating-source': isFloatingTenantSource(td.tenant) }">
                       <div class="tc-header"><i class="ri-cloud-line tc-icon"></i><div class="tc-info"><div class="tc-name">{{ td.tenant.username }}</div><div class="tc-region">{{ td.tenant.ociRegion }}</div></div></div>
                       <div class="tc-tags"><a-tag v-if="td.tenant.planType" :color="td.tenant.planType === 'FREE' ? 'default' : 'green'" size="small">{{ td.tenant.planType }}</a-tag><a-tag v-if="td.tenant.tenantName" size="small" color="blue">{{ td.tenant.tenantName }}</a-tag></div>
                       <div class="tc-actions"><a-button type="primary" block @click="selectTenant(td)" :loading="td.loading"><i class="ri-server-line" style="margin-right:6px"></i>实例管理</a-button><a-button block @click="openVcnPanel(td.tenant)"><i class="ri-share-line" style="margin-right:6px"></i>虚拟云网络</a-button><a-button block @click="openStoragePanel(td.tenant)"><i class="ri-database-2-line" style="margin-right:6px"></i>存储</a-button><a-button block @click="openQuickTask(td.tenant)"><i class="ri-play-circle-line" style="margin-right:6px"></i>快捷开机</a-button></div>
@@ -87,7 +87,7 @@
               <component :is="tenantViewMode === 'card' ? 'div' : 'div'">
                 <div v-if="tenantViewMode === 'card'" class="tenant-grid">
                   <template v-for="td in g1.tenants" :key="td.tenant.id">
-                    <div class="tenant-card" :data-tenant-id="td.tenant.id" :class="{ 'tenant-card-active': activeTenantId === td.tenant.id, 'tenant-card-roll-source': isTenantRollSource(td.tenant) }">
+                    <div class="tenant-card" :data-tenant-id="td.tenant.id" :class="{ 'tenant-card-active': activeTenantId === td.tenant.id, 'tenant-card-floating-source': isFloatingTenantSource(td.tenant) }">
                       <div class="tc-header"><i class="ri-cloud-line tc-icon"></i><div class="tc-info"><div class="tc-name">{{ td.tenant.username }}</div><div class="tc-region">{{ td.tenant.ociRegion }}</div></div></div>
                       <div class="tc-tags"><a-tag v-if="td.tenant.planType" :color="td.tenant.planType === 'FREE' ? 'default' : 'green'" size="small">{{ td.tenant.planType }}</a-tag><a-tag v-if="td.tenant.tenantName" size="small" color="blue">{{ td.tenant.tenantName }}</a-tag></div>
                       <div class="tc-actions"><a-button type="primary" block @click="selectTenant(td)" :loading="td.loading"><i class="ri-server-line" style="margin-right:6px"></i>实例管理</a-button><a-button block @click="openVcnPanel(td.tenant)"><i class="ri-share-line" style="margin-right:6px"></i>虚拟云网络</a-button><a-button block @click="openStoragePanel(td.tenant)"><i class="ri-database-2-line" style="margin-right:6px"></i>存储</a-button><a-button block @click="openQuickTask(td.tenant)"><i class="ri-play-circle-line" style="margin-right:6px"></i>快捷开机</a-button></div>
@@ -131,7 +131,7 @@
           <template v-else>
             <div v-if="tenantViewMode === 'card'" class="tenant-grid">
               <template v-for="td in g1.tenants" :key="td.tenant.id">
-                <div class="tenant-card" :data-tenant-id="td.tenant.id" :class="{ 'tenant-card-active': activeTenantId === td.tenant.id, 'tenant-card-roll-source': isTenantRollSource(td.tenant) }">
+                <div class="tenant-card" :data-tenant-id="td.tenant.id" :class="{ 'tenant-card-active': activeTenantId === td.tenant.id, 'tenant-card-floating-source': isFloatingTenantSource(td.tenant) }">
                   <div class="tc-header"><i class="ri-cloud-line tc-icon"></i><div class="tc-info"><div class="tc-name">{{ td.tenant.username }}</div><div class="tc-region">{{ td.tenant.ociRegion }}</div></div></div>
                   <div class="tc-tags"><a-tag v-if="td.tenant.planType" :color="td.tenant.planType === 'FREE' ? 'default' : 'green'" size="small">{{ td.tenant.planType }}</a-tag><a-tag v-if="td.tenant.tenantName" size="small" color="blue">{{ td.tenant.tenantName }}</a-tag></div>
                   <div class="tc-actions"><a-button type="primary" block @click="selectTenant(td)" :loading="td.loading"><i class="ri-server-line" style="margin-right:6px"></i>实例管理</a-button><a-button block @click="openVcnPanel(td.tenant)"><i class="ri-share-line" style="margin-right:6px"></i>虚拟云网络</a-button><a-button block @click="openStoragePanel(td.tenant)"><i class="ri-database-2-line" style="margin-right:6px"></i>存储</a-button><a-button block @click="openQuickTask(td.tenant)"><i class="ri-play-circle-line" style="margin-right:6px"></i>快捷开机</a-button></div>
@@ -179,7 +179,7 @@
     <!-- 租户卡片视图 -->
     <div v-if="tenantViewMode === 'card'" class="tenant-grid">
       <div v-for="td in filteredTenants" :key="td.tenant.id"
-        class="tenant-card" :data-tenant-id="td.tenant.id" :class="{ 'tenant-card-active': activeTenantId === td.tenant.id, 'tenant-card-roll-source': isTenantRollSource(td.tenant) }">
+        class="tenant-card" :data-tenant-id="td.tenant.id" :class="{ 'tenant-card-active': activeTenantId === td.tenant.id, 'tenant-card-floating-source': isFloatingTenantSource(td.tenant) }">
         <div class="tc-header">
           <i class="ri-cloud-line tc-icon"></i>
           <div class="tc-info">
@@ -1743,50 +1743,45 @@
       :default-region="storageManagerDefaultRegion"
     />
 
-    <div v-if="tenantRollCard.visible" class="tenant-roll-stage" aria-hidden="true">
-      <div class="tenant-roll-card" :style="tenantRollCardStyle">
-        <div class="tenant-roll-card-inner">
-          <div class="tenant-roll-head">
-            <i class="ri-cloud-line tenant-roll-icon"></i>
-            <div class="tenant-roll-text">
-              <div class="tenant-roll-name">{{ tenantRollCard.username }}</div>
-              <div class="tenant-roll-region">{{ tenantRollCard.region }}</div>
+    <div
+      v-if="floatingTenantCardVisible"
+      class="tenant-floating-card"
+      :class="{
+        'tenant-floating-card-rolling': floatingTenantCard.phase === 'rolling',
+        'tenant-floating-card-docked': floatingTenantCard.phase === 'docked',
+      }"
+      :style="floatingTenantCardStyle"
+    >
+      <div class="tenant-floating-flight">
+        <div class="tenant-floating-roll">
+          <div class="tenant-floating-card-face">
+            <div class="tc-header">
+              <i class="ri-cloud-line tc-icon"></i>
+              <div class="tc-info">
+                <div class="tc-name">{{ floatingTenantCard.username }}</div>
+                <div class="tc-region">{{ floatingTenantCard.region }}</div>
+              </div>
+            </div>
+            <div class="tc-tags">
+              <a-tag v-if="floatingTenantCard.planType" :color="floatingTenantCard.planType === 'FREE' ? 'default' : 'green'" size="small">{{ floatingTenantCard.planType }}</a-tag>
+              <a-tag v-if="floatingTenantCard.tenantName" size="small" color="blue">{{ floatingTenantCard.tenantName }}</a-tag>
+            </div>
+            <div class="tc-actions">
+              <a-button
+                v-for="item in floatingTenantActionItems"
+                :key="item.key"
+                block
+                :type="floatingTenantButtonType(item.key)"
+                class="tenant-floating-action"
+                :class="{ 'tenant-floating-action-active': item.key === tenantWorkspaceKind }"
+                :disabled="floatingTenantCard.phase === 'rolling'"
+                @click.stop="handleFloatingTenantAction(item.key)"
+              >
+                <i :class="item.icon"></i>
+                <span>{{ item.label }}</span>
+              </a-button>
             </div>
           </div>
-          <div class="tenant-roll-tags">
-            <span v-if="tenantRollCard.planType" class="tenant-roll-tag">{{ tenantRollCard.planType }}</span>
-            <span v-if="tenantRollCard.tenantName" class="tenant-roll-tag tenant-roll-tag-blue">{{ tenantRollCard.tenantName }}</span>
-          </div>
-          <div class="tenant-roll-action">{{ tenantRollCard.actionLabel }}</div>
-        </div>
-      </div>
-    </div>
-
-    <div v-if="tenantDockCardVisible" class="tenant-dock-card" :style="tenantDockCardStyle">
-      <div class="tenant-dock-card-inner">
-        <div class="tenant-roll-head">
-          <i class="ri-cloud-line tenant-roll-icon"></i>
-          <div class="tenant-roll-text">
-            <div class="tenant-roll-name">{{ tenantDockCard.username }}</div>
-            <div class="tenant-roll-region">{{ tenantDockCard.region }}</div>
-          </div>
-        </div>
-        <div class="tenant-roll-tags">
-          <span v-if="tenantDockCard.planType" class="tenant-roll-tag">{{ tenantDockCard.planType }}</span>
-          <span v-if="tenantDockCard.tenantName" class="tenant-roll-tag tenant-roll-tag-blue">{{ tenantDockCard.tenantName }}</span>
-        </div>
-        <div class="tenant-dock-actions">
-          <button
-            v-for="item in tenantWorkspaceActionItems"
-            :key="item.key"
-            type="button"
-            class="tenant-dock-action"
-            :class="{ 'tenant-dock-action-active': tenantWorkspaceKind === item.key }"
-            @click.stop="switchTenantDockPanel(item.key)"
-          >
-            <i :class="item.icon"></i>
-            <span>{{ item.label }}</span>
-          </button>
         </div>
       </div>
     </div>
@@ -2054,11 +2049,10 @@ const isMobile = ref(window.innerWidth < 768)
 function checkMobile() {
   isMobile.value = window.innerWidth < 768
   if (isMobile.value) {
-    tenantRollCard.visible = false
-    clearTenantDockCard()
+    clearFloatingTenantCard()
     return
   }
-  if (tenantDockCard.visible) refreshTenantDockCard()
+  if (floatingTenantCard.phase === 'docked') refreshFloatingTenantCard()
 }
 
 const tenantViewMode = ref<'card' | 'table'>('card')
@@ -2261,7 +2255,7 @@ const instancePanelVisible = computed({
       activeTenantId.value = ''
       if (!tenantWorkspaceTransitioning.value) {
         if (tenantWorkspaceKind.value === 'instance') tenantWorkspaceKind.value = null
-        clearTenantDockCard()
+        clearFloatingTenantCard()
       }
     }
   },
@@ -2287,36 +2281,16 @@ const vcnPanelWrapClass = computed(() =>
   `vcn-panel-drawer tenant-workspace-drawer tenant-workspace-${tenantWorkspaceKind.value || 'idle'}`,
 )
 
-const tenantWorkspaceLabels: Record<TenantWorkspaceKind, string> = {
-  instance: '实例管理',
-  vcn: '虚拟云网络',
-  storage: '存储',
-}
-const tenantWorkspaceActionItems: { key: TenantWorkspaceKind; label: string; icon: string }[] = [
+type FloatingTenantCardPhase = 'idle' | 'rolling' | 'docked'
+type FloatingTenantActionKey = TenantWorkspaceKind | 'quick'
+const floatingTenantActionItems: { key: FloatingTenantActionKey; label: string; icon: string }[] = [
   { key: 'instance', label: '实例管理', icon: 'ri-server-line' },
   { key: 'vcn', label: '虚拟云网络', icon: 'ri-share-line' },
   { key: 'storage', label: '存储', icon: 'ri-database-2-line' },
+  { key: 'quick', label: '快捷开机', icon: 'ri-play-circle-line' },
 ]
-const tenantRollCard = reactive({
-  visible: false,
-  tenantId: '',
-  username: '',
-  tenantName: '',
-  region: '',
-  planType: '',
-  actionLabel: '',
-  left: '0px',
-  top: '0px',
-  width: '260px',
-  height: '220px',
-  dx: '0px',
-  dy: '0px',
-  midDx: '0px',
-  midDy: '-28px',
-  scale: '0.72',
-})
-const tenantDockCard = reactive<{
-  visible: boolean
+const floatingTenantCard = reactive<{
+  phase: FloatingTenantCardPhase
   tenant: any | null
   tenantId: string
   username: string
@@ -2327,8 +2301,10 @@ const tenantDockCard = reactive<{
   top: string
   width: string
   height: string
+  dx: string
+  dy: string
 }>({
-  visible: false,
+  phase: 'idle',
   tenant: null,
   tenantId: '',
   username: '',
@@ -2339,28 +2315,24 @@ const tenantDockCard = reactive<{
   top: '0px',
   width: '260px',
   height: '220px',
+  dx: '0px',
+  dy: '0px',
 })
-const tenantRollCardStyle = computed<Record<string, string>>(() => ({
-  left: tenantRollCard.left,
-  top: tenantRollCard.top,
-  width: tenantRollCard.width,
-  height: tenantRollCard.height,
-  '--tenant-roll-dx': tenantRollCard.dx,
-  '--tenant-roll-dy': tenantRollCard.dy,
-  '--tenant-roll-mid-dx': tenantRollCard.midDx,
-  '--tenant-roll-mid-dy': tenantRollCard.midDy,
-  '--tenant-roll-scale': tenantRollCard.scale,
+const floatingTenantCardVisible = computed(
+  () => !isMobile.value && floatingTenantCard.phase !== 'idle' && !!floatingTenantCard.tenantId,
+)
+const floatingTenantCardStyle = computed<Record<string, string>>(() => ({
+  left: floatingTenantCard.left,
+  top: floatingTenantCard.top,
+  width: floatingTenantCard.width,
+  height: floatingTenantCard.height,
+  '--tenant-float-dx': floatingTenantCard.dx,
+  '--tenant-float-dy': floatingTenantCard.dy,
+  '--tenant-float-duration': `${TENANT_FLOAT_DURATION_MS}ms`,
 }))
-const tenantDockCardStyle = computed<Record<string, string>>(() => ({
-  left: tenantDockCard.left,
-  top: tenantDockCard.top,
-  width: tenantDockCard.width,
-  minHeight: tenantDockCard.height,
-}))
-const tenantDockCardVisible = computed(() => !isMobile.value && tenantDockCard.visible && !!tenantDockCard.tenantId)
-const TENANT_ROLL_DURATION_MS = 720
-const TENANT_DRAWER_DELAY_MS = 240
-let tenantRollTimer: ReturnType<typeof setTimeout> | null = null
+const TENANT_FLOAT_DURATION_MS = 760
+const TENANT_DRAWER_DELAY_MS = 220
+let tenantFloatTimer: ReturnType<typeof setTimeout> | null = null
 let tenantWorkspaceOpenTimer: ReturnType<typeof setTimeout> | null = null
 
 type TenantWorkspaceOpenOptions = { dockSwitch?: boolean }
@@ -2368,17 +2340,21 @@ type TenantWorkspaceOpenOptions = { dockSwitch?: boolean }
 function beginTenantWorkspace(kind: TenantWorkspaceKind, tenant: any, options: TenantWorkspaceOpenOptions = {}) {
   tenantWorkspaceKind.value = kind
   if (isMobile.value) return
-  tenantWorkspaceTransitioning.value = true
   if (options.dockSwitch) {
-    refreshTenantDockCard(tenant)
+    tenantWorkspaceTransitioning.value = true
+    refreshFloatingTenantCard(tenant)
   } else {
-    startTenantRollCard(kind, tenant)
+    tenantWorkspaceTransitioning.value = startFloatingTenantCard(tenant)
   }
 }
 
 function scheduleTenantWorkspaceOpen(openPanel: () => void) {
   if (tenantWorkspaceOpenTimer) window.clearTimeout(tenantWorkspaceOpenTimer)
   if (isMobile.value) {
+    openPanel()
+    return
+  }
+  if (!tenantWorkspaceTransitioning.value) {
     openPanel()
     return
   }
@@ -2391,13 +2367,9 @@ function scheduleTenantWorkspaceOpen(openPanel: () => void) {
   }, TENANT_DRAWER_DELAY_MS)
 }
 
-function isTenantRollSource(tenant: any) {
+function isFloatingTenantSource(tenant: any) {
   const tenantId = String(tenant?.id || '')
-  return (
-    !isMobile.value &&
-    ((tenantRollCard.visible && tenantRollCard.tenantId === tenantId) ||
-      (tenantDockCard.visible && tenantDockCard.tenantId === tenantId))
-  )
+  return !isMobile.value && floatingTenantCard.phase !== 'idle' && floatingTenantCard.tenantId === tenantId
 }
 
 function closeTenantWorkspacePanels(except: TenantWorkspaceKind) {
@@ -2420,27 +2392,27 @@ function desktopWorkspaceWidthPx() {
   return Math.min(1280, Math.max(960, window.innerWidth * 0.68))
 }
 
-function calculateTenantDockRect(sourceRect?: DOMRect | null) {
+function calculateFloatingTenantRect(sourceRect?: DOMRect | null) {
   if (typeof window === 'undefined') return null
   const drawerWidth = desktopWorkspaceWidthPx()
   const drawerLeft = window.innerWidth - drawerWidth
   const gap = 24
   const availableWidth = drawerLeft - gap * 2
   if (availableWidth < 220) return null
-  const baseWidth = sourceRect?.width || Number.parseFloat(tenantDockCard.width) || 260
-  const baseHeight = sourceRect?.height || Number.parseFloat(tenantDockCard.height) || 220
+  const baseWidth = sourceRect?.width || Number.parseFloat(floatingTenantCard.width) || 260
+  const baseHeight = sourceRect?.height || Number.parseFloat(floatingTenantCard.height) || 220
   const width = Math.min(320, Math.max(220, Math.min(baseWidth, availableWidth)))
   const height = Math.max(180, Math.min(baseHeight, window.innerHeight - 96))
   const left = Math.max(gap, drawerLeft - width - gap)
-  const preferredTop = sourceRect ? sourceRect.top - 90 : Number.parseFloat(tenantDockCard.top) || 88
+  const preferredTop = sourceRect ? sourceRect.top - 90 : Number.parseFloat(floatingTenantCard.top) || 88
   const top = Math.max(72, Math.min(window.innerHeight - height - gap, preferredTop))
   return { left, top, width, height }
 }
 
-function applyTenantDockCard(tenant: any, rect?: DOMRect | null, visible = true) {
-  const dockRect = calculateTenantDockRect(rect)
-  Object.assign(tenantDockCard, {
-    visible: visible && !!dockRect,
+function assignFloatingTenantCard(tenant: any, rect?: DOMRect | null, phase: FloatingTenantCardPhase = 'docked') {
+  const dockRect = calculateFloatingTenantRect(rect)
+  Object.assign(floatingTenantCard, {
+    phase: dockRect ? phase : 'idle',
     tenant,
     tenantId: String(tenant?.id || ''),
     username: tenant?.username || tenant?.tenantName || '租户',
@@ -2451,28 +2423,38 @@ function applyTenantDockCard(tenant: any, rect?: DOMRect | null, visible = true)
     top: `${dockRect?.top || 0}px`,
     width: `${dockRect?.width || 260}px`,
     height: `${dockRect?.height || 220}px`,
+    dx: '0px',
+    dy: '0px',
   })
   return dockRect
 }
 
-function refreshTenantDockCard(tenant = tenantDockCard.tenant) {
-  if (!tenant || isMobile.value) return
-  const source = findTenantCardElement(String(tenant?.id || ''))
-  applyTenantDockCard(tenant, source?.getBoundingClientRect() || null, true)
+function floatingTenantButtonType(action: FloatingTenantActionKey) {
+  return action !== 'quick' && tenantWorkspaceKind.value === action ? 'primary' : 'default'
 }
 
-function clearTenantDockCard() {
-  tenantDockCard.visible = false
-  tenantDockCard.tenant = null
-  tenantDockCard.tenantId = ''
+function refreshFloatingTenantCard(tenant = floatingTenantCard.tenant) {
+  if (!tenant || isMobile.value) return
+  const source = findTenantCardElement(String(tenant?.id || ''))
+  assignFloatingTenantCard(tenant, source?.getBoundingClientRect() || null, 'docked')
+}
+
+function clearFloatingTenantCard() {
+  Object.assign(floatingTenantCard, {
+    phase: 'idle',
+    tenant: null,
+    tenantId: '',
+    dx: '0px',
+    dy: '0px',
+  })
 }
 
 function findTenantDataById(tenantId: string) {
   return tenantDataList.value.find((td) => td.tenant?.id === tenantId) || null
 }
 
-function switchTenantDockPanel(kind: TenantWorkspaceKind) {
-  const tenant = tenantDockCard.tenant
+function switchFloatingTenantPanel(kind: TenantWorkspaceKind) {
+  const tenant = floatingTenantCard.tenant
   if (!tenant || isMobile.value) return
   if (tenantWorkspaceKind.value === kind) return
   if (kind === 'instance') {
@@ -2487,46 +2469,63 @@ function switchTenantDockPanel(kind: TenantWorkspaceKind) {
   openStoragePanel(tenant, { dockSwitch: true })
 }
 
-function startTenantRollCard(kind: TenantWorkspaceKind, tenant: any) {
+function handleFloatingTenantAction(action: FloatingTenantActionKey) {
+  if (floatingTenantCard.phase === 'rolling') return
+  const tenant = floatingTenantCard.tenant
+  if (!tenant) return
+  if (action === 'quick') {
+    openQuickTask(tenant)
+    return
+  }
+  switchFloatingTenantPanel(action)
+}
+
+function startFloatingTenantCard(tenant: any) {
   const source = findTenantCardElement(String(tenant?.id || ''))
-  if (!source || typeof window === 'undefined') return
+  if (!source || typeof window === 'undefined') return false
   const rect = source.getBoundingClientRect()
-  if (rect.width <= 0 || rect.height <= 0) return
-  const dockRect = applyTenantDockCard(tenant, rect, false)
+  if (rect.width <= 0 || rect.height <= 0) return false
+  const dockRect = calculateFloatingTenantRect(rect)
+  if (!dockRect) return false
   const targetLeft = dockRect?.left ?? Math.max(24, rect.left)
   const targetTop = dockRect?.top ?? Math.max(72, Math.min(window.innerHeight - rect.height - 24, rect.top - 90))
   const dx = targetLeft - rect.left
   const dy = targetTop - rect.top
 
-  tenantRollCard.visible = false
-  if (tenantRollTimer) window.clearTimeout(tenantRollTimer)
-  Object.assign(tenantRollCard, {
+  if (tenantFloatTimer) window.clearTimeout(tenantFloatTimer)
+  Object.assign(floatingTenantCard, {
+    phase: 'idle',
+    tenant,
     tenantId: String(tenant?.id || ''),
     username: tenant?.username || tenant?.tenantName || '租户',
     tenantName: tenant?.tenantName || '',
     region: tenant?.ociRegion || '',
     planType: tenant?.planType || '',
-    actionLabel: tenantWorkspaceLabels[kind],
     left: `${rect.left}px`,
     top: `${rect.top}px`,
     width: `${rect.width}px`,
     height: `${rect.height}px`,
     dx: `${dx}px`,
     dy: `${dy}px`,
-    midDx: `${dx * 0.58}px`,
-    midDy: `${dy - 34}px`,
-    scale: '1',
   })
   requestAnimationFrame(() => {
-    tenantRollCard.visible = true
-    tenantRollTimer = window.setTimeout(() => {
-      tenantRollCard.visible = false
-      if (tenantWorkspaceKind.value === kind && tenantDockCard.tenantId === String(tenant?.id || '')) {
-        tenantDockCard.visible = !!dockRect
+    floatingTenantCard.phase = 'rolling'
+    tenantFloatTimer = window.setTimeout(() => {
+      if (floatingTenantCard.tenantId === String(tenant?.id || '') && dockRect) {
+        Object.assign(floatingTenantCard, {
+          phase: 'docked',
+          left: `${dockRect.left}px`,
+          top: `${dockRect.top}px`,
+          width: `${dockRect.width}px`,
+          height: `${dockRect.height}px`,
+          dx: '0px',
+          dy: '0px',
+        })
       }
-      tenantRollTimer = null
-    }, TENANT_ROLL_DURATION_MS)
+      tenantFloatTimer = null
+    }, TENANT_FLOAT_DURATION_MS)
   })
+  return true
 }
 
 const instancePanelRegion = ref('')
@@ -3458,13 +3457,13 @@ const storageManagerDefaultRegion = ref('')
 watch(vcnVisible, (open) => {
   if (!open && tenantWorkspaceKind.value === 'vcn' && !tenantWorkspaceTransitioning.value) {
     tenantWorkspaceKind.value = null
-    clearTenantDockCard()
+    clearFloatingTenantCard()
   }
 })
 watch(storageManagerOpen, (open) => {
   if (!open && tenantWorkspaceKind.value === 'storage' && !tenantWorkspaceTransitioning.value) {
     tenantWorkspaceKind.value = null
-    clearTenantDockCard()
+    clearFloatingTenantCard()
   }
 })
 function openStoragePanel(tenant: any, options: TenantWorkspaceOpenOptions = {}) {
@@ -4697,7 +4696,7 @@ onActivated(() => {
 onUnmounted(() => {
   window.removeEventListener('resize', checkMobile)
   window.removeEventListener('beforeunload', handleShapeEditBeforeUnload)
-  if (tenantRollTimer) window.clearTimeout(tenantRollTimer)
+  if (tenantFloatTimer) window.clearTimeout(tenantFloatTimer)
   if (tenantWorkspaceOpenTimer) window.clearTimeout(tenantWorkspaceOpenTimer)
   void stopCurrentShapeEditTaskSilently()
   stopShapeEditTaskPolling()
@@ -4834,78 +4833,89 @@ onUnmounted(() => {
 .tenant-card-active::before { transform: scaleX(1); }
 :global(:root) {
   --tenant-workspace-mask-bg: rgba(2, 6, 23, 0.28);
-  --tenant-roll-card-bg: rgba(30, 41, 59, 0.78);
-  --tenant-roll-card-border: rgba(165, 180, 252, 0.42);
-  --tenant-roll-card-shadow: 0 26px 60px rgba(0, 0, 0, 0.48), 0 0 34px rgba(129, 140, 248, 0.16);
-  --tenant-roll-placeholder-bg: rgba(15, 23, 42, 0.16);
-  --tenant-roll-placeholder-border: rgba(129, 140, 248, 0.22);
-  --tenant-roll-tag-green-bg: rgba(34, 197, 94, 0.16);
-  --tenant-roll-tag-green-border: rgba(74, 222, 128, 0.34);
-  --tenant-roll-tag-green-text: #86efac;
-  --tenant-roll-tag-blue-bg: rgba(59, 130, 246, 0.18);
-  --tenant-roll-tag-blue-border: rgba(96, 165, 250, 0.36);
-  --tenant-roll-tag-blue-text: #93c5fd;
+  --tenant-floating-card-bg: rgba(30, 41, 59, 0.78);
+  --tenant-floating-card-border: rgba(165, 180, 252, 0.42);
+  --tenant-floating-card-shadow: 0 26px 60px rgba(0, 0, 0, 0.48), 0 0 34px rgba(129, 140, 248, 0.16);
+  --tenant-floating-placeholder-bg: rgba(15, 23, 42, 0.16);
+  --tenant-floating-placeholder-border: rgba(129, 140, 248, 0.22);
 }
 :global([data-theme="light"]) {
   --tenant-workspace-mask-bg: rgba(15, 23, 42, 0.22);
-  --tenant-roll-card-bg: rgba(255, 255, 255, 0.94);
-  --tenant-roll-card-border: rgba(99, 102, 241, 0.3);
-  --tenant-roll-card-shadow: 0 24px 52px rgba(15, 23, 42, 0.18), 0 0 22px rgba(99, 102, 241, 0.12);
-  --tenant-roll-placeholder-bg: rgba(255, 255, 255, 0.22);
-  --tenant-roll-placeholder-border: rgba(99, 102, 241, 0.18);
-  --tenant-roll-tag-green-bg: rgba(22, 163, 74, 0.1);
-  --tenant-roll-tag-green-border: rgba(22, 163, 74, 0.32);
-  --tenant-roll-tag-green-text: #15803d;
-  --tenant-roll-tag-blue-bg: rgba(37, 99, 235, 0.1);
-  --tenant-roll-tag-blue-border: rgba(37, 99, 235, 0.28);
-  --tenant-roll-tag-blue-text: #1d4ed8;
+  --tenant-floating-card-bg: rgba(255, 255, 255, 0.94);
+  --tenant-floating-card-border: rgba(99, 102, 241, 0.3);
+  --tenant-floating-card-shadow: 0 24px 52px rgba(15, 23, 42, 0.18), 0 0 22px rgba(99, 102, 241, 0.12);
+  --tenant-floating-placeholder-bg: rgba(255, 255, 255, 0.22);
+  --tenant-floating-placeholder-border: rgba(99, 102, 241, 0.18);
 }
-.tenant-card-roll-source {
-  background: var(--tenant-roll-placeholder-bg) !important;
-  border-color: var(--tenant-roll-placeholder-border) !important;
-  box-shadow: inset 0 0 0 1px var(--tenant-roll-placeholder-border) !important;
+.tenant-card-floating-source {
+  background: var(--tenant-floating-placeholder-bg) !important;
+  border-color: var(--tenant-floating-placeholder-border) !important;
+  box-shadow: inset 0 0 0 1px var(--tenant-floating-placeholder-border) !important;
   transform: none !important;
   pointer-events: none;
 }
-.tenant-card-roll-source::before {
+.tenant-card-floating-source::before {
   opacity: 0;
   transform: scaleX(0) !important;
 }
-.tenant-card-roll-source > * {
+.tenant-card-floating-source > * {
   opacity: 0;
 }
-.tenant-roll-stage {
+.tenant-floating-card {
   position: fixed;
-  inset: 0;
+  z-index: 1120;
+  perspective: 1200px;
+  perspective-origin: center center;
+  transform-style: preserve-3d;
+  contain: layout paint style;
+  pointer-events: auto;
+  transform: translateZ(0);
+}
+.tenant-floating-card-rolling {
   z-index: 1200;
   pointer-events: none;
-  perspective: 1200px;
-  perspective-origin: 78% 18%;
+  will-change: transform;
+  animation: tenantFloatingFlight var(--tenant-float-duration) cubic-bezier(0.18, 0.82, 0.22, 1) forwards;
 }
-.tenant-roll-card {
-  position: fixed;
-  transform-origin: center center;
+.tenant-floating-card-docked {
+  animation: tenantFloatingSettle 160ms ease-out both;
+}
+.tenant-floating-flight,
+.tenant-floating-roll {
+  height: 100%;
   transform-style: preserve-3d;
-  will-change: transform, opacity, filter;
-  animation: tenantCardRoll 720ms cubic-bezier(0.18, 0.9, 0.22, 1) forwards;
 }
-.tenant-roll-card-inner,
-.tenant-dock-card-inner {
+.tenant-floating-card-rolling .tenant-floating-flight {
+  will-change: transform;
+  animation: tenantFloatingLift var(--tenant-float-duration) cubic-bezier(0.18, 0.82, 0.22, 1) forwards;
+}
+.tenant-floating-roll {
+  position: relative;
+  will-change: transform;
+}
+.tenant-floating-card-rolling .tenant-floating-roll {
+  animation: tenantFloatingRoll var(--tenant-float-duration) linear forwards;
+}
+.tenant-floating-card-face {
   position: relative;
   height: 100%;
   padding: 18px;
-  border: 1px solid var(--tenant-roll-card-border);
+  border: 1px solid var(--tenant-floating-card-border);
   border-radius: 16px;
   background: var(--bg-card);
-  background: var(--tenant-roll-card-bg);
-  box-shadow: var(--tenant-roll-card-shadow);
+  background: var(--tenant-floating-card-bg);
+  box-shadow: var(--tenant-floating-card-shadow);
   backdrop-filter: blur(14px);
   -webkit-backdrop-filter: blur(14px);
   overflow: hidden;
+  display: flex;
+  flex-direction: column;
   transform: translateZ(1px);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
+  will-change: transform;
 }
-.tenant-roll-card-inner::before,
-.tenant-dock-card-inner::before {
+.tenant-floating-card-face::before {
   content: '';
   position: absolute;
   top: 0;
@@ -4914,161 +4924,63 @@ onUnmounted(() => {
   height: 3px;
   background: linear-gradient(90deg, var(--primary), #8b5cf6);
 }
-.tenant-dock-card {
-  position: fixed;
-  z-index: 1120;
-  pointer-events: auto;
-  animation: tenantDockSettle 180ms ease-out both;
+.tenant-floating-roll::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border: 1px solid var(--tenant-floating-card-border);
+  border-radius: 16px;
+  background:
+    radial-gradient(circle at 22% 18%, rgba(129, 140, 248, 0.18), transparent 30%),
+    var(--tenant-floating-card-bg);
+  box-shadow: var(--tenant-floating-card-shadow);
+  transform: rotateY(180deg) translateZ(0.5px);
+  backface-visibility: hidden;
+  -webkit-backface-visibility: hidden;
 }
-.tenant-dock-card-inner {
-  display: flex;
-  flex-direction: column;
+.tenant-floating-card-docked .tenant-floating-roll::after {
+  display: none;
 }
-.tenant-dock-actions {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: auto;
-  padding-top: 14px;
+.tenant-floating-card-face :deep(.tenant-floating-action) {
+  height: 34px;
+  border-radius: 8px;
+  font-weight: 600;
 }
-.tenant-dock-action {
-  width: 100%;
-  min-height: 34px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: rgba(15, 23, 42, 0.22);
-  color: var(--text-main);
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
-  font-size: 13px;
-  font-weight: 700;
-  line-height: 1;
-  cursor: pointer;
-  transition: border-color 0.18s ease, background 0.18s ease, color 0.18s ease, transform 0.18s ease;
+.tenant-floating-card-face :deep(.tenant-floating-action i) {
+  margin-right: 6px;
+  font-size: 15px;
 }
-.tenant-dock-action:hover {
-  border-color: rgba(129, 140, 248, 0.56);
-  background: var(--primary-light);
-  color: var(--primary);
-  transform: translateY(-1px);
+.tenant-floating-card-face :deep(.tenant-floating-action.ant-btn-primary) {
+  box-shadow: 0 8px 18px rgba(79, 70, 229, 0.26);
 }
-.tenant-dock-action-active,
-.tenant-dock-action-active:hover {
-  border-color: rgba(129, 140, 248, 0.6);
-  background: linear-gradient(135deg, #4f46e5, #7c3aed);
-  color: #fff;
-  box-shadow: 0 8px 18px rgba(79, 70, 229, 0.28);
-  transform: none;
+@keyframes tenantFloatingFlight {
+  from { transform: translate3d(0, 0, 0); }
+  to { transform: translate3d(var(--tenant-float-dx), var(--tenant-float-dy), 0); }
 }
-:global([data-theme="light"]) .tenant-dock-action {
-  background: rgba(255, 255, 255, 0.58);
+@keyframes tenantFloatingLift {
+  0% { transform: translate3d(0, 0, 0) scale(1); }
+  18% { transform: translate3d(0, -18px, 0) scale(1.035); }
+  72% { transform: translate3d(0, -7px, 0) scale(1.012); }
+  100% { transform: translate3d(0, 0, 0) scale(1); }
 }
-@keyframes tenantDockSettle {
+@keyframes tenantFloatingRoll {
+  from { transform: rotate3d(0.08, 1, 0.02, 0deg); }
+  to { transform: rotate3d(0.08, 1, 0.02, 360deg); }
+}
+@keyframes tenantFloatingSettle {
   from {
-    opacity: 0;
-    transform: translateY(-4px) scale(0.985);
+    transform: translateY(-3px) scale(0.992);
   }
   to {
-    opacity: 1;
     transform: translateY(0) scale(1);
   }
 }
-.tenant-roll-head {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-}
-.tenant-roll-icon {
-  flex: 0 0 auto;
-  font-size: 28px;
-  color: var(--primary);
-}
-.tenant-roll-text {
-  min-width: 0;
-}
-.tenant-roll-name {
-  font-size: 15px;
-  font-weight: 800;
-  color: var(--text-main);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.tenant-roll-region {
-  margin-top: 2px;
-  font-size: 12px;
-  color: var(--text-sub);
-}
-.tenant-roll-tags {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-  margin-top: 14px;
-}
-.tenant-roll-tag {
-  display: inline-flex;
-  align-items: center;
-  max-width: 100%;
-  min-height: 22px;
-  padding: 0 8px;
-  border: 1px solid var(--tenant-roll-tag-green-border);
-  border-radius: 999px;
-  color: var(--tenant-roll-tag-green-text);
-  background: var(--tenant-roll-tag-green-bg);
-  font-size: 12px;
-  font-weight: 700;
-  line-height: 20px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.tenant-roll-tag-blue {
-  border-color: var(--tenant-roll-tag-blue-border);
-  color: var(--tenant-roll-tag-blue-text);
-  background: var(--tenant-roll-tag-blue-bg);
-}
-.tenant-roll-action {
-  position: absolute;
-  left: 18px;
-  right: 18px;
-  bottom: 18px;
-  height: 34px;
-  border-radius: 10px;
-  color: #fff;
-  background: linear-gradient(135deg, #4f46e5, #7c3aed);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-weight: 800;
-  letter-spacing: 0;
-}
-@keyframes tenantCardRoll {
-  0% {
-    opacity: 1;
-    filter: saturate(1);
-    transform: translate3d(0, 0, 0) scale(1) rotateX(0deg) rotateY(0deg) rotateZ(0deg);
-  }
-  20% {
-    opacity: 1;
-    filter: saturate(1.08);
-    transform: translate3d(0, -18px, 116px) scale(1.04) rotateX(0deg) rotateY(0deg) rotateZ(0deg);
-  }
-  58% {
-    opacity: 1;
-    filter: saturate(1.08);
-    transform: translate3d(var(--tenant-roll-mid-dx), var(--tenant-roll-mid-dy), 110px) scale(1.035) rotateX(0deg) rotateY(180deg) rotateZ(0deg);
-  }
-  88% {
-    opacity: 1;
-    filter: saturate(1.02);
-    transform: translate3d(var(--tenant-roll-dx), var(--tenant-roll-dy), 28px) scale(var(--tenant-roll-scale)) rotateX(0deg) rotateY(360deg) rotateZ(0deg);
-  }
-  100% {
-    opacity: 0;
-    filter: saturate(0.96) blur(0.3px);
-    transform: translate3d(var(--tenant-roll-dx), var(--tenant-roll-dy), 0) scale(var(--tenant-roll-scale)) rotateX(0deg) rotateY(360deg) rotateZ(0deg);
+@media (prefers-reduced-motion: reduce) {
+  .tenant-floating-card-rolling,
+  .tenant-floating-card-rolling .tenant-floating-flight,
+  .tenant-floating-card-rolling .tenant-floating-roll,
+  .tenant-floating-card-docked {
+    animation-duration: 1ms !important;
   }
 }
 .tc-header {
