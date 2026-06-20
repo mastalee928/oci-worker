@@ -88,20 +88,28 @@
               <span style="font-size: 12px">{{ shortId(record.policyId) }} / {{ shortId(record.assetId) }}</span>
             </template>
             <template v-else-if="column.key === 'actions'">
-              <a-space size="small" wrap>
-                <a-button v-if="canRenameBlock" type="link" size="small" @click="openRename(record)">改名</a-button>
-                <a-button v-if="canResizeBoot" type="link" size="small" @click="openResizeBoot(record)">编辑</a-button>
-                <a-button v-if="canAttachBootVolume(record)" type="link" size="small" @click="openAttachBootVolume(record)">挂载</a-button>
-                <a-button v-if="canDetachBootVolume(record)" type="link" danger size="small" @click="handleDetachBootVolume(record)">分离</a-button>
-                <a-button v-if="canShowBootIscsi(record)" type="link" size="small" @click="openBootIscsi(record)">iSCSI</a-button>
-                <a-button v-if="canResizeBlock" type="link" size="small" @click="openResizeBlock(record)">编辑</a-button>
-                <a-button v-if="canEnableBootReplication" type="link" size="small" @click="openEnableBootReplication(record)">启用复制</a-button>
-                <a-button v-if="canEnableBlockReplication" type="link" size="small" @click="openEnableBlockReplication(record)">启用复制</a-button>
-                <a-button v-if="canActivateBootReplica" type="link" size="small" @click="openActivateBootReplica(record)">激活为引导卷</a-button>
-                <a-button v-if="canActivateBlockReplica" type="link" size="small" @click="openActivateBlockReplica(record)">激活为块卷</a-button>
-                <a-button v-if="canEditBackupPolicy" type="link" size="small" @click="openEditPolicy(record)">编辑策略</a-button>
-                <a-button v-if="canDeleteBlock" type="link" danger size="small" @click="openDelete(record)">删除</a-button>
-              </a-space>
+              <a-dropdown :trigger="['click']" placement="bottomRight">
+                <a-button type="text" size="small" title="更多操作" aria-label="更多操作">
+                  <MoreOutlined />
+                </a-button>
+                <template #overlay>
+                  <a-menu>
+                    <a-menu-item v-if="canRenameBlock" @click="openRename(record)">改名</a-menu-item>
+                    <a-menu-item v-if="canResizeBoot" @click="openResizeBoot(record)">编辑</a-menu-item>
+                    <a-menu-item v-if="canResizeBlock" @click="openResizeBlock(record)">编辑</a-menu-item>
+                    <a-menu-item v-if="canAttachBootVolume(record)" @click="openAttachBootVolume(record)">挂载</a-menu-item>
+                    <a-menu-item v-if="canShowBootIscsi(record)" @click="openBootIscsi(record)">iSCSI</a-menu-item>
+                    <a-menu-item v-if="canEnableBootReplication" @click="openEnableBootReplication(record)">启用复制</a-menu-item>
+                    <a-menu-item v-if="canEnableBlockReplication" @click="openEnableBlockReplication(record)">启用复制</a-menu-item>
+                    <a-menu-item v-if="canActivateBootReplica" @click="openActivateBootReplica(record)">激活为引导卷</a-menu-item>
+                    <a-menu-item v-if="canActivateBlockReplica" @click="openActivateBlockReplica(record)">激活为块卷</a-menu-item>
+                    <a-menu-item v-if="canEditBackupPolicy" @click="openEditPolicy(record)">编辑策略</a-menu-item>
+                    <a-menu-divider v-if="canDetachBootVolume(record) || canDeleteBlock" />
+                    <a-menu-item v-if="canDetachBootVolume(record)" danger @click="handleDetachBootVolume(record)">分离</a-menu-item>
+                    <a-menu-item v-if="canDeleteBlock" danger @click="openDelete(record)">删除</a-menu-item>
+                  </a-menu>
+                </template>
+              </a-dropdown>
             </template>
           </template>
         </a-table>
@@ -472,6 +480,25 @@
       <a-input v-model:value="deleteCode" placeholder="6 位验证码" maxlength="6" />
     </a-modal>
 
+    <a-modal
+      :mask-closable="false"
+      :keyboard="false"
+      v-model:open="detachBootOpen"
+      :title="'分离引导卷 — ' + (detachBootTarget?.displayName || '')"
+      @ok="submitDetachBootVolume"
+      :confirm-loading="detachBootLoading"
+      ok-text="确认分离"
+      :ok-button-props="{ danger: true }"
+    >
+      <a-alert
+        type="warning"
+        :message="'即将从 ' + bootAttachmentName(detachBootAttachment) + ' 分离引导卷，需要 Telegram 验证码'"
+        show-icon
+        style="margin-bottom: 12px"
+      />
+      <a-input v-model:value="detachBootCode" placeholder="6 位验证码" maxlength="6" />
+    </a-modal>
+
     <a-modal :mask-closable="false" :keyboard="false" v-model:open="policyOpen" title="编辑桶策略（JSON）" width="720px" @ok="submitPolicy" :confirm-loading="policyLoading" ok-text="保存">
       <a-alert type="info" message="保存前会发送 Telegram 验证码（editBucketPolicy）" show-icon style="margin-bottom: 12px" />
       <a-input v-model:value="policyCode" placeholder="先点「发送验证码」后输入 6 位码" maxlength="6" style="margin-bottom: 8px" />
@@ -484,6 +511,7 @@
 <script setup lang="ts">
 import { ref, computed, watch, onMounted, onUnmounted } from 'vue'
 import { message, Modal } from 'ant-design-vue'
+import { MoreOutlined } from '@ant-design/icons-vue'
 import {
   listStorageRegions,
   listStorageCompartments,
@@ -615,7 +643,7 @@ const blockColumnsResolved = computed(() => {
   if (v === 'volumeBackupPolicyAssignments') {
     cols.push({ title: '策略 / 资产', key: 'policyAsset', width: 180 })
   }
-  cols.push({ title: '操作', key: 'actions', width: v === 'bootVolumes' ? 420 : 320 })
+  cols.push({ title: '操作', key: 'actions', width: 72, align: 'center' })
   return cols
 })
 
@@ -1292,6 +1320,11 @@ const attachBootTargets = ref<any[]>([])
 const attachBootTargetLoading = ref(false)
 const attachBootLoading = ref(false)
 const attachBootForm = ref({ instanceId: '' })
+const detachBootOpen = ref(false)
+const detachBootTarget = ref<any>(null)
+const detachBootAttachment = ref<any>(null)
+const detachBootCode = ref('')
+const detachBootLoading = ref(false)
 
 const bootAttachTargetOptions = computed(() =>
   attachBootTargets.value.map(item => ({
@@ -1371,16 +1404,21 @@ function handleDetachBootVolume(row: any) {
     })
     return
   }
-  Modal.confirm({
-    title: '分离引导卷',
-    content: `确认从 ${bootAttachmentName(att)} 分离该引导卷？`,
-    okText: '确认分离',
-    cancelText: '取消',
-    okButtonProps: { danger: true },
-    async onOk() {
-      await detachBootVolumeAttachment(att)
-    },
-  })
+  void openDetachBootVerify(row, att)
+}
+
+async function openDetachBootVerify(row: any, att: any) {
+  detachBootTarget.value = row
+  detachBootAttachment.value = att
+  detachBootCode.value = ''
+  try {
+    await sendVerifyCode('detachBootVolume')
+    message.success('验证码已发送至 Telegram')
+  } catch (e: any) {
+    message.error(e?.message || '发送验证码失败')
+    return
+  }
+  detachBootOpen.value = true
 }
 
 async function stopBootVolumeInstance(att: any) {
@@ -1400,20 +1438,31 @@ async function stopBootVolumeInstance(att: any) {
   }
 }
 
-async function detachBootVolumeAttachment(att: any) {
+async function submitDetachBootVolume() {
+  if (!detachBootCode.value || detachBootCode.value.length !== 6) return message.warning('请输入 6 位验证码')
+  await detachBootVolumeAttachment(detachBootAttachment.value, detachBootCode.value)
+}
+
+async function detachBootVolumeAttachment(att: any, verifyCode: string) {
   if (!props.userId || !region.value) return
+  if (!att?.bootVolumeAttachmentId && !att?.id) return message.warning('未找到引导卷附加关系')
+  detachBootLoading.value = true
   try {
     await storageMutate({
       action: 'detachBootVolume',
       id: props.userId,
       region: region.value,
       bootVolumeAttachmentId: att.bootVolumeAttachmentId || att.id,
+      verifyCode,
     })
     message.success('已提交分离引导卷')
+    detachBootOpen.value = false
     await loadAll()
   } catch (e: any) {
     message.error(e?.message || '分离引导卷失败')
     throw e
+  } finally {
+    detachBootLoading.value = false
   }
 }
 

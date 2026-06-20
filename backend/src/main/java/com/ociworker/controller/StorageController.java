@@ -75,6 +75,10 @@ public class StorageController {
 
     @PostMapping("/mutate")
     public ResponseData<?> mutate(@RequestBody Map<String, Object> params) {
+        if ("detachBootVolume".equals(String.valueOf(params.get("action")))) {
+            Object code = params.get("verifyCode");
+            verifyCodeService.verifyCode("detachBootVolume", code == null ? null : String.valueOf(code));
+        }
         return ResponseData.ok(storageService.mutate(params));
     }
 }

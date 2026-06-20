@@ -48,6 +48,7 @@ public class VerifyCodeService {
             case "changePassword" -> "修改登录密码";
             case "deleteVolume" -> "删除卷";
             case "deleteStorage" -> "删除存储资源";
+            case "detachBootVolume" -> "分离引导卷";
             case "editBucketPolicy" -> "修改存储桶策略";
             case "deleteVcn" -> "删除 VCN";
             case "deleteVcnSubnet" -> "删除子网";
