@@ -1194,7 +1194,139 @@
       :mask-style="{ backdropFilter: 'blur(8px)', WebkitBackdropFilter: 'blur(8px)' }"
       @cancel="hideTrafficTooltip"
     >
-      <div class="traffic-chart-card traffic-chart-card-large">
+      <template v-if="isMobile">
+        <div class="traffic-mobile-analyzer">
+          <div class="traffic-mobile-head">
+            <span>趋势</span>
+            <span>{{ trafficRangeLabel }} · 每 {{ trafficData?.interval || '—' }}</span>
+          </div>
+          <div class="traffic-mobile-chart">
+            <div v-if="trafficMobileChart.hasData" class="traffic-chart-plot traffic-mobile-plot">
+              <div class="traffic-y-scale">
+                <span>{{ formatBytes(trafficMobileChart.max) }}</span>
+                <span>0 B</span>
+              </div>
+              <div class="traffic-plot-wrap">
+                <div class="traffic-svg-wrap traffic-mobile-svg-wrap">
+                  <svg class="traffic-chart-svg" viewBox="0 0 640 220" preserveAspectRatio="none" role="img">
+                    <line v-for="y in trafficChartGrid" :key="'mobile-grid-' + y" x1="0" x2="640" :y1="y" :y2="y" class="traffic-grid-line" />
+                    <polyline
+                      v-if="trafficVisibleSeries.inbound"
+                      :points="trafficMobileChart.inbound"
+                      class="traffic-line traffic-line-inbound"
+                    />
+                    <polyline
+                      v-if="trafficVisibleSeries.outbound"
+                      :points="trafficMobileChart.outbound"
+                      class="traffic-line traffic-line-outbound"
+                    />
+                    <g v-for="point in trafficMobileChart.points" :key="'mobile-' + point.timestamp">
+                      <circle
+                        v-if="trafficVisibleSeries.inbound && trafficMobileChart.showPoints"
+                        :cx="point.x"
+                        :cy="point.inboundY"
+                        r="3.5"
+                        class="traffic-point traffic-point-inbound"
+                      />
+                      <circle
+                        v-if="trafficVisibleSeries.outbound && trafficMobileChart.showPoints"
+                        :cx="point.x"
+                        :cy="point.outboundY"
+                        r="3.5"
+                        class="traffic-point traffic-point-outbound"
+                      />
+                      <circle
+                        v-if="trafficVisibleSeries.inbound"
+                        :cx="point.x"
+                        :cy="point.inboundY"
+                        r="13"
+                        class="traffic-hit-point"
+                        @click="selectTrafficMobilePoint(point)"
+                        @touchstart.passive="selectTrafficMobilePoint(point)"
+                      />
+                      <circle
+                        v-if="trafficVisibleSeries.outbound"
+                        :cx="point.x"
+                        :cy="point.outboundY"
+                        r="13"
+                        class="traffic-hit-point"
+                        @click="selectTrafficMobilePoint(point)"
+                        @touchstart.passive="selectTrafficMobilePoint(point)"
+                      />
+                    </g>
+                    <g v-if="trafficMobileSelectedPoint">
+                      <circle
+                        v-if="trafficVisibleSeries.inbound"
+                        :cx="trafficMobileSelectedPoint.x"
+                        :cy="trafficMobileSelectedPoint.inboundY"
+                        r="5.5"
+                        class="traffic-active-point traffic-point-inbound"
+                      />
+                      <circle
+                        v-if="trafficVisibleSeries.outbound"
+                        :cx="trafficMobileSelectedPoint.x"
+                        :cy="trafficMobileSelectedPoint.outboundY"
+                        r="5.5"
+                        class="traffic-active-point traffic-point-outbound"
+                      />
+                    </g>
+                  </svg>
+                </div>
+                <div class="traffic-x-scale">
+                  <span>{{ trafficMobileWindowStartLabel }}</span>
+                  <span class="traffic-x-axis-label">时间</span>
+                  <span>{{ trafficMobileWindowEndLabel }}</span>
+                </div>
+              </div>
+            </div>
+            <a-empty v-else description="暂无趋势数据" />
+          </div>
+          <div v-if="trafficMobileChart.hasData" class="traffic-mobile-brush">
+            <div class="traffic-mobile-brush-head">
+              <span>时间窗口</span>
+              <span>{{ trafficMobileWindowPositionLabel }}</span>
+            </div>
+            <a-slider
+              v-if="trafficMobileCanSlide"
+              v-model:value="trafficMobileWindowStart"
+              :min="0"
+              :max="trafficMobileWindowMaxStart"
+              :step="1"
+            />
+            <div v-else class="traffic-mobile-brush-static">当前周期数据已全部显示</div>
+            <div class="traffic-mobile-brush-range">
+              <span>{{ trafficStartLabel }}</span>
+              <span>{{ trafficEndLabel }}</span>
+            </div>
+          </div>
+          <div v-if="trafficMobileSelectedPoint" class="traffic-mobile-detail">
+            <div class="traffic-mobile-detail-title">
+              <span>{{ trafficMobileSelectedPoint.label }}</span>
+              <span>{{ trafficRangeLabel }}</span>
+            </div>
+            <div class="traffic-mobile-detail-grid">
+              <div>
+                <span>入站</span>
+                <strong>{{ formatBytes(trafficMobileSelectedPoint.inbound) }}</strong>
+              </div>
+              <div>
+                <span>出站</span>
+                <strong>{{ formatBytes(trafficMobileSelectedPoint.outbound) }}</strong>
+              </div>
+              <div>
+                <span>总量</span>
+                <strong>{{ formatBytes(trafficMobileSelectedPoint.total) }}</strong>
+              </div>
+            </div>
+          </div>
+          <div class="traffic-legend traffic-mobile-legend">
+            <span :class="['traffic-legend-item', { disabled: !trafficVisibleSeries.inbound }]" @click="toggleTrafficSeries('inbound')"><i class="traffic-dot inbound"></i>入站</span>
+            <span :class="['traffic-legend-item', { disabled: !trafficVisibleSeries.outbound }]" @click="toggleTrafficSeries('outbound')"><i class="traffic-dot outbound"></i>出站</span>
+            <span>峰值 {{ formatBytes(trafficMobileChart.max) }}</span>
+          </div>
+        </div>
+      </template>
+      <div v-else class="traffic-chart-card traffic-chart-card-large">
         <div class="traffic-chart-head">
           <span>趋势</span>
           <span>{{ trafficRangeLabel }} · 每 {{ trafficData?.interval || '—' }}</span>
@@ -1814,6 +1946,14 @@ type TrafficSeries = 'inbound' | 'outbound'
 type TrafficRangeMode = number | 'custom'
 type TrafficChartScope = 'small' | 'large'
 
+interface TrafficRawPoint {
+  timestamp: string
+  label: string
+  inbound: number
+  outbound: number
+  total: number
+}
+
 interface TrafficChartPoint {
   timestamp: string
   label: string
@@ -2191,6 +2331,8 @@ const trafficData = ref<any>(null)
 const trafficDateRange = ref<[Dayjs, Dayjs] | null>(null)
 const trafficHoverPoint = ref<TrafficHoverPoint | null>(null)
 const trafficChartModalOpen = ref(false)
+const trafficMobileWindowStart = ref(0)
+const trafficMobileSelectedTimestamp = ref('')
 const trafficVisibleSeries = reactive<Record<TrafficSeries, boolean>>({ inbound: true, outbound: true })
 const trafficWindowLabel = computed(() => trafficWindowOptions.find(item => item.value === trafficMinutes.value)?.label || '1h')
 const trafficUseCustomRange = computed(() => {
@@ -2206,18 +2348,57 @@ const trafficStartLabel = computed(() => formatTrafficAxisTime(trafficData.value
 const trafficEndLabel = computed(() => formatTrafficAxisTime(trafficData.value?.endTime, trafficEffectiveMinutes.value))
 const trafficVnics = computed(() => Array.isArray(trafficData.value?.vnics) ? trafficData.value.vnics : [])
 const trafficChartGrid = [24, 67, 110, 153, 196]
+const trafficRawPoints = computed<TrafficRawPoint[]>(() => normalizeTrafficRows(Array.isArray(trafficData.value?.points) ? trafficData.value.points : []))
 const trafficChart = computed(() => buildTrafficChart(40))
 const trafficLargeChart = computed(() => buildTrafficChart('all'))
+const trafficMobileWindowSize = computed(() => {
+  const total = trafficRawPoints.value.length
+  if (total <= 40) return Math.max(total, 1)
+  const minutes = trafficEffectiveMinutes.value
+  if (minutes <= 1440) return Math.min(total, 48)
+  if (minutes <= 10080) return Math.min(total, 56)
+  return Math.min(total, 45)
+})
+const trafficMobileWindowMaxStart = computed(() => Math.max(0, trafficRawPoints.value.length - trafficMobileWindowSize.value))
+const trafficMobileCanSlide = computed(() => trafficMobileWindowMaxStart.value > 0)
+const trafficMobileWindowRows = computed(() => {
+  const start = Math.min(Math.max(0, trafficMobileWindowStart.value), trafficMobileWindowMaxStart.value)
+  return trafficRawPoints.value.slice(start, start + trafficMobileWindowSize.value)
+})
+const trafficMobileChart = computed(() => buildTrafficChartFromPoints(trafficMobileWindowRows.value, 'all'))
+const trafficMobileSelectedPoint = computed<TrafficChartPoint | null>(() => {
+  const points = trafficMobileChart.value.points
+  if (!points.length) return null
+  return points.find(point => point.timestamp === trafficMobileSelectedTimestamp.value) || points[Math.floor(points.length / 2)]
+})
+const trafficMobileWindowPositionLabel = computed(() => {
+  const total = trafficRawPoints.value.length
+  if (!total) return '0 / 0'
+  const start = Math.min(Math.max(0, trafficMobileWindowStart.value), trafficMobileWindowMaxStart.value)
+  const end = Math.min(total, start + trafficMobileWindowSize.value)
+  return `${start + 1}-${end} / ${total}`
+})
+const trafficMobileWindowStartLabel = computed(() => trafficMobileChart.value.points[0]?.label || trafficStartLabel.value)
+const trafficMobileWindowEndLabel = computed(() => {
+  const points = trafficMobileChart.value.points
+  return points[points.length - 1]?.label || trafficEndLabel.value
+})
 
 function buildTrafficChart(pointLimit: number | 'all'): TrafficChartModel {
-  const rows = Array.isArray(trafficData.value?.points) ? trafficData.value.points : []
-  const points: Array<{ timestamp: string; label: string; inbound: number; outbound: number; total: number }> = rows.map((point: any) => ({
+  return buildTrafficChartFromPoints(trafficRawPoints.value, pointLimit)
+}
+
+function normalizeTrafficRows(rows: any[]): TrafficRawPoint[] {
+  return rows.map((point: any) => ({
     timestamp: String(point?.timestamp || ''),
     label: formatTrafficPointTime(point?.timestamp, trafficEffectiveMinutes.value),
     inbound: Number(point?.inbound) || 0,
     outbound: Number(point?.outbound) || 0,
     total: Number(point?.total) || ((Number(point?.inbound) || 0) + (Number(point?.outbound) || 0)),
   }))
+}
+
+function buildTrafficChartFromPoints(points: TrafficRawPoint[], pointLimit: number | 'all'): TrafficChartModel {
   const max = Math.max(0, ...points.map(point => Math.max(point.inbound, point.outbound)))
   if (!points.length || max <= 0) {
     return { hasData: false, inbound: '', outbound: '', max: 0, points: [], showPoints: false }
@@ -2262,6 +2443,14 @@ function buildTrafficChart(pointLimit: number | 'all'): TrafficChartModel {
     showPoints: pointLimit === 'all' || chartPoints.length <= pointLimit,
   }
 }
+
+watch(trafficMobileWindowMaxStart, (maxStart) => {
+  if (trafficMobileWindowStart.value > maxStart) trafficMobileWindowStart.value = maxStart
+})
+
+watch(trafficMobileWindowStart, () => {
+  trafficMobileSelectedTimestamp.value = ''
+})
 const changeIpLoading = ref(false)
 
 const netDetailLoading = ref(false)
@@ -3062,6 +3251,16 @@ function hideTrafficTooltip() {
   trafficHoverPoint.value = null
 }
 
+function resetTrafficMobileWindow() {
+  trafficMobileWindowStart.value = trafficMobileWindowMaxStart.value
+  trafficMobileSelectedTimestamp.value = ''
+}
+
+function selectTrafficMobilePoint(point: TrafficChartPoint) {
+  trafficMobileSelectedTimestamp.value = point.timestamp
+  trafficHoverPoint.value = null
+}
+
 function toggleTrafficSeries(series: TrafficSeries) {
   const other: TrafficSeries = series === 'inbound' ? 'outbound' : 'inbound'
   if (trafficVisibleSeries[series] && !trafficVisibleSeries[other]) return
@@ -3072,6 +3271,7 @@ function toggleTrafficSeries(series: TrafficSeries) {
 function openTrafficChartModal() {
   if (!trafficChart.value.hasData) return
   trafficHoverPoint.value = null
+  if (isMobile.value) resetTrafficMobileWindow()
   trafficChartModalOpen.value = true
 }
 
@@ -3156,6 +3356,8 @@ function openDetail(tenant: any, record: any) {
   trafficDateRange.value = null
   trafficRangeMode.value = trafficMinutes.value
   trafficHoverPoint.value = null
+  trafficMobileWindowStart.value = 0
+  trafficMobileSelectedTimestamp.value = ''
   trafficChartModalOpen.value = false
   networkDetail.value = null
   consoleData.value = null
@@ -4007,6 +4209,7 @@ async function loadTraffic() {
     }
     const res = await getTrafficData(params)
     trafficData.value = res.data || { inbound: 0, outbound: 0, total: 0, points: [], vnics: [] }
+    resetTrafficMobileWindow()
   } catch (e: any) { message.error(e?.message || '加载流量数据失败') }
   finally { trafficLoading.value = false }
 }
@@ -4593,6 +4796,139 @@ onUnmounted(() => {
 .traffic-chart-canvas-large {
   height: min(70vh, 620px);
 }
+.traffic-mobile-analyzer {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  min-height: 0;
+  height: calc(100vh - 112px);
+  overflow-y: auto;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+.traffic-mobile-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+  color: var(--text-main);
+  font-weight: 700;
+}
+.traffic-mobile-head span:last-child {
+  color: var(--text-sub);
+  font-size: 12px;
+  font-weight: 400;
+  text-align: right;
+}
+.traffic-mobile-chart {
+  flex: 0 0 auto;
+  height: clamp(260px, 42vh, 380px);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: rgba(127, 127, 127, 0.04);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: visible;
+}
+.traffic-mobile-plot {
+  grid-template-columns: 56px minmax(0, 1fr);
+  padding: 10px 10px 8px 8px;
+}
+.traffic-mobile-svg-wrap {
+  touch-action: manipulation;
+}
+.traffic-mobile-brush {
+  flex: 0 0 auto;
+  padding: 10px 12px 8px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-sidebar);
+}
+.traffic-mobile-brush-head,
+.traffic-mobile-brush-range {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--text-sub);
+  font-size: 12px;
+}
+.traffic-mobile-brush-head span:first-child {
+  color: var(--text-main);
+  font-weight: 600;
+}
+.traffic-mobile-brush :deep(.ant-slider) {
+  margin: 10px 4px 8px;
+}
+.traffic-mobile-brush :deep(.ant-slider-rail) {
+  background: rgba(127, 127, 127, 0.18);
+}
+.traffic-mobile-brush-static {
+  margin: 10px 0 8px;
+  color: var(--text-sub);
+  font-size: 12px;
+}
+.traffic-mobile-detail {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
+  flex: 0 0 auto;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card);
+  box-shadow: var(--shadow-card);
+}
+.traffic-mobile-detail-title {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 10px;
+  color: var(--text-main);
+  font-weight: 700;
+}
+.traffic-mobile-detail-title span {
+  min-width: 0;
+}
+.traffic-mobile-detail-title span:first-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.traffic-mobile-detail-title span:last-child {
+  color: var(--text-sub);
+  font-size: 12px;
+  font-weight: 400;
+  text-align: right;
+}
+.traffic-mobile-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+.traffic-mobile-detail-grid div {
+  min-width: 0;
+  padding: 8px;
+  border-radius: 6px;
+  background: var(--bg-sidebar);
+}
+.traffic-mobile-detail-grid span {
+  display: block;
+  color: var(--text-sub);
+  font-size: 12px;
+  margin-bottom: 4px;
+}
+.traffic-mobile-detail-grid strong {
+  display: block;
+  color: var(--text-main);
+  font-size: 14px;
+  line-height: 1.25;
+  word-break: break-word;
+}
+.traffic-mobile-legend {
+  flex: 0 0 auto;
+  margin-top: 0;
+  padding-bottom: 2px;
+}
 :global(.traffic-chart-modal-wrap .ant-modal) {
   max-width: calc(100vw - 32px);
 }
@@ -4866,6 +5202,16 @@ onUnmounted(() => {
   :global(.traffic-chart-modal-wrap .ant-modal-content) {
     min-height: 100vh;
     border-radius: 0;
+  }
+  :global(.traffic-chart-modal-wrap .ant-modal-body) {
+    max-height: calc(100vh - 56px);
+    overflow: hidden;
+  }
+  .traffic-mobile-analyzer {
+    height: calc(100vh - 86px);
+  }
+  .traffic-mobile-chart {
+    height: clamp(250px, 40vh, 360px);
   }
   .panel-actions {
     gap: 4px;
