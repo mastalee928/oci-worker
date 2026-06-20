@@ -769,18 +769,11 @@ const buckets = computed(() =>
 )
 const privateEndpoints = computed(() => objectData.value.privateEndpoints || [])
 const storageContentLoading = computed(() => regionLoading.value || compartmentLoading.value || loading.value || objectLoading.value)
-const storageLoadingTip = computed(() => {
-  if (regionLoading.value) return '正在加载可用区域...'
-  if (compartmentLoading.value) return '正在加载区间...'
-  if (objectLoading.value) return '正在加载对象存储数据...'
-  return '正在加载存储数据...'
-})
 const storageTableLoading = computed(() => ({
   spinning: storageContentLoading.value,
-  tip: storageLoadingTip.value,
 }))
 const storageTableLocale = computed(() => ({
-  emptyText: storageContentLoading.value ? storageLoadingTip.value : '暂无数据',
+  emptyText: storageContentLoading.value ? ' ' : '暂无数据',
 }))
 
 const canRenameBlock = computed(() =>
