@@ -2217,16 +2217,19 @@ const activeTenantData = computed(() => {
   return tenantDataList.value.find(td => td.tenant.id === activeTenantId.value) || null
 })
 const instancePanelVisible = computed({
-  get: () => !!activeTenantData.value,
+  get: () => instancePanelOpen.value && !!activeTenantData.value,
   set: (val: boolean) => {
     if (!val) {
+      instancePanelOpen.value = false
       activeTenantId.value = ''
       if (tenantWorkspaceKind.value === 'instance') tenantWorkspaceKind.value = null
     }
   },
 })
 type TenantWorkspaceKind = 'instance' | 'vcn' | 'storage'
+const instancePanelOpen = ref(false)
 const tenantWorkspaceKind = ref<TenantWorkspaceKind | null>(null)
+const tenantWorkspaceTransitioning = ref(false)
 const instancePanelWidth = computed(() => (isMobile.value ? '100%' : 'clamp(960px, 68vw, 1280px)'))
 const tenantWorkspaceMaskStyle = computed(() =>
   isMobile.value
@@ -2263,6 +2266,8 @@ const tenantRollCard = reactive({
   height: '220px',
   dx: '0px',
   dy: '0px',
+  midDx: '0px',
+  midDy: '-28px',
   scale: '0.72',
 })
 const tenantRollCardStyle = computed<Record<string, string>>(() => ({
@@ -2272,14 +2277,35 @@ const tenantRollCardStyle = computed<Record<string, string>>(() => ({
   height: tenantRollCard.height,
   '--tenant-roll-dx': tenantRollCard.dx,
   '--tenant-roll-dy': tenantRollCard.dy,
+  '--tenant-roll-mid-dx': tenantRollCard.midDx,
+  '--tenant-roll-mid-dy': tenantRollCard.midDy,
   '--tenant-roll-scale': tenantRollCard.scale,
 }))
+const TENANT_ROLL_DURATION_MS = 720
+const TENANT_DRAWER_DELAY_MS = 240
 let tenantRollTimer: ReturnType<typeof setTimeout> | null = null
+let tenantWorkspaceOpenTimer: ReturnType<typeof setTimeout> | null = null
 
 function beginTenantWorkspace(kind: TenantWorkspaceKind, tenant: any) {
   tenantWorkspaceKind.value = kind
   if (isMobile.value) return
+  tenantWorkspaceTransitioning.value = true
   startTenantRollCard(kind, tenant)
+}
+
+function scheduleTenantWorkspaceOpen(openPanel: () => void) {
+  if (tenantWorkspaceOpenTimer) window.clearTimeout(tenantWorkspaceOpenTimer)
+  if (isMobile.value) {
+    openPanel()
+    return
+  }
+  tenantWorkspaceOpenTimer = window.setTimeout(() => {
+    tenantWorkspaceOpenTimer = null
+    openPanel()
+    window.setTimeout(() => {
+      tenantWorkspaceTransitioning.value = false
+    }, 120)
+  }, TENANT_DRAWER_DELAY_MS)
 }
 
 function isTenantRollSource(tenant: any) {
@@ -2287,7 +2313,10 @@ function isTenantRollSource(tenant: any) {
 }
 
 function closeTenantWorkspacePanels(except: TenantWorkspaceKind) {
-  if (except !== 'instance') activeTenantId.value = ''
+  if (except !== 'instance') {
+    instancePanelOpen.value = false
+    activeTenantId.value = ''
+  }
   if (except !== 'vcn') vcnVisible.value = false
   if (except !== 'storage') storageManagerOpen.value = false
 }
@@ -2309,10 +2338,11 @@ function startTenantRollCard(kind: TenantWorkspaceKind, tenant: any) {
   const rect = source.getBoundingClientRect()
   if (rect.width <= 0 || rect.height <= 0) return
   const drawerWidth = desktopWorkspaceWidthPx()
-  const targetLeft = Math.max(24, window.innerWidth - drawerWidth + 28)
-  const targetTop = 74
-  const targetWidth = Math.min(230, Math.max(178, rect.width * 0.72))
-  const scale = Math.min(0.82, Math.max(0.58, targetWidth / rect.width))
+  const drawerLeft = window.innerWidth - drawerWidth
+  const targetLeft = Math.max(24, Math.min(drawerLeft - rect.width - 24, drawerLeft - rect.width * 1.65))
+  const targetTop = Math.max(72, Math.min(window.innerHeight - rect.height - 24, rect.top - 90))
+  const dx = targetLeft - rect.left
+  const dy = targetTop - rect.top
 
   tenantRollCard.visible = false
   if (tenantRollTimer) window.clearTimeout(tenantRollTimer)
@@ -2327,16 +2357,18 @@ function startTenantRollCard(kind: TenantWorkspaceKind, tenant: any) {
     top: `${rect.top}px`,
     width: `${rect.width}px`,
     height: `${rect.height}px`,
-    dx: `${targetLeft - rect.left}px`,
-    dy: `${targetTop - rect.top}px`,
-    scale: String(scale),
+    dx: `${dx}px`,
+    dy: `${dy}px`,
+    midDx: `${dx * 0.58}px`,
+    midDy: `${dy - 34}px`,
+    scale: '1',
   })
   requestAnimationFrame(() => {
     tenantRollCard.visible = true
     tenantRollTimer = window.setTimeout(() => {
       tenantRollCard.visible = false
       tenantRollTimer = null
-    }, 560)
+    }, TENANT_ROLL_DURATION_MS)
   })
 }
 
@@ -2434,6 +2466,12 @@ async function selectTenant(td: TenantData) {
   beginTenantWorkspace('instance', td.tenant)
   closeTenantWorkspacePanels('instance')
   activeTenantId.value = td.tenant.id
+  if (!isMobile.value) instancePanelOpen.value = false
+  scheduleTenantWorkspaceOpen(() => {
+    if (activeTenantId.value === tenantId && tenantWorkspaceKind.value === 'instance') {
+      instancePanelOpen.value = true
+    }
+  })
   const def = td.tenant.ociRegion || ''
   instancePanelRegion.value = loadPanelRegionFromLs('instancePanel.region', td.tenant, def) || def
   instanceRegionOptions.value = instancePanelRegion.value
@@ -3261,10 +3299,10 @@ const storageManagerUserId = ref('')
 const storageManagerTenantName = ref('')
 const storageManagerDefaultRegion = ref('')
 watch(vcnVisible, (open) => {
-  if (!open && tenantWorkspaceKind.value === 'vcn') tenantWorkspaceKind.value = null
+  if (!open && tenantWorkspaceKind.value === 'vcn' && !tenantWorkspaceTransitioning.value) tenantWorkspaceKind.value = null
 })
 watch(storageManagerOpen, (open) => {
-  if (!open && tenantWorkspaceKind.value === 'storage') tenantWorkspaceKind.value = null
+  if (!open && tenantWorkspaceKind.value === 'storage' && !tenantWorkspaceTransitioning.value) tenantWorkspaceKind.value = null
 })
 function openStoragePanel(tenant: any) {
   beginTenantWorkspace('storage', tenant)
@@ -3272,7 +3310,12 @@ function openStoragePanel(tenant: any) {
   storageManagerUserId.value = tenant.id
   storageManagerTenantName.value = tenant.username || tenant.tenantName || ''
   storageManagerDefaultRegion.value = tenant.ociRegion || ''
-  storageManagerOpen.value = true
+  if (!isMobile.value) storageManagerOpen.value = false
+  scheduleTenantWorkspaceOpen(() => {
+    if (tenantWorkspaceKind.value === 'storage' && storageManagerUserId.value === tenant.id) {
+      storageManagerOpen.value = true
+    }
+  })
 }
 
 async function openVcnPanel(tenant: any) {
@@ -3288,7 +3331,12 @@ async function openVcnPanel(tenant: any) {
     ? [{ label: vcnPanelRegion.value, value: vcnPanelRegion.value }]
     : []
   savePanelRegionLs('vcnPanel.region', tenant, vcnPanelRegion.value)
-  vcnVisible.value = true
+  if (!isMobile.value) vcnVisible.value = false
+  scheduleTenantWorkspaceOpen(() => {
+    if (tenantWorkspaceKind.value === 'vcn' && vcnTenant.value?.id === tenant.id) {
+      vcnVisible.value = true
+    }
+  })
   vcnListLoading.value = true
   try {
     const reg = (vcnPanelRegion.value?.trim() || tenant.ociRegion || '').trim()
@@ -4487,6 +4535,7 @@ onUnmounted(() => {
   window.removeEventListener('resize', checkMobile)
   window.removeEventListener('beforeunload', handleShapeEditBeforeUnload)
   if (tenantRollTimer) window.clearTimeout(tenantRollTimer)
+  if (tenantWorkspaceOpenTimer) window.clearTimeout(tenantWorkspaceOpenTimer)
   void stopCurrentShapeEditTaskSilently()
   stopShapeEditTaskPolling()
   pendingTimers.forEach((t: any) => clearTimeout(t))
@@ -4675,7 +4724,7 @@ onUnmounted(() => {
   transform-origin: center center;
   transform-style: preserve-3d;
   will-change: transform, opacity, filter;
-  animation: tenantCardRoll 560ms cubic-bezier(0.18, 0.9, 0.22, 1) forwards;
+  animation: tenantCardRoll 720ms cubic-bezier(0.18, 0.9, 0.22, 1) forwards;
 }
 .tenant-roll-card-inner {
   height: 100%;
@@ -4770,23 +4819,28 @@ onUnmounted(() => {
 }
 @keyframes tenantCardRoll {
   0% {
-    opacity: 0.98;
+    opacity: 1;
     filter: saturate(1);
     transform: translate3d(0, 0, 0) scale(1) rotateX(0deg) rotateY(0deg) rotateZ(0deg);
   }
-  16% {
+  20% {
     opacity: 1;
     filter: saturate(1.08);
-    transform: translate3d(0, -12px, 90px) scale(1.035) rotateX(8deg) rotateY(-18deg) rotateZ(-2deg);
+    transform: translate3d(0, -18px, 116px) scale(1.04) rotateX(0deg) rotateY(0deg) rotateZ(0deg);
   }
-  72% {
-    opacity: 0.92;
-    filter: saturate(1.05);
-    transform: translate3d(var(--tenant-roll-dx), var(--tenant-roll-dy), 36px) scale(var(--tenant-roll-scale)) rotateX(22deg) rotateY(328deg) rotateZ(8deg);
+  58% {
+    opacity: 1;
+    filter: saturate(1.08);
+    transform: translate3d(var(--tenant-roll-mid-dx), var(--tenant-roll-mid-dy), 110px) scale(1.035) rotateX(0deg) rotateY(180deg) rotateZ(0deg);
+  }
+  88% {
+    opacity: 1;
+    filter: saturate(1.02);
+    transform: translate3d(var(--tenant-roll-dx), var(--tenant-roll-dy), 28px) scale(var(--tenant-roll-scale)) rotateX(0deg) rotateY(360deg) rotateZ(0deg);
   }
   100% {
     opacity: 0;
-    filter: saturate(0.96) blur(0.4px);
+    filter: saturate(0.96) blur(0.3px);
     transform: translate3d(var(--tenant-roll-dx), var(--tenant-roll-dy), 0) scale(var(--tenant-roll-scale)) rotateX(0deg) rotateY(360deg) rotateZ(0deg);
   }
 }
