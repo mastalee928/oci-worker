@@ -2052,7 +2052,7 @@ function checkMobile() {
     clearFloatingTenantCard()
     return
   }
-  if (floatingTenantCard.phase === 'docked') refreshFloatingTenantCard()
+  if (floatingTenantCard.tenant) refreshFloatingTenantCard()
 }
 
 const tenantViewMode = ref<'card' | 'table'>('card')
@@ -2396,12 +2396,14 @@ function calculateFloatingTenantRect(sourceRect?: DOMRect | null) {
   if (typeof window === 'undefined') return null
   const drawerWidth = desktopWorkspaceWidthPx()
   const drawerLeft = window.innerWidth - drawerWidth
-  const gap = 24
-  const availableWidth = drawerLeft - gap * 2
-  if (availableWidth < 220) return null
+  const roomy = drawerLeft >= 320
+  const gap = roomy ? 24 : 12
+  const minWidth = roomy ? 220 : 168
+  if (drawerLeft < minWidth + gap) return null
+  const availableWidth = Math.max(0, drawerLeft - gap * 2)
   const baseWidth = sourceRect?.width || Number.parseFloat(floatingTenantCard.width) || 260
   const baseHeight = sourceRect?.height || Number.parseFloat(floatingTenantCard.height) || 220
-  const width = Math.min(320, Math.max(220, Math.min(baseWidth, availableWidth)))
+  const width = Math.min(roomy ? 320 : 220, Math.max(minWidth, Math.min(baseWidth, availableWidth)))
   const height = Math.max(180, Math.min(baseHeight, window.innerHeight - 96))
   const left = Math.max(gap, drawerLeft - width - gap)
   const preferredTop = sourceRect ? sourceRect.top - 90 : Number.parseFloat(floatingTenantCard.top) || 88
@@ -4867,7 +4869,8 @@ onUnmounted(() => {
   perspective: 1200px;
   perspective-origin: center center;
   transform-style: preserve-3d;
-  contain: layout paint style;
+  contain: layout style;
+  overflow: visible;
   pointer-events: auto;
   transform: translateZ(0);
 }
@@ -4883,6 +4886,7 @@ onUnmounted(() => {
 .tenant-floating-flight,
 .tenant-floating-roll {
   height: 100%;
+  overflow: visible;
   transform-style: preserve-3d;
 }
 .tenant-floating-card-rolling .tenant-floating-flight {
