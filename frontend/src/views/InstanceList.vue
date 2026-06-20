@@ -773,13 +773,14 @@
 
         <a-tab-pane key="blockVolume" tab="块存储">
           <div style="margin-bottom: 12px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center">
-            <a-button @click="loadBlockVolumes" :loading="blockVolLoading">加载已挂载卷</a-button>
+            <a-button @click="loadBlockVolumes" :loading="blockVolLoading || externalBootVolLoading">刷新存储</a-button>
             <a-button type="primary" @click="openCreateBlockVolume" :disabled="!currentInstance">创建并挂载</a-button>
             <a-button @click="openAttachBlockVolume" :disabled="!currentInstance">挂载已有卷</a-button>
           </div>
           <div v-if="currentInstance" style="font-size: 12px; color: var(--text-sub); margin-bottom: 10px">
             可用域：{{ currentInstance.availabilityDomain || '—' }} · 区间：{{ currentInstance.compartmentName || currentInstance.compartmentId || '—' }}
           </div>
+          <div class="detail-section-title">块存储卷</div>
           <a-table
             v-if="!isMobile"
             :data-source="blockVolumes"
@@ -787,17 +788,14 @@
             size="small"
             :pagination="false"
             :row-key="attachedVolumeRowKey"
-            :scroll="{ x: 860 }"
+            :loading="blockVolLoading"
+            :scroll="{ x: 760 }"
           >
             <template #bodyCell="{ column, record }">
-              <template v-if="column.key === 'blockVolumeType'">
-                <a-tag :color="isBootVolume(record) ? 'purple' : 'blue'">{{ record.volumeTypeLabel || '块存储卷' }}</a-tag>
-              </template>
-              <template v-else-if="column.key === 'blockVolAction'">
+              <template v-if="column.key === 'blockVolAction'">
                 <a-space size="small">
                   <a-button type="link" size="small" @click="openEditAttachedVolume(record)">编辑</a-button>
                   <a-popconfirm
-                    v-if="!isBootVolume(record)"
                     title="确定卸载该块存储卷？卷不会被删除，可在「存储」中再次挂载。"
                     @confirm="handleDetachBlockVolume(record)"
                   >
@@ -814,18 +812,72 @@
                 <span class="mobile-card-title">{{ vol.displayName }}</span>
                 <a-space size="small">
                   <a-button type="link" size="small" @click="openEditAttachedVolume(vol)">编辑</a-button>
-                  <a-popconfirm v-if="!isBootVolume(vol)" title="确定卸载？" @confirm="handleDetachBlockVolume(vol)">
+                  <a-popconfirm title="确定卸载？" @confirm="handleDetachBlockVolume(vol)">
                     <a-button type="link" danger size="small">卸载</a-button>
                   </a-popconfirm>
                 </a-space>
               </div>
               <div class="mobile-card-body">
-                <div class="mobile-card-row"><span class="label">类型</span><span class="value">{{ vol.volumeTypeLabel || '块存储卷' }}</span></div>
                 <div class="mobile-card-row"><span class="label">大小</span><span class="value">{{ vol.sizeInGBs }} GB</span></div>
                 <div class="mobile-card-row"><span class="label">VPUs/GB</span><span class="value">{{ vol.vpusPerGB }}</span></div>
                 <div class="mobile-card-row"><span class="label">设备</span><span class="value">{{ vol.device || '—' }}</span></div>
                 <div class="mobile-card-row"><span class="label">卷状态</span><span class="value">{{ vol.volumeLifecycleState }}</span></div>
                 <div class="mobile-card-row"><span class="label">挂载状态</span><span class="value">{{ vol.attachmentLifecycleState }}</span></div>
+              </div>
+            </div>
+          </template>
+          <div class="detail-section-title external-boot-title">
+            <span>外部引导卷</span>
+            <a-button size="small" @click="loadExternalBootVolumes" :loading="externalBootVolLoading">刷新</a-button>
+          </div>
+          <a-table
+            v-if="!isMobile"
+            :data-source="externalBootVolumes"
+            :columns="externalBootVolColumns"
+            size="small"
+            :pagination="false"
+            :row-key="externalBootVolumeRowKey"
+            :loading="externalBootVolLoading"
+            :scroll="{ x: 820 }"
+          >
+            <template #bodyCell="{ column, record }">
+              <template v-if="column.key === 'externalBootState'">
+                <a-tag :color="record.attached ? 'purple' : 'green'">{{ record.attachState || (record.attached ? '已挂载' : '可挂载') }}</a-tag>
+              </template>
+              <template v-else-if="column.key === 'externalBootAction'">
+                <a-space size="small">
+                  <a-button v-if="!record.attached" type="link" size="small" @click="openAttachExternalBootVolume(record)">挂载</a-button>
+                  <a-button
+                    v-else
+                    type="link"
+                    danger
+                    size="small"
+                    :loading="detachExternalBootVolId === record.bootVolumeAttachmentId"
+                    @click="openDetachExternalBootVolume(record)"
+                  >
+                    分离
+                  </a-button>
+                </a-space>
+              </template>
+            </template>
+          </a-table>
+          <template v-else>
+            <a-empty v-if="externalBootVolumes.length === 0" description="暂无外部引导卷" />
+            <div v-for="vol in externalBootVolumes" :key="externalBootVolumeRowKey(vol)" class="mobile-card">
+              <div class="mobile-card-header">
+                <span class="mobile-card-title">{{ vol.displayName }}</span>
+                <a-space size="small">
+                  <a-tag :color="vol.attached ? 'purple' : 'green'">{{ vol.attachState || (vol.attached ? '已挂载' : '可挂载') }}</a-tag>
+                  <a-button v-if="!vol.attached" type="link" size="small" @click="openAttachExternalBootVolume(vol)">挂载</a-button>
+                  <a-button v-else type="link" danger size="small" @click="openDetachExternalBootVolume(vol)">分离</a-button>
+                </a-space>
+              </div>
+              <div class="mobile-card-body">
+                <div class="mobile-card-row"><span class="label">大小</span><span class="value">{{ vol.sizeInGBs }} GB</span></div>
+                <div class="mobile-card-row"><span class="label">VPUs/GB</span><span class="value">{{ vol.vpusPerGB }}</span></div>
+                <div class="mobile-card-row"><span class="label">卷状态</span><span class="value">{{ vol.volumeLifecycleState || vol.lifecycleState }}</span></div>
+                <div class="mobile-card-row"><span class="label">挂载状态</span><span class="value">{{ vol.attachmentLifecycleState || '—' }}</span></div>
+                <div class="mobile-card-row"><span class="label">可用域</span><span class="value">{{ vol.availabilityDomain || '—' }}</span></div>
               </div>
             </div>
           </template>
@@ -1558,6 +1610,39 @@
       </a-form>
     </a-modal>
 
+    <!-- 挂载外部引导卷 -->
+    <a-modal :keyboard="false" v-model:open="attachExternalBootVisible" title="挂载外部引导卷" @ok="handleAttachExternalBootVolume"
+      :confirm-loading="attachExternalBootLoading" :mask-closable="false" :width="isMobile ? '100%' : 520">
+      <a-form layout="vertical">
+        <a-form-item label="引导卷">
+          <div class="selected-volume-box">
+            <div class="selected-volume-name">{{ attachExternalBootTarget?.displayName || '—' }}</div>
+            <div class="selected-volume-meta">
+              {{ attachExternalBootTarget?.sizeInGBs || '—' }} GB · {{ attachExternalBootTarget?.vpusPerGB ?? '—' }} VPUs/GB · {{ attachExternalBootTarget?.availabilityDomain || '—' }}
+            </div>
+          </div>
+        </a-form-item>
+      </a-form>
+    </a-modal>
+
+    <!-- 分离外部引导卷验证码 -->
+    <a-modal :mask-closable="false" :keyboard="false" v-model:open="detachExternalBootVisible" title="安全验证 — 分离外部引导卷"
+      :width="isMobile ? '100%' : 420" @ok="handleDetachExternalBootVolume" :confirm-loading="detachExternalBootLoading"
+      ok-text="确认分离" :ok-button-props="{ danger: true }">
+      <a-alert type="warning" show-icon style="margin-bottom: 16px">
+        <template #message>分离外部引导卷需要 Telegram 验证码</template>
+      </a-alert>
+      <div class="selected-volume-box" style="margin-bottom: 12px">
+        <div class="selected-volume-name">{{ detachExternalBootTarget?.displayName || '—' }}</div>
+        <div class="selected-volume-meta">{{ detachExternalBootTarget?.bootVolumeId || '' }}</div>
+      </div>
+      <a-input v-model:value="detachExternalBootCode" placeholder="请输入6位验证码" size="large" :maxlength="6" allow-clear />
+      <div style="margin-top: 12px; display: flex; justify-content: space-between; align-items: center">
+        <span style="color: var(--text-sub); font-size: 12px">验证码有效期 5 分钟</span>
+        <a-button type="link" size="small" :loading="detachExternalBootSending" @click="() => sendDetachExternalBootCode(false)">重新发送</a-button>
+      </div>
+    </a-modal>
+
     <!-- 编辑块存储卷 -->
     <a-modal :keyboard="false" v-model:open="editBlockVolVisible" title="编辑块存储卷" @ok="handleEditBlockVolume"
       :confirm-loading="editBlockVolLoading" :mask-closable="false" :width="isMobile ? '100%' : 480">
@@ -1832,6 +1917,7 @@ import {
   getBootVolumes, updateBootVolume,
   getBlockVolumes, getUnattachedBlockVolumes, createBlockVolumeAndAttach,
   attachBlockVolume, detachBlockVolume, updateBlockVolume,
+  getExternalBootVolumes, attachExternalBootVolume, detachExternalBootVolume,
   getVcns,
   getTrafficData, changeIp,
   getInstanceNetworkDetail, addIpv6, removeIpv6,
@@ -1964,14 +2050,24 @@ const secColumns = [
   { title: '操作', key: 'secAction', width: 80 },
 ]
 const blockVolColumns = [
-  { title: '类型', dataIndex: 'volumeTypeLabel', key: 'blockVolumeType', width: 96 },
-  { title: '名称', dataIndex: 'displayName', key: 'displayName', ellipsis: true, width: 180 },
+  { title: '名称', dataIndex: 'displayName', key: 'displayName', ellipsis: true, width: 220 },
   { title: '大小 (GB)', dataIndex: 'sizeInGBs', key: 'sizeInGBs', width: 90 },
   { title: 'VPUs/GB', dataIndex: 'vpusPerGB', key: 'vpusPerGB', width: 80 },
   { title: '设备路径', dataIndex: 'device', key: 'device', width: 120, ellipsis: true },
   { title: '卷状态', dataIndex: 'volumeLifecycleState', key: 'volumeLifecycleState', width: 100 },
   { title: '挂载状态', dataIndex: 'attachmentLifecycleState', key: 'attachmentLifecycleState', width: 100 },
   { title: '操作', key: 'blockVolAction', width: 120 },
+]
+
+const externalBootVolColumns = [
+  { title: '状态', dataIndex: 'attachState', key: 'externalBootState', width: 90 },
+  { title: '名称', dataIndex: 'displayName', key: 'displayName', ellipsis: true, width: 220 },
+  { title: '大小 (GB)', dataIndex: 'sizeInGBs', key: 'sizeInGBs', width: 90 },
+  { title: 'VPUs/GB', dataIndex: 'vpusPerGB', key: 'vpusPerGB', width: 80 },
+  { title: '卷状态', dataIndex: 'volumeLifecycleState', key: 'volumeLifecycleState', width: 100 },
+  { title: '挂载状态', dataIndex: 'attachmentLifecycleState', key: 'attachmentLifecycleState', width: 100 },
+  { title: '可用域', dataIndex: 'availabilityDomain', key: 'availabilityDomain', width: 170, ellipsis: true },
+  { title: '操作', key: 'externalBootAction', width: 110 },
 ]
 
 const volColumns = [
@@ -2849,6 +2945,9 @@ const editVolForm = reactive({ bootVolumeId: '', displayName: '', sizeInGBs: 50,
 const blockVolumes = ref<any[]>([])
 const blockVolLoading = ref(false)
 const detachBlockVolId = ref('')
+const externalBootVolumes = ref<any[]>([])
+const externalBootVolLoading = ref(false)
+const detachExternalBootVolId = ref('')
 
 const createBlockVolVisible = ref(false)
 const createBlockVolLoading = ref(false)
@@ -2873,6 +2972,16 @@ const attachBlockVolForm = reactive({
   device: '',
   attachmentType: 'paravirtualized' as 'paravirtualized' | 'iscsi',
 })
+
+const attachExternalBootVisible = ref(false)
+const attachExternalBootLoading = ref(false)
+const attachExternalBootTarget = ref<any>(null)
+
+const detachExternalBootVisible = ref(false)
+const detachExternalBootLoading = ref(false)
+const detachExternalBootSending = ref(false)
+const detachExternalBootTarget = ref<any>(null)
+const detachExternalBootCode = ref('')
 
 const editBlockVolVisible = ref(false)
 const editBlockVolLoading = ref(false)
@@ -3754,6 +3863,7 @@ function openDetail(tenant: any, record: any) {
   egressRules.value = []
   bootVolumes.value = []
   blockVolumes.value = []
+  externalBootVolumes.value = []
   vcns.value = []
   trafficData.value = null
   trafficDateRange.value = null
@@ -4173,21 +4283,35 @@ async function loadBlockVolumes() {
   } finally {
     blockVolLoading.value = false
   }
+  void loadExternalBootVolumes()
+}
+
+async function loadExternalBootVolumes() {
+  if (!currentInstance.value || !currentTenant.value) return
+  externalBootVolLoading.value = true
+  try {
+    const res = await getExternalBootVolumes({
+      id: currentTenant.value.id,
+      instanceId: currentInstance.value.instanceId,
+      ...instanceDetailRegionParam(),
+    })
+    externalBootVolumes.value = res.data || []
+  } catch (e: any) {
+    message.error(e?.message || '加载外部引导卷失败')
+  } finally {
+    externalBootVolLoading.value = false
+  }
 }
 
 function attachedVolumeRowKey(record: any) {
   return record?.rowKey || record?.bootVolumeAttachmentId || record?.attachmentId || record?.id
 }
 
-function isBootVolume(record: any) {
-  return record?.volumeType === 'boot' || (!!record?.bootVolumeId && !record?.volumeId)
+function externalBootVolumeRowKey(record: any) {
+  return record?.rowKey || record?.bootVolumeAttachmentId || record?.bootVolumeId || record?.id
 }
 
 function openEditAttachedVolume(record: any) {
-  if (isBootVolume(record)) {
-    openEditVolume(record)
-    return
-  }
   openEditBlockVolume(record)
 }
 
@@ -4287,6 +4411,99 @@ async function handleAttachBlockVolume() {
     message.error(e?.message || '挂载失败')
   } finally {
     attachBlockVolLoading.value = false
+  }
+}
+
+function openAttachExternalBootVolume(record: any) {
+  attachExternalBootTarget.value = record
+  attachExternalBootVisible.value = true
+}
+
+async function handleAttachExternalBootVolume() {
+  if (!currentInstance.value || !currentTenant.value || !attachExternalBootTarget.value?.bootVolumeId) return
+  attachExternalBootLoading.value = true
+  try {
+    await attachExternalBootVolume({
+      id: currentTenant.value.id,
+      instanceId: currentInstance.value.instanceId,
+      bootVolumeId: attachExternalBootTarget.value.bootVolumeId,
+      ...instanceDetailRegionParam(),
+    })
+    message.success('已提交挂载外部引导卷')
+    attachExternalBootVisible.value = false
+    loadExternalBootVolumes()
+  } catch (e: any) {
+    message.error(e?.message || '挂载外部引导卷失败')
+  } finally {
+    attachExternalBootLoading.value = false
+  }
+}
+
+function currentInstanceState() {
+  return String(currentInstance.value?.state || currentInstance.value?.lifecycleState || '').toUpperCase()
+}
+
+function openDetachExternalBootVolume(record: any) {
+  if (!currentInstance.value || !currentTenant.value) return
+  if (!record?.bootVolumeAttachmentId) {
+    message.warning('未找到引导卷附加关系')
+    return
+  }
+  if (currentInstanceState() !== 'STOPPED') {
+    Modal.confirm({
+      title: '需要先停止实例',
+      content: `实例状态为 ${currentInstance.value.state || currentInstance.value.lifecycleState || '未知'}，请先断电停止实例后再分离外部引导卷。`,
+      okText: '断电停止',
+      cancelText: '取消',
+      okButtonProps: { danger: true },
+      async onOk() {
+        await handleAction(currentTenant.value, currentInstance.value, 'STOP')
+      },
+    })
+    return
+  }
+  detachExternalBootTarget.value = record
+  detachExternalBootCode.value = ''
+  void sendDetachExternalBootCode(true)
+}
+
+async function sendDetachExternalBootCode(openAfterSend = false) {
+  detachExternalBootSending.value = true
+  try {
+    await sendVerifyCode('detachBootVolume')
+    message.success(openAfterSend ? '验证码已发送至 Telegram' : '验证码已重新发送')
+    if (openAfterSend) detachExternalBootVisible.value = true
+  } catch (e: any) {
+    message.error(e?.message || '发送验证码失败')
+  } finally {
+    detachExternalBootSending.value = false
+  }
+}
+
+async function handleDetachExternalBootVolume() {
+  if (!currentInstance.value || !currentTenant.value || !detachExternalBootTarget.value?.bootVolumeAttachmentId) return
+  if (!detachExternalBootCode.value || detachExternalBootCode.value.length !== 6) {
+    message.warning('请输入6位验证码')
+    return
+  }
+  detachExternalBootLoading.value = true
+  detachExternalBootVolId.value = detachExternalBootTarget.value.bootVolumeAttachmentId
+  try {
+    await detachExternalBootVolume({
+      id: currentTenant.value.id,
+      instanceId: currentInstance.value.instanceId,
+      bootVolumeAttachmentId: detachExternalBootTarget.value.bootVolumeAttachmentId,
+      verifyCode: detachExternalBootCode.value,
+      ...instanceDetailRegionParam(),
+    })
+    message.success('已提交分离外部引导卷')
+    detachExternalBootVisible.value = false
+    loadExternalBootVolumes()
+  } catch (e: any) {
+    message.error(e?.message || '分离外部引导卷失败')
+  } finally {
+    detachExternalBootLoading.value = false
+    detachExternalBootVolId.value = ''
   }
 }
 
@@ -5536,6 +5753,41 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 10px;
+}
+.detail-section-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 12px 0 8px;
+  color: var(--text-main);
+  font-size: 13px;
+  font-weight: 700;
+}
+.external-boot-title {
+  margin-top: 18px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+.selected-volume-box {
+  min-width: 0;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-sidebar);
+}
+.selected-volume-name {
+  color: var(--text-main);
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.selected-volume-meta {
+  margin-top: 4px;
+  color: var(--text-sub);
+  font-size: 12px;
+  overflow-wrap: anywhere;
 }
 .mobile-card {
   background: var(--bg-sidebar);

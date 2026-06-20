@@ -118,6 +118,12 @@ public class InstanceController {
                 params.get("id"), params.get("instanceId"), regStr(params)));
     }
 
+    @PostMapping("/externalBootVolumes")
+    public ResponseData<?> externalBootVolumes(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(instanceService.listExternalBootVolumesForInstance(
+                params.get("id"), params.get("instanceId"), regStr(params)));
+    }
+
     @PostMapping("/unattachedBlockVolumes")
     public ResponseData<?> unattachedBlockVolumes(@RequestBody Map<String, String> params) {
         return ResponseData.ok(instanceService.listUnattachedBlockVolumesForInstance(
@@ -148,11 +154,32 @@ public class InstanceController {
                 regObj(params)));
     }
 
+    @PostMapping("/attachExternalBootVolume")
+    public ResponseData<?> attachExternalBootVolume(@RequestBody Map<String, Object> params) {
+        return ResponseData.ok(instanceService.attachExternalBootVolume(
+                asString(params.get("id")),
+                asString(params.get("instanceId")),
+                asString(params.get("bootVolumeId")),
+                asString(params.get("attachmentType")),
+                regObj(params)));
+    }
+
     @PostMapping("/detachBlockVolume")
     public ResponseData<?> detachBlockVolume(@RequestBody Map<String, Object> params) {
         instanceService.detachBlockVolume(
                 asString(params.get("id")),
                 asString(params.get("volumeAttachmentId")),
+                regObj(params));
+        return ResponseData.ok();
+    }
+
+    @PostMapping("/detachExternalBootVolume")
+    public ResponseData<?> detachExternalBootVolume(@RequestBody Map<String, Object> params) {
+        verifyCodeService.verifyCode("detachBootVolume", asString(params.get("verifyCode")));
+        instanceService.detachExternalBootVolume(
+                asString(params.get("id")),
+                asString(params.get("instanceId")),
+                asString(params.get("bootVolumeAttachmentId")),
                 regObj(params));
         return ResponseData.ok();
     }

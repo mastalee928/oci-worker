@@ -108,6 +108,10 @@ export function getBlockVolumes(data: { id: string; instanceId: string } & R) {
   return request.post('/oci/instance/blockVolumes', data)
 }
 
+export function getExternalBootVolumes(data: { id: string; instanceId: string } & R) {
+  return request.post('/oci/instance/externalBootVolumes', data)
+}
+
 export function getUnattachedBlockVolumes(data: { id: string; instanceId: string } & R) {
   return request.post('/oci/instance/unattachedBlockVolumes', data)
 }
@@ -134,8 +138,21 @@ export function attachBlockVolume(data: {
   return request.post('/oci/instance/attachBlockVolume', data)
 }
 
+export function attachExternalBootVolume(data: {
+  id: string
+  instanceId: string
+  bootVolumeId: string
+  attachmentType?: BlockVolumeAttachmentType
+} & R) {
+  return request.post('/oci/instance/attachExternalBootVolume', data)
+}
+
 export function detachBlockVolume(data: { id: string; volumeAttachmentId: string } & R) {
   return request.post('/oci/instance/detachBlockVolume', data)
+}
+
+export function detachExternalBootVolume(data: { id: string; instanceId: string; bootVolumeAttachmentId: string; verifyCode: string } & R) {
+  return request.post('/oci/instance/detachExternalBootVolume', data)
 }
 
 export function updateBlockVolume(data: Record<string, unknown> & R) {

@@ -150,20 +150,23 @@ public class InstanceService {
                     GetInstanceRequest.builder().instanceId(instanceId).build()
             ).getInstance();
 
-            List<BootVolumeAttachment> attachments = listActiveBootVolumeAttachmentsForInstance(client, instance);
-
-            List<Map<String, Object>> result = new ArrayList<>();
-            for (BootVolumeAttachment att : attachments) {
-                try {
-                    BootVolume vol = client.getBlockstorageClient().getBootVolume(
-                            GetBootVolumeRequest.builder().bootVolumeId(att.getBootVolumeId()).build()
-                    ).getBootVolume();
-                    result.add(bootVolumeRow(att, vol));
-                } catch (Exception e) {
-                    log.warn("Failed to get boot volume {}: {}", att.getBootVolumeId(), e.getMessage());
-                }
+            BootVolumeAttachment rootAttachment = resolveRootBootVolumeAttachment(
+                    listActiveBootVolumeAttachmentsForInstance(client, instance));
+            if (rootAttachment == null || rootAttachment.getBootVolumeId() == null) {
+                return List.of();
             }
-            return result;
+            try {
+                BootVolume vol = client.getBlockstorageClient().getBootVolume(
+                        GetBootVolumeRequest.builder().bootVolumeId(rootAttachment.getBootVolumeId()).build()
+                ).getBootVolume();
+                Map<String, Object> row = bootVolumeRow(rootAttachment, vol);
+                row.put("attachmentRole", "system");
+                row.put("isRootBootVolume", true);
+                return List.of(row);
+            } catch (Exception e) {
+                log.warn("Failed to get boot volume {}: {}", rootAttachment.getBootVolumeId(), e.getMessage());
+                return List.of();
+            }
         } catch (Exception e) {
             throw new OciException(tag(ociUser) + "获取引导卷列表失败: " + e.getMessage());
         }
@@ -977,7 +980,7 @@ public class InstanceService {
     }
 
     /**
-     * 当前实例已挂载的卷：引导卷来自 ListBootVolumeAttachments，普通块卷来自 ListVolumeAttachments。
+     * 当前实例已挂载的普通块存储卷。引导卷在「引导卷」和「外部引导卷」里单独展示。
      */
     public List<Map<String, Object>> listBlockVolumesByInstance(String userId, String instanceId, String region) {
         OciUser ociUser = userMapper.selectById(userId);
@@ -990,19 +993,6 @@ public class InstanceService {
             String ad = instance.getAvailabilityDomain();
 
             List<Map<String, Object>> result = new ArrayList<>();
-
-            for (BootVolumeAttachment att : listActiveBootVolumeAttachmentsForInstance(client, instance)) {
-                String bootVolumeId = att.getBootVolumeId();
-                if (bootVolumeId == null) continue;
-                try {
-                    BootVolume vol = client.getBlockstorageClient().getBootVolume(
-                            GetBootVolumeRequest.builder().bootVolumeId(bootVolumeId).build()
-                    ).getBootVolume();
-                    result.add(bootVolumeRow(att, vol));
-                } catch (Exception e) {
-                    log.warn("Failed to get boot volume {}: {}", bootVolumeId, e.getMessage());
-                }
-            }
 
             List<VolumeAttachment> attachments = listActiveVolumeAttachments(client, compartmentId, ad, instanceId);
             for (VolumeAttachment att : attachments) {
@@ -1022,6 +1012,96 @@ public class InstanceService {
             throw e;
         } catch (Exception e) {
             throw new OciException(tag(ociUser) + "获取块存储卷列表失败: " + e.getMessage());
+        }
+    }
+
+    /**
+     * 当前实例块存储页的外部引导卷：
+     * 1. 已挂载到当前实例、但不是系统盘的引导卷；
+     * 2. 同 AD、AVAILABLE、未挂载的引导卷（可作为救援盘挂到当前实例）。
+     */
+    public List<Map<String, Object>> listExternalBootVolumesForInstance(String userId, String instanceId, String region) {
+        OciUser ociUser = userMapper.selectById(userId);
+        if (ociUser == null) throw new OciException("租户配置不存在");
+        if (instanceId == null || instanceId.isBlank()) throw new OciException("instanceId 不能为空");
+
+        try (OciClientService client = oci(ociUser, region)) {
+            Instance instance = getInstanceOrThrow(client, instanceId);
+            String ad = instance.getAvailabilityDomain();
+            List<BootVolumeAttachment> currentAttachments = listActiveBootVolumeAttachmentsForInstance(client, instance);
+            BootVolumeAttachment rootAttachment = resolveRootBootVolumeAttachment(currentAttachments);
+            String rootBootVolumeId = rootAttachment != null ? rootAttachment.getBootVolumeId() : null;
+
+            List<Map<String, Object>> result = new ArrayList<>();
+            Set<String> seen = new LinkedHashSet<>();
+            for (BootVolumeAttachment att : currentAttachments) {
+                String bootVolumeId = att.getBootVolumeId();
+                if (bootVolumeId == null || Objects.equals(bootVolumeId, rootBootVolumeId) || !seen.add(bootVolumeId)) {
+                    continue;
+                }
+                try {
+                    BootVolume vol = client.getBlockstorageClient().getBootVolume(
+                            GetBootVolumeRequest.builder().bootVolumeId(bootVolumeId).build()
+                    ).getBootVolume();
+                    result.add(externalBootVolumeRow(att, vol, instance));
+                } catch (Exception e) {
+                    log.warn("Failed to get attached external boot volume {}: {}", bootVolumeId, e.getMessage());
+                }
+            }
+
+            Set<String> attachedBootVolumeIds = new HashSet<>();
+            Set<String> compartmentIds = searchableCompartmentIds(client, instance.getCompartmentId());
+            for (String compartmentId : compartmentIds) {
+                try {
+                    for (BootVolumeAttachment att : listActiveBootVolumeAttachments(client, compartmentId, ad, null)) {
+                        if (att.getBootVolumeId() != null) {
+                            attachedBootVolumeIds.add(att.getBootVolumeId());
+                        }
+                    }
+                } catch (Exception e) {
+                    log.debug("Failed to list boot volume attachments in compartment {}: {}", compartmentId, e.getMessage());
+                }
+            }
+
+            for (String compartmentId : compartmentIds) {
+                String page = null;
+                do {
+                    try {
+                        var resp = client.getBlockstorageClient().listBootVolumes(
+                                ListBootVolumesRequest.builder()
+                                        .compartmentId(compartmentId)
+                                        .availabilityDomain(ad)
+                                        .page(page)
+                                        .build());
+                        for (BootVolume vol : resp.getItems()) {
+                            if (vol.getLifecycleState() != BootVolume.LifecycleState.Available) {
+                                continue;
+                            }
+                            String bootVolumeId = vol.getId();
+                            if (bootVolumeId == null
+                                    || Objects.equals(bootVolumeId, rootBootVolumeId)
+                                    || attachedBootVolumeIds.contains(bootVolumeId)
+                                    || !seen.add(bootVolumeId)) {
+                                continue;
+                            }
+                            result.add(externalBootVolumeRow(null, vol, null));
+                        }
+                        page = resp.getOpcNextPage();
+                    } catch (Exception e) {
+                        log.debug("Failed to list available boot volumes in compartment {}: {}", compartmentId, e.getMessage());
+                        page = null;
+                    }
+                } while (page != null);
+            }
+
+            result.sort(Comparator
+                    .comparing((Map<String, Object> m) -> Boolean.TRUE.equals(m.get("attached")) ? 0 : 1)
+                    .thenComparing(m -> Objects.toString(m.get("displayName"), "")));
+            return result;
+        } catch (OciException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new OciException(tag(ociUser) + "获取外部引导卷失败: " + e.getMessage());
         }
     }
 
@@ -1157,6 +1237,40 @@ public class InstanceService {
         }
     }
 
+    public Map<String, Object> attachExternalBootVolume(String userId, String instanceId, String bootVolumeId,
+                                                       String attachmentType, String region) {
+        OciUser ociUser = userMapper.selectById(userId);
+        if (ociUser == null) throw new OciException("租户配置不存在");
+        if (instanceId == null || instanceId.isBlank()) throw new OciException("instanceId 不能为空");
+        if (bootVolumeId == null || bootVolumeId.isBlank()) throw new OciException("bootVolumeId 不能为空");
+
+        try (OciClientService client = oci(ociUser, region)) {
+            Instance instance = getInstanceOrThrow(client, instanceId);
+            BootVolume bootVolume = client.getBlockstorageClient().getBootVolume(
+                    GetBootVolumeRequest.builder().bootVolumeId(bootVolumeId).build()
+            ).getBootVolume();
+            if (!Objects.equals(bootVolume.getAvailabilityDomain(), instance.getAvailabilityDomain())) {
+                throw new OciException("引导卷与实例须在同一可用域 (Availability Domain)");
+            }
+            if (bootVolume.getLifecycleState() != BootVolume.LifecycleState.Available) {
+                throw new OciException("引导卷须为 AVAILABLE 状态方可挂载，当前: "
+                        + (bootVolume.getLifecycleState() != null ? bootVolume.getLifecycleState().getValue() : "unknown"));
+            }
+
+            if (attachmentType != null && !attachmentType.isBlank()) {
+                log.debug("OCI Java SDK AttachBootVolumeDetails does not expose attachmentType; using API default");
+            }
+            BootVolumeAttachment attachment = attachBootVolumeToInstance(client, instanceId, bootVolumeId);
+            Map<String, Object> row = externalBootVolumeRow(attachment, bootVolume, instance);
+            row.put("message", "已提交挂载外部引导卷");
+            return row;
+        } catch (OciException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new OciException(tag(ociUser) + "挂载外部引导卷失败: " + e.getMessage());
+        }
+    }
+
     public void detachBlockVolume(String userId, String volumeAttachmentId, String region) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
@@ -1172,6 +1286,47 @@ public class InstanceService {
             log.info("Block volume detached: attachment {}", volumeAttachmentId);
         } catch (Exception e) {
             throw new OciException(tag(ociUser) + "卸载块存储卷失败: " + e.getMessage());
+        }
+    }
+
+    public void detachExternalBootVolume(String userId, String instanceId, String bootVolumeAttachmentId, String region) {
+        OciUser ociUser = userMapper.selectById(userId);
+        if (ociUser == null) throw new OciException("租户配置不存在");
+        if (instanceId == null || instanceId.isBlank()) throw new OciException("instanceId 不能为空");
+        if (bootVolumeAttachmentId == null || bootVolumeAttachmentId.isBlank()) {
+            throw new OciException("bootVolumeAttachmentId 不能为空");
+        }
+
+        try (OciClientService client = oci(ociUser, region)) {
+            Instance instance = getInstanceOrThrow(client, instanceId);
+            if (instance.getLifecycleState() != Instance.LifecycleState.Stopped) {
+                throw new OciException("分离引导卷前必须先停止实例，当前实例状态: "
+                        + (instance.getLifecycleState() != null ? instance.getLifecycleState().getValue() : "unknown"));
+            }
+            BootVolumeAttachment attachment = client.getComputeClient().getBootVolumeAttachment(
+                    GetBootVolumeAttachmentRequest.builder()
+                            .bootVolumeAttachmentId(bootVolumeAttachmentId)
+                            .build()
+            ).getBootVolumeAttachment();
+            if (!Objects.equals(instanceId, attachment.getInstanceId())) {
+                throw new OciException("该引导卷未挂载在当前实例，不能在此处分离");
+            }
+            BootVolumeAttachment rootAttachment = resolveRootBootVolumeAttachment(
+                    listActiveBootVolumeAttachmentsForInstance(client, instance));
+            if (rootAttachment != null
+                    && (Objects.equals(rootAttachment.getId(), bootVolumeAttachmentId)
+                    || Objects.equals(rootAttachment.getBootVolumeId(), attachment.getBootVolumeId()))) {
+                throw new OciException("本机系统引导卷不能在块存储中分离");
+            }
+            client.getComputeClient().detachBootVolume(
+                    DetachBootVolumeRequest.builder()
+                            .bootVolumeAttachmentId(bootVolumeAttachmentId)
+                            .build());
+            log.info("External boot volume detached: attachment {}", bootVolumeAttachmentId);
+        } catch (OciException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new OciException(tag(ociUser) + "分离外部引导卷失败: " + e.getMessage());
         }
     }
 
@@ -1213,6 +1368,39 @@ public class InstanceService {
         return client.getComputeClient().getInstance(
                 GetInstanceRequest.builder().instanceId(instanceId).build()
         ).getInstance();
+    }
+
+    private static BootVolumeAttachment resolveRootBootVolumeAttachment(List<BootVolumeAttachment> attachments) {
+        if (attachments == null || attachments.isEmpty()) {
+            return null;
+        }
+        return attachments.stream()
+                .filter(a -> a.getBootVolumeId() != null)
+                .min(Comparator.comparing(
+                        BootVolumeAttachment::getTimeCreated,
+                        Comparator.nullsLast(Comparator.naturalOrder())))
+                .orElse(null);
+    }
+
+    private Set<String> searchableCompartmentIds(OciClientService client, String primaryCompartmentId) {
+        Set<String> compartmentIds = new LinkedHashSet<>();
+        if (primaryCompartmentId != null && !primaryCompartmentId.isBlank()) {
+            compartmentIds.add(primaryCompartmentId);
+        }
+        try {
+            String tenantId = client.getProvider() != null ? client.getProvider().getTenantId() : null;
+            if (tenantId != null && !tenantId.isBlank()) {
+                compartmentIds.add(tenantId);
+            }
+            for (Compartment compartment : client.listAllCompartments()) {
+                if (compartment.getId() != null && !compartment.getId().isBlank()) {
+                    compartmentIds.add(compartment.getId());
+                }
+            }
+        } catch (Exception e) {
+            log.debug("Failed to list compartments while resolving boot volumes: {}", e.getMessage());
+        }
+        return compartmentIds;
     }
 
     private List<BootVolumeAttachment> listActiveBootVolumeAttachmentsForInstance(OciClientService client, Instance instance) {
@@ -1308,6 +1496,19 @@ public class InstanceService {
         ).getVolumeAttachment();
     }
 
+    private BootVolumeAttachment attachBootVolumeToInstance(OciClientService client, String instanceId,
+                                                            String bootVolumeId) {
+        AttachBootVolumeDetails details = AttachBootVolumeDetails.builder()
+                .instanceId(instanceId)
+                .bootVolumeId(bootVolumeId)
+                .build();
+        return client.getComputeClient().attachBootVolume(
+                AttachBootVolumeRequest.builder()
+                        .attachBootVolumeDetails(details)
+                        .build()
+        ).getBootVolumeAttachment();
+    }
+
     private static AttachVolumeDetails buildAttachVolumeDetails(String instanceId, String volumeId,
                                                                 String device, String attachmentType) {
         String devicePath = (device != null && !device.isBlank()) ? device.trim() : null;
@@ -1394,6 +1595,38 @@ public class InstanceService {
         map.put("isHydrated", vol.getIsHydrated());
         map.put("encryptionInTransitType", enumValue(att.getEncryptionInTransitType()));
         map.put("isPvEncryptionInTransitEnabled", att.getIsPvEncryptionInTransitEnabled());
+        return map;
+    }
+
+    private static Map<String, Object> externalBootVolumeRow(BootVolumeAttachment att, BootVolume vol, Instance instance) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        boolean attached = att != null;
+        map.put("rowKey", attached ? "externalBoot:attached:" + att.getId() : "externalBoot:available:" + vol.getId());
+        map.put("id", vol.getId());
+        map.put("volumeType", "externalBoot");
+        map.put("volumeTypeLabel", "外部引导卷");
+        map.put("bootVolumeId", vol.getId());
+        map.put("bootVolumeAttachmentId", attached ? att.getId() : null);
+        map.put("displayName", vol.getDisplayName() != null ? vol.getDisplayName() : (attached ? att.getDisplayName() : null));
+        map.put("sizeInGBs", vol.getSizeInGBs());
+        map.put("vpusPerGB", vol.getVpusPerGB());
+        map.put("attached", attached);
+        map.put("attachState", attached ? "已挂载" : "可挂载");
+        map.put("volumeLifecycleState", vol.getLifecycleState() != null ? vol.getLifecycleState().getValue() : null);
+        map.put("attachmentLifecycleState", attached && att.getLifecycleState() != null ? att.getLifecycleState().getValue() : null);
+        map.put("lifecycleState", vol.getLifecycleState() != null ? vol.getLifecycleState().getValue() : null);
+        map.put("timeCreated", vol.getTimeCreated() != null ? vol.getTimeCreated().toString() : null);
+        map.put("attachmentTimeCreated", attached && att.getTimeCreated() != null ? att.getTimeCreated().toString() : null);
+        map.put("attachmentTimeUpdated", attached && att.getTimeUpdated() != null ? att.getTimeUpdated().toString() : null);
+        map.put("availabilityDomain", vol.getAvailabilityDomain() != null ? vol.getAvailabilityDomain() : (attached ? att.getAvailabilityDomain() : null));
+        map.put("compartmentId", vol.getCompartmentId());
+        map.put("imageId", vol.getImageId());
+        map.put("isHydrated", vol.getIsHydrated());
+        map.put("instanceId", attached ? att.getInstanceId() : null);
+        map.put("instanceName", instance != null ? instance.getDisplayName() : null);
+        map.put("instanceState", instance != null && instance.getLifecycleState() != null ? instance.getLifecycleState().getValue() : null);
+        map.put("encryptionInTransitType", attached ? enumValue(att.getEncryptionInTransitType()) : null);
+        map.put("isPvEncryptionInTransitEnabled", attached ? att.getIsPvEncryptionInTransitEnabled() : null);
         return map;
     }
 
