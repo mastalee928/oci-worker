@@ -3,7 +3,7 @@
     :open="open"
     @update:open="(v: boolean) => emit('update:open', v)"
     :title="`存储 — ${tenantName || ''}`"
-    width="1280"
+    :width="isMobile ? '100%' : 960"
     destroy-on-close
   >
     <div style="margin-bottom: 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap">
