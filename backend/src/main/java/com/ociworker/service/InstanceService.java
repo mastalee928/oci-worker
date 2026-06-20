@@ -2,6 +2,7 @@ package com.ociworker.service;
 
 import com.oracle.bmc.core.model.*;
 import com.oracle.bmc.core.requests.*;
+import com.oracle.bmc.identity.model.Compartment;
 import com.ociworker.exception.OciException;
 import com.ociworker.util.ShapeFlexLimitsUtil;
 import com.ociworker.mapper.OciUserMapper;
@@ -149,13 +150,7 @@ public class InstanceService {
                     GetInstanceRequest.builder().instanceId(instanceId).build()
             ).getInstance();
 
-            List<BootVolumeAttachment> attachments = client.getComputeClient().listBootVolumeAttachments(
-                    ListBootVolumeAttachmentsRequest.builder()
-                            .compartmentId(client.getCompartmentId())
-                            .instanceId(instanceId)
-                            .availabilityDomain(instance.getAvailabilityDomain())
-                            .build()
-            ).getItems();
+            List<BootVolumeAttachment> attachments = listActiveBootVolumeAttachmentsForInstance(client, instance);
 
             List<Map<String, Object>> result = new ArrayList<>();
             for (BootVolumeAttachment att : attachments) {
@@ -163,14 +158,7 @@ public class InstanceService {
                     BootVolume vol = client.getBlockstorageClient().getBootVolume(
                             GetBootVolumeRequest.builder().bootVolumeId(att.getBootVolumeId()).build()
                     ).getBootVolume();
-                    Map<String, Object> map = new LinkedHashMap<>();
-                    map.put("id", vol.getId());
-                    map.put("displayName", vol.getDisplayName());
-                    map.put("sizeInGBs", vol.getSizeInGBs());
-                    map.put("vpusPerGB", vol.getVpusPerGB());
-                    map.put("lifecycleState", vol.getLifecycleState().getValue());
-                    map.put("timeCreated", vol.getTimeCreated() != null ? vol.getTimeCreated().toString() : null);
-                    result.add(map);
+                    result.add(bootVolumeRow(att, vol));
                 } catch (Exception e) {
                     log.warn("Failed to get boot volume {}: {}", att.getBootVolumeId(), e.getMessage());
                 }
@@ -989,7 +977,7 @@ public class InstanceService {
     }
 
     /**
-     * 当前实例已挂载的块存储卷（ListVolumeAttachments + GetVolume，见 OCI Compute Block Storage API）。
+     * 当前实例已挂载的卷：引导卷来自 ListBootVolumeAttachments，普通块卷来自 ListVolumeAttachments。
      */
     public List<Map<String, Object>> listBlockVolumesByInstance(String userId, String instanceId, String region) {
         OciUser ociUser = userMapper.selectById(userId);
@@ -1001,8 +989,22 @@ public class InstanceService {
             String compartmentId = instance.getCompartmentId();
             String ad = instance.getAvailabilityDomain();
 
-            List<VolumeAttachment> attachments = listActiveVolumeAttachments(client, compartmentId, ad, instanceId);
             List<Map<String, Object>> result = new ArrayList<>();
+
+            for (BootVolumeAttachment att : listActiveBootVolumeAttachmentsForInstance(client, instance)) {
+                String bootVolumeId = att.getBootVolumeId();
+                if (bootVolumeId == null) continue;
+                try {
+                    BootVolume vol = client.getBlockstorageClient().getBootVolume(
+                            GetBootVolumeRequest.builder().bootVolumeId(bootVolumeId).build()
+                    ).getBootVolume();
+                    result.add(bootVolumeRow(att, vol));
+                } catch (Exception e) {
+                    log.warn("Failed to get boot volume {}: {}", bootVolumeId, e.getMessage());
+                }
+            }
+
+            List<VolumeAttachment> attachments = listActiveVolumeAttachments(client, compartmentId, ad, instanceId);
             for (VolumeAttachment att : attachments) {
                 String volumeId = att.getVolumeId();
                 if (volumeId == null) continue;
@@ -1213,6 +1215,67 @@ public class InstanceService {
         ).getInstance();
     }
 
+    private List<BootVolumeAttachment> listActiveBootVolumeAttachmentsForInstance(OciClientService client, Instance instance) {
+        Map<String, BootVolumeAttachment> byId = new LinkedHashMap<>();
+        String instanceId = instance.getId();
+        String availabilityDomain = instance.getAvailabilityDomain();
+        String primaryCompartmentId = instance.getCompartmentId();
+
+        for (BootVolumeAttachment attachment : listActiveBootVolumeAttachments(client, primaryCompartmentId, availabilityDomain, instanceId)) {
+            byId.put(attachment.getId(), attachment);
+        }
+
+        Set<String> scanned = new LinkedHashSet<>();
+        scanned.add(primaryCompartmentId);
+        try {
+            String tenantId = client.getProvider() != null ? client.getProvider().getTenantId() : null;
+            if (tenantId != null && !tenantId.isBlank()) {
+                scanned.add(tenantId);
+            }
+            for (Compartment compartment : client.listAllCompartments()) {
+                if (compartment.getId() != null && !compartment.getId().isBlank()) {
+                    scanned.add(compartment.getId());
+                }
+            }
+        } catch (Exception e) {
+            log.debug("Failed to list compartments while resolving boot volume attachments: {}", e.getMessage());
+        }
+
+        for (String compartmentId : scanned) {
+            if (Objects.equals(compartmentId, primaryCompartmentId)) continue;
+            try {
+                for (BootVolumeAttachment attachment : listActiveBootVolumeAttachments(client, compartmentId, availabilityDomain, instanceId)) {
+                    byId.put(attachment.getId(), attachment);
+                }
+            } catch (Exception e) {
+                log.debug("Failed to list boot volume attachments in compartment {}: {}", compartmentId, e.getMessage());
+            }
+        }
+        return new ArrayList<>(byId.values());
+    }
+
+    private List<BootVolumeAttachment> listActiveBootVolumeAttachments(OciClientService client, String compartmentId,
+                                                                       String availabilityDomain, String instanceId) {
+        List<BootVolumeAttachment> all = new ArrayList<>();
+        String page = null;
+        do {
+            var b = ListBootVolumeAttachmentsRequest.builder()
+                    .compartmentId(compartmentId)
+                    .availabilityDomain(availabilityDomain);
+            if (instanceId != null && !instanceId.isBlank()) {
+                b.instanceId(instanceId);
+            }
+            var resp = client.getComputeClient().listBootVolumeAttachments(b.page(page).build());
+            for (BootVolumeAttachment a : resp.getItems()) {
+                if (a.getLifecycleState() != BootVolumeAttachment.LifecycleState.Detached) {
+                    all.add(a);
+                }
+            }
+            page = resp.getOpcNextPage();
+        } while (page != null);
+        return all;
+    }
+
     private List<VolumeAttachment> listActiveVolumeAttachments(OciClientService client, String compartmentId,
                                                                String availabilityDomain, String instanceId) {
         List<VolumeAttachment> all = new ArrayList<>();
@@ -1282,6 +1345,16 @@ public class InstanceService {
         };
     }
 
+    private static String enumValue(Object value) {
+        if (value == null) return null;
+        try {
+            Object v = value.getClass().getMethod("getValue").invoke(value);
+            return v == null ? null : String.valueOf(v);
+        } catch (Exception ignored) {
+            return String.valueOf(value);
+        }
+    }
+
     private Volume waitVolumeUntilAvailable(OciClientService client, String volumeId) throws InterruptedException {
         for (int i = 0; i < 120; i++) {
             Volume v = client.getBlockstorageClient().getVolume(
@@ -1299,8 +1372,36 @@ public class InstanceService {
         throw new OciException("等待块存储卷进入 AVAILABLE 状态超时（最长 120 秒）");
     }
 
+    private static Map<String, Object> bootVolumeRow(BootVolumeAttachment att, BootVolume vol) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("rowKey", "boot:" + att.getId());
+        map.put("id", vol.getId());
+        map.put("volumeType", "boot");
+        map.put("volumeTypeLabel", "引导卷");
+        map.put("bootVolumeAttachmentId", att.getId());
+        map.put("bootVolumeId", vol.getId());
+        map.put("displayName", vol.getDisplayName() != null ? vol.getDisplayName() : att.getDisplayName());
+        map.put("sizeInGBs", vol.getSizeInGBs());
+        map.put("vpusPerGB", vol.getVpusPerGB());
+        map.put("device", null);
+        map.put("volumeLifecycleState", vol.getLifecycleState() != null ? vol.getLifecycleState().getValue() : null);
+        map.put("attachmentLifecycleState", att.getLifecycleState() != null ? att.getLifecycleState().getValue() : null);
+        map.put("lifecycleState", vol.getLifecycleState() != null ? vol.getLifecycleState().getValue() : null);
+        map.put("timeCreated", vol.getTimeCreated() != null ? vol.getTimeCreated().toString() : null);
+        map.put("attachmentTimeCreated", att.getTimeCreated() != null ? att.getTimeCreated().toString() : null);
+        map.put("attachmentTimeUpdated", att.getTimeUpdated() != null ? att.getTimeUpdated().toString() : null);
+        map.put("availabilityDomain", vol.getAvailabilityDomain() != null ? vol.getAvailabilityDomain() : att.getAvailabilityDomain());
+        map.put("isHydrated", vol.getIsHydrated());
+        map.put("encryptionInTransitType", enumValue(att.getEncryptionInTransitType()));
+        map.put("isPvEncryptionInTransitEnabled", att.getIsPvEncryptionInTransitEnabled());
+        return map;
+    }
+
     private static Map<String, Object> blockVolumeRow(VolumeAttachment att, Volume vol) {
         Map<String, Object> map = new LinkedHashMap<>();
+        map.put("rowKey", "block:" + att.getId());
+        map.put("volumeType", "block");
+        map.put("volumeTypeLabel", "块存储卷");
         map.put("attachmentId", att.getId());
         map.put("volumeId", vol.getId());
         map.put("displayName", vol.getDisplayName());

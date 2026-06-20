@@ -772,19 +772,34 @@
 
         <a-tab-pane key="blockVolume" tab="块存储">
           <div style="margin-bottom: 12px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center">
-            <a-button @click="loadBlockVolumes" :loading="blockVolLoading">加载块存储</a-button>
+            <a-button @click="loadBlockVolumes" :loading="blockVolLoading">加载已挂载卷</a-button>
             <a-button type="primary" @click="openCreateBlockVolume" :disabled="!currentInstance">创建并挂载</a-button>
             <a-button @click="openAttachBlockVolume" :disabled="!currentInstance">挂载已有卷</a-button>
           </div>
           <div v-if="currentInstance" style="font-size: 12px; color: var(--text-sub); margin-bottom: 10px">
             可用域：{{ currentInstance.availabilityDomain || '—' }} · 区间：{{ currentInstance.compartmentName || currentInstance.compartmentId || '—' }}
           </div>
-          <a-table v-if="!isMobile" :data-source="blockVolumes" :columns="blockVolColumns" size="small" :pagination="false" row-key="attachmentId">
+          <a-table
+            v-if="!isMobile"
+            :data-source="blockVolumes"
+            :columns="blockVolColumns"
+            size="small"
+            :pagination="false"
+            :row-key="attachedVolumeRowKey"
+            :scroll="{ x: 860 }"
+          >
             <template #bodyCell="{ column, record }">
-              <template v-if="column.key === 'blockVolAction'">
+              <template v-if="column.key === 'blockVolumeType'">
+                <a-tag :color="isBootVolume(record) ? 'purple' : 'blue'">{{ record.volumeTypeLabel || '块存储卷' }}</a-tag>
+              </template>
+              <template v-else-if="column.key === 'blockVolAction'">
                 <a-space size="small">
-                  <a-button type="link" size="small" @click="openEditBlockVolume(record)">编辑</a-button>
-                  <a-popconfirm title="确定卸载该块存储卷？卷不会被删除，可在「存储」中再次挂载。" @confirm="handleDetachBlockVolume(record)">
+                  <a-button type="link" size="small" @click="openEditAttachedVolume(record)">编辑</a-button>
+                  <a-popconfirm
+                    v-if="!isBootVolume(record)"
+                    title="确定卸载该块存储卷？卷不会被删除，可在「存储」中再次挂载。"
+                    @confirm="handleDetachBlockVolume(record)"
+                  >
                     <a-button type="link" danger size="small" :loading="detachBlockVolId === record.attachmentId">卸载</a-button>
                   </a-popconfirm>
                 </a-space>
@@ -792,18 +807,19 @@
             </template>
           </a-table>
           <template v-else>
-            <a-empty v-if="blockVolumes.length === 0" description="暂无已挂载块存储卷" />
-            <div v-for="vol in blockVolumes" :key="vol.attachmentId" class="mobile-card">
+            <a-empty v-if="blockVolumes.length === 0" description="暂无已挂载卷" />
+            <div v-for="vol in blockVolumes" :key="attachedVolumeRowKey(vol)" class="mobile-card">
               <div class="mobile-card-header">
                 <span class="mobile-card-title">{{ vol.displayName }}</span>
                 <a-space size="small">
-                  <a-button type="link" size="small" @click="openEditBlockVolume(vol)">编辑</a-button>
-                  <a-popconfirm title="确定卸载？" @confirm="handleDetachBlockVolume(vol)">
+                  <a-button type="link" size="small" @click="openEditAttachedVolume(vol)">编辑</a-button>
+                  <a-popconfirm v-if="!isBootVolume(vol)" title="确定卸载？" @confirm="handleDetachBlockVolume(vol)">
                     <a-button type="link" danger size="small">卸载</a-button>
                   </a-popconfirm>
                 </a-space>
               </div>
               <div class="mobile-card-body">
+                <div class="mobile-card-row"><span class="label">类型</span><span class="value">{{ vol.volumeTypeLabel || '块存储卷' }}</span></div>
                 <div class="mobile-card-row"><span class="label">大小</span><span class="value">{{ vol.sizeInGBs }} GB</span></div>
                 <div class="mobile-card-row"><span class="label">VPUs/GB</span><span class="value">{{ vol.vpusPerGB }}</span></div>
                 <div class="mobile-card-row"><span class="label">设备</span><span class="value">{{ vol.device || '—' }}</span></div>
@@ -1903,7 +1919,8 @@ const secColumns = [
   { title: '操作', key: 'secAction', width: 80 },
 ]
 const blockVolColumns = [
-  { title: '名称', dataIndex: 'displayName', key: 'displayName', ellipsis: true },
+  { title: '类型', dataIndex: 'volumeTypeLabel', key: 'blockVolumeType', width: 96 },
+  { title: '名称', dataIndex: 'displayName', key: 'displayName', ellipsis: true, width: 180 },
   { title: '大小 (GB)', dataIndex: 'sizeInGBs', key: 'sizeInGBs', width: 90 },
   { title: 'VPUs/GB', dataIndex: 'vpusPerGB', key: 'vpusPerGB', width: 80 },
   { title: '设备路径', dataIndex: 'device', key: 'device', width: 120, ellipsis: true },
@@ -3766,10 +3783,26 @@ async function loadBlockVolumes() {
     })
     blockVolumes.value = res.data || []
   } catch (e: any) {
-    message.error(e?.message || '加载块存储失败')
+    message.error(e?.message || '加载已挂载卷失败')
   } finally {
     blockVolLoading.value = false
   }
+}
+
+function attachedVolumeRowKey(record: any) {
+  return record?.rowKey || record?.bootVolumeAttachmentId || record?.attachmentId || record?.id
+}
+
+function isBootVolume(record: any) {
+  return record?.volumeType === 'boot' || (!!record?.bootVolumeId && !record?.volumeId)
+}
+
+function openEditAttachedVolume(record: any) {
+  if (isBootVolume(record)) {
+    openEditVolume(record)
+    return
+  }
+  openEditBlockVolume(record)
 }
 
 function defaultBlockVolumeName() {
@@ -3920,7 +3953,12 @@ async function handleDetachBlockVolume(record: any) {
 }
 
 function openEditVolume(record: any) {
-  Object.assign(editVolForm, { bootVolumeId: record.id, displayName: record.displayName, sizeInGBs: record.sizeInGBs, vpusPerGB: record.vpusPerGB ?? 10 })
+  Object.assign(editVolForm, {
+    bootVolumeId: record.bootVolumeId || record.id,
+    displayName: record.displayName,
+    sizeInGBs: record.sizeInGBs,
+    vpusPerGB: record.vpusPerGB ?? 10,
+  })
   editVolVisible.value = true
 }
 
@@ -3931,6 +3969,7 @@ async function handleEditVolume() {
     message.success('引导卷已更新')
     editVolVisible.value = false
     loadBootVolumes()
+    if (activeTab.value === 'blockVolume') loadBlockVolumes()
   } catch (e: any) {
     message.error(e?.message || '更新引导卷失败')
   } finally {
