@@ -22,6 +22,7 @@ import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Date;
 import java.util.LinkedHashMap;
@@ -36,7 +37,8 @@ public class TrafficService {
     @Resource
     private OciUserMapper userMapper;
 
-    public Map<String, Object> getTrafficData(String userId, String instanceId, int minutes, String region) {
+    public Map<String, Object> getTrafficData(String userId, String instanceId, int minutes, String region,
+                                              String startTimeIso, String endTimeIso) {
         if (instanceId == null || instanceId.isBlank()) {
             throw new OciException("实例 OCID 不能为空");
         }
@@ -55,12 +57,13 @@ public class TrafficService {
                 .build();
 
         String r = (region == null || region.isBlank()) ? null : region.trim();
-        int windowMinutes = normalizeWindow(minutes);
+        TimeRange timeRange = resolveTimeRange(minutes, startTimeIso, endTimeIso);
+        int windowMinutes = timeRange.minutes;
         String interval = chooseInterval(windowMinutes);
         try (OciClientService client = new OciClientService(dto, r)) {
             MonitoringClient monitoringClient = client.getMonitoringClient();
-            Date endTime = new Date();
-            Date startTime = new Date(endTime.getTime() - (long) windowMinutes * 60 * 1000);
+            Date startTime = timeRange.startTime;
+            Date endTime = timeRange.endTime;
 
             List<VnicTarget> targets = listInstanceVnics(client, instanceId);
             Map<String, double[]> summaryPointMap = new TreeMap<>();
@@ -98,6 +101,7 @@ public class TrafficService {
             result.put("instanceId", instanceId);
             result.put("minutes", windowMinutes);
             result.put("interval", interval);
+            result.put("customRange", timeRange.customRange);
             result.put("startTime", startTime.toInstant().toString());
             result.put("endTime", endTime.toInstant().toString());
             result.put("inbound", Math.round(inbound));
@@ -119,6 +123,40 @@ public class TrafficService {
         if (minutes <= 1440) return 1440;
         if (minutes <= 10080) return 10080;
         return 43200;
+    }
+
+    private TimeRange resolveTimeRange(int minutes, String startTimeIso, String endTimeIso) {
+        boolean hasStart = startTimeIso != null && !startTimeIso.isBlank();
+        boolean hasEnd = endTimeIso != null && !endTimeIso.isBlank();
+        if (hasStart != hasEnd) {
+            throw new OciException("日期范围格式无效");
+        }
+        boolean customRange = hasStart && hasEnd;
+        if (!customRange) {
+            int windowMinutes = normalizeWindow(minutes);
+            Date endTime = new Date();
+            Date startTime = new Date(endTime.getTime() - (long) windowMinutes * 60 * 1000);
+            return new TimeRange(startTime, endTime, windowMinutes, false);
+        }
+
+        try {
+            Instant start = Instant.parse(startTimeIso);
+            Instant end = Instant.parse(endTimeIso);
+            if (!start.isBefore(end)) {
+                throw new OciException("开始时间必须早于结束时间");
+            }
+            long rangeMillis = end.toEpochMilli() - start.toEpochMilli();
+            long maxMillis = 90L * 24 * 60 * 60 * 1000;
+            if (rangeMillis > maxMillis) {
+                throw new OciException("流量自定义查询最多支持 90 天");
+            }
+            int windowMinutes = (int) Math.max(1, Math.ceil(rangeMillis / 60000.0));
+            return new TimeRange(Date.from(start), Date.from(end), windowMinutes, true);
+        } catch (OciException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new OciException("日期范围格式无效");
+        }
     }
 
     private String chooseInterval(int minutes) {
@@ -298,5 +336,8 @@ public class TrafficService {
     }
 
     private record MetricPoint(String timestamp, double value) {
+    }
+
+    private record TimeRange(Date startTime, Date endTime, int minutes, boolean customRange) {
     }
 }

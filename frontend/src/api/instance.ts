@@ -146,7 +146,7 @@ export function getVcns(data: { id: string } & R) {
   return request.post('/oci/network/vcns', data)
 }
 
-export function getTrafficData(data: { id: string; instanceId: string; minutes?: number } & R) {
+export function getTrafficData(data: { id: string; instanceId: string; minutes?: number; startTime?: string; endTime?: string } & R) {
   return request.post('/oci/traffic/data', data)
 }
 

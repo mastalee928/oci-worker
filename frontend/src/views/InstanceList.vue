@@ -843,7 +843,18 @@
         <a-tab-pane key="traffic" tab="流量统计">
           <div class="traffic-panel">
             <div class="traffic-toolbar">
-              <a-segmented v-model:value="trafficMinutes" :options="trafficWindowOptions" @change="loadTraffic" />
+              <div class="traffic-range-tools">
+                <a-segmented v-model:value="trafficMinutes" :options="trafficWindowOptions" @change="onTrafficWindowChange" />
+                <a-range-picker
+                  v-model:value="trafficDateRange"
+                  class="traffic-date-range"
+                  format="YYYY-MM-DD"
+                  :placeholder="['开始日期', '结束日期']"
+                  :disabled-date="disabledTrafficDate"
+                  allow-clear
+                  @change="onTrafficDateRangeChange"
+                />
+              </div>
               <a-button @click="loadTraffic" :loading="trafficLoading">
                 <template #icon><ReloadOutlined /></template>刷新
               </a-button>
@@ -868,14 +879,56 @@
                 <div class="traffic-chart-card">
                   <div class="traffic-chart-head">
                     <span>趋势</span>
-                    <span>{{ trafficWindowLabel }} · {{ trafficData.interval || '—' }}</span>
+                    <span>{{ trafficRangeLabel }} · 每 {{ trafficData.interval || '—' }}</span>
                   </div>
                   <div class="traffic-chart-canvas">
-                    <svg v-if="trafficChart.hasData" viewBox="0 0 640 220" preserveAspectRatio="none" role="img">
-                      <line v-for="y in trafficChartGrid" :key="y" x1="0" x2="640" :y1="y" :y2="y" class="traffic-grid-line" />
-                      <polyline :points="trafficChart.inbound" class="traffic-line traffic-line-inbound" />
-                      <polyline :points="trafficChart.outbound" class="traffic-line traffic-line-outbound" />
-                    </svg>
+                    <div v-if="trafficChart.hasData" class="traffic-chart-plot">
+                      <div class="traffic-y-axis-label">周期流量</div>
+                      <div class="traffic-y-scale">
+                        <span>{{ formatBytes(trafficChart.max) }}</span>
+                        <span>0 B</span>
+                      </div>
+                      <div class="traffic-plot-wrap">
+                        <div class="traffic-svg-wrap" @mouseleave="hideTrafficTooltip">
+                          <svg class="traffic-chart-svg" viewBox="0 0 640 220" preserveAspectRatio="none" role="img">
+                            <line v-for="y in trafficChartGrid" :key="y" x1="0" x2="640" :y1="y" :y2="y" class="traffic-grid-line" />
+                            <polyline :points="trafficChart.inbound" class="traffic-line traffic-line-inbound" />
+                            <polyline :points="trafficChart.outbound" class="traffic-line traffic-line-outbound" />
+                            <g v-for="point in trafficChart.points" :key="'in-' + point.timestamp">
+                              <circle
+                                :cx="point.x"
+                                :cy="point.inboundY"
+                                r="4"
+                                class="traffic-point traffic-point-inbound"
+                                @mouseenter="showTrafficTooltip(point, 'inbound')"
+                              />
+                              <circle
+                                :cx="point.x"
+                                :cy="point.outboundY"
+                                r="4"
+                                class="traffic-point traffic-point-outbound"
+                                @mouseenter="showTrafficTooltip(point, 'outbound')"
+                              />
+                            </g>
+                          </svg>
+                          <div
+                            v-if="trafficHoverPoint"
+                            class="traffic-hover-card"
+                            :style="{ left: `${trafficHoverPoint.left}%`, top: `${trafficHoverPoint.top}%` }"
+                          >
+                            <div class="traffic-hover-title">{{ trafficHoverPoint.point.label }}</div>
+                            <div class="traffic-hover-row"><span>入站</span><strong>{{ formatBytes(trafficHoverPoint.point.inbound) }}</strong></div>
+                            <div class="traffic-hover-row"><span>出站</span><strong>{{ formatBytes(trafficHoverPoint.point.outbound) }}</strong></div>
+                            <div class="traffic-hover-row total"><span>总量</span><strong>{{ formatBytes(trafficHoverPoint.point.total) }}</strong></div>
+                          </div>
+                        </div>
+                        <div class="traffic-x-scale">
+                          <span>{{ trafficStartLabel }}</span>
+                          <span class="traffic-x-axis-label">时间</span>
+                          <span>{{ trafficEndLabel }}</span>
+                        </div>
+                      </div>
+                    </div>
                     <a-empty v-else description="暂无趋势数据" />
                   </div>
                   <div class="traffic-legend">
@@ -1478,6 +1531,7 @@ import {
 } from '../utils/bootVolume'
 import { TASK_ARM_SHAPE, normalizeTaskArchitecture } from '../utils/shapeSeries'
 import dayjs from 'dayjs'
+import type { Dayjs } from 'dayjs'
 import utc from 'dayjs/plugin/utc'
 
 dayjs.extend(utc)
@@ -1591,6 +1645,24 @@ const trafficVnicColumns = [
   { title: '出站', key: 'outbound', width: 120 },
   { title: '总量', key: 'total', width: 120 },
 ]
+
+type TrafficSeries = 'inbound' | 'outbound'
+interface TrafficChartPoint {
+  timestamp: string
+  label: string
+  x: number
+  inboundY: number
+  outboundY: number
+  inbound: number
+  outbound: number
+  total: number
+}
+
+interface TrafficHoverPoint {
+  left: number
+  top: number
+  point: TrafficChartPoint
+}
 
 const isMobile = ref(window.innerWidth < 768)
 function checkMobile() { isMobile.value = window.innerWidth < 768 }
@@ -1936,18 +2008,34 @@ const vcns = ref<any[]>([])
 const trafficLoading = ref(false)
 const trafficMinutes = ref(60)
 const trafficData = ref<any>(null)
+const trafficDateRange = ref<[Dayjs, Dayjs] | null>(null)
+const trafficHoverPoint = ref<TrafficHoverPoint | null>(null)
 const trafficWindowLabel = computed(() => trafficWindowOptions.find(item => item.value === trafficMinutes.value)?.label || '1h')
+const trafficUseCustomRange = computed(() => {
+  const range = trafficDateRange.value
+  return Array.isArray(range) && !!range[0] && !!range[1]
+})
+const trafficRangeLabel = computed(() => {
+  if (!trafficUseCustomRange.value || !trafficDateRange.value) return trafficWindowLabel.value
+  return `${trafficDateRange.value[0].format('YYYY-MM-DD')} - ${trafficDateRange.value[1].format('YYYY-MM-DD')}`
+})
+const trafficEffectiveMinutes = computed(() => Number(trafficData.value?.minutes) || trafficMinutes.value)
+const trafficStartLabel = computed(() => formatTrafficAxisTime(trafficData.value?.startTime, trafficEffectiveMinutes.value))
+const trafficEndLabel = computed(() => formatTrafficAxisTime(trafficData.value?.endTime, trafficEffectiveMinutes.value))
 const trafficVnics = computed(() => Array.isArray(trafficData.value?.vnics) ? trafficData.value.vnics : [])
 const trafficChartGrid = [24, 67, 110, 153, 196]
 const trafficChart = computed(() => {
   const rows = Array.isArray(trafficData.value?.points) ? trafficData.value.points : []
-  const points: Array<{ inbound: number; outbound: number }> = rows.map((point: any) => ({
+  const points: Array<{ timestamp: string; label: string; inbound: number; outbound: number; total: number }> = rows.map((point: any) => ({
+    timestamp: String(point?.timestamp || ''),
+    label: formatTrafficPointTime(point?.timestamp, trafficEffectiveMinutes.value),
     inbound: Number(point?.inbound) || 0,
     outbound: Number(point?.outbound) || 0,
+    total: Number(point?.total) || ((Number(point?.inbound) || 0) + (Number(point?.outbound) || 0)),
   }))
   const max = Math.max(0, ...points.map(point => Math.max(point.inbound, point.outbound)))
   if (!points.length || max <= 0) {
-    return { hasData: false, inbound: '', outbound: '', max: 0 }
+    return { hasData: false, inbound: '', outbound: '', max: 0, points: [] as TrafficChartPoint[] }
   }
 
   const width = 640
@@ -1956,10 +2044,28 @@ const trafficChart = computed(() => {
   const padY = 18
   const plotW = width - padX * 2
   const plotH = height - padY * 2
-  const toPolyline = (key: 'inbound' | 'outbound') => points.map((point, index) => {
+  const toCoord = (value: number, index: number) => {
     const x = padX + (points.length === 1 ? plotW / 2 : (index * plotW) / (points.length - 1))
-    const y = padY + plotH - (point[key] / max) * plotH
-    return `${x.toFixed(1)},${y.toFixed(1)}`
+    const y = padY + plotH - (value / max) * plotH
+    return { x, y }
+  }
+  const chartPoints: TrafficChartPoint[] = points.map((point, index) => {
+    const inboundCoord = toCoord(point.inbound, index)
+    const outboundCoord = toCoord(point.outbound, index)
+    return {
+      timestamp: point.timestamp,
+      label: point.label,
+      x: inboundCoord.x,
+      inboundY: inboundCoord.y,
+      outboundY: outboundCoord.y,
+      inbound: point.inbound,
+      outbound: point.outbound,
+      total: point.total,
+    }
+  })
+  const toPolyline = (key: TrafficSeries) => chartPoints.map(point => {
+    const y = key === 'inbound' ? point.inboundY : point.outboundY
+    return `${point.x.toFixed(1)},${y.toFixed(1)}`
   }).join(' ')
 
   return {
@@ -1967,6 +2073,7 @@ const trafficChart = computed(() => {
     inbound: toPolyline('inbound'),
     outbound: toPolyline('outbound'),
     max,
+    points: chartPoints,
   }
 })
 const changeIpLoading = ref(false)
@@ -2695,6 +2802,69 @@ function shortOcId(value?: string) {
   return value.length > 18 ? `${value.slice(0, 10)}...${value.slice(-6)}` : value
 }
 
+function formatTrafficAxisTime(value: unknown, minutes: number) {
+  if (!value) return '—'
+  const time = dayjs(String(value))
+  if (!time.isValid()) return '—'
+  return minutes <= 1440 ? time.format('HH:mm') : time.format('MM-DD')
+}
+
+function formatTrafficPointTime(value: unknown, minutes: number) {
+  if (!value) return '—'
+  const time = dayjs(String(value))
+  if (!time.isValid()) return '—'
+  if (minutes <= 1440) return time.format('YYYY-MM-DD HH:mm')
+  if (minutes <= 10080) return time.format('YYYY-MM-DD HH:00')
+  return time.format('YYYY-MM-DD')
+}
+
+function disabledTrafficDate(current: Dayjs) {
+  return !!current && current.isAfter(dayjs().endOf('day'))
+}
+
+function validateTrafficDateRange(showMessage = true) {
+  if (!trafficUseCustomRange.value || !trafficDateRange.value) return true
+  const start = trafficDateRange.value[0].startOf('day')
+  const end = trafficDateRange.value[1].endOf('day')
+  if (!start.isValid() || !end.isValid() || !start.isBefore(end)) {
+    if (showMessage) message.error('请选择有效的日期范围')
+    return false
+  }
+  if (end.diff(start, 'day', true) > 90) {
+    if (showMessage) message.error('流量自定义查询最多支持 90 天')
+    return false
+  }
+  return true
+}
+
+function onTrafficWindowChange() {
+  trafficDateRange.value = null
+  trafficHoverPoint.value = null
+  loadTraffic()
+}
+
+function onTrafficDateRangeChange() {
+  trafficHoverPoint.value = null
+  if (!trafficUseCustomRange.value) {
+    loadTraffic()
+    return
+  }
+  if (validateTrafficDateRange()) loadTraffic()
+}
+
+function showTrafficTooltip(point: TrafficChartPoint, series: TrafficSeries) {
+  const y = series === 'inbound' ? point.inboundY : point.outboundY
+  trafficHoverPoint.value = {
+    left: Math.min(92, Math.max(8, (point.x / 640) * 100)),
+    top: Math.min(82, Math.max(12, (y / 220) * 100)),
+    point,
+  }
+}
+
+function hideTrafficTooltip() {
+  trafficHoverPoint.value = null
+}
+
 async function loadAllTenants(force = false) {
   globalLoading.value = true
   try {
@@ -2773,6 +2943,8 @@ function openDetail(tenant: any, record: any) {
   blockVolumes.value = []
   vcns.value = []
   trafficData.value = null
+  trafficDateRange.value = null
+  trafficHoverPoint.value = null
   networkDetail.value = null
   consoleData.value = null
   shapeEditOptions.value = []
@@ -3600,14 +3772,28 @@ async function loadVcns() {
 
 async function loadTraffic() {
   if (!currentInstance.value || !currentTenant.value) return
+  if (!validateTrafficDateRange()) return
+  trafficHoverPoint.value = null
   trafficLoading.value = true
   try {
-    const res = await getTrafficData({
+    const params: {
+      id: string
+      instanceId: string
+      minutes?: number
+      startTime?: string
+      endTime?: string
+      region?: string
+    } = {
       id: currentTenant.value.id,
       instanceId: currentInstance.value.instanceId,
       minutes: trafficMinutes.value,
       ...instanceDetailRegionParam(),
-    })
+    }
+    if (trafficUseCustomRange.value && trafficDateRange.value) {
+      params.startTime = trafficDateRange.value[0].startOf('day').toISOString()
+      params.endTime = trafficDateRange.value[1].endOf('day').toISOString()
+    }
+    const res = await getTrafficData(params)
     trafficData.value = res.data || { inbound: 0, outbound: 0, total: 0, points: [], vnics: [] }
   } catch (e: any) { message.error(e?.message || '加载流量数据失败') }
   finally { trafficLoading.value = false }
@@ -3919,6 +4105,17 @@ onUnmounted(() => {
   gap: 12px;
   flex-wrap: wrap;
 }
+.traffic-range-tools {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  min-width: 0;
+}
+.traffic-date-range {
+  width: 260px;
+  max-width: 100%;
+}
 .traffic-summary-grid {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
@@ -3976,7 +4173,7 @@ onUnmounted(() => {
   font-weight: 400;
 }
 .traffic-chart-canvas {
-  height: 220px;
+  height: 260px;
   border: 1px solid var(--border);
   border-radius: 6px;
   background: rgba(127, 127, 127, 0.04);
@@ -3985,9 +4182,124 @@ onUnmounted(() => {
   align-items: center;
   justify-content: center;
 }
-.traffic-chart-canvas svg {
+.traffic-chart-plot {
   width: 100%;
   height: 100%;
+  display: grid;
+  grid-template-columns: 18px 64px minmax(0, 1fr);
+  gap: 6px;
+  padding: 10px 12px 8px 8px;
+  box-sizing: border-box;
+}
+.traffic-y-axis-label {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-sub);
+  font-size: 12px;
+  line-height: 1;
+  white-space: nowrap;
+}
+.traffic-y-scale {
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  align-items: flex-end;
+  color: var(--text-sub);
+  font-size: 12px;
+  padding: 2px 0 28px;
+  white-space: nowrap;
+}
+.traffic-plot-wrap {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.traffic-svg-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+.traffic-chart-svg {
+  width: 100%;
+  height: 100%;
+  flex: 1;
+  min-height: 0;
+}
+.traffic-point {
+  cursor: pointer;
+  stroke: var(--bg-sidebar);
+  stroke-width: 2;
+  opacity: 0.92;
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform 0.16s ease, opacity 0.16s ease;
+}
+.traffic-point:hover {
+  transform: scale(1.45);
+  opacity: 1;
+}
+.traffic-point-inbound {
+  fill: #1677ff;
+}
+.traffic-point-outbound {
+  fill: #52c41a;
+}
+.traffic-hover-card {
+  position: absolute;
+  z-index: 3;
+  min-width: 150px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card);
+  box-shadow: var(--shadow-card);
+  transform: translate(-50%, -108%);
+  pointer-events: none;
+}
+.traffic-hover-title {
+  color: var(--text-main);
+  font-size: 12px;
+  font-weight: 700;
+  margin-bottom: 6px;
+  white-space: nowrap;
+}
+.traffic-hover-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--text-sub);
+  font-size: 12px;
+  line-height: 1.8;
+}
+.traffic-hover-row strong {
+  color: var(--text-main);
+  font-weight: 700;
+}
+.traffic-hover-row.total {
+  margin-top: 3px;
+  padding-top: 3px;
+  border-top: 1px solid var(--border);
+}
+.traffic-x-scale {
+  height: 22px;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-sub);
+  font-size: 12px;
+  white-space: nowrap;
+}
+.traffic-x-scale span:last-child {
+  text-align: right;
+}
+.traffic-x-axis-label {
+  color: var(--text-main);
+  font-weight: 600;
 }
 .traffic-grid-line {
   stroke: rgba(127, 127, 127, 0.22);
@@ -4238,7 +4550,15 @@ onUnmounted(() => {
   .traffic-toolbar {
     align-items: stretch;
   }
+  .traffic-range-tools {
+    width: 100%;
+    flex-direction: column;
+    align-items: stretch;
+  }
   .traffic-toolbar :deep(.ant-segmented) {
+    width: 100%;
+  }
+  .traffic-date-range {
     width: 100%;
   }
   .traffic-summary-grid {
@@ -4252,7 +4572,17 @@ onUnmounted(() => {
     flex-direction: column;
   }
   .traffic-chart-canvas {
-    height: 180px;
+    height: 230px;
+  }
+  .traffic-chart-plot {
+    grid-template-columns: 16px 52px minmax(0, 1fr);
+    gap: 4px;
+    padding: 8px;
+  }
+  .traffic-y-scale,
+  .traffic-x-scale,
+  .traffic-y-axis-label {
+    font-size: 11px;
   }
   .panel-actions {
     gap: 4px;

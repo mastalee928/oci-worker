@@ -32,6 +32,14 @@ public class TrafficController {
                 params == null ? null : (String) params.get("id"),
                 params == null ? null : (String) params.get("instanceId"),
                 minutes,
-                reg));
+                reg,
+                stringParam(params, "startTime"),
+                stringParam(params, "endTime")));
+    }
+
+    private String stringParam(Map<String, Object> params, String key) {
+        if (params == null || params.get(key) == null) return null;
+        String value = String.valueOf(params.get(key)).trim();
+        return value.isEmpty() ? null : value;
     }
 }
