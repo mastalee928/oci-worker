@@ -1525,7 +1525,7 @@
             <a-select-option :value="120">超高性能 (120)</a-select-option>
           </a-select>
         </a-form-item>
-        <a-form-item label="挂载类型" extra="Paravirtualized 会自动连接；iSCSI 需要在实例内连接和挂载">
+        <a-form-item label="挂载类型" extra="半虚拟化会自动连接；iSCSI 需要在实例内连接和挂载">
           <a-segmented v-model:value="createBlockVolForm.attachmentType" :options="blockAttachmentTypeOptions" />
         </a-form-item>
         <a-form-item label="设备路径（可选）" extra="留空由 OCI 自动分配，例如 /dev/oracleoci/oraclevdb">
@@ -1548,7 +1548,7 @@
             :options="unattachedBlockVolOptions"
           />
         </a-form-item>
-        <a-form-item label="挂载类型" extra="Paravirtualized 会自动连接；iSCSI 需要在实例内连接和挂载">
+        <a-form-item label="挂载类型" extra="半虚拟化会自动连接；iSCSI 需要在实例内连接和挂载">
           <a-segmented v-model:value="attachBlockVolForm.attachmentType" :options="blockAttachmentTypeOptions" />
         </a-form-item>
         <a-form-item label="设备路径（可选）">
@@ -2493,7 +2493,7 @@ const detachBlockVolId = ref('')
 const createBlockVolVisible = ref(false)
 const createBlockVolLoading = ref(false)
 const blockAttachmentTypeOptions = [
-  { label: 'Paravirtualized', value: 'paravirtualized' },
+  { label: '半虚拟化', value: 'paravirtualized' },
   { label: 'iSCSI', value: 'iscsi' },
 ]
 const createBlockVolForm = reactive({

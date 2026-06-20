@@ -1341,7 +1341,7 @@ public class InstanceService {
         return switch (attachmentType.trim().toLowerCase(Locale.ROOT).replace("-", "_")) {
             case "paravirtualized", "pv" -> "paravirtualized";
             case "iscsi" -> "iscsi";
-            default -> throw new OciException("块存储挂载类型仅支持 paravirtualized 或 iscsi");
+            default -> throw new OciException("块存储挂载类型仅支持半虚拟化或 iSCSI");
         };
     }
 

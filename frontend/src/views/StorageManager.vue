@@ -56,6 +56,8 @@
         <a-table
           :data-source="currentBlockRows"
           :columns="blockColumnsResolved"
+          :loading="storageTableLoading"
+          :locale="storageTableLocale"
           size="small"
           :pagination="{ pageSize: 12 }"
           row-key="rowKey"
@@ -120,7 +122,15 @@
             <div style="margin-bottom: 8px">
               <a-button type="primary" size="small" @click="openCreateBucket" :disabled="!region || !objectData.namespace">新建桶</a-button>
             </div>
-            <a-table :data-source="buckets" :columns="bucketColumns" size="small" row-key="rowKey" :pagination="{ pageSize: 12 }">
+            <a-table
+              :data-source="buckets"
+              :columns="bucketColumns"
+              :loading="storageTableLoading"
+              :locale="storageTableLocale"
+              size="small"
+              row-key="rowKey"
+              :pagination="{ pageSize: 12 }"
+            >
               <template #bodyCell="{ column, record }">
                 <template v-if="column.key === 'compartmentName'">
                   {{ formatCompartmentCell(record) }}
@@ -139,7 +149,15 @@
             <div style="margin-bottom: 8px">
               <a-button type="primary" size="small" @click="openCreatePe" :disabled="!region || !objectData.namespace">新建专用端点</a-button>
             </div>
-            <a-table :data-source="privateEndpoints" :columns="peColumns" size="small" row-key="id" :pagination="{ pageSize: 12 }">
+            <a-table
+              :data-source="privateEndpoints"
+              :columns="peColumns"
+              :loading="storageTableLoading"
+              :locale="storageTableLocale"
+              size="small"
+              row-key="id"
+              :pagination="{ pageSize: 12 }"
+            >
               <template #bodyCell="{ column, record }">
                 <template v-if="column.key === 'compartmentName'">
                   {{ formatCompartmentCell(record) }}
@@ -540,6 +558,7 @@ type CompartmentOption = { label: string; value: string; isRoot?: boolean }
 const regionLoading = ref(false)
 const compartmentLoading = ref(false)
 const loading = ref(false)
+const objectLoading = ref(false)
 const isMobile = ref(typeof window !== 'undefined' ? window.innerWidth < 768 : false)
 /** 上次完成存储抽屉初始化的租户；与 props.userId 不一致时必须清空筛选与缓存数据，避免跨租户误用 OCID */
 const storageContextUserId = ref('')
@@ -749,6 +768,20 @@ const buckets = computed(() =>
   })),
 )
 const privateEndpoints = computed(() => objectData.value.privateEndpoints || [])
+const storageContentLoading = computed(() => regionLoading.value || compartmentLoading.value || loading.value || objectLoading.value)
+const storageLoadingTip = computed(() => {
+  if (regionLoading.value) return '正在加载可用区域...'
+  if (compartmentLoading.value) return '正在加载区间...'
+  if (objectLoading.value) return '正在加载对象存储数据...'
+  return '正在加载存储数据...'
+})
+const storageTableLoading = computed(() => ({
+  spinning: storageContentLoading.value,
+  tip: storageLoadingTip.value,
+}))
+const storageTableLocale = computed(() => ({
+  emptyText: storageContentLoading.value ? storageLoadingTip.value : '暂无数据',
+}))
 
 const canRenameBlock = computed(() =>
   ['bootVolumes', 'blockVolumes', 'bootVolumeReplicas', 'blockVolumeReplicas', 'volumeGroups'].includes(blockView.value),
@@ -1033,6 +1066,7 @@ async function loadAll() {
 
 async function loadObject() {
   if (!props.userId || !region.value) return
+  objectLoading.value = true
   try {
     const res = await objectStorageAggregate({
       id: props.userId,
@@ -1044,6 +1078,8 @@ async function loadObject() {
   } catch (e: any) {
     objectDataContextKey.value = ''
     message.error(e?.message || '加载对象存储失败')
+  } finally {
+    objectLoading.value = false
   }
 }
 
