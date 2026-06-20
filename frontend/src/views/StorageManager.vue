@@ -3,7 +3,9 @@
     :open="open"
     @update:open="(v: boolean) => emit('update:open', v)"
     :title="`存储 — ${tenantName || ''}`"
-    :width="isMobile ? '100%' : 960"
+    :width="storageDrawerWidth"
+    :mask-style="storageDrawerMaskStyle"
+    wrap-class-name="storage-workspace-drawer"
     destroy-on-close
   >
     <div style="margin-bottom: 12px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap">
@@ -61,7 +63,7 @@
           size="small"
           :pagination="{ pageSize: 12 }"
           row-key="rowKey"
-          :scroll="{ x: 'max-content' }"
+          :scroll="storageTableScroll"
         >
           <template #bodyCell="{ column, record }">
             <template v-if="column.key === 'compartmentName'">
@@ -130,6 +132,7 @@
               size="small"
               row-key="rowKey"
               :pagination="{ pageSize: 12 }"
+              :scroll="storageTableScroll"
             >
               <template #bodyCell="{ column, record }">
                 <template v-if="column.key === 'compartmentName'">
@@ -157,6 +160,7 @@
               size="small"
               row-key="id"
               :pagination="{ pageSize: 12 }"
+              :scroll="storageTableScroll"
             >
               <template #bodyCell="{ column, record }">
                 <template v-if="column.key === 'compartmentName'">
@@ -560,6 +564,16 @@ const compartmentLoading = ref(false)
 const loading = ref(false)
 const objectLoading = ref(false)
 const isMobile = ref(typeof window !== 'undefined' ? window.innerWidth < 768 : false)
+const storageDrawerWidth = computed(() => (isMobile.value ? '100%' : 'clamp(960px, 68vw, 1280px)'))
+const storageDrawerMaskStyle = computed(() =>
+  isMobile.value
+    ? undefined
+    : {
+        background: 'var(--tenant-workspace-mask-bg, rgba(15, 23, 42, 0.34))',
+        backdropFilter: 'blur(8px)',
+        WebkitBackdropFilter: 'blur(8px)',
+      },
+)
 /** 上次完成存储抽屉初始化的租户；与 props.userId 不一致时必须清空筛选与缓存数据，避免跨租户误用 OCID */
 const storageContextUserId = ref('')
 const region = ref('')
@@ -639,7 +653,7 @@ onUnmounted(() => {
 const blockColumnsResolved = computed(() => {
   const v = blockView.value
   const cols: any[] = [
-    { title: '名称', dataIndex: 'displayName', key: 'displayName', ellipsis: true, width: 200 },
+    { title: '名称', dataIndex: 'displayName', key: 'displayName', ellipsis: true, width: 260 },
     { title: '状态', dataIndex: 'lifecycleState', key: 'lifecycleState', width: 110 },
   ]
   if (
@@ -657,12 +671,12 @@ const blockColumnsResolved = computed(() => {
   }
   cols.push({ title: '区间', dataIndex: 'compartmentName', key: 'compartmentName', width: 120, ellipsis: true })
   if (v === 'bootVolumes' || v === 'blockVolumes') {
-    cols.push({ title: '挂载', key: 'attachmentSummary', width: v === 'bootVolumes' ? 220 : 140, ellipsis: true })
+    cols.push({ title: '挂载', key: 'attachmentSummary', width: v === 'bootVolumes' ? 280 : 200, ellipsis: true })
   }
   if (v === 'volumeBackupPolicyAssignments') {
     cols.push({ title: '策略 / 资产', key: 'policyAsset', width: 180 })
   }
-  cols.push({ title: '操作', key: 'actions', width: 72, align: 'center' })
+  cols.push({ title: '操作', key: 'actions', width: 64, align: 'center', fixed: 'right' })
   return cols
 })
 
@@ -738,19 +752,19 @@ function canShowBootIscsi(record: any) {
 }
 
 const bucketColumns = [
-  { title: '名称', dataIndex: 'name', key: 'name', ellipsis: true },
+  { title: '名称', dataIndex: 'name', key: 'name', ellipsis: true, width: 260 },
   { title: '访问', dataIndex: 'publicAccessType', key: 'publicAccessType', width: 140 },
   { title: '层级', dataIndex: 'storageTier', key: 'storageTier', width: 100 },
   { title: '区间', dataIndex: 'compartmentName', key: 'compartmentName', width: 120, ellipsis: true },
-  { title: '操作', key: 'actions', width: 220 },
+  { title: '操作', key: 'actions', width: 220, fixed: 'right' },
 ]
 
 const peColumns = [
-  { title: '名称', dataIndex: 'displayName', key: 'displayName', ellipsis: true },
+  { title: '名称', dataIndex: 'displayName', key: 'displayName', ellipsis: true, width: 260 },
   { title: '状态', dataIndex: 'lifecycleState', key: 'lifecycleState', width: 110 },
   { title: '子网', dataIndex: 'subnetId', key: 'subnetId', ellipsis: true },
   { title: '区间', dataIndex: 'compartmentName', key: 'compartmentName', width: 120, ellipsis: true },
-  { title: '操作', key: 'actions', width: 80 },
+  { title: '操作', key: 'actions', width: 80, fixed: 'right' },
 ]
 
 const currentBlockRows = computed(() => {
@@ -772,6 +786,7 @@ const storageContentLoading = computed(() => regionLoading.value || compartmentL
 const storageTableLoading = computed(() => ({
   spinning: storageContentLoading.value,
 }))
+const storageTableScroll = computed(() => ({ x: isMobile.value ? 900 : 960 }))
 const storageTableLocale = computed(() => ({
   emptyText: storageContentLoading.value ? ' ' : '暂无数据',
 }))

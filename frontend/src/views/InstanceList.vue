@@ -43,7 +43,7 @@
                 <template v-if="isL2PanelOpen(l2.key)">
                 <div v-if="tenantViewMode === 'card'" class="tenant-grid">
                   <template v-for="td in l2.tenants" :key="td.tenant.id">
-                    <div class="tenant-card" :class="{ 'tenant-card-active': activeTenantId === td.tenant.id }">
+                    <div class="tenant-card" :data-tenant-id="td.tenant.id" :class="{ 'tenant-card-active': activeTenantId === td.tenant.id, 'tenant-card-roll-source': isTenantRollSource(td.tenant) }">
                       <div class="tc-header"><i class="ri-cloud-line tc-icon"></i><div class="tc-info"><div class="tc-name">{{ td.tenant.username }}</div><div class="tc-region">{{ td.tenant.ociRegion }}</div></div></div>
                       <div class="tc-tags"><a-tag v-if="td.tenant.planType" :color="td.tenant.planType === 'FREE' ? 'default' : 'green'" size="small">{{ td.tenant.planType }}</a-tag><a-tag v-if="td.tenant.tenantName" size="small" color="blue">{{ td.tenant.tenantName }}</a-tag></div>
                       <div class="tc-actions"><a-button type="primary" block @click="selectTenant(td)" :loading="td.loading"><i class="ri-server-line" style="margin-right:6px"></i>实例管理</a-button><a-button block @click="openVcnPanel(td.tenant)"><i class="ri-share-line" style="margin-right:6px"></i>虚拟云网络</a-button><a-button block @click="openStoragePanel(td.tenant)"><i class="ri-database-2-line" style="margin-right:6px"></i>存储</a-button><a-button block @click="openQuickTask(td.tenant)"><i class="ri-play-circle-line" style="margin-right:6px"></i>快捷开机</a-button></div>
@@ -87,7 +87,7 @@
               <component :is="tenantViewMode === 'card' ? 'div' : 'div'">
                 <div v-if="tenantViewMode === 'card'" class="tenant-grid">
                   <template v-for="td in g1.tenants" :key="td.tenant.id">
-                    <div class="tenant-card" :class="{ 'tenant-card-active': activeTenantId === td.tenant.id }">
+                    <div class="tenant-card" :data-tenant-id="td.tenant.id" :class="{ 'tenant-card-active': activeTenantId === td.tenant.id, 'tenant-card-roll-source': isTenantRollSource(td.tenant) }">
                       <div class="tc-header"><i class="ri-cloud-line tc-icon"></i><div class="tc-info"><div class="tc-name">{{ td.tenant.username }}</div><div class="tc-region">{{ td.tenant.ociRegion }}</div></div></div>
                       <div class="tc-tags"><a-tag v-if="td.tenant.planType" :color="td.tenant.planType === 'FREE' ? 'default' : 'green'" size="small">{{ td.tenant.planType }}</a-tag><a-tag v-if="td.tenant.tenantName" size="small" color="blue">{{ td.tenant.tenantName }}</a-tag></div>
                       <div class="tc-actions"><a-button type="primary" block @click="selectTenant(td)" :loading="td.loading"><i class="ri-server-line" style="margin-right:6px"></i>实例管理</a-button><a-button block @click="openVcnPanel(td.tenant)"><i class="ri-share-line" style="margin-right:6px"></i>虚拟云网络</a-button><a-button block @click="openStoragePanel(td.tenant)"><i class="ri-database-2-line" style="margin-right:6px"></i>存储</a-button><a-button block @click="openQuickTask(td.tenant)"><i class="ri-play-circle-line" style="margin-right:6px"></i>快捷开机</a-button></div>
@@ -131,7 +131,7 @@
           <template v-else>
             <div v-if="tenantViewMode === 'card'" class="tenant-grid">
               <template v-for="td in g1.tenants" :key="td.tenant.id">
-                <div class="tenant-card" :class="{ 'tenant-card-active': activeTenantId === td.tenant.id }">
+                <div class="tenant-card" :data-tenant-id="td.tenant.id" :class="{ 'tenant-card-active': activeTenantId === td.tenant.id, 'tenant-card-roll-source': isTenantRollSource(td.tenant) }">
                   <div class="tc-header"><i class="ri-cloud-line tc-icon"></i><div class="tc-info"><div class="tc-name">{{ td.tenant.username }}</div><div class="tc-region">{{ td.tenant.ociRegion }}</div></div></div>
                   <div class="tc-tags"><a-tag v-if="td.tenant.planType" :color="td.tenant.planType === 'FREE' ? 'default' : 'green'" size="small">{{ td.tenant.planType }}</a-tag><a-tag v-if="td.tenant.tenantName" size="small" color="blue">{{ td.tenant.tenantName }}</a-tag></div>
                   <div class="tc-actions"><a-button type="primary" block @click="selectTenant(td)" :loading="td.loading"><i class="ri-server-line" style="margin-right:6px"></i>实例管理</a-button><a-button block @click="openVcnPanel(td.tenant)"><i class="ri-share-line" style="margin-right:6px"></i>虚拟云网络</a-button><a-button block @click="openStoragePanel(td.tenant)"><i class="ri-database-2-line" style="margin-right:6px"></i>存储</a-button><a-button block @click="openQuickTask(td.tenant)"><i class="ri-play-circle-line" style="margin-right:6px"></i>快捷开机</a-button></div>
@@ -179,7 +179,7 @@
     <!-- 租户卡片视图 -->
     <div v-if="tenantViewMode === 'card'" class="tenant-grid">
       <div v-for="td in filteredTenants" :key="td.tenant.id"
-        class="tenant-card" :class="{ 'tenant-card-active': activeTenantId === td.tenant.id }">
+        class="tenant-card" :data-tenant-id="td.tenant.id" :class="{ 'tenant-card-active': activeTenantId === td.tenant.id, 'tenant-card-roll-source': isTenantRollSource(td.tenant) }">
         <div class="tc-header">
           <i class="ri-cloud-line tc-icon"></i>
           <div class="tc-info">
@@ -258,8 +258,9 @@
       v-model:open="instancePanelVisible"
       :width="instancePanelWidth"
       :mask-closable="false"
+      :mask-style="tenantWorkspaceMaskStyle"
       destroy-on-close
-      wrap-class-name="instance-manager-drawer"
+      :wrap-class-name="instancePanelWrapClass"
       :body-style="{ padding: isMobile ? '10px' : '16px' }"
     >
       <template #title>
@@ -1648,7 +1649,8 @@
 
     <!-- 虚拟云网络抽屉 -->
     <a-drawer :keyboard="false" v-model:open="vcnVisible" :title="'虚拟云网络 — ' + (vcnTenant?.username || '')"
-      :width="isMobile ? '100%' : 960" :mask-closable="false" destroy-on-close>
+      :width="instancePanelWidth" :mask-closable="false" :mask-style="tenantWorkspaceMaskStyle" destroy-on-close
+      :wrap-class-name="vcnPanelWrapClass">
       <div v-if="vcnTenant" class="vcn-panel-toolbar">
         <span class="instance-panel-toolbar-label">Region</span>
         <a-select
@@ -1740,6 +1742,25 @@
       :tenant-name="storageManagerTenantName"
       :default-region="storageManagerDefaultRegion"
     />
+
+    <div v-if="tenantRollCard.visible" class="tenant-roll-stage" aria-hidden="true">
+      <div class="tenant-roll-card" :style="tenantRollCardStyle">
+        <div class="tenant-roll-card-inner">
+          <div class="tenant-roll-head">
+            <i class="ri-cloud-line tenant-roll-icon"></i>
+            <div class="tenant-roll-text">
+              <div class="tenant-roll-name">{{ tenantRollCard.username }}</div>
+              <div class="tenant-roll-region">{{ tenantRollCard.region }}</div>
+            </div>
+          </div>
+          <div class="tenant-roll-tags">
+            <span v-if="tenantRollCard.planType" class="tenant-roll-tag">{{ tenantRollCard.planType }}</span>
+            <span v-if="tenantRollCard.tenantName" class="tenant-roll-tag tenant-roll-tag-blue">{{ tenantRollCard.tenantName }}</span>
+          </div>
+          <div class="tenant-roll-action">{{ tenantRollCard.actionLabel }}</div>
+        </div>
+      </div>
+    </div>
 
     <div class="tenant-page-float-actions" aria-label="页面快捷操作">
       <a-tooltip
@@ -2198,10 +2219,126 @@ const activeTenantData = computed(() => {
 const instancePanelVisible = computed({
   get: () => !!activeTenantData.value,
   set: (val: boolean) => {
-    if (!val) activeTenantId.value = ''
+    if (!val) {
+      activeTenantId.value = ''
+      if (tenantWorkspaceKind.value === 'instance') tenantWorkspaceKind.value = null
+    }
   },
 })
-const instancePanelWidth = computed(() => (isMobile.value ? '100%' : 960))
+type TenantWorkspaceKind = 'instance' | 'vcn' | 'storage'
+const tenantWorkspaceKind = ref<TenantWorkspaceKind | null>(null)
+const instancePanelWidth = computed(() => (isMobile.value ? '100%' : 'clamp(960px, 68vw, 1280px)'))
+const tenantWorkspaceMaskStyle = computed(() =>
+  isMobile.value
+    ? undefined
+    : {
+        background: 'var(--tenant-workspace-mask-bg, rgba(15, 23, 42, 0.34))',
+        backdropFilter: 'blur(8px)',
+        WebkitBackdropFilter: 'blur(8px)',
+      },
+)
+const instancePanelWrapClass = computed(() =>
+  `instance-manager-drawer tenant-workspace-drawer tenant-workspace-${tenantWorkspaceKind.value || 'idle'}`,
+)
+const vcnPanelWrapClass = computed(() =>
+  `vcn-panel-drawer tenant-workspace-drawer tenant-workspace-${tenantWorkspaceKind.value || 'idle'}`,
+)
+
+const tenantWorkspaceLabels: Record<TenantWorkspaceKind, string> = {
+  instance: '实例管理',
+  vcn: '虚拟云网络',
+  storage: '存储',
+}
+const tenantRollCard = reactive({
+  visible: false,
+  tenantId: '',
+  username: '',
+  tenantName: '',
+  region: '',
+  planType: '',
+  actionLabel: '',
+  left: '0px',
+  top: '0px',
+  width: '260px',
+  height: '220px',
+  dx: '0px',
+  dy: '0px',
+  scale: '0.72',
+})
+const tenantRollCardStyle = computed<Record<string, string>>(() => ({
+  left: tenantRollCard.left,
+  top: tenantRollCard.top,
+  width: tenantRollCard.width,
+  height: tenantRollCard.height,
+  '--tenant-roll-dx': tenantRollCard.dx,
+  '--tenant-roll-dy': tenantRollCard.dy,
+  '--tenant-roll-scale': tenantRollCard.scale,
+}))
+let tenantRollTimer: ReturnType<typeof setTimeout> | null = null
+
+function beginTenantWorkspace(kind: TenantWorkspaceKind, tenant: any) {
+  tenantWorkspaceKind.value = kind
+  if (isMobile.value) return
+  startTenantRollCard(kind, tenant)
+}
+
+function isTenantRollSource(tenant: any) {
+  return !isMobile.value && tenantRollCard.visible && tenantRollCard.tenantId === String(tenant?.id || '')
+}
+
+function closeTenantWorkspacePanels(except: TenantWorkspaceKind) {
+  if (except !== 'instance') activeTenantId.value = ''
+  if (except !== 'vcn') vcnVisible.value = false
+  if (except !== 'storage') storageManagerOpen.value = false
+}
+
+function findTenantCardElement(tenantId: string) {
+  if (typeof document === 'undefined' || !tenantId) return null
+  const cards = Array.from(document.querySelectorAll<HTMLElement>('.tenant-card[data-tenant-id]'))
+  return cards.find((card) => card.dataset.tenantId === tenantId) || null
+}
+
+function desktopWorkspaceWidthPx() {
+  if (typeof window === 'undefined') return 960
+  return Math.min(1280, Math.max(960, window.innerWidth * 0.68))
+}
+
+function startTenantRollCard(kind: TenantWorkspaceKind, tenant: any) {
+  const source = findTenantCardElement(String(tenant?.id || ''))
+  if (!source || typeof window === 'undefined') return
+  const rect = source.getBoundingClientRect()
+  if (rect.width <= 0 || rect.height <= 0) return
+  const drawerWidth = desktopWorkspaceWidthPx()
+  const targetLeft = Math.max(24, window.innerWidth - drawerWidth + 28)
+  const targetTop = 74
+  const targetWidth = Math.min(230, Math.max(178, rect.width * 0.72))
+  const scale = Math.min(0.82, Math.max(0.58, targetWidth / rect.width))
+
+  tenantRollCard.visible = false
+  if (tenantRollTimer) window.clearTimeout(tenantRollTimer)
+  Object.assign(tenantRollCard, {
+    tenantId: String(tenant?.id || ''),
+    username: tenant?.username || tenant?.tenantName || '租户',
+    tenantName: tenant?.tenantName || '',
+    region: tenant?.ociRegion || '',
+    planType: tenant?.planType || '',
+    actionLabel: tenantWorkspaceLabels[kind],
+    left: `${rect.left}px`,
+    top: `${rect.top}px`,
+    width: `${rect.width}px`,
+    height: `${rect.height}px`,
+    dx: `${targetLeft - rect.left}px`,
+    dy: `${targetTop - rect.top}px`,
+    scale: String(scale),
+  })
+  requestAnimationFrame(() => {
+    tenantRollCard.visible = true
+    tenantRollTimer = window.setTimeout(() => {
+      tenantRollCard.visible = false
+      tenantRollTimer = null
+    }, 560)
+  })
+}
 
 const instancePanelRegion = ref('')
 const instanceRegionOptions = ref<{ label: string; value: string }[]>([])
@@ -2294,6 +2431,8 @@ async function prefetchSubscribedRegions(
 
 async function selectTenant(td: TenantData) {
   const tenantId = td.tenant.id
+  beginTenantWorkspace('instance', td.tenant)
+  closeTenantWorkspacePanels('instance')
   activeTenantId.value = td.tenant.id
   const def = td.tenant.ociRegion || ''
   instancePanelRegion.value = loadPanelRegionFromLs('instancePanel.region', td.tenant, def) || def
@@ -3121,7 +3260,15 @@ const storageManagerOpen = ref(false)
 const storageManagerUserId = ref('')
 const storageManagerTenantName = ref('')
 const storageManagerDefaultRegion = ref('')
+watch(vcnVisible, (open) => {
+  if (!open && tenantWorkspaceKind.value === 'vcn') tenantWorkspaceKind.value = null
+})
+watch(storageManagerOpen, (open) => {
+  if (!open && tenantWorkspaceKind.value === 'storage') tenantWorkspaceKind.value = null
+})
 function openStoragePanel(tenant: any) {
+  beginTenantWorkspace('storage', tenant)
+  closeTenantWorkspacePanels('storage')
   storageManagerUserId.value = tenant.id
   storageManagerTenantName.value = tenant.username || tenant.tenantName || ''
   storageManagerDefaultRegion.value = tenant.ociRegion || ''
@@ -3129,6 +3276,8 @@ function openStoragePanel(tenant: any) {
 }
 
 async function openVcnPanel(tenant: any) {
+  beginTenantWorkspace('vcn', tenant)
+  closeTenantWorkspacePanels('vcn')
   vcnTenant.value = tenant
   vcnList.value = []
   reservedIps.value = []
@@ -4337,6 +4486,7 @@ onActivated(() => {
 onUnmounted(() => {
   window.removeEventListener('resize', checkMobile)
   window.removeEventListener('beforeunload', handleShapeEditBeforeUnload)
+  if (tenantRollTimer) window.clearTimeout(tenantRollTimer)
   void stopCurrentShapeEditTaskSilently()
   stopShapeEditTaskPolling()
   pendingTimers.forEach((t: any) => clearTimeout(t))
@@ -4470,6 +4620,176 @@ onUnmounted(() => {
   box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2), var(--shadow-card);
 }
 .tenant-card-active::before { transform: scaleX(1); }
+:global(:root) {
+  --tenant-workspace-mask-bg: rgba(2, 6, 23, 0.28);
+  --tenant-roll-card-bg: rgba(30, 41, 59, 0.78);
+  --tenant-roll-card-border: rgba(165, 180, 252, 0.42);
+  --tenant-roll-card-shadow: 0 26px 60px rgba(0, 0, 0, 0.48), 0 0 34px rgba(129, 140, 248, 0.16);
+  --tenant-roll-placeholder-bg: rgba(15, 23, 42, 0.16);
+  --tenant-roll-placeholder-border: rgba(129, 140, 248, 0.22);
+  --tenant-roll-tag-green-bg: rgba(34, 197, 94, 0.16);
+  --tenant-roll-tag-green-border: rgba(74, 222, 128, 0.34);
+  --tenant-roll-tag-green-text: #86efac;
+  --tenant-roll-tag-blue-bg: rgba(59, 130, 246, 0.18);
+  --tenant-roll-tag-blue-border: rgba(96, 165, 250, 0.36);
+  --tenant-roll-tag-blue-text: #93c5fd;
+}
+:global([data-theme="light"]) {
+  --tenant-workspace-mask-bg: rgba(15, 23, 42, 0.22);
+  --tenant-roll-card-bg: rgba(255, 255, 255, 0.94);
+  --tenant-roll-card-border: rgba(99, 102, 241, 0.3);
+  --tenant-roll-card-shadow: 0 24px 52px rgba(15, 23, 42, 0.18), 0 0 22px rgba(99, 102, 241, 0.12);
+  --tenant-roll-placeholder-bg: rgba(255, 255, 255, 0.22);
+  --tenant-roll-placeholder-border: rgba(99, 102, 241, 0.18);
+  --tenant-roll-tag-green-bg: rgba(22, 163, 74, 0.1);
+  --tenant-roll-tag-green-border: rgba(22, 163, 74, 0.32);
+  --tenant-roll-tag-green-text: #15803d;
+  --tenant-roll-tag-blue-bg: rgba(37, 99, 235, 0.1);
+  --tenant-roll-tag-blue-border: rgba(37, 99, 235, 0.28);
+  --tenant-roll-tag-blue-text: #1d4ed8;
+}
+.tenant-card-roll-source {
+  background: var(--tenant-roll-placeholder-bg) !important;
+  border-color: var(--tenant-roll-placeholder-border) !important;
+  box-shadow: inset 0 0 0 1px var(--tenant-roll-placeholder-border) !important;
+  transform: none !important;
+  pointer-events: none;
+}
+.tenant-card-roll-source::before {
+  opacity: 0;
+  transform: scaleX(0) !important;
+}
+.tenant-card-roll-source > * {
+  opacity: 0;
+}
+.tenant-roll-stage {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  pointer-events: none;
+  perspective: 1200px;
+  perspective-origin: 78% 18%;
+}
+.tenant-roll-card {
+  position: fixed;
+  transform-origin: center center;
+  transform-style: preserve-3d;
+  will-change: transform, opacity, filter;
+  animation: tenantCardRoll 560ms cubic-bezier(0.18, 0.9, 0.22, 1) forwards;
+}
+.tenant-roll-card-inner {
+  height: 100%;
+  padding: 18px;
+  border: 1px solid var(--tenant-roll-card-border);
+  border-radius: 16px;
+  background: var(--bg-card);
+  background: var(--tenant-roll-card-bg);
+  box-shadow: var(--tenant-roll-card-shadow);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  overflow: hidden;
+  transform: translateZ(1px);
+}
+.tenant-roll-card-inner::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  background: linear-gradient(90deg, var(--primary), #8b5cf6);
+}
+.tenant-roll-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.tenant-roll-icon {
+  flex: 0 0 auto;
+  font-size: 28px;
+  color: var(--primary);
+}
+.tenant-roll-text {
+  min-width: 0;
+}
+.tenant-roll-name {
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--text-main);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tenant-roll-region {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-sub);
+}
+.tenant-roll-tags {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  margin-top: 14px;
+}
+.tenant-roll-tag {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  min-height: 22px;
+  padding: 0 8px;
+  border: 1px solid var(--tenant-roll-tag-green-border);
+  border-radius: 999px;
+  color: var(--tenant-roll-tag-green-text);
+  background: var(--tenant-roll-tag-green-bg);
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 20px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tenant-roll-tag-blue {
+  border-color: var(--tenant-roll-tag-blue-border);
+  color: var(--tenant-roll-tag-blue-text);
+  background: var(--tenant-roll-tag-blue-bg);
+}
+.tenant-roll-action {
+  position: absolute;
+  left: 18px;
+  right: 18px;
+  bottom: 18px;
+  height: 34px;
+  border-radius: 10px;
+  color: #fff;
+  background: linear-gradient(135deg, #4f46e5, #7c3aed);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 800;
+  letter-spacing: 0;
+}
+@keyframes tenantCardRoll {
+  0% {
+    opacity: 0.98;
+    filter: saturate(1);
+    transform: translate3d(0, 0, 0) scale(1) rotateX(0deg) rotateY(0deg) rotateZ(0deg);
+  }
+  16% {
+    opacity: 1;
+    filter: saturate(1.08);
+    transform: translate3d(0, -12px, 90px) scale(1.035) rotateX(8deg) rotateY(-18deg) rotateZ(-2deg);
+  }
+  72% {
+    opacity: 0.92;
+    filter: saturate(1.05);
+    transform: translate3d(var(--tenant-roll-dx), var(--tenant-roll-dy), 36px) scale(var(--tenant-roll-scale)) rotateX(22deg) rotateY(328deg) rotateZ(8deg);
+  }
+  100% {
+    opacity: 0;
+    filter: saturate(0.96) blur(0.4px);
+    transform: translate3d(var(--tenant-roll-dx), var(--tenant-roll-dy), 0) scale(var(--tenant-roll-scale)) rotateX(0deg) rotateY(360deg) rotateZ(0deg);
+  }
+}
 .tc-header {
   display: flex;
   align-items: center;
