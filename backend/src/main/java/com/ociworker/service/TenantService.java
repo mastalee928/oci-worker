@@ -423,9 +423,14 @@ public class TenantService {
                     TENANT_ACCOUNT_EXECUTOR);
 
             try {
-                CompletableFuture.allOf(assignedFut, ospFut).get(10, TimeUnit.SECONDS);
+                ospFut.get(45, TimeUnit.SECONDS);
             } catch (Exception e) {
-                log.warn("Tenant account parallel fetch timeout or error: {}", e.getMessage());
+                log.warn("Tenant OSP account fetch timeout or error: {}", e.getMessage());
+            }
+            try {
+                assignedFut.get(5, TimeUnit.SECONDS);
+            } catch (Exception e) {
+                log.warn("Tenant organization subscription fetch timeout or error: {}", e.getMessage());
             }
 
             List<Map<String, Object>> assignedRows = assignedFut.getNow(List.of());
