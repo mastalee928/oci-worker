@@ -3,13 +3,11 @@ package com.ociworker.service;
 import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.ociworker.mapper.OciUserMapper;
-import com.ociworker.model.dto.SysUserDTO;
 import com.ociworker.model.entity.OciUser;
 import com.oracle.bmc.identity.IdentityClient;
 import com.oracle.bmc.identity.requests.GetTenancyRequest;
 import com.oracle.bmc.identity.requests.ListRegionSubscriptionsRequest;
 import com.oracle.bmc.model.BmcException;
-import com.oracle.bmc.ospgateway.SubscriptionServiceClient;
 import com.oracle.bmc.ospgateway.requests.ListSubscriptionsRequest;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
@@ -168,7 +166,7 @@ public class TenantInfoRefreshQueue {
         boolean retryable = false;
         int retryCount = force ? 0 : (user.getInfoRetryCount() == null ? 0 : user.getInfoRetryCount());
 
-        try (OciClientService client = new OciClientService(buildDto(user))) {
+        try (OciTenantInfoClient client = new OciTenantInfoClient(user)) {
             RefreshStatus tenantStatus = refreshTenantName(user, client);
             retryable = retryable || tenantStatus.retryable;
 
@@ -185,20 +183,7 @@ public class TenantInfoRefreshQueue {
         applyRetryState(user.getId(), retryCount, retryable);
     }
 
-    private SysUserDTO buildDto(OciUser user) {
-        return SysUserDTO.builder()
-                .username(user.getUsername())
-                .ociCfg(SysUserDTO.OciCfg.builder()
-                        .tenantId(user.getOciTenantId())
-                        .userId(user.getOciUserId())
-                        .fingerprint(user.getOciFingerprint())
-                        .region(user.getOciRegion())
-                        .privateKeyPath(user.getOciKeyPath())
-                        .build())
-                .build();
-    }
-
-    private RefreshStatus refreshTenantName(OciUser user, OciClientService client) {
+    private RefreshStatus refreshTenantName(OciUser user, OciTenantInfoClient client) {
         try {
             var tenancy = client.getIdentityClient().getTenancy(
                     GetTenancyRequest.builder().tenancyId(user.getOciTenantId()).build()).getTenancy();
@@ -217,17 +202,10 @@ public class TenantInfoRefreshQueue {
         }
     }
 
-    private RefreshStatus refreshPlanType(OciUser user, OciClientService client) {
-        SubscriptionServiceClient ospClient = null;
+    private RefreshStatus refreshPlanType(OciUser user, OciTenantInfoClient client) {
         try {
             String ospHomeRegion = resolveOspHomeRegion(client.getIdentityClient(), user.getOciTenantId(), user.getOciRegion());
-            var ospB = SubscriptionServiceClient.builder();
-            OciProxyConfigService pxy = OciProxyConfigService.instance();
-            if (pxy == null || !pxy.ociUsesExplicitClientProxy()) {
-                ospB = ospB.additionalClientConfigurator(OciProxyConfigService.ociSdkJerseyDirectConfigurator());
-            }
-            ospClient = ospB.build(client.getProvider());
-            var resp = ospClient.listSubscriptions(
+            var resp = client.getOspClient().listSubscriptions(
                     ListSubscriptionsRequest.builder()
                             .ospHomeRegion(ospHomeRegion)
                             .compartmentId(client.getCompartmentId())
@@ -246,10 +224,6 @@ public class TenantInfoRefreshQueue {
             RefreshStatus status = classify(e);
             updatePlanTypeStatus(user.getId(), null, status.status, status.message);
             return status;
-        } finally {
-            if (ospClient != null) {
-                try { ospClient.close(); } catch (Exception ignored) {}
-            }
         }
     }
 

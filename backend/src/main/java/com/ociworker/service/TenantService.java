@@ -7,13 +7,13 @@ import com.ociworker.enums.TaskStatusEnum;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.ociworker.exception.OciException;
 import com.ociworker.mapper.OciCreateTaskMapper;
-import com.oracle.bmc.ClientConfiguration;
-import com.oracle.bmc.auth.SimpleAuthenticationDetailsProvider;
 import com.oracle.bmc.identity.IdentityClient;
 import com.oracle.bmc.identity.requests.GetTenancyRequest;
 import com.oracle.bmc.identity.requests.ListRegionSubscriptionsRequest;
 import com.oracle.bmc.ospgateway.SubscriptionServiceClient;
 import com.oracle.bmc.ospgateway.requests.ListSubscriptionsRequest;
+import com.oracle.bmc.tenantmanagercontrolplane.SubscriptionClient;
+import com.oracle.bmc.tenantmanagercontrolplane.requests.ListAssignedSubscriptionsRequest;
 import com.ociworker.mapper.OciKvMapper;
 import com.ociworker.mapper.OciUserMapper;
 import com.ociworker.model.entity.OciCreateTask;
@@ -24,6 +24,7 @@ import com.ociworker.model.params.PageParams;
 import com.ociworker.model.params.TenantBatchMoveGroupParams;
 import com.ociworker.model.params.TenantParams;
 import com.ociworker.util.CommonUtils;
+import com.ociworker.util.OciRegionCatalog;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
@@ -349,29 +350,17 @@ public class TenantService {
             result.put("planType", user.getPlanType());
         }
 
-        com.ociworker.model.dto.SysUserDTO dto = com.ociworker.model.dto.SysUserDTO.builder()
-                .username(user.getUsername())
-                .ociCfg(com.ociworker.model.dto.SysUserDTO.OciCfg.builder()
-                        .tenantId(user.getOciTenantId())
-                        .userId(user.getOciUserId())
-                        .fingerprint(user.getOciFingerprint())
-                        .region(user.getOciRegion())
-                        .privateKeyPath(user.getOciKeyPath())
-                        .build())
-                .build();
-
-        try (OciClientService client = new OciClientService(dto)) {
+        try (OciTenantInfoClient client = new OciTenantInfoClient(user)) {
             String savedTenantName = user.getTenantName();
             String savedPlanType = user.getPlanType();
-            SimpleAuthenticationDetailsProvider provider = client.getProvider();
             IdentityClient identityClient = client.getIdentityClient();
             String tenancyId = user.getOciTenantId();
             String fallbackRegion = user.getOciRegion();
             String compartmentId = client.getCompartmentId();
-            applyIdentityAccountFields(identityClient, tenancyId, user, result);
+            String ospHomeRegion = applyIdentityAccountFields(identityClient, tenancyId, fallbackRegion, user, result);
 
-            String ospHomeRegion = resolveOspHomeRegion(identityClient, tenancyId, fallbackRegion);
-            applyOspAccountFields(provider, ospHomeRegion, compartmentId, result);
+            applyAssignedSubscriptionFields(client.getOrganizationSubscriptionClient(), ospHomeRegion, tenancyId, result);
+            applyOspAccountFields(client.getOspClient(), ospHomeRegion, compartmentId, result);
 
             String planVal = result.get("planType") == null ? null : String.valueOf(result.get("planType"));
             if (StrUtil.isNotBlank(planVal) && !Objects.equals(planVal, savedPlanType)) {
@@ -569,24 +558,14 @@ public class TenantService {
         result.keySet().removeIf(k -> !TENANT_ACCOUNT_INFO_KEYS.contains(k));
     }
 
-    private static SubscriptionServiceClient buildOspClient(SimpleAuthenticationDetailsProvider provider) {
-        var b = SubscriptionServiceClient.builder()
-                .configuration(ClientConfiguration.builder()
-                        .connectionTimeoutMillis(5_000)
-                        .readTimeoutMillis(8_000)
-                        .build());
-        OciProxyConfigService pxy = OciProxyConfigService.instance();
-        if (pxy == null || !pxy.ociUsesExplicitClientProxy()) {
-            b = b.additionalClientConfigurator(OciProxyConfigService.ociSdkJerseyDirectConfigurator());
-        }
-        return b.build(provider);
-    }
-
-    private void applyIdentityAccountFields(
+    private String applyIdentityAccountFields(
             IdentityClient identityClient,
             String tenancyId,
+            String fallbackRegion,
             OciUser user,
             Map<String, Object> result) {
+        String homeRegionKey = null;
+        String homeRegionName = fallbackRegion;
         try {
             var tenancy = identityClient.getTenancy(
                     GetTenancyRequest.builder().tenancyId(tenancyId).build()).getTenancy();
@@ -595,7 +574,8 @@ public class TenantService {
                 if (StrUtil.isNotBlank(tenancy.getName()) && !tenancy.getName().equals(user.getTenantName())) {
                     user.setTenantName(tenancy.getName());
                 }
-                result.put("homeRegionKey", tenancy.getHomeRegionKey());
+                homeRegionKey = tenancy.getHomeRegionKey();
+                result.put("homeRegionKey", homeRegionKey);
                 result.put("tenantId", tenancy.getId());
                 result.put("description", tenancy.getDescription());
             }
@@ -605,20 +585,26 @@ public class TenantService {
             if (regions != null) {
                 for (var r : regions) {
                     regionNames.add(r.getRegionName());
+                    if (StrUtil.isNotBlank(homeRegionKey)
+                            && homeRegionKey.equalsIgnoreCase(r.getRegionKey())
+                            && StrUtil.isNotBlank(r.getRegionName())) {
+                        homeRegionName = r.getRegionName();
+                    }
                 }
             }
             result.put("subscribedRegions", regionNames);
         } catch (Exception e) {
             log.warn("Failed to get identity account fields: {}", e.getMessage());
         }
+        return homeRegionName;
     }
 
     private static void applyOspAccountFields(
-            SimpleAuthenticationDetailsProvider provider,
+            SubscriptionServiceClient ospClient,
             String ospHomeRegion,
             String compartmentId,
             Map<String, Object> result) {
-        try (SubscriptionServiceClient ospClient = buildOspClient(provider)) {
+        try {
             var resp = ospClient.listSubscriptions(
                     ListSubscriptionsRequest.builder()
                             .ospHomeRegion(ospHomeRegion)
@@ -651,6 +637,47 @@ public class TenantService {
             }
         } catch (Exception e) {
             log.warn("Failed to get OSP subscription: {}", e.getMessage());
+        }
+    }
+
+    private static void applyAssignedSubscriptionFields(
+            SubscriptionClient subscriptionClient,
+            String homeRegion,
+            String tenancyId,
+            Map<String, Object> result) {
+        if (subscriptionClient == null || StrUtil.isBlank(tenancyId) || result == null) {
+            return;
+        }
+        try {
+            if (StrUtil.isNotBlank(homeRegion)) {
+                subscriptionClient.setRegion(OciRegionCatalog.resolveRegion(homeRegion));
+            }
+            var resp = subscriptionClient.listAssignedSubscriptions(
+                    ListAssignedSubscriptionsRequest.builder()
+                            .compartmentId(tenancyId)
+                            .limit(100)
+                            .build());
+            var items = resp == null || resp.getAssignedSubscriptionCollection() == null
+                    ? null : resp.getAssignedSubscriptionCollection().getItems();
+            if (items == null || items.isEmpty()) {
+                return;
+            }
+            for (var item : items) {
+                String id = item == null ? null : item.getId();
+                if (OspSubscriptionEnricher.isOrganizationsSubscriptionOcid(id)) {
+                    result.put("subscriptionOrgOcid", id.trim());
+                    return;
+                }
+            }
+            for (var item : items) {
+                String id = item == null ? null : item.getId();
+                if (OspSubscriptionEnricher.isOciOcid(id)) {
+                    result.put("subscriptionOrgOcid", id.trim());
+                    return;
+                }
+            }
+        } catch (Exception e) {
+            log.warn("Failed to get assigned subscription: {}", e.getMessage());
         }
     }
 
