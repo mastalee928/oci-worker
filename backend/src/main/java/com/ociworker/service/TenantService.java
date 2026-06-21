@@ -347,10 +347,20 @@ public class TenantService {
     public Map<String, Object> getTenantFullInfo(String id) {
         OciUser user = userMapper.selectById(id);
         if (user == null) throw new OciException("配置不存在");
+        tenantInfoRefreshQueue.deferBackgroundRefreshForInteractive();
 
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("configName", user.getUsername());
         result.put("id", user.getId());
+        if (StrUtil.isNotBlank(user.getTenantName())) {
+            result.put("tenantName", user.getTenantName());
+        }
+        if (StrUtil.isNotBlank(user.getOciTenantId())) {
+            result.put("tenantId", user.getOciTenantId());
+        }
+        if (StrUtil.isNotBlank(user.getPlanType())) {
+            result.put("planType", user.getPlanType());
+        }
 
         com.ociworker.model.dto.SysUserDTO dto = com.ociworker.model.dto.SysUserDTO.builder()
                 .username(user.getUsername())
@@ -371,13 +381,12 @@ public class TenantService {
             String tenancyId = user.getOciTenantId();
             String fallbackRegion = user.getOciRegion();
             String compartmentId = client.getCompartmentId();
+            applyIdentityAccountFields(identityClient, tenancyId, user, result);
+
             String ospHomeRegion = resolveOspHomeRegion(identityClient, tenancyId, fallbackRegion);
             String usageRegion = UsageCostService.resolveTenancyHomeRegionName(
                     identityClient, tenancyId, fallbackRegion);
 
-            CompletableFuture<Void> identityFut = CompletableFuture.runAsync(
-                    () -> applyIdentityAccountFields(provider, tenancyId, user, result),
-                    TENANT_ACCOUNT_EXECUTOR);
             CompletableFuture<List<Map<String, Object>>> assignedFut = CompletableFuture.supplyAsync(
                     () -> organizationSubscriptionService.listAssignedSubscriptionsOnly(
                             client, tenancyId, usageRegion),
@@ -387,7 +396,7 @@ public class TenantService {
                     TENANT_ACCOUNT_EXECUTOR);
 
             try {
-                CompletableFuture.allOf(identityFut, assignedFut, ospFut).get(90, TimeUnit.SECONDS);
+                CompletableFuture.allOf(assignedFut, ospFut).get(90, TimeUnit.SECONDS);
             } catch (Exception e) {
                 log.warn("Tenant account parallel fetch timeout or error: {}", e.getMessage());
             }
@@ -691,12 +700,12 @@ public class TenantService {
     }
 
     private void applyIdentityAccountFields(
-            SimpleAuthenticationDetailsProvider provider,
+            IdentityClient identityClient,
             String tenancyId,
             OciUser user,
             Map<String, Object> result) {
-        try (IdentityClient ic = buildIdentityClient(provider)) {
-            var tenancy = ic.getTenancy(
+        try {
+            var tenancy = identityClient.getTenancy(
                     GetTenancyRequest.builder().tenancyId(tenancyId).build()).getTenancy();
             if (tenancy != null) {
                 result.put("tenantName", tenancy.getName());
@@ -707,7 +716,7 @@ public class TenantService {
                 result.put("tenantId", tenancy.getId());
                 result.put("description", tenancy.getDescription());
             }
-            var regions = ic.listRegionSubscriptions(
+            var regions = identityClient.listRegionSubscriptions(
                     ListRegionSubscriptionsRequest.builder().tenancyId(tenancyId).build()).getItems();
             List<String> regionNames = new ArrayList<>();
             if (regions != null) {

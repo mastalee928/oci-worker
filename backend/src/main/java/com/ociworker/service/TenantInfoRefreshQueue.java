@@ -44,8 +44,9 @@ public class TenantInfoRefreshQueue {
     public static final String TIMEOUT = "TIMEOUT";
     public static final String FAILED = "FAILED";
 
-    private static final int WORKER_COUNT = 3;
-    private static final int MAX_AUTO_RETRY = 3;
+    private static final int WORKER_COUNT = 1;
+    private static final int MAX_BACKOFF_INDEX = 7;
+    private static final long INTERACTIVE_DEFER_MILLIS = TimeUnit.MINUTES.toMillis(2);
 
     @Resource
     private OciUserMapper userMapper;
@@ -59,6 +60,7 @@ public class TenantInfoRefreshQueue {
         return t;
     });
     private volatile boolean running = true;
+    private volatile long interactiveDeferUntilMillis = 0L;
 
     @PostConstruct
     public void start() {
@@ -93,8 +95,18 @@ public class TenantInfoRefreshQueue {
         }
     }
 
+    public void deferBackgroundRefreshForInteractive() {
+        long until = System.currentTimeMillis() + INTERACTIVE_DEFER_MILLIS;
+        if (until > interactiveDeferUntilMillis) {
+            interactiveDeferUntilMillis = until;
+        }
+    }
+
     @Scheduled(fixedDelay = 60_000, initialDelay = 30_000)
     public void enqueueRecoverable() {
+        if (isInteractiveDeferActive()) {
+            return;
+        }
         LocalDateTime now = LocalDateTime.now();
         List<OciUser> users = userMapper.selectList(new LambdaQueryWrapper<OciUser>()
                 .and(w -> w
@@ -103,11 +115,9 @@ public class TenantInfoRefreshQueue {
                         .in(OciUser::getPlanTypeStatus, List.of(PENDING, RATE_LIMITED, TIMEOUT, FAILED))));
         for (OciUser user : users) {
             if (user == null || StrUtil.isBlank(user.getId())) continue;
-            int retry = user.getInfoRetryCount() == null ? 0 : user.getInfoRetryCount();
             LocalDateTime next = user.getInfoNextRetryAt();
             boolean due = next == null || !next.isAfter(now);
-            boolean pending = PENDING.equals(user.getTenantNameStatus()) || PENDING.equals(user.getPlanTypeStatus());
-            if (due && (pending || retry < MAX_AUTO_RETRY)) {
+            if (due) {
                 enqueue(user.getId(), false);
             }
         }
@@ -119,6 +129,7 @@ public class TenantInfoRefreshQueue {
             try {
                 task = queue.take();
                 boolean force = task.force || forcedIds.remove(task.userId);
+                waitForInteractiveDefer();
                 process(task.userId, force);
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
@@ -129,6 +140,20 @@ public class TenantInfoRefreshQueue {
                     queuedIds.remove(task.userId);
                 }
             }
+        }
+    }
+
+    private boolean isInteractiveDeferActive() {
+        return System.currentTimeMillis() < interactiveDeferUntilMillis;
+    }
+
+    private void waitForInteractiveDefer() throws InterruptedException {
+        while (running) {
+            long delay = interactiveDeferUntilMillis - System.currentTimeMillis();
+            if (delay <= 0) {
+                return;
+            }
+            Thread.sleep(Math.min(delay, 1_000L));
         }
     }
 
@@ -251,15 +276,21 @@ public class TenantInfoRefreshQueue {
     private void applyRetryState(String id, int previousRetryCount, boolean retryable) {
         OciUser patch = new OciUser();
         patch.setId(id);
-        if (retryable && previousRetryCount < MAX_AUTO_RETRY) {
+        if (retryable) {
             int nextRetry = previousRetryCount + 1;
             patch.setInfoRetryCount(nextRetry);
-            patch.setInfoNextRetryAt(LocalDateTime.now().plusMinutes(nextRetry == 1 ? 2 : nextRetry == 2 ? 5 : 15));
+            patch.setInfoNextRetryAt(LocalDateTime.now().plusMinutes(retryDelayMinutes(nextRetry)));
         } else {
             patch.setInfoRetryCount(previousRetryCount);
             patch.setInfoNextRetryAt(null);
         }
         userMapper.updateById(patch);
+    }
+
+    private long retryDelayMinutes(int retryCount) {
+        long[] minutes = {5, 15, 60, 180, 360, 720, 1_440, 1_440};
+        int idx = Math.max(0, Math.min(retryCount - 1, MAX_BACKOFF_INDEX));
+        return minutes[idx];
     }
 
     private void resetForManualRefresh(String userId) {
