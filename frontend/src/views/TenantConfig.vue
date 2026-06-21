@@ -44,7 +44,7 @@
               <span v-else style="color: #999">无开机任务</span>
             </template>
             <template v-if="column.key === 'planType'">
-              <a-tag :color="record.planType === 'PAYG' ? 'green' : record.planType === 'FREE' ? 'orange' : 'default'">{{ record.planType || '获取中...' }}</a-tag>
+              <span :class="planTypeBadgeClass(record.planType)">{{ formatPlanBadge(record.planType, '获取中...') }}</span>
             </template>
             <template v-if="column.key === 'createTime'">
               {{ formatTenantAddedTime(record.createTime) }}
@@ -67,7 +67,7 @@
             <div v-for="r in tableData" :key="r.id" class="mobile-card">
               <div class="mobile-card-header">
                 <span class="mobile-card-title">{{ r.username }}</span>
-              <a-tag :color="r.planType === 'PAYG' ? 'green' : r.planType === 'FREE' ? 'orange' : 'default'">{{ r.planType || '?' }}</a-tag>
+                <span :class="planTypeBadgeClass(r.planType)">{{ formatPlanBadge(r.planType, '?') }}</span>
               </div>
               <div class="mobile-card-body">
               <div class="mobile-card-row">
@@ -130,7 +130,7 @@
                   class="group-tenant-count-badge oci-group-count-badge"
                 />
                 <template v-if="!isMobile" v-for="(pc, pt) in getPlanCounts(group)" :key="pt">
-                  <span :class="['plan-tag', pt === 'PAYG' ? 'tag-green' : pt === 'FREE' ? 'tag-orange' : 'tag-gray']">{{ pt }}×{{ pc }}</span>
+                  <span :class="['plan-tag', planSummaryTagClass(String(pt))]">{{ pt }}×{{ pc }}</span>
                 </template>
               </div>
               </div>
@@ -215,7 +215,7 @@
                         <span v-else style="color: #999">无开机任务</span>
                       </template>
                       <template v-if="column.key === 'planType'">
-                        <a-tag :color="record.planType === 'PAYG' ? 'green' : record.planType === 'FREE' ? 'orange' : 'default'">{{ record.planType || '获取中...' }}</a-tag>
+                        <span :class="planTypeBadgeClass(record.planType)">{{ formatPlanBadge(record.planType, '获取中...') }}</span>
                       </template>
                       <template v-if="column.key === 'createTime'">
                         {{ formatTenantAddedTime(record.createTime) }}
@@ -237,7 +237,7 @@
                     <div v-for="r in sub.tenants" :key="r.id" class="mobile-card">
                       <div class="mobile-card-header">
                         <span class="mobile-card-title">{{ r.username }}</span>
-                        <a-tag :color="r.planType === 'PAYG' ? 'green' : r.planType === 'FREE' ? 'orange' : 'default'" style="margin:0">{{ r.planType || '?' }}</a-tag>
+                        <span :class="planTypeBadgeClass(r.planType)">{{ formatPlanBadge(r.planType, '?') }}</span>
                       </div>
                       <div class="mobile-card-body">
                         <div class="mobile-card-row">
@@ -299,7 +299,7 @@
                       <span v-else style="color: #999">无开机任务</span>
                     </template>
                     <template v-if="column.key === 'planType'">
-                      <a-tag :color="record.planType === 'PAYG' ? 'green' : record.planType === 'FREE' ? 'orange' : 'default'">{{ record.planType || '获取中...' }}</a-tag>
+                      <span :class="planTypeBadgeClass(record.planType)">{{ formatPlanBadge(record.planType, '获取中...') }}</span>
                     </template>
                     <template v-if="column.key === 'createTime'">
                       {{ formatTenantAddedTime(record.createTime) }}
@@ -321,7 +321,7 @@
                   <div v-for="r in group.tenants" :key="r.id" class="mobile-card">
                     <div class="mobile-card-header">
                       <span class="mobile-card-title">{{ r.username }}</span>
-                      <a-tag :color="r.planType === 'PAYG' ? 'green' : r.planType === 'FREE' ? 'orange' : 'default'" style="margin:0">{{ r.planType || '?' }}</a-tag>
+                      <span :class="planTypeBadgeClass(r.planType)">{{ formatPlanBadge(r.planType, '?') }}</span>
                     </div>
                     <div class="mobile-card-body">
                       <div class="mobile-card-row">
@@ -1957,24 +1957,56 @@ function formatBillingPeriod(start: string | null | undefined, end: string | nul
   return `${s} ～ ${e}`
 }
 
+function normalizePlanType(plan: string | null | undefined) {
+  if (!plan) return ''
+  return String(plan).trim().toUpperCase().replace(/[\s-]+/g, '_')
+}
+
+function isPaygPlan(plan: string | null | undefined) {
+  const p = normalizePlanType(plan)
+  return p === 'PAYG'
+}
+
 function isFreeTierPlan(plan: string | null | undefined) {
-  if (!plan) return false
-  const p = plan.toUpperCase().replace(/[_-]/g, '')
+  const p = normalizePlanType(plan).replace(/_/g, '')
   return p === 'FREE' || p === 'FREETIER'
 }
 
 function formatPlanType(v: string | null | undefined): string {
   if (!v) return '—'
   if (isFreeTierPlan(v)) return '免费套餐 (Free Tier)'
+  if (isPaygPlan(v)) return '按量付费 (PAYG)'
   const map: Record<string, string> = {
     PAYG: '按量付费 (PAYG)',
   }
-  return map[v] || v
+  const normalized = normalizePlanType(v)
+  return map[normalized] || normalized || v
 }
 
 function planTypeTagColor(plan: string | null | undefined) {
   if (isFreeTierPlan(plan)) return 'default'
   return 'green'
+}
+
+function formatPlanBadge(plan: string | null | undefined, fallback = '获取中...') {
+  const normalized = normalizePlanType(plan)
+  if (!normalized) return fallback
+  if (isPaygPlan(normalized)) return 'PAYG'
+  if (isFreeTierPlan(normalized)) return normalized === 'FREE' ? 'FREE' : 'FREE_TIER'
+  return normalized
+}
+
+function planTypeBadgeClass(plan: string | null | undefined) {
+  if (!normalizePlanType(plan)) return ['plan-tag', 'tag-gray']
+  if (isPaygPlan(plan)) return ['plan-tag', 'tag-green']
+  if (isFreeTierPlan(plan)) return ['plan-tag', 'tag-orange']
+  return ['plan-tag', 'tag-gray']
+}
+
+function planSummaryTagClass(plan: string) {
+  if (isPaygPlan(plan)) return 'tag-green'
+  if (isFreeTierPlan(plan)) return 'tag-orange'
+  return 'tag-gray'
 }
 
 function formatPaymentMethod(v: string | null | undefined): string {
@@ -3536,7 +3568,7 @@ function getPlanCounts(group: GroupNode): Record<string, number> {
   const all = getAllGroupTenants(group)
   const counts: Record<string, number> = {}
   for (const t of all) {
-    const key = t.planType === 'PAYG' ? 'PAYG' : t.planType === 'FREE_TIER' || t.planType === 'FREE' ? 'FREE' : 'UNKNOWN'
+    const key = isPaygPlan(t.planType) ? 'PAYG' : isFreeTierPlan(t.planType) ? 'FREE' : 'UNKNOWN'
     counts[key] = (counts[key] || 0) + 1
   }
   return counts
