@@ -737,6 +737,7 @@ public class TenantService {
                     ListSubscriptionsRequest.builder()
                             .ospHomeRegion(ospHomeRegion)
                             .compartmentId(compartmentId)
+                            .limit(1)
                             .retryConfiguration(RetryConfiguration.NO_RETRY_CONFIGURATION)
                             .build());
             var items = resp.getSubscriptionCollection() == null
