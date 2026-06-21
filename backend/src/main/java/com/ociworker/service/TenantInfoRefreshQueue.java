@@ -65,6 +65,11 @@ public class TenantInfoRefreshQueue {
         for (int i = 0; i < WORKER_COUNT; i++) {
             workers.submit(this::workerLoop);
         }
+        try {
+            enqueueRecoverable();
+        } catch (Exception e) {
+            log.warn("Initial tenant info refresh enqueue failed: {}", e.getMessage());
+        }
     }
 
     @PreDestroy

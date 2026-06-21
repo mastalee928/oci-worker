@@ -57,11 +57,6 @@
             </template>
             <template v-if="column.key === 'action'">
               <a-space>
-                <a-tooltip title="刷新租户名和账户类型">
-                  <a-button type="link" size="small" :loading="isTenantInfoRefreshing(record.id)" @click="handleRefreshTenantInfo(record)">
-                    <template #icon><ReloadOutlined /></template>
-                  </a-button>
-                </a-tooltip>
                 <a-button type="link" size="small" @click="showEditModal(record)">编辑</a-button>
                 <a-button type="link" size="small" @click="openTenantMgmt(record)">租户</a-button>
                 <a-button type="link" size="small" @click="openDomainMgmt(record)">域</a-button>
@@ -102,7 +97,6 @@
               </div>
             </div>
             <div class="mobile-card-actions">
-              <a-button type="link" size="small" :loading="isTenantInfoRefreshing(r.id)" @click="handleRefreshTenantInfo(r)">刷新信息</a-button>
               <a-button type="link" size="small" @click="showEditModal(r)">编辑</a-button>
               <a-button type="link" size="small" @click="openTenantMgmt(r)">租户</a-button>
               <a-button type="link" size="small" @click="openDomainMgmt(r)">域</a-button>
@@ -245,11 +239,6 @@
                       </template>
                       <template v-if="column.key === 'action'">
                         <a-space>
-                          <a-tooltip title="刷新租户名和账户类型">
-                            <a-button type="link" size="small" :loading="isTenantInfoRefreshing(record.id)" @click="handleRefreshTenantInfo(record)">
-                              <template #icon><ReloadOutlined /></template>
-                            </a-button>
-                          </a-tooltip>
                           <a-button type="link" size="small" @click="showEditModal(record)">编辑</a-button>
                           <a-button type="link" size="small" @click="openTenantMgmt(record)">租户</a-button>
                           <a-button type="link" size="small" @click="openDomainMgmt(record)">域</a-button>
@@ -289,7 +278,6 @@
                         </div>
                       </div>
                       <div class="mobile-card-actions">
-                        <a-button type="link" size="small" :loading="isTenantInfoRefreshing(r.id)" @click="handleRefreshTenantInfo(r)">刷新信息</a-button>
                         <a-button type="link" size="small" @click="showEditModal(r)">编辑</a-button>
                         <a-button type="link" size="small" @click="openTenantMgmt(r)">租户</a-button>
                         <a-button type="link" size="small" @click="openDomainMgmt(r)">域</a-button>
@@ -346,11 +334,6 @@
                     </template>
                     <template v-if="column.key === 'action'">
                       <a-space>
-                        <a-tooltip title="刷新租户名和账户类型">
-                          <a-button type="link" size="small" :loading="isTenantInfoRefreshing(record.id)" @click="handleRefreshTenantInfo(record)">
-                            <template #icon><ReloadOutlined /></template>
-                          </a-button>
-                        </a-tooltip>
                         <a-button type="link" size="small" @click="showEditModal(record)">编辑</a-button>
                         <a-button type="link" size="small" @click="openTenantMgmt(record)">租户</a-button>
                         <a-button type="link" size="small" @click="openDomainMgmt(record)">域</a-button>
@@ -390,7 +373,6 @@
                       </div>
                     </div>
                     <div class="mobile-card-actions">
-                      <a-button type="link" size="small" :loading="isTenantInfoRefreshing(r.id)" @click="handleRefreshTenantInfo(r)">刷新信息</a-button>
                       <a-button type="link" size="small" @click="showEditModal(r)">编辑</a-button>
                       <a-button type="link" size="small" @click="openTenantMgmt(r)">租户</a-button>
                       <a-button type="link" size="small" @click="openDomainMgmt(r)">域</a-button>
@@ -1962,7 +1944,7 @@ import { useRouter } from 'vue-router'
 import { PlusOutlined, ThunderboltOutlined, InboxOutlined, ReloadOutlined, MenuFoldOutlined, MenuUnfoldOutlined, VerticalAlignTopOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
 import type { UploadFile } from 'ant-design-vue'
-import { getTenantList, addTenant, updateTenant, removeTenant, batchMoveTenantGroup, uploadKey, getTenantFullInfo, getTenantBillingSummary, downloadInvoicePdf, listBudgets, createBudget, updateBudget, deleteBudget, listBudgetAlertRules, createBudgetAlertRule, updateBudgetAlertRule, deleteBudgetAlertRule, listTenantRegions, subscribeTenantRegion, getDomainSettings, updateMfa, updatePasswordExpiry, unlockDomainNotifications, getDomainNotifications, updateDomainNotifications, getAuditLogs, getServiceQuotas, listIamPolicies, getIamPolicy, listAnnouncements, getAnnouncementDetail, getTenantGroups, createGroup, renameGroup, deleteGroup, saveGroupOrder, unlockAuthFactors, getAuthFactors, updateAuthFactors, refreshTenantInfo } from '../api/tenant'
+import { getTenantList, addTenant, updateTenant, removeTenant, batchMoveTenantGroup, uploadKey, getTenantFullInfo, getTenantBillingSummary, downloadInvoicePdf, listBudgets, createBudget, updateBudget, deleteBudget, listBudgetAlertRules, createBudgetAlertRule, updateBudgetAlertRule, deleteBudgetAlertRule, listTenantRegions, subscribeTenantRegion, getDomainSettings, updateMfa, updatePasswordExpiry, unlockDomainNotifications, getDomainNotifications, updateDomainNotifications, getAuditLogs, getServiceQuotas, listIamPolicies, getIamPolicy, listAnnouncements, getAnnouncementDetail, getTenantGroups, createGroup, renameGroup, deleteGroup, saveGroupOrder, unlockAuthFactors, getAuthFactors, updateAuthFactors } from '../api/tenant'
 import type { BudgetAlertType, BudgetProcessingPeriodType, BudgetTargetType, BudgetThresholdType } from '../api/tenant'
 import { listCompartmentPicker } from '../api/compartment'
 import { sendVerifyCode } from '../api/system'
@@ -2230,7 +2212,6 @@ const searchText = ref('')
 const normalizedSearchText = computed(() => searchText.value.trim())
 const tableData = computed(() => (normalizedSearchText.value ? searchTableData.value : catalog.tenants) as any[])
 const selectedRowKeys = ref<string[]>([])
-const tenantInfoRefreshingIds = ref<Set<string>>(new Set())
 let tenantInfoPollTimers: ReturnType<typeof setTimeout>[] = []
 const batchMoveVisible = ref(false)
 const batchMoveLoading = ref(false)
@@ -2548,41 +2529,6 @@ function invalidateCatalogAndReload() {
   void loadData()
 }
 
-function setTenantInfoRefreshing(id: string | undefined, refreshing: boolean) {
-  if (!id) return
-  const next = new Set(tenantInfoRefreshingIds.value)
-  if (refreshing) next.add(id)
-  else next.delete(id)
-  tenantInfoRefreshingIds.value = next
-}
-
-function isTenantInfoRefreshing(id: string | undefined): boolean {
-  return !!id && tenantInfoRefreshingIds.value.has(id)
-}
-
-function patchSearchTenant(id: string, patch: Record<string, any>) {
-  const idx = searchTableData.value.findIndex((t: any) => t.id === id)
-  if (idx >= 0) {
-    searchTableData.value[idx] = { ...searchTableData.value[idx], ...patch }
-  }
-}
-
-function markTenantInfoPending(record: any) {
-  const id = record?.id
-  if (!id) return
-  const patch = {
-    tenantNameStatus: 'PENDING',
-    tenantNameError: null,
-    planTypeStatus: 'PENDING',
-    planTypeError: null,
-    infoRetryCount: 0,
-    infoNextRetryAt: null,
-  }
-  Object.assign(record, patch)
-  catalog.patchTenant(id, patch as any)
-  patchSearchTenant(id, patch)
-}
-
 function clearTenantInfoPollTimers() {
   for (const timer of tenantInfoPollTimers) clearTimeout(timer)
   tenantInfoPollTimers = []
@@ -2609,7 +2555,6 @@ async function refreshTenantListSilently() {
       catalog.ensureTenants({ force: true, silent: true }),
       catalog.ensureGroups({ force: false, silent: true }),
     ])
-    applyDefaultExpandAfterLoad()
   } catch {
     // 静默轮询只负责把后台刷新结果带回页面，失败时保留当前显示。
   }
@@ -2621,22 +2566,6 @@ function scheduleTenantInfoPolling() {
     tenantInfoPollTimers.push(setTimeout(() => {
       void refreshTenantListSilently()
     }, delay))
-  }
-}
-
-async function handleRefreshTenantInfo(record: any) {
-  const id = record?.id
-  if (!id || isTenantInfoRefreshing(id)) return
-  setTenantInfoRefreshing(id, true)
-  try {
-    await refreshTenantInfo({ id })
-    markTenantInfoPending(record)
-    scheduleTenantInfoPolling()
-    message.success('已加入刷新队列')
-  } catch (e: any) {
-    message.error(e?.message || '刷新租户信息失败')
-  } finally {
-    setTenantInfoRefreshing(id, false)
   }
 }
 

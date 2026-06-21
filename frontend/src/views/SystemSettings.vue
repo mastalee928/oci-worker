@@ -464,6 +464,12 @@
         <a-card title="一键更新" class="settings-card-wide">
           <a-spin :spinning="updateChecking">
             <a-descriptions :column="1" bordered size="small" v-if="updateInfo">
+              <a-descriptions-item label="更新源">
+                <a-tag color="purple" style="margin-right: 6px">{{ updateInfo.updateRepo || '未知' }}</a-tag>
+                <span style="color: var(--text-sub); font-size: 12px">
+                  {{ updateInfo.updateTag || 'latest' }} · {{ updateInfo.assetName || 'oci-worker-1.0.0.jar' }}
+                </span>
+              </a-descriptions-item>
               <a-descriptions-item label="当前版本">
                 <a-tag :color="updateInfo.currentCommit === 'dev' ? 'orange' : 'green'" style="margin-right: 6px">{{ updateInfo.currentCommit }}</a-tag>
                 <span v-if="updateInfo.currentBuildTime" style="color: var(--text-sub); font-size: 12px">{{ updateInfo.currentBuildTime }}</span>
@@ -471,21 +477,26 @@
               </a-descriptions-item>
               <a-descriptions-item label="最新版本">
                 <a-tag v-if="updateInfo.latestCommit" color="blue" style="margin-right: 6px">{{ updateInfo.latestCommit }}</a-tag>
+                <a-tag v-else-if="updateInfo.latestTag" color="blue" style="margin-right: 6px">{{ updateInfo.latestTag }}</a-tag>
                 <span v-if="updateInfo.publishedAt" style="font-size: 12px">{{ formatPublishDate(updateInfo.publishedAt) }}</span>
                 <span v-if="updateInfo.latestSizeHuman" style="margin-left: 8px; color: var(--text-sub); font-size: 12px">({{ updateInfo.latestSizeHuman }})</span>
               </a-descriptions-item>
               <a-descriptions-item label="状态">
                 <a-badge v-if="updateInfo.hasUpdate" status="warning" text="有新版本可用" />
+                <a-badge v-else-if="updateInfo.downloadFallbackAvailable" status="processing" text="GitHub API异常，安装包可下载" />
                 <a-badge v-else-if="updateInfo.error" status="error" :text="'检查失败: ' + updateInfo.error" />
                 <a-badge v-else-if="updateInfo.notice" status="processing" :text="updateInfo.notice" />
                 <a-badge v-else-if="updateInfo.versionNotice" status="success" text="无需更新" />
                 <a-badge v-else status="success" text="已是最新版本" />
               </a-descriptions-item>
+              <a-descriptions-item v-if="updateInfo.apiError" label="API状态">
+                <span style="color: var(--text-sub); font-size: 12px">{{ updateInfo.apiError }}</span>
+              </a-descriptions-item>
               <a-descriptions-item
-                v-if="updateInfo.versionNotice"
+                v-if="updateInfo.versionNotice || updateInfo.notice"
                 :label="updateInfo.hasUpdate ? '注意' : '说明'"
               >
-                <span style="color: var(--text-sub); font-size: 12px">{{ updateInfo.versionNotice }}</span>
+                <span style="color: var(--text-sub); font-size: 12px">{{ updateInfo.versionNotice || updateInfo.notice }}</span>
               </a-descriptions-item>
             </a-descriptions>
             <a-empty v-else description="点击检查更新" />
@@ -494,7 +505,7 @@
             <a-space>
               <a-button @click="checkUpdate" :loading="updateChecking">检查更新</a-button>
               <a-popconfirm title="确定执行更新？更新过程中服务将短暂重启。" @confirm="performUpdate" ok-text="确定更新" cancel-text="取消">
-                <a-button type="primary" :loading="updatePerforming" :disabled="!updateInfo?.hasUpdate && !updateForce">
+                <a-button type="primary" :loading="updatePerforming" :disabled="!updateInfo?.hasUpdate && !updateInfo?.downloadFallbackAvailable && !updateForce">
                   <i class="ri-download-2-line" style="margin-right: 6px"></i>一键更新
                 </a-button>
               </a-popconfirm>
@@ -509,7 +520,7 @@
 
         <a-card title="更新说明" class="settings-card-wide" style="margin-top: 16px">
           <a-descriptions :column="1" bordered size="small">
-            <a-descriptions-item label="更新来源">GitHub Releases (mastalee928/oci-worker)</a-descriptions-item>
+            <a-descriptions-item label="更新来源">GitHub Releases (mastalee928/oci-worker · latest)</a-descriptions-item>
             <a-descriptions-item label="更新流程">下载最新 JAR → 替换本地文件 → 重启服务</a-descriptions-item>
             <a-descriptions-item label="预计耗时">10 ~ 30 秒（取决于网络）</a-descriptions-item>
             <a-descriptions-item label="注意事项">更新期间页面将短暂无法访问，完成后自动恢复</a-descriptions-item>

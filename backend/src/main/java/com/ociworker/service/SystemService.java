@@ -50,10 +50,11 @@ public class SystemService {
     @Resource
     private StorageService storageService;
 
-    private static final String REPO = "mastalee928/oci-worker";
-    private static final String PUBLIC_RELEASE_REPO = "OCIworker/OCIworker";
+    private static final String UPDATE_REPO = "mastalee928/oci-worker";
+    private static final String PUBLIC_UPDATE_REPO = "OCIworker/OCIworker";
+    private static final String UPDATE_TAG = "latest";
     private static final String JAR_PATH = "/opt/oci-worker/oci-worker.jar";
-    private static final String ASSET_NAME = "oci-worker-1.0.0.jar";
+    private static final String UPDATE_ASSET_NAME = "oci-worker-1.0.0.jar";
     private static final ObjectMapper JSON = new ObjectMapper();
 
     private String currentCommit;
@@ -75,6 +76,7 @@ public class SystemService {
         Map<String, Object> result = new LinkedHashMap<>();
 
         result.put("currentCommit", currentCommit != null ? currentCommit : "dev");
+        fillUpdateSource(result);
 
         File jarFile = new File(JAR_PATH);
         if (jarFile.exists()) {
@@ -91,19 +93,17 @@ public class SystemService {
 
         try {
             // 必须用 /releases/tags/latest，不能用 /releases/latest（会误成 installer-latest）
-            String tagLatestApi = "https://api.github.com/repos/" + REPO + "/releases/tags/latest";
+            String tagLatestApi = releaseApiUrl();
             HttpClient client = ociProxyConfigService.newOutboundHttpClient();
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(tagLatestApi))
                     .header("Accept", "application/vnd.github.v3+json")
+                    .header("User-Agent", "oci-worker-update")
                     .timeout(Duration.ofSeconds(15))
                     .GET().build();
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() != 200) {
-                result.put("latestSize", -1);
-                result.put("latestSizeHuman", "查询失败");
-                result.put("hasUpdate", false);
-                result.put("error", "GitHub 返回 " + response.statusCode() + "（可能无 tag latest）");
+                applyDownloadFallback(result, "GitHub API 返回 " + response.statusCode());
                 return result;
             }
 
@@ -114,7 +114,7 @@ public class SystemService {
             String releasePublishedAt = root.path("published_at").asText("");
             String assetUpdatedAt = "";
             for (JsonNode a : root.withArray("assets")) {
-                if (ASSET_NAME.equals(a.path("name").asText())) {
+                if (UPDATE_ASSET_NAME.equals(a.path("name").asText())) {
                     jarSize = a.path("size").asLong(0);
                     assetUpdatedAt = a.path("updated_at").asText("");
                     if (assetUpdatedAt.isEmpty()) {
@@ -153,16 +153,17 @@ public class SystemService {
                 result.put("notice", "无法从 GitHub Release 说明中解析构建 commit，请去仓库 Releases 核对");
             } else if (currentCommit.equalsIgnoreCase(latestCommit)) {
                 result.put("hasUpdate", false);
-            } else if (PUBLIC_RELEASE_REPO.equalsIgnoreCase(REPO)) {
+            } else if (PUBLIC_UPDATE_REPO.equalsIgnoreCase(UPDATE_REPO)) {
                 result.put("hasUpdate", true);
             } else {
                 // 比较：base=线上下载包 commit，head=本机 JAR 内嵌 commit
                 // ahead = 本机更新；behind = 本机更旧，应提示更新
-                String compareApi = "https://api.github.com/repos/" + REPO + "/compare/"
+                String compareApi = "https://api.github.com/repos/" + UPDATE_REPO + "/compare/"
                         + latestCommit + "..." + currentCommit;
                 HttpRequest cr = HttpRequest.newBuilder()
                         .uri(URI.create(compareApi))
                         .header("Accept", "application/vnd.github.v3+json")
+                        .header("User-Agent", "oci-worker-update")
                         .timeout(Duration.ofSeconds(15))
                         .GET().build();
                 HttpResponse<String> cResp = client.send(cr, HttpResponse.BodyHandlers.ofString());
@@ -195,10 +196,7 @@ public class SystemService {
             }
         } catch (Exception e) {
             log.warn("Failed to check update: {}", e.getMessage());
-            result.put("latestSize", -1);
-            result.put("latestSizeHuman", "查询失败");
-            result.put("hasUpdate", false);
-            result.put("error", e.getMessage());
+            applyDownloadFallback(result, e.getMessage());
         }
 
         return result;
@@ -215,10 +213,11 @@ public class SystemService {
                     #!/bin/bash
                     set -e
                     REPO="%s"
+                    TAG="%s"
                     ASSET="%s"
                     JAR="%s"
                     # 直连 latest 资源，避免先调 api.github.com + grep（省一次 RTT，也降低限流概率）
-                    JAR_URL="https://github.com/${REPO}/releases/download/latest/${ASSET}"
+                    JAR_URL="https://github.com/${REPO}/releases/download/${TAG}/${ASSET}"
                     curl -fSL --retry 2 --retry-delay 2 --connect-timeout 15 --max-time 600 -o "${JAR}.tmp" "$JAR_URL"
                     NEW_SIZE=$(stat -c%%s "${JAR}.tmp" 2>/dev/null || echo 0)
                     if [ "$NEW_SIZE" -lt 1000 ]; then
@@ -233,7 +232,7 @@ public class SystemService {
                     rm -f /etc/systemd/system/oci-webssh.service
                     systemctl daemon-reload 2>/dev/null || true
                     systemctl restart oci-worker
-                    """.formatted(REPO, ASSET_NAME, JAR_PATH);
+                    """.formatted(UPDATE_REPO, UPDATE_TAG, UPDATE_ASSET_NAME, JAR_PATH);
 
             Path scriptFile = Path.of("/tmp/oci-worker-update.sh");
             Files.writeString(scriptFile, script);
@@ -248,6 +247,79 @@ public class SystemService {
         } catch (IOException e) {
             throw new OciException("启动更新失败: " + e.getMessage());
         }
+    }
+
+    private void fillUpdateSource(Map<String, Object> result) {
+        result.put("updateRepo", UPDATE_REPO);
+        result.put("updateTag", UPDATE_TAG);
+        result.put("assetName", UPDATE_ASSET_NAME);
+        result.put("sourceLabel", "GitHub Releases (" + UPDATE_REPO + ")");
+        result.put("releaseUrl", releaseUrl());
+        result.put("apiUrl", releaseApiUrl());
+        result.put("downloadUrl", releaseDownloadUrl());
+        result.put("downloadFallbackAvailable", false);
+    }
+
+    private static String releaseUrl() {
+        return "https://github.com/" + UPDATE_REPO + "/releases/tag/" + UPDATE_TAG;
+    }
+
+    private static String releaseApiUrl() {
+        return "https://api.github.com/repos/" + UPDATE_REPO + "/releases/tags/" + UPDATE_TAG;
+    }
+
+    private static String releaseDownloadUrl() {
+        return "https://github.com/" + UPDATE_REPO + "/releases/download/" + UPDATE_TAG + "/" + UPDATE_ASSET_NAME;
+    }
+
+    private void applyDownloadFallback(Map<String, Object> result, String apiFailure) {
+        String reason = StrUtil.blankToDefault(apiFailure, "GitHub API 查询失败");
+        result.put("latestTag", UPDATE_TAG);
+        result.put("apiError", reason);
+        result.put("hasUpdate", false);
+
+        try {
+            HttpClient client = ociProxyConfigService.newOutboundHttpClientBuilder()
+                    .followRedirects(HttpClient.Redirect.NORMAL)
+                    .build();
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(releaseDownloadUrl()))
+                    .header("User-Agent", "oci-worker-update")
+                    .timeout(Duration.ofSeconds(20))
+                    .method("HEAD", HttpRequest.BodyPublishers.noBody())
+                    .build();
+            HttpResponse<Void> response = client.send(request, HttpResponse.BodyHandlers.discarding());
+            int status = response.statusCode();
+            result.put("downloadHttpStatus", status);
+            if (status >= 200 && status < 400) {
+                long size = parseContentLength(response);
+                result.put("downloadFallbackAvailable", true);
+                result.put("latestSize", size);
+                result.put("latestSizeHuman", size > 0 ? humanReadableSize(size) : "可下载");
+                result.put("notice", "GitHub API 查询失败，但安装包可下载，可直接更新或稍后重试检查");
+                return;
+            }
+
+            result.put("latestSize", -1);
+            result.put("latestSizeHuman", "查询失败");
+            result.put("error", reason + "；安装包直链返回 " + status);
+        } catch (Exception fallbackError) {
+            result.put("latestSize", -1);
+            result.put("latestSizeHuman", "查询失败");
+            result.put("error", reason + "；安装包直链检查失败: " + fallbackError.getMessage());
+        }
+    }
+
+    private static long parseContentLength(HttpResponse<?> response) {
+        return response.headers().firstValue("content-length")
+                .map(v -> {
+                    try {
+                        return Long.parseLong(v);
+                    } catch (NumberFormatException ignored) {
+                        return -1L;
+                    }
+                })
+                .orElse(-1L);
     }
 
     private String humanReadableSize(long bytes) {
