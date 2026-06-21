@@ -2406,6 +2406,7 @@ async function loadData(expandAfter?: { groupLevel1?: string; groupLevel2?: stri
       if (requestSeq === tenantSearchRequestSeq && normalizedSearchText.value === keyword) {
         searchTableData.value = res.data.records || []
         pagination.total = res.data.total || 0
+        scheduleTenantInfoPollingIfNeeded(searchTableData.value)
       }
     } catch (e: any) {
       message.error(e?.message || '加载租户列表失败')
@@ -2427,6 +2428,7 @@ async function loadData(expandAfter?: { groupLevel1?: string; groupLevel2?: stri
     message.error(e?.message || catalog.tenantsError || '加载租户列表失败')
   }
   applyDefaultExpandAfterLoad()
+  scheduleTenantInfoPollingIfNeeded(catalog.tenants as any[])
 }
 
 async function loadGroups() {
@@ -2497,6 +2499,14 @@ function scheduleTenantInfoPolling() {
     tenantInfoPollTimers.push(setTimeout(() => {
       void refreshTenantListSilently()
     }, delay))
+  }
+}
+
+function scheduleTenantInfoPollingIfNeeded(rows: any[]) {
+  if (!Array.isArray(rows) || rows.length === 0) return
+  const hasPending = rows.some((r: any) => !r?.tenantName || !r?.planType)
+  if (hasPending) {
+    scheduleTenantInfoPolling()
   }
 }
 
@@ -5404,6 +5414,7 @@ onUnmounted(() => {
   color: var(--primary, #1677ff);
 }
 .plan-tag {
+  box-sizing: border-box;
   font-size: 11px;
   font-weight: 600;
   padding: 1px 6px;
@@ -5412,8 +5423,21 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 .tag-green { background: rgba(82, 196, 26, 0.15); color: #52c41a; }
-.tag-orange { background: rgba(250, 173, 20, 0.15); color: #faad14; }
+.tag-orange {
+  color: rgba(255, 255, 255, 0.92);
+  background: rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(10px) saturate(145%);
+  -webkit-backdrop-filter: blur(10px) saturate(145%);
+}
 .tag-gray { background: rgba(150, 150, 150, 0.15); color: #999; }
+:global([data-theme="light"]) .tag-orange {
+  color: rgba(15, 23, 42, 0.88);
+  background: rgba(15, 23, 42, 0.06);
+  border-color: rgba(15, 23, 42, 0.1);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
+}
 .group-body {
   overflow: hidden;
   transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);

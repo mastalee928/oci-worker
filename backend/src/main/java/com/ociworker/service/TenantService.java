@@ -76,6 +76,8 @@ public class TenantService {
         t.setDaemon(true);
         return t;
     });
+    private static final long TENANT_NAME_REFRESH_HOURS = 24;
+    private final Set<String> tenantInfoInflight = ConcurrentHashMap.newKeySet();
 
     private static final String GROUP_TYPE = "group";
     private static final String GROUP_L1_PREFIX = "group_l1:";
@@ -103,6 +105,7 @@ public class TenantService {
         }
         wrapper.orderByDesc(OciUser::getCreateTime);
         Page<OciUser> result = userMapper.selectPage(page, wrapper);
+        result.getRecords().forEach(this::scheduleTenantInfoFetchIfNeeded);
 
         Page<Map<String, Object>> enriched = new Page<>(result.getCurrent(), result.getSize(), result.getTotal());
         enriched.setRecords(result.getRecords().stream().map(u -> {
@@ -166,6 +169,45 @@ public class TenantService {
 
             Thread.ofVirtual().start(() -> fetchTenantInfo(user));
         }
+    }
+
+    private void scheduleTenantInfoFetchIfNeeded(OciUser user) {
+        if (user == null || StrUtil.isBlank(user.getId()) || !shouldFetchTenantInfo(user)) {
+            return;
+        }
+        if (!tenantInfoInflight.add(user.getId())) {
+            return;
+        }
+        Thread.ofVirtual().name("tenant-info-" + user.getId()).start(() -> {
+            try {
+                OciUser latest = userMapper.selectById(user.getId());
+                if (latest != null && shouldFetchTenantInfo(latest)) {
+                    fetchTenantInfo(latest);
+                }
+            } finally {
+                tenantInfoInflight.remove(user.getId());
+            }
+        });
+    }
+
+    private boolean shouldFetchTenantInfo(OciUser user) {
+        if (StrUtil.isBlank(user.getTenantName())) {
+            return true;
+        }
+        LocalDateTime tenantNameUpdatedAt = user.getTenantNameUpdatedAt();
+        if (tenantNameUpdatedAt == null || tenantNameUpdatedAt.plusHours(TENANT_NAME_REFRESH_HOURS).isBefore(LocalDateTime.now())) {
+            return true;
+        }
+        return shouldFetchPlanType(user);
+    }
+
+    private boolean shouldFetchPlanType(OciUser user) {
+        if (StrUtil.isBlank(user.getPlanType())) {
+            LocalDateTime next = user.getInfoNextRetryAt();
+            return next == null || !next.isAfter(LocalDateTime.now());
+        }
+        LocalDateTime planUpdatedAt = user.getPlanTypeUpdatedAt();
+        return planUpdatedAt == null || planUpdatedAt.plusHours(TENANT_NAME_REFRESH_HOURS).isBefore(LocalDateTime.now());
     }
 
     private void normalizeTenantParams(TenantParams params) {
@@ -336,40 +378,98 @@ public class TenantService {
                             .build())
                     .build();
             try (OciClientService client = new OciClientService(dto)) {
+                boolean tenantChanged = false;
                 try {
                     var tenancy = client.getIdentityClient().getTenancy(
                             com.oracle.bmc.identity.requests.GetTenancyRequest.builder()
                                     .tenancyId(user.getOciTenantId())
                                     .build()).getTenancy();
                     if (tenancy != null && StrUtil.isNotBlank(tenancy.getName())) {
-                        user.setTenantName(tenancy.getName());
+                        if (!Objects.equals(user.getTenantName(), tenancy.getName())) {
+                            user.setTenantName(tenancy.getName());
+                        }
+                        user.setTenantNameStatus("SUCCESS");
+                        user.setTenantNameError(null);
+                        user.setTenantNameUpdatedAt(LocalDateTime.now());
+                        tenantChanged = true;
                     }
                 } catch (Exception e) {
+                    user.setTenantNameStatus("FAILED");
+                    user.setTenantNameError(shortError(e));
+                    user.setTenantNameUpdatedAt(LocalDateTime.now());
+                    tenantChanged = true;
                     log.warn("Failed to fetch tenantName for {}: {}", user.getUsername(), e.getMessage());
                 }
-
-                com.oracle.bmc.ospgateway.SubscriptionServiceClient ospClient = buildOspClient(client);
-                try {
-                    var resp = ospClient.listSubscriptions(
-                            com.oracle.bmc.ospgateway.requests.ListSubscriptionsRequest.builder()
-                                    .ospHomeRegion(user.getOciRegion())
-                                    .compartmentId(client.getCompartmentId())
-                                    .build());
-                    var items = resp.getSubscriptionCollection().getItems();
-                    if (items != null && !items.isEmpty()) {
-                        String planType = items.get(0).getPlanType() != null
-                                ? items.get(0).getPlanType().getValue() : "UNKNOWN";
-                        user.setPlanType(planType);
-                    }
-                } finally {
-                    ospClient.close();
+                if (tenantChanged) {
+                    userMapper.updateById(user);
                 }
 
-                userMapper.updateById(user);
+                boolean planChanged = false;
+                if (shouldFetchPlanType(user)) {
+                    com.oracle.bmc.ospgateway.SubscriptionServiceClient ospClient = buildOspClient(client);
+                    try {
+                        var resp = ospClient.listSubscriptions(
+                                com.oracle.bmc.ospgateway.requests.ListSubscriptionsRequest.builder()
+                                        .ospHomeRegion(user.getOciRegion())
+                                        .compartmentId(client.getCompartmentId())
+                                        .limit(1)
+                                        .retryConfiguration(RetryConfiguration.NO_RETRY_CONFIGURATION)
+                                        .build());
+                        var items = resp.getSubscriptionCollection().getItems();
+                        if (items != null && !items.isEmpty()) {
+                            String planType = items.get(0).getPlanType() != null
+                                    ? items.get(0).getPlanType().getValue() : "UNKNOWN";
+                            user.setPlanType(planType);
+                        } else {
+                            user.setPlanType("UNKNOWN");
+                        }
+                        user.setPlanTypeStatus("SUCCESS");
+                        user.setPlanTypeError(null);
+                        user.setPlanTypeUpdatedAt(LocalDateTime.now());
+                        user.setInfoRetryCount(0);
+                        user.setInfoNextRetryAt(null);
+                        planChanged = true;
+                    } catch (Exception e) {
+                        int retries = Optional.ofNullable(user.getInfoRetryCount()).orElse(0) + 1;
+                        user.setPlanTypeStatus("FAILED");
+                        user.setPlanTypeError(shortError(e));
+                        user.setPlanTypeUpdatedAt(LocalDateTime.now());
+                        user.setInfoRetryCount(retries);
+                        user.setInfoNextRetryAt(LocalDateTime.now().plusMinutes(planRetryMinutes(retries)));
+                        planChanged = true;
+                        log.warn("Failed to fetch planType for {}: {}", user.getUsername(), e.getMessage());
+                    } finally {
+                        ospClient.close();
+                    }
+                }
+
+                if (planChanged) {
+                    userMapper.updateById(user);
+                }
             }
         } catch (Exception e) {
+            user.setTenantNameStatus("FAILED");
+            user.setTenantNameError(shortError(e));
+            user.setTenantNameUpdatedAt(LocalDateTime.now());
+            user.setPlanTypeStatus("FAILED");
+            user.setPlanTypeError(shortError(e));
+            user.setPlanTypeUpdatedAt(LocalDateTime.now());
+            userMapper.updateById(user);
             log.warn("Failed to fetch tenant info for {}: {}", user.getUsername(), e.getMessage());
         }
+    }
+
+    private static long planRetryMinutes(int retries) {
+        int safeRetries = Math.max(1, Math.min(retries, 6));
+        return Math.min(240, 5L << (safeRetries - 1));
+    }
+
+    private static String shortError(Exception e) {
+        String msg = e == null ? null : e.getMessage();
+        if (StrUtil.isBlank(msg)) {
+            msg = e == null ? "未知错误" : e.getClass().getSimpleName();
+        }
+        return msg.length() > 512 ? msg.substring(0, 512) : msg;
     }
 
     public Map<String, Object> getTenantFullInfo(String id) {
