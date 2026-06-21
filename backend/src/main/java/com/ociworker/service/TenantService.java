@@ -816,15 +816,28 @@ public class TenantService {
         if (result == null || orgSub == null) {
             return;
         }
-        if (result.get("subscriptionStatus") != null) {
-            return;
-        }
         Object assigned = orgSub.get("assignedSubscriptions");
         if (!(assigned instanceof List<?> list) || list.isEmpty()) {
             return;
         }
+        boolean needStatus = result.get("subscriptionStatus") == null;
         for (Object row : list) {
             if (!(row instanceof Map<?, ?> m)) {
+                continue;
+            }
+            Object subNumber = m.get("subscriptionNumber");
+            if (result.get("subscriptionPlanNumber") == null
+                    && subNumber != null
+                    && StrUtil.isNotBlank(String.valueOf(subNumber))) {
+                result.put("subscriptionPlanNumber", String.valueOf(subNumber).trim());
+            }
+            Object currency = m.get("currencyCode");
+            if (result.get("currencyCode") == null
+                    && currency != null
+                    && StrUtil.isNotBlank(String.valueOf(currency))) {
+                result.put("currencyCode", String.valueOf(currency).trim());
+            }
+            if (!needStatus) {
                 continue;
             }
             String lifecycle = m.get("lifecycleState") == null
@@ -833,7 +846,7 @@ public class TenantService {
                 String code = lifecycle.toUpperCase(Locale.ROOT);
                 result.put("subscriptionStatus", code);
                 result.put("subscriptionStatusLabel", OspSubscriptionEnricher.labelSubscriptionStatus(code));
-                return;
+                needStatus = false;
             }
         }
     }
