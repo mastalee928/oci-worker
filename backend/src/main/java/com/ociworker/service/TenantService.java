@@ -4,7 +4,6 @@ import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.ociworker.enums.TaskStatusEnum;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.ociworker.exception.OciException;
 import com.ociworker.mapper.OciCreateTaskMapper;
 import com.oracle.bmc.identity.IdentityClient;
@@ -22,7 +21,6 @@ import com.ociworker.model.params.PageParams;
 import com.ociworker.model.params.TenantBatchMoveGroupParams;
 import com.ociworker.model.params.TenantParams;
 import com.ociworker.util.CommonUtils;
-import com.ociworker.util.OspGatewayHttp;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
@@ -35,7 +33,6 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
-import java.net.http.HttpClient;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.*;
@@ -684,14 +681,6 @@ public class TenantService {
         return b.build(client.getProvider());
     }
 
-    private static HttpClient buildOciHttpClient() {
-        OciProxyConfigService pxy = OciProxyConfigService.instance();
-        if (pxy != null && pxy.ociUsesExplicitClientProxy()) {
-            return pxy.newOutboundHttpClient();
-        }
-        return HttpClient.newHttpClient();
-    }
-
     private String applyIdentityAccountFields(
             IdentityClient ic,
             String tenancyId,
@@ -738,36 +727,6 @@ public class TenantService {
             String compartmentId,
             Map<String, Object> result) {
         try (SubscriptionServiceClient ospClient = buildOspClient(client)) {
-            HttpClient http = buildOciHttpClient();
-            String subId = null;
-            JsonNode rawSub = null;
-            try {
-                JsonNode listRaw = OspGatewayHttp.listSubscriptionsJson(
-                        http, ospClient, client.getProvider(), ospHomeRegion, compartmentId);
-                JsonNode listSub = OspGatewayHttp.unwrapSubscriptionBody(listRaw);
-                if (listSub != null && listSub.hasNonNull("id")) {
-                    subId = listSub.get("id").asText();
-                }
-                rawSub = listSub;
-                if (StrUtil.isNotBlank(subId)) {
-                    try {
-                        JsonNode detailRaw = OspGatewayHttp.getSubscriptionJson(
-                                http, ospClient, client.getProvider(), ospHomeRegion, compartmentId, subId);
-                        JsonNode detailSub = OspGatewayHttp.unwrapSubscriptionBody(detailRaw);
-                        if (detailSub != null) {
-                            rawSub = detailSub;
-                        }
-                    } catch (Exception ex) {
-                        log.warn("OSP raw getSubscription: {}", ex.getMessage());
-                    }
-                }
-                if (rawSub != null) {
-                    OspSubscriptionEnricher.enrichFromRawJson(rawSub, result);
-                }
-            } catch (Exception ex) {
-                log.warn("OSP raw listSubscriptions: {}", ex.getMessage());
-            }
-
             var resp = ospClient.listSubscriptions(
                     ListSubscriptionsRequest.builder()
                             .ospHomeRegion(ospHomeRegion)
@@ -779,12 +738,10 @@ public class TenantService {
                 return;
             }
             var sub = items.get(0);
-            if (StrUtil.isBlank(subId)) {
-                subId = sub.getId();
-            }
+            String subId = sub.getId();
             OspSubscriptionEnricher.enrich(sub, result);
             Object merged = sub;
-            if (StrUtil.isNotBlank(subId)) {
+            if (OspSubscriptionEnricher.isOciOcid(subId)) {
                 Object detail = OspSubscriptionEnricher.fetchSubscriptionDetail(
                         ospClient, ospHomeRegion, compartmentId, subId);
                 if (detail != null) {
@@ -793,10 +750,6 @@ public class TenantService {
                 }
             }
             applyRegistrationFromSdk(merged, result);
-            if (result.get("registrationLocation") == null && rawSub != null) {
-                String countryName = countryNameFromRaw(rawSub);
-                result.put("registrationLocation", StrUtil.isBlank(countryName) ? null : countryName);
-            }
             if (StrUtil.isNotBlank(subId)) {
                 result.put("subscriptionOspRef", subId.trim());
                 if (!OspSubscriptionEnricher.isOciOcid(subId)
@@ -875,31 +828,6 @@ public class TenantService {
                 return;
             }
         }
-    }
-
-    private static String countryNameFromRaw(JsonNode sub) {
-        if (sub == null || sub.isNull()) {
-            return null;
-        }
-        for (String addrKey : List.of("billingAddress", "billToAddress", "address")) {
-            JsonNode addr = sub.get(addrKey);
-            if (addr == null || addr.isNull()) {
-                continue;
-            }
-            JsonNode country = addr.get("country");
-            if (country != null && !country.isNull()) {
-                if (country.hasNonNull("name")) {
-                    return country.get("name").asText();
-                }
-                if (country.hasNonNull("countryName")) {
-                    return country.get("countryName").asText();
-                }
-            }
-            if (addr.hasNonNull("countryName")) {
-                return addr.get("countryName").asText();
-            }
-        }
-        return null;
     }
 
     private static Object tryInvoke(Object target, String method) {

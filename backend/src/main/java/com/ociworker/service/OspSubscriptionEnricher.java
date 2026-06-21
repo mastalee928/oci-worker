@@ -30,6 +30,9 @@ final class OspSubscriptionEnricher {
     static Object fetchSubscriptionDetail(
             SubscriptionServiceClient client, String ospHomeRegion, String compartmentId, String subscriptionId) {
         if (client == null || StrUtil.isBlank(subscriptionId)) return null;
+        if (!isOciOcid(subscriptionId)) {
+            return null;
+        }
         try {
             return client.getSubscription(
                             GetSubscriptionRequest.builder()
