@@ -7,7 +7,6 @@ import com.ociworker.enums.TaskStatusEnum;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.ociworker.exception.OciException;
 import com.ociworker.mapper.OciCreateTaskMapper;
-import com.oracle.bmc.auth.SimpleAuthenticationDetailsProvider;
 import com.oracle.bmc.identity.IdentityClient;
 import com.oracle.bmc.identity.requests.GetTenancyRequest;
 import com.oracle.bmc.identity.requests.ListRegionSubscriptionsRequest;
@@ -348,12 +347,7 @@ public class TenantService {
                     log.warn("Failed to fetch tenantName for {}: {}", user.getUsername(), e.getMessage());
                 }
 
-                var ospB = com.oracle.bmc.ospgateway.SubscriptionServiceClient.builder();
-                OciProxyConfigService pxy = OciProxyConfigService.instance();
-                if (pxy == null || !pxy.ociUsesExplicitClientProxy()) {
-                    ospB = ospB.additionalClientConfigurator(OciProxyConfigService.ociSdkJerseyDirectConfigurator());
-                }
-                com.oracle.bmc.ospgateway.SubscriptionServiceClient ospClient = ospB.build(client.getProvider());
+                com.oracle.bmc.ospgateway.SubscriptionServiceClient ospClient = buildOspClient(client);
                 try {
                     var resp = ospClient.listSubscriptions(
                             com.oracle.bmc.ospgateway.requests.ListSubscriptionsRequest.builder()
@@ -381,9 +375,19 @@ public class TenantService {
         OciUser user = userMapper.selectById(id);
         if (user == null) throw new OciException("配置不存在");
 
-        Map<String, Object> result = new LinkedHashMap<>();
+        Map<String, Object> result = Collections.synchronizedMap(new LinkedHashMap<>());
         result.put("configName", user.getUsername());
         result.put("id", user.getId());
+        if (StrUtil.isNotBlank(user.getTenantName())) {
+            result.put("tenantName", user.getTenantName());
+        }
+        if (StrUtil.isNotBlank(user.getOciTenantId())) {
+            result.put("tenantId", user.getOciTenantId());
+        }
+        if (StrUtil.isNotBlank(user.getPlanType())) {
+            result.put("planType", user.getPlanType());
+            result.put("planTypeLabel", OspSubscriptionEnricher.labelPlanType(user.getPlanType()));
+        }
 
         com.ociworker.model.dto.SysUserDTO dto = com.ociworker.model.dto.SysUserDTO.builder()
                 .username(user.getUsername())
@@ -400,7 +404,6 @@ public class TenantService {
         try (OciClientService client = new OciClientService(dto)) {
             String savedTenantName = user.getTenantName();
             String savedPlanType = user.getPlanType();
-            SimpleAuthenticationDetailsProvider provider = client.getProvider();
             IdentityClient identityClient = client.getIdentityClient();
             String tenancyId = user.getOciTenantId();
             String fallbackRegion = user.getOciRegion();
@@ -409,19 +412,18 @@ public class TenantService {
             String usageRegion = UsageCostService.resolveTenancyHomeRegionName(
                     identityClient, tenancyId, fallbackRegion);
 
-            CompletableFuture<Void> identityFut = CompletableFuture.runAsync(
-                    () -> applyIdentityAccountFields(provider, tenancyId, user, result),
-                    TENANT_ACCOUNT_EXECUTOR);
+            applyIdentityAccountFields(identityClient, tenancyId, user, result);
+
             CompletableFuture<List<Map<String, Object>>> assignedFut = CompletableFuture.supplyAsync(
                     () -> organizationSubscriptionService.listAssignedSubscriptionsOnly(
                             client, tenancyId, usageRegion),
                     TENANT_ACCOUNT_EXECUTOR);
             CompletableFuture<Void> ospFut = CompletableFuture.runAsync(
-                    () -> applyOspAccountFields(provider, ospHomeRegion, compartmentId, result),
+                    () -> applyOspAccountFields(client, ospHomeRegion, compartmentId, result),
                     TENANT_ACCOUNT_EXECUTOR);
 
             try {
-                CompletableFuture.allOf(identityFut, assignedFut, ospFut).get(20, TimeUnit.SECONDS);
+                CompletableFuture.allOf(assignedFut, ospFut).get(15, TimeUnit.SECONDS);
             } catch (Exception e) {
                 log.warn("Tenant account parallel fetch timeout or error: {}", e.getMessage());
             }
@@ -668,30 +670,19 @@ public class TenantService {
         return new ArrayList<>(ids);
     }
 
-    private static IdentityClient buildIdentityClient(SimpleAuthenticationDetailsProvider provider) {
-        var b = IdentityClient.builder();
-        OciProxyConfigService pxy = OciProxyConfigService.instance();
-        if (pxy == null || !pxy.ociUsesExplicitClientProxy()) {
-            b = b.additionalClientConfigurator(OciProxyConfigService.ociSdkJerseyDirectConfigurator());
-        }
-        return b.build(provider);
-    }
-
-    private static SubscriptionServiceClient buildOspClient(SimpleAuthenticationDetailsProvider provider) {
-        var b = SubscriptionServiceClient.builder();
-        OciProxyConfigService pxy = OciProxyConfigService.instance();
-        if (pxy == null || !pxy.ociUsesExplicitClientProxy()) {
-            b = b.additionalClientConfigurator(OciProxyConfigService.ociSdkJerseyDirectConfigurator());
-        }
-        return b.build(provider);
+    private static SubscriptionServiceClient buildOspClient(OciClientService client) {
+        var b = SubscriptionServiceClient.builder()
+                .configuration(client.getClientConfiguration());
+        b.additionalClientConfigurator(client.getOciClientConfigurator());
+        return b.build(client.getProvider());
     }
 
     private void applyIdentityAccountFields(
-            SimpleAuthenticationDetailsProvider provider,
+            IdentityClient ic,
             String tenancyId,
             OciUser user,
             Map<String, Object> result) {
-        try (IdentityClient ic = buildIdentityClient(provider)) {
+        try {
             var tenancy = ic.getTenancy(
                     GetTenancyRequest.builder().tenancyId(tenancyId).build()).getTenancy();
             if (tenancy != null) {
@@ -718,11 +709,11 @@ public class TenantService {
     }
 
     private static void applyOspAccountFields(
-            SimpleAuthenticationDetailsProvider provider,
+            OciClientService client,
             String ospHomeRegion,
             String compartmentId,
             Map<String, Object> result) {
-        try (SubscriptionServiceClient ospClient = buildOspClient(provider)) {
+        try (SubscriptionServiceClient ospClient = buildOspClient(client)) {
             var resp = ospClient.listSubscriptions(
                     ListSubscriptionsRequest.builder()
                             .ospHomeRegion(ospHomeRegion)

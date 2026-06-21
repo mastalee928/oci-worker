@@ -189,20 +189,16 @@ public class OrganizationSubscriptionService {
     }
 
     private static SubscriptionClient buildSubscriptionClient(OciClientService oci) {
-        var b = SubscriptionClient.builder();
-        OciProxyConfigService pxy = OciProxyConfigService.instance();
-        if (pxy == null || !pxy.ociUsesExplicitClientProxy()) {
-            b = b.additionalClientConfigurator(OciProxyConfigService.ociSdkJerseyDirectConfigurator());
-        }
+        var b = SubscriptionClient.builder()
+                .configuration(oci.getClientConfiguration());
+        b.additionalClientConfigurator(oci.getOciClientConfigurator());
         return b.build(oci.getProvider());
     }
 
     private static SubscribedServiceClient buildSubscribedServiceClient(OciClientService oci) {
-        var b = SubscribedServiceClient.builder();
-        OciProxyConfigService pxy = OciProxyConfigService.instance();
-        if (pxy == null || !pxy.ociUsesExplicitClientProxy()) {
-            b = b.additionalClientConfigurator(OciProxyConfigService.ociSdkJerseyDirectConfigurator());
-        }
+        var b = SubscribedServiceClient.builder()
+                .configuration(oci.getClientConfiguration());
+        b.additionalClientConfigurator(oci.getOciClientConfigurator());
         return b.build(oci.getProvider());
     }
 

@@ -59,6 +59,8 @@ public class OciClientService implements Closeable {
     private final MonitoringClient monitoringClient;
     private final NetworkLoadBalancerClient networkLoadBalancerClient;
     private final SimpleAuthenticationDetailsProvider provider;
+    private final ClientConfiguration clientConfiguration;
+    private final ClientConfigurator ociClientConfigurator;
     private SysUserDTO user;
     private String compartmentId;
     /** SOCKS 时共享的 Apache 连接池；HTTP 代理时为 null */
@@ -120,6 +122,7 @@ public class OciClientService implements Closeable {
                 .connectionTimeoutMillis(10_000)
                 .readTimeoutMillis(30_000)
                 .build();
+        this.clientConfiguration = clientConfig;
         OciProxyConfigService ps = OciProxyConfigService.instance();
         OciProxySnapshot snap = ps == null ? null : ps.snapshot();
         if (ps == null || !ps.ociUsesExplicitClientProxy()) {
@@ -149,6 +152,7 @@ public class OciClientService implements Closeable {
         } else {
             ociApacheCfg = OciProxyConfigService.ociSdkJerseyDirectConfigurator();
         }
+        this.ociClientConfigurator = ociApacheCfg;
 
         if (snap != null && snap.usesSocksForOci()) {
             log.debug("OCI 客户端经应用内 SOCKS5 代理出站: {}:{}", snap.host(), snap.port());
