@@ -63,6 +63,8 @@ public class TenantService {
 
     @Resource
     private OrganizationSubscriptionService organizationSubscriptionService;
+    @Resource
+    private TenantInfoRefreshQueue tenantInfoRefreshQueue;
 
     private static final Set<String> TENANT_ACCOUNT_INFO_KEYS = Set.of(
             "tenantName", "homeRegionKey", "tenantId", "description",
@@ -112,12 +114,20 @@ public class TenantService {
             map.put("id", u.getId());
             map.put("username", u.getUsername());
             map.put("tenantName", u.getTenantName());
+            map.put("tenantNameStatus", u.getTenantNameStatus());
+            map.put("tenantNameError", u.getTenantNameError());
+            map.put("tenantNameUpdatedAt", u.getTenantNameUpdatedAt());
             map.put("ociTenantId", u.getOciTenantId());
             map.put("ociUserId", u.getOciUserId());
             map.put("ociFingerprint", u.getOciFingerprint());
             map.put("ociRegion", u.getOciRegion());
             map.put("ociKeyPath", u.getOciKeyPath());
             map.put("planType", u.getPlanType());
+            map.put("planTypeStatus", u.getPlanTypeStatus());
+            map.put("planTypeError", u.getPlanTypeError());
+            map.put("planTypeUpdatedAt", u.getPlanTypeUpdatedAt());
+            map.put("infoRetryCount", u.getInfoRetryCount());
+            map.put("infoNextRetryAt", u.getInfoNextRetryAt());
             map.put("groupLevel1", u.getGroupLevel1());
             map.put("groupLevel2", u.getGroupLevel2());
             map.put("createTime", u.getCreateTime());
@@ -158,6 +168,9 @@ public class TenantService {
             user.setOciKeyPath(params.getOciKeyPath());
             user.setGroupLevel1(StrUtil.isBlank(params.getGroupLevel1()) ? "未分组" : params.getGroupLevel1());
             user.setGroupLevel2(StrUtil.isBlank(params.getGroupLevel2()) ? null : params.getGroupLevel2());
+            user.setTenantNameStatus(TenantInfoRefreshQueue.PENDING);
+            user.setPlanTypeStatus(TenantInfoRefreshQueue.PENDING);
+            user.setInfoRetryCount(0);
             user.setCreateTime(LocalDateTime.now());
             try {
                 userMapper.insert(user);
@@ -166,7 +179,7 @@ public class TenantService {
             }
             log.info("Added tenant config: {}", params.getUsername());
 
-            Thread.ofVirtual().start(() -> fetchTenantInfo(user));
+            tenantInfoRefreshQueue.enqueue(user.getId(), true);
         }
     }
 
@@ -271,6 +284,12 @@ public class TenantService {
             }
             user.setGroupLevel1(StrUtil.isBlank(params.getGroupLevel1()) ? null : params.getGroupLevel1());
             user.setGroupLevel2(StrUtil.isBlank(params.getGroupLevel2()) ? null : params.getGroupLevel2());
+            user.setTenantNameStatus(TenantInfoRefreshQueue.PENDING);
+            user.setTenantNameError(null);
+            user.setPlanTypeStatus(TenantInfoRefreshQueue.PENDING);
+            user.setPlanTypeError(null);
+            user.setInfoRetryCount(0);
+            user.setInfoNextRetryAt(null);
             try {
                 userMapper.updateById(user);
             } catch (DuplicateKeyException e) {
@@ -278,6 +297,7 @@ public class TenantService {
             }
         }
         log.info("Updated tenant config: {}", params.getUsername());
+        tenantInfoRefreshQueue.enqueue(params.getId(), true);
     }
 
     public void remove(IdListParams params) {
@@ -315,63 +335,13 @@ public class TenantService {
     public void refreshPlanType(String id) {
         OciUser user = userMapper.selectById(id);
         if (user == null) throw new OciException("配置不存在");
-        fetchTenantInfo(user);
+        tenantInfoRefreshQueue.enqueue(id, true);
     }
 
-    private void fetchTenantInfo(OciUser user) {
-        try {
-            com.ociworker.model.dto.SysUserDTO dto = com.ociworker.model.dto.SysUserDTO.builder()
-                    .username(user.getUsername())
-                    .ociCfg(com.ociworker.model.dto.SysUserDTO.OciCfg.builder()
-                            .tenantId(user.getOciTenantId())
-                            .userId(user.getOciUserId())
-                            .fingerprint(user.getOciFingerprint())
-                            .region(user.getOciRegion())
-                            .privateKeyPath(user.getOciKeyPath())
-                            .build())
-                    .build();
-            try (OciClientService client = new OciClientService(dto)) {
-                // Fetch tenant name
-                try {
-                    var tenancy = client.getIdentityClient().getTenancy(
-                            com.oracle.bmc.identity.requests.GetTenancyRequest.builder()
-                                    .tenancyId(user.getOciTenantId())
-                                    .build()).getTenancy();
-                    if (tenancy != null && StrUtil.isNotBlank(tenancy.getName())) {
-                        user.setTenantName(tenancy.getName());
-                    }
-                } catch (Exception e) {
-                    log.warn("Failed to fetch tenantName for {}: {}", user.getUsername(), e.getMessage());
-                }
-
-                // Fetch plan type（与 OciClientService 同策略：无应用内代理时禁止 Jersey 套 JVM 代理）
-                var ospB = com.oracle.bmc.ospgateway.SubscriptionServiceClient.builder();
-                OciProxyConfigService pxy = OciProxyConfigService.instance();
-                if (pxy == null || !pxy.ociUsesExplicitClientProxy()) {
-                    ospB = ospB.additionalClientConfigurator(OciProxyConfigService.ociSdkJerseyDirectConfigurator());
-                }
-                com.oracle.bmc.ospgateway.SubscriptionServiceClient ospClient = ospB.build(client.getProvider());
-                try {
-                    var resp = ospClient.listSubscriptions(
-                            com.oracle.bmc.ospgateway.requests.ListSubscriptionsRequest.builder()
-                                    .ospHomeRegion(user.getOciRegion())
-                                    .compartmentId(client.getCompartmentId())
-                                    .build());
-                    var items = resp.getSubscriptionCollection().getItems();
-                    if (items != null && !items.isEmpty()) {
-                        String planType = items.get(0).getPlanType() != null
-                                ? items.get(0).getPlanType().getValue() : "UNKNOWN";
-                        user.setPlanType(planType);
-                    }
-                } finally {
-                    ospClient.close();
-                }
-
-                userMapper.updateById(user);
-            }
-        } catch (Exception e) {
-            log.warn("Failed to fetch tenant info for {}: {}", user.getUsername(), e.getMessage());
-        }
+    public void refreshInfo(String id) {
+        OciUser user = userMapper.selectById(id);
+        if (user == null) throw new OciException("配置不存在");
+        tenantInfoRefreshQueue.enqueue(id, true);
     }
 
     public Map<String, Object> getTenantFullInfo(String id) {
@@ -447,8 +417,20 @@ public class TenantService {
             if (StrUtil.isNotBlank(planVal) && !Objects.equals(planVal, savedPlanType)) {
                 user.setPlanType(planVal);
             }
+            if (StrUtil.isNotBlank(user.getTenantName())) {
+                user.setTenantNameStatus(TenantInfoRefreshQueue.SUCCESS);
+                user.setTenantNameError(null);
+                user.setTenantNameUpdatedAt(LocalDateTime.now());
+            }
+            if (StrUtil.isNotBlank(planVal)) {
+                user.setPlanTypeStatus(TenantInfoRefreshQueue.SUCCESS);
+                user.setPlanTypeError(null);
+                user.setPlanTypeUpdatedAt(LocalDateTime.now());
+            }
             if (!Objects.equals(savedTenantName, user.getTenantName())
-                    || !Objects.equals(savedPlanType, user.getPlanType())) {
+                    || !Objects.equals(savedPlanType, user.getPlanType())
+                    || TenantInfoRefreshQueue.SUCCESS.equals(user.getTenantNameStatus())
+                    || TenantInfoRefreshQueue.SUCCESS.equals(user.getPlanTypeStatus())) {
                 userMapper.updateById(user);
             }
 

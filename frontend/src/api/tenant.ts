@@ -32,6 +32,10 @@ export function refreshPlanType(data: { id: string }) {
   return request.post('/oci/user/refreshPlanType', data)
 }
 
+export function refreshTenantInfo(data: { id: string }) {
+  return request.post('/oci/user/refreshInfo', data)
+}
+
 export function getTenantFullInfo(data: { id: string }) {
   return request.post('/oci/user/fullInfo', data)
 }

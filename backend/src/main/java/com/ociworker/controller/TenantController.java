@@ -91,6 +91,12 @@ public class TenantController {
         return ResponseData.ok();
     }
 
+    @PostMapping("/refreshInfo")
+    public ResponseData<?> refreshInfo(@RequestBody java.util.Map<String, String> params) {
+        tenantService.refreshInfo(params.get("id"));
+        return ResponseData.ok();
+    }
+
     @PostMapping("/billingSummary")
     public ResponseData<?> billingSummary(@RequestBody java.util.Map<String, Object> params) {
         String id = params == null ? null : String.valueOf(params.get("id"));

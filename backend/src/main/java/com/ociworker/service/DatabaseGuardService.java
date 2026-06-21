@@ -36,12 +36,20 @@ public class DatabaseGuardService {
                 username VARCHAR(64),
                 tenant_name VARCHAR(64),
                 tenant_create_time DATETIME,
+                tenant_name_status VARCHAR(32) DEFAULT 'PENDING',
+                tenant_name_error VARCHAR(512) DEFAULT NULL,
+                tenant_name_updated_at DATETIME DEFAULT NULL,
                 oci_tenant_id VARCHAR(128) NOT NULL,
                 oci_user_id VARCHAR(128),
                 oci_fingerprint VARCHAR(128) NOT NULL,
                 oci_region VARCHAR(32) NOT NULL,
                 oci_key_path VARCHAR(256) NOT NULL,
                 plan_type VARCHAR(32),
+                plan_type_status VARCHAR(32) DEFAULT 'PENDING',
+                plan_type_error VARCHAR(512) DEFAULT NULL,
+                plan_type_updated_at DATETIME DEFAULT NULL,
+                info_retry_count INT DEFAULT 0,
+                info_next_retry_at DATETIME DEFAULT NULL,
                 group_level1 VARCHAR(64) DEFAULT NULL,
                 group_level2 VARCHAR(64) DEFAULT NULL,
                 generative_openai_project VARCHAR(512) DEFAULT NULL,
@@ -451,6 +459,14 @@ public class DatabaseGuardService {
     }
 
     private void migrateColumns(Connection conn) {
+        addColumnIfMissing(conn, "oci_user", "tenant_name_status", "VARCHAR(32) DEFAULT 'PENDING' AFTER tenant_create_time");
+        addColumnIfMissing(conn, "oci_user", "tenant_name_error", "VARCHAR(512) DEFAULT NULL AFTER tenant_name_status");
+        addColumnIfMissing(conn, "oci_user", "tenant_name_updated_at", "DATETIME DEFAULT NULL AFTER tenant_name_error");
+        addColumnIfMissing(conn, "oci_user", "plan_type_status", "VARCHAR(32) DEFAULT 'PENDING' AFTER plan_type");
+        addColumnIfMissing(conn, "oci_user", "plan_type_error", "VARCHAR(512) DEFAULT NULL AFTER plan_type_status");
+        addColumnIfMissing(conn, "oci_user", "plan_type_updated_at", "DATETIME DEFAULT NULL AFTER plan_type_error");
+        addColumnIfMissing(conn, "oci_user", "info_retry_count", "INT DEFAULT 0 AFTER plan_type_updated_at");
+        addColumnIfMissing(conn, "oci_user", "info_next_retry_at", "DATETIME DEFAULT NULL AFTER info_retry_count");
         addColumnIfMissing(conn, "oci_user", "group_level1", "VARCHAR(64) DEFAULT NULL AFTER plan_type");
         addColumnIfMissing(conn, "oci_user", "group_level2", "VARCHAR(64) DEFAULT NULL AFTER group_level1");
         addColumnIfMissing(conn, "oci_user", "generative_openai_project", "VARCHAR(512) DEFAULT NULL AFTER group_level2");

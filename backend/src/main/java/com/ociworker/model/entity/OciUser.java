@@ -16,12 +16,23 @@ public class OciUser {
     private String username;
     private String tenantName;
     private LocalDateTime tenantCreateTime;
+    private String tenantNameStatus;
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
+    private String tenantNameError;
+    private LocalDateTime tenantNameUpdatedAt;
     private String ociTenantId;
     private String ociUserId;
     private String ociFingerprint;
     private String ociRegion;
     private String ociKeyPath;
     private String planType;
+    private String planTypeStatus;
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
+    private String planTypeError;
+    private LocalDateTime planTypeUpdatedAt;
+    private Integer infoRetryCount;
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
+    private LocalDateTime infoNextRetryAt;
     @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private String groupLevel1;
     @TableField(updateStrategy = FieldStrategy.ALWAYS)

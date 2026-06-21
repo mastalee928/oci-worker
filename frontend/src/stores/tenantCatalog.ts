@@ -6,12 +6,20 @@ export interface TenantRecord {
   id: string
   username: string
   tenantName?: string
+  tenantNameStatus?: string | null
+  tenantNameError?: string | null
+  tenantNameUpdatedAt?: string | null
   ociTenantId?: string
   ociUserId?: string
   ociFingerprint?: string
   ociRegion?: string
   ociKeyPath?: string
   planType?: string
+  planTypeStatus?: string | null
+  planTypeError?: string | null
+  planTypeUpdatedAt?: string | null
+  infoRetryCount?: number
+  infoNextRetryAt?: string | null
   groupLevel1?: string
   groupLevel2?: string
   createTime?: string
