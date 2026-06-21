@@ -22,6 +22,7 @@ import com.ociworker.model.params.PageParams;
 import com.ociworker.model.params.TenantBatchMoveGroupParams;
 import com.ociworker.model.params.TenantParams;
 import com.ociworker.util.CommonUtils;
+import com.ociworker.util.OspGatewayHttp;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
@@ -34,6 +35,7 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.net.http.HttpClient;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.*;
@@ -682,6 +684,11 @@ public class TenantService {
         return b.build(client.getProvider());
     }
 
+    private static HttpClient buildOciHttpClient() {
+        OciProxyConfigService pxy = OciProxyConfigService.instance();
+        return pxy == null ? OciProxyConfigService.newDirectHttpClient() : pxy.newOutboundHttpClient();
+    }
+
     private String applyIdentityAccountFields(
             IdentityClient ic,
             String tenancyId,
@@ -728,6 +735,36 @@ public class TenantService {
             String compartmentId,
             Map<String, Object> result) {
         try (SubscriptionServiceClient ospClient = buildOspClient(client)) {
+            HttpClient http = buildOciHttpClient();
+            String subId = null;
+            JsonNode rawSub = null;
+            try {
+                JsonNode listRaw = OspGatewayHttp.listSubscriptionsJson(
+                        http, ospClient, client.getProvider(), ospHomeRegion, compartmentId);
+                JsonNode listSub = OspGatewayHttp.unwrapSubscriptionBody(listRaw);
+                if (listSub != null && listSub.hasNonNull("id")) {
+                    subId = listSub.get("id").asText();
+                }
+                rawSub = listSub;
+                if (StrUtil.isNotBlank(subId)) {
+                    try {
+                        JsonNode detailRaw = OspGatewayHttp.getSubscriptionJson(
+                                http, ospClient, client.getProvider(), ospHomeRegion, compartmentId, subId);
+                        JsonNode detailSub = OspGatewayHttp.unwrapSubscriptionBody(detailRaw);
+                        if (detailSub != null) {
+                            rawSub = detailSub;
+                        }
+                    } catch (Exception ex) {
+                        log.warn("OSP raw getSubscription: {}", ex.getMessage());
+                    }
+                }
+                if (rawSub != null) {
+                    OspSubscriptionEnricher.enrichFromRawJson(rawSub, result);
+                }
+            } catch (Exception ex) {
+                log.warn("OSP raw listSubscriptions: {}", ex.getMessage());
+            }
+
             var resp = ospClient.listSubscriptions(
                     ListSubscriptionsRequest.builder()
                             .ospHomeRegion(ospHomeRegion)
@@ -739,7 +776,9 @@ public class TenantService {
                 return;
             }
             var sub = items.get(0);
-            String subId = sub.getId();
+            if (StrUtil.isBlank(subId)) {
+                subId = sub.getId();
+            }
             OspSubscriptionEnricher.enrich(sub, result);
             Object merged = sub;
             if (StrUtil.isNotBlank(subId)) {
@@ -751,6 +790,10 @@ public class TenantService {
                 }
             }
             applyRegistrationFromSdk(merged, result);
+            if (result.get("registrationLocation") == null && rawSub != null) {
+                String countryName = countryNameFromRaw(rawSub);
+                result.put("registrationLocation", StrUtil.isBlank(countryName) ? null : countryName);
+            }
             if (StrUtil.isNotBlank(subId)) {
                 result.put("subscriptionOspRef", subId.trim());
                 if (!OspSubscriptionEnricher.isOciOcid(subId)
@@ -797,7 +840,11 @@ public class TenantService {
                 countryName = String.valueOf(n);
             }
         }
-        result.put("registrationLocation", StrUtil.isBlank(countryName) ? null : countryName);
+        if (StrUtil.isNotBlank(countryName)) {
+            result.put("registrationLocation", countryName);
+        } else {
+            result.putIfAbsent("registrationLocation", null);
+        }
     }
 
     @SuppressWarnings("unchecked")
