@@ -179,16 +179,11 @@ function createSession(hostname, port, username, sshInfo) {
     document.getElementById('terminalContainer').appendChild(termDiv);
 
     var savedFont = getCurrentFontSize();
-    var savedColors = getSavedColors();
-    var isLight = document.documentElement.getAttribute('data-theme') === 'light' || (!document.documentElement.getAttribute('data-theme') && window.matchMedia('(prefers-color-scheme: light)').matches);
-    var defaultFg = isLight ? '#1a1a2e' : '#e8e8f0';
-    var defaultBg = isLight ? 'rgba(0,0,0,0)' : 'rgba(10,10,26,0)';
-    var defaultCursor = isLight ? '#0088cc' : '#00d4ff';
     var t = new Terminal({
         cursorBlink: true, cursorStyle: 'bar',
         fontSize: savedFont,
         fontFamily: "'JetBrains Mono','Fira Code','Cascadia Code',Consolas,monospace",
-        theme: { background: savedColors.bg === '#0a0a1a' || savedColors.bg === '#e8eaf0' ? defaultBg : savedColors.bg, foreground: savedColors.fg === '#e8e8f0' || savedColors.fg === '#1a1a2e' ? defaultFg : savedColors.fg, cursor: savedColors.cursor === '#00d4ff' || savedColors.cursor === '#0088cc' ? defaultCursor : savedColors.cursor, cursorAccent: isLight ? '#e8eaf0' : '#0a0a1a', selectionBackground: 'rgba(0,136,204,.25)', black: isLight ? '#e8e8f0' : '#1a1a2e', red: '#ff006e', green: isLight ? '#008844' : '#00ff88', yellow: isLight ? '#996600' : '#ffbe0b', blue: isLight ? '#0066cc' : '#00d4ff', magenta: '#7b2ff7', cyan: isLight ? '#0088aa' : '#00d4ff', white: isLight ? '#1a1a2e' : '#e8e8f0', brightBlack: isLight ? '#999' : '#3a3a5e', brightRed: '#ff4488', brightGreen: isLight ? '#00aa55' : '#33ffaa', brightYellow: isLight ? '#aa7700' : '#ffdd33', brightBlue: isLight ? '#0088ff' : '#33ddff', brightMagenta: '#9955ff', brightCyan: isLight ? '#00aacc' : '#33ddff', brightWhite: isLight ? '#000' : '#fff' },
+        theme: buildTerminalTheme(),
         allowTransparency: true, scrollback: 10000
     });
     var fa = new FitAddon.FitAddon();
@@ -819,6 +814,56 @@ function getSavedColors() {
     return { fg: '#e8e8f0', bg: '#0a0a1a', cursor: '#00d4ff' };
 }
 
+function isCurrentLightTheme() {
+    return document.documentElement.getAttribute('data-theme') === 'light'
+        || (!document.documentElement.getAttribute('data-theme') && window.matchMedia('(prefers-color-scheme: light)').matches);
+}
+
+function buildTerminalTheme() {
+    var savedColors = getSavedColors();
+    var isLight = isCurrentLightTheme();
+    var defaultFg = isLight ? '#1a1a2e' : '#e8e8f0';
+    var defaultBg = isLight ? 'rgba(0,0,0,0)' : 'rgba(10,10,26,0)';
+    var defaultCursor = isLight ? '#0088cc' : '#00d4ff';
+    return {
+        background: savedColors.bg === '#0a0a1a' || savedColors.bg === '#e8eaf0' ? defaultBg : savedColors.bg,
+        foreground: savedColors.fg === '#e8e8f0' || savedColors.fg === '#1a1a2e' ? defaultFg : savedColors.fg,
+        cursor: savedColors.cursor === '#00d4ff' || savedColors.cursor === '#0088cc' ? defaultCursor : savedColors.cursor,
+        cursorAccent: isLight ? '#e8eaf0' : '#0a0a1a',
+        selectionBackground: 'rgba(0,136,204,.25)',
+        black: isLight ? '#e8e8f0' : '#1a1a2e',
+        red: '#ff006e',
+        green: isLight ? '#008844' : '#00ff88',
+        yellow: isLight ? '#996600' : '#ffbe0b',
+        blue: isLight ? '#0066cc' : '#00d4ff',
+        magenta: '#7b2ff7',
+        cyan: isLight ? '#0088aa' : '#00d4ff',
+        white: isLight ? '#1a1a2e' : '#e8e8f0',
+        brightBlack: isLight ? '#999' : '#3a3a5e',
+        brightRed: '#ff4488',
+        brightGreen: isLight ? '#00aa55' : '#33ffaa',
+        brightYellow: isLight ? '#aa7700' : '#ffdd33',
+        brightBlue: isLight ? '#0088ff' : '#33ddff',
+        brightMagenta: '#9955ff',
+        brightCyan: isLight ? '#00aacc' : '#33ddff',
+        brightWhite: isLight ? '#000' : '#fff'
+    };
+}
+
+function refreshTerminalThemes() {
+    var theme = buildTerminalTheme();
+    sessions.forEach(function (s) {
+        if (!s || !s.term) return;
+        s.term.options.theme = Object.assign({}, s.term.options.theme, theme);
+        try { s.term.refresh(0, s.term.rows - 1); } catch (e) { }
+        if (s.consoleMode) fitConsoleToContainer(s);
+        else if (s.fitAddon) {
+            try { s.fitAddon.fit(); } catch (e) { }
+        }
+    });
+    document.querySelectorAll('.term-body').forEach(function (el) { el.style.background = ''; });
+}
+
 function saveColors(fg, bg, cursor) {
     localStorage.setItem(COLOR_KEY, JSON.stringify({ fg: fg, bg: bg, cursor: cursor }));
 }
@@ -851,18 +896,13 @@ function applyCursorColor(color) {
 function resetTermColors() {
     localStorage.removeItem(COLOR_KEY);
     if (activeIdx >= 0 && sessions[activeIdx]) {
-        sessions[activeIdx].term.options.theme = {
-            background: 'rgba(10,10,26,0)', foreground: '#e8e8f0', cursor: '#00d4ff', cursorAccent: '#0a0a1a',
-            selectionBackground: 'rgba(0,212,255,.25)', black: '#1a1a2e', red: '#ff006e', green: '#00ff88',
-            yellow: '#ffbe0b', blue: '#00d4ff', magenta: '#7b2ff7', cyan: '#00d4ff', white: '#e8e8f0',
-            brightBlack: '#3a3a5e', brightRed: '#ff4488', brightGreen: '#33ffaa', brightYellow: '#ffdd33',
-            brightBlue: '#33ddff', brightMagenta: '#9955ff', brightCyan: '#33ddff', brightWhite: '#fff'
-        };
+        sessions[activeIdx].term.options.theme = buildTerminalTheme();
         document.querySelector('.term-body').style.background = '';
     }
-    document.getElementById('fgCustomColor').value = '#e8e8f0';
-    document.getElementById('bgCustomColor').value = '#0a0a1a';
-    document.getElementById('cursorCustomColor').value = '#00d4ff';
+    var isLight = isCurrentLightTheme();
+    document.getElementById('fgCustomColor').value = isLight ? '#1a1a2e' : '#e8e8f0';
+    document.getElementById('bgCustomColor').value = isLight ? '#e8eaf0' : '#0a0a1a';
+    document.getElementById('cursorCustomColor').value = isLight ? '#0088cc' : '#00d4ff';
     renderSwatches();
     showToast('已重置默认颜色', 'info');
 }
@@ -886,7 +926,17 @@ var themeIcons = {
 };
 var themeLabels = { dark: '暗色模式', light: '亮色模式', auto: '跟随系统' };
 
-function applyTheme(theme) {
+function getAppThemeFromLocation() {
+    try {
+        var params = new URLSearchParams(location.search || '');
+        var theme = params.get('appTheme') || params.get('theme') || localStorage.getItem('theme');
+        return (theme === 'light' || theme === 'dark') ? theme : '';
+    } catch (e) {
+        return '';
+    }
+}
+
+function applyTheme(theme, refreshTerminals) {
     if (theme === 'auto') {
         document.documentElement.removeAttribute('data-theme');
     } else {
@@ -894,6 +944,7 @@ function applyTheme(theme) {
     }
     var icon = document.getElementById('themeIcon');
     if (icon) icon.innerHTML = themeIcons[theme] || themeIcons.auto;
+    if (refreshTerminals) refreshTerminalThemes();
 }
 
 function cycleTheme() {
@@ -901,14 +952,22 @@ function cycleTheme() {
     var idx = themes.indexOf(cur);
     var next = themes[(idx + 1) % themes.length];
     localStorage.setItem(THEME_KEY, next);
-    applyTheme(next);
+    applyTheme(next, true);
     showToast(themeLabels[next], 'info');
 }
 
 function initTheme() {
-    var saved = localStorage.getItem(THEME_KEY) || 'dark';
+    var saved = getAppThemeFromLocation() || localStorage.getItem(THEME_KEY) || 'dark';
     applyTheme(saved);
 }
+
+window.addEventListener('message', function (event) {
+    if (event.origin !== location.origin) return;
+    var data = event.data || {};
+    if (data.type !== 'ociworker-theme') return;
+    if (data.theme !== 'light' && data.theme !== 'dark') return;
+    applyTheme(data.theme, true);
+});
 
 // ==================== Click outside to close drawers ====================
 document.addEventListener('click', function (e) {
@@ -1308,16 +1367,11 @@ function createConsoleSession(connectionId, label) {
     termDiv.id = 'term_' + id;
     document.getElementById('terminalContainer').appendChild(termDiv);
 
-    var savedColors = getSavedColors();
-    var isLight = document.documentElement.getAttribute('data-theme') === 'light' || (!document.documentElement.getAttribute('data-theme') && window.matchMedia('(prefers-color-scheme: light)').matches);
-    var defaultFg = isLight ? '#1a1a2e' : '#e8e8f0';
-    var defaultBg = isLight ? 'rgba(0,0,0,0)' : 'rgba(10,10,26,0)';
-    var defaultCursor = isLight ? '#0088cc' : '#00d4ff';
     var t = new Terminal({
         cursorBlink: true, cursorStyle: 'bar',
         fontSize: 14,
         fontFamily: "'JetBrains Mono','Fira Code','Cascadia Code',Consolas,monospace",
-        theme: { background: savedColors.bg === '#0a0a1a' || savedColors.bg === '#e8eaf0' ? defaultBg : savedColors.bg, foreground: savedColors.fg === '#e8e8f0' || savedColors.fg === '#1a1a2e' ? defaultFg : savedColors.fg, cursor: savedColors.cursor === '#00d4ff' || savedColors.cursor === '#0088cc' ? defaultCursor : savedColors.cursor, cursorAccent: isLight ? '#e8eaf0' : '#0a0a1a', selectionBackground: 'rgba(0,136,204,.25)', black: isLight ? '#e8e8f0' : '#1a1a2e', red: '#ff006e', green: isLight ? '#008844' : '#00ff88', yellow: isLight ? '#996600' : '#ffbe0b', blue: isLight ? '#0066cc' : '#00d4ff', magenta: '#7b2ff7', cyan: isLight ? '#0088aa' : '#00d4ff', white: isLight ? '#1a1a2e' : '#e8e8f0', brightBlack: isLight ? '#999' : '#3a3a5e', brightRed: '#ff4488', brightGreen: isLight ? '#00aa55' : '#33ffaa', brightYellow: isLight ? '#aa7700' : '#ffdd33', brightBlue: isLight ? '#0088ff' : '#33ddff', brightMagenta: '#9955ff', brightCyan: isLight ? '#00aacc' : '#33ddff', brightWhite: isLight ? '#000' : '#fff' },
+        theme: buildTerminalTheme(),
         allowTransparency: false, scrollback: 10000
     });
     t.loadAddon(new WebLinksAddon.WebLinksAddon());
