@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.oracle.bmc.ospgateway.SubscriptionServiceClient;
 import com.oracle.bmc.ospgateway.requests.GetSubscriptionRequest;
+import com.oracle.bmc.retrier.RetryConfiguration;
 import lombok.extern.slf4j.Slf4j;
 
 import java.time.Instant;
@@ -39,6 +40,7 @@ final class OspSubscriptionEnricher {
                                     .subscriptionId(subscriptionId.trim())
                                     .ospHomeRegion(ospHomeRegion)
                                     .compartmentId(compartmentId)
+                                    .retryConfiguration(RetryConfiguration.NO_RETRY_CONFIGURATION)
                                     .build())
                     .getSubscription();
         } catch (Exception e) {

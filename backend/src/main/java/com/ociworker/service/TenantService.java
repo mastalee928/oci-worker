@@ -3,6 +3,7 @@ package com.ociworker.service;
 import cn.hutool.core.util.StrUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
+import com.oracle.bmc.ClientConfiguration;
 import com.ociworker.enums.TaskStatusEnum;
 import com.ociworker.exception.OciException;
 import com.ociworker.mapper.OciCreateTaskMapper;
@@ -11,6 +12,7 @@ import com.oracle.bmc.identity.requests.GetTenancyRequest;
 import com.oracle.bmc.identity.requests.ListRegionSubscriptionsRequest;
 import com.oracle.bmc.ospgateway.SubscriptionServiceClient;
 import com.oracle.bmc.ospgateway.requests.ListSubscriptionsRequest;
+import com.oracle.bmc.retrier.RetryConfiguration;
 import com.ociworker.mapper.OciKvMapper;
 import com.ociworker.mapper.OciUserMapper;
 import com.ociworker.model.entity.OciCreateTask;
@@ -422,7 +424,7 @@ public class TenantService {
                     TENANT_ACCOUNT_EXECUTOR);
 
             try {
-                ospFut.get(45, TimeUnit.SECONDS);
+                ospFut.get(15, TimeUnit.SECONDS);
             } catch (Exception e) {
                 log.warn("Tenant OSP account fetch timeout or error: {}", e.getMessage());
             }
@@ -675,8 +677,12 @@ public class TenantService {
     }
 
     private static SubscriptionServiceClient buildOspClient(OciClientService client) {
+        ClientConfiguration ospConfig = ClientConfiguration.builder()
+                .connectionTimeoutMillis(5_000)
+                .readTimeoutMillis(10_000)
+                .build();
         var b = SubscriptionServiceClient.builder()
-                .configuration(client.getClientConfiguration());
+                .configuration(ospConfig);
         b.additionalClientConfigurator(client.getOciClientConfigurator());
         return b.build(client.getProvider());
     }
@@ -731,6 +737,7 @@ public class TenantService {
                     ListSubscriptionsRequest.builder()
                             .ospHomeRegion(ospHomeRegion)
                             .compartmentId(compartmentId)
+                            .retryConfiguration(RetryConfiguration.NO_RETRY_CONFIGURATION)
                             .build());
             var items = resp.getSubscriptionCollection() == null
                     ? null : resp.getSubscriptionCollection().getItems();
