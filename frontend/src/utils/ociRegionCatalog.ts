@@ -8,6 +8,8 @@ export const ociRegionSelectOptions = shallowRef<{ value: string; label: string 
 /** regionId -> 中文名（无则回退 regionId） */
 export const ociRegionZhById = ref<Record<string, string>>({ ...OCI_REGION_MAP })
 
+let regionCatalogRequestSeq = 0
+
 function bootstrapFromConstants() {
   const opts = OCI_REGION_CODES.map((v) => ({
     value: v,
@@ -24,8 +26,10 @@ bootstrapFromConstants()
  * @param userId 租户配置 id：有则调 OCI Identity listRegionSubscriptions，仅返回已订阅区；无则返回 SDK 枚举全集（新增配置用）。
  */
 export async function loadOciRegionCatalog(userId?: string): Promise<void> {
+  const requestSeq = ++regionCatalogRequestSeq
   try {
     const res: any = await listOciRegionOptions(userId)
+    if (requestSeq !== regionCatalogRequestSeq) return
     const rows: any[] = res.data || []
     if (!rows.length) {
       if (userId) {
@@ -47,6 +51,7 @@ export async function loadOciRegionCatalog(userId?: string): Promise<void> {
     }
     ociRegionZhById.value = m
   } catch {
+    if (requestSeq !== regionCatalogRequestSeq) return
     bootstrapFromConstants()
   }
 }

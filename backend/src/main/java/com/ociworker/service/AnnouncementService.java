@@ -4,6 +4,7 @@ import com.ociworker.exception.OciException;
 import com.ociworker.mapper.OciUserMapper;
 import com.ociworker.model.dto.SysUserDTO;
 import com.ociworker.model.entity.OciUser;
+import com.ociworker.util.OciRegionCatalog;
 import com.oracle.bmc.Region;
 import com.oracle.bmc.announcementsservice.AnnouncementClient;
 import com.oracle.bmc.announcementsservice.model.AffectedResource;
@@ -59,7 +60,7 @@ public class AnnouncementService {
         String regionId = oci.getUser() != null && oci.getUser().getOciCfg() != null
                 ? oci.getUser().getOciCfg().getRegion() : null;
         try {
-            client.setRegion(regionId != null ? Region.fromRegionId(regionId) : Region.US_ASHBURN_1);
+            client.setRegion(regionId != null ? OciRegionCatalog.resolveRegion(regionId) : Region.US_ASHBURN_1);
         } catch (Exception e) {
             client.setRegion(Region.US_ASHBURN_1);
         }

@@ -1,6 +1,7 @@
 package com.ociworker.service;
 
 import cn.hutool.core.util.StrUtil;
+import com.ociworker.util.OciRegionCatalog;
 import com.oracle.bmc.Region;
 import com.oracle.bmc.model.BmcException;
 import com.oracle.bmc.usage.RewardsClient;
@@ -115,7 +116,7 @@ public class UsageRewardsService {
             String region = UsageCostService.resolveTenancyHomeRegionName(
                     oci.getIdentityClient(), tenancyId, fallbackRegion);
             try {
-                client.setRegion(Region.fromRegionId(region));
+                client.setRegion(OciRegionCatalog.resolveRegion(region));
             } catch (Exception e) {
                 client.setRegion(Region.US_ASHBURN_1);
             }

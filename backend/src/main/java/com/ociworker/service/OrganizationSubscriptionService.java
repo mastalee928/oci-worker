@@ -1,6 +1,7 @@
 package com.ociworker.service;
 
 import cn.hutool.core.util.StrUtil;
+import com.ociworker.util.OciRegionCatalog;
 import com.oracle.bmc.Region;
 import com.oracle.bmc.model.BmcException;
 import com.oracle.bmc.onesubscription.SubscribedServiceClient;
@@ -208,9 +209,9 @@ public class OrganizationSubscriptionService {
     private static void setRegion(Object client, String regionId) {
         try {
             if (client instanceof SubscriptionClient c) {
-                c.setRegion(Region.fromRegionId(regionId));
+                c.setRegion(OciRegionCatalog.resolveRegion(regionId));
             } else if (client instanceof SubscribedServiceClient c) {
-                c.setRegion(Region.fromRegionId(regionId));
+                c.setRegion(OciRegionCatalog.resolveRegion(regionId));
             }
         } catch (Exception e) {
             if (client instanceof SubscriptionClient c) {

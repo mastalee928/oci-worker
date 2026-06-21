@@ -1,7 +1,6 @@
 package com.ociworker.service;
 
 import cn.hutool.core.util.StrUtil;
-import com.oracle.bmc.Region;
 import com.oracle.bmc.auth.SimpleAuthenticationDetailsProvider;
 import com.oracle.bmc.model.BmcException;
 import com.oracle.bmc.identity.IdentityClient;
@@ -21,6 +20,7 @@ import com.ociworker.exception.OciException;
 import com.ociworker.mapper.OciUserMapper;
 import com.ociworker.model.entity.OciUser;
 import com.ociworker.model.params.UserParams;
+import com.ociworker.util.OciRegionCatalog;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -83,7 +83,7 @@ public class UserManagementService {
                         throw new RuntimeException("Failed to read private key: " + e.getMessage());
                     }
                 })
-                .region(Region.valueOf(tenant.getOciRegion()))
+                .region(OciRegionCatalog.resolveRegion(tenant.getOciRegion()))
                 .build();
 
         return IdentityClient.builder().build(provider);

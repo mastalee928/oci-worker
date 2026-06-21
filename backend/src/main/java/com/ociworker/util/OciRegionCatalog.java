@@ -1,6 +1,8 @@
 package com.ociworker.util;
 
+import com.ociworker.exception.OciException;
 import com.oracle.bmc.Region;
+import com.oracle.bmc.Realm;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -8,6 +10,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeSet;
+import java.util.regex.Pattern;
 
 /**
  * 公共区域中文名与下拉行结构：{@link #listUiRows()} 为 SDK 枚举全集；{@link #listUiRowsForIds(Collection)} 为 tenancy 已订阅子集。
@@ -15,6 +18,9 @@ import java.util.TreeSet;
 public final class OciRegionCatalog {
 
     private static final Map<String, String> ZH_LABELS = new LinkedHashMap<>();
+    private static final Map<String, String> EXTRA_REGION_CODES = new LinkedHashMap<>();
+    private static final Pattern PUBLIC_OC1_REGION_ID =
+            Pattern.compile("^[a-z]{2}-[a-z0-9]+(?:-[a-z0-9]+)*-\\d+$");
 
     static {
         ZH_LABELS.put("us-ashburn-1", "美国东部（阿什本）");
@@ -29,6 +35,7 @@ public final class OciRegionCatalog {
         ZH_LABELS.put("eu-marseille-1", "法国南部（马赛）");
         ZH_LABELS.put("eu-stockholm-1", "瑞典北部（斯德哥尔摩）");
         ZH_LABELS.put("eu-milan-1", "意大利西北部（米兰）");
+        ZH_LABELS.put("eu-turin-1", "意大利北部（都灵）");
         ZH_LABELS.put("eu-paris-1", "法国中部（巴黎）");
         ZH_LABELS.put("eu-madrid-1", "西班牙中部（马德里）");
         ZH_LABELS.put("eu-madrid-3", "西班牙中部（马德里3）");
@@ -41,9 +48,9 @@ public final class OciRegionCatalog {
         ZH_LABELS.put("ap-mumbai-1", "印度西部（孟买）");
         ZH_LABELS.put("ap-hyderabad-1", "印度南部（海得拉巴）");
         ZH_LABELS.put("ap-singapore-1", "新加坡（新加坡）");
-        ZH_LABELS.put("ap-singapore-2", "新加坡西部");
+        ZH_LABELS.put("ap-singapore-2", "新加坡西部（新加坡）");
         ZH_LABELS.put("ap-batam-1", "印度尼西亚北部（巴淡）");
-        ZH_LABELS.put("ap-kulai-2", "马来西亚");
+        ZH_LABELS.put("ap-kulai-2", "马来西亚西部（古来）");
         ZH_LABELS.put("ap-sydney-1", "澳大利亚东部（悉尼）");
         ZH_LABELS.put("ap-melbourne-1", "澳大利亚东南部（墨尔本）");
         ZH_LABELS.put("sa-bogota-1", "哥伦比亚中部（波哥大）");
@@ -66,6 +73,9 @@ public final class OciRegionCatalog {
         ZH_LABELS.put("us-gov-ashburn-1", "美国政府（阿什本）");
         ZH_LABELS.put("us-gov-chicago-1", "美国政府（芝加哥）");
         ZH_LABELS.put("us-gov-phoenix-1", "美国政府（凤凰城）");
+
+        EXTRA_REGION_CODES.put("eu-turin-1", "nrq");
+        ensureAdditionalRegionsRegistered();
     }
 
     private OciRegionCatalog() {
@@ -75,6 +85,7 @@ public final class OciRegionCatalog {
      * @return 每项含 regionId、labelZh（无译名时等于 regionId）、label（下拉展示用）
      */
     public static List<Map<String, String>> listUiRows() {
+        ensureAdditionalRegionsRegistered();
         TreeSet<String> ids = new TreeSet<>();
         for (Region r : Region.values()) {
             String id = r.getRegionId();
@@ -82,11 +93,13 @@ public final class OciRegionCatalog {
                 ids.add(id);
             }
         }
+        ids.addAll(ZH_LABELS.keySet());
         return listUiRowsForIds(ids);
     }
 
     /** 仅包含 tenancy 已订阅等区域（由 Identity listRegionSubscriptions 得到 regionName 列表）。 */
     public static List<Map<String, String>> listUiRowsForIds(Collection<String> regionIds) {
+        ensureAdditionalRegionsRegistered();
         if (regionIds == null || regionIds.isEmpty()) {
             return List.of();
         }
@@ -115,5 +128,37 @@ public final class OciRegionCatalog {
         row.put("labelZh", zh);
         row.put("label", label);
         return row;
+    }
+
+    public static void ensureAdditionalRegionsRegistered() {
+        for (Map.Entry<String, String> entry : EXTRA_REGION_CODES.entrySet()) {
+            String regionId = entry.getKey();
+            try {
+                Region.fromRegionCodeOrId(regionId);
+            } catch (IllegalArgumentException ignored) {
+                Region.register(regionId, Realm.OC1, entry.getValue());
+            }
+        }
+    }
+
+    public static Region resolveRegion(String regionId) {
+        if (regionId == null || regionId.trim().isEmpty()) {
+            throw new OciException("Region 不能为空");
+        }
+        ensureAdditionalRegionsRegistered();
+        String trimmed = regionId.trim().toLowerCase();
+        try {
+            return Region.fromRegionCodeOrId(trimmed);
+        } catch (IllegalArgumentException ignored) {
+            for (Region r : Region.values()) {
+                if (trimmed.equalsIgnoreCase(r.getRegionId())) {
+                    return r;
+                }
+            }
+            if (PUBLIC_OC1_REGION_ID.matcher(trimmed).matches()) {
+                return Region.register(trimmed, Realm.OC1);
+            }
+            throw new OciException("未知 Region: " + regionId + "（请检查拼写，例如 eu-turin-1）");
+        }
     }
 }

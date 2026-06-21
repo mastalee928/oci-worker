@@ -4,6 +4,7 @@ import com.ociworker.exception.OciException;
 import com.ociworker.mapper.OciUserMapper;
 import com.ociworker.model.dto.SysUserDTO;
 import com.ociworker.model.entity.OciUser;
+import com.ociworker.util.OciRegionCatalog;
 import com.oracle.bmc.Region;
 import com.oracle.bmc.identity.IdentityClient;
 import com.oracle.bmc.identity.requests.GetTenancyRequest;
@@ -94,7 +95,7 @@ public class UsageCostService {
             String usageRegion = resolveTenancyHomeRegionName(
                     oci.getIdentityClient(), tenancyId, fallbackRegion);
             try {
-                client.setRegion(Region.fromRegionId(usageRegion));
+                client.setRegion(OciRegionCatalog.resolveRegion(usageRegion));
             } catch (Exception e) {
                 client.setRegion(Region.US_ASHBURN_1);
             }
@@ -240,7 +241,7 @@ public class UsageCostService {
             String usageRegion = resolveTenancyHomeRegionName(oci.getIdentityClient(), tenancyId, user.getOciRegion());
             UsageapiClient client = UsageapiClient.builder().build(oci.getProvider());
             try {
-                client.setRegion(Region.fromRegionId(usageRegion));
+                client.setRegion(OciRegionCatalog.resolveRegion(usageRegion));
             } catch (Exception e) {
                 client.setRegion(Region.US_ASHBURN_1);
             }

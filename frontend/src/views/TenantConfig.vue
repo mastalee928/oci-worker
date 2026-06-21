@@ -589,10 +589,32 @@ region=ap-tokyo-1"
           <a-input v-model:value="formState.ociFingerprint" placeholder="xx:xx:xx:..." />
         </a-form-item>
         <a-form-item label="Region" required>
-          <a-select v-model:value="formState.ociRegion" placeholder="选择区域" show-search
-            :filter-option="filterOciRegionSelectOption">
+          <a-segmented
+            v-model:value="regionInputMode"
+            :options="regionInputModeOptions"
+            block
+            size="small"
+            class="region-input-mode"
+          />
+          <a-select
+            v-if="regionInputMode === 'select'"
+            v-model:value="formState.ociRegion"
+            placeholder="选择区域"
+            show-search
+            :loading="regionOptionsLoading"
+            :filter-option="filterOciRegionSelectOption"
+            @change="normalizeRegionInput"
+          >
             <a-select-option v-for="opt in ociRegionSelectOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</a-select-option>
           </a-select>
+          <a-input
+            v-else
+            v-model:value="formState.ociRegion"
+            placeholder="如 eu-turin-1"
+            allow-clear
+            @blur="normalizeRegionInput"
+            @press-enter="normalizeRegionInput"
+          />
         </a-form-item>
         <a-form-item label="私钥 (.pem)" required>
           <a-segmented
@@ -2221,6 +2243,14 @@ const importText = ref('')
 const fileList = ref<UploadFile[]>([])
 const keyInputMode = ref<'upload' | 'paste'>('upload')
 const pemPasteText = ref('')
+const regionOptionsLoading = ref(false)
+const regionInputMode = ref<'select' | 'manual'>('select')
+const regionInputModeOptions = [
+  { label: '列表选择', value: 'select' },
+  { label: '手动输入', value: 'manual' },
+]
+const OCI_REGION_ID_PATTERN = /^[a-z]{2}-[a-z0-9]+(?:-[a-z0-9]+)*-\d+$/
+let regionOptionsRequestSeq = 0
 
 const formState = reactive({
   username: '', ociTenantId: '', ociUserId: '',
@@ -2434,7 +2464,11 @@ function parseAndFill() {
   formState.ociUserId = fields['user'] || formState.ociUserId
   formState.ociTenantId = fields['tenancy'] || formState.ociTenantId
   formState.ociFingerprint = fields['fingerprint'] || formState.ociFingerprint
-  formState.ociRegion = fields['region'] || formState.ociRegion
+  const parsedRegion = normalizeOciRegionValue(fields['region'])
+  if (parsedRegion) {
+    formState.ociRegion = parsedRegion
+    syncRegionInputMode(parsedRegion)
+  }
   message.success('已解析并填充，请上传或粘贴私钥后提交')
 }
 
@@ -2618,6 +2652,7 @@ function onSelectChange(keys: string[]) {
 
 function resetForm() {
   Object.assign(formState, { username: '', ociTenantId: '', ociUserId: '', ociFingerprint: '', ociRegion: '', ociKeyPath: '', groupLevel1: '', groupLevel2: '' })
+  regionInputMode.value = 'select'
   pendingFile = null
   fileList.value = []
   importText.value = ''
@@ -2645,32 +2680,65 @@ function pemPasteTextToFile(text: string): File {
   return new File([body], 'pasted.pem', { type: 'application/x-pem-file' })
 }
 
-async function showAddModal() {
-  editingId.value = ''
-  resetForm()
-  await loadOciRegionCatalog()
-  modalVisible.value = true
+function normalizeOciRegionValue(value?: string) {
+  return String(value || '').trim().toLowerCase()
 }
 
-async function showEditModal(record: any) {
+function hasOciRegionOption(value?: string) {
+  const normalized = normalizeOciRegionValue(value)
+  if (!normalized) return false
+  return ociRegionSelectOptions.value.some((opt) => opt.value === normalized)
+}
+
+function syncRegionInputMode(value?: string) {
+  const normalized = normalizeOciRegionValue(value)
+  regionInputMode.value = normalized && !hasOciRegionOption(normalized) ? 'manual' : 'select'
+}
+
+function normalizeRegionInput() {
+  formState.ociRegion = normalizeOciRegionValue(formState.ociRegion)
+}
+
+async function refreshRegionOptionsForForm(userId?: string) {
+  const requestSeq = ++regionOptionsRequestSeq
+  regionOptionsLoading.value = true
+  try {
+    await loadOciRegionCatalog(userId)
+  } finally {
+    if (requestSeq === regionOptionsRequestSeq) {
+      regionOptionsLoading.value = false
+    }
+  }
+}
+
+function showAddModal() {
+  editingId.value = ''
+  resetForm()
+  modalVisible.value = true
+  void refreshRegionOptionsForForm()
+}
+
+function showEditModal(record: any) {
   editingId.value = record.id
+  const normalizedRegion = normalizeOciRegionValue(record.ociRegion)
   Object.assign(formState, {
     username: record.username,
     ociTenantId: record.ociTenantId,
     ociUserId: record.ociUserId,
     ociFingerprint: record.ociFingerprint,
-    ociRegion: record.ociRegion,
+    ociRegion: normalizedRegion,
     ociKeyPath: record.ociKeyPath,
     groupLevel1: record.groupLevel1 || '',
     groupLevel2: record.groupLevel2 || undefined,
   })
+  syncRegionInputMode(normalizedRegion)
   pendingFile = null
   fileList.value = []
   importText.value = ''
   pemPasteText.value = ''
   keyInputMode.value = 'upload'
-  await loadOciRegionCatalog(record.id)
   modalVisible.value = true
+  void refreshRegionOptionsForForm(record.id)
 }
 
 const domainMgmtVisible = ref(false)
@@ -4879,10 +4947,16 @@ function handleRemoveFile() {
 
 async function handleSubmit() {
   if (submitLoading.value) return
-  if (!formState.username || !formState.ociTenantId || !formState.ociUserId || !formState.ociFingerprint || !formState.ociRegion) {
+  const normalizedRegion = normalizeOciRegionValue(formState.ociRegion)
+  if (!formState.username || !formState.ociTenantId || !formState.ociUserId || !formState.ociFingerprint || !normalizedRegion) {
     message.warning('请填写所有必填项')
     return
   }
+  if (regionInputMode.value === 'manual' && !OCI_REGION_ID_PATTERN.test(normalizedRegion) && !hasOciRegionOption(normalizedRegion)) {
+    message.warning('Region ID 格式不正确，例如 eu-turin-1')
+    return
+  }
+  formState.ociRegion = normalizedRegion
 
   submitLoading.value = true
   try {
@@ -4909,7 +4983,7 @@ async function handleSubmit() {
       return
     }
 
-    const data = { ...formState, ociKeyPath: keyPath }
+    const data = { ...formState, ociRegion: normalizedRegion, ociKeyPath: keyPath }
     if (editingId.value) {
       await updateTenant({ id: editingId.value, ...data })
       message.success('更新成功')
@@ -5534,6 +5608,9 @@ onUnmounted(() => {
   padding-bottom: 2px;
 }
 .pem-input-mode-segmented {
+  margin-bottom: 8px;
+}
+.region-input-mode {
   margin-bottom: 8px;
 }
 /* 与 rows=4 的 textarea 同高（约 118px） */

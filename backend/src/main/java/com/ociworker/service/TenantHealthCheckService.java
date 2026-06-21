@@ -2,7 +2,7 @@ package com.ociworker.service;
 
 import com.ociworker.mapper.OciUserMapper;
 import com.ociworker.model.entity.OciUser;
-import com.oracle.bmc.Region;
+import com.ociworker.util.OciRegionCatalog;
 import com.oracle.bmc.auth.SimpleAuthenticationDetailsProvider;
 import com.oracle.bmc.identity.IdentityClient;
 import com.oracle.bmc.identity.requests.GetTenancyRequest;
@@ -90,7 +90,7 @@ public class TenantHealthCheckService {
                             throw new RuntimeException("密钥文件无效或不存在", e);
                         }
                     })
-                    .region(Region.fromRegionCodeOrId(user.getOciRegion().trim()))
+                    .region(OciRegionCatalog.resolveRegion(user.getOciRegion()))
                     .build();
 
             try (IdentityClient identityClient = buildIdentityClient(provider)) {
