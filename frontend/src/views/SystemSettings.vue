@@ -464,12 +464,6 @@
         <a-card title="一键更新" class="settings-card-wide">
           <a-spin :spinning="updateChecking">
             <a-descriptions :column="1" bordered size="small" v-if="updateInfo">
-              <a-descriptions-item label="更新源">
-                <a-tag color="purple" style="margin-right: 6px">{{ updateInfo.updateRepo || '未知' }}</a-tag>
-                <span style="color: var(--text-sub); font-size: 12px">
-                  {{ updateInfo.updateTag || 'latest' }} · {{ updateInfo.assetName || 'oci-worker-1.0.0.jar' }}
-                </span>
-              </a-descriptions-item>
               <a-descriptions-item label="当前版本">
                 <a-tag :color="updateInfo.currentCommit === 'dev' ? 'orange' : 'green'" style="margin-right: 6px">{{ updateInfo.currentCommit }}</a-tag>
                 <span v-if="updateInfo.currentBuildTime" style="color: var(--text-sub); font-size: 12px">{{ updateInfo.currentBuildTime }}</span>

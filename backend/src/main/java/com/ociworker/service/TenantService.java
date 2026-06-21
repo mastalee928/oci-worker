@@ -7,6 +7,7 @@ import com.ociworker.enums.TaskStatusEnum;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.ociworker.exception.OciException;
 import com.ociworker.mapper.OciCreateTaskMapper;
+import com.oracle.bmc.ClientConfiguration;
 import com.oracle.bmc.auth.SimpleAuthenticationDetailsProvider;
 import com.oracle.bmc.identity.IdentityClient;
 import com.oracle.bmc.identity.requests.GetTenancyRequest;
@@ -38,13 +39,8 @@ import java.io.InputStream;
 import java.nio.file.Path;
 import java.time.LocalDateTime;
 import java.util.*;
-import java.util.Locale;
-import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.TimeUnit;
 
 @Slf4j
 @Service
@@ -62,24 +58,15 @@ public class TenantService {
     private UsageCostService usageCostService;
 
     @Resource
-    private OrganizationSubscriptionService organizationSubscriptionService;
-    @Resource
     private TenantInfoRefreshQueue tenantInfoRefreshQueue;
 
     private static final Set<String> TENANT_ACCOUNT_INFO_KEYS = Set.of(
             "tenantName", "homeRegionKey", "tenantId", "description",
             "subscribedRegions", "planType", "planTypeLabel", "paymentMethod", "paymentMethodLabel",
-            "subscriptionUsage",
             "accountType", "upgradeState", "upgradeStateLabel",
             "subscriptionStatus", "subscriptionStatusLabel", "currencyCode", "isIntentToPay",
             "subscriptionStartTime",
             "registrationLocation", "subscriptionPlanNumber", "subscriptionOrgOcid");
-
-    private static final ExecutorService TENANT_ACCOUNT_EXECUTOR = Executors.newFixedThreadPool(3, r -> {
-        Thread t = new Thread(r, "tenant-account");
-        t.setDaemon(true);
-        return t;
-    });
 
     private static final String GROUP_TYPE = "group";
     private static final String GROUP_L1_PREFIX = "group_l1:";
@@ -384,43 +371,7 @@ public class TenantService {
             applyIdentityAccountFields(identityClient, tenancyId, user, result);
 
             String ospHomeRegion = resolveOspHomeRegion(identityClient, tenancyId, fallbackRegion);
-            String usageRegion = UsageCostService.resolveTenancyHomeRegionName(
-                    identityClient, tenancyId, fallbackRegion);
-
-            CompletableFuture<List<Map<String, Object>>> assignedFut = CompletableFuture.supplyAsync(
-                    () -> organizationSubscriptionService.listAssignedSubscriptionsOnly(
-                            client, tenancyId, usageRegion),
-                    TENANT_ACCOUNT_EXECUTOR);
-            CompletableFuture<Void> ospFut = CompletableFuture.runAsync(
-                    () -> applyOspAccountFields(provider, ospHomeRegion, compartmentId, result),
-                    TENANT_ACCOUNT_EXECUTOR);
-
-            try {
-                CompletableFuture.allOf(assignedFut, ospFut).get(90, TimeUnit.SECONDS);
-            } catch (Exception e) {
-                log.warn("Tenant account parallel fetch timeout or error: {}", e.getMessage());
-            }
-
-            List<Map<String, Object>> assignedRows = assignedFut.getNow(List.of());
-            Map<String, Object> orgSub = new LinkedHashMap<>();
-            orgSub.put("assignedSubscriptions", assignedRows);
-            enrichSubscriptionStatusFromAssigned(result, orgSub);
-
-            String ospRef = result.get("subscriptionOspRef") == null
-                    ? null : String.valueOf(result.get("subscriptionOspRef")).trim();
-            String orgOcid = resolveOrganizationSubscriptionOcid(ospRef, orgSub);
-            if (StrUtil.isNotBlank(orgOcid)) {
-                result.put("subscriptionOrgOcid", orgOcid);
-                String usageStart = result.get("subscriptionStartTime") == null
-                        ? null : String.valueOf(result.get("subscriptionStartTime"));
-                try {
-                    Map<String, Object> subUsage = usageCostService.fetchSubscriptionUsageCost(
-                            client, tenancyId, List.of(orgOcid), usageStart, fallbackRegion);
-                    result.put("subscriptionUsage", slimSubscriptionUsageForAccount(subUsage));
-                } catch (Exception ex) {
-                    log.warn("Failed to get subscription usage cost: {}", ex.getMessage());
-                }
-            }
+            applyOspAccountFields(provider, ospHomeRegion, compartmentId, result);
 
             String planVal = result.get("planType") == null ? null : String.valueOf(result.get("planType"));
             if (StrUtil.isNotBlank(planVal) && !Objects.equals(planVal, savedPlanType)) {
@@ -618,80 +569,12 @@ public class TenantService {
         result.keySet().removeIf(k -> !TENANT_ACCOUNT_INFO_KEYS.contains(k));
     }
 
-    @SuppressWarnings("unchecked")
-    private static Map<String, Object> slimSubscriptionUsageForAccount(Map<String, Object> raw) {
-        if (raw == null || !Boolean.TRUE.equals(raw.get("available"))) {
-            return null;
-        }
-        Map<String, Object> slim = new LinkedHashMap<>();
-        slim.put("timeUsageStarted", raw.get("timeUsageStarted"));
-        Object summary = raw.get("summary");
-        if (summary instanceof Map<?, ?> s) {
-            Map<String, Object> ss = new LinkedHashMap<>();
-            ss.put("totalConsumed", s.get("totalConsumed"));
-            ss.put("totalConsumedLabel", s.get("totalConsumedLabel"));
-            slim.put("summary", ss);
-        }
-        return slim;
-    }
-
-    @SuppressWarnings("unchecked")
-    private static String resolveOrganizationSubscriptionOcid(String ospRef, Map<String, Object> orgSub) {
-        List<String> ids = resolveOrganizationSubscriptionOcids(ospRef, orgSub);
-        return ids.isEmpty() ? null : ids.get(0);
-    }
-
-    @SuppressWarnings("unchecked")
-    private static List<String> resolveOrganizationSubscriptionOcids(
-            String ospRef, Map<String, Object> orgSub) {
-        LinkedHashSet<String> ids = new LinkedHashSet<>();
-        if (orgSub == null) {
-            return List.of();
-        }
-        Object assigned = orgSub.get("assignedSubscriptions");
-        if (assigned instanceof List<?> list) {
-            for (Object row : list) {
-                if (!(row instanceof Map<?, ?> m)) {
-                    continue;
-                }
-                String id = m.get("id") == null ? null : String.valueOf(m.get("id")).trim();
-                if (!OspSubscriptionEnricher.isOciOcid(id)) {
-                    continue;
-                }
-                if (StrUtil.isBlank(ospRef)) {
-                    ids.add(id);
-                    continue;
-                }
-                String num = m.get("subscriptionNumber") == null
-                        ? null : String.valueOf(m.get("subscriptionNumber")).trim();
-                if (ospRef.equals(num) || ospRef.equals(id)) {
-                    ids.add(id);
-                }
-            }
-            for (Object row : list) {
-                if (!(row instanceof Map<?, ?> m)) {
-                    continue;
-                }
-                String id = m.get("id") == null ? null : String.valueOf(m.get("id")).trim();
-                if (OspSubscriptionEnricher.isOciOcid(id)) {
-                    ids.add(id);
-                }
-            }
-        }
-        return new ArrayList<>(ids);
-    }
-
-    private static IdentityClient buildIdentityClient(SimpleAuthenticationDetailsProvider provider) {
-        var b = IdentityClient.builder();
-        OciProxyConfigService pxy = OciProxyConfigService.instance();
-        if (pxy == null || !pxy.ociUsesExplicitClientProxy()) {
-            b = b.additionalClientConfigurator(OciProxyConfigService.ociSdkJerseyDirectConfigurator());
-        }
-        return b.build(provider);
-    }
-
     private static SubscriptionServiceClient buildOspClient(SimpleAuthenticationDetailsProvider provider) {
-        var b = SubscriptionServiceClient.builder();
+        var b = SubscriptionServiceClient.builder()
+                .configuration(ClientConfiguration.builder()
+                        .connectionTimeoutMillis(5_000)
+                        .readTimeoutMillis(8_000)
+                        .build());
         OciProxyConfigService pxy = OciProxyConfigService.instance();
         if (pxy == null || !pxy.ociUsesExplicitClientProxy()) {
             b = b.additionalClientConfigurator(OciProxyConfigService.ociSdkJerseyDirectConfigurator());
@@ -806,33 +689,6 @@ public class TenantService {
             }
         }
         result.put("registrationLocation", StrUtil.isBlank(countryName) ? null : countryName);
-    }
-
-    @SuppressWarnings("unchecked")
-    private static void enrichSubscriptionStatusFromAssigned(Map<String, Object> result, Map<String, Object> orgSub) {
-        if (result == null || orgSub == null) {
-            return;
-        }
-        if (result.get("subscriptionStatus") != null) {
-            return;
-        }
-        Object assigned = orgSub.get("assignedSubscriptions");
-        if (!(assigned instanceof List<?> list) || list.isEmpty()) {
-            return;
-        }
-        for (Object row : list) {
-            if (!(row instanceof Map<?, ?> m)) {
-                continue;
-            }
-            String lifecycle = m.get("lifecycleState") == null
-                    ? null : String.valueOf(m.get("lifecycleState")).trim();
-            if (StrUtil.isNotBlank(lifecycle)) {
-                String code = lifecycle.toUpperCase(Locale.ROOT);
-                result.put("subscriptionStatus", code);
-                result.put("subscriptionStatusLabel", OspSubscriptionEnricher.labelSubscriptionStatus(code));
-                return;
-            }
-        }
     }
 
     private static String countryNameFromRaw(JsonNode sub) {
