@@ -30,12 +30,10 @@
               <span class="tenant-name-cell" :title="record.username">{{ record.username }}</span>
             </template>
             <template v-if="column.key === 'tenantName'">
-              <a-tooltip :title="tenantInfoTooltip(record, 'tenantName')">
-                <span v-if="record.tenantName" class="tenant-table-text-cell">{{ record.tenantName }}</span>
-                <a-tag v-else class="tenant-info-tag" :color="tenantNameStatusColor(record)">
-                  {{ tenantNameStatusLabel(record) }}
-                </a-tag>
+              <a-tooltip v-if="record.tenantName" :title="record.tenantName">
+                <span class="tenant-table-text-cell">{{ record.tenantName }}</span>
               </a-tooltip>
+              <span v-else style="color: var(--text-sub); font-size: 12px">获取中...</span>
             </template>
             <template v-if="column.key === 'ociRegion'">
               <a-tag color="blue">{{ getOciRegionDisplayName(record.ociRegion) }}</a-tag>
@@ -46,11 +44,7 @@
               <span v-else style="color: #999">无开机任务</span>
             </template>
             <template v-if="column.key === 'planType'">
-              <a-tooltip :title="tenantInfoTooltip(record, 'planType')">
-                <a-tag class="tenant-info-tag" :color="planTypeDisplayColor(record)">
-                  {{ planTypeDisplayText(record) }}
-                </a-tag>
-              </a-tooltip>
+              <a-tag :color="record.planType === 'PAYG' ? 'green' : record.planType === 'FREE' ? 'orange' : 'default'">{{ record.planType || '获取中...' }}</a-tag>
             </template>
             <template v-if="column.key === 'createTime'">
               {{ formatTenantAddedTime(record.createTime) }}
@@ -73,17 +67,12 @@
             <div v-for="r in tableData" :key="r.id" class="mobile-card">
               <div class="mobile-card-header">
                 <span class="mobile-card-title">{{ r.username }}</span>
-              <a-tooltip :title="tenantInfoTooltip(r, 'planType')">
-                <a-tag :color="planTypeDisplayColor(r)">{{ planTypeDisplayText(r) }}</a-tag>
-              </a-tooltip>
+              <a-tag :color="r.planType === 'PAYG' ? 'green' : r.planType === 'FREE' ? 'orange' : 'default'">{{ r.planType || '?' }}</a-tag>
               </div>
               <div class="mobile-card-body">
               <div class="mobile-card-row">
                 <span class="label">租户名</span>
-                <a-tooltip :title="tenantInfoTooltip(r, 'tenantName')">
-                  <span v-if="r.tenantName" class="value">{{ r.tenantName }}</span>
-                  <a-tag v-else class="tenant-info-tag" :color="tenantNameStatusColor(r)">{{ tenantNameStatusLabel(r) }}</a-tag>
-                </a-tooltip>
+                <span class="value">{{ r.tenantName || '获取中...' }}</span>
               </div>
               <div class="mobile-card-row"><span class="label">主区域</span><a-tag color="blue" style="margin:0">{{ getOciRegionDisplayName(r.ociRegion) }}</a-tag></div>
               <div class="mobile-card-row">
@@ -212,12 +201,10 @@
                         <span class="tenant-name-cell" :title="record.username">{{ record.username }}</span>
                       </template>
                       <template v-if="column.key === 'tenantName'">
-                        <a-tooltip :title="tenantInfoTooltip(record, 'tenantName')">
-                          <span v-if="record.tenantName" class="tenant-table-text-cell">{{ record.tenantName }}</span>
-                          <a-tag v-else class="tenant-info-tag" :color="tenantNameStatusColor(record)">
-                            {{ tenantNameStatusLabel(record) }}
-                          </a-tag>
+                        <a-tooltip v-if="record.tenantName" :title="record.tenantName">
+                          <span class="tenant-table-text-cell">{{ record.tenantName }}</span>
                         </a-tooltip>
+                        <span v-else style="color: var(--text-sub); font-size: 12px">获取中...</span>
                       </template>
                       <template v-if="column.key === 'ociRegion'">
                         <a-tag color="blue">{{ getOciRegionDisplayName(record.ociRegion) }}</a-tag>
@@ -228,11 +215,7 @@
                         <span v-else style="color: #999">无开机任务</span>
                       </template>
                       <template v-if="column.key === 'planType'">
-                        <a-tooltip :title="tenantInfoTooltip(record, 'planType')">
-                          <a-tag class="tenant-info-tag" :color="planTypeDisplayColor(record)">
-                            {{ planTypeDisplayText(record) }}
-                          </a-tag>
-                        </a-tooltip>
+                        <a-tag :color="record.planType === 'PAYG' ? 'green' : record.planType === 'FREE' ? 'orange' : 'default'">{{ record.planType || '获取中...' }}</a-tag>
                       </template>
                       <template v-if="column.key === 'createTime'">
                         {{ formatTenantAddedTime(record.createTime) }}
@@ -254,17 +237,12 @@
                     <div v-for="r in sub.tenants" :key="r.id" class="mobile-card">
                       <div class="mobile-card-header">
                         <span class="mobile-card-title">{{ r.username }}</span>
-                        <a-tooltip :title="tenantInfoTooltip(r, 'planType')">
-                          <a-tag :color="planTypeDisplayColor(r)" style="margin:0">{{ planTypeDisplayText(r) }}</a-tag>
-                        </a-tooltip>
+                        <a-tag :color="r.planType === 'PAYG' ? 'green' : r.planType === 'FREE' ? 'orange' : 'default'" style="margin:0">{{ r.planType || '?' }}</a-tag>
                       </div>
                       <div class="mobile-card-body">
                         <div class="mobile-card-row">
                           <span class="label">租户名</span>
-                          <a-tooltip :title="tenantInfoTooltip(r, 'tenantName')">
-                            <span v-if="r.tenantName" class="value">{{ r.tenantName }}</span>
-                            <a-tag v-else class="tenant-info-tag" :color="tenantNameStatusColor(r)">{{ tenantNameStatusLabel(r) }}</a-tag>
-                          </a-tooltip>
+                          <span class="value">{{ r.tenantName || '获取中...' }}</span>
                         </div>
                         <div class="mobile-card-row"><span class="label">主区域</span><a-tag color="blue" style="margin:0">{{ getOciRegionDisplayName(r.ociRegion) }}</a-tag></div>
                         <div class="mobile-card-row">
@@ -307,12 +285,10 @@
                       <span class="tenant-name-cell" :title="record.username">{{ record.username }}</span>
                     </template>
                     <template v-if="column.key === 'tenantName'">
-                      <a-tooltip :title="tenantInfoTooltip(record, 'tenantName')">
-                        <span v-if="record.tenantName" class="tenant-table-text-cell">{{ record.tenantName }}</span>
-                        <a-tag v-else class="tenant-info-tag" :color="tenantNameStatusColor(record)">
-                          {{ tenantNameStatusLabel(record) }}
-                        </a-tag>
+                      <a-tooltip v-if="record.tenantName" :title="record.tenantName">
+                        <span class="tenant-table-text-cell">{{ record.tenantName }}</span>
                       </a-tooltip>
+                      <span v-else style="color: var(--text-sub); font-size: 12px">获取中...</span>
                     </template>
                     <template v-if="column.key === 'ociRegion'">
                       <a-tag color="blue">{{ getOciRegionDisplayName(record.ociRegion) }}</a-tag>
@@ -323,11 +299,7 @@
                       <span v-else style="color: #999">无开机任务</span>
                     </template>
                     <template v-if="column.key === 'planType'">
-                      <a-tooltip :title="tenantInfoTooltip(record, 'planType')">
-                        <a-tag class="tenant-info-tag" :color="planTypeDisplayColor(record)">
-                          {{ planTypeDisplayText(record) }}
-                        </a-tag>
-                      </a-tooltip>
+                      <a-tag :color="record.planType === 'PAYG' ? 'green' : record.planType === 'FREE' ? 'orange' : 'default'">{{ record.planType || '获取中...' }}</a-tag>
                     </template>
                     <template v-if="column.key === 'createTime'">
                       {{ formatTenantAddedTime(record.createTime) }}
@@ -349,17 +321,12 @@
                   <div v-for="r in group.tenants" :key="r.id" class="mobile-card">
                     <div class="mobile-card-header">
                       <span class="mobile-card-title">{{ r.username }}</span>
-                      <a-tooltip :title="tenantInfoTooltip(r, 'planType')">
-                        <a-tag :color="planTypeDisplayColor(r)" style="margin:0">{{ planTypeDisplayText(r) }}</a-tag>
-                      </a-tooltip>
+                      <a-tag :color="r.planType === 'PAYG' ? 'green' : r.planType === 'FREE' ? 'orange' : 'default'" style="margin:0">{{ r.planType || '?' }}</a-tag>
                     </div>
                     <div class="mobile-card-body">
                       <div class="mobile-card-row">
                         <span class="label">租户名</span>
-                        <a-tooltip :title="tenantInfoTooltip(r, 'tenantName')">
-                          <span v-if="r.tenantName" class="value">{{ r.tenantName }}</span>
-                          <a-tag v-else class="tenant-info-tag" :color="tenantNameStatusColor(r)">{{ tenantNameStatusLabel(r) }}</a-tag>
-                        </a-tooltip>
+                        <span class="value">{{ r.tenantName || '获取中...' }}</span>
                       </div>
                       <div class="mobile-card-row"><span class="label">主区域</span><a-tag color="blue" style="margin:0">{{ getOciRegionDisplayName(r.ociRegion) }}</a-tag></div>
                       <div class="mobile-card-row">
@@ -2008,74 +1975,6 @@ function formatPlanType(v: string | null | undefined): string {
 function planTypeTagColor(plan: string | null | undefined) {
   if (isFreeTierPlan(plan)) return 'default'
   return 'green'
-}
-
-type TenantInfoKind = 'tenantName' | 'planType'
-
-const TENANT_INFO_STATUS_META: Record<string, { label: string; color: string }> = {
-  PENDING: { label: '获取中', color: 'blue' },
-  SUCCESS: { label: '正常', color: 'green' },
-  NO_PERMISSION: { label: '无权限', color: 'red' },
-  RATE_LIMITED: { label: '受限', color: 'orange' },
-  UNAVAILABLE: { label: '未知', color: 'default' },
-  TIMEOUT: { label: '超时', color: 'orange' },
-  FAILED: { label: '失败', color: 'red' },
-}
-
-function normalizeTenantInfoStatus(status: unknown): string {
-  const s = String(status || '').trim().toUpperCase()
-  return TENANT_INFO_STATUS_META[s] ? s : 'PENDING'
-}
-
-function tenantInfoStatusLabel(status: unknown): string {
-  return TENANT_INFO_STATUS_META[normalizeTenantInfoStatus(status)].label
-}
-
-function tenantInfoStatusColor(status: unknown): string {
-  return TENANT_INFO_STATUS_META[normalizeTenantInfoStatus(status)].color
-}
-
-function tenantNameStatusLabel(record: any): string {
-  const status = normalizeTenantInfoStatus(record?.tenantNameStatus)
-  return status === 'SUCCESS' ? '未知' : tenantInfoStatusLabel(status)
-}
-
-function tenantNameStatusColor(record: any): string {
-  return tenantInfoStatusColor(record?.tenantNameStatus)
-}
-
-function planTypeDisplayText(record: any): string {
-  const raw = String(record?.planType || '').trim()
-  if (raw && raw.toUpperCase() !== 'UNKNOWN') {
-    return isFreeTierPlan(raw) ? 'FREE' : raw.toUpperCase()
-  }
-  const status = normalizeTenantInfoStatus(record?.planTypeStatus)
-  if (status === 'SUCCESS' || raw.toUpperCase() === 'UNKNOWN') return '未知'
-  return tenantInfoStatusLabel(status)
-}
-
-function planTypeDisplayColor(record: any): string {
-  const raw = String(record?.planType || '').trim()
-  if (raw && raw.toUpperCase() !== 'UNKNOWN') {
-    return isFreeTierPlan(raw) ? 'orange' : 'green'
-  }
-  return tenantInfoStatusColor(record?.planTypeStatus)
-}
-
-function tenantInfoTooltip(record: any, kind: TenantInfoKind): string {
-  const value = kind === 'tenantName' ? record?.tenantName : record?.planType
-  const status = normalizeTenantInfoStatus(kind === 'tenantName' ? record?.tenantNameStatus : record?.planTypeStatus)
-  const error = kind === 'tenantName' ? record?.tenantNameError : record?.planTypeError
-  const updatedAt = kind === 'tenantName' ? record?.tenantNameUpdatedAt : record?.planTypeUpdatedAt
-  const title = kind === 'tenantName' ? '租户名' : '账户类型'
-  const lines = [`${title}: ${value || (kind === 'tenantName' ? tenantNameStatusLabel(record) : planTypeDisplayText(record))}`]
-  lines.push(`状态: ${tenantInfoStatusLabel(status)}`)
-  if (error) lines.push(`说明: ${error}`)
-  if (record?.infoNextRetryAt && ['PENDING', 'RATE_LIMITED', 'TIMEOUT', 'FAILED'].includes(status)) {
-    lines.push(`下次自动重试: ${formatTenantAddedTime(record.infoNextRetryAt)}`)
-  }
-  if (updatedAt) lines.push(`更新时间: ${formatTenantAddedTime(updatedAt)}`)
-  return lines.join('\n')
 }
 
 function formatPaymentMethod(v: string | null | undefined): string {

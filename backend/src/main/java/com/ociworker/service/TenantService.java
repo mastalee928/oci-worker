@@ -66,7 +66,6 @@ public class TenantService {
     private static final Set<String> TENANT_ACCOUNT_INFO_KEYS = Set.of(
             "tenantName", "homeRegionKey", "tenantId", "description",
             "subscribedRegions", "planType", "planTypeLabel", "paymentMethod", "paymentMethodLabel",
-            "subscriptionUsage",
             "accountType", "upgradeState", "upgradeStateLabel",
             "subscriptionStatus", "subscriptionStatusLabel", "currencyCode", "isIntentToPay",
             "subscriptionStartTime",
@@ -111,20 +110,12 @@ public class TenantService {
             map.put("id", u.getId());
             map.put("username", u.getUsername());
             map.put("tenantName", u.getTenantName());
-            map.put("tenantNameStatus", u.getTenantNameStatus());
-            map.put("tenantNameError", u.getTenantNameError());
-            map.put("tenantNameUpdatedAt", u.getTenantNameUpdatedAt());
             map.put("ociTenantId", u.getOciTenantId());
             map.put("ociUserId", u.getOciUserId());
             map.put("ociFingerprint", u.getOciFingerprint());
             map.put("ociRegion", u.getOciRegion());
             map.put("ociKeyPath", u.getOciKeyPath());
             map.put("planType", u.getPlanType());
-            map.put("planTypeStatus", u.getPlanTypeStatus());
-            map.put("planTypeError", u.getPlanTypeError());
-            map.put("planTypeUpdatedAt", u.getPlanTypeUpdatedAt());
-            map.put("infoRetryCount", u.getInfoRetryCount());
-            map.put("infoNextRetryAt", u.getInfoNextRetryAt());
             map.put("groupLevel1", u.getGroupLevel1());
             map.put("groupLevel2", u.getGroupLevel2());
             map.put("createTime", u.getCreateTime());
@@ -341,6 +332,7 @@ public class TenantService {
                             .fingerprint(user.getOciFingerprint())
                             .region(user.getOciRegion())
                             .privateKeyPath(user.getOciKeyPath())
+                            .compartmentId(user.getOciTenantId())
                             .build())
                     .build();
             try (OciClientService client = new OciClientService(dto)) {
@@ -401,6 +393,7 @@ public class TenantService {
                         .fingerprint(user.getOciFingerprint())
                         .region(user.getOciRegion())
                         .privateKeyPath(user.getOciKeyPath())
+                        .compartmentId(user.getOciTenantId())
                         .build())
                 .build();
 
@@ -428,7 +421,7 @@ public class TenantService {
                     TENANT_ACCOUNT_EXECUTOR);
 
             try {
-                CompletableFuture.allOf(identityFut, assignedFut, ospFut).get(90, TimeUnit.SECONDS);
+                CompletableFuture.allOf(identityFut, assignedFut, ospFut).get(20, TimeUnit.SECONDS);
             } catch (Exception e) {
                 log.warn("Tenant account parallel fetch timeout or error: {}", e.getMessage());
             }
@@ -443,15 +436,6 @@ public class TenantService {
             String orgOcid = resolveOrganizationSubscriptionOcid(ospRef, orgSub);
             if (StrUtil.isNotBlank(orgOcid)) {
                 result.put("subscriptionOrgOcid", orgOcid);
-                String usageStart = result.get("subscriptionStartTime") == null
-                        ? null : String.valueOf(result.get("subscriptionStartTime"));
-                try {
-                    Map<String, Object> subUsage = usageCostService.fetchSubscriptionUsageCost(
-                            client, tenancyId, List.of(orgOcid), usageStart, fallbackRegion);
-                    result.put("subscriptionUsage", slimSubscriptionUsageForAccount(subUsage));
-                } catch (Exception ex) {
-                    log.warn("Failed to get subscription usage cost: {}", ex.getMessage());
-                }
             }
 
             String planVal = result.get("planType") == null ? null : String.valueOf(result.get("planType"));
@@ -636,23 +620,6 @@ public class TenantService {
             return;
         }
         result.keySet().removeIf(k -> !TENANT_ACCOUNT_INFO_KEYS.contains(k));
-    }
-
-    @SuppressWarnings("unchecked")
-    private static Map<String, Object> slimSubscriptionUsageForAccount(Map<String, Object> raw) {
-        if (raw == null || !Boolean.TRUE.equals(raw.get("available"))) {
-            return null;
-        }
-        Map<String, Object> slim = new LinkedHashMap<>();
-        slim.put("timeUsageStarted", raw.get("timeUsageStarted"));
-        Object summary = raw.get("summary");
-        if (summary instanceof Map<?, ?> s) {
-            Map<String, Object> ss = new LinkedHashMap<>();
-            ss.put("totalConsumed", s.get("totalConsumed"));
-            ss.put("totalConsumedLabel", s.get("totalConsumedLabel"));
-            slim.put("summary", ss);
-        }
-        return slim;
     }
 
     @SuppressWarnings("unchecked")
