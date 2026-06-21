@@ -408,22 +408,22 @@ public class TenantService {
             String tenancyId = user.getOciTenantId();
             String fallbackRegion = user.getOciRegion();
             String compartmentId = client.getCompartmentId();
-            String ospHomeRegion = resolveOspHomeRegion(identityClient, tenancyId, fallbackRegion);
-            String usageRegion = UsageCostService.resolveTenancyHomeRegionName(
-                    identityClient, tenancyId, fallbackRegion);
-
-            applyIdentityAccountFields(identityClient, tenancyId, user, result);
+            String homeRegionName = applyIdentityAccountFields(identityClient, tenancyId, user, result);
+            if (StrUtil.isBlank(homeRegionName)) {
+                homeRegionName = fallbackRegion;
+            }
+            final String resolvedHomeRegionName = homeRegionName;
 
             CompletableFuture<List<Map<String, Object>>> assignedFut = CompletableFuture.supplyAsync(
                     () -> organizationSubscriptionService.listAssignedSubscriptionsOnly(
-                            client, tenancyId, usageRegion),
+                            client, tenancyId, resolvedHomeRegionName),
                     TENANT_ACCOUNT_EXECUTOR);
             CompletableFuture<Void> ospFut = CompletableFuture.runAsync(
-                    () -> applyOspAccountFields(client, ospHomeRegion, compartmentId, result),
+                    () -> applyOspAccountFields(client, resolvedHomeRegionName, compartmentId, result),
                     TENANT_ACCOUNT_EXECUTOR);
 
             try {
-                CompletableFuture.allOf(assignedFut, ospFut).get(15, TimeUnit.SECONDS);
+                CompletableFuture.allOf(assignedFut, ospFut).get(10, TimeUnit.SECONDS);
             } catch (Exception e) {
                 log.warn("Tenant account parallel fetch timeout or error: {}", e.getMessage());
             }
@@ -677,20 +677,23 @@ public class TenantService {
         return b.build(client.getProvider());
     }
 
-    private void applyIdentityAccountFields(
+    private String applyIdentityAccountFields(
             IdentityClient ic,
             String tenancyId,
             OciUser user,
             Map<String, Object> result) {
+        String homeRegionName = null;
         try {
             var tenancy = ic.getTenancy(
                     GetTenancyRequest.builder().tenancyId(tenancyId).build()).getTenancy();
+            String homeRegionKey = null;
             if (tenancy != null) {
                 result.put("tenantName", tenancy.getName());
                 if (StrUtil.isNotBlank(tenancy.getName()) && !tenancy.getName().equals(user.getTenantName())) {
                     user.setTenantName(tenancy.getName());
                 }
-                result.put("homeRegionKey", tenancy.getHomeRegionKey());
+                homeRegionKey = tenancy.getHomeRegionKey();
+                result.put("homeRegionKey", homeRegionKey);
                 result.put("tenantId", tenancy.getId());
                 result.put("description", tenancy.getDescription());
             }
@@ -700,12 +703,18 @@ public class TenantService {
             if (regions != null) {
                 for (var r : regions) {
                     regionNames.add(r.getRegionName());
+                    if (StrUtil.isNotBlank(homeRegionKey)
+                            && homeRegionKey.equalsIgnoreCase(r.getRegionKey())
+                            && StrUtil.isNotBlank(r.getRegionName())) {
+                        homeRegionName = r.getRegionName();
+                    }
                 }
             }
             result.put("subscribedRegions", regionNames);
         } catch (Exception e) {
             log.warn("Failed to get identity account fields: {}", e.getMessage());
         }
+        return homeRegionName;
     }
 
     private static void applyOspAccountFields(
