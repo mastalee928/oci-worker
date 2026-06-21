@@ -22,7 +22,6 @@ import com.ociworker.model.params.PageParams;
 import com.ociworker.model.params.TenantBatchMoveGroupParams;
 import com.ociworker.model.params.TenantParams;
 import com.ociworker.util.CommonUtils;
-import com.ociworker.util.OciRegionCatalog;
 import com.ociworker.util.OspGatewayHttp;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
@@ -739,11 +738,6 @@ public class TenantService {
             String compartmentId,
             Map<String, Object> result) {
         try (SubscriptionServiceClient ospClient = buildOspClient(client)) {
-            try {
-                ospClient.setRegion(OciRegionCatalog.resolveRegion(ospHomeRegion));
-            } catch (Exception e) {
-                log.warn("Failed to set OSP region {}: {}", ospHomeRegion, e.getMessage());
-            }
             HttpClient http = buildOciHttpClient();
             String subId = null;
             JsonNode rawSub = null;
