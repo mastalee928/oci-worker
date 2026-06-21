@@ -36,7 +36,7 @@ public class AliDNSService {
     private static final String DNS_API = "https://alidns.aliyuncs.com";
     private static final String API_VERSION = "2015-01-09";
 
-    private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder().connectTimeout(java.time.Duration.ofSeconds(10)).build();
+    private static final HttpClient HTTP_CLIENT = OciProxyConfigService.newDirectHttpClient();
     @Resource
     private NotificationService notificationService;
 
