@@ -686,7 +686,10 @@ public class TenantService {
 
     private static HttpClient buildOciHttpClient() {
         OciProxyConfigService pxy = OciProxyConfigService.instance();
-        return pxy == null ? OciProxyConfigService.newDirectHttpClient() : pxy.newOutboundHttpClient();
+        if (pxy != null && pxy.ociUsesExplicitClientProxy()) {
+            return pxy.newOutboundHttpClient();
+        }
+        return HttpClient.newHttpClient();
     }
 
     private String applyIdentityAccountFields(
