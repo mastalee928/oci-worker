@@ -167,6 +167,9 @@ public final class OspGatewayHttp {
 
     private static void applyHeaders(HttpRequest.Builder builder, Map<String, List<String>> headers) {
         for (Map.Entry<String, List<String>> e : headers.entrySet()) {
+            if (isRestrictedHeader(e.getKey())) {
+                continue;
+            }
             if (e.getValue() == null) {
                 continue;
             }
@@ -176,6 +179,17 @@ public final class OspGatewayHttp {
                 }
             }
         }
+    }
+
+    private static boolean isRestrictedHeader(String name) {
+        if (name == null) {
+            return false;
+        }
+        return "host".equalsIgnoreCase(name)
+                || "connection".equalsIgnoreCase(name)
+                || "content-length".equalsIgnoreCase(name)
+                || "expect".equalsIgnoreCase(name)
+                || "upgrade".equalsIgnoreCase(name);
     }
 
     private static String truncate(String s) {
