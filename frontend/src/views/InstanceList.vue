@@ -45,7 +45,7 @@
                   <template v-for="td in l2.tenants" :key="td.tenant.id">
                     <div class="tenant-card" :data-tenant-id="td.tenant.id" :class="{ 'tenant-card-active': activeTenantId === td.tenant.id, 'tenant-card-floating-source': isFloatingTenantSource(td.tenant) }">
                       <div class="tc-header"><i class="ri-cloud-line tc-icon"></i><div class="tc-info"><div class="tc-name">{{ td.tenant.username }}</div><div class="tc-region">{{ td.tenant.ociRegion }}</div></div></div>
-                      <div class="tc-tags"><a-tag v-if="td.tenant.planType" :color="td.tenant.planType === 'FREE' ? 'default' : 'green'" size="small">{{ td.tenant.planType }}</a-tag><a-tag v-if="td.tenant.tenantName" size="small" color="blue">{{ td.tenant.tenantName }}</a-tag></div>
+                      <div class="tc-tags"><a-tag v-if="td.tenant.planType" :color="tenantPlanTagColor(td.tenant.planType)" :style="tenantPlanTagStyle(td.tenant.planType)" size="small">{{ formatTenantPlanType(td.tenant.planType) }}</a-tag><a-tag v-if="td.tenant.tenantName" size="small" color="blue">{{ td.tenant.tenantName }}</a-tag></div>
                       <div class="tc-actions"><a-button type="primary" block @click="selectTenant(td)" :loading="td.loading"><i class="ri-server-line" style="margin-right:6px"></i>实例管理</a-button><a-button block @click="openVcnPanel(td.tenant)"><i class="ri-share-line" style="margin-right:6px"></i>虚拟云网络</a-button><a-button block @click="openStoragePanel(td.tenant)"><i class="ri-database-2-line" style="margin-right:6px"></i>存储</a-button><a-button block @click="openQuickTask(td.tenant)"><i class="ri-play-circle-line" style="margin-right:6px"></i>快捷开机</a-button></div>
                     </div>
                   </template>
@@ -89,7 +89,7 @@
                   <template v-for="td in g1.tenants" :key="td.tenant.id">
                     <div class="tenant-card" :data-tenant-id="td.tenant.id" :class="{ 'tenant-card-active': activeTenantId === td.tenant.id, 'tenant-card-floating-source': isFloatingTenantSource(td.tenant) }">
                       <div class="tc-header"><i class="ri-cloud-line tc-icon"></i><div class="tc-info"><div class="tc-name">{{ td.tenant.username }}</div><div class="tc-region">{{ td.tenant.ociRegion }}</div></div></div>
-                      <div class="tc-tags"><a-tag v-if="td.tenant.planType" :color="td.tenant.planType === 'FREE' ? 'default' : 'green'" size="small">{{ td.tenant.planType }}</a-tag><a-tag v-if="td.tenant.tenantName" size="small" color="blue">{{ td.tenant.tenantName }}</a-tag></div>
+                      <div class="tc-tags"><a-tag v-if="td.tenant.planType" :color="tenantPlanTagColor(td.tenant.planType)" :style="tenantPlanTagStyle(td.tenant.planType)" size="small">{{ formatTenantPlanType(td.tenant.planType) }}</a-tag><a-tag v-if="td.tenant.tenantName" size="small" color="blue">{{ td.tenant.tenantName }}</a-tag></div>
                       <div class="tc-actions"><a-button type="primary" block @click="selectTenant(td)" :loading="td.loading"><i class="ri-server-line" style="margin-right:6px"></i>实例管理</a-button><a-button block @click="openVcnPanel(td.tenant)"><i class="ri-share-line" style="margin-right:6px"></i>虚拟云网络</a-button><a-button block @click="openStoragePanel(td.tenant)"><i class="ri-database-2-line" style="margin-right:6px"></i>存储</a-button><a-button block @click="openQuickTask(td.tenant)"><i class="ri-play-circle-line" style="margin-right:6px"></i>快捷开机</a-button></div>
                     </div>
                   </template>
@@ -133,7 +133,7 @@
               <template v-for="td in g1.tenants" :key="td.tenant.id">
                 <div class="tenant-card" :data-tenant-id="td.tenant.id" :class="{ 'tenant-card-active': activeTenantId === td.tenant.id, 'tenant-card-floating-source': isFloatingTenantSource(td.tenant) }">
                   <div class="tc-header"><i class="ri-cloud-line tc-icon"></i><div class="tc-info"><div class="tc-name">{{ td.tenant.username }}</div><div class="tc-region">{{ td.tenant.ociRegion }}</div></div></div>
-                  <div class="tc-tags"><a-tag v-if="td.tenant.planType" :color="td.tenant.planType === 'FREE' ? 'default' : 'green'" size="small">{{ td.tenant.planType }}</a-tag><a-tag v-if="td.tenant.tenantName" size="small" color="blue">{{ td.tenant.tenantName }}</a-tag></div>
+                  <div class="tc-tags"><a-tag v-if="td.tenant.planType" :color="tenantPlanTagColor(td.tenant.planType)" :style="tenantPlanTagStyle(td.tenant.planType)" size="small">{{ formatTenantPlanType(td.tenant.planType) }}</a-tag><a-tag v-if="td.tenant.tenantName" size="small" color="blue">{{ td.tenant.tenantName }}</a-tag></div>
                   <div class="tc-actions"><a-button type="primary" block @click="selectTenant(td)" :loading="td.loading"><i class="ri-server-line" style="margin-right:6px"></i>实例管理</a-button><a-button block @click="openVcnPanel(td.tenant)"><i class="ri-share-line" style="margin-right:6px"></i>虚拟云网络</a-button><a-button block @click="openStoragePanel(td.tenant)"><i class="ri-database-2-line" style="margin-right:6px"></i>存储</a-button><a-button block @click="openQuickTask(td.tenant)"><i class="ri-play-circle-line" style="margin-right:6px"></i>快捷开机</a-button></div>
                 </div>
               </template>
@@ -188,7 +188,7 @@
           </div>
         </div>
         <div class="tc-tags">
-          <a-tag v-if="td.tenant.planType" :color="td.tenant.planType === 'FREE' ? 'default' : 'green'" size="small">{{ td.tenant.planType }}</a-tag>
+          <a-tag v-if="td.tenant.planType" :color="tenantPlanTagColor(td.tenant.planType)" :style="tenantPlanTagStyle(td.tenant.planType)" size="small">{{ formatTenantPlanType(td.tenant.planType) }}</a-tag>
           <a-tag v-if="td.tenant.tenantName" size="small" color="blue">{{ td.tenant.tenantName }}</a-tag>
         </div>
         <div class="tc-actions">
@@ -235,7 +235,7 @@
         </a-table-column>
         <a-table-column title="类型" key="planType" :width="90" align="left">
           <template #default="{ record }">
-            <a-tag v-if="record.tenant.planType" :color="record.tenant.planType === 'FREE' ? 'default' : 'green'">{{ record.tenant.planType }}</a-tag>
+            <a-tag v-if="record.tenant.planType" :color="tenantPlanTagColor(record.tenant.planType)" :style="tenantPlanTagStyle(record.tenant.planType)">{{ formatTenantPlanType(record.tenant.planType) }}</a-tag>
             <span v-else style="color: var(--text-sub)">—</span>
           </template>
         </a-table-column>
@@ -1848,7 +1848,7 @@
               </div>
             </div>
             <div class="tc-tags">
-              <a-tag v-if="floatingTenantCard.planType" :color="floatingTenantCard.planType === 'FREE' ? 'default' : 'green'" size="small">{{ floatingTenantCard.planType }}</a-tag>
+              <a-tag v-if="floatingTenantCard.planType" :color="tenantPlanTagColor(floatingTenantCard.planType)" :style="tenantPlanTagStyle(floatingTenantCard.planType)" size="small">{{ formatTenantPlanType(floatingTenantCard.planType) }}</a-tag>
               <a-tag v-if="floatingTenantCard.tenantName" size="small" color="blue">{{ floatingTenantCard.tenantName }}</a-tag>
             </div>
             <div class="tc-actions">
@@ -2013,6 +2013,40 @@ function formatInstanceCreatedDate(v: unknown): string {
   const m = String(d.month() + 1).padStart(2, '0')
   const day = String(d.date()).padStart(2, '0')
   return `${y}年${m}月${day}日`
+}
+
+function normalizeTenantPlanType(plan: unknown): string {
+  if (plan == null) return ''
+  return String(plan).trim().toUpperCase().replace(/[\s-]+/g, '_')
+}
+
+function isFreeTierPlan(plan: unknown): boolean {
+  const normalized = normalizeTenantPlanType(plan).replace(/_/g, '')
+  return normalized === 'FREE' || normalized === 'FREETIER'
+}
+
+function formatTenantPlanType(plan: unknown): string {
+  const normalized = normalizeTenantPlanType(plan)
+  if (!normalized) return ''
+  if (isFreeTierPlan(normalized)) return normalized === 'FREE' ? 'FREE' : 'FREE_TIER'
+  if (normalized === 'PAYG') return 'PAYG'
+  return normalized
+}
+
+function tenantPlanTagColor(plan: unknown): string {
+  return isFreeTierPlan(plan) ? 'default' : 'green'
+}
+
+function tenantPlanTagStyle(plan: unknown): Record<string, string> | undefined {
+  if (!isFreeTierPlan(plan)) return undefined
+  return {
+    color: 'var(--tenant-free-tier-color)',
+    background: 'var(--tenant-free-tier-bg)',
+    borderColor: 'var(--tenant-free-tier-border)',
+    boxShadow: 'var(--tenant-free-tier-shadow)',
+    backdropFilter: 'blur(10px) saturate(140%)',
+    WebkitBackdropFilter: 'blur(10px) saturate(140%)',
+  }
 }
 
 interface TenantData {
@@ -4950,6 +4984,18 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+:global(:root) {
+  --tenant-free-tier-color: rgba(255, 255, 255, 0.94);
+  --tenant-free-tier-bg: rgba(255, 255, 255, 0.1);
+  --tenant-free-tier-border: rgba(255, 255, 255, 0.16);
+  --tenant-free-tier-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+:global([data-theme="light"]) {
+  --tenant-free-tier-color: rgba(15, 23, 42, 0.88);
+  --tenant-free-tier-bg: rgba(15, 23, 42, 0.06);
+  --tenant-free-tier-border: rgba(15, 23, 42, 0.12);
+  --tenant-free-tier-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
+}
 .instance-toolbar {
   display: flex;
   justify-content: space-between;
