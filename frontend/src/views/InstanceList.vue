@@ -1819,6 +1819,7 @@
       :vcn="vcnManagerVcn"
       :oci-region="vcnManagerOciRegion"
       @changed="onVcnManagerChanged"
+      @editing-overlay-change="handleVcnManagerEditingOverlayChange"
     />
 
     <StorageManager
@@ -2449,8 +2450,9 @@ const floatingTenantCard = reactive<{
   dx: '0px',
   dy: '0px',
 })
+const vcnManagerEditingOverlayActive = ref(false)
 const floatingTenantCardVisible = computed(
-  () => !isMobile.value && floatingTenantCard.phase !== 'idle' && !!floatingTenantCard.tenantId,
+  () => !isMobile.value && !vcnManagerEditingOverlayActive.value && floatingTenantCard.phase !== 'idle' && !!floatingTenantCard.tenantId,
 )
 const floatingTenantCardStyle = computed<Record<string, string>>(() => ({
   left: floatingTenantCard.left,
@@ -3592,6 +3594,9 @@ const vcnManagerOpen = ref(false)
 const vcnManagerUserId = ref('')
 const vcnManagerVcn = ref<any>(null)
 const vcnManagerOciRegion = ref('')
+function handleVcnManagerEditingOverlayChange(active: boolean) {
+  vcnManagerEditingOverlayActive.value = active
+}
 function openVcnManager(tenantId: string, vcn: any) {
   vcnManagerUserId.value = tenantId
   vcnManagerVcn.value = vcn
@@ -3605,6 +3610,10 @@ function openVcnManager(tenantId: string, vcn: any) {
     ''
   vcnManagerOpen.value = true
 }
+
+watch(vcnManagerOpen, open => {
+  if (!open) vcnManagerEditingOverlayActive.value = false
+})
 
 async function onVcnManagerChanged() {
   if (!vcnVisible.value || !vcnTenant.value) return

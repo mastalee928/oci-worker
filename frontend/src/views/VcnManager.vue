@@ -438,7 +438,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, watch, computed } from 'vue'
+import { ref, reactive, watch, computed, onUnmounted } from 'vue'
 import { message, Modal } from 'ant-design-vue'
 import {
   listSubnets, createSubnet, deleteSubnet, updateSubnet,
@@ -453,7 +453,11 @@ import {
 import { sendVerifyCode } from '../api/system'
 
 const props = withDefaults(defineProps<{ open: boolean; userId: string; vcn: any; ociRegion?: string }>(), { ociRegion: '' })
-const emit = defineEmits<{ (e: 'update:open', v: boolean): void; (e: 'changed'): void }>()
+const emit = defineEmits<{
+  (e: 'update:open', v: boolean): void
+  (e: 'changed'): void
+  (e: 'editing-overlay-change', v: boolean): void
+}>()
 
 const ociBase = computed((): { id: string; region?: string } => {
   const z = props.ociRegion?.trim()
@@ -1028,6 +1032,35 @@ async function doDeleteVcn() {
     },
   })
 }
+
+const editingOverlayOpen = computed(() => (
+  showCreateSubnet.value ||
+  showCreateIgw.value ||
+  showCreateNat.value ||
+  showCreateSg.value ||
+  showCreateLpg.value ||
+  showConnectLpg.value ||
+  showRename.value ||
+  showEditSubnet.value ||
+  showEditRt.value ||
+  showEditSl.value ||
+  showAddSlRule.value ||
+  showEditIgw.value ||
+  showDelete.value ||
+  showDeleteVcn.value
+))
+
+watch(
+  [() => props.open, editingOverlayOpen],
+  ([open, overlayOpen]) => {
+    emit('editing-overlay-change', Boolean(open && overlayOpen))
+  },
+  { immediate: true },
+)
+
+onUnmounted(() => {
+  emit('editing-overlay-change', false)
+})
 </script>
 
 <style scoped>
