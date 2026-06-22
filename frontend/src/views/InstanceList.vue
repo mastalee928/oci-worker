@@ -1808,6 +1808,7 @@
             :user-id="vcnTenant.id"
             :region="vcnPanelRegion"
             @changed="onByoipChanged"
+            @editing-overlay-change="handleByoipEditingOverlayChange"
           />
         </div>
       </a-spin>
@@ -1827,6 +1828,7 @@
       :user-id="storageManagerUserId"
       :tenant-name="storageManagerTenantName"
       :default-region="storageManagerDefaultRegion"
+      @editing-overlay-change="handleStorageManagerEditingOverlayChange"
     />
 
     <div
@@ -2451,8 +2453,18 @@ const floatingTenantCard = reactive<{
   dy: '0px',
 })
 const vcnManagerEditingOverlayActive = ref(false)
+const storageManagerEditingOverlayActive = ref(false)
+const byoipEditingOverlayActive = ref(false)
+const instanceManagerEditingOverlayActive = ref(false)
 const floatingTenantCardVisible = computed(
-  () => !isMobile.value && !vcnManagerEditingOverlayActive.value && floatingTenantCard.phase !== 'idle' && !!floatingTenantCard.tenantId,
+  () =>
+    !isMobile.value &&
+    !vcnManagerEditingOverlayActive.value &&
+    !storageManagerEditingOverlayActive.value &&
+    !byoipEditingOverlayActive.value &&
+    !instanceManagerEditingOverlayActive.value &&
+    floatingTenantCard.phase !== 'idle' &&
+    !!floatingTenantCard.tenantId,
 )
 const floatingTenantCardStyle = computed<Record<string, string>>(() => ({
   left: floatingTenantCard.left,
@@ -3597,6 +3609,9 @@ const vcnManagerOciRegion = ref('')
 function handleVcnManagerEditingOverlayChange(active: boolean) {
   vcnManagerEditingOverlayActive.value = active
 }
+function handleByoipEditingOverlayChange(active: boolean) {
+  byoipEditingOverlayActive.value = active
+}
 function openVcnManager(tenantId: string, vcn: any) {
   vcnManagerUserId.value = tenantId
   vcnManagerVcn.value = vcn
@@ -3633,13 +3648,18 @@ const storageManagerOpen = ref(false)
 const storageManagerUserId = ref('')
 const storageManagerTenantName = ref('')
 const storageManagerDefaultRegion = ref('')
+function handleStorageManagerEditingOverlayChange(active: boolean) {
+  storageManagerEditingOverlayActive.value = active
+}
 watch(vcnVisible, (open) => {
+  if (!open) byoipEditingOverlayActive.value = false
   if (!open && tenantWorkspaceKind.value === 'vcn' && !tenantWorkspaceTransitioning.value) {
     tenantWorkspaceKind.value = null
     clearFloatingTenantCard()
   }
 })
 watch(storageManagerOpen, (open) => {
+  if (!open) storageManagerEditingOverlayActive.value = false
   if (!open && tenantWorkspaceKind.value === 'storage' && !tenantWorkspaceTransitioning.value) {
     tenantWorkspaceKind.value = null
     clearFloatingTenantCard()
@@ -3957,6 +3977,7 @@ function onInstanceMenuClick(record: any, key: string) {
   }
   const label = INSTANCE_ACTION_LABELS[key] || key
   const danger = key === 'RESET' || key === 'SOFTSTOP'
+  instanceManagerConfirmOverlayActive.value = true
   Modal.confirm({
     title: `确定${label}实例？`,
     content: `目标实例：${record.name || record.instanceId}`,
@@ -3964,6 +3985,9 @@ function onInstanceMenuClick(record: any, key: string) {
     okButtonProps: danger ? { danger: true } : undefined,
     cancelText: '取消',
     onOk: () => handleAction(tenant, record, key),
+    afterClose: () => {
+      instanceManagerConfirmOverlayActive.value = false
+    },
   })
 }
 
@@ -3981,6 +4005,30 @@ const verifyCode = ref('')
 const verifyLoading = ref(false)
 const verifySending = ref(false)
 const deleteBootVolume = ref(true)
+const instanceManagerConfirmOverlayActive = ref(false)
+const instanceManagerModalOverlayActive = computed(() =>
+  trafficChartModalOpen.value ||
+  addRuleVisible.value ||
+  editVolVisible.value ||
+  createBlockVolVisible.value ||
+  attachBlockVolVisible.value ||
+  attachExternalBootVisible.value ||
+  detachExternalBootVisible.value ||
+  editBlockVolVisible.value ||
+  createRipVisible.value ||
+  editInstanceVisible.value ||
+  forceA2ModalVisible.value ||
+  verifyModalVisible.value ||
+  instanceManagerConfirmOverlayActive.value,
+)
+
+watch(
+  instanceManagerModalOverlayActive,
+  (active) => {
+    instanceManagerEditingOverlayActive.value = active
+  },
+  { immediate: true },
+)
 
 async function openTerminateVerify(tenant: any, record: any) {
   currentTenant.value = tenant
@@ -4493,6 +4541,7 @@ function openDetachExternalBootVolume(record: any) {
     return
   }
   if (currentInstanceState() !== 'STOPPED') {
+    instanceManagerConfirmOverlayActive.value = true
     Modal.confirm({
       title: '需要先停止实例',
       content: `实例状态为 ${currentInstance.value.state || currentInstance.value.lifecycleState || '未知'}，请先断电停止实例后再分离外部引导卷。`,
@@ -4501,6 +4550,9 @@ function openDetachExternalBootVolume(record: any) {
       okButtonProps: { danger: true },
       async onOk() {
         await handleAction(currentTenant.value, currentInstance.value, 'STOP')
+      },
+      afterClose: () => {
+        instanceManagerConfirmOverlayActive.value = false
       },
     })
     return

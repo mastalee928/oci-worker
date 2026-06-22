@@ -256,7 +256,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, watch } from 'vue'
+import { ref, reactive, computed, watch, onUnmounted } from 'vue'
 import { message, Modal } from 'ant-design-vue'
 import { DownOutlined, UpOutlined } from '@ant-design/icons-vue'
 import {
@@ -290,7 +290,10 @@ const props = defineProps<{
   region?: string
 }>()
 
-const emit = defineEmits<{ changed: [] }>()
+const emit = defineEmits<{
+  changed: []
+  'editing-overlay-change': [v: boolean]
+}>()
 
 const BYOIP_COLLAPSED_KEY = 'ociworker.byoipPanel.collapsed'
 
@@ -458,6 +461,7 @@ const tokenVisible = ref(false)
 const tokenDetail = ref<any>({})
 const allocatedVisible = ref(false)
 const allocatedRanges = ref<any[]>([])
+const deleteConfirmVisible = ref(false)
 
 async function onRangeAction(key: string, record: any) {
   const id = record.id
@@ -530,6 +534,7 @@ async function onRangeAction(key: string, record: any) {
     return
   }
   if (key === 'delete') {
+    deleteConfirmVisible.value = true
     Modal.confirm({
       title: '删除 BYOIP 网段',
       content: '须先移除 IP 池中的子网且无占用；删除后需重新导入。',
@@ -538,6 +543,9 @@ async function onRangeAction(key: string, record: any) {
         await deleteByoipRange(p)
         message.success('已删除')
         loadAll()
+      },
+      afterClose: () => {
+        deleteConfirmVisible.value = false
       },
     })
   }
@@ -825,6 +833,31 @@ async function submitIpv6Vcn() {
     submitting.value = false
   }
 }
+
+const editingOverlayOpen = computed(() =>
+  importVisible.value ||
+  tokenVisible.value ||
+  allocatedVisible.value ||
+  createPoolVisible.value ||
+  addCapVisible.value ||
+  createIpVisible.value ||
+  renameVisible.value ||
+  moveCompartmentVisible.value ||
+  ipv6VcnVisible.value ||
+  deleteConfirmVisible.value,
+)
+
+watch(
+  editingOverlayOpen,
+  (open) => {
+    emit('editing-overlay-change', open)
+  },
+  { immediate: true },
+)
+
+onUnmounted(() => {
+  emit('editing-overlay-change', false)
+})
 
 defineExpose({ loadAll })
 </script>

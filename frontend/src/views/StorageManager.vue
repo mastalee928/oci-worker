@@ -555,7 +555,10 @@ const props = withDefaults(
   }>(),
   { defaultRegion: '' },
 )
-const emit = defineEmits<{ (e: 'update:open', v: boolean): void }>()
+const emit = defineEmits<{
+  (e: 'update:open', v: boolean): void
+  (e: 'editing-overlay-change', v: boolean): void
+}>()
 
 type CompartmentOption = { label: string; value: string; isRoot?: boolean }
 
@@ -2082,4 +2085,38 @@ async function submitPolicy() {
     policyLoading.value = false
   }
 }
+
+const editingOverlayOpen = computed(() =>
+  renameOpen.value ||
+  resizeBootOpen.value ||
+  resizeBlockOpen.value ||
+  attachBootOpen.value ||
+  bootIscsiOpen.value ||
+  replBootOpen.value ||
+  replBlockOpen.value ||
+  actBootOpen.value ||
+  actBlockOpen.value ||
+  vgOpen.value ||
+  policyCreateOpen.value ||
+  policyEditOpen.value ||
+  assignOpen.value ||
+  bucketCreateOpen.value ||
+  bucketEditOpen.value ||
+  peCreateOpen.value ||
+  deleteOpen.value ||
+  detachBootOpen.value ||
+  policyOpen.value,
+)
+
+watch(
+  [() => props.open, editingOverlayOpen],
+  ([open, overlayOpen]) => {
+    emit('editing-overlay-change', Boolean(open && overlayOpen))
+  },
+  { immediate: true },
+)
+
+onUnmounted(() => {
+  emit('editing-overlay-change', false)
+})
 </script>
