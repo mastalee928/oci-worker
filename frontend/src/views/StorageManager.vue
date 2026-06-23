@@ -98,12 +98,12 @@
                 </a-button>
                 <template #overlay>
                   <a-menu>
-                    <a-menu-item v-if="canRenameBlock" @click="openRename(record)">改名</a-menu-item>
-                    <a-menu-item v-if="canResizeBoot" @click="openResizeBoot(record)">编辑</a-menu-item>
+                    <a-menu-item v-if="canRenameBlock" :disabled="!canUpdateBootVolumeRow(record)" @click="openRename(record)">改名</a-menu-item>
+                    <a-menu-item v-if="canResizeBoot" :disabled="!canUpdateBootVolumeRow(record)" @click="openResizeBoot(record)">编辑</a-menu-item>
                     <a-menu-item v-if="canResizeBlock" @click="openResizeBlock(record)">编辑</a-menu-item>
                     <a-menu-item v-if="canAttachBootVolume(record)" @click="openAttachBootVolume(record)">挂载</a-menu-item>
                     <a-menu-item v-if="canShowBootIscsi(record)" @click="openBootIscsi(record)">iSCSI</a-menu-item>
-                    <a-menu-item v-if="canEnableBootReplication" @click="openEnableBootReplication(record)">启用复制</a-menu-item>
+                    <a-menu-item v-if="canEnableBootReplication" :disabled="!canUpdateBootVolumeRow(record)" @click="openEnableBootReplication(record)">启用复制</a-menu-item>
                     <a-menu-item v-if="canEnableBlockReplication" @click="openEnableBlockReplication(record)">启用复制</a-menu-item>
                     <a-menu-item v-if="canActivateBootReplica" @click="openActivateBootReplica(record)">激活为引导卷</a-menu-item>
                     <a-menu-item v-if="canActivateBlockReplica" @click="openActivateBlockReplica(record)">激活为块卷</a-menu-item>
@@ -806,6 +806,29 @@ const canActivateBlockReplica = computed(() => blockView.value === 'blockVolumeR
 const canEditBackupPolicy = computed(() => blockView.value === 'volumeBackupPolicies')
 const canDeleteBlock = computed(() => true)
 
+function bootVolumeState(row: any) {
+  return String(row?.lifecycleState || '').trim().toUpperCase()
+}
+
+function canUpdateBootVolumeRow(row: any) {
+  if (blockView.value !== 'bootVolumes') return true
+  const state = bootVolumeState(row)
+  return !state || state === 'AVAILABLE'
+}
+
+function bootVolumeBusyMessage(row: any) {
+  const state = bootVolumeState(row) || '未知'
+  return state === 'UPDATE_PENDING'
+    ? '引导卷正在更新中，请等待状态变为 AVAILABLE（可用）后再操作。'
+    : `引导卷当前状态为 ${state}，请等待状态变为 AVAILABLE（可用）后再操作。`
+}
+
+function ensureBootVolumeReady(row: any) {
+  if (canUpdateBootVolumeRow(row)) return true
+  message.warning(bootVolumeBusyMessage(row))
+  return false
+}
+
 const blockVolumeSelectOptions = computed(() => {
   const rows = (blockData.value as any).blockVolumes || []
   const cid = vgForm.value.compartmentId
@@ -1205,6 +1228,7 @@ const renameValue = ref('')
 const renameLoading = ref(false)
 
 function openRename(row: any) {
+  if (!ensureBootVolumeReady(row)) return
   renameTarget.value = row
   renameValue.value = row.displayName || ''
   renameOpen.value = true
@@ -1212,6 +1236,7 @@ function openRename(row: any) {
 
 async function submitRename() {
   if (!props.userId || !region.value || !renameTarget.value?.id) return
+  if (!ensureBootVolumeReady(renameTarget.value)) return
   renameLoading.value = true
   try {
     const v = blockView.value
@@ -1288,6 +1313,7 @@ const resizeBootVpus = ref<number | null>(null)
 const resizeBootLoading = ref(false)
 
 function openResizeBoot(row: any) {
+  if (!ensureBootVolumeReady(row)) return
   resizeBootTarget.value = row
   resizeBootGb.value = row.sizeInGBs != null ? Number(row.sizeInGBs) : null
   resizeBootVpus.value = vpusPerGbInitialFromApi(row.vpusPerGB)
@@ -1296,6 +1322,7 @@ function openResizeBoot(row: any) {
 
 async function submitResizeBoot() {
   if (!props.userId || !region.value || !resizeBootTarget.value?.id) return
+  if (!ensureBootVolumeReady(resizeBootTarget.value)) return
   if (resizeBootGb.value == null && resizeBootVpus.value == null) {
     return message.warning('请至少填写容量或 VPUs/GB 之一')
   }
@@ -1549,6 +1576,7 @@ const replBootForm = ref({ replicaDisplayName: '', destinationAvailabilityDomain
 const replBootLoading = ref(false)
 
 function openEnableBootReplication(row: any) {
+  if (!ensureBootVolumeReady(row)) return
   replBootRow.value = row
   replBootForm.value = {
     replicaDisplayName: `${row.displayName || 'boot'}-replica`,
@@ -1560,6 +1588,7 @@ function openEnableBootReplication(row: any) {
 
 async function submitReplBoot() {
   if (!props.userId || !region.value || !replBootRow.value?.id) return
+  if (!ensureBootVolumeReady(replBootRow.value)) return
   const f = replBootForm.value
   if (!f.replicaDisplayName.trim() || !f.destinationAvailabilityDomain.trim()) {
     return message.warning('请填写副本名称与目标 AD')

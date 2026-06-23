@@ -741,7 +741,13 @@
           <a-table v-if="!isMobile" :data-source="bootVolumes" :columns="volColumns" size="small" :pagination="false" row-key="id">
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'volAction'">
-                <a-button type="link" size="small" @click="openEditVolume(record)">编辑</a-button>
+                <a-button
+                  type="link"
+                  size="small"
+                  :disabled="!isBootVolumeAvailable(record)"
+                  :title="bootVolumeBusyTitle(record)"
+                  @click="openEditVolume(record)"
+                >编辑</a-button>
               </template>
             </template>
           </a-table>
@@ -750,7 +756,13 @@
             <div v-for="vol in bootVolumes" :key="vol.id" class="mobile-card">
               <div class="mobile-card-header">
                 <span class="mobile-card-title">{{ vol.displayName }}</span>
-                <a-button type="link" size="small" @click="openEditVolume(vol)">编辑</a-button>
+                <a-button
+                  type="link"
+                  size="small"
+                  :disabled="!isBootVolumeAvailable(vol)"
+                  :title="bootVolumeBusyTitle(vol)"
+                  @click="openEditVolume(vol)"
+                >编辑</a-button>
               </div>
               <div class="mobile-card-body">
                 <div class="mobile-card-row"><span class="label">大小</span><span class="value">{{ vol.sizeInGBs }} GB</span></div>
@@ -764,8 +776,13 @@
             <a-space wrap>
               <a-popconfirm v-for="size in [50, 100, 150, 200]" :key="size"
                 :title="`确定将引导卷调整为 ${size} GB / 120 VPUs？`"
+                :disabled="!isBootVolumeAvailable(bootVolumes[0])"
                 @confirm="applyVolumePreset(size)">
-                <a-button :loading="editVolLoading">{{ size }} GB</a-button>
+                <a-button
+                  :loading="editVolLoading"
+                  :disabled="!isBootVolumeAvailable(bootVolumes[0])"
+                  :title="bootVolumeBusyTitle(bootVolumes[0])"
+                >{{ size }} GB</a-button>
               </a-popconfirm>
             </a-space>
           </div>
@@ -4534,6 +4551,29 @@ function currentInstanceState() {
   return String(currentInstance.value?.state || currentInstance.value?.lifecycleState || '').toUpperCase()
 }
 
+function bootVolumeState(record: any) {
+  return String(record?.lifecycleState || record?.volumeLifecycleState || '').trim().toUpperCase()
+}
+
+function isBootVolumeAvailable(record: any) {
+  const state = bootVolumeState(record)
+  return !state || state === 'AVAILABLE'
+}
+
+function bootVolumeBusyTitle(record: any) {
+  if (isBootVolumeAvailable(record)) return ''
+  const state = bootVolumeState(record) || '未知'
+  return state === 'UPDATE_PENDING'
+    ? '引导卷正在更新中，请等待状态变为 AVAILABLE（可用）后再操作。'
+    : `引导卷当前状态为 ${state}，请等待状态变为 AVAILABLE（可用）后再操作。`
+}
+
+function ensureBootVolumeAvailable(record: any) {
+  if (isBootVolumeAvailable(record)) return true
+  message.warning(bootVolumeBusyTitle(record))
+  return false
+}
+
 function openDetachExternalBootVolume(record: any) {
   if (!currentInstance.value || !currentTenant.value) return
   if (!record?.bootVolumeAttachmentId) {
@@ -4651,6 +4691,7 @@ async function handleDetachBlockVolume(record: any) {
 }
 
 function openEditVolume(record: any) {
+  if (!ensureBootVolumeAvailable(record)) return
   Object.assign(editVolForm, {
     bootVolumeId: record.bootVolumeId || record.id,
     displayName: record.displayName,
@@ -4661,6 +4702,8 @@ function openEditVolume(record: any) {
 }
 
 async function handleEditVolume() {
+  const currentVol = bootVolumes.value.find((v: any) => (v.bootVolumeId || v.id) === editVolForm.bootVolumeId)
+  if (currentVol && !ensureBootVolumeAvailable(currentVol)) return
   editVolLoading.value = true
   try {
     await updateBootVolume({ id: currentTenant.value.id, ...editVolForm, ...instanceDetailRegionParam() })
@@ -4678,6 +4721,7 @@ async function handleEditVolume() {
 async function applyVolumePreset(size: number) {
   if (bootVolumes.value.length === 0) return
   const vol = bootVolumes.value[0]
+  if (!ensureBootVolumeAvailable(vol)) return
   editVolLoading.value = true
   try {
     await updateBootVolume({

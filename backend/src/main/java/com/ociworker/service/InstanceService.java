@@ -188,6 +188,8 @@ public class InstanceService {
                             .updateBootVolumeDetails(detailsBuilder.build())
                             .build());
             log.info("Boot volume updated: {}", bootVolumeId);
+        } catch (com.oracle.bmc.model.BmcException e) {
+            throw new OciException(tag(ociUser) + "更新引导卷失败: " + extractOciErrorMessage(e));
         } catch (Exception e) {
             throw new OciException(tag(ociUser) + "更新引导卷失败: " + e.getMessage());
         }
@@ -1683,6 +1685,11 @@ public class InstanceService {
         }
         if (msg.contains("Conflict")) {
             return "资源冲突，该私有IP已有公网IP绑定。请先解绑现有公网IP。";
+        }
+        if (e.getStatusCode() == 409
+                && (msg.contains("UpdateBootVolume operation") || msg.contains("BootVolume operation") || msg.contains("bootVolumes/"))
+                && (msg.contains("UPDATE_PENDING") || msg.contains("must be in state AVAILABLE") || msg.contains("cannot be resized"))) {
+            return "引导卷正在更新中，请等待状态变为 AVAILABLE（可用）后再操作。";
         }
         if (msg.contains("NotAuthorizedOrNotFound")) {
             return "权限不足或资源不存在。";

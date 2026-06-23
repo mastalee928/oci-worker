@@ -42,6 +42,10 @@ public class GlobalExceptionHandler {
         String opc = e.getOpcRequestId();
         log.error("OCI API error: status={} opcRequestId={} serviceCode={} message={}",
                 e.getStatusCode(), opc != null ? opc : "-", e.getServiceCode(), e.getMessage());
+        String friendly = friendlyBmcMessage(e);
+        if (StringUtils.hasText(friendly)) {
+            return ResponseData.error(friendly);
+        }
         StringBuilder sb = new StringBuilder("OCI 错误 [").append(e.getStatusCode()).append("]");
         if (StringUtils.hasText(e.getMessage())) {
             sb.append(": ").append(e.getMessage());
@@ -50,6 +54,25 @@ public class GlobalExceptionHandler {
             sb.append(" (opc-request-id: ").append(opc).append(")");
         }
         return ResponseData.error(sb.toString());
+    }
+
+    private static String friendlyBmcMessage(com.oracle.bmc.model.BmcException e) {
+        String msg = e.getMessage();
+        if (!StringUtils.hasText(msg)) {
+            return null;
+        }
+        String serviceCode = e.getServiceCode();
+        boolean incorrectState = "IncorrectState".equalsIgnoreCase(serviceCode) || msg.contains("IncorrectState");
+        boolean bootVolumeUpdate = msg.contains("UpdateBootVolume operation")
+                || msg.contains("BootVolume operation")
+                || msg.contains("bootVolumes/");
+        boolean waitingForAvailable = msg.contains("UPDATE_PENDING")
+                || msg.contains("must be in state AVAILABLE")
+                || msg.contains("cannot be resized");
+        if (e.getStatusCode() == 409 && incorrectState && bootVolumeUpdate && waitingForAvailable) {
+            return "引导卷正在更新中，请等待状态变为 AVAILABLE（可用）后再操作。";
+        }
+        return null;
     }
 
     @ExceptionHandler(Exception.class)
