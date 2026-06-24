@@ -10,6 +10,7 @@ import com.ociworker.mapper.OciCreateTaskMapper;
 import com.oracle.bmc.identity.IdentityClient;
 import com.oracle.bmc.identity.requests.GetTenancyRequest;
 import com.oracle.bmc.identity.requests.ListRegionSubscriptionsRequest;
+import com.oracle.bmc.model.BmcException;
 import com.oracle.bmc.ospgateway.SubscriptionServiceClient;
 import com.oracle.bmc.ospgateway.requests.ListSubscriptionsRequest;
 import com.oracle.bmc.retrier.RetryConfiguration;
@@ -23,6 +24,7 @@ import com.ociworker.model.params.PageParams;
 import com.ociworker.model.params.TenantBatchMoveGroupParams;
 import com.ociworker.model.params.TenantParams;
 import com.ociworker.util.CommonUtils;
+import com.ociworker.util.OciBmcErrorTranslator;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DuplicateKeyException;
@@ -398,7 +400,7 @@ public class TenantService {
                     user.setTenantNameError(shortError(e));
                     user.setTenantNameUpdatedAt(LocalDateTime.now());
                     tenantChanged = true;
-                    log.warn("Failed to fetch tenantName for {}: {}", user.getUsername(), e.getMessage());
+                    log.warn("获取租户名失败：[{}] {}", user.getUsername(), shortError(e));
                 }
                 if (tenantChanged) {
                     userMapper.updateById(user);
@@ -437,7 +439,7 @@ public class TenantService {
                         user.setInfoRetryCount(retries);
                         user.setInfoNextRetryAt(LocalDateTime.now().plusMinutes(planRetryMinutes(retries)));
                         planChanged = true;
-                        log.warn("Failed to fetch planType for {}: {}", user.getUsername(), e.getMessage());
+                        log.warn("获取账户类型失败：[{}] {}", user.getUsername(), shortError(e));
                     } finally {
                         ospClient.close();
                     }
@@ -455,7 +457,7 @@ public class TenantService {
             user.setPlanTypeError(shortError(e));
             user.setPlanTypeUpdatedAt(LocalDateTime.now());
             userMapper.updateById(user);
-            log.warn("Failed to fetch tenant info for {}: {}", user.getUsername(), e.getMessage());
+            log.warn("获取租户信息失败：[{}] {}", user.getUsername(), shortError(e));
         }
     }
 
@@ -465,7 +467,7 @@ public class TenantService {
     }
 
     private static String shortError(Exception e) {
-        String msg = e == null ? null : e.getMessage();
+        String msg = OciBmcErrorTranslator.translate(e);
         if (StrUtil.isBlank(msg)) {
             msg = e == null ? "未知错误" : e.getClass().getSimpleName();
         }
@@ -526,12 +528,12 @@ public class TenantService {
             try {
                 ospFut.get(15, TimeUnit.SECONDS);
             } catch (Exception e) {
-                log.warn("Tenant OSP account fetch timeout or error: {}", e.getMessage());
+                log.warn("获取租户 OSP 账户信息超时或失败：{}", shortError(e));
             }
             try {
                 assignedFut.get(5, TimeUnit.SECONDS);
             } catch (Exception e) {
-                log.warn("Tenant organization subscription fetch timeout or error: {}", e.getMessage());
+                log.warn("获取组织订阅信息超时或失败：{}", shortError(e));
             }
 
             List<Map<String, Object>> assignedRows = assignedFut.getNow(List.of());
@@ -558,6 +560,9 @@ public class TenantService {
         } catch (OciException e) {
             throw e;
         } catch (Exception e) {
+            if (e instanceof BmcException bmc) {
+                throw new OciException("获取租户详情失败: " + OciBmcErrorTranslator.translate(bmc));
+            }
             throw new OciException("获取租户详情失败: " + e.getMessage());
         }
 

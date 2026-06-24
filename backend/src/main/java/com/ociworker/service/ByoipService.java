@@ -6,6 +6,7 @@ import com.ociworker.exception.OciException;
 import com.ociworker.mapper.OciUserMapper;
 import com.ociworker.model.dto.SysUserDTO;
 import com.ociworker.model.entity.OciUser;
+import com.ociworker.util.OciBmcErrorTranslator;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -61,7 +62,7 @@ public class ByoipService {
         if (msg.contains("NotAuthorizedOrNotFound")) {
             return "权限不足或资源不存在。请确认 IAM 策略含网络 BYOIP 相关权限。";
         }
-        return msg.length() > 200 ? msg.substring(0, 200) + "…" : msg;
+        return OciBmcErrorTranslator.translate(e);
     }
 
     private OciUser requireUser(String userId) {

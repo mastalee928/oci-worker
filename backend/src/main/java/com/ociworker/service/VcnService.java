@@ -6,6 +6,7 @@ import com.ociworker.exception.OciException;
 import com.ociworker.mapper.OciUserMapper;
 import com.ociworker.model.dto.SysUserDTO;
 import com.ociworker.model.entity.OciUser;
+import com.ociworker.util.OciBmcErrorTranslator;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -380,12 +381,7 @@ public class VcnService {
     }
 
     private static String briefBmcMessage(com.oracle.bmc.model.BmcException e) {
-        String em = e.getMessage();
-        if (em == null) {
-            return "HTTP " + e.getStatusCode();
-        }
-        int nl = em.indexOf('\n');
-        return nl > 0 ? em.substring(0, nl) : (em.length() > 240 ? em.substring(0, 240) + "…" : em);
+        return OciBmcErrorTranslator.translate(e);
     }
 
     // ---------------- Subnets ----------------
@@ -1095,7 +1091,7 @@ public class VcnService {
         } catch (OciException e) { throw e; }
         catch (com.oracle.bmc.model.BmcException e) {
             if (e.getStatusCode() == 409) throw new OciException("资源仍被引用或正在使用，无法删除");
-            throw new OciException(op.get() + " 失败: " + (e.getMessage() != null ? e.getMessage() : "未知错误"));
+            throw new OciException(op.get() + " 失败: " + OciBmcErrorTranslator.translate(e));
         } catch (Exception e) { throw new OciException(op.get() + " 失败: " + e.getMessage()); }
     }
 

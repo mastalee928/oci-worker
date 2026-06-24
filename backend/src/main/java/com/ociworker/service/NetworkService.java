@@ -1,6 +1,8 @@
 package com.ociworker.service;
 
+import com.ociworker.util.OciBmcErrorTranslator;
 import com.ociworker.util.VcnIpv6Util;
+import com.oracle.bmc.model.BmcException;
 import com.oracle.bmc.core.model.*;
 import com.oracle.bmc.core.requests.*;
 import com.ociworker.exception.OciException;
@@ -543,6 +545,9 @@ public class NetworkService {
             String msg = e.getMessage();
             if (msg != null && msg.contains("LimitExceeded")) {
                 throw new OciException(tag(ociUser) + "公网 IP 配额已满，无法分配更多公网 IP");
+            }
+            if (e instanceof BmcException bmc) {
+                throw new OciException(tag(ociUser) + "分配公网IP失败: " + OciBmcErrorTranslator.translate(bmc));
             }
             throw new OciException(tag(ociUser) + "分配公网IP失败: " + msg);
         }

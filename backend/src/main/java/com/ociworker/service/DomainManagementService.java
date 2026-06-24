@@ -7,6 +7,7 @@ import com.ociworker.mapper.OciUserMapper;
 import com.ociworker.model.dto.OciProxySnapshot;
 import com.ociworker.model.dto.SysUserDTO;
 import com.ociworker.model.entity.OciUser;
+import com.ociworker.util.OciBmcErrorTranslator;
 import com.ociworker.util.socks.OciSocksApacheConnectionManager;
 import com.oracle.bmc.ClientConfiguration;
 import com.oracle.bmc.audit.AuditClient;
@@ -1118,6 +1119,7 @@ public class DomainManagementService {
             if (status == 404) {
                 return "OCI Audit 端点或区域不可用，请确认租户主区域和订阅区域是否正确。";
             }
+            return "OCI Audit 查询失败：" + OciBmcErrorTranslator.translate(b);
         }
         String raw = e == null || e.getMessage() == null ? "" : e.getMessage().trim();
         if (raw.isEmpty()) return "OCI Audit 查询失败，请稍后重试。";

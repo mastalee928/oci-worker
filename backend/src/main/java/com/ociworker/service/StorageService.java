@@ -11,6 +11,7 @@ import com.ociworker.exception.OciException;
 import com.ociworker.mapper.OciUserMapper;
 import com.ociworker.model.dto.SysUserDTO;
 import com.ociworker.model.entity.OciUser;
+import com.ociworker.util.OciBmcErrorTranslator;
 import com.ociworker.util.ObjectStorageBucketPolicyHttp;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
@@ -368,7 +369,7 @@ public class StorageService {
         } catch (OciException e) {
             throw e;
         } catch (com.oracle.bmc.model.BmcException e) {
-            throw new OciException("删除失败: " + e.getMessage());
+            throw new OciException("删除失败: " + OciBmcErrorTranslator.translate(e));
         } catch (Exception e) {
             throw new OciException("删除失败: " + e.getMessage());
         }
@@ -707,7 +708,7 @@ public class StorageService {
         } catch (OciException e) {
             throw e;
         } catch (com.oracle.bmc.model.BmcException e) {
-            throw new OciException("操作失败: " + e.getMessage());
+            throw new OciException("操作失败: " + OciBmcErrorTranslator.translate(e));
         } catch (Exception e) {
             throw new OciException("操作失败: " + e.getMessage());
         }

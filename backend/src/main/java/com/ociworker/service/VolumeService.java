@@ -6,6 +6,7 @@ import com.ociworker.exception.OciException;
 import com.ociworker.mapper.OciUserMapper;
 import com.ociworker.model.dto.SysUserDTO;
 import com.ociworker.model.entity.OciUser;
+import com.ociworker.util.OciBmcErrorTranslator;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -153,7 +154,7 @@ public class VolumeService {
             if (e.getStatusCode() == 409) {
                 throw new OciException("该卷当前状态不允许删除（可能正在使用或复制中），请稍后再试");
             }
-            throw new OciException("删除卷失败: " + (e.getMessage() != null ? e.getMessage() : "未知错误"));
+            throw new OciException("删除卷失败: " + OciBmcErrorTranslator.translate(e));
         } catch (Exception e) {
             throw new OciException("删除卷失败: " + e.getMessage());
         }

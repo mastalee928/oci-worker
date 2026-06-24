@@ -4,6 +4,7 @@ import com.oracle.bmc.core.model.*;
 import com.oracle.bmc.core.requests.*;
 import com.oracle.bmc.identity.model.Compartment;
 import com.ociworker.exception.OciException;
+import com.ociworker.util.OciBmcErrorTranslator;
 import com.ociworker.util.ShapeFlexLimitsUtil;
 import com.ociworker.mapper.OciUserMapper;
 import com.ociworker.model.dto.ShapeEditTaskStatus;
@@ -1703,7 +1704,7 @@ public class InstanceService {
         if (msg.contains("TooManyRequests")) {
             return "请求过于频繁，请稍后重试。";
         }
-        return msg.length() > 150 ? msg.substring(0, 150) + "..." : msg;
+        return OciBmcErrorTranslator.translate(e);
     }
 
     private String extractInstanceActionErrorMessage(com.oracle.bmc.model.BmcException e) {

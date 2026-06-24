@@ -1,6 +1,7 @@
 package com.ociworker.exception;
 
 import com.ociworker.model.vo.ResponseData;
+import com.ociworker.util.OciBmcErrorTranslator;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.catalina.connector.ClientAbortException;
 import org.springframework.util.StringUtils;
@@ -45,6 +46,13 @@ public class GlobalExceptionHandler {
         String friendly = friendlyBmcMessage(e);
         if (StringUtils.hasText(friendly)) {
             return ResponseData.error(friendly);
+        }
+        String translated = OciBmcErrorTranslator.translate(e);
+        if (StringUtils.hasText(translated)) {
+            if (StringUtils.hasText(opc) && !translated.contains("opc-request-id")) {
+                translated += " (opc-request-id: " + opc + ")";
+            }
+            return ResponseData.error(translated);
         }
         StringBuilder sb = new StringBuilder("OCI 错误 [").append(e.getStatusCode()).append("]");
         if (StringUtils.hasText(e.getMessage())) {

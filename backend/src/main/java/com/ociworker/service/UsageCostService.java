@@ -4,6 +4,7 @@ import com.ociworker.exception.OciException;
 import com.ociworker.mapper.OciUserMapper;
 import com.ociworker.model.dto.SysUserDTO;
 import com.ociworker.model.entity.OciUser;
+import com.ociworker.util.OciBmcErrorTranslator;
 import com.ociworker.util.OciRegionCatalog;
 import com.oracle.bmc.Region;
 import com.oracle.bmc.identity.IdentityClient;
@@ -425,7 +426,7 @@ public class UsageCostService {
             if (code == 401 || code == 403 || msg.contains("NotAuthorized")) {
                 return "Usage 权限不足（需 usage-report / 成本分析读权限）：" + msg;
             }
-            return "Usage API 失败（HTTP " + code + "）：" + msg;
+            return "Usage API 失败（HTTP " + code + "）：" + OciBmcErrorTranslator.translate(bmc);
         }
         if (msg.contains("InvalidParameter") && msg.contains("precision")) {
             return "成本分析请求时间格式不符合 OCI 要求（已按 UTC 整日对齐，若仍失败请反馈日志）";

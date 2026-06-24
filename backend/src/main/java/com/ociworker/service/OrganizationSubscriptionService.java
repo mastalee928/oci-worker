@@ -1,6 +1,7 @@
 package com.ociworker.service;
 
 import cn.hutool.core.util.StrUtil;
+import com.ociworker.util.OciBmcErrorTranslator;
 import com.ociworker.util.OciRegionCatalog;
 import com.oracle.bmc.Region;
 import com.oracle.bmc.model.BmcException;
@@ -320,7 +321,7 @@ public class OrganizationSubscriptionService {
         if (code == 401 || code == 403 || msg.contains("NotAuthorized")) {
             return apiLabel + " 权限不足（需 inspect/read 订购与子服务相关权限）：" + msg;
         }
-        return apiLabel + " 查询失败（HTTP " + code + "）：" + msg;
+        return apiLabel + " 查询失败（HTTP " + code + "）：" + OciBmcErrorTranslator.translate(e);
     }
 
     private static String formatInstant(Date d) {

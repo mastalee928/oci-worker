@@ -1,6 +1,7 @@
 package com.ociworker.service;
 
 import cn.hutool.core.util.StrUtil;
+import com.ociworker.util.OciBmcErrorTranslator;
 import com.ociworker.util.OciRegionCatalog;
 import com.oracle.bmc.Region;
 import com.oracle.bmc.model.BmcException;
@@ -244,6 +245,6 @@ public class UsageRewardsService {
         if (code == 401 || code == 403 || msg.contains("NotAuthorized")) {
             return "促销余额权限不足（需 usage / rewards 相关读权限）：" + msg;
         }
-        return "促销余额查询失败（HTTP " + code + "）：" + msg;
+        return "促销余额查询失败（HTTP " + code + "）：" + OciBmcErrorTranslator.translate(e);
     }
 }

@@ -5,6 +5,7 @@ import com.ociworker.exception.OciException;
 import com.ociworker.mapper.OciUserMapper;
 import com.ociworker.model.dto.SysUserDTO;
 import com.ociworker.model.entity.OciUser;
+import com.ociworker.util.OciBmcErrorTranslator;
 import com.oracle.bmc.core.requests.ChangeInstanceCompartmentRequest;
 import com.oracle.bmc.core.requests.ChangeBootVolumeCompartmentRequest;
 import com.oracle.bmc.core.requests.ChangeVolumeCompartmentRequest;
@@ -551,6 +552,6 @@ public class CompartmentService {
     }
 
     private static String ociMessage(BmcException e) {
-        return e.getMessage() != null ? e.getMessage() : ("HTTP " + e.getStatusCode());
+        return OciBmcErrorTranslator.translate(e);
     }
 }
