@@ -5018,47 +5018,54 @@ function generateQuickTaskRandomPwd() {
 }
 
 async function handleQuickTask() {
+  if (quickTaskLoading.value) return
   if (!quickTaskTenant.value) return
-  const denseErr = validateDenseIoFlexTier(quickTaskForm.architecture, quickTaskForm.ocpus, quickTaskForm.memory)
-  if (denseErr) {
-    message.error(denseErr)
-    return
-  }
-  if (quickTaskForm.architecture?.includes('A2.Flex') && quickTaskForm.ocpus === 1 && quickTaskForm.memory === 1) {
-    message.error('比例错误')
-    return
-  }
-
-  if (!quickTaskForm.rootPassword) generateQuickTaskRandomPwd()
-
+  quickTaskLoading.value = true
+  let waitingDuplicateConfirm = false
   try {
-    const checkRes = await hasRunningTask({ userId: quickTaskTenant.value.id })
-    if (checkRes.data === true) {
-      Modal.confirm({
-        title: '重复任务提醒',
-        content: '该账户已有正在运行的开机任务，是否仍要重复提交？',
-        okText: '继续创建',
-        cancelText: '取消',
-        onOk: () => doQuickTask(),
-      })
+    const denseErr = validateDenseIoFlexTier(quickTaskForm.architecture, quickTaskForm.ocpus, quickTaskForm.memory)
+    if (denseErr) {
+      message.error(denseErr)
       return
     }
-  } catch {}
+    if (quickTaskForm.architecture?.includes('A2.Flex') && quickTaskForm.ocpus === 1 && quickTaskForm.memory === 1) {
+      message.error('比例错误')
+      return
+    }
 
-  doQuickTask()
+    if (!quickTaskForm.rootPassword) generateQuickTaskRandomPwd()
+
+    try {
+      const checkRes = await hasRunningTask({ userId: quickTaskTenant.value.id })
+      if (checkRes.data === true) {
+        waitingDuplicateConfirm = true
+        Modal.confirm({
+          title: '重复任务提醒',
+          content: '该账户已有正在运行的开机任务，是否仍要重复提交？',
+          okText: '继续创建',
+          cancelText: '取消',
+          onOk: () => doQuickTask(),
+          onCancel: () => { quickTaskLoading.value = false },
+          afterClose: () => { quickTaskLoading.value = false },
+        })
+        return
+      }
+    } catch {}
+
+    await doQuickTask()
+  } finally {
+    if (!waitingDuplicateConfirm) quickTaskLoading.value = false
+  }
 }
 
 async function doQuickTask() {
   quickTaskForm.vpusPerGB = snapBootVpusPerGb(quickTaskForm.vpusPerGB)
-  quickTaskLoading.value = true
   try {
     await createTask({ userId: quickTaskTenant.value.id, ...quickTaskForm })
     message.success('开机任务已创建')
     quickTaskVisible.value = false
   } catch (e: any) {
     message.error(e?.message || '创建任务失败')
-  } finally {
-    quickTaskLoading.value = false
   }
 }
 

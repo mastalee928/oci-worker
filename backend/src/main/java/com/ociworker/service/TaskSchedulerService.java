@@ -35,6 +35,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
@@ -56,9 +57,11 @@ public class TaskSchedulerService implements SmartLifecycle {
 
     private final Map<String, Future<?>> taskMap = new ConcurrentHashMap<>();
     private final Set<String> runningTasks = ConcurrentHashMap.newKeySet();
+    private final ConcurrentHashMap<String, LocalDateTime> recentTaskCreateKeys = new ConcurrentHashMap<>();
     /** 本任务周期内不再尝试的可用域（停/改/恢复/完成/删除任务或服务重启后清空） */
     private final ConcurrentHashMap<String, Set<String>> taskExcludedAds = new ConcurrentHashMap<>();
     private static final ObjectMapper JSON = new ObjectMapper();
+    private static final int CREATE_TASK_DEDUP_SECONDS = 5;
 
     /** 为 SmartLifecycle：仅在上下文 refresh 完成后置 true，关闭时先于 Web 优雅停机取消开机调度 */
     private volatile boolean lifecycleRunning = false;
@@ -214,53 +217,162 @@ public class TaskSchedulerService implements SmartLifecycle {
             effectiveRegion = OciRegionUtil.publicRegionId(effectiveRegion);
         }
 
-        OciCreateTask task = new OciCreateTask();
-        task.setId(CommonUtils.generateId());
-        task.setUserId(userId);
-        task.setOciRegion(effectiveRegion);
-        task.setArchitecture(architecture);
         double[] normalized = ShapeFlexLimitsUtil.normalizeAndLogIfAdjusted(
                 architecture, ocpus, memory, "创建开机任务");
-        task.setOcpus(normalized[0]);
-        task.setMemory(normalized[1]);
-        task.setDisk(disk);
-        task.setVpusPerGB(BootVolumeVpusUtil.normalize(vpusPerGB));
-        task.setCreateNumbers(createNumbers);
-        task.setIntervalSeconds(interval);
-        task.setRootPassword(rootPassword);
-        task.setOperationSystem(operationSystem);
-        task.setCustomScript(customScript);
-        task.setAssignPublicIp(assignPublicIp != null ? assignPublicIp : true);
-        task.setAssignIpv6(assignIpv6 != null ? assignIpv6 : false);
-        task.setStatus(TaskStatusEnum.RUNNING.getStatus());
-        task.setAttemptCount(0);
-        task.setSuccessCount(0);
-        task.setFailureReason(null);
-        task.setCreateTime(LocalDateTime.now());
-        taskMapper.insert(task);
+        int normalizedVpusPerGB = BootVolumeVpusUtil.normalize(vpusPerGB);
+        boolean normalizedAssignPublicIp = assignPublicIp != null ? assignPublicIp : true;
+        boolean normalizedAssignIpv6 = assignIpv6 != null ? assignIpv6 : false;
+        LocalDateTime now = LocalDateTime.now();
+        String dedupKey = createTaskDedupKey(userId, effectiveRegion, architecture, normalized[0], normalized[1],
+                disk, normalizedVpusPerGB, createNumbers, interval, rootPassword, operationSystem, customScript,
+                normalizedAssignPublicIp, normalizedAssignIpv6);
+        if (!acquireRecentTaskCreateGuard(dedupKey, now)) {
+            log.info("忽略重复开机任务创建请求：userId={} region={} shape={}（{} 秒内同参数请求）",
+                    userId, effectiveRegion, architecture, CREATE_TASK_DEDUP_SECONDS);
+            return;
+        }
 
-        clearTaskExcludedAds(task.getId());
-        SysUserDTO dto = buildSysUserDTO(ociUser, task);
-        scheduleTask(task.getId(), dto, interval);
+        boolean inserted = false;
+        try {
+            if (hasRecentDuplicateCreateTask(userId, effectiveRegion, architecture, normalized[0], normalized[1],
+                    disk, normalizedVpusPerGB, createNumbers, interval, rootPassword, operationSystem, customScript,
+                    normalizedAssignPublicIp, normalizedAssignIpv6, now.minusSeconds(CREATE_TASK_DEDUP_SECONDS))) {
+                log.info("忽略重复开机任务创建请求：userId={} region={} shape={}（数据库已有同参数任务）",
+                        userId, effectiveRegion, architecture);
+                return;
+            }
 
-        String series = ShapeSeriesUtil.resolveSeries(architecture);
-        String diskConfig = BootVolumeVpusUtil.formatDiskWithVpus(disk != null ? disk : 50, task.getVpusPerGB());
-        String logMsg = String.format("【开机任务】用户:[%s],区域:[%s],架构:[%s]%s,配置:[%sC/%sGB/%s],数量:[%d] - 任务已创建",
-                ociUser.getUsername(), effectiveRegion, series, targetShapeForLog(architecture),
-                normalized[0], normalized[1], diskConfig, createNumbers);
-        broadcastLog(logMsg);
+            OciCreateTask task = new OciCreateTask();
+            task.setId(CommonUtils.generateId());
+            task.setUserId(userId);
+            task.setOciRegion(effectiveRegion);
+            task.setArchitecture(architecture);
+            task.setOcpus(normalized[0]);
+            task.setMemory(normalized[1]);
+            task.setDisk(disk);
+            task.setVpusPerGB(normalizedVpusPerGB);
+            task.setCreateNumbers(createNumbers);
+            task.setIntervalSeconds(interval);
+            task.setRootPassword(rootPassword);
+            task.setOperationSystem(operationSystem);
+            task.setCustomScript(customScript);
+            task.setAssignPublicIp(normalizedAssignPublicIp);
+            task.setAssignIpv6(normalizedAssignIpv6);
+            task.setStatus(TaskStatusEnum.RUNNING.getStatus());
+            task.setAttemptCount(0);
+            task.setSuccessCount(0);
+            task.setFailureReason(null);
+            task.setCreateTime(now);
+            taskMapper.insert(task);
+            inserted = true;
 
-        String pwd = rootPassword != null ? rootPassword : "随机";
-        String html = "📋 <b>开机任务已创建</b>\n\n"
-                + "👤 <b>租户：</b>" + ociUser.getUsername() + "\n"
-                + "🌍 <b>区域：</b>" + effectiveRegion + "\n"
-                + "⚙️ <b>架构：</b>" + series + "\n"
-                + targetShapeLineForNotify(architecture)
-                + "📊 <b>配置：</b>" + normalized[0] + "C / " + normalized[1] + "GB / "
-                + diskConfig + "\n"
-                + "🔢 <b>数量：</b>" + createNumbers + "\n"
-                + "🔑 <b>密码：</b><code>" + pwd + "</code>";
-        notificationService.sendHtmlWithType(NotificationService.TYPE_TASK_CREATE, html);
+            clearTaskExcludedAds(task.getId());
+            SysUserDTO dto = buildSysUserDTO(ociUser, task);
+            scheduleTask(task.getId(), dto, interval);
+
+            String series = ShapeSeriesUtil.resolveSeries(architecture);
+            String diskConfig = BootVolumeVpusUtil.formatDiskWithVpus(disk != null ? disk : 50, task.getVpusPerGB());
+            String logMsg = String.format("【开机任务】用户:[%s],区域:[%s],架构:[%s]%s,配置:[%sC/%sGB/%s],数量:[%d] - 任务已创建",
+                    ociUser.getUsername(), effectiveRegion, series, targetShapeForLog(architecture),
+                    normalized[0], normalized[1], diskConfig, createNumbers);
+            broadcastLog(logMsg);
+
+            String pwd = rootPassword != null ? rootPassword : "随机";
+            String html = "📋 <b>开机任务已创建</b>\n\n"
+                    + "👤 <b>租户：</b>" + ociUser.getUsername() + "\n"
+                    + "🌍 <b>区域：</b>" + effectiveRegion + "\n"
+                    + "⚙️ <b>架构：</b>" + series + "\n"
+                    + targetShapeLineForNotify(architecture)
+                    + "📊 <b>配置：</b>" + normalized[0] + "C / " + normalized[1] + "GB / "
+                    + diskConfig + "\n"
+                    + "🔢 <b>数量：</b>" + createNumbers + "\n"
+                    + "🔑 <b>密码：</b><code>" + pwd + "</code>";
+            notificationService.sendHtmlWithType(NotificationService.TYPE_TASK_CREATE, html);
+        } catch (RuntimeException e) {
+            if (!inserted) {
+                recentTaskCreateKeys.remove(dedupKey, now);
+            }
+            throw e;
+        }
+    }
+
+    private boolean acquireRecentTaskCreateGuard(String key, LocalDateTime now) {
+        LocalDateTime cutoff = now.minusSeconds(CREATE_TASK_DEDUP_SECONDS);
+        recentTaskCreateKeys.entrySet().removeIf(entry -> entry.getValue().isBefore(cutoff));
+        while (true) {
+            LocalDateTime existing = recentTaskCreateKeys.putIfAbsent(key, now);
+            if (existing == null) {
+                return true;
+            }
+            if (!existing.isBefore(cutoff)) {
+                return false;
+            }
+            if (recentTaskCreateKeys.replace(key, existing, now)) {
+                return true;
+            }
+        }
+    }
+
+    private boolean hasRecentDuplicateCreateTask(String userId, String region, String architecture,
+                                                 double ocpus, double memory, Integer disk, Integer vpusPerGB,
+                                                 Integer createNumbers, Integer interval, String rootPassword,
+                                                 String operationSystem, String customScript,
+                                                 boolean assignPublicIp, boolean assignIpv6,
+                                                 LocalDateTime since) {
+        LambdaQueryWrapper<OciCreateTask> wrapper = new LambdaQueryWrapper<OciCreateTask>()
+                .eq(OciCreateTask::getUserId, userId)
+                .eq(OciCreateTask::getOciRegion, region)
+                .eq(OciCreateTask::getArchitecture, architecture)
+                .eq(OciCreateTask::getOcpus, ocpus)
+                .eq(OciCreateTask::getMemory, memory)
+                .eq(OciCreateTask::getDisk, disk)
+                .eq(OciCreateTask::getVpusPerGB, vpusPerGB)
+                .eq(OciCreateTask::getCreateNumbers, createNumbers)
+                .eq(OciCreateTask::getIntervalSeconds, interval)
+                .eq(OciCreateTask::getOperationSystem, operationSystem)
+                .eq(OciCreateTask::getAssignPublicIp, assignPublicIp)
+                .eq(OciCreateTask::getAssignIpv6, assignIpv6)
+                .eq(OciCreateTask::getStatus, TaskStatusEnum.RUNNING.getStatus())
+                .ge(OciCreateTask::getCreateTime, since);
+        addNullableTextEquals(wrapper, OciCreateTask::getRootPassword, rootPassword);
+        addNullableTextEquals(wrapper, OciCreateTask::getCustomScript, customScript);
+        return taskMapper.selectCount(wrapper) > 0;
+    }
+
+    private static void addNullableTextEquals(LambdaQueryWrapper<OciCreateTask> wrapper,
+                                              com.baomidou.mybatisplus.core.toolkit.support.SFunction<OciCreateTask, String> column,
+                                              String value) {
+        if (StrUtil.isBlank(value)) {
+            wrapper.and(w -> w.isNull(column).or().eq(column, ""));
+        } else {
+            wrapper.eq(column, value);
+        }
+    }
+
+    private static String createTaskDedupKey(String userId, String region, String architecture,
+                                             double ocpus, double memory, Integer disk, Integer vpusPerGB,
+                                             Integer createNumbers, Integer interval, String rootPassword,
+                                             String operationSystem, String customScript,
+                                             boolean assignPublicIp, boolean assignIpv6) {
+        return String.join("\u001F",
+                safeKeyPart(userId),
+                safeKeyPart(region),
+                safeKeyPart(architecture),
+                String.format(Locale.ROOT, "%.4f", ocpus),
+                String.format(Locale.ROOT, "%.4f", memory),
+                String.valueOf(disk),
+                String.valueOf(vpusPerGB),
+                String.valueOf(createNumbers),
+                String.valueOf(interval),
+                String.valueOf(Objects.hashCode(rootPassword)),
+                safeKeyPart(operationSystem),
+                String.valueOf(Objects.hashCode(customScript)),
+                String.valueOf(assignPublicIp),
+                String.valueOf(assignIpv6));
+    }
+
+    private static String safeKeyPart(String value) {
+        return value == null ? "" : value.trim();
     }
 
     public void resumeTask(String taskId) {

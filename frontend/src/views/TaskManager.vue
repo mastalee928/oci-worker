@@ -751,38 +751,47 @@ function showCreateModal() {
 }
 
 async function handleCreate() {
+  if (createLoading.value) return
   if (!createForm.userId) { message.warning('请选择租户'); return }
-  const denseErr = validateDenseIoFlexTier(createForm.architecture, createForm.ocpus, createForm.memory)
-  if (denseErr) {
-    message.error(denseErr)
-    return
-  }
-  if (createForm.architecture?.includes('A2.Flex') && createForm.ocpus === 1 && createForm.memory === 1) {
-    message.error('比例错误')
-    return
-  }
-  if (!createForm.rootPassword) generateRandomPwd()
-  createForm.vpusPerGB = snapBootVpusPerGb(createForm.vpusPerGB)
-
+  createLoading.value = true
+  let waitingDuplicateConfirm = false
   try {
-    const checkRes = await hasRunningTask({ userId: createForm.userId })
-    if (checkRes.data === true) {
-      Modal.confirm({
-        title: '重复任务提醒',
-        content: '该账户已有正在运行的开机任务，是否仍要重复提交？',
-        okText: '继续创建',
-        cancelText: '取消',
-        onOk: () => doCreate(),
-      })
+    const denseErr = validateDenseIoFlexTier(createForm.architecture, createForm.ocpus, createForm.memory)
+    if (denseErr) {
+      message.error(denseErr)
       return
     }
-  } catch {}
+    if (createForm.architecture?.includes('A2.Flex') && createForm.ocpus === 1 && createForm.memory === 1) {
+      message.error('比例错误')
+      return
+    }
+    if (!createForm.rootPassword) generateRandomPwd()
+    createForm.vpusPerGB = snapBootVpusPerGb(createForm.vpusPerGB)
 
-  doCreate()
+    try {
+      const checkRes = await hasRunningTask({ userId: createForm.userId })
+      if (checkRes.data === true) {
+        waitingDuplicateConfirm = true
+        Modal.confirm({
+          title: '重复任务提醒',
+          content: '该账户已有正在运行的开机任务，是否仍要重复提交？',
+          okText: '继续创建',
+          cancelText: '取消',
+          onOk: () => doCreate(),
+          onCancel: () => { createLoading.value = false },
+          afterClose: () => { createLoading.value = false },
+        })
+        return
+      }
+    } catch {}
+
+    await doCreate()
+  } finally {
+    if (!waitingDuplicateConfirm) createLoading.value = false
+  }
 }
 
 async function doCreate() {
-  createLoading.value = true
   try {
     await createTask(createForm)
     message.success('任务创建成功')
@@ -790,8 +799,6 @@ async function doCreate() {
     loadData()
   } catch (e: any) {
     message.error(e?.message || '创建任务失败')
-  } finally {
-    createLoading.value = false
   }
 }
 
