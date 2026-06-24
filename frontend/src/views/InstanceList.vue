@@ -5138,15 +5138,21 @@ onUnmounted(() => {
 .group-collapse { margin-bottom: 16px; }
 .group-collapse :deep(.ant-collapse-header) { font-weight: 600; font-size: 14px; }
 .group-collapse-l2 {
-  margin-top: 8px;
+  margin-top: 10px;
   background: transparent;
 }
 .group-collapse-l2 :deep(.ant-collapse-item) {
-  background: transparent;
-  border-color: var(--border);
+  background: color-mix(in srgb, var(--panel-bg) 78%, transparent);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  overflow: hidden;
 }
+.group-collapse-l2 :deep(.ant-collapse-item + .ant-collapse-item) { margin-top: 8px; }
 .group-collapse-l2 :deep(.ant-collapse-header) { font-weight: 500; font-size: 13px; padding-left: 12px !important; }
+.group-collapse-l2 :deep(.ant-collapse-content-box) { padding-top: 12px !important; }
 .group-header-label { vertical-align: middle; }
+.group-collapse-l2 .tenant-grid { margin-bottom: 18px; }
+.group-collapse-l2 + .group-section { margin-top: 12px; }
 .group-section { margin-bottom: 8px; }
 .group-table-row {
   padding: 8px 12px;
