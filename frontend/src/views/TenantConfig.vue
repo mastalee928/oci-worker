@@ -766,7 +766,14 @@ region=ap-tokyo-1"
                 :disabled="quotasLoading || !quotaRegionOptions.length"
                 :show-search="false"
                 @change="onQuotaRegionChange"
-              />
+              >
+                <template #option="{ label, isHomeRegion }">
+                  <span class="quota-region-option">
+                    <span class="quota-region-option-code">{{ label }}</span>
+                    <span v-if="isHomeRegion" class="quota-region-home-mark">主区域</span>
+                  </span>
+                </template>
+              </a-select>
             </div>
             <a-input-search v-model:value="quotaSearch" placeholder="搜索服务/配额名" allow-clear class="quota-search" />
             <a-button type="primary" @click="loadQuotas" :loading="quotasLoading">
@@ -2305,7 +2312,7 @@ const regionsList = computed<any[]>(() => Array.isArray(regionsData.value?.items
 const sortedRegionsList = computed<any[]>(() => sortTenantRegions(regionsList.value))
 const quotaRegionOptions = computed(() => {
   const seen = new Set<string>()
-  const options: Array<{ label: string; value: string }> = []
+  const options: Array<{ label: string; value: string; isHomeRegion: boolean }> = []
   const subscribedRegions = sortedRegionsList.value.filter((r: any) =>
     r?.subscribed && r?.regionName && String(r?.status || '').toUpperCase() === 'READY',
   )
@@ -2313,11 +2320,11 @@ const quotaRegionOptions = computed(() => {
     const value = String(region.regionName || '').trim()
     if (!value || seen.has(value)) continue
     seen.add(value)
-    options.push({ label: value, value })
+    options.push({ label: value, value, isHomeRegion: Boolean(region.isHomeRegion) })
   }
   const fallbackRegion = String(tenantMgmtTenant.value?.ociRegion || '').trim()
   if (fallbackRegion && !seen.has(fallbackRegion)) {
-    options.push({ label: fallbackRegion, value: fallbackRegion })
+    options.push({ label: fallbackRegion, value: fallbackRegion, isHomeRegion: false })
   }
   return options
 })
@@ -5591,6 +5598,28 @@ onUnmounted(() => {
 }
 .quota-region-select {
   width: 180px;
+}
+.quota-region-option {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+.quota-region-option-code {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text);
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.quota-region-home-mark {
+  color: var(--text-sub);
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 400;
+  opacity: 0.72;
+  transform: translateY(2px);
 }
 .quota-region-native-select {
   width: 100%;
