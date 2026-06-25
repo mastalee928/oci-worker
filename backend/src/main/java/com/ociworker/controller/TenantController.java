@@ -330,7 +330,7 @@ public class TenantController {
         return ResponseData.ok();
     }
 
-    /** OCI 云公告（Announcements API，与控制台铃铛同源），只读 */
+    /** OCI 云公告（Announcements API，与控制台铃铛同源） */
     @PostMapping("/announcements")
     public ResponseData<?> announcements(@RequestBody java.util.Map<String, String> params) {
         return ResponseData.ok(announcementService.listAnnouncements(params.get("id")));
@@ -339,6 +339,12 @@ public class TenantController {
     @PostMapping("/announcement")
     public ResponseData<?> announcement(@RequestBody java.util.Map<String, String> params) {
         return ResponseData.ok(announcementService.getAnnouncementDetail(
+                params.get("id"), params.get("announcementId")));
+    }
+
+    @PostMapping("/announcement/read")
+    public ResponseData<?> markAnnouncementRead(@RequestBody java.util.Map<String, String> params) {
+        return ResponseData.ok(announcementService.markAnnouncementRead(
                 params.get("id"), params.get("announcementId")));
     }
 

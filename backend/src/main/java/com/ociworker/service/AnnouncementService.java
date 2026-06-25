@@ -18,11 +18,13 @@ import com.oracle.bmc.announcementsservice.requests.GetAnnouncementRequest;
 import com.oracle.bmc.announcementsservice.responses.ListAnnouncementsResponse;
 import com.oracle.bmc.announcementsservice.requests.GetAnnouncementUserStatusRequest;
 import com.oracle.bmc.announcementsservice.requests.ListAnnouncementsRequest;
+import com.oracle.bmc.announcementsservice.requests.UpdateAnnouncementUserStatusRequest;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -149,6 +151,42 @@ public class AnnouncementService {
         } catch (Exception e) {
             log.warn("getAnnouncementDetail {} failed: {}", announcementId, e.getMessage());
             throw new OciException("获取公告详情失败: " + e.getMessage());
+        }
+    }
+
+    public Map<String, Object> markAnnouncementRead(String tenantId, String announcementId) {
+        if (announcementId == null || announcementId.isBlank()) {
+            throw new OciException("announcementId 不能为空");
+        }
+        OciUser user = userMapper.selectById(tenantId);
+        if (user == null) throw new OciException("租户配置不存在");
+        if (user.getOciUserId() == null || user.getOciUserId().isBlank()) {
+            throw new OciException("API 用户 OCID 不能为空");
+        }
+
+        Date acknowledgedAt = new Date();
+        try (OciClientService oci = buildClient(tenantId);
+             AnnouncementClient client = createAnnouncementClient(oci)) {
+            AnnouncementUserStatusDetails statusDetails = AnnouncementUserStatusDetails.builder()
+                    .userStatusAnnouncementId(announcementId)
+                    .userId(user.getOciUserId())
+                    .timeAcknowledged(acknowledgedAt)
+                    .build();
+            client.updateAnnouncementUserStatus(UpdateAnnouncementUserStatusRequest.builder()
+                    .announcementId(announcementId)
+                    .statusDetails(statusDetails)
+                    .build());
+
+            Map<String, Object> out = new LinkedHashMap<>();
+            out.put("announcementId", announcementId);
+            out.put("userStatus", "Read");
+            out.put("timeAcknowledged", acknowledgedAt);
+            return out;
+        } catch (OciException e) {
+            throw e;
+        } catch (Exception e) {
+            log.warn("markAnnouncementRead {} failed: {}", announcementId, e.getMessage());
+            throw new OciException("设置公告已读失败: " + e.getMessage());
         }
     }
 

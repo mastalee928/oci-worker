@@ -1249,9 +1249,27 @@ region=ap-tokyo-1"
               </template>
             </a-table-column>
             <a-table-column title="工单号" data-index="referenceTicketNumber" key="referenceTicketNumber" :width="120" :ellipsis="true" />
-            <a-table-column title="操作" key="action" :width="72">
+            <a-table-column title="操作" key="action" :width="150">
               <template #default="{ record }">
-                <a-button type="link" size="small" @click.stop="openAnnouncementDetail(record)">详情</a-button>
+                <a-space size="small">
+                  <a-button type="link" size="small" @click.stop="openAnnouncementDetail(record)">详情</a-button>
+                  <a-popconfirm
+                    v-if="isAnnouncementUnread(record)"
+                    title="确认标记为已读？"
+                    ok-text="确定"
+                    cancel-text="取消"
+                    @confirm="markAnnouncementAsRead(record)"
+                  >
+                    <a-button
+                      type="link"
+                      size="small"
+                      :loading="announcementReadUpdatingId === record.id"
+                      @click.stop
+                    >
+                      标记已读
+                    </a-button>
+                  </a-popconfirm>
+                </a-space>
               </template>
             </a-table-column>
           </a-table>
@@ -1265,6 +1283,23 @@ region=ap-tokyo-1"
               <div class="mobile-card-body">
                 <div class="mobile-card-row"><span class="label">类型</span><span class="value">{{ a.announcementType || '—' }}</span></div>
                 <div class="mobile-card-row"><span class="label">时间</span><span class="value">{{ formatUtcCnDate(a.timeCreated) }}</span></div>
+              </div>
+              <div v-if="isAnnouncementUnread(a)" class="mobile-card-actions" @click.stop>
+                <a-popconfirm
+                  title="确认标记为已读？"
+                  ok-text="确定"
+                  cancel-text="取消"
+                  @confirm="markAnnouncementAsRead(a)"
+                >
+                  <a-button
+                    type="link"
+                    size="small"
+                    :loading="announcementReadUpdatingId === a.id"
+                    @click.stop
+                  >
+                    标记已读
+                  </a-button>
+                </a-popconfirm>
               </div>
             </div>
           </a-spin>
@@ -1483,9 +1518,26 @@ region=ap-tokyo-1"
                 <a-descriptions-item label="平台">{{ announcementDetail.platformType || '—' }}</a-descriptions-item>
                 <a-descriptions-item label="状态">{{ announcementDetail.lifecycleState || '—' }}</a-descriptions-item>
                 <a-descriptions-item label="阅读状态">
-                  <a-tag :color="announcementStatusColor(announcementDetail.userStatus)">
-                    {{ formatAnnouncementUserStatus(announcementDetail.userStatus) }}
-                  </a-tag>
+                  <a-space size="small">
+                    <a-tag :color="announcementStatusColor(announcementDetail.userStatus)">
+                      {{ formatAnnouncementUserStatus(announcementDetail.userStatus) }}
+                    </a-tag>
+                    <a-popconfirm
+                      v-if="isAnnouncementUnread(announcementDetail)"
+                      title="确认标记为已读？"
+                      ok-text="确定"
+                      cancel-text="取消"
+                      @confirm="markAnnouncementAsRead(announcementDetail)"
+                    >
+                      <a-button
+                        type="link"
+                        size="small"
+                        :loading="announcementReadUpdatingId === announcementDetail.id"
+                      >
+                        标记已读
+                      </a-button>
+                    </a-popconfirm>
+                  </a-space>
                 </a-descriptions-item>
                 <a-descriptions-item label="涉及服务">
                   <template v-if="announcementDetail.services?.length">
@@ -1940,7 +1992,7 @@ import { useRouter } from 'vue-router'
 import { PlusOutlined, ThunderboltOutlined, InboxOutlined, ReloadOutlined, MenuFoldOutlined, MenuUnfoldOutlined, VerticalAlignTopOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
 import type { UploadFile } from 'ant-design-vue'
-import { getTenantList, addTenant, updateTenant, removeTenant, batchMoveTenantGroup, uploadKey, getTenantFullInfo, getTenantBillingSummary, downloadInvoicePdf, listBudgets, createBudget, updateBudget, deleteBudget, listBudgetAlertRules, createBudgetAlertRule, updateBudgetAlertRule, deleteBudgetAlertRule, listTenantRegions, subscribeTenantRegion, getDomainSettings, updateMfa, updatePasswordExpiry, unlockDomainNotifications, getDomainNotifications, updateDomainNotifications, getAuditLogs, getServiceQuotas, listIamPolicies, getIamPolicy, listAnnouncements, getAnnouncementDetail, getTenantGroups, createGroup, renameGroup, deleteGroup, saveGroupOrder, unlockAuthFactors, getAuthFactors, updateAuthFactors } from '../api/tenant'
+import { getTenantList, addTenant, updateTenant, removeTenant, batchMoveTenantGroup, uploadKey, getTenantFullInfo, getTenantBillingSummary, downloadInvoicePdf, listBudgets, createBudget, updateBudget, deleteBudget, listBudgetAlertRules, createBudgetAlertRule, updateBudgetAlertRule, deleteBudgetAlertRule, listTenantRegions, subscribeTenantRegion, getDomainSettings, updateMfa, updatePasswordExpiry, unlockDomainNotifications, getDomainNotifications, updateDomainNotifications, getAuditLogs, getServiceQuotas, listIamPolicies, getIamPolicy, listAnnouncements, getAnnouncementDetail, markAnnouncementRead, getTenantGroups, createGroup, renameGroup, deleteGroup, saveGroupOrder, unlockAuthFactors, getAuthFactors, updateAuthFactors } from '../api/tenant'
 import type { BudgetAlertType, BudgetProcessingPeriodType, BudgetTargetType, BudgetThresholdType } from '../api/tenant'
 import { listCompartmentPicker } from '../api/compartment'
 import { sendVerifyCode } from '../api/system'
@@ -2363,6 +2415,7 @@ const announcementDetail = ref<any | null>(null)
 const announcementImpacted = ref<any[]>([])
 const announcementHistory = ref<any[]>([])
 const announcementDrawerTitle = ref('云公告详情')
+const announcementReadUpdatingId = ref('')
 function checkMobile() { isMobile.value = window.innerWidth < 768 }
 
 function formatAnnouncementUserStatus(v: string | null | undefined): string {
@@ -2375,6 +2428,10 @@ function announcementStatusColor(v: string | null | undefined): string {
   if (v === 'Read') return 'default'
   if (v === 'Unread') return 'blue'
   return 'default'
+}
+
+function isAnnouncementUnread(record: any): boolean {
+  return record?.userStatus === 'Unread'
 }
 
 /** 转义 HTML 并将 OCI 公告中的 [text](url) 转为可点击链接 */
@@ -4718,6 +4775,31 @@ async function loadAnnouncements() {
     message.error(e?.message || '获取云公告失败')
   } finally {
     announcementsLoading.value = false
+  }
+}
+
+function syncAnnouncementReadStatus(announcementId: string) {
+  announcementsList.value = announcementsList.value.map((item: any) =>
+    item?.id === announcementId ? { ...item, userStatus: 'Read' } : item,
+  )
+  if (announcementDetail.value?.id === announcementId) {
+    announcementDetail.value = { ...announcementDetail.value, userStatus: 'Read' }
+  }
+}
+
+async function markAnnouncementAsRead(record: any) {
+  const announcementId = record?.id
+  const tenantId = tenantMgmtTenant.value?.id
+  if (!tenantId || !announcementId || announcementReadUpdatingId.value) return
+  announcementReadUpdatingId.value = announcementId
+  try {
+    await markAnnouncementRead({ id: tenantId, announcementId })
+    syncAnnouncementReadStatus(announcementId)
+    message.success('已标记为已读')
+  } catch (e: any) {
+    message.error(e?.message || '设置公告已读失败')
+  } finally {
+    announcementReadUpdatingId.value = ''
   }
 }
 
