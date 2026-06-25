@@ -415,8 +415,17 @@
     </a-drawer>
 
     <!-- 快捷开机任务弹窗 -->
-    <a-modal :keyboard="false" v-model:open="quickTaskVisible" title="快捷开机任务" :width="isMobile ? '100%' : 600"
-      @ok="handleQuickTask" :confirm-loading="quickTaskLoading" :mask-closable="false">
+    <a-modal
+      :keyboard="false"
+      v-model:open="quickTaskVisible"
+      title="快捷开机任务"
+      :width="isMobile ? '100%' : 600"
+      :z-index="1320"
+      wrap-class-name="quick-task-modal-wrap"
+      @ok="handleQuickTask"
+      :confirm-loading="quickTaskLoading"
+      :mask-closable="false"
+    >
       <div style="margin-bottom: 12px">
         <a-tag color="blue">{{ quickTaskTenant?.username }}</a-tag>
         <span style="color: var(--text-sub); font-size: 12px; margin-left: 8px">租户配置区域：{{ quickTaskTenant?.ociRegion || '—' }}</span>
@@ -2480,6 +2489,7 @@ const floatingTenantCardVisible = computed(
     !storageManagerEditingOverlayActive.value &&
     !byoipEditingOverlayActive.value &&
     !instanceManagerEditingOverlayActive.value &&
+    !quickTaskVisible.value &&
     floatingTenantCard.phase !== 'idle' &&
     !!floatingTenantCard.tenantId,
 )
@@ -5239,6 +5249,9 @@ onUnmounted(() => {
   box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2), var(--shadow-card);
 }
 .tenant-card-active::before { transform: scaleX(1); }
+:global(.quick-task-modal-wrap) {
+  z-index: 1320;
+}
 :global(:root) {
   --tenant-workspace-mask-bg: rgba(2, 6, 23, 0.28);
   --tenant-floating-card-bg: rgba(30, 41, 59, 0.78);
