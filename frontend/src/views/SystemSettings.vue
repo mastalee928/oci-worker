@@ -282,15 +282,13 @@
         <a-modal
           v-model:open="tenantPickerVisible"
           title="选择接收云公告的租户"
-          :width="isMobile ? '100%' : 860"
+          :width="isMobile ? '100%' : 980"
           :footer="null"
           :keyboard="false"
+          centered
           class="tenant-picker-modal"
         >
           <div class="tenant-picker-modal-body">
-            <a-alert type="info" show-icon style="margin-bottom: 12px">
-              <template #message>只会扫描并推送右侧已选择的租户。</template>
-            </a-alert>
             <a-input-search v-model:value="announcementTenantSearch" placeholder="搜索租户名、用户名、区域" allow-clear />
             <div class="tenant-picker-grid">
               <div class="tenant-picker-block">
@@ -313,7 +311,7 @@
               <div class="tenant-picker-block">
                 <div class="tenant-picker-title">当前分组租户</div>
                 <div class="tenant-list">
-                  <div v-for="tenant in filteredAnnouncementTenants" :key="tenant.id" class="tenant-row">
+                  <div v-for="tenant in pagedFilteredAnnouncementTenants" :key="tenant.id" class="tenant-row">
                     <div class="tenant-name">
                       <strong>{{ tenant.tenantName || tenant.username || tenant.id }}</strong>
                       <small>{{ tenant.username }} · {{ tenant.region || '-' }} · {{ tenant.groupLevel1 || '未分组' }}{{ tenant.groupLevel2 ? ' / ' + tenant.groupLevel2 : '' }}</small>
@@ -324,12 +322,21 @@
                     />
                   </div>
                 </div>
+                <a-pagination
+                  v-if="filteredAnnouncementTenants.length > tenantPickerPageSize"
+                  v-model:current="tenantPickerPage"
+                  size="small"
+                  class="tenant-picker-pagination"
+                  :page-size="tenantPickerPageSize"
+                  :total="filteredAnnouncementTenants.length"
+                  :show-size-changer="false"
+                />
               </div>
               <div class="tenant-picker-block">
                 <div class="tenant-picker-title">已选择接收</div>
                 <a-empty v-if="!announcementSelectedTenants.length" description="尚未选择租户" />
                 <div v-else class="tenant-selected-list">
-                  <div v-for="tenant in announcementSelectedTenants" :key="tenant.id" class="tenant-selected-row">
+                  <div v-for="tenant in pagedAnnouncementSelectedTenants" :key="tenant.id" class="tenant-selected-row">
                     <div class="tenant-name">
                       <strong>{{ tenant.tenantName || tenant.username || tenant.id }}</strong>
                       <small>{{ tenant.username }} · {{ tenant.region || '-' }}</small>
@@ -337,6 +344,15 @@
                     <a-button size="small" type="link" @click="toggleAnnouncementTenant(tenant.id, false)">移除</a-button>
                   </div>
                 </div>
+                <a-pagination
+                  v-if="announcementSelectedTenants.length > tenantPickerPageSize"
+                  v-model:current="tenantSelectedPage"
+                  size="small"
+                  class="tenant-picker-pagination"
+                  :page-size="tenantPickerPageSize"
+                  :total="announcementSelectedTenants.length"
+                  :show-size-changer="false"
+                />
               </div>
             </div>
           </div>
@@ -981,6 +997,9 @@ const announcementInboxDates = ref<string[]>([])
 const announcementInboxEventTypes = ref<string[]>([])
 const announcementTenants = ref<AnnouncementTenant[]>([])
 const activeAnnouncementGroupKey = ref('ALL')
+const tenantPickerPage = ref(1)
+const tenantSelectedPage = ref(1)
+const tenantPickerPageSize = 8
 const announcementStatus = reactive<Record<string, any>>({})
 const announcementDetail = reactive<Record<string, any>>({})
 const announcementInbox = reactive({ records: [] as AnnouncementItem[], total: 0, current: 1, size: 10 })
@@ -1083,6 +1102,25 @@ const announcementSelectedTenants = computed(() => {
 })
 
 const announcementSelectedTenantPreview = computed(() => announcementSelectedTenants.value.slice(0, 5))
+
+const pagedFilteredAnnouncementTenants = computed(() => {
+  const start = (tenantPickerPage.value - 1) * tenantPickerPageSize
+  return filteredAnnouncementTenants.value.slice(start, start + tenantPickerPageSize)
+})
+
+const pagedAnnouncementSelectedTenants = computed(() => {
+  const start = (tenantSelectedPage.value - 1) * tenantPickerPageSize
+  return announcementSelectedTenants.value.slice(start, start + tenantPickerPageSize)
+})
+
+watch([announcementTenantSearch, activeAnnouncementGroupKey], () => {
+  tenantPickerPage.value = 1
+})
+
+watch(announcementSelectedTenantCount, () => {
+  const maxPage = Math.max(1, Math.ceil(announcementSelectedTenantCount.value / tenantPickerPageSize))
+  if (tenantSelectedPage.value > maxPage) tenantSelectedPage.value = maxPage
+})
 
 watch(activeTab, (k, prev) => {
   if (prev === 'audit') {
@@ -2445,21 +2483,39 @@ async function handleRestore() {
   text-align: right;
 }
 .tenant-picker-modal :deep(.ant-modal-body) {
-  max-height: min(72vh, 720px);
-  overflow: auto;
+  max-height: calc(100vh - 132px);
+  overflow: hidden;
+}
+.tenant-picker-modal :deep(.ant-modal-content) {
+  max-height: calc(100vh - 48px);
+  display: flex;
+  flex-direction: column;
+}
+.tenant-picker-modal :deep(.ant-modal-header) {
+  flex: 0 0 auto;
+}
+.tenant-picker-modal-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
 }
 .tenant-picker-grid {
   display: grid;
   grid-template-columns: minmax(210px, 260px) minmax(0, 1fr) minmax(240px, 300px);
   gap: 14px;
   margin-top: 12px;
+  min-height: 0;
+  height: min(58vh, 560px);
 }
 .tenant-picker-block {
   border: 1px solid var(--border);
   border-radius: var(--radius-md, 8px);
   padding: 12px;
   min-width: 0;
+  min-height: 0;
   background: var(--bg-card);
+  display: flex;
+  flex-direction: column;
 }
 .tenant-group-list,
 .tenant-list,
@@ -2468,6 +2524,15 @@ async function handleRestore() {
   flex-direction: column;
   gap: 8px;
   margin-top: 10px;
+  min-height: 0;
+}
+.tenant-group-list {
+  overflow: auto;
+  padding-right: 2px;
+}
+.tenant-list,
+.tenant-selected-list {
+  overflow: hidden;
 }
 .tenant-group-row {
   display: grid;
@@ -2538,6 +2603,11 @@ async function handleRestore() {
   border: 1px solid var(--border);
   border-radius: var(--radius-md, 8px);
   background: var(--input-bg, rgba(255, 255, 255, 0.03));
+}
+.tenant-picker-pagination {
+  margin-top: auto;
+  padding-top: 10px;
+  text-align: right;
 }
 .announcement-detail h3 {
   margin-top: 0;
@@ -2858,14 +2928,14 @@ async function handleRestore() {
   }
   .tenant-picker-modal :deep(.ant-modal) {
     max-width: 100%;
-    margin: 0;
+    margin: 0 auto;
   }
   .tenant-picker-modal :deep(.ant-modal-content) {
-    min-height: 100vh;
-    border-radius: 0;
+    max-height: calc(100vh - 32px);
   }
   .tenant-picker-modal :deep(.ant-modal-body) {
-    max-height: calc(100vh - 58px);
+    max-height: calc(100vh - 116px);
+    overflow: auto;
   }
   .cf-settings-layout {
     grid-template-columns: 1fr;
