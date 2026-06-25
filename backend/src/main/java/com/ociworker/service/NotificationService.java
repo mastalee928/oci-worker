@@ -34,6 +34,7 @@ public class NotificationService {
     public static final String TYPE_DAILY_REPORT = "daily_report";
     /** 实例页操作（如 A2 强改 A1） */
     public static final String TYPE_INSTANCE = "instance";
+    public static final String TYPE_ANNOUNCEMENT = "announcement";
 
     @Resource
     private OciKvMapper kvMapper;

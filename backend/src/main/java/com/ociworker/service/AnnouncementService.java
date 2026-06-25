@@ -45,6 +45,10 @@ public class AnnouncementService {
     private OciClientService buildClient(String tenantId) {
         OciUser user = userMapper.selectById(tenantId);
         if (user == null) throw new OciException("租户配置不存在");
+        return buildClient(user);
+    }
+
+    private OciClientService buildClient(OciUser user) {
         return new OciClientService(SysUserDTO.builder()
                 .username(user.getUsername())
                 .ociCfg(SysUserDTO.OciCfg.builder()
@@ -151,6 +155,37 @@ public class AnnouncementService {
         } catch (Exception e) {
             log.warn("getAnnouncementDetail {} failed: {}", announcementId, e.getMessage());
             throw new OciException("获取公告详情失败: " + e.getMessage());
+        }
+    }
+
+    public List<Map<String, Object>> listLatestActiveAnnouncements(OciUser user, int limit) {
+        if (user == null) throw new OciException("租户配置不存在");
+        String compartmentId = user.getOciTenantId();
+        int safeLimit = Math.max(1, Math.min(limit, 100));
+        List<Map<String, Object>> items = new ArrayList<>();
+        try (OciClientService oci = buildClient(user);
+             AnnouncementClient client = createAnnouncementClient(oci)) {
+            ListAnnouncementsRequest req = ListAnnouncementsRequest.builder()
+                    .compartmentId(compartmentId)
+                    .lifecycleState(ListAnnouncementsRequest.LifecycleState.Active)
+                    .sortBy(ListAnnouncementsRequest.SortBy.TimeCreated)
+                    .sortOrder(ListAnnouncementsRequest.SortOrder.Desc)
+                    .shouldShowOnlyLatestInChain(true)
+                    .limit(safeLimit)
+                    .build();
+            ListAnnouncementsResponse resp = client.listAnnouncements(req);
+            AnnouncementsCollection coll = resp.getAnnouncementsCollection();
+            if (coll != null && coll.getItems() != null) {
+                for (AnnouncementSummary a : coll.getItems()) {
+                    items.add(toSummaryMap(a));
+                }
+            }
+            return items;
+        } catch (OciException e) {
+            throw e;
+        } catch (Exception e) {
+            log.warn("listLatestActiveAnnouncements failed for {}: {}", user.getId(), e.getMessage());
+            throw new OciException("获取云公告失败: " + e.getMessage());
         }
     }
 

@@ -11,6 +11,17 @@ public enum SysCfgEnum {
     TG_NOTIFY_TYPES("tg_notify_types", "sys"),
     /** 姣忔棩鎾姤鍙戦€佹椂鍒伙紝24 灏忔椂鍒?HH:mm锛屼笢鍏尯 Asia/Shanghai */
     TG_DAILY_REPORT_TIME("tg_daily_report_time", "sys"),
+    ANNOUNCEMENT_PUSH_ENABLED("announcement_push_enabled", "sys"),
+    ANNOUNCEMENT_PUSH_MODE("announcement_push_mode", "sys"),
+    ANNOUNCEMENT_PUSH_FREQUENCY_MINUTES("announcement_push_frequency_minutes", "sys"),
+    ANNOUNCEMENT_PUSH_TENANT_SCOPE_MODE("announcement_push_tenant_scope_mode", "sys"),
+    ANNOUNCEMENT_PUSH_SELECTED_TENANT_IDS("announcement_push_selected_tenant_ids", "sys"),
+    ANNOUNCEMENT_PUSH_EXCLUDED_TENANT_IDS("announcement_push_excluded_tenant_ids", "sys"),
+    ANNOUNCEMENT_PUSH_SELECTED_GROUPS("announcement_push_selected_groups", "sys"),
+    ANNOUNCEMENT_PUSH_RECORD_RETENTION_DAYS("announcement_push_record_retention_days", "sys"),
+    ANNOUNCEMENT_PUSH_BATCH_RETENTION_DAYS("announcement_push_batch_retention_days", "sys"),
+    ANNOUNCEMENT_PUSH_BASELINE_DONE("announcement_push_baseline_done", "sys"),
+    ANNOUNCEMENT_PUSH_LAST_SCAN_AT("announcement_push_last_scan_at", "sys"),
     /**
      * getUpdates 鐨?offset锛氫笅涓€鏉℃媺鍙栧簲浼犲叆鐨?update_id锛堝嵆銆屽凡澶勭悊鐨勬渶澶?update_id + 1銆嶏級锛屾寔涔呭寲閬垮厤閲嶅惎閲嶅澶勭悊銆?
      */

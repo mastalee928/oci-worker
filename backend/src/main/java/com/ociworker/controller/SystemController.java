@@ -10,6 +10,7 @@ import com.ociworker.service.BanlistViewSessionService;
 import com.ociworker.service.LoginAuditService;
 import com.ociworker.service.LoginAuditViewSessionService;
 import com.ociworker.service.LoginSecurityService;
+import com.ociworker.service.AnnouncementPushService;
 import com.ociworker.service.NotificationService;
 import com.ociworker.service.OciProxyConfigService;
 import com.ociworker.service.SystemService;
@@ -53,6 +54,8 @@ public class SystemController {
     private LoginAuditViewSessionService loginAuditViewSessionService;
     @Resource
     private TgNotifyConfigRollbackService tgNotifyConfigRollbackService;
+    @Resource
+    private AnnouncementPushService announcementPushService;
 
     @GetMapping("/glance")
     public ResponseData<?> glance() {
@@ -176,6 +179,58 @@ public class SystemController {
     public ResponseData<?> testNotify() {
         notificationService.sendMessage("【测试通知】🔔 Telegram 通知配置正常！");
         return ResponseData.ok();
+    }
+
+    @GetMapping("/announcementPush/config")
+    public ResponseData<?> getAnnouncementPushConfig() {
+        return ResponseData.ok(announcementPushService.getConfig());
+    }
+
+    @PostMapping("/announcementPush/config")
+    public ResponseData<?> saveAnnouncementPushConfig(@RequestBody Map<String, Object> params) {
+        return ResponseData.ok(announcementPushService.saveConfig(params));
+    }
+
+    @GetMapping("/announcementPush/tenants")
+    public ResponseData<?> getAnnouncementPushTenants() {
+        return ResponseData.ok(announcementPushService.tenantTree());
+    }
+
+    @GetMapping("/announcementPush/status")
+    public ResponseData<?> getAnnouncementPushStatus() {
+        return ResponseData.ok(announcementPushService.getStatus());
+    }
+
+    @PostMapping("/announcementPush/scan")
+    public ResponseData<?> triggerAnnouncementPushScan() {
+        announcementPushService.triggerManualScan();
+        return ResponseData.ok("已开始扫描");
+    }
+
+    @GetMapping("/announcementPush/inbox")
+    public ResponseData<?> getAnnouncementPushInbox(@RequestParam(defaultValue = "1") int page,
+                                                    @RequestParam(defaultValue = "10") int size,
+                                                    @RequestParam(required = false) String keyword) {
+        return ResponseData.ok(announcementPushService.inbox(page, size, keyword));
+    }
+
+    @PostMapping("/announcementPush/inbox/detail")
+    public ResponseData<?> getAnnouncementPushInboxDetail(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(announcementPushService.inboxDetail(params == null ? "" : params.get("aggregateKey")));
+    }
+
+    @PostMapping("/announcementPush/inbox/mark")
+    public ResponseData<?> markAnnouncementPushInbox(@RequestBody Map<String, String> params) {
+        String aggregateKey = params == null ? "" : params.get("aggregateKey");
+        String action = params == null ? "" : params.get("action");
+        announcementPushService.markAggregate(aggregateKey, action);
+        return ResponseData.ok();
+    }
+
+    @GetMapping("/announcementPush/batches")
+    public ResponseData<?> getAnnouncementPushBatches(@RequestParam(defaultValue = "1") int page,
+                                                      @RequestParam(defaultValue = "10") int size) {
+        return ResponseData.ok(announcementPushService.batches(page, size));
     }
 
     @PostMapping("/sendVerifyCode")

@@ -83,6 +83,52 @@ CREATE TABLE IF NOT EXISTS oci_login_audit (
     INDEX idx_oci_login_audit_time (create_time DESC)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS oci_announcement_record (
+    id VARCHAR(64) PRIMARY KEY,
+    tenant_id VARCHAR(64) NOT NULL,
+    tenant_name VARCHAR(128) DEFAULT NULL,
+    announcement_id VARCHAR(160) NOT NULL,
+    aggregate_key VARCHAR(255) NOT NULL,
+    chain_id VARCHAR(160) DEFAULT NULL,
+    summary VARCHAR(1024) DEFAULT NULL,
+    announcement_type VARCHAR(64) DEFAULT NULL,
+    services_json TEXT DEFAULT NULL,
+    affected_regions_json TEXT DEFAULT NULL,
+    time_created DATETIME DEFAULT NULL,
+    time_updated DATETIME DEFAULT NULL,
+    time_one_title VARCHAR(128) DEFAULT NULL,
+    time_one_type VARCHAR(64) DEFAULT NULL,
+    time_one_value DATETIME DEFAULT NULL,
+    time_two_title VARCHAR(128) DEFAULT NULL,
+    time_two_type VARCHAR(64) DEFAULT NULL,
+    time_two_value DATETIME DEFAULT NULL,
+    pushed TINYINT(1) NOT NULL DEFAULT 0,
+    ignored TINYINT(1) NOT NULL DEFAULT 0,
+    read_flag TINYINT(1) NOT NULL DEFAULT 0,
+    first_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    last_seen_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    pushed_batch_id VARCHAR(64) DEFAULT NULL,
+    pushed_at DATETIME DEFAULT NULL,
+    UNIQUE KEY uk_oci_announcement_tenant_announcement (tenant_id, announcement_id),
+    INDEX idx_oci_announcement_aggregate (aggregate_key),
+    INDEX idx_oci_announcement_time (time_created DESC),
+    INDEX idx_oci_announcement_pushed (pushed, ignored)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS oci_announcement_push_batch (
+    id VARCHAR(64) PRIMARY KEY,
+    batch_id VARCHAR(64) NOT NULL,
+    pushed_at DATETIME DEFAULT NULL,
+    announcement_count INT NOT NULL DEFAULT 0,
+    tenant_count INT NOT NULL DEFAULT 0,
+    message_preview TEXT DEFAULT NULL,
+    status VARCHAR(32) NOT NULL DEFAULT 'PENDING',
+    error_message TEXT DEFAULT NULL,
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_oci_announcement_push_batch (batch_id),
+    INDEX idx_oci_announcement_push_time (create_time DESC)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS ip_data (
     id VARCHAR(64) PRIMARY KEY,
     ip VARCHAR(255) NOT NULL,

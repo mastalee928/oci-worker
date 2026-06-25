@@ -45,7 +45,7 @@
       </a-tab-pane>
 
       <a-tab-pane key="notify" tab="消息通知">
-        <a-card title="Telegram 通知" class="settings-card-wide notify-tg-card">
+        <a-card title="消息通知" class="settings-card-wide notify-tg-card notify-settings-card">
           <div v-if="!notifyPwdVerified" class="lock-panel settings-no-select">
             <i class="ri-lock-2-line lock-icon"></i>
             <p class="lock-text">请输入登录密码进行配置</p>
@@ -54,34 +54,287 @@
               <a-button type="primary" block @click="verifyNotifyPwd" :disabled="!notifyPwd">验证</a-button>
             </a-space>
           </div>
-          <a-form v-else layout="vertical">
-            <a-form-item label="Bot Token">
-              <a-input v-model:value="tgConfig.botToken" placeholder="输入 Telegram Bot Token" />
-            </a-form-item>
-            <a-form-item label="Chat ID">
-              <a-input v-model:value="tgConfig.chatId" placeholder="输入 Chat ID" />
-            </a-form-item>
-            <a-form-item label="通知类型">
-              <a-checkbox-group v-model:value="tgConfig.notifyTypes" :options="notifyTypeOptions" />
-            </a-form-item>
-            <a-form-item v-if="tgConfig.notifyTypes.includes('daily_report')" label="每日播报时间">
-              <a-time-picker
-                v-model:value="dailyReportTimePicked"
-                format="HH:mm"
-                :show-second="false"
-                :minute-step="1"
-                value-format="HH:mm"
-              />
-              <div style="margin-top: 6px; font-size: 12px; color: var(--text-sub)">
-                东八区（Asia/Shanghai），默认 09:00
-              </div>
-            </a-form-item>
-            <a-space wrap>
+          <div v-else>
+            <a-segmented v-model:value="notifySection" :options="notifySectionOptions" class="notify-section-segment" />
+
+            <a-form v-if="notifySection === 'telegram'" layout="vertical" class="notify-section-panel">
+              <a-form-item label="Bot Token">
+                <a-input v-model:value="tgConfig.botToken" placeholder="输入 Telegram Bot Token" />
+              </a-form-item>
+              <a-form-item label="Chat ID">
+                <a-input v-model:value="tgConfig.chatId" placeholder="输入 Chat ID" />
+              </a-form-item>
+              <a-form-item label="通知类型">
+                <a-checkbox-group v-model:value="tgConfig.notifyTypes" :options="notifyTypeOptions" />
+              </a-form-item>
+              <a-space wrap>
+                <a-button type="primary" @click="saveTgConfig" :loading="saveLoading">保存</a-button>
+                <a-button @click="testTgNotify" :loading="testLoading">测试发送</a-button>
+              </a-space>
+            </a-form>
+
+            <a-form v-else-if="notifySection === 'daily'" layout="vertical" class="notify-section-panel">
+              <a-alert type="info" show-icon style="margin-bottom: 16px">
+                <template #message>每日播报使用东八区（Asia/Shanghai）时间。</template>
+              </a-alert>
+              <a-form-item label="启用每日播报">
+                <a-checkbox
+                  :checked="tgConfig.notifyTypes.includes('daily_report')"
+                  @change="toggleNotifyType('daily_report', $event.target.checked)"
+                >
+                  接收每日播报
+                </a-checkbox>
+              </a-form-item>
+              <a-form-item label="播报时间">
+                <a-time-picker
+                  v-model:value="dailyReportTimePicked"
+                  format="HH:mm"
+                  :show-second="false"
+                  :minute-step="1"
+                  value-format="HH:mm"
+                />
+              </a-form-item>
               <a-button type="primary" @click="saveTgConfig" :loading="saveLoading">保存</a-button>
-              <a-button @click="testTgNotify" :loading="testLoading">测试发送</a-button>
-            </a-space>
-          </a-form>
+            </a-form>
+
+            <div v-else-if="notifySection === 'announcement'" class="notify-section-panel announcement-push-panel">
+              <a-tabs v-model:active-key="announcementTab" size="small" @change="handleAnnouncementTabChange">
+                <a-tab-pane key="config" tab="推送配置">
+                  <a-form layout="vertical" class="announcement-config-form">
+                    <a-row :gutter="16">
+                      <a-col :xs="24" :md="12">
+                        <a-form-item label="启用推送">
+                          <a-switch v-model:checked="announcementPushConfig.enabled" checked-children="开" un-checked-children="关" />
+                        </a-form-item>
+                      </a-col>
+                      <a-col :xs="24" :md="12">
+                        <a-form-item label="推送范围">
+                          <a-select v-model:value="announcementPushConfig.mode" :options="announcementModeOptions" />
+                        </a-form-item>
+                      </a-col>
+                      <a-col :xs="24" :md="12">
+                        <a-form-item label="扫描频率">
+                          <a-select v-model:value="announcementPushConfig.frequencyMinutes" :options="announcementFrequencyOptions" />
+                        </a-form-item>
+                      </a-col>
+                      <a-col :xs="24" :md="12">
+                        <a-form-item label="租户范围">
+                          <a-select v-model:value="announcementPushConfig.tenantScopeMode" :options="announcementTenantScopeOptions" />
+                        </a-form-item>
+                      </a-col>
+                      <a-col :xs="24" :md="12">
+                        <a-form-item label="公告保留">
+                          <a-select v-model:value="announcementPushConfig.recordRetentionDays" :options="announcementRecordRetentionOptions" />
+                        </a-form-item>
+                      </a-col>
+                      <a-col :xs="24" :md="12">
+                        <a-form-item label="历史保留">
+                          <a-select v-model:value="announcementPushConfig.batchRetentionDays" :options="announcementBatchRetentionOptions" />
+                        </a-form-item>
+                      </a-col>
+                    </a-row>
+
+                    <div class="tenant-picker-shell">
+                      <div class="tenant-picker-head">
+                        <div>
+                          <div class="tenant-picker-title">接收租户</div>
+                          <div class="tenant-picker-sub">当前约 {{ announcementSelectedTenantCount }} / {{ announcementTenants.length }} 个租户会参与扫描</div>
+                        </div>
+                        <a-button size="small" @click="tenantPickerVisible = true">选择租户</a-button>
+                      </div>
+                      <div class="tenant-chip-row">
+                        <a-tag v-if="announcementPushConfig.tenantScopeMode === 'ALL'">全部租户</a-tag>
+                        <a-tag v-else-if="announcementPushConfig.tenantScopeMode === 'GROUPS'">已选 {{ announcementSelectedGroupKeys.length }} 个分组</a-tag>
+                        <a-tag v-else>已选 {{ announcementPushConfig.selectedTenantIds.length }} 个租户</a-tag>
+                        <a-tag v-if="announcementPushConfig.excludedTenantIds.length" color="orange">排除 {{ announcementPushConfig.excludedTenantIds.length }} 个</a-tag>
+                      </div>
+                    </div>
+
+                    <a-space wrap>
+                      <a-button type="primary" :loading="announcementSaveLoading" @click="saveAnnouncementPushConfig">保存云公告推送</a-button>
+                      <a-button :loading="announcementScanLoading" @click="triggerAnnouncementScan">立即扫描</a-button>
+                    </a-space>
+                  </a-form>
+                </a-tab-pane>
+
+                <a-tab-pane key="inbox" tab="公告收件箱">
+                  <div class="announcement-toolbar">
+                    <a-input-search
+                      v-model:value="announcementInboxKeyword"
+                      placeholder="搜索公告摘要"
+                      allow-clear
+                      @search="loadAnnouncementInbox(1)"
+                    />
+                    <a-button :loading="announcementInboxLoading" @click="loadAnnouncementInbox()">刷新</a-button>
+                  </div>
+                  <a-spin :spinning="announcementInboxLoading">
+                    <a-empty v-if="!announcementInbox.records.length" description="暂无公告" />
+                    <div v-else class="announcement-list">
+                      <div v-for="item in announcementInbox.records" :key="item.aggregateKey" class="announcement-item">
+                        <div class="announcement-item-main">
+                          <a-space wrap size="small">
+                            <a-tag>{{ item.announcementType || '公告' }}</a-tag>
+                            <a-tag v-if="item.read" color="green">已读</a-tag>
+                            <a-tag v-if="item.ignored" color="default">已忽略</a-tag>
+                            <a-tag v-if="item.pushedBatchId" color="blue">{{ item.pushedBatchId }}</a-tag>
+                          </a-space>
+                          <div class="announcement-summary">{{ item.summary || '-' }}</div>
+                          <div class="announcement-meta">
+                            {{ formatDateTime(item.timeCreated) }} · 影响 {{ item.tenantCount || 0 }} 个租户 · {{ item.tenantPreview || '-' }}
+                          </div>
+                          <div v-if="item.timeWindowText" class="announcement-window">{{ item.timeWindowText }}</div>
+                        </div>
+                        <a-space wrap>
+                          <a-button size="small" @click="openAnnouncementDetail(item)">详情</a-button>
+                          <a-button v-if="!item.read" size="small" @click="markAnnouncement(item, 'read')">已读</a-button>
+                          <a-button v-if="!item.ignored" size="small" @click="markAnnouncement(item, 'ignore')">忽略</a-button>
+                          <a-button v-else size="small" @click="markAnnouncement(item, 'unignore')">取消忽略</a-button>
+                        </a-space>
+                      </div>
+                    </div>
+                  </a-spin>
+                  <a-pagination
+                    v-if="announcementInbox.total > announcementInbox.size"
+                    size="small"
+                    class="announcement-pagination"
+                    :current="announcementInbox.current"
+                    :page-size="announcementInbox.size"
+                    :total="announcementInbox.total"
+                    @change="loadAnnouncementInbox"
+                  />
+                </a-tab-pane>
+
+                <a-tab-pane key="history" tab="推送历史">
+                  <a-spin :spinning="announcementBatchLoading">
+                    <a-empty v-if="!announcementBatches.records.length" description="暂无推送历史" />
+                    <div v-else class="announcement-list">
+                      <div v-for="batch in announcementBatches.records" :key="batch.id || batch.batchId" class="announcement-item">
+                        <div class="announcement-item-main">
+                          <div class="announcement-summary">{{ batch.batchId || '-' }}</div>
+                          <div class="announcement-meta">
+                            {{ formatDateTime(batch.pushedAt || batch.createTime) }} · {{ batch.status || '-' }} · {{ batch.announcementCount || 0 }} 条公告 · {{ batch.tenantCount || 0 }} 个租户
+                          </div>
+                          <div v-if="batch.errorMessage" class="announcement-window">{{ batch.errorMessage }}</div>
+                        </div>
+                      </div>
+                    </div>
+                  </a-spin>
+                </a-tab-pane>
+
+                <a-tab-pane key="status" tab="扫描状态">
+                  <a-descriptions :column="isMobile ? 1 : 2" bordered size="small">
+                    <a-descriptions-item label="当前状态">{{ announcementStatus.scanning ? '扫描中' : announcementStatus.status || '空闲' }}</a-descriptions-item>
+                    <a-descriptions-item label="最近扫描">{{ formatDateTime(announcementStatus.lastScanAt) }}</a-descriptions-item>
+                    <a-descriptions-item label="下次扫描">{{ formatDateTime(announcementStatus.nextScanAt) }}</a-descriptions-item>
+                    <a-descriptions-item label="成功租户">{{ announcementStatus.successTenants ?? 0 }}</a-descriptions-item>
+                    <a-descriptions-item label="失败租户">{{ announcementStatus.failedTenants ?? 0 }}</a-descriptions-item>
+                    <a-descriptions-item label="最近错误">{{ announcementStatus.lastError || '-' }}</a-descriptions-item>
+                  </a-descriptions>
+                  <div style="margin-top: 14px">
+                    <a-button :loading="announcementScanLoading" @click="triggerAnnouncementScan">立即扫描</a-button>
+                  </div>
+                </a-tab-pane>
+              </a-tabs>
+            </div>
+
+            <a-descriptions v-else :column="1" bordered size="small" class="notify-section-panel settings-no-select">
+              <a-descriptions-item label="登录通知">登录成功/失败时发送，包含IP地址、账号、时间</a-descriptions-item>
+              <a-descriptions-item label="创建任务">创建开机任务时通知</a-descriptions-item>
+              <a-descriptions-item label="任务结果">开机成功或认证失败时通知，包含实例详情</a-descriptions-item>
+              <a-descriptions-item label="每日播报">在所设东八区时刻自动发送（默认 09:00），包含租户总数、失效租户、运行中任务</a-descriptions-item>
+              <a-descriptions-item label="云公告推送">后台按租户范围扫描 OCI 云公告，同一公告聚合后推送到 Telegram</a-descriptions-item>
+            </a-descriptions>
+          </div>
         </a-card>
+
+        <a-modal
+          v-model:open="tenantPickerVisible"
+          title="选择接收云公告的租户"
+          :width="isMobile ? '100%' : 860"
+          :footer="null"
+          :keyboard="false"
+          class="tenant-picker-modal"
+        >
+          <div class="tenant-picker-modal-body">
+            <a-alert type="info" show-icon style="margin-bottom: 12px">
+              <template #message>未选择排除时，“全部租户”会自动包含之后新增的租户。</template>
+            </a-alert>
+            <a-input-search v-model:value="announcementTenantSearch" placeholder="搜索租户名、用户名、区域" allow-clear />
+            <div class="tenant-picker-grid">
+              <div class="tenant-picker-block">
+                <div class="tenant-picker-title">分组</div>
+                <a-empty v-if="!announcementGroupOptions.length" description="暂无分组" />
+                <div v-else class="tenant-group-list">
+                  <label v-for="group in announcementGroupOptions" :key="group.key" class="tenant-group-row">
+                    <input
+                      type="checkbox"
+                      :checked="announcementSelectedGroupKeys.includes(group.key)"
+                      @change="toggleAnnouncementGroup(group.key, eventChecked($event))"
+                    />
+                    <span>{{ group.label }}</span>
+                    <small>{{ group.count }}</small>
+                  </label>
+                </div>
+              </div>
+              <div class="tenant-picker-block">
+                <div class="tenant-picker-title">租户</div>
+                <div class="tenant-row tenant-row-head">
+                  <span>租户</span>
+                  <span>接收</span>
+                  <span>排除</span>
+                </div>
+                <div class="tenant-list">
+                  <div v-for="tenant in filteredAnnouncementTenants" :key="tenant.id" class="tenant-row">
+                    <div class="tenant-name">
+                      <strong>{{ tenant.tenantName || tenant.username || tenant.id }}</strong>
+                      <small>{{ tenant.username }} · {{ tenant.region || '-' }} · {{ tenant.groupLevel1 || '未分组' }}{{ tenant.groupLevel2 ? ' / ' + tenant.groupLevel2 : '' }}</small>
+                    </div>
+                    <a-checkbox
+                      :checked="announcementPushConfig.selectedTenantIds.includes(tenant.id)"
+                      @change="toggleAnnouncementTenant('selectedTenantIds', tenant.id, $event.target.checked)"
+                    />
+                    <a-checkbox
+                      :checked="announcementPushConfig.excludedTenantIds.includes(tenant.id)"
+                      @change="toggleAnnouncementTenant('excludedTenantIds', tenant.id, $event.target.checked)"
+                    />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </a-modal>
+
+        <a-modal
+          v-model:open="announcementDetailVisible"
+          title="公告详情"
+          :width="isMobile ? '100%' : 760"
+          :footer="null"
+          :keyboard="false"
+        >
+          <a-spin :spinning="announcementDetailLoading">
+            <a-empty v-if="!announcementDetail.aggregateKey" description="暂无详情" />
+            <div v-else class="announcement-detail">
+              <h3>{{ announcementDetail.summary || '-' }}</h3>
+              <p class="announcement-meta">{{ announcementDetail.timeWindowText || '无维护时间窗口' }}</p>
+              <a-descriptions :column="1" bordered size="small">
+                <a-descriptions-item label="公告类型">{{ announcementDetail.announcementType || '-' }}</a-descriptions-item>
+                <a-descriptions-item label="影响服务">{{ (announcementDetail.services || []).join('、') || '-' }}</a-descriptions-item>
+                <a-descriptions-item label="影响区域">{{ (announcementDetail.affectedRegions || []).join('、') || '-' }}</a-descriptions-item>
+                <a-descriptions-item label="影响租户">{{ announcementDetail.tenantCount || 0 }}</a-descriptions-item>
+              </a-descriptions>
+              <div v-if="announcementDetail.liveDetail?.detail?.description" class="announcement-live-detail">
+                {{ announcementDetail.liveDetail.detail.description }}
+              </div>
+              <div class="tenant-impact-list">
+                <div v-for="tenant in announcementDetail.tenants || []" :key="tenant.tenantId + tenant.announcementId" class="tenant-impact-row">
+                  <span>{{ tenant.tenantName || tenant.tenantId }}</span>
+                  <a-tag v-if="tenant.read" color="green">已读</a-tag>
+                  <a-tag v-if="tenant.ignored">已忽略</a-tag>
+                </div>
+              </div>
+            </div>
+          </a-spin>
+        </a-modal>
 
         <a-modal :keyboard="false"
           v-model:open="notifySaveVerifyVisible"
@@ -115,15 +368,6 @@
             </a-button>
           </div>
         </a-modal>
-
-        <a-card title="通知说明" class="settings-card-wide settings-no-select" style="margin-top: 16px">
-          <a-descriptions :column="1" bordered size="small">
-            <a-descriptions-item label="登录通知">登录成功/失败时发送，包含IP地址、账号、时间</a-descriptions-item>
-            <a-descriptions-item label="创建任务">创建开机任务时通知</a-descriptions-item>
-            <a-descriptions-item label="任务结果">开机成功或认证失败时通知，包含实例详情</a-descriptions-item>
-            <a-descriptions-item label="每日播报">在所设东八区时刻自动发送（默认 09:00），包含租户总数、失效租户、运行中任务</a-descriptions-item>
-          </a-descriptions>
-        </a-card>
       </a-tab-pane>
 
       <a-tab-pane key="proxy" tab="OCI 代理">
@@ -580,7 +824,7 @@
 
 <script setup lang="ts">
 defineOptions({ name: 'SystemSettings' })
-import { h, reactive, ref, watch, onMounted, onUnmounted } from 'vue'
+import { computed, h, reactive, ref, watch, onMounted, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { CaretRightOutlined, InboxOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { Modal, message } from 'ant-design-vue'
@@ -661,7 +905,128 @@ const notifyTypeOptions = [
   { label: '任务结果', value: 'task_result' },
   { label: '实例操作', value: 'instance' },
   { label: '每日播报', value: 'daily_report' },
+  { label: '云公告推送', value: 'announcement' },
 ]
+
+const notifySection = ref<'telegram' | 'daily' | 'announcement' | 'guide'>('telegram')
+const notifySectionOptions = [
+  { label: 'Telegram 基础', value: 'telegram' },
+  { label: '每日播报', value: 'daily' },
+  { label: '云公告推送', value: 'announcement' },
+  { label: '通知说明', value: 'guide' },
+]
+
+type AnnouncementTenant = {
+  id: string
+  username?: string
+  tenantName?: string
+  region?: string
+  tenancyTail?: string
+  groupLevel1?: string
+  groupLevel2?: string
+}
+type AnnouncementGroupOption = { key: string; label: string; count: number; level: '1' | '2'; groupLevel1: string; groupLevel2?: string }
+type AnnouncementItem = Record<string, any> & { aggregateKey: string }
+
+const announcementTab = ref<'config' | 'inbox' | 'history' | 'status'>('config')
+const announcementSaveLoading = ref(false)
+const announcementScanLoading = ref(false)
+const announcementInboxLoading = ref(false)
+const announcementBatchLoading = ref(false)
+const announcementDetailLoading = ref(false)
+const tenantPickerVisible = ref(false)
+const announcementDetailVisible = ref(false)
+const announcementTenantSearch = ref('')
+const announcementInboxKeyword = ref('')
+const announcementTenants = ref<AnnouncementTenant[]>([])
+const announcementSelectedGroupKeys = ref<string[]>([])
+const announcementStatus = reactive<Record<string, any>>({})
+const announcementDetail = reactive<Record<string, any>>({})
+const announcementInbox = reactive({ records: [] as AnnouncementItem[], total: 0, current: 1, size: 10 })
+const announcementBatches = reactive({ records: [] as Record<string, any>[], total: 0, current: 1, size: 10 })
+const announcementPushConfig = reactive({
+  enabled: false,
+  mode: 'IMPORTANT',
+  frequencyMinutes: 30,
+  tenantScopeMode: 'ALL',
+  selectedTenantIds: [] as string[],
+  excludedTenantIds: [] as string[],
+  recordRetentionDays: 90,
+  batchRetentionDays: 30,
+})
+const announcementModeOptions = [
+  { label: '仅重要公告', value: 'IMPORTANT' },
+  { label: '全部公告', value: 'ALL' },
+]
+const announcementFrequencyOptions = [
+  { label: '15 分钟', value: 15 },
+  { label: '30 分钟', value: 30 },
+  { label: '60 分钟', value: 60 },
+  { label: '180 分钟', value: 180 },
+]
+const announcementTenantScopeOptions = [
+  { label: '全部租户', value: 'ALL' },
+  { label: '按分组', value: 'GROUPS' },
+  { label: '自定义租户', value: 'CUSTOM' },
+]
+const announcementRecordRetentionOptions = [
+  { label: '30 天', value: 30 },
+  { label: '90 天', value: 90 },
+  { label: '180 天', value: 180 },
+]
+const announcementBatchRetentionOptions = [
+  { label: '7 天', value: 7 },
+  { label: '30 天', value: 30 },
+  { label: '60 天', value: 60 },
+]
+
+const announcementGroupOptions = computed<AnnouncementGroupOption[]>(() => {
+  const level1 = new Map<string, number>()
+  const level2 = new Map<string, { groupLevel1: string; groupLevel2: string; count: number }>()
+  for (const tenant of announcementTenants.value) {
+    const g1 = tenant.groupLevel1 || '未分组'
+    const g2 = tenant.groupLevel2 || ''
+    level1.set(g1, (level1.get(g1) || 0) + 1)
+    if (g2) {
+      const key = `2|${g1}|${g2}`
+      const item = level2.get(key) || { groupLevel1: g1, groupLevel2: g2, count: 0 }
+      item.count++
+      level2.set(key, item)
+    }
+  }
+  const out: AnnouncementGroupOption[] = []
+  for (const [g1, count] of level1.entries()) {
+    out.push({ key: `1|${g1}`, label: g1, count, level: '1', groupLevel1: g1 })
+  }
+  for (const [key, item] of level2.entries()) {
+    out.push({ key, label: `${item.groupLevel1} / ${item.groupLevel2}`, count: item.count, level: '2', groupLevel1: item.groupLevel1, groupLevel2: item.groupLevel2 })
+  }
+  return out
+})
+
+const filteredAnnouncementTenants = computed(() => {
+  const kw = announcementTenantSearch.value.trim().toLowerCase()
+  if (!kw) return announcementTenants.value
+  return announcementTenants.value.filter((t) => [
+    t.tenantName,
+    t.username,
+    t.region,
+    t.groupLevel1,
+    t.groupLevel2,
+    t.tenancyTail,
+  ].some((v) => String(v || '').toLowerCase().includes(kw)))
+})
+
+const announcementSelectedTenantCount = computed(() => {
+  const excluded = new Set(announcementPushConfig.excludedTenantIds)
+  if (announcementPushConfig.tenantScopeMode === 'CUSTOM') {
+    return announcementPushConfig.selectedTenantIds.filter((id) => !excluded.has(id)).length
+  }
+  if (announcementPushConfig.tenantScopeMode === 'GROUPS') {
+    return announcementTenants.value.filter((t) => groupKeyMatchesTenant(t) && !excluded.has(t.id)).length
+  }
+  return announcementTenants.value.filter((t) => !excluded.has(t.id)).length
+})
 
 watch(activeTab, (k, prev) => {
   if (prev === 'audit') {
@@ -699,6 +1064,11 @@ watch(activeTab, (k, prev) => {
   if (k === 'alidns') {
     loadAlidnsConfig()
   }
+  if (k === 'notify') {
+    loadAnnouncementPushConfig()
+    loadAnnouncementTenants()
+    loadAnnouncementStatus()
+  }
 })
 
 onMounted(async () => {
@@ -706,6 +1076,9 @@ onMounted(async () => {
     window.addEventListener('resize', checkMobile)
   }
   loadNotifyConfig()
+  loadAnnouncementPushConfig()
+  loadAnnouncementTenants()
+  loadAnnouncementStatus()
   loadOciProxy()
   loadCfConfig()
   loadAlidnsConfig()
@@ -889,6 +1262,210 @@ async function loadNotifyConfig() {
     tgConfig.dailyReportTime = res.data?.dailyReportTime || '09:00'
     dailyReportTimePicked.value = tgConfig.dailyReportTime
   } catch {}
+}
+
+function toggleNotifyType(type: string, checked: boolean) {
+  const set = new Set(tgConfig.notifyTypes)
+  if (checked) set.add(type)
+  else set.delete(type)
+  tgConfig.notifyTypes = Array.from(set)
+}
+
+async function loadAnnouncementPushConfig() {
+  try {
+    const res = await request.get('/sys/announcementPush/config')
+    const d = res.data || {}
+    announcementPushConfig.enabled = d.enabled === true
+    announcementPushConfig.mode = d.mode || 'IMPORTANT'
+    announcementPushConfig.frequencyMinutes = Number(d.frequencyMinutes || 30)
+    announcementPushConfig.tenantScopeMode = d.tenantScopeMode || 'ALL'
+    announcementPushConfig.selectedTenantIds = Array.isArray(d.selectedTenantIds) ? d.selectedTenantIds : []
+    announcementPushConfig.excludedTenantIds = Array.isArray(d.excludedTenantIds) ? d.excludedTenantIds : []
+    announcementPushConfig.recordRetentionDays = Number(d.recordRetentionDays || 90)
+    announcementPushConfig.batchRetentionDays = Number(d.batchRetentionDays || 30)
+    announcementSelectedGroupKeys.value = Array.isArray(d.selectedGroups) ? d.selectedGroups.map(groupToKey).filter(Boolean) : []
+    Object.assign(announcementStatus, d.status || {})
+  } catch {
+    /* 忽略 */
+  }
+}
+
+async function loadAnnouncementTenants() {
+  try {
+    const res = await request.get('/sys/announcementPush/tenants')
+    announcementTenants.value = Array.isArray(res.data?.items) ? res.data.items : []
+  } catch {
+    announcementTenants.value = []
+  }
+}
+
+async function saveAnnouncementPushConfig() {
+  announcementSaveLoading.value = true
+  try {
+    await request.post('/sys/announcementPush/config', {
+      enabled: announcementPushConfig.enabled,
+      mode: announcementPushConfig.mode,
+      frequencyMinutes: announcementPushConfig.frequencyMinutes,
+      tenantScopeMode: announcementPushConfig.tenantScopeMode,
+      selectedTenantIds: announcementPushConfig.selectedTenantIds,
+      excludedTenantIds: announcementPushConfig.excludedTenantIds,
+      selectedGroups: announcementSelectedGroupKeys.value.map(keyToGroup).filter(Boolean),
+      recordRetentionDays: announcementPushConfig.recordRetentionDays,
+      batchRetentionDays: announcementPushConfig.batchRetentionDays,
+    })
+    message.success('已保存')
+    if (announcementPushConfig.enabled && !tgConfig.notifyTypes.includes('announcement')) {
+      tgConfig.notifyTypes.push('announcement')
+    }
+    await loadAnnouncementPushConfig()
+  } catch (e: any) {
+    message.error(e?.message || '保存失败')
+  } finally {
+    announcementSaveLoading.value = false
+  }
+}
+
+async function loadAnnouncementStatus() {
+  try {
+    const res = await request.get('/sys/announcementPush/status')
+    Object.assign(announcementStatus, res.data || {})
+  } catch {
+    /* 忽略 */
+  }
+}
+
+async function triggerAnnouncementScan() {
+  announcementScanLoading.value = true
+  try {
+    await request.post('/sys/announcementPush/scan')
+    message.success('已开始扫描')
+    await loadAnnouncementStatus()
+  } catch (e: any) {
+    message.error(e?.message || '启动扫描失败')
+  } finally {
+    announcementScanLoading.value = false
+  }
+}
+
+async function loadAnnouncementInbox(page = announcementInbox.current) {
+  announcementInboxLoading.value = true
+  try {
+    const res = await request.get('/sys/announcementPush/inbox', {
+      params: { page, size: announcementInbox.size, keyword: announcementInboxKeyword.value || undefined },
+    })
+    const d = res.data || {}
+    announcementInbox.records = Array.isArray(d.records) ? d.records : []
+    announcementInbox.total = Number(d.total || 0)
+    announcementInbox.current = Number(d.current || page)
+    announcementInbox.size = Number(d.size || announcementInbox.size)
+  } catch (e: any) {
+    message.error(e?.message || '加载失败')
+  } finally {
+    announcementInboxLoading.value = false
+  }
+}
+
+async function loadAnnouncementBatches(page = announcementBatches.current) {
+  announcementBatchLoading.value = true
+  try {
+    const res = await request.get('/sys/announcementPush/batches', { params: { page, size: announcementBatches.size } })
+    const d = res.data || {}
+    announcementBatches.records = Array.isArray(d.records) ? d.records : []
+    announcementBatches.total = Number(d.total || 0)
+    announcementBatches.current = Number(d.current || page)
+    announcementBatches.size = Number(d.size || announcementBatches.size)
+  } catch (e: any) {
+    message.error(e?.message || '加载失败')
+  } finally {
+    announcementBatchLoading.value = false
+  }
+}
+
+function handleAnnouncementTabChange(key: string) {
+  if (key === 'inbox') loadAnnouncementInbox(1)
+  if (key === 'history') loadAnnouncementBatches(1)
+  if (key === 'status') loadAnnouncementStatus()
+}
+
+async function openAnnouncementDetail(item: AnnouncementItem) {
+  announcementDetailVisible.value = true
+  announcementDetailLoading.value = true
+  Object.keys(announcementDetail).forEach((k) => delete announcementDetail[k])
+  try {
+    const res = await request.post('/sys/announcementPush/inbox/detail', { aggregateKey: item.aggregateKey })
+    Object.assign(announcementDetail, res.data || {})
+  } catch (e: any) {
+    message.error(e?.message || '加载详情失败')
+  } finally {
+    announcementDetailLoading.value = false
+  }
+}
+
+async function markAnnouncement(item: AnnouncementItem, action: 'read' | 'ignore' | 'unignore') {
+  try {
+    await request.post('/sys/announcementPush/inbox/mark', { aggregateKey: item.aggregateKey, action })
+    message.success('已更新')
+    await loadAnnouncementInbox()
+  } catch (e: any) {
+    message.error(e?.message || '操作失败')
+  }
+}
+
+function toggleAnnouncementTenant(field: 'selectedTenantIds' | 'excludedTenantIds', id: string, checked: boolean) {
+  const list = announcementPushConfig[field]
+  const idx = list.indexOf(id)
+  if (checked && idx < 0) list.push(id)
+  if (!checked && idx >= 0) list.splice(idx, 1)
+}
+
+function toggleAnnouncementGroup(key: string, checked: boolean) {
+  const idx = announcementSelectedGroupKeys.value.indexOf(key)
+  if (checked && idx < 0) announcementSelectedGroupKeys.value.push(key)
+  if (!checked && idx >= 0) announcementSelectedGroupKeys.value.splice(idx, 1)
+}
+
+function eventChecked(e: Event) {
+  return (e.target as HTMLInputElement | null)?.checked === true
+}
+
+function groupKeyMatchesTenant(tenant: AnnouncementTenant) {
+  const g1 = tenant.groupLevel1 || '未分组'
+  const g2 = tenant.groupLevel2 || ''
+  return announcementSelectedGroupKeys.value.some((key) => key === `1|${g1}` || (g2 && key === `2|${g1}|${g2}`))
+}
+
+function groupToKey(group: any) {
+  const level = String(group?.level || '')
+  const g1 = String(group?.groupLevel1 || '未分组')
+  const g2 = String(group?.groupLevel2 || '')
+  if (level === '1') return `1|${g1}`
+  if (level === '2') return `2|${g1}|${g2}`
+  return ''
+}
+
+function keyToGroup(key: string) {
+  const parts = key.split('|')
+  if (parts[0] === '1') return { level: '1', groupLevel1: parts[1] || '未分组' }
+  if (parts[0] === '2') return { level: '2', groupLevel1: parts[1] || '未分组', groupLevel2: parts[2] || '' }
+  return null
+}
+
+function formatDateTime(value: any) {
+  if (!value) return '-'
+  try {
+    const d = new Date(value)
+    if (Number.isNaN(d.getTime())) return String(value)
+    return new Intl.DateTimeFormat('zh-CN', {
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    }).format(d)
+  } catch {
+    return String(value)
+  }
 }
 
 async function sendPwdVerifyCode() {
@@ -1695,6 +2272,195 @@ async function handleRestore() {
   -webkit-backdrop-filter: blur(12px);
   transition: var(--trans);
 }
+.notify-settings-card {
+  max-width: min(1120px, 100%);
+  width: 100%;
+}
+.notify-section-segment {
+  margin-bottom: 18px;
+  max-width: 100%;
+  overflow-x: auto;
+}
+.notify-section-panel {
+  max-width: 100%;
+}
+.announcement-push-panel {
+  width: 100%;
+}
+.announcement-config-form {
+  max-width: 860px;
+}
+.tenant-picker-shell {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 8px);
+  padding: 14px;
+  margin-bottom: 16px;
+  background: var(--input-bg, rgba(255, 255, 255, 0.03));
+}
+.tenant-picker-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.tenant-picker-title {
+  font-weight: 600;
+  color: var(--text-main);
+}
+.tenant-picker-sub,
+.announcement-meta {
+  font-size: 12px;
+  color: var(--text-sub);
+}
+.tenant-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.announcement-toolbar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.announcement-toolbar :deep(.ant-input-search) {
+  max-width: 360px;
+}
+.announcement-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.announcement-item {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 8px);
+  background: var(--input-bg, rgba(255, 255, 255, 0.03));
+}
+.announcement-item-main {
+  min-width: 0;
+  flex: 1;
+}
+.announcement-summary {
+  margin-top: 7px;
+  color: var(--text-main);
+  font-weight: 600;
+  line-height: 1.45;
+  word-break: break-word;
+}
+.announcement-window {
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--text-sub);
+  white-space: pre-line;
+}
+.announcement-pagination {
+  margin-top: 14px;
+  text-align: right;
+}
+.tenant-picker-modal :deep(.ant-modal-body) {
+  max-height: min(72vh, 720px);
+  overflow: auto;
+}
+.tenant-picker-grid {
+  display: grid;
+  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  gap: 14px;
+  margin-top: 12px;
+}
+.tenant-picker-block {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 8px);
+  padding: 12px;
+  min-width: 0;
+  background: var(--bg-card);
+}
+.tenant-group-list,
+.tenant-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+.tenant-group-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+  color: var(--text-main);
+}
+.tenant-group-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.tenant-group-row small,
+.tenant-name small {
+  color: var(--text-sub);
+}
+.tenant-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 48px 48px;
+  gap: 8px;
+  align-items: center;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border);
+}
+.tenant-row:last-child {
+  border-bottom: 0;
+}
+.tenant-row-head {
+  color: var(--text-sub);
+  font-size: 12px;
+  padding-top: 0;
+}
+.tenant-name {
+  min-width: 0;
+}
+.tenant-name strong,
+.tenant-name small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.announcement-detail h3 {
+  margin-top: 0;
+  color: var(--text-main);
+}
+.announcement-live-detail {
+  margin-top: 14px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 8px);
+  color: var(--text-main);
+  background: var(--input-bg, rgba(255, 255, 255, 0.03));
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 280px;
+  overflow: auto;
+}
+.tenant-impact-list {
+  margin-top: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.tenant-impact-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 8px);
+}
 .settings-card-wide--cf {
   max-width: min(960px, 100%);
 }
@@ -1958,6 +2724,32 @@ async function handleRestore() {
   .settings-card-audit,
   .backup-restore-stack {
     max-width: 100% !important;
+  }
+  .notify-section-segment {
+    width: 100%;
+  }
+  .announcement-toolbar,
+  .announcement-item,
+  .tenant-picker-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .announcement-toolbar :deep(.ant-input-search) {
+    max-width: 100%;
+  }
+  .tenant-picker-grid {
+    grid-template-columns: 1fr;
+  }
+  .tenant-picker-modal :deep(.ant-modal) {
+    max-width: 100%;
+    margin: 0;
+  }
+  .tenant-picker-modal :deep(.ant-modal-content) {
+    min-height: 100vh;
+    border-radius: 0;
+  }
+  .tenant-picker-modal :deep(.ant-modal-body) {
+    max-height: calc(100vh - 58px);
   }
   .cf-settings-layout {
     grid-template-columns: 1fr;
