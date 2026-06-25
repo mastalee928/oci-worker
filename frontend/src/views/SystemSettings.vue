@@ -3047,17 +3047,27 @@ async function handleRestore() {
     overflow: visible;
   }
   .tenant-picker-toolbar {
-    align-items: stretch;
-    flex-direction: column;
-    gap: 8px;
+    display: contents;
   }
   .tenant-picker-search {
+    order: 1;
     width: 100%;
     flex-basis: auto;
+    margin-bottom: 8px;
+  }
+  .tenant-mobile-group-select {
+    order: 2;
+    margin-top: 0;
+    margin-bottom: 8px;
   }
   .tenant-picker-actions {
+    order: 3;
     justify-content: flex-start;
     flex: 0 0 auto;
+    margin-bottom: 10px;
+  }
+  .tenant-picker-grid {
+    order: 4;
   }
   .tenant-picker-modal :deep(.ant-modal) {
     max-width: 100%;
