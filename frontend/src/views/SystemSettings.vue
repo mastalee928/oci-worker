@@ -999,7 +999,7 @@ const announcementTenants = ref<AnnouncementTenant[]>([])
 const activeAnnouncementGroupKey = ref('ALL')
 const tenantPickerPage = ref(1)
 const tenantSelectedPage = ref(1)
-const tenantPickerPageSize = 8
+const tenantPickerPageSize = computed(() => (isMobile.value ? 4 : 6))
 const announcementStatus = reactive<Record<string, any>>({})
 const announcementDetail = reactive<Record<string, any>>({})
 const announcementInbox = reactive({ records: [] as AnnouncementItem[], total: 0, current: 1, size: 10 })
@@ -1104,13 +1104,13 @@ const announcementSelectedTenants = computed(() => {
 const announcementSelectedTenantPreview = computed(() => announcementSelectedTenants.value.slice(0, 5))
 
 const pagedFilteredAnnouncementTenants = computed(() => {
-  const start = (tenantPickerPage.value - 1) * tenantPickerPageSize
-  return filteredAnnouncementTenants.value.slice(start, start + tenantPickerPageSize)
+  const start = (tenantPickerPage.value - 1) * tenantPickerPageSize.value
+  return filteredAnnouncementTenants.value.slice(start, start + tenantPickerPageSize.value)
 })
 
 const pagedAnnouncementSelectedTenants = computed(() => {
-  const start = (tenantSelectedPage.value - 1) * tenantPickerPageSize
-  return announcementSelectedTenants.value.slice(start, start + tenantPickerPageSize)
+  const start = (tenantSelectedPage.value - 1) * tenantPickerPageSize.value
+  return announcementSelectedTenants.value.slice(start, start + tenantPickerPageSize.value)
 })
 
 watch([announcementTenantSearch, activeAnnouncementGroupKey], () => {
@@ -1118,7 +1118,7 @@ watch([announcementTenantSearch, activeAnnouncementGroupKey], () => {
 })
 
 watch(announcementSelectedTenantCount, () => {
-  const maxPage = Math.max(1, Math.ceil(announcementSelectedTenantCount.value / tenantPickerPageSize))
+  const maxPage = Math.max(1, Math.ceil(announcementSelectedTenantCount.value / tenantPickerPageSize.value))
   if (tenantSelectedPage.value > maxPage) tenantSelectedPage.value = maxPage
 })
 
@@ -2505,7 +2505,7 @@ async function handleRestore() {
   gap: 14px;
   margin-top: 12px;
   min-height: 0;
-  height: min(58vh, 560px);
+  height: min(62vh, 600px);
 }
 .tenant-picker-block {
   border: 1px solid var(--border);
@@ -2532,7 +2532,7 @@ async function handleRestore() {
 }
 .tenant-list,
 .tenant-selected-list {
-  overflow: hidden;
+  overflow: visible;
 }
 .tenant-group-row {
   display: grid;
@@ -2573,6 +2573,7 @@ async function handleRestore() {
   grid-template-columns: minmax(0, 1fr) 48px;
   gap: 8px;
   align-items: center;
+  min-height: 56px;
   padding: 8px 0;
   border-bottom: 1px solid var(--border);
 }
@@ -2599,6 +2600,7 @@ async function handleRestore() {
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  min-height: 56px;
   padding: 8px 10px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md, 8px);
@@ -2925,17 +2927,37 @@ async function handleRestore() {
   }
   .tenant-picker-grid {
     grid-template-columns: 1fr;
+    height: auto;
+    max-height: none;
+    overflow: visible;
   }
   .tenant-picker-modal :deep(.ant-modal) {
     max-width: 100%;
-    margin: 0 auto;
+    margin: 8px auto;
   }
   .tenant-picker-modal :deep(.ant-modal-content) {
-    max-height: calc(100vh - 32px);
+    max-height: calc(100vh - 16px);
   }
   .tenant-picker-modal :deep(.ant-modal-body) {
-    max-height: calc(100vh - 116px);
+    max-height: calc(100vh - 98px);
     overflow: auto;
+  }
+  .tenant-picker-block {
+    min-height: auto;
+  }
+  .tenant-group-list {
+    max-height: 176px;
+  }
+  .tenant-list,
+  .tenant-selected-list {
+    overflow: visible;
+  }
+  .tenant-row,
+  .tenant-selected-row {
+    min-height: 58px;
+  }
+  .tenant-picker-pagination {
+    margin-top: 8px;
   }
   .cf-settings-layout {
     grid-template-columns: 1fr;
