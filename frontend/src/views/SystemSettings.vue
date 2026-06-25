@@ -290,8 +290,15 @@
         >
           <div class="tenant-picker-modal-body">
             <a-input-search v-model:value="announcementTenantSearch" placeholder="搜索租户名、用户名、区域" allow-clear />
+            <a-select
+              v-if="isMobile"
+              v-model:value="activeAnnouncementGroupKey"
+              class="tenant-mobile-group-select"
+              :options="announcementMobileGroupOptions"
+              :show-search="false"
+            />
             <div class="tenant-picker-grid">
-              <div class="tenant-picker-block">
+              <div v-if="!isMobile" class="tenant-picker-block tenant-picker-group-block">
                 <div class="tenant-picker-title">分组</div>
                 <a-empty v-if="!announcementGroupOptions.length" description="暂无分组" />
                 <div v-else class="tenant-group-list">
@@ -999,7 +1006,7 @@ const announcementTenants = ref<AnnouncementTenant[]>([])
 const activeAnnouncementGroupKey = ref('ALL')
 const tenantPickerPage = ref(1)
 const tenantSelectedPage = ref(1)
-const tenantPickerPageSize = computed(() => (isMobile.value ? 4 : 6))
+const tenantPickerPageSize = computed(() => (isMobile.value ? 6 : 6))
 const announcementStatus = reactive<Record<string, any>>({})
 const announcementDetail = reactive<Record<string, any>>({})
 const announcementInbox = reactive({ records: [] as AnnouncementItem[], total: 0, current: 1, size: 10 })
@@ -1073,6 +1080,13 @@ const announcementGroupOptions = computed<AnnouncementGroupOption[]>(() => {
     }
   }
   return out
+})
+
+const announcementMobileGroupOptions = computed(() => {
+  return announcementGroupOptions.value.map((group) => ({
+    value: group.key,
+    label: `${group.level === '2' ? '　　' : ''}${group.label}　${group.count}`,
+  }))
 })
 
 const filteredAnnouncementTenants = computed(() => {
@@ -2498,6 +2512,10 @@ async function handleRestore() {
   display: flex;
   flex-direction: column;
   min-height: 0;
+}
+.tenant-mobile-group-select {
+  width: 100%;
+  margin-top: 10px;
 }
 .tenant-picker-grid {
   display: grid;
