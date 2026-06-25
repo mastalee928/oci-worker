@@ -112,6 +112,7 @@
                           <a-select
                             v-model:value="announcementPushConfig.eventTypes"
                             mode="multiple"
+                            :show-search="false"
                             :options="announcementEventTypeOptions"
                             placeholder="选择需要推送的事件"
                           />
@@ -180,6 +181,7 @@
                     <a-select
                       v-model:value="announcementInboxEventTypes"
                       mode="multiple"
+                      :show-search="false"
                       allow-clear
                       class="announcement-event-filter"
                       placeholder="全部事件"
