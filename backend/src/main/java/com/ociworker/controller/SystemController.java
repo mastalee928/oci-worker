@@ -210,8 +210,11 @@ public class SystemController {
     @GetMapping("/announcementPush/inbox")
     public ResponseData<?> getAnnouncementPushInbox(@RequestParam(defaultValue = "1") int page,
                                                     @RequestParam(defaultValue = "10") int size,
-                                                    @RequestParam(required = false) String keyword) {
-        return ResponseData.ok(announcementPushService.inbox(page, size, keyword));
+                                                    @RequestParam(required = false) String keyword,
+                                                    @RequestParam(required = false) String startAt,
+                                                    @RequestParam(required = false) String endAt,
+                                                    @RequestParam(required = false) String eventTypes) {
+        return ResponseData.ok(announcementPushService.inbox(page, size, keyword, startAt, endAt, eventTypes));
     }
 
     @PostMapping("/announcementPush/inbox/detail")

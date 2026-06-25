@@ -13,6 +13,7 @@ public enum SysCfgEnum {
     TG_DAILY_REPORT_TIME("tg_daily_report_time", "sys"),
     ANNOUNCEMENT_PUSH_ENABLED("announcement_push_enabled", "sys"),
     ANNOUNCEMENT_PUSH_MODE("announcement_push_mode", "sys"),
+    ANNOUNCEMENT_PUSH_EVENT_TYPES("announcement_push_event_types", "sys"),
     ANNOUNCEMENT_PUSH_FREQUENCY_MINUTES("announcement_push_frequency_minutes", "sys"),
     ANNOUNCEMENT_PUSH_TENANT_SCOPE_MODE("announcement_push_tenant_scope_mode", "sys"),
     ANNOUNCEMENT_PUSH_SELECTED_TENANT_IDS("announcement_push_selected_tenant_ids", "sys"),

@@ -109,17 +109,17 @@
                       </a-col>
                       <a-col :xs="24" :md="12">
                         <a-form-item label="推送范围">
-                          <a-select v-model:value="announcementPushConfig.mode" :options="announcementModeOptions" />
+                          <a-select
+                            v-model:value="announcementPushConfig.eventTypes"
+                            mode="multiple"
+                            :options="announcementEventTypeOptions"
+                            placeholder="选择需要推送的事件"
+                          />
                         </a-form-item>
                       </a-col>
                       <a-col :xs="24" :md="12">
                         <a-form-item label="扫描频率">
                           <a-select v-model:value="announcementPushConfig.frequencyMinutes" :options="announcementFrequencyOptions" />
-                        </a-form-item>
-                      </a-col>
-                      <a-col :xs="24" :md="12">
-                        <a-form-item label="租户范围">
-                          <a-select v-model:value="announcementPushConfig.tenantScopeMode" :options="announcementTenantScopeOptions" />
                         </a-form-item>
                       </a-col>
                       <a-col :xs="24" :md="12">
@@ -138,15 +138,18 @@
                       <div class="tenant-picker-head">
                         <div>
                           <div class="tenant-picker-title">接收租户</div>
-                          <div class="tenant-picker-sub">当前约 {{ announcementSelectedTenantCount }} / {{ announcementTenants.length }} 个租户会参与扫描</div>
+                          <div class="tenant-picker-sub">已选择 {{ announcementSelectedTenantCount }} / {{ announcementTenants.length }} 个租户</div>
                         </div>
                         <a-button size="small" @click="tenantPickerVisible = true">选择租户</a-button>
                       </div>
                       <div class="tenant-chip-row">
-                        <a-tag v-if="announcementPushConfig.tenantScopeMode === 'ALL'">全部租户</a-tag>
-                        <a-tag v-else-if="announcementPushConfig.tenantScopeMode === 'GROUPS'">已选 {{ announcementSelectedGroupKeys.length }} 个分组</a-tag>
-                        <a-tag v-else>已选 {{ announcementPushConfig.selectedTenantIds.length }} 个租户</a-tag>
-                        <a-tag v-if="announcementPushConfig.excludedTenantIds.length" color="orange">排除 {{ announcementPushConfig.excludedTenantIds.length }} 个</a-tag>
+                        <a-tag v-if="!announcementPushConfig.selectedTenantIds.length">尚未选择</a-tag>
+                        <a-tag v-for="tenant in announcementSelectedTenantPreview" :key="tenant.id">
+                          {{ tenant.tenantName || tenant.username || tenant.id }}
+                        </a-tag>
+                        <a-tag v-if="announcementPushConfig.selectedTenantIds.length > announcementSelectedTenantPreview.length">
+                          等 {{ announcementPushConfig.selectedTenantIds.length }} 个
+                        </a-tag>
                       </div>
                     </div>
 
@@ -159,9 +162,33 @@
 
                 <a-tab-pane key="inbox" tab="公告收件箱">
                   <div class="announcement-toolbar">
+                    <a-select
+                      v-model:value="announcementInboxRange"
+                      class="announcement-filter-select"
+                      :options="announcementTimeRangeOptions"
+                      @change="handleAnnouncementRangeChange"
+                    />
+                    <a-range-picker
+                      v-if="announcementInboxRange === 'custom'"
+                      v-model:value="announcementInboxDates"
+                      value-format="YYYY-MM-DD HH:mm:ss"
+                      format="YYYY-MM-DD HH:mm"
+                      :show-time="{ format: 'HH:mm' }"
+                      class="announcement-date-range"
+                      @change="loadAnnouncementInbox(1)"
+                    />
+                    <a-select
+                      v-model:value="announcementInboxEventTypes"
+                      mode="multiple"
+                      allow-clear
+                      class="announcement-event-filter"
+                      placeholder="全部事件"
+                      :options="announcementEventFilterOptions"
+                      @change="loadAnnouncementInbox(1)"
+                    />
                     <a-input-search
                       v-model:value="announcementInboxKeyword"
-                      placeholder="搜索公告摘要"
+                      placeholder="搜索摘要、服务、区域、租户名"
                       allow-clear
                       @search="loadAnnouncementInbox(1)"
                     />
@@ -173,7 +200,10 @@
                       <div v-for="item in announcementInbox.records" :key="item.aggregateKey" class="announcement-item">
                         <div class="announcement-item-main">
                           <a-space wrap size="small">
-                            <a-tag>{{ item.announcementType || '公告' }}</a-tag>
+                            <a-tag>{{ item.announcementTypeLabel || item.announcementType || '公告' }}</a-tag>
+                            <span v-if="item.announcementType && item.announcementTypeLabel !== item.announcementType" class="announcement-type-origin">
+                              {{ item.announcementType }}
+                            </span>
                             <a-tag v-if="item.read" color="green">已读</a-tag>
                             <a-tag v-if="item.ignored" color="default">已忽略</a-tag>
                             <a-tag v-if="item.pushedBatchId" color="blue">{{ item.pushedBatchId }}</a-tag>
@@ -257,7 +287,7 @@
         >
           <div class="tenant-picker-modal-body">
             <a-alert type="info" show-icon style="margin-bottom: 12px">
-              <template #message>未选择排除时，“全部租户”会自动包含之后新增的租户。</template>
+              <template #message>只会扫描并推送右侧已选择的租户。</template>
             </a-alert>
             <a-input-search v-model:value="announcementTenantSearch" placeholder="搜索租户名、用户名、区域" allow-clear />
             <div class="tenant-picker-grid">
@@ -265,24 +295,21 @@
                 <div class="tenant-picker-title">分组</div>
                 <a-empty v-if="!announcementGroupOptions.length" description="暂无分组" />
                 <div v-else class="tenant-group-list">
-                  <label v-for="group in announcementGroupOptions" :key="group.key" class="tenant-group-row">
-                    <input
-                      type="checkbox"
-                      :checked="announcementSelectedGroupKeys.includes(group.key)"
-                      @change="toggleAnnouncementGroup(group.key, eventChecked($event))"
-                    />
+                  <button
+                    v-for="group in announcementGroupOptions"
+                    :key="group.key"
+                    type="button"
+                    class="tenant-group-row tenant-group-button"
+                    :class="{ 'tenant-group-button--active': activeAnnouncementGroupKey === group.key, 'tenant-group-button--child': group.level === '2' }"
+                    @click="activeAnnouncementGroupKey = group.key"
+                  >
                     <span>{{ group.label }}</span>
                     <small>{{ group.count }}</small>
-                  </label>
+                  </button>
                 </div>
               </div>
               <div class="tenant-picker-block">
-                <div class="tenant-picker-title">租户</div>
-                <div class="tenant-row tenant-row-head">
-                  <span>租户</span>
-                  <span>接收</span>
-                  <span>排除</span>
-                </div>
+                <div class="tenant-picker-title">当前分组租户</div>
                 <div class="tenant-list">
                   <div v-for="tenant in filteredAnnouncementTenants" :key="tenant.id" class="tenant-row">
                     <div class="tenant-name">
@@ -291,12 +318,21 @@
                     </div>
                     <a-checkbox
                       :checked="announcementPushConfig.selectedTenantIds.includes(tenant.id)"
-                      @change="toggleAnnouncementTenant('selectedTenantIds', tenant.id, $event.target.checked)"
+                      @change="toggleAnnouncementTenant(tenant.id, $event.target.checked)"
                     />
-                    <a-checkbox
-                      :checked="announcementPushConfig.excludedTenantIds.includes(tenant.id)"
-                      @change="toggleAnnouncementTenant('excludedTenantIds', tenant.id, $event.target.checked)"
-                    />
+                  </div>
+                </div>
+              </div>
+              <div class="tenant-picker-block">
+                <div class="tenant-picker-title">已选择接收</div>
+                <a-empty v-if="!announcementSelectedTenants.length" description="尚未选择租户" />
+                <div v-else class="tenant-selected-list">
+                  <div v-for="tenant in announcementSelectedTenants" :key="tenant.id" class="tenant-selected-row">
+                    <div class="tenant-name">
+                      <strong>{{ tenant.tenantName || tenant.username || tenant.id }}</strong>
+                      <small>{{ tenant.username }} · {{ tenant.region || '-' }}</small>
+                    </div>
+                    <a-button size="small" type="link" @click="toggleAnnouncementTenant(tenant.id, false)">移除</a-button>
                   </div>
                 </div>
               </div>
@@ -938,36 +974,47 @@ const tenantPickerVisible = ref(false)
 const announcementDetailVisible = ref(false)
 const announcementTenantSearch = ref('')
 const announcementInboxKeyword = ref('')
+const announcementInboxRange = ref<'24h' | '7d' | '30d' | 'all' | 'custom'>('30d')
+const announcementInboxDates = ref<string[]>([])
+const announcementInboxEventTypes = ref<string[]>([])
 const announcementTenants = ref<AnnouncementTenant[]>([])
-const announcementSelectedGroupKeys = ref<string[]>([])
+const activeAnnouncementGroupKey = ref('ALL')
 const announcementStatus = reactive<Record<string, any>>({})
 const announcementDetail = reactive<Record<string, any>>({})
 const announcementInbox = reactive({ records: [] as AnnouncementItem[], total: 0, current: 1, size: 10 })
 const announcementBatches = reactive({ records: [] as Record<string, any>[], total: 0, current: 1, size: 10 })
 const announcementPushConfig = reactive({
   enabled: false,
-  mode: 'IMPORTANT',
+  eventTypes: [] as string[],
   frequencyMinutes: 30,
-  tenantScopeMode: 'ALL',
   selectedTenantIds: [] as string[],
-  excludedTenantIds: [] as string[],
   recordRetentionDays: 90,
   batchRetentionDays: 30,
 })
-const announcementModeOptions = [
-  { label: '仅重要公告', value: 'IMPORTANT' },
-  { label: '全部公告', value: 'ALL' },
+const announcementEventTypeOptions = [
+  { label: '需要采取行动', value: 'ACTION_REQUIRED' },
+  { label: 'OIC 维护通知', value: 'OIC_MAINTENANCE' },
+  { label: '维护通知', value: 'MAINTENANCE' },
+  { label: '信息通知', value: 'INFORMATION' },
+  { label: '安全通知', value: 'SECURITY' },
+  { label: '紧急通知', value: 'EMERGENCY' },
+]
+const announcementEventFilterOptions = [
+  ...announcementEventTypeOptions,
+  { label: '未识别', value: 'UNKNOWN' },
+]
+const announcementTimeRangeOptions = [
+  { label: '近 24 小时', value: '24h' },
+  { label: '近 7 天', value: '7d' },
+  { label: '近 30 天', value: '30d' },
+  { label: '全部', value: 'all' },
+  { label: '自定义', value: 'custom' },
 ]
 const announcementFrequencyOptions = [
   { label: '15 分钟', value: 15 },
   { label: '30 分钟', value: 30 },
   { label: '60 分钟', value: 60 },
   { label: '180 分钟', value: 180 },
-]
-const announcementTenantScopeOptions = [
-  { label: '全部租户', value: 'ALL' },
-  { label: '按分组', value: 'GROUPS' },
-  { label: '自定义租户', value: 'CUSTOM' },
 ]
 const announcementRecordRetentionOptions = [
   { label: '30 天', value: 30 },
@@ -982,51 +1029,58 @@ const announcementBatchRetentionOptions = [
 
 const announcementGroupOptions = computed<AnnouncementGroupOption[]>(() => {
   const level1 = new Map<string, number>()
-  const level2 = new Map<string, { groupLevel1: string; groupLevel2: string; count: number }>()
+  const level2 = new Map<string, Map<string, number>>()
   for (const tenant of announcementTenants.value) {
     const g1 = tenant.groupLevel1 || '未分组'
     const g2 = tenant.groupLevel2 || ''
     level1.set(g1, (level1.get(g1) || 0) + 1)
     if (g2) {
-      const key = `2|${g1}|${g2}`
-      const item = level2.get(key) || { groupLevel1: g1, groupLevel2: g2, count: 0 }
-      item.count++
-      level2.set(key, item)
+      const children = level2.get(g1) || new Map<string, number>()
+      children.set(g2, (children.get(g2) || 0) + 1)
+      level2.set(g1, children)
     }
   }
   const out: AnnouncementGroupOption[] = []
+  out.push({ key: 'ALL', label: '全部租户', count: announcementTenants.value.length, level: '1', groupLevel1: 'ALL' })
   for (const [g1, count] of level1.entries()) {
     out.push({ key: `1|${g1}`, label: g1, count, level: '1', groupLevel1: g1 })
-  }
-  for (const [key, item] of level2.entries()) {
-    out.push({ key, label: `${item.groupLevel1} / ${item.groupLevel2}`, count: item.count, level: '2', groupLevel1: item.groupLevel1, groupLevel2: item.groupLevel2 })
+    const children = level2.get(g1)
+    if (children) {
+      for (const [g2, childCount] of children.entries()) {
+        out.push({ key: `2|${g1}|${g2}`, label: g2, count: childCount, level: '2', groupLevel1: g1, groupLevel2: g2 })
+      }
+    }
   }
   return out
 })
 
 const filteredAnnouncementTenants = computed(() => {
   const kw = announcementTenantSearch.value.trim().toLowerCase()
-  if (!kw) return announcementTenants.value
-  return announcementTenants.value.filter((t) => [
-    t.tenantName,
-    t.username,
-    t.region,
-    t.groupLevel1,
-    t.groupLevel2,
-    t.tenancyTail,
-  ].some((v) => String(v || '').toLowerCase().includes(kw)))
+  return announcementTenants.value.filter((t) => {
+    const groupMatched = activeAnnouncementGroupKey.value === 'ALL' || tenantMatchesGroupKey(t, activeAnnouncementGroupKey.value)
+    if (!groupMatched) return false
+    if (!kw) return true
+    return [
+      t.tenantName,
+      t.username,
+      t.region,
+      t.groupLevel1,
+      t.groupLevel2,
+      t.tenancyTail,
+    ].some((v) => String(v || '').toLowerCase().includes(kw))
+  })
 })
 
 const announcementSelectedTenantCount = computed(() => {
-  const excluded = new Set(announcementPushConfig.excludedTenantIds)
-  if (announcementPushConfig.tenantScopeMode === 'CUSTOM') {
-    return announcementPushConfig.selectedTenantIds.filter((id) => !excluded.has(id)).length
-  }
-  if (announcementPushConfig.tenantScopeMode === 'GROUPS') {
-    return announcementTenants.value.filter((t) => groupKeyMatchesTenant(t) && !excluded.has(t.id)).length
-  }
-  return announcementTenants.value.filter((t) => !excluded.has(t.id)).length
+  return announcementPushConfig.selectedTenantIds.length
 })
+
+const announcementSelectedTenants = computed(() => {
+  const selected = new Set(announcementPushConfig.selectedTenantIds)
+  return announcementTenants.value.filter((t) => selected.has(t.id))
+})
+
+const announcementSelectedTenantPreview = computed(() => announcementSelectedTenants.value.slice(0, 5))
 
 watch(activeTab, (k, prev) => {
   if (prev === 'audit') {
@@ -1276,14 +1330,11 @@ async function loadAnnouncementPushConfig() {
     const res = await request.get('/sys/announcementPush/config')
     const d = res.data || {}
     announcementPushConfig.enabled = d.enabled === true
-    announcementPushConfig.mode = d.mode || 'IMPORTANT'
+    announcementPushConfig.eventTypes = Array.isArray(d.eventTypes) ? d.eventTypes : ['ACTION_REQUIRED', 'OIC_MAINTENANCE', 'MAINTENANCE', 'SECURITY', 'EMERGENCY']
     announcementPushConfig.frequencyMinutes = Number(d.frequencyMinutes || 30)
-    announcementPushConfig.tenantScopeMode = d.tenantScopeMode || 'ALL'
     announcementPushConfig.selectedTenantIds = Array.isArray(d.selectedTenantIds) ? d.selectedTenantIds : []
-    announcementPushConfig.excludedTenantIds = Array.isArray(d.excludedTenantIds) ? d.excludedTenantIds : []
     announcementPushConfig.recordRetentionDays = Number(d.recordRetentionDays || 90)
     announcementPushConfig.batchRetentionDays = Number(d.batchRetentionDays || 30)
-    announcementSelectedGroupKeys.value = Array.isArray(d.selectedGroups) ? d.selectedGroups.map(groupToKey).filter(Boolean) : []
     Object.assign(announcementStatus, d.status || {})
   } catch {
     /* 忽略 */
@@ -1304,12 +1355,9 @@ async function saveAnnouncementPushConfig() {
   try {
     await request.post('/sys/announcementPush/config', {
       enabled: announcementPushConfig.enabled,
-      mode: announcementPushConfig.mode,
+      eventTypes: announcementPushConfig.eventTypes,
       frequencyMinutes: announcementPushConfig.frequencyMinutes,
-      tenantScopeMode: announcementPushConfig.tenantScopeMode,
       selectedTenantIds: announcementPushConfig.selectedTenantIds,
-      excludedTenantIds: announcementPushConfig.excludedTenantIds,
-      selectedGroups: announcementSelectedGroupKeys.value.map(keyToGroup).filter(Boolean),
       recordRetentionDays: announcementPushConfig.recordRetentionDays,
       batchRetentionDays: announcementPushConfig.batchRetentionDays,
     })
@@ -1350,8 +1398,16 @@ async function triggerAnnouncementScan() {
 async function loadAnnouncementInbox(page = announcementInbox.current) {
   announcementInboxLoading.value = true
   try {
+    const range = resolveAnnouncementInboxRange()
     const res = await request.get('/sys/announcementPush/inbox', {
-      params: { page, size: announcementInbox.size, keyword: announcementInboxKeyword.value || undefined },
+      params: {
+        page,
+        size: announcementInbox.size,
+        keyword: announcementInboxKeyword.value || undefined,
+        startAt: range.startAt,
+        endAt: range.endAt,
+        eventTypes: announcementInboxEventTypes.value.length ? announcementInboxEventTypes.value.join(',') : undefined,
+      },
     })
     const d = res.data || {}
     announcementInbox.records = Array.isArray(d.records) ? d.records : []
@@ -1411,43 +1467,50 @@ async function markAnnouncement(item: AnnouncementItem, action: 'read' | 'ignore
   }
 }
 
-function toggleAnnouncementTenant(field: 'selectedTenantIds' | 'excludedTenantIds', id: string, checked: boolean) {
-  const list = announcementPushConfig[field]
+function toggleAnnouncementTenant(id: string, checked: boolean) {
+  const list = announcementPushConfig.selectedTenantIds
   const idx = list.indexOf(id)
   if (checked && idx < 0) list.push(id)
   if (!checked && idx >= 0) list.splice(idx, 1)
 }
 
-function toggleAnnouncementGroup(key: string, checked: boolean) {
-  const idx = announcementSelectedGroupKeys.value.indexOf(key)
-  if (checked && idx < 0) announcementSelectedGroupKeys.value.push(key)
-  if (!checked && idx >= 0) announcementSelectedGroupKeys.value.splice(idx, 1)
-}
-
-function eventChecked(e: Event) {
-  return (e.target as HTMLInputElement | null)?.checked === true
-}
-
-function groupKeyMatchesTenant(tenant: AnnouncementTenant) {
+function tenantMatchesGroupKey(tenant: AnnouncementTenant, key: string) {
   const g1 = tenant.groupLevel1 || '未分组'
   const g2 = tenant.groupLevel2 || ''
-  return announcementSelectedGroupKeys.value.some((key) => key === `1|${g1}` || (g2 && key === `2|${g1}|${g2}`))
+  return key === `1|${g1}` || (g2 && key === `2|${g1}|${g2}`)
 }
 
-function groupToKey(group: any) {
-  const level = String(group?.level || '')
-  const g1 = String(group?.groupLevel1 || '未分组')
-  const g2 = String(group?.groupLevel2 || '')
-  if (level === '1') return `1|${g1}`
-  if (level === '2') return `2|${g1}|${g2}`
-  return ''
+function handleAnnouncementRangeChange() {
+  if (announcementInboxRange.value !== 'custom') {
+    announcementInboxDates.value = []
+  }
+  loadAnnouncementInbox(1)
 }
 
-function keyToGroup(key: string) {
-  const parts = key.split('|')
-  if (parts[0] === '1') return { level: '1', groupLevel1: parts[1] || '未分组' }
-  if (parts[0] === '2') return { level: '2', groupLevel1: parts[1] || '未分组', groupLevel2: parts[2] || '' }
-  return null
+function resolveAnnouncementInboxRange() {
+  if (announcementInboxRange.value === 'custom') {
+    return {
+      startAt: announcementInboxDates.value?.[0] || undefined,
+      endAt: announcementInboxDates.value?.[1] || undefined,
+    }
+  }
+  if (announcementInboxRange.value === 'all') {
+    return { startAt: undefined, endAt: undefined }
+  }
+  const now = new Date()
+  const start = new Date(now)
+  if (announcementInboxRange.value === '24h') start.setHours(start.getHours() - 24)
+  if (announcementInboxRange.value === '7d') start.setDate(start.getDate() - 7)
+  if (announcementInboxRange.value === '30d') start.setDate(start.getDate() - 30)
+  return {
+    startAt: formatDateTimeForApi(start),
+    endAt: formatDateTimeForApi(now),
+  }
+}
+
+function formatDateTimeForApi(d: Date) {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
 }
 
 function formatDateTime(value: any) {
@@ -2320,12 +2383,23 @@ async function handleRestore() {
 }
 .announcement-toolbar {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
   align-items: center;
   margin-bottom: 12px;
 }
+.announcement-filter-select {
+  width: 132px;
+}
+.announcement-date-range {
+  width: 300px;
+}
+.announcement-event-filter {
+  min-width: 260px;
+}
 .announcement-toolbar :deep(.ant-input-search) {
   max-width: 360px;
+  min-width: 220px;
 }
 .announcement-list {
   display: flex;
@@ -2359,6 +2433,11 @@ async function handleRestore() {
   color: var(--text-sub);
   white-space: pre-line;
 }
+.announcement-type-origin {
+  align-self: center;
+  color: var(--text-sub);
+  font-size: 12px;
+}
 .announcement-pagination {
   margin-top: 14px;
   text-align: right;
@@ -2369,7 +2448,7 @@ async function handleRestore() {
 }
 .tenant-picker-grid {
   display: grid;
-  grid-template-columns: minmax(220px, 280px) minmax(0, 1fr);
+  grid-template-columns: minmax(210px, 260px) minmax(0, 1fr) minmax(240px, 300px);
   gap: 14px;
   margin-top: 12px;
 }
@@ -2381,7 +2460,8 @@ async function handleRestore() {
   background: var(--bg-card);
 }
 .tenant-group-list,
-.tenant-list {
+.tenant-list,
+.tenant-selected-list {
   display: flex;
   flex-direction: column;
   gap: 8px;
@@ -2389,11 +2469,28 @@ async function handleRestore() {
 }
 .tenant-group-row {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 8px;
   align-items: center;
   font-size: 13px;
   color: var(--text-main);
+}
+.tenant-group-button {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-md, 8px);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+}
+.tenant-group-button:hover,
+.tenant-group-button--active {
+  border-color: rgba(129, 140, 248, 0.45);
+  background: rgba(129, 140, 248, 0.12);
+}
+.tenant-group-button--child {
+  padding-left: 22px;
 }
 .tenant-group-row span {
   overflow: hidden;
@@ -2406,7 +2503,7 @@ async function handleRestore() {
 }
 .tenant-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 48px 48px;
+  grid-template-columns: minmax(0, 1fr) 48px;
   gap: 8px;
   align-items: center;
   padding: 8px 0;
@@ -2429,6 +2526,16 @@ async function handleRestore() {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.tenant-selected-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 8px);
+  background: var(--input-bg, rgba(255, 255, 255, 0.03));
 }
 .announcement-detail h3 {
   margin-top: 0;
@@ -2734,8 +2841,15 @@ async function handleRestore() {
     flex-direction: column;
     align-items: stretch;
   }
+  .announcement-filter-select,
+  .announcement-date-range,
+  .announcement-event-filter {
+    width: 100%;
+    min-width: 0;
+  }
   .announcement-toolbar :deep(.ant-input-search) {
     max-width: 100%;
+    min-width: 0;
   }
   .tenant-picker-grid {
     grid-template-columns: 1fr;

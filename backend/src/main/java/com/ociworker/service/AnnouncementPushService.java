@@ -50,6 +50,8 @@ public class AnnouncementPushService {
     private static final DateTimeFormatter DISPLAY_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
     private static final int SCAN_LIMIT = 50;
     private static final int SCAN_CONCURRENCY = 5;
+    private static final List<String> DEFAULT_PUSH_EVENT_TYPES = List.of(
+            "ACTION_REQUIRED", "OIC_MAINTENANCE", "MAINTENANCE", "SECURITY", "EMERGENCY");
 
     @Resource
     private NotificationService notificationService;
@@ -74,11 +76,9 @@ public class AnnouncementPushService {
         Map<String, Object> m = new LinkedHashMap<>();
         m.put("enabled", bool(SysCfgEnum.ANNOUNCEMENT_PUSH_ENABLED, false));
         m.put("mode", str(SysCfgEnum.ANNOUNCEMENT_PUSH_MODE, "IMPORTANT"));
+        m.put("eventTypes", eventTypesConfig());
         m.put("frequencyMinutes", intVal(SysCfgEnum.ANNOUNCEMENT_PUSH_FREQUENCY_MINUTES, 30, 15, 180));
-        m.put("tenantScopeMode", str(SysCfgEnum.ANNOUNCEMENT_PUSH_TENANT_SCOPE_MODE, "ALL"));
         m.put("selectedTenantIds", csv(SysCfgEnum.ANNOUNCEMENT_PUSH_SELECTED_TENANT_IDS));
-        m.put("excludedTenantIds", csv(SysCfgEnum.ANNOUNCEMENT_PUSH_EXCLUDED_TENANT_IDS));
-        m.put("selectedGroups", jsonArray(SysCfgEnum.ANNOUNCEMENT_PUSH_SELECTED_GROUPS));
         m.put("recordRetentionDays", intVal(SysCfgEnum.ANNOUNCEMENT_PUSH_RECORD_RETENTION_DAYS, 90, 30, 180));
         m.put("batchRetentionDays", intVal(SysCfgEnum.ANNOUNCEMENT_PUSH_BATCH_RETENTION_DAYS, 30, 7, 60));
         m.put("baselineDone", bool(SysCfgEnum.ANNOUNCEMENT_PUSH_BASELINE_DONE, false));
@@ -99,25 +99,16 @@ public class AnnouncementPushService {
             String mode = normalizeMode(String.valueOf(params.get("mode")));
             notificationService.saveKvValue(SysCfgEnum.ANNOUNCEMENT_PUSH_MODE, mode);
         }
+        if (params.containsKey("eventTypes")) {
+            String eventTypes = joinEventTypes(params.get("eventTypes"));
+            notificationService.saveKvValue(SysCfgEnum.ANNOUNCEMENT_PUSH_EVENT_TYPES, StrUtil.isBlank(eventTypes) ? "NONE" : eventTypes);
+        }
         if (params.containsKey("frequencyMinutes")) {
             notificationService.saveKvValue(SysCfgEnum.ANNOUNCEMENT_PUSH_FREQUENCY_MINUTES,
                     String.valueOf(clampInt(params.get("frequencyMinutes"), 30, 15, 180)));
         }
-        if (params.containsKey("tenantScopeMode")) {
-            String mode = String.valueOf(params.get("tenantScopeMode"));
-            if (!Set.of("ALL", "GROUPS", "CUSTOM").contains(mode)) mode = "ALL";
-            notificationService.saveKvValue(SysCfgEnum.ANNOUNCEMENT_PUSH_TENANT_SCOPE_MODE, mode);
-        }
         if (params.containsKey("selectedTenantIds")) {
             notificationService.saveKvValue(SysCfgEnum.ANNOUNCEMENT_PUSH_SELECTED_TENANT_IDS, joinIds(params.get("selectedTenantIds")));
-        }
-        if (params.containsKey("excludedTenantIds")) {
-            notificationService.saveKvValue(SysCfgEnum.ANNOUNCEMENT_PUSH_EXCLUDED_TENANT_IDS, joinIds(params.get("excludedTenantIds")));
-        }
-        if (params.containsKey("selectedGroups")) {
-            Object raw = params.get("selectedGroups");
-            notificationService.saveKvValue(SysCfgEnum.ANNOUNCEMENT_PUSH_SELECTED_GROUPS,
-                    raw == null ? "[]" : JSONUtil.toJsonStr(raw));
         }
         if (params.containsKey("recordRetentionDays")) {
             notificationService.saveKvValue(SysCfgEnum.ANNOUNCEMENT_PUSH_RECORD_RETENTION_DAYS,
@@ -217,7 +208,7 @@ public class AnnouncementPushService {
         List<OciUser> tenants = selectedTenants();
         if (tenants.isEmpty()) {
             lastScanStatus = "IDLE";
-            lastScanError = "没有可扫描的租户";
+            lastScanError = "请先选择接收云公告的租户";
             return;
         }
 
@@ -261,7 +252,7 @@ public class AnnouncementPushService {
                 .last("LIMIT 500"));
         List<OciAnnouncementRecord> pushCandidates = pendingRecords.stream()
                 .filter(r -> !Boolean.TRUE.equals(r.getIgnored()))
-                .filter(this::shouldPushByMode)
+                .filter(this::shouldPushByEventType)
                 .toList();
         if (!pushCandidates.isEmpty() && canSendAnnouncementPush()) {
             pushAggregated(pushCandidates);
@@ -376,7 +367,11 @@ public class AnnouncementPushService {
                 break;
             }
             OciAnnouncementRecord r = rs.get(0);
-            sb.append(i++).append(". ").append(nullText(r.getAnnouncementType()));
+            AnnouncementEvent event = classifyEvent(r.getAnnouncementType());
+            sb.append(i++).append(". ").append(event.label());
+            if (StrUtil.isNotBlank(r.getAnnouncementType()) && !Objects.equals(event.label(), r.getAnnouncementType())) {
+                sb.append("（").append(r.getAnnouncementType()).append("）");
+            }
             String services = joinJsonArray(r.getServicesJson(), 2);
             if (StrUtil.isNotBlank(services)) sb.append(" / ").append(services);
             sb.append("\n");
@@ -389,11 +384,20 @@ public class AnnouncementPushService {
         return sb.toString();
     }
 
-    public Map<String, Object> inbox(int page, int size, String keyword) {
+    public Map<String, Object> inbox(int page, int size, String keyword, String startAt, String endAt, String eventTypes) {
+        LocalDateTime start = parseLocalDateTime(startAt);
+        LocalDateTime end = parseLocalDateTime(endAt);
+        Set<String> eventSet = parseEventTypes(eventTypes, false);
+        String kw = StrUtil.trimToEmpty(keyword).toLowerCase(Locale.ROOT);
         List<OciAnnouncementRecord> rows = recordMapper.selectList(new LambdaQueryWrapper<OciAnnouncementRecord>()
-                .like(StrUtil.isNotBlank(keyword), OciAnnouncementRecord::getSummary, keyword)
+                .ge(start != null, OciAnnouncementRecord::getTimeCreated, start)
+                .le(end != null, OciAnnouncementRecord::getTimeCreated, end)
                 .orderByDesc(OciAnnouncementRecord::getTimeCreated)
-                .last("LIMIT 5000"));
+                .last("LIMIT 5000"))
+                .stream()
+                .filter(r -> eventSet.isEmpty() || eventSet.contains(classifyEvent(r.getAnnouncementType()).key()))
+                .filter(r -> StrUtil.isBlank(kw) || recordMatchesKeyword(r, kw))
+                .toList();
         Map<String, List<OciAnnouncementRecord>> grouped = rows.stream()
                 .collect(Collectors.groupingBy(OciAnnouncementRecord::getAggregateKey, LinkedHashMap::new, Collectors.toList()));
         List<Map<String, Object>> items = grouped.values().stream()
@@ -451,6 +455,9 @@ public class AnnouncementPushService {
         m.put("tenantId", r.getTenantId());
         m.put("summary", r.getSummary());
         m.put("announcementType", r.getAnnouncementType());
+        AnnouncementEvent event = classifyEvent(r.getAnnouncementType());
+        m.put("announcementTypeKey", event.key());
+        m.put("announcementTypeLabel", event.label());
         m.put("services", parseJsonArray(r.getServicesJson()));
         m.put("affectedRegions", parseJsonArray(r.getAffectedRegionsJson()));
         m.put("timeCreated", r.getTimeCreated());
@@ -481,44 +488,91 @@ public class AnnouncementPushService {
 
     private List<OciUser> selectedTenants() {
         List<OciUser> all = userMapper.selectList(new LambdaQueryWrapper<OciUser>().orderByAsc(OciUser::getUsername));
-        String mode = str(SysCfgEnum.ANNOUNCEMENT_PUSH_TENANT_SCOPE_MODE, "ALL");
         Set<String> selectedIds = new LinkedHashSet<>(csv(SysCfgEnum.ANNOUNCEMENT_PUSH_SELECTED_TENANT_IDS));
-        Set<String> excludedIds = new LinkedHashSet<>(csv(SysCfgEnum.ANNOUNCEMENT_PUSH_EXCLUDED_TENANT_IDS));
-        JSONArray groups = jsonArray(SysCfgEnum.ANNOUNCEMENT_PUSH_SELECTED_GROUPS);
+        if (selectedIds.isEmpty()) return List.of();
         return all.stream()
-                .filter(u -> switch (mode) {
-                    case "CUSTOM" -> selectedIds.contains(u.getId());
-                    case "GROUPS" -> groupMatches(groups, u);
-                    default -> true;
-                })
-                .filter(u -> !excludedIds.contains(u.getId()))
+                .filter(u -> selectedIds.contains(u.getId()))
                 .toList();
     }
 
-    private static boolean groupMatches(JSONArray groups, OciUser user) {
-        if (groups == null || groups.isEmpty()) return false;
-        String l1 = StrUtil.blankToDefault(user.getGroupLevel1(), "未分组");
-        String l2 = StrUtil.blankToDefault(user.getGroupLevel2(), "");
-        for (Object obj : groups) {
-            if (!(obj instanceof Map<?, ?> m)) continue;
-            String level = strObj(m.get("level"));
-            String g1 = StrUtil.blankToDefault(strObj(m.get("groupLevel1")), "未分组");
-            String g2 = StrUtil.blankToDefault(strObj(m.get("groupLevel2")), "");
-            if ("1".equals(level) && Objects.equals(l1, g1)) return true;
-            if ("2".equals(level) && Objects.equals(l1, g1) && Objects.equals(l2, g2)) return true;
-        }
-        return false;
-    }
-
-    private boolean shouldPushByMode(OciAnnouncementRecord r) {
-        String mode = str(SysCfgEnum.ANNOUNCEMENT_PUSH_MODE, "IMPORTANT");
-        return !"IMPORTANT".equals(mode) || isImportant(r.getAnnouncementType());
+    private boolean shouldPushByEventType(OciAnnouncementRecord r) {
+        return eventTypesConfig().contains(classifyEvent(r.getAnnouncementType()).key());
     }
 
     private boolean canSendAnnouncementPush() {
         return notificationService.isNotifyTypeEnabled(NotificationService.TYPE_ANNOUNCEMENT)
                 && StrUtil.isNotBlank(notificationService.getKvValue(SysCfgEnum.TG_BOT_TOKEN))
                 && StrUtil.isNotBlank(notificationService.getKvValue(SysCfgEnum.TG_CHAT_ID));
+    }
+
+    private List<String> eventTypesConfig() {
+        String raw = notificationService.getKvValue(SysCfgEnum.ANNOUNCEMENT_PUSH_EVENT_TYPES);
+        if ("NONE".equals(raw)) return List.of();
+        Set<String> set = parseEventTypes(raw, true);
+        return set.isEmpty() ? DEFAULT_PUSH_EVENT_TYPES : new ArrayList<>(set);
+    }
+
+    private static Set<String> parseEventTypes(String raw, boolean validateKnown) {
+        if (StrUtil.isBlank(raw)) return new LinkedHashSet<>();
+        Set<String> known = eventTypeKeys();
+        return java.util.Arrays.stream(raw.split(","))
+                .map(String::trim)
+                .filter(StrUtil::isNotBlank)
+                .filter(s -> !validateKnown || known.contains(s))
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+    }
+
+    private static String joinEventTypes(Object raw) {
+        Set<String> known = eventTypeKeys();
+        if (raw instanceof Iterable<?> it) {
+            List<String> types = new ArrayList<>();
+            for (Object o : it) {
+                String v = o == null ? "" : String.valueOf(o).trim();
+                if (known.contains(v)) types.add(v);
+            }
+            return String.join(",", types);
+        }
+        return parseEventTypes(raw == null ? "" : String.valueOf(raw), true).stream().collect(Collectors.joining(","));
+    }
+
+    private static Set<String> eventTypeKeys() {
+        return Set.of("ACTION_REQUIRED", "OIC_MAINTENANCE", "MAINTENANCE", "INFORMATION", "SECURITY", "EMERGENCY", "UNKNOWN");
+    }
+
+    private static AnnouncementEvent classifyEvent(String type) {
+        String raw = StrUtil.trimToEmpty(type);
+        String t = raw.toLowerCase(Locale.ROOT);
+        if (t.contains("action") && t.contains("required")) {
+            return new AnnouncementEvent("ACTION_REQUIRED", "需要采取行动");
+        }
+        if (t.contains("maintenance") && t.contains("oic")) {
+            return new AnnouncementEvent("OIC_MAINTENANCE", "OIC 维护通知");
+        }
+        if (t.contains("maintenance")) {
+            return new AnnouncementEvent("MAINTENANCE", "维护通知");
+        }
+        if (t.contains("security")) {
+            return new AnnouncementEvent("SECURITY", "安全通知");
+        }
+        if (t.contains("emergency")) {
+            return new AnnouncementEvent("EMERGENCY", "紧急通知");
+        }
+        if (t.contains("information") || t.equals("info")) {
+            return new AnnouncementEvent("INFORMATION", "信息通知");
+        }
+        return new AnnouncementEvent("UNKNOWN", StrUtil.blankToDefault(raw, "未识别"));
+    }
+
+    private static boolean recordMatchesKeyword(OciAnnouncementRecord r, String kw) {
+        return containsLower(r.getSummary(), kw)
+                || containsLower(r.getTenantName(), kw)
+                || containsLower(r.getAnnouncementType(), kw)
+                || containsLower(r.getServicesJson(), kw)
+                || containsLower(r.getAffectedRegionsJson(), kw);
+    }
+
+    private static boolean containsLower(String value, String kw) {
+        return StrUtil.isNotBlank(value) && value.toLowerCase(Locale.ROOT).contains(kw);
     }
 
     private void ensureAnnouncementNotifyTypeEnabled() {
@@ -531,11 +585,6 @@ public class AnnouncementPushService {
         if (types.add(NotificationService.TYPE_ANNOUNCEMENT)) {
             notificationService.saveKvValue(SysCfgEnum.TG_NOTIFY_TYPES, String.join(",", types));
         }
-    }
-
-    private static boolean isImportant(String type) {
-        String t = StrUtil.nullToEmpty(type).toLowerCase(Locale.ROOT);
-        return t.contains("action") || t.contains("required") || t.contains("emergency") || t.contains("planned") || t.contains("maintenance");
     }
 
     private void cleanupOldData() {
@@ -604,6 +653,14 @@ public class AnnouncementPushService {
         if (StrUtil.isBlank(value)) return null;
         try {
             return LocalDateTime.parse(value);
+        } catch (Exception ignored) {
+        }
+        try {
+            return LocalDateTime.parse(value, DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+        } catch (Exception ignored) {
+        }
+        try {
+            return java.time.LocalDate.parse(value).atStartOfDay();
         } catch (Exception ignored) {
             return null;
         }
@@ -748,4 +805,6 @@ public class AnnouncementPushService {
                 .replace("<", "&lt;")
                 .replace(">", "&gt;");
     }
+
+    private record AnnouncementEvent(String key, String label) {}
 }
