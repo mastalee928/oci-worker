@@ -168,7 +168,7 @@ export function getAuditLogs(data: { id: string; days?: number; domainId?: strin
   return request.post('/oci/user/auditLogs', data)
 }
 
-export function getServiceQuotas(data: { id: string }) {
+export function getServiceQuotas(data: { id: string; region?: string }) {
   return request.post('/oci/user/quotas', data)
 }
 

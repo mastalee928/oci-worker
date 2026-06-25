@@ -745,14 +745,36 @@ region=ap-tokyo-1"
           </a-spin>
         </a-tab-pane>
         <a-tab-pane key="quotas" tab="账户配额">
-          <a-space style="margin-bottom: 12px">
+          <div class="quota-toolbar">
+            <div class="quota-region-field">
+              <span class="quota-region-label">区域</span>
+              <select
+                v-if="isMobile"
+                v-model="quotaRegion"
+                class="quota-region-native-select"
+                :disabled="quotasLoading || regionsLoading || !quotaRegionOptions.length"
+                @change="onQuotaRegionChange"
+              >
+                <option v-for="opt in quotaRegionOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+              </select>
+              <a-select
+                v-else
+                v-model:value="quotaRegion"
+                class="quota-region-select"
+                :options="quotaRegionOptions"
+                :loading="regionsLoading"
+                :disabled="quotasLoading || !quotaRegionOptions.length"
+                :show-search="false"
+                @change="onQuotaRegionChange"
+              />
+            </div>
+            <a-input-search v-model:value="quotaSearch" placeholder="搜索服务/配额名" allow-clear class="quota-search" />
             <a-button type="primary" @click="loadQuotas" :loading="quotasLoading">
               <template #icon><ReloadOutlined /></template>查询配额
             </a-button>
-            <a-input-search v-model:value="quotaSearch" placeholder="搜索服务/配额名" allow-clear style="width: 220px" />
-          </a-space>
+          </div>
           <a-table v-if="!isMobile" :data-source="filteredQuotas" :loading="quotasLoading" size="small"
-            :pagination="{ pageSize: 20 }" :row-key="(r: any) => r.serviceName + r.limitName + r.availabilityDomain">
+            :pagination="{ pageSize: 20 }" :row-key="(r: any) => `${r.region || ''}:${r.serviceName}:${r.limitName}:${r.availabilityDomain || ''}`">
             <a-table-column title="服务" data-index="serviceName" key="serviceName" :width="140">
               <template #default="{ text }">
                 <a-tag>{{ text }}</a-tag>
@@ -2281,6 +2303,24 @@ const regionSubscribeCode = ref('')
 const regionSubscribeTarget = ref<any | null>(null)
 const regionsList = computed<any[]>(() => Array.isArray(regionsData.value?.items) ? regionsData.value.items : [])
 const sortedRegionsList = computed<any[]>(() => sortTenantRegions(regionsList.value))
+const quotaRegionOptions = computed(() => {
+  const seen = new Set<string>()
+  const options: Array<{ label: string; value: string }> = []
+  const subscribedRegions = sortedRegionsList.value.filter((r: any) =>
+    r?.subscribed && r?.regionName && String(r?.status || '').toUpperCase() === 'READY',
+  )
+  for (const region of subscribedRegions) {
+    const value = String(region.regionName || '').trim()
+    if (!value || seen.has(value)) continue
+    seen.add(value)
+    options.push({ label: value, value })
+  }
+  const fallbackRegion = String(tenantMgmtTenant.value?.ociRegion || '').trim()
+  if (fallbackRegion && !seen.has(fallbackRegion)) {
+    options.push({ label: fallbackRegion, value: fallbackRegion })
+  }
+  return options
+})
 const filteredRegions = computed<any[]>(() => {
   const kw = regionSearch.value.trim().toLowerCase()
   if (!kw) return sortedRegionsList.value
@@ -2647,6 +2687,7 @@ const notificationToken = ref('')
 const quotasLoading = ref(false)
 const quotasList = ref<any[]>([])
 const quotaSearch = ref('')
+const quotaRegion = ref('')
 
 const DOMAIN_TYPE_CN: Record<string, string> = {
   DEFAULT: '默认域',
@@ -3437,11 +3478,35 @@ function shortOcId(id: string | null | undefined): string {
   return id.slice(0, 12) + '…' + id.slice(-8)
 }
 
+function resolveDefaultQuotaRegion(): string {
+  const homeRegion = sortedRegionsList.value.find((r: any) => r?.subscribed && r?.isHomeRegion && r?.regionName)
+  const region = String(
+    homeRegion?.regionName ||
+    regionsData.value?.homeRegionName ||
+    quotaRegionOptions.value[0]?.value ||
+    tenantMgmtTenant.value?.ociRegion ||
+    '',
+  ).trim()
+  return region
+}
+
+async function ensureQuotaRegionSelected() {
+  if (!tenantMgmtTenant.value?.id) return
+  if (!regionsData.value && !regionsLoading.value) {
+    await loadRegions(true)
+  }
+  const available = quotaRegionOptions.value.map((opt) => opt.value)
+  if (!quotaRegion.value || (available.length && !available.includes(quotaRegion.value))) {
+    quotaRegion.value = resolveDefaultQuotaRegion()
+  }
+}
+
 async function loadQuotas() {
   if (!tenantMgmtTenant.value?.id) return
+  await ensureQuotaRegionSelected()
   quotasLoading.value = true
   try {
-    const res = await getServiceQuotas({ id: tenantMgmtTenant.value.id })
+    const res = await getServiceQuotas({ id: tenantMgmtTenant.value.id, region: quotaRegion.value || undefined })
     quotasList.value = res.data || []
     if (!quotasList.value.length) {
       message.info('未获取到配额信息')
@@ -3451,6 +3516,11 @@ async function loadQuotas() {
   } finally {
     quotasLoading.value = false
   }
+}
+
+async function onQuotaRegionChange() {
+  quotasList.value = []
+  await loadQuotas()
 }
 
 const filteredQuotas = computed(() => {
@@ -3815,6 +3885,8 @@ async function openTenantMgmt(record: any) {
   announcementsRetentionNote.value = ''
   announcementDrawerVisible.value = false
   quotasList.value = []
+  quotaSearch.value = ''
+  quotaRegion.value = ''
   billingData.value = null
   budgetsData.value = null
   selectedBudgetId.value = ''
@@ -4496,7 +4568,7 @@ function regionStatusColor(status: string | null | undefined): string {
   return 'default'
 }
 
-async function loadRegions() {
+async function loadRegions(silent = false) {
   const tenantId = currentTenantMgmtId()
   if (!tenantId) return
   regionsLoading.value = true
@@ -4504,11 +4576,13 @@ async function loadRegions() {
     const res = await listTenantRegions({ id: tenantId })
     const data = res.data || {}
     regionsData.value = { ...data, items: Array.isArray(data.items) ? data.items : [] }
-    if (!regionsList.value.length) {
+    if (!silent && !regionsList.value.length) {
       message.info('未找到区域数据（或当前 API 用户无区域订阅读权限）')
     }
   } catch (e: any) {
-    message.error(e?.message || '获取区域列表失败')
+    if (!silent) {
+      message.error(e?.message || '获取区域列表失败')
+    }
   } finally {
     regionsLoading.value = false
   }
@@ -5496,6 +5570,58 @@ onUnmounted(() => {
 }
 .region-input-mode {
   margin-bottom: 8px;
+}
+.quota-toolbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.quota-region-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.quota-region-label {
+  color: var(--text-sub);
+  font-size: 13px;
+  white-space: nowrap;
+}
+.quota-region-select {
+  width: 180px;
+}
+.quota-region-native-select {
+  width: 100%;
+  height: 32px;
+  padding: 0 32px 0 10px;
+  color: var(--text);
+  background: var(--card-bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  outline: none;
+}
+.quota-search {
+  width: 220px;
+}
+@media (max-width: 768px) {
+  .quota-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .quota-region-field {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+    width: 100%;
+  }
+  .quota-search {
+    width: 100%;
+  }
+  .quota-toolbar .ant-btn {
+    width: 100%;
+  }
 }
 /* 与 rows=4 的 textarea 同高（约 118px） */
 .pem-key-input-slot {

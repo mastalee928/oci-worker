@@ -2044,17 +2044,25 @@ public class DomainManagementService {
         try { return Integer.parseInt(String.valueOf(v)); } catch (Exception ignored) { return null; }
     }
 
-    // ---------------- Quotas (unchanged) ----------------
+    // ---------------- Quotas ----------------
 
     public List<Map<String, Object>> getServiceQuotas(String tenantId) {
+        return getServiceQuotas(tenantId, null);
+    }
+
+    public List<Map<String, Object>> getServiceQuotas(String tenantId, String regionName) {
         OciUser user = userMapper.selectById(tenantId);
         if (user == null) throw new OciException("租户配置不存在");
 
         List<Map<String, Object>> quotaList = new ArrayList<>();
         try (OciClientService client = buildClient(tenantId)) {
+            String targetRegion = resolveQuotaRegionName(client, regionName, user.getOciRegion());
             var limitsClient = com.oracle.bmc.limits.LimitsClient.builder()
                     .build(client.getProvider());
             try {
+                if (targetRegion != null && !targetRegion.isBlank()) {
+                    limitsClient.setRegion(targetRegion);
+                }
                 var servicesResp = limitsClient.listServices(
                         com.oracle.bmc.limits.requests.ListServicesRequest.builder()
                                 .compartmentId(user.getOciTenantId())
@@ -2084,6 +2092,7 @@ public class DomainManagementService {
                             if (lv.getValue() == null || lv.getValue() == 0) continue;
 
                             Map<String, Object> entry = new LinkedHashMap<>();
+                            entry.put("region", targetRegion);
                             entry.put("serviceName", svcName);
                             entry.put("limitName", lv.getName());
                             entry.put("availabilityDomain", lv.getAvailabilityDomain());
@@ -2120,5 +2129,16 @@ public class DomainManagementService {
         }
 
         return quotaList;
+    }
+
+    private String resolveQuotaRegionName(OciClientService client, String requestedRegion, String fallbackRegion) {
+        if (requestedRegion != null && !requestedRegion.isBlank()) {
+            return requestedRegion.trim();
+        }
+        String homeRegion = resolveHomeRegionName(client);
+        if (homeRegion != null && !homeRegion.isBlank()) {
+            return homeRegion.trim();
+        }
+        return fallbackRegion == null || fallbackRegion.isBlank() ? null : fallbackRegion.trim();
     }
 }

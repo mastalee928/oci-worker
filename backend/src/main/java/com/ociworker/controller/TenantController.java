@@ -247,8 +247,8 @@ public class TenantController {
     }
 
     @PostMapping("/quotas")
-    public ResponseData<?> quotas(@RequestBody java.util.Map<String, String> params) {
-        return ResponseData.ok(domainManagementService.getServiceQuotas(params.get("id")));
+    public ResponseData<?> quotas(@RequestBody java.util.Map<String, Object> params) {
+        return ResponseData.ok(domainManagementService.getServiceQuotas(str(params, "id"), str(params, "region")));
     }
 
     /** 经典 IAM Policy（Identity → Policies），只读列表 */
