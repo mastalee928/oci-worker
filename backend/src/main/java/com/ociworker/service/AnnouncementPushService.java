@@ -50,6 +50,8 @@ public class AnnouncementPushService {
     private static final DateTimeFormatter DISPLAY_FMT = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
     private static final int SCAN_LIMIT = 50;
     private static final int SCAN_CONCURRENCY = 5;
+    private static final int MIN_SCAN_FREQUENCY_MINUTES = 15;
+    private static final int MAX_SCAN_FREQUENCY_MINUTES = 720;
     private static final List<String> DEFAULT_PUSH_EVENT_TYPES = List.of(
             "ACTION_REQUIRED", "OIC_MAINTENANCE", "MAINTENANCE", "SECURITY", "EMERGENCY");
 
@@ -77,7 +79,7 @@ public class AnnouncementPushService {
         m.put("enabled", bool(SysCfgEnum.ANNOUNCEMENT_PUSH_ENABLED, false));
         m.put("mode", str(SysCfgEnum.ANNOUNCEMENT_PUSH_MODE, "IMPORTANT"));
         m.put("eventTypes", eventTypesConfig());
-        m.put("frequencyMinutes", intVal(SysCfgEnum.ANNOUNCEMENT_PUSH_FREQUENCY_MINUTES, 30, 15, 180));
+        m.put("frequencyMinutes", intVal(SysCfgEnum.ANNOUNCEMENT_PUSH_FREQUENCY_MINUTES, 30, MIN_SCAN_FREQUENCY_MINUTES, MAX_SCAN_FREQUENCY_MINUTES));
         m.put("selectedTenantIds", csv(SysCfgEnum.ANNOUNCEMENT_PUSH_SELECTED_TENANT_IDS));
         m.put("recordRetentionDays", intVal(SysCfgEnum.ANNOUNCEMENT_PUSH_RECORD_RETENTION_DAYS, 90, 30, 180));
         m.put("batchRetentionDays", intVal(SysCfgEnum.ANNOUNCEMENT_PUSH_BATCH_RETENTION_DAYS, 30, 7, 60));
@@ -105,7 +107,7 @@ public class AnnouncementPushService {
         }
         if (params.containsKey("frequencyMinutes")) {
             notificationService.saveKvValue(SysCfgEnum.ANNOUNCEMENT_PUSH_FREQUENCY_MINUTES,
-                    String.valueOf(clampInt(params.get("frequencyMinutes"), 30, 15, 180)));
+                    String.valueOf(clampInt(params.get("frequencyMinutes"), 30, MIN_SCAN_FREQUENCY_MINUTES, MAX_SCAN_FREQUENCY_MINUTES)));
         }
         if (params.containsKey("selectedTenantIds")) {
             notificationService.saveKvValue(SysCfgEnum.ANNOUNCEMENT_PUSH_SELECTED_TENANT_IDS, joinIds(params.get("selectedTenantIds")));
@@ -145,7 +147,7 @@ public class AnnouncementPushService {
 
     public Map<String, Object> getStatus() {
         Map<String, Object> m = new LinkedHashMap<>();
-        int freq = intVal(SysCfgEnum.ANNOUNCEMENT_PUSH_FREQUENCY_MINUTES, 30, 15, 180);
+        int freq = intVal(SysCfgEnum.ANNOUNCEMENT_PUSH_FREQUENCY_MINUTES, 30, MIN_SCAN_FREQUENCY_MINUTES, MAX_SCAN_FREQUENCY_MINUTES);
         LocalDateTime persistedLast = parseLocalDateTime(notificationService.getKvValue(SysCfgEnum.ANNOUNCEMENT_PUSH_LAST_SCAN_AT));
         LocalDateTime effectiveLast = lastScanAt != null ? lastScanAt : persistedLast;
         m.put("scanning", scanning.get());
@@ -167,7 +169,7 @@ public class AnnouncementPushService {
     public void tick() {
         if (!bool(SysCfgEnum.ANNOUNCEMENT_PUSH_ENABLED, false)) return;
         if (scanning.get()) return;
-        int freq = intVal(SysCfgEnum.ANNOUNCEMENT_PUSH_FREQUENCY_MINUTES, 30, 15, 180);
+        int freq = intVal(SysCfgEnum.ANNOUNCEMENT_PUSH_FREQUENCY_MINUTES, 30, MIN_SCAN_FREQUENCY_MINUTES, MAX_SCAN_FREQUENCY_MINUTES);
         LocalDateTime last = parseLocalDateTime(notificationService.getKvValue(SysCfgEnum.ANNOUNCEMENT_PUSH_LAST_SCAN_AT));
         if (last == null || last.plusMinutes(freq).isBefore(LocalDateTime.now())) {
             startScanAsync(false);

@@ -101,23 +101,21 @@
               <a-tabs v-model:active-key="announcementTab" size="small" @change="handleAnnouncementTabChange">
                 <a-tab-pane key="config" tab="推送配置">
                   <a-form layout="vertical" class="announcement-config-form">
+                    <div class="announcement-config-head">
+                      <a-form-item label="推送范围" class="announcement-event-form-item">
+                        <a-select
+                          v-model:value="announcementPushConfig.eventTypes"
+                          mode="multiple"
+                          :show-search="false"
+                          :options="announcementEventTypeOptions"
+                          placeholder="选择需要推送的事件"
+                        />
+                      </a-form-item>
+                      <a-form-item label="启用推送" class="announcement-enable-form-item">
+                        <a-switch v-model:checked="announcementPushConfig.enabled" checked-children="开" un-checked-children="关" />
+                      </a-form-item>
+                    </div>
                     <a-row :gutter="16">
-                      <a-col :xs="24" :md="12">
-                        <a-form-item label="启用推送">
-                          <a-switch v-model:checked="announcementPushConfig.enabled" checked-children="开" un-checked-children="关" />
-                        </a-form-item>
-                      </a-col>
-                      <a-col :xs="24" :md="12">
-                        <a-form-item label="推送范围">
-                          <a-select
-                            v-model:value="announcementPushConfig.eventTypes"
-                            mode="multiple"
-                            :show-search="false"
-                            :options="announcementEventTypeOptions"
-                            placeholder="选择需要推送的事件"
-                          />
-                        </a-form-item>
-                      </a-col>
                       <a-col :xs="24" :md="12">
                         <a-form-item label="扫描频率">
                           <a-select v-model:value="announcementPushConfig.frequencyMinutes" :options="announcementFrequencyOptions" />
@@ -289,14 +287,51 @@
           class="tenant-picker-modal"
         >
           <div class="tenant-picker-modal-body">
-            <a-input-search v-model:value="announcementTenantSearch" placeholder="搜索租户名、用户名、区域" allow-clear />
+            <div class="tenant-picker-toolbar">
+              <a-input-search
+                v-model:value="announcementTenantSearch"
+                class="tenant-picker-search"
+                placeholder="搜索租户名、用户名、区域"
+                allow-clear
+              />
+              <div class="tenant-picker-actions">
+                <a-popconfirm
+                  :title="`确认添加当前筛选出的 ${filteredAnnouncementTenants.length} 个租户？`"
+                  ok-text="确认"
+                  cancel-text="取消"
+                  :disabled="filteredAnnouncementTenants.length === 0"
+                  @confirm="addFilteredAnnouncementTenants"
+                >
+                  <a-button size="small" :disabled="filteredAnnouncementTenants.length === 0">全部添加</a-button>
+                </a-popconfirm>
+                <a-popconfirm
+                  :title="`确认移除已选择的 ${announcementSelectedTenants.length} 个租户？`"
+                  ok-text="确认"
+                  cancel-text="取消"
+                  :disabled="announcementSelectedTenants.length === 0"
+                  @confirm="clearAnnouncementTenants"
+                >
+                  <a-button size="small" danger :disabled="announcementSelectedTenants.length === 0">全部移除</a-button>
+                </a-popconfirm>
+              </div>
+            </div>
             <a-select
               v-if="isMobile"
               v-model:value="activeAnnouncementGroupKey"
               class="tenant-mobile-group-select"
-              :options="announcementMobileGroupOptions"
               :show-search="false"
-            />
+            >
+              <a-select-option
+                v-for="group in announcementGroupOptions"
+                :key="group.key"
+                :value="group.key"
+              >
+                <span class="tenant-mobile-group-option" :class="{ 'tenant-mobile-group-option--child': group.level === '2' }">
+                  <span>{{ group.label }}</span>
+                  <small>{{ group.count }}</small>
+                </span>
+              </a-select-option>
+            </a-select>
             <div class="tenant-picker-grid">
               <div v-if="!isMobile" class="tenant-picker-block tenant-picker-group-block">
                 <div class="tenant-picker-title">分组</div>
@@ -1006,7 +1041,7 @@ const announcementTenants = ref<AnnouncementTenant[]>([])
 const activeAnnouncementGroupKey = ref('ALL')
 const tenantPickerPage = ref(1)
 const tenantSelectedPage = ref(1)
-const tenantPickerPageSize = computed(() => (isMobile.value ? 6 : 6))
+const tenantPickerPageSize = computed(() => (isMobile.value ? 6 : 8))
 const announcementStatus = reactive<Record<string, any>>({})
 const announcementDetail = reactive<Record<string, any>>({})
 const announcementInbox = reactive({ records: [] as AnnouncementItem[], total: 0, current: 1, size: 10 })
@@ -1043,6 +1078,8 @@ const announcementFrequencyOptions = [
   { label: '30 分钟', value: 30 },
   { label: '60 分钟', value: 60 },
   { label: '180 分钟', value: 180 },
+  { label: '360 分钟', value: 360 },
+  { label: '720 分钟', value: 720 },
 ]
 const announcementRecordRetentionOptions = [
   { label: '30 天', value: 30 },
@@ -1080,13 +1117,6 @@ const announcementGroupOptions = computed<AnnouncementGroupOption[]>(() => {
     }
   }
   return out
-})
-
-const announcementMobileGroupOptions = computed(() => {
-  return announcementGroupOptions.value.map((group) => ({
-    value: group.key,
-    label: `${group.level === '2' ? '　　' : ''}${group.label}　${group.count}`,
-  }))
 })
 
 const filteredAnnouncementTenants = computed(() => {
@@ -1526,6 +1556,19 @@ function toggleAnnouncementTenant(id: string, checked: boolean) {
   const idx = list.indexOf(id)
   if (checked && idx < 0) list.push(id)
   if (!checked && idx >= 0) list.splice(idx, 1)
+}
+
+function addFilteredAnnouncementTenants() {
+  const selected = new Set(announcementPushConfig.selectedTenantIds)
+  for (const tenant of filteredAnnouncementTenants.value) {
+    selected.add(tenant.id)
+  }
+  announcementPushConfig.selectedTenantIds = Array.from(selected)
+}
+
+function clearAnnouncementTenants() {
+  announcementPushConfig.selectedTenantIds = []
+  tenantSelectedPage.value = 1
 }
 
 function tenantMatchesGroupKey(tenant: AnnouncementTenant, key: string) {
@@ -2407,6 +2450,22 @@ async function handleRestore() {
 .announcement-config-form {
   max-width: 860px;
 }
+.announcement-config-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: start;
+}
+.announcement-event-form-item {
+  min-width: 0;
+}
+.announcement-enable-form-item {
+  min-width: 104px;
+}
+.announcement-enable-form-item :deep(.ant-form-item-control-input-content) {
+  display: flex;
+  justify-content: flex-end;
+}
 .tenant-picker-shell {
   border: 1px solid var(--border);
   border-radius: var(--radius-md, 8px);
@@ -2513,9 +2572,40 @@ async function handleRestore() {
   flex-direction: column;
   min-height: 0;
 }
+.tenant-picker-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.tenant-picker-search {
+  width: min(420px, 100%);
+  flex: 0 1 420px;
+}
+.tenant-picker-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex: 1 0 auto;
+}
 .tenant-mobile-group-select {
   width: 100%;
   margin-top: 10px;
+}
+.tenant-mobile-group-option {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  max-width: 100%;
+}
+.tenant-mobile-group-option--child {
+  padding-left: 1.5em;
+}
+.tenant-mobile-group-option small {
+  font-size: 11px;
+  line-height: 1;
+  color: var(--text-sub);
 }
 .tenant-picker-grid {
   display: grid;
@@ -2933,6 +3023,13 @@ async function handleRestore() {
     flex-direction: column;
     align-items: stretch;
   }
+  .announcement-config-head {
+    grid-template-columns: 1fr;
+    gap: 0;
+  }
+  .announcement-enable-form-item :deep(.ant-form-item-control-input-content) {
+    justify-content: flex-start;
+  }
   .announcement-filter-select,
   .announcement-date-range,
   .announcement-event-filter {
@@ -2948,6 +3045,19 @@ async function handleRestore() {
     height: auto;
     max-height: none;
     overflow: visible;
+  }
+  .tenant-picker-toolbar {
+    align-items: stretch;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .tenant-picker-search {
+    width: 100%;
+    flex-basis: auto;
+  }
+  .tenant-picker-actions {
+    justify-content: flex-start;
+    flex: 0 0 auto;
   }
   .tenant-picker-modal :deep(.ant-modal) {
     max-width: 100%;
