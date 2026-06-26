@@ -2282,7 +2282,7 @@ async function performUpdate() {
     updateStageTimer = setTimeout(() => {
       setUpdateOverlay('running', '正在下载更新', '正在获取最新版本和安装包')
     }, 900)
-    await request.post('/sys/performUpdate')
+    await request.post('/sys/performUpdate', undefined, { skipErrorMessage: true })
     if (updateStageTimer) { clearTimeout(updateStageTimer); updateStageTimer = null }
     setUpdateOverlay('running', '正在替换服务', '升级过程中服务可能会短暂不可用')
     if (updateStartTimer) clearTimeout(updateStartTimer)

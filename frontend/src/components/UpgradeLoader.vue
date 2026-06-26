@@ -1,5 +1,5 @@
 <template>
-  <div class="upgrade-loader" aria-label="UPGRADING">
+  <div class="upgrade-loader" :class="{ 'upgrade-loader--light': !themeStore.isDark }" aria-label="UPGRADING">
     <div class="upgrade-loader__stars" aria-hidden="true">
       <span class="upgrade-loader__star"></span>
       <span class="upgrade-loader__star"></span>
@@ -17,6 +17,9 @@
 </template>
 
 <script setup lang="ts">
+import { useThemeStore } from '../stores/theme'
+
+const themeStore = useThemeStore()
 const letters = 'UPGRADING'.split('').map((char, index) => ({ char, index }))
 </script>
 
@@ -52,7 +55,7 @@ const letters = 'UPGRADING'.split('').map((char, index) => ({ char, index }))
   z-index: 0;
 }
 
-:global([data-theme="light"]) .upgrade-loader::before {
+.upgrade-loader--light::before {
   background:
     radial-gradient(circle, rgba(80, 86, 120, 0.08), transparent 46%),
     radial-gradient(circle, rgba(99, 102, 241, 0.08), transparent 62%);
@@ -70,7 +73,7 @@ const letters = 'UPGRADING'.split('').map((char, index) => ({ char, index }))
   z-index: 2;
 }
 
-:global([data-theme="light"]) .upgrade-loader__orb {
+.upgrade-loader--light .upgrade-loader__orb {
   background: rgba(255, 0, 85, 0.12);
   box-shadow:
     0 16px 34px -20px rgba(42, 20, 36, 0.34),
@@ -90,10 +93,22 @@ const letters = 'UPGRADING'.split('').map((char, index) => ({ char, index }))
   animation: upgrade-orb-rotate 4.8s linear infinite;
 }
 
+.upgrade-loader--light .upgrade-loader__orb::before {
+  box-shadow:
+    0 10px 20px 0 rgba(255, 255, 255, 0.98) inset,
+    0 20px 30px 0 rgba(255, 255, 255, 0.34) inset,
+    0 60px 60px 0 rgba(255, 0, 42, 0.08) inset;
+  animation: upgrade-orb-rotate-light 4.8s linear infinite;
+}
+
 .upgrade-loader__stars {
   position: absolute;
   inset: 0;
   z-index: 1;
+}
+
+.upgrade-loader--light .upgrade-loader__stars {
+  transform: translateZ(0);
 }
 
 .upgrade-loader__star {
@@ -110,9 +125,12 @@ const letters = 'UPGRADING'.split('').map((char, index) => ({ char, index }))
   animation: upgrade-star-pulse 2.4s ease-in-out infinite;
 }
 
-:global([data-theme="light"]) .upgrade-loader__star {
+.upgrade-loader--light .upgrade-loader__star {
   background: rgba(82, 87, 110, 0.72);
-  color: rgba(82, 87, 110, 0.34);
+  color: rgba(82, 87, 110, 0.28);
+  box-shadow: 0 0 10px rgba(82, 87, 110, 0.28);
+  filter: blur(0.4px);
+  animation-name: upgrade-star-pulse-light;
 }
 
 .upgrade-loader__star:nth-child(1) { transform: translate(-122px, -78px) scale(0.72); animation-delay: 0s; }
@@ -137,6 +155,26 @@ const letters = 'UPGRADING'.split('').map((char, index) => ({ char, index }))
   -webkit-user-drag: none;
 }
 
+.upgrade-loader--light .upgrade-loader__word {
+  padding-top: 2px;
+  transform: translateY(2px);
+}
+
+.upgrade-loader--light .upgrade-loader__word::before {
+  content: '';
+  position: absolute;
+  left: -42px;
+  right: -42px;
+  top: -22px;
+  bottom: -22px;
+  background: linear-gradient(90deg, transparent, rgba(32, 38, 56, 0.12), transparent);
+  opacity: 0.42;
+  filter: blur(14px);
+  transform: translateX(-38%);
+  animation: upgrade-focus-glow-light 2.25s ease-in-out infinite;
+  z-index: -1;
+}
+
 .upgrade-loader__letter {
   display: inline-block;
   min-width: 0.56em;
@@ -145,6 +183,15 @@ const letters = 'UPGRADING'.split('').map((char, index) => ({ char, index }))
   filter: blur(3px);
   animation: upgrade-letter-anim 1.72s cubic-bezier(0.32, 0.1, 0.24, 1) infinite;
   -webkit-user-drag: none;
+}
+
+.upgrade-loader--light .upgrade-loader__letter {
+  opacity: 0.4;
+  filter: blur(2px);
+  transform: translateY(0) scale(1);
+  text-shadow: none;
+  animation-name: upgrade-letter-anim-light;
+  will-change: opacity, filter, transform, text-shadow;
 }
 
 .upgrade-loader__letter:nth-child(1) { animation-delay: 0s; }
@@ -183,6 +230,65 @@ const letters = 'UPGRADING'.split('').map((char, index) => ({ char, index }))
       0 22px 38px 0 rgba(255, 244, 218, 0.66) inset,
       0 38px 48px 0 rgba(250, 169, 92, 0.2) inset,
       0 88px 54px 0 rgba(96, 0, 42, 0.055) inset;
+  }
+}
+
+@keyframes upgrade-orb-rotate-light {
+  0% {
+    transform: rotate(90deg);
+    box-shadow:
+      0 10px 20px 0 rgba(255, 255, 255, 0.98) inset,
+      0 20px 30px 0 rgba(255, 255, 255, 0.34) inset,
+      0 60px 60px 0 rgba(255, 0, 42, 0.08) inset;
+  }
+
+  50% {
+    transform: rotate(270deg);
+    box-shadow:
+      0 10px 20px 0 rgba(255, 255, 255, 0.98) inset,
+      0 20px 10px 0 rgba(255, 170, 9, 0.6) inset,
+      0 40px 60px 0 rgba(255, 0, 34, 0.12) inset;
+  }
+
+  100% {
+    transform: rotate(450deg);
+    box-shadow:
+      0 10px 20px 0 rgba(255, 255, 255, 0.98) inset,
+      0 20px 30px 0 rgba(255, 255, 255, 0.34) inset,
+      0 60px 60px 0 rgba(255, 0, 42, 0.08) inset;
+  }
+}
+
+@keyframes upgrade-letter-anim-light {
+  0%,
+  100% {
+    opacity: 0;
+    transform: translateY(0) scale(0.94);
+    filter: blur(4px);
+    text-shadow: none;
+  }
+
+  18% {
+    opacity: 1;
+    transform: scale(1.2) translateY(-1px);
+    filter: blur(0);
+    text-shadow:
+      0 0 2px #fff,
+      0 0 6px #000;
+  }
+
+  40% {
+    opacity: 0.7;
+    transform: translateY(0) scale(1.02);
+    filter: blur(2px);
+    text-shadow: none;
+  }
+
+  68% {
+    opacity: 0.24;
+    transform: translateY(0) scale(0.98);
+    filter: blur(3px);
+    text-shadow: none;
   }
 }
 
@@ -226,6 +332,22 @@ const letters = 'UPGRADING'.split('').map((char, index) => ({ char, index }))
   42% {
     opacity: 0.92;
     filter: blur(0);
+  }
+}
+
+@keyframes upgrade-star-pulse-light {
+  0%,
+  100% {
+    opacity: 0.14;
+    filter: blur(2px);
+  }
+
+  42% {
+    opacity: 0.78;
+    filter: blur(0);
+    box-shadow:
+      0 0 8px rgba(82, 87, 110, 0.28),
+      0 0 18px rgba(82, 87, 110, 0.16);
   }
 }
 

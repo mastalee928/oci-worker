@@ -6,6 +6,8 @@ import router from '../router'
 export interface OciRequestConfig extends AxiosRequestConfig {
   /** 业务 code≠0 时不弹全局 message（由调用方自行提示） */
   skipBusinessMessage?: boolean
+  /** 网络/HTTP 错误时不弹全局 message（由调用方自行提示） */
+  skipErrorMessage?: boolean
 }
 
 const request = axios.create({
@@ -62,6 +64,9 @@ request.interceptors.response.use(
     return res
   },
   (error) => {
+    if (error.config?.skipErrorMessage) {
+      return Promise.reject(error)
+    }
     if (error.response?.status === 503) {
       const msg = error.response?.data?.message
       if (msg) message.error(msg)
@@ -70,17 +75,13 @@ request.interceptors.response.use(
     }
     if (error.response?.status === 403) {
       const msg = error.response?.data?.message
-      if (msg && !error.config?.skipErrorMessage) message.error(msg)
+      if (msg) message.error(msg)
       return Promise.reject(error)
     }
     if (error.response?.status === 401) {
       clearSession()
       redirectTo('/login')
     } else {
-      // 如一键更新时轮询健康接口，服务重启窗口会出现 502，不应打全局红字
-      if (error.config?.skipErrorMessage) {
-        return Promise.reject(error)
-      }
       message.error(error.message || '网络错误')
     }
     return Promise.reject(error)
