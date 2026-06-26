@@ -2080,13 +2080,13 @@ function formatPlanBadge(plan: string | null | undefined, fallback = '获取中.
 function planTypeBadgeClass(plan: string | null | undefined) {
   if (!normalizePlanType(plan)) return ['plan-tag', 'tag-gray']
   if (isPaygPlan(plan)) return ['plan-tag', 'tag-green']
-  if (isFreeTierPlan(plan)) return ['plan-tag', 'tag-orange']
+  if (isFreeTierPlan(plan)) return ['plan-tag', 'tag-free-tier']
   return ['plan-tag', 'tag-gray']
 }
 
 function planSummaryTagClass(plan: string) {
   if (isPaygPlan(plan)) return 'tag-green'
-  if (isFreeTierPlan(plan)) return 'tag-orange'
+  if (isFreeTierPlan(plan)) return 'tag-free-tier'
   return 'tag-gray'
 }
 
@@ -5586,7 +5586,7 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 .tag-green { background: rgba(82, 196, 26, 0.15); color: #52c41a; }
-.tag-orange {
+.tag-free-tier {
   color: rgba(255, 255, 255, 0.92);
   background: rgba(255, 255, 255, 0.12);
   border: 1px solid rgba(255, 255, 255, 0.16);
@@ -5595,10 +5595,10 @@ onUnmounted(() => {
   -webkit-backdrop-filter: blur(10px) saturate(145%);
 }
 .tag-gray { background: rgba(150, 150, 150, 0.15); color: #999; }
-:global([data-theme="light"]) .tag-orange {
-  color: rgba(15, 23, 42, 0.88);
-  background: rgba(15, 23, 42, 0.06);
-  border-color: rgba(15, 23, 42, 0.1);
+:global([data-theme="light"]) .tag-free-tier {
+  color: rgba(15, 23, 42, 0.9);
+  background: rgba(15, 23, 42, 0.1);
+  border-color: rgba(15, 23, 42, 0.18);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.78);
 }
 .group-body {
