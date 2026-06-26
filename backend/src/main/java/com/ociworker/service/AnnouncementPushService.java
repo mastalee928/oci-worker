@@ -544,6 +544,15 @@ public class AnnouncementPushService {
     private static AnnouncementEvent classifyEvent(String type) {
         String raw = StrUtil.trimToEmpty(type);
         String t = raw.toLowerCase(Locale.ROOT);
+        if (t.equals("planned_change") || t.contains("planned change")) {
+            return new AnnouncementEvent("MAINTENANCE", "计划变更");
+        }
+        if (t.equals("action_recommended") || t.contains("action recommended")) {
+            return new AnnouncementEvent("ACTION_REQUIRED", "建议采取行动");
+        }
+        if (t.equals("production_event_notification") || t.contains("production event")) {
+            return new AnnouncementEvent("INFORMATION", "生产事件通知");
+        }
         if (t.contains("action") && t.contains("required")) {
             return new AnnouncementEvent("ACTION_REQUIRED", "需要采取行动");
         }
