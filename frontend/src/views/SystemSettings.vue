@@ -1,5 +1,34 @@
 <template>
   <div>
+    <a-modal
+      v-model:open="updateOverlayVisible"
+      :width="isMobile ? 'calc(100vw - 24px)' : 560"
+      :footer="null"
+      :closable="false"
+      :mask-closable="false"
+      :keyboard="false"
+      centered
+      wrap-class-name="upgrade-flow-modal-wrap"
+      class="upgrade-flow-modal"
+    >
+      <div class="upgrade-flow-dialog" :class="{ 'upgrade-flow-dialog--done': updateOverlayMode !== 'running' }">
+        <UpgradeLoader v-if="updateOverlayMode === 'running'" />
+        <div v-else class="upgrade-flow-result" :class="'upgrade-flow-result--' + updateOverlayMode">
+          <i :class="updateOverlayMode === 'success' ? 'ri-checkbox-circle-line' : 'ri-error-warning-line'"></i>
+          <h3>{{ updateOverlayTitle }}</h3>
+          <p>{{ updateOverlaySub }}</p>
+          <a-space v-if="updateOverlayMode !== 'success'" wrap>
+            <a-button type="primary" @click="refreshPage">刷新页面</a-button>
+            <a-button @click="closeUpdateOverlay">关闭</a-button>
+          </a-space>
+        </div>
+        <div v-if="updateOverlayMode === 'running'" class="upgrade-flow-status">
+          <strong>{{ updateOverlayTitle }}</strong>
+          <span>{{ updateOverlaySub }}</span>
+        </div>
+      </div>
+    </a-modal>
+
     <a-tabs v-model:active-key="activeTab" class="settings-page-tabs">
       <a-tab-pane key="security" tab="安全设置">
         <a-card title="修改登录密码" class="settings-card pwd-change-card">
@@ -837,7 +866,7 @@
           </a-spin>
           <div style="margin-top: 16px">
             <a-space>
-              <a-button @click="checkUpdate" :loading="updateChecking">检查更新</a-button>
+              <a-button @click="checkUpdate" :loading="updateChecking" :disabled="updatePerforming">检查更新</a-button>
               <a-popconfirm title="确定执行更新？更新过程中服务将短暂重启。" @confirm="performUpdate" ok-text="确定更新" cancel-text="取消">
                 <a-button type="primary" :loading="updatePerforming" :disabled="!updateInfo?.hasUpdate && !updateInfo?.downloadFallbackAvailable && !updateForce">
                   <i class="ri-download-2-line" style="margin-right: 6px"></i>一键更新
@@ -927,6 +956,7 @@ import { Modal, message } from 'ant-design-vue'
 import type { UploadFile } from 'ant-design-vue'
 import { useUserStore } from '../stores/user'
 import { sendVerifyCode } from '../api/system'
+import UpgradeLoader from '../components/UpgradeLoader.vue'
 import request from '../utils/request'
 import { getCfAccountConfig, saveCfAccountConfig, testCfAccountConfig } from '../api/cloudflare'
 import { getAliDNSAccountConfig, saveAliDNSAccountConfig, testAliDNSAccountConfig } from '../api/alidns'
@@ -2163,9 +2193,36 @@ const updateChecking = ref(false)
 const updatePerforming = ref(false)
 const updateInfo = ref<any>(null)
 const updateForce = ref(false)
+type UpdateOverlayMode = 'running' | 'success' | 'error' | 'timeout'
+const updateOverlayVisible = ref(false)
+const updateOverlayMode = ref<UpdateOverlayMode>('running')
+const updateOverlayTitle = ref('正在准备升级')
+const updateOverlaySub = ref('请不要关闭页面')
 let updatePollTimer: any = null
 let updateStartTimer: any = null
 let updateRedirectTimer: any = null
+let updateStageTimer: any = null
+
+function setUpdateOverlay(mode: UpdateOverlayMode, title: string, sub: string) {
+  updateOverlayMode.value = mode
+  updateOverlayTitle.value = title
+  updateOverlaySub.value = sub
+}
+
+function clearUpdateTimers() {
+  if (updatePollTimer) { clearInterval(updatePollTimer); updatePollTimer = null }
+  if (updateStartTimer) { clearTimeout(updateStartTimer); updateStartTimer = null }
+  if (updateRedirectTimer) { clearTimeout(updateRedirectTimer); updateRedirectTimer = null }
+  if (updateStageTimer) { clearTimeout(updateStageTimer); updateStageTimer = null }
+}
+
+function closeUpdateOverlay() {
+  updateOverlayVisible.value = false
+}
+
+function refreshPage() {
+  window.location.reload()
+}
 
 async function checkUpdate() {
   updateChecking.value = true
@@ -2181,14 +2238,22 @@ async function checkUpdate() {
 
 async function performUpdate() {
   updatePerforming.value = true
+  clearUpdateTimers()
+  updateOverlayVisible.value = true
+  setUpdateOverlay('running', '正在准备升级', '请不要关闭页面')
   try {
+    updateStageTimer = setTimeout(() => {
+      setUpdateOverlay('running', '正在下载更新', '正在获取最新版本和安装包')
+    }, 900)
     await request.post('/sys/performUpdate')
-    message.success('更新已启动，服务即将重启...')
+    if (updateStageTimer) { clearTimeout(updateStageTimer); updateStageTimer = null }
+    setUpdateOverlay('running', '正在替换服务', '升级过程中服务可能会短暂不可用')
     if (updateStartTimer) clearTimeout(updateStartTimer)
     updateStartTimer = setTimeout(() => {
-      message.loading({ content: '等待服务重启...', duration: 0, key: 'update' })
+      setUpdateOverlay('running', '正在等待服务恢复', '连接恢复后将显示结果')
       let attempts = 0
-      const maxAttempts = 30
+      let successAttempts = 0
+      const maxAttempts = 90
       let pollInFlight = false
       if (updatePollTimer) clearInterval(updatePollTimer)
       updatePollTimer = setInterval(async () => {
@@ -2197,24 +2262,29 @@ async function performUpdate() {
         attempts++
         try {
           await request.get('/sys/glance', { skipErrorMessage: true })
-          if (updatePollTimer) { clearInterval(updatePollTimer); updatePollTimer = null }
-          message.success({ content: '更新完成，3秒后跳转首页...', key: 'update' })
-          updatePerforming.value = false
-          if (updateRedirectTimer) clearTimeout(updateRedirectTimer)
-          updateRedirectTimer = setTimeout(() => { window.location.href = '/' }, 3000)
+          successAttempts++
+          if (successAttempts >= 1) {
+            if (updatePollTimer) { clearInterval(updatePollTimer); updatePollTimer = null }
+            setUpdateOverlay('success', '升级完成', '服务已恢复，3 秒后返回首页')
+            updatePerforming.value = false
+            if (updateRedirectTimer) clearTimeout(updateRedirectTimer)
+            updateRedirectTimer = setTimeout(() => { window.location.href = '/' }, 3000)
+          }
         } catch {
+          successAttempts = 0
           if (attempts >= maxAttempts) {
             if (updatePollTimer) { clearInterval(updatePollTimer); updatePollTimer = null }
-            message.warning({ content: '服务重启超时，请手动刷新页面', key: 'update' })
+            setUpdateOverlay('timeout', '升级可能仍在进行', '请稍后手动刷新页面')
             updatePerforming.value = false
           }
         } finally {
           pollInFlight = false
         }
-      }, 3000)
-    }, 3000)
+      }, 2000)
+    }, 4000)
   } catch (e: any) {
-    message.error(e?.message || '启动更新失败')
+    clearUpdateTimers()
+    setUpdateOverlay('error', '升级启动失败', e?.message || '请稍后重试')
     updatePerforming.value = false
   }
 }
@@ -2248,6 +2318,7 @@ onUnmounted(() => {
   if (updatePollTimer) clearInterval(updatePollTimer)
   if (updateStartTimer) clearTimeout(updateStartTimer)
   if (updateRedirectTimer) clearTimeout(updateRedirectTimer)
+  if (updateStageTimer) clearTimeout(updateStageTimer)
 })
 
 const backupPassword = ref('')
@@ -2440,6 +2511,82 @@ async function handleRestore() {
   margin-bottom: 18px;
   max-width: 100%;
   overflow-x: auto;
+}
+:global(.upgrade-flow-modal-wrap .ant-modal-mask) {
+  background: rgba(3, 7, 18, 0.56);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+:global([data-theme="light"] .upgrade-flow-modal-wrap .ant-modal-mask) {
+  background: rgba(241, 245, 249, 0.66);
+}
+:global(.upgrade-flow-modal .ant-modal-content) {
+  overflow: hidden;
+  padding: 0;
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  background:
+    radial-gradient(circle at 50% 46%, rgba(95, 70, 150, 0.18), transparent 31%),
+    linear-gradient(135deg, #100017, #07000d 76%);
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.42);
+}
+:global([data-theme="light"] .upgrade-flow-modal .ant-modal-content) {
+  background:
+    radial-gradient(circle at 50% 48%, rgba(120, 118, 160, 0.1), transparent 30%),
+    linear-gradient(135deg, #f7f8fb, #eef1f7 82%);
+  box-shadow: 0 30px 90px rgba(15, 23, 42, 0.18);
+}
+.upgrade-flow-dialog {
+  overflow: hidden;
+  color: rgba(255, 255, 255, 0.92);
+}
+:global([data-theme="light"]) .upgrade-flow-dialog {
+  color: rgba(15, 23, 42, 0.9);
+}
+.upgrade-flow-dialog--done {
+  background: var(--bg-card);
+}
+.upgrade-flow-status {
+  padding: 18px 22px 22px;
+  text-align: center;
+  background: rgba(0, 0, 0, 0.12);
+}
+:global([data-theme="light"]) .upgrade-flow-status {
+  background: rgba(255, 255, 255, 0.42);
+}
+.upgrade-flow-status strong {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 16px;
+}
+.upgrade-flow-status span {
+  color: var(--text-sub);
+  font-size: 13px;
+}
+.upgrade-flow-result {
+  padding: 38px 22px;
+  text-align: center;
+}
+.upgrade-flow-result i {
+  display: block;
+  margin-bottom: 12px;
+  font-size: 42px;
+}
+.upgrade-flow-result--success i {
+  color: #22c55e;
+}
+.upgrade-flow-result--error i,
+.upgrade-flow-result--timeout i {
+  color: #f59e0b;
+}
+.upgrade-flow-result h3 {
+  margin: 0 0 8px;
+  font-size: 20px;
+  color: var(--text-main);
+}
+.upgrade-flow-result p {
+  margin: 0 0 18px;
+  color: var(--text-sub);
 }
 .notify-section-panel {
   max-width: 100%;
