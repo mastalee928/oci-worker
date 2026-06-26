@@ -6,6 +6,7 @@
       :footer="null"
       :closable="false"
       :mask-closable="false"
+      :mask-style="upgradeMaskStyle"
       :keyboard="false"
       centered
       wrap-class-name="upgrade-flow-modal-wrap"
@@ -955,6 +956,7 @@ import { CaretRightOutlined, InboxOutlined, ReloadOutlined } from '@ant-design/i
 import { Modal, message } from 'ant-design-vue'
 import type { UploadFile } from 'ant-design-vue'
 import { useUserStore } from '../stores/user'
+import { useThemeStore } from '../stores/theme'
 import { sendVerifyCode } from '../api/system'
 import UpgradeLoader from '../components/UpgradeLoader.vue'
 import request from '../utils/request'
@@ -962,6 +964,7 @@ import { getCfAccountConfig, saveCfAccountConfig, testCfAccountConfig } from '..
 import { getAliDNSAccountConfig, saveAliDNSAccountConfig, testAliDNSAccountConfig } from '../api/alidns'
 
 const userStore = useUserStore()
+const themeStore = useThemeStore()
 
 const router = useRouter()
 const activeTab = ref('security')
@@ -2198,6 +2201,11 @@ const updateOverlayVisible = ref(false)
 const updateOverlayMode = ref<UpdateOverlayMode>('running')
 const updateOverlayTitle = ref('正在准备升级')
 const updateOverlaySub = ref('请不要关闭页面')
+const upgradeMaskStyle = computed(() => ({
+  background: themeStore.isDark ? 'rgba(3, 7, 18, 0.64)' : 'rgba(241, 245, 249, 0.72)',
+  backdropFilter: 'blur(12px)',
+  WebkitBackdropFilter: 'blur(12px)',
+}))
 let updatePollTimer: any = null
 let updateStartTimer: any = null
 let updateRedirectTimer: any = null
@@ -2222,6 +2230,35 @@ function closeUpdateOverlay() {
 
 function refreshPage() {
   window.location.reload()
+}
+
+function delay(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+async function isHomePageReady() {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), 5000)
+  try {
+    const response = await fetch(`/?_upgradeReady=${Date.now()}`, {
+      cache: 'no-store',
+      credentials: 'same-origin',
+      signal: controller.signal,
+    })
+    return response.ok
+  } catch {
+    return false
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+async function waitForHomePageReady(maxAttempts = 8, intervalMs = 2000) {
+  for (let i = 0; i < maxAttempts; i++) {
+    if (await isHomePageReady()) return true
+    if (i < maxAttempts - 1) await delay(intervalMs)
+  }
+  return false
 }
 
 async function checkUpdate() {
@@ -2253,6 +2290,7 @@ async function performUpdate() {
       setUpdateOverlay('running', '正在等待服务恢复', '连接恢复后将显示结果')
       let attempts = 0
       let successAttempts = 0
+      const requiredSuccessAttempts = 3
       const maxAttempts = 90
       let pollInFlight = false
       if (updatePollTimer) clearInterval(updatePollTimer)
@@ -2263,12 +2301,21 @@ async function performUpdate() {
         try {
           await request.get('/sys/glance', { skipErrorMessage: true })
           successAttempts++
-          if (successAttempts >= 1) {
+          if (successAttempts >= requiredSuccessAttempts) {
             if (updatePollTimer) { clearInterval(updatePollTimer); updatePollTimer = null }
-            setUpdateOverlay('success', '升级完成', '服务已恢复，3 秒后返回首页')
-            updatePerforming.value = false
+            setUpdateOverlay('running', '正在确认页面可用', '服务已响应，正在等待首页资源稳定')
             if (updateRedirectTimer) clearTimeout(updateRedirectTimer)
-            updateRedirectTimer = setTimeout(() => { window.location.href = '/' }, 3000)
+            updateRedirectTimer = setTimeout(async () => {
+              const homeReady = await waitForHomePageReady()
+              if (homeReady) {
+                setUpdateOverlay('success', '升级完成', '页面已恢复，正在返回首页')
+                updatePerforming.value = false
+                updateRedirectTimer = setTimeout(() => { window.location.href = '/' }, 2500)
+              } else {
+                setUpdateOverlay('timeout', '升级可能仍在收尾', '首页暂时不可访问，请稍后手动刷新页面')
+                updatePerforming.value = false
+              }
+            }, 5000)
           }
         } catch {
           successAttempts = 0
@@ -2511,14 +2558,6 @@ async function handleRestore() {
   margin-bottom: 18px;
   max-width: 100%;
   overflow-x: auto;
-}
-:global(.upgrade-flow-modal-wrap .ant-modal-mask) {
-  background: rgba(3, 7, 18, 0.56);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-}
-:global([data-theme="light"] .upgrade-flow-modal-wrap .ant-modal-mask) {
-  background: rgba(241, 245, 249, 0.66);
 }
 :global(.upgrade-flow-modal .ant-modal-content) {
   overflow: hidden;
