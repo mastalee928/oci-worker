@@ -30,6 +30,35 @@ public class NetworkService {
         return new OciClientService(buildDTO(ociUser), r);
     }
 
+    private String resolveInstanceCompartmentId(OciClientService client, String instanceId, String providedCompartmentId) {
+        if (providedCompartmentId != null && !providedCompartmentId.isBlank()) {
+            return providedCompartmentId.trim();
+        }
+        if (instanceId != null && !instanceId.isBlank()) {
+            try {
+                Instance instance = client.getComputeClient().getInstance(
+                        GetInstanceRequest.builder().instanceId(instanceId).build()
+                ).getInstance();
+                if (instance != null && instance.getCompartmentId() != null && !instance.getCompartmentId().isBlank()) {
+                    return instance.getCompartmentId();
+                }
+            } catch (Exception e) {
+                log.debug("Failed to resolve instance compartment for {}: {}", instanceId, e.getMessage());
+            }
+        }
+        return client.getCompartmentId();
+    }
+
+    private List<VnicAttachment> listVnicAttachmentsForInstance(
+            OciClientService client, String instanceId, String compartmentId) {
+        return client.getComputeClient().listVnicAttachments(
+                ListVnicAttachmentsRequest.builder()
+                        .compartmentId(resolveInstanceCompartmentId(client, instanceId, compartmentId))
+                        .instanceId(instanceId)
+                        .build()
+        ).getItems();
+    }
+
     private String firstSecurityListId(Subnet subnet) {
         if (subnet.getSecurityListIds() == null || subnet.getSecurityListIds().isEmpty()) {
             throw new OciException("子网未关联安全列表");
@@ -79,12 +108,12 @@ public class NetworkService {
         }
     }
 
-    public List<Map<String, Object>> listSecurityRulesByInstance(String userId, String instanceId, String region) {
+    public List<Map<String, Object>> listSecurityRulesByInstance(String userId, String instanceId, String region, String compartmentId) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
 
         try (OciClientService client = oci(ociUser, region)) {
-            String subnetId = getSubnetIdFromInstance(client, instanceId);
+            String subnetId = getSubnetIdFromInstance(client, instanceId, compartmentId);
             Subnet subnet = client.getVirtualNetworkClient().getSubnet(
                     GetSubnetRequest.builder().subnetId(subnetId).build()
             ).getSubnet();
@@ -136,12 +165,12 @@ public class NetworkService {
         }
     }
 
-    public Map<String, Object> releaseAllPortsByInstance(String userId, String instanceId, String region) {
+    public Map<String, Object> releaseAllPortsByInstance(String userId, String instanceId, String region, String compartmentId) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
 
         try (OciClientService client = oci(ociUser, region)) {
-            String subnetId = getSubnetIdFromInstance(client, instanceId);
+            String subnetId = getSubnetIdFromInstance(client, instanceId, compartmentId);
             Subnet subnet = client.getVirtualNetworkClient().getSubnet(
                     GetSubnetRequest.builder().subnetId(subnetId).build()
             ).getSubnet();
@@ -206,12 +235,12 @@ public class NetworkService {
     /**
      * 纯TCP预设：替换为 TCP全端口 + ICMP + ICMPv6（入站5条 + 出站2条），清除其他规则
      */
-    public Map<String, Object> releaseOciPresetByInstance(String userId, String instanceId, String region) {
+    public Map<String, Object> releaseOciPresetByInstance(String userId, String instanceId, String region, String compartmentId) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
 
         try (OciClientService client = oci(ociUser, region)) {
-            String subnetId = getSubnetIdFromInstance(client, instanceId);
+            String subnetId = getSubnetIdFromInstance(client, instanceId, compartmentId);
             Subnet subnet = client.getVirtualNetworkClient().getSubnet(
                     GetSubnetRequest.builder().subnetId(subnetId).build()
             ).getSubnet();
@@ -276,13 +305,14 @@ public class NetworkService {
     }
 
     public void addSecurityRule(String userId, String instanceId, String direction,
-                               String protocol, String source, String portMin, String portMax, String description, String region) {
+                               String protocol, String source, String portMin, String portMax, String description,
+                               String region, String compartmentId) {
         if (description != null && description.isBlank()) description = null;
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
 
         try (OciClientService client = oci(ociUser, region)) {
-            String subnetId = getSubnetIdFromInstance(client, instanceId);
+            String subnetId = getSubnetIdFromInstance(client, instanceId, compartmentId);
             Subnet subnet = client.getVirtualNetworkClient().getSubnet(
                     GetSubnetRequest.builder().subnetId(subnetId).build()
             ).getSubnet();
@@ -359,12 +389,12 @@ public class NetworkService {
         }
     }
 
-    public void deleteSecurityRule(String userId, String instanceId, String direction, int ruleIndex, String region) {
+    public void deleteSecurityRule(String userId, String instanceId, String direction, int ruleIndex, String region, String compartmentId) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
 
         try (OciClientService client = oci(ociUser, region)) {
-            String subnetId = getSubnetIdFromInstance(client, instanceId);
+            String subnetId = getSubnetIdFromInstance(client, instanceId, compartmentId);
             Subnet subnet = client.getVirtualNetworkClient().getSubnet(
                     GetSubnetRequest.builder().subnetId(subnetId).build()
             ).getSubnet();
@@ -407,17 +437,13 @@ public class NetworkService {
         }
     }
 
-    public void changePublicIp(String userId, String instanceId, List<String> cidrFilters, String region) {
+    public void changePublicIp(String userId, String instanceId, List<String> cidrFilters, String region, String compartmentId) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
 
         try (OciClientService client = oci(ociUser, region)) {
-            List<VnicAttachment> attachments = client.getComputeClient().listVnicAttachments(
-                    ListVnicAttachmentsRequest.builder()
-                            .compartmentId(client.getCompartmentId())
-                            .instanceId(instanceId)
-                            .build()
-            ).getItems();
+            String resolvedCompartmentId = resolveInstanceCompartmentId(client, instanceId, compartmentId);
+            List<VnicAttachment> attachments = listVnicAttachmentsForInstance(client, instanceId, resolvedCompartmentId);
 
             if (attachments.isEmpty()) throw new OciException("未找到 VNIC");
 
@@ -453,7 +479,7 @@ public class NetworkService {
             PublicIp newPubIp = client.getVirtualNetworkClient().createPublicIp(
                     CreatePublicIpRequest.builder()
                             .createPublicIpDetails(CreatePublicIpDetails.builder()
-                                    .compartmentId(client.getCompartmentId())
+                                    .compartmentId(resolvedCompartmentId)
                                     .lifetime(CreatePublicIpDetails.Lifetime.Ephemeral)
                                     .privateIpId(primaryPrivateIp.getId())
                                     .build())
@@ -522,15 +548,16 @@ public class NetworkService {
         }
     }
 
-    public Map<String, String> assignEphemeralPublicIp(String userId, String instanceId, String privateIpId, String region) {
+    public Map<String, String> assignEphemeralPublicIp(String userId, String instanceId, String privateIpId, String region, String compartmentId) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
 
         try (OciClientService client = oci(ociUser, region)) {
+            String resolvedCompartmentId = resolveInstanceCompartmentId(client, instanceId, compartmentId);
             PublicIp newPubIp = client.getVirtualNetworkClient().createPublicIp(
                     CreatePublicIpRequest.builder()
                             .createPublicIpDetails(CreatePublicIpDetails.builder()
-                                    .compartmentId(client.getCompartmentId())
+                                    .compartmentId(resolvedCompartmentId)
                                     .lifetime(CreatePublicIpDetails.Lifetime.Ephemeral)
                                     .privateIpId(privateIpId)
                                     .build())
@@ -553,13 +580,8 @@ public class NetworkService {
         }
     }
 
-    private String getSubnetIdFromInstance(OciClientService client, String instanceId) {
-        List<VnicAttachment> attachments = client.getComputeClient().listVnicAttachments(
-                ListVnicAttachmentsRequest.builder()
-                        .compartmentId(client.getCompartmentId())
-                        .instanceId(instanceId)
-                        .build()
-        ).getItems();
+    private String getSubnetIdFromInstance(OciClientService client, String instanceId, String compartmentId) {
+        List<VnicAttachment> attachments = listVnicAttachmentsForInstance(client, instanceId, compartmentId);
         if (attachments.isEmpty()) throw new OciException("未找到实例的 VNIC");
         return attachments.get(0).getSubnetId();
     }

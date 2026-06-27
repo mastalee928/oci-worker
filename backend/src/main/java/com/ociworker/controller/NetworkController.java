@@ -25,19 +25,20 @@ public class NetworkController {
 
     @PostMapping("/securityRules")
     public ResponseData<?> listSecurityRules(@RequestBody Map<String, String> params) {
-        return ResponseData.ok(networkService.listSecurityRulesByInstance(params.get("id"), params.get("instanceId"), reg(params)));
+        return ResponseData.ok(networkService.listSecurityRulesByInstance(
+                params.get("id"), params.get("instanceId"), reg(params), comp(params)));
     }
 
     @PostMapping("/releaseAllPorts")
     public ResponseData<?> releaseAllPorts(@RequestBody Map<String, String> params) {
         return ResponseData.ok(networkService.releaseAllPortsByInstance(
-                params.get("id"), params.get("instanceId"), reg(params)));
+                params.get("id"), params.get("instanceId"), reg(params), comp(params)));
     }
 
     @PostMapping("/releaseOciPreset")
     public ResponseData<?> releaseOciPreset(@RequestBody Map<String, String> params) {
         return ResponseData.ok(networkService.releaseOciPresetByInstance(
-                params.get("id"), params.get("instanceId"), reg(params)));
+                params.get("id"), params.get("instanceId"), reg(params), comp(params)));
     }
 
     @PostMapping("/addSecurityRule")
@@ -45,7 +46,7 @@ public class NetworkController {
         networkService.addSecurityRule(params.get("id"), params.get("instanceId"),
                 params.get("direction"), params.get("protocol"),
                 params.get("source"), params.get("portMin"), params.get("portMax"),
-                params.get("description"), reg(params));
+                params.get("description"), reg(params), comp(params));
         return ResponseData.ok();
     }
 
@@ -62,7 +63,7 @@ public class NetworkController {
             throw new OciException("ruleIndex 格式非法");
         }
         networkService.deleteSecurityRule(params.get("id"), params.get("instanceId"),
-                params.get("direction"), idx, reg(params));
+                params.get("direction"), idx, reg(params), comp(params));
         return ResponseData.ok();
     }
 
@@ -72,7 +73,8 @@ public class NetworkController {
                 params.get("id") == null ? null : String.valueOf(params.get("id")),
                 params.get("instanceId") == null ? null : String.valueOf(params.get("instanceId")),
                 extractStringList(params.get("cidrFilters")),
-                regObj(params));
+                regObj(params),
+                compObj(params));
         return ResponseData.ok();
     }
 
@@ -88,7 +90,7 @@ public class NetworkController {
     @PostMapping("/assignEphemeralIp")
     public ResponseData<?> assignEphemeralIp(@RequestBody Map<String, String> params) {
         return ResponseData.ok(networkService.assignEphemeralPublicIp(
-                params.get("id"), params.get("instanceId"), params.get("privateIpId"), reg(params)));
+                params.get("id"), params.get("instanceId"), params.get("privateIpId"), reg(params), comp(params)));
     }
 
     @PostMapping("/deletePublicIp")
@@ -111,9 +113,25 @@ public class NetworkController {
         return s.isEmpty() ? null : s;
     }
 
+    private static String comp(Map<String, String> params) {
+        if (params == null) return null;
+        String s = params.get("compartmentId");
+        if (s == null) return null;
+        s = s.trim();
+        return s.isEmpty() ? null : s;
+    }
+
     private static String regObj(Map<String, Object> params) {
         if (params == null) return null;
         Object v = params.get("region");
+        if (v == null) return null;
+        String s = String.valueOf(v).trim();
+        return s.isEmpty() ? null : s;
+    }
+
+    private static String compObj(Map<String, Object> params) {
+        if (params == null) return null;
+        Object v = params.get("compartmentId");
         if (v == null) return null;
         String s = String.valueOf(v).trim();
         return s.isEmpty() ? null : s;

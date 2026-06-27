@@ -1,6 +1,6 @@
 import request from '../utils/request'
 
-type R = { region?: string }
+type R = { region?: string; compartmentId?: string }
 
 export type ShapeEditTaskState = 'PENDING' | 'RUNNING' | 'PAUSED' | 'SUCCESS' | 'FAILED' | 'STOPPED'
 export type BlockVolumeAttachmentType = 'paravirtualized' | 'iscsi'

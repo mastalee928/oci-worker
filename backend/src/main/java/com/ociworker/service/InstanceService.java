@@ -40,6 +40,35 @@ public class InstanceService {
         return new OciClientService(buildBasicDTO(ociUser), r);
     }
 
+    private String resolveInstanceCompartmentId(OciClientService client, String instanceId, String providedCompartmentId) {
+        if (providedCompartmentId != null && !providedCompartmentId.isBlank()) {
+            return providedCompartmentId.trim();
+        }
+        if (instanceId != null && !instanceId.isBlank()) {
+            try {
+                Instance instance = client.getComputeClient().getInstance(
+                        GetInstanceRequest.builder().instanceId(instanceId).build()
+                ).getInstance();
+                if (instance != null && instance.getCompartmentId() != null && !instance.getCompartmentId().isBlank()) {
+                    return instance.getCompartmentId();
+                }
+            } catch (Exception e) {
+                log.debug("Failed to resolve instance compartment for {}: {}", instanceId, e.getMessage());
+            }
+        }
+        return client.getCompartmentId();
+    }
+
+    private List<VnicAttachment> listVnicAttachmentsForInstance(
+            OciClientService client, String instanceId, String compartmentId) {
+        return client.getComputeClient().listVnicAttachments(
+                ListVnicAttachmentsRequest.builder()
+                        .compartmentId(resolveInstanceCompartmentId(client, instanceId, compartmentId))
+                        .instanceId(instanceId)
+                        .build()
+        ).getItems();
+    }
+
     public List<Map<String, Object>> listInstances(String userId, String region) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
@@ -199,19 +228,14 @@ public class InstanceService {
     /**
      * Gets detailed network info for an instance: private IP, public IP type (reserved/ephemeral), IPv6
      */
-    public Map<String, Object> getInstanceNetworkDetail(String userId, String instanceId, String region) {
+    public Map<String, Object> getInstanceNetworkDetail(String userId, String instanceId, String region, String compartmentId) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
 
         try (OciClientService client = oci(ociUser, region)) {
             Map<String, Object> result = new LinkedHashMap<>();
 
-            List<VnicAttachment> attachments = client.getComputeClient().listVnicAttachments(
-                    ListVnicAttachmentsRequest.builder()
-                            .compartmentId(client.getCompartmentId())
-                            .instanceId(instanceId)
-                            .build()
-            ).getItems();
+            List<VnicAttachment> attachments = listVnicAttachmentsForInstance(client, instanceId, compartmentId);
 
             List<Map<String, Object>> vnics = new ArrayList<>();
             for (VnicAttachment att : attachments) {
@@ -286,17 +310,12 @@ public class InstanceService {
     /**
      * Full IPv6 flow: ensure VCN has IPv6 CIDR → ensure subnet has IPv6 CIDR → create IPv6 on VNIC
      */
-    public Map<String, String> addIpv6(String userId, String instanceId, String preferredVnicId, String region) {
+    public Map<String, String> addIpv6(String userId, String instanceId, String preferredVnicId, String region, String compartmentId) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
 
         try (OciClientService client = oci(ociUser, region)) {
-            List<VnicAttachment> attachments = client.getComputeClient().listVnicAttachments(
-                    ListVnicAttachmentsRequest.builder()
-                            .compartmentId(client.getCompartmentId())
-                            .instanceId(instanceId)
-                            .build()
-            ).getItems();
+            List<VnicAttachment> attachments = listVnicAttachmentsForInstance(client, instanceId, compartmentId);
             if (attachments.isEmpty()) throw new OciException("未找到实例的 VNIC");
 
             VnicAttachment target = attachments.get(0);
@@ -411,9 +430,12 @@ public class InstanceService {
     }
 
     private void ensureIpv6InternetRoute(OciClientService client, Vcn vcn, Subnet subnet) {
+        String networkCompartmentId = vcn.getCompartmentId() != null && !vcn.getCompartmentId().isBlank()
+                ? vcn.getCompartmentId()
+                : client.getCompartmentId();
         List<InternetGateway> igws = client.getVirtualNetworkClient().listInternetGateways(
                 ListInternetGatewaysRequest.builder()
-                        .compartmentId(client.getCompartmentId())
+                        .compartmentId(networkCompartmentId)
                         .vcnId(vcn.getId())
                         .build()
         ).getItems();
@@ -421,7 +443,16 @@ public class InstanceService {
         InternetGateway igw;
         if (igws == null || igws.isEmpty()) {
             log.info("VCN {} has no Internet Gateway, creating one...", vcn.getDisplayName());
-            igw = client.createInternetGateway(vcn);
+            igw = client.getVirtualNetworkClient().createInternetGateway(
+                    CreateInternetGatewayRequest.builder()
+                            .createInternetGatewayDetails(CreateInternetGatewayDetails.builder()
+                                    .compartmentId(networkCompartmentId)
+                                    .vcnId(vcn.getId())
+                                    .displayName("oci-worker-igw")
+                                    .isEnabled(true)
+                                    .build())
+                            .build()
+            ).getInternetGateway();
         } else {
             igw = igws.stream()
                     .filter(gw -> Boolean.TRUE.equals(gw.getIsEnabled()))
@@ -548,17 +579,12 @@ public class InstanceService {
      * Assigns a reserved IP to an instance by creating a secondary private IP on the VNIC,
      * then binding the reserved public IP to that secondary private IP.
      */
-    public void assignReservedIp(String userId, String publicIpId, String instanceId, String region) {
+    public void assignReservedIp(String userId, String publicIpId, String instanceId, String region, String compartmentId) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
 
         try (OciClientService client = oci(ociUser, region)) {
-            List<VnicAttachment> attachments = client.getComputeClient().listVnicAttachments(
-                    ListVnicAttachmentsRequest.builder()
-                            .compartmentId(client.getCompartmentId())
-                            .instanceId(instanceId)
-                            .build()
-            ).getItems();
+            List<VnicAttachment> attachments = listVnicAttachmentsForInstance(client, instanceId, compartmentId);
             if (attachments.isEmpty()) throw new OciException("未找到实例的 VNIC");
 
             String vnicId = attachments.get(0).getVnicId();

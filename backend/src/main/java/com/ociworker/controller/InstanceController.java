@@ -214,12 +214,14 @@ public class InstanceController {
 
     @PostMapping("/instanceDetail")
     public ResponseData<?> instanceDetail(@RequestBody Map<String, String> params) {
-        return ResponseData.ok(instanceService.getInstanceNetworkDetail(params.get("id"), params.get("instanceId"), regStr(params)));
+        return ResponseData.ok(instanceService.getInstanceNetworkDetail(
+                params.get("id"), params.get("instanceId"), regStr(params), compStr(params)));
     }
 
     @PostMapping("/addIpv6")
     public ResponseData<?> addIpv6(@RequestBody Map<String, String> params) {
-        return ResponseData.ok(instanceService.addIpv6(params.get("id"), params.get("instanceId"), params.get("vnicId"), regStr(params)));
+        return ResponseData.ok(instanceService.addIpv6(
+                params.get("id"), params.get("instanceId"), params.get("vnicId"), regStr(params), compStr(params)));
     }
 
     @PostMapping("/removeIpv6")
@@ -246,7 +248,8 @@ public class InstanceController {
 
     @PostMapping("/assignReservedIp")
     public ResponseData<?> assignReservedIp(@RequestBody Map<String, String> params) {
-        instanceService.assignReservedIp(params.get("id"), params.get("publicIpId"), params.get("instanceId"), regStr(params));
+        instanceService.assignReservedIp(
+                params.get("id"), params.get("publicIpId"), params.get("instanceId"), regStr(params), compStr(params));
         return ResponseData.ok();
     }
 
@@ -270,6 +273,14 @@ public class InstanceController {
     private static String regStr(Map<String, String> params) {
         if (params == null) return null;
         String s = params.get("region");
+        if (s == null) return null;
+        s = s.trim();
+        return s.isEmpty() ? null : s;
+    }
+
+    private static String compStr(Map<String, String> params) {
+        if (params == null) return null;
+        String s = params.get("compartmentId");
         if (s == null) return null;
         s = s.trim();
         return s.isEmpty() ? null : s;

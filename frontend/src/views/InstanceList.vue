@@ -2785,6 +2785,13 @@ function instanceDetailRegionParam(): { region?: string } {
   return r ? { region: r } : {}
 }
 
+function instanceDetailScopeParam(): { region?: string; compartmentId?: string } {
+  const base = instanceDetailRegionParam()
+  const compartmentId = currentInstance.value?.compartmentId
+  const cid = compartmentId && String(compartmentId).trim() ? String(compartmentId).trim() : ''
+  return cid ? { ...base, compartmentId: cid } : base
+}
+
 function vcnReservedIpRegionParam(): { region?: string } {
   const r = (vcnPanelRegion.value?.trim() || vcnTenant.value?.ociRegion || '').trim()
   return r ? { region: r } : {}
@@ -4119,7 +4126,7 @@ async function handleChangeIp() {
     await changeIp({
       id: currentTenant.value.id,
       instanceId: currentInstance.value.instanceId,
-      ...instanceDetailRegionParam(),
+      ...instanceDetailScopeParam(),
     })
     message.success('换 IP 请求已提交')
     scheduleReload(() => loadNetworkDetail(), 3000)
@@ -4165,7 +4172,7 @@ async function loadNetworkDetail() {
     const res = await getInstanceNetworkDetail({
       id: currentTenant.value.id,
       instanceId: currentInstance.value.instanceId,
-      ...instanceDetailRegionParam(),
+      ...instanceDetailScopeParam(),
     })
     networkDetail.value = res.data || null
   } catch (e: any) {
@@ -4184,7 +4191,7 @@ async function handleAddIpv6(vnic?: any) {
       id: currentTenant.value.id,
       instanceId: currentInstance.value.instanceId,
       vnicId: vnic?.vnicId,
-      ...instanceDetailRegionParam(),
+      ...instanceDetailScopeParam(),
     })
     message.success('IPv6 已分配: ' + (res.data?.ipv6Address || ''))
     loadNetworkDetail()
@@ -4226,7 +4233,7 @@ async function checkIpv6SecurityHealth() {
     const res = await getSecurityRules({
       id: currentTenant.value.id,
       instanceId: currentInstance.value.instanceId,
-      ...instanceDetailRegionParam(),
+      ...instanceDetailScopeParam(),
     })
     const data = res.data || []
     const ingress = data.filter((r: any) => r.direction === 'ingress')
@@ -4258,7 +4265,7 @@ async function loadSecurityRules() {
     const res = await getSecurityRules({
       id: currentTenant.value.id,
       instanceId: currentInstance.value.instanceId,
-      ...instanceDetailRegionParam(),
+      ...instanceDetailScopeParam(),
     })
     const data = res.data || []
     ingressRules.value = data.filter((r: any) => r.direction === 'ingress')
@@ -4286,7 +4293,7 @@ async function handleReleaseAll() {
     const res = await releaseAllPorts({
       id: currentTenant.value.id,
       instanceId: currentInstance.value.instanceId,
-      ...instanceDetailRegionParam(),
+      ...instanceDetailScopeParam(),
     })
     message.success(securityReleaseSuccessMessage(res.data?.ipv6RulesApplied, true))
     loadSecurityRules()
@@ -4304,7 +4311,7 @@ async function handleOciPreset() {
     const res = await releaseOciPreset({
       id: currentTenant.value.id,
       instanceId: currentInstance.value.instanceId,
-      ...instanceDetailRegionParam(),
+      ...instanceDetailScopeParam(),
     })
     message.success(securityReleaseSuccessMessage(res.data?.ipv6RulesApplied, false))
     loadSecurityRules()
@@ -4337,7 +4344,7 @@ async function handleAddRule() {
       id: currentTenant.value.id, instanceId: currentInstance.value.instanceId,
       direction: ruleForm.direction, protocol: ruleForm.protocol, source: ruleForm.source,
       portMin: ruleForm.portMin?.toString(), portMax: ruleForm.portMax?.toString(), description: ruleForm.description,
-      ...instanceDetailRegionParam(),
+      ...instanceDetailScopeParam(),
     })
     message.success('规则已添加')
     addRuleVisible.value = false
@@ -4358,7 +4365,7 @@ async function handleDeleteSecurityRule(direction: string, ruleIndex: number) {
       instanceId: currentInstance.value.instanceId,
       direction,
       ruleIndex,
-      ...instanceDetailRegionParam(),
+      ...instanceDetailScopeParam(),
     })
     message.success('规则已删除')
     loadSecurityRules()
@@ -4759,7 +4766,7 @@ async function handleAssignEphemeralIp(ipd: any) {
       id: currentTenant.value.id,
       instanceId: currentInstance.value.instanceId,
       privateIpId: ipd.privateIpId,
-      ...instanceDetailRegionParam(),
+      ...instanceDetailScopeParam(),
     })
     message.success('公网 IPv4 已分配')
     loadNetworkDetail()
@@ -4846,7 +4853,7 @@ async function handleAddAuxIp() {
       id: currentTenant.value.id,
       publicIpId: ipId,
       instanceId: currentInstance.value.instanceId,
-      ...instanceDetailRegionParam(),
+      ...instanceDetailScopeParam(),
     })
     message.success('辅助IP已附加到实例: ' + ipAddr)
     loadNetworkDetail()
@@ -4912,7 +4919,7 @@ async function handleAssignReservedIp(publicIpId: string) {
       id: currentTenant.value.id,
       publicIpId,
       instanceId: currentInstance.value.instanceId,
-      ...instanceDetailRegionParam(),
+      ...instanceDetailScopeParam(),
     })
     message.success('预留IP已绑定')
     loadReservedIps(); loadNetworkDetail()
