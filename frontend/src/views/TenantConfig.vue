@@ -2241,11 +2241,12 @@ const columns = [
   { title: '操作', key: 'action', width: 310 },
 ]
 
-const loading = computed(() => catalog.tenantsLoading || searchLoading.value)
 const submitLoading = ref(false)
 const searchTableData = ref<any[]>([])
 const searchText = ref('')
 const normalizedSearchText = computed(() => searchText.value.trim())
+const isSearchingTenants = computed(() => !!normalizedSearchText.value)
+const loading = computed(() => isSearchingTenants.value ? searchLoading.value : catalog.tenantsLoading)
 const tableData = computed(() => (normalizedSearchText.value ? searchTableData.value : catalog.tenants) as any[])
 const selectedRowKeys = ref<string[]>([])
 let tenantInfoPollTimers: ReturnType<typeof setTimeout>[] = []
@@ -2546,6 +2547,7 @@ async function loadData(expandAfter?: { groupLevel1?: string; groupLevel2?: stri
     return
   }
   tenantSearchRequestSeq += 1
+  searchLoading.value = false
   searchTableData.value = []
   try {
     await Promise.all([
@@ -2579,6 +2581,12 @@ watch(searchText, () => {
   if (tenantSearchTimer) {
     clearTimeout(tenantSearchTimer)
   }
+  if (!normalizedSearchText.value) {
+    tenantSearchRequestSeq += 1
+    searchLoading.value = false
+    searchTableData.value = []
+    pagination.total = 0
+  }
   tenantSearchTimer = setTimeout(() => {
     tenantSearchTimer = null
     void loadData()
@@ -2599,7 +2607,7 @@ async function refreshTenantListSilently() {
   const keyword = normalizedSearchText.value
   try {
     if (keyword) {
-      const requestSeq = ++tenantSearchRequestSeq
+      const requestSeq = tenantSearchRequestSeq
       const res = await getTenantList({
         current: pagination.current,
         size: pagination.pageSize,
