@@ -629,66 +629,78 @@ region=ap-tokyo-1"
       :mask-closable="false" :keyboard="false">
       <a-tabs v-model:activeKey="tenantTab" @change="onTenantTabChange">
         <a-tab-pane key="account" tab="租户信息">
-      <a-spin :spinning="tenantInfoLoading">
-        <a-descriptions :column="1" bordered size="small" style="margin-top: 8px">
-          <a-descriptions-item label="租户名称">{{ tenantInfoData.tenantName || '—' }}</a-descriptions-item>
-          <a-descriptions-item label="homeRegionKey">{{ tenantInfoData.homeRegionKey || '—' }}</a-descriptions-item>
-          <a-descriptions-item label="租户 ID">
-            <span style="word-break: break-all; font-size: 12px">{{ tenantInfoData.tenantId || '—' }}</span>
-          </a-descriptions-item>
-          <a-descriptions-item label="描述">{{ tenantInfoData.description || '—' }}</a-descriptions-item>
-          <a-descriptions-item label="已订阅的区域">
-            <template v-if="tenantInfoData.subscribedRegions?.length">
-              <a-tag v-for="r in tenantInfoData.subscribedRegions" :key="r" color="blue" style="margin: 2px">{{ r }}</a-tag>
-            </template>
-            <span v-else>—</span>
-          </a-descriptions-item>
-          <a-descriptions-item label="订阅套餐">
-            <a-tag v-if="tenantInfoData.planType" :color="planTypeTagColor(tenantInfoData.planType)">
-              {{ tenantInfoData.planTypeLabel || formatPlanType(tenantInfoData.planType) }}
-            </a-tag>
-            <span v-else>—</span>
-          </a-descriptions-item>
-          <a-descriptions-item label="支付方式">
-            {{ tenantInfoData.paymentMethodLabel || formatPaymentMethod(tenantInfoData.paymentMethod) || '—' }}
-          </a-descriptions-item>
-          <a-descriptions-item label="账户类型">
-            <a-tag v-if="tenantInfoData.accountType" color="orange">{{ formatAccountType(tenantInfoData.accountType) }}</a-tag>
-            <span v-else>—</span>
-          </a-descriptions-item>
-          <a-descriptions-item label="升级状态">
-            <a-tag v-if="tenantInfoData.upgradeState" color="purple">
-              {{ tenantInfoData.upgradeStateLabel || formatUpgradeState(tenantInfoData.upgradeState) }}
-            </a-tag>
-            <span v-else>—</span>
-          </a-descriptions-item>
-          <a-descriptions-item label="订阅状态">
-            <a-tag v-if="tenantInfoData.subscriptionStatus || tenantInfoData.subscriptionStatusLabel"
-              :color="subscriptionStatusTagColor(tenantInfoData.subscriptionStatus)">
-              {{ tenantInfoData.subscriptionStatusLabel || formatSubscriptionStatus(tenantInfoData.subscriptionStatus) }}
-              <span v-if="tenantInfoData.subscriptionStatus && tenantInfoData.subscriptionStatusLabel"
-                style="opacity: 0.75; font-size: 11px"> ({{ tenantInfoData.subscriptionStatus }})</span>
-            </a-tag>
-            <span v-else>—</span>
-          </a-descriptions-item>
-          <a-descriptions-item label="货币">{{ tenantInfoData.currencyCode || '—' }}</a-descriptions-item>
-          <a-descriptions-item label="已完成付款意向">
-            <a-tag v-if="tenantInfoData.isIntentToPay !== undefined && tenantInfoData.isIntentToPay !== null"
-              :color="tenantInfoData.isIntentToPay ? 'green' : 'red'">
-              {{ tenantInfoData.isIntentToPay ? '是' : '否' }}
-            </a-tag>
-            <span v-else>—</span>
-          </a-descriptions-item>
-          <a-descriptions-item label="开始日期">{{ formatUtcCnDate(tenantInfoData.subscriptionStartTime) }}</a-descriptions-item>
-          <a-descriptions-item label="注册地">{{ formatCountryCn(tenantInfoData.registrationLocation) }}</a-descriptions-item>
-          <a-descriptions-item label="订阅编号">
-            <span style="word-break: break-all; font-size: 12px">{{ tenantInfoData.subscriptionPlanNumber || '—' }}</span>
-          </a-descriptions-item>
-          <a-descriptions-item label="组织订阅 OCID">
-            <span style="word-break: break-all; font-size: 12px">{{ tenantInfoData.subscriptionOrgOcid || '—' }}</span>
-          </a-descriptions-item>
-        </a-descriptions>
-      </a-spin>
+          <div class="tenant-account-pane">
+            <a-tooltip title="刷新租户信息">
+              <button
+                class="tenant-account-refresh"
+                :class="{ spinning: tenantInfoLoading }"
+                type="button"
+                aria-label="刷新租户信息"
+                :disabled="tenantInfoLoading"
+                @click="handleRefreshTenantAccountInfo"
+              >↻</button>
+            </a-tooltip>
+            <a-spin :spinning="tenantInfoLoading">
+              <a-descriptions :column="1" bordered size="small" style="margin-top: 8px">
+                <a-descriptions-item label="租户名称">{{ tenantInfoData.tenantName || '—' }}</a-descriptions-item>
+                <a-descriptions-item label="homeRegionKey">{{ tenantInfoData.homeRegionKey || '—' }}</a-descriptions-item>
+                <a-descriptions-item label="租户 ID">
+                  <span style="word-break: break-all; font-size: 12px">{{ tenantInfoData.tenantId || '—' }}</span>
+                </a-descriptions-item>
+                <a-descriptions-item label="描述">{{ tenantInfoData.description || '—' }}</a-descriptions-item>
+                <a-descriptions-item label="已订阅的区域">
+                  <template v-if="tenantInfoData.subscribedRegions?.length">
+                    <a-tag v-for="r in tenantInfoData.subscribedRegions" :key="r" color="blue" style="margin: 2px">{{ r }}</a-tag>
+                  </template>
+                  <span v-else>—</span>
+                </a-descriptions-item>
+                <a-descriptions-item label="订阅套餐">
+                  <a-tag v-if="tenantInfoData.planType" :color="planTypeTagColor(tenantInfoData.planType)">
+                    {{ tenantInfoData.planTypeLabel || formatPlanType(tenantInfoData.planType) }}
+                  </a-tag>
+                  <span v-else>—</span>
+                </a-descriptions-item>
+                <a-descriptions-item label="支付方式">
+                  {{ tenantInfoData.paymentMethodLabel || formatPaymentMethod(tenantInfoData.paymentMethod) || '—' }}
+                </a-descriptions-item>
+                <a-descriptions-item label="账户类型">
+                  <a-tag v-if="tenantInfoData.accountType" color="orange">{{ formatAccountType(tenantInfoData.accountType) }}</a-tag>
+                  <span v-else>—</span>
+                </a-descriptions-item>
+                <a-descriptions-item label="升级状态">
+                  <a-tag v-if="tenantInfoData.upgradeState" color="purple">
+                    {{ tenantInfoData.upgradeStateLabel || formatUpgradeState(tenantInfoData.upgradeState) }}
+                  </a-tag>
+                  <span v-else>—</span>
+                </a-descriptions-item>
+                <a-descriptions-item label="订阅状态">
+                  <a-tag v-if="tenantInfoData.subscriptionStatus || tenantInfoData.subscriptionStatusLabel"
+                    :color="subscriptionStatusTagColor(tenantInfoData.subscriptionStatus)">
+                    {{ tenantInfoData.subscriptionStatusLabel || formatSubscriptionStatus(tenantInfoData.subscriptionStatus) }}
+                    <span v-if="tenantInfoData.subscriptionStatus && tenantInfoData.subscriptionStatusLabel"
+                      style="opacity: 0.75; font-size: 11px"> ({{ tenantInfoData.subscriptionStatus }})</span>
+                  </a-tag>
+                  <span v-else>—</span>
+                </a-descriptions-item>
+                <a-descriptions-item label="货币">{{ tenantInfoData.currencyCode || '—' }}</a-descriptions-item>
+                <a-descriptions-item label="已完成付款意向">
+                  <a-tag v-if="tenantInfoData.isIntentToPay !== undefined && tenantInfoData.isIntentToPay !== null"
+                    :color="tenantInfoData.isIntentToPay ? 'green' : 'red'">
+                    {{ tenantInfoData.isIntentToPay ? '是' : '否' }}
+                  </a-tag>
+                  <span v-else>—</span>
+                </a-descriptions-item>
+                <a-descriptions-item label="开始日期">{{ formatUtcCnDate(tenantInfoData.subscriptionStartTime) }}</a-descriptions-item>
+                <a-descriptions-item label="注册地">{{ formatCountryCn(tenantInfoData.registrationLocation) }}</a-descriptions-item>
+                <a-descriptions-item label="订阅编号">
+                  <span style="word-break: break-all; font-size: 12px">{{ tenantInfoData.subscriptionPlanNumber || '—' }}</span>
+                </a-descriptions-item>
+                <a-descriptions-item label="组织订阅 OCID">
+                  <span style="word-break: break-all; font-size: 12px">{{ tenantInfoData.subscriptionOrgOcid || '—' }}</span>
+                </a-descriptions-item>
+              </a-descriptions>
+            </a-spin>
+          </div>
         </a-tab-pane>
         <a-tab-pane key="compartments" tab="区间">
           <CompartmentManager
@@ -4010,8 +4022,10 @@ function onTenantTabChange(key: string) {
   if (key === 'announcements' && !announcementsList.value.length) loadAnnouncements()
 }
 
-async function loadTenantAccountInfo(record: any) {
-  tenantInfoData.value = { configName: record.username, id: record.id }
+async function loadTenantAccountInfo(record: any, options: { preserve?: boolean } = {}) {
+  if (!options.preserve) {
+    tenantInfoData.value = { configName: record.username, id: record.id }
+  }
   tenantInfoLoading.value = true
   try {
     const res = await getTenantFullInfo({ id: record.id })
@@ -4029,6 +4043,11 @@ async function loadTenantAccountInfo(record: any) {
   } finally {
     tenantInfoLoading.value = false
   }
+}
+
+async function handleRefreshTenantAccountInfo() {
+  if (!tenantMgmtTenant.value?.id || tenantInfoLoading.value) return
+  await loadTenantAccountInfo(tenantMgmtTenant.value, { preserve: true })
 }
 
 async function loadTenantBilling() {
@@ -5678,6 +5697,60 @@ onUnmounted(() => {
 
 .tenant-info-tag {
   margin: 0;
+}
+
+.tenant-account-pane {
+  position: relative;
+}
+
+.tenant-account-refresh {
+  position: absolute;
+  top: -20px;
+  right: 6px;
+  z-index: 2;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid rgba(148, 163, 184, 0.22);
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text-sub);
+  cursor: pointer;
+  font-size: 15px;
+  line-height: 20px;
+  text-align: center;
+  transition: color 0.18s ease, border-color 0.18s ease, background 0.18s ease, opacity 0.18s ease;
+}
+
+.tenant-account-refresh:hover:not(:disabled) {
+  border-color: rgba(99, 102, 241, 0.58);
+  background: rgba(99, 102, 241, 0.12);
+  color: #818cf8;
+}
+
+.tenant-account-refresh:disabled {
+  cursor: default;
+  opacity: 0.72;
+}
+
+.tenant-account-refresh.spinning {
+  animation: tenant-account-refresh-spin 0.85s linear infinite;
+}
+
+@keyframes tenant-account-refresh-spin {
+  to { transform: rotate(360deg); }
+}
+
+:global([data-theme="light"]) .tenant-account-refresh {
+  border-color: rgba(15, 23, 42, 0.12);
+  background: rgba(15, 23, 42, 0.035);
+  color: rgba(71, 85, 105, 0.82);
+}
+
+:global([data-theme="light"]) .tenant-account-refresh:hover:not(:disabled) {
+  border-color: rgba(37, 99, 235, 0.38);
+  background: rgba(37, 99, 235, 0.08);
+  color: #2563eb;
 }
 
 .tenant-form-compact :deep(.ant-form-item) {
