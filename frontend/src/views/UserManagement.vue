@@ -720,10 +720,20 @@ function confirmAction(title: string, onOk: () => void) {
   Modal.confirm({ title, onOk })
 }
 
+function userOperationPayload(record: any) {
+  const payload: Record<string, any> = {
+    tenantId,
+    userId: record.id,
+  }
+  if (record.domainId) payload.domainId = record.domainId
+  if (record.scimId) payload.scimId = record.scimId
+  return payload as { tenantId: string; userId: string; domainId?: string; scimId?: string }
+}
+
 async function handleResetPassword(record: any) {
   currentActionLoading[record.id] = true
   try {
-    const res = await resetPassword({ tenantId, userId: record.id })
+    const res = await resetPassword(userOperationPayload(record))
     pwdResult.value = res.data || ''
     pwdResultVisible.value = true
   } catch (e: any) {
@@ -747,8 +757,8 @@ async function openEditUserWithCode(record: any, code: string) {
   editGroupsLoading.value = true
   try {
     const [allRes, userRes] = await Promise.all([
-      listGroups({ tenantId }),
-      getUserGroups({ tenantId, userId: record.id }),
+      record.domainId ? listDomainGroups({ tenantId, domainId: record.domainId }) : listGroups({ tenantId }),
+      getUserGroups(userOperationPayload(record)),
     ])
     const all = (allRes.data || []) as { id: string; name: string; description?: string }[]
     tenantGroups.value = all
@@ -778,7 +788,7 @@ async function openCapabilitiesWithCode(record: any, code: string) {
   capabilitiesVisible.value = true
   capabilitiesLoading.value = true
   try {
-    const res = await getUserCapabilities({ tenantId, userId: record.id })
+    const res = await getUserCapabilities(userOperationPayload(record))
     initCapabilitiesForm(res.data as Record<string, boolean>)
   } catch (e: any) {
     message.error(e?.message || '加载用户权限失败')
@@ -801,8 +811,7 @@ async function handleUpdateCapabilities() {
       capabilities[item.key] = !!capabilitiesForm[item.key]
     }
     await updateUserCapabilities({
-      tenantId,
-      userId: capabilitiesUser.value.id,
+      ...userOperationPayload(capabilitiesUser.value),
       verifyCode: pendingCapabilitiesVerifyCode,
       capabilities,
     })
@@ -821,8 +830,7 @@ async function handleUpdateUser() {
   editLoading.value = true
   try {
     await updateUser({
-      tenantId,
-      userId: editingUser.value.id,
+      ...userOperationPayload(editingUser.value),
       userName: editForm.userName,
       email: editForm.email,
       groupIds: [...editForm.groupIds],
@@ -901,7 +909,7 @@ async function handleCreate() {
 async function handleClearMfaWithCode(record: any, code: string) {
   currentActionLoading[record.id] = true
   try {
-    await clearMfa({ tenantId, userId: record.id, verifyCode: code })
+    await clearMfa({ ...userOperationPayload(record), verifyCode: code })
     message.success('MFA 已清理')
     loadUsers()
   } catch (e: any) {
@@ -914,7 +922,7 @@ async function handleClearMfaWithCode(record: any, code: string) {
 async function handleRemoveFromAdminWithCode(record: any, code: string) {
   currentActionLoading[record.id] = true
   try {
-    await removeFromAdmin({ tenantId, userId: record.id, verifyCode: code })
+    await removeFromAdmin({ ...userOperationPayload(record), verifyCode: code })
     message.success('已移出管理员组')
   } catch (e: any) {
     message.error(e?.message || '操作失败')
@@ -926,7 +934,7 @@ async function handleRemoveFromAdminWithCode(record: any, code: string) {
 async function handleDisableWithCode(record: any, code: string) {
   currentActionLoading[record.id] = true
   try {
-    await updateUserState({ tenantId, userId: record.id, blocked: true, verifyCode: code })
+    await updateUserState({ ...userOperationPayload(record), blocked: true, verifyCode: code })
     message.success('用户已禁用')
     loadUsers()
   } catch (e: any) {
@@ -939,7 +947,7 @@ async function handleDisableWithCode(record: any, code: string) {
 async function handleAddToAdmin(record: any) {
   currentActionLoading[record.id] = true
   try {
-    await addToAdmin({ tenantId, userId: record.id })
+    await addToAdmin(userOperationPayload(record))
     message.success('已加入管理员组')
   } catch (e: any) {
     message.error(e?.message || '操作失败')
@@ -951,7 +959,7 @@ async function handleAddToAdmin(record: any) {
 async function handleToggleState(record: any, blocked: boolean) {
   currentActionLoading[record.id] = true
   try {
-    await updateUserState({ tenantId, userId: record.id, blocked })
+    await updateUserState({ ...userOperationPayload(record), blocked })
     message.success(blocked ? '用户已禁用' : '用户已启用')
     loadUsers()
   } catch (e: any) {
@@ -966,7 +974,7 @@ async function handleListMfa(record: any) {
   mfaLoading.value = true
   mfaVisible.value = true
   try {
-    const res = await listMfaDevices({ tenantId, userId: record.id })
+    const res = await listMfaDevices(userOperationPayload(record))
     mfaDevices.value = res.data || []
   } catch (e: any) {
     message.error(e?.message || '获取 MFA 设备失败')

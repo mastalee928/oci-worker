@@ -37,6 +37,16 @@ public class UserManagementService {
     private static final String SCIM_SCHEMA_PATCH_OP = "urn:ietf:params:scim:api:messages:2.0:PatchOp";
     private static final String SCHEMA_USER_PASSWORD_CHANGER =
             "urn:ietf:params:scim:schemas:oracle:idcs:UserPasswordChanger";
+    private static final String SCHEMA_USER_STATUS_CHANGER =
+            "urn:ietf:params:scim:schemas:oracle:idcs:UserStatusChanger";
+    private static final String SCHEMA_USER_CAPABILITIES_CHANGER =
+            "urn:ietf:params:scim:schemas:oracle:idcs:UserCapabilitiesChanger";
+    private static final String SCHEMA_AUTHENTICATION_FACTORS_REMOVER =
+            "urn:ietf:params:scim:schemas:oracle:idcs:AuthenticationFactorsRemover";
+    private static final String SCIM_CAPABILITIES_ATTR =
+            "urn:ietf:params:scim:schemas:oracle:idcs:extension:capabilities:User";
+    private static final String SCIM_MFA_ATTR =
+            "urn:ietf:params:scim:schemas:oracle:idcs:extension:mfa:User:mfaStatus";
     private static final String SCIM_USER_LIST_ATTRIBUTES = String.join(",",
             "id",
             "ocid",
@@ -382,6 +392,61 @@ public class UserManagementService {
         return "Default".equals(String.valueOf(domain.get("displayName")));
     }
 
+    private Map<String, Object> findSelectedDomain(OciClientService oci, String domainId) {
+        if (StrUtil.isBlank(domainId)) {
+            return null;
+        }
+        List<Map<String, Object>> domains = domainManagementService.listDomains(oci, false);
+        for (Map<String, Object> d : domains) {
+            if (domainId.equals(String.valueOf(d.get("id")))) {
+                return d;
+            }
+        }
+        throw new OciException("未找到指定的 Identity Domain，请刷新域列表后重试");
+    }
+
+    private IdentityDomainsClient buildIdentityDomainsClient(OciClientService oci, Map<String, Object> domain) {
+        String url = domain == null ? null : (String) domain.get("url");
+        if (StrUtil.isBlank(url)) {
+            throw new OciException("该 Identity Domain 缺少 URL，无法执行操作");
+        }
+        IdentityDomainsClient dc = IdentityDomainsClient.builder().build(oci.getProvider());
+        dc.setEndpoint(url);
+        return dc;
+    }
+
+    private String resolveScimUserId(IdentityDomainsClient dc, UserParams params) {
+        if (StrUtil.isNotBlank(params.getScimId())) {
+            return params.getScimId();
+        }
+        String userId = params.getUserId();
+        if (StrUtil.isBlank(userId)) {
+            throw new OciException("userId 不能为空");
+        }
+        try {
+            com.oracle.bmc.identitydomains.responses.ListUsersResponse listResp = dc.listUsers(
+                    com.oracle.bmc.identitydomains.requests.ListUsersRequest.builder()
+                            .filter("ocid eq \"" + escapeScimFilterValue(userId) + "\"")
+                            .attributes("id,ocid,userName")
+                            .count(1)
+                            .build());
+            com.oracle.bmc.identitydomains.model.Users wrapper = listResp.getUsers();
+            if (wrapper != null && wrapper.getResources() != null && !wrapper.getResources().isEmpty()) {
+                Object raw = wrapper.getResources().get(0);
+                if (raw instanceof com.oracle.bmc.identitydomains.model.User u && StrUtil.isNotBlank(u.getId())) {
+                    return u.getId();
+                }
+            }
+        } catch (Exception e) {
+            log.debug("Failed to resolve SCIM user id by OCID {}, using raw userId: {}", userId, e.getMessage());
+        }
+        return userId;
+    }
+
+    private static String domainLabel(Map<String, Object> domain) {
+        return domain == null ? "Identity Domain" : String.valueOf(domain.get("displayName"));
+    }
+
     /**
      * 在非 Default 的 identity domain 中通过 IAM Identity Domains API（SCIM）创建用户。
      */
@@ -529,6 +594,55 @@ public class UserManagementService {
         }
     }
 
+    private String findIdentityDomainAdminGroupId(IdentityDomainsClient dc) {
+        com.oracle.bmc.identitydomains.responses.ListGroupsResponse listResp = dc.listGroups(
+                com.oracle.bmc.identitydomains.requests.ListGroupsRequest.builder()
+                        .filter("displayName eq \"Administrators\"")
+                        .attributes("id,displayName")
+                        .count(10)
+                        .build());
+        Groups groups = listResp.getGroups();
+        if (groups == null || groups.getResources() == null || groups.getResources().isEmpty()) {
+            return null;
+        }
+        Object raw = groups.getResources().get(0);
+        if (raw instanceof com.oracle.bmc.identitydomains.model.Group group) {
+            return group.getId();
+        }
+        return null;
+    }
+
+    private void patchIdentityDomainGroupMember(
+            IdentityDomainsClient dc,
+            String userScimId,
+            String groupId,
+            boolean add) {
+        com.oracle.bmc.identitydomains.responses.GetGroupResponse getResp = dc.getGroup(
+                com.oracle.bmc.identitydomains.requests.GetGroupRequest.builder().groupId(groupId).build());
+        String ifMatch = headerValueIgnoreCase(getResp, "etag");
+        Operations.Builder op = Operations.builder()
+                .op(add ? Operations.Op.Add : Operations.Op.Remove);
+        if (add) {
+            Map<String, Object> member = new LinkedHashMap<>();
+            member.put("value", userScimId);
+            member.put("type", "User");
+            op.path("members").value(List.of(member));
+        } else {
+            op.path("members[value eq \"" + escapeScimFilterValue(userScimId) + "\"]");
+        }
+        PatchOp patchOp = PatchOp.builder()
+                .schemas(List.of(SCIM_SCHEMA_PATCH_OP))
+                .operations(List.of(op.build()))
+                .build();
+        PatchGroupRequest.Builder pr = PatchGroupRequest.builder()
+                .groupId(groupId)
+                .patchOp(patchOp);
+        if (StrUtil.isNotBlank(ifMatch)) {
+            pr.ifMatch(ifMatch);
+        }
+        dc.patchGroup(pr.build());
+    }
+
     private static boolean isHiddenDomainGroupName(String name) {
         if (StrUtil.isBlank(name)) {
             return false;
@@ -644,6 +758,14 @@ public class UserManagementService {
         if (StrUtil.isBlank(userId)) {
             throw new OciException("userId 不能为空");
         }
+        if (StrUtil.isNotBlank(params.getDomainId())) {
+            try (OciClientService oci = domainManagementService.openOciClient(tenant.getId())) {
+                Map<String, Object> domain = findSelectedDomain(oci, params.getDomainId());
+                if (domain != null && !isDefaultDomainForClassicIam(domain)) {
+                    return resetPasswordViaIdentityDomain(oci, domain, params);
+                }
+            }
+        }
         try (IdentityClient client = buildClient(tenant)) {
             CreateOrResetUIPasswordResponse response = client.createOrResetUIPassword(
                     CreateOrResetUIPasswordRequest.builder().userId(userId).build());
@@ -659,6 +781,35 @@ public class UserManagementService {
             log.info("Classic CreateOrResetUIPassword returned {}, trying Identity Domains API for user {}", code, userId);
         }
         return resetPasswordViaIdentityDomains(tenant, userId);
+    }
+
+    private String resetPasswordViaIdentityDomain(
+            OciClientService oci,
+            Map<String, Object> domain,
+            UserParams params) {
+        String newPassword = generateAdminResetPassword();
+        UserPasswordChanger body = UserPasswordChanger.builder()
+                .schemas(List.of(SCHEMA_USER_PASSWORD_CHANGER))
+                .password(newPassword)
+                .bypassNotification(true)
+                .build();
+        try (IdentityDomainsClient dc = buildIdentityDomainsClient(oci, domain)) {
+            String scimUserId = resolveScimUserId(dc, params);
+            dc.putUserPasswordChanger(
+                    PutUserPasswordChangerRequest.builder()
+                            .userPasswordChangerId(scimUserId)
+                            .userPasswordChanger(body)
+                            .build());
+            log.info("Password reset (Identity Domains) domain={} user={}", domainLabel(domain), scimUserId);
+            return newPassword;
+        } catch (BmcException ex) {
+            int sc = ex.getStatusCode();
+            if (sc == 401 || sc == 403) {
+                throw new OciException("重置密码失败：API Key 对应用户在域「" + domainLabel(domain)
+                        + "」中权限不足，请授予用户管理员(User Administrator)权限后重试。");
+            }
+            throw ex;
+        }
     }
 
     private static String generateAdminResetPassword() {
@@ -742,6 +893,13 @@ public class UserManagementService {
 
     public void clearMfa(UserParams params) {
         OciUser tenant = getTenant(params.getTenantId());
+        try (OciClientService oci = domainManagementService.openOciClient(tenant.getId())) {
+            Map<String, Object> domain = findSelectedDomain(oci, params.getDomainId());
+            if (domain != null && !isDefaultDomainForClassicIam(domain)) {
+                clearMfaIdentityDomain(oci, domain, params);
+                return;
+            }
+        }
         try (IdentityClient client = buildClient(tenant)) {
             ListMfaTotpDevicesResponse mfaResponse = client.listMfaTotpDevices(
                     ListMfaTotpDevicesRequest.builder()
@@ -757,6 +915,25 @@ public class UserManagementService {
                 );
                 log.info("Deleted MFA device: {} for user: {}", device.getId(), params.getUserId());
             }
+        }
+    }
+
+    private void clearMfaIdentityDomain(OciClientService oci, Map<String, Object> domain, UserParams params) {
+        try (IdentityDomainsClient dc = buildIdentityDomainsClient(oci, domain)) {
+            String scimUserId = resolveScimUserId(dc, params);
+            com.oracle.bmc.identitydomains.model.AuthenticationFactorsRemover remover =
+                    com.oracle.bmc.identitydomains.model.AuthenticationFactorsRemover.builder()
+                            .schemas(List.of(SCHEMA_AUTHENTICATION_FACTORS_REMOVER))
+                            .user(com.oracle.bmc.identitydomains.model.AuthenticationFactorsRemoverUser.builder()
+                                    .value(scimUserId)
+                                    .build())
+                            .type(com.oracle.bmc.identitydomains.model.AuthenticationFactorsRemover.Type.Mfa)
+                            .build();
+            dc.createAuthenticationFactorsRemover(
+                    com.oracle.bmc.identitydomains.requests.CreateAuthenticationFactorsRemoverRequest.builder()
+                            .authenticationFactorsRemover(remover)
+                            .build());
+            log.info("Removed MFA factors for identity domain user {} in {}", scimUserId, domainLabel(domain));
         }
     }
 
@@ -783,6 +960,13 @@ public class UserManagementService {
 
     public void addUserToGroup(UserParams params) {
         OciUser tenant = getTenant(params.getTenantId());
+        try (OciClientService oci = domainManagementService.openOciClient(tenant.getId())) {
+            Map<String, Object> domain = findSelectedDomain(oci, params.getDomainId());
+            if (domain != null && !isDefaultDomainForClassicIam(domain)) {
+                addUserToAdminIdentityDomain(oci, domain, params);
+                return;
+            }
+        }
         try (IdentityClient client = buildClient(tenant)) {
             String adminGroupId = findAdminGroupId(client, tenant.getOciTenantId());
             if (adminGroupId == null) throw new OciException("未找到管理员组");
@@ -799,8 +983,27 @@ public class UserManagementService {
         }
     }
 
+    private void addUserToAdminIdentityDomain(OciClientService oci, Map<String, Object> domain, UserParams params) {
+        try (IdentityDomainsClient dc = buildIdentityDomainsClient(oci, domain)) {
+            String scimUserId = resolveScimUserId(dc, params);
+            String adminGroupId = findIdentityDomainAdminGroupId(dc);
+            if (StrUtil.isBlank(adminGroupId)) {
+                throw new OciException("未找到域「" + domainLabel(domain) + "」中的 Administrators 组");
+            }
+            patchIdentityDomainGroupMember(dc, scimUserId, adminGroupId, true);
+            log.info("Added identity domain user {} to Administrators in {}", scimUserId, domainLabel(domain));
+        }
+    }
+
     public void removeUserFromGroup(UserParams params) {
         OciUser tenant = getTenant(params.getTenantId());
+        try (OciClientService oci = domainManagementService.openOciClient(tenant.getId())) {
+            Map<String, Object> domain = findSelectedDomain(oci, params.getDomainId());
+            if (domain != null && !isDefaultDomainForClassicIam(domain)) {
+                removeUserFromAdminIdentityDomain(oci, domain, params);
+                return;
+            }
+        }
         try (IdentityClient client = buildClient(tenant)) {
             String adminGroupId = findAdminGroupId(client, tenant.getOciTenantId());
             if (adminGroupId == null) throw new OciException("未找到管理员组");
@@ -824,6 +1027,18 @@ public class UserManagementService {
         }
     }
 
+    private void removeUserFromAdminIdentityDomain(OciClientService oci, Map<String, Object> domain, UserParams params) {
+        try (IdentityDomainsClient dc = buildIdentityDomainsClient(oci, domain)) {
+            String scimUserId = resolveScimUserId(dc, params);
+            String adminGroupId = findIdentityDomainAdminGroupId(dc);
+            if (StrUtil.isBlank(adminGroupId)) {
+                throw new OciException("未找到域「" + domainLabel(domain) + "」中的 Administrators 组");
+            }
+            patchIdentityDomainGroupMember(dc, scimUserId, adminGroupId, false);
+            log.info("Removed identity domain user {} from Administrators in {}", scimUserId, domainLabel(domain));
+        }
+    }
+
     public List<String> getUserGroupNames(String tenantId, String userId) {
         return getUserGroups(tenantId, userId).stream()
                 .map(g -> g.get("name") == null ? null : String.valueOf(g.get("name")))
@@ -832,6 +1047,24 @@ public class UserManagementService {
     }
 
     public List<Map<String, Object>> getUserGroups(String tenantId, String userId) {
+        UserParams params = new UserParams();
+        params.setTenantId(tenantId);
+        params.setUserId(userId);
+        return getUserGroups(params);
+    }
+
+    public List<Map<String, Object>> getUserGroups(UserParams params) {
+        OciUser tenant = getTenant(params.getTenantId());
+        try (OciClientService oci = domainManagementService.openOciClient(tenant.getId())) {
+            Map<String, Object> domain = findSelectedDomain(oci, params.getDomainId());
+            if (domain != null && !isDefaultDomainForClassicIam(domain)) {
+                return getUserGroupsIdentityDomain(oci, domain, params);
+            }
+        }
+        return getClassicUserGroups(params.getTenantId(), params.getUserId());
+    }
+
+    private List<Map<String, Object>> getClassicUserGroups(String tenantId, String userId) {
         OciUser tenant = getTenant(tenantId);
         try (IdentityClient client = buildClient(tenant)) {
             ListUserGroupMembershipsResponse memberships = client.listUserGroupMemberships(
@@ -866,7 +1099,58 @@ public class UserManagementService {
         }
     }
 
+    private List<Map<String, Object>> getUserGroupsIdentityDomain(
+            OciClientService oci,
+            Map<String, Object> domain,
+            UserParams params) {
+        try (IdentityDomainsClient dc = buildIdentityDomainsClient(oci, domain)) {
+            String scimUserId = resolveScimUserId(dc, params);
+            com.oracle.bmc.identitydomains.responses.GetUserResponse response = dc.getUser(
+                    com.oracle.bmc.identitydomains.requests.GetUserRequest.builder()
+                            .userId(scimUserId)
+                            .attributes("groups")
+                            .build());
+            List<Map<String, Object>> result = new ArrayList<>();
+            com.oracle.bmc.identitydomains.model.User user = response.getUser();
+            if (user == null || user.getGroups() == null) {
+                return result;
+            }
+            for (com.oracle.bmc.identitydomains.model.UserGroups group : user.getGroups()) {
+                String groupId = group.getValue();
+                String name = StrUtil.blankToDefault(group.getDisplay(), groupId);
+                if (isHiddenDomainGroupName(name)) {
+                    continue;
+                }
+                Map<String, Object> map = new LinkedHashMap<>();
+                map.put("groupId", groupId);
+                map.put("name", name);
+                result.add(map);
+            }
+            return result;
+        }
+    }
+
     public void syncUserGroups(String tenantId, String userId, List<String> targetGroupIds) {
+        UserParams params = new UserParams();
+        params.setTenantId(tenantId);
+        params.setUserId(userId);
+        params.setGroupIds(targetGroupIds);
+        syncUserGroups(params);
+    }
+
+    public void syncUserGroups(UserParams params) {
+        OciUser tenant = getTenant(params.getTenantId());
+        try (OciClientService oci = domainManagementService.openOciClient(tenant.getId())) {
+            Map<String, Object> domain = findSelectedDomain(oci, params.getDomainId());
+            if (domain != null && !isDefaultDomainForClassicIam(domain)) {
+                syncUserGroupsIdentityDomain(oci, domain, params);
+                return;
+            }
+        }
+        syncClassicUserGroups(params.getTenantId(), params.getUserId(), params.getGroupIds());
+    }
+
+    private void syncClassicUserGroups(String tenantId, String userId, List<String> targetGroupIds) {
         OciUser tenant = getTenant(tenantId);
         LinkedHashSet<String> target = new LinkedHashSet<>();
         if (targetGroupIds != null) {
@@ -924,6 +1208,38 @@ public class UserManagementService {
         }
     }
 
+    private void syncUserGroupsIdentityDomain(OciClientService oci, Map<String, Object> domain, UserParams params) {
+        LinkedHashSet<String> target = new LinkedHashSet<>();
+        if (params.getGroupIds() != null) {
+            for (String id : params.getGroupIds()) {
+                if (StrUtil.isNotBlank(id)) {
+                    target.add(id.trim());
+                }
+            }
+        }
+        try (IdentityDomainsClient dc = buildIdentityDomainsClient(oci, domain)) {
+            String scimUserId = resolveScimUserId(dc, params);
+            List<Map<String, Object>> memberships = getUserGroupsIdentityDomain(oci, domain, params);
+            Set<String> currentGroupIds = new LinkedHashSet<>();
+            for (Map<String, Object> membership : memberships) {
+                Object groupId = membership.get("groupId");
+                if (groupId != null) {
+                    currentGroupIds.add(String.valueOf(groupId));
+                }
+            }
+            for (String groupId : currentGroupIds) {
+                if (!target.contains(groupId)) {
+                    patchIdentityDomainGroupMember(dc, scimUserId, groupId, false);
+                }
+            }
+            for (String groupId : target) {
+                if (!currentGroupIds.contains(groupId)) {
+                    patchIdentityDomainGroupMember(dc, scimUserId, groupId, true);
+                }
+            }
+        }
+    }
+
     private void addToAdminGroup(IdentityClient client, String compartmentId, String userId) {
         String adminGroupId = findAdminGroupId(client, compartmentId);
         if (adminGroupId == null) {
@@ -946,6 +1262,13 @@ public class UserManagementService {
 
     public void updateUser(UserParams params) {
         OciUser tenant = getTenant(params.getTenantId());
+        try (OciClientService oci = domainManagementService.openOciClient(tenant.getId())) {
+            Map<String, Object> domain = findSelectedDomain(oci, params.getDomainId());
+            if (domain != null && !isDefaultDomainForClassicIam(domain)) {
+                updateUserIdentityDomain(oci, domain, params);
+                return;
+            }
+        }
         try (IdentityClient client = buildClient(tenant)) {
             UpdateUserDetails.Builder builder = UpdateUserDetails.builder();
             if (StrUtil.isNotBlank(params.getEmail())) builder.email(params.getEmail());
@@ -959,11 +1282,83 @@ public class UserManagementService {
         }
     }
 
+    private void updateUserIdentityDomain(OciClientService oci, Map<String, Object> domain, UserParams params) {
+        List<Operations> operations = new ArrayList<>();
+        if (StrUtil.isNotBlank(params.getUserName())) {
+            operations.add(Operations.builder()
+                    .op(Operations.Op.Replace)
+                    .path("description")
+                    .value(params.getUserName())
+                    .build());
+        }
+        if (StrUtil.isNotBlank(params.getEmail())) {
+            Map<String, Object> email = new LinkedHashMap<>();
+            email.put("value", params.getEmail());
+            email.put("type", "work");
+            email.put("primary", true);
+            operations.add(Operations.builder()
+                    .op(Operations.Op.Replace)
+                    .path("emails")
+                    .value(List.of(email))
+                    .build());
+        }
+        if (operations.isEmpty()) {
+            return;
+        }
+        try (IdentityDomainsClient dc = buildIdentityDomainsClient(oci, domain)) {
+            String scimUserId = resolveScimUserId(dc, params);
+            PatchOp patchOp = PatchOp.builder()
+                    .schemas(List.of(SCIM_SCHEMA_PATCH_OP))
+                    .operations(operations)
+                    .build();
+            dc.patchUser(com.oracle.bmc.identitydomains.requests.PatchUserRequest.builder()
+                    .userId(scimUserId)
+                    .patchOp(patchOp)
+                    .build());
+            log.info("Updated identity domain user {} in {}", scimUserId, domainLabel(domain));
+        }
+    }
+
     public Map<String, Object> getUserCapabilities(String tenantId, String userId) {
+        UserParams params = new UserParams();
+        params.setTenantId(tenantId);
+        params.setUserId(userId);
+        return getUserCapabilities(params);
+    }
+
+    public Map<String, Object> getUserCapabilities(UserParams params) {
+        OciUser tenant = getTenant(params.getTenantId());
+        try (OciClientService oci = domainManagementService.openOciClient(tenant.getId())) {
+            Map<String, Object> domain = findSelectedDomain(oci, params.getDomainId());
+            if (domain != null && !isDefaultDomainForClassicIam(domain)) {
+                return getUserCapabilitiesIdentityDomain(oci, domain, params);
+            }
+        }
+        return getClassicUserCapabilities(params.getTenantId(), params.getUserId());
+    }
+
+    private Map<String, Object> getClassicUserCapabilities(String tenantId, String userId) {
         OciUser tenant = getTenant(tenantId);
         try (IdentityClient client = buildClient(tenant)) {
             User user = client.getUser(GetUserRequest.builder().userId(userId).build()).getUser();
             return capabilitiesToMap(user == null ? null : user.getCapabilities());
+        }
+    }
+
+    private Map<String, Object> getUserCapabilitiesIdentityDomain(
+            OciClientService oci,
+            Map<String, Object> domain,
+            UserParams params) {
+        try (IdentityDomainsClient dc = buildIdentityDomainsClient(oci, domain)) {
+            String scimUserId = resolveScimUserId(dc, params);
+            com.oracle.bmc.identitydomains.responses.GetUserResponse response = dc.getUser(
+                    com.oracle.bmc.identitydomains.requests.GetUserRequest.builder()
+                            .userId(scimUserId)
+                            .attributes(SCIM_CAPABILITIES_ATTR)
+                            .build());
+            com.oracle.bmc.identitydomains.model.User user = response.getUser();
+            return capabilitiesToMap(user == null ? null
+                    : user.getUrnIetfParamsScimSchemasOracleIdcsExtensionCapabilitiesUser());
         }
     }
 
@@ -972,6 +1367,13 @@ public class UserManagementService {
         Map<String, Boolean> caps = params.getCapabilities();
         if (caps == null || caps.isEmpty()) {
             throw new OciException("请至少指定一项用户权限");
+        }
+        try (OciClientService oci = domainManagementService.openOciClient(tenant.getId())) {
+            Map<String, Object> domain = findSelectedDomain(oci, params.getDomainId());
+            if (domain != null && !isDefaultDomainForClassicIam(domain)) {
+                updateUserCapabilitiesIdentityDomain(oci, domain, params);
+                return;
+            }
         }
         UpdateUserCapabilitiesDetails.Builder builder = UpdateUserCapabilitiesDetails.builder();
         if (caps.containsKey("canUseConsolePassword")) {
@@ -1004,6 +1406,46 @@ public class UserManagementService {
         }
     }
 
+    private void updateUserCapabilitiesIdentityDomain(
+            OciClientService oci,
+            Map<String, Object> domain,
+            UserParams params) {
+        Map<String, Boolean> caps = params.getCapabilities();
+        com.oracle.bmc.identitydomains.model.UserCapabilitiesChanger.Builder builder =
+                com.oracle.bmc.identitydomains.model.UserCapabilitiesChanger.builder()
+                        .schemas(List.of(SCHEMA_USER_CAPABILITIES_CHANGER));
+        if (caps.containsKey("canUseConsolePassword")) {
+            builder.canUseConsolePassword(caps.get("canUseConsolePassword"));
+        }
+        if (caps.containsKey("canUseApiKeys")) {
+            builder.canUseApiKeys(caps.get("canUseApiKeys"));
+        }
+        if (caps.containsKey("canUseAuthTokens")) {
+            builder.canUseAuthTokens(caps.get("canUseAuthTokens"));
+        }
+        if (caps.containsKey("canUseSmtpCredentials")) {
+            builder.canUseSmtpCredentials(caps.get("canUseSmtpCredentials"));
+        }
+        if (caps.containsKey("canUseDbCredentials")) {
+            builder.canUseDbCredentials(caps.get("canUseDbCredentials"));
+        }
+        if (caps.containsKey("canUseCustomerSecretKeys")) {
+            builder.canUseCustomerSecretKeys(caps.get("canUseCustomerSecretKeys"));
+        }
+        if (caps.containsKey("canUseOAuth2ClientCredentials")) {
+            builder.canUseOAuth2ClientCredentials(caps.get("canUseOAuth2ClientCredentials"));
+        }
+        try (IdentityDomainsClient dc = buildIdentityDomainsClient(oci, domain)) {
+            String scimUserId = resolveScimUserId(dc, params);
+            dc.putUserCapabilitiesChanger(
+                    com.oracle.bmc.identitydomains.requests.PutUserCapabilitiesChangerRequest.builder()
+                            .userCapabilitiesChangerId(scimUserId)
+                            .userCapabilitiesChanger(builder.build())
+                            .build());
+            log.info("Updated identity domain user capabilities: {} in {}", scimUserId, domainLabel(domain));
+        }
+    }
+
     private static Map<String, Object> capabilitiesToMap(UserCapabilities caps) {
         Map<String, Object> map = new LinkedHashMap<>();
         for (String key : CAPABILITY_KEYS) {
@@ -1013,6 +1455,34 @@ public class UserManagementService {
     }
 
     private static boolean capabilityValue(UserCapabilities caps, String key) {
+        if (caps == null) {
+            return false;
+        }
+        Boolean v = switch (key) {
+            case "canUseConsolePassword" -> caps.getCanUseConsolePassword();
+            case "canUseApiKeys" -> caps.getCanUseApiKeys();
+            case "canUseAuthTokens" -> caps.getCanUseAuthTokens();
+            case "canUseSmtpCredentials" -> caps.getCanUseSmtpCredentials();
+            case "canUseDbCredentials" -> caps.getCanUseDbCredentials();
+            case "canUseCustomerSecretKeys" -> caps.getCanUseCustomerSecretKeys();
+            case "canUseOAuth2ClientCredentials" -> caps.getCanUseOAuth2ClientCredentials();
+            default -> null;
+        };
+        return Boolean.TRUE.equals(v);
+    }
+
+    private static Map<String, Object> capabilitiesToMap(
+            com.oracle.bmc.identitydomains.model.ExtensionCapabilitiesUser caps) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        for (String key : CAPABILITY_KEYS) {
+            map.put(key, capabilityValue(caps, key));
+        }
+        return map;
+    }
+
+    private static boolean capabilityValue(
+            com.oracle.bmc.identitydomains.model.ExtensionCapabilitiesUser caps,
+            String key) {
         if (caps == null) {
             return false;
         }
@@ -1044,6 +1514,25 @@ public class UserManagementService {
     }
 
     public void updateUserState(String tenantId, String userId, boolean blocked) {
+        UserParams params = new UserParams();
+        params.setTenantId(tenantId);
+        params.setUserId(userId);
+        updateUserState(params, blocked);
+    }
+
+    public void updateUserState(UserParams params, boolean blocked) {
+        OciUser tenant = getTenant(params.getTenantId());
+        try (OciClientService oci = domainManagementService.openOciClient(tenant.getId())) {
+            Map<String, Object> domain = findSelectedDomain(oci, params.getDomainId());
+            if (domain != null && !isDefaultDomainForClassicIam(domain)) {
+                updateUserStateIdentityDomain(oci, domain, params, blocked);
+                return;
+            }
+        }
+        updateClassicUserState(params.getTenantId(), params.getUserId(), blocked);
+    }
+
+    private void updateClassicUserState(String tenantId, String userId, boolean blocked) {
         OciUser tenant = getTenant(tenantId);
         try (IdentityClient client = buildClient(tenant)) {
             client.updateUserState(UpdateUserStateRequest.builder()
@@ -1056,7 +1545,47 @@ public class UserManagementService {
         }
     }
 
+    private void updateUserStateIdentityDomain(
+            OciClientService oci,
+            Map<String, Object> domain,
+            UserParams params,
+            boolean blocked) {
+        try (IdentityDomainsClient dc = buildIdentityDomainsClient(oci, domain)) {
+            String scimUserId = resolveScimUserId(dc, params);
+            com.oracle.bmc.identitydomains.model.UserStatusChanger body =
+                    com.oracle.bmc.identitydomains.model.UserStatusChanger.builder()
+                            .schemas(List.of(SCHEMA_USER_STATUS_CHANGER))
+                            .active(!blocked)
+                            .build();
+            dc.putUserStatusChanger(
+                    com.oracle.bmc.identitydomains.requests.PutUserStatusChangerRequest.builder()
+                            .userStatusChangerId(scimUserId)
+                            .userStatusChanger(body)
+                            .build());
+            log.info("Identity domain user {} state updated, active={} in {}",
+                    scimUserId, !blocked, domainLabel(domain));
+        }
+    }
+
     public List<Map<String, Object>> listMfaDevices(String tenantId, String userId) {
+        UserParams params = new UserParams();
+        params.setTenantId(tenantId);
+        params.setUserId(userId);
+        return listMfaDevices(params);
+    }
+
+    public List<Map<String, Object>> listMfaDevices(UserParams params) {
+        OciUser tenant = getTenant(params.getTenantId());
+        try (OciClientService oci = domainManagementService.openOciClient(tenant.getId())) {
+            Map<String, Object> domain = findSelectedDomain(oci, params.getDomainId());
+            if (domain != null && !isDefaultDomainForClassicIam(domain)) {
+                return listMfaDevicesIdentityDomain(oci, domain, params);
+            }
+        }
+        return listClassicMfaDevices(params.getTenantId(), params.getUserId());
+    }
+
+    private List<Map<String, Object>> listClassicMfaDevices(String tenantId, String userId) {
         OciUser tenant = getTenant(tenantId);
         try (IdentityClient client = buildClient(tenant)) {
             ListMfaTotpDevicesResponse response = client.listMfaTotpDevices(
@@ -1071,6 +1600,33 @@ public class UserManagementService {
                 result.add(map);
             }
             return result;
+        }
+    }
+
+    private List<Map<String, Object>> listMfaDevicesIdentityDomain(
+            OciClientService oci,
+            Map<String, Object> domain,
+            UserParams params) {
+        try (IdentityDomainsClient dc = buildIdentityDomainsClient(oci, domain)) {
+            String scimUserId = resolveScimUserId(dc, params);
+            com.oracle.bmc.identitydomains.responses.GetUserResponse response = dc.getUser(
+                    com.oracle.bmc.identitydomains.requests.GetUserRequest.builder()
+                            .userId(scimUserId)
+                            .attributes(SCIM_MFA_ATTR)
+                            .build());
+            var mfa = response.getUser() == null ? null
+                    : response.getUser().getUrnIetfParamsScimSchemasOracleIdcsExtensionMfaUser();
+            String status = mfa == null || mfa.getMfaStatus() == null ? null : mfa.getMfaStatus().getValue();
+            boolean activated = "Enrolled".equalsIgnoreCase(status);
+            if (StrUtil.isBlank(status) && !activated) {
+                return List.of();
+            }
+            Map<String, Object> map = new LinkedHashMap<>();
+            map.put("id", "identity-domain-mfa");
+            map.put("state", StrUtil.blankToDefault(status, activated ? "Enrolled" : "Unknown"));
+            map.put("isActivated", activated);
+            map.put("timeCreated", null);
+            return List.of(map);
         }
     }
 

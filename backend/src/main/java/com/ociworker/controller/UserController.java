@@ -78,9 +78,7 @@ public class UserController {
     @PostMapping("/clearMfa")
     public ResponseData<?> clearMfa(@RequestBody Map<String, String> params) {
         verifyCodeService.verifyCode("clearMfa", params.get("verifyCode"));
-        UserParams up = new UserParams();
-        up.setTenantId(params.get("tenantId"));
-        up.setUserId(params.get("userId"));
+        UserParams up = buildUserParams(params);
         userManagementService.clearMfa(up);
         return ResponseData.ok("MFA 已清除");
     }
@@ -94,17 +92,14 @@ public class UserController {
     @PostMapping("/removeFromAdmin")
     public ResponseData<?> removeFromAdmin(@RequestBody Map<String, String> params) {
         verifyCodeService.verifyCode("removeFromAdmin", params.get("verifyCode"));
-        UserParams up = new UserParams();
-        up.setTenantId(params.get("tenantId"));
-        up.setUserId(params.get("userId"));
+        UserParams up = buildUserParams(params);
         userManagementService.removeUserFromGroup(up);
         return ResponseData.ok("已移出管理员组");
     }
 
     @PostMapping("/userGroups")
     public ResponseData<?> getUserGroups(@RequestBody Map<String, String> params) {
-        return ResponseData.ok(userManagementService.getUserGroups(
-                params.get("tenantId"), params.get("userId")));
+        return ResponseData.ok(userManagementService.getUserGroups(buildUserParams(params)));
     }
 
     @PostMapping("/updateUser")
@@ -113,14 +108,14 @@ public class UserController {
         UserParams up = new UserParams();
         up.setTenantId((String) params.get("tenantId"));
         up.setUserId((String) params.get("userId"));
+        up.setDomainId((String) params.get("domainId"));
+        up.setScimId((String) params.get("scimId"));
         up.setUserName((String) params.get("userName"));
         up.setEmail((String) params.get("email"));
+        up.setGroupIds(parseGroupIds(params.get("groupIds")));
         userManagementService.updateUser(up);
         if (params.containsKey("groupIds")) {
-            userManagementService.syncUserGroups(
-                    up.getTenantId(),
-                    up.getUserId(),
-                    parseGroupIds(params.get("groupIds")));
+            userManagementService.syncUserGroups(up);
         }
         return ResponseData.ok();
     }
@@ -157,22 +152,23 @@ public class UserController {
         if (blocked) {
             verifyCodeService.verifyCode("disableUser", (String) params.get("verifyCode"));
         }
-        userManagementService.updateUserState(
-                (String) params.get("tenantId"),
-                (String) params.get("userId"),
-                blocked);
+        UserParams up = new UserParams();
+        up.setTenantId((String) params.get("tenantId"));
+        up.setUserId((String) params.get("userId"));
+        up.setDomainId((String) params.get("domainId"));
+        up.setScimId((String) params.get("scimId"));
+        userManagementService.updateUserState(up, blocked);
         return ResponseData.ok();
     }
 
     @PostMapping("/listMfaDevices")
     public ResponseData<?> listMfaDevices(@RequestBody Map<String, String> params) {
-        return ResponseData.ok(userManagementService.listMfaDevices(params.get("tenantId"), params.get("userId")));
+        return ResponseData.ok(userManagementService.listMfaDevices(buildUserParams(params)));
     }
 
     @PostMapping("/userCapabilities")
     public ResponseData<?> getUserCapabilities(@RequestBody Map<String, String> params) {
-        return ResponseData.ok(userManagementService.getUserCapabilities(
-                params.get("tenantId"), params.get("userId")));
+        return ResponseData.ok(userManagementService.getUserCapabilities(buildUserParams(params)));
     }
 
     @PostMapping("/updateUserCapabilities")
@@ -181,8 +177,19 @@ public class UserController {
         UserParams up = new UserParams();
         up.setTenantId((String) params.get("tenantId"));
         up.setUserId((String) params.get("userId"));
+        up.setDomainId((String) params.get("domainId"));
+        up.setScimId((String) params.get("scimId"));
         up.setCapabilities(UserManagementService.parseCapabilitiesMap(params.get("capabilities")));
         userManagementService.updateUserCapabilities(up);
         return ResponseData.ok();
+    }
+
+    private static UserParams buildUserParams(Map<String, String> params) {
+        UserParams up = new UserParams();
+        up.setTenantId(params.get("tenantId"));
+        up.setUserId(params.get("userId"));
+        up.setDomainId(params.get("domainId"));
+        up.setScimId(params.get("scimId"));
+        return up;
     }
 }

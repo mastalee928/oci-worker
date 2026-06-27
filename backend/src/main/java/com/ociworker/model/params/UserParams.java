@@ -9,6 +9,7 @@ import java.util.Map;
 public class UserParams {
     private String tenantId;
     private String userId;
+    private String scimId;
     private String userName;
     private String email;
     private String firstName;
