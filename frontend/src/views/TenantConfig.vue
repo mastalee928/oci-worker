@@ -787,6 +787,25 @@ region=ap-tokyo-1"
                 </template>
               </a-select>
             </div>
+            <div class="quota-service-field">
+              <span class="quota-region-label">服务</span>
+              <select
+                v-if="isMobile"
+                v-model="quotaService"
+                class="quota-region-native-select"
+                :disabled="quotasLoading || !quotasList.length"
+              >
+                <option v-for="opt in quotaServiceOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
+              </select>
+              <a-select
+                v-else
+                v-model:value="quotaService"
+                class="quota-service-select"
+                :options="quotaServiceOptions"
+                :disabled="quotasLoading || !quotasList.length"
+                :show-search="false"
+              />
+            </div>
             <a-input-search v-model:value="quotaSearch" placeholder="搜索服务/配额名" allow-clear class="quota-search" />
             <a-button type="primary" @click="loadQuotas" :loading="quotasLoading">
               <template #icon><ReloadOutlined /></template>查询配额
@@ -2796,6 +2815,21 @@ const quotasLoading = ref(false)
 const quotasList = ref<any[]>([])
 const quotaSearch = ref('')
 const quotaRegion = ref('')
+const quotaService = ref('__all')
+const quotaServiceOptions = computed(() => {
+  const services = new Set<string>()
+  for (const item of quotasList.value) {
+    const service = String(item?.serviceName || '').trim()
+    if (service) services.add(service)
+  }
+  return [
+    { label: '全部服务', value: '__all' },
+    ...Array.from(services).sort((a, b) => a.localeCompare(b)).map((service) => ({
+      label: service,
+      value: service,
+    })),
+  ]
+})
 
 const DOMAIN_TYPE_CN: Record<string, string> = {
   DEFAULT: '默认域',
@@ -3616,6 +3650,10 @@ async function loadQuotas() {
   try {
     const res = await getServiceQuotas({ id: tenantMgmtTenant.value.id, region: quotaRegion.value || undefined })
     quotasList.value = res.data || []
+    const services = new Set(quotasList.value.map((q: any) => String(q?.serviceName || '').trim()).filter(Boolean))
+    if (quotaService.value !== '__all' && !services.has(quotaService.value)) {
+      quotaService.value = '__all'
+    }
     if (!quotasList.value.length) {
       message.info('未获取到配额信息')
     }
@@ -3628,16 +3666,20 @@ async function loadQuotas() {
 
 async function onQuotaRegionChange() {
   quotasList.value = []
+  quotaService.value = '__all'
   await loadQuotas()
 }
 
 const filteredQuotas = computed(() => {
-  if (!quotaSearch.value) return quotasList.value
-  const kw = quotaSearch.value.toLowerCase()
-  return quotasList.value.filter((q: any) =>
-    (q.serviceName || '').toLowerCase().includes(kw) ||
-    (q.limitName || '').toLowerCase().includes(kw)
-  )
+  const selectedService = quotaService.value
+  const kw = quotaSearch.value.trim().toLowerCase()
+  return quotasList.value.filter((q: any) => {
+    const serviceName = String(q.serviceName || '')
+    if (selectedService !== '__all' && serviceName !== selectedService) return false
+    if (!kw) return true
+    return serviceName.toLowerCase().includes(kw) ||
+      String(q.limitName || '').toLowerCase().includes(kw)
+  })
 })
 
 const level2Options = computed(() => {
@@ -3995,6 +4037,7 @@ async function openTenantMgmt(record: any) {
   quotasList.value = []
   quotaSearch.value = ''
   quotaRegion.value = ''
+  quotaService.value = '__all'
   billingData.value = null
   budgetsData.value = null
   selectedBudgetId.value = ''
@@ -5778,6 +5821,12 @@ onUnmounted(() => {
   gap: 6px;
   min-width: 0;
 }
+.quota-service-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
 .quota-region-label {
   color: var(--text-sub);
   font-size: 13px;
@@ -5785,6 +5834,9 @@ onUnmounted(() => {
 }
 .quota-region-select {
   width: 180px;
+}
+.quota-service-select {
+  width: 150px;
 }
 .quota-region-option {
   display: flex;
@@ -5827,6 +5879,12 @@ onUnmounted(() => {
     flex-direction: column;
   }
   .quota-region-field {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+    width: 100%;
+  }
+  .quota-service-field {
     align-items: flex-start;
     flex-direction: column;
     gap: 4px;
