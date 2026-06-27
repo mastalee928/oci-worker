@@ -868,8 +868,8 @@
           <div style="margin-top: 16px">
             <a-space>
               <a-button @click="checkUpdate" :loading="updateChecking" :disabled="updatePerforming">检查更新</a-button>
-              <a-popconfirm title="确定执行更新？更新过程中服务将短暂重启。" @confirm="performUpdate" ok-text="确定更新" cancel-text="取消">
-                <a-button type="primary" :loading="updatePerforming" :disabled="!updateInfo?.hasUpdate && !updateInfo?.downloadFallbackAvailable && !updateForce">
+              <a-popconfirm v-model:open="updateConfirmOpen" title="确定执行更新？更新过程中服务将短暂重启。" @confirm="performUpdate" ok-text="确定更新" cancel-text="取消">
+                <a-button type="primary" :loading="updatePerforming" :disabled="updatePerforming || (!updateInfo?.hasUpdate && !updateInfo?.downloadFallbackAvailable && !updateForce)">
                   <i class="ri-download-2-line" style="margin-right: 6px"></i>一键更新
                 </a-button>
               </a-popconfirm>
@@ -950,7 +950,7 @@
 
 <script setup lang="ts">
 defineOptions({ name: 'SystemSettings' })
-import { computed, h, reactive, ref, watch, onMounted, onUnmounted } from 'vue'
+import { computed, h, reactive, ref, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import { CaretRightOutlined, InboxOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { Modal, message } from 'ant-design-vue'
@@ -2197,6 +2197,7 @@ const updatePerforming = ref(false)
 const updateInfo = ref<any>(null)
 const updateForce = ref(false)
 type UpdateOverlayMode = 'running' | 'success' | 'error' | 'timeout'
+const updateConfirmOpen = ref(false)
 const updateOverlayVisible = ref(false)
 const updateOverlayMode = ref<UpdateOverlayMode>('running')
 const updateOverlayTitle = ref('正在准备升级')
@@ -2225,6 +2226,7 @@ function clearUpdateTimers() {
 }
 
 function closeUpdateOverlay() {
+  updateConfirmOpen.value = false
   updateOverlayVisible.value = false
 }
 
@@ -2274,6 +2276,8 @@ async function checkUpdate() {
 }
 
 async function performUpdate() {
+  updateConfirmOpen.value = false
+  await nextTick()
   updatePerforming.value = true
   clearUpdateTimers()
   updateOverlayVisible.value = true
