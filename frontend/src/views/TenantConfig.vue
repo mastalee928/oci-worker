@@ -44,7 +44,7 @@
               <span v-else style="color: #999">无开机任务</span>
             </template>
             <template v-if="column.key === 'planType'">
-              <span :class="planTypeBadgeClass(record.planType)">{{ formatPlanBadge(record.planType, '获取中...') }}</span>
+              <span :class="planTypeBadgeClass(record.planType)" :style="planTypeBadgeStyle(record.planType)">{{ formatPlanBadge(record.planType, '获取中...') }}</span>
             </template>
             <template v-if="column.key === 'createTime'">
               {{ formatTenantAddedTime(record.createTime) }}
@@ -67,7 +67,7 @@
             <div v-for="r in tableData" :key="r.id" class="mobile-card">
               <div class="mobile-card-header">
                 <span class="mobile-card-title">{{ r.username }}</span>
-                <span :class="planTypeBadgeClass(r.planType)">{{ formatPlanBadge(r.planType, '?') }}</span>
+                <span :class="planTypeBadgeClass(r.planType)" :style="planTypeBadgeStyle(r.planType)">{{ formatPlanBadge(r.planType, '?') }}</span>
               </div>
               <div class="mobile-card-body">
               <div class="mobile-card-row">
@@ -130,7 +130,7 @@
                   class="group-tenant-count-badge oci-group-count-badge"
                 />
                 <template v-if="!isMobile" v-for="(pc, pt) in getPlanCounts(group)" :key="pt">
-                  <span :class="['plan-tag', planSummaryTagClass(String(pt))]">{{ pt }}×{{ pc }}</span>
+                  <span :class="['plan-tag', planSummaryTagClass(String(pt))]" :style="planTypeBadgeStyle(String(pt))">{{ pt }}×{{ pc }}</span>
                 </template>
               </div>
               </div>
@@ -215,7 +215,7 @@
                         <span v-else style="color: #999">无开机任务</span>
                       </template>
                       <template v-if="column.key === 'planType'">
-                        <span :class="planTypeBadgeClass(record.planType)">{{ formatPlanBadge(record.planType, '获取中...') }}</span>
+                        <span :class="planTypeBadgeClass(record.planType)" :style="planTypeBadgeStyle(record.planType)">{{ formatPlanBadge(record.planType, '获取中...') }}</span>
                       </template>
                       <template v-if="column.key === 'createTime'">
                         {{ formatTenantAddedTime(record.createTime) }}
@@ -237,7 +237,7 @@
                     <div v-for="r in sub.tenants" :key="r.id" class="mobile-card">
                       <div class="mobile-card-header">
                         <span class="mobile-card-title">{{ r.username }}</span>
-                        <span :class="planTypeBadgeClass(r.planType)">{{ formatPlanBadge(r.planType, '?') }}</span>
+                        <span :class="planTypeBadgeClass(r.planType)" :style="planTypeBadgeStyle(r.planType)">{{ formatPlanBadge(r.planType, '?') }}</span>
                       </div>
                       <div class="mobile-card-body">
                         <div class="mobile-card-row">
@@ -299,7 +299,7 @@
                       <span v-else style="color: #999">无开机任务</span>
                     </template>
                     <template v-if="column.key === 'planType'">
-                      <span :class="planTypeBadgeClass(record.planType)">{{ formatPlanBadge(record.planType, '获取中...') }}</span>
+                      <span :class="planTypeBadgeClass(record.planType)" :style="planTypeBadgeStyle(record.planType)">{{ formatPlanBadge(record.planType, '获取中...') }}</span>
                     </template>
                     <template v-if="column.key === 'createTime'">
                       {{ formatTenantAddedTime(record.createTime) }}
@@ -321,7 +321,7 @@
                   <div v-for="r in group.tenants" :key="r.id" class="mobile-card">
                     <div class="mobile-card-header">
                       <span class="mobile-card-title">{{ r.username }}</span>
-                      <span :class="planTypeBadgeClass(r.planType)">{{ formatPlanBadge(r.planType, '?') }}</span>
+                      <span :class="planTypeBadgeClass(r.planType)" :style="planTypeBadgeStyle(r.planType)">{{ formatPlanBadge(r.planType, '?') }}</span>
                     </div>
                     <div class="mobile-card-body">
                       <div class="mobile-card-row">
@@ -2008,12 +2008,14 @@ import {
 import dayjs from 'dayjs'
 import { collectGroupExpandKeys, isAllGroupsExpanded } from '../composables/groupExpandToggle'
 import { useTenantCatalogStore } from '../stores/tenantCatalog'
+import { useThemeStore } from '../stores/theme'
 import utc from 'dayjs/plugin/utc'
 
 dayjs.extend(utc)
 
 const router = useRouter()
 const catalog = useTenantCatalogStore()
+const themeStore = useThemeStore()
 const searchLoading = ref(false)
 
 function formatUtcCnDate(v: any): string {
@@ -2082,6 +2084,28 @@ function planTypeBadgeClass(plan: string | null | undefined) {
   if (isPaygPlan(plan)) return ['plan-tag', 'tag-green']
   if (isFreeTierPlan(plan)) return ['plan-tag', 'tag-free-tier']
   return ['plan-tag', 'tag-gray']
+}
+
+function planTypeBadgeStyle(plan: string | null | undefined) {
+  if (!isFreeTierPlan(plan)) return undefined
+  if (themeStore.isDark) {
+    return {
+      color: 'rgba(255, 255, 255, 0.92)',
+      background: 'rgba(255, 255, 255, 0.12)',
+      borderColor: 'rgba(255, 255, 255, 0.16)',
+      boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.08)',
+      backdropFilter: 'blur(10px) saturate(145%)',
+      WebkitBackdropFilter: 'blur(10px) saturate(145%)',
+    }
+  }
+  return {
+    color: 'rgba(15, 23, 42, 0.92)',
+    background: 'rgba(15, 23, 42, 0.12)',
+    borderColor: 'rgba(15, 23, 42, 0.2)',
+    boxShadow: 'inset 0 1px 0 rgba(255, 255, 255, 0.78)',
+    backdropFilter: 'blur(10px) saturate(145%)',
+    WebkitBackdropFilter: 'blur(10px) saturate(145%)',
+  }
 }
 
 function planSummaryTagClass(plan: string) {
