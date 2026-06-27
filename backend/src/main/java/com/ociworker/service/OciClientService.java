@@ -1013,7 +1013,7 @@ public class OciClientService implements Closeable {
     private String assignIpv6ToInstance(Instance instance, Subnet subnet) {
         List<VnicAttachment> attachments = computeClient.listVnicAttachments(
                 ListVnicAttachmentsRequest.builder()
-                        .compartmentId(compartmentId)
+                        .compartmentId(resolveInstanceCompartmentId(instance))
                         .instanceId(instance.getId())
                         .build()
         ).getItems();
@@ -1289,7 +1289,7 @@ public class OciClientService implements Closeable {
         try {
             List<VnicAttachment> vnicAttachments = computeClient.listVnicAttachments(
                     ListVnicAttachmentsRequest.builder()
-                            .compartmentId(compartmentId)
+                            .compartmentId(resolveInstanceCompartmentId(instance))
                             .instanceId(instance.getId())
                             .build()
             ).getItems();
@@ -1308,5 +1308,12 @@ public class OciClientService implements Closeable {
             log.warn("Failed to get public IP: {}", e.getMessage());
         }
         return null;
+    }
+
+    private String resolveInstanceCompartmentId(Instance instance) {
+        if (instance != null && instance.getCompartmentId() != null && !instance.getCompartmentId().isBlank()) {
+            return instance.getCompartmentId();
+        }
+        return compartmentId;
     }
 }
