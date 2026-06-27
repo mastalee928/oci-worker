@@ -3621,12 +3621,13 @@ function shortOcId(id: string | null | undefined): string {
 }
 
 function resolveDefaultQuotaRegion(): string {
+  const configuredRegion = String(tenantMgmtTenant.value?.ociRegion || '').trim()
+  if (configuredRegion) return configuredRegion
   const homeRegion = sortedRegionsList.value.find((r: any) => r?.subscribed && r?.isHomeRegion && r?.regionName)
   const region = String(
     homeRegion?.regionName ||
     regionsData.value?.homeRegionName ||
     quotaRegionOptions.value[0]?.value ||
-    tenantMgmtTenant.value?.ociRegion ||
     '',
   ).trim()
   return region
@@ -3634,13 +3635,15 @@ function resolveDefaultQuotaRegion(): string {
 
 async function ensureQuotaRegionSelected() {
   if (!tenantMgmtTenant.value?.id) return
-  if (!regionsData.value && !regionsLoading.value) {
-    await loadRegions(true)
-  }
   const available = quotaRegionOptions.value.map((opt) => opt.value)
   if (!quotaRegion.value || (available.length && !available.includes(quotaRegion.value))) {
     quotaRegion.value = resolveDefaultQuotaRegion()
   }
+}
+
+function loadQuotaRegionsAfterQuery() {
+  if (!tenantMgmtTenant.value?.id || regionsData.value || regionsLoading.value) return
+  void loadRegions(true)
 }
 
 async function loadQuotas() {
@@ -3661,6 +3664,7 @@ async function loadQuotas() {
     message.error(e?.message || '获取配额失败')
   } finally {
     quotasLoading.value = false
+    loadQuotaRegionsAfterQuery()
   }
 }
 
