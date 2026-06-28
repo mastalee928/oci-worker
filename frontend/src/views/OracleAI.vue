@@ -130,21 +130,12 @@
           <a-tag color="blue">{{ selectedRegion }}</a-tag>
         </a-form-item>
         <a-form-item label="可选模型（OCI 管理面 ListModels）">
-          <a-radio-group
-            v-model:value="modelLimitMode"
-            class="model-mode-group"
-            @change="onModelLimitModeChange"
-          >
-            <a-radio-button value="unlimited">不限制模型</a-radio-button>
-            <a-radio-button value="limited">限制模型</a-radio-button>
-          </a-radio-group>
           <a-select
             v-model:value="modelPick"
             mode="multiple"
             :options="modelOptions"
             :loading="modelsLoading"
-            :disabled="modelLimitMode === 'unlimited'"
-            :placeholder="modelLimitMode === 'unlimited' ? '当前不限制模型' : '至少选择一个模型'"
+            placeholder="留空表示不限制模型"
             allow-clear
             show-search
             :filter-option="filterModel"
@@ -153,13 +144,18 @@
             :get-popup-container="selectPopupContainer"
             :dropdown-style="{ maxHeight: 'min(70vh, 480px)' }"
           />
-          <div v-if="modelLimitMode === 'limited' && !modelPick.length" class="sub-muted form-help">
-            限制模型时至少保留一个模型；不限制时请切回“不限制模型”。
+          <div class="sub-muted form-help">
+            留空即允许全部模型；选择模型后仅按所选模型生效。
           </div>
         </a-form-item>
-        <a-button type="primary" :loading="modelsLoading" :disabled="!ociUserId" @click="() => loadModelsIfNeeded(true)">
-          刷新模型列表
-        </a-button>
+        <a-space wrap>
+          <a-button type="primary" :loading="modelsLoading" :disabled="!ociUserId" @click="() => loadModelsIfNeeded(true)">
+            刷新模型列表
+          </a-button>
+          <a-button :loading="modelSelectionSaving" :disabled="!ociUserId" @click="saveModelSelection">
+            保存
+          </a-button>
+        </a-space>
       </a-form>
     </a-card>
 
@@ -1139,7 +1135,6 @@ const lbMemberForm = ref<{
   streamMaxSeconds: null,
 })
 const modelPick = ref<string[]>([])
-const modelLimitMode = ref<'unlimited' | 'limited'>('unlimited')
 const modelOptions = ref<
   {
     label: string
@@ -1149,7 +1144,7 @@ const modelOptions = ref<
   }[]
 >([])
 const chatModelOptions = computed(() => {
-  if (modelLimitMode.value !== 'limited') return modelOptions.value
+  if (!modelPick.value?.length) return modelOptions.value
   const allowed = new Set((modelPick.value || []).map((x) => String(x || '').trim()).filter(Boolean))
   return modelOptions.value.filter((x) => allowed.has(String(x.value || '')))
 })
@@ -1165,6 +1160,7 @@ const serverIp = ref('')
 const defaultMaxTokens = ref(2048)
 const defaultMaxTokensInput = ref<number | null>(2048)
 const savingDefaultMaxTokens = ref(false)
+const modelSelectionSaving = ref(false)
 
 const keyViewOpen = ref(false)
 const keyViewRow = ref<any | null>(null)
@@ -1339,7 +1335,7 @@ const restoring = ref(false)
 /** 避免「租户 options 未加载时 a-select 把值清掉」立刻触发 watch 用空值覆盖 localStorage */
 const selectionPersistEnabled = ref(false)
 const serverUiStateLoaded = ref(false)
-const serverUiState = ref<{ ociUserId?: string; modelPick?: string[]; modelLimitMode?: string } | null>(null)
+const serverUiState = ref<{ ociUserId?: string; modelPick?: string[] } | null>(null)
 let persistTimer: any = null
 
 async function loadPersistedState() {
@@ -1350,7 +1346,6 @@ async function loadPersistedState() {
     serverUiState.value = {
       ociUserId: typeof s.ociUserId === 'string' ? s.ociUserId : undefined,
       modelPick: Array.isArray(s.modelPick) ? (s.modelPick.filter((x: any) => typeof x === 'string') as string[]) : [],
-      modelLimitMode: s.modelLimitMode === 'limited' ? 'limited' : 'unlimited',
     }
     serverUiStateLoaded.value = true
 
@@ -1362,7 +1357,6 @@ async function loadPersistedState() {
     if (serverUiState.value?.modelPick?.length) {
       modelPick.value = serverUiState.value.modelPick
     }
-    modelLimitMode.value = serverUiState.value?.modelLimitMode === 'limited' ? 'limited' : 'unlimited'
   } catch {
     serverUiStateLoaded.value = true
   } finally {
@@ -1379,9 +1373,28 @@ function persistState() {
     saveOracleAiUiState({
       ociUserId: ociUserId.value || '',
       modelPick: (modelPick.value || []).slice(0, 200),
-      modelLimitMode: modelLimitMode.value,
     }).catch(() => {})
   }, 300)
+}
+
+async function saveModelSelection() {
+  if (!selectionPersistEnabled.value || !ociUserId.value) return
+  modelSelectionSaving.value = true
+  try {
+    await saveOracleAiUiState({
+      ociUserId: ociUserId.value || '',
+      modelPick: (modelPick.value || []).slice(0, 200),
+    })
+    serverUiState.value = {
+      ociUserId: ociUserId.value || '',
+      modelPick: (modelPick.value || []).slice(0, 200),
+    }
+    message.success(modelPick.value?.length ? '已保存所选模型' : '已保存为不限制模型')
+  } catch (e: any) {
+    message.error(e?.message || '保存失败')
+  } finally {
+    modelSelectionSaving.value = false
+  }
 }
 
 /** 租户列表已就绪后，从 localStorage 再应用一次，抵消 Select 在 options 空时的误清空 */
@@ -1394,7 +1407,6 @@ function reapplyOracleAiSelectionFromStorage() {
       restoring.value = true
       ociUserId.value = savedId
       if (savedModels.length) modelPick.value = savedModels
-      modelLimitMode.value = serverUiState.value?.modelLimitMode === 'limited' ? 'limited' : 'unlimited'
       setTimeout(() => {
         restoring.value = false
       }, 0)
@@ -1619,23 +1631,21 @@ function onTenantChange() {
 }
 
 watch(
-  () => [ociUserId.value, modelPick.value, modelLimitMode.value],
+  () => ociUserId.value,
   () => {
     if (tenantsLoading.value) return
     if (!selectionPersistEnabled.value) return
-    syncChatModelSelection()
     persistState()
+  },
+)
+
+watch(
+  () => modelPick.value,
+  () => {
+    syncChatModelSelection()
   },
   { deep: true },
 )
-
-function onModelLimitModeChange() {
-  if (modelLimitMode.value === 'unlimited') {
-    modelPick.value = []
-  }
-  syncChatModelSelection()
-  persistState()
-}
 
 function onPortModelLimitModeChange() {
   if (portForm.value.modelLimitMode === 'unlimited') {
@@ -1675,11 +1685,6 @@ async function loadModelsIfNeeded(alertOnErr: boolean) {
   try {
     const r: any = await listOpenAiModels({ ociUserId: ociUserId.value })
     modelOptions.value = mapModelOptions(r?.data)
-
-    // 多选在「模型 options 曾为空」时可能被清空，用后端 UI state 再补一次
-    if (!modelPick.value?.length && serverUiState.value?.modelPick?.length) {
-      modelPick.value = serverUiState.value.modelPick.filter((x: any) => typeof x === 'string') as string[]
-    }
 
     // 防止“已选模型”因 options 刷新而丢失：把已选 value 补进 options（只做展示）
     modelOptions.value = ensureSelectedModelsInOptions(modelOptions.value, [

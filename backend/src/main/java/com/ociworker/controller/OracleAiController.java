@@ -159,14 +159,6 @@ public class OracleAiController {
         }
         String ociUserId = body.get("ociUserId") == null ? "" : String.valueOf(body.get("ociUserId")).trim();
         Object mp = body.get("modelPick");
-        String modelLimitMode = body.get("modelLimitMode") == null
-                ? "unlimited"
-                : String.valueOf(body.get("modelLimitMode")).trim();
-        if (!"limited".equalsIgnoreCase(modelLimitMode)) {
-            modelLimitMode = "unlimited";
-        } else {
-            modelLimitMode = "limited";
-        }
         java.util.List<String> modelPick = new java.util.ArrayList<>();
         if (mp instanceof java.util.List<?> list) {
             for (Object o : list) {
@@ -189,7 +181,6 @@ public class OracleAiController {
         Map<String, Object> state = new HashMap<>();
         state.put("ociUserId", ociUserId);
         state.put("modelPick", modelPick);
-        state.put("modelLimitMode", modelLimitMode);
         state.put("updateAt", System.currentTimeMillis());
 
         try {

@@ -154,6 +154,6 @@ export function getOracleAiUiState() {
   return request.post('/oci/oracle-ai/ui-state/get', {})
 }
 
-export function saveOracleAiUiState(data: { ociUserId?: string; modelPick?: string[]; modelLimitMode?: string }) {
+export function saveOracleAiUiState(data: { ociUserId?: string; modelPick?: string[] }) {
   return request.post('/oci/oracle-ai/ui-state/save', data)
 }
