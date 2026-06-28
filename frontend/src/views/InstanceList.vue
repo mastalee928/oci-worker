@@ -541,10 +541,10 @@
         <a-form-item label="目标区域（开机任务）">
           <a-select
             v-model:value="quickTaskForm.ociRegion"
-            placeholder="默认同上；可改为 tenancy 已订阅的其它区"
+            placeholder="选择目标区域"
             :show-search="false"
-            allow-clear
             :options="ociRegionSelectOptions"
+            :get-popup-container="quickTaskPopupContainer"
           />
         </a-form-item>
         <ShapeSeriesPicker
@@ -553,9 +553,10 @@
           :loading="quickTaskShapesLoading"
           :hint="quickTaskShapes.length ? `已从 OCI 加载 ${quickTaskShapes.length} 个可用 Shape（随目标区域变化）` : ''"
           :is-mobile="isMobile"
+          :get-popup-container="quickTaskPopupContainer"
         />
         <a-form-item label="操作系统">
-          <a-select v-model:value="quickTaskForm.operationSystem">
+          <a-select v-model:value="quickTaskForm.operationSystem" :get-popup-container="quickTaskPopupContainer">
             <a-select-option value="Ubuntu">Ubuntu（最新版）</a-select-option>
             <a-select-option value="Ubuntu 24.04">Ubuntu 24.04 LTS</a-select-option>
             <a-select-option value="Ubuntu 22.04">Ubuntu 22.04 LTS</a-select-option>
@@ -565,7 +566,7 @@
           </a-select>
         </a-form-item>
         <a-form-item v-if="quickDenseIoTiers?.length" label="DenseIO 档位">
-          <a-select v-model:value="quickDenseIoTierKey" style="width: 100%">
+          <a-select v-model:value="quickDenseIoTierKey" style="width: 100%" :get-popup-container="quickTaskPopupContainer">
             <a-select-option v-for="t in quickDenseIoTiers" :key="denseIoFlexTierKey(t)" :value="denseIoFlexTierKey(t)">
               {{ formatDenseIoTierLabel(t) }}
             </a-select-option>
@@ -3612,6 +3613,14 @@ const quickTaskForm = reactive({
   assignPublicIp: true, assignIpv6: false,
 })
 
+function quickTaskPopupContainer(triggerNode?: HTMLElement) {
+  return (triggerNode?.closest('.quick-task-modal-wrap') as HTMLElement | null) || document.body
+}
+
+function resolveQuickTaskRegion() {
+  return quickTaskForm.ociRegion?.trim() || quickTaskTenant.value?.ociRegion?.trim() || ''
+}
+
 const quickTaskBmLocked = ref(false)
 const quickTaskShapeLimits = computed(() =>
   resolveTaskShapeLimits(quickTaskForm.architecture, quickTaskShapes.value),
@@ -3661,7 +3670,7 @@ async function loadQuickTaskShapes() {
   const gen = ++quickTaskShapeLoadGen
   quickTaskShapesLoading.value = true
   try {
-    const region = quickTaskForm.ociRegion?.trim() || undefined
+    const region = resolveQuickTaskRegion() || undefined
     const res = await getAvailableShapes({ id: tid, ...(region ? { region } : {}) })
     if (gen !== quickTaskShapeLoadGen) return
     quickTaskShapes.value = res.data || []
@@ -5169,6 +5178,12 @@ async function handleQuickTask() {
   quickTaskLoading.value = true
   let waitingDuplicateConfirm = false
   try {
+    const region = resolveQuickTaskRegion()
+    if (!region) {
+      message.error('请选择目标区域')
+      return
+    }
+    quickTaskForm.ociRegion = region
     const denseErr = validateDenseIoFlexTier(quickTaskForm.architecture, quickTaskForm.ocpus, quickTaskForm.memory)
     if (denseErr) {
       message.error(denseErr)

@@ -7,6 +7,7 @@
             v-model:value="seriesModel"
             :options="seriesOptions"
             placeholder="选择架构系列"
+            :get-popup-container="getPopupContainer"
             @change="onSeriesChange"
           />
         </a-form-item>
@@ -20,6 +21,7 @@
             :loading="loading"
             :options="shapeOptions"
             :disabled="!shapeOptions.length"
+            :get-popup-container="getPopupContainer"
             @change="onShapeChange"
           />
         </a-form-item>
@@ -53,6 +55,7 @@ const props = withDefaults(
     loading?: boolean
     hint?: string
     isMobile?: boolean
+    getPopupContainer?: (triggerNode?: HTMLElement) => HTMLElement
   }>(),
   {
     architecture: TASK_ARM_SHAPE,
@@ -60,6 +63,7 @@ const props = withDefaults(
     loading: false,
     hint: '',
     isMobile: false,
+    getPopupContainer: undefined,
   },
 )
 
