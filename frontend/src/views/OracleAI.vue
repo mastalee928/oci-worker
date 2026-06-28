@@ -122,7 +122,7 @@
         <a-form-item v-if="selectedRegion" label="区域">
           <a-tag color="blue">{{ selectedRegion }}</a-tag>
         </a-form-item>
-        <a-form-item label="可选模型（OCI 管理面 ListModels）">
+        <a-form-item label="模型白名单（OCI 管理面 ListModels）">
           <a-select
             v-model:value="modelPick"
             mode="multiple"
@@ -138,7 +138,7 @@
             :dropdown-style="{ maxHeight: 'min(70vh, 480px)' }"
           />
           <div class="sub-muted form-help">
-            留空即允许全部模型；选择模型后仅按所选模型生效。
+            留空即允许全部模型；保存后，此租户的单账户网关只允许所选模型。
           </div>
         </a-form-item>
         <a-space wrap>
@@ -1038,6 +1038,8 @@ import {
   oracleAiChatTest,
   getOracleAiUiState,
   saveOracleAiUiState,
+  getOracleAiModelWhitelist,
+  saveOracleAiModelWhitelist,
 } from '../api/oracleAi'
 
 const tenantsLoading = ref(false)
@@ -1334,7 +1336,7 @@ const restoring = ref(false)
 /** 避免「租户 options 未加载时 a-select 把值清掉」立刻触发 watch 用空值覆盖 localStorage */
 const selectionPersistEnabled = ref(false)
 const serverUiStateLoaded = ref(false)
-const serverUiState = ref<{ ociUserId?: string; modelPick?: string[] } | null>(null)
+const serverUiState = ref<{ ociUserId?: string } | null>(null)
 let persistTimer: any = null
 let gatewayIpRetryTimer: any = null
 
@@ -1345,7 +1347,6 @@ async function loadPersistedState() {
     const s = d && typeof d === 'object' ? d : {}
     serverUiState.value = {
       ociUserId: typeof s.ociUserId === 'string' ? s.ociUserId : undefined,
-      modelPick: Array.isArray(s.modelPick) ? (s.modelPick.filter((x: any) => typeof x === 'string') as string[]) : [],
     }
     serverUiStateLoaded.value = true
 
@@ -1353,9 +1354,6 @@ async function loadPersistedState() {
     restoring.value = true
     if (serverUiState.value?.ociUserId) {
       ociUserId.value = serverUiState.value.ociUserId
-    }
-    if (serverUiState.value?.modelPick?.length) {
-      modelPick.value = serverUiState.value.modelPick
     }
   } catch {
     serverUiStateLoaded.value = true
@@ -1372,7 +1370,6 @@ function persistState() {
   persistTimer = setTimeout(() => {
     saveOracleAiUiState({
       ociUserId: ociUserId.value || '',
-      modelPick: (modelPick.value || []).slice(0, 200),
     }).catch(() => {})
   }, 300)
 }
@@ -1381,14 +1378,12 @@ async function saveModelSelection() {
   if (!selectionPersistEnabled.value || !ociUserId.value) return
   modelSelectionSaving.value = true
   try {
-    await saveOracleAiUiState({
-      ociUserId: ociUserId.value || '',
-      modelPick: (modelPick.value || []).slice(0, 200),
+    const r: any = await saveOracleAiModelWhitelist({
+      ociUserId: ociUserId.value,
+      allowedModels: (modelPick.value || []).slice(0, 200),
     })
-    serverUiState.value = {
-      ociUserId: ociUserId.value || '',
-      modelPick: (modelPick.value || []).slice(0, 200),
-    }
+    const saved = Array.isArray(r?.data?.allowedModels) ? r.data.allowedModels : modelPick.value || []
+    modelPick.value = saved.filter((x: any) => typeof x === 'string')
     message.success(modelPick.value?.length ? '已保存所选模型' : '已保存为不限制模型')
   } catch (e: any) {
     message.error(e?.message || '保存失败')
@@ -1402,18 +1397,21 @@ function reapplyOracleAiSelectionFromStorage() {
   // 保留函数名以减少改动：现在改为“从后端 UI state 再应用一次”
   try {
     const savedId = String(serverUiState.value?.ociUserId || '').trim()
-    const savedModels = Array.isArray(serverUiState.value?.modelPick) ? serverUiState.value?.modelPick || [] : []
     if (savedId && tenantOptions.value.some((x) => x.value === savedId)) {
       restoring.value = true
       ociUserId.value = savedId
-      if (savedModels.length) modelPick.value = savedModels
       setTimeout(() => {
         restoring.value = false
       }, 0)
     }
     if (ociUserId.value && tenantOptions.value.some((x) => x.value === ociUserId.value)) {
-      loadModelsIfNeeded(false)
-      refreshKeys()
+      const tenantId = ociUserId.value
+      loadSavedModelWhitelist(tenantId).finally(() => {
+        if (ociUserId.value === tenantId) {
+          loadModelsIfNeeded(false)
+          refreshKeys()
+        }
+      })
     }
   } catch {
   }
@@ -1624,7 +1622,26 @@ async function loadTenants(options?: { silent?: boolean }) {
   }
 }
 
-function onTenantChange() {
+async function loadSavedModelWhitelist(tenantId?: string) {
+  const id = String(tenantId || '').trim()
+  if (!id) {
+    modelPick.value = []
+    return
+  }
+  try {
+    const r: any = await getOracleAiModelWhitelist({ ociUserId: id })
+    const models = Array.isArray(r?.data?.allowedModels) ? r.data.allowedModels : []
+    if (ociUserId.value === id) {
+      modelPick.value = models.filter((x: any) => typeof x === 'string')
+    }
+  } catch {
+    if (ociUserId.value === id) {
+      modelPick.value = []
+    }
+  }
+}
+
+async function onTenantChange() {
   if (restoring.value) {
     persistState()
     return
@@ -1632,7 +1649,9 @@ function onTenantChange() {
   modelOptions.value = []
   modelPick.value = []
   persistState()
-  loadModelsIfNeeded(false)
+  const tenantId = ociUserId.value
+  await loadSavedModelWhitelist(tenantId)
+  await loadModelsIfNeeded(false)
   refreshKeys()
 }
 

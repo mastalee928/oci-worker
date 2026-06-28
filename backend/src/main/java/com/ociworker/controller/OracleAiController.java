@@ -56,6 +56,8 @@ public class OracleAiController {
     @Resource
     private com.ociworker.service.OciOpenaiLoadBalanceService loadBalanceService;
     @Resource
+    private com.ociworker.service.OracleAiModelWhitelistService modelWhitelistService;
+    @Resource
     private OciKvMapper kvMapper;
 
     private static final String UI_STATE_TYPE = "ui_state";
@@ -158,29 +160,13 @@ public class OracleAiController {
             return ResponseData.error("参数错误");
         }
         String ociUserId = body.get("ociUserId") == null ? "" : String.valueOf(body.get("ociUserId")).trim();
-        Object mp = body.get("modelPick");
-        java.util.List<String> modelPick = new java.util.ArrayList<>();
-        if (mp instanceof java.util.List<?> list) {
-            for (Object o : list) {
-                if (o != null) {
-                    String s = String.valueOf(o).trim();
-                    if (!s.isBlank()) {
-                        modelPick.add(s);
-                    }
-                }
-            }
-        }
         // 仅保存“偏好/选择”，做个简单限长，避免被滥用塞超大 payload
         if (ociUserId.length() > 128) {
             ociUserId = ociUserId.substring(0, 128);
         }
-        if (modelPick.size() > 200) {
-            modelPick = modelPick.subList(0, 200);
-        }
 
         Map<String, Object> state = new HashMap<>();
         state.put("ociUserId", ociUserId);
-        state.put("modelPick", modelPick);
         state.put("updateAt", System.currentTimeMillis());
 
         try {
@@ -393,6 +379,37 @@ public class OracleAiController {
         } catch (com.ociworker.exception.OciException e) {
             return ResponseData.error(e.getMessage());
         }
+    }
+
+    @PostMapping("/model-whitelist/get")
+    public ResponseData<?> getModelWhitelist(@RequestBody Map<String, String> body) {
+        String ociUserId = body == null ? null : trimToNullOrBlank(body.get("ociUserId"));
+        if (ociUserId == null) {
+            return ResponseData.error("租户不能为空");
+        }
+        OciUser u = ociUserMapper.selectById(ociUserId);
+        if (u == null) {
+            return ResponseData.error("租户不存在");
+        }
+        return ResponseData.ok(Map.of(
+                "ociUserId", ociUserId,
+                "allowedModels", modelWhitelistService.list(ociUserId)));
+    }
+
+    @PostMapping("/model-whitelist/save")
+    public ResponseData<?> saveModelWhitelist(@RequestBody Map<String, Object> body) {
+        String ociUserId = body == null ? null : trimObj(body.get("ociUserId"));
+        if (ociUserId == null) {
+            return ResponseData.error("租户不能为空");
+        }
+        OciUser u = ociUserMapper.selectById(ociUserId);
+        if (u == null) {
+            return ResponseData.error("租户不存在");
+        }
+        modelWhitelistService.save(ociUserId, stringListValue(body.get("allowedModels")));
+        return ResponseData.ok(Map.of(
+                "ociUserId", ociUserId,
+                "allowedModels", modelWhitelistService.list(ociUserId)));
     }
 
     @PostMapping("/lb/keys/setDisabled")

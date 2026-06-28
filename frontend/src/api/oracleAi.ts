@@ -154,6 +154,14 @@ export function getOracleAiUiState() {
   return request.post('/oci/oracle-ai/ui-state/get', {})
 }
 
-export function saveOracleAiUiState(data: { ociUserId?: string; modelPick?: string[] }) {
+export function saveOracleAiUiState(data: { ociUserId?: string }) {
   return request.post('/oci/oracle-ai/ui-state/save', data)
+}
+
+export function getOracleAiModelWhitelist(data: { ociUserId: string }) {
+  return request.post('/oci/oracle-ai/model-whitelist/get', data)
+}
+
+export function saveOracleAiModelWhitelist(data: { ociUserId: string; allowedModels?: string[] }) {
+  return request.post('/oci/oracle-ai/model-whitelist/save', data)
 }

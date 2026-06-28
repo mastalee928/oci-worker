@@ -7,6 +7,7 @@ import com.ociworker.model.entity.OciUser;
 import com.ociworker.service.DynamicOpenAiPortService;
 import com.ociworker.service.OciOpenaiLoadBalanceService;
 import com.ociworker.service.OciOpenaiKeyService;
+import com.ociworker.service.OracleAiModelWhitelistService;
 import com.ociworker.service.OracleAiPortBindingService;
 import jakarta.annotation.Resource;
 import jakarta.servlet.FilterChain;
@@ -37,6 +38,8 @@ public class OpenAiApiKeyFilter extends OncePerRequestFilter {
     private OracleAiPortBindingService portBindingService;
     @Resource
     private OciOpenaiLoadBalanceService loadBalanceService;
+    @Resource
+    private OracleAiModelWhitelistService modelWhitelistService;
 
     @Override
     protected void doFilterInternal(
@@ -128,6 +131,11 @@ public class OpenAiApiKeyFilter extends OncePerRequestFilter {
             }
             if (binding.getAllowedModelsJson() != null && !binding.getAllowedModelsJson().isBlank()) {
                 request.setAttribute(OpenAiApiConstants.ATTR_ALLOWED_MODELS_JSON, binding.getAllowedModelsJson());
+            }
+        } else {
+            String allowedModelsJson = modelWhitelistService.allowedModelsJson(u.getId());
+            if (allowedModelsJson != null && !allowedModelsJson.isBlank()) {
+                request.setAttribute(OpenAiApiConstants.ATTR_ALLOWED_MODELS_JSON, allowedModelsJson);
             }
         }
         try {
