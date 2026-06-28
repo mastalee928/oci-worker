@@ -19,13 +19,6 @@
           <code class="code-wrap">{{ publicBaseUrl }}</code>
         </a-typography-paragraph>
       </a-space>
-      <a-alert
-        v-if="baseHint"
-        class="mb-alert"
-        type="info"
-        :message="baseHint"
-        show-icon
-      />
     </a-card>
 
     <a-card title="API 密钥" :bordered="false" class="mt-card">
@@ -137,7 +130,7 @@
             :loading="modelsLoading"
             placeholder="留空表示不限制模型"
             allow-clear
-            show-search
+            :show-search="false"
             :filter-option="filterModel"
             :max-tag-count="6"
             :max-tag-placeholder="(omittedValues: any[]) => `+${omittedValues?.length || 0}`"
@@ -237,7 +230,7 @@
               <div class="port-card-head">
                 <div>
                   <div class="port-card-title">{{ record.name || `port-${record.port}` }}</div>
-                  <code>{{ portBaseUrl(record.port) }}</code>
+                  <code>{{ portIpBaseUrl(record.port) }}</code>
                 </div>
                 <a-switch :checked="record.enabled" :loading="portSwitchingId === record.id" @change="(v: boolean) => togglePortBinding(record, v)" />
               </div>
@@ -286,8 +279,8 @@
                 <span class="sub-muted">{{ regionDisplay(record.ociRegion) || '-' }}</span>
               </template>
               <template v-else-if="column.key === 'base'">
-                <a-typography-paragraph copyable :content="portBaseUrl(record.port)" style="margin: 0">
-                  <code class="code-wrap">{{ portBaseUrl(record.port) }}</code>
+                <a-typography-paragraph copyable :content="portIpBaseUrl(record.port)" style="margin: 0">
+                  <code class="code-wrap">{{ portIpBaseUrl(record.port) }}</code>
                 </a-typography-paragraph>
               </template>
               <template v-else-if="column.key === 'maxTokens'">
@@ -1153,7 +1146,6 @@ const keyModalOpen = ref(false)
 const plainKeyModalOpen = ref(false)
 const newKeyPlain = ref('')
 const keyName = ref('')
-const baseHint = ref('')
 const openaiProxyEnabled = ref(true)
 const gatewayLoading = ref(false)
 const serverIp = ref('')
@@ -1269,6 +1261,13 @@ function portBaseUrl(port?: number) {
   return `${location.protocol}//${location.hostname}:${p}${openaiPath}`
 }
 
+function portIpBaseUrl(port?: number) {
+  const p = Number(port || 0)
+  if (!p) return ''
+  const host = serverIp.value || '<服务器IP>'
+  return `http://${host}:${p}${openaiPath}`
+}
+
 const lbPort = computed(() => {
   const port = Number(lbOverview.value?.port || 50000)
   return Number.isFinite(port) && port > 0 ? Math.trunc(port) : 50000
@@ -1280,7 +1279,7 @@ const lbBaseUrl = computed(() => {
 })
 
 const lbIpBaseUrl = computed(() => {
-  const host = serverIp.value || (typeof window !== 'undefined' ? location.hostname : '<服务器IP>')
+  const host = serverIp.value || '<服务器IP>'
   return `http://${host}:${lbPort.value}${openaiPath}`
 })
 
@@ -1326,7 +1325,7 @@ const keyViewIpBaseUrl = computed(() => {
   const port = Number(keyViewPort.value || 0)
   if (!port) return ''
   if (port === lbPort.value) return lbIpBaseUrl.value
-  const host = serverIp.value || (typeof window !== 'undefined' ? location.hostname : '<host>')
+  const host = serverIp.value || '<服务器IP>'
   return `http://${host}:${port}${openaiPath}`
 })
 
@@ -1337,6 +1336,7 @@ const selectionPersistEnabled = ref(false)
 const serverUiStateLoaded = ref(false)
 const serverUiState = ref<{ ociUserId?: string; modelPick?: string[] } | null>(null)
 let persistTimer: any = null
+let gatewayIpRetryTimer: any = null
 
 async function loadPersistedState() {
   try {
@@ -1466,9 +1466,13 @@ onMounted(() => {
 
 onUnmounted(() => {
   window.removeEventListener('resize', checkM)
+  if (gatewayIpRetryTimer) {
+    clearTimeout(gatewayIpRetryTimer)
+    gatewayIpRetryTimer = null
+  }
 })
 
-async function loadGateway() {
+async function loadGateway(options?: { retryIp?: boolean }) {
   gatewayLoading.value = true
   try {
     const r: any = await getOracleAiGateway()
@@ -1483,11 +1487,13 @@ async function loadGateway() {
       defaultMaxTokens.value = Math.trunc(mt)
       defaultMaxTokensInput.value = Math.trunc(mt)
     }
-    baseHint.value = r?.data?.baseUrlExample
-      ? `Base 示例: ${r.data.baseUrlExample}`
-      : `对外访问需在防火墙放行 TCP ${openaiPort.value}。`
+    if (!serverIp.value && options?.retryIp !== false && !gatewayIpRetryTimer) {
+      gatewayIpRetryTimer = setTimeout(() => {
+        gatewayIpRetryTimer = null
+        loadGateway({ retryIp: false })
+      }, 1800)
+    }
   } catch {
-    baseHint.value = `请放行 TCP 端口 ${openaiPort.value} 供 New API/客户端访问。`
   } finally {
     gatewayLoading.value = false
   }
@@ -2450,7 +2456,7 @@ function lbMemberName(row: any) {
 }
 
 function lbMemberPortUrl(row: any) {
-  return row?.port ? portBaseUrl(Number(row.port)) : ''
+  return row?.port ? portIpBaseUrl(Number(row.port)) : ''
 }
 
 function lbCooldownText(row: any) {
