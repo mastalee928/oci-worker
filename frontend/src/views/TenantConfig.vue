@@ -31,7 +31,7 @@
             </template>
             <template v-if="column.key === 'tenantName'">
               <a-tooltip v-if="record.tenantName" :title="record.tenantName">
-                <span class="tenant-table-text-cell">{{ record.tenantName }}</span>
+                <span class="tenant-table-text-cell">{{ displayTenantName(record.tenantName) }}</span>
               </a-tooltip>
               <span v-else style="color: var(--text-sub); font-size: 12px">获取中...</span>
             </template>
@@ -202,7 +202,7 @@
                       </template>
                       <template v-if="column.key === 'tenantName'">
                         <a-tooltip v-if="record.tenantName" :title="record.tenantName">
-                          <span class="tenant-table-text-cell">{{ record.tenantName }}</span>
+                          <span class="tenant-table-text-cell">{{ displayTenantName(record.tenantName) }}</span>
                         </a-tooltip>
                         <span v-else style="color: var(--text-sub); font-size: 12px">获取中...</span>
                       </template>
@@ -286,7 +286,7 @@
                     </template>
                     <template v-if="column.key === 'tenantName'">
                       <a-tooltip v-if="record.tenantName" :title="record.tenantName">
-                        <span class="tenant-table-text-cell">{{ record.tenantName }}</span>
+                        <span class="tenant-table-text-cell">{{ displayTenantName(record.tenantName) }}</span>
                       </a-tooltip>
                       <span v-else style="color: var(--text-sub); font-size: 12px">获取中...</span>
                     </template>
@@ -2018,7 +2018,7 @@ region=ap-tokyo-1"
 <script setup lang="ts">
 defineOptions({ name: 'TenantConfig' })
 
-import { ref, reactive, computed, onMounted, onActivated, onUnmounted, watch } from 'vue'
+import { ref, reactive, computed, h, onMounted, onActivated, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { PlusOutlined, ThunderboltOutlined, InboxOutlined, ReloadOutlined, MenuFoldOutlined, MenuUnfoldOutlined, VerticalAlignTopOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
@@ -2027,7 +2027,7 @@ import { getTenantList, addTenant, updateTenant, removeTenant, batchMoveTenantGr
 import type { BudgetAlertType, BudgetProcessingPeriodType, BudgetTargetType, BudgetThresholdType } from '../api/tenant'
 import { listCompartmentPicker } from '../api/compartment'
 import { sendVerifyCode } from '../api/system'
-import { RightOutlined, DownOutlined, SettingOutlined, FolderOutlined, EditOutlined, DeleteOutlined } from '@ant-design/icons-vue'
+import { RightOutlined, DownOutlined, SettingOutlined, FolderOutlined, EditOutlined, DeleteOutlined, EyeOutlined, EyeInvisibleOutlined } from '@ant-design/icons-vue'
 import AuditLogTable from '../components/AuditLogTable.vue'
 import CompartmentManager from '../components/CompartmentManager.vue'
 import {
@@ -2261,16 +2261,52 @@ function formatCountryCn(v: any): string {
 const tenantTableScrollX = 1368
 const showTenantCreateTimeColumn = false
 const tenantCreateTimeColumn = { title: '添加日期', key: 'createTime', width: 168 }
+const tenantNameMasked = ref(false)
 
-const columns = [
+function maskTenantName(value: any) {
+  const text = String(value ?? '').trim()
+  if (!text) return ''
+  return `${text.charAt(0)}***${text.charAt(text.length - 1)}`
+}
+
+function displayTenantName(value: any) {
+  const text = String(value ?? '').trim()
+  if (!text) return ''
+  return tenantNameMasked.value ? maskTenantName(text) : text
+}
+
+function toggleTenantNameMask(e?: MouseEvent) {
+  e?.stopPropagation()
+  tenantNameMasked.value = !tenantNameMasked.value
+}
+
+function tenantNameColumnTitle() {
+  const Icon = tenantNameMasked.value ? EyeInvisibleOutlined : EyeOutlined
+  return h('span', { class: 'tenant-name-title' }, [
+    h('span', { class: 'tenant-name-title-text' }, '租户名'),
+    h(
+      'button',
+      {
+        class: 'tenant-name-mask-btn',
+        type: 'button',
+        title: tenantNameMasked.value ? '显示租户名' : '打码租户名',
+        'aria-label': tenantNameMasked.value ? '显示租户名' : '打码租户名',
+        onClick: toggleTenantNameMask,
+      },
+      [h(Icon)],
+    ),
+  ])
+}
+
+const columns = computed(() => [
   { title: '名称', dataIndex: 'username', key: 'username', width: 300 },
-  { title: '租户名', dataIndex: 'tenantName', key: 'tenantName', width: 220, ellipsis: true },
+  { title: tenantNameColumnTitle, dataIndex: 'tenantName', key: 'tenantName', width: 220, ellipsis: true },
   { title: '主区域', dataIndex: 'ociRegion', key: 'ociRegion', width: 220 },
   { title: '开机任务', key: 'taskStatus', width: 140 },
   { title: '账户类型', dataIndex: 'planType', key: 'planType', width: 130 },
   ...(showTenantCreateTimeColumn ? [tenantCreateTimeColumn] : []),
   { title: '操作', key: 'action', width: 310 },
-]
+])
 
 const submitLoading = ref(false)
 const searchTableData = ref<any[]>([])
@@ -5240,6 +5276,35 @@ onUnmounted(() => {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm, 8px);
+}
+.tenant-name-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  height: 22px;
+  line-height: 22px;
+  white-space: nowrap;
+}
+.tenant-name-title-text {
+  display: inline-block;
+}
+.tenant-name-mask-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-sub);
+  cursor: pointer;
+  border-radius: 4px;
+  line-height: 1;
+}
+.tenant-name-mask-btn:hover {
+  color: var(--primary);
+  background: rgba(127, 127, 127, 0.12);
 }
 .domain-switcher-label {
   font-size: 13px;
