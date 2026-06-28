@@ -451,17 +451,16 @@
                 <pre class="script-block">{{ detailData.customScript }}</pre>
               </a-descriptions-item>
             </a-descriptions>
-            <a-alert
-              v-if="detailData.failureReason"
-              type="error"
-              show-icon
-              :message="detailData.failureReason"
-              class="task-failure-alert"
-            />
           </div>
 
-          <!-- 已创建实例 -->
-          <div class="detail-section" style="margin-top:16px">
+          <!-- 失败原因 / 已创建实例 -->
+          <div v-if="isFailedTask(detailData)" class="detail-section" style="margin-top:16px">
+            <div class="detail-section-title">失败原因日志</div>
+            <div class="task-failure-log">
+              <pre>{{ taskFailureLog(detailData) }}</pre>
+            </div>
+          </div>
+          <div v-else class="detail-section" style="margin-top:16px">
             <div class="detail-section-title">
               已创建实例
               <a-tag color="green" style="margin-left:8px">{{ detailData.instances?.length || 0 }} 台</a-tag>
@@ -575,6 +574,15 @@ const progressOverTargetTip =
 function progressDisplaySuccess(r: { successCount?: number; recordedInstanceCount?: number } | null | undefined) {
   if (!r) return 0
   return Math.max(r.successCount ?? 0, r.recordedInstanceCount ?? 0)
+}
+
+function isFailedTask(task: { status?: string } | null | undefined) {
+  return task?.status === 'FAILED'
+}
+
+function taskFailureLog(task: { failureReason?: string } | null | undefined) {
+  const reason = task?.failureReason?.trim()
+  return reason || '该失败任务没有保存到详细失败原因，可能是升级前创建的历史任务。请查看日志页面或 Telegram 推送记录。'
 }
 
 const columns = [
@@ -1199,8 +1207,21 @@ onMounted(() => loadData())
   max-height: 200px;
   overflow: auto;
 }
-.task-failure-alert {
-  margin-top: 12px;
+.task-failure-log {
+  border: 1px solid color-mix(in srgb, #ff4d4f 38%, var(--border));
+  border-radius: 8px;
+  background: color-mix(in srgb, #ff4d4f 9%, var(--bg-card));
+}
+.task-failure-log pre {
+  margin: 0;
+  padding: 11px 12px;
+  color: var(--text-main);
+  font-size: 13px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 260px;
+  overflow: auto;
 }
 @media (max-width: 768px) {
   .table-toolbar { margin-bottom: 12px; }

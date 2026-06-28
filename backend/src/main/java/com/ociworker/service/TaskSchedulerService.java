@@ -81,6 +81,7 @@ public class TaskSchedulerService implements SmartLifecycle {
                     OciUser ociUser = userMapper.selectById(task.getUserId());
                     if (ociUser == null) {
                         task.setStatus(TaskStatusEnum.FAILED.getStatus());
+                        task.setFailureReason("❌ 租户配置不存在，服务重启后无法恢复任务。");
                         taskMapper.updateById(task);
                         continue;
                     }
@@ -91,6 +92,7 @@ public class TaskSchedulerService implements SmartLifecycle {
                 } catch (Exception e) {
                     log.error("Failed to restore task {}: {}", task.getId(), e.getMessage());
                     task.setStatus(TaskStatusEnum.FAILED.getStatus());
+                    task.setFailureReason("❌ 服务重启后恢复任务失败：" + e.getMessage());
                     taskMapper.updateById(task);
                 }
             }
@@ -576,7 +578,8 @@ public class TaskSchedulerService implements SmartLifecycle {
                 applyAdExcludedNoShapeBroadcast(taskId, user, region, arch, result, excludedAds);
 
                 if (result.isDie()) {
-                    completeTask(taskId, TaskStatusEnum.FAILED);
+                    String failureReason = "❌ 认证失败 (401)，任务已停止。请检查该租户 API Key、Fingerprint、私钥和权限是否仍有效。";
+                    completeTask(taskId, TaskStatusEnum.FAILED, failureReason);
                     broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],架构:[%s] - 认证失败(401)，任务已停止", user, region, series));
                     String html = "❌ <b>开机任务失败</b>\n\n"
                             + "👤 <b>租户：</b>" + user + "\n"
@@ -589,8 +592,12 @@ public class TaskSchedulerService implements SmartLifecycle {
                 }
 
                 if (result.isNoShape()) {
-                    completeTask(taskId, TaskStatusEnum.FAILED);
-                    broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s] - ❌ Shape 不可用，任务已停止", user, region, arch));
+                    String shapeForReason = StrUtil.isNotBlank(result.getResolvedTargetShape())
+                            ? result.getResolvedTargetShape() : arch;
+                    String failureReason = "❌ Shape 不可用，任务已停止。目标 Shape：" + shapeForReason
+                            + "；请切换区域、Shape 或稍后重试。";
+                    completeTask(taskId, TaskStatusEnum.FAILED, failureReason);
+                    broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s] - %s", user, region, arch, failureReason));
                     return;
                 }
 
@@ -598,9 +605,10 @@ public class TaskSchedulerService implements SmartLifecycle {
                     String hint = StrUtil.isNotBlank(result.getFailureHint())
                             ? result.getFailureHint()
                             : "引导卷（启动盘）存储配额已达上限，硬盘配额用尽，创建失败";
-                    completeTask(taskId, TaskStatusEnum.FAILED);
-                    broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s] - ❌ %s",
-                            user, region, arch, hint));
+                    String failureReason = "❌ " + hint + "。任务已停止。";
+                    completeTask(taskId, TaskStatusEnum.FAILED, failureReason);
+                    broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s] - %s",
+                            user, region, arch, failureReason));
                     return;
                 }
 
