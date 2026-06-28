@@ -2285,13 +2285,20 @@ function tenantNameColumnTitle() {
   return h('span', { class: 'tenant-name-title' }, [
     h('span', { class: 'tenant-name-title-text' }, '租户名'),
     h(
-      'button',
+      'span',
       {
         class: 'tenant-name-mask-btn',
-        type: 'button',
+        role: 'button',
+        tabindex: 0,
         title: tenantNameMasked.value ? '显示租户名' : '打码租户名',
         'aria-label': tenantNameMasked.value ? '显示租户名' : '打码租户名',
         onClick: toggleTenantNameMask,
+        onKeydown: (event: KeyboardEvent) => {
+          if (event.key === 'Enter' || event.key === ' ') {
+            event.preventDefault()
+            toggleTenantNameMask(event as unknown as MouseEvent)
+          }
+        },
       },
       [h(Icon)],
     ),
@@ -5288,23 +5295,34 @@ onUnmounted(() => {
 .tenant-name-title-text {
   display: inline-block;
 }
-.tenant-name-mask-btn {
+.tenant-name-mask-btn,
+.tenant-config-root :deep(.tenant-name-mask-btn) {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 22px;
-  height: 22px;
+  width: 18px;
+  height: 18px;
   padding: 0;
   border: 0;
-  background: transparent;
+  outline: none;
+  box-shadow: none;
+  background: transparent !important;
   color: var(--text-sub);
   cursor: pointer;
-  border-radius: 4px;
+  border-radius: 50%;
   line-height: 1;
+  vertical-align: middle;
+  appearance: none;
+  opacity: 0.82;
+  transition: color 0.16s ease, background-color 0.16s ease, opacity 0.16s ease;
 }
-.tenant-name-mask-btn:hover {
+.tenant-name-mask-btn:hover,
+.tenant-name-mask-btn:focus-visible,
+.tenant-config-root :deep(.tenant-name-mask-btn:hover),
+.tenant-config-root :deep(.tenant-name-mask-btn:focus-visible) {
   color: var(--primary);
-  background: rgba(127, 127, 127, 0.12);
+  background: rgba(148, 163, 184, 0.16) !important;
+  opacity: 1;
 }
 .domain-switcher-label {
   font-size: 13px;
