@@ -177,33 +177,76 @@
     <!-- 无分组时保持原有卡片/列表展示 -->
     <template v-else>
     <!-- 租户卡片视图 -->
-    <div v-if="tenantViewMode === 'card'" class="tenant-grid">
-      <div v-for="td in filteredTenants" :key="td.tenant.id"
-        class="tenant-card" :data-tenant-id="td.tenant.id" :class="{ 'tenant-card-active': activeTenantId === td.tenant.id, 'tenant-card-floating-source': isFloatingTenantSource(td.tenant) }">
-        <div class="tc-header">
-          <i class="ri-cloud-line tc-icon"></i>
-          <div class="tc-info">
-            <div class="tc-name">{{ td.tenant.username }}</div>
-            <div class="tc-region">{{ td.tenant.ociRegion }}</div>
+    <div v-if="tenantViewMode === 'card'">
+      <VirtualTenantGridList
+        v-if="!isMobile && shouldVirtualizeTenantCards(filteredTenants.length)"
+        :items="filteredTenants"
+        :item-key="tenantDataKey"
+        :reset-key="tenantVirtualResetKey"
+        :max-height="tenantVirtualListMaxHeight"
+      >
+        <template #item="{ item: td }">
+          <div
+            class="tenant-card"
+            :data-tenant-id="td.tenant.id"
+            :class="{ 'tenant-card-active': activeTenantId === td.tenant.id, 'tenant-card-floating-source': isFloatingTenantSource(td.tenant) }"
+          >
+            <div class="tc-header">
+              <i class="ri-cloud-line tc-icon"></i>
+              <div class="tc-info">
+                <div class="tc-name">{{ td.tenant.username }}</div>
+                <div class="tc-region">{{ td.tenant.ociRegion }}</div>
+              </div>
+            </div>
+            <div class="tc-tags">
+              <a-tag v-if="td.tenant.planType" :color="tenantPlanTagColor(td.tenant.planType)" :style="tenantPlanTagStyle(td.tenant.planType)" size="small">{{ formatTenantPlanType(td.tenant.planType) }}</a-tag>
+              <a-tag v-if="td.tenant.tenantName" size="small" color="blue">{{ td.tenant.tenantName }}</a-tag>
+            </div>
+            <div class="tc-actions">
+              <a-button type="primary" block @click="selectTenant(td)" :loading="td.loading">
+                <i class="ri-server-line" style="margin-right: 6px"></i>实例管理
+              </a-button>
+              <a-button block @click="openVcnPanel(td.tenant)">
+                <i class="ri-share-line" style="margin-right: 6px"></i>虚拟云网络
+              </a-button>
+              <a-button block @click="openStoragePanel(td.tenant)">
+                <i class="ri-database-2-line" style="margin-right: 6px"></i>存储
+              </a-button>
+              <a-button block @click="openQuickTask(td.tenant)">
+                <i class="ri-play-circle-line" style="margin-right: 6px"></i>快捷开机
+              </a-button>
+            </div>
           </div>
-        </div>
-        <div class="tc-tags">
-          <a-tag v-if="td.tenant.planType" :color="tenantPlanTagColor(td.tenant.planType)" :style="tenantPlanTagStyle(td.tenant.planType)" size="small">{{ formatTenantPlanType(td.tenant.planType) }}</a-tag>
-          <a-tag v-if="td.tenant.tenantName" size="small" color="blue">{{ td.tenant.tenantName }}</a-tag>
-        </div>
-        <div class="tc-actions">
-          <a-button type="primary" block @click="selectTenant(td)" :loading="td.loading">
-            <i class="ri-server-line" style="margin-right: 6px"></i>实例管理
-          </a-button>
-          <a-button block @click="openVcnPanel(td.tenant)">
-            <i class="ri-share-line" style="margin-right: 6px"></i>虚拟云网络
-          </a-button>
-          <a-button block @click="openStoragePanel(td.tenant)">
-            <i class="ri-database-2-line" style="margin-right: 6px"></i>存储
-          </a-button>
-          <a-button block @click="openQuickTask(td.tenant)">
-            <i class="ri-play-circle-line" style="margin-right: 6px"></i>快捷开机
-          </a-button>
+        </template>
+      </VirtualTenantGridList>
+      <div v-else class="tenant-grid">
+        <div v-for="td in filteredTenants" :key="td.tenant.id"
+          class="tenant-card" :data-tenant-id="td.tenant.id" :class="{ 'tenant-card-active': activeTenantId === td.tenant.id, 'tenant-card-floating-source': isFloatingTenantSource(td.tenant) }">
+          <div class="tc-header">
+            <i class="ri-cloud-line tc-icon"></i>
+            <div class="tc-info">
+              <div class="tc-name">{{ td.tenant.username }}</div>
+              <div class="tc-region">{{ td.tenant.ociRegion }}</div>
+            </div>
+          </div>
+          <div class="tc-tags">
+            <a-tag v-if="td.tenant.planType" :color="tenantPlanTagColor(td.tenant.planType)" :style="tenantPlanTagStyle(td.tenant.planType)" size="small">{{ formatTenantPlanType(td.tenant.planType) }}</a-tag>
+            <a-tag v-if="td.tenant.tenantName" size="small" color="blue">{{ td.tenant.tenantName }}</a-tag>
+          </div>
+          <div class="tc-actions">
+            <a-button type="primary" block @click="selectTenant(td)" :loading="td.loading">
+              <i class="ri-server-line" style="margin-right: 6px"></i>实例管理
+            </a-button>
+            <a-button block @click="openVcnPanel(td.tenant)">
+              <i class="ri-share-line" style="margin-right: 6px"></i>虚拟云网络
+            </a-button>
+            <a-button block @click="openStoragePanel(td.tenant)">
+              <i class="ri-database-2-line" style="margin-right: 6px"></i>存储
+            </a-button>
+            <a-button block @click="openQuickTask(td.tenant)">
+              <i class="ri-play-circle-line" style="margin-right: 6px"></i>快捷开机
+            </a-button>
+          </div>
         </div>
       </div>
     </div>
@@ -302,6 +345,69 @@
 
           <!-- 移动端：卡片流 -->
           <div v-else-if="isMobile" class="instance-mobile-list">
+            <VirtualTenantCardList
+              v-if="activeTenantData.instances.length > VIRTUAL_CARD_MIN"
+              :items="activeTenantData.instances"
+              :item-key="instanceRecordKey"
+              :estimate-size="176"
+              :max-height="instanceMobileVirtualMaxHeight"
+              :reset-key="instanceVirtualResetKey"
+            >
+              <template #item="{ item: record }">
+                <div class="instance-mobile-card">
+                  <div class="imc-header">
+                    <span class="imc-name" :title="record.name">{{ record.name }}</span>
+                    <a-badge :status="stateColorMap[record.state] || 'default'" :text="record.state" />
+                  </div>
+                  <div class="imc-body">
+                    <div class="imc-row">
+                      <span class="imc-label">规格</span>
+                      <div class="imc-value-group">
+                        <span class="imc-value-main">{{ record.ocpus }}C / {{ record.memoryInGBs }}G</span>
+                        <span class="imc-value-sub">{{ record.shape }}</span>
+                      </div>
+                    </div>
+                    <div class="imc-row">
+                      <span class="imc-label">公网 IP</span>
+                      <a-typography-text v-if="record.publicIp" copyable class="ip-copy imc-value-main">{{ record.publicIp }}</a-typography-text>
+                      <span v-else class="imc-value-sub">—</span>
+                    </div>
+                  </div>
+                  <div class="imc-footer">
+                    <a-button type="link" size="small" @click="openDetail(activeTenantData!.tenant, record)">
+                      <i class="ri-information-line" style="margin-right: 4px"></i>详情
+                    </a-button>
+                    <a-dropdown :trigger="['click']">
+                      <a-button type="link" size="small" class="instance-action-trigger" :loading="actionLoading[record.instanceId]">
+                        实例操作
+                        <DownOutlined style="font-size: 10px; margin-left: 2px" />
+                      </a-button>
+                      <template #overlay>
+                        <a-menu class="instance-action-menu" @click="(info: any) => onInstanceMenuClick(record, info.key)">
+                          <a-menu-item key="START">
+                            <i class="ri-play-fill" style="color: #52c41a; margin-right: 8px"></i>启动
+                          </a-menu-item>
+                          <a-menu-item key="SOFTRESET" :disabled="record.state !== 'RUNNING'">
+                            <i class="ri-restart-line" style="color: #faad14; margin-right: 8px"></i>重启
+                          </a-menu-item>
+                          <a-menu-item key="RESET" :disabled="record.state !== 'RUNNING'">
+                            <i class="ri-shut-down-line" style="color: #ff7a45; margin-right: 8px"></i>断电重启
+                          </a-menu-item>
+                          <a-menu-item key="SOFTSTOP" :disabled="record.state !== 'RUNNING'">
+                            <i class="ri-stop-fill" style="color: #8c8c8c; margin-right: 8px"></i>暂停
+                          </a-menu-item>
+                          <a-menu-divider />
+                          <a-menu-item key="TERMINATE" danger>
+                            <i class="ri-close-circle-line" style="color: #ff4d4f; margin-right: 8px"></i>终止
+                          </a-menu-item>
+                        </a-menu>
+                      </template>
+                    </a-dropdown>
+                  </div>
+                </div>
+              </template>
+            </VirtualTenantCardList>
+            <template v-else>
             <div v-for="record in activeTenantData.instances" :key="record.instanceId" class="instance-mobile-card">
               <div class="imc-header">
                 <span class="imc-name" :title="record.name">{{ record.name }}</span>
@@ -353,6 +459,7 @@
                 </a-dropdown>
               </div>
             </div>
+            </template>
           </div>
 
           <!-- 桌面端：表格 -->
@@ -1995,6 +2102,8 @@ import {
 import { useDenseIoFlexTier } from '../composables/useDenseIoFlexTier'
 import { isAllGroupsExpanded } from '../composables/groupExpandToggle'
 import ShapeSeriesPicker from '../components/ShapeSeriesPicker.vue'
+import VirtualTenantCardList from '../components/tenant/VirtualTenantCardList.vue'
+import VirtualTenantGridList from '../components/tenant/VirtualTenantGridList.vue'
 import {
   BOOT_VOLUME_VPUS_MAX,
   BOOT_VOLUME_VPUS_MIN,
@@ -2199,7 +2308,9 @@ interface TrafficChartModel {
 }
 
 const isMobile = ref(window.innerWidth < 768)
+const viewportHeight = ref(window.innerHeight)
 function checkMobile() {
+  viewportHeight.value = window.innerHeight
   isMobile.value = window.innerWidth < 768
   if (isMobile.value) {
     if (floatingTenantCard.phase !== 'idle') floatingTenantCard.phase = 'idle'
@@ -2228,6 +2339,17 @@ const filteredTenants = computed(() => {
     (td.tenant.tenantName || '').toLowerCase().includes(kw)
   )
 })
+
+const tenantVirtualListMaxHeight = computed(() => Math.max(460, Math.min(760, viewportHeight.value - 180)))
+function shouldVirtualizeTenantCards(count: number) {
+  return count > VIRTUAL_CARD_MIN
+}
+function tenantDataKey(item: unknown, index: number) {
+  return String((item as TenantData)?.tenant?.id ?? index)
+}
+const tenantVirtualResetKey = computed(() =>
+  `${tenantViewMode.value}|${searchKeyword.value}|${filteredTenants.value.map((td) => td.tenant.id).join(',')}`,
+)
 
 interface GroupNode {
   label: string
@@ -2401,6 +2523,13 @@ const activeTenantData = computed(() => {
   if (!activeTenantId.value) return null
   return tenantDataList.value.find(td => td.tenant.id === activeTenantId.value) || null
 })
+const instanceMobileVirtualMaxHeight = computed(() => Math.max(360, Math.min(680, viewportHeight.value - 220)))
+const instanceVirtualResetKey = computed(() =>
+  `${activeTenantId.value}|${instancePanelRegion.value}|${activeTenantData.value?.instances.map((r: any) => r.instanceId).join(',') || ''}`,
+)
+function instanceRecordKey(item: unknown, index: number) {
+  return String((item as any)?.instanceId ?? index)
+}
 const instancePanelVisible = computed({
   get: () => instancePanelOpen.value && !!activeTenantData.value,
   set: (val: boolean) => {

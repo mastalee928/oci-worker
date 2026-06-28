@@ -64,6 +64,49 @@
         </a-table>
         <template v-else>
           <a-empty v-if="tableData.length === 0" description="无搜索结果" />
+          <VirtualTenantCardList
+            v-else-if="shouldVirtualizeTenantMobileCards(tableData.length)"
+            :items="tableData"
+            :item-key="tenantRowKey"
+            :estimate-size="188"
+            :max-height="tenantMobileVirtualMaxHeight"
+            :reset-key="tenantMobileSearchResetKey"
+          >
+            <template #item="{ item: r }">
+              <div class="mobile-card">
+                <div class="mobile-card-header">
+                  <span class="mobile-card-title">{{ r.username }}</span>
+                  <span :class="planTypeBadgeClass(r.planType)" :style="planTypeBadgeStyle(r.planType)">{{ formatPlanBadge(r.planType, '?') }}</span>
+                </div>
+                <div class="mobile-card-body">
+                <div class="mobile-card-row">
+                  <span class="label">租户名</span>
+                  <span class="value">{{ r.tenantName || '获取中...' }}</span>
+                </div>
+                <div class="mobile-card-row"><span class="label">主区域</span><a-tag color="blue" style="margin:0">{{ getOciRegionDisplayName(r.ociRegion) }}</a-tag></div>
+                <div class="mobile-card-row">
+                  <span class="label">开机任务</span>
+                  <a-badge v-if="r.hasRunningTask" status="processing" text="执行中" />
+                  <span v-else style="color: #999">无</span>
+                </div>
+                <div class="mobile-card-row">
+                  <span class="label">添加日期</span>
+                  <span class="value">{{ formatTenantAddedTime(r.createTime) }}</span>
+                </div>
+              </div>
+              <div class="mobile-card-actions">
+                <a-button type="link" size="small" @click="showEditModal(r)">编辑</a-button>
+                <a-button type="link" size="small" @click="openTenantMgmt(r)">租户</a-button>
+                <a-button type="link" size="small" @click="openDomainMgmt(r)">域</a-button>
+                <a-button type="link" size="small" @click="goUserManagement(r)">用户</a-button>
+                <a-popconfirm title="确定删除?" @confirm="handleDelete(r.id)">
+                  <a-button type="link" danger size="small">删除</a-button>
+                </a-popconfirm>
+              </div>
+            </div>
+            </template>
+          </VirtualTenantCardList>
+          <template v-else>
             <div v-for="r in tableData" :key="r.id" class="mobile-card">
               <div class="mobile-card-header">
                 <span class="mobile-card-title">{{ r.username }}</span>
@@ -95,6 +138,7 @@
               </a-popconfirm>
             </div>
           </div>
+          </template>
         </template>
       </template>
 
@@ -234,6 +278,49 @@
                     </template>
                   </a-table>
                   <template v-else>
+                    <VirtualTenantCardList
+                      v-if="shouldVirtualizeTenantMobileCards(sub.tenants.length)"
+                      :items="sub.tenants"
+                      :item-key="tenantRowKey"
+                      :estimate-size="188"
+                      :max-height="tenantMobileVirtualMaxHeight"
+                      :reset-key="tenantGroupVirtualResetKey(sub.key, sub.tenants)"
+                    >
+                      <template #item="{ item: r }">
+                        <div class="mobile-card">
+                          <div class="mobile-card-header">
+                            <span class="mobile-card-title">{{ r.username }}</span>
+                            <span :class="planTypeBadgeClass(r.planType)" :style="planTypeBadgeStyle(r.planType)">{{ formatPlanBadge(r.planType, '?') }}</span>
+                          </div>
+                          <div class="mobile-card-body">
+                            <div class="mobile-card-row">
+                              <span class="label">租户名</span>
+                              <span class="value">{{ r.tenantName || '获取中...' }}</span>
+                            </div>
+                            <div class="mobile-card-row"><span class="label">主区域</span><a-tag color="blue" style="margin:0">{{ getOciRegionDisplayName(r.ociRegion) }}</a-tag></div>
+                            <div class="mobile-card-row">
+                              <span class="label">任务</span>
+                              <a-badge v-if="r.hasRunningTask" status="processing" text="执行中" />
+                              <span v-else style="color: #999">无</span>
+                            </div>
+                            <div class="mobile-card-row">
+                              <span class="label">添加日期</span>
+                              <span class="value">{{ formatTenantAddedTime(r.createTime) }}</span>
+                            </div>
+                          </div>
+                          <div class="mobile-card-actions">
+                            <a-button type="link" size="small" @click="showEditModal(r)">编辑</a-button>
+                            <a-button type="link" size="small" @click="openTenantMgmt(r)">租户</a-button>
+                            <a-button type="link" size="small" @click="openDomainMgmt(r)">域</a-button>
+                            <a-button type="link" size="small" @click="goUserManagement(r)">用户</a-button>
+                            <a-popconfirm title="确定删除?" @confirm="handleDelete(r.id)">
+                              <a-button type="link" danger size="small">删除</a-button>
+                            </a-popconfirm>
+                          </div>
+                        </div>
+                      </template>
+                    </VirtualTenantCardList>
+                    <template v-else>
                     <div v-for="r in sub.tenants" :key="r.id" class="mobile-card">
                       <div class="mobile-card-header">
                         <span class="mobile-card-title">{{ r.username }}</span>
@@ -265,6 +352,7 @@
                         </a-popconfirm>
                       </div>
                     </div>
+                    </template>
                   </template>
                 </template>
                 <div v-else style="text-align: center; padding: 20px; color: var(--text-sub); font-size: 12px;">
@@ -318,6 +406,49 @@
                   </template>
                 </a-table>
                 <template v-else>
+                  <VirtualTenantCardList
+                    v-if="shouldVirtualizeTenantMobileCards(group.tenants.length)"
+                    :items="group.tenants"
+                    :item-key="tenantRowKey"
+                    :estimate-size="188"
+                    :max-height="tenantMobileVirtualMaxHeight"
+                    :reset-key="tenantGroupVirtualResetKey(group.key, group.tenants)"
+                  >
+                    <template #item="{ item: r }">
+                      <div class="mobile-card">
+                        <div class="mobile-card-header">
+                          <span class="mobile-card-title">{{ r.username }}</span>
+                          <span :class="planTypeBadgeClass(r.planType)" :style="planTypeBadgeStyle(r.planType)">{{ formatPlanBadge(r.planType, '?') }}</span>
+                        </div>
+                        <div class="mobile-card-body">
+                          <div class="mobile-card-row">
+                            <span class="label">租户名</span>
+                            <span class="value">{{ r.tenantName || '获取中...' }}</span>
+                          </div>
+                          <div class="mobile-card-row"><span class="label">主区域</span><a-tag color="blue" style="margin:0">{{ getOciRegionDisplayName(r.ociRegion) }}</a-tag></div>
+                          <div class="mobile-card-row">
+                            <span class="label">任务</span>
+                            <a-badge v-if="r.hasRunningTask" status="processing" text="执行中" />
+                            <span v-else style="color: #999">无</span>
+                          </div>
+                          <div class="mobile-card-row">
+                            <span class="label">添加日期</span>
+                            <span class="value">{{ formatTenantAddedTime(r.createTime) }}</span>
+                          </div>
+                        </div>
+                        <div class="mobile-card-actions">
+                          <a-button type="link" size="small" @click="showEditModal(r)">编辑</a-button>
+                          <a-button type="link" size="small" @click="openTenantMgmt(r)">租户</a-button>
+                          <a-button type="link" size="small" @click="openDomainMgmt(r)">域</a-button>
+                          <a-button type="link" size="small" @click="goUserManagement(r)">用户</a-button>
+                          <a-popconfirm title="确定删除?" @confirm="handleDelete(r.id)">
+                            <a-button type="link" danger size="small">删除</a-button>
+                          </a-popconfirm>
+                        </div>
+                      </div>
+                    </template>
+                  </VirtualTenantCardList>
+                  <template v-else>
                   <div v-for="r in group.tenants" :key="r.id" class="mobile-card">
                     <div class="mobile-card-header">
                       <span class="mobile-card-title">{{ r.username }}</span>
@@ -349,6 +480,7 @@
                       </a-popconfirm>
                     </div>
                   </div>
+                  </template>
                 </template>
               </template>
             </div>
@@ -2030,6 +2162,7 @@ import { sendVerifyCode } from '../api/system'
 import { RightOutlined, DownOutlined, SettingOutlined, FolderOutlined, EditOutlined, DeleteOutlined, EyeOutlined, EyeInvisibleOutlined } from '@ant-design/icons-vue'
 import AuditLogTable from '../components/AuditLogTable.vue'
 import CompartmentManager from '../components/CompartmentManager.vue'
+import VirtualTenantCardList from '../components/tenant/VirtualTenantCardList.vue'
 import {
   loadOciRegionCatalog,
   ociRegionSelectOptions,
@@ -2053,6 +2186,7 @@ const TENANT_SEARCH_STALE_MS = 15_000
 const TENANT_INFO_STALE_MS = 30_000
 const TENANT_REGION_STALE_MS = 5 * 60_000
 const TENANT_QUOTA_STALE_MS = 2 * 60_000
+const TENANT_MOBILE_VIRTUAL_MIN = 12
 
 function formatUtcCnDate(v: any): string {
   if (!v) return '—'
@@ -2327,6 +2461,18 @@ const normalizedSearchText = computed(() => searchText.value.trim())
 const isSearchingTenants = computed(() => !!normalizedSearchText.value)
 const loading = computed(() => isSearchingTenants.value ? searchLoading.value : catalog.tenantsLoading)
 const tableData = computed(() => (normalizedSearchText.value ? searchTableData.value : catalog.tenants) as any[])
+const tenantMobileSearchResetKey = computed(() =>
+  `search|${normalizedSearchText.value}|${tableData.value.map((r: any) => r.id).join(',')}`,
+)
+function tenantRowKey(item: unknown, index: number) {
+  return String((item as any)?.id ?? index)
+}
+function shouldVirtualizeTenantMobileCards(count: number) {
+  return count > TENANT_MOBILE_VIRTUAL_MIN
+}
+function tenantGroupVirtualResetKey(groupKey: string, tenants: any[]) {
+  return `${groupKey}|${tenants.map((r: any) => r.id).join(',')}`
+}
 const selectedRowKeys = ref<string[]>([])
 let tenantInfoPollTimers: ReturnType<typeof setTimeout>[] = []
 const batchMoveVisible = ref(false)
@@ -2377,6 +2523,8 @@ const createGroupLoading = ref(false)
 
 let pendingFile: File | null = null
 const isMobile = ref(window.innerWidth < 768)
+const viewportHeight = ref(window.innerHeight)
+const tenantMobileVirtualMaxHeight = computed(() => Math.max(360, Math.min(680, viewportHeight.value - 180)))
 
 const tenantMgmtVisible = ref(false)
 const tenantMgmtTenant = ref<any>(null)
@@ -2522,7 +2670,10 @@ const announcementImpacted = ref<any[]>([])
 const announcementHistory = ref<any[]>([])
 const announcementDrawerTitle = ref('云公告详情')
 const announcementReadUpdatingId = ref('')
-function checkMobile() { isMobile.value = window.innerWidth < 768 }
+function checkMobile() {
+  viewportHeight.value = window.innerHeight
+  isMobile.value = window.innerWidth < 768
+}
 
 function formatAnnouncementUserStatus(v: string | null | undefined): string {
   if (v === 'Read') return '已读'

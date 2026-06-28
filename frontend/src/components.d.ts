@@ -80,5 +80,6 @@ declare module 'vue' {
     ShapeSeriesPicker: typeof import('./components/ShapeSeriesPicker.vue')['default']
     UpgradeLoader: typeof import('./components/UpgradeLoader.vue')['default']
     VirtualTenantCardList: typeof import('./components/tenant/VirtualTenantCardList.vue')['default']
+    VirtualTenantGridList: typeof import('./components/tenant/VirtualTenantGridList.vue')['default']
   }
 }
