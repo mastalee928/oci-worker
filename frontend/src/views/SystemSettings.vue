@@ -190,77 +190,23 @@
                 </a-tab-pane>
 
                 <a-tab-pane key="inbox" tab="公告收件箱">
-                  <div class="announcement-toolbar">
-                    <a-select
-                      v-model:value="announcementInboxRange"
-                      class="announcement-filter-select"
-                      :options="announcementTimeRangeOptions"
-                      @change="handleAnnouncementRangeChange"
-                    />
-                    <a-range-picker
-                      v-if="announcementInboxRange === 'custom'"
-                      v-model:value="announcementInboxDates"
-                      value-format="YYYY-MM-DD HH:mm:ss"
-                      format="YYYY-MM-DD HH:mm"
-                      :show-time="{ format: 'HH:mm' }"
-                      class="announcement-date-range"
-                      @change="loadAnnouncementInbox(1)"
-                    />
-                    <a-select
-                      v-model:value="announcementInboxEventTypes"
-                      mode="multiple"
-                      :show-search="false"
-                      allow-clear
-                      class="announcement-event-filter"
-                      placeholder="全部事件"
-                      :options="announcementEventFilterOptions"
-                      @change="loadAnnouncementInbox(1)"
-                    />
-                    <a-input-search
-                      v-model:value="announcementInboxKeyword"
-                      placeholder="搜索摘要、服务、区域、租户名"
-                      allow-clear
-                      @search="loadAnnouncementInbox(1)"
-                    />
-                    <a-button :loading="announcementInboxLoading" @click="loadAnnouncementInbox(announcementInbox.current, true)">刷新</a-button>
-                  </div>
-                  <a-spin :spinning="announcementInboxLoading">
-                    <a-empty v-if="!announcementInbox.records.length" description="暂无公告" />
-                    <div v-else class="announcement-list">
-                      <div v-for="item in announcementInbox.records" :key="item.aggregateKey" class="announcement-item">
-                        <div class="announcement-item-main">
-                          <a-space wrap size="small">
-                            <a-tag>{{ item.announcementTypeLabel || item.announcementType || '公告' }}</a-tag>
-                            <span v-if="item.announcementType && item.announcementTypeLabel !== item.announcementType" class="announcement-type-origin">
-                              {{ item.announcementType }}
-                            </span>
-                            <a-tag v-if="item.read" color="green">已读</a-tag>
-                            <a-tag v-if="item.ignored" color="default">已忽略</a-tag>
-                            <a-tag v-if="item.pushedBatchId" color="blue">{{ item.pushedBatchId }}</a-tag>
-                          </a-space>
-                          <div class="announcement-summary">{{ item.summary || '-' }}</div>
-                          <div class="announcement-meta">
-                            {{ formatDateTime(item.timeCreated) }} · 影响 {{ item.tenantCount || 0 }} 个租户 · {{ item.tenantPreview || '-' }}
-                          </div>
-                          <div v-if="item.timeWindowText" class="announcement-window">{{ item.timeWindowText }}</div>
-                        </div>
-                        <a-space wrap>
-                          <a-button size="small" @click="openAnnouncementDetail(item)">详情</a-button>
-                          <a-button v-if="!item.read" size="small" @click="markAnnouncement(item, 'read')">已读</a-button>
-                          <a-button v-if="!item.ignored" size="small" @click="markAnnouncement(item, 'ignore')">忽略</a-button>
-                          <a-button v-else size="small" @click="markAnnouncement(item, 'unignore')">取消忽略</a-button>
-                        </a-space>
-                      </div>
-                    </div>
-                  </a-spin>
-                  <a-pagination
-                    v-if="announcementInbox.total > announcementInbox.size"
-                    size="small"
-                    class="announcement-pagination"
-                    :current="announcementInbox.current"
-                    :page-size="announcementInbox.size"
-                    :total="announcementInbox.total"
-                    @change="loadAnnouncementInbox"
+                  <AnnouncementInboxPanel
+                    v-model:range="announcementInboxRange"
+                    v-model:dates="announcementInboxDates"
+                    v-model:event-types="announcementInboxEventTypes"
+                    v-model:keyword="announcementInboxKeyword"
+                    :inbox="announcementInbox"
+                    :loading="announcementInboxLoading"
+                    :time-range-options="announcementTimeRangeOptions"
+                    :event-filter-options="announcementEventFilterOptions"
+                    :format-date-time="formatDateTime"
+                    @range-change="handleAnnouncementRangeChange"
+                    @filters-change="loadAnnouncementInbox(1)"
+                    @search="loadAnnouncementInbox(1)"
+                    @refresh="loadAnnouncementInbox(announcementInbox.current, true)"
+                    @page-change="loadAnnouncementInbox"
+                    @open-detail="openAnnouncementDetail"
+                    @mark="markAnnouncement"
                   />
                 </a-tab-pane>
 
@@ -959,6 +905,7 @@ import { useUserStore } from '../stores/user'
 import { useThemeStore } from '../stores/theme'
 import { sendVerifyCode } from '../api/system'
 import UpgradeLoader from '../components/UpgradeLoader.vue'
+import AnnouncementInboxPanel from '../components/settings/AnnouncementInboxPanel.vue'
 import request from '../utils/request'
 import { appQueryCache } from '../utils/queryCache'
 import { getCfAccountConfig, saveCfAccountConfig, testCfAccountConfig } from '../api/cloudflare'
@@ -1080,7 +1027,7 @@ const tenantSelectedPage = ref(1)
 const tenantPickerPageSize = computed(() => (isMobile.value ? 6 : 8))
 const announcementStatus = reactive<Record<string, any>>({})
 const announcementDetail = reactive<Record<string, any>>({})
-const announcementInbox = reactive({ records: [] as AnnouncementItem[], total: 0, current: 1, size: 10 })
+const announcementInbox = reactive({ records: [] as AnnouncementItem[], total: 0, current: 1, size: 50 })
 const announcementBatches = reactive({ records: [] as Record<string, any>[], total: 0, current: 1, size: 10 })
 const announcementPushConfig = reactive({
   enabled: false,
@@ -1626,8 +1573,9 @@ function tenantMatchesGroupKey(tenant: AnnouncementTenant, key: string) {
   return key === `1|${g1}` || (g2 && key === `2|${g1}|${g2}`)
 }
 
-function handleAnnouncementRangeChange() {
-  if (announcementInboxRange.value !== 'custom') {
+function handleAnnouncementRangeChange(value?: '24h' | '7d' | '30d' | 'all' | 'custom') {
+  const range = value || announcementInboxRange.value
+  if (range !== 'custom') {
     announcementInboxDates.value = []
   }
   loadAnnouncementInbox(1)

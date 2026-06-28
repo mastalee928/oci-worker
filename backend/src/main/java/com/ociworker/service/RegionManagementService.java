@@ -18,6 +18,7 @@ import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
@@ -37,11 +38,25 @@ import java.util.UUID;
 @Service
 public class RegionManagementService {
 
+    private static final Duration REGION_LIST_CACHE_TTL = Duration.ofMinutes(10);
+
     @Resource
     private OciUserMapper userMapper;
 
+    @Resource
+    private OciReadCacheService ociReadCacheService;
+
     public Map<String, Object> listRegions(String userId) {
+        return listRegions(userId, false);
+    }
+
+    public Map<String, Object> listRegions(String userId, boolean force) {
         OciUser user = requireUser(userId);
+        String cacheKey = regionCacheKey(user);
+        return ociReadCacheService.get(cacheKey, REGION_LIST_CACHE_TTL, force, () -> fetchRegions(user));
+    }
+
+    private Map<String, Object> fetchRegions(OciUser user) {
         try (OciClientService client = new OciClientService(buildDto(user))) {
             IdentityClient identity = client.getIdentityClient();
             List<RegionSubscription> subscriptions = listSubscriptions(identity, user.getOciTenantId());
@@ -84,6 +99,7 @@ public class RegionManagementService {
                             .build())
                     .build()).getRegionSubscription();
 
+            ociReadCacheService.evict(regionCacheKey(user));
             return regionRow(null, created, resolveHomeRegionKey(identity, user.getOciTenantId(), before));
         } catch (OciException e) {
             throw e;
@@ -251,6 +267,10 @@ public class RegionManagementService {
                         .privateKeyPath(user.getOciKeyPath())
                         .build())
                 .build();
+    }
+
+    private static String regionCacheKey(OciUser user) {
+        return OciReadCacheService.key("oci:regions", user.getId(), user.getOciTenantId(), user.getOciRegion());
     }
 
     private static String normalizeRegionKey(String value) {

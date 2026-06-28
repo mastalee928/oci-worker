@@ -14,6 +14,7 @@ import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.*;
 import java.util.stream.Collectors;
@@ -25,6 +26,7 @@ public class InstanceService {
 
     private static final String SHAPE_A2_FLEX = "VM.Standard.A2.Flex";
     private static final String SHAPE_A1_FLEX = "VM.Standard.A1.Flex";
+    private static final Duration SHAPE_LIST_CACHE_TTL = Duration.ofMinutes(15);
 
     @Resource
     private OciUserMapper userMapper;
@@ -32,6 +34,8 @@ public class InstanceService {
     private NotificationService notificationService;
     @Resource
     private ShapeEditTaskManager shapeEditTaskManager;
+    @Resource
+    private OciReadCacheService ociReadCacheService;
 
     private String tag(OciUser u) { return "[" + u.getUsername() + "] "; }
 
@@ -858,9 +862,24 @@ public class InstanceService {
     }
 
     public List<Map<String, Object>> listAvailableShapes(String userId, String region) {
+        return listAvailableShapes(userId, region, false);
+    }
+
+    public List<Map<String, Object>> listAvailableShapes(String userId, String region, boolean force) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
 
+        String targetRegion = normalizeRegionForCache(region);
+        String cacheKey = OciReadCacheService.key(
+                "oci:availableShapes",
+                ociUser.getId(),
+                ociUser.getOciTenantId(),
+                ociUser.getOciRegion(),
+                targetRegion);
+        return ociReadCacheService.get(cacheKey, SHAPE_LIST_CACHE_TTL, force, () -> fetchAvailableShapes(ociUser, region));
+    }
+
+    private List<Map<String, Object>> fetchAvailableShapes(OciUser ociUser, String region) {
         try (OciClientService client = oci(ociUser, region)) {
             var ads = client.getAvailabilityDomains();
             Set<String> seen = new LinkedHashSet<>();
@@ -880,9 +899,25 @@ public class InstanceService {
 
     /** 与当前实例镜像、可用域兼容的 Shape（用于形状编辑） */
     public List<Map<String, Object>> listShapesForInstance(String userId, String instanceId, String region) {
+        return listShapesForInstance(userId, instanceId, region, false);
+    }
+
+    public List<Map<String, Object>> listShapesForInstance(String userId, String instanceId, String region, boolean force) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
 
+        String targetRegion = normalizeRegionForCache(region);
+        String cacheKey = OciReadCacheService.key(
+                "oci:instanceShapes",
+                ociUser.getId(),
+                ociUser.getOciTenantId(),
+                ociUser.getOciRegion(),
+                targetRegion,
+                instanceId);
+        return ociReadCacheService.get(cacheKey, SHAPE_LIST_CACHE_TTL, force, () -> fetchShapesForInstance(ociUser, instanceId, region));
+    }
+
+    private List<Map<String, Object>> fetchShapesForInstance(OciUser ociUser, String instanceId, String region) {
         try (OciClientService client = oci(ociUser, region)) {
             Instance inst = client.getComputeClient().getInstance(
                     GetInstanceRequest.builder().instanceId(instanceId).build()
@@ -901,6 +936,10 @@ public class InstanceService {
         } catch (Exception e) {
             throw new OciException(tag(ociUser) + "获取实例可用 Shape 失败: " + e.getMessage());
         }
+    }
+
+    private static String normalizeRegionForCache(String region) {
+        return region == null ? "" : region.trim();
     }
 
     private static boolean isFlexibleShape(String shapeName) {

@@ -162,7 +162,7 @@ public class TenantController {
 
     @PostMapping("/regions")
     public ResponseData<?> regions(@RequestBody java.util.Map<String, Object> params) {
-        return ResponseData.ok(regionManagementService.listRegions(str(params, "id")));
+        return ResponseData.ok(regionManagementService.listRegions(str(params, "id"), bool(params, "force")));
     }
 
     @PostMapping("/region/subscribe")
@@ -248,7 +248,14 @@ public class TenantController {
 
     @PostMapping("/quotas")
     public ResponseData<?> quotas(@RequestBody java.util.Map<String, Object> params) {
-        return ResponseData.ok(domainManagementService.getServiceQuotas(str(params, "id"), str(params, "region")));
+        return ResponseData.ok(domainManagementService.getServiceQuotas(str(params, "id"), str(params, "region"), bool(params, "force")));
+    }
+
+    private static boolean bool(java.util.Map<String, Object> params, String key) {
+        if (params == null || params.get(key) == null) return false;
+        Object value = params.get(key);
+        if (value instanceof Boolean b) return b;
+        return Boolean.parseBoolean(String.valueOf(value));
     }
 
     /** 经典 IAM Policy（Identity → Policies），只读列表 */

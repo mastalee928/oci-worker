@@ -1222,7 +1222,7 @@
                   <a-button type="primary" :loading="shapeEditSaving" :disabled="shapeEditTaskActive || !shapeForm.shape" @click="handleApplyShapeEdit">
                     应用形状变更
                   </a-button>
-                  <a-button :disabled="shapeEditLoading" @click="loadShapeEditOptions">刷新 Shape 列表</a-button>
+                  <a-button :disabled="shapeEditLoading" @click="loadShapeEditOptions(true)">刷新 Shape 列表</a-button>
                 </a-space>
               </a-form>
             </template>
@@ -3181,7 +3181,7 @@ function onShapeFormShapeChange() {
   }
 }
 
-async function loadShapeEditOptions() {
+async function loadShapeEditOptions(force = false) {
   if (!currentInstance.value || !currentTenant.value) return
   shapeEditLoading.value = true
   try {
@@ -3189,6 +3189,7 @@ async function loadShapeEditOptions() {
       id: currentTenant.value.id,
       instanceId: currentInstance.value.instanceId,
       ...instanceDetailRegionParam(),
+      force,
     })
     shapeEditOptions.value = res.data || []
     const cur = currentInstance.value.shape

@@ -3713,7 +3713,7 @@ async function loadQuotas(force = false) {
     const rows = await appQueryCache.fetch(
       ['tenantConfig', 'quotas', tenantId, region],
       async () => {
-        const res = await getServiceQuotas({ id: tenantId, region: region || undefined })
+        const res = await getServiceQuotas({ id: tenantId, region: region || undefined, force })
         return res.data || []
       },
       { staleMs: TENANT_QUOTA_STALE_MS, force },
@@ -4822,7 +4822,7 @@ async function loadRegions(silent = false, force = false) {
     const data = await appQueryCache.fetch(
       ['tenantConfig', 'regions', tenantId],
       async () => {
-        const res = await listTenantRegions({ id: tenantId })
+        const res = await listTenantRegions({ id: tenantId, force })
         return res.data || {}
       },
       { staleMs: TENANT_REGION_STALE_MS, force },

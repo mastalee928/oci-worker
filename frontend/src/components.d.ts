@@ -44,6 +44,7 @@ declare module 'vue' {
     AMenuDivider: typeof import('ant-design-vue/es')['MenuDivider']
     AMenuItem: typeof import('ant-design-vue/es')['MenuItem']
     AModal: typeof import('ant-design-vue/es')['Modal']
+    AnnouncementInboxPanel: typeof import('./components/settings/AnnouncementInboxPanel.vue')['default']
     APagination: typeof import('ant-design-vue/es')['Pagination']
     APopconfirm: typeof import('ant-design-vue/es')['Popconfirm']
     AProgress: typeof import('ant-design-vue/es')['Progress']

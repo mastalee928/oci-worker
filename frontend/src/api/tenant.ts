@@ -110,7 +110,7 @@ export function deleteBudgetAlertRule(data: { id: string; budgetId: string; aler
   return request.post('/oci/user/budget/alertRule/delete', data)
 }
 
-export function listTenantRegions(data: { id: string }) {
+export function listTenantRegions(data: { id: string; force?: boolean }) {
   return request.post('/oci/user/regions', data)
 }
 
@@ -168,7 +168,7 @@ export function getAuditLogs(data: { id: string; days?: number; domainId?: strin
   return request.post('/oci/user/auditLogs', data)
 }
 
-export function getServiceQuotas(data: { id: string; region?: string }) {
+export function getServiceQuotas(data: { id: string; region?: string; force?: boolean }) {
   return request.post('/oci/user/quotas', data)
 }
 

@@ -79,14 +79,20 @@ public class InstanceController {
     }
 
     @PostMapping("/shapes")
-    public ResponseData<?> listShapes(@RequestBody Map<String, String> params) {
-        return ResponseData.ok(instanceService.listAvailableShapes(params.get("id"), regStr(params)));
+    public ResponseData<?> listShapes(@RequestBody Map<String, Object> params) {
+        return ResponseData.ok(instanceService.listAvailableShapes(
+                asString(params.get("id")),
+                regObj(params),
+                bool(params.get("force"))));
     }
 
     @PostMapping("/shapesForInstance")
-    public ResponseData<?> shapesForInstance(@RequestBody Map<String, String> params) {
+    public ResponseData<?> shapesForInstance(@RequestBody Map<String, Object> params) {
         return ResponseData.ok(instanceService.listShapesForInstance(
-                params.get("id"), params.get("instanceId"), regStr(params)));
+                asString(params.get("id")),
+                asString(params.get("instanceId")),
+                regObj(params),
+                bool(params.get("force"))));
     }
 
     @PostMapping("/forceA2ToA1")
@@ -198,6 +204,11 @@ public class InstanceController {
 
     private static String asString(Object v) {
         return v == null ? null : String.valueOf(v);
+    }
+
+    private static boolean bool(Object v) {
+        if (v instanceof Boolean b) return b;
+        return v != null && Boolean.parseBoolean(String.valueOf(v));
     }
 
     private static Float asFloat(Object v) {

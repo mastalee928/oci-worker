@@ -61,12 +61,16 @@ public class DomainManagementService {
     private static final int DOMAIN_AUDIT_MAX_PAGES = 3;
     private static final String AUDIT_MODE_LOGIN = "login";
     private static final String AUDIT_MODE_AUDIT = "audit";
+    private static final Duration SERVICE_QUOTA_CACHE_TTL = Duration.ofMinutes(5);
 
     @Resource
     private OciUserMapper userMapper;
 
     @Resource
     private VerifyCodeService verifyCodeService;
+
+    @Resource
+    private OciReadCacheService ociReadCacheService;
 
     /** token -> expireAt（验证因素 Tab 解锁后 10 分钟内可读写） */
     private static final java.util.Map<String, Long> AUTH_FACTOR_TOKENS = new java.util.concurrent.ConcurrentHashMap<>();
@@ -2047,15 +2051,30 @@ public class DomainManagementService {
     // ---------------- Quotas ----------------
 
     public List<Map<String, Object>> getServiceQuotas(String tenantId) {
-        return getServiceQuotas(tenantId, null);
+        return getServiceQuotas(tenantId, null, false);
     }
 
     public List<Map<String, Object>> getServiceQuotas(String tenantId, String regionName) {
+        return getServiceQuotas(tenantId, regionName, false);
+    }
+
+    public List<Map<String, Object>> getServiceQuotas(String tenantId, String regionName, boolean force) {
         OciUser user = userMapper.selectById(tenantId);
         if (user == null) throw new OciException("租户配置不存在");
 
+        String requestedRegion = regionName == null ? "" : regionName.trim();
+        String cacheKey = OciReadCacheService.key(
+                "oci:serviceQuotas",
+                user.getId(),
+                user.getOciTenantId(),
+                user.getOciRegion(),
+                requestedRegion);
+        return ociReadCacheService.get(cacheKey, SERVICE_QUOTA_CACHE_TTL, force, () -> fetchServiceQuotas(user, requestedRegion));
+    }
+
+    private List<Map<String, Object>> fetchServiceQuotas(OciUser user, String regionName) {
         List<Map<String, Object>> quotaList = new ArrayList<>();
-        try (OciClientService client = buildClient(tenantId)) {
+        try (OciClientService client = buildClient(user.getId())) {
             String targetRegion = resolveQuotaRegionName(client, regionName, user.getOciRegion());
             var limitsClient = com.oracle.bmc.limits.LimitsClient.builder()
                     .build(client.getProvider());
