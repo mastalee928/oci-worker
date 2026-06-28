@@ -621,7 +621,7 @@ public class OciOpenaiLoadBalanceService {
                 continue;
             }
             try {
-                addModelIds(models, generativeOpenAiService.getModelsAsJson(user, binding.getOciRegion(), null, null));
+                addModelIds(models, generativeOpenAiService.getModelsAsJsonCached(user, binding.getOciRegion()));
             } catch (Exception e) {
                 log.debug("Failed to load LB member models for binding {}: {}", binding.getId(), e.getMessage());
             }

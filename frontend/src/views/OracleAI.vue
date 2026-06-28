@@ -130,12 +130,21 @@
           <a-tag color="blue">{{ selectedRegion }}</a-tag>
         </a-form-item>
         <a-form-item label="可选模型（OCI 管理面 ListModels）">
+          <a-radio-group
+            v-model:value="modelLimitMode"
+            class="model-mode-group"
+            @change="onModelLimitModeChange"
+          >
+            <a-radio-button value="unlimited">不限制模型</a-radio-button>
+            <a-radio-button value="limited">限制模型</a-radio-button>
+          </a-radio-group>
           <a-select
             v-model:value="modelPick"
             mode="multiple"
             :options="modelOptions"
             :loading="modelsLoading"
-            placeholder="先选租户，再刷新"
+            :disabled="modelLimitMode === 'unlimited'"
+            :placeholder="modelLimitMode === 'unlimited' ? '当前不限制模型' : '至少选择一个模型'"
             allow-clear
             show-search
             :filter-option="filterModel"
@@ -144,6 +153,9 @@
             :get-popup-container="selectPopupContainer"
             :dropdown-style="{ maxHeight: 'min(70vh, 480px)' }"
           />
+          <div v-if="modelLimitMode === 'limited' && !modelPick.length" class="sub-muted form-help">
+            限制模型时至少保留一个模型；不限制时请切回“不限制模型”。
+          </div>
         </a-form-item>
         <a-button type="primary" :loading="modelsLoading" :disabled="!ociUserId" @click="() => loadModelsIfNeeded(true)">
           刷新模型列表
@@ -151,12 +163,12 @@
       </a-form>
     </a-card>
 
-    <a-card title="对话测试（浏览器直连 /v1）" :bordered="false" class="mt-card">
+    <a-card title="对话测试（服务端本机 /v1）" :bordered="false" class="mt-card">
       <a-alert
         class="mb-alert"
         type="info"
         show-icon
-        message="浏览器直连 :8080/v1 快速验证（绕过 New API/IDE 差异）。"
+        message="由服务端本机访问 OpenAI 兼容端口快速验证（绕过浏览器跨域和防火墙差异）。"
       />
       <a-form layout="vertical">
         <a-form-item label="API Key（sk-...，仅保存在浏览器本地）">
@@ -165,8 +177,8 @@
         <a-form-item label="模型">
           <a-select
             v-model:value="chatModel"
-            :options="modelOptions"
-            :disabled="!modelOptions.length"
+            :options="chatModelOptions"
+            :disabled="!chatModelOptions.length"
             placeholder="先在上方拉取模型列表"
             show-search
             :filter-option="filterModel"
@@ -775,6 +787,14 @@
           <a-input v-model:value="portForm.name" placeholder="sub2api-channel-1" />
         </a-form-item>
         <a-form-item label="模型">
+          <a-radio-group
+            v-model:value="portForm.modelLimitMode"
+            class="model-mode-group"
+            @change="onPortModelLimitModeChange"
+          >
+            <a-radio-button value="unlimited">不限制模型</a-radio-button>
+            <a-radio-button value="limited">限制模型</a-radio-button>
+          </a-radio-group>
           <template v-if="isMobile">
             <select
               class="mobile-model-select"
@@ -783,12 +803,12 @@
               @change="(e: Event) => { const sel = e.target as HTMLSelectElement; portForm.allowedModels = Array.from(sel.selectedOptions, (o: HTMLOptionElement) => o.value) }"
               size="6"
               style="width:100%;min-height:80px"
-              :disabled="portModelsLoading"
+              :disabled="portModelsLoading || portForm.modelLimitMode === 'unlimited'"
             >
               <option v-if="!portModelOptions.length" disabled>暂无可用模型</option>
               <option v-for="m in portModelOptions" :key="m.value" :value="m.value">{{ m.label }}</option>
             </select>
-            <div class="sub-muted form-help">保存后该端口的 /v1/models 只返回这里选择的模型；留空表示不限制。</div>
+            <div class="sub-muted form-help">限制模型时该端口的 /v1/models 只返回这里选择的模型；不限制时返回该区域可用模型。</div>
             <a-button
               class="port-model-refresh"
               size="small"
@@ -805,7 +825,8 @@
             mode="multiple"
             :options="portModelOptions"
             :loading="portModelsLoading"
-            placeholder="留空不限制模型"
+            :disabled="portForm.modelLimitMode === 'unlimited'"
+            :placeholder="portForm.modelLimitMode === 'unlimited' ? '当前不限制模型' : '至少选择一个模型'"
             allow-clear
             show-search
             :filter-option="filterModel"
@@ -814,6 +835,9 @@
             :get-popup-container="selectPopupContainer"
             :dropdown-style="{ maxHeight: 'min(70vh, 480px)' }"
           />
+          <div v-if="portForm.modelLimitMode === 'limited' && !portForm.allowedModels.length" class="sub-muted form-help">
+            限制模型时至少保留一个模型；不限制时请切回“不限制模型”。
+          </div>
         </a-form-item>
 
         <a-form-item label="启用">
@@ -1060,11 +1084,13 @@ const portForm = ref<{
   openaiKeyId?: string
   defaultMaxTokens?: number | null
   allowedModels: string[]
+  modelLimitMode: 'unlimited' | 'limited'
   enabled: boolean
 }>({
   port: 30000,
   defaultMaxTokens: null,
   allowedModels: [],
+  modelLimitMode: 'unlimited',
   enabled: true,
 })
 const lbOverview = ref<any>({})
@@ -1113,6 +1139,7 @@ const lbMemberForm = ref<{
   streamMaxSeconds: null,
 })
 const modelPick = ref<string[]>([])
+const modelLimitMode = ref<'unlimited' | 'limited'>('unlimited')
 const modelOptions = ref<
   {
     label: string
@@ -1121,6 +1148,11 @@ const modelOptions = ref<
     disabled?: boolean
   }[]
 >([])
+const chatModelOptions = computed(() => {
+  if (modelLimitMode.value !== 'limited') return modelOptions.value
+  const allowed = new Set((modelPick.value || []).map((x) => String(x || '').trim()).filter(Boolean))
+  return modelOptions.value.filter((x) => allowed.has(String(x.value || '')))
+})
 
 const keyModalOpen = ref(false)
 const plainKeyModalOpen = ref(false)
@@ -1307,7 +1339,7 @@ const restoring = ref(false)
 /** 避免「租户 options 未加载时 a-select 把值清掉」立刻触发 watch 用空值覆盖 localStorage */
 const selectionPersistEnabled = ref(false)
 const serverUiStateLoaded = ref(false)
-const serverUiState = ref<{ ociUserId?: string; modelPick?: string[] } | null>(null)
+const serverUiState = ref<{ ociUserId?: string; modelPick?: string[]; modelLimitMode?: string } | null>(null)
 let persistTimer: any = null
 
 async function loadPersistedState() {
@@ -1318,6 +1350,7 @@ async function loadPersistedState() {
     serverUiState.value = {
       ociUserId: typeof s.ociUserId === 'string' ? s.ociUserId : undefined,
       modelPick: Array.isArray(s.modelPick) ? (s.modelPick.filter((x: any) => typeof x === 'string') as string[]) : [],
+      modelLimitMode: s.modelLimitMode === 'limited' ? 'limited' : 'unlimited',
     }
     serverUiStateLoaded.value = true
 
@@ -1329,6 +1362,7 @@ async function loadPersistedState() {
     if (serverUiState.value?.modelPick?.length) {
       modelPick.value = serverUiState.value.modelPick
     }
+    modelLimitMode.value = serverUiState.value?.modelLimitMode === 'limited' ? 'limited' : 'unlimited'
   } catch {
     serverUiStateLoaded.value = true
   } finally {
@@ -1345,6 +1379,7 @@ function persistState() {
     saveOracleAiUiState({
       ociUserId: ociUserId.value || '',
       modelPick: (modelPick.value || []).slice(0, 200),
+      modelLimitMode: modelLimitMode.value,
     }).catch(() => {})
   }, 300)
 }
@@ -1359,6 +1394,7 @@ function reapplyOracleAiSelectionFromStorage() {
       restoring.value = true
       ociUserId.value = savedId
       if (savedModels.length) modelPick.value = savedModels
+      modelLimitMode.value = serverUiState.value?.modelLimitMode === 'limited' ? 'limited' : 'unlimited'
       setTimeout(() => {
         restoring.value = false
       }, 0)
@@ -1583,14 +1619,40 @@ function onTenantChange() {
 }
 
 watch(
-  () => [ociUserId.value, modelPick.value],
+  () => [ociUserId.value, modelPick.value, modelLimitMode.value],
   () => {
     if (tenantsLoading.value) return
     if (!selectionPersistEnabled.value) return
+    syncChatModelSelection()
     persistState()
   },
   { deep: true },
 )
+
+function onModelLimitModeChange() {
+  if (modelLimitMode.value === 'unlimited') {
+    modelPick.value = []
+  }
+  syncChatModelSelection()
+  persistState()
+}
+
+function onPortModelLimitModeChange() {
+  if (portForm.value.modelLimitMode === 'unlimited') {
+    portForm.value.allowedModels = []
+  }
+}
+
+function syncChatModelSelection() {
+  const options = chatModelOptions.value || []
+  if (!options.length) {
+    chatModel.value = ''
+    return
+  }
+  if (!chatModel.value || !options.some((x) => x.value === chatModel.value)) {
+    chatModel.value = options[0].value
+  }
+}
 
 watch(
   () => [chatApiKey.value, chatModel.value],
@@ -1625,13 +1687,14 @@ async function loadModelsIfNeeded(alertOnErr: boolean) {
       ...(chatModel.value ? [chatModel.value] : []),
     ])
 
-    if (!chatModel.value && modelOptions.value.length) {
-      chatModel.value = modelOptions.value[0].value
-    }
+    syncChatModelSelection()
     if (!modelOptions.value.length && alertOnErr) {
       message.info('无模型条目或 OCI 返回与预期结构不同，请查看后端日志。')
     }
-  } catch {
+  } catch (e: any) {
+    if (alertOnErr) {
+      message.error(e?.message || '刷新模型失败')
+    }
   } finally {
     modelsLoading.value = false
   }
@@ -1684,7 +1747,7 @@ async function sendChatTest() {
       chatAssistantText.value = typeof content === 'string' ? content : JSON.stringify(json, null, 2)
     }
 
-    // 为避免浏览器环境下的 HTTPS/CORS/网络策略导致失败，统一走同源 /api 代请求（服务端本机访问 127.0.0.1:8080/v1）
+    // 为避免浏览器环境下的 HTTPS/CORS/网络策略导致失败，统一走同源 /api 代请求（服务端本机访问 OpenAI 兼容端口）。
     const r: any = await oracleAiChatTest({
       apiKey: chatApiKey.value,
       model,
@@ -1970,6 +2033,7 @@ async function openPortModal(row?: any) {
     openaiKeyId: row?.openaiKeyId || undefined,
     defaultMaxTokens: row?.defaultMaxTokens ? Number(row.defaultMaxTokens) : null,
     allowedModels: Array.isArray(row?.allowedModels) ? row.allowedModels : [],
+    modelLimitMode: Array.isArray(row?.allowedModels) && row.allowedModels.length ? 'limited' : 'unlimited',
     enabled: row?.enabled !== false,
   }
   portModalOpen.value = true
@@ -1989,6 +2053,7 @@ async function onPortTenantChange() {
   portForm.value.openaiKeyId = undefined
   portForm.value.ociRegion = undefined
   portForm.value.allowedModels = []
+  portForm.value.modelLimitMode = 'unlimited'
   portKeyOptions.value = []
   portRegionOptions.value = []
   portModelOptions.value = []
@@ -2003,6 +2068,7 @@ async function onPortTenantChange() {
 
 async function onPortRegionChange() {
   portForm.value.allowedModels = []
+  portForm.value.modelLimitMode = 'unlimited'
   portModelOptions.value = []
   if (portForm.value.ociUserId) {
     await loadPortModels(portForm.value.ociUserId, portForm.value.ociRegion, true)
@@ -2141,6 +2207,10 @@ async function savePortBindingRow() {
     message.warning('端口必须在 30000-39999 之间')
     return
   }
+  if (f.modelLimitMode === 'limited' && !f.allowedModels.length) {
+    message.warning('限制模型时至少选择一个模型')
+    return
+  }
   portSaving.value = true
   try {
     await saveOracleAiPortBinding({
@@ -2151,7 +2221,7 @@ async function savePortBindingRow() {
       ociRegion: f.ociRegion,
       openaiKeyId: f.openaiKeyId,
       defaultMaxTokens: f.defaultMaxTokens ? Math.trunc(Number(f.defaultMaxTokens)) : null,
-      allowedModels: f.allowedModels || [],
+      allowedModels: f.modelLimitMode === 'limited' ? (f.allowedModels || []) : [],
       enabled: f.enabled,
     })
     portModalOpen.value = false
@@ -2598,6 +2668,15 @@ async function viewKey(k: any) {
   text-overflow: ellipsis;
   white-space: nowrap;
   vertical-align: bottom;
+}
+.model-mode-group {
+  display: flex;
+  width: 100%;
+  margin-bottom: 8px;
+}
+.model-mode-group :deep(.ant-radio-button-wrapper) {
+  flex: 1;
+  text-align: center;
 }
 .port-mobile-list {
   display: grid;

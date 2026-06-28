@@ -275,6 +275,18 @@ public class OpenAiV1Controller {
     }
 
     private static void resetProxyAttributes(HttpServletRequest request) {
+        request.removeAttribute(OpenAiApiConstants.ATTR_TENANT_USER_ID);
+        request.removeAttribute(OpenAiApiConstants.ATTR_OCI_REGION);
+        request.removeAttribute(OpenAiApiConstants.ATTR_OPENAI_KEY_ID);
+        request.removeAttribute(OpenAiApiConstants.ATTR_PORT_BINDING_ID);
+        request.removeAttribute(OpenAiApiConstants.ATTR_LB_MEMBER_ID);
+        request.removeAttribute(OpenAiApiConstants.ATTR_DEFAULT_MAX_TOKENS);
+        request.removeAttribute(OpenAiApiConstants.ATTR_ALLOWED_MODELS_JSON);
+        request.removeAttribute(OpenAiApiConstants.ATTR_STREAM_FIRST_CHUNK_TIMEOUT_SECONDS);
+        request.removeAttribute(OpenAiApiConstants.ATTR_STREAM_IDLE_TIMEOUT_SECONDS);
+        request.removeAttribute(OpenAiApiConstants.ATTR_STREAM_MAX_SECONDS);
+        request.removeAttribute(OpenAiApiConstants.ATTR_GENERATIVE_OPENAI_PROJECT);
+        request.removeAttribute(OpenAiApiConstants.ATTR_GENERATIVE_CONVERSATION_STORE_ID);
         request.removeAttribute(OpenAiApiConstants.ATTR_CLIENT_ABORTED);
         request.removeAttribute(OpenAiApiConstants.ATTR_USAGE_TOKENS);
         request.removeAttribute(OpenAiApiConstants.ATTR_UPSTREAM_STATUS);

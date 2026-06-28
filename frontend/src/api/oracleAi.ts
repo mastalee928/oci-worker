@@ -124,12 +124,13 @@ export function listOpenAiModels(data: { ociUserId: string; ociRegion?: string; 
   return request.post('/oci/oracle-ai/models', data)
 }
 
-export function getOracleAiGenerativeContext(data: { ociUserId: string }) {
+export function getOracleAiGenerativeContext(data: { ociUserId: string; ociRegion?: string }) {
   return request.post('/oci/oracle-ai/generative-context/get', data)
 }
 
 export function saveOracleAiGenerativeContext(data: {
   ociUserId: string
+  ociRegion?: string
   generativeOpenaiProject?: string
   generativeConversationStoreId?: string
 }) {
@@ -137,7 +138,7 @@ export function saveOracleAiGenerativeContext(data: {
 }
 
 /** 管理面 ListGenerativeAiProject，用于一键填入 OpenAI-Project */
-export function listGenerativeProjects(data: { ociUserId: string }) {
+export function listGenerativeProjects(data: { ociUserId: string; ociRegion?: string }) {
   return request.post('/oci/oracle-ai/generative-projects/list', data)
 }
 
@@ -145,7 +146,7 @@ export function oracleAiChatTest(data: { apiKey: string; model: string; input: s
   return request.post('/oci/oracle-ai/chat-test', data)
 }
 
-export function createGenerativeProject(data: { ociUserId: string; displayName?: string }) {
+export function createGenerativeProject(data: { ociUserId: string; ociRegion?: string; displayName?: string }) {
   return request.post('/oci/oracle-ai/generative-projects/create', data)
 }
 
@@ -153,6 +154,6 @@ export function getOracleAiUiState() {
   return request.post('/oci/oracle-ai/ui-state/get', {})
 }
 
-export function saveOracleAiUiState(data: { ociUserId?: string; modelPick?: string[] }) {
+export function saveOracleAiUiState(data: { ociUserId?: string; modelPick?: string[]; modelLimitMode?: string }) {
   return request.post('/oci/oracle-ai/ui-state/save', data)
 }

@@ -29,6 +29,7 @@ import java.util.HashMap;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 import java.util.regex.Pattern;
 
@@ -68,6 +69,7 @@ public class OracleAiController {
     private static final Duration PUBLIC_IP_CACHE_TTL = Duration.ofMinutes(10);
     private volatile String cachedPublicIp;
     private volatile Instant cachedPublicIpAt = Instant.EPOCH;
+    private final AtomicBoolean publicIpRefreshing = new AtomicBoolean(false);
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     @PostMapping("/gateway")
@@ -88,6 +90,24 @@ public class OracleAiController {
                 && Duration.between(cachedPublicIpAt, Instant.now()).compareTo(PUBLIC_IP_CACHE_TTL) < 0) {
             return cached;
         }
+        refreshPublicIpAsync();
+        return cached == null ? "" : cached;
+    }
+
+    private void refreshPublicIpAsync() {
+        if (!publicIpRefreshing.compareAndSet(false, true)) {
+            return;
+        }
+        Thread.ofVirtual().name("oracle-ai-public-ip-refresh").start(() -> {
+            try {
+                refreshPublicIp();
+            } finally {
+                publicIpRefreshing.set(false);
+            }
+        });
+    }
+
+    private void refreshPublicIp() {
         for (String endpoint : PUBLIC_IPV4_ENDPOINTS) {
             try {
                 HttpRequest req = HttpRequest.newBuilder(URI.create(endpoint))
@@ -101,14 +121,13 @@ public class OracleAiController {
                     if (IPV4_PATTERN.matcher(ip).matches()) {
                         cachedPublicIp = ip;
                         cachedPublicIpAt = Instant.now();
-                        return ip;
+                        return;
                     }
                 }
             } catch (Exception e) {
                 log.debug("Failed to detect public IPv4 from {}: {}", endpoint, e.getMessage());
             }
         }
-        return "";
     }
 
     /**
@@ -140,6 +159,14 @@ public class OracleAiController {
         }
         String ociUserId = body.get("ociUserId") == null ? "" : String.valueOf(body.get("ociUserId")).trim();
         Object mp = body.get("modelPick");
+        String modelLimitMode = body.get("modelLimitMode") == null
+                ? "unlimited"
+                : String.valueOf(body.get("modelLimitMode")).trim();
+        if (!"limited".equalsIgnoreCase(modelLimitMode)) {
+            modelLimitMode = "unlimited";
+        } else {
+            modelLimitMode = "limited";
+        }
         java.util.List<String> modelPick = new java.util.ArrayList<>();
         if (mp instanceof java.util.List<?> list) {
             for (Object o : list) {
@@ -162,6 +189,7 @@ public class OracleAiController {
         Map<String, Object> state = new HashMap<>();
         state.put("ociUserId", ociUserId);
         state.put("modelPick", modelPick);
+        state.put("modelLimitMode", modelLimitMode);
         state.put("updateAt", System.currentTimeMillis());
 
         try {
@@ -407,17 +435,17 @@ public class OracleAiController {
             var row = loadBalanceService.saveMember(
                     body == null ? null : trimObj(body.get("id")),
                     body == null ? null : trimObj(body.get("portBindingId")),
-                    nullableIntValue(body == null ? null : body.get("weight")),
+                    nullableIntValue(body == null ? null : body.get("weight"), "权重必须是数字"),
                     boolValue(body == null ? null : body.get("enabled"), true),
-                    nullableIntValue(body == null ? null : body.get("requestLimit5h")),
-                    nullableIntValue(body == null ? null : body.get("requestLimit7d")),
-                    nullableIntValue(body == null ? null : body.get("maxConcurrency")),
-                    nullableIntValue(body == null ? null : body.get("rpmLimit")),
-                    nullableLongValue(body == null ? null : body.get("tpmLimit")),
-                    nullableIntValue(body == null ? null : body.get("contextLimit")),
-                    nullableIntValue(body == null ? null : body.get("streamFirstChunkTimeoutSeconds")),
-                    nullableIntValue(body == null ? null : body.get("streamIdleTimeoutSeconds")),
-                    nullableIntValue(body == null ? null : body.get("streamMaxSeconds")));
+                    nullableIntValue(body == null ? null : body.get("requestLimit5h"), "5小时请求上限必须是数字"),
+                    nullableIntValue(body == null ? null : body.get("requestLimit7d"), "7天请求上限必须是数字"),
+                    nullableIntValue(body == null ? null : body.get("maxConcurrency"), "最大并发必须是数字"),
+                    nullableIntValue(body == null ? null : body.get("rpmLimit"), "RPM 上限必须是数字"),
+                    nullableLongValue(body == null ? null : body.get("tpmLimit"), "TPM 上限必须是数字"),
+                    nullableIntValue(body == null ? null : body.get("contextLimit"), "上下文上限必须是数字"),
+                    nullableIntValue(body == null ? null : body.get("streamFirstChunkTimeoutSeconds"), "首块超时必须是数字"),
+                    nullableIntValue(body == null ? null : body.get("streamIdleTimeoutSeconds"), "空闲超时必须是数字"),
+                    nullableIntValue(body == null ? null : body.get("streamMaxSeconds"), "最长流时长必须是数字"));
             return ResponseData.ok(Map.of("id", row.getId()));
         } catch (com.ociworker.exception.OciException e) {
             return ResponseData.error(e.getMessage());
@@ -493,8 +521,9 @@ public class OracleAiController {
         if (u == null) {
             return ResponseData.error("租户不存在");
         }
+        String ociRegion = trimToNullOrBlank(body.get("ociRegion"));
         try {
-            JsonNode j = generativeOpenAiService.listGenerativeAiProjectSummaries(u);
+            JsonNode j = generativeOpenAiService.listGenerativeAiProjectSummaries(u, ociRegion);
             return ResponseData.ok(j);
         } catch (com.ociworker.exception.OciException e) {
             return ResponseData.error(e.getMessage());
@@ -513,14 +542,22 @@ public class OracleAiController {
             return ResponseData.error("租户不存在");
         }
         String displayName = body.get("displayName");
+        String ociRegion = trimToNullOrBlank(body.get("ociRegion"));
         try {
-            JsonNode j = generativeOpenAiService.createGenerativeAiProject(u, displayName);
-            // 创建后自动写入租户默认 OpenAI-Project，便于 Multi-Agent 直接可用
+            JsonNode j = generativeOpenAiService.createGenerativeAiProject(u, ociRegion, displayName);
+            // 创建后自动写入当前 Region 的默认 OpenAI-Project，便于 Multi-Agent 直接可用
             if (j != null && j.isObject()) {
                 String id = j.get("id") != null && j.get("id").isTextual() ? j.get("id").asText() : null;
                 if (id != null && !id.isBlank()) {
-                    u.setGenerativeOpenaiProject(id);
-                    ociUserMapper.updateById(u);
+                    if (ociRegion == null || ociRegion.isBlank()) {
+                        u.setGenerativeOpenaiProject(id);
+                        ociUserMapper.updateById(u);
+                    }
+                    generativeOpenAiService.saveGenerativeContext(
+                            u,
+                            ociRegion,
+                            id,
+                            u.getGenerativeConversationStoreId());
                 }
             }
             return ResponseData.ok(j);
@@ -540,10 +577,8 @@ public class OracleAiController {
         if (u == null) {
             return ResponseData.error("租户不存在");
         }
-        Map<String, String> m = new HashMap<>();
-        m.put("generativeOpenaiProject", u.getGenerativeOpenaiProject());
-        m.put("generativeConversationStoreId", u.getGenerativeConversationStoreId());
-        return ResponseData.ok(m);
+        String ociRegion = trimToNullOrBlank(body.get("ociRegion"));
+        return ResponseData.ok(generativeOpenAiService.getGenerativeContext(u, ociRegion));
     }
 
     @PostMapping("/generative-context/save")
@@ -555,9 +590,15 @@ public class OracleAiController {
         if (u == null) {
             return ResponseData.error("租户不存在");
         }
-        u.setGenerativeOpenaiProject(trimToNullOrBlank(body.get("generativeOpenaiProject")));
-        u.setGenerativeConversationStoreId(trimToNullOrBlank(body.get("generativeConversationStoreId")));
-        ociUserMapper.updateById(u);
+        String ociRegion = trimToNullOrBlank(body.get("ociRegion"));
+        String project = trimToNullOrBlank(body.get("generativeOpenaiProject"));
+        String store = trimToNullOrBlank(body.get("generativeConversationStoreId"));
+        if (ociRegion == null || ociRegion.isBlank()) {
+            u.setGenerativeOpenaiProject(project);
+            u.setGenerativeConversationStoreId(store);
+            ociUserMapper.updateById(u);
+        }
+        generativeOpenAiService.saveGenerativeContext(u, ociRegion, project, store);
         return ResponseData.ok();
     }
 
@@ -651,6 +692,10 @@ public class OracleAiController {
     }
 
     private static Integer nullableIntValue(Object v) {
+        return nullableIntValue(v, "defaultMaxTokens 必须是数字");
+    }
+
+    private static Integer nullableIntValue(Object v, String message) {
         if (v == null) {
             return null;
         }
@@ -664,11 +709,15 @@ public class OracleAiController {
             }
             return Integer.parseInt(s);
         } catch (Exception e) {
-            throw new IllegalArgumentException("defaultMaxTokens 必须是数字");
+            throw new IllegalArgumentException(message);
         }
     }
 
     private static Long nullableLongValue(Object v) {
+        return nullableLongValue(v, "数值必须是数字");
+    }
+
+    private static Long nullableLongValue(Object v, String message) {
         if (v == null) {
             return null;
         }
@@ -682,7 +731,7 @@ public class OracleAiController {
             }
             return Long.parseLong(s);
         } catch (Exception e) {
-            throw new IllegalArgumentException("数值必须是数字");
+            throw new IllegalArgumentException(message);
         }
     }
 

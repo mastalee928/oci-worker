@@ -1,5 +1,7 @@
 package com.ociworker.service;
 
+import cn.hutool.crypto.digest.DigestUtil;
+import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -9,7 +11,10 @@ import com.oracle.bmc.http.signing.DefaultRequestSigner;
 import com.oracle.bmc.http.signing.RequestSigner;
 import com.ociworker.config.OpenAiApiConstants;
 import com.ociworker.exception.OciException;
+import com.ociworker.mapper.OciKvMapper;
+import com.ociworker.model.entity.OciKv;
 import com.ociworker.model.entity.OciUser;
+import com.ociworker.util.CommonUtils;
 import com.ociworker.util.OciBasicForSigning;
 import com.ociworker.util.OciDuplicatableByteArrayInputStream;
 import com.ociworker.util.OciRegionUtil;
@@ -27,8 +32,14 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.ByteBuffer;
+import java.nio.CharBuffer;
+import java.nio.charset.CodingErrorAction;
+import java.nio.charset.CharsetDecoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalDateTime;
 import java.util.Iterator;
 import java.util.ArrayList;
 import java.util.HashSet;
@@ -36,6 +47,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.IntSupplier;
 
 /**
@@ -53,12 +65,17 @@ public class OciGenerativeOpenAiService {
     private static final int LIST_PAGE_LIMIT = 200;
     private static final int LIST_MAX_PAGES = 50;
     private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final Duration MODEL_LIST_CACHE_TTL = Duration.ofMinutes(5);
+    private static final String REGION_CONTEXT_TYPE = "oracle_ai_region_context";
     private static volatile IntSupplier defaultMaxTokensSupplier = () -> DEFAULT_MAX_TOKENS;
+    private final Map<String, CachedModels> modelsCache = new ConcurrentHashMap<>();
 
     @Resource
     private OciProxyConfigService ociProxyConfigService;
     @Resource
     private OracleAiGatewayConfigService gatewayConfigService;
+    @Resource
+    private OciKvMapper kvMapper;
 
     @PostConstruct
     public void initDefaultMaxTokensSupplier() {
@@ -99,8 +116,16 @@ public class OciGenerativeOpenAiService {
         final byte[] origBody = body;
         final int requestDefaultMaxTokens = requestDefaultMaxTokens(request);
         final List<String> requestAllowedModels = requestAllowedModels(request);
-        if ("GET".equalsIgnoreCase(method) && isModelsPath(origPathAfterV1) && !requestAllowedModels.isEmpty()) {
-            writeJson(response, allowedModelsToOpenAiList(requestAllowedModels));
+        if ("GET".equalsIgnoreCase(method) && isModelsPath(origPathAfterV1)) {
+            if (!requestAllowedModels.isEmpty()) {
+                writeJson(response, allowedModelsToOpenAiList(requestAllowedModels));
+            } else {
+                try {
+                    writeJson(response, getModelsAsJsonCached(tenant, regionId));
+                } catch (Exception e) {
+                    throw new OciException("拉取模型列表失败: " + e.getMessage());
+                }
+            }
             return;
         }
         String requestedModel = extractModelFromBody(origBody, contentType);
@@ -284,6 +309,20 @@ public class OciGenerativeOpenAiService {
         return getModelsAsJson(tenant, null, after, modelId);
     }
 
+    public JsonNode getModelsAsJsonCached(OciUser tenant, String ociRegion) throws Exception {
+        String regionId = effectivePublicRegionId(tenant, ociRegion);
+        String tenantKey = tenant == null ? "" : firstNonBlank(tenant.getId(), tenant.getOciTenantId(), tenant.getOciUserId());
+        String key = tenantKey + "|" + regionId;
+        CachedModels cached = modelsCache.get(key);
+        Instant now = Instant.now();
+        if (cached != null && cached.expiresAt().isAfter(now)) {
+            return cached.body().deepCopy();
+        }
+        JsonNode fresh = getModelsAsJson(tenant, regionId, null, null);
+        modelsCache.put(key, new CachedModels(fresh.deepCopy(), now.plus(MODEL_LIST_CACHE_TTL)));
+        return fresh;
+    }
+
     public JsonNode getModelsAsJson(OciUser tenant, String ociRegion, String after, String modelId) throws Exception {
         String regionId = effectivePublicRegionId(tenant, ociRegion);
         String managementHost = "generativeai." + regionId + ".oci.oraclecloud.com";
@@ -349,7 +388,11 @@ public class OciGenerativeOpenAiService {
      * 使用与 ListModels 相同的 compartmentId（当前为租户 tenant OCID，与现网 /v1 行为一致）。
      */
     public JsonNode listGenerativeAiProjectSummaries(OciUser tenant) throws Exception {
-        String regionId = OciRegionUtil.publicRegionId(tenant.getOciRegion());
+        return listGenerativeAiProjectSummaries(tenant, null);
+    }
+
+    public JsonNode listGenerativeAiProjectSummaries(OciUser tenant, String ociRegion) throws Exception {
+        String regionId = effectivePublicRegionId(tenant, ociRegion);
         String managementHost = "generativeai." + regionId + ".oci.oraclecloud.com";
         String compartmentId = tenant.getOciTenantId();
         if (compartmentId == null || compartmentId.isBlank()) {
@@ -369,7 +412,7 @@ public class OciGenerativeOpenAiService {
             URI listUri = URI.create(
                     "https://" + managementHost + "/" + GA_API_VERSION + "/generativeAiProjects?" + q);
             HttpRequest req = buildSignedRequest(
-                    newRequestSigner(tenant),
+                    newRequestSigner(tenant, regionId),
                     "GET",
                     listUri,
                     null,
@@ -429,7 +472,11 @@ public class OciGenerativeOpenAiService {
      * 注意：需要调用方在 IAM 中具备创建权限；否则会返回 403。
      */
     public JsonNode createGenerativeAiProject(OciUser tenant, String displayName) throws Exception {
-        String regionId = OciRegionUtil.publicRegionId(tenant.getOciRegion());
+        return createGenerativeAiProject(tenant, null, displayName);
+    }
+
+    public JsonNode createGenerativeAiProject(OciUser tenant, String ociRegion, String displayName) throws Exception {
+        String regionId = effectivePublicRegionId(tenant, ociRegion);
         String managementHost = "generativeai." + regionId + ".oci.oraclecloud.com";
         String compartmentId = tenant.getOciTenantId();
         if (compartmentId == null || compartmentId.isBlank()) {
@@ -450,7 +497,7 @@ public class OciGenerativeOpenAiService {
 
         URI uri = URI.create("https://" + managementHost + "/" + GA_API_VERSION + "/generativeAiProjects");
         HttpRequest req = buildSignedRequest(
-                newRequestSigner(tenant),
+                newRequestSigner(tenant, regionId),
                 "POST",
                 uri,
                 bytes,
@@ -485,6 +532,47 @@ public class OciGenerativeOpenAiService {
             return out;
         }
         return root;
+    }
+
+    public Map<String, String> getGenerativeContext(OciUser tenant, String ociRegion) {
+        String regionId = effectivePublicRegionId(tenant, ociRegion);
+        Map<String, String> ctx = readRegionContext(tenant, regionId);
+        if (ctx.isEmpty() && tenant != null) {
+            putIfNotBlank(ctx, "generativeOpenaiProject", tenant.getGenerativeOpenaiProject());
+            putIfNotBlank(ctx, "generativeConversationStoreId", tenant.getGenerativeConversationStoreId());
+        }
+        ctx.put("ociRegion", regionId);
+        return ctx;
+    }
+
+    public void saveGenerativeContext(
+            OciUser tenant,
+            String ociRegion,
+            String generativeOpenaiProject,
+            String generativeConversationStoreId) {
+        String regionId = effectivePublicRegionId(tenant, ociRegion);
+        ObjectNode root = MAPPER.createObjectNode();
+        putJson(root, "generativeOpenaiProject", generativeOpenaiProject);
+        putJson(root, "generativeConversationStoreId", generativeConversationStoreId);
+        root.put("ociRegion", regionId);
+        root.put("updateAt", System.currentTimeMillis());
+
+        String code = regionContextCode(tenant, regionId);
+        OciKv row = kvMapper.selectOne(new LambdaQueryWrapper<OciKv>()
+                .eq(OciKv::getType, REGION_CONTEXT_TYPE)
+                .eq(OciKv::getCode, code));
+        if (row == null) {
+            row = new OciKv();
+            row.setId(CommonUtils.generateId());
+            row.setType(REGION_CONTEXT_TYPE);
+            row.setCode(code);
+            row.setCreateTime(LocalDateTime.now());
+            row.setValue(root.toString());
+            kvMapper.insert(row);
+        } else {
+            row.setValue(root.toString());
+            kvMapper.updateById(row);
+        }
     }
 
     private static ArrayNode toArrayNode(List<JsonNode> nodes) {
@@ -706,6 +794,78 @@ public class OciGenerativeOpenAiService {
             r = tenant == null ? null : tenant.getOciRegion();
         }
         return OciRegionUtil.publicRegionId(r);
+    }
+
+    private Map<String, String> readRegionContext(OciUser tenant, String regionId) {
+        Map<String, String> out = new LinkedHashMap<>();
+        if (tenant == null || regionId == null || regionId.isBlank() || kvMapper == null) {
+            return out;
+        }
+        try {
+            OciKv row = kvMapper.selectOne(new LambdaQueryWrapper<OciKv>()
+                    .eq(OciKv::getType, REGION_CONTEXT_TYPE)
+                    .eq(OciKv::getCode, regionContextCode(tenant, regionId)));
+            if (row == null || row.getValue() == null || row.getValue().isBlank()) {
+                return out;
+            }
+            JsonNode root = MAPPER.readTree(row.getValue());
+            if (root != null && root.isObject()) {
+                putIfNotBlank(out, "generativeOpenaiProject", text(root, "generativeOpenaiProject"));
+                putIfNotBlank(out, "generativeConversationStoreId", text(root, "generativeConversationStoreId"));
+            }
+        } catch (Exception e) {
+            log.debug("Failed to read Oracle AI region context tenant={} region={} message={}",
+                    tenant.getId(), regionId, e.getMessage());
+        }
+        return out;
+    }
+
+    private static String regionContextCode(OciUser tenant, String regionId) {
+        String base = firstNonBlank(
+                tenant == null ? null : tenant.getId(),
+                tenant == null ? null : tenant.getOciTenantId(),
+                tenant == null ? null : tenant.getOciUserId(),
+                "unknown") + "|" + String.valueOf(regionId);
+        return "ai.ctx." + DigestUtil.sha256Hex(base).substring(0, 56);
+    }
+
+    private static void putJson(ObjectNode root, String field, String value) {
+        String v = value == null ? null : value.trim();
+        if (v == null || v.isBlank()) {
+            root.putNull(field);
+        } else {
+            root.put(field, v);
+        }
+    }
+
+    private static void putIfNotBlank(Map<String, String> out, String key, String value) {
+        if (out == null || key == null) {
+            return;
+        }
+        String v = value == null ? null : value.trim();
+        if (v != null && !v.isBlank()) {
+            out.put(key, v);
+        }
+    }
+
+    private static String text(JsonNode node, String field) {
+        if (node == null || field == null) {
+            return null;
+        }
+        JsonNode v = node.get(field);
+        return v != null && v.isTextual() ? v.asText() : null;
+    }
+
+    private static String firstNonBlank(String... values) {
+        if (values == null) {
+            return null;
+        }
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value.trim();
+            }
+        }
+        return null;
     }
 
     private static String encodePathSegmentOciModel(String s) {
@@ -1308,6 +1468,8 @@ public class OciGenerativeOpenAiService {
                 String ct = resp.headers().firstValue("content-type").orElse("text/event-stream; charset=utf-8");
                 response.setContentType(ct);
             }
+            boolean normalizeSse = response.getContentType() != null
+                    && response.getContentType().toLowerCase(java.util.Locale.ROOT).contains("text/event-stream");
             try (InputStream in = resp.body();
                  OutputStream out = response.getOutputStream()) {
                 if (in == null) {
@@ -1323,6 +1485,10 @@ public class OciGenerativeOpenAiService {
                 int chunks = 0;
                 long outputChars = 0L;
                 StringBuilder sseBuffer = new StringBuilder(8192);
+                StringBuilder ssePending = new StringBuilder(8192);
+                CharsetDecoder sseDecoder = StandardCharsets.UTF_8.newDecoder()
+                        .onMalformedInput(CodingErrorAction.REPLACE)
+                        .onUnmappableCharacter(CodingErrorAction.REPLACE);
                 int n;
                 while ((n = timedRead(in, buf, firstChunk ? firstChunkTimeoutMs : idleTimeoutMs)) != -1) {
                     long elapsedMs = (System.nanoTime() - startNanos) / 1_000_000L;
@@ -1348,7 +1514,26 @@ public class OciGenerativeOpenAiService {
                         request.setAttribute(OpenAiApiConstants.ATTR_STREAM_ESTIMATED_TOKENS, estimatedTokens);
                         request.setAttribute(OpenAiApiConstants.ATTR_USAGE_TOKENS, estimatedTokens);
                     }
-                    out.write(buf, 0, n);
+                    if (normalizeSse) {
+                        ssePending.append(decodeUtf8Chunk(sseDecoder, buf, n, false));
+                        String normalized = drainSseEvents(ssePending, request);
+                        if (!normalized.isEmpty()) {
+                            out.write(normalized.getBytes(StandardCharsets.UTF_8));
+                        }
+                    } else {
+                        out.write(buf, 0, n);
+                    }
+                    out.flush();
+                }
+                if (normalizeSse) {
+                    ssePending.append(decodeUtf8Chunk(sseDecoder, new byte[0], 0, true));
+                    if (!ssePending.isEmpty()) {
+                        out.write(drainSseEvents(ssePending, request).getBytes(StandardCharsets.UTF_8));
+                        if (!ssePending.isEmpty()) {
+                            out.write(ssePending.toString().getBytes(StandardCharsets.UTF_8));
+                            ssePending.setLength(0);
+                        }
+                    }
                     out.flush();
                 }
             }
@@ -1366,6 +1551,117 @@ public class OciGenerativeOpenAiService {
             }
             throw e;
         }
+    }
+
+    private static String decodeUtf8Chunk(CharsetDecoder decoder, byte[] buf, int len, boolean endOfInput) throws IOException {
+        CharBuffer out = CharBuffer.allocate(Math.max(32, len * 2 + 16));
+        StringBuilder sb = new StringBuilder();
+        ByteBuffer in = ByteBuffer.wrap(buf, 0, len);
+        while (true) {
+            var result = decoder.decode(in, out, endOfInput);
+            out.flip();
+            sb.append(out);
+            out.clear();
+            if (result.isOverflow()) {
+                continue;
+            }
+            if (result.isError()) {
+                result.throwException();
+            }
+            break;
+        }
+        if (endOfInput) {
+            while (true) {
+                var result = decoder.flush(out);
+                out.flip();
+                sb.append(out);
+                out.clear();
+                if (!result.isOverflow()) {
+                    break;
+                }
+            }
+        }
+        return sb.toString();
+    }
+
+    private static String drainSseEvents(StringBuilder pending, HttpServletRequest request) {
+        StringBuilder out = new StringBuilder();
+        while (true) {
+            int idx = indexOfSseEventEnd(pending);
+            if (idx < 0) {
+                break;
+            }
+            int sepLen = pending.charAt(idx) == '\r' ? 4 : 2;
+            String event = pending.substring(0, idx);
+            pending.delete(0, idx + sepLen);
+            out.append(normalizeSseEvent(event, request)).append("\n\n");
+        }
+        return out.toString();
+    }
+
+    private static int indexOfSseEventEnd(StringBuilder pending) {
+        for (int i = 0; i < pending.length() - 1; i++) {
+            char c = pending.charAt(i);
+            if (c == '\n' && pending.charAt(i + 1) == '\n') {
+                return i;
+            }
+            if (c == '\r'
+                    && i + 3 < pending.length()
+                    && pending.charAt(i + 1) == '\n'
+                    && pending.charAt(i + 2) == '\r'
+                    && pending.charAt(i + 3) == '\n') {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    private static String normalizeSseEvent(String event, HttpServletRequest request) {
+        if (event == null || event.isEmpty()) {
+            return "";
+        }
+        String[] lines = event.split("\\r?\\n", -1);
+        StringBuilder out = new StringBuilder(event.length() + 32);
+        for (int i = 0; i < lines.length; i++) {
+            String line = lines[i];
+            if (line.startsWith("data:")) {
+                String prefix = line.startsWith("data: ") ? "data: " : "data:";
+                String payload = line.substring(prefix.length()).trim();
+                out.append(prefix).append(normalizeSseDataPayload(payload, request));
+            } else {
+                out.append(line);
+            }
+            if (i + 1 < lines.length) {
+                out.append('\n');
+            }
+        }
+        return out.toString();
+    }
+
+    static String normalizeSseDataPayload(String payload, HttpServletRequest request) {
+        if (payload == null || payload.isBlank() || "[DONE]".equals(payload)) {
+            return payload == null ? "" : payload;
+        }
+        try {
+            JsonNode root = MAPPER.readTree(payload);
+            if (root != null
+                    && root.isObject()
+                    && "chat.completion.chunk".equals(text(root, "object"))
+                    && root.get("choices") == null
+                    && root.get("error") == null
+                    && root.get("usage") != null
+                    && root.get("usage").isObject()) {
+                ObjectNode normalized = ((ObjectNode) root).deepCopy();
+                normalized.set("choices", MAPPER.createArrayNode());
+                long tokens = usageTokens(normalized);
+                if (request != null && tokens > 0) {
+                    request.setAttribute(OpenAiApiConstants.ATTR_USAGE_TOKENS, tokens);
+                }
+                return normalized.toString();
+            }
+        } catch (Exception ignored) {
+        }
+        return payload;
     }
 
     private static int timedRead(InputStream in, byte[] buf, long timeoutMs) throws IOException, InterruptedException {
@@ -1870,7 +2166,7 @@ public class OciGenerativeOpenAiService {
      * 组合 OCI Generative（尤其 Multi-Agent / responses）可能要求的请求头并参与签名：
      * 优先使用入站 HTTP 头；缺省项使用租户在面板中保存的默认值（应对 New API 等不转发自定义头的情况）。
      */
-    private static Map<String, String> extractOciGenerativeForwardHeaders(
+    private Map<String, String> extractOciGenerativeForwardHeaders(
             HttpServletRequest request, OciUser tenant) {
         Map<String, String> out = new LinkedHashMap<>();
         if (request != null) {
@@ -1883,19 +2179,32 @@ public class OciGenerativeOpenAiService {
                 out.put("opc-conversation-store-id", convStore.trim());
             }
         }
-        if (tenant != null) {
-            if (!out.containsKey("OpenAI-Project")
-                    && tenant.getGenerativeOpenaiProject() != null
-                    && !tenant.getGenerativeOpenaiProject().isBlank()) {
-                out.put("OpenAI-Project", tenant.getGenerativeOpenaiProject().trim());
+        if (request != null) {
+            if (!out.containsKey("OpenAI-Project")) {
+                putIfNotBlank(out, "OpenAI-Project",
+                        stringAttr(request, OpenAiApiConstants.ATTR_GENERATIVE_OPENAI_PROJECT));
             }
-            if (!out.containsKey("opc-conversation-store-id")
-                    && tenant.getGenerativeConversationStoreId() != null
-                    && !tenant.getGenerativeConversationStoreId().isBlank()) {
-                out.put("opc-conversation-store-id", tenant.getGenerativeConversationStoreId().trim());
+            if (!out.containsKey("opc-conversation-store-id")) {
+                putIfNotBlank(out, "opc-conversation-store-id",
+                        stringAttr(request, OpenAiApiConstants.ATTR_GENERATIVE_CONVERSATION_STORE_ID));
+            }
+        }
+        if (tenant != null) {
+            String region = request == null ? null : stringAttr(request, OpenAiApiConstants.ATTR_OCI_REGION);
+            Map<String, String> ctx = getGenerativeContext(tenant, region);
+            if (!out.containsKey("OpenAI-Project")) {
+                putIfNotBlank(out, "OpenAI-Project", ctx.get("generativeOpenaiProject"));
+            }
+            if (!out.containsKey("opc-conversation-store-id")) {
+                putIfNotBlank(out, "opc-conversation-store-id", ctx.get("generativeConversationStoreId"));
             }
         }
         return out.isEmpty() ? null : out;
+    }
+
+    private static String stringAttr(HttpServletRequest request, String name) {
+        Object value = request == null ? null : request.getAttribute(name);
+        return value == null ? null : String.valueOf(value);
     }
 
     private static String firstRequestHeader(HttpServletRequest request, String... headerNames) {
@@ -2074,4 +2383,6 @@ public class OciGenerativeOpenAiService {
         }
         return s.length() > n ? s.substring(0, n) + "…" : s;
     }
+
+    private record CachedModels(JsonNode body, Instant expiresAt) {}
 }

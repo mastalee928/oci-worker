@@ -25,6 +25,8 @@ public final class OpenAiApiConstants {
     public static final String ATTR_STREAM_FIRST_CHUNK_TIMEOUT_SECONDS = "ociworker.openai.streamFirstChunkTimeoutSeconds";
     public static final String ATTR_STREAM_IDLE_TIMEOUT_SECONDS = "ociworker.openai.streamIdleTimeoutSeconds";
     public static final String ATTR_STREAM_MAX_SECONDS = "ociworker.openai.streamMaxSeconds";
+    public static final String ATTR_GENERATIVE_OPENAI_PROJECT = "ociworker.openai.generativeOpenaiProject";
+    public static final String ATTR_GENERATIVE_CONVERSATION_STORE_ID = "ociworker.openai.generativeConversationStoreId";
 
     private OpenAiApiConstants() {
     }
