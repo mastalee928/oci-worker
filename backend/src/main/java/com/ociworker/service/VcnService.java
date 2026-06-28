@@ -11,14 +11,19 @@ import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.util.*;
 
 @Slf4j
 @Service
 public class VcnService {
 
+    private static final Duration VCN_READ_CACHE_TTL = Duration.ofMinutes(2);
+
     @Resource
     private OciUserMapper userMapper;
+    @Resource
+    private OciReadCacheService ociReadCacheService;
 
     private OciClientService oci(OciUser ociUser, String region) {
         String r = (region == null || region.isBlank()) ? null : region.trim();
@@ -28,10 +33,18 @@ public class VcnService {
     // ---------------- VCN ----------------
 
     public List<Map<String, Object>> listVcns(String userId, String region) {
+        return listVcns(userId, region, false);
+    }
+
+    public List<Map<String, Object>> listVcns(String userId, String region, boolean force) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
 
-        String r = (region == null || region.isBlank()) ? null : region.trim();
+        return ociReadCacheService.get(vcnListCacheKey(ociUser, region), VCN_READ_CACHE_TTL, force, () -> fetchVcns(ociUser, region));
+    }
+
+    private List<Map<String, Object>> fetchVcns(OciUser ociUser, String region) {
+        String r = effectiveRegion(ociUser, region);
         try (OciClientService client = oci(ociUser, region)) {
             var compartments = client.listAllCompartments();
             List<Map<String, Object>> result = new ArrayList<>();
@@ -54,7 +67,7 @@ public class VcnService {
                         map.put("compartmentId", c.getId());
                         map.put("compartmentName", c.getName());
                         map.put("timeCreated", v.getTimeCreated() != null ? v.getTimeCreated().toString() : null);
-                        map.put("region", r != null ? r : ociUser.getOciRegion());
+                        map.put("region", r);
                         result.add(map);
                     }
                 } catch (Exception e) {
@@ -106,6 +119,7 @@ public class VcnService {
             Map<String, Object> map = new LinkedHashMap<>();
             map.put("id", vcn.getId());
             map.put("internetGatewayId", igwId);
+            evictVcnReadCaches(userId, region);
             return map;
         } catch (OciException e) {
             throw e;
@@ -157,6 +171,7 @@ public class VcnService {
             }
             client.getVirtualNetworkClient().deleteVcn(DeleteVcnRequest.builder().vcnId(vcnId).build());
             log.info("VCN deleted: {}", vcnId);
+            evictVcnReadCaches(userId, region);
         } catch (OciException e) {
             throw e;
         } catch (com.oracle.bmc.model.BmcException e) {
@@ -387,7 +402,11 @@ public class VcnService {
     // ---------------- Subnets ----------------
 
     public List<Map<String, Object>> listSubnets(String userId, String vcnId, String region) {
-        return listChildren(userId, vcnId, region, (client, cid) -> {
+        return listSubnets(userId, vcnId, region, false);
+    }
+
+    public List<Map<String, Object>> listSubnets(String userId, String vcnId, String region, boolean force) {
+        return listChildren("subnets", userId, vcnId, region, force, (client, cid) -> {
             List<Map<String, Object>> list = new ArrayList<>();
             for (var s : client.getVirtualNetworkClient().listSubnets(
                     ListSubnetsRequest.builder().compartmentId(cid).vcnId(vcnId).build()).getItems()) {
@@ -425,6 +444,7 @@ public class VcnService {
             if (routeTableId != null && !routeTableId.isBlank()) b.routeTableId(routeTableId);
             if (prohibitPublicIp != null) b.prohibitPublicIpOnVnic(prohibitPublicIp);
             client.getVirtualNetworkClient().createSubnet(CreateSubnetRequest.builder().createSubnetDetails(b.build()).build());
+            evictVcnReadCaches(userId, region);
         } catch (OciException e) { throw e; }
         catch (Exception e) { throw new OciException("创建子网失败: " + e.getMessage()); }
     }
@@ -432,6 +452,7 @@ public class VcnService {
     public void deleteSubnet(String userId, String subnetId, String region) {
         deleteResource(userId, region, () -> "deleteSubnet", (client) ->
                 client.getVirtualNetworkClient().deleteSubnet(DeleteSubnetRequest.builder().subnetId(subnetId).build()));
+        evictVcnReadCaches(userId, region);
     }
 
     public void updateSubnet(String userId, String subnetId, String displayName, String routeTableId, List<String> securityListIds, String region) {
@@ -445,6 +466,7 @@ public class VcnService {
             client.getVirtualNetworkClient().updateSubnet(
                     UpdateSubnetRequest.builder().subnetId(subnetId)
                             .updateSubnetDetails(b.build()).build());
+            evictVcnReadCaches(userId, region);
         } catch (OciException e) { throw e; }
         catch (Exception e) { throw new OciException("更新子网失败: " + e.getMessage()); }
     }
@@ -452,7 +474,11 @@ public class VcnService {
     // ---------------- Internet Gateway ----------------
 
     public List<Map<String, Object>> listInternetGateways(String userId, String vcnId, String region) {
-        return listChildren(userId, vcnId, region, (client, cid) -> {
+        return listInternetGateways(userId, vcnId, region, false);
+    }
+
+    public List<Map<String, Object>> listInternetGateways(String userId, String vcnId, String region, boolean force) {
+        return listChildren("igw", userId, vcnId, region, force, (client, cid) -> {
             List<Map<String, Object>> list = new ArrayList<>();
             for (var ig : client.getVirtualNetworkClient().listInternetGateways(
                     ListInternetGatewaysRequest.builder().compartmentId(cid).vcnId(vcnId).build()).getItems()) {
@@ -483,6 +509,7 @@ public class VcnService {
                                     .isEnabled(enabled)
                                     .build()
                     ).build());
+            evictVcnReadCaches(userId, region);
         } catch (OciException e) { throw e; }
         catch (Exception e) { throw new OciException("创建 Internet Gateway 失败: " + e.getMessage()); }
     }
@@ -490,6 +517,7 @@ public class VcnService {
     public void deleteInternetGateway(String userId, String igId, String region) {
         deleteResource(userId, region, () -> "deleteInternetGateway", (client) ->
                 client.getVirtualNetworkClient().deleteInternetGateway(DeleteInternetGatewayRequest.builder().igId(igId).build()));
+        evictVcnReadCaches(userId, region);
     }
 
     public void updateInternetGateway(String userId, String igId, String displayName, Boolean isEnabled, String region) {
@@ -502,6 +530,7 @@ public class VcnService {
             client.getVirtualNetworkClient().updateInternetGateway(
                     UpdateInternetGatewayRequest.builder().igId(igId)
                             .updateInternetGatewayDetails(b.build()).build());
+            evictVcnReadCaches(userId, region);
         } catch (OciException e) { throw e; }
         catch (Exception e) { throw new OciException("更新 IGW 失败: " + e.getMessage()); }
     }
@@ -509,7 +538,11 @@ public class VcnService {
     // ---------------- NAT Gateway ----------------
 
     public List<Map<String, Object>> listNatGateways(String userId, String vcnId, String region) {
-        return listChildren(userId, vcnId, region, (client, cid) -> {
+        return listNatGateways(userId, vcnId, region, false);
+    }
+
+    public List<Map<String, Object>> listNatGateways(String userId, String vcnId, String region, boolean force) {
+        return listChildren("nat", userId, vcnId, region, force, (client, cid) -> {
             List<Map<String, Object>> list = new ArrayList<>();
             for (var ng : client.getVirtualNetworkClient().listNatGateways(
                     ListNatGatewaysRequest.builder().compartmentId(cid).vcnId(vcnId).build()).getItems()) {
@@ -540,6 +573,7 @@ public class VcnService {
                                     .displayName(displayName)
                                     .build()
                     ).build());
+            evictVcnReadCaches(userId, region);
         } catch (OciException e) { throw e; }
         catch (Exception e) { throw new OciException("创建 NAT Gateway 失败: " + e.getMessage()); }
     }
@@ -547,6 +581,7 @@ public class VcnService {
     public void deleteNatGateway(String userId, String natId, String region) {
         deleteResource(userId, region, () -> "deleteNatGateway", (client) ->
                 client.getVirtualNetworkClient().deleteNatGateway(DeleteNatGatewayRequest.builder().natGatewayId(natId).build()));
+        evictVcnReadCaches(userId, region);
     }
 
     public void updateNatGateway(String userId, String natId, String displayName, Boolean blockTraffic, String region) {
@@ -559,6 +594,7 @@ public class VcnService {
             client.getVirtualNetworkClient().updateNatGateway(
                     UpdateNatGatewayRequest.builder().natGatewayId(natId)
                             .updateNatGatewayDetails(b.build()).build());
+            evictVcnReadCaches(userId, region);
         } catch (OciException e) { throw e; }
         catch (Exception e) { throw new OciException("更新 NAT 失败: " + e.getMessage()); }
     }
@@ -566,7 +602,11 @@ public class VcnService {
     // ---------------- Service Gateway ----------------
 
     public List<Map<String, Object>> listServiceGateways(String userId, String vcnId, String region) {
-        return listChildren(userId, vcnId, region, (client, cid) -> {
+        return listServiceGateways(userId, vcnId, region, false);
+    }
+
+    public List<Map<String, Object>> listServiceGateways(String userId, String vcnId, String region, boolean force) {
+        return listChildren("sg", userId, vcnId, region, force, (client, cid) -> {
             List<Map<String, Object>> list = new ArrayList<>();
             for (var sg : client.getVirtualNetworkClient().listServiceGateways(
                     ListServiceGatewaysRequest.builder().compartmentId(cid).vcnId(vcnId).build()).getItems()) {
@@ -608,6 +648,7 @@ public class VcnService {
                                     .services(serviceIds)
                                     .build()
                     ).build());
+            evictVcnReadCaches(userId, region);
         } catch (OciException e) { throw e; }
         catch (Exception e) { throw new OciException("创建 Service Gateway 失败: " + e.getMessage()); }
     }
@@ -615,6 +656,7 @@ public class VcnService {
     public void deleteServiceGateway(String userId, String sgId, String region) {
         deleteResource(userId, region, () -> "deleteServiceGateway", (client) ->
                 client.getVirtualNetworkClient().deleteServiceGateway(DeleteServiceGatewayRequest.builder().serviceGatewayId(sgId).build()));
+        evictVcnReadCaches(userId, region);
     }
 
     public void updateServiceGateway(String userId, String sgId, String displayName, Boolean blockTraffic, String region) {
@@ -627,6 +669,7 @@ public class VcnService {
             client.getVirtualNetworkClient().updateServiceGateway(
                     UpdateServiceGatewayRequest.builder().serviceGatewayId(sgId)
                             .updateServiceGatewayDetails(b.build()).build());
+            evictVcnReadCaches(userId, region);
         } catch (OciException e) { throw e; }
         catch (Exception e) { throw new OciException("更新 SG 失败: " + e.getMessage()); }
     }
@@ -634,7 +677,11 @@ public class VcnService {
     // ---------------- Route Table ----------------
 
     public List<Map<String, Object>> listRouteTables(String userId, String vcnId, String region) {
-        return listChildren(userId, vcnId, region, (client, cid) -> {
+        return listRouteTables(userId, vcnId, region, false);
+    }
+
+    public List<Map<String, Object>> listRouteTables(String userId, String vcnId, String region, boolean force) {
+        return listChildren("rt", userId, vcnId, region, force, (client, cid) -> {
             List<Map<String, Object>> list = new ArrayList<>();
             for (var rt : client.getVirtualNetworkClient().listRouteTables(
                     ListRouteTablesRequest.builder().compartmentId(cid).vcnId(vcnId).build()).getItems()) {
@@ -665,6 +712,7 @@ public class VcnService {
     public void deleteRouteTable(String userId, String rtId, String region) {
         deleteResource(userId, region, () -> "deleteRouteTable", (client) ->
                 client.getVirtualNetworkClient().deleteRouteTable(DeleteRouteTableRequest.builder().rtId(rtId).build()));
+        evictVcnReadCaches(userId, region);
     }
 
     public void updateRouteTable(String userId, String rtId, String displayName, List<Map<String, Object>> routeRules, String region) {
@@ -691,6 +739,7 @@ public class VcnService {
             client.getVirtualNetworkClient().updateRouteTable(
                     UpdateRouteTableRequest.builder().rtId(rtId)
                             .updateRouteTableDetails(b.build()).build());
+            evictVcnReadCaches(userId, region);
         } catch (OciException e) { throw e; }
         catch (Exception e) { throw new OciException("更新路由表失败: " + e.getMessage()); }
     }
@@ -723,8 +772,17 @@ public class VcnService {
     }
 
     public List<Map<String, Object>> listVcnGateways(String userId, String vcnId, String region) {
+        return listVcnGateways(userId, vcnId, region, false);
+    }
+
+    public List<Map<String, Object>> listVcnGateways(String userId, String vcnId, String region, boolean force) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
+        return ociReadCacheService.get(vcnChildCacheKey("gateways", ociUser, vcnId, region), VCN_READ_CACHE_TTL, force,
+                () -> fetchVcnGateways(ociUser, vcnId, region));
+    }
+
+    private List<Map<String, Object>> fetchVcnGateways(OciUser ociUser, String vcnId, String region) {
         try (OciClientService client = oci(ociUser, region)) {
             Vcn vcn = client.getVirtualNetworkClient().getVcn(GetVcnRequest.builder().vcnId(vcnId).build()).getVcn();
             String cid = vcn.getCompartmentId();
@@ -733,33 +791,41 @@ public class VcnService {
                 for (var ig : client.getVirtualNetworkClient().listInternetGateways(
                         ListInternetGatewaysRequest.builder().compartmentId(cid).vcnId(vcnId).build()).getItems()) {
                     if (ig.getLifecycleState() == InternetGateway.LifecycleState.Terminated) continue;
-                    result.add(Map.of("id", ig.getId(), "displayName", ig.getDisplayName(), "type", "internetGateway"));
+                    result.add(gatewayOption(ig.getId(), ig.getDisplayName(), "internetGateway"));
                 }
             } catch (Exception ignored) {}
             try {
                 for (var ng : client.getVirtualNetworkClient().listNatGateways(
                         ListNatGatewaysRequest.builder().compartmentId(cid).vcnId(vcnId).build()).getItems()) {
                     if (ng.getLifecycleState() == NatGateway.LifecycleState.Terminated) continue;
-                    result.add(Map.of("id", ng.getId(), "displayName", ng.getDisplayName(), "type", "natGateway"));
+                    result.add(gatewayOption(ng.getId(), ng.getDisplayName(), "natGateway"));
                 }
             } catch (Exception ignored) {}
             try {
                 for (var sg : client.getVirtualNetworkClient().listServiceGateways(
                         ListServiceGatewaysRequest.builder().compartmentId(cid).vcnId(vcnId).build()).getItems()) {
                     if (sg.getLifecycleState() == ServiceGateway.LifecycleState.Terminated) continue;
-                    result.add(Map.of("id", sg.getId(), "displayName", sg.getDisplayName(), "type", "serviceGateway"));
+                    result.add(gatewayOption(sg.getId(), sg.getDisplayName(), "serviceGateway"));
                 }
             } catch (Exception ignored) {}
             try {
                 for (var lpg : client.getVirtualNetworkClient().listLocalPeeringGateways(
                         ListLocalPeeringGatewaysRequest.builder().compartmentId(cid).vcnId(vcnId).build()).getItems()) {
                     if (lpg.getLifecycleState() == LocalPeeringGateway.LifecycleState.Terminated) continue;
-                    result.add(Map.of("id", lpg.getId(), "displayName", lpg.getDisplayName(), "type", "localPeeringGateway"));
+                    result.add(gatewayOption(lpg.getId(), lpg.getDisplayName(), "localPeeringGateway"));
                 }
             } catch (Exception ignored) {}
             return result;
         } catch (OciException e) { throw e; }
         catch (Exception e) { throw new OciException("查询 VCN 网关失败: " + e.getMessage()); }
+    }
+
+    private Map<String, Object> gatewayOption(String id, String displayName, String type) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("id", id);
+        map.put("displayName", displayName);
+        map.put("type", type);
+        return map;
     }
 
     public Map<String, Object> getSecurityList(String userId, String slId, String region) {
@@ -868,6 +934,7 @@ public class VcnService {
                             .updateSecurityListDetails(UpdateSecurityListDetails.builder()
                                     .ingressSecurityRules(ingressRules)
                                     .egressSecurityRules(egressRules).build()).build());
+            evictVcnReadCaches(userId, region);
         } catch (OciException e) { throw e; }
         catch (Exception e) { throw new OciException("添加安全规则失败: " + e.getMessage()); }
     }
@@ -893,6 +960,7 @@ public class VcnService {
                             .updateSecurityListDetails(UpdateSecurityListDetails.builder()
                                     .ingressSecurityRules(ingressRules)
                                     .egressSecurityRules(egressRules).build()).build());
+            evictVcnReadCaches(userId, region);
         } catch (OciException e) { throw e; }
         catch (Exception e) { throw new OciException("删除安全规则失败: " + e.getMessage()); }
     }
@@ -924,6 +992,7 @@ public class VcnService {
                     UpdateRouteTableRequest.builder().rtId(defaultRtId)
                             .updateRouteTableDetails(UpdateRouteTableDetails.builder()
                                     .routeRules(rules).build()).build());
+            evictVcnReadCaches(userId, region);
         } catch (OciException e) { throw e; }
         catch (Exception e) { throw new OciException("配置 IGW 默认路由失败: " + e.getMessage()); }
     }
@@ -931,7 +1000,11 @@ public class VcnService {
     // ---------------- Security List ----------------
 
     public List<Map<String, Object>> listSecurityLists(String userId, String vcnId, String region) {
-        return listChildren(userId, vcnId, region, (client, cid) -> {
+        return listSecurityLists(userId, vcnId, region, false);
+    }
+
+    public List<Map<String, Object>> listSecurityLists(String userId, String vcnId, String region, boolean force) {
+        return listChildren("sl", userId, vcnId, region, force, (client, cid) -> {
             List<Map<String, Object>> list = new ArrayList<>();
             for (var sl : client.getVirtualNetworkClient().listSecurityLists(
                     ListSecurityListsRequest.builder().compartmentId(cid).vcnId(vcnId).build()).getItems()) {
@@ -952,6 +1025,7 @@ public class VcnService {
     public void deleteSecurityList(String userId, String slId, String region) {
         deleteResource(userId, region, () -> "deleteSecurityList", (client) ->
                 client.getVirtualNetworkClient().deleteSecurityList(DeleteSecurityListRequest.builder().securityListId(slId).build()));
+        evictVcnReadCaches(userId, region);
     }
 
     // ---------------- DRG ----------------
@@ -1003,7 +1077,11 @@ public class VcnService {
     // ---------------- Local Peering Gateway ----------------
 
     public List<Map<String, Object>> listLocalPeeringGateways(String userId, String vcnId, String region) {
-        return listChildren(userId, vcnId, region, (client, cid) -> {
+        return listLocalPeeringGateways(userId, vcnId, region, false);
+    }
+
+    public List<Map<String, Object>> listLocalPeeringGateways(String userId, String vcnId, String region, boolean force) {
+        return listChildren("lpg", userId, vcnId, region, force, (client, cid) -> {
             List<Map<String, Object>> list = new ArrayList<>();
             for (var lpg : client.getVirtualNetworkClient().listLocalPeeringGateways(
                     ListLocalPeeringGatewaysRequest.builder().compartmentId(cid).vcnId(vcnId).build()).getItems()) {
@@ -1034,6 +1112,7 @@ public class VcnService {
                                     .displayName(displayName)
                                     .build()
                     ).build());
+            evictVcnReadCaches(userId, region);
         } catch (OciException e) { throw e; }
         catch (Exception e) { throw new OciException("创建 LPG 失败: " + e.getMessage()); }
     }
@@ -1048,6 +1127,7 @@ public class VcnService {
                             .connectLocalPeeringGatewaysDetails(
                                     ConnectLocalPeeringGatewaysDetails.builder().peerId(peerId).build())
                             .build());
+            evictVcnReadCaches(userId, region);
         } catch (OciException e) { throw e; }
         catch (Exception e) { throw new OciException("连接 LPG 失败: " + e.getMessage()); }
     }
@@ -1055,6 +1135,7 @@ public class VcnService {
     public void deleteLocalPeeringGateway(String userId, String lpgId, String region) {
         deleteResource(userId, region, () -> "deleteLocalPeeringGateway", (client) ->
                 client.getVirtualNetworkClient().deleteLocalPeeringGateway(DeleteLocalPeeringGatewayRequest.builder().localPeeringGatewayId(lpgId).build()));
+        evictVcnReadCaches(userId, region);
     }
 
     // ---------------- Helpers ----------------
@@ -1072,9 +1153,14 @@ public class VcnService {
     @FunctionalInterface
     private interface OpName { String get(); }
 
-    private List<Map<String, Object>> listChildren(String userId, String vcnId, String region, ChildrenFetcher fetcher) {
+    private List<Map<String, Object>> listChildren(String cacheType, String userId, String vcnId, String region, boolean force, ChildrenFetcher fetcher) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
+        return ociReadCacheService.get(vcnChildCacheKey(cacheType, ociUser, vcnId, region), VCN_READ_CACHE_TTL, force,
+                () -> fetchChildren(vcnId, region, fetcher, ociUser));
+    }
+
+    private List<Map<String, Object>> fetchChildren(String vcnId, String region, ChildrenFetcher fetcher, OciUser ociUser) {
         try (OciClientService client = oci(ociUser, region)) {
             Vcn vcn = client.getVirtualNetworkClient().getVcn(GetVcnRequest.builder().vcnId(vcnId).build()).getVcn();
             return fetcher.fetch(client, vcn.getCompartmentId());
@@ -1113,6 +1199,41 @@ public class VcnService {
         return v == null ? null : String.valueOf(v);
     }
 
+    private void evictVcnReadCaches(String userId, String region) {
+        OciUser user = userMapper.selectById(userId);
+        if (user == null) return;
+        ociReadCacheService.evictByPrefix(vcnCachePrefix(user, region) + "|");
+    }
+
+    private static String vcnListCacheKey(OciUser user, String region) {
+        return OciReadCacheService.key(vcnCachePrefix(user, region), "list");
+    }
+
+    private static String vcnChildCacheKey(String type, OciUser user, String vcnId, String region) {
+        return OciReadCacheService.key(vcnCachePrefix(user, region), type, vcnId);
+    }
+
+    private static String vcnCachePrefix(OciUser user, String region) {
+        return OciReadCacheService.key(
+                "oci:vcn",
+                user.getId(),
+                user.getOciTenantId(),
+                configuredRegion(user),
+                effectiveRegion(user, region));
+    }
+
+    private static String effectiveRegion(OciUser user, String region) {
+        if (region != null && !region.isBlank()) {
+            return region.trim();
+        }
+        return configuredRegion(user);
+    }
+
+    private static String configuredRegion(OciUser user) {
+        String region = user == null ? null : user.getOciRegion();
+        return region == null ? "" : region.trim();
+    }
+
     public void updateVcn(String userId, String vcnId, String displayName, String dnsLabel, String region) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
@@ -1121,6 +1242,7 @@ public class VcnService {
             if (displayName != null && !displayName.isBlank()) b.displayName(displayName);
             client.getVirtualNetworkClient().updateVcn(
                     UpdateVcnRequest.builder().vcnId(vcnId).updateVcnDetails(b.build()).build());
+            evictVcnReadCaches(userId, region);
         } catch (OciException e) { throw e; }
         catch (Exception e) { throw new OciException("更新 VCN 失败: " + e.getMessage()); }
     }
@@ -1134,6 +1256,7 @@ public class VcnService {
             client.getVirtualNetworkClient().updateLocalPeeringGateway(
                     UpdateLocalPeeringGatewayRequest.builder().localPeeringGatewayId(lpgId)
                             .updateLocalPeeringGatewayDetails(b.build()).build());
+            evictVcnReadCaches(userId, region);
         } catch (OciException e) { throw e; }
         catch (Exception e) { throw new OciException("更新 LPG 失败: " + e.getMessage()); }
     }

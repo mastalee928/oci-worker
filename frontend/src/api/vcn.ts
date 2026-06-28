@@ -1,6 +1,6 @@
 import request from '../utils/request'
 
-type R = { region?: string }
+type R = { region?: string; force?: boolean }
 
 export function listVcns(data: { id: string } & R) {
   return request.post('/oci/vcn/list', data)

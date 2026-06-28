@@ -910,7 +910,7 @@
         </a-tab-pane>
 
         <a-tab-pane key="network" tab="网络">
-          <a-button @click="loadVcns" :loading="vcnLoading" style="margin-bottom: 12px">加载 VCN</a-button>
+          <a-button @click="loadVcns(true)" :loading="vcnLoading" style="margin-bottom: 12px">加载 VCN</a-button>
           <a-table v-if="!isMobile" :data-source="vcns" :columns="vcnColumns" size="small" :pagination="false" row-key="id">
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'vcnAction'">
@@ -3663,7 +3663,7 @@ async function onVcnManagerChanged() {
   vcnListLoading.value = true
   try {
     const reg = (vcnPanelRegion.value?.trim() || vcnTenant.value.ociRegion || '').trim()
-    const res = await getVcns({ id: vcnTenant.value.id, region: reg })
+    const res = await getVcns({ id: vcnTenant.value.id, region: reg, force: true })
     vcnList.value = res.data || []
   } catch (e: any) {
     message.error(e?.message || '刷新 VCN 列表失败')
@@ -3753,7 +3753,7 @@ async function onVcnPanelRegionUserChange() {
   vcnListLoading.value = true
   try {
     const reg = (vcnPanelRegion.value?.trim() || vcnTenant.value.ociRegion || '').trim()
-    const res = await getVcns({ id: vcnTenant.value.id, region: reg })
+    const res = await getVcns({ id: vcnTenant.value.id, region: reg, force: true })
     vcnList.value = res.data || []
   } catch (e: any) {
     message.error(e?.message || '加载 VCN 失败')
@@ -4969,12 +4969,13 @@ async function handleEditInstance() {
   }
 }
 
-async function loadVcns() {
+async function loadVcns(force = false) {
   vcnLoading.value = true
   try {
     const res = await getVcns({
       id: currentTenant.value.id,
       ...instanceDetailRegionParam(),
+      force,
     })
     vcns.value = res.data || []
   } catch (e: any) { message.error(e?.message || '加载 VCN 失败') }

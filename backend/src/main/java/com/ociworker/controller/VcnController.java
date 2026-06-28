@@ -21,7 +21,7 @@ public class VcnController {
 
     @PostMapping("/list")
     public ResponseData<?> list(@RequestBody Map<String, Object> params) {
-        return ResponseData.ok(vcnService.listVcns(str(params, "id"), reg(params)));
+        return ResponseData.ok(vcnService.listVcns(str(params, "id"), reg(params), bool(params, "force", false)));
     }
 
     @PostMapping("/create")
@@ -58,14 +58,14 @@ public class VcnController {
 
     @PostMapping("/gateways")
     public ResponseData<?> listVcnGateways(@RequestBody Map<String, Object> params) {
-        return ResponseData.ok(vcnService.listVcnGateways(str(params, "id"), str(params, "vcnId"), reg(params)));
+        return ResponseData.ok(vcnService.listVcnGateways(str(params, "id"), str(params, "vcnId"), reg(params), bool(params, "force", false)));
     }
 
     // ---------- Subnet ----------
 
     @PostMapping("/subnet/list")
     public ResponseData<?> listSubnets(@RequestBody Map<String, Object> params) {
-        return ResponseData.ok(vcnService.listSubnets(str(params, "id"), str(params, "vcnId"), reg(params)));
+        return ResponseData.ok(vcnService.listSubnets(str(params, "id"), str(params, "vcnId"), reg(params), bool(params, "force", false)));
     }
 
     @PostMapping("/subnet/create")
@@ -108,7 +108,7 @@ public class VcnController {
 
     @PostMapping("/igw/list")
     public ResponseData<?> listIgw(@RequestBody Map<String, Object> params) {
-        return ResponseData.ok(vcnService.listInternetGateways(str(params, "id"), str(params, "vcnId"), reg(params)));
+        return ResponseData.ok(vcnService.listInternetGateways(str(params, "id"), str(params, "vcnId"), reg(params), bool(params, "force", false)));
     }
 
     @PostMapping("/igw/create")
@@ -149,7 +149,7 @@ public class VcnController {
 
     @PostMapping("/nat/list")
     public ResponseData<?> listNat(@RequestBody Map<String, Object> params) {
-        return ResponseData.ok(vcnService.listNatGateways(str(params, "id"), str(params, "vcnId"), reg(params)));
+        return ResponseData.ok(vcnService.listNatGateways(str(params, "id"), str(params, "vcnId"), reg(params), bool(params, "force", false)));
     }
 
     @PostMapping("/nat/create")
@@ -177,7 +177,7 @@ public class VcnController {
 
     @PostMapping("/sg/list")
     public ResponseData<?> listSg(@RequestBody Map<String, Object> params) {
-        return ResponseData.ok(vcnService.listServiceGateways(str(params, "id"), str(params, "vcnId"), reg(params)));
+        return ResponseData.ok(vcnService.listServiceGateways(str(params, "id"), str(params, "vcnId"), reg(params), bool(params, "force", false)));
     }
 
     @PostMapping("/sg/create")
@@ -205,7 +205,7 @@ public class VcnController {
 
     @PostMapping("/rt/list")
     public ResponseData<?> listRt(@RequestBody Map<String, Object> params) {
-        return ResponseData.ok(vcnService.listRouteTables(str(params, "id"), str(params, "vcnId"), reg(params)));
+        return ResponseData.ok(vcnService.listRouteTables(str(params, "id"), str(params, "vcnId"), reg(params), bool(params, "force", false)));
     }
 
     @PostMapping("/rt/delete")
@@ -238,7 +238,7 @@ public class VcnController {
 
     @PostMapping("/sl/list")
     public ResponseData<?> listSl(@RequestBody Map<String, Object> params) {
-        return ResponseData.ok(vcnService.listSecurityLists(str(params, "id"), str(params, "vcnId"), reg(params)));
+        return ResponseData.ok(vcnService.listSecurityLists(str(params, "id"), str(params, "vcnId"), reg(params), bool(params, "force", false)));
     }
 
     @PostMapping("/sl/delete")
@@ -297,7 +297,7 @@ public class VcnController {
 
     @PostMapping("/lpg/list")
     public ResponseData<?> listLpg(@RequestBody Map<String, Object> params) {
-        return ResponseData.ok(vcnService.listLocalPeeringGateways(str(params, "id"), str(params, "vcnId"), reg(params)));
+        return ResponseData.ok(vcnService.listLocalPeeringGateways(str(params, "id"), str(params, "vcnId"), reg(params), bool(params, "force", false)));
     }
 
     @PostMapping("/lpg/create")

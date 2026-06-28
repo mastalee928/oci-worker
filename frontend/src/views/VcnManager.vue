@@ -30,7 +30,7 @@
       <a-tab-pane key="subnet" tab="子网">
         <div class="op-row">
           <a-button type="primary" size="small" @click="showCreateSubnet = true">创建子网</a-button>
-          <a-button size="small" @click="loadSubnets" :loading="loading.subnet">刷新</a-button>
+          <a-button size="small" @click="loadSubnets(true)" :loading="loading.subnet">刷新</a-button>
         </div>
         <a-table size="small" :loading="loading.subnet" :data-source="data.subnet" :columns="cols.subnet" :pagination="false" row-key="id">
           <template #bodyCell="{ column, record }">
@@ -53,7 +53,7 @@
       <a-tab-pane key="igw" tab="Internet 网关">
         <div class="op-row">
           <a-button type="primary" size="small" @click="showCreateIgw = true">创建 IGW</a-button>
-          <a-button size="small" @click="loadIgw" :loading="loading.igw">刷新</a-button>
+          <a-button size="small" @click="loadIgw(true)" :loading="loading.igw">刷新</a-button>
         </div>
         <a-table size="small" :loading="loading.igw" :data-source="data.igw" :columns="cols.igw" :pagination="false" row-key="id">
           <template #bodyCell="{ column, record }">
@@ -79,7 +79,7 @@
       <a-tab-pane key="nat" tab="NAT 网关">
         <div class="op-row">
           <a-button type="primary" size="small" @click="showCreateNat = true">创建 NAT</a-button>
-          <a-button size="small" @click="loadNat" :loading="loading.nat">刷新</a-button>
+          <a-button size="small" @click="loadNat(true)" :loading="loading.nat">刷新</a-button>
         </div>
         <a-table size="small" :loading="loading.nat" :data-source="data.nat" :columns="cols.nat" :pagination="false" row-key="id">
           <template #bodyCell="{ column, record }">
@@ -104,7 +104,7 @@
       <a-tab-pane key="sg" tab="服务网关">
         <div class="op-row">
           <a-button type="primary" size="small" @click="showCreateSg = true">创建 SG</a-button>
-          <a-button size="small" @click="loadSg" :loading="loading.sg">刷新</a-button>
+          <a-button size="small" @click="loadSg(true)" :loading="loading.sg">刷新</a-button>
         </div>
         <a-table size="small" :loading="loading.sg" :data-source="data.sg" :columns="cols.sg" :pagination="false" row-key="id">
           <template #bodyCell="{ column, record }">
@@ -129,7 +129,7 @@
       <a-tab-pane key="lpg" tab="LPG 对等">
         <div class="op-row">
           <a-button type="primary" size="small" @click="showCreateLpg = true">创建 LPG</a-button>
-          <a-button size="small" @click="loadLpg" :loading="loading.lpg">刷新</a-button>
+          <a-button size="small" @click="loadLpg(true)" :loading="loading.lpg">刷新</a-button>
         </div>
         <a-table size="small" :loading="loading.lpg" :data-source="data.lpg" :columns="cols.lpg" :pagination="false" row-key="id">
           <template #bodyCell="{ column, record }">
@@ -151,7 +151,7 @@
 
       <a-tab-pane key="rt" tab="路由表">
         <div class="op-row">
-          <a-button size="small" @click="loadRt" :loading="loading.rt">刷新</a-button>
+          <a-button size="small" @click="loadRt(true)" :loading="loading.rt">刷新</a-button>
         </div>
         <a-table size="small" :loading="loading.rt" :data-source="data.rt" :columns="cols.rt" :pagination="false" row-key="id">
           <template #bodyCell="{ column, record }">
@@ -170,7 +170,7 @@
 
       <a-tab-pane key="sl" tab="安全列表">
         <div class="op-row">
-          <a-button size="small" @click="loadSl" :loading="loading.sl">刷新</a-button>
+          <a-button size="small" @click="loadSl(true)" :loading="loading.sl">刷新</a-button>
         </div>
         <a-table size="small" :loading="loading.sl" :data-source="data.sl" :columns="cols.sl" :pagination="false" row-key="id">
           <template #bodyCell="{ column, record }">
@@ -466,7 +466,10 @@ const ociBase = computed((): { id: string; region?: string } => {
 
 const activeTab = ref('subnet')
 const loading = reactive({ subnet: false, igw: false, nat: false, sg: false, lpg: false, rt: false, sl: false })
+const loadingSeq = reactive({ subnet: 0, igw: 0, nat: 0, sg: 0, lpg: 0, rt: 0, sl: 0 })
+const contextSeq = ref(0)
 const data = reactive<Record<string, any[]>>({ subnet: [], igw: [], nat: [], sg: [], lpg: [], rt: [], sl: [] })
+const dataKeys = ['subnet', 'igw', 'nat', 'sg', 'lpg', 'rt', 'sl'] as const
 
 const cols = {
   subnet: [
@@ -520,57 +523,112 @@ const cols = {
   ],
 }
 
-watch(() => props.open, (v) => {
-  if (v && props.vcn?.id) {
-    activeTab.value = 'subnet'
-    loadSubnets()
-  }
-})
+watch(
+  () => [props.open, props.userId, props.vcn?.id, props.ociRegion] as const,
+  ([open]) => {
+    if (open && props.vcn?.id) {
+      resetLoadedData()
+      activeTab.value = 'subnet'
+      loadSubnets()
+    }
+  },
+  { immediate: true },
+)
 
-function onTab(k: string) {
-  if (k === 'subnet') loadSubnets()
-  else if (k === 'igw') loadIgw()
-  else if (k === 'nat') loadNat()
-  else if (k === 'sg') loadSg()
-  else if (k === 'lpg') loadLpg()
-  else if (k === 'rt') loadRt()
-  else if (k === 'sl') loadSl()
+function resetLoadedData() {
+  contextSeq.value += 1
+  dataKeys.forEach((key) => {
+    loadingSeq[key] += 1
+    loading[key] = false
+    data[key] = []
+  })
 }
 
-async function wrap<T>(k: keyof typeof loading, fn: () => Promise<T>): Promise<T | null> {
+function currentContextKey(vcnId: string) {
+  return `${props.userId || ''}|${props.ociRegion?.trim() || ''}|${vcnId}`
+}
+
+function isCurrentVcnContext(vcnId: string, contextKey: string, seq: number) {
+  return props.open && props.vcn?.id === vcnId && currentContextKey(vcnId) === contextKey && contextSeq.value === seq
+}
+
+function onTab(k: string, force = false) {
+  if (k === 'subnet') loadSubnets(force)
+  else if (k === 'igw') loadIgw(force)
+  else if (k === 'nat') loadNat(force)
+  else if (k === 'sg') loadSg(force)
+  else if (k === 'lpg') loadLpg(force)
+  else if (k === 'rt') loadRt(force)
+  else if (k === 'sl') loadSl(force)
+}
+
+async function wrap<T>(k: keyof typeof loading, fn: () => Promise<T>, stillRelevant: () => boolean): Promise<T | null> {
+  const seq = ++loadingSeq[k]
   loading[k] = true
   try { return await fn() }
-  catch (e: any) { message.error(e?.message || '加载失败'); return null }
-  finally { loading[k] = false }
+  catch (e: any) {
+    if (stillRelevant()) message.error(e?.message || '加载失败')
+    return null
+  } finally {
+    if (loadingSeq[k] === seq) loading[k] = false
+  }
 }
 
-async function loadSubnets() {
-  const r = await wrap('subnet', () => listSubnets({ ...ociBase.value, vcnId: props.vcn.id }))
-  if (r) data.subnet = r.data || []
+async function loadSubnets(force = false) {
+  const vcnId = props.vcn?.id
+  if (!vcnId) return
+  const contextKey = currentContextKey(vcnId)
+  const seq = contextSeq.value
+  const r = await wrap('subnet', () => listSubnets({ ...ociBase.value, vcnId, force }), () => isCurrentVcnContext(vcnId, contextKey, seq))
+  if (r && isCurrentVcnContext(vcnId, contextKey, seq)) data.subnet = r.data || []
 }
-async function loadIgw() {
-  const r = await wrap('igw', () => listInternetGateways({ ...ociBase.value, vcnId: props.vcn.id }))
-  if (r) data.igw = r.data || []
+async function loadIgw(force = false) {
+  const vcnId = props.vcn?.id
+  if (!vcnId) return
+  const contextKey = currentContextKey(vcnId)
+  const seq = contextSeq.value
+  const r = await wrap('igw', () => listInternetGateways({ ...ociBase.value, vcnId, force }), () => isCurrentVcnContext(vcnId, contextKey, seq))
+  if (r && isCurrentVcnContext(vcnId, contextKey, seq)) data.igw = r.data || []
 }
-async function loadNat() {
-  const r = await wrap('nat', () => listNatGateways({ ...ociBase.value, vcnId: props.vcn.id }))
-  if (r) data.nat = r.data || []
+async function loadNat(force = false) {
+  const vcnId = props.vcn?.id
+  if (!vcnId) return
+  const contextKey = currentContextKey(vcnId)
+  const seq = contextSeq.value
+  const r = await wrap('nat', () => listNatGateways({ ...ociBase.value, vcnId, force }), () => isCurrentVcnContext(vcnId, contextKey, seq))
+  if (r && isCurrentVcnContext(vcnId, contextKey, seq)) data.nat = r.data || []
 }
-async function loadSg() {
-  const r = await wrap('sg', () => listServiceGateways({ ...ociBase.value, vcnId: props.vcn.id }))
-  if (r) data.sg = r.data || []
+async function loadSg(force = false) {
+  const vcnId = props.vcn?.id
+  if (!vcnId) return
+  const contextKey = currentContextKey(vcnId)
+  const seq = contextSeq.value
+  const r = await wrap('sg', () => listServiceGateways({ ...ociBase.value, vcnId, force }), () => isCurrentVcnContext(vcnId, contextKey, seq))
+  if (r && isCurrentVcnContext(vcnId, contextKey, seq)) data.sg = r.data || []
 }
-async function loadLpg() {
-  const r = await wrap('lpg', () => listLocalPeeringGateways({ ...ociBase.value, vcnId: props.vcn.id }))
-  if (r) data.lpg = r.data || []
+async function loadLpg(force = false) {
+  const vcnId = props.vcn?.id
+  if (!vcnId) return
+  const contextKey = currentContextKey(vcnId)
+  const seq = contextSeq.value
+  const r = await wrap('lpg', () => listLocalPeeringGateways({ ...ociBase.value, vcnId, force }), () => isCurrentVcnContext(vcnId, contextKey, seq))
+  if (r && isCurrentVcnContext(vcnId, contextKey, seq)) data.lpg = r.data || []
 }
-async function loadRt() {
-  const r = await wrap('rt', () => listRouteTables({ ...ociBase.value, vcnId: props.vcn.id }))
-  if (r) data.rt = r.data || []
+async function loadRt(force = false) {
+  const vcnId = props.vcn?.id
+  if (!vcnId) return
+  const contextKey = currentContextKey(vcnId)
+  const seq = contextSeq.value
+  const r = await wrap('rt', () => listRouteTables({ ...ociBase.value, vcnId, force }), () => isCurrentVcnContext(vcnId, contextKey, seq))
+  if (r && isCurrentVcnContext(vcnId, contextKey, seq)) data.rt = r.data || []
 }
-async function loadSl() {
-  const r = await wrap('sl', () => listSecurityLists({ ...ociBase.value, vcnId: props.vcn.id }))
-  if (r) data.sl = r.data || []
+async function loadSl(force = false) {
+  const vcnId = props.vcn?.id
+  if (!vcnId) return
+  const contextKey = currentContextKey(vcnId)
+  const seq = contextSeq.value
+  const r = await wrap('sl', () => listSecurityLists({ ...ociBase.value, vcnId, force }), () => isCurrentVcnContext(vcnId, contextKey, seq))
+  if (r && isCurrentVcnContext(vcnId, contextKey, seq)) data.sl = r.data || []
 }
 
 // ---- create ----
@@ -585,7 +643,7 @@ async function doCreateSubnet() {
     message.success('创建成功')
     showCreateSubnet.value = false
     Object.assign(newSubnet, { displayName: '', cidrBlock: '', availabilityDomain: '', routeTableId: '', prohibitPublicIp: false })
-    loadSubnets()
+    loadSubnets(true)
     emit('changed')
   } catch (e: any) { message.error(e?.message || '创建失败') }
   finally { creating.value = false }
@@ -601,7 +659,7 @@ async function doCreateIgw() {
     message.success('创建成功')
     showCreateIgw.value = false
     newIgw.displayName = ''; newIgw.isEnabled = true
-    loadIgw()
+    loadIgw(true)
     emit('changed')
   } catch (e: any) { message.error(e?.message || '创建失败') }
   finally { creating.value = false }
@@ -615,7 +673,7 @@ async function doCreateNat() {
   try {
     await createNatGateway({ ...ociBase.value, vcnId: props.vcn.id, displayName: newNat.displayName })
     message.success('创建成功'); showCreateNat.value = false; newNat.displayName = ''
-    loadNat(); emit('changed')
+    loadNat(true); emit('changed')
   } catch (e: any) { message.error(e?.message || '创建失败') }
   finally { creating.value = false }
 }
@@ -628,7 +686,7 @@ async function doCreateSg() {
   try {
     await createServiceGateway({ ...ociBase.value, vcnId: props.vcn.id, displayName: newSg.displayName })
     message.success('创建成功'); showCreateSg.value = false; newSg.displayName = ''
-    loadSg(); emit('changed')
+    loadSg(true); emit('changed')
   } catch (e: any) { message.error(e?.message || '创建失败') }
   finally { creating.value = false }
 }
@@ -641,7 +699,7 @@ async function doCreateLpg() {
   try {
     await createLocalPeeringGateway({ ...ociBase.value, vcnId: props.vcn.id, displayName: newLpg.displayName })
     message.success('创建成功'); showCreateLpg.value = false; newLpg.displayName = ''
-    loadLpg(); emit('changed')
+    loadLpg(true); emit('changed')
   } catch (e: any) { message.error(e?.message || '创建失败') }
   finally { creating.value = false }
 }
@@ -656,7 +714,7 @@ async function doConnectLpg() {
   try {
     await connectLocalPeeringGateway({ ...ociBase.value, lpgId: connectLpgTarget.value.id, peerId: connectLpgPeerId.value })
     message.success('已发起连接'); showConnectLpg.value = false
-    loadLpg()
+    loadLpg(true)
   } catch (e: any) { message.error(e?.message || '连接失败') }
   finally { creating.value = false }
 }
@@ -724,7 +782,7 @@ async function doDelete() {
     }
     message.success('删除成功')
     showDelete.value = false
-    onTab(activeTab.value)
+    onTab(activeTab.value, true)
     emit('changed')
   } catch (e: any) { message.error(e?.message || '删除失败') }
   finally { deleting.value = false }
@@ -771,11 +829,11 @@ async function doRename() {
   try {
     switch (renameType.value) {
       case 'vcn': await updateVcn({ ...ociBase.value, vcnId: t.id, displayName: renameValue.value }); emit('changed'); break
-      case 'subnet': await updateSubnet({ ...ociBase.value, subnetId: t.id, displayName: renameValue.value }); loadSubnets(); break
-      case 'igw': await updateInternetGateway({ ...ociBase.value, igwId: t.id, displayName: renameValue.value }); loadIgw(); break
-      case 'nat': await updateNatGateway({ ...ociBase.value, natId: t.id, displayName: renameValue.value }); loadNat(); break
-      case 'sg': await updateServiceGateway({ ...ociBase.value, sgId: t.id, displayName: renameValue.value }); loadSg(); break
-      case 'lpg': await updateLocalPeeringGateway({ ...ociBase.value, lpgId: t.id, displayName: renameValue.value }); loadLpg(); break
+      case 'subnet': await updateSubnet({ ...ociBase.value, subnetId: t.id, displayName: renameValue.value }); loadSubnets(true); break
+      case 'igw': await updateInternetGateway({ ...ociBase.value, igwId: t.id, displayName: renameValue.value }); loadIgw(true); break
+      case 'nat': await updateNatGateway({ ...ociBase.value, natId: t.id, displayName: renameValue.value }); loadNat(true); break
+      case 'sg': await updateServiceGateway({ ...ociBase.value, sgId: t.id, displayName: renameValue.value }); loadSg(true); break
+      case 'lpg': await updateLocalPeeringGateway({ ...ociBase.value, lpgId: t.id, displayName: renameValue.value }); loadLpg(true); break
     }
     message.success('已更新')
     showRename.value = false
@@ -805,7 +863,7 @@ async function doSetupIgwRoutes() {
     })
     message.success('已写入默认路由表')
     showEditIgw.value = false
-    loadRt()
+    loadRt(true)
   } catch (e: any) { message.error(e?.message || '配置失败') }
   finally { editing.value = false }
 }
@@ -817,7 +875,7 @@ async function toggleIgw(row: any) {
   try {
     await updateInternetGateway({ ...ociBase.value, igwId: row.id, isEnabled: !row.isEnabled })
     message.success(row.isEnabled ? '已禁用' : '已启用')
-    loadIgw()
+    loadIgw(true)
   } catch (e: any) { message.error(e?.message || '切换失败') }
   finally { togglingId.value = '' }
 }
@@ -826,7 +884,7 @@ async function toggleNat(row: any) {
   try {
     await updateNatGateway({ ...ociBase.value, natId: row.id, blockTraffic: !row.blockTraffic })
     message.success(row.blockTraffic ? '已放行' : '已阻断')
-    loadNat()
+    loadNat(true)
   } catch (e: any) { message.error(e?.message || '切换失败') }
   finally { togglingId.value = '' }
 }
@@ -835,7 +893,7 @@ async function toggleSg(row: any) {
   try {
     await updateServiceGateway({ ...ociBase.value, sgId: row.id, blockTraffic: !row.blockTraffic })
     message.success(row.blockTraffic ? '已放行' : '已阻断')
-    loadSg()
+    loadSg(true)
   } catch (e: any) { message.error(e?.message || '切换失败') }
   finally { togglingId.value = '' }
 }
@@ -869,7 +927,7 @@ async function doEditSubnet() {
     })
     message.success('已更新')
     showEditSubnet.value = false
-    loadSubnets()
+    loadSubnets(true)
   } catch (e: any) { message.error(e?.message || '更新失败') }
   finally { editing.value = false }
 }
@@ -935,7 +993,7 @@ async function doEditRt() {
     await updateRouteTable({ ...ociBase.value, rtId: editingRtId.value, routeRules: rules })
     message.success('路由规则已更新')
     showEditRt.value = false
-    loadRt()
+    loadRt(true)
   } catch (e: any) { message.error(e?.message || '更新失败') }
   finally { editing.value = false }
 }
@@ -999,7 +1057,7 @@ async function doAddSlRule() {
     message.success('已添加')
     showAddSlRule.value = false
     reloadSl()
-    loadSl()
+    loadSl(true)
   } catch (e: any) { message.error(e?.message || '添加失败') }
   finally { editing.value = false }
 }
@@ -1008,7 +1066,7 @@ async function doDeleteSlRule(direction: string, index: number) {
     await deleteSecurityListRule({ ...ociBase.value, slId: editingSlId.value, direction, ruleIndex: index })
     message.success('已删除')
     reloadSl()
-    loadSl()
+    loadSl(true)
   } catch (e: any) { message.error(e?.message || '删除失败') }
 }
 
