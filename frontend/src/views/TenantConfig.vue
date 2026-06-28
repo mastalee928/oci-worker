@@ -807,7 +807,7 @@ region=ap-tokyo-1"
               />
             </div>
             <a-input-search v-model:value="quotaSearch" placeholder="搜索服务/配额名" allow-clear class="quota-search" />
-            <a-button type="primary" @click="loadQuotas" :loading="quotasLoading">
+            <a-button type="primary" @click="loadQuotas(true)" :loading="quotasLoading">
               <template #icon><ReloadOutlined /></template>查询配额
             </a-button>
           </div>
@@ -1177,7 +1177,7 @@ region=ap-tokyo-1"
           <a-spin :spinning="regionsLoading">
             <div class="region-toolbar">
               <a-space wrap>
-                <a-button type="primary" size="small" :loading="regionsLoading" @click="loadRegions">
+                <a-button type="primary" size="small" :loading="regionsLoading" @click="loadRegions(false, true)">
                   <template #icon><ReloadOutlined /></template>刷新
                 </a-button>
                 <a-input-search
@@ -2040,6 +2040,7 @@ import dayjs from 'dayjs'
 import { collectGroupExpandKeys, isAllGroupsExpanded } from '../composables/groupExpandToggle'
 import { useTenantCatalogStore } from '../stores/tenantCatalog'
 import { useThemeStore } from '../stores/theme'
+import { appQueryCache } from '../utils/queryCache'
 import utc from 'dayjs/plugin/utc'
 
 dayjs.extend(utc)
@@ -2048,6 +2049,10 @@ const router = useRouter()
 const catalog = useTenantCatalogStore()
 const themeStore = useThemeStore()
 const searchLoading = ref(false)
+const TENANT_SEARCH_STALE_MS = 15_000
+const TENANT_INFO_STALE_MS = 30_000
+const TENANT_REGION_STALE_MS = 5 * 60_000
+const TENANT_QUOTA_STALE_MS = 2 * 60_000
 
 function formatUtcCnDate(v: any): string {
   if (!v) return '—'
@@ -2378,6 +2383,7 @@ const tenantMgmtTenant = ref<any>(null)
 const tenantTab = ref('account')
 const tenantInfoLoading = ref(false)
 const tenantInfoData = ref<any>({})
+let tenantInfoRequestSeq = 0
 const billingLoading = ref(false)
 const billingData = ref<any | null>(null)
 const billingCostDays = ref(30)
@@ -2452,6 +2458,7 @@ const budgetTargetCompartmentOptions = computed(() => buildBudgetCompartmentOpti
 
 const regionsLoading = ref(false)
 const regionsData = ref<any | null>(null)
+let regionsRequestSeq = 0
 const regionSearch = ref('')
 const regionSubscribeVerifyVisible = ref(false)
 const regionSubscribeLoading = ref(false)
@@ -2601,11 +2608,13 @@ async function loadData(expandAfter?: { groupLevel1?: string; groupLevel2?: stri
     const requestSeq = ++tenantSearchRequestSeq
     searchLoading.value = true
     try {
-      const res = await getTenantList({
-        current: pagination.current,
-        size: pagination.pageSize,
-        keyword,
-      })
+      const page = pagination.current
+      const size = pagination.pageSize
+      const res = await appQueryCache.fetch(
+        ['tenantConfig', 'search', keyword, page, size],
+        () => getTenantList({ current: page, size, keyword }),
+        { staleMs: TENANT_SEARCH_STALE_MS },
+      )
       if (requestSeq === tenantSearchRequestSeq && normalizedSearchText.value === keyword) {
         searchTableData.value = res.data.records || []
         pagination.total = res.data.total || 0
@@ -2669,6 +2678,7 @@ watch(searchText, () => {
 
 function invalidateCatalogAndReload() {
   catalog.invalidate()
+  appQueryCache.invalidate(['tenantConfig'])
   void loadData()
 }
 
@@ -2682,11 +2692,13 @@ async function refreshTenantListSilently() {
   try {
     if (keyword) {
       const requestSeq = tenantSearchRequestSeq
-      const res = await getTenantList({
-        current: pagination.current,
-        size: pagination.pageSize,
-        keyword,
-      })
+      const page = pagination.current
+      const size = pagination.pageSize
+      const res = await appQueryCache.fetch(
+        ['tenantConfig', 'search', keyword, page, size],
+        () => getTenantList({ current: page, size, keyword }),
+        { staleMs: TENANT_SEARCH_STALE_MS, force: true },
+      )
       if (requestSeq === tenantSearchRequestSeq && normalizedSearchText.value === keyword) {
         searchTableData.value = res.data.records || []
         pagination.total = res.data.total || 0
@@ -2856,6 +2868,7 @@ const notificationUnlocking = ref(false)
 const notificationToken = ref('')
 const quotasLoading = ref(false)
 const quotasList = ref<any[]>([])
+let quotaRequestSeq = 0
 const quotaSearch = ref('')
 const quotaRegion = ref('')
 const quotaService = ref('__all')
@@ -3689,13 +3702,24 @@ function loadQuotaRegionsAfterQuery() {
   void loadRegions(true)
 }
 
-async function loadQuotas() {
+async function loadQuotas(force = false) {
   if (!tenantMgmtTenant.value?.id) return
   await ensureQuotaRegionSelected()
+  const requestSeq = ++quotaRequestSeq
+  const tenantId = tenantMgmtTenant.value.id
+  const region = quotaRegion.value || ''
   quotasLoading.value = true
   try {
-    const res = await getServiceQuotas({ id: tenantMgmtTenant.value.id, region: quotaRegion.value || undefined })
-    quotasList.value = res.data || []
+    const rows = await appQueryCache.fetch(
+      ['tenantConfig', 'quotas', tenantId, region],
+      async () => {
+        const res = await getServiceQuotas({ id: tenantId, region: region || undefined })
+        return res.data || []
+      },
+      { staleMs: TENANT_QUOTA_STALE_MS, force },
+    )
+    if (requestSeq !== quotaRequestSeq || tenantMgmtTenant.value?.id !== tenantId || (quotaRegion.value || '') !== region) return
+    quotasList.value = rows
     const services = new Set(quotasList.value.map((q: any) => String(q?.serviceName || '').trim()).filter(Boolean))
     if (quotaService.value !== '__all' && !services.has(quotaService.value)) {
       quotaService.value = '__all'
@@ -3704,10 +3728,14 @@ async function loadQuotas() {
       message.info('未获取到配额信息')
     }
   } catch (e: any) {
-    message.error(e?.message || '获取配额失败')
+    if (requestSeq === quotaRequestSeq) {
+      message.error(e?.message || '获取配额失败')
+    }
   } finally {
-    quotasLoading.value = false
-    loadQuotaRegionsAfterQuery()
+    if (requestSeq === quotaRequestSeq) {
+      quotasLoading.value = false
+      loadQuotaRegionsAfterQuery()
+    }
   }
 }
 
@@ -4112,32 +4140,44 @@ function onTenantTabChange(key: string) {
   if (key === 'announcements' && !announcementsList.value.length) loadAnnouncements()
 }
 
-async function loadTenantAccountInfo(record: any, options: { preserve?: boolean } = {}) {
+async function loadTenantAccountInfo(record: any, options: { preserve?: boolean; force?: boolean } = {}) {
+  const requestSeq = ++tenantInfoRequestSeq
+  const tenantId = record.id
   if (!options.preserve) {
-    tenantInfoData.value = { configName: record.username, id: record.id }
+    tenantInfoData.value = { configName: record.username, id: tenantId }
   }
   tenantInfoLoading.value = true
   try {
-    const res = await getTenantFullInfo({ id: record.id })
+    const res = await appQueryCache.fetch(
+      ['tenantConfig', 'tenantInfo', tenantId],
+      () => getTenantFullInfo({ id: tenantId }),
+      { staleMs: TENANT_INFO_STALE_MS, force: options.force === true },
+    )
+    if (requestSeq !== tenantInfoRequestSeq || tenantMgmtTenant.value?.id !== tenantId) return
     const d = res.data || {}
-    tenantInfoData.value = { ...d, id: record.id }
+    tenantInfoData.value = { ...d, id: tenantId }
     if (record?.id) {
-      const row = tableData.value.find((r: any) => r.id === record.id)
+      const row = tableData.value.find((r: any) => r.id === tenantId)
       if (row) {
         if (d.planType) row.planType = d.planType
         if (d.tenantName) row.tenantName = d.tenantName
       }
     }
   } catch (e: any) {
-    message.error(e?.message || '获取账户信息失败')
+    if (requestSeq === tenantInfoRequestSeq) {
+      message.error(e?.message || '获取账户信息失败')
+    }
   } finally {
-    tenantInfoLoading.value = false
+    if (requestSeq === tenantInfoRequestSeq) {
+      tenantInfoLoading.value = false
+    }
   }
 }
 
 async function handleRefreshTenantAccountInfo() {
   if (!tenantMgmtTenant.value?.id || tenantInfoLoading.value) return
-  await loadTenantAccountInfo(tenantMgmtTenant.value, { preserve: true })
+  appQueryCache.invalidate(['tenantConfig', 'tenantInfo', tenantMgmtTenant.value.id])
+  await loadTenantAccountInfo(tenantMgmtTenant.value, { preserve: true, force: true })
 }
 
 async function loadTenantBilling() {
@@ -4773,23 +4813,33 @@ function regionStatusColor(status: string | null | undefined): string {
   return 'default'
 }
 
-async function loadRegions(silent = false) {
+async function loadRegions(silent = false, force = false) {
   const tenantId = currentTenantMgmtId()
   if (!tenantId) return
+  const requestSeq = ++regionsRequestSeq
   regionsLoading.value = true
   try {
-    const res = await listTenantRegions({ id: tenantId })
-    const data = res.data || {}
+    const data = await appQueryCache.fetch(
+      ['tenantConfig', 'regions', tenantId],
+      async () => {
+        const res = await listTenantRegions({ id: tenantId })
+        return res.data || {}
+      },
+      { staleMs: TENANT_REGION_STALE_MS, force },
+    )
+    if (requestSeq !== regionsRequestSeq || currentTenantMgmtId() !== tenantId) return
     regionsData.value = { ...data, items: Array.isArray(data.items) ? data.items : [] }
     if (!silent && !regionsList.value.length) {
       message.info('未找到区域数据（或当前 API 用户无区域订阅读权限）')
     }
   } catch (e: any) {
-    if (!silent) {
+    if (!silent && requestSeq === regionsRequestSeq) {
       message.error(e?.message || '获取区域列表失败')
     }
   } finally {
-    regionsLoading.value = false
+    if (requestSeq === regionsRequestSeq) {
+      regionsLoading.value = false
+    }
   }
 }
 
@@ -4855,9 +4905,10 @@ async function submitRegionSubscribe() {
     message.success('区域订阅已提交，激活可能需要几分钟')
     regionSubscribeVerifyVisible.value = false
     regionSubscribeCode.value = ''
-    await loadRegions()
+    appQueryCache.invalidate(['tenantConfig', 'regions', tenantId])
+    await loadRegions(false, true)
     if (tenantMgmtTenant.value) {
-      await loadTenantAccountInfo(tenantMgmtTenant.value)
+      await loadTenantAccountInfo(tenantMgmtTenant.value, { force: true })
     }
   } catch (e: any) {
     message.error(e?.message || '订阅区域失败')
@@ -5273,6 +5324,11 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.mobile-card {
+  content-visibility: auto;
+  contain-intrinsic-size: 180px;
+}
+
 .domain-switcher {
   display: flex;
   align-items: center;

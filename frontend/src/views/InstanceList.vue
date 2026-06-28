@@ -2002,6 +2002,7 @@ import {
   snapBootVpusPerGb,
 } from '../utils/bootVolume'
 import { TASK_ARM_SHAPE, normalizeTaskArchitecture } from '../utils/shapeSeries'
+import { appQueryCache } from '../utils/queryCache'
 import dayjs from 'dayjs'
 import type { Dayjs } from 'dayjs'
 import utc from 'dayjs/plugin/utc'
@@ -2013,17 +2014,10 @@ const VIRTUAL_CARD_MIN = 12
 const INSTANCE_LIST_CACHE_TTL_MS = 60_000
 let instanceListActivatedOnce = false
 
-interface InstanceListCacheEntry {
-  rows: any[]
-  fetchedAt: number
-}
-
 interface LoadTenantInstancesOptions {
   force?: boolean
   notify?: boolean
 }
-
-const instanceListCache = new Map<string, InstanceListCacheEntry>()
 
 function isGroupPanelOpen(key: string) {
   return activeGroupKeys.value.includes(key)
@@ -2758,18 +2752,17 @@ function instanceListRegion(td: TenantData) {
 }
 
 function instanceListCacheKey(td: TenantData, region: string) {
-  return `${td.tenant.id || ''}::${region || ''}`
+  return ['instanceList', 'instances', td.tenant.id || '', region || ''] as const
 }
 
 function getInstanceListCache(td: TenantData, region: string) {
-  return instanceListCache.get(instanceListCacheKey(td, region))
-}
-
-function setInstanceListCache(td: TenantData, region: string, rows: any[]) {
-  instanceListCache.set(instanceListCacheKey(td, region), {
+  const key = instanceListCacheKey(td, region)
+  const rows = appQueryCache.get<any[]>(key)
+  if (!rows) return null
+  return {
     rows,
-    fetchedAt: Date.now(),
-  })
+    fetchedAt: appQueryCache.getUpdatedAt(key),
+  }
 }
 
 function detailOciRegion(): string | undefined {
@@ -3919,9 +3912,14 @@ async function loadTenantInstances(td: TenantData, options: LoadTenantInstancesO
 
   td.loading = true
   try {
-    const res = await getInstanceList({ id: td.tenant.id, region: reg })
-    const rows = res.data || []
-    setInstanceListCache(td, reg, rows)
+    const rows = await appQueryCache.fetch(
+      instanceListCacheKey(td, reg),
+      async () => {
+        const res = await getInstanceList({ id: td.tenant.id, region: reg })
+        return res.data || []
+      },
+      { staleMs: INSTANCE_LIST_CACHE_TTL_MS, force },
+    )
 
     const sameVisibleRegion = activeTenantId.value !== td.tenant.id || instanceListRegion(td) === reg
     if (!sameVisibleRegion) return
@@ -5234,6 +5232,18 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   height: 100%;
+}
+.tenant-card {
+  content-visibility: auto;
+  contain-intrinsic-size: 260px;
+}
+.group-table-row {
+  content-visibility: auto;
+  contain-intrinsic-size: 64px;
+}
+.instance-mobile-card {
+  content-visibility: auto;
+  contain-intrinsic-size: 180px;
 }
 .tenant-card::before {
   content: '';

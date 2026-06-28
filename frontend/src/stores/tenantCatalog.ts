@@ -1,6 +1,7 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 import { getTenantList, getTenantGroups } from '../api/tenant'
+import { appQueryCache } from '../utils/queryCache'
 
 export interface TenantRecord {
   id: string
@@ -26,6 +27,8 @@ export interface GroupData {
 
 const PAGE_SIZE = 100
 const STALE_MS = 60_000
+const TENANT_LIST_KEY = ['tenantCatalog', 'tenants'] as const
+const TENANT_GROUPS_KEY = ['tenantCatalog', 'groups'] as const
 
 export const useTenantCatalogStore = defineStore('tenantCatalog', () => {
   const tenants = ref<TenantRecord[]>([])
@@ -69,7 +72,7 @@ export const useTenantCatalogStore = defineStore('tenantCatalog', () => {
     const keyword = options?.keyword?.trim() || ''
     const silent = options?.silent === true
 
-    if (!force && !keyword && tenants.value.length > 0 && Date.now() - tenantsFetchedAt < STALE_MS) {
+    if (!force && !keyword && tenants.value.length > 0 && appQueryCache.isFresh(TENANT_LIST_KEY, STALE_MS)) {
       return
     }
 
@@ -83,10 +86,12 @@ export const useTenantCatalogStore = defineStore('tenantCatalog', () => {
 
     const run = async () => {
       try {
-        const list = await fetchAllTenantPages(keyword)
+        const list = keyword
+          ? await fetchAllTenantPages(keyword)
+          : await appQueryCache.fetch(TENANT_LIST_KEY, () => fetchAllTenantPages(), { staleMs: STALE_MS, force })
         if (!keyword) {
           tenants.value = list
-          tenantsFetchedAt = Date.now()
+          tenantsFetchedAt = appQueryCache.getUpdatedAt(TENANT_LIST_KEY) || Date.now()
         }
         return list
       } catch (e: any) {
@@ -109,14 +114,14 @@ export const useTenantCatalogStore = defineStore('tenantCatalog', () => {
   async function ensureGroups(options?: { force?: boolean; silent?: boolean }) {
     const force = options?.force === true
     const silent = options?.silent === true
-    if (!force && groupData.value.level1.length > 0 && Date.now() - groupsFetchedAt < STALE_MS) {
+    if (!force && groupData.value.level1.length > 0 && appQueryCache.isFresh(TENANT_GROUPS_KEY, STALE_MS)) {
       return
     }
     if (!silent) groupsLoading.value = true
     try {
-      const res = await getTenantGroups()
+      const res = await appQueryCache.fetch(TENANT_GROUPS_KEY, () => getTenantGroups(), { staleMs: STALE_MS, force })
       groupData.value = res.data || { level1: [], level2: {} }
-      groupsFetchedAt = Date.now()
+      groupsFetchedAt = appQueryCache.getUpdatedAt(TENANT_GROUPS_KEY) || Date.now()
     } finally {
       if (!silent) groupsLoading.value = false
     }
@@ -132,6 +137,7 @@ export const useTenantCatalogStore = defineStore('tenantCatalog', () => {
   function invalidate() {
     tenantsFetchedAt = 0
     groupsFetchedAt = 0
+    appQueryCache.invalidate(['tenantCatalog'])
   }
 
   function patchTenant(id: string, patch: Partial<TenantRecord>) {

@@ -222,7 +222,7 @@
                       allow-clear
                       @search="loadAnnouncementInbox(1)"
                     />
-                    <a-button :loading="announcementInboxLoading" @click="loadAnnouncementInbox()">刷新</a-button>
+                    <a-button :loading="announcementInboxLoading" @click="loadAnnouncementInbox(announcementInbox.current, true)">刷新</a-button>
                   </div>
                   <a-spin :spinning="announcementInboxLoading">
                     <a-empty v-if="!announcementInbox.records.length" description="暂无公告" />
@@ -960,6 +960,7 @@ import { useThemeStore } from '../stores/theme'
 import { sendVerifyCode } from '../api/system'
 import UpgradeLoader from '../components/UpgradeLoader.vue'
 import request from '../utils/request'
+import { appQueryCache } from '../utils/queryCache'
 import { getCfAccountConfig, saveCfAccountConfig, testCfAccountConfig } from '../api/cloudflare'
 import { getAliDNSAccountConfig, saveAliDNSAccountConfig, testAliDNSAccountConfig } from '../api/alidns'
 
@@ -968,6 +969,7 @@ const themeStore = useThemeStore()
 
 const router = useRouter()
 const activeTab = ref('security')
+const ANNOUNCEMENT_INBOX_STALE_MS = 30_000
 const pwdLoading = ref(false)
 const saveLoading = ref(false)
 const testLoading = ref(false)
@@ -1061,6 +1063,7 @@ const announcementTab = ref<'config' | 'inbox' | 'history' | 'status'>('config')
 const announcementSaveLoading = ref(false)
 const announcementScanLoading = ref(false)
 const announcementInboxLoading = ref(false)
+let announcementInboxRequestSeq = 0
 const announcementBatchLoading = ref(false)
 const announcementDetailLoading = ref(false)
 const tenantPickerVisible = ref(false)
@@ -1504,6 +1507,7 @@ async function triggerAnnouncementScan() {
   try {
     await request.post('/sys/announcementPush/scan')
     message.success('已开始扫描')
+    appQueryCache.invalidate(['systemSettings', 'announcementInbox'])
     await loadAnnouncementStatus()
   } catch (e: any) {
     message.error(e?.message || '启动扫描失败')
@@ -1512,29 +1516,40 @@ async function triggerAnnouncementScan() {
   }
 }
 
-async function loadAnnouncementInbox(page = announcementInbox.current) {
+async function loadAnnouncementInbox(page = announcementInbox.current, force = false) {
+  const requestSeq = ++announcementInboxRequestSeq
   announcementInboxLoading.value = true
   try {
     const range = resolveAnnouncementInboxRange()
-    const res = await request.get('/sys/announcementPush/inbox', {
-      params: {
-        page,
-        size: announcementInbox.size,
-        keyword: announcementInboxKeyword.value || undefined,
-        startAt: range.startAt,
-        endAt: range.endAt,
-        eventTypes: announcementInboxEventTypes.value.length ? announcementInboxEventTypes.value.join(',') : undefined,
+    const params = {
+      page,
+      size: announcementInbox.size,
+      keyword: announcementInboxKeyword.value || undefined,
+      startAt: range.startAt,
+      endAt: range.endAt,
+      eventTypes: announcementInboxEventTypes.value.length ? announcementInboxEventTypes.value.join(',') : undefined,
+    }
+    const d = await appQueryCache.fetch(
+      ['systemSettings', 'announcementInbox', params],
+      async () => {
+        const res = await request.get('/sys/announcementPush/inbox', { params })
+        return res.data || {}
       },
-    })
-    const d = res.data || {}
+      { staleMs: ANNOUNCEMENT_INBOX_STALE_MS, force },
+    )
+    if (requestSeq !== announcementInboxRequestSeq) return
     announcementInbox.records = Array.isArray(d.records) ? d.records : []
     announcementInbox.total = Number(d.total || 0)
     announcementInbox.current = Number(d.current || page)
     announcementInbox.size = Number(d.size || announcementInbox.size)
   } catch (e: any) {
-    message.error(e?.message || '加载失败')
+    if (requestSeq === announcementInboxRequestSeq) {
+      message.error(e?.message || '加载失败')
+    }
   } finally {
-    announcementInboxLoading.value = false
+    if (requestSeq === announcementInboxRequestSeq) {
+      announcementInboxLoading.value = false
+    }
   }
 }
 
@@ -1578,7 +1593,8 @@ async function markAnnouncement(item: AnnouncementItem, action: 'read' | 'ignore
   try {
     await request.post('/sys/announcementPush/inbox/mark', { aggregateKey: item.aggregateKey, action })
     message.success('已更新')
-    await loadAnnouncementInbox()
+    appQueryCache.invalidate(['systemSettings', 'announcementInbox'])
+    await loadAnnouncementInbox(announcementInbox.current, true)
   } catch (e: any) {
     message.error(e?.message || '操作失败')
   }
@@ -2503,6 +2519,19 @@ async function handleRestore() {
 </script>
 
 <style scoped>
+.announcement-item {
+  content-visibility: auto;
+  contain-intrinsic-size: 104px;
+}
+.tenant-row {
+  content-visibility: auto;
+  contain-intrinsic-size: 64px;
+}
+.tenant-selected-row {
+  content-visibility: auto;
+  contain-intrinsic-size: 44px;
+}
+
 .settings-page-tabs :deep(.ant-tabs-tab),
 .settings-page-tabs :deep(.ant-tabs-tab-btn) {
   user-select: none;
