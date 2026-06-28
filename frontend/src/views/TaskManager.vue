@@ -1,7 +1,7 @@
 <template>
   <div>
     <div class="table-toolbar">
-      <a-space>
+      <a-space v-if="!isMobile">
         <a-button type="primary" @click="showCreateModal">
           <template #icon><PlusOutlined /></template>创建开机任务
         </a-button>
@@ -27,11 +27,47 @@
           批量启动
         </a-button>
       </a-space>
+      <div v-else class="mobile-task-toolbar">
+        <div class="mobile-task-toolbar-row">
+          <a-button type="primary" block @click="showCreateModal">
+            <template #icon><PlusOutlined /></template>创建
+          </a-button>
+          <a-button block @click="loadData" :loading="loading">
+            <template #icon><ReloadOutlined /></template>刷新
+          </a-button>
+        </div>
+        <a-input-search v-model:value="searchKeyword" placeholder="搜索租户/区域/架构"
+          allow-clear @search="handleSearch" enter-button="搜索" />
+        <a-select v-model:value="filterStatus" placeholder="状态筛选"
+          allow-clear @change="handleSearch">
+          <a-select-option value="">全部状态</a-select-option>
+          <a-select-option value="RUNNING">运行中</a-select-option>
+          <a-select-option value="STOPPED">已停止</a-select-option>
+          <a-select-option value="COMPLETED">已完成</a-select-option>
+          <a-select-option value="FAILED">已失败</a-select-option>
+        </a-select>
+        <div class="mobile-task-batchbar">
+          <span class="mobile-task-selected">已选 {{ selectedRowKeys.length }} 个</span>
+          <a-space size="small">
+            <a-button size="small" :disabled="!selectedRowKeys.length" :loading="batchLoading"
+              @click="handleBatchStop" danger>
+              批量暂停
+            </a-button>
+            <a-button size="small" :disabled="!selectedRowKeys.length" :loading="batchLoading"
+              type="primary" @click="handleBatchResume">
+              批量启动
+            </a-button>
+            <a-button v-if="selectedRowKeys.length" size="small" type="link" @click="clearSelectedTasks">
+              清空
+            </a-button>
+          </a-space>
+        </div>
+      </div>
     </div>
 
     <a-table v-if="!isMobile" :columns="columns" :data-source="tableData" :loading="loading" :pagination="pagination"
       row-key="id" @change="handleTableChange" size="middle"
-      :row-selection="{ selectedRowKeys, onChange: (keys: string[]) => selectedRowKeys = keys }"
+      :row-selection="{ selectedRowKeys, onChange: (keys: TaskRowKey[]) => selectedRowKeys = keys }"
       :row-class-name="(record: any) => record.status !== 'RUNNING' ? 'row-inactive' : ''">
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'architecture'">
@@ -73,7 +109,9 @@
     <!-- 移动端卡片列表 -->
     <a-spin v-else :spinning="loading">
       <a-empty v-if="!loading && tableData.length === 0" description="暂无任务" />
+      <div class="mobile-card-list">
       <div v-for="task in tableData" :key="task.id" class="mobile-card"
+        :class="{ 'mobile-card-selected': isTaskSelected(task.id) }"
         :style="{ opacity: task.status !== 'RUNNING' ? 0.65 : 1 }">
         <div class="mobile-card-header">
           <span class="mobile-card-title">
@@ -95,23 +133,44 @@
           <div class="mobile-card-row"><span class="label">创建</span><span class="value">{{ task.createTime }}</span></div>
         </div>
         <div class="mobile-card-actions">
-          <a-button v-if="task.status === 'RUNNING' || task.status === 'STOPPED'" type="link" size="small" @click="showEditModal(task)">修改</a-button>
-          <a-popconfirm v-if="task.status === 'RUNNING'" title="确定停止？" @confirm="handleStop(task)">
-            <a-button type="link" danger size="small" :loading="actionLoading[task.id]">停止</a-button>
-          </a-popconfirm>
-          <a-popconfirm v-if="task.status === 'STOPPED'" title="确定恢复？" @confirm="handleResume(task)">
-            <a-button type="link" size="small" :loading="actionLoading[task.id]">继续</a-button>
-          </a-popconfirm>
-          <a-button v-if="task.status !== 'RUNNING'" type="link" size="small" @click="showDetailModal(task)">详情</a-button>
-          <a-popconfirm v-if="task.status !== 'RUNNING'" title="确定删除？" @confirm="handleDelete(task)">
-            <a-button type="link" danger size="small" :loading="actionLoading[task.id]">删除</a-button>
-          </a-popconfirm>
+          <div class="mobile-card-action-links">
+            <a-button v-if="task.status === 'RUNNING' || task.status === 'STOPPED'" type="link" size="small" @click="showEditModal(task)">修改</a-button>
+            <a-popconfirm v-if="task.status === 'RUNNING'" title="确定停止？" @confirm="handleStop(task)">
+              <a-button type="link" danger size="small" :loading="actionLoading[task.id]">停止</a-button>
+            </a-popconfirm>
+            <a-popconfirm v-if="task.status === 'STOPPED'" title="确定恢复？" @confirm="handleResume(task)">
+              <a-button type="link" size="small" :loading="actionLoading[task.id]">继续</a-button>
+            </a-popconfirm>
+            <a-button v-if="task.status !== 'RUNNING'" type="link" size="small" @click="showDetailModal(task)">详情</a-button>
+            <a-popconfirm v-if="task.status !== 'RUNNING'" title="确定删除？" @confirm="handleDelete(task)">
+              <a-button type="link" danger size="small" :loading="actionLoading[task.id]">删除</a-button>
+            </a-popconfirm>
+          </div>
+          <a-checkbox
+            class="mobile-card-check"
+            :checked="isTaskSelected(task.id)"
+            :aria-label="`选择任务 ${task.username || task.id}`"
+            @change="(e: any) => toggleTaskSelection(task.id, e.target.checked)"
+          />
         </div>
       </div>
+      </div>
+      <a-pagination
+        v-if="pagination.total > pagination.pageSize"
+        class="mobile-task-pagination"
+        size="small"
+        :current="pagination.current"
+        :page-size="pagination.pageSize"
+        :total="pagination.total"
+        :show-size-changer="false"
+        show-less-items
+        @change="handleMobilePageChange"
+      />
     </a-spin>
 
-    <a-modal :keyboard="false" v-model:open="createVisible" title="创建开机任务" :width="isMobile ? '100%' : 600" @ok="handleCreate"
-      :confirm-loading="createLoading" :mask-closable="false">
+    <a-modal :keyboard="false" v-model:open="createVisible" title="创建开机任务" :width="isMobile ? 'calc(100vw - 24px)' : 600" @ok="handleCreate"
+      :confirm-loading="createLoading" :mask-closable="false" :body-style="taskModalBodyStyle"
+      :wrap-class-name="isMobile ? 'task-mobile-modal-wrap' : undefined">
       <a-form :model="createForm" layout="vertical">
         <a-form-item label="选择租户" required>
           <a-select v-model:value="createForm.userId" placeholder="选择租户" show-search option-filter-prop="label"
@@ -238,8 +297,9 @@
     </a-modal>
 
     <!-- 编辑任务弹窗 -->
-    <a-modal :keyboard="false" v-model:open="editVisible" title="编辑开机任务" :width="isMobile ? '100%' : 600" @ok="handleEdit"
-      :confirm-loading="editLoading" :mask-closable="false">
+    <a-modal :keyboard="false" v-model:open="editVisible" title="编辑开机任务" :width="isMobile ? 'calc(100vw - 24px)' : 600" @ok="handleEdit"
+      :confirm-loading="editLoading" :mask-closable="false" :body-style="taskModalBodyStyle"
+      :wrap-class-name="isMobile ? 'task-mobile-modal-wrap' : undefined">
       <a-form :model="editForm" layout="vertical">
         <ShapeSeriesPicker
           v-model:architecture="editForm.architecture"
@@ -350,7 +410,8 @@
     </a-modal>
 
     <!-- 任务详情弹窗 -->
-    <a-modal :keyboard="false" v-model:open="detailVisible" title="开机任务详情" :width="isMobile ? '100%' : 720" :footer="null" :mask-closable="false">
+    <a-modal :keyboard="false" v-model:open="detailVisible" title="开机任务详情" :width="isMobile ? 'calc(100vw - 24px)' : 720" :footer="null" :mask-closable="false"
+      :body-style="taskModalBodyStyle" :wrap-class-name="isMobile ? 'task-mobile-modal-wrap' : undefined">
       <a-spin :spinning="detailLoading">
         <div v-if="detailData" class="task-detail">
           <!-- 任务元信息 -->
@@ -406,7 +467,7 @@
               <a-tag color="green" style="margin-left:8px">{{ detailData.instances?.length || 0 }} 台</a-tag>
             </div>
             <a-empty v-if="!detailData.instances || detailData.instances.length === 0" description="暂无成功创建的实例记录" />
-            <a-table v-else :data-source="detailData.instances" :pagination="false" size="small" row-key="instanceId">
+            <a-table v-else-if="!isMobile" :data-source="detailData.instances" :pagination="false" size="small" row-key="instanceId">
               <a-table-column title="名称" data-index="instanceName" :ellipsis="true">
                 <template #default="{ record }">
                   <a-tooltip :title="record.instanceName">
@@ -430,6 +491,34 @@
                 <template #default="{ record }">{{ formatDateTime(record.createdAt) }}</template>
               </a-table-column>
             </a-table>
+            <div v-else class="task-instance-mobile-list">
+              <div v-for="instance in detailData.instances" :key="instance.instanceId" class="task-instance-mobile-card">
+                <div class="task-instance-mobile-title">{{ instance.instanceName || '—' }}</div>
+                <div class="mobile-card-row">
+                  <span class="label">规格</span>
+                  <span class="value">{{ instance.ocpus }}C / {{ instance.memory }}G</span>
+                </div>
+                <div class="mobile-card-row">
+                  <span class="label">磁盘</span>
+                  <span class="value">{{ formatTaskConfigDisk(instance.disk, instance.vpusPerGB) }}</span>
+                </div>
+                <div class="mobile-card-row">
+                  <span class="label">Shape</span>
+                  <span class="value">{{ instance.shape || '—' }}</span>
+                </div>
+                <div class="mobile-card-row">
+                  <span class="label">公网 IP</span>
+                  <span class="value">
+                    <a-typography-text v-if="instance.publicIp" copyable>{{ instance.publicIp }}</a-typography-text>
+                    <span v-else style="color: var(--text-sub)">—</span>
+                  </span>
+                </div>
+                <div class="mobile-card-row">
+                  <span class="label">创建时间</span>
+                  <span class="value">{{ formatDateTime(instance.createdAt) }}</span>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </a-spin>
@@ -439,7 +528,7 @@
 
 <script setup lang="ts">
 defineOptions({ name: 'TaskManager' })
-import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
+import { ref, reactive, computed, onMounted, onUnmounted, watch, type CSSProperties } from 'vue'
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
 import { getTaskList, createTask, updateTask, stopTask, hasRunningTask, resumeTask, deleteTask, batchStopTask, batchResumeTask, getTaskDetail } from '../api/task'
@@ -501,7 +590,9 @@ const columns = [
   { title: '操作', key: 'action', width: 200 },
 ]
 
-const selectedRowKeys = ref<string[]>([])
+type TaskRowKey = string | number
+
+const selectedRowKeys = ref<TaskRowKey[]>([])
 const batchLoading = ref(false)
 const loading = ref(false)
 const createLoading = ref(false)
@@ -518,6 +609,28 @@ const isMobile = ref(window.innerWidth < 768)
 function checkMobile() { isMobile.value = window.innerWidth < 768 }
 onMounted(() => window.addEventListener('resize', checkMobile))
 onUnmounted(() => window.removeEventListener('resize', checkMobile))
+const taskModalBodyStyle = computed<CSSProperties | undefined>(() => isMobile.value
+  ? { maxHeight: 'calc(100vh - 156px)', overflowY: 'auto', padding: '14px 12px 16px' }
+  : undefined)
+
+function isTaskSelected(id: TaskRowKey) {
+  const key = String(id)
+  return selectedRowKeys.value.some(k => String(k) === key)
+}
+
+function toggleTaskSelection(id: TaskRowKey, checked: boolean) {
+  const key = String(id)
+  const next = selectedRowKeys.value.filter(k => String(k) !== key)
+  selectedRowKeys.value = checked ? [...next, id] : next
+}
+
+function clearSelectedTasks() {
+  selectedRowKeys.value = []
+}
+
+function selectedTaskIds() {
+  return selectedRowKeys.value.map(String)
+}
 
 const createForm = reactive({
   userId: '', architecture: TASK_ARM_SHAPE, operationSystem: 'Ubuntu',
@@ -735,6 +848,12 @@ async function loadTenants() {
 
 function handleTableChange(pag: any) {
   pagination.current = pag.current
+  pagination.pageSize = pag.pageSize || pagination.pageSize
+  loadData()
+}
+
+function handleMobilePageChange(page: number) {
+  pagination.current = page
   loadData()
 }
 
@@ -836,7 +955,7 @@ async function handleBatchStop() {
     async onOk() {
       batchLoading.value = true
       try {
-        const res = await batchStopTask({ taskIds: selectedRowKeys.value })
+        const res = await batchStopTask({ taskIds: selectedTaskIds() })
         message.success(`已暂停 ${res.data} 个任务`)
         selectedRowKeys.value = []
         loadData()
@@ -857,7 +976,7 @@ async function handleBatchResume() {
     async onOk() {
       batchLoading.value = true
       try {
-        const res = await batchResumeTask({ taskIds: selectedRowKeys.value })
+        const res = await batchResumeTask({ taskIds: selectedTaskIds() })
         message.success(`已启动 ${res.data} 个任务`)
         selectedRowKeys.value = []
         loadData()
@@ -875,6 +994,7 @@ async function handleDelete(record: any) {
   try {
     await deleteTask({ taskId: record.id })
     message.success('记录已删除')
+    toggleTaskSelection(record.id, false)
     loadData()
   } catch (e: any) {
     message.error(e?.message || '删除失败')
@@ -918,6 +1038,150 @@ onMounted(() => loadData())
 :deep(.row-inactive td) {
   color: var(--text-sub) !important;
 }
+.mobile-task-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.mobile-task-toolbar-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+}
+.mobile-task-toolbar :deep(.ant-input-search),
+.mobile-task-toolbar :deep(.ant-select) {
+  width: 100% !important;
+}
+.mobile-task-batchbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-height: 38px;
+  padding: 7px 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card);
+}
+.mobile-task-batchbar :deep(.ant-space) {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+.mobile-task-selected {
+  flex-shrink: 0;
+  font-size: 12px;
+  color: var(--text-sub);
+}
+.mobile-card-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.mobile-card {
+  padding: 12px 12px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card);
+  box-shadow: var(--shadow-card);
+  transition: border-color 0.16s ease, box-shadow 0.16s ease, background-color 0.16s ease;
+}
+.mobile-card-selected {
+  border-color: var(--primary);
+  box-shadow:
+    inset 0 0 0 1px color-mix(in srgb, var(--primary) 36%, transparent),
+    var(--shadow-card);
+}
+.mobile-card-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.mobile-card-header :deep(.ant-badge) {
+  flex-shrink: 0;
+}
+.mobile-card-title {
+  min-width: 0;
+  font-weight: 600;
+  color: var(--text-main);
+  word-break: break-all;
+}
+.mobile-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.mobile-card-row {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  min-height: 20px;
+  font-size: 13px;
+}
+.mobile-card-row .label {
+  flex-shrink: 0;
+  color: var(--text-sub);
+}
+.mobile-card-row .value {
+  min-width: 0;
+  color: var(--text-main);
+  text-align: right;
+  word-break: break-all;
+}
+.mobile-card-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+.mobile-card-action-links {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px;
+  min-width: 0;
+}
+.mobile-card-action-links :deep(.ant-btn-link) {
+  height: 24px;
+  padding: 0 5px;
+}
+.mobile-card-check {
+  flex-shrink: 0;
+  padding: 2px 0 2px 10px;
+}
+.mobile-card-check :deep(.ant-checkbox-inner) {
+  width: 18px;
+  height: 18px;
+  border-color: color-mix(in srgb, var(--text-sub) 55%, transparent);
+  background: color-mix(in srgb, var(--bg-card) 88%, transparent);
+}
+.mobile-task-pagination {
+  display: flex;
+  justify-content: center;
+  margin-top: 14px;
+}
+.task-instance-mobile-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.task-instance-mobile-card {
+  padding: 10px 11px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card);
+}
+.task-instance-mobile-title {
+  margin-bottom: 8px;
+  font-weight: 600;
+  color: var(--text-main);
+  word-break: break-all;
+}
 .task-detail .detail-section-title {
   font-weight: 600;
   font-size: 14px;
@@ -939,23 +1203,28 @@ onMounted(() => loadData())
   margin-top: 12px;
 }
 @media (max-width: 768px) {
-  .table-toolbar :deep(.ant-space) {
-    flex-wrap: wrap;
-    width: 100%;
-    gap: 8px !important;
+  .table-toolbar { margin-bottom: 12px; }
+  :global(.task-mobile-modal-wrap .ant-modal) {
+    top: 12px;
+    max-width: calc(100vw - 24px);
+    padding-bottom: 12px;
   }
-  .table-toolbar :deep(.ant-space-item) {
+  :global(.task-mobile-modal-wrap .ant-modal-content) {
+    display: flex;
+    flex-direction: column;
+    max-height: calc(100vh - 24px);
+    border-radius: 8px;
+  }
+  :global(.task-mobile-modal-wrap .ant-modal-body) {
     flex: 1 1 auto;
-    min-width: 0;
   }
-  .table-toolbar :deep(.ant-input-search) {
-    width: 100% !important;
+  :global(.task-mobile-modal-wrap .ant-modal-footer) {
+    flex-shrink: 0;
+    padding: 10px 12px;
   }
-  .table-toolbar :deep(.ant-select) {
-    width: 100% !important;
-  }
-  .table-toolbar :deep(.ant-btn) {
-    width: auto;
+  :global(.task-mobile-modal-wrap .ant-modal-header) {
+    flex-shrink: 0;
+    padding-right: 32px;
   }
 }
 </style>
