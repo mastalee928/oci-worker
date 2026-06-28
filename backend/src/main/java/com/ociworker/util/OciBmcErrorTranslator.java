@@ -161,6 +161,9 @@ public final class OciBmcErrorTranslator {
         if (text.contains("invalid ratio of memory in gb to ocpus")) {
             return "当前 Shape 的 OCPU/内存比例无效，或账号没有对应 OCPU/内存配额。";
         }
+        if (text.contains("nat gateway limit per vcn reached")) {
+            return "已达到每个 VCN 的 NAT 网关数量限制";
+        }
         return "";
     }
 

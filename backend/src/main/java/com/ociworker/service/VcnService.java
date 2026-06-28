@@ -575,7 +575,11 @@ public class VcnService {
                     ).build());
             evictVcnReadCaches(userId, region);
         } catch (OciException e) { throw e; }
-        catch (Exception e) { throw new OciException("创建 NAT Gateway 失败: " + e.getMessage()); }
+        catch (com.oracle.bmc.model.BmcException e) {
+            throw new OciException("创建 NAT 网关失败: " + OciBmcErrorTranslator.translate(e));
+        } catch (Exception e) {
+            throw new OciException("创建 NAT 网关失败: " + OciBmcErrorTranslator.translate(e));
+        }
     }
 
     public void deleteNatGateway(String userId, String natId, String region) {
