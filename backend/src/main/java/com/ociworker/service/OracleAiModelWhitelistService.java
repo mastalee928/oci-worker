@@ -11,7 +11,10 @@ import jakarta.annotation.Resource;
 import org.springframework.stereotype.Service;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 @Service
 public class OracleAiModelWhitelistService {
@@ -81,6 +84,29 @@ public class OracleAiModelWhitelistService {
         } catch (Exception e) {
             return null;
         }
+    }
+
+    public int removeByTenantIds(List<String> tenantIds) {
+        if (tenantIds == null || tenantIds.isEmpty()) {
+            return 0;
+        }
+        Set<String> ids = new LinkedHashSet<>();
+        for (String tenantId : tenantIds) {
+            String normalized = normalizeTenantId(tenantId);
+            if (normalized != null) {
+                ids.add(normalized);
+            }
+        }
+        if (ids.isEmpty()) {
+            return 0;
+        }
+        List<String> codes = new ArrayList<>();
+        for (String tenantId : ids) {
+            codes.add(code(tenantId));
+        }
+        return kvMapper.delete(new LambdaQueryWrapper<OciKv>()
+                .eq(OciKv::getType, TYPE)
+                .in(OciKv::getCode, codes));
     }
 
     private static String code(String tenantId) {

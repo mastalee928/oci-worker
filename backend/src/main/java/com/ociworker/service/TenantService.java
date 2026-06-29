@@ -57,6 +57,12 @@ public class TenantService {
     private OciCreateTaskMapper taskMapper;
     @Resource
     private OciKvMapper kvMapper;
+    @Resource
+    private OracleAiPortBindingService oracleAiPortBindingService;
+    @Resource
+    private OciOpenaiKeyService ociOpenaiKeyService;
+    @Resource
+    private OracleAiModelWhitelistService oracleAiModelWhitelistService;
 
     private final ConcurrentMap<String, Object> tenantLocks = new ConcurrentHashMap<>();
     @Resource
@@ -322,7 +328,11 @@ public class TenantService {
         log.info("Updated tenant config: {}", params.getUsername());
     }
 
+    @Transactional(rollbackFor = Exception.class)
     public void remove(IdListParams params) {
+        oracleAiPortBindingService.removeByTenantIds(params.getIdList());
+        ociOpenaiKeyService.removeByTenantIds(params.getIdList());
+        oracleAiModelWhitelistService.removeByTenantIds(params.getIdList());
         userMapper.deleteByIds(params.getIdList());
         log.info("Removed tenant configs: {}", params.getIdList());
     }

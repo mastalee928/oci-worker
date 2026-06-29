@@ -39,6 +39,8 @@ public class OracleAiPortBindingService {
     private OciUserMapper userMapper;
     @Resource
     private DynamicOpenAiPortService dynamicPortService;
+    @Resource
+    private OciOpenaiLoadBalanceService loadBalanceService;
 
     @EventListener
     @Order(Ordered.HIGHEST_PRECEDENCE + 10)
@@ -180,7 +182,48 @@ public class OracleAiPortBindingService {
         if (row != null && row.getPort() != null) {
             dynamicPortService.stopPort(row.getPort());
         }
+        loadBalanceService.removeMembersByPortBindingId(id);
         bindingMapper.deleteById(id);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public int removeByOpenaiKeyId(String openaiKeyId) {
+        if (openaiKeyId == null || openaiKeyId.isBlank()) {
+            return 0;
+        }
+        List<OciOpenaiPortBinding> rows = bindingMapper.selectList(new LambdaQueryWrapper<OciOpenaiPortBinding>()
+                .eq(OciOpenaiPortBinding::getOpenaiKeyId, openaiKeyId.trim()));
+        for (OciOpenaiPortBinding row : rows) {
+            if (row != null && row.getId() != null) {
+                remove(row.getId());
+            }
+        }
+        return rows.size();
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public int removeByTenantIds(List<String> tenantIds) {
+        if (tenantIds == null || tenantIds.isEmpty()) {
+            return 0;
+        }
+        Set<String> ids = new LinkedHashSet<>();
+        for (String tenantId : tenantIds) {
+            if (tenantId == null || tenantId.isBlank()) {
+                continue;
+            }
+            ids.add(tenantId.trim());
+        }
+        if (ids.isEmpty()) {
+            return 0;
+        }
+        List<OciOpenaiPortBinding> rows = bindingMapper.selectList(new LambdaQueryWrapper<OciOpenaiPortBinding>()
+                .in(OciOpenaiPortBinding::getOciUserId, ids));
+        for (OciOpenaiPortBinding row : rows) {
+            if (row != null && row.getId() != null) {
+                remove(row.getId());
+            }
+        }
+        return rows.size();
     }
 
     public void syncEnabledConnectors() {

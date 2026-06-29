@@ -75,8 +75,6 @@ public class OciOpenaiLoadBalanceService {
     @Resource
     private OciOpenaiKeyMapper openaiKeyMapper;
     @Resource
-    private OciOpenaiKeyService openaiKeyService;
-    @Resource
     private OciUserMapper userMapper;
     @Resource
     private OciGenerativeOpenAiService generativeOpenAiService;
@@ -177,6 +175,7 @@ public class OciOpenaiLoadBalanceService {
     }
 
     public List<Map<String, Object>> listMembers() {
+        purgeOrphanMembers();
         List<OciOpenaiLbMember> rows = memberMapper.selectList(new LambdaQueryWrapper<OciOpenaiLbMember>()
                 .orderByDesc(OciOpenaiLbMember::getEnabled)
                 .orderByAsc(OciOpenaiLbMember::getCreateTime));
@@ -251,9 +250,36 @@ public class OciOpenaiLoadBalanceService {
 
     @Transactional(rollbackFor = Exception.class)
     public void removeMember(String id) {
+        deleteMemberArtifacts(id);
         memberMapper.deleteById(id);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public int removeMembersByPortBindingId(String portBindingId) {
+        if (portBindingId == null || portBindingId.isBlank()) {
+            return 0;
+        }
+        List<OciOpenaiLbMember> members = memberMapper.selectList(new LambdaQueryWrapper<OciOpenaiLbMember>()
+                .eq(OciOpenaiLbMember::getPortBindingId, portBindingId));
+        for (OciOpenaiLbMember member : members) {
+            if (member == null || member.getId() == null) {
+                continue;
+            }
+            deleteMemberArtifacts(member.getId());
+            memberMapper.deleteById(member.getId());
+        }
+        return members.size();
+    }
+
+    private void deleteMemberArtifacts(String memberId) {
+        if (memberId == null || memberId.isBlank()) {
+            return;
+        }
+        inFlight.remove(memberId);
         memberModelStateMapper.delete(new LambdaQueryWrapper<OciOpenaiLbMemberModelState>()
-                .eq(OciOpenaiLbMemberModelState::getMemberId, id));
+                .eq(OciOpenaiLbMemberModelState::getMemberId, memberId));
+        usageWindowMapper.delete(new LambdaQueryWrapper<OciOpenaiLbUsageWindow>()
+                .eq(OciOpenaiLbUsageWindow::getMemberId, memberId));
     }
 
     @Transactional(rollbackFor = Exception.class)
@@ -272,6 +298,7 @@ public class OciOpenaiLoadBalanceService {
 
     @Scheduled(fixedDelayString = "${ociworker.openaiLoadBalance.healthCheckIntervalMs:60000}")
     public void refreshMemberHealth() {
+        purgeOrphanMembers();
         LocalDateTime now = LocalDateTime.now();
         for (OciOpenaiLbMember member : memberMapper.selectList(null)) {
             try {
@@ -288,6 +315,46 @@ public class OciOpenaiLoadBalanceService {
                 log.debug("OpenAI LB member health refresh failed memberId={} message={}", member.getId(), e.getMessage());
             }
         }
+    }
+
+    private int purgeOrphanMembers() {
+        List<OciOpenaiLbMember> members = memberMapper.selectList(null);
+        if (members.isEmpty()) {
+            return 0;
+        }
+        Set<String> bindingIds = new LinkedHashSet<>();
+        for (OciOpenaiLbMember member : members) {
+            String portBindingId = member == null ? null : member.getPortBindingId();
+            if (portBindingId != null && !portBindingId.isBlank()) {
+                bindingIds.add(portBindingId.trim());
+            }
+        }
+        Set<String> existingBindingIds = new LinkedHashSet<>();
+        if (!bindingIds.isEmpty()) {
+            for (OciOpenaiPortBinding binding : portBindingMapper.selectList(new LambdaQueryWrapper<OciOpenaiPortBinding>()
+                    .in(OciOpenaiPortBinding::getId, bindingIds))) {
+                if (binding != null && binding.getId() != null) {
+                    existingBindingIds.add(binding.getId());
+                }
+            }
+        }
+        int removed = 0;
+        for (OciOpenaiLbMember member : members) {
+            if (member == null || member.getId() == null) {
+                continue;
+            }
+            String portBindingId = member.getPortBindingId();
+            if (portBindingId != null && !portBindingId.isBlank() && existingBindingIds.contains(portBindingId.trim())) {
+                continue;
+            }
+            deleteMemberArtifacts(member.getId());
+            memberMapper.deleteById(member.getId());
+            removed++;
+        }
+        if (removed > 0) {
+            log.info("Removed {} orphan OpenAI LB member(s)", removed);
+        }
+        return removed;
     }
 
     public Selection selectMember(String requestedModel) {
@@ -890,7 +957,7 @@ public class OciOpenaiLoadBalanceService {
             OciOpenaiKey key = binding.getOpenaiKeyId() == null ? null : openaiKeyMapper.selectById(binding.getOpenaiKeyId());
             if (key != null) {
                 row.put("keyName", key.getName());
-                row.put("keyMasked", openaiKeyService.maskForList(key));
+                row.put("keyMasked", maskTenantKeyForList(key));
                 row.put("keyDisabled", key.getDisabled() != null && key.getDisabled() == 1);
             }
         }
@@ -1005,6 +1072,22 @@ public class OciOpenaiLoadBalanceService {
             }
         }
         return key.getKeyPrefix() == null ? KEY_PREFIX + "****" : key.getKeyPrefix() + "****";
+    }
+
+    private String maskTenantKeyForList(OciOpenaiKey key) {
+        if (key == null) {
+            return "sk-****";
+        }
+        if (key.getKeyEncrypted() != null && !key.getKeyEncrypted().isBlank()) {
+            try {
+                String plain = OciOpenaiKeyCipher.decrypt(key.getKeyEncrypted(), webPassword);
+                if (plain != null && !plain.isBlank()) {
+                    return OciOpenaiKeyCipher.maskForDisplay(plain);
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        return key.getKeyPrefix() == null ? "sk-****" : key.getKeyPrefix() + "****";
     }
 
     private static boolean modelAllowed(String requestedModel, List<String> allowedModels) {

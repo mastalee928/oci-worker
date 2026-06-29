@@ -18,7 +18,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.security.SecureRandom;
 import java.time.LocalDateTime;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Set;
 
 @Service
 public class OciOpenaiKeyService {
@@ -27,6 +29,8 @@ public class OciOpenaiKeyService {
     private OciOpenaiKeyMapper openaiKeyMapper;
     @Resource
     private OciUserMapper ociUserMapper;
+    @Resource
+    private OracleAiPortBindingService portBindingService;
 
     @Value("${web.password}")
     private String webPassword;
@@ -133,7 +137,36 @@ public class OciOpenaiKeyService {
 
     @Transactional(rollbackFor = Exception.class)
     public void remove(String id) {
+        if (id == null || id.isBlank()) {
+            return;
+        }
+        portBindingService.removeByOpenaiKeyId(id);
         openaiKeyMapper.deleteById(id);
+    }
+
+    @Transactional(rollbackFor = Exception.class)
+    public int removeByTenantIds(List<String> tenantIds) {
+        if (tenantIds == null || tenantIds.isEmpty()) {
+            return 0;
+        }
+        Set<String> ids = new LinkedHashSet<>();
+        for (String tenantId : tenantIds) {
+            if (tenantId == null || tenantId.isBlank()) {
+                continue;
+            }
+            ids.add(tenantId.trim());
+        }
+        if (ids.isEmpty()) {
+            return 0;
+        }
+        List<OciOpenaiKey> rows = openaiKeyMapper.selectList(new LambdaQueryWrapper<OciOpenaiKey>()
+                .in(OciOpenaiKey::getOciUserId, ids));
+        for (OciOpenaiKey row : rows) {
+            if (row != null && row.getId() != null) {
+                remove(row.getId());
+            }
+        }
+        return rows.size();
     }
 
     public OciOpenaiKey findByPlainKey(String plain) {
