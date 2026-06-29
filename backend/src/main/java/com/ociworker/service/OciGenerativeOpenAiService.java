@@ -152,20 +152,40 @@ public class OciGenerativeOpenAiService {
             // 兜底启发式：只要请求体中出现 multi-agent，就无条件强制改写到 /responses，
             // 避免因 content-type/JSON 解析异常导致落回 /chat/completions 并被 OCI 直接 400。
             boolean bodyMentionsMultiAgent = false;
+            boolean rewriteChatToResponses = false;
+            boolean chatBodyAlreadyTransformed = false;
+            String rewriteModel = "multi-agent";
             try {
                 String raw = new String(origBody, StandardCharsets.UTF_8).toLowerCase(java.util.Locale.ROOT);
                 bodyMentionsMultiAgent = raw.contains("multi-agent") || raw.contains("multiagent") || raw.contains("multi agent");
             } catch (Exception ignored) {
             }
             if (bodyMentionsMultiAgent) {
+                rewriteChatToResponses = true;
+            } else if (looksLikeJson) {
+                try {
+                    JsonNode root = MAPPER.readTree(origBody);
+                    if (root != null && root.isObject()) {
+                        String model = textOrNull(((ObjectNode) root), "model");
+                        if (isLikelyMultiAgentModelName(model)) {
+                            rewriteChatToResponses = true;
+                            rewriteModel = firstNonBlank(model, rewriteModel);
+                        }
+                    }
+                } catch (Exception e) {
+                    body = transformChatCompletionsJson(origBody, requestDefaultMaxTokens);
+                    chatBodyAlreadyTransformed = true;
+                }
+            }
+            if (rewriteChatToResponses) {
                 if (isStreamRequest(origBody, contentType)) {
-                    // 上游想要 chat.completions SSE，这里后续会在返回侧模拟 SSE
+                    // 上游想要 chat.completions SSE，这里后续会在返回侧模拟 SSE。
                     request.setAttribute("ociworker.rewrite.simulateSse", Boolean.TRUE);
                 }
                 request.setAttribute("ociworker.rewrite.chatToResponses", Boolean.TRUE);
                 request.setAttribute("ociworker.lb.bridgeType", "chat_to_responses_native");
                 request.setAttribute("ociworker.rewrite.useRawV1Base", Boolean.TRUE);
-                request.setAttribute("ociworker.rewrite.model", "multi-agent");
+                request.setAttribute("ociworker.rewrite.model", rewriteModel);
                 pathAfterV1 = "/responses";
                 body = transformChatCompletionsToResponsesJson(origBody, requestDefaultMaxTokens);
                 try {
@@ -173,59 +193,15 @@ public class OciGenerativeOpenAiService {
                         request.setAttribute("ociworker.debug.responsesInputShape.before", describeResponsesInputShape(body));
                     }
                     body = normalizeResponsesInputForOci(body);
+                    // Multi-Agent 典型会携带超长历史导致 TPM/结构错误；在网关侧截断 input，仅保留最近 N 条。
                     body = truncateResponsesInputForMultiAgent(body, 20);
                     if (request != null && body != null) {
                         request.setAttribute("ociworker.debug.responsesInputShape.after", describeResponsesInputShape(body));
                     }
                 } catch (Exception ignored) {
                 }
-            } else if (looksLikeJson) {
-                try {
-                    JsonNode root = MAPPER.readTree(origBody);
-                    if (root != null && root.isObject()) {
-                        String model = textOrNull(((ObjectNode) root), "model");
-                        if (isLikelyMultiAgentModelName(model)) {
-                        if (isStreamRequest(origBody, contentType)) {
-                            // OCI 侧 Multi Agent 不适用于 chat-completions 流式；本网关会改走 /v1/responses 并关闭 stream。
-                            log.debug(
-                                    "Multi Agent 模型在 chat/completions 上收到 stream=true，将改写为 /v1/responses 且按非流式处理");
-                            // 但上游（如 New API / IDE）可能只在 stream=true 时才显示输出，这里在返回侧模拟 SSE。
-                            request.setAttribute("ociworker.rewrite.simulateSse", Boolean.TRUE);
-                        }
-                        request.setAttribute("ociworker.rewrite.chatToResponses", Boolean.TRUE);
-                        request.setAttribute("ociworker.lb.bridgeType", "chat_to_responses_native");
-                        if (model != null) {
-                            request.setAttribute("ociworker.rewrite.model", model);
-                        }
-                        request.setAttribute("ociworker.rewrite.useRawV1Base", Boolean.TRUE);
-                        pathAfterV1 = "/responses";
-                        body = transformChatCompletionsToResponsesJson(origBody, requestDefaultMaxTokens);
-                        // Cursor 走 chat/completions 时会被改写成 /responses；但 OCI 对 ModelInput 更严格，
-                        // 这里对改写后的 body 再做一次宽松规范化，避免 422: untagged enum ModelInput 反序列化失败。
-                        try {
-                            if (request != null && body != null) {
-                                request.setAttribute("ociworker.debug.responsesInputShape.before", describeResponsesInputShape(body));
-                            }
-                            body = normalizeResponsesInputForOci(body);
-                            // Multi-Agent 典型会携带超长历史导致 TPM/结构错误；在网关侧截断 input，仅保留最近 N 条。
-                            body = truncateResponsesInputForMultiAgent(body, 20);
-                            if (request != null && body != null) {
-                                request.setAttribute("ociworker.debug.responsesInputShape.after", describeResponsesInputShape(body));
-                            }
-                        } catch (Exception ignored) {
-                        }
-                        // responses 与 chat completions 的补默认策略不同，这里让下游按 OCI 行为处理
-                    } else if (isChatCompletionsPath(origPathAfterV1)) {
-                        body = transformChatCompletionsJson(origBody, requestDefaultMaxTokens);
-                    }
-                    } else if (isChatCompletionsPath(origPathAfterV1)) {
-                    body = transformChatCompletionsJson(origBody, requestDefaultMaxTokens);
-                }
-                } catch (Exception e) {
-                    body = transformChatCompletionsJson(origBody, requestDefaultMaxTokens);
-                }
-            } else if (body != null && body.length > 0 && looksLikeJson) {
-                body = transformChatCompletionsJson(body, requestDefaultMaxTokens);
+            } else if (looksLikeJson && !chatBodyAlreadyTransformed) {
+                body = transformChatCompletionsJson(origBody, requestDefaultMaxTokens);
             }
         } else if (isChatCompletionsPath(origPathAfterV1) && body != null && body.length > 0 && looksLikeJson) {
             body = transformChatCompletionsJson(body, requestDefaultMaxTokens);
@@ -2023,12 +1999,8 @@ public class OciGenerativeOpenAiService {
             return "";
         }
         state.createdSent = true;
-        ObjectNode response = MAPPER.createObjectNode();
-        response.put("id", state.responseId);
-        response.put("object", "response");
-        response.put("model", state.model);
-        response.put("status", "in_progress");
-        response.set("output", MAPPER.createArrayNode());
+        ObjectNode response = responsesResponseObject(
+                state.responseId, state.model, "in_progress", MAPPER.createArrayNode(), null, null, state.createdAt);
         ObjectNode event = MAPPER.createObjectNode();
         event.set("response", response);
         return responsesSseEvent(state, "response.created", event);
@@ -2250,11 +2222,7 @@ public class OciGenerativeOpenAiService {
         }
         state.completedSent = true;
         ObjectNode completed = MAPPER.createObjectNode();
-        ObjectNode response = MAPPER.createObjectNode();
-        response.put("id", state.responseId);
-        response.put("object", "response");
-        response.put("model", state.model);
-        response.put("status", "length".equalsIgnoreCase(state.finishReason) ? "incomplete" : "completed");
+        String status = "length".equalsIgnoreCase(state.finishReason) ? "incomplete" : "completed";
         ArrayNode output = MAPPER.createArrayNode();
         if (state.reasoning.length() > 0) {
             ObjectNode reasoning = responsesReasoningOutput(state.reasoning.toString());
@@ -2280,15 +2248,14 @@ public class OciGenerativeOpenAiService {
             item.put("status", "completed");
             output.add(item);
         }
-        response.set("output", output);
-        if (state.usage != null) {
-            response.set("usage", state.usage);
-        }
+        ObjectNode incompleteDetails = null;
         if ("length".equalsIgnoreCase(state.finishReason)) {
-            ObjectNode details = MAPPER.createObjectNode();
-            details.put("reason", "max_output_tokens");
-            response.set("incomplete_details", details);
+            incompleteDetails = MAPPER.createObjectNode();
+            incompleteDetails.put("reason", "max_output_tokens");
         }
+        ObjectNode response = responsesResponseObject(
+                state.responseId, state.model, status, output, state.usage, incompleteDetails, state.createdAt);
+        response.put("completed_at", Instant.now().getEpochSecond());
         completed.set("response", response);
         out.append(responsesSseEvent(state, "response.completed", completed));
         return out.toString();
@@ -2300,7 +2267,7 @@ public class OciGenerativeOpenAiService {
         if (out.get("sequence_number") == null) {
             out.put("sequence_number", state == null ? 0 : state.nextSequenceNumber++);
         }
-        return "data: " + MAPPER.writeValueAsString(out) + "\n\n";
+        return "event: " + type + "\n" + "data: " + MAPPER.writeValueAsString(out) + "\n\n";
     }
 
     private static int indexOfSseEventEnd(StringBuilder pending) {
@@ -2882,11 +2849,8 @@ public class OciGenerativeOpenAiService {
         ObjectNode co = (ObjectNode) c;
         String id = firstNonBlank(textOrNull(co, "id"), "resp_ociworker");
         String model = firstNonBlank(modelHint, textOrNull(co, "model"), "");
-        ObjectNode out = MAPPER.createObjectNode();
-        out.put("id", id);
-        out.put("object", "response");
-        out.put("model", model);
-        out.put("status", "completed");
+        String status = "completed";
+        ObjectNode incompleteDetails = null;
         ArrayNode output = MAPPER.createArrayNode();
         JsonNode choices = co.get("choices");
         if (choices != null && choices.isArray() && !choices.isEmpty()) {
@@ -2910,21 +2874,70 @@ public class OciGenerativeOpenAiService {
             }
             String finishReason = text(choices.get(0), "finish_reason");
             if ("length".equalsIgnoreCase(finishReason)) {
-                out.put("status", "incomplete");
-                ObjectNode details = MAPPER.createObjectNode();
-                details.put("reason", "max_output_tokens");
-                out.set("incomplete_details", details);
+                status = "incomplete";
+                incompleteDetails = MAPPER.createObjectNode();
+                incompleteDetails.put("reason", "max_output_tokens");
             }
         }
         if (output.isEmpty()) {
             output.add(responsesMessageOutput(""));
         }
-        out.set("output", output);
         JsonNode usage = co.get("usage");
-        if (usage != null && usage.isObject()) {
-            out.set("usage", chatUsageToResponsesUsage((ObjectNode) usage));
-        }
+        ObjectNode responseUsage = usage != null && usage.isObject() ? chatUsageToResponsesUsage((ObjectNode) usage) : null;
+        ObjectNode out = responsesResponseObject(
+                id, model, status, output, responseUsage, incompleteDetails, Instant.now().getEpochSecond());
+        out.put("completed_at", Instant.now().getEpochSecond());
         return MAPPER.writeValueAsString(out);
+    }
+
+    private static ObjectNode responsesResponseObject(
+            String id,
+            String model,
+            String status,
+            ArrayNode output,
+            JsonNode usage,
+            JsonNode incompleteDetails,
+            long createdAt) {
+        ObjectNode response = MAPPER.createObjectNode();
+        response.put("id", firstNonBlank(id, "resp_" + CommonUtils.generateId()));
+        response.put("object", "response");
+        response.put("created_at", createdAt > 0 ? createdAt : Instant.now().getEpochSecond());
+        response.put("status", firstNonBlank(status, "completed"));
+        response.putNull("error");
+        if (incompleteDetails != null && incompleteDetails.isObject()) {
+            response.set("incomplete_details", incompleteDetails);
+        } else {
+            response.putNull("incomplete_details");
+        }
+        response.putNull("instructions");
+        response.putNull("max_output_tokens");
+        response.put("model", firstNonBlank(model, ""));
+        response.set("output", output == null ? MAPPER.createArrayNode() : output);
+        response.put("parallel_tool_calls", true);
+        response.putNull("previous_response_id");
+        ObjectNode reasoning = MAPPER.createObjectNode();
+        reasoning.putNull("effort");
+        reasoning.putNull("summary");
+        response.set("reasoning", reasoning);
+        response.put("store", true);
+        response.put("temperature", 1.0);
+        ObjectNode text = MAPPER.createObjectNode();
+        ObjectNode format = MAPPER.createObjectNode();
+        format.put("type", "text");
+        text.set("format", format);
+        response.set("text", text);
+        response.put("tool_choice", "auto");
+        response.set("tools", MAPPER.createArrayNode());
+        response.put("top_p", 1.0);
+        response.put("truncation", "disabled");
+        if (usage != null && usage.isObject()) {
+            response.set("usage", usage);
+        } else {
+            response.putNull("usage");
+        }
+        response.putNull("user");
+        response.set("metadata", MAPPER.createObjectNode());
+        return response;
     }
 
     private static ObjectNode responsesMessageOutput(String text) {
@@ -2937,6 +2950,8 @@ public class OciGenerativeOpenAiService {
         ObjectNode part = MAPPER.createObjectNode();
         part.put("type", "output_text");
         part.put("text", text == null ? "" : text);
+        part.set("annotations", MAPPER.createArrayNode());
+        part.set("logprobs", MAPPER.createArrayNode());
         content.add(part);
         item.set("content", content);
         return item;
@@ -3412,6 +3427,7 @@ public class OciGenerativeOpenAiService {
     static class ResponsesBridgeStreamState {
         String responseId = "resp_" + CommonUtils.generateId();
         String model;
+        final long createdAt = Instant.now().getEpochSecond();
         boolean createdSent;
         boolean completedSent;
         boolean doneSent;

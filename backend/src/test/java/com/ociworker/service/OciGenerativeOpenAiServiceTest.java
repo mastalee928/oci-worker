@@ -143,6 +143,12 @@ class OciGenerativeOpenAiServiceTest {
 
         JsonNode root = MAPPER.readTree(converted);
         assertThat(root.path("object").asText()).isEqualTo("response");
+        assertThat(root.path("created_at").isNumber()).isTrue();
+        assertThat(root.path("error").isNull()).isTrue();
+        assertThat(root.path("incomplete_details").isNull()).isTrue();
+        assertThat(root.path("tools").isArray()).isTrue();
+        assertThat(root.path("parallel_tool_calls").asBoolean()).isTrue();
+        assertThat(root.path("metadata").isObject()).isTrue();
         assertThat(root.path("output").get(0).path("type").asText()).isEqualTo("function_call");
         assertThat(root.path("output").get(0).path("call_id").asText()).isEqualTo("call_a");
         assertThat(root.path("output").get(0).path("arguments").asText()).contains("a.txt");
@@ -160,11 +166,18 @@ class OciGenerativeOpenAiServiceTest {
         String sse = OciGenerativeOpenAiService.chatChunkToResponsesSse(MAPPER.readTree(chunk), state)
                 + OciGenerativeOpenAiService.finalizeResponsesBridgeStream(state);
 
+        assertThat(sse).contains("event: response.created");
+        assertThat(sse).contains("event: response.output_item.added");
+        assertThat(sse).contains("event: response.completed");
         assertThat(sse).contains("\"type\":\"response.output_item.added\"");
         assertThat(sse).contains("\"type\":\"response.function_call_arguments.delta\"");
         assertThat(sse).contains("\"type\":\"response.function_call_arguments.done\"");
         assertThat(sse).contains("\"type\":\"response.output_item.done\"");
         assertThat(sse).contains("\"type\":\"response.completed\"");
+        assertThat(sse).contains("\"created_at\":");
+        assertThat(sse).contains("\"error\":null");
+        assertThat(sse).contains("\"parallel_tool_calls\":true");
+        assertThat(sse).contains("\"metadata\":{}");
         assertThat(sse).contains("\"call_id\":\"call_a\"");
         assertThat(sse).contains("\"arguments\":\"{\\\"path\\\":\\\"a.txt\\\"}\"");
         assertThat(sse).contains("\"sequence_number\":0");
