@@ -446,7 +446,7 @@ public class OciOpenaiLoadBalanceService {
             if (!modelAllowed(requestedModel, models)) {
                 continue;
             }
-            if (requireGenerativeContext && !hasGenerativeContext(binding)) {
+            if (requireGenerativeContext && !ensureGenerativeContext(binding)) {
                 continue;
             }
             if (modelUnavailable(member.getId(), requestedModel, now)) {
@@ -479,7 +479,7 @@ public class OciOpenaiLoadBalanceService {
         return candidates;
     }
 
-    private boolean hasGenerativeContext(OciOpenaiPortBinding binding) {
+    private boolean ensureGenerativeContext(OciOpenaiPortBinding binding) {
         if (binding == null) {
             return false;
         }
@@ -489,10 +489,28 @@ public class OciOpenaiLoadBalanceService {
         }
         try {
             Map<String, String> ctx = generativeOpenAiService.getGenerativeContext(user, binding.getOciRegion());
-            return hasText(ctx == null ? null : ctx.get("generativeOpenaiProject"))
-                    || hasText(ctx == null ? null : ctx.get("generativeConversationStoreId"));
+            if (hasText(ctx == null ? null : ctx.get("generativeOpenaiProject"))
+                    || hasText(ctx == null ? null : ctx.get("generativeConversationStoreId"))) {
+                return true;
+            }
+            var created = generativeOpenAiService.createGenerativeAiProject(user, binding.getOciRegion(), "ociworker-default");
+            String projectId = created == null || created.get("id") == null || !created.get("id").isTextual()
+                    ? null
+                    : created.get("id").asText();
+            if (!hasText(projectId)) {
+                log.debug("Created generative project for LB binding {} but response has no id", binding.getId());
+                return false;
+            }
+            generativeOpenAiService.saveGenerativeContext(
+                    user,
+                    binding.getOciRegion(),
+                    projectId,
+                    ctx == null ? null : ctx.get("generativeConversationStoreId"));
+            log.info("Created default OpenAI-Project for LB binding {} tenant={} region={}",
+                    binding.getId(), user.getId(), binding.getOciRegion());
+            return true;
         } catch (Exception e) {
-            log.debug("Failed to load generative context for LB binding {}: {}", binding.getId(), e.getMessage());
+            log.debug("Failed to ensure generative context for LB binding {}: {}", binding.getId(), e.getMessage());
             return false;
         }
     }

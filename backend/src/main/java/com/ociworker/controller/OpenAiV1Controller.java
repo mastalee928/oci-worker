@@ -102,7 +102,7 @@ public class OpenAiV1Controller {
         Set<String> triedMembers = new HashSet<>();
         int eligibleCount = loadBalanceService.eligibleMemberCount(requestedModel, estimatedTokens, requireGenerativeContext);
         if (requireGenerativeContext && eligibleCount <= 0) {
-            error(response, 400, "Responses API 调用非 OpenAI 模型需要先为负载均衡成员配置 OpenAI-Project 或 opc-conversation-store-id");
+            error(response, 503, "Responses API 调用非 OpenAI 模型需要 OpenAI-Project 或 opc-conversation-store-id，自动创建默认 OpenAI-Project 失败，请检查成员租户是否有 Generative AI Project 创建权限");
             return;
         }
         int maxAttempts = stream && !bufferedToolStream
