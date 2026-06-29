@@ -153,7 +153,7 @@ public class OpenAiV1Controller {
                 String statusError = status >= 400 ? responseBodySnippet(targetResponse, "HTTP " + status) : null;
                 boolean retry = attempt + 1 < maxAttempts
                         && (!stream || bufferedToolStream)
-                        && isRetryableStatus(status, statusError, bufferedToolStream);
+                        && isRetryableStatus(status, bufferedToolStream);
                 String statusErrorType = status >= 400 ? (retry ? "retryable_status" : "upstream_status") : null;
                 loadBalanceService.finishRequest(selection.member().getId(), status, tokens, latency,
                         statusErrorType, statusError, requestedModel);
@@ -449,18 +449,17 @@ public class OpenAiV1Controller {
         return status > 0 ? status : 200;
     }
 
-    private static boolean isRetryableStatus(int status, String bodySnippet, boolean bufferedToolStream) {
+    private static boolean isRetryableStatus(int status, boolean bufferedToolStream) {
         if (status == 429 || status >= 500) {
             return true;
         }
         if (!bufferedToolStream) {
             return false;
         }
-        if (status != 400 && status != 404 && status != 422) {
+        if (status != 400 && status != 401 && status != 403 && status != 404 && status != 422) {
             return false;
         }
-        String body = bodySnippet == null ? "" : bodySnippet.toLowerCase();
-        return !OciOpenaiLoadBalanceService.isModelAvailabilityFailure(status, bodySnippet);
+        return true;
     }
 
     private static String responseBodySnippet(HttpServletResponse response, String fallback) {

@@ -36,6 +36,15 @@ class OciGenerativeOpenAiServiceTest {
     }
 
     @Test
+    void leavesToolCallSsePayloadUntouched() {
+        String payload = "{\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call_1\",\"type\":\"function\",\"function\":{\"name\":\"write_file\",\"arguments\":\"{\\\"path\\\":\\\"a.txt\\\"}\"}}]},\"finish_reason\":null}]}";
+
+        String normalized = OciGenerativeOpenAiService.normalizeSseDataPayload(payload, null);
+
+        assertThat(normalized).isEqualTo(payload);
+    }
+
+    @Test
     void leavesDoneMarkerUntouched() {
         assertThat(OciGenerativeOpenAiService.normalizeSseDataPayload("[DONE]", null)).isEqualTo("[DONE]");
     }

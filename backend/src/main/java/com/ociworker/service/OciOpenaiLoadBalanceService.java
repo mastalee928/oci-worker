@@ -489,7 +489,7 @@ public class OciOpenaiLoadBalanceService {
             return;
         }
         boolean success = status >= 200 && status < 400;
-        boolean shouldCooldown = shouldCooldown(status);
+        boolean shouldCooldown = shouldCooldown(status, errorMessage);
         LocalDateTime now = LocalDateTime.now();
         member.setLastUsed(now);
         member.setUpdateTime(now);
@@ -890,8 +890,17 @@ public class OciOpenaiLoadBalanceService {
         usageWindowMapper.insert(row);
     }
 
-    private static boolean shouldCooldown(int status) {
-        return status == 429 || status == 499 || status == 502 || status == 503 || status == 504;
+    private static boolean shouldCooldown(int status, String errorMessage) {
+        if (status == 429 || status == 499 || status == 502 || status == 503 || status == 504) {
+            return true;
+        }
+        if (status == 401) {
+            return true;
+        }
+        if (status == 403) {
+            return !isModelAvailabilityFailure(status, errorMessage);
+        }
+        return false;
     }
 
     private HealthCheckResult localHealth(OciOpenaiLbMember member, LocalDateTime now) {
