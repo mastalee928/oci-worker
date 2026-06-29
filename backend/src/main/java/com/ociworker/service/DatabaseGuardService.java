@@ -242,6 +242,8 @@ public class DatabaseGuardService {
                 has_tools TINYINT(1) NOT NULL DEFAULT 0,
                 tool_count INT NOT NULL DEFAULT 0,
                 bridge_type VARCHAR(64) DEFAULT NULL,
+                response_tool_call_count INT NOT NULL DEFAULT 0,
+                tool_lifecycle_completed TINYINT(1) NOT NULL DEFAULT 0,
                 estimated_prompt_tokens BIGINT DEFAULT 0,
                 status_code INT DEFAULT NULL,
                 status VARCHAR(32) DEFAULT NULL,
@@ -591,6 +593,10 @@ public class DatabaseGuardService {
                 "INT NOT NULL DEFAULT 0 AFTER has_tools");
         addColumnIfMissing(conn, "oci_openai_lb_request_log", "bridge_type",
                 "VARCHAR(64) DEFAULT NULL AFTER tool_count");
+        addColumnIfMissing(conn, "oci_openai_lb_request_log", "response_tool_call_count",
+                "INT NOT NULL DEFAULT 0 AFTER bridge_type");
+        addColumnIfMissing(conn, "oci_openai_lb_request_log", "tool_lifecycle_completed",
+                "TINYINT(1) NOT NULL DEFAULT 0 AFTER response_tool_call_count");
     }
 
     private void addColumnIfMissing(Connection conn, String table, String column, String definition) {

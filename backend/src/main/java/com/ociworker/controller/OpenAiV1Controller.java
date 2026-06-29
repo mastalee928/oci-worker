@@ -478,6 +478,8 @@ public class OpenAiV1Controller {
                 boolAttr(request, "ociworker.lb.hasTools"),
                 intAttr(request, "ociworker.lb.toolCount"),
                 stringAttr(request, "ociworker.lb.bridgeType"),
+                intAttrValue(request, "ociworker.lb.responseToolCallCount"),
+                boolAttr(request, "ociworker.lb.toolLifecycleCompleted"),
                 estimatedTokens,
                 statusCode,
                 status,
@@ -553,6 +555,11 @@ public class OpenAiV1Controller {
     private static Integer intAttr(HttpServletRequest request, String attr) {
         Long value = longAttr(request, attr);
         return value == null ? null : (int) Math.min(Integer.MAX_VALUE, Math.max(0L, value));
+    }
+
+    private static int intAttrValue(HttpServletRequest request, String attr) {
+        Integer value = intAttr(request, attr);
+        return value == null ? 0 : value;
     }
 
     private static String stringAttr(HttpServletRequest request, String attr) {

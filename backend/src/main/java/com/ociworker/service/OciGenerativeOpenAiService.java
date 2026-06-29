@@ -1831,6 +1831,7 @@ public class OciGenerativeOpenAiService {
                             out.write(finalizeResponsesBridgeStream(responsesBridgeState).getBytes(StandardCharsets.UTF_8));
                             out.write("data: [DONE]\n\n".getBytes(StandardCharsets.UTF_8));
                             responsesBridgeState.doneSent = true;
+                            captureResponsesBridgeToolStats(request, responsesBridgeState);
                         } catch (Exception e) {
                             throw new IOException("finalize responses stream failed", e);
                         }
@@ -1921,6 +1922,7 @@ public class OciGenerativeOpenAiService {
                 } catch (Exception ignored) {
                 }
                 state.doneSent = true;
+                captureResponsesBridgeToolStats(request, state);
                 out.append("data: [DONE]\n\n");
                 continue;
             }
@@ -2371,6 +2373,14 @@ public class OciGenerativeOpenAiService {
                 for (int i = 0; i < root.get("choices").size(); i++) {
                     JsonNode choice = root.get("choices").get(i);
                     JsonNode delta = choice == null ? null : choice.get("delta");
+                    JsonNode toolCalls = delta == null ? null : delta.get("tool_calls");
+                    if (toolCalls != null && toolCalls.isArray() && request != null) {
+                        incrementIntAttribute(request, "ociworker.lb.responseToolCallCount", toolCalls.size());
+                    }
+                    String finishReason = text(choice, "finish_reason");
+                    if ("tool_calls".equalsIgnoreCase(finishReason) && request != null) {
+                        request.setAttribute("ociworker.lb.toolLifecycleCompleted", Boolean.TRUE);
+                    }
                     if (delta != null
                             && delta.isObject()
                             && delta.get("role") == null
@@ -2563,6 +2573,7 @@ public class OciGenerativeOpenAiService {
             response.setStatus(code);
             String b = resp.body() != null ? resp.body() : "";
             captureUsageTokens(request, b);
+            captureChatCompletionToolStats(request, b);
             if (code >= 400
                     && request != null
                     && b != null) {
@@ -2606,6 +2617,9 @@ public class OciGenerativeOpenAiService {
                 if (ct.toLowerCase().contains("json")) {
                     try {
                         String modelHint = (String) request.getAttribute("ociworker.rewrite.model");
+                        int responseToolCalls = countChatCompletionToolCalls(b);
+                        request.setAttribute("ociworker.lb.responseToolCallCount", responseToolCalls);
+                        request.setAttribute("ociworker.lb.toolLifecycleCompleted", responseToolCalls > 0);
                         b = convertChatCompletionJsonToResponsesJson(b, modelHint);
                         response.setContentType("application/json; charset=utf-8");
                     } catch (Exception ignored) {
@@ -2678,6 +2692,65 @@ public class OciGenerativeOpenAiService {
                 request.setAttribute(OpenAiApiConstants.ATTR_USAGE_TOKENS, tokens);
             }
         } catch (Exception ignored) {
+        }
+    }
+
+    private static void captureResponsesBridgeToolStats(HttpServletRequest request, ResponsesBridgeStreamState state) {
+        if (request == null || state == null) {
+            return;
+        }
+        request.setAttribute("ociworker.lb.responseToolCallCount", state.tools.size());
+        request.setAttribute("ociworker.lb.toolLifecycleCompleted", state.completedSent && !state.tools.isEmpty());
+    }
+
+    private static void captureChatCompletionToolStats(HttpServletRequest request, String body) {
+        if (request == null || body == null || body.isBlank()) {
+            return;
+        }
+        int count = countChatCompletionToolCalls(body);
+        if (count > 0) {
+            request.setAttribute("ociworker.lb.responseToolCallCount", count);
+            request.setAttribute("ociworker.lb.toolLifecycleCompleted", Boolean.TRUE);
+        }
+    }
+
+    private static void incrementIntAttribute(HttpServletRequest request, String attr, int delta) {
+        if (request == null || attr == null || delta <= 0) {
+            return;
+        }
+        Object value = request.getAttribute(attr);
+        int current = 0;
+        if (value instanceof Number n) {
+            current = n.intValue();
+        } else if (value != null) {
+            try {
+                current = Integer.parseInt(String.valueOf(value));
+            } catch (Exception ignored) {
+            }
+        }
+        request.setAttribute(attr, Math.max(0, current) + delta);
+    }
+
+    private static int countChatCompletionToolCalls(String body) {
+        if (body == null || body.isBlank()) {
+            return 0;
+        }
+        try {
+            JsonNode root = MAPPER.readTree(body);
+            JsonNode choices = root == null ? null : root.get("choices");
+            if (choices == null || !choices.isArray()) {
+                return 0;
+            }
+            int count = 0;
+            for (JsonNode choice : choices) {
+                JsonNode calls = choice == null ? null : choice.at("/message/tool_calls");
+                if (calls != null && calls.isArray()) {
+                    count += calls.size();
+                }
+            }
+            return count;
+        } catch (Exception ignored) {
+            return 0;
         }
     }
 

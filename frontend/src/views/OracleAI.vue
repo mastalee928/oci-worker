@@ -630,6 +630,9 @@
                 <div class="sub-muted status-message">
                   tools {{ record.toolCount || 0 }}<span v-if="record.bridgeType"> · {{ record.bridgeType }}</span>
                 </div>
+                <div v-if="record.responseToolCallCount || record.toolLifecycleCompleted" class="sub-muted status-message">
+                  返回 {{ record.responseToolCallCount || 0 }}<span v-if="record.toolLifecycleCompleted"> · 完整</span>
+                </div>
               </template>
               <template v-else-if="column.key === 'status'">
                 <a-tag :color="lbRequestStatusColor(record)">{{ lbRequestStatusText(record) }}</a-tag>

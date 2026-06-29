@@ -22,6 +22,8 @@ public class OciOpenaiLbRequestLog {
     private Integer hasTools;
     private Integer toolCount;
     private String bridgeType;
+    private Integer responseToolCallCount;
+    private Integer toolLifecycleCompleted;
     private Long estimatedPromptTokens;
     private Integer statusCode;
     private String status;

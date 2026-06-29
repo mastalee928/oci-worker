@@ -944,6 +944,8 @@ public class OciOpenaiLoadBalanceService {
             row.setHasTools(input.hasTools() ? 1 : 0);
             row.setToolCount(Math.max(0, input.toolCount()));
             row.setBridgeType(trimTo(input.bridgeType(), 64));
+            row.setResponseToolCallCount(Math.max(0, input.responseToolCallCount()));
+            row.setToolLifecycleCompleted(input.toolLifecycleCompleted() ? 1 : 0);
             row.setEstimatedPromptTokens(Math.max(0L, input.estimatedTokens()));
             row.setStatusCode(input.statusCode());
             row.setStatus(trimTo(input.status(), 32));
@@ -1217,6 +1219,8 @@ public class OciOpenaiLoadBalanceService {
         row.put("hasTools", logRow.getHasTools() != null && logRow.getHasTools() == 1);
         row.put("toolCount", logRow.getToolCount());
         row.put("bridgeType", logRow.getBridgeType());
+        row.put("responseToolCallCount", logRow.getResponseToolCallCount());
+        row.put("toolLifecycleCompleted", logRow.getToolLifecycleCompleted() != null && logRow.getToolLifecycleCompleted() == 1);
         row.put("estimatedPromptTokens", logRow.getEstimatedPromptTokens());
         row.put("statusCode", logRow.getStatusCode());
         row.put("status", logRow.getStatus());
@@ -1353,6 +1357,8 @@ public class OciOpenaiLoadBalanceService {
             boolean hasTools,
             int toolCount,
             String bridgeType,
+            int responseToolCallCount,
+            boolean toolLifecycleCompleted,
             long estimatedTokens,
             Integer statusCode,
             String status,
