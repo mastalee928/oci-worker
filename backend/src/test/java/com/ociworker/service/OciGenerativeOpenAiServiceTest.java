@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import org.junit.jupiter.api.Test;
+import org.springframework.mock.web.MockHttpServletRequest;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -215,6 +216,42 @@ class OciGenerativeOpenAiServiceTest {
         assertThat(root.path("messages").get(1).path("role").asText()).isEqualTo("tool");
         assertThat(root.path("messages").get(1).path("tool_call_id").asText()).isEqualTo("call_a");
         assertThat(root.path("messages").get(1).path("content").asText()).isEqualTo("ok");
+    }
+
+    @Test
+    void countsOnlyNewStreamingToolCalls() throws Exception {
+        JsonNode firstChunkCalls = MAPPER.readTree("""
+                [
+                  {"index":0,"id":"call_a","type":"function","function":{"name":"write_file","arguments":"{\\\"path\\\":"}},
+                  {"index":1,"id":"call_b","type":"function","function":{"name":"write_file","arguments":"{\\\"path\\\":\\\"b.txt\\\"}"}}
+                ]
+                """);
+        JsonNode argumentOnlyChunk = MAPPER.readTree("""
+                [
+                  {"index":0,"function":{"arguments":"\\\"a.txt\\\"}"}}
+                ]
+                """);
+
+        assertThat(OciGenerativeOpenAiService.countNewStreamingToolCalls(firstChunkCalls)).isEqualTo(2);
+        assertThat(OciGenerativeOpenAiService.countNewStreamingToolCalls(argumentOnlyChunk)).isZero();
+    }
+
+    @Test
+    void deduplicatesStreamingToolDiagnosticsPerRequest() throws Exception {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        JsonNode firstChunkCalls = MAPPER.readTree("""
+                [
+                  {"index":0,"id":"call_a","type":"function","function":{"name":"write_file","arguments":"{\\\"path\\\":"}}
+                ]
+                """);
+        JsonNode repeatedMetadataChunk = MAPPER.readTree("""
+                [
+                  {"index":0,"id":"call_a","type":"function","function":{"name":"write_file","arguments":"\\\"a.txt\\\"}"}}
+                ]
+                """);
+
+        assertThat(OciGenerativeOpenAiService.countNewStreamingToolCalls(firstChunkCalls, request)).isEqualTo(1);
+        assertThat(OciGenerativeOpenAiService.countNewStreamingToolCalls(repeatedMetadataChunk, request)).isZero();
     }
 
     private static int countOccurrences(String value, String needle) {

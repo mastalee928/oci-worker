@@ -2375,7 +2375,8 @@ public class OciGenerativeOpenAiService {
                     JsonNode delta = choice == null ? null : choice.get("delta");
                     JsonNode toolCalls = delta == null ? null : delta.get("tool_calls");
                     if (toolCalls != null && toolCalls.isArray() && request != null) {
-                        incrementIntAttribute(request, "ociworker.lb.responseToolCallCount", toolCalls.size());
+                        incrementIntAttribute(request, "ociworker.lb.responseToolCallCount",
+                                countNewStreamingToolCalls(toolCalls, request));
                     }
                     String finishReason = text(choice, "finish_reason");
                     if ("tool_calls".equalsIgnoreCase(finishReason) && request != null) {
@@ -2729,6 +2730,69 @@ public class OciGenerativeOpenAiService {
             }
         }
         request.setAttribute(attr, Math.max(0, current) + delta);
+    }
+
+    static int countNewStreamingToolCalls(JsonNode toolCalls) {
+        if (toolCalls == null || !toolCalls.isArray()) {
+            return 0;
+        }
+        int count = 0;
+        for (JsonNode call : toolCalls) {
+            if (call == null || !call.isObject()) {
+                continue;
+            }
+            JsonNode id = call.get("id");
+            JsonNode fn = call.get("function");
+            JsonNode name = fn != null && fn.isObject() ? fn.get("name") : null;
+            if ((id != null && id.isTextual() && !id.asText().isBlank())
+                    || (name != null && name.isTextual() && !name.asText().isBlank())) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    @SuppressWarnings("unchecked")
+    static int countNewStreamingToolCalls(JsonNode toolCalls, HttpServletRequest request) {
+        if (request == null || toolCalls == null || !toolCalls.isArray()) {
+            return countNewStreamingToolCalls(toolCalls);
+        }
+        Object existing = request.getAttribute("ociworker.lb.seenStreamingToolCalls");
+        Set<String> seen;
+        if (existing instanceof Set<?> set) {
+            seen = (Set<String>) set;
+        } else {
+            seen = new HashSet<>();
+            request.setAttribute("ociworker.lb.seenStreamingToolCalls", seen);
+        }
+        int count = 0;
+        for (JsonNode call : toolCalls) {
+            String signature = streamingToolCallSignature(call);
+            if (signature != null && seen.add(signature)) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private static String streamingToolCallSignature(JsonNode call) {
+        if (call == null || !call.isObject()) {
+            return null;
+        }
+        JsonNode id = call.get("id");
+        if (id != null && id.isTextual() && !id.asText().isBlank()) {
+            return "id:" + id.asText();
+        }
+        JsonNode index = call.get("index");
+        if (index != null && index.isNumber()) {
+            return "index:" + index.asInt();
+        }
+        JsonNode fn = call.get("function");
+        JsonNode name = fn != null && fn.isObject() ? fn.get("name") : null;
+        if (name != null && name.isTextual() && !name.asText().isBlank()) {
+            return "name:" + name.asText();
+        }
+        return null;
     }
 
     private static int countChatCompletionToolCalls(String body) {
