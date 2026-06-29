@@ -387,14 +387,26 @@ public class OciOpenaiLoadBalanceService {
     }
 
     public int eligibleMemberCount(String requestedModel, long estimatedTokens) {
-        return eligibleCandidates(requestedModel, estimatedTokens, Set.of(), LocalDateTime.now(), true).size();
+        return eligibleMemberCount(requestedModel, estimatedTokens, false);
+    }
+
+    public int eligibleMemberCount(String requestedModel, long estimatedTokens, boolean requireGenerativeContext) {
+        return eligibleCandidates(requestedModel, estimatedTokens, Set.of(), LocalDateTime.now(), true, requireGenerativeContext).size();
     }
 
     public Selection selectMember(String requestedModel, long estimatedTokens, Set<String> excludedMemberIds) {
+        return selectMember(requestedModel, estimatedTokens, excludedMemberIds, false);
+    }
+
+    public Selection selectMember(
+            String requestedModel,
+            long estimatedTokens,
+            Set<String> excludedMemberIds,
+            boolean requireGenerativeContext) {
         LocalDateTime now = LocalDateTime.now();
-        List<Candidate> candidates = eligibleCandidates(requestedModel, estimatedTokens, excludedMemberIds, now, false);
+        List<Candidate> candidates = eligibleCandidates(requestedModel, estimatedTokens, excludedMemberIds, now, false, requireGenerativeContext);
         if (candidates.isEmpty()) {
-            candidates = eligibleCandidates(requestedModel, estimatedTokens, excludedMemberIds, now, true);
+            candidates = eligibleCandidates(requestedModel, estimatedTokens, excludedMemberIds, now, true, requireGenerativeContext);
         }
         Candidate selected = candidates.stream()
                 .min(Comparator.comparingDouble(Candidate::loadRate)
@@ -406,6 +418,16 @@ public class OciOpenaiLoadBalanceService {
     }
 
     private List<Candidate> eligibleCandidates(String requestedModel, long estimatedTokens, Set<String> excludedMemberIds, LocalDateTime now, boolean includeCooling) {
+        return eligibleCandidates(requestedModel, estimatedTokens, excludedMemberIds, now, includeCooling, false);
+    }
+
+    private List<Candidate> eligibleCandidates(
+            String requestedModel,
+            long estimatedTokens,
+            Set<String> excludedMemberIds,
+            LocalDateTime now,
+            boolean includeCooling,
+            boolean requireGenerativeContext) {
         List<Candidate> candidates = new ArrayList<>();
         for (OciOpenaiLbMember member : memberMapper.selectList(new LambdaQueryWrapper<OciOpenaiLbMember>()
                 .eq(OciOpenaiLbMember::getEnabled, 1))) {
@@ -422,6 +444,9 @@ public class OciOpenaiLoadBalanceService {
             }
             List<String> models = OracleAiPortBindingService.decodeAllowedModels(binding.getAllowedModelsJson());
             if (!modelAllowed(requestedModel, models)) {
+                continue;
+            }
+            if (requireGenerativeContext && !hasGenerativeContext(binding)) {
                 continue;
             }
             if (modelUnavailable(member.getId(), requestedModel, now)) {
@@ -452,6 +477,24 @@ public class OciOpenaiLoadBalanceService {
             candidates.add(new Candidate(member, binding, score));
         }
         return candidates;
+    }
+
+    private boolean hasGenerativeContext(OciOpenaiPortBinding binding) {
+        if (binding == null) {
+            return false;
+        }
+        OciUser user = binding.getOciUserId() == null ? null : userMapper.selectById(binding.getOciUserId());
+        if (user == null) {
+            return false;
+        }
+        try {
+            Map<String, String> ctx = generativeOpenAiService.getGenerativeContext(user, binding.getOciRegion());
+            return hasText(ctx == null ? null : ctx.get("generativeOpenaiProject"))
+                    || hasText(ctx == null ? null : ctx.get("generativeConversationStoreId"));
+        } catch (Exception e) {
+            log.debug("Failed to load generative context for LB binding {}: {}", binding.getId(), e.getMessage());
+            return false;
+        }
     }
 
     public void finishRequest(String memberId, int status) {
@@ -1186,6 +1229,10 @@ public class OciOpenaiLoadBalanceService {
             return null;
         }
         return trimmed.length() > maxLen ? trimmed.substring(0, maxLen) : trimmed;
+    }
+
+    private static boolean hasText(String value) {
+        return value != null && !value.isBlank();
     }
 
     private static String normalizeModel(String model) {

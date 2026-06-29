@@ -96,9 +96,15 @@ public class OpenAiV1Controller {
         String requestedModel = extractModelFromBody(body, request.getContentType());
         boolean stream = isStreamRequest(body, request.getContentType());
         boolean bufferedToolStream = stream && hasToolRequest(body, request.getContentType());
+        boolean requireGenerativeContext = isResponsesPath(pathAfterV1)
+                && requiresResponsesGenerativeContext(requestedModel);
         long estimatedTokens = estimateTokens(body, request.getContentType());
         Set<String> triedMembers = new HashSet<>();
-        int eligibleCount = loadBalanceService.eligibleMemberCount(requestedModel, estimatedTokens);
+        int eligibleCount = loadBalanceService.eligibleMemberCount(requestedModel, estimatedTokens, requireGenerativeContext);
+        if (requireGenerativeContext && eligibleCount <= 0) {
+            error(response, 400, "Responses API 调用非 OpenAI 模型需要先为负载均衡成员配置 OpenAI-Project 或 opc-conversation-store-id");
+            return;
+        }
         int maxAttempts = stream && !bufferedToolStream
                 ? 1
                 : Math.max(2, Math.min(6, eligibleCount <= 0 ? 2 : eligibleCount));
@@ -108,7 +114,7 @@ public class OpenAiV1Controller {
         for (int attempt = 0; attempt < maxAttempts; attempt++) {
             OciOpenaiLoadBalanceService.Selection selection;
             try {
-                selection = selectMemberWithBriefWait(requestedModel, estimatedTokens, triedMembers);
+                selection = selectMemberWithBriefWait(requestedModel, estimatedTokens, triedMembers, requireGenerativeContext);
             } catch (OciException e) {
                 if (attempt == 0) {
                     error(response, 503, e.getMessage());
@@ -236,11 +242,12 @@ public class OpenAiV1Controller {
     private OciOpenaiLoadBalanceService.Selection selectMemberWithBriefWait(
             String requestedModel,
             long estimatedTokens,
-            Set<String> triedMembers) {
+            Set<String> triedMembers,
+            boolean requireGenerativeContext) {
         OciException last = null;
         for (int i = 0; i < 4; i++) {
             try {
-                return loadBalanceService.selectMember(requestedModel, estimatedTokens, triedMembers);
+                return loadBalanceService.selectMember(requestedModel, estimatedTokens, triedMembers, requireGenerativeContext);
             } catch (OciException e) {
                 last = e;
                 if (i >= 3) {
@@ -325,6 +332,18 @@ public class OpenAiV1Controller {
 
     private static boolean isModelsPath(String pathAfterV1) {
         return pathAfterV1 != null && (pathAfterV1.equals("/models") || pathAfterV1.endsWith("/models"));
+    }
+
+    private static boolean isResponsesPath(String pathAfterV1) {
+        return pathAfterV1 != null && (pathAfterV1.equals("/responses") || pathAfterV1.endsWith("/responses"));
+    }
+
+    private static boolean requiresResponsesGenerativeContext(String requestedModel) {
+        if (requestedModel == null || requestedModel.isBlank()) {
+            return false;
+        }
+        String model = requestedModel.trim().toLowerCase();
+        return !model.startsWith("openai.");
     }
 
     private static boolean isClientAbort(IOException e) {
