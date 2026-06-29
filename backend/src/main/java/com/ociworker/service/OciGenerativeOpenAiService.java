@@ -1715,6 +1715,35 @@ public class OciGenerativeOpenAiService {
                 }
                 return normalized.toString();
             }
+            if (root != null
+                    && root.isObject()
+                    && "chat.completion.chunk".equals(text(root, "object"))
+                    && root.get("choices") != null
+                    && root.get("choices").isArray()) {
+                ObjectNode normalized = null;
+                ArrayNode choices = null;
+                for (int i = 0; i < root.get("choices").size(); i++) {
+                    JsonNode choice = root.get("choices").get(i);
+                    JsonNode delta = choice == null ? null : choice.get("delta");
+                    if (delta != null
+                            && delta.isObject()
+                            && delta.get("role") == null
+                            && delta.get("tool_calls") != null) {
+                        if (normalized == null) {
+                            normalized = ((ObjectNode) root).deepCopy();
+                            choices = (ArrayNode) normalized.get("choices");
+                        }
+                        JsonNode normalizedChoice = choices.get(i);
+                        JsonNode normalizedDelta = normalizedChoice == null ? null : normalizedChoice.get("delta");
+                        if (normalizedDelta instanceof ObjectNode deltaObject) {
+                            deltaObject.put("role", "assistant");
+                        }
+                    }
+                }
+                if (normalized != null) {
+                    return normalized.toString();
+                }
+            }
         } catch (Exception ignored) {
         }
         return payload;
