@@ -128,7 +128,19 @@ public class OracleAiPortBindingService {
         row.setAllowedModelsJson(encodeAllowedModels(allowedModels));
         row.setEnabled(enabled ? 1 : 0);
         row.setUpdateTime(LocalDateTime.now());
-        bindingMapper.updateById(row);
+        bindingMapper.update(
+                null,
+                new LambdaUpdateWrapper<OciOpenaiPortBinding>()
+                        .set(OciOpenaiPortBinding::getName, row.getName())
+                        .set(OciOpenaiPortBinding::getPort, row.getPort())
+                        .set(OciOpenaiPortBinding::getOciUserId, row.getOciUserId())
+                        .set(OciOpenaiPortBinding::getOciRegion, row.getOciRegion())
+                        .set(OciOpenaiPortBinding::getOpenaiKeyId, row.getOpenaiKeyId())
+                        .set(OciOpenaiPortBinding::getDefaultMaxTokens, row.getDefaultMaxTokens())
+                        .set(OciOpenaiPortBinding::getAllowedModelsJson, row.getAllowedModelsJson())
+                        .set(OciOpenaiPortBinding::getEnabled, row.getEnabled())
+                        .set(OciOpenaiPortBinding::getUpdateTime, row.getUpdateTime())
+                        .eq(OciOpenaiPortBinding::getId, id));
 
         if (enabled) {
             startAndMark(row);

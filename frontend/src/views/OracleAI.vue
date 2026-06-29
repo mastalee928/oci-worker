@@ -1672,9 +1672,25 @@ watch(
   { deep: true },
 )
 
-function onPortModelLimitModeChange() {
-  if (portForm.value.modelLimitMode === 'unlimited') {
+function normalizeModelSelection(models?: unknown) {
+  if (!Array.isArray(models)) return []
+  const seen = new Set<string>()
+  const out: string[] = []
+  for (const raw of models) {
+    const s = String(raw || '').trim()
+    if (!s || seen.has(s)) continue
+    seen.add(s)
+    out.push(s)
+  }
+  return out
+}
+
+function onPortModelLimitModeChange(e?: any) {
+  const nextMode = e?.target?.value || portForm.value.modelLimitMode
+  if (nextMode === 'unlimited') {
     portForm.value.allowedModels = []
+  } else {
+    portForm.value.allowedModels = normalizeModelSelection(portForm.value.allowedModels)
   }
 }
 
@@ -2229,6 +2245,7 @@ async function revealPortKey(row: any) {
 
 async function savePortBindingRow() {
   const f = portForm.value
+  const selectedModels = normalizeModelSelection(f.allowedModels)
   if (!f.ociUserId || !f.openaiKeyId) {
     message.warning('请选择租户和 API Key')
     return
@@ -2237,7 +2254,7 @@ async function savePortBindingRow() {
     message.warning('端口必须在 30000-39999 之间')
     return
   }
-  if (f.modelLimitMode === 'limited' && !f.allowedModels.length) {
+  if (f.modelLimitMode === 'limited' && !selectedModels.length) {
     message.warning('限制模型时至少选择一个模型')
     return
   }
@@ -2251,7 +2268,7 @@ async function savePortBindingRow() {
       ociRegion: f.ociRegion,
       openaiKeyId: f.openaiKeyId,
       defaultMaxTokens: f.defaultMaxTokens ? Math.trunc(Number(f.defaultMaxTokens)) : null,
-      allowedModels: f.modelLimitMode === 'limited' ? (f.allowedModels || []) : [],
+      allowedModels: f.modelLimitMode === 'limited' ? selectedModels : [],
       enabled: f.enabled,
     })
     portModalOpen.value = false
