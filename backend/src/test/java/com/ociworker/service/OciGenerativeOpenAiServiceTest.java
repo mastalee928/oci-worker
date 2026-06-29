@@ -100,4 +100,71 @@ class OciGenerativeOpenAiServiceTest {
         assertThat(root.path("tools").get(0).path("function").path("name").asText()).isEqualTo("write_file");
         assertThat(root.path("tool_choice").asText()).isEqualTo("auto");
     }
+
+    @Test
+    void convertsResponsesRequestToChatCompletions() throws Exception {
+        String payload = """
+                {
+                  "model":"xai.grok-4.3",
+                  "instructions":"Use tools when needed.",
+                  "input":"create a file",
+                  "tools":[{"type":"function","name":"write_file","description":"write","parameters":{"type":"object"}}],
+                  "tool_choice":{"type":"function","name":"write_file"},
+                  "stream":true,
+                  "max_output_tokens":512
+                }
+                """;
+
+        byte[] converted = OciGenerativeOpenAiService.transformResponsesToChatCompletionsJson(payload.getBytes(), 128);
+
+        JsonNode root = MAPPER.readTree(converted);
+        assertThat(root.path("messages").get(0).path("role").asText()).isEqualTo("system");
+        assertThat(root.path("messages").get(1).path("content").asText()).isEqualTo("create a file");
+        assertThat(root.path("tools").get(0).path("function").path("name").asText()).isEqualTo("write_file");
+        assertThat(root.path("tool_choice").path("function").path("name").asText()).isEqualTo("write_file");
+        assertThat(root.path("stream").asBoolean()).isTrue();
+        assertThat(root.path("max_tokens").asInt()).isEqualTo(512);
+    }
+
+    @Test
+    void convertsChatCompletionToolCallsToResponsesJson() throws Exception {
+        String payload = """
+                {
+                  "id":"chatcmpl-1",
+                  "object":"chat.completion",
+                  "model":"xai.grok-4.3",
+                  "choices":[{"index":0,"message":{"role":"assistant","content":"","tool_calls":[{"id":"call_a","type":"function","function":{"name":"write_file","arguments":"{\\\"path\\\":\\\"a.txt\\\"}"}}]},"finish_reason":"tool_calls"}],
+                  "usage":{"prompt_tokens":1,"completion_tokens":2,"total_tokens":3}
+                }
+                """;
+
+        String converted = OciGenerativeOpenAiService.convertChatCompletionJsonToResponsesJson(payload, "xai.grok-4.3");
+
+        JsonNode root = MAPPER.readTree(converted);
+        assertThat(root.path("object").asText()).isEqualTo("response");
+        assertThat(root.path("output").get(0).path("type").asText()).isEqualTo("function_call");
+        assertThat(root.path("output").get(0).path("call_id").asText()).isEqualTo("call_a");
+        assertThat(root.path("output").get(0).path("arguments").asText()).contains("a.txt");
+        assertThat(root.path("usage").path("total_tokens").asInt()).isEqualTo(3);
+    }
+
+    @Test
+    void convertsStreamingToolCallLifecycleToResponsesEvents() throws Exception {
+        OciGenerativeOpenAiService.ResponsesBridgeStreamState state =
+                new OciGenerativeOpenAiService.ResponsesBridgeStreamState("xai.grok-4.3");
+        String chunk = """
+                {"id":"chatcmpl-1","object":"chat.completion.chunk","model":"xai.grok-4.3","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_a","type":"function","function":{"name":"write_file","arguments":"{\\\"path\\\":\\\"a.txt\\\"}"}}]}}]}
+                """;
+
+        String sse = OciGenerativeOpenAiService.chatChunkToResponsesSse(MAPPER.readTree(chunk), state)
+                + OciGenerativeOpenAiService.finalizeResponsesBridgeStream(state);
+
+        assertThat(sse).contains("\"type\":\"response.output_item.added\"");
+        assertThat(sse).contains("\"type\":\"response.function_call_arguments.delta\"");
+        assertThat(sse).contains("\"type\":\"response.function_call_arguments.done\"");
+        assertThat(sse).contains("\"type\":\"response.output_item.done\"");
+        assertThat(sse).contains("\"type\":\"response.completed\"");
+        assertThat(sse).contains("\"call_id\":\"call_a\"");
+        assertThat(sse).contains("\"arguments\":\"{\\\"path\\\":\\\"a.txt\\\"}\"");
+    }
 }

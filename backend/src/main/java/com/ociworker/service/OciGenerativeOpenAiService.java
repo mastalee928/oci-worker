@@ -229,11 +229,24 @@ public class OciGenerativeOpenAiService {
             body = transformChatCompletionsJson(body, requestDefaultMaxTokens);
         }
 
+        if ("POST".equalsIgnoreCase(method)
+                && isResponsesPath(origPathAfterV1)
+                && body != null
+                && body.length > 0
+                && looksLikeJson
+                && !isLikelyMultiAgentModelName(requestedModel)) {
+            request.setAttribute("ociworker.rewrite.responsesToChat", Boolean.TRUE);
+            request.setAttribute("ociworker.rewrite.model", requestedModel);
+            pathAfterV1 = "/chat/completions";
+            body = transformResponsesToChatCompletionsJson(origBody, requestDefaultMaxTokens);
+        }
+
         // 对直接调用 /v1/responses 的请求：OCI 对 input 的 ModelInput 格式较严格。
         // 某些上游（IDE/New API）会按 chat 风格拼 input（content 为 string），OCI 会报反序列化失败。
         // 这里做宽松规范化：只要检测到“chat 风格”就转换为 input_text 块数组（对非 Multi-Agent 也安全）。
         if ("POST".equalsIgnoreCase(method)
                 && isResponsesPath(origPathAfterV1)
+                && !Boolean.TRUE.equals(request.getAttribute("ociworker.rewrite.responsesToChat"))
                 && body != null
                 && body.length > 0
                 && looksLikeJson) {
@@ -1353,6 +1366,217 @@ public class OciGenerativeOpenAiService {
         }
     }
 
+    static byte[] transformResponsesToChatCompletionsJson(byte[] input, int defaultMaxTokens) {
+        try {
+            JsonNode root = MAPPER.readTree(input);
+            if (root == null || !root.isObject()) {
+                return input;
+            }
+            ObjectNode in = (ObjectNode) root;
+            ObjectNode out = MAPPER.createObjectNode();
+            copyIfPresent(in, out, "model");
+
+            ArrayNode messages = MAPPER.createArrayNode();
+            String instructions = textOrNull(in, "instructions");
+            if (instructions != null && !instructions.isBlank()) {
+                ObjectNode sys = MAPPER.createObjectNode();
+                sys.put("role", "system");
+                sys.put("content", instructions);
+                messages.add(sys);
+            }
+            appendResponsesInputAsChatMessages(messages, in.get("input"));
+            if (messages.isEmpty()) {
+                ObjectNode user = MAPPER.createObjectNode();
+                user.put("role", "user");
+                user.put("content", "");
+                messages.add(user);
+            }
+            out.set("messages", messages);
+
+            JsonNode tools = in.get("tools");
+            if (tools != null && tools.isArray()) {
+                ArrayNode chatTools = MAPPER.createArrayNode();
+                for (JsonNode tool : tools) {
+                    if (tool == null || !tool.isObject()) {
+                        continue;
+                    }
+                    ObjectNode source = (ObjectNode) tool;
+                    String type = textOrNull(source, "type");
+                    if (type != null && !type.isBlank() && !"function".equalsIgnoreCase(type)) {
+                        continue;
+                    }
+                    ObjectNode chatTool = MAPPER.createObjectNode();
+                    chatTool.put("type", "function");
+                    ObjectNode fn = MAPPER.createObjectNode();
+                    copyIfPresent(source, fn, "name");
+                    copyIfPresent(source, fn, "description");
+                    copyIfPresent(source, fn, "parameters");
+                    copyIfPresent(source, fn, "strict");
+                    chatTool.set("function", fn);
+                    chatTools.add(chatTool);
+                }
+                if (!chatTools.isEmpty()) {
+                    out.set("tools", chatTools);
+                }
+            }
+
+            JsonNode toolChoice = in.get("tool_choice");
+            if (toolChoice != null && !toolChoice.isNull() && !toolChoice.isMissingNode()) {
+                out.set("tool_choice", responsesToolChoiceToChatToolChoice(toolChoice));
+            }
+
+            JsonNode maxOutput = in.get("max_output_tokens");
+            if (maxOutput != null && !maxOutput.isNull() && !maxOutput.isMissingNode()) {
+                out.set("max_tokens", maxOutput);
+            } else {
+                out.put("max_tokens", OracleAiGatewayConfigService.normalizeDefaultMaxTokens(defaultMaxTokens));
+            }
+            copyIfPresent(in, out, "temperature");
+            copyIfPresent(in, out, "top_p");
+            copyIfPresent(in, out, "stream");
+            copyIfPresent(in, out, "service_tier");
+            if (in.get("stream") != null && in.get("stream").asBoolean(false)) {
+                ObjectNode streamOptions = MAPPER.createObjectNode();
+                streamOptions.put("include_usage", true);
+                out.set("stream_options", streamOptions);
+            }
+            return MAPPER.writeValueAsBytes(out);
+        } catch (Exception e) {
+            return input;
+        }
+    }
+
+    private static void appendResponsesInputAsChatMessages(ArrayNode messages, JsonNode input) {
+        if (input == null || input.isNull() || input.isMissingNode()) {
+            return;
+        }
+        if (input.isTextual()) {
+            addChatMessage(messages, "user", input.asText());
+            return;
+        }
+        if (!input.isArray()) {
+            addChatMessage(messages, "user", input.toString());
+            return;
+        }
+        for (JsonNode item : input) {
+            if (item == null || item.isNull()) {
+                continue;
+            }
+            if (item.isTextual()) {
+                addChatMessage(messages, "user", item.asText());
+                continue;
+            }
+            if (!item.isObject()) {
+                addChatMessage(messages, "user", item.toString());
+                continue;
+            }
+            ObjectNode o = (ObjectNode) item;
+            String type = textOrNull(o, "type");
+            if ("function_call".equalsIgnoreCase(type)) {
+                ObjectNode assistant = MAPPER.createObjectNode();
+                assistant.put("role", "assistant");
+                ArrayNode toolCalls = MAPPER.createArrayNode();
+                ObjectNode call = MAPPER.createObjectNode();
+                call.put("id", firstNonBlank(textOrNull(o, "call_id"), textOrNull(o, "id"), "call_ociworker"));
+                call.put("type", "function");
+                ObjectNode fn = MAPPER.createObjectNode();
+                fn.put("name", firstNonBlank(textOrNull(o, "name"), "tool"));
+                fn.put("arguments", firstNonBlank(textOrNull(o, "arguments"), "{}"));
+                call.set("function", fn);
+                toolCalls.add(call);
+                assistant.set("tool_calls", toolCalls);
+                messages.add(assistant);
+                continue;
+            }
+            if ("function_call_output".equalsIgnoreCase(type)) {
+                ObjectNode tool = MAPPER.createObjectNode();
+                tool.put("role", "tool");
+                tool.put("tool_call_id", firstNonBlank(textOrNull(o, "call_id"), textOrNull(o, "id"), "call_ociworker"));
+                tool.put("content", firstNonBlank(textOrNull(o, "output"), ""));
+                messages.add(tool);
+                continue;
+            }
+            String role = firstNonBlank(textOrNull(o, "role"), "message".equalsIgnoreCase(type) ? "user" : "user");
+            addChatMessage(messages, normalizeChatRole(role), responsesContentText(o.get("content"), o));
+        }
+    }
+
+    private static void addChatMessage(ArrayNode messages, String role, String content) {
+        ObjectNode msg = MAPPER.createObjectNode();
+        msg.put("role", normalizeChatRole(role));
+        msg.put("content", content == null ? "" : content);
+        messages.add(msg);
+    }
+
+    private static String normalizeChatRole(String role) {
+        if (role == null || role.isBlank()) {
+            return "user";
+        }
+        if ("developer".equalsIgnoreCase(role)) {
+            return "system";
+        }
+        if ("assistant".equalsIgnoreCase(role) || "system".equalsIgnoreCase(role) || "tool".equalsIgnoreCase(role)) {
+            return role.toLowerCase(java.util.Locale.ROOT);
+        }
+        return "user";
+    }
+
+    private static String responsesContentText(JsonNode content, ObjectNode fallback) {
+        if (content == null || content.isNull() || content.isMissingNode()) {
+            return firstNonBlank(textOrNull(fallback, "text"), "");
+        }
+        if (content.isTextual()) {
+            return content.asText();
+        }
+        if (content.isObject()) {
+            ObjectNode o = (ObjectNode) content;
+            return firstNonBlank(textOrNull(o, "text"), content.toString());
+        }
+        if (!content.isArray()) {
+            return content.toString();
+        }
+        StringBuilder sb = new StringBuilder();
+        for (JsonNode part : content) {
+            if (part == null || !part.isObject()) {
+                continue;
+            }
+            ObjectNode po = (ObjectNode) part;
+            String text = textOrNull(po, "text");
+            if (text == null || text.isBlank()) {
+                continue;
+            }
+            if (sb.length() > 0) {
+                sb.append("\n\n");
+            }
+            sb.append(text);
+        }
+        return sb.toString();
+    }
+
+    private static JsonNode responsesToolChoiceToChatToolChoice(JsonNode toolChoice) {
+        if (toolChoice == null || !toolChoice.isObject()) {
+            return toolChoice;
+        }
+        ObjectNode choice = (ObjectNode) toolChoice;
+        String type = textOrNull(choice, "type");
+        if (!"function".equalsIgnoreCase(firstNonBlank(type, ""))) {
+            return toolChoice;
+        }
+        String name = firstNonBlank(textOrNull(choice, "name"),
+                choice.get("function") != null && choice.get("function").isObject()
+                        ? textOrNull((ObjectNode) choice.get("function"), "name")
+                        : null);
+        if (name == null || name.isBlank()) {
+            return toolChoice;
+        }
+        ObjectNode out = MAPPER.createObjectNode();
+        out.put("type", "function");
+        ObjectNode fn = MAPPER.createObjectNode();
+        fn.put("name", name);
+        out.set("function", fn);
+        return out;
+    }
+
     private static byte[] transformChatCompletionsToResponsesJson(byte[] input, int defaultMaxTokens) {
         try {
             JsonNode root = MAPPER.readTree(input);
@@ -1526,6 +1750,10 @@ public class OciGenerativeOpenAiService {
             }
             boolean normalizeSse = response.getContentType() != null
                     && response.getContentType().toLowerCase(java.util.Locale.ROOT).contains("text/event-stream");
+            boolean responsesToChatStream = Boolean.TRUE.equals(request.getAttribute("ociworker.rewrite.responsesToChat"));
+            ResponsesBridgeStreamState responsesBridgeState = responsesToChatStream
+                    ? new ResponsesBridgeStreamState(firstNonBlank((String) request.getAttribute("ociworker.rewrite.model"), ""))
+                    : null;
             try (InputStream in = resp.body();
                  OutputStream out = response.getOutputStream()) {
                 if (in == null) {
@@ -1572,7 +1800,9 @@ public class OciGenerativeOpenAiService {
                     }
                     if (normalizeSse) {
                         ssePending.append(decodeUtf8Chunk(sseDecoder, buf, n, false));
-                        String normalized = drainSseEvents(ssePending, request);
+                        String normalized = responsesToChatStream
+                                ? drainChatCompletionsAsResponsesEvents(ssePending, request, responsesBridgeState)
+                                : drainSseEvents(ssePending, request);
                         if (!normalized.isEmpty()) {
                             out.write(normalized.getBytes(StandardCharsets.UTF_8));
                         }
@@ -1584,10 +1814,20 @@ public class OciGenerativeOpenAiService {
                 if (normalizeSse) {
                     ssePending.append(decodeUtf8Chunk(sseDecoder, new byte[0], 0, true));
                     if (!ssePending.isEmpty()) {
-                        out.write(drainSseEvents(ssePending, request).getBytes(StandardCharsets.UTF_8));
+                        String drained = responsesToChatStream
+                                ? drainChatCompletionsAsResponsesEvents(ssePending, request, responsesBridgeState)
+                                : drainSseEvents(ssePending, request);
+                        out.write(drained.getBytes(StandardCharsets.UTF_8));
                         if (!ssePending.isEmpty()) {
                             out.write(ssePending.toString().getBytes(StandardCharsets.UTF_8));
                             ssePending.setLength(0);
+                        }
+                    }
+                    if (responsesToChatStream && responsesBridgeState != null && !responsesBridgeState.doneSent) {
+                        try {
+                            out.write(finalizeResponsesBridgeStream(responsesBridgeState).getBytes(StandardCharsets.UTF_8));
+                        } catch (Exception e) {
+                            throw new IOException("finalize responses stream failed", e);
                         }
                     }
                     out.flush();
@@ -1653,6 +1893,407 @@ public class OciGenerativeOpenAiService {
             out.append(normalizeSseEvent(event, request)).append("\n\n");
         }
         return out.toString();
+    }
+
+    private static String drainChatCompletionsAsResponsesEvents(
+            StringBuilder pending, HttpServletRequest request, ResponsesBridgeStreamState state) {
+        StringBuilder out = new StringBuilder();
+        while (true) {
+            int idx = indexOfSseEventEnd(pending);
+            if (idx < 0) {
+                break;
+            }
+            int sepLen = pending.charAt(idx) == '\r' ? 4 : 2;
+            String event = pending.substring(0, idx);
+            pending.delete(0, idx + sepLen);
+            String payload = sseDataPayload(event);
+            if (payload == null || payload.isBlank()) {
+                continue;
+            }
+            if ("[DONE]".equals(payload)) {
+                try {
+                    out.append(finalizeResponsesBridgeStream(state));
+                } catch (Exception ignored) {
+                }
+                state.doneSent = true;
+                out.append("data: [DONE]\n\n");
+                continue;
+            }
+            try {
+                JsonNode chunk = MAPPER.readTree(payload);
+                out.append(chatChunkToResponsesSse(chunk, state));
+                long tokens = usageTokens(chunk);
+                if (request != null && tokens > 0) {
+                    request.setAttribute(OpenAiApiConstants.ATTR_USAGE_TOKENS, tokens);
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        return out.toString();
+    }
+
+    private static String sseDataPayload(String event) {
+        if (event == null || event.isEmpty()) {
+            return null;
+        }
+        String[] lines = event.split("\\r?\\n", -1);
+        StringBuilder sb = new StringBuilder();
+        for (String line : lines) {
+            if (!line.startsWith("data:")) {
+                continue;
+            }
+            String prefix = line.startsWith("data: ") ? "data: " : "data:";
+            String payload = line.substring(prefix.length()).trim();
+            if (sb.length() > 0) {
+                sb.append('\n');
+            }
+            sb.append(payload);
+        }
+        return sb.length() == 0 ? null : sb.toString().trim();
+    }
+
+    static String chatChunkToResponsesSse(JsonNode chunk, ResponsesBridgeStreamState state) throws Exception {
+        if (chunk == null || !chunk.isObject() || state == null) {
+            return "";
+        }
+        ObjectNode co = (ObjectNode) chunk;
+        state.responseId = firstNonBlank(textOrNull(co, "id"), state.responseId);
+        state.model = firstNonBlank(state.model, textOrNull(co, "model"), "");
+        JsonNode usage = co.get("usage");
+        if (usage != null && usage.isObject()) {
+            state.usage = chatUsageToResponsesUsage((ObjectNode) usage);
+        }
+        StringBuilder out = new StringBuilder();
+        out.append(ensureResponsesBridgeCreated(state));
+        JsonNode choices = co.get("choices");
+        if (choices == null || !choices.isArray()) {
+            return out.toString();
+        }
+        for (JsonNode choice : choices) {
+            if (choice == null || !choice.isObject()) {
+                continue;
+            }
+            JsonNode delta = choice.get("delta");
+            if (delta != null && delta.isObject()) {
+                ObjectNode d = (ObjectNode) delta;
+                String reasoning = textOrNull(d, "reasoning_content");
+                if (reasoning != null && !reasoning.isBlank()) {
+                    out.append(ensureResponsesBridgeReasoningItem(state));
+                    state.reasoning.append(reasoning);
+                    out.append(responsesSseEvent("response.reasoning_summary_text.delta",
+                            responsesReasoningTextEvent(state, reasoning, false)));
+                }
+                String content = textOrNull(d, "content");
+                if (content != null && !content.isEmpty()) {
+                    out.append(closeResponsesBridgeReasoningItem(state));
+                    out.append(ensureResponsesBridgeMessageItem(state));
+                    out.append(ensureResponsesBridgeContentPart(state));
+                    state.text.append(content);
+                    out.append(responsesSseEvent("response.output_text.delta",
+                            responsesTextEvent(state, content, false)));
+                }
+                JsonNode toolCalls = d.get("tool_calls");
+                if (toolCalls != null && toolCalls.isArray()) {
+                    out.append(closeResponsesBridgeReasoningItem(state));
+                    for (JsonNode toolCall : toolCalls) {
+                        if (toolCall == null || !toolCall.isObject()) {
+                            continue;
+                        }
+                        out.append(handleResponsesBridgeToolCall(state, (ObjectNode) toolCall));
+                    }
+                }
+            }
+            String finish = text(choice, "finish_reason");
+            if (finish != null && !finish.isBlank()) {
+                state.finishReason = finish;
+            }
+        }
+        return out.toString();
+    }
+
+    private static String ensureResponsesBridgeCreated(ResponsesBridgeStreamState state) throws Exception {
+        if (state.createdSent) {
+            return "";
+        }
+        state.createdSent = true;
+        ObjectNode response = MAPPER.createObjectNode();
+        response.put("id", state.responseId);
+        response.put("object", "response");
+        response.put("model", state.model);
+        response.put("status", "in_progress");
+        response.set("output", MAPPER.createArrayNode());
+        ObjectNode event = MAPPER.createObjectNode();
+        event.set("response", response);
+        return responsesSseEvent("response.created", event);
+    }
+
+    private static String ensureResponsesBridgeMessageItem(ResponsesBridgeStreamState state) throws Exception {
+        if (state.messageItemId != null) {
+            return "";
+        }
+        state.messageItemId = "msg_" + CommonUtils.generateId();
+        state.messageOutputIndex = state.nextOutputIndex++;
+        ObjectNode event = MAPPER.createObjectNode();
+        event.put("output_index", state.messageOutputIndex);
+        ObjectNode item = MAPPER.createObjectNode();
+        item.put("type", "message");
+        item.put("id", state.messageItemId);
+        item.put("role", "assistant");
+        item.put("status", "in_progress");
+        item.set("content", MAPPER.createArrayNode());
+        event.set("item", item);
+        return responsesSseEvent("response.output_item.added", event);
+    }
+
+    private static String ensureResponsesBridgeContentPart(ResponsesBridgeStreamState state) throws Exception {
+        if (state.contentPartOpen) {
+            return "";
+        }
+        state.contentPartOpen = true;
+        ObjectNode event = MAPPER.createObjectNode();
+        event.put("output_index", state.messageOutputIndex);
+        event.put("content_index", 0);
+        event.put("item_id", state.messageItemId);
+        ObjectNode part = MAPPER.createObjectNode();
+        part.put("type", "output_text");
+        part.put("text", "");
+        part.set("annotations", MAPPER.createArrayNode());
+        part.set("logprobs", MAPPER.createArrayNode());
+        event.set("part", part);
+        return responsesSseEvent("response.content_part.added", event);
+    }
+
+    private static ObjectNode responsesTextEvent(ResponsesBridgeStreamState state, String text, boolean done) {
+        ObjectNode event = MAPPER.createObjectNode();
+        event.put("output_index", state.messageOutputIndex);
+        event.put("content_index", 0);
+        event.put("item_id", state.messageItemId);
+        if (done) {
+            event.put("text", text == null ? "" : text);
+        } else {
+            event.put("delta", text == null ? "" : text);
+        }
+        return event;
+    }
+
+    private static String ensureResponsesBridgeReasoningItem(ResponsesBridgeStreamState state) throws Exception {
+        if (state.reasoningOpen || state.reasoningDone) {
+            return "";
+        }
+        state.reasoningOpen = true;
+        state.reasoningItemId = "rs_" + CommonUtils.generateId();
+        state.reasoningOutputIndex = state.nextOutputIndex++;
+        ObjectNode added = MAPPER.createObjectNode();
+        added.put("output_index", state.reasoningOutputIndex);
+        ObjectNode item = MAPPER.createObjectNode();
+        item.put("type", "reasoning");
+        item.put("id", state.reasoningItemId);
+        item.put("status", "in_progress");
+        item.set("summary", MAPPER.createArrayNode());
+        added.set("item", item);
+        ObjectNode partEvent = MAPPER.createObjectNode();
+        partEvent.put("output_index", state.reasoningOutputIndex);
+        partEvent.put("summary_index", 0);
+        partEvent.put("item_id", state.reasoningItemId);
+        ObjectNode part = MAPPER.createObjectNode();
+        part.put("type", "summary_text");
+        part.put("text", "");
+        partEvent.set("part", part);
+        return responsesSseEvent("response.output_item.added", added)
+                + responsesSseEvent("response.reasoning_summary_part.added", partEvent);
+    }
+
+    private static String closeResponsesBridgeReasoningItem(ResponsesBridgeStreamState state) throws Exception {
+        if (!state.reasoningOpen) {
+            return "";
+        }
+        state.reasoningOpen = false;
+        state.reasoningDone = true;
+        String text = state.reasoning.toString();
+        ObjectNode doneText = responsesReasoningTextEvent(state, text, true);
+        ObjectNode partDone = MAPPER.createObjectNode();
+        partDone.put("output_index", state.reasoningOutputIndex);
+        partDone.put("summary_index", 0);
+        partDone.put("item_id", state.reasoningItemId);
+        ObjectNode part = MAPPER.createObjectNode();
+        part.put("type", "summary_text");
+        part.put("text", text);
+        partDone.set("part", part);
+        ObjectNode itemDone = MAPPER.createObjectNode();
+        itemDone.put("output_index", state.reasoningOutputIndex);
+        itemDone.set("item", responsesReasoningOutput(text));
+        ((ObjectNode) itemDone.get("item")).put("id", state.reasoningItemId);
+        ((ObjectNode) itemDone.get("item")).put("status", "completed");
+        return responsesSseEvent("response.reasoning_summary_text.done", doneText)
+                + responsesSseEvent("response.reasoning_summary_part.done", partDone)
+                + responsesSseEvent("response.output_item.done", itemDone);
+    }
+
+    private static ObjectNode responsesReasoningTextEvent(ResponsesBridgeStreamState state, String text, boolean done) {
+        ObjectNode event = MAPPER.createObjectNode();
+        event.put("output_index", state.reasoningOutputIndex);
+        event.put("summary_index", 0);
+        event.put("item_id", state.reasoningItemId);
+        if (done) {
+            event.put("text", text == null ? "" : text);
+        } else {
+            event.put("delta", text == null ? "" : text);
+        }
+        return event;
+    }
+
+    private static String handleResponsesBridgeToolCall(ResponsesBridgeStreamState state, ObjectNode toolCall) throws Exception {
+        int idx = 0;
+        JsonNode index = toolCall.get("index");
+        if (index != null && index.isNumber()) {
+            idx = index.asInt();
+        }
+        ResponsesBridgeTool tool = state.tools.get(idx);
+        StringBuilder out = new StringBuilder();
+        JsonNode fnNode = toolCall.get("function");
+        ObjectNode fn = fnNode != null && fnNode.isObject() ? (ObjectNode) fnNode : MAPPER.createObjectNode();
+        if (tool == null) {
+            tool = new ResponsesBridgeTool();
+            tool.index = idx;
+            tool.itemId = "fc_" + CommonUtils.generateId();
+            tool.outputIndex = state.nextOutputIndex++;
+            tool.callId = firstNonBlank(textOrNull(toolCall, "id"), "call_" + CommonUtils.generateId());
+            tool.name = firstNonBlank(textOrNull(fn, "name"), "tool");
+            state.tools.put(idx, tool);
+            ObjectNode event = MAPPER.createObjectNode();
+            event.put("output_index", tool.outputIndex);
+            ObjectNode item = MAPPER.createObjectNode();
+            item.put("type", "function_call");
+            item.put("id", tool.itemId);
+            item.put("call_id", tool.callId);
+            item.put("name", tool.name);
+            item.put("arguments", "");
+            item.put("status", "in_progress");
+            event.set("item", item);
+            out.append(responsesSseEvent("response.output_item.added", event));
+        } else {
+            tool.callId = firstNonBlank(textOrNull(toolCall, "id"), tool.callId);
+            tool.name = firstNonBlank(textOrNull(fn, "name"), tool.name);
+        }
+        String argsDelta = textOrNull(fn, "arguments");
+        if (argsDelta != null && !argsDelta.isEmpty()) {
+            tool.arguments.append(argsDelta);
+            ObjectNode event = MAPPER.createObjectNode();
+            event.put("output_index", tool.outputIndex);
+            event.put("item_id", tool.itemId);
+            event.put("delta", argsDelta);
+            event.put("call_id", tool.callId);
+            event.put("name", tool.name);
+            out.append(responsesSseEvent("response.function_call_arguments.delta", event));
+        }
+        return out.toString();
+    }
+
+    static String finalizeResponsesBridgeStream(ResponsesBridgeStreamState state) throws Exception {
+        if (state == null || state.completedSent) {
+            return "";
+        }
+        StringBuilder out = new StringBuilder();
+        out.append(ensureResponsesBridgeCreated(state));
+        out.append(closeResponsesBridgeReasoningItem(state));
+        if (state.messageItemId != null) {
+            String text = state.text.toString();
+            if (state.contentPartOpen) {
+                out.append(responsesSseEvent("response.output_text.done", responsesTextEvent(state, text, true)));
+                ObjectNode partDone = MAPPER.createObjectNode();
+                partDone.put("output_index", state.messageOutputIndex);
+                partDone.put("content_index", 0);
+                partDone.put("item_id", state.messageItemId);
+                ObjectNode part = MAPPER.createObjectNode();
+                part.put("type", "output_text");
+                part.put("text", text);
+                part.set("annotations", MAPPER.createArrayNode());
+                part.set("logprobs", MAPPER.createArrayNode());
+                partDone.set("part", part);
+                out.append(responsesSseEvent("response.content_part.done", partDone));
+            }
+            ObjectNode itemDone = MAPPER.createObjectNode();
+            itemDone.put("output_index", state.messageOutputIndex);
+            ObjectNode item = responsesMessageOutput(text);
+            item.put("id", state.messageItemId);
+            itemDone.set("item", item);
+            out.append(responsesSseEvent("response.output_item.done", itemDone));
+        }
+        for (ResponsesBridgeTool tool : state.tools.values()) {
+            String args = firstNonBlank(tool.arguments.toString(), "{}");
+            ObjectNode argsDone = MAPPER.createObjectNode();
+            argsDone.put("output_index", tool.outputIndex);
+            argsDone.put("item_id", tool.itemId);
+            argsDone.put("call_id", tool.callId);
+            argsDone.put("name", tool.name);
+            argsDone.put("arguments", args);
+            out.append(responsesSseEvent("response.function_call_arguments.done", argsDone));
+
+            ObjectNode itemDone = MAPPER.createObjectNode();
+            itemDone.put("output_index", tool.outputIndex);
+            ObjectNode item = MAPPER.createObjectNode();
+            item.put("type", "function_call");
+            item.put("id", tool.itemId);
+            item.put("call_id", tool.callId);
+            item.put("name", tool.name);
+            item.put("arguments", args);
+            item.put("status", "completed");
+            itemDone.set("item", item);
+            out.append(responsesSseEvent("response.output_item.done", itemDone));
+        }
+        state.completedSent = true;
+        ObjectNode completed = MAPPER.createObjectNode();
+        ObjectNode response = MAPPER.createObjectNode();
+        response.put("id", state.responseId);
+        response.put("object", "response");
+        response.put("model", state.model);
+        response.put("status", "length".equalsIgnoreCase(state.finishReason) ? "incomplete" : "completed");
+        ArrayNode output = MAPPER.createArrayNode();
+        if (state.reasoning.length() > 0) {
+            ObjectNode reasoning = responsesReasoningOutput(state.reasoning.toString());
+            if (state.reasoningItemId != null) {
+                reasoning.put("id", state.reasoningItemId);
+            }
+            output.add(reasoning);
+        }
+        if (state.messageItemId != null || state.tools.isEmpty()) {
+            ObjectNode message = responsesMessageOutput(state.text.toString());
+            if (state.messageItemId != null) {
+                message.put("id", state.messageItemId);
+            }
+            output.add(message);
+        }
+        for (ResponsesBridgeTool tool : state.tools.values()) {
+            ObjectNode item = MAPPER.createObjectNode();
+            item.put("type", "function_call");
+            item.put("id", tool.itemId);
+            item.put("call_id", tool.callId);
+            item.put("name", tool.name);
+            item.put("arguments", firstNonBlank(tool.arguments.toString(), "{}"));
+            item.put("status", "completed");
+            output.add(item);
+        }
+        response.set("output", output);
+        if (state.usage != null) {
+            response.set("usage", state.usage);
+        }
+        if ("length".equalsIgnoreCase(state.finishReason)) {
+            ObjectNode details = MAPPER.createObjectNode();
+            details.put("reason", "max_output_tokens");
+            response.set("incomplete_details", details);
+        }
+        completed.set("response", response);
+        out.append(responsesSseEvent("response.completed", completed));
+        return out.toString();
+    }
+
+    private static String responsesSseEvent(String type, ObjectNode event) throws Exception {
+        ObjectNode out = event == null ? MAPPER.createObjectNode() : event.deepCopy();
+        out.put("type", type);
+        if (out.get("sequence_number") == null) {
+            out.put("sequence_number", 0);
+        }
+        return "data: " + MAPPER.writeValueAsString(out) + "\n\n";
     }
 
     private static int indexOfSseEventEnd(StringBuilder pending) {
@@ -1953,6 +2594,22 @@ public class OciGenerativeOpenAiService {
             if (code >= 200
                     && code < 300
                     && request != null
+                    && Boolean.TRUE.equals(request.getAttribute("ociworker.rewrite.responsesToChat"))
+                    && b != null
+                    && !b.isBlank()) {
+                String ct = resp.headers().firstValue("content-type").orElse("application/json; charset=utf-8");
+                if (ct.toLowerCase().contains("json")) {
+                    try {
+                        String modelHint = (String) request.getAttribute("ociworker.rewrite.model");
+                        b = convertChatCompletionJsonToResponsesJson(b, modelHint);
+                        response.setContentType("application/json; charset=utf-8");
+                    } catch (Exception ignored) {
+                    }
+                }
+            }
+            if (code >= 200
+                    && code < 300
+                    && request != null
                     && Boolean.TRUE.equals(request.getAttribute("ociworker.rewrite.chatToResponses"))
                     && b != null
                     && !b.isBlank()) {
@@ -2073,6 +2730,147 @@ public class OciGenerativeOpenAiService {
             return n.toString();
         }
         return null;
+    }
+
+    static String convertChatCompletionJsonToResponsesJson(String chatJson, String modelHint) throws Exception {
+        JsonNode c = MAPPER.readTree(chatJson);
+        if (c == null || !c.isObject()) {
+            return chatJson;
+        }
+        ObjectNode co = (ObjectNode) c;
+        String id = firstNonBlank(textOrNull(co, "id"), "resp_ociworker");
+        String model = firstNonBlank(modelHint, textOrNull(co, "model"), "");
+        ObjectNode out = MAPPER.createObjectNode();
+        out.put("id", id);
+        out.put("object", "response");
+        out.put("model", model);
+        out.put("status", "completed");
+        ArrayNode output = MAPPER.createArrayNode();
+        JsonNode choices = co.get("choices");
+        if (choices != null && choices.isArray() && !choices.isEmpty()) {
+            JsonNode message = choices.get(0).path("message");
+            String reasoning = text(message, "reasoning_content");
+            if (reasoning != null && !reasoning.isBlank()) {
+                output.add(responsesReasoningOutput(reasoning));
+            }
+            String content = chatMessageContentText(message.get("content"));
+            JsonNode toolCalls = message.get("tool_calls");
+            if ((content != null && !content.isBlank()) || toolCalls == null || !toolCalls.isArray() || toolCalls.isEmpty()) {
+                output.add(responsesMessageOutput(content == null ? "" : content));
+            }
+            if (toolCalls != null && toolCalls.isArray()) {
+                for (JsonNode call : toolCalls) {
+                    if (call == null || !call.isObject()) {
+                        continue;
+                    }
+                    output.add(responsesFunctionCallOutput((ObjectNode) call));
+                }
+            }
+            String finishReason = text(choices.get(0), "finish_reason");
+            if ("length".equalsIgnoreCase(finishReason)) {
+                out.put("status", "incomplete");
+                ObjectNode details = MAPPER.createObjectNode();
+                details.put("reason", "max_output_tokens");
+                out.set("incomplete_details", details);
+            }
+        }
+        if (output.isEmpty()) {
+            output.add(responsesMessageOutput(""));
+        }
+        out.set("output", output);
+        JsonNode usage = co.get("usage");
+        if (usage != null && usage.isObject()) {
+            out.set("usage", chatUsageToResponsesUsage((ObjectNode) usage));
+        }
+        return MAPPER.writeValueAsString(out);
+    }
+
+    private static ObjectNode responsesMessageOutput(String text) {
+        ObjectNode item = MAPPER.createObjectNode();
+        item.put("type", "message");
+        item.put("id", "msg_" + CommonUtils.generateId());
+        item.put("role", "assistant");
+        item.put("status", "completed");
+        ArrayNode content = MAPPER.createArrayNode();
+        ObjectNode part = MAPPER.createObjectNode();
+        part.put("type", "output_text");
+        part.put("text", text == null ? "" : text);
+        content.add(part);
+        item.set("content", content);
+        return item;
+    }
+
+    private static ObjectNode responsesReasoningOutput(String text) {
+        ObjectNode item = MAPPER.createObjectNode();
+        item.put("type", "reasoning");
+        item.put("id", "rs_" + CommonUtils.generateId());
+        ArrayNode summary = MAPPER.createArrayNode();
+        ObjectNode part = MAPPER.createObjectNode();
+        part.put("type", "summary_text");
+        part.put("text", text == null ? "" : text);
+        summary.add(part);
+        item.set("summary", summary);
+        return item;
+    }
+
+    private static ObjectNode responsesFunctionCallOutput(ObjectNode call) {
+        ObjectNode item = MAPPER.createObjectNode();
+        item.put("type", "function_call");
+        item.put("id", "fc_" + CommonUtils.generateId());
+        item.put("call_id", firstNonBlank(textOrNull(call, "id"), "call_" + CommonUtils.generateId()));
+        JsonNode fnNode = call.get("function");
+        ObjectNode fn = fnNode != null && fnNode.isObject() ? (ObjectNode) fnNode : MAPPER.createObjectNode();
+        item.put("name", firstNonBlank(textOrNull(fn, "name"), "tool"));
+        item.put("arguments", firstNonBlank(textOrNull(fn, "arguments"), "{}"));
+        item.put("status", "completed");
+        return item;
+    }
+
+    private static String chatMessageContentText(JsonNode content) {
+        if (content == null || content.isNull() || content.isMissingNode()) {
+            return "";
+        }
+        if (content.isTextual()) {
+            return content.asText();
+        }
+        if (!content.isArray()) {
+            return content.toString();
+        }
+        StringBuilder sb = new StringBuilder();
+        for (JsonNode part : content) {
+            if (part == null || !part.isObject()) {
+                continue;
+            }
+            String text = text((ObjectNode) part, "text");
+            if (text == null || text.isBlank()) {
+                continue;
+            }
+            if (sb.length() > 0) {
+                sb.append("\n\n");
+            }
+            sb.append(text);
+        }
+        return sb.toString();
+    }
+
+    private static ObjectNode chatUsageToResponsesUsage(ObjectNode usage) {
+        ObjectNode out = MAPPER.createObjectNode();
+        long input = longField(usage, "prompt_tokens", "promptTokens");
+        long output = longField(usage, "completion_tokens", "completionTokens");
+        long total = longField(usage, "total_tokens", "totalTokens");
+        out.put("input_tokens", input);
+        out.put("output_tokens", output);
+        out.put("total_tokens", total > 0 ? total : input + output);
+        JsonNode promptDetails = usage.get("prompt_tokens_details");
+        if (promptDetails != null && promptDetails.isObject()) {
+            long cached = longField(promptDetails, "cached_tokens", "cachedTokens");
+            if (cached > 0) {
+                ObjectNode details = MAPPER.createObjectNode();
+                details.put("cached_tokens", cached);
+                out.set("input_tokens_details", details);
+            }
+        }
+        return out;
     }
 
     private static String convertResponsesJsonToChatCompletionJson(String responsesJson, String modelHint) throws Exception {
@@ -2467,6 +3265,40 @@ public class OciGenerativeOpenAiService {
             return "";
         }
         return s.length() > n ? s.substring(0, n) + "…" : s;
+    }
+
+    static class ResponsesBridgeStreamState {
+        String responseId = "resp_" + CommonUtils.generateId();
+        String model;
+        boolean createdSent;
+        boolean completedSent;
+        boolean doneSent;
+        int nextOutputIndex;
+        String finishReason = "stop";
+        ObjectNode usage;
+        String messageItemId;
+        int messageOutputIndex;
+        boolean contentPartOpen;
+        String reasoningItemId;
+        int reasoningOutputIndex;
+        boolean reasoningOpen;
+        boolean reasoningDone;
+        final StringBuilder text = new StringBuilder();
+        final StringBuilder reasoning = new StringBuilder();
+        final Map<Integer, ResponsesBridgeTool> tools = new LinkedHashMap<>();
+
+        ResponsesBridgeStreamState(String model) {
+            this.model = model == null ? "" : model;
+        }
+    }
+
+    private static class ResponsesBridgeTool {
+        int index;
+        int outputIndex;
+        String itemId;
+        String callId;
+        String name;
+        final StringBuilder arguments = new StringBuilder();
     }
 
     private record CachedModels(JsonNode body, Instant expiresAt) {}

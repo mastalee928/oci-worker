@@ -343,7 +343,7 @@ public class OpenAiV1Controller {
             return false;
         }
         String model = requestedModel.trim().toLowerCase();
-        return !model.startsWith("openai.");
+        return model.contains("multi-agent") || model.contains("multiagent") || model.contains("multi agent");
     }
 
     private static boolean isClientAbort(IOException e) {
