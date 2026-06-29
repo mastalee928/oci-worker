@@ -163,6 +163,7 @@ public class OciGenerativeOpenAiService {
                     request.setAttribute("ociworker.rewrite.simulateSse", Boolean.TRUE);
                 }
                 request.setAttribute("ociworker.rewrite.chatToResponses", Boolean.TRUE);
+                request.setAttribute("ociworker.lb.bridgeType", "chat_to_responses_native");
                 request.setAttribute("ociworker.rewrite.useRawV1Base", Boolean.TRUE);
                 request.setAttribute("ociworker.rewrite.model", "multi-agent");
                 pathAfterV1 = "/responses";
@@ -192,6 +193,7 @@ public class OciGenerativeOpenAiService {
                             request.setAttribute("ociworker.rewrite.simulateSse", Boolean.TRUE);
                         }
                         request.setAttribute("ociworker.rewrite.chatToResponses", Boolean.TRUE);
+                        request.setAttribute("ociworker.lb.bridgeType", "chat_to_responses_native");
                         if (model != null) {
                             request.setAttribute("ociworker.rewrite.model", model);
                         }
@@ -236,6 +238,7 @@ public class OciGenerativeOpenAiService {
                 && looksLikeJson
                 && !isLikelyMultiAgentModelName(requestedModel)) {
             request.setAttribute("ociworker.rewrite.responsesToChat", Boolean.TRUE);
+            request.setAttribute("ociworker.lb.bridgeType", "responses_to_chat");
             request.setAttribute("ociworker.rewrite.model", requestedModel);
             pathAfterV1 = "/chat/completions";
             body = transformResponsesToChatCompletionsJson(origBody, requestDefaultMaxTokens);
@@ -1826,6 +1829,8 @@ public class OciGenerativeOpenAiService {
                     if (responsesToChatStream && responsesBridgeState != null && !responsesBridgeState.doneSent) {
                         try {
                             out.write(finalizeResponsesBridgeStream(responsesBridgeState).getBytes(StandardCharsets.UTF_8));
+                            out.write("data: [DONE]\n\n".getBytes(StandardCharsets.UTF_8));
+                            responsesBridgeState.doneSent = true;
                         } catch (Exception e) {
                             throw new IOException("finalize responses stream failed", e);
                         }
@@ -1980,7 +1985,7 @@ public class OciGenerativeOpenAiService {
                 if (reasoning != null && !reasoning.isBlank()) {
                     out.append(ensureResponsesBridgeReasoningItem(state));
                     state.reasoning.append(reasoning);
-                    out.append(responsesSseEvent("response.reasoning_summary_text.delta",
+                    out.append(responsesSseEvent(state, "response.reasoning_summary_text.delta",
                             responsesReasoningTextEvent(state, reasoning, false)));
                 }
                 String content = textOrNull(d, "content");
@@ -1989,7 +1994,7 @@ public class OciGenerativeOpenAiService {
                     out.append(ensureResponsesBridgeMessageItem(state));
                     out.append(ensureResponsesBridgeContentPart(state));
                     state.text.append(content);
-                    out.append(responsesSseEvent("response.output_text.delta",
+                    out.append(responsesSseEvent(state, "response.output_text.delta",
                             responsesTextEvent(state, content, false)));
                 }
                 JsonNode toolCalls = d.get("tool_calls");
@@ -2024,7 +2029,7 @@ public class OciGenerativeOpenAiService {
         response.set("output", MAPPER.createArrayNode());
         ObjectNode event = MAPPER.createObjectNode();
         event.set("response", response);
-        return responsesSseEvent("response.created", event);
+        return responsesSseEvent(state, "response.created", event);
     }
 
     private static String ensureResponsesBridgeMessageItem(ResponsesBridgeStreamState state) throws Exception {
@@ -2042,7 +2047,7 @@ public class OciGenerativeOpenAiService {
         item.put("status", "in_progress");
         item.set("content", MAPPER.createArrayNode());
         event.set("item", item);
-        return responsesSseEvent("response.output_item.added", event);
+        return responsesSseEvent(state, "response.output_item.added", event);
     }
 
     private static String ensureResponsesBridgeContentPart(ResponsesBridgeStreamState state) throws Exception {
@@ -2060,7 +2065,7 @@ public class OciGenerativeOpenAiService {
         part.set("annotations", MAPPER.createArrayNode());
         part.set("logprobs", MAPPER.createArrayNode());
         event.set("part", part);
-        return responsesSseEvent("response.content_part.added", event);
+        return responsesSseEvent(state, "response.content_part.added", event);
     }
 
     private static ObjectNode responsesTextEvent(ResponsesBridgeStreamState state, String text, boolean done) {
@@ -2099,8 +2104,8 @@ public class OciGenerativeOpenAiService {
         part.put("type", "summary_text");
         part.put("text", "");
         partEvent.set("part", part);
-        return responsesSseEvent("response.output_item.added", added)
-                + responsesSseEvent("response.reasoning_summary_part.added", partEvent);
+        return responsesSseEvent(state, "response.output_item.added", added)
+                + responsesSseEvent(state, "response.reasoning_summary_part.added", partEvent);
     }
 
     private static String closeResponsesBridgeReasoningItem(ResponsesBridgeStreamState state) throws Exception {
@@ -2124,9 +2129,9 @@ public class OciGenerativeOpenAiService {
         itemDone.set("item", responsesReasoningOutput(text));
         ((ObjectNode) itemDone.get("item")).put("id", state.reasoningItemId);
         ((ObjectNode) itemDone.get("item")).put("status", "completed");
-        return responsesSseEvent("response.reasoning_summary_text.done", doneText)
-                + responsesSseEvent("response.reasoning_summary_part.done", partDone)
-                + responsesSseEvent("response.output_item.done", itemDone);
+        return responsesSseEvent(state, "response.reasoning_summary_text.done", doneText)
+                + responsesSseEvent(state, "response.reasoning_summary_part.done", partDone)
+                + responsesSseEvent(state, "response.output_item.done", itemDone);
     }
 
     private static ObjectNode responsesReasoningTextEvent(ResponsesBridgeStreamState state, String text, boolean done) {
@@ -2170,7 +2175,7 @@ public class OciGenerativeOpenAiService {
             item.put("arguments", "");
             item.put("status", "in_progress");
             event.set("item", item);
-            out.append(responsesSseEvent("response.output_item.added", event));
+            out.append(responsesSseEvent(state, "response.output_item.added", event));
         } else {
             tool.callId = firstNonBlank(textOrNull(toolCall, "id"), tool.callId);
             tool.name = firstNonBlank(textOrNull(fn, "name"), tool.name);
@@ -2184,7 +2189,7 @@ public class OciGenerativeOpenAiService {
             event.put("delta", argsDelta);
             event.put("call_id", tool.callId);
             event.put("name", tool.name);
-            out.append(responsesSseEvent("response.function_call_arguments.delta", event));
+            out.append(responsesSseEvent(state, "response.function_call_arguments.delta", event));
         }
         return out.toString();
     }
@@ -2199,7 +2204,7 @@ public class OciGenerativeOpenAiService {
         if (state.messageItemId != null) {
             String text = state.text.toString();
             if (state.contentPartOpen) {
-                out.append(responsesSseEvent("response.output_text.done", responsesTextEvent(state, text, true)));
+                out.append(responsesSseEvent(state, "response.output_text.done", responsesTextEvent(state, text, true)));
                 ObjectNode partDone = MAPPER.createObjectNode();
                 partDone.put("output_index", state.messageOutputIndex);
                 partDone.put("content_index", 0);
@@ -2210,14 +2215,14 @@ public class OciGenerativeOpenAiService {
                 part.set("annotations", MAPPER.createArrayNode());
                 part.set("logprobs", MAPPER.createArrayNode());
                 partDone.set("part", part);
-                out.append(responsesSseEvent("response.content_part.done", partDone));
+                out.append(responsesSseEvent(state, "response.content_part.done", partDone));
             }
             ObjectNode itemDone = MAPPER.createObjectNode();
             itemDone.put("output_index", state.messageOutputIndex);
             ObjectNode item = responsesMessageOutput(text);
             item.put("id", state.messageItemId);
             itemDone.set("item", item);
-            out.append(responsesSseEvent("response.output_item.done", itemDone));
+            out.append(responsesSseEvent(state, "response.output_item.done", itemDone));
         }
         for (ResponsesBridgeTool tool : state.tools.values()) {
             String args = firstNonBlank(tool.arguments.toString(), "{}");
@@ -2227,7 +2232,7 @@ public class OciGenerativeOpenAiService {
             argsDone.put("call_id", tool.callId);
             argsDone.put("name", tool.name);
             argsDone.put("arguments", args);
-            out.append(responsesSseEvent("response.function_call_arguments.done", argsDone));
+            out.append(responsesSseEvent(state, "response.function_call_arguments.done", argsDone));
 
             ObjectNode itemDone = MAPPER.createObjectNode();
             itemDone.put("output_index", tool.outputIndex);
@@ -2239,7 +2244,7 @@ public class OciGenerativeOpenAiService {
             item.put("arguments", args);
             item.put("status", "completed");
             itemDone.set("item", item);
-            out.append(responsesSseEvent("response.output_item.done", itemDone));
+            out.append(responsesSseEvent(state, "response.output_item.done", itemDone));
         }
         state.completedSent = true;
         ObjectNode completed = MAPPER.createObjectNode();
@@ -2283,15 +2288,15 @@ public class OciGenerativeOpenAiService {
             response.set("incomplete_details", details);
         }
         completed.set("response", response);
-        out.append(responsesSseEvent("response.completed", completed));
+        out.append(responsesSseEvent(state, "response.completed", completed));
         return out.toString();
     }
 
-    private static String responsesSseEvent(String type, ObjectNode event) throws Exception {
+    private static String responsesSseEvent(ResponsesBridgeStreamState state, String type, ObjectNode event) throws Exception {
         ObjectNode out = event == null ? MAPPER.createObjectNode() : event.deepCopy();
         out.put("type", type);
         if (out.get("sequence_number") == null) {
-            out.put("sequence_number", 0);
+            out.put("sequence_number", state == null ? 0 : state.nextSequenceNumber++);
         }
         return "data: " + MAPPER.writeValueAsString(out) + "\n\n";
     }
@@ -3274,6 +3279,7 @@ public class OciGenerativeOpenAiService {
         boolean completedSent;
         boolean doneSent;
         int nextOutputIndex;
+        int nextSequenceNumber;
         String finishReason = "stop";
         ObjectNode usage;
         String messageItemId;

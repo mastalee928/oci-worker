@@ -18,6 +18,10 @@ public class OciOpenaiLbRequestLog {
     private Integer port;
     private String model;
     private Integer stream;
+    private String requestPath;
+    private Integer hasTools;
+    private Integer toolCount;
+    private String bridgeType;
     private Long estimatedPromptTokens;
     private Integer statusCode;
     private String status;

@@ -96,6 +96,10 @@ public class OpenAiV1Controller {
         String requestedModel = extractModelFromBody(body, request.getContentType());
         boolean stream = isStreamRequest(body, request.getContentType());
         boolean bufferedToolStream = stream && hasToolRequest(body, request.getContentType());
+        int toolCount = toolCount(body, request.getContentType());
+        request.setAttribute("ociworker.lb.requestPath", normalizeRequestPath(pathAfterV1));
+        request.setAttribute("ociworker.lb.hasTools", toolCount > 0);
+        request.setAttribute("ociworker.lb.toolCount", toolCount);
         boolean requireGenerativeContext = isResponsesPath(pathAfterV1)
                 && requiresResponsesGenerativeContext(requestedModel);
         long estimatedTokens = estimateTokens(body, request.getContentType());
@@ -338,6 +342,22 @@ public class OpenAiV1Controller {
         return pathAfterV1 != null && (pathAfterV1.equals("/responses") || pathAfterV1.endsWith("/responses"));
     }
 
+    private static String normalizeRequestPath(String pathAfterV1) {
+        if (pathAfterV1 == null || pathAfterV1.isBlank()) {
+            return "/";
+        }
+        if (pathAfterV1.equals("/chat/completions") || pathAfterV1.endsWith("/chat/completions")) {
+            return "chat/completions";
+        }
+        if (pathAfterV1.equals("/responses") || pathAfterV1.endsWith("/responses")) {
+            return "responses";
+        }
+        if (pathAfterV1.equals("/models") || pathAfterV1.endsWith("/models")) {
+            return "models";
+        }
+        return pathAfterV1.length() > 64 ? pathAfterV1.substring(0, 64) : pathAfterV1;
+    }
+
     private static boolean requiresResponsesGenerativeContext(String requestedModel) {
         if (requestedModel == null || requestedModel.isBlank()) {
             return false;
@@ -389,25 +409,33 @@ public class OpenAiV1Controller {
     }
 
     private static boolean hasToolRequest(byte[] body, String contentType) {
+        return toolCount(body, contentType) > 0;
+    }
+
+    private static int toolCount(byte[] body, String contentType) {
         if (body == null || body.length == 0) {
-            return false;
+            return 0;
         }
         if (contentType != null && !contentType.isBlank() && !contentType.toLowerCase().contains("json")) {
-            return false;
+            return 0;
         }
         try {
             JsonNode root = MAPPER.readTree(body);
             if (root == null || !root.isObject()) {
-                return false;
+                return 0;
             }
+            int count = 0;
             JsonNode tools = root.get("tools");
-            if (tools != null && tools.isArray() && tools.size() > 0) {
-                return true;
+            if (tools != null && tools.isArray()) {
+                count += tools.size();
             }
             JsonNode functions = root.get("functions");
-            return functions != null && functions.isArray() && functions.size() > 0;
+            if (functions != null && functions.isArray()) {
+                count += functions.size();
+            }
+            return count;
         } catch (Exception ignored) {
-            return false;
+            return 0;
         }
     }
 
@@ -446,6 +474,10 @@ public class OpenAiV1Controller {
                 selection.binding().getPort(),
                 model,
                 stream,
+                stringAttr(request, "ociworker.lb.requestPath"),
+                boolAttr(request, "ociworker.lb.hasTools"),
+                intAttr(request, "ociworker.lb.toolCount"),
+                stringAttr(request, "ociworker.lb.bridgeType"),
                 estimatedTokens,
                 statusCode,
                 status,
@@ -521,6 +553,19 @@ public class OpenAiV1Controller {
     private static Integer intAttr(HttpServletRequest request, String attr) {
         Long value = longAttr(request, attr);
         return value == null ? null : (int) Math.min(Integer.MAX_VALUE, Math.max(0L, value));
+    }
+
+    private static String stringAttr(HttpServletRequest request, String attr) {
+        Object value = request == null ? null : request.getAttribute(attr);
+        return value == null ? null : String.valueOf(value);
+    }
+
+    private static boolean boolAttr(HttpServletRequest request, String attr) {
+        Object value = request == null ? null : request.getAttribute(attr);
+        if (value instanceof Boolean b) {
+            return b;
+        }
+        return value != null && "true".equalsIgnoreCase(String.valueOf(value));
     }
 
     private static boolean isStreamRequest(byte[] body, String contentType) {

@@ -611,7 +611,7 @@
             row-key="id"
             size="small"
             :pagination="{ pageSize: 10, size: 'small' }"
-            :scroll="{ x: 1120 }"
+            :scroll="{ x: 1240 }"
           >
             <template #bodyCell="{ column, record }">
               <template v-if="column.key === 'request'">
@@ -624,6 +624,12 @@
               </template>
               <template v-else-if="column.key === 'mode'">
                 <a-tag :color="record.stream ? 'blue' : 'default'">{{ record.stream ? 'stream' : 'json' }}</a-tag>
+              </template>
+              <template v-else-if="column.key === 'protocol'">
+                <div>{{ record.requestPath || '-' }}</div>
+                <div class="sub-muted status-message">
+                  tools {{ record.toolCount || 0 }}<span v-if="record.bridgeType"> · {{ record.bridgeType }}</span>
+                </div>
               </template>
               <template v-else-if="column.key === 'status'">
                 <a-tag :color="lbRequestStatusColor(record)">{{ lbRequestStatusText(record) }}</a-tag>
@@ -1218,6 +1224,7 @@ const lbRequestColumns = [
   { title: '成员', key: 'member', width: 90 },
   { title: '模型', dataIndex: 'model', key: 'model', width: 220, ellipsis: true },
   { title: '模式', key: 'mode', width: 90 },
+  { title: '协议', key: 'protocol', width: 170 },
   { title: '状态', key: 'status', width: 240 },
   { title: '耗时', key: 'latency', width: 120 },
   { title: 'Tokens', key: 'tokens', width: 110 },

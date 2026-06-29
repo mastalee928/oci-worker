@@ -940,6 +940,10 @@ public class OciOpenaiLoadBalanceService {
             row.setPort(input.port());
             row.setModel(trimTo(input.model(), 256));
             row.setStream(input.stream() ? 1 : 0);
+            row.setRequestPath(trimTo(input.requestPath(), 64));
+            row.setHasTools(input.hasTools() ? 1 : 0);
+            row.setToolCount(Math.max(0, input.toolCount()));
+            row.setBridgeType(trimTo(input.bridgeType(), 64));
             row.setEstimatedPromptTokens(Math.max(0L, input.estimatedTokens()));
             row.setStatusCode(input.statusCode());
             row.setStatus(trimTo(input.status(), 32));
@@ -1209,6 +1213,10 @@ public class OciOpenaiLoadBalanceService {
         row.put("port", logRow.getPort());
         row.put("model", logRow.getModel());
         row.put("stream", logRow.getStream() != null && logRow.getStream() == 1);
+        row.put("requestPath", logRow.getRequestPath());
+        row.put("hasTools", logRow.getHasTools() != null && logRow.getHasTools() == 1);
+        row.put("toolCount", logRow.getToolCount());
+        row.put("bridgeType", logRow.getBridgeType());
         row.put("estimatedPromptTokens", logRow.getEstimatedPromptTokens());
         row.put("statusCode", logRow.getStatusCode());
         row.put("status", logRow.getStatus());
@@ -1341,6 +1349,10 @@ public class OciOpenaiLoadBalanceService {
             Integer port,
             String model,
             boolean stream,
+            String requestPath,
+            boolean hasTools,
+            int toolCount,
+            String bridgeType,
             long estimatedTokens,
             Integer statusCode,
             String status,

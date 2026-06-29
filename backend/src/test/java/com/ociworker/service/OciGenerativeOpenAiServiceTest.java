@@ -166,5 +166,68 @@ class OciGenerativeOpenAiServiceTest {
         assertThat(sse).contains("\"type\":\"response.completed\"");
         assertThat(sse).contains("\"call_id\":\"call_a\"");
         assertThat(sse).contains("\"arguments\":\"{\\\"path\\\":\\\"a.txt\\\"}\"");
+        assertThat(sse).contains("\"sequence_number\":0");
+        assertThat(sse).contains("\"sequence_number\":1");
+        assertThat(sse).contains("\"sequence_number\":2");
+    }
+
+    @Test
+    void convertsSplitAndParallelToolCallsToResponsesEvents() throws Exception {
+        OciGenerativeOpenAiService.ResponsesBridgeStreamState state =
+                new OciGenerativeOpenAiService.ResponsesBridgeStreamState("xai.grok-4.3");
+        String first = """
+                {"id":"chatcmpl-1","object":"chat.completion.chunk","model":"xai.grok-4.3","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_a","type":"function","function":{"name":"write_file","arguments":"{\\\"path\\\":"}},{"index":1,"id":"call_b","type":"function","function":{"name":"write_file","arguments":"{\\\"path\\\":\\\"b.txt\\\"}"}}]}}]}
+                """;
+        String second = """
+                {"id":"chatcmpl-1","object":"chat.completion.chunk","model":"xai.grok-4.3","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"function":{"arguments":"\\\"a.txt\\\"}"}}]},"finish_reason":"tool_calls"}]}
+                """;
+
+        String sse = OciGenerativeOpenAiService.chatChunkToResponsesSse(MAPPER.readTree(first), state)
+                + OciGenerativeOpenAiService.chatChunkToResponsesSse(MAPPER.readTree(second), state)
+                + OciGenerativeOpenAiService.finalizeResponsesBridgeStream(state);
+
+        assertThat(sse).contains("\"call_id\":\"call_a\"");
+        assertThat(sse).contains("\"call_id\":\"call_b\"");
+        assertThat(sse).contains("\"arguments\":\"{\\\"path\\\":\\\"a.txt\\\"}\"");
+        assertThat(sse).contains("\"arguments\":\"{\\\"path\\\":\\\"b.txt\\\"}\"");
+        assertThat(countOccurrences(sse, "\"type\":\"response.function_call_arguments.done\"")).isEqualTo(2);
+        assertThat(countOccurrences(sse, "\"type\":\"response.output_item.done\"")).isEqualTo(2);
+    }
+
+    @Test
+    void convertsFunctionCallOutputBackToChatToolMessage() throws Exception {
+        String payload = """
+                {
+                  "model":"xai.grok-4.3",
+                  "input":[
+                    {"type":"function_call","call_id":"call_a","name":"write_file","arguments":"{\\\"path\\\":\\\"a.txt\\\"}"},
+                    {"type":"function_call_output","call_id":"call_a","output":"ok"}
+                  ],
+                  "tools":[{"type":"function","name":"write_file","parameters":{"type":"object"}}]
+                }
+                """;
+
+        JsonNode root = MAPPER.readTree(
+                OciGenerativeOpenAiService.transformResponsesToChatCompletionsJson(payload.getBytes(), 128));
+
+        assertThat(root.path("messages").get(0).path("role").asText()).isEqualTo("assistant");
+        assertThat(root.path("messages").get(0).path("tool_calls").get(0).path("id").asText()).isEqualTo("call_a");
+        assertThat(root.path("messages").get(1).path("role").asText()).isEqualTo("tool");
+        assertThat(root.path("messages").get(1).path("tool_call_id").asText()).isEqualTo("call_a");
+        assertThat(root.path("messages").get(1).path("content").asText()).isEqualTo("ok");
+    }
+
+    private static int countOccurrences(String value, String needle) {
+        int count = 0;
+        int from = 0;
+        while (value != null && needle != null && !needle.isEmpty()) {
+            int idx = value.indexOf(needle, from);
+            if (idx < 0) {
+                return count;
+            }
+            count++;
+            from = idx + needle.length();
+        }
+        return count;
     }
 }
