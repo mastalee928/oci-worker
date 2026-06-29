@@ -1275,7 +1275,7 @@ public class OciGenerativeOpenAiService {
         return defaultMaxTokens();
     }
 
-    private static byte[] transformChatCompletionsJson(byte[] input, int defaultMaxTokens) {
+    static byte[] transformChatCompletionsJson(byte[] input, int defaultMaxTokens) {
         try {
             JsonNode root = MAPPER.readTree(input);
             if (root == null || !root.isObject()) {
@@ -1290,10 +1290,66 @@ public class OciGenerativeOpenAiService {
                     || (force.isTextual() && "true".equalsIgnoreCase(force.asText())))) {
                 o.put("stream", false);
             }
+            normalizeChatToolSchema(o);
             o.remove("force_non_stream");
             return MAPPER.writeValueAsBytes(o);
         } catch (Exception e) {
             return input;
+        }
+    }
+
+    private static void normalizeChatToolSchema(ObjectNode root) {
+        JsonNode tools = root.get("tools");
+        if (tools != null && tools.isArray()) {
+            ArrayNode normalizedTools = MAPPER.createArrayNode();
+            boolean changed = false;
+            for (JsonNode tool : tools) {
+                if (tool != null && tool.isObject() && tool.get("function") == null) {
+                    ObjectNode source = (ObjectNode) tool;
+                    String type = textOrNull(source, "type");
+                    if (type == null || type.isBlank() || "function".equalsIgnoreCase(type)) {
+                        ObjectNode normalized = MAPPER.createObjectNode();
+                        normalized.put("type", "function");
+                        ObjectNode fn = MAPPER.createObjectNode();
+                        copyIfPresent(source, fn, "name");
+                        copyIfPresent(source, fn, "description");
+                        copyIfPresent(source, fn, "parameters");
+                        copyIfPresent(source, fn, "strict");
+                        normalized.set("function", fn);
+                        normalizedTools.add(normalized);
+                        changed = true;
+                        continue;
+                    }
+                }
+                normalizedTools.add(tool);
+            }
+            if (changed) {
+                root.set("tools", normalizedTools);
+            }
+        }
+        JsonNode toolChoice = root.get("tool_choice");
+        if (toolChoice != null && toolChoice.isObject()) {
+            ObjectNode choice = (ObjectNode) toolChoice;
+            if (choice.get("function") == null) {
+                String type = textOrNull(choice, "type");
+                String name = textOrNull(choice, "name");
+                if ((type == null || type.isBlank() || "function".equalsIgnoreCase(type))
+                        && name != null && !name.isBlank()) {
+                    ObjectNode normalized = MAPPER.createObjectNode();
+                    normalized.put("type", "function");
+                    ObjectNode fn = MAPPER.createObjectNode();
+                    fn.put("name", name);
+                    normalized.set("function", fn);
+                    root.set("tool_choice", normalized);
+                }
+            }
+        }
+    }
+
+    private static void copyIfPresent(ObjectNode source, ObjectNode target, String field) {
+        JsonNode value = source.get(field);
+        if (value != null && !value.isNull() && !value.isMissingNode()) {
+            target.set(field, value);
         }
     }
 

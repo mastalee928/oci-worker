@@ -91,6 +91,7 @@ public class OciOpenaiLoadBalanceService {
     private int modelUnavailableHours;
 
     private final Map<String, AtomicInteger> inFlight = new ConcurrentHashMap<>();
+    private final Map<String, Object> generativeContextLocks = new ConcurrentHashMap<>();
 
     @EventListener
     @Order(Ordered.HIGHEST_PRECEDENCE + 20)
@@ -391,7 +392,7 @@ public class OciOpenaiLoadBalanceService {
     }
 
     public int eligibleMemberCount(String requestedModel, long estimatedTokens, boolean requireGenerativeContext) {
-        return eligibleCandidates(requestedModel, estimatedTokens, Set.of(), LocalDateTime.now(), true, requireGenerativeContext).size();
+        return eligibleCandidates(requestedModel, estimatedTokens, Set.of(), LocalDateTime.now(), true).size();
     }
 
     public Selection selectMember(String requestedModel, long estimatedTokens, Set<String> excludedMemberIds) {
@@ -404,30 +405,35 @@ public class OciOpenaiLoadBalanceService {
             Set<String> excludedMemberIds,
             boolean requireGenerativeContext) {
         LocalDateTime now = LocalDateTime.now();
-        List<Candidate> candidates = eligibleCandidates(requestedModel, estimatedTokens, excludedMemberIds, now, false, requireGenerativeContext);
+        List<Candidate> candidates = eligibleCandidates(requestedModel, estimatedTokens, excludedMemberIds, now, false);
         if (candidates.isEmpty()) {
-            candidates = eligibleCandidates(requestedModel, estimatedTokens, excludedMemberIds, now, true, requireGenerativeContext);
+            candidates = eligibleCandidates(requestedModel, estimatedTokens, excludedMemberIds, now, true);
         }
-        Candidate selected = candidates.stream()
-                .min(Comparator.comparingDouble(Candidate::loadRate)
-                        .thenComparing(candidate -> candidate.member().getLastUsed(), Comparator.nullsFirst(Comparator.naturalOrder()))
-                        .thenComparing(candidate -> candidate.member().getCreateTime(), Comparator.nullsFirst(Comparator.naturalOrder())))
-                .orElseThrow(() -> new OciException("没有可用的负载均衡成员"));
+        List<Candidate> ordered = candidates.stream()
+                .sorted(candidateComparator())
+                .collect(Collectors.toList());
+        Candidate selected = null;
+        if (requireGenerativeContext) {
+            for (Candidate candidate : ordered) {
+                if (ensureGenerativeContext(candidate.binding())) {
+                    selected = candidate;
+                    break;
+                }
+            }
+            if (selected == null) {
+                throw new OciException("Responses API 调用非 OpenAI 模型需要 OpenAI-Project 或 opc-conversation-store-id，自动创建默认 OpenAI-Project 失败，请检查成员租户是否有 Generative AI Project 创建权限");
+            }
+        } else if (!ordered.isEmpty()) {
+            selected = ordered.get(0);
+        }
+        if (selected == null) {
+            throw new OciException("没有可用的负载均衡成员");
+        }
         inFlight.computeIfAbsent(selected.member().getId(), ignored -> new AtomicInteger()).incrementAndGet();
         return new Selection(selected.member(), selected.binding());
     }
 
     private List<Candidate> eligibleCandidates(String requestedModel, long estimatedTokens, Set<String> excludedMemberIds, LocalDateTime now, boolean includeCooling) {
-        return eligibleCandidates(requestedModel, estimatedTokens, excludedMemberIds, now, includeCooling, false);
-    }
-
-    private List<Candidate> eligibleCandidates(
-            String requestedModel,
-            long estimatedTokens,
-            Set<String> excludedMemberIds,
-            LocalDateTime now,
-            boolean includeCooling,
-            boolean requireGenerativeContext) {
         List<Candidate> candidates = new ArrayList<>();
         for (OciOpenaiLbMember member : memberMapper.selectList(new LambdaQueryWrapper<OciOpenaiLbMember>()
                 .eq(OciOpenaiLbMember::getEnabled, 1))) {
@@ -444,9 +450,6 @@ public class OciOpenaiLoadBalanceService {
             }
             List<String> models = OracleAiPortBindingService.decodeAllowedModels(binding.getAllowedModelsJson());
             if (!modelAllowed(requestedModel, models)) {
-                continue;
-            }
-            if (requireGenerativeContext && !ensureGenerativeContext(binding)) {
                 continue;
             }
             if (modelUnavailable(member.getId(), requestedModel, now)) {
@@ -479,6 +482,12 @@ public class OciOpenaiLoadBalanceService {
         return candidates;
     }
 
+    private static Comparator<Candidate> candidateComparator() {
+        return Comparator.comparingDouble(Candidate::loadRate)
+                .thenComparing(candidate -> candidate.member().getLastUsed(), Comparator.nullsFirst(Comparator.naturalOrder()))
+                .thenComparing(candidate -> candidate.member().getCreateTime(), Comparator.nullsFirst(Comparator.naturalOrder()));
+    }
+
     private boolean ensureGenerativeContext(OciOpenaiPortBinding binding) {
         if (binding == null) {
             return false;
@@ -487,18 +496,34 @@ public class OciOpenaiLoadBalanceService {
         if (user == null) {
             return false;
         }
+        String lockKey = (user.getId() == null ? "" : user.getId())
+                + "|"
+                + (binding.getOciRegion() == null ? "" : binding.getOciRegion().trim());
+        Object lock = generativeContextLocks.computeIfAbsent(lockKey, ignored -> new Object());
+        synchronized (lock) {
+            return ensureGenerativeContextLocked(binding, user);
+        }
+    }
+
+    private boolean ensureGenerativeContextLocked(OciOpenaiPortBinding binding, OciUser user) {
         try {
             Map<String, String> ctx = generativeOpenAiService.getGenerativeContext(user, binding.getOciRegion());
             if (hasText(ctx == null ? null : ctx.get("generativeOpenaiProject"))
                     || hasText(ctx == null ? null : ctx.get("generativeConversationStoreId"))) {
                 return true;
             }
-            var created = generativeOpenAiService.createGenerativeAiProject(user, binding.getOciRegion(), "ociworker-default");
-            String projectId = created == null || created.get("id") == null || !created.get("id").isTextual()
-                    ? null
-                    : created.get("id").asText();
+            String projectId = findReusableGenerativeProjectId(user, binding.getOciRegion());
             if (!hasText(projectId)) {
-                log.debug("Created generative project for LB binding {} but response has no id", binding.getId());
+                var created = generativeOpenAiService.createGenerativeAiProject(user, binding.getOciRegion(), "ociworker-default");
+                projectId = created == null || created.get("id") == null || !created.get("id").isTextual()
+                        ? null
+                        : created.get("id").asText();
+                if (!hasText(projectId)) {
+                    projectId = findReusableGenerativeProjectId(user, binding.getOciRegion());
+                }
+            }
+            if (!hasText(projectId)) {
+                log.debug("Failed to resolve default generative project for LB binding {}", binding.getId());
                 return false;
             }
             generativeOpenAiService.saveGenerativeContext(
@@ -512,6 +537,40 @@ public class OciOpenaiLoadBalanceService {
         } catch (Exception e) {
             log.debug("Failed to ensure generative context for LB binding {}: {}", binding.getId(), e.getMessage());
             return false;
+        }
+    }
+
+    private String findReusableGenerativeProjectId(OciUser user, String ociRegion) {
+        try {
+            JsonNode root = generativeOpenAiService.listGenerativeAiProjectSummaries(user, ociRegion);
+            JsonNode items = root == null ? null : root.get("items");
+            if (items == null || !items.isArray() || items.isEmpty()) {
+                return null;
+            }
+            String first = null;
+            for (JsonNode item : items) {
+                if (item == null || !item.isObject()) {
+                    continue;
+                }
+                JsonNode idNode = item.get("id");
+                if (idNode == null || !idNode.isTextual() || idNode.asText().isBlank()) {
+                    continue;
+                }
+                String id = idNode.asText();
+                if (first == null) {
+                    first = id;
+                }
+                JsonNode nameNode = item.get("displayName");
+                if (nameNode != null && nameNode.isTextual()
+                        && "ociworker-default".equalsIgnoreCase(nameNode.asText())) {
+                    return id;
+                }
+            }
+            return first;
+        } catch (Exception e) {
+            log.debug("Failed to list generative projects for tenant={} region={}: {}",
+                    user == null ? null : user.getId(), ociRegion, e.getMessage());
+            return null;
         }
     }
 
