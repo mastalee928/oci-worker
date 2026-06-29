@@ -103,6 +103,39 @@ class OciGenerativeOpenAiServiceTest {
     }
 
     @Test
+    void normalizesDirectChatCompletionsToolHistory() throws Exception {
+        String payload = """
+                {
+                  "model":"xai.grok-4.3",
+                  "messages":[
+                    {"role":"user","content":"do it"},
+                    {"role":"tool","tool_call_id":"ghost","content":"orphan"},
+                    {"role":"assistant","content":null,"tool_calls":[
+                      {"id":"call_a","type":"function","function":{"name":"write_file","arguments":"{}"}},
+                      {"id":"call_b","type":"function","function":{"name":"write_file","arguments":"{\\\"path\\\":\\\"b.txt\\\"}"}}
+                    ]},
+                    {"role":"system","content":"notice between tool call and result"},
+                    {"role":"tool","tool_call_id":"call_b","content":"ok"}
+                  ]
+                }
+                """;
+
+        JsonNode root = MAPPER.readTree(
+                OciGenerativeOpenAiService.transformChatCompletionsJson(payload.getBytes(), 128));
+        JsonNode messages = root.path("messages");
+
+        assertThat(messages).hasSize(4);
+        assertThat(messages.get(0).path("role").asText()).isEqualTo("user");
+        assertThat(messages.get(1).path("role").asText()).isEqualTo("assistant");
+        assertThat(messages.get(1).path("tool_calls")).hasSize(1);
+        assertThat(messages.get(1).path("tool_calls").get(0).path("id").asText()).isEqualTo("call_b");
+        assertThat(messages.get(2).path("role").asText()).isEqualTo("tool");
+        assertThat(messages.get(2).path("tool_call_id").asText()).isEqualTo("call_b");
+        assertThat(messages.get(3).path("role").asText()).isEqualTo("system");
+        assertThat(messages.toString()).doesNotContain("ghost").doesNotContain("call_a");
+    }
+
+    @Test
     void convertsResponsesRequestToChatCompletions() throws Exception {
         String payload = """
                 {
@@ -229,6 +262,82 @@ class OciGenerativeOpenAiServiceTest {
         assertThat(root.path("messages").get(1).path("role").asText()).isEqualTo("tool");
         assertThat(root.path("messages").get(1).path("tool_call_id").asText()).isEqualTo("call_a");
         assertThat(root.path("messages").get(1).path("content").asText()).isEqualTo("ok");
+    }
+
+    @Test
+    void normalizesResponsesToolHistoryForChatCompletions() throws Exception {
+        String payload = """
+                {
+                  "model":"xai.grok-4.3",
+                  "input":[
+                    {"type":"function_call","call_id":"call_a","name":"write_file","arguments":"{\\\"path\\\":\\\"a.txt\\\"}"},
+                    {"type":"message","role":"user","content":"continue after tool"},
+                    {"type":"function_call_output","call_id":"call_a","output":"ok"}
+                  ]
+                }
+                """;
+
+        JsonNode root = MAPPER.readTree(
+                OciGenerativeOpenAiService.transformResponsesToChatCompletionsJson(payload.getBytes(), 128));
+        JsonNode messages = root.path("messages");
+
+        assertThat(messages).hasSize(3);
+        assertThat(messages.get(0).path("role").asText()).isEqualTo("assistant");
+        assertThat(messages.get(0).path("tool_calls").get(0).path("id").asText()).isEqualTo("call_a");
+        assertThat(messages.get(1).path("role").asText()).isEqualTo("tool");
+        assertThat(messages.get(1).path("tool_call_id").asText()).isEqualTo("call_a");
+        assertThat(messages.get(2).path("role").asText()).isEqualTo("user");
+        assertThat(messages.get(2).path("content").asText()).isEqualTo("continue after tool");
+    }
+
+    @Test
+    void dropsOrphanAndUnansweredResponsesToolHistory() throws Exception {
+        String payload = """
+                {
+                  "model":"xai.grok-4.3",
+                  "input":[
+                    {"type":"function_call_output","call_id":"ghost","output":"orphan"},
+                    {"type":"function_call","call_id":"call_a","name":"write_file","arguments":"{}"},
+                    {"type":"function_call","call_id":"call_b","name":"write_file","arguments":"{\\\"path\\\":\\\"b.txt\\\"}"},
+                    {"type":"function_call_output","call_id":"call_b","output":"ok"}
+                  ]
+                }
+                """;
+
+        JsonNode root = MAPPER.readTree(
+                OciGenerativeOpenAiService.transformResponsesToChatCompletionsJson(payload.getBytes(), 128));
+        JsonNode messages = root.path("messages");
+
+        assertThat(messages).hasSize(2);
+        assertThat(messages.get(0).path("role").asText()).isEqualTo("assistant");
+        assertThat(messages.get(0).path("tool_calls").get(0).path("id").asText()).isEqualTo("call_b");
+        assertThat(messages.get(1).path("role").asText()).isEqualTo("tool");
+        assertThat(messages.get(1).path("tool_call_id").asText()).isEqualTo("call_b");
+        assertThat(messages.toString()).doesNotContain("ghost").doesNotContain("call_a");
+    }
+
+    @Test
+    void convertsCustomToolCallInputAsChatToolCall() throws Exception {
+        String payload = """
+                {
+                  "model":"xai.grok-4.3",
+                  "input":[
+                    {"type":"custom_tool_call","call_id":"call_custom","name":"apply_patch","input":"*** Begin Patch"},
+                    {"type":"custom_tool_call_output","call_id":"call_custom","output":"done"}
+                  ]
+                }
+                """;
+
+        JsonNode root = MAPPER.readTree(
+                OciGenerativeOpenAiService.transformResponsesToChatCompletionsJson(payload.getBytes(), 128));
+        JsonNode messages = root.path("messages");
+
+        assertThat(messages).hasSize(2);
+        assertThat(messages.get(0).path("tool_calls").get(0).path("function").path("name").asText())
+                .isEqualTo("apply_patch");
+        assertThat(messages.get(0).path("tool_calls").get(0).path("function").path("arguments").asText())
+                .isEqualTo("*** Begin Patch");
+        assertThat(messages.get(1).path("tool_call_id").asText()).isEqualTo("call_custom");
     }
 
     @Test

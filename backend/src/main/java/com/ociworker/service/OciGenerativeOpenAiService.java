@@ -1283,6 +1283,10 @@ public class OciGenerativeOpenAiService {
                 o.put("stream", false);
             }
             normalizeChatToolSchema(o);
+            JsonNode messages = o.get("messages");
+            if (messages instanceof ArrayNode arrayMessages) {
+                o.set("messages", normalizeChatToolMessages(arrayMessages));
+            }
             o.remove("force_non_stream");
             return MAPPER.writeValueAsBytes(o);
         } catch (Exception e) {
@@ -1364,6 +1368,7 @@ public class OciGenerativeOpenAiService {
                 messages.add(sys);
             }
             appendResponsesInputAsChatMessages(messages, in.get("input"));
+            messages = normalizeChatToolMessages(messages);
             if (messages.isEmpty()) {
                 ObjectNode user = MAPPER.createObjectNode();
                 user.put("role", "user");
@@ -1451,7 +1456,7 @@ public class OciGenerativeOpenAiService {
             }
             ObjectNode o = (ObjectNode) item;
             String type = textOrNull(o, "type");
-            if ("function_call".equalsIgnoreCase(type)) {
+            if (isResponsesFunctionCallType(type)) {
                 ObjectNode assistant = MAPPER.createObjectNode();
                 assistant.put("role", "assistant");
                 ArrayNode toolCalls = MAPPER.createArrayNode();
@@ -1460,14 +1465,14 @@ public class OciGenerativeOpenAiService {
                 call.put("type", "function");
                 ObjectNode fn = MAPPER.createObjectNode();
                 fn.put("name", firstNonBlank(textOrNull(o, "name"), "tool"));
-                fn.put("arguments", firstNonBlank(textOrNull(o, "arguments"), "{}"));
+                fn.put("arguments", firstNonBlank(textOrNull(o, "arguments"), textOrNull(o, "input"), "{}"));
                 call.set("function", fn);
                 toolCalls.add(call);
                 assistant.set("tool_calls", toolCalls);
                 messages.add(assistant);
                 continue;
             }
-            if ("function_call_output".equalsIgnoreCase(type)) {
+            if (isResponsesFunctionCallOutputType(type)) {
                 ObjectNode tool = MAPPER.createObjectNode();
                 tool.put("role", "tool");
                 tool.put("tool_call_id", firstNonBlank(textOrNull(o, "call_id"), textOrNull(o, "id"), "call_ociworker"));
@@ -1478,6 +1483,105 @@ public class OciGenerativeOpenAiService {
             String role = firstNonBlank(textOrNull(o, "role"), "message".equalsIgnoreCase(type) ? "user" : "user");
             addChatMessage(messages, normalizeChatRole(role), responsesContentText(o.get("content"), o));
         }
+    }
+
+    private static boolean isResponsesFunctionCallType(String type) {
+        return "function_call".equalsIgnoreCase(type) || "custom_tool_call".equalsIgnoreCase(type);
+    }
+
+    private static boolean isResponsesFunctionCallOutputType(String type) {
+        return "function_call_output".equalsIgnoreCase(type) || "custom_tool_call_output".equalsIgnoreCase(type);
+    }
+
+    static ArrayNode normalizeChatToolMessages(ArrayNode messages) {
+        ArrayNode normalized = MAPPER.createArrayNode();
+        if (messages == null || messages.isEmpty()) {
+            return normalized;
+        }
+
+        Map<String, ObjectNode> toolRepliesById = new LinkedHashMap<>();
+        for (JsonNode message : messages) {
+            if (!(message instanceof ObjectNode object)) {
+                continue;
+            }
+            if (!"tool".equalsIgnoreCase(textOrNull(object, "role"))) {
+                continue;
+            }
+            String toolCallId = textOrNull(object, "tool_call_id");
+            if (toolCallId != null && !toolCallId.isBlank()) {
+                toolRepliesById.put(toolCallId, object);
+            }
+        }
+
+        Set<String> emittedToolReplyIds = new HashSet<>();
+        for (JsonNode message : messages) {
+            if (!(message instanceof ObjectNode object)) {
+                normalized.add(message);
+                continue;
+            }
+            String role = textOrNull(object, "role");
+            if ("tool".equalsIgnoreCase(role)) {
+                String toolCallId = textOrNull(object, "tool_call_id");
+                if (toolCallId == null || toolCallId.isBlank()) {
+                    normalized.add(object.deepCopy());
+                }
+                continue;
+            }
+            JsonNode toolCalls = object.get("tool_calls");
+            if (!"assistant".equalsIgnoreCase(role) || toolCalls == null || !toolCalls.isArray() || toolCalls.isEmpty()) {
+                normalized.add(object.deepCopy());
+                continue;
+            }
+
+            ArrayNode answeredToolCalls = MAPPER.createArrayNode();
+            List<ObjectNode> answeredReplies = new ArrayList<>();
+            for (JsonNode toolCall : toolCalls) {
+                if (!(toolCall instanceof ObjectNode toolCallObject)) {
+                    continue;
+                }
+                String toolCallId = textOrNull(toolCallObject, "id");
+                if (toolCallId == null || toolCallId.isBlank() || emittedToolReplyIds.contains(toolCallId)) {
+                    continue;
+                }
+                ObjectNode reply = toolRepliesById.get(toolCallId);
+                if (reply == null) {
+                    continue;
+                }
+                answeredToolCalls.add(toolCallObject.deepCopy());
+                answeredReplies.add(reply);
+                emittedToolReplyIds.add(toolCallId);
+            }
+
+            if (answeredToolCalls.isEmpty()) {
+                if (hasUsableChatContent(object.get("content"))) {
+                    ObjectNode plainAssistant = object.deepCopy();
+                    plainAssistant.remove("tool_calls");
+                    normalized.add(plainAssistant);
+                }
+                continue;
+            }
+
+            ObjectNode assistant = object.deepCopy();
+            assistant.set("tool_calls", answeredToolCalls);
+            normalized.add(assistant);
+            for (ObjectNode reply : answeredReplies) {
+                normalized.add(reply.deepCopy());
+            }
+        }
+        return normalized;
+    }
+
+    private static boolean hasUsableChatContent(JsonNode content) {
+        if (content == null || content.isNull() || content.isMissingNode()) {
+            return false;
+        }
+        if (content.isTextual()) {
+            return !content.asText().isBlank();
+        }
+        if (content.isArray() || content.isObject()) {
+            return !content.isEmpty();
+        }
+        return true;
     }
 
     private static void addChatMessage(ArrayNode messages, String role, String content) {
