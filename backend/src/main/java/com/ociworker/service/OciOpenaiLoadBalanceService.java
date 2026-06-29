@@ -558,8 +558,8 @@ public class OciOpenaiLoadBalanceService {
         }
         Integer lastStatus = state.getLastStatus();
         return lastStatus == null
-                || lastStatus < 500
-                || isModelAvailabilityFailure(lastStatus, state.getLastError());
+                ? isModelAvailabilityFailure(400, state.getLastError())
+                : isModelAvailabilityFailure(lastStatus, state.getLastError());
     }
 
     private void updateModelState(String memberId, String requestedModel, boolean success, int status, String errorMessage) {
@@ -615,7 +615,7 @@ public class OciOpenaiLoadBalanceService {
         }
     }
 
-    private static boolean isModelAvailabilityFailure(int status, String errorMessage) {
+    public static boolean isModelAvailabilityFailure(int status, String errorMessage) {
         if (status < 400) {
             return false;
         }
@@ -628,9 +628,16 @@ public class OciOpenaiLoadBalanceService {
         }
         return message.contains("model")
                 && (message.contains("not found")
+                || message.contains("not exist")
+                || message.contains("does not exist")
+                || message.contains("doesn't exist")
                 || message.contains("not available")
+                || message.contains("not allowed")
+                || message.contains("not authorized")
                 || message.contains("not supported")
                 || message.contains("unsupported")
+                || message.contains("no access")
+                || message.contains("access denied")
                 || message.contains("unknown model")
                 || message.contains("invalid model"));
     }
