@@ -341,6 +341,28 @@ class OciGenerativeOpenAiServiceTest {
     }
 
     @Test
+    void preservesJsonToolArgumentsAndOutputWhenConvertingResponsesToChat() throws Exception {
+        String payload = """
+                {
+                  "model":"xai.grok-4.3",
+                  "input":[
+                    {"type":"function_call","call_id":"call_json","name":"write_file","arguments":{"path":"a.txt","overwrite":true}},
+                    {"type":"function_call_output","call_id":"call_json","output":{"status":"ok","bytes":12}}
+                  ]
+                }
+                """;
+
+        JsonNode root = MAPPER.readTree(
+                OciGenerativeOpenAiService.transformResponsesToChatCompletionsJson(payload.getBytes(), 128));
+        JsonNode messages = root.path("messages");
+
+        assertThat(messages.get(0).path("tool_calls").get(0).path("function").path("arguments").asText())
+                .isEqualTo("{\"path\":\"a.txt\",\"overwrite\":true}");
+        assertThat(messages.get(1).path("content").asText())
+                .isEqualTo("{\"status\":\"ok\",\"bytes\":12}");
+    }
+
+    @Test
     void countsOnlyNewStreamingToolCalls() throws Exception {
         JsonNode firstChunkCalls = MAPPER.readTree("""
                 [

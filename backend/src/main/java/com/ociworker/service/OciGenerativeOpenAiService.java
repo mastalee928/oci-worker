@@ -1465,7 +1465,7 @@ public class OciGenerativeOpenAiService {
                 call.put("type", "function");
                 ObjectNode fn = MAPPER.createObjectNode();
                 fn.put("name", firstNonBlank(textOrNull(o, "name"), "tool"));
-                fn.put("arguments", firstNonBlank(textOrNull(o, "arguments"), textOrNull(o, "input"), "{}"));
+                fn.put("arguments", firstNonBlank(payloadStringOrNull(o, "arguments"), payloadStringOrNull(o, "input"), "{}"));
                 call.set("function", fn);
                 toolCalls.add(call);
                 assistant.set("tool_calls", toolCalls);
@@ -1476,7 +1476,7 @@ public class OciGenerativeOpenAiService {
                 ObjectNode tool = MAPPER.createObjectNode();
                 tool.put("role", "tool");
                 tool.put("tool_call_id", firstNonBlank(textOrNull(o, "call_id"), textOrNull(o, "id"), "call_ociworker"));
-                tool.put("content", firstNonBlank(textOrNull(o, "output"), ""));
+                tool.put("content", firstNonBlank(payloadStringOrNull(o, "output"), ""));
                 messages.add(tool);
                 continue;
             }
@@ -1582,6 +1582,17 @@ public class OciGenerativeOpenAiService {
             return !content.isEmpty();
         }
         return true;
+    }
+
+    private static String payloadStringOrNull(ObjectNode o, String field) {
+        if (o == null) {
+            return null;
+        }
+        JsonNode n = o.get(field);
+        if (n == null || n.isNull() || n.isMissingNode()) {
+            return null;
+        }
+        return n.isTextual() ? n.asText() : n.toString();
     }
 
     private static void addChatMessage(ArrayNode messages, String role, String content) {
