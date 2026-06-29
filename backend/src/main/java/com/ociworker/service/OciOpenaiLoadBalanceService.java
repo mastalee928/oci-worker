@@ -176,6 +176,7 @@ public class OciOpenaiLoadBalanceService {
 
     public List<Map<String, Object>> listMembers() {
         purgeOrphanMembers();
+        purgeInvalidModelStates();
         List<OciOpenaiLbMember> rows = memberMapper.selectList(new LambdaQueryWrapper<OciOpenaiLbMember>()
                 .orderByDesc(OciOpenaiLbMember::getEnabled)
                 .orderByAsc(OciOpenaiLbMember::getCreateTime));
@@ -299,6 +300,7 @@ public class OciOpenaiLoadBalanceService {
     @Scheduled(fixedDelayString = "${ociworker.openaiLoadBalance.healthCheckIntervalMs:60000}")
     public void refreshMemberHealth() {
         purgeOrphanMembers();
+        purgeInvalidModelStates();
         LocalDateTime now = LocalDateTime.now();
         for (OciOpenaiLbMember member : memberMapper.selectList(null)) {
             try {
@@ -353,6 +355,29 @@ public class OciOpenaiLoadBalanceService {
         }
         if (removed > 0) {
             log.info("Removed {} orphan OpenAI LB member(s)", removed);
+        }
+        return removed;
+    }
+
+    private int purgeInvalidModelStates() {
+        int removed = 0;
+        for (OciOpenaiLbMemberModelState state : memberModelStateMapper.selectList(null)) {
+            if (state == null || state.getId() == null) {
+                continue;
+            }
+            String status = state.getStatus();
+            if (!"unavailable".equalsIgnoreCase(status) && !"suspect".equalsIgnoreCase(status)) {
+                continue;
+            }
+            int lastStatus = state.getLastStatus() == null ? 0 : state.getLastStatus();
+            if (isModelAvailabilityFailure(lastStatus, state.getLastError())) {
+                continue;
+            }
+            memberModelStateMapper.deleteById(state.getId());
+            removed++;
+        }
+        if (removed > 0) {
+            log.info("Removed {} invalid OpenAI LB member model state(s)", removed);
         }
         return removed;
     }
@@ -591,13 +616,16 @@ public class OciOpenaiLoadBalanceService {
     }
 
     private static boolean isModelAvailabilityFailure(int status, String errorMessage) {
-        if (status == 400 || status == 404 || status == 422) {
-            return true;
-        }
-        if (status < 500) {
+        if (status < 400) {
             return false;
         }
         String message = errorMessage == null ? "" : errorMessage.toLowerCase();
+        if (message.isBlank()
+                || "http 400".equals(message)
+                || "http 404".equals(message)
+                || "http 422".equals(message)) {
+            return false;
+        }
         return message.contains("model")
                 && (message.contains("not found")
                 || message.contains("not available")

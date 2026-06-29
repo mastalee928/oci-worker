@@ -95,10 +95,13 @@ public class OpenAiV1Controller {
         byte[] body = shouldReadBody(request.getMethod()) ? request.getInputStream().readAllBytes() : null;
         String requestedModel = extractModelFromBody(body, request.getContentType());
         boolean stream = isStreamRequest(body, request.getContentType());
+        boolean bufferedToolStream = stream && hasToolRequest(body, request.getContentType());
         long estimatedTokens = estimateTokens(body, request.getContentType());
         Set<String> triedMembers = new HashSet<>();
         int eligibleCount = loadBalanceService.eligibleMemberCount(requestedModel, estimatedTokens);
-        int maxAttempts = stream ? 1 : Math.max(2, Math.min(6, eligibleCount <= 0 ? 2 : eligibleCount));
+        int maxAttempts = stream && !bufferedToolStream
+                ? 1
+                : Math.max(2, Math.min(6, eligibleCount <= 0 ? 2 : eligibleCount));
         String lastError = null;
         int lastStatus = 503;
         loadBalanceService.touchKey((String) request.getAttribute(OpenAiApiConstants.ATTR_LB_KEY_ID));
@@ -128,11 +131,11 @@ public class OpenAiV1Controller {
             }
             resetProxyAttributes(request);
             configureProxyAttributes(request, selection);
-            HttpServletResponse targetResponse = stream ? response : new BufferingResponse(response);
+            HttpServletResponse targetResponse = stream && !bufferedToolStream ? response : new BufferingResponse(response);
             try {
                 if (stream) {
-                    response.setHeader("x-ociworker-lb-member-id", selection.member().getId());
-                    response.setHeader("x-ociworker-lb-port", String.valueOf(binding.getPort()));
+                    targetResponse.setHeader("x-ociworker-lb-member-id", selection.member().getId());
+                    targetResponse.setHeader("x-ociworker-lb-port", String.valueOf(binding.getPort()));
                 }
                 HttpServletRequest proxyRequest = body == null ? request : new CachedBodyRequest(request, body);
                 generativeOpenAiService.proxy(user, proxyRequest, targetResponse);
@@ -147,8 +150,10 @@ public class OpenAiV1Controller {
                 }
                 int status = statusFrom(request, targetResponse);
                 long tokens = usageTokens(request);
-                boolean retry = !stream && attempt + 1 < maxAttempts && isRetryableStatus(status);
                 String statusError = status >= 400 ? responseBodySnippet(targetResponse, "HTTP " + status) : null;
+                boolean retry = attempt + 1 < maxAttempts
+                        && (!stream || bufferedToolStream)
+                        && isRetryableStatus(status, statusError, bufferedToolStream);
                 loadBalanceService.finishRequest(selection.member().getId(), status, tokens, latency,
                         retry ? "retryable_status" : null, retry ? statusError : null, requestedModel);
                 recordAttempt(request, lbRequestId, selection, requestedModel, stream, estimatedTokens, status,
@@ -178,7 +183,7 @@ public class OpenAiV1Controller {
                 lastError = message;
                 log.warn("OpenAI LB upstream error requestId={} memberId={} port={} message={}",
                         lbRequestId, selection.member().getId(), binding.getPort(), message);
-                if (!stream && attempt + 1 < maxAttempts) {
+                if ((!stream || bufferedToolStream) && attempt + 1 < maxAttempts) {
                     continue;
                 }
                 error(response, 502, message);
@@ -204,7 +209,7 @@ public class OpenAiV1Controller {
                 lastError = e.getMessage() != null ? e.getMessage() : "转发出错";
                 log.warn("OpenAI LB IO error requestId={} memberId={} port={} message={}",
                         lbRequestId, selection.member().getId(), binding.getPort(), e.getMessage());
-                if (!stream && attempt + 1 < maxAttempts) {
+                if ((!stream || bufferedToolStream) && attempt + 1 < maxAttempts) {
                     continue;
                 }
                 if (!response.isCommitted()) {
@@ -363,6 +368,29 @@ public class OpenAiV1Controller {
         }
     }
 
+    private static boolean hasToolRequest(byte[] body, String contentType) {
+        if (body == null || body.length == 0) {
+            return false;
+        }
+        if (contentType != null && !contentType.isBlank() && !contentType.toLowerCase().contains("json")) {
+            return false;
+        }
+        try {
+            JsonNode root = MAPPER.readTree(body);
+            if (root == null || !root.isObject()) {
+                return false;
+            }
+            JsonNode tools = root.get("tools");
+            if (tools != null && tools.isArray() && tools.size() > 0) {
+                return true;
+            }
+            JsonNode functions = root.get("functions");
+            return functions != null && functions.isArray() && functions.size() > 0;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
     private static long usageTokens(HttpServletRequest request) {
         Object value = request == null ? null : request.getAttribute(OpenAiApiConstants.ATTR_USAGE_TOKENS);
         if (value instanceof Number n) {
@@ -420,8 +448,22 @@ public class OpenAiV1Controller {
         return status > 0 ? status : 200;
     }
 
-    private static boolean isRetryableStatus(int status) {
-        return status == 429 || status >= 500;
+    private static boolean isRetryableStatus(int status, String bodySnippet, boolean bufferedToolStream) {
+        if (status == 429 || status >= 500) {
+            return true;
+        }
+        if (!bufferedToolStream) {
+            return false;
+        }
+        if (status != 400 && status != 404 && status != 422) {
+            return false;
+        }
+        String body = bodySnippet == null ? "" : bodySnippet.toLowerCase();
+        return body.isBlank()
+                || "http 400".equals(body)
+                || "http 404".equals(body)
+                || "http 422".equals(body)
+                || !body.contains("model");
     }
 
     private static String responseBodySnippet(HttpServletResponse response, String fallback) {
