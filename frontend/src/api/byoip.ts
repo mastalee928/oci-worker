@@ -1,6 +1,6 @@
 import request from '../utils/request'
 
-type R = { region?: string }
+type R = { region?: string; force?: boolean }
 
 export function getByoipHelp() {
   return request.post('/oci/byoip/help', {})

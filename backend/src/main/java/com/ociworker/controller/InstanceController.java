@@ -25,7 +25,7 @@ public class InstanceController {
 
     @PostMapping("/list")
     public ResponseData<?> list(@RequestBody Map<String, String> params) {
-        return ResponseData.ok(instanceService.listInstances(params.get("id"), regStr(params)));
+        return ResponseData.ok(instanceService.listInstances(params.get("id"), regStr(params), bool(params.get("force"))));
     }
 
     @PostMapping("/updateState")
@@ -103,7 +103,8 @@ public class InstanceController {
 
     @PostMapping("/bootVolumes")
     public ResponseData<?> bootVolumes(@RequestBody Map<String, String> params) {
-        return ResponseData.ok(instanceService.listBootVolumesByInstance(params.get("id"), params.get("instanceId"), regStr(params)));
+        return ResponseData.ok(instanceService.listBootVolumesByInstance(
+                params.get("id"), params.get("instanceId"), regStr(params), bool(params.get("force"))));
     }
 
     @PostMapping("/updateBootVolume")
@@ -121,19 +122,19 @@ public class InstanceController {
     @PostMapping("/blockVolumes")
     public ResponseData<?> blockVolumes(@RequestBody Map<String, String> params) {
         return ResponseData.ok(instanceService.listBlockVolumesByInstance(
-                params.get("id"), params.get("instanceId"), regStr(params)));
+                params.get("id"), params.get("instanceId"), regStr(params), bool(params.get("force"))));
     }
 
     @PostMapping("/externalBootVolumes")
     public ResponseData<?> externalBootVolumes(@RequestBody Map<String, String> params) {
         return ResponseData.ok(instanceService.listExternalBootVolumesForInstance(
-                params.get("id"), params.get("instanceId"), regStr(params)));
+                params.get("id"), params.get("instanceId"), regStr(params), bool(params.get("force"))));
     }
 
     @PostMapping("/unattachedBlockVolumes")
     public ResponseData<?> unattachedBlockVolumes(@RequestBody Map<String, String> params) {
         return ResponseData.ok(instanceService.listUnattachedBlockVolumesForInstance(
-                params.get("id"), params.get("instanceId"), regStr(params)));
+                params.get("id"), params.get("instanceId"), regStr(params), bool(params.get("force"))));
     }
 
     @PostMapping("/createBlockVolumeAndAttach")
@@ -226,7 +227,7 @@ public class InstanceController {
     @PostMapping("/instanceDetail")
     public ResponseData<?> instanceDetail(@RequestBody Map<String, String> params) {
         return ResponseData.ok(instanceService.getInstanceNetworkDetail(
-                params.get("id"), params.get("instanceId"), regStr(params), compStr(params)));
+                params.get("id"), params.get("instanceId"), regStr(params), compStr(params), bool(params.get("force"))));
     }
 
     @PostMapping("/addIpv6")
@@ -248,7 +249,7 @@ public class InstanceController {
 
     @PostMapping("/listReservedIps")
     public ResponseData<?> listReservedIps(@RequestBody Map<String, String> params) {
-        return ResponseData.ok(instanceService.listReservedIps(params.get("id"), regStr(params)));
+        return ResponseData.ok(instanceService.listReservedIps(params.get("id"), regStr(params), bool(params.get("force"))));
     }
 
     @PostMapping("/deleteReservedIp")

@@ -18,25 +18,46 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.net.http.HttpClient;
+import java.time.Duration;
 import java.util.*;
 
 @Slf4j
 @Service
 public class StorageService {
 
+    private static final Duration STORAGE_REGION_CACHE_TTL = Duration.ofMinutes(10);
+    private static final Duration STORAGE_COMPARTMENT_CACHE_TTL = Duration.ofMinutes(5);
+    private static final Duration STORAGE_AGGREGATE_CACHE_TTL = Duration.ofSeconds(45);
+
     @Resource
     private OciUserMapper userMapper;
     @Resource
     private OciProxyConfigService ociProxyConfigService;
+    @Resource
+    private OciReadCacheService ociReadCacheService;
 
     /**
      * 租户在 OCI 中已订阅（可用）的区域，避免枚举 SDK 内全部公有区域导致下拉过长。
      */
     public List<String> listSubscribedRegionIds(String userId) {
+        return listSubscribedRegionIds(userId, false);
+    }
+
+    public List<String> listSubscribedRegionIds(String userId, boolean force) {
         if (userId == null || userId.isBlank()) {
             throw new OciException("缺少租户 id");
         }
         OciUser ociUser = requireUser(userId);
+        try {
+            return ociReadCacheService.get(storageRegionListCacheKey(ociUser), STORAGE_REGION_CACHE_TTL, force,
+                    () -> fetchSubscribedRegionIds(ociUser));
+        } catch (RegionSubscriptionFallbackException e) {
+            log.warn("listRegionSubscriptions failed for user {}: {}", userId, e.getMessage());
+            return fallbackRegionList(ociUser);
+        }
+    }
+
+    private List<String> fetchSubscribedRegionIds(OciUser ociUser) {
         try (OciClientService client = new OciClientService(buildDto(ociUser))) {
             var resp = client.getIdentityClient().listRegionSubscriptions(
                     ListRegionSubscriptionsRequest.builder()
@@ -44,7 +65,7 @@ public class StorageService {
                             .build());
             var items = resp.getItems();
             if (items == null || items.isEmpty()) {
-                return fallbackRegionList(ociUser);
+                throw new RegionSubscriptionFallbackException("empty region subscription response");
             }
             List<String> out = items.stream()
                     .map(r -> r.getRegionName())
@@ -54,12 +75,16 @@ public class StorageService {
                     .distinct()
                     .sorted()
                     .toList();
-            return out.isEmpty() ? fallbackRegionList(ociUser) : out;
+            if (out.isEmpty()) {
+                throw new RegionSubscriptionFallbackException("empty region list after normalization");
+            }
+            return out;
+        } catch (RegionSubscriptionFallbackException e) {
+            throw e;
         } catch (OciException e) {
             throw e;
         } catch (Exception e) {
-            log.warn("listRegionSubscriptions failed for user {}: {}", userId, e.getMessage());
-            return fallbackRegionList(ociUser);
+            throw new RegionSubscriptionFallbackException(e.getMessage());
         }
     }
 
@@ -72,7 +97,16 @@ public class StorageService {
     }
 
     public List<Map<String, Object>> listCompartments(String userId, String region) {
+        return listCompartments(userId, region, false);
+    }
+
+    public List<Map<String, Object>> listCompartments(String userId, String region, boolean force) {
         OciUser ociUser = requireUser(userId);
+        return ociReadCacheService.get(storageCacheKey("compartments", ociUser, region),
+                STORAGE_COMPARTMENT_CACHE_TTL, force, () -> fetchCompartments(ociUser, region));
+    }
+
+    private List<Map<String, Object>> fetchCompartments(OciUser ociUser, String region) {
         String tenantId = ociUser.getOciTenantId();
         try (OciClientService client = new OciClientService(buildDto(ociUser), region)) {
             return client.listAllCompartments().stream()
@@ -100,7 +134,20 @@ public class StorageService {
      * @param sections 逗号分隔的子集，如 {@code bootVolumes}；空则加载全部（兼容旧客户端与「刷新」全量）。
      */
     public Map<String, Object> blockAggregate(String userId, String region, String compartmentIdOpt, String sections) {
+        return blockAggregate(userId, region, compartmentIdOpt, sections, false);
+    }
+
+    public Map<String, Object> blockAggregate(String userId, String region, String compartmentIdOpt, String sections, boolean force) {
         OciUser ociUser = requireUser(userId);
+        return ociReadCacheService.get(
+                storageCacheKey("blockAggregate", ociUser, region,
+                        normalizeBlank(compartmentIdOpt), normalizeSectionsForCache(sections)),
+                STORAGE_AGGREGATE_CACHE_TTL,
+                force,
+                () -> fetchBlockAggregate(ociUser, region, compartmentIdOpt, sections));
+    }
+
+    private Map<String, Object> fetchBlockAggregate(OciUser ociUser, String region, String compartmentIdOpt, String sections) {
         boolean loadAllSections = sections == null || sections.isBlank();
         Set<String> requested = new HashSet<>();
         if (!loadAllSections) {
@@ -274,7 +321,19 @@ public class StorageService {
     }
 
     public Map<String, Object> objectAggregate(String userId, String region, String compartmentIdOpt) {
+        return objectAggregate(userId, region, compartmentIdOpt, false);
+    }
+
+    public Map<String, Object> objectAggregate(String userId, String region, String compartmentIdOpt, boolean force) {
         OciUser ociUser = requireUser(userId);
+        return ociReadCacheService.get(
+                storageCacheKey("objectAggregate", ociUser, region, normalizeBlank(compartmentIdOpt)),
+                STORAGE_AGGREGATE_CACHE_TTL,
+                force,
+                () -> fetchObjectAggregate(ociUser, region, compartmentIdOpt));
+    }
+
+    private Map<String, Object> fetchObjectAggregate(OciUser ociUser, String region, String compartmentIdOpt) {
         try (OciClientService client = new OciClientService(buildDto(ociUser), region)) {
             List<Compartment> compartments = resolveCompartments(client, compartmentIdOpt);
             String namespace = client.getObjectStorageClient().getNamespace(
@@ -366,6 +425,11 @@ public class StorageService {
                 }
                 default -> throw new OciException("未知资源类型: " + resourceType);
             }
+            if (storageResourceAffectsInstance(resourceType)) {
+                evictStorageAndInstanceReadCaches(userId, region);
+            } else {
+                evictStorageReadCaches(userId, region);
+            }
         } catch (OciException e) {
             throw e;
         } catch (com.oracle.bmc.model.BmcException e) {
@@ -392,6 +456,7 @@ public class StorageService {
                     namespace,
                     bucketName,
                     policy);
+            evictStorageReadCaches(userId, region);
         } catch (OciException e) {
             throw e;
         } catch (Exception e) {
@@ -406,7 +471,7 @@ public class StorageService {
         String region = stringParam(params, "region");
         OciUser ociUser = requireUser(userId);
         try (OciClientService client = new OciClientService(buildDto(ociUser), region)) {
-            return switch (action) {
+            Object result = switch (action) {
                 case "updateBootVolume" -> {
                     String bootVolumeId = stringParam(params, "bootVolumeId");
                     String displayName = stringParam(params, "displayName");
@@ -705,6 +770,12 @@ public class StorageService {
                 }
                 default -> throw new OciException("未知操作: " + action);
             };
+            if (storageMutateAffectsInstance(action)) {
+                evictStorageAndInstanceReadCaches(userId, region);
+            } else if (storageMutateInvalidates(action)) {
+                evictStorageReadCaches(userId, region);
+            }
+            return result;
         } catch (OciException e) {
             throw e;
         } catch (com.oracle.bmc.model.BmcException e) {
@@ -724,6 +795,105 @@ public class StorageService {
         if (resp.getListObjects() != null && resp.getListObjects().getObjects() != null
                 && !resp.getListObjects().getObjects().isEmpty()) {
             throw new OciException("桶非空，拒绝删除。请先清空对象后再删除。");
+        }
+    }
+
+    private boolean storageMutateInvalidates(String action) {
+        return !"listBootVolumeAttachTargets".equals(action);
+    }
+
+    private boolean storageMutateAffectsInstance(String action) {
+        return switch (action) {
+            case "updateBootVolume",
+                 "updateBlockVolume",
+                 "attachBootVolume",
+                 "detachBootVolume",
+                 "enableBlockVolumeReplication",
+                 "enableBootVolumeReplication",
+                 "activateBlockReplicaAsVolume",
+                 "activateBootReplicaAsBootVolume" -> true;
+            default -> false;
+        };
+    }
+
+    private boolean storageResourceAffectsInstance(String resourceType) {
+        return "BOOT_VOLUME".equals(resourceType) || "BLOCK_VOLUME".equals(resourceType);
+    }
+
+    private void evictStorageReadCaches(String userId, String region) {
+        OciUser user = userMapper.selectById(userId);
+        if (user == null) {
+            return;
+        }
+        ociReadCacheService.evictByPrefix(storageCachePrefix(user, region) + "|");
+    }
+
+    private void evictStorageAndInstanceReadCaches(String userId, String region) {
+        OciUser user = userMapper.selectById(userId);
+        if (user == null) {
+            return;
+        }
+        ociReadCacheService.evictByPrefix(storageCachePrefix(user, region) + "|");
+        ociReadCacheService.evictByPrefix(InstanceService.instanceCachePrefix(user, region) + "|");
+    }
+
+    private static String storageRegionListCacheKey(OciUser user) {
+        return OciReadCacheService.key(
+                "oci:storageRegions",
+                user.getId(),
+                user.getOciTenantId(),
+                configuredRegion(user));
+    }
+
+    private static String storageCacheKey(String type, OciUser user, String region, Object... parts) {
+        Object[] all = new Object[(parts == null ? 0 : parts.length) + 1];
+        all[0] = type;
+        if (parts != null && parts.length > 0) {
+            System.arraycopy(parts, 0, all, 1, parts.length);
+        }
+        return OciReadCacheService.key(storageCachePrefix(user, region), all);
+    }
+
+    static String storageCachePrefix(OciUser user, String region) {
+        return OciReadCacheService.key(
+                "oci:storage",
+                user.getId(),
+                user.getOciTenantId(),
+                configuredRegion(user),
+                effectiveRegion(user, region));
+    }
+
+    private static String configuredRegion(OciUser user) {
+        return user.getOciRegion() == null ? "" : user.getOciRegion().trim();
+    }
+
+    private static String effectiveRegion(OciUser user, String region) {
+        String r = normalizeBlank(region);
+        return r.isEmpty() ? configuredRegion(user) : r;
+    }
+
+    private static String normalizeBlank(String value) {
+        return value == null ? "" : value.trim();
+    }
+
+    private static String normalizeSectionsForCache(String sections) {
+        if (sections == null || sections.isBlank()) {
+            return "";
+        }
+        List<String> parts = new ArrayList<>();
+        for (String part : sections.split(",")) {
+            String t = part.trim().toLowerCase(Locale.ROOT);
+            if (!t.isEmpty()) {
+                parts.add(t);
+            }
+        }
+        parts.sort(String::compareTo);
+        return String.join(",", parts);
+    }
+
+    private static final class RegionSubscriptionFallbackException extends RuntimeException {
+        private RegionSubscriptionFallbackException(String message) {
+            super(message);
         }
     }
 

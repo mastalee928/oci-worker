@@ -1217,7 +1217,7 @@ public class VcnService {
         return OciReadCacheService.key(vcnCachePrefix(user, region), type, vcnId);
     }
 
-    private static String vcnCachePrefix(OciUser user, String region) {
+    static String vcnCachePrefix(OciUser user, String region) {
         return OciReadCacheService.key(
                 "oci:vcn",
                 user.getId(),

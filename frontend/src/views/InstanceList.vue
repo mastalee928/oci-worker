@@ -4054,7 +4054,7 @@ async function loadTenantInstances(td: TenantData, options: LoadTenantInstancesO
     const rows = await appQueryCache.fetch(
       instanceListCacheKey(td, reg),
       async () => {
-        const res = await getInstanceList({ id: td.tenant.id, region: reg })
+        const res = await getInstanceList({ id: td.tenant.id, region: reg, force })
         return res.data || []
       },
       { staleMs: INSTANCE_LIST_CACHE_TTL_MS, force },
@@ -4282,6 +4282,7 @@ async function refreshInstanceInfo() {
     const res = await getInstanceList({
       id: currentTenant.value.id,
       ...instanceDetailRegionParam(),
+      force: true,
     })
     const fresh = (res.data || []).find((i: any) => i.instanceId === instanceId)
     if (!fresh) {

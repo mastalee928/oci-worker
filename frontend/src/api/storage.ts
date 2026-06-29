@@ -1,10 +1,10 @@
 import request from '../utils/request'
 
-export function listStorageRegions(data: { id: string }) {
+export function listStorageRegions(data: { id: string; force?: boolean }) {
   return request.post('/oci/storage/regions', data)
 }
 
-export function listStorageCompartments(data: { id: string; region: string }) {
+export function listStorageCompartments(data: { id: string; region: string; force?: boolean }) {
   return request.post('/oci/storage/compartments', data)
 }
 
@@ -14,11 +14,12 @@ export function blockStorageAggregate(data: {
   compartmentId?: string
   /** 逗号分隔子集，如 bootVolumes；不传则全量 */
   sections?: string
+  force?: boolean
 }) {
   return request.post('/oci/storage/block/aggregate', data)
 }
 
-export function objectStorageAggregate(data: { id: string; region: string; compartmentId?: string }) {
+export function objectStorageAggregate(data: { id: string; region: string; compartmentId?: string; force?: boolean }) {
   return request.post('/oci/storage/object/aggregate', data)
 }
 

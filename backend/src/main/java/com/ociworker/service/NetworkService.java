@@ -22,6 +22,8 @@ public class NetworkService {
 
     @Resource
     private OciUserMapper userMapper;
+    @Resource
+    private OciReadCacheService ociReadCacheService;
 
     private String tag(OciUser u) { return "[" + u.getUsername() + "] "; }
 
@@ -487,6 +489,7 @@ public class NetworkService {
             ).getPublicIp();
 
             log.info("Changed IP for instance {}: {}", instanceId, newPubIp.getIpAddress());
+            evictInstanceReadCaches(ociUser, region);
         } catch (OciException e) {
             throw e;
         } catch (Exception e) {
@@ -511,6 +514,7 @@ public class NetworkService {
                         DeletePublicIpRequest.builder().publicIpId(pubIp.getId()).build());
                 log.info("Deleted public IP {} from private IP {}", pubIp.getIpAddress(), privateIpId);
             }
+            evictInstanceReadCaches(ociUser, region);
         } catch (OciException e) {
             throw e;
         } catch (Exception e) {
@@ -541,6 +545,7 @@ public class NetworkService {
             client.getVirtualNetworkClient().deletePrivateIp(
                     DeletePrivateIpRequest.builder().privateIpId(privateIpId).build());
             log.info("Deleted secondary private IP {}", privateIpId);
+            evictInstanceReadCaches(ociUser, region);
         } catch (OciException e) {
             throw e;
         } catch (Exception e) {
@@ -565,6 +570,7 @@ public class NetworkService {
             ).getPublicIp();
 
             log.info("Assigned ephemeral IP {} to private IP {}", newPubIp.getIpAddress(), privateIpId);
+            evictInstanceReadCaches(ociUser, region);
             return Map.of("publicIp", newPubIp.getIpAddress());
         } catch (OciException e) {
             throw e;
@@ -584,6 +590,13 @@ public class NetworkService {
         List<VnicAttachment> attachments = listVnicAttachmentsForInstance(client, instanceId, compartmentId);
         if (attachments.isEmpty()) throw new OciException("未找到实例的 VNIC");
         return attachments.get(0).getSubnetId();
+    }
+
+    private void evictInstanceReadCaches(OciUser user, String region) {
+        if (user == null) {
+            return;
+        }
+        ociReadCacheService.evictByPrefix(InstanceService.instanceCachePrefix(user, region) + "|");
     }
 
     private SysUserDTO buildDTO(OciUser ociUser) {

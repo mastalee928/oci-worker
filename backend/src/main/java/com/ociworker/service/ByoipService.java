@@ -11,6 +11,7 @@ import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
+import java.time.Duration;
 import java.util.*;
 import java.util.stream.Collectors;
 
@@ -25,9 +26,12 @@ public class ByoipService {
 
     /** 商业云 Oracle BGP ASN（塞尔维亚 Jovanovac 等区域为 14544，见官方文档） */
     public static final int ORACLE_BGP_ASN_COMMERCIAL = 31898;
+    private static final Duration BYOIP_READ_CACHE_TTL = Duration.ofSeconds(45);
 
     @Resource
     private OciUserMapper userMapper;
+    @Resource
+    private OciReadCacheService ociReadCacheService;
 
     private String tag(OciUser u) {
         return "[" + u.getUsername() + "] ";
@@ -132,7 +136,16 @@ public class ByoipService {
     }
 
     public List<Map<String, Object>> listByoipRanges(String userId, String region) {
+        return listByoipRanges(userId, region, false);
+    }
+
+    public List<Map<String, Object>> listByoipRanges(String userId, String region, boolean force) {
         OciUser ociUser = requireUser(userId);
+        return ociReadCacheService.get(byoipCacheKey("ranges", ociUser, region), BYOIP_READ_CACHE_TTL, force,
+                () -> fetchByoipRanges(ociUser, region));
+    }
+
+    private List<Map<String, Object>> fetchByoipRanges(OciUser ociUser, String region) {
         try (OciClientService client = oci(ociUser, region)) {
             var coll = client.getVirtualNetworkClient().listByoipRanges(
                     ListByoipRangesRequest.builder()
@@ -189,6 +202,7 @@ public class ByoipService {
                     CreateByoipRangeRequest.builder().createByoipRangeDetails(b.build()).build()
             ).getByoipRange();
             log.info("BYOIP range created: {}", created.getId());
+            evictByoipReadCaches(ociUser, region);
             return mapByoipRange(created);
         } catch (com.oracle.bmc.model.BmcException e) {
             throw new OciException(tag(ociUser) + "创建 BYOIP 导入请求失败: " + extractOciErrorMessage(e));
@@ -210,6 +224,7 @@ public class ByoipService {
                             .updateByoipRangeDetails(b.build())
                             .build()
             ).getByoipRange();
+            evictByoipReadCaches(ociUser, region);
             return mapByoipRange(updated);
         } catch (com.oracle.bmc.model.BmcException e) {
             throw new OciException(tag(ociUser) + "更新 BYOIP 失败: " + extractOciErrorMessage(e));
@@ -224,6 +239,7 @@ public class ByoipService {
             client.getVirtualNetworkClient().deleteByoipRange(
                     DeleteByoipRangeRequest.builder().byoipRangeId(byoipRangeId).build());
             log.info("BYOIP range deleted: {}", byoipRangeId);
+            evictByoipReadCaches(ociUser, region);
         } catch (com.oracle.bmc.model.BmcException e) {
             throw new OciException(tag(ociUser) + "删除 BYOIP 网段失败: " + extractOciErrorMessage(e));
         } catch (Exception e) {
@@ -238,6 +254,7 @@ public class ByoipService {
             client.getVirtualNetworkClient().validateByoipRange(
                     ValidateByoipRangeRequest.builder().byoipRangeId(byoipRangeId).build());
             log.info("BYOIP validate requested: {}", byoipRangeId);
+            evictByoipReadCaches(ociUser, region);
         } catch (com.oracle.bmc.model.BmcException e) {
             throw new OciException(tag(ociUser) + "提交 BYOIP 校验失败: " + extractOciErrorMessage(e));
         } catch (Exception e) {
@@ -252,6 +269,7 @@ public class ByoipService {
             client.getVirtualNetworkClient().advertiseByoipRange(
                     AdvertiseByoipRangeRequest.builder().byoipRangeId(byoipRangeId).build());
             log.info("BYOIP advertise requested: {}", byoipRangeId);
+            evictByoipReadCaches(ociUser, region);
         } catch (com.oracle.bmc.model.BmcException e) {
             throw new OciException(tag(ociUser) + "宣告 BYOIP 失败: " + extractOciErrorMessage(e));
         } catch (Exception e) {
@@ -265,6 +283,7 @@ public class ByoipService {
             client.getVirtualNetworkClient().withdrawByoipRange(
                     WithdrawByoipRangeRequest.builder().byoipRangeId(byoipRangeId).build());
             log.info("BYOIP withdraw requested: {}", byoipRangeId);
+            evictByoipReadCaches(ociUser, region);
         } catch (com.oracle.bmc.model.BmcException e) {
             throw new OciException(tag(ociUser) + "撤回 BYOIP 宣告失败: " + extractOciErrorMessage(e));
         } catch (Exception e) {
@@ -286,6 +305,7 @@ public class ByoipService {
                                             .compartmentId(compartmentId.trim())
                                             .build())
                             .build());
+            evictByoipReadCaches(ociUser, region);
         } catch (com.oracle.bmc.model.BmcException e) {
             throw new OciException(tag(ociUser) + "移动 BYOIP 区间失败: " + extractOciErrorMessage(e));
         } catch (Exception e) {
@@ -294,7 +314,16 @@ public class ByoipService {
     }
 
     public List<Map<String, Object>> listByoipAllocatedRanges(String userId, String byoipRangeId, String region) {
+        return listByoipAllocatedRanges(userId, byoipRangeId, region, false);
+    }
+
+    public List<Map<String, Object>> listByoipAllocatedRanges(String userId, String byoipRangeId, String region, boolean force) {
         OciUser ociUser = requireUser(userId);
+        return ociReadCacheService.get(byoipCacheKey("allocatedRanges", ociUser, region, normalizeBlank(byoipRangeId)),
+                BYOIP_READ_CACHE_TTL, force, () -> fetchByoipAllocatedRanges(ociUser, byoipRangeId, region));
+    }
+
+    private List<Map<String, Object>> fetchByoipAllocatedRanges(OciUser ociUser, String byoipRangeId, String region) {
         try (OciClientService client = oci(ociUser, region)) {
             var allocColl = client.getVirtualNetworkClient().listByoipAllocatedRanges(
                     ListByoipAllocatedRangesRequest.builder().byoipRangeId(byoipRangeId).build()
@@ -319,7 +348,16 @@ public class ByoipService {
     // ---------- Public IP Pool ----------
 
     public List<Map<String, Object>> listPublicIpPools(String userId, String byoipRangeId, String region) {
+        return listPublicIpPools(userId, byoipRangeId, region, false);
+    }
+
+    public List<Map<String, Object>> listPublicIpPools(String userId, String byoipRangeId, String region, boolean force) {
         OciUser ociUser = requireUser(userId);
+        return ociReadCacheService.get(byoipCacheKey("publicIpPools", ociUser, region, normalizeBlank(byoipRangeId)),
+                BYOIP_READ_CACHE_TTL, force, () -> fetchPublicIpPools(ociUser, byoipRangeId, region));
+    }
+
+    private List<Map<String, Object>> fetchPublicIpPools(OciUser ociUser, String byoipRangeId, String region) {
         try (OciClientService client = oci(ociUser, region)) {
             ListPublicIpPoolsRequest.Builder req = ListPublicIpPoolsRequest.builder()
                     .compartmentId(client.getCompartmentId());
@@ -370,6 +408,7 @@ public class ByoipService {
             PublicIpPool pool = client.getVirtualNetworkClient().createPublicIpPool(
                     CreatePublicIpPoolRequest.builder().createPublicIpPoolDetails(b.build()).build()
             ).getPublicIpPool();
+            evictByoipReadCaches(ociUser, region);
             return mapPublicIpPool(pool);
         } catch (com.oracle.bmc.model.BmcException e) {
             throw new OciException(tag(ociUser) + "创建公网 IP 池失败: " + extractOciErrorMessage(e));
@@ -391,6 +430,7 @@ public class ByoipService {
                             .updatePublicIpPoolDetails(b.build())
                             .build()
             ).getPublicIpPool();
+            evictByoipReadCaches(ociUser, region);
             return mapPublicIpPool(pool);
         } catch (com.oracle.bmc.model.BmcException e) {
             throw new OciException(tag(ociUser) + "更新公网 IP 池失败: " + extractOciErrorMessage(e));
@@ -404,6 +444,7 @@ public class ByoipService {
         try (OciClientService client = oci(ociUser, region)) {
             client.getVirtualNetworkClient().deletePublicIpPool(
                     DeletePublicIpPoolRequest.builder().publicIpPoolId(publicIpPoolId).build());
+            evictByoipReadCaches(ociUser, region);
         } catch (com.oracle.bmc.model.BmcException e) {
             throw new OciException(tag(ociUser) + "删除公网 IP 池失败: " + extractOciErrorMessage(e));
         } catch (Exception e) {
@@ -429,6 +470,7 @@ public class ByoipService {
                                     .build())
                             .build());
             log.info("Added {} from BYOIP {} to pool {}", cidrBlock, byoipRangeId, publicIpPoolId);
+            evictByoipReadCaches(ociUser, region);
         } catch (com.oracle.bmc.model.BmcException e) {
             throw new OciException(tag(ociUser) + "向 IP 池添加 BYOIP 容量失败: " + extractOciErrorMessage(e));
         } catch (Exception e) {
@@ -446,6 +488,7 @@ public class ByoipService {
                                     .cidrBlock(cidrBlock.trim())
                                     .build())
                             .build());
+            evictByoipReadCaches(ociUser, region);
         } catch (com.oracle.bmc.model.BmcException e) {
             throw new OciException(tag(ociUser) + "从 IP 池移除 BYOIP 容量失败: " + extractOciErrorMessage(e));
         } catch (Exception e) {
@@ -471,6 +514,7 @@ public class ByoipService {
             PublicIp ip = client.getVirtualNetworkClient().createPublicIp(
                     CreatePublicIpRequest.builder().createPublicIpDetails(builder.build()).build()
             ).getPublicIp();
+            evictByoipReadCaches(ociUser, region);
             return Map.of(
                     "publicIpId", ip.getId(),
                     "ipAddress", ip.getIpAddress() != null ? ip.getIpAddress() : ""
@@ -483,7 +527,16 @@ public class ByoipService {
     }
 
     public List<Map<String, Object>> listByoipPublicIps(String userId, String region) {
+        return listByoipPublicIps(userId, region, false);
+    }
+
+    public List<Map<String, Object>> listByoipPublicIps(String userId, String region, boolean force) {
         OciUser ociUser = requireUser(userId);
+        return ociReadCacheService.get(byoipCacheKey("publicIps", ociUser, region),
+                BYOIP_READ_CACHE_TTL, force, () -> fetchByoipPublicIps(ociUser, region));
+    }
+
+    private List<Map<String, Object>> fetchByoipPublicIps(OciUser ociUser, String region) {
         try (OciClientService client = oci(ociUser, region)) {
             List<PublicIp> publicIps = client.getVirtualNetworkClient().listPublicIps(
                     ListPublicIpsRequest.builder()
@@ -530,11 +583,58 @@ public class ByoipService {
                                     .build())
                             .build());
             log.info("BYOIPv6 {} assigned to VCN {}", ipv6CidrBlock, vcnId);
+            evictByoipReadCaches(ociUser, region);
+            evictVcnReadCaches(ociUser, region);
         } catch (com.oracle.bmc.model.BmcException e) {
             throw new OciException(tag(ociUser) + "分配 BYOIPv6 到 VCN 失败: " + extractOciErrorMessage(e));
         } catch (Exception e) {
             throw new OciException(tag(ociUser) + "分配 BYOIPv6 到 VCN 失败: " + e.getMessage());
         }
+    }
+
+    private void evictByoipReadCaches(OciUser user, String region) {
+        if (user == null) {
+            return;
+        }
+        ociReadCacheService.evictByPrefix(byoipCachePrefix(user, region) + "|");
+    }
+
+    private void evictVcnReadCaches(OciUser user, String region) {
+        if (user == null) {
+            return;
+        }
+        ociReadCacheService.evictByPrefix(VcnService.vcnCachePrefix(user, region) + "|");
+    }
+
+    private static String byoipCacheKey(String type, OciUser user, String region, Object... parts) {
+        Object[] all = new Object[(parts == null ? 0 : parts.length) + 1];
+        all[0] = type;
+        if (parts != null && parts.length > 0) {
+            System.arraycopy(parts, 0, all, 1, parts.length);
+        }
+        return OciReadCacheService.key(byoipCachePrefix(user, region), all);
+    }
+
+    private static String byoipCachePrefix(OciUser user, String region) {
+        return OciReadCacheService.key(
+                "oci:byoip",
+                user.getId(),
+                user.getOciTenantId(),
+                configuredRegion(user),
+                effectiveRegion(user, region));
+    }
+
+    private static String configuredRegion(OciUser user) {
+        return user.getOciRegion() == null ? "" : user.getOciRegion().trim();
+    }
+
+    private static String effectiveRegion(OciUser user, String region) {
+        String r = normalizeBlank(region);
+        return r.isEmpty() ? configuredRegion(user) : r;
+    }
+
+    private static String normalizeBlank(String value) {
+        return value == null ? "" : value.trim();
     }
 
     public Map<String, Object> getByoipHelp() {

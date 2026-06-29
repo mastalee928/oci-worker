@@ -30,7 +30,7 @@
         :options="compartmentOptions"
         :loading="compartmentLoading"
       />
-      <a-button type="primary" @click="loadAll" :loading="loading" :disabled="!region" title="拉取全部块存储子类（较慢）">
+      <a-button type="primary" @click="() => loadAll(true)" :loading="loading" :disabled="!region" title="拉取全部块存储子类（较慢）">
         <i class="ri-refresh-line" style="margin-right: 4px"></i>刷新
       </a-button>
     </div>
@@ -1079,7 +1079,7 @@ watch(blockView, (v) => {
 })
 
 /** 全量块存储（刷新、增删改后） */
-async function loadAll() {
+async function loadAll(force = false) {
   if (!props.userId || !region.value) return
   loading.value = true
   try {
@@ -1087,10 +1087,11 @@ async function loadAll() {
       id: props.userId,
       region: region.value,
       compartmentId: compartmentId.value || undefined,
+      force,
     })
     blockData.value = (res.data || {}) as any
     blockDataSectionsLoaded.value = new Set(['__full__'])
-    if (mainTab.value === 'object') await loadObject()
+    if (mainTab.value === 'object') await loadObject(force)
   } catch (e: any) {
     message.error(e?.message || '加载块存储失败')
   } finally {
@@ -1098,7 +1099,7 @@ async function loadAll() {
   }
 }
 
-async function loadObject() {
+async function loadObject(force = false) {
   if (!props.userId || !region.value) return
   objectLoading.value = true
   try {
@@ -1106,6 +1107,7 @@ async function loadObject() {
       id: props.userId,
       region: region.value,
       compartmentId: compartmentId.value || undefined,
+      force,
     } as any)
     objectData.value = res.data || {}
     objectDataContextKey.value = `${props.userId}|${region.value}|${compartmentId.value || ''}`

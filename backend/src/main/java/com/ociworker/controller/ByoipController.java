@@ -21,7 +21,7 @@ public class ByoipController {
 
     @PostMapping("/listRanges")
     public ResponseData<?> listRanges(@RequestBody Map<String, String> params) {
-        return ResponseData.ok(byoipService.listByoipRanges(params.get("id"), reg(params)));
+        return ResponseData.ok(byoipService.listByoipRanges(params.get("id"), reg(params), bool(params.get("force"))));
     }
 
     @PostMapping("/getRange")
@@ -79,12 +79,12 @@ public class ByoipController {
     @PostMapping("/listAllocatedRanges")
     public ResponseData<?> listAllocatedRanges(@RequestBody Map<String, String> params) {
         return ResponseData.ok(byoipService.listByoipAllocatedRanges(
-                params.get("id"), params.get("byoipRangeId"), reg(params)));
+                params.get("id"), params.get("byoipRangeId"), reg(params), bool(params.get("force"))));
     }
 
     @PostMapping("/listPools")
     public ResponseData<?> listPools(@RequestBody Map<String, String> params) {
-        return ResponseData.ok(byoipService.listPublicIpPools(params.get("id"), params.get("byoipRangeId"), reg(params)));
+        return ResponseData.ok(byoipService.listPublicIpPools(params.get("id"), params.get("byoipRangeId"), reg(params), bool(params.get("force"))));
     }
 
     @PostMapping("/createPool")
@@ -133,7 +133,7 @@ public class ByoipController {
 
     @PostMapping("/listPublicIps")
     public ResponseData<?> listPublicIps(@RequestBody Map<String, String> params) {
-        return ResponseData.ok(byoipService.listByoipPublicIps(params.get("id"), reg(params)));
+        return ResponseData.ok(byoipService.listByoipPublicIps(params.get("id"), reg(params), bool(params.get("force"))));
     }
 
     @PostMapping("/assignIpv6ToVcn")
@@ -169,5 +169,9 @@ public class ByoipController {
         if (s == null) return null;
         s = s.trim();
         return s.isEmpty() ? null : s;
+    }
+
+    private static boolean bool(String value) {
+        return value != null && Boolean.parseBoolean(value);
     }
 }

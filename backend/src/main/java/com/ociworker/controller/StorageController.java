@@ -20,12 +20,12 @@ public class StorageController {
     /** 当前租户在 OCI 已订阅的区域（非 SDK 枚举的全部公有区域） */
     @PostMapping("/regions")
     public ResponseData<?> regions(@RequestBody Map<String, String> params) {
-        return ResponseData.ok(storageService.listSubscribedRegionIds(params.get("id")));
+        return ResponseData.ok(storageService.listSubscribedRegionIds(params.get("id"), bool(params.get("force"))));
     }
 
     @PostMapping("/compartments")
     public ResponseData<?> compartments(@RequestBody Map<String, String> params) {
-        return ResponseData.ok(storageService.listCompartments(params.get("id"), params.get("region")));
+        return ResponseData.ok(storageService.listCompartments(params.get("id"), params.get("region"), bool(params.get("force"))));
     }
 
     /** 块存储：一次拉取当前 Region 下各资源列表（含挂载摘要） */
@@ -35,7 +35,8 @@ public class StorageController {
                 params.get("id"),
                 params.get("region"),
                 params.get("compartmentId"),
-                params.get("sections")));
+                params.get("sections"),
+                bool(params.get("force"))));
     }
 
     /** 对象存储：命名空间、桶、专用端点 */
@@ -44,7 +45,8 @@ public class StorageController {
         return ResponseData.ok(storageService.objectAggregate(
                 params.get("id"),
                 params.get("region"),
-                params.get("compartmentId")));
+                params.get("compartmentId"),
+                bool(params.get("force"))));
     }
 
     @PostMapping("/delete")
@@ -80,5 +82,9 @@ public class StorageController {
             verifyCodeService.verifyCode("detachBootVolume", code == null ? null : String.valueOf(code));
         }
         return ResponseData.ok(storageService.mutate(params));
+    }
+
+    private static boolean bool(String value) {
+        return value != null && Boolean.parseBoolean(value);
     }
 }

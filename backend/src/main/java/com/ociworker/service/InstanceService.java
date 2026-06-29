@@ -27,6 +27,8 @@ public class InstanceService {
     private static final String SHAPE_A2_FLEX = "VM.Standard.A2.Flex";
     private static final String SHAPE_A1_FLEX = "VM.Standard.A1.Flex";
     private static final Duration SHAPE_LIST_CACHE_TTL = Duration.ofMinutes(15);
+    private static final Duration INSTANCE_LIST_CACHE_TTL = Duration.ofSeconds(20);
+    private static final Duration INSTANCE_DETAIL_CACHE_TTL = Duration.ofSeconds(45);
 
     @Resource
     private OciUserMapper userMapper;
@@ -74,9 +76,18 @@ public class InstanceService {
     }
 
     public List<Map<String, Object>> listInstances(String userId, String region) {
+        return listInstances(userId, region, false);
+    }
+
+    public List<Map<String, Object>> listInstances(String userId, String region, boolean force) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
 
+        return ociReadCacheService.get(instanceCacheKey("list", ociUser, region), INSTANCE_LIST_CACHE_TTL, force,
+                () -> fetchInstances(ociUser, region));
+    }
+
+    private List<Map<String, Object>> fetchInstances(OciUser ociUser, String region) {
         try (OciClientService client = oci(ociUser, region)) {
             var compartments = client.listAllCompartments();
             Map<String, String> compartmentNameMap = new LinkedHashMap<>();
@@ -152,6 +163,7 @@ public class InstanceService {
                     .build();
             client.getComputeClient().instanceAction(request);
             log.info("Instance {} action: {}", instanceId, action);
+            evictInstanceReadCaches(userId, region);
         } catch (com.oracle.bmc.model.BmcException e) {
             throw new OciException(tag(ociUser) + "操作失败: " + extractInstanceActionErrorMessage(e));
         } catch (Exception e) {
@@ -170,15 +182,25 @@ public class InstanceService {
                             .preserveBootVolume(preserveBootVolume)
                             .build());
             log.info("Instance terminated: {}, preserveBootVolume={}", instanceId, preserveBootVolume);
+            evictInstanceReadCaches(userId, region);
         } catch (Exception e) {
             throw new OciException(tag(ociUser) + "终止实例失败: " + e.getMessage());
         }
     }
 
     public List<Map<String, Object>> listBootVolumesByInstance(String userId, String instanceId, String region) {
+        return listBootVolumesByInstance(userId, instanceId, region, false);
+    }
+
+    public List<Map<String, Object>> listBootVolumesByInstance(String userId, String instanceId, String region, boolean force) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
 
+        return ociReadCacheService.get(instanceCacheKey("bootVolumes", ociUser, region, normalizeBlank(instanceId)),
+                INSTANCE_DETAIL_CACHE_TTL, force, () -> fetchBootVolumesByInstance(ociUser, instanceId, region));
+    }
+
+    private List<Map<String, Object>> fetchBootVolumesByInstance(OciUser ociUser, String instanceId, String region) {
         try (OciClientService client = oci(ociUser, region)) {
             Instance instance = client.getComputeClient().getInstance(
                     GetInstanceRequest.builder().instanceId(instanceId).build()
@@ -222,6 +244,7 @@ public class InstanceService {
                             .updateBootVolumeDetails(detailsBuilder.build())
                             .build());
             log.info("Boot volume updated: {}", bootVolumeId);
+            evictInstanceAndStorageReadCaches(userId, region);
         } catch (com.oracle.bmc.model.BmcException e) {
             throw new OciException(tag(ociUser) + "更新引导卷失败: " + extractOciErrorMessage(e));
         } catch (Exception e) {
@@ -233,9 +256,21 @@ public class InstanceService {
      * Gets detailed network info for an instance: private IP, public IP type (reserved/ephemeral), IPv6
      */
     public Map<String, Object> getInstanceNetworkDetail(String userId, String instanceId, String region, String compartmentId) {
+        return getInstanceNetworkDetail(userId, instanceId, region, compartmentId, false);
+    }
+
+    public Map<String, Object> getInstanceNetworkDetail(String userId, String instanceId, String region, String compartmentId, boolean force) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
 
+        return ociReadCacheService.get(instanceCacheKey("networkDetail", ociUser, region,
+                        normalizeBlank(instanceId), normalizeBlank(compartmentId)),
+                INSTANCE_DETAIL_CACHE_TTL,
+                force,
+                () -> fetchInstanceNetworkDetail(ociUser, instanceId, region, compartmentId));
+    }
+
+    private Map<String, Object> fetchInstanceNetworkDetail(OciUser ociUser, String instanceId, String region, String compartmentId) {
         try (OciClientService client = oci(ociUser, region)) {
             Map<String, Object> result = new LinkedHashMap<>();
 
@@ -403,6 +438,7 @@ public class InstanceService {
                             .build()
             ).getIpv6();
 
+            evictInstanceReadCaches(userId, region);
             return Map.of("ipv6Address", ipv6.getIpAddress());
         } catch (OciException e) {
             throw e;
@@ -426,6 +462,7 @@ public class InstanceService {
                     DeleteIpv6Request.builder().ipv6Id(ipv6Id).build()
             );
             log.info("IPv6 unassigned (deleted): {}", ipv6Id);
+            evictInstanceReadCaches(userId, region);
         } catch (com.oracle.bmc.model.BmcException e) {
             throw new OciException(tag(ociUser) + "取消分配 IPv6 失败: " + extractOciErrorMessage(e));
         } catch (Exception e) {
@@ -522,6 +559,7 @@ public class InstanceService {
                             .build()
             ).getPublicIp();
 
+            evictInstanceReadCaches(userId, region);
             return Map.of(
                     "id", reservedIp.getId(),
                     "publicIpId", reservedIp.getId(),
@@ -535,9 +573,18 @@ public class InstanceService {
     }
 
     public List<Map<String, Object>> listReservedIps(String userId, String region) {
+        return listReservedIps(userId, region, false);
+    }
+
+    public List<Map<String, Object>> listReservedIps(String userId, String region, boolean force) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
 
+        return ociReadCacheService.get(instanceCacheKey("reservedIps", ociUser, region),
+                INSTANCE_DETAIL_CACHE_TTL, force, () -> fetchReservedIps(ociUser, region));
+    }
+
+    private List<Map<String, Object>> fetchReservedIps(OciUser ociUser, String region) {
         try (OciClientService client = oci(ociUser, region)) {
             List<PublicIp> publicIps = client.getVirtualNetworkClient().listPublicIps(
                     ListPublicIpsRequest.builder()
@@ -574,6 +621,7 @@ public class InstanceService {
             client.getVirtualNetworkClient().deletePublicIp(
                     DeletePublicIpRequest.builder().publicIpId(publicIpId).build());
             log.info("Reserved IP deleted: {}", publicIpId);
+            evictInstanceReadCaches(userId, region);
         } catch (Exception e) {
             throw new OciException(tag(ociUser) + "删除预留 IP 失败: " + e.getMessage());
         }
@@ -612,6 +660,7 @@ public class InstanceService {
                             .build());
             log.info("Reserved IP {} assigned to secondary private IP {} on instance {}",
                     publicIpId, secondaryPip.getIpAddress(), instanceId);
+            evictInstanceReadCaches(userId, region);
         } catch (com.oracle.bmc.model.BmcException e) {
             throw new OciException(tag(ociUser) + "绑定预留IP失败: " + extractOciErrorMessage(e));
         } catch (OciException e) {
@@ -652,6 +701,7 @@ public class InstanceService {
                 } catch (Exception ignored) {}
             }
             log.info("Reserved IP {} unassigned", publicIpId);
+            evictInstanceReadCaches(userId, region);
         } catch (com.oracle.bmc.model.BmcException e) {
             throw new OciException(tag(ociUser) + "解绑预留IP失败: " + extractOciErrorMessage(e));
         } catch (Exception e) {
@@ -695,7 +745,9 @@ public class InstanceService {
         if (ociUser == null) throw new OciException("租户配置不存在");
 
         try (OciClientService client = oci(ociUser, region)) {
-            return updateInstanceOnce(client, ociUser, instanceId, displayName, shape, ocpus, memoryInGBs);
+            Map<String, Object> result = updateInstanceOnce(client, ociUser, instanceId, displayName, shape, ocpus, memoryInGBs);
+            evictInstanceReadCaches(userId, region);
+            return result;
         }
     }
 
@@ -828,6 +880,7 @@ public class InstanceService {
                 result.put("memoryInGBs", updated.getShapeConfig().getMemoryInGBs());
             }
             notifyForceA2ToA1Success(updated);
+            evictInstanceReadCaches(userId, region);
             return result;
         } catch (OciException e) {
             notifyForceA2ToA1Failure(ociUser, region);
@@ -942,6 +995,54 @@ public class InstanceService {
         return region == null ? "" : region.trim();
     }
 
+    private void evictInstanceReadCaches(String userId, String region) {
+        OciUser user = userMapper.selectById(userId);
+        if (user == null) {
+            return;
+        }
+        ociReadCacheService.evictByPrefix(instanceCachePrefix(user, region) + "|");
+    }
+
+    private void evictInstanceAndStorageReadCaches(String userId, String region) {
+        OciUser user = userMapper.selectById(userId);
+        if (user == null) {
+            return;
+        }
+        ociReadCacheService.evictByPrefix(instanceCachePrefix(user, region) + "|");
+        ociReadCacheService.evictByPrefix(StorageService.storageCachePrefix(user, region) + "|");
+    }
+
+    private static String instanceCacheKey(String type, OciUser user, String region, Object... parts) {
+        Object[] all = new Object[(parts == null ? 0 : parts.length) + 1];
+        all[0] = type;
+        if (parts != null && parts.length > 0) {
+            System.arraycopy(parts, 0, all, 1, parts.length);
+        }
+        return OciReadCacheService.key(instanceCachePrefix(user, region), all);
+    }
+
+    static String instanceCachePrefix(OciUser user, String region) {
+        return OciReadCacheService.key(
+                "oci:instance",
+                user.getId(),
+                user.getOciTenantId(),
+                configuredRegion(user),
+                effectiveRegion(user, region));
+    }
+
+    private static String configuredRegion(OciUser user) {
+        return user.getOciRegion() == null ? "" : user.getOciRegion().trim();
+    }
+
+    private static String effectiveRegion(OciUser user, String region) {
+        String r = normalizeBlank(region);
+        return r.isEmpty() ? configuredRegion(user) : r;
+    }
+
+    private static String normalizeBlank(String value) {
+        return value == null ? "" : value.trim();
+    }
+
     private static boolean isFlexibleShape(String shapeName) {
         return shapeName != null && shapeName.contains("Flex");
     }
@@ -1051,10 +1152,19 @@ public class InstanceService {
      * 当前实例已挂载的普通块存储卷。引导卷在「引导卷」和「外部引导卷」里单独展示。
      */
     public List<Map<String, Object>> listBlockVolumesByInstance(String userId, String instanceId, String region) {
+        return listBlockVolumesByInstance(userId, instanceId, region, false);
+    }
+
+    public List<Map<String, Object>> listBlockVolumesByInstance(String userId, String instanceId, String region, boolean force) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
         if (instanceId == null || instanceId.isBlank()) throw new OciException("instanceId 不能为空");
 
+        return ociReadCacheService.get(instanceCacheKey("blockVolumes", ociUser, region, normalizeBlank(instanceId)),
+                INSTANCE_DETAIL_CACHE_TTL, force, () -> fetchBlockVolumesByInstance(ociUser, instanceId, region));
+    }
+
+    private List<Map<String, Object>> fetchBlockVolumesByInstance(OciUser ociUser, String instanceId, String region) {
         try (OciClientService client = oci(ociUser, region)) {
             Instance instance = getInstanceOrThrow(client, instanceId);
             String compartmentId = instance.getCompartmentId();
@@ -1089,10 +1199,19 @@ public class InstanceService {
      * 2. 同 AD、AVAILABLE、未挂载的引导卷（可作为救援盘挂到当前实例）。
      */
     public List<Map<String, Object>> listExternalBootVolumesForInstance(String userId, String instanceId, String region) {
+        return listExternalBootVolumesForInstance(userId, instanceId, region, false);
+    }
+
+    public List<Map<String, Object>> listExternalBootVolumesForInstance(String userId, String instanceId, String region, boolean force) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
         if (instanceId == null || instanceId.isBlank()) throw new OciException("instanceId 不能为空");
 
+        return ociReadCacheService.get(instanceCacheKey("externalBootVolumes", ociUser, region, normalizeBlank(instanceId)),
+                INSTANCE_DETAIL_CACHE_TTL, force, () -> fetchExternalBootVolumesForInstance(ociUser, instanceId, region));
+    }
+
+    private List<Map<String, Object>> fetchExternalBootVolumesForInstance(OciUser ociUser, String instanceId, String region) {
         try (OciClientService client = oci(ociUser, region)) {
             Instance instance = getInstanceOrThrow(client, instanceId);
             String ad = instance.getAvailabilityDomain();
@@ -1177,10 +1296,19 @@ public class InstanceService {
      * 同 AD、同区间、AVAILABLE 且未挂载到他处的块存储卷（供 AttachVolume 选择）。
      */
     public List<Map<String, Object>> listUnattachedBlockVolumesForInstance(String userId, String instanceId, String region) {
+        return listUnattachedBlockVolumesForInstance(userId, instanceId, region, false);
+    }
+
+    public List<Map<String, Object>> listUnattachedBlockVolumesForInstance(String userId, String instanceId, String region, boolean force) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
         if (instanceId == null || instanceId.isBlank()) throw new OciException("instanceId 不能为空");
 
+        return ociReadCacheService.get(instanceCacheKey("unattachedBlockVolumes", ociUser, region, normalizeBlank(instanceId)),
+                INSTANCE_DETAIL_CACHE_TTL, force, () -> fetchUnattachedBlockVolumesForInstance(ociUser, instanceId, region));
+    }
+
+    private List<Map<String, Object>> fetchUnattachedBlockVolumesForInstance(OciUser ociUser, String instanceId, String region) {
         try (OciClientService client = oci(ociUser, region)) {
             Instance instance = getInstanceOrThrow(client, instanceId);
             String compartmentId = instance.getCompartmentId();
@@ -1259,6 +1387,7 @@ public class InstanceService {
 
             Map<String, Object> out = blockVolumeRow(attachment, available);
             out.put("message", "块存储卷已创建并提交挂载");
+            evictInstanceAndStorageReadCaches(userId, region);
             return out;
         } catch (OciException e) {
             throw e;
@@ -1297,6 +1426,7 @@ public class InstanceService {
             Volume refreshed = client.getBlockstorageClient().getVolume(
                     GetVolumeRequest.builder().volumeId(volumeId).build()
             ).getVolume();
+            evictInstanceAndStorageReadCaches(userId, region);
             return blockVolumeRow(attachment, refreshed);
         } catch (OciException e) {
             throw e;
@@ -1331,6 +1461,7 @@ public class InstanceService {
             BootVolumeAttachment attachment = attachBootVolumeToInstance(client, instanceId, bootVolumeId);
             Map<String, Object> row = externalBootVolumeRow(attachment, bootVolume, instance);
             row.put("message", "已提交挂载外部引导卷");
+            evictInstanceAndStorageReadCaches(userId, region);
             return row;
         } catch (OciException e) {
             throw e;
@@ -1352,6 +1483,7 @@ public class InstanceService {
                             .volumeAttachmentId(volumeAttachmentId)
                             .build());
             log.info("Block volume detached: attachment {}", volumeAttachmentId);
+            evictInstanceAndStorageReadCaches(userId, region);
         } catch (Exception e) {
             throw new OciException(tag(ociUser) + "卸载块存储卷失败: " + e.getMessage());
         }
@@ -1391,6 +1523,7 @@ public class InstanceService {
                             .bootVolumeAttachmentId(bootVolumeAttachmentId)
                             .build());
             log.info("External boot volume detached: attachment {}", bootVolumeAttachmentId);
+            evictInstanceAndStorageReadCaches(userId, region);
         } catch (OciException e) {
             throw e;
         } catch (Exception e) {
@@ -1425,6 +1558,7 @@ public class InstanceService {
                             .updateVolumeDetails(detailsBuilder.build())
                             .build());
             log.info("Block volume updated: {}", volumeId);
+            evictInstanceAndStorageReadCaches(userId, region);
         } catch (OciException e) {
             throw e;
         } catch (Exception e) {

@@ -314,7 +314,7 @@ function toggleCollapsed() {
 }
 
 function onRefresh() {
-  loadAll()
+  loadAll(true)
 }
 
 const tab = ref('help')
@@ -382,11 +382,11 @@ async function loadHelp() {
   } catch { /* ignore */ }
 }
 
-async function loadAll() {
+async function loadAll(force = false) {
   if (!props.userId) return
   loading.value = true
   try {
-    const p = { id: props.userId, ...regionParam() }
+    const p = { id: props.userId, ...regionParam(), force }
     const [rRes, pRes, ipRes] = await Promise.all([
       listByoipRanges(p),
       listPublicIpPools(p),
