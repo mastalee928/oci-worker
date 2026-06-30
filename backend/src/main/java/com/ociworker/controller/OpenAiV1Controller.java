@@ -449,7 +449,12 @@ public class OpenAiV1Controller {
                 }
                 if (!chatTools.isEmpty()) {
                     out.set("tools", chatTools);
-                    out.put("tool_choice", "auto");
+                    JsonNode toolChoice = anthropicToolChoiceToChatToolChoice(in.get("tool_choice"));
+                    if (toolChoice != null) {
+                        out.set("tool_choice", toolChoice);
+                    } else {
+                        out.put("tool_choice", "auto");
+                    }
                 }
             }
             JsonNode maxTokens = in.get("max_tokens");
@@ -545,6 +550,40 @@ public class OpenAiV1Controller {
         msg.put("role", "assistant".equalsIgnoreCase(role) ? "assistant" : "user");
         msg.put("content", anthropicContentText(content));
         messages.add(msg);
+    }
+
+    private static JsonNode anthropicToolChoiceToChatToolChoice(JsonNode toolChoice) {
+        if (toolChoice == null || toolChoice.isNull() || toolChoice.isMissingNode()) {
+            return null;
+        }
+        String type;
+        String name = null;
+        if (toolChoice.isTextual()) {
+            type = toolChoice.asText();
+        } else if (toolChoice.isObject()) {
+            type = text(toolChoice, "type");
+            name = text(toolChoice, "name");
+        } else {
+            return null;
+        }
+        if (type == null || type.isBlank() || "auto".equalsIgnoreCase(type)) {
+            return MAPPER.getNodeFactory().textNode("auto");
+        }
+        if ("none".equalsIgnoreCase(type)) {
+            return MAPPER.getNodeFactory().textNode("none");
+        }
+        if ("any".equalsIgnoreCase(type)) {
+            return MAPPER.getNodeFactory().textNode("required");
+        }
+        if ("tool".equalsIgnoreCase(type) && name != null && !name.isBlank()) {
+            ObjectNode out = MAPPER.createObjectNode();
+            out.put("type", "function");
+            ObjectNode function = MAPPER.createObjectNode();
+            function.put("name", name);
+            out.set("function", function);
+            return out;
+        }
+        return null;
     }
 
     private static void writeAnthropicMessagesResponse(

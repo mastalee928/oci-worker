@@ -48,6 +48,45 @@ class OpenAiV1ControllerTest {
     }
 
     @Test
+    void convertsAnthropicForcedToolChoiceToChatCompletions() throws Exception {
+        String payload = """
+                {
+                  "model":"xai.grok-4.3",
+                  "messages":[{"role":"user","content":[{"type":"text","text":"say hello"}]}],
+                  "tools":[{"name":"write_file","description":"write a file","input_schema":{"type":"object"}}],
+                  "tool_choice":{"type":"tool","name":"write_file"}
+                }
+                """;
+
+        JsonNode root = MAPPER.readTree(OpenAiV1Controller.transformAnthropicMessagesToChatCompletionsJson(
+                payload.getBytes()));
+
+        assertThat(root.path("tool_choice").path("type").asText()).isEqualTo("function");
+        assertThat(root.path("tool_choice").path("function").path("name").asText()).isEqualTo("write_file");
+    }
+
+    @Test
+    void convertsAnthropicAnyAndNoneToolChoiceToChatCompletions() throws Exception {
+        String anyPayload = """
+                {
+                  "model":"xai.grok-4.3",
+                  "messages":[{"role":"user","content":[{"type":"text","text":"use a tool"}]}],
+                  "tools":[{"name":"write_file","input_schema":{"type":"object"}}],
+                  "tool_choice":{"type":"any"}
+                }
+                """;
+        String nonePayload = anyPayload.replace("\"any\"", "\"none\"");
+
+        JsonNode anyRoot = MAPPER.readTree(OpenAiV1Controller.transformAnthropicMessagesToChatCompletionsJson(
+                anyPayload.getBytes()));
+        JsonNode noneRoot = MAPPER.readTree(OpenAiV1Controller.transformAnthropicMessagesToChatCompletionsJson(
+                nonePayload.getBytes()));
+
+        assertThat(anyRoot.path("tool_choice").asText()).isEqualTo("required");
+        assertThat(noneRoot.path("tool_choice").asText()).isEqualTo("none");
+    }
+
+    @Test
     void convertsChatCompletionsToolCallsToAnthropicMessage() throws Exception {
         String payload = """
                 {
