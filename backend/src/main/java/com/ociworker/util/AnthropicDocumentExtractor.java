@@ -19,8 +19,18 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.ResultSet;
+import java.sql.ResultSetMetaData;
+import java.sql.SQLException;
+import java.sql.Statement;
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.Base64;
+import java.util.List;
 import java.util.Locale;
 
 public final class AnthropicDocumentExtractor {
@@ -28,6 +38,10 @@ public final class AnthropicDocumentExtractor {
     private static final int MAX_DOCUMENT_BYTES = 10 * 1024 * 1024;
     private static final int MAX_EXTRACTED_CHARS = 80_000;
     private static final int MAX_BASE64_CHARS = ((MAX_DOCUMENT_BYTES + 2) / 3) * 4 + 16;
+    private static final int MAX_SQLITE_TABLES = 30;
+    private static final int MAX_SQLITE_SAMPLE_ROWS = 3;
+    private static final int MAX_SQLITE_COLUMNS = 25;
+    private static final int MAX_SQLITE_CELL_CHARS = 300;
     private static final int MAX_URL_REDIRECTS = 3;
     private static final Duration URL_CONNECT_TIMEOUT = Duration.ofSeconds(5);
     private static final Duration URL_REQUEST_TIMEOUT = Duration.ofSeconds(20);
@@ -84,11 +98,156 @@ public final class AnthropicDocumentExtractor {
     }
 
     private static String extractBytes(byte[] bytes, String mediaType, String fileName) {
+        if (isSqliteDatabase(mediaType, fileName)) {
+            return extractSqliteDatabase(bytes, mediaType, fileName);
+        }
         String directText = tryDecodeTextLike(bytes, mediaType, fileName);
         if (directText != null) {
             return formatExtractedText(directText, mediaType, fileName, directText.length() > MAX_EXTRACTED_CHARS);
         }
         return parseWithTika(bytes, mediaType, fileName);
+    }
+
+    private static boolean isSqliteDatabase(String mediaType, String fileName) {
+        String type = mediaType == null ? "" : mediaType.toLowerCase(Locale.ROOT);
+        String name = fileName == null ? "" : fileName.toLowerCase(Locale.ROOT);
+        return type.contains("sqlite")
+                || type.contains("x-sqlite3")
+                || name.endsWith(".sqlite")
+                || name.endsWith(".sqlite3")
+                || name.endsWith(".db");
+    }
+
+    private static String extractSqliteDatabase(byte[] bytes, String mediaType, String fileName) {
+        Path temp = null;
+        try {
+            temp = Files.createTempFile("ociworker-sqlite-", ".db");
+            Files.write(temp, bytes);
+            try (Connection conn = DriverManager.getConnection("jdbc:sqlite:" + temp.toAbsolutePath())) {
+                try (Statement stmt = conn.createStatement()) {
+                    stmt.execute("PRAGMA query_only = ON");
+                }
+                String summary = sqliteSummary(conn);
+                return formatExtractedText(summary, mediaType, fileName, summary.length() > MAX_EXTRACTED_CHARS);
+            }
+        } catch (Exception e) {
+            return unsupported("document", "SQLite 数据库解析失败：" + e.getMessage());
+        } finally {
+            if (temp != null) {
+                try {
+                    Files.deleteIfExists(temp);
+                } catch (IOException ignored) {
+                }
+            }
+        }
+    }
+
+    private static String sqliteSummary(Connection conn) throws SQLException {
+        StringBuilder sb = new StringBuilder();
+        sb.append("SQLite 数据库只读摘要。可根据以下表结构和样例数据生成 SELECT/UPDATE/ALTER 等 SQL，但不会自动修改数据库。\n");
+        List<SqliteObject> objects = new ArrayList<>();
+        try (Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery("""
+                     SELECT type, name, sql
+                     FROM sqlite_master
+                     WHERE type IN ('table', 'view') AND name NOT LIKE 'sqlite_%'
+                     ORDER BY CASE type WHEN 'table' THEN 0 ELSE 1 END, name
+                     """)) {
+            while (rs.next() && objects.size() < MAX_SQLITE_TABLES) {
+                objects.add(new SqliteObject(rs.getString("type"), rs.getString("name"), rs.getString("sql")));
+            }
+        }
+        if (objects.isEmpty()) {
+            sb.append("未发现用户表或视图。");
+            return sb.toString();
+        }
+        sb.append("对象数量：").append(objects.size());
+        if (objects.size() == MAX_SQLITE_TABLES) {
+            sb.append("（已限制为前 ").append(MAX_SQLITE_TABLES).append(" 个）");
+        }
+        sb.append('\n');
+        for (SqliteObject object : objects) {
+            sb.append("\n## ").append(object.type()).append(": ").append(object.name()).append('\n');
+            if (object.sql() != null && !object.sql().isBlank()) {
+                sb.append("DDL: ").append(compact(object.sql(), 2000)).append('\n');
+            }
+            appendSqliteColumns(conn, sb, object.name());
+            appendSqliteSampleRows(conn, sb, object.name());
+        }
+        return sb.toString();
+    }
+
+    private static void appendSqliteColumns(Connection conn, StringBuilder sb, String tableName) throws SQLException {
+        sb.append("Columns:\n");
+        try (Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery("PRAGMA table_info(" + quoteIdentifier(tableName) + ")")) {
+            int count = 0;
+            while (rs.next() && count < MAX_SQLITE_COLUMNS) {
+                sb.append("- ")
+                        .append(rs.getString("name"))
+                        .append(' ')
+                        .append(firstNonBlank(rs.getString("type"), "UNKNOWN"));
+                if (rs.getInt("notnull") == 1) {
+                    sb.append(" NOT NULL");
+                }
+                if (rs.getInt("pk") > 0) {
+                    sb.append(" PRIMARY KEY");
+                }
+                String defaultValue = rs.getString("dflt_value");
+                if (defaultValue != null && !defaultValue.isBlank()) {
+                    sb.append(" DEFAULT ").append(compact(defaultValue, 120));
+                }
+                sb.append('\n');
+                count++;
+            }
+            if (count == MAX_SQLITE_COLUMNS && rs.next()) {
+                sb.append("- ... 字段过多，已省略后续字段\n");
+            }
+        }
+    }
+
+    private static void appendSqliteSampleRows(Connection conn, StringBuilder sb, String tableName) {
+        sb.append("Sample rows:\n");
+        String sql = "SELECT * FROM " + quoteIdentifier(tableName) + " LIMIT " + MAX_SQLITE_SAMPLE_ROWS;
+        try (Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            ResultSetMetaData meta = rs.getMetaData();
+            int columns = Math.min(meta.getColumnCount(), MAX_SQLITE_COLUMNS);
+            int row = 0;
+            while (rs.next()) {
+                row++;
+                sb.append("- row ").append(row).append(": ");
+                for (int i = 1; i <= columns; i++) {
+                    if (i > 1) {
+                        sb.append(", ");
+                    }
+                    sb.append(meta.getColumnLabel(i))
+                            .append('=')
+                            .append(compact(String.valueOf(rs.getObject(i)), MAX_SQLITE_CELL_CHARS));
+                }
+                if (meta.getColumnCount() > columns) {
+                    sb.append(", ...");
+                }
+                sb.append('\n');
+            }
+            if (row == 0) {
+                sb.append("- 无样例行\n");
+            }
+        } catch (SQLException e) {
+            sb.append("- 样例行读取失败：").append(e.getMessage()).append('\n');
+        }
+    }
+
+    private static String quoteIdentifier(String value) {
+        return "\"" + (value == null ? "" : value.replace("\"", "\"\"")) + "\"";
+    }
+
+    private static String compact(String value, int max) {
+        if (value == null) {
+            return "null";
+        }
+        String normalized = value.replace('\r', ' ').replace('\n', ' ').trim();
+        return normalized.length() > max ? normalized.substring(0, max) + "..." : normalized;
     }
 
     private static RemoteDocument downloadRemoteDocument(String url) throws RemoteDocumentException {
@@ -456,6 +615,9 @@ public final class AnthropicDocumentExtractor {
     }
 
     private record RemoteDocument(byte[] bytes, String mediaType, String fileName) {
+    }
+
+    private record SqliteObject(String type, String name, String sql) {
     }
 
     private static final class RemoteDocumentException extends Exception {

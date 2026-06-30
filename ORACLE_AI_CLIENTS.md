@@ -69,12 +69,14 @@ Supported core features:
 - Anthropic image blocks, converted to OpenAI `image_url`
 - Anthropic document blocks, converted to extracted text for common text and office formats
 - safe public `http/https` document URLs, downloaded and parsed with the same document limits
+- SQLite database files (`.db`, `.sqlite`, `.sqlite3`), converted to a read-only schema and sample-row summary
 - streaming responses via Anthropic SSE events
 - count_tokens compatibility via `/v1/count_tokens` and `/v1/messages/count_tokens`
 
 Current compatibility limits:
 
 - document parsing is text extraction only; scanned PDFs and image-only documents still need OCR and may return a clear unsupported notice
+- SQLite database extraction is read-only; it helps the model understand schema/data and write SQL, but does not modify the uploaded database
 - remote URL documents are limited to 10MB, 3 redirects, short timeouts, and public addresses only; localhost, private networks, link-local, and metadata addresses are rejected
 - Anthropic streaming is compatibility-first; tool calls are stable, but upstream token deltas may be buffered by the bridge
 - legacy `/v1/complete` is not implemented

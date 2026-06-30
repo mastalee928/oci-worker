@@ -7,6 +7,11 @@ import org.junit.jupiter.api.Test;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.Statement;
 import java.util.Base64;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -321,6 +326,27 @@ class OpenAiV1ControllerTest {
     }
 
     @Test
+    void extractsSqliteDatabaseSummary() throws Exception {
+        String payload = """
+                {
+                  "model":"xai.grok-4.3",
+                  "messages":[{"role":"user","content":[
+                    {"type":"document","source":{"type":"base64","media_type":"application/vnd.sqlite3","filename":"app.sqlite","data":"%s"}}
+                  ]}]
+                }
+                """.formatted(base64SqliteDatabase());
+
+        JsonNode root = MAPPER.readTree(OpenAiV1Controller.transformAnthropicMessagesToChatCompletionsJson(
+                payload.getBytes()));
+
+        assertThat(root.path("messages").get(0).path("content").asText())
+                .contains("SQLite 数据库只读摘要")
+                .contains("CREATE TABLE users")
+                .contains("name TEXT")
+                .contains("OCIWORKER_SQLITE_MARKER");
+    }
+
+    @Test
     void countTokensEstimateDoesNotIncludeMaxTokens() {
         String payload = """
                 {
@@ -404,6 +430,20 @@ class OpenAiV1ControllerTest {
             }
         }
         return Base64.getEncoder().encodeToString(out.toByteArray());
+    }
+
+    private static String base64SqliteDatabase() throws Exception {
+        Path db = Files.createTempFile("ociworker-test-", ".sqlite");
+        try {
+            try (Connection conn = DriverManager.getConnection("jdbc:sqlite:" + db.toAbsolutePath());
+                 Statement stmt = conn.createStatement()) {
+                stmt.execute("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL, remark TEXT)");
+                stmt.execute("INSERT INTO users (name, remark) VALUES ('alice', 'OCIWORKER_SQLITE_MARKER')");
+            }
+            return Base64.getEncoder().encodeToString(Files.readAllBytes(db));
+        } finally {
+            Files.deleteIfExists(db);
+        }
     }
 
     private static Map<String, String> docxEntries(String marker) {
