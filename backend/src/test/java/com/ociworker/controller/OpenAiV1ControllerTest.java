@@ -168,4 +168,34 @@ class OpenAiV1ControllerTest {
         assertThat(root.path("usage").path("input_tokens").asInt()).isEqualTo(3);
         assertThat(root.path("usage").path("output_tokens").asInt()).isEqualTo(5);
     }
+
+    @Test
+    void mapsChatLengthFinishReasonToAnthropicMaxTokens() throws Exception {
+        String payload = """
+                {
+                  "id":"chatcmpl-1",
+                  "model":"xai.grok-4.3",
+                  "choices":[{"message":{"role":"assistant","content":"partial"},"finish_reason":"length"}]
+                }
+                """;
+
+        JsonNode root = OpenAiV1Controller.chatCompletionToAnthropicMessage(payload, "xai.grok-4.3");
+
+        assertThat(root.path("stop_reason").asText()).isEqualTo("max_tokens");
+    }
+
+    @Test
+    void treatsToolCallPayloadAsToolUseEvenWhenFinishReasonMissing() throws Exception {
+        String payload = """
+                {
+                  "id":"chatcmpl-1",
+                  "model":"xai.grok-4.3",
+                  "choices":[{"message":{"role":"assistant","content":"","tool_calls":[{"id":"call_a","type":"function","function":{"name":"write_file","arguments":"{}"}}]}}]
+                }
+                """;
+
+        JsonNode root = OpenAiV1Controller.chatCompletionToAnthropicMessage(payload, "xai.grok-4.3");
+
+        assertThat(root.path("stop_reason").asText()).isEqualTo("tool_use");
+    }
 }

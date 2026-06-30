@@ -706,8 +706,8 @@ public class OpenAiV1Controller {
                         ? root.path("choices").get(0)
                         : null;
                 JsonNode message = choice == null ? null : choice.path("message");
-                if (choice != null && "tool_calls".equalsIgnoreCase(text(choice, "finish_reason"))) {
-                    stopReason = "tool_use";
+                if (choice != null) {
+                    stopReason = chatFinishReasonToAnthropicStopReason(text(choice, "finish_reason"));
                 }
                 String text = chatContentText(message == null ? null : message.get("content"));
                 if (text != null && !text.isBlank()) {
@@ -730,6 +730,9 @@ public class OpenAiV1Controller {
                         toolUse.put("name", firstNonBlank(text(fn, "name"), "tool"));
                         toolUse.set("input", parseJsonObjectOrEmpty(text(fn, "arguments")));
                         content.add(toolUse);
+                    }
+                    if (!toolCalls.isEmpty()) {
+                        stopReason = "tool_use";
                     }
                 }
                 JsonNode usage = root.get("usage");
@@ -762,6 +765,22 @@ public class OpenAiV1Controller {
             out.set("usage", usage);
         }
         return out;
+    }
+
+    private static String chatFinishReasonToAnthropicStopReason(String finishReason) {
+        if (finishReason == null || finishReason.isBlank()) {
+            return "end_turn";
+        }
+        if ("tool_calls".equalsIgnoreCase(finishReason) || "function_call".equalsIgnoreCase(finishReason)) {
+            return "tool_use";
+        }
+        if ("length".equalsIgnoreCase(finishReason)) {
+            return "max_tokens";
+        }
+        if ("stop_sequence".equalsIgnoreCase(finishReason)) {
+            return "stop_sequence";
+        }
+        return "end_turn";
     }
 
     private static String extractErrorMessage(String body) {
