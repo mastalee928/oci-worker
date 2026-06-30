@@ -149,25 +149,17 @@ public class OciGenerativeOpenAiService {
                 && isChatCompletionsPath(origPathAfterV1)
                 && origBody != null
                 && origBody.length > 0) {
-            // 兜底启发式：只要请求体中出现 multi-agent，就无条件强制改写到 /responses，
-            // 避免因 content-type/JSON 解析异常导致落回 /chat/completions 并被 OCI 直接 400。
-            boolean bodyMentionsMultiAgent = false;
+            // 仅按 model 字段判断是否需要改写到 /responses。不能扫描整个请求体，
+            // Codex/Codex++ 的系统提示或工具描述可能包含 multi-agent 字样，误判后会破坏 Chat Completions 工具调用。
             boolean rewriteChatToResponses = false;
             boolean chatBodyAlreadyTransformed = false;
             String rewriteModel = "multi-agent";
-            try {
-                String raw = new String(origBody, StandardCharsets.UTF_8).toLowerCase(java.util.Locale.ROOT);
-                bodyMentionsMultiAgent = raw.contains("multi-agent") || raw.contains("multiagent") || raw.contains("multi agent");
-            } catch (Exception ignored) {
-            }
-            if (bodyMentionsMultiAgent) {
-                rewriteChatToResponses = true;
-            } else if (looksLikeJson) {
+            if (looksLikeJson) {
                 try {
                     JsonNode root = MAPPER.readTree(origBody);
                     if (root != null && root.isObject()) {
                         String model = textOrNull(((ObjectNode) root), "model");
-                        if (isLikelyMultiAgentModelName(model)) {
+                        if (shouldRewriteChatCompletionsToResponses(model)) {
                             rewriteChatToResponses = true;
                             rewriteModel = firstNonBlank(model, rewriteModel);
                         }
@@ -698,6 +690,10 @@ public class OciGenerativeOpenAiService {
         String t = s.toLowerCase();
         // 以名称启发式为主（避免在网关侧做额外管理面查询）
         return t.contains("multi-agent") || t.contains("multi agent") || t.contains("multiagent");
+    }
+
+    static boolean shouldRewriteChatCompletionsToResponses(String model) {
+        return isLikelyMultiAgentModelName(model);
     }
 
     private static String firstText(JsonNode o, String... fieldNames) {

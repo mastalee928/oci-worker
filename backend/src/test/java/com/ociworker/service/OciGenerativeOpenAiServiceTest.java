@@ -103,6 +103,14 @@ class OciGenerativeOpenAiServiceTest {
     }
 
     @Test
+    void rewritesChatCompletionsOnlyForActualMultiAgentModelName() {
+        assertThat(OciGenerativeOpenAiService.shouldRewriteChatCompletionsToResponses("xai.grok-4.3")).isFalse();
+        assertThat(OciGenerativeOpenAiService.shouldRewriteChatCompletionsToResponses("google.gemini-2.5-pro")).isFalse();
+        assertThat(OciGenerativeOpenAiService.shouldRewriteChatCompletionsToResponses("cohere.command-a-03-2025")).isFalse();
+        assertThat(OciGenerativeOpenAiService.shouldRewriteChatCompletionsToResponses("oci.multi-agent-runtime")).isTrue();
+    }
+
+    @Test
     void normalizesDirectChatCompletionsToolHistory() throws Exception {
         String payload = """
                 {
