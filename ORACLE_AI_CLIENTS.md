@@ -70,6 +70,7 @@ Supported core features:
 - Anthropic document blocks, converted to extracted text for common text and office formats
 - safe public `http/https` document URLs, downloaded and parsed with the same document limits
 - SQLite database files (`.db`, `.sqlite`, `.sqlite3`), converted to a read-only schema and sample-row summary
+- OpenAI Responses `input_file` blocks with `file_data` or safe `file_url`, converted to `input_text`
 - streaming responses via Anthropic SSE events
 - count_tokens compatibility via `/v1/count_tokens` and `/v1/messages/count_tokens`
 

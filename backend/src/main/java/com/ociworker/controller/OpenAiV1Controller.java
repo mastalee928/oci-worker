@@ -94,6 +94,12 @@ public class OpenAiV1Controller {
                         firstNonBlank(extractModelFromBody(chatBody, request.getContentType()), modelHint));
                 return;
             }
+            if (isResponsesPath(pathAfterV1) && shouldReadBody(request.getMethod())) {
+                byte[] originalBody = request.getInputStream().readAllBytes();
+                byte[] responseBody = transformResponsesInputFilesToTextJson(originalBody);
+                generativeOpenAiService.proxy(u, new CachedBodyRequest(request, responseBody, null), response);
+                return;
+            }
             generativeOpenAiService.proxy(u, request, response);
         } catch (OciException e) {
             if (anthropicLikeRequest) {
@@ -141,6 +147,8 @@ public class OpenAiV1Controller {
             request.setAttribute("ociworker.lb.bridgeType", anthropicBridgeType(body, request.getContentType()));
             body = transformAnthropicMessagesToChatCompletionsJson(body);
             pathAfterV1 = "/chat/completions";
+        } else if (isResponsesPath(pathAfterV1)) {
+            body = transformResponsesInputFilesToTextJson(body);
         }
         String requestedModel = extractModelFromBody(body, request.getContentType());
         boolean stream = isStreamRequest(body, request.getContentType());
@@ -548,6 +556,116 @@ public class OpenAiV1Controller {
         } catch (Exception ignored) {
             return input;
         }
+    }
+
+    static byte[] transformResponsesInputFilesToTextJson(byte[] input) {
+        if (input == null || input.length == 0) {
+            return input;
+        }
+        try {
+            JsonNode root = MAPPER.readTree(input);
+            if (!(root instanceof ObjectNode object)) {
+                return input;
+            }
+            boolean changed = transformResponsesInputNode(object.get("input"));
+            return changed ? MAPPER.writeValueAsBytes(object) : input;
+        } catch (Exception ignored) {
+            return input;
+        }
+    }
+
+    private static boolean transformResponsesInputNode(JsonNode input) {
+        if (input == null || input.isNull() || input.isMissingNode()) {
+            return false;
+        }
+        boolean changed = false;
+        if (input instanceof ArrayNode array) {
+            for (JsonNode item : array) {
+                changed |= transformResponsesMessageItem(item);
+            }
+        } else {
+            changed |= transformResponsesMessageItem(input);
+        }
+        return changed;
+    }
+
+    private static boolean transformResponsesMessageItem(JsonNode item) {
+        if (!(item instanceof ObjectNode object)) {
+            return false;
+        }
+        JsonNode content = object.get("content");
+        if (!(content instanceof ArrayNode parts)) {
+            return false;
+        }
+        boolean changed = false;
+        for (int i = 0; i < parts.size(); i++) {
+            JsonNode part = parts.get(i);
+            if (!(part instanceof ObjectNode partObject)) {
+                continue;
+            }
+            String type = text(partObject, "type");
+            if (!"input_file".equalsIgnoreCase(type)) {
+                continue;
+            }
+            ObjectNode textPart = MAPPER.createObjectNode();
+            textPart.put("type", "input_text");
+            textPart.put("text", responsesInputFileToText(partObject));
+            parts.set(i, textPart);
+            changed = true;
+        }
+        return changed;
+    }
+
+    private static String responsesInputFileToText(ObjectNode filePart) {
+        String fileName = firstNonBlank(text(filePart, "filename"), text(filePart, "name"));
+        String mediaType = firstNonBlank(text(filePart, "media_type"), text(filePart, "mime_type"));
+        String fileData = text(filePart, "file_data");
+        if (fileData != null && !fileData.isBlank()) {
+            DataUrl dataUrl = parseDataUrl(fileData);
+            if (dataUrl != null) {
+                return AnthropicDocumentExtractor.extract(
+                        "base64",
+                        firstNonBlank(mediaType, dataUrl.mediaType()),
+                        fileName,
+                        dataUrl.base64Data());
+            }
+            return AnthropicDocumentExtractor.extract("base64", mediaType, fileName, fileData);
+        }
+        String url = firstNonBlank(text(filePart, "file_url"), text(filePart, "url"));
+        if (url != null && !url.isBlank()) {
+            return AnthropicDocumentExtractor.extract("url", mediaType, fileName, url);
+        }
+        String fileId = text(filePart, "file_id");
+        if (fileId != null && !fileId.isBlank()) {
+            return "[OCIworker 提示：暂无法解析 Responses input_file：file_id 需要 OpenAI 文件存储，当前仅支持 file_data 或 file_url。]";
+        }
+        return "[OCIworker 提示：暂无法解析 Responses input_file：缺少 file_data 或 file_url。]";
+    }
+
+    private static DataUrl parseDataUrl(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        if (!trimmed.regionMatches(true, 0, "data:", 0, 5)) {
+            return null;
+        }
+        int comma = trimmed.indexOf(',');
+        if (comma < 0) {
+            return null;
+        }
+        String header = trimmed.substring(5, comma);
+        if (!header.toLowerCase().contains(";base64")) {
+            return null;
+        }
+        String mediaType = null;
+        int semicolon = header.indexOf(';');
+        if (semicolon > 0) {
+            mediaType = header.substring(0, semicolon);
+        } else if (!header.isBlank()) {
+            mediaType = header;
+        }
+        return new DataUrl(mediaType == null || mediaType.isBlank() ? null : mediaType, trimmed.substring(comma + 1));
     }
 
     private static void appendAnthropicSystem(ArrayNode messages, JsonNode system) {
@@ -1509,6 +1627,9 @@ public class OpenAiV1Controller {
             }
         }
         return 0L;
+    }
+
+    private record DataUrl(String mediaType, String base64Data) {
     }
 
     private static final class CachedBodyRequest extends HttpServletRequestWrapper {

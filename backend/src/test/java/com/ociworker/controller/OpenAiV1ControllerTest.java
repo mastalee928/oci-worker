@@ -347,6 +347,47 @@ class OpenAiV1ControllerTest {
     }
 
     @Test
+    void convertsResponsesInputFileDataToInputText() throws Exception {
+        String payload = """
+                {
+                  "model":"xai.grok-4.3",
+                  "input":[{"role":"user","content":[
+                    {"type":"input_text","text":"read it"},
+                    {"type":"input_file","filename":"note.txt","file_data":"data:text/plain;base64,%s"}
+                  ]}]
+                }
+                """.formatted(base64("OCIWORKER_RESPONSES_FILE_DOC_MARKER"));
+
+        JsonNode root = MAPPER.readTree(OpenAiV1Controller.transformResponsesInputFilesToTextJson(
+                payload.getBytes()));
+
+        JsonNode content = root.path("input").get(0).path("content");
+        assertThat(content.get(1).path("type").asText()).isEqualTo("input_text");
+        assertThat(content.get(1).path("text").asText())
+                .contains("OCIWORKER_RESPONSES_FILE_DOC_MARKER")
+                .contains("已提取文档文本");
+    }
+
+    @Test
+    void convertsResponsesSqliteInputFileToInputText() throws Exception {
+        String payload = """
+                {
+                  "model":"xai.grok-4.3",
+                  "input":[{"role":"user","content":[
+                    {"type":"input_file","filename":"app.sqlite","file_data":"data:application/vnd.sqlite3;base64,%s"}
+                  ]}]
+                }
+                """.formatted(base64SqliteDatabase());
+
+        JsonNode root = MAPPER.readTree(OpenAiV1Controller.transformResponsesInputFilesToTextJson(
+                payload.getBytes()));
+
+        assertThat(root.path("input").get(0).path("content").get(0).path("text").asText())
+                .contains("SQLite 数据库只读摘要")
+                .contains("OCIWORKER_SQLITE_MARKER");
+    }
+
+    @Test
     void countTokensEstimateDoesNotIncludeMaxTokens() {
         String payload = """
                 {

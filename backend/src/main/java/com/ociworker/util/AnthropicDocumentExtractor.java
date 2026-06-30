@@ -182,7 +182,12 @@ public final class AnthropicDocumentExtractor {
         try (Statement stmt = conn.createStatement();
              ResultSet rs = stmt.executeQuery("PRAGMA table_info(" + quoteIdentifier(tableName) + ")")) {
             int count = 0;
-            while (rs.next() && count < MAX_SQLITE_COLUMNS) {
+            boolean truncated = false;
+            while (rs.next()) {
+                if (count >= MAX_SQLITE_COLUMNS) {
+                    truncated = true;
+                    break;
+                }
                 sb.append("- ")
                         .append(rs.getString("name"))
                         .append(' ')
@@ -200,7 +205,7 @@ public final class AnthropicDocumentExtractor {
                 sb.append('\n');
                 count++;
             }
-            if (count == MAX_SQLITE_COLUMNS && rs.next()) {
+            if (truncated) {
                 sb.append("- ... 字段过多，已省略后续字段\n");
             }
         }
