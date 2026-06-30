@@ -10,6 +10,7 @@ import com.ociworker.mapper.OciUserMapper;
 import com.ociworker.model.entity.OciUser;
 import com.ociworker.service.OciGenerativeOpenAiService;
 import com.ociworker.service.OciOpenaiLoadBalanceService;
+import com.ociworker.util.AnthropicDocumentExtractor;
 import jakarta.annotation.Resource;
 import jakarta.servlet.ReadListener;
 import jakarta.servlet.ServletOutputStream;
@@ -632,6 +633,8 @@ public class OpenAiV1Controller {
                     } else {
                         appendText(text, unsupportedAnthropicContentText(type));
                     }
+                } else if ("document".equalsIgnoreCase(type)) {
+                    appendText(text, anthropicDocumentToText(po));
                 } else {
                     appendText(text, unsupportedAnthropicContentText(type));
                 }
@@ -702,6 +705,27 @@ public class OpenAiV1Controller {
         out.put("type", "image_url");
         out.set("image_url", imageUrl);
         return out;
+    }
+
+    private static String anthropicDocumentToText(ObjectNode documentPart) {
+        if (documentPart == null) {
+            return unsupportedAnthropicContentText("document");
+        }
+        JsonNode sourceNode = documentPart.get("source");
+        if (!(sourceNode instanceof ObjectNode source)) {
+            return "[OCIworker 提示：暂无法解析 Anthropic document 内容块：缺少 source。]";
+        }
+        String fileName = firstNonBlank(
+                text(documentPart, "title"),
+                text(documentPart, "name"),
+                text(documentPart, "filename"),
+                text(source, "filename"),
+                text(source, "name"));
+        return AnthropicDocumentExtractor.extract(
+                text(source, "type"),
+                text(source, "media_type"),
+                fileName,
+                firstNonBlank(text(source, "data"), text(source, "text"), text(source, "url")));
     }
 
     private static JsonNode anthropicToolChoiceToChatToolChoice(JsonNode toolChoice) {

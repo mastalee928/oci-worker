@@ -4,6 +4,15 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.util.Base64;
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 class OpenAiV1ControllerTest {
@@ -134,23 +143,78 @@ class OpenAiV1ControllerTest {
     }
 
     @Test
-    void keepsUnsupportedAnthropicDocumentVisibleAsPlaceholder() throws Exception {
+    void extractsTextPlainAnthropicDocument() throws Exception {
         String payload = """
                 {
                   "model":"xai.grok-4.3",
                   "messages":[{"role":"user","content":[
                     {"type":"text","text":"inspect this"},
-                    {"type":"document","source":{"type":"base64","media_type":"application/pdf","data":"abc"}}
+                    {"type":"document","source":{"type":"base64","media_type":"text/plain","filename":"note.txt","data":"%s"}}
                   ]}]
                 }
-                """;
+                """.formatted(base64("OCIWORKER_TXT_DOC_MARKER"));
 
         JsonNode root = MAPPER.readTree(OpenAiV1Controller.transformAnthropicMessagesToChatCompletionsJson(
                 payload.getBytes()));
 
         assertThat(root.path("messages").get(0).path("content").asText())
                 .contains("inspect this")
-                .contains("暂不支持 Anthropic document 内容块");
+                .contains("OCIWORKER_TXT_DOC_MARKER")
+                .contains("已提取文档文本");
+    }
+
+    @Test
+    void extractsJsonAnthropicDocument() throws Exception {
+        String payload = """
+                {
+                  "model":"xai.grok-4.3",
+                  "messages":[{"role":"user","content":[
+                    {"type":"document","source":{"type":"base64","media_type":"application/json","filename":"data.json","data":"%s"}}
+                  ]}]
+                }
+                """.formatted(base64("{\"marker\":\"OCIWORKER_JSON_DOC_MARKER\"}"));
+
+        JsonNode root = MAPPER.readTree(OpenAiV1Controller.transformAnthropicMessagesToChatCompletionsJson(
+                payload.getBytes()));
+
+        assertThat(root.path("messages").get(0).path("content").asText())
+                .contains("OCIWORKER_JSON_DOC_MARKER");
+    }
+
+    @Test
+    void extractsDocxAnthropicDocument() throws Exception {
+        String payload = """
+                {
+                  "model":"xai.grok-4.3",
+                  "messages":[{"role":"user","content":[
+                    {"type":"document","source":{"type":"base64","media_type":"application/vnd.openxmlformats-officedocument.wordprocessingml.document","filename":"note.docx","data":"%s"}}
+                  ]}]
+                }
+                """.formatted(base64Zip(docxEntries("OCIWORKER_DOCX_DOC_MARKER")));
+
+        JsonNode root = MAPPER.readTree(OpenAiV1Controller.transformAnthropicMessagesToChatCompletionsJson(
+                payload.getBytes()));
+
+        assertThat(root.path("messages").get(0).path("content").asText())
+                .contains("OCIWORKER_DOCX_DOC_MARKER");
+    }
+
+    @Test
+    void extractsXlsxAnthropicDocument() throws Exception {
+        String payload = """
+                {
+                  "model":"xai.grok-4.3",
+                  "messages":[{"role":"user","content":[
+                    {"type":"document","source":{"type":"base64","media_type":"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet","filename":"quota.xlsx","data":"%s"}}
+                  ]}]
+                }
+                """.formatted(base64Zip(xlsxEntries("OCIWORKER_XLSX_DOC_MARKER")));
+
+        JsonNode root = MAPPER.readTree(OpenAiV1Controller.transformAnthropicMessagesToChatCompletionsJson(
+                payload.getBytes()));
+
+        assertThat(root.path("messages").get(0).path("content").asText())
+                .contains("OCIWORKER_XLSX_DOC_MARKER");
     }
 
     @Test
@@ -221,5 +285,84 @@ class OpenAiV1ControllerTest {
         JsonNode root = OpenAiV1Controller.chatCompletionToAnthropicMessage(payload, "xai.grok-4.3");
 
         assertThat(root.path("stop_reason").asText()).isEqualTo("tool_use");
+    }
+
+    private static String base64(String value) {
+        return Base64.getEncoder().encodeToString(value.getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static String base64Zip(Map<String, String> entries) throws IOException {
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        try (ZipOutputStream zip = new ZipOutputStream(out, StandardCharsets.UTF_8)) {
+            for (Map.Entry<String, String> entry : entries.entrySet()) {
+                zip.putNextEntry(new ZipEntry(entry.getKey()));
+                zip.write(entry.getValue().getBytes(StandardCharsets.UTF_8));
+                zip.closeEntry();
+            }
+        }
+        return Base64.getEncoder().encodeToString(out.toByteArray());
+    }
+
+    private static Map<String, String> docxEntries(String marker) {
+        Map<String, String> entries = new LinkedHashMap<>();
+        entries.put("[Content_Types].xml", """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+                  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+                  <Default Extension="xml" ContentType="application/xml"/>
+                  <Override PartName="/word/document.xml" ContentType="application/vnd.openxmlformats-officedocument.wordprocessingml.document.main+xml"/>
+                </Types>
+                """);
+        entries.put("_rels/.rels", """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+                  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="word/document.xml"/>
+                </Relationships>
+                """);
+        entries.put("word/document.xml", """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <w:document xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main">
+                  <w:body><w:p><w:r><w:t>%s</w:t></w:r></w:p></w:body>
+                </w:document>
+                """.formatted(marker));
+        return entries;
+    }
+
+    private static Map<String, String> xlsxEntries(String marker) {
+        Map<String, String> entries = new LinkedHashMap<>();
+        entries.put("[Content_Types].xml", """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types">
+                  <Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/>
+                  <Default Extension="xml" ContentType="application/xml"/>
+                  <Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/>
+                  <Override PartName="/xl/worksheets/sheet1.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>
+                </Types>
+                """);
+        entries.put("_rels/.rels", """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+                  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/>
+                </Relationships>
+                """);
+        entries.put("xl/workbook.xml", """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships">
+                  <sheets><sheet name="Sheet1" sheetId="1" r:id="rId1"/></sheets>
+                </workbook>
+                """);
+        entries.put("xl/_rels/workbook.xml.rels", """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">
+                  <Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet1.xml"/>
+                </Relationships>
+                """);
+        entries.put("xl/worksheets/sheet1.xml", """
+                <?xml version="1.0" encoding="UTF-8"?>
+                <worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">
+                  <sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>%s</t></is></c></row></sheetData>
+                </worksheet>
+                """.formatted(marker));
+        return entries;
     }
 }
