@@ -2173,7 +2173,7 @@ import dayjs from 'dayjs'
 import { collectGroupExpandKeys, isAllGroupsExpanded } from '../composables/groupExpandToggle'
 import { useTenantCatalogStore } from '../stores/tenantCatalog'
 import { useThemeStore } from '../stores/theme'
-import { appQueryCache } from '../utils/queryCache'
+import { appQueryCache, createListSignature } from '../utils/queryCache'
 import utc from 'dayjs/plugin/utc'
 
 dayjs.extend(utc)
@@ -2462,7 +2462,7 @@ const isSearchingTenants = computed(() => !!normalizedSearchText.value)
 const loading = computed(() => isSearchingTenants.value ? searchLoading.value : catalog.tenantsLoading)
 const tableData = computed(() => (normalizedSearchText.value ? searchTableData.value : catalog.tenants) as any[])
 const tenantMobileSearchResetKey = computed(() =>
-  `search|${normalizedSearchText.value}|${tableData.value.map((r: any) => r.id).join(',')}`,
+  `search|${normalizedSearchText.value}|${createListSignature(tableData.value, (r: any) => r.id)}`,
 )
 function tenantRowKey(item: unknown, index: number) {
   return String((item as any)?.id ?? index)
@@ -2471,7 +2471,7 @@ function shouldVirtualizeTenantMobileCards(count: number) {
   return count > TENANT_MOBILE_VIRTUAL_MIN
 }
 function tenantGroupVirtualResetKey(groupKey: string, tenants: any[]) {
-  return `${groupKey}|${tenants.map((r: any) => r.id).join(',')}`
+  return `${groupKey}|${createListSignature(tenants, (r: any) => r.id)}`
 }
 const selectedRowKeys = ref<string[]>([])
 let tenantInfoPollTimers: ReturnType<typeof setTimeout>[] = []

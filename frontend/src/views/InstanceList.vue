@@ -2112,7 +2112,7 @@ import {
   snapBootVpusPerGb,
 } from '../utils/bootVolume'
 import { TASK_ARM_SHAPE, normalizeTaskArchitecture } from '../utils/shapeSeries'
-import { appQueryCache } from '../utils/queryCache'
+import { appQueryCache, createListSignature } from '../utils/queryCache'
 import dayjs from 'dayjs'
 import type { Dayjs } from 'dayjs'
 import utc from 'dayjs/plugin/utc'
@@ -2349,7 +2349,7 @@ function tenantDataKey(item: unknown, index: number) {
   return String((item as TenantData)?.tenant?.id ?? index)
 }
 const tenantVirtualResetKey = computed(() =>
-  `${tenantViewMode.value}|${searchKeyword.value}|${filteredTenants.value.map((td) => td.tenant.id).join(',')}`,
+  `${tenantViewMode.value}|${searchKeyword.value}|${createListSignature(filteredTenants.value, (td) => td.tenant.id)}`,
 )
 
 interface GroupNode {
@@ -2526,7 +2526,7 @@ const activeTenantData = computed(() => {
 })
 const instanceMobileVirtualMaxHeight = computed(() => Math.max(360, Math.min(680, viewportHeight.value - 220)))
 const instanceVirtualResetKey = computed(() =>
-  `${activeTenantId.value}|${instancePanelRegion.value}|${activeTenantData.value?.instances.map((r: any) => r.instanceId).join(',') || ''}`,
+  `${activeTenantId.value}|${instancePanelRegion.value}|${createListSignature(activeTenantData.value?.instances || [], (r: any) => r.instanceId)}`,
 )
 function instanceRecordKey(item: unknown, index: number) {
   return String((item as any)?.instanceId ?? index)

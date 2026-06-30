@@ -26,6 +26,33 @@ export function queryKey(key: QueryKey): string {
   return typeof key === 'string' ? key : stableStringify(key)
 }
 
+export function createListSignature<T>(
+  items: readonly T[],
+  getId: (item: T, index: number) => unknown,
+) {
+  const length = items.length
+  if (!length) return '0'
+
+  let hash = 2166136261
+  let first = ''
+  let last = ''
+
+  for (let index = 0; index < length; index += 1) {
+    const id = String(getId(items[index], index) ?? index)
+    if (index === 0) first = id
+    if (index === length - 1) last = id
+
+    hash ^= id.length
+    hash = Math.imul(hash, 16777619)
+    for (let i = 0; i < id.length; i += 1) {
+      hash ^= id.charCodeAt(i)
+      hash = Math.imul(hash, 16777619)
+    }
+  }
+
+  return `${length}|${first}|${last}|${(hash >>> 0).toString(36)}`
+}
+
 function matchesQueryKey(candidate: string, keyOrPrefix: QueryKey): boolean {
   const prefix = queryKey(keyOrPrefix)
   if (candidate === prefix) return true
