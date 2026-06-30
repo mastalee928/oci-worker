@@ -1,5 +1,6 @@
 package com.ociworker.util;
 
+import lombok.extern.slf4j.Slf4j;
 import org.apache.tika.metadata.Metadata;
 import org.apache.tika.metadata.TikaCoreProperties;
 import org.apache.tika.parser.AutoDetectParser;
@@ -33,6 +34,7 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Locale;
 
+@Slf4j
 public final class AnthropicDocumentExtractor {
 
     private static final int MAX_DOCUMENT_BYTES = 10 * 1024 * 1024;
@@ -57,44 +59,56 @@ public final class AnthropicDocumentExtractor {
         String safeMediaType = blankToNull(mediaType);
         String safeFileName = blankToNull(fileName);
         if (sourceType == null || sourceType.isBlank()) {
-            return unsupported("document", "缺少 source.type");
+            return logAndReturn("unknown", safeMediaType, safeFileName, -1,
+                    unsupported("document", "缺少 source.type"));
         }
         if ("text".equalsIgnoreCase(sourceType)) {
-            return formatExtractedText(data, safeMediaType, safeFileName, false);
+            return logAndReturn("text", safeMediaType, safeFileName, utf8Length(data),
+                    formatExtractedText(data, safeMediaType, safeFileName, false));
         }
         if ("url".equalsIgnoreCase(sourceType)) {
             if (data == null || data.isBlank()) {
-                return unsupported("document", "URL 为空");
+                return logAndReturn("url", safeMediaType, safeFileName, -1,
+                        unsupported("document", "URL 为空"));
             }
             try {
                 RemoteDocument remote = downloadRemoteDocument(data.trim());
-                return extractBytes(
+                String effectiveMediaType = firstNonBlank(safeMediaType, remote.mediaType());
+                String effectiveFileName = firstNonBlank(safeFileName, remote.fileName());
+                return logAndReturn("url", effectiveMediaType, effectiveFileName, remote.bytes().length, extractBytes(
                         remote.bytes(),
-                        firstNonBlank(safeMediaType, remote.mediaType()),
-                        firstNonBlank(safeFileName, remote.fileName()));
+                        effectiveMediaType,
+                        effectiveFileName));
             } catch (RemoteDocumentException e) {
-                return unsupported("document", e.getMessage());
+                return logAndReturn("url", safeMediaType, safeFileName, -1,
+                        unsupported("document", e.getMessage()));
             }
         }
         if (!"base64".equalsIgnoreCase(sourceType)) {
-            return unsupported("document", "暂不支持 source.type=" + sourceType);
+            return logAndReturn(sourceType, safeMediaType, safeFileName, -1,
+                    unsupported("document", "暂不支持 source.type=" + sourceType));
         }
         if (data == null || data.isBlank()) {
-            return unsupported("document", "base64 内容为空");
+            return logAndReturn("base64", safeMediaType, safeFileName, -1,
+                    unsupported("document", "base64 内容为空"));
         }
         if (data.length() > MAX_BASE64_CHARS) {
-            return unsupported("document", "文件超过 " + (MAX_DOCUMENT_BYTES / 1024 / 1024) + "MB 上限");
+            return logAndReturn("base64", safeMediaType, safeFileName, -1,
+                    unsupported("document", "文件超过 " + (MAX_DOCUMENT_BYTES / 1024 / 1024) + "MB 上限"));
         }
         byte[] bytes;
         try {
             bytes = decodeBase64(data);
         } catch (IllegalArgumentException e) {
-            return unsupported("document", "base64 解码失败");
+            return logAndReturn("base64", safeMediaType, safeFileName, -1,
+                    unsupported("document", "base64 解码失败"));
         }
         if (bytes.length > MAX_DOCUMENT_BYTES) {
-            return unsupported("document", "文件超过 " + (MAX_DOCUMENT_BYTES / 1024 / 1024) + "MB 上限");
+            return logAndReturn("base64", safeMediaType, safeFileName, bytes.length,
+                    unsupported("document", "文件超过 " + (MAX_DOCUMENT_BYTES / 1024 / 1024) + "MB 上限"));
         }
-        return extractBytes(bytes, safeMediaType, safeFileName);
+        return logAndReturn("base64", safeMediaType, safeFileName, bytes.length,
+                extractBytes(bytes, safeMediaType, safeFileName));
     }
 
     private static String extractBytes(byte[] bytes, String mediaType, String fileName) {
@@ -601,6 +615,34 @@ public final class AnthropicDocumentExtractor {
 
     private static String unsupported(String type, String reason) {
         return "[OCIworker 提示：暂无法解析 Anthropic " + type + " 内容块：" + reason + "。]";
+    }
+
+    private static String logAndReturn(String sourceType, String mediaType, String fileName, long bytes, String result) {
+        boolean failed = result != null && result.startsWith("[OCIworker 提示：暂无法解析");
+        boolean truncated = result != null && result.contains("已截断为前 ");
+        log.info(
+                "Oracle AI document extraction source={} kind={} file={} mediaType={} bytes={} chars={} truncated={} status={}",
+                safeLog(sourceType),
+                isSqliteDatabase(mediaType, fileName) ? "sqlite" : "document",
+                safeLog(fileName),
+                safeLog(mediaType),
+                bytes,
+                result == null ? 0 : result.length(),
+                truncated,
+                failed ? "failed" : "success");
+        return result;
+    }
+
+    private static int utf8Length(String value) {
+        return value == null ? 0 : value.getBytes(StandardCharsets.UTF_8).length;
+    }
+
+    private static String safeLog(String value) {
+        if (value == null || value.isBlank()) {
+            return "-";
+        }
+        String sanitized = value.replace('\r', ' ').replace('\n', ' ').trim();
+        return sanitized.length() > 120 ? sanitized.substring(0, 120) + "..." : sanitized;
     }
 
     private static String blankToNull(String value) {
