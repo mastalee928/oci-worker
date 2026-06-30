@@ -87,6 +87,64 @@ class OpenAiV1ControllerTest {
     }
 
     @Test
+    void convertsAnthropicSystemArrayAndToolResultArray() throws Exception {
+        String payload = """
+                {
+                  "model":"xai.grok-4.3",
+                  "system":[{"type":"text","text":"Use tools."},{"type":"text","text":"Be concise.","cache_control":{"type":"ephemeral"}}],
+                  "messages":[
+                    {"role":"assistant","content":[{"type":"tool_use","id":"toolu_a","name":"read_file","input":{"path":"a.txt"}}]},
+                    {"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_a","content":[{"type":"text","text":"line 1"},{"type":"text","text":"line 2"}]}]}
+                  ],
+                  "tools":[{"name":"read_file","input_schema":{"type":"object"}}]
+                }
+                """;
+
+        JsonNode root = MAPPER.readTree(OpenAiV1Controller.transformAnthropicMessagesToChatCompletionsJson(
+                payload.getBytes()));
+
+        assertThat(root.path("messages").get(0).path("role").asText()).isEqualTo("system");
+        assertThat(root.path("messages").get(0).path("content").asText()).isEqualTo("Use tools.\nBe concise.");
+        assertThat(root.path("messages").get(2).path("role").asText()).isEqualTo("tool");
+        assertThat(root.path("messages").get(2).path("content").asText()).isEqualTo("line 1\nline 2");
+    }
+
+    @Test
+    void keepsUnsupportedAnthropicContentVisibleAsPlaceholder() throws Exception {
+        String payload = """
+                {
+                  "model":"xai.grok-4.3",
+                  "messages":[{"role":"user","content":[
+                    {"type":"text","text":"inspect this"},
+                    {"type":"image","source":{"type":"base64","media_type":"image/png","data":"abc"}}
+                  ]}]
+                }
+                """;
+
+        JsonNode root = MAPPER.readTree(OpenAiV1Controller.transformAnthropicMessagesToChatCompletionsJson(
+                payload.getBytes()));
+
+        assertThat(root.path("messages").get(0).path("content").asText())
+                .contains("inspect this")
+                .contains("暂不支持 Anthropic image 内容块");
+    }
+
+    @Test
+    void countTokensEstimateDoesNotIncludeMaxTokens() {
+        String payload = """
+                {
+                  "model":"xai.grok-4.3",
+                  "max_tokens":4096,
+                  "messages":[{"role":"user","content":[{"type":"text","text":"short prompt"}]}]
+                }
+                """;
+
+        long inputTokens = OpenAiV1Controller.estimateInputTokens(payload.getBytes(), "application/json");
+
+        assertThat(inputTokens).isLessThan(200);
+    }
+
+    @Test
     void convertsChatCompletionsToolCallsToAnthropicMessage() throws Exception {
         String payload = """
                 {

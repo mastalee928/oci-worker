@@ -56,6 +56,8 @@ public class OpenAiV1Controller {
             value = {"/v1", "/v1/**"},
             method = {RequestMethod.GET, RequestMethod.POST, RequestMethod.PUT, RequestMethod.PATCH, RequestMethod.DELETE, RequestMethod.HEAD})
     public void v1Proxy(HttpServletRequest request, HttpServletResponse response) throws IOException {
+        String pathAfterV1 = extractPathAfterV1(request);
+        boolean anthropicLikeRequest = isMessagesPath(pathAfterV1) || isMessagesCountTokensPath(pathAfterV1);
         if (Boolean.TRUE.equals(request.getAttribute(OpenAiApiConstants.ATTR_LB_REQUEST))) {
             v1LoadBalanceProxy(request, response);
             return;
@@ -71,8 +73,14 @@ public class OpenAiV1Controller {
             return;
         }
         try {
-            if (isMessagesPath(extractPathAfterV1(request)) && shouldReadBody(request.getMethod())) {
+            if (isMessagesCountTokensPath(pathAfterV1) && shouldReadBody(request.getMethod())) {
                 byte[] originalBody = request.getInputStream().readAllBytes();
+                writeAnthropicCountTokensResponse(response, originalBody, request.getContentType());
+                return;
+            }
+            if (isMessagesPath(pathAfterV1) && shouldReadBody(request.getMethod())) {
+                byte[] originalBody = request.getInputStream().readAllBytes();
+                String modelHint = extractAnthropicModelFromBody(originalBody, request.getContentType());
                 boolean anthropicStream = isStreamRequest(originalBody, request.getContentType());
                 byte[] chatBody = transformAnthropicMessagesToChatCompletionsJson(originalBody);
                 BufferingResponse buffered = new BufferingResponse(response);
@@ -82,18 +90,30 @@ public class OpenAiV1Controller {
                         response,
                         buffered,
                         anthropicStream,
-                        extractModelFromBody(chatBody, request.getContentType()));
+                        firstNonBlank(extractModelFromBody(chatBody, request.getContentType()), modelHint));
                 return;
             }
             generativeOpenAiService.proxy(u, request, response);
         } catch (OciException e) {
-            error(response, 502, e.getMessage() != null ? e.getMessage() : "OCI 错误");
+            if (anthropicLikeRequest) {
+                anthropicError(response, 502, "api_error", e.getMessage() != null ? e.getMessage() : "OCI 错误");
+            } else {
+                error(response, 502, e.getMessage() != null ? e.getMessage() : "OCI 错误");
+            }
         } catch (IOException e) {
             if (!response.isCommitted() && !isClientAbort(e)) {
-                error(response, 502, e.getMessage() != null ? e.getMessage() : "转发出错");
+                if (anthropicLikeRequest) {
+                    anthropicError(response, 502, "api_error", e.getMessage() != null ? e.getMessage() : "转发出错");
+                } else {
+                    error(response, 502, e.getMessage() != null ? e.getMessage() : "转发出错");
+                }
             }
         } catch (Exception e) {
-            error(response, 500, e.getMessage() != null ? e.getMessage() : "internal_error");
+            if (anthropicLikeRequest) {
+                anthropicError(response, 500, "api_error", e.getMessage() != null ? e.getMessage() : "internal_error");
+            } else {
+                error(response, 500, e.getMessage() != null ? e.getMessage() : "internal_error");
+            }
         }
     }
 
@@ -112,10 +132,14 @@ public class OpenAiV1Controller {
         String requestLogPath = pathAfterV1;
         boolean anthropicMessages = isMessagesPath(pathAfterV1);
         boolean anthropicStream = anthropicMessages && isStreamRequest(body, request.getContentType());
+        if (isMessagesCountTokensPath(pathAfterV1)) {
+            writeAnthropicCountTokensResponse(response, body, request.getContentType());
+            return;
+        }
         if (anthropicMessages) {
+            request.setAttribute("ociworker.lb.bridgeType", anthropicBridgeType(body, request.getContentType()));
             body = transformAnthropicMessagesToChatCompletionsJson(body);
             pathAfterV1 = "/chat/completions";
-            request.setAttribute("ociworker.lb.bridgeType", "anthropic_messages_to_chat");
         }
         String requestedModel = extractModelFromBody(body, request.getContentType());
         boolean stream = isStreamRequest(body, request.getContentType());
@@ -145,7 +169,11 @@ public class OpenAiV1Controller {
                 selection = selectMemberWithBriefWait(requestedModel, estimatedTokens, triedMembers, requireGenerativeContext);
             } catch (OciException e) {
                 if (attempt == 0) {
-                    error(response, 503, e.getMessage());
+                    if (anthropicMessages) {
+                        anthropicError(response, 503, "overloaded_error", e.getMessage());
+                    } else {
+                        error(response, 503, e.getMessage());
+                    }
                     return;
                 }
                 break;
@@ -229,7 +257,11 @@ public class OpenAiV1Controller {
                 if ((!stream || bufferedToolStream) && attempt + 1 < maxAttempts) {
                     continue;
                 }
-                error(response, 502, message);
+                if (anthropicMessages) {
+                    anthropicError(response, 502, "api_error", message);
+                } else {
+                    error(response, 502, message);
+                }
                 return;
             } catch (IOException e) {
                 long latency = elapsedMs(started);
@@ -256,7 +288,11 @@ public class OpenAiV1Controller {
                     continue;
                 }
                 if (!response.isCommitted()) {
-                    error(response, status, lastError);
+                    if (anthropicMessages) {
+                        anthropicError(response, status, status >= 500 ? "api_error" : "invalid_request_error", lastError);
+                    } else {
+                        error(response, status, lastError);
+                    }
                 }
                 return;
             } catch (Exception e) {
@@ -268,11 +304,20 @@ public class OpenAiV1Controller {
                         "failed", "internal_error", message, latency, attempt);
                 log.warn("OpenAI LB internal error requestId={} memberId={} port={} message={}",
                         lbRequestId, selection.member().getId(), binding.getPort(), message);
-                error(response, 500, message);
+                if (anthropicMessages) {
+                    anthropicError(response, 500, "api_error", message);
+                } else {
+                    error(response, 500, message);
+                }
                 return;
             }
         }
-        error(response, lastStatus, lastError != null ? lastError : "没有可用的负载均衡成员");
+        if (anthropicMessages) {
+            anthropicError(response, lastStatus, lastStatus >= 500 ? "api_error" : "invalid_request_error",
+                    lastError != null ? lastError : "没有可用的负载均衡成员");
+        } else {
+            error(response, lastStatus, lastError != null ? lastError : "没有可用的负载均衡成员");
+        }
     }
 
     private OciOpenaiLoadBalanceService.Selection selectMemberWithBriefWait(
@@ -362,6 +407,32 @@ public class OpenAiV1Controller {
                 String.format("{\"error\":{\"type\":\"oci_error\",\"message\":%s}}", safe).getBytes(StandardCharsets.UTF_8));
     }
 
+    private static void anthropicError(HttpServletResponse response, int status, String type, String message) throws IOException {
+        if (response.isCommitted()) {
+            return;
+        }
+        response.setStatus(status);
+        response.setContentType("application/json; charset=utf-8");
+        ObjectNode root = MAPPER.createObjectNode();
+        root.put("type", "error");
+        ObjectNode error = MAPPER.createObjectNode();
+        error.put("type", firstNonBlank(type, "api_error"));
+        error.put("message", firstNonBlank(message, "请求失败"));
+        root.set("error", error);
+        response.getOutputStream().write(MAPPER.writeValueAsBytes(root));
+    }
+
+    private static void writeAnthropicCountTokensResponse(
+            HttpServletResponse response,
+            byte[] body,
+            String contentType) throws IOException {
+        response.setStatus(200);
+        response.setContentType("application/json; charset=utf-8");
+        ObjectNode root = MAPPER.createObjectNode();
+        root.put("input_tokens", Math.max(1L, estimateInputTokens(body, contentType)));
+        response.getOutputStream().write(MAPPER.writeValueAsBytes(root));
+    }
+
     private static boolean shouldReadBody(String method) {
         return !"GET".equalsIgnoreCase(method) && !"HEAD".equalsIgnoreCase(method) && !"DELETE".equalsIgnoreCase(method);
     }
@@ -376,6 +447,14 @@ public class OpenAiV1Controller {
 
     private static boolean isMessagesPath(String pathAfterV1) {
         return pathAfterV1 != null && (pathAfterV1.equals("/messages") || pathAfterV1.endsWith("/messages"));
+    }
+
+    private static boolean isMessagesCountTokensPath(String pathAfterV1) {
+        return pathAfterV1 != null
+                && (pathAfterV1.equals("/count_tokens")
+                || pathAfterV1.endsWith("/count_tokens")
+                || pathAfterV1.equals("/messages/count_tokens")
+                || pathAfterV1.endsWith("/messages/count_tokens"));
     }
 
     private static String normalizeRequestPath(String pathAfterV1) {
@@ -536,6 +615,8 @@ public class OpenAiV1Controller {
                     messages.add(tool);
                 } else if ("text".equalsIgnoreCase(type)) {
                     appendText(text, text(po, "text"));
+                } else {
+                    appendText(text, unsupportedAnthropicContentText(type));
                 }
             }
             if (text.length() > 0) {
@@ -592,7 +673,11 @@ public class OpenAiV1Controller {
             boolean stream,
             String modelHint) throws IOException {
         if (buffered.getStatus() >= 400) {
-            buffered.copyTo(response);
+            anthropicError(
+                    response,
+                    buffered.getStatus(),
+                    buffered.getStatus() >= 500 ? "api_error" : "invalid_request_error",
+                    extractErrorMessage(buffered.bodyText()));
             return;
         }
         ObjectNode message = chatCompletionToAnthropicMessage(buffered.bodyText(), modelHint);
@@ -677,6 +762,26 @@ public class OpenAiV1Controller {
             out.set("usage", usage);
         }
         return out;
+    }
+
+    private static String extractErrorMessage(String body) {
+        if (body == null || body.isBlank()) {
+            return "请求失败";
+        }
+        try {
+            JsonNode root = MAPPER.readTree(body);
+            JsonNode message = root.path("error").path("message");
+            if (message.isTextual() && !message.asText().isBlank()) {
+                return message.asText();
+            }
+            JsonNode direct = root.path("message");
+            if (direct.isTextual() && !direct.asText().isBlank()) {
+                return direct.asText();
+            }
+        } catch (Exception ignored) {
+        }
+        String value = body.trim();
+        return value.length() > 500 ? value.substring(0, 500) : value;
     }
 
     private static void writeAnthropicMessageSse(HttpServletResponse response, ObjectNode message) throws IOException {
@@ -810,18 +915,35 @@ public class OpenAiV1Controller {
                         appendText(sb, text(part, "text"));
                     } else if ("tool_result".equalsIgnoreCase(type)) {
                         appendText(sb, anthropicContentText(part.get("content")));
+                    } else {
+                        appendText(sb, unsupportedAnthropicContentText(type));
                     }
                 }
             }
             return sb.toString();
         }
         if (content.isObject()) {
+            String type = text(content, "type");
+            if (type != null && !"text".equalsIgnoreCase(type) && !"tool_result".equalsIgnoreCase(type)) {
+                return unsupportedAnthropicContentText(type);
+            }
             String direct = text(content, "text");
             if (direct != null) {
                 return direct;
             }
         }
         return content.toString();
+    }
+
+    private static String unsupportedAnthropicContentText(String type) {
+        String safeType = firstNonBlank(type, "unknown");
+        if ("image".equalsIgnoreCase(safeType) || "document".equalsIgnoreCase(safeType)) {
+            return "[OCIworker 提示：当前 OpenAI 兼容转发暂不支持 Anthropic " + safeType + " 内容块，已按文本占位处理。]";
+        }
+        if ("thinking".equalsIgnoreCase(safeType) || "redacted_thinking".equalsIgnoreCase(safeType)) {
+            return "";
+        }
+        return "[OCIworker 提示：已忽略暂不支持的 Anthropic " + safeType + " 内容块。]";
     }
 
     private static String chatContentText(JsonNode content) {
@@ -962,6 +1084,62 @@ public class OpenAiV1Controller {
         } catch (Exception ignored) {
             return null;
         }
+    }
+
+    private static String extractAnthropicModelFromBody(byte[] body, String contentType) {
+        if (body == null || body.length == 0) {
+            return null;
+        }
+        if (contentType != null && !contentType.isBlank() && !contentType.toLowerCase().contains("json")) {
+            return null;
+        }
+        try {
+            JsonNode root = MAPPER.readTree(body);
+            if (root instanceof ObjectNode object) {
+                return sanitizeAnthropicModel(text(object, "model"));
+            }
+        } catch (Exception ignored) {
+        }
+        return null;
+    }
+
+    private static String anthropicBridgeType(byte[] body, String contentType) {
+        String base = "anthropic_messages_to_chat";
+        if (body == null || body.length == 0) {
+            return base;
+        }
+        if (contentType != null && !contentType.isBlank() && !contentType.toLowerCase().contains("json")) {
+            return base;
+        }
+        try {
+            JsonNode root = MAPPER.readTree(body);
+            if (!(root instanceof ObjectNode object)) {
+                return base;
+            }
+            JsonNode toolChoice = object.get("tool_choice");
+            if (toolChoice instanceof ObjectNode choice) {
+                String type = text(choice, "type");
+                if ("tool".equalsIgnoreCase(type)) {
+                    return "anthropic_messages_to_chat_forced_tool";
+                }
+                if ("any".equalsIgnoreCase(type)) {
+                    return "anthropic_messages_to_chat_required_tool";
+                }
+                if ("none".equalsIgnoreCase(type)) {
+                    return "anthropic_messages_to_chat_no_tool";
+                }
+            } else if (toolChoice != null && toolChoice.isTextual()) {
+                String type = toolChoice.asText();
+                if ("any".equalsIgnoreCase(type)) {
+                    return "anthropic_messages_to_chat_required_tool";
+                }
+                if ("none".equalsIgnoreCase(type)) {
+                    return "anthropic_messages_to_chat_no_tool";
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return base;
     }
 
     private static boolean hasToolRequest(byte[] body, String contentType) {
@@ -1160,6 +1338,22 @@ public class OpenAiV1Controller {
             long maxTokens = numericField(root, "max_tokens", "maxTokens", "max_output_tokens", "maxOutputTokens");
             long estimate = Math.max(1L, (chars + 3L) / 4L);
             return estimate + Math.max(0L, maxTokens);
+        } catch (Exception ignored) {
+            return Math.max(1L, body.length / 4L);
+        }
+    }
+
+    static long estimateInputTokens(byte[] body, String contentType) {
+        if (body == null || body.length == 0) {
+            return 1L;
+        }
+        if (contentType != null && !contentType.isBlank() && !contentType.toLowerCase().contains("json")) {
+            return Math.max(1L, body.length / 4L);
+        }
+        try {
+            JsonNode root = MAPPER.readTree(body);
+            long chars = countTextChars(root);
+            return Math.max(1L, (chars + 3L) / 4L);
         } catch (Exception ignored) {
             return Math.max(1L, body.length / 4L);
         }
