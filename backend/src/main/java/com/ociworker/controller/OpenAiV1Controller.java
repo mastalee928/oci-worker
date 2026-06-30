@@ -71,6 +71,20 @@ public class OpenAiV1Controller {
             return;
         }
         try {
+            if (isMessagesPath(extractPathAfterV1(request)) && shouldReadBody(request.getMethod())) {
+                byte[] originalBody = request.getInputStream().readAllBytes();
+                boolean anthropicStream = isStreamRequest(originalBody, request.getContentType());
+                byte[] chatBody = transformAnthropicMessagesToChatCompletionsJson(originalBody);
+                BufferingResponse buffered = new BufferingResponse(response);
+                HttpServletRequest proxyRequest = new CachedBodyRequest(request, chatBody, "/chat/completions");
+                generativeOpenAiService.proxy(u, proxyRequest, buffered);
+                writeAnthropicMessagesResponse(
+                        response,
+                        buffered,
+                        anthropicStream,
+                        extractModelFromBody(chatBody, request.getContentType()));
+                return;
+            }
             generativeOpenAiService.proxy(u, request, response);
         } catch (OciException e) {
             error(response, 502, e.getMessage() != null ? e.getMessage() : "OCI 错误");
