@@ -68,12 +68,13 @@ Supported core features:
 - tool_choice auto, none, any, and named tool
 - Anthropic image blocks, converted to OpenAI `image_url`
 - Anthropic document blocks, converted to extracted text for common text and office formats
+- safe public `http/https` document URLs, downloaded and parsed with the same document limits
 - streaming responses via Anthropic SSE events
 - count_tokens compatibility via `/v1/count_tokens` and `/v1/messages/count_tokens`
 
 Current compatibility limits:
 
 - document parsing is text extraction only; scanned PDFs and image-only documents still need OCR and may return a clear unsupported notice
-- remote URL documents are not fetched by the bridge; clients should send base64 document content
+- remote URL documents are limited to 10MB, 3 redirects, short timeouts, and public addresses only; localhost, private networks, link-local, and metadata addresses are rejected
 - Anthropic streaming is compatibility-first; tool calls are stable, but upstream token deltas may be buffered by the bridge
 - legacy `/v1/complete` is not implemented

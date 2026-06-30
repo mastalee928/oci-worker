@@ -200,6 +200,24 @@ class OpenAiV1ControllerTest {
     }
 
     @Test
+    void extractsCfgDocumentByFileNameWhenMediaTypeMissing() throws Exception {
+        String payload = """
+                {
+                  "model":"xai.grok-4.3",
+                  "messages":[{"role":"user","content":[
+                    {"type":"document","source":{"type":"base64","filename":"amdpreseed.cfg","data":"%s"}}
+                  ]}]
+                }
+                """.formatted(base64("OCIWORKER_CFG_DOC_MARKER=true"));
+
+        JsonNode root = MAPPER.readTree(OpenAiV1Controller.transformAnthropicMessagesToChatCompletionsJson(
+                payload.getBytes()));
+
+        assertThat(root.path("messages").get(0).path("content").asText())
+                .contains("OCIWORKER_CFG_DOC_MARKER");
+    }
+
+    @Test
     void extractsEnvAndDockerfileByFileNameWhenMediaTypeMissing() throws Exception {
         String envPayload = """
                 {
@@ -230,7 +248,7 @@ class OpenAiV1ControllerTest {
     }
 
     @Test
-    void rejectsRemoteUrlAnthropicDocument() throws Exception {
+    void rejectsLocalRemoteUrlAnthropicDocument() throws Exception {
         String payload = """
                 {
                   "model":"xai.grok-4.3",
@@ -244,8 +262,26 @@ class OpenAiV1ControllerTest {
                 payload.getBytes()));
 
         assertThat(root.path("messages").get(0).path("content").asText())
-                .contains("暂不抓取远程 URL 文档")
+                .contains("禁止访问内网或本机地址")
                 .doesNotContain("private.txt");
+    }
+
+    @Test
+    void rejectsNonHttpRemoteUrlAnthropicDocument() throws Exception {
+        String payload = """
+                {
+                  "model":"xai.grok-4.3",
+                  "messages":[{"role":"user","content":[
+                    {"type":"document","source":{"type":"url","media_type":"text/plain","url":"file:///etc/passwd"}}
+                  ]}]
+                }
+                """;
+
+        JsonNode root = MAPPER.readTree(OpenAiV1Controller.transformAnthropicMessagesToChatCompletionsJson(
+                payload.getBytes()));
+
+        assertThat(root.path("messages").get(0).path("content").asText())
+                .contains("暂不支持非 http/https URL");
     }
 
     @Test
