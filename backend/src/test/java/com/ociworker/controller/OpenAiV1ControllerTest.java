@@ -110,7 +110,7 @@ class OpenAiV1ControllerTest {
     }
 
     @Test
-    void keepsUnsupportedAnthropicContentVisibleAsPlaceholder() throws Exception {
+    void convertsAnthropicImageContentToOpenAiImageUrl() throws Exception {
         String payload = """
                 {
                   "model":"xai.grok-4.3",
@@ -124,9 +124,33 @@ class OpenAiV1ControllerTest {
         JsonNode root = MAPPER.readTree(OpenAiV1Controller.transformAnthropicMessagesToChatCompletionsJson(
                 payload.getBytes()));
 
+        JsonNode content = root.path("messages").get(0).path("content");
+        assertThat(content.isArray()).isTrue();
+        assertThat(content.get(0).path("type").asText()).isEqualTo("text");
+        assertThat(content.get(0).path("text").asText()).isEqualTo("inspect this");
+        assertThat(content.get(1).path("type").asText()).isEqualTo("image_url");
+        assertThat(content.get(1).path("image_url").path("url").asText())
+                .isEqualTo("data:image/png;base64,abc");
+    }
+
+    @Test
+    void keepsUnsupportedAnthropicDocumentVisibleAsPlaceholder() throws Exception {
+        String payload = """
+                {
+                  "model":"xai.grok-4.3",
+                  "messages":[{"role":"user","content":[
+                    {"type":"text","text":"inspect this"},
+                    {"type":"document","source":{"type":"base64","media_type":"application/pdf","data":"abc"}}
+                  ]}]
+                }
+                """;
+
+        JsonNode root = MAPPER.readTree(OpenAiV1Controller.transformAnthropicMessagesToChatCompletionsJson(
+                payload.getBytes()));
+
         assertThat(root.path("messages").get(0).path("content").asText())
                 .contains("inspect this")
-                .contains("暂不支持 Anthropic image 内容块");
+                .contains("暂不支持 Anthropic document 内容块");
     }
 
     @Test

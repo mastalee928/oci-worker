@@ -66,11 +66,12 @@ Supported core features:
 - tools
 - tool_use and tool_result history
 - tool_choice auto, none, any, and named tool
+- Anthropic image blocks, converted to OpenAI `image_url`
 - streaming responses via Anthropic SSE events
 - count_tokens compatibility via `/v1/count_tokens` and `/v1/messages/count_tokens`
 
 Current compatibility limits:
 
-- image and document content blocks are converted to explicit text placeholders
+- document content blocks are converted to explicit text placeholders
 - Anthropic streaming is compatibility-first; tool calls are stable, but upstream token deltas may be buffered by the bridge
 - legacy `/v1/complete` is not implemented

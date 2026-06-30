@@ -601,6 +601,8 @@ public class OpenAiV1Controller {
         }
         if ("user".equalsIgnoreCase(role) && content != null && content.isArray()) {
             StringBuilder text = new StringBuilder();
+            ArrayNode richContent = MAPPER.createArrayNode();
+            boolean hasRichContent = false;
             for (JsonNode part : content) {
                 if (part == null || !part.isObject()) {
                     continue;
@@ -608,6 +610,12 @@ public class OpenAiV1Controller {
                 ObjectNode po = (ObjectNode) part;
                 String type = text(po, "type");
                 if ("tool_result".equalsIgnoreCase(type)) {
+                    if (hasRichContent || text.length() > 0) {
+                        addUserMessage(messages, text, richContent, hasRichContent);
+                        text.setLength(0);
+                        richContent = MAPPER.createArrayNode();
+                        hasRichContent = false;
+                    }
                     ObjectNode tool = MAPPER.createObjectNode();
                     tool.put("role", "tool");
                     tool.put("tool_call_id", firstNonBlank(text(po, "tool_use_id"), text(po, "id"), "toolu_unknown"));
@@ -615,15 +623,21 @@ public class OpenAiV1Controller {
                     messages.add(tool);
                 } else if ("text".equalsIgnoreCase(type)) {
                     appendText(text, text(po, "text"));
+                } else if ("image".equalsIgnoreCase(type)) {
+                    ObjectNode image = anthropicImageToChatImage(po);
+                    if (image != null) {
+                        flushTextBlock(richContent, text);
+                        richContent.add(image);
+                        hasRichContent = true;
+                    } else {
+                        appendText(text, unsupportedAnthropicContentText(type));
+                    }
                 } else {
                     appendText(text, unsupportedAnthropicContentText(type));
                 }
             }
-            if (text.length() > 0) {
-                ObjectNode msg = MAPPER.createObjectNode();
-                msg.put("role", "user");
-                msg.put("content", text.toString());
-                messages.add(msg);
+            if (hasRichContent || text.length() > 0) {
+                addUserMessage(messages, text, richContent, hasRichContent);
             }
             return;
         }
@@ -631,6 +645,63 @@ public class OpenAiV1Controller {
         msg.put("role", "assistant".equalsIgnoreCase(role) ? "assistant" : "user");
         msg.put("content", anthropicContentText(content));
         messages.add(msg);
+    }
+
+    private static void addUserMessage(ArrayNode messages, StringBuilder text, ArrayNode richContent, boolean hasRichContent) {
+        ObjectNode msg = MAPPER.createObjectNode();
+        msg.put("role", "user");
+        if (hasRichContent) {
+            flushTextBlock(richContent, text);
+            msg.set("content", richContent);
+        } else {
+            msg.put("content", text.toString());
+        }
+        messages.add(msg);
+    }
+
+    private static void flushTextBlock(ArrayNode richContent, StringBuilder text) {
+        if (richContent == null || text == null || text.length() == 0) {
+            return;
+        }
+        ObjectNode textBlock = MAPPER.createObjectNode();
+        textBlock.put("type", "text");
+        textBlock.put("text", text.toString());
+        richContent.add(textBlock);
+        text.setLength(0);
+    }
+
+    private static ObjectNode anthropicImageToChatImage(ObjectNode imagePart) {
+        if (imagePart == null) {
+            return null;
+        }
+        JsonNode sourceNode = imagePart.get("source");
+        if (!(sourceNode instanceof ObjectNode source)) {
+            return null;
+        }
+        String sourceType = text(source, "type");
+        String url = null;
+        if ("base64".equalsIgnoreCase(sourceType)) {
+            String mediaType = firstNonBlank(text(source, "media_type"), "image/png");
+            String data = text(source, "data");
+            if (data != null && !data.isBlank()) {
+                url = "data:" + mediaType + ";base64," + data.trim();
+            }
+        } else if ("url".equalsIgnoreCase(sourceType)) {
+            url = text(source, "url");
+        }
+        if (url == null || url.isBlank()) {
+            return null;
+        }
+        ObjectNode imageUrl = MAPPER.createObjectNode();
+        imageUrl.put("url", url.trim());
+        String detail = text(imagePart, "detail");
+        if (detail != null && !detail.isBlank()) {
+            imageUrl.put("detail", detail);
+        }
+        ObjectNode out = MAPPER.createObjectNode();
+        out.put("type", "image_url");
+        out.set("image_url", imageUrl);
+        return out;
     }
 
     private static JsonNode anthropicToolChoiceToChatToolChoice(JsonNode toolChoice) {
