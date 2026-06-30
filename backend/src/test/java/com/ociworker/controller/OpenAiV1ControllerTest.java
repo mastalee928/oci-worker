@@ -182,6 +182,73 @@ class OpenAiV1ControllerTest {
     }
 
     @Test
+    void extractsCodeDocumentByFileNameWhenMediaTypeMissing() throws Exception {
+        String payload = """
+                {
+                  "model":"xai.grok-4.3",
+                  "messages":[{"role":"user","content":[
+                    {"type":"document","source":{"type":"base64","filename":"App.vue","data":"%s"}}
+                  ]}]
+                }
+                """.formatted(base64("<template>OCIWORKER_VUE_DOC_MARKER</template>"));
+
+        JsonNode root = MAPPER.readTree(OpenAiV1Controller.transformAnthropicMessagesToChatCompletionsJson(
+                payload.getBytes()));
+
+        assertThat(root.path("messages").get(0).path("content").asText())
+                .contains("OCIWORKER_VUE_DOC_MARKER");
+    }
+
+    @Test
+    void extractsEnvAndDockerfileByFileNameWhenMediaTypeMissing() throws Exception {
+        String envPayload = """
+                {
+                  "model":"xai.grok-4.3",
+                  "messages":[{"role":"user","content":[
+                    {"type":"document","source":{"type":"base64","filename":".env","data":"%s"}}
+                  ]}]
+                }
+                """.formatted(base64("OCIWORKER_ENV_DOC_MARKER=true"));
+        String dockerPayload = """
+                {
+                  "model":"xai.grok-4.3",
+                  "messages":[{"role":"user","content":[
+                    {"type":"document","source":{"type":"base64","filename":"Dockerfile","data":"%s"}}
+                  ]}]
+                }
+                """.formatted(base64("RUN echo OCIWORKER_DOCKERFILE_DOC_MARKER"));
+
+        JsonNode envRoot = MAPPER.readTree(OpenAiV1Controller.transformAnthropicMessagesToChatCompletionsJson(
+                envPayload.getBytes()));
+        JsonNode dockerRoot = MAPPER.readTree(OpenAiV1Controller.transformAnthropicMessagesToChatCompletionsJson(
+                dockerPayload.getBytes()));
+
+        assertThat(envRoot.path("messages").get(0).path("content").asText())
+                .contains("OCIWORKER_ENV_DOC_MARKER");
+        assertThat(dockerRoot.path("messages").get(0).path("content").asText())
+                .contains("OCIWORKER_DOCKERFILE_DOC_MARKER");
+    }
+
+    @Test
+    void rejectsRemoteUrlAnthropicDocument() throws Exception {
+        String payload = """
+                {
+                  "model":"xai.grok-4.3",
+                  "messages":[{"role":"user","content":[
+                    {"type":"document","source":{"type":"url","media_type":"text/plain","url":"http://127.0.0.1/private.txt"}}
+                  ]}]
+                }
+                """;
+
+        JsonNode root = MAPPER.readTree(OpenAiV1Controller.transformAnthropicMessagesToChatCompletionsJson(
+                payload.getBytes()));
+
+        assertThat(root.path("messages").get(0).path("content").asText())
+                .contains("暂不抓取远程 URL 文档")
+                .doesNotContain("private.txt");
+    }
+
+    @Test
     void extractsDocxAnthropicDocument() throws Exception {
         String payload = """
                 {
