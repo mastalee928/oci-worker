@@ -2,6 +2,8 @@ package com.ociworker.controller;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.ociworker.config.OpenAiApiConstants;
 import com.ociworker.exception.OciException;
 import com.ociworker.mapper.OciUserMapper;
@@ -93,11 +95,19 @@ public class OpenAiV1Controller {
             return;
         }
         byte[] body = shouldReadBody(request.getMethod()) ? request.getInputStream().readAllBytes() : null;
+        String requestLogPath = pathAfterV1;
+        boolean anthropicMessages = isMessagesPath(pathAfterV1);
+        boolean anthropicStream = anthropicMessages && isStreamRequest(body, request.getContentType());
+        if (anthropicMessages) {
+            body = transformAnthropicMessagesToChatCompletionsJson(body);
+            pathAfterV1 = "/chat/completions";
+            request.setAttribute("ociworker.lb.bridgeType", "anthropic_messages_to_chat");
+        }
         String requestedModel = extractModelFromBody(body, request.getContentType());
         boolean stream = isStreamRequest(body, request.getContentType());
         boolean bufferedToolStream = stream && hasToolRequest(body, request.getContentType());
         int toolCount = toolCount(body, request.getContentType());
-        request.setAttribute("ociworker.lb.requestPath", normalizeRequestPath(pathAfterV1));
+        request.setAttribute("ociworker.lb.requestPath", normalizeRequestPath(requestLogPath));
         request.setAttribute("ociworker.lb.hasTools", toolCount > 0);
         request.setAttribute("ociworker.lb.toolCount", toolCount);
         boolean requireGenerativeContext = isResponsesPath(pathAfterV1)
@@ -141,13 +151,17 @@ public class OpenAiV1Controller {
             }
             resetProxyAttributes(request);
             configureProxyAttributes(request, selection);
-            HttpServletResponse targetResponse = stream && !bufferedToolStream ? response : new BufferingResponse(response);
+            HttpServletResponse targetResponse = (stream && !bufferedToolStream && !anthropicMessages)
+                    ? response
+                    : new BufferingResponse(response);
             try {
                 if (stream) {
                     targetResponse.setHeader("x-ociworker-lb-member-id", selection.member().getId());
                     targetResponse.setHeader("x-ociworker-lb-port", String.valueOf(binding.getPort()));
                 }
-                HttpServletRequest proxyRequest = body == null ? request : new CachedBodyRequest(request, body);
+                HttpServletRequest proxyRequest = body == null
+                        ? request
+                        : new CachedBodyRequest(request, body, anthropicMessages ? "/chat/completions" : null);
                 generativeOpenAiService.proxy(user, proxyRequest, targetResponse);
                 long latency = elapsedMs(started);
                 if (Boolean.TRUE.equals(request.getAttribute(OpenAiApiConstants.ATTR_CLIENT_ABORTED))) {
@@ -180,7 +194,11 @@ public class OpenAiV1Controller {
                 response.setHeader("x-ociworker-lb-member-id", selection.member().getId());
                 response.setHeader("x-ociworker-lb-port", String.valueOf(binding.getPort()));
                 if (targetResponse instanceof BufferingResponse buffered) {
-                    buffered.copyTo(response);
+                    if (anthropicMessages) {
+                        writeAnthropicMessagesResponse(response, buffered, anthropicStream, requestedModel);
+                    } else {
+                        buffered.copyTo(response);
+                    }
                 }
                 return;
             } catch (OciException e) {
@@ -342,6 +360,10 @@ public class OpenAiV1Controller {
         return pathAfterV1 != null && (pathAfterV1.equals("/responses") || pathAfterV1.endsWith("/responses"));
     }
 
+    private static boolean isMessagesPath(String pathAfterV1) {
+        return pathAfterV1 != null && (pathAfterV1.equals("/messages") || pathAfterV1.endsWith("/messages"));
+    }
+
     private static String normalizeRequestPath(String pathAfterV1) {
         if (pathAfterV1 == null || pathAfterV1.isBlank()) {
             return "/";
@@ -352,10 +374,491 @@ public class OpenAiV1Controller {
         if (pathAfterV1.equals("/responses") || pathAfterV1.endsWith("/responses")) {
             return "responses";
         }
+        if (pathAfterV1.equals("/messages") || pathAfterV1.endsWith("/messages")) {
+            return "messages";
+        }
         if (pathAfterV1.equals("/models") || pathAfterV1.endsWith("/models")) {
             return "models";
         }
         return pathAfterV1.length() > 64 ? pathAfterV1.substring(0, 64) : pathAfterV1;
+    }
+
+    static byte[] transformAnthropicMessagesToChatCompletionsJson(byte[] input) {
+        if (input == null || input.length == 0) {
+            return input;
+        }
+        try {
+            JsonNode root = MAPPER.readTree(input);
+            if (root == null || !root.isObject()) {
+                return input;
+            }
+            ObjectNode in = (ObjectNode) root;
+            ObjectNode out = MAPPER.createObjectNode();
+            String model = sanitizeAnthropicModel(text(in, "model"));
+            if (model != null && !model.isBlank()) {
+                out.put("model", model);
+            }
+            ArrayNode messages = MAPPER.createArrayNode();
+            appendAnthropicSystem(messages, in.get("system"));
+            JsonNode inMessages = in.get("messages");
+            if (inMessages != null && inMessages.isArray()) {
+                for (JsonNode message : inMessages) {
+                    appendAnthropicMessage(messages, message);
+                }
+            }
+            if (messages.isEmpty()) {
+                ObjectNode user = MAPPER.createObjectNode();
+                user.put("role", "user");
+                user.put("content", "");
+                messages.add(user);
+            }
+            out.set("messages", messages);
+            JsonNode tools = in.get("tools");
+            if (tools != null && tools.isArray()) {
+                ArrayNode chatTools = MAPPER.createArrayNode();
+                for (JsonNode tool : tools) {
+                    if (tool == null || !tool.isObject()) {
+                        continue;
+                    }
+                    ObjectNode src = (ObjectNode) tool;
+                    ObjectNode chatTool = MAPPER.createObjectNode();
+                    chatTool.put("type", "function");
+                    ObjectNode fn = MAPPER.createObjectNode();
+                    copyText(src, fn, "name");
+                    copyText(src, fn, "description");
+                    JsonNode schema = src.get("input_schema");
+                    if (schema != null && !schema.isNull() && !schema.isMissingNode()) {
+                        fn.set("parameters", schema);
+                    }
+                    chatTool.set("function", fn);
+                    chatTools.add(chatTool);
+                }
+                if (!chatTools.isEmpty()) {
+                    out.set("tools", chatTools);
+                    out.put("tool_choice", "auto");
+                }
+            }
+            JsonNode maxTokens = in.get("max_tokens");
+            if (maxTokens != null && maxTokens.isNumber()) {
+                out.set("max_tokens", maxTokens);
+            }
+            copyIfPresent(in, out, "temperature");
+            copyIfPresent(in, out, "top_p");
+            out.put("stream", false);
+            return MAPPER.writeValueAsBytes(out);
+        } catch (Exception ignored) {
+            return input;
+        }
+    }
+
+    private static void appendAnthropicSystem(ArrayNode messages, JsonNode system) {
+        String text = anthropicContentText(system);
+        if (text == null || text.isBlank()) {
+            return;
+        }
+        ObjectNode msg = MAPPER.createObjectNode();
+        msg.put("role", "system");
+        msg.put("content", text);
+        messages.add(msg);
+    }
+
+    private static void appendAnthropicMessage(ArrayNode messages, JsonNode message) {
+        if (message == null || !message.isObject()) {
+            return;
+        }
+        ObjectNode src = (ObjectNode) message;
+        String role = text(src, "role");
+        JsonNode content = src.get("content");
+        if ("assistant".equalsIgnoreCase(role) && content != null && content.isArray()) {
+            ArrayNode toolCalls = MAPPER.createArrayNode();
+            StringBuilder text = new StringBuilder();
+            for (JsonNode part : content) {
+                if (part == null || !part.isObject()) {
+                    continue;
+                }
+                ObjectNode po = (ObjectNode) part;
+                String type = text(po, "type");
+                if ("tool_use".equalsIgnoreCase(type)) {
+                    ObjectNode call = MAPPER.createObjectNode();
+                    call.put("id", firstNonBlank(text(po, "id"), "toolu_" + UUID.randomUUID()));
+                    call.put("type", "function");
+                    ObjectNode fn = MAPPER.createObjectNode();
+                    fn.put("name", firstNonBlank(text(po, "name"), "tool"));
+                    JsonNode input = po.get("input");
+                    fn.put("arguments", input == null || input.isNull() ? "{}" : input.toString());
+                    call.set("function", fn);
+                    toolCalls.add(call);
+                } else if ("text".equalsIgnoreCase(type)) {
+                    appendText(text, text(po, "text"));
+                }
+            }
+            ObjectNode msg = MAPPER.createObjectNode();
+            msg.put("role", "assistant");
+            msg.put("content", text.toString());
+            if (!toolCalls.isEmpty()) {
+                msg.set("tool_calls", toolCalls);
+            }
+            messages.add(msg);
+            return;
+        }
+        if ("user".equalsIgnoreCase(role) && content != null && content.isArray()) {
+            StringBuilder text = new StringBuilder();
+            for (JsonNode part : content) {
+                if (part == null || !part.isObject()) {
+                    continue;
+                }
+                ObjectNode po = (ObjectNode) part;
+                String type = text(po, "type");
+                if ("tool_result".equalsIgnoreCase(type)) {
+                    ObjectNode tool = MAPPER.createObjectNode();
+                    tool.put("role", "tool");
+                    tool.put("tool_call_id", firstNonBlank(text(po, "tool_use_id"), text(po, "id"), "toolu_unknown"));
+                    tool.put("content", anthropicContentText(po.get("content")));
+                    messages.add(tool);
+                } else if ("text".equalsIgnoreCase(type)) {
+                    appendText(text, text(po, "text"));
+                }
+            }
+            if (text.length() > 0) {
+                ObjectNode msg = MAPPER.createObjectNode();
+                msg.put("role", "user");
+                msg.put("content", text.toString());
+                messages.add(msg);
+            }
+            return;
+        }
+        ObjectNode msg = MAPPER.createObjectNode();
+        msg.put("role", "assistant".equalsIgnoreCase(role) ? "assistant" : "user");
+        msg.put("content", anthropicContentText(content));
+        messages.add(msg);
+    }
+
+    private static void writeAnthropicMessagesResponse(
+            HttpServletResponse response,
+            BufferingResponse buffered,
+            boolean stream,
+            String modelHint) throws IOException {
+        if (buffered.getStatus() >= 400) {
+            buffered.copyTo(response);
+            return;
+        }
+        ObjectNode message = chatCompletionToAnthropicMessage(buffered.bodyText(), modelHint);
+        response.setStatus(buffered.getStatus());
+        if (stream) {
+            response.setContentType("text/event-stream; charset=utf-8");
+            writeAnthropicMessageSse(response, message);
+        } else {
+            response.setContentType("application/json; charset=utf-8");
+            response.getOutputStream().write(MAPPER.writeValueAsBytes(message));
+        }
+    }
+
+    static ObjectNode chatCompletionToAnthropicMessage(String body, String modelHint) {
+        ObjectNode out = MAPPER.createObjectNode();
+        String id = "msg_" + UUID.randomUUID().toString().replace("-", "");
+        String model = modelHint;
+        String stopReason = "end_turn";
+        ArrayNode content = MAPPER.createArrayNode();
+        try {
+            JsonNode root = MAPPER.readTree(body);
+            if (root != null && root.isObject()) {
+                id = firstNonBlank(text((ObjectNode) root, "id"), id);
+                model = firstNonBlank(model, text((ObjectNode) root, "model"));
+                JsonNode choice = root.path("choices").isArray() && !root.path("choices").isEmpty()
+                        ? root.path("choices").get(0)
+                        : null;
+                JsonNode message = choice == null ? null : choice.path("message");
+                if (choice != null && "tool_calls".equalsIgnoreCase(text(choice, "finish_reason"))) {
+                    stopReason = "tool_use";
+                }
+                String text = chatContentText(message == null ? null : message.get("content"));
+                if (text != null && !text.isBlank()) {
+                    ObjectNode textPart = MAPPER.createObjectNode();
+                    textPart.put("type", "text");
+                    textPart.put("text", text);
+                    content.add(textPart);
+                }
+                JsonNode toolCalls = message == null ? null : message.get("tool_calls");
+                if (toolCalls != null && toolCalls.isArray()) {
+                    for (JsonNode call : toolCalls) {
+                        if (call == null || !call.isObject()) {
+                            continue;
+                        }
+                        ObjectNode toolUse = MAPPER.createObjectNode();
+                        toolUse.put("type", "tool_use");
+                        toolUse.put("id", firstNonBlank(text((ObjectNode) call, "id"), "toolu_" + UUID.randomUUID()));
+                        JsonNode fnNode = call.get("function");
+                        ObjectNode fn = fnNode != null && fnNode.isObject() ? (ObjectNode) fnNode : MAPPER.createObjectNode();
+                        toolUse.put("name", firstNonBlank(text(fn, "name"), "tool"));
+                        toolUse.set("input", parseJsonObjectOrEmpty(text(fn, "arguments")));
+                        content.add(toolUse);
+                    }
+                }
+                JsonNode usage = root.get("usage");
+                if (usage != null && usage.isObject()) {
+                    ObjectNode anthropicUsage = MAPPER.createObjectNode();
+                    anthropicUsage.put("input_tokens", Math.max(0, numeric(usage, "prompt_tokens", "input_tokens")));
+                    anthropicUsage.put("output_tokens", Math.max(0, numeric(usage, "completion_tokens", "output_tokens")));
+                    out.set("usage", anthropicUsage);
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        if (content.isEmpty()) {
+            ObjectNode textPart = MAPPER.createObjectNode();
+            textPart.put("type", "text");
+            textPart.put("text", "");
+            content.add(textPart);
+        }
+        out.put("id", id);
+        out.put("type", "message");
+        out.put("role", "assistant");
+        out.put("model", firstNonBlank(model, ""));
+        out.set("content", content);
+        out.put("stop_reason", stopReason);
+        out.putNull("stop_sequence");
+        if (out.get("usage") == null) {
+            ObjectNode usage = MAPPER.createObjectNode();
+            usage.put("input_tokens", 0);
+            usage.put("output_tokens", 0);
+            out.set("usage", usage);
+        }
+        return out;
+    }
+
+    private static void writeAnthropicMessageSse(HttpServletResponse response, ObjectNode message) throws IOException {
+        ServletOutputStream out = response.getOutputStream();
+        ObjectNode startMessage = message.deepCopy();
+        startMessage.set("content", MAPPER.createArrayNode());
+        startMessage.putNull("stop_reason");
+        writeAnthropicSse(out, "message_start", objectNode("type", "message_start", "message", startMessage));
+        JsonNode content = message.get("content");
+        if (content != null && content.isArray()) {
+            for (int i = 0; i < content.size(); i++) {
+                JsonNode part = content.get(i);
+                if (!(part instanceof ObjectNode partObject)) {
+                    continue;
+                }
+                String type = text(partObject, "type");
+                ObjectNode startBlock = MAPPER.createObjectNode();
+                startBlock.put("type", firstNonBlank(type, "text"));
+                if ("tool_use".equalsIgnoreCase(type)) {
+                    startBlock.put("id", firstNonBlank(text(partObject, "id"), "toolu_" + UUID.randomUUID()));
+                    startBlock.put("name", firstNonBlank(text(partObject, "name"), "tool"));
+                    startBlock.set("input", MAPPER.createObjectNode());
+                } else {
+                    startBlock.put("text", "");
+                }
+                writeAnthropicSse(out, "content_block_start",
+                        objectNode("type", "content_block_start", "index", i, "content_block", startBlock));
+                if ("text".equalsIgnoreCase(type)) {
+                    ObjectNode delta = MAPPER.createObjectNode();
+                    delta.put("type", "text_delta");
+                    delta.put("text", text(partObject, "text"));
+                    writeAnthropicSse(out, "content_block_delta",
+                            objectNode("type", "content_block_delta", "index", i, "delta", delta));
+                } else if ("tool_use".equalsIgnoreCase(type)) {
+                    ObjectNode delta = MAPPER.createObjectNode();
+                    delta.put("type", "input_json_delta");
+                    JsonNode input = partObject.get("input");
+                    delta.put("partial_json", input == null || input.isNull() ? "{}" : input.toString());
+                    writeAnthropicSse(out, "content_block_delta",
+                            objectNode("type", "content_block_delta", "index", i, "delta", delta));
+                }
+                writeAnthropicSse(out, "content_block_stop", objectNode("type", "content_block_stop", "index", i));
+            }
+        }
+        ObjectNode delta = MAPPER.createObjectNode();
+        delta.put("stop_reason", text(message, "stop_reason"));
+        delta.putNull("stop_sequence");
+        writeAnthropicSse(out, "message_delta",
+                objectNode("type", "message_delta", "delta", delta, "usage", message.get("usage")));
+        writeAnthropicSse(out, "message_stop", objectNode("type", "message_stop"));
+        out.flush();
+    }
+
+    private static String sanitizeAnthropicModel(String model) {
+        return model == null ? null : model.trim();
+    }
+
+    private static void copyText(ObjectNode source, ObjectNode target, String field) {
+        String value = text(source, field);
+        if (value != null && !value.isBlank()) {
+            target.put(field, value);
+        }
+    }
+
+    private static void copyIfPresent(ObjectNode source, ObjectNode target, String field) {
+        JsonNode value = source == null ? null : source.get(field);
+        if (value != null && !value.isNull() && !value.isMissingNode()) {
+            target.set(field, value);
+        }
+    }
+
+    private static String text(JsonNode node, String field) {
+        if (node == null || !node.isObject() || field == null) {
+            return null;
+        }
+        JsonNode value = node.get(field);
+        if (value == null || value.isNull() || value.isMissingNode()) {
+            return null;
+        }
+        if (value.isTextual()) {
+            return value.asText();
+        }
+        return value.isValueNode() ? value.asText() : value.toString();
+    }
+
+    private static String firstNonBlank(String... values) {
+        if (values == null) {
+            return null;
+        }
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private static void appendText(StringBuilder sb, String value) {
+        if (value == null || value.isBlank()) {
+            return;
+        }
+        if (sb.length() > 0) {
+            sb.append('\n');
+        }
+        sb.append(value);
+    }
+
+    private static String anthropicContentText(JsonNode content) {
+        if (content == null || content.isNull() || content.isMissingNode()) {
+            return "";
+        }
+        if (content.isTextual()) {
+            return content.asText("");
+        }
+        if (content.isValueNode()) {
+            return content.asText("");
+        }
+        StringBuilder sb = new StringBuilder();
+        if (content.isArray()) {
+            for (JsonNode part : content) {
+                if (part == null || part.isNull()) {
+                    continue;
+                }
+                if (part.isTextual()) {
+                    appendText(sb, part.asText());
+                    continue;
+                }
+                if (part.isObject()) {
+                    String type = text(part, "type");
+                    if ("text".equalsIgnoreCase(type)) {
+                        appendText(sb, text(part, "text"));
+                    } else if ("tool_result".equalsIgnoreCase(type)) {
+                        appendText(sb, anthropicContentText(part.get("content")));
+                    }
+                }
+            }
+            return sb.toString();
+        }
+        if (content.isObject()) {
+            String direct = text(content, "text");
+            if (direct != null) {
+                return direct;
+            }
+        }
+        return content.toString();
+    }
+
+    private static String chatContentText(JsonNode content) {
+        if (content == null || content.isNull() || content.isMissingNode()) {
+            return "";
+        }
+        if (content.isTextual()) {
+            return content.asText("");
+        }
+        if (content.isValueNode()) {
+            return content.asText("");
+        }
+        StringBuilder sb = new StringBuilder();
+        if (content.isArray()) {
+            for (JsonNode part : content) {
+                if (part == null || part.isNull()) {
+                    continue;
+                }
+                if (part.isTextual()) {
+                    appendText(sb, part.asText());
+                    continue;
+                }
+                if (part.isObject()) {
+                    appendText(sb, firstNonBlank(text(part, "text"), text(part, "content")));
+                }
+            }
+            return sb.toString();
+        }
+        return content.toString();
+    }
+
+    private static ObjectNode parseJsonObjectOrEmpty(String value) {
+        if (value == null || value.isBlank()) {
+            return MAPPER.createObjectNode();
+        }
+        try {
+            JsonNode node = MAPPER.readTree(value);
+            if (node != null && node.isObject()) {
+                return (ObjectNode) node;
+            }
+        } catch (Exception ignored) {
+        }
+        return MAPPER.createObjectNode();
+    }
+
+    private static int numeric(JsonNode node, String... fields) {
+        if (node == null || !node.isObject() || fields == null) {
+            return 0;
+        }
+        for (String field : fields) {
+            JsonNode value = node.get(field);
+            if (value != null && value.isNumber()) {
+                return value.asInt();
+            }
+        }
+        return 0;
+    }
+
+    private static void writeAnthropicSse(ServletOutputStream out, String event, ObjectNode data) throws IOException {
+        out.write(("event: " + event + "\n").getBytes(StandardCharsets.UTF_8));
+        out.write(("data: " + MAPPER.writeValueAsString(data) + "\n\n").getBytes(StandardCharsets.UTF_8));
+    }
+
+    private static ObjectNode objectNode(Object... keyValues) {
+        ObjectNode node = MAPPER.createObjectNode();
+        if (keyValues == null) {
+            return node;
+        }
+        for (int i = 0; i + 1 < keyValues.length; i += 2) {
+            String key = String.valueOf(keyValues[i]);
+            Object value = keyValues[i + 1];
+            if (value == null) {
+                node.putNull(key);
+            } else if (value instanceof JsonNode json) {
+                node.set(key, json);
+            } else if (value instanceof Boolean bool) {
+                node.put(key, bool);
+            } else if (value instanceof Integer integer) {
+                node.put(key, integer);
+            } else if (value instanceof Long longValue) {
+                node.put(key, longValue);
+            } else if (value instanceof Double doubleValue) {
+                node.put(key, doubleValue);
+            } else if (value instanceof Float floatValue) {
+                node.put(key, floatValue);
+            } else {
+                node.put(key, String.valueOf(value));
+            }
+        }
+        return node;
     }
 
     private static boolean requiresResponsesGenerativeContext(String requestedModel) {
@@ -649,10 +1152,18 @@ public class OpenAiV1Controller {
 
     private static final class CachedBodyRequest extends HttpServletRequestWrapper {
         private final byte[] body;
+        private final String overridePathAfterV1;
 
         private CachedBodyRequest(HttpServletRequest request, byte[] body) {
+            this(request, body, null);
+        }
+
+        private CachedBodyRequest(HttpServletRequest request, byte[] body, String overridePathAfterV1) {
             super(request);
             this.body = body == null ? new byte[0] : body;
+            this.overridePathAfterV1 = overridePathAfterV1 == null || overridePathAfterV1.isBlank()
+                    ? null
+                    : (overridePathAfterV1.startsWith("/") ? overridePathAfterV1 : "/" + overridePathAfterV1);
         }
 
         @Override
@@ -693,6 +1204,28 @@ public class OpenAiV1Controller {
         @Override
         public long getContentLengthLong() {
             return body.length;
+        }
+
+        @Override
+        public String getRequestURI() {
+            if (overridePathAfterV1 == null) {
+                return super.getRequestURI();
+            }
+            String original = super.getRequestURI();
+            if (original == null || original.isBlank()) {
+                return "/v1" + overridePathAfterV1;
+            }
+            String ctx = super.getContextPath() == null ? "" : super.getContextPath();
+            String path = original;
+            if (!ctx.isEmpty() && path.startsWith(ctx)) {
+                path = path.substring(ctx.length());
+            }
+            int idx = path.indexOf("/v1");
+            if (idx < 0) {
+                return original;
+            }
+            String prefix = original.substring(0, original.length() - path.length() + idx + 3);
+            return prefix + overridePathAfterV1;
         }
     }
 

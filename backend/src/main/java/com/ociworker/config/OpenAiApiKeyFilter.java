@@ -62,13 +62,19 @@ public class OpenAiApiKeyFilter extends OncePerRequestFilter {
             return;
         }
         String auth = request.getHeader("Authorization");
-        if (auth == null || !auth.toLowerCase().startsWith("bearer ")) {
-            writeError(response, 401, "invalid_request_error", "请使用 Authorization: Bearer <api_key>", "auth_missing");
+        String token = null;
+        if (auth != null && auth.toLowerCase().startsWith("bearer ")) {
+            token = auth.substring(7).trim();
+        } else {
+            token = request.getHeader("x-api-key");
+        }
+        if (token == null) {
+            writeError(response, 401, "invalid_request_error", "请使用 Authorization: Bearer <api_key> 或 x-api-key", "auth_missing");
             return;
         }
-        String token = auth.substring(7).trim();
+        token = token.trim();
         if (token.isEmpty()) {
-            writeError(response, 401, "invalid_request_error", "Bearer token 为空", "auth_empty");
+            writeError(response, 401, "invalid_request_error", "API key 为空", "auth_empty");
             return;
         }
         int localPort = request.getLocalPort();
