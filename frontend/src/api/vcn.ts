@@ -108,6 +108,9 @@ export function deleteRouteTable(data: { id: string; rtId: string; verifyCode: s
 export function getRouteTable(data: { id: string; rtId: string } & R) {
   return request.post('/oci/vcn/rt/detail', data)
 }
+export function getRouteRuleOptions(data: { id: string; vcnId: string; targetCompartmentId?: string } & R) {
+  return request.post('/oci/vcn/rt/rule-options', data)
+}
 export function updateRouteTable(data: { id: string; rtId: string; displayName?: string; routeRules?: any[] } & R) {
   return request.post('/oci/vcn/rt/update', data)
 }

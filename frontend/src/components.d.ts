@@ -86,6 +86,7 @@ declare module 'vue' {
     OciLogo: typeof import('./components/OciLogo.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
+    RouteTableRulesManager: typeof import('./components/vcn/RouteTableRulesManager.vue')['default']
     ShapeSeriesPicker: typeof import('./components/ShapeSeriesPicker.vue')['default']
     TaskLoginSelector: typeof import('./components/TaskLoginSelector.vue')['default']
     TenantVcnPanel: typeof import('./components/instance/TenantVcnPanel.vue')['default']

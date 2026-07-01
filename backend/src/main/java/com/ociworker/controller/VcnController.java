@@ -220,6 +220,17 @@ public class VcnController {
         return ResponseData.ok(vcnService.getRouteTable(str(params, "id"), str(params, "rtId"), reg(params)));
     }
 
+    @PostMapping("/rt/rule-options")
+    public ResponseData<?> routeRuleOptions(@RequestBody Map<String, Object> params) {
+        return ResponseData.ok(vcnService.listRouteRuleOptions(
+                str(params, "id"),
+                str(params, "vcnId"),
+                str(params, "targetCompartmentId"),
+                reg(params),
+                bool(params, "force", false)
+        ));
+    }
+
     @SuppressWarnings("unchecked")
     @PostMapping("/rt/update")
     public ResponseData<?> updateRt(@RequestBody Map<String, Object> params) {

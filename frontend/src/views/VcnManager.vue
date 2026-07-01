@@ -266,42 +266,14 @@
       </a-form>
     </a-modal>
 
-    <!-- Edit route table rules -->
-    <a-modal v-bind="vcnManagerModalProps" :keyboard="false" v-model:open="showEditRt" title="编辑路由表规则" @ok="doEditRt" :confirm-loading="editing" width="900px" :mask-closable="false">
-      <a-spin :spinning="rtDetailLoading">
-        <div style="margin-bottom: 8px">
-          <a-button type="primary" size="small" @click="addRouteRule">添加规则</a-button>
-          <span style="margin-left: 12px; color: var(--text-sub); font-size: 12px">可选网关将从该 VCN 的 IGW/NAT/SG/LPG 中选择</span>
-        </div>
-        <a-table size="small" :data-source="editRtRules" :columns="rtRuleCols" :pagination="false" row-key="_k">
-          <template #bodyCell="{ column, record, index }">
-            <template v-if="column.key === 'destination'">
-              <a-input v-model:value="record.destination" placeholder="如 0.0.0.0/0" size="small" />
-            </template>
-            <template v-else-if="column.key === 'destinationType'">
-              <a-select v-model:value="record.destinationType" size="small" style="width: 100%">
-                <a-select-option value="CIDR_BLOCK">CIDR_BLOCK</a-select-option>
-                <a-select-option value="SERVICE_CIDR_BLOCK">SERVICE_CIDR_BLOCK</a-select-option>
-              </a-select>
-            </template>
-            <template v-else-if="column.key === 'networkEntityId'">
-              <a-select v-model:value="record.networkEntityId" size="small" style="width: 100%" show-search
-                :filter-option="filterOption">
-                <a-select-option v-for="g in vcnGateways" :key="g.id" :value="g.id">
-                  [{{ typeLabel(g.type) }}] {{ g.displayName }}
-                </a-select-option>
-              </a-select>
-            </template>
-            <template v-else-if="column.key === 'description'">
-              <a-input v-model:value="record.description" size="small" />
-            </template>
-            <template v-else-if="column.key === 'ruleAction'">
-              <a-button size="small" danger @click="removeRouteRule(index)">移除</a-button>
-            </template>
-          </template>
-        </a-table>
-      </a-spin>
-    </a-modal>
+    <RouteTableRulesManager
+      v-model:open="showEditRt"
+      :user-id="props.userId"
+      :vcn="props.vcn"
+      :route-table="editingRt"
+      :oci-region="props.ociRegion"
+      @saved="onRouteRulesSaved"
+    />
 
     <!-- Edit security list rules -->
     <a-modal v-bind="vcnManagerModalProps" :keyboard="false" v-model:open="showEditSl" :title="'安全规则 — ' + (slDetail?.displayName || '')" :footer="null" width="1000px" :mask-closable="false">
@@ -443,15 +415,16 @@
 <script setup lang="ts">
 import { ref, reactive, watch, computed, onUnmounted } from 'vue'
 import { message, Modal } from 'ant-design-vue'
+import RouteTableRulesManager from '../components/vcn/RouteTableRulesManager.vue'
 import {
   listSubnets, createSubnet, deleteSubnet, updateSubnet,
   listInternetGateways, createInternetGateway, deleteInternetGateway, updateInternetGateway, setupIgwDefaultRoutes,
   listNatGateways, createNatGateway, deleteNatGateway, updateNatGateway,
   listServiceGateways, createServiceGateway, deleteServiceGateway, updateServiceGateway,
-  listRouteTables, deleteRouteTable, getRouteTable, updateRouteTable,
+  listRouteTables, deleteRouteTable,
   listSecurityLists, deleteSecurityList, getSecurityList, addSecurityListRule, deleteSecurityListRule,
   listLocalPeeringGateways, createLocalPeeringGateway, connectLocalPeeringGateway, deleteLocalPeeringGateway, updateLocalPeeringGateway,
-  previewVcnDelete, deleteVcn, listVcnGateways, updateVcn,
+  previewVcnDelete, deleteVcn, updateVcn,
 } from '../api/vcn'
 import { sendVerifyCode } from '../api/system'
 import {
@@ -982,68 +955,15 @@ async function doEditSubnet() {
 
 // ---- Edit route table ----
 const showEditRt = ref(false)
-const rtDetailLoading = ref(false)
-const editingRtId = ref('')
-const editRtRules = ref<any[]>([])
-const vcnGateways = ref<any[]>([])
-const rtRuleCols = [
-  { title: '目标 (Destination)', key: 'destination', width: 180 },
-  { title: '类型', key: 'destinationType', width: 180 },
-  { title: '下一跳网关', key: 'networkEntityId' },
-  { title: '描述', key: 'description', width: 160 },
-  { title: '操作', key: 'ruleAction', width: 80 },
-]
-function typeLabel(t: string) {
-  return { internetGateway: 'IGW', natGateway: 'NAT', serviceGateway: 'SG', localPeeringGateway: 'LPG' }[t] || t
-}
-function filterOption(input: string, option: any) {
-  return (option.children?.[0]?.children || '').toLowerCase().includes(input.toLowerCase())
-}
+const editingRt = ref<any>(null)
 
 async function openEditRt(row: any) {
-  editingRtId.value = row.id
-  editRtRules.value = []
-  vcnGateways.value = []
+  editingRt.value = row
   showEditRt.value = true
-  rtDetailLoading.value = true
-  try {
-    const [d, g] = await Promise.all([
-      getRouteTable({ ...ociBase.value, rtId: row.id }),
-      listVcnGateways({ ...ociBase.value, vcnId: props.vcn.id }),
-    ])
-    editRtRules.value = ((d.data?.routeRules) || []).map((r: any, i: number) => ({ ...r, _k: `k_${i}` }))
-    vcnGateways.value = g.data || []
-  } catch (e: any) { message.error(e?.message || '加载失败') }
-  finally { rtDetailLoading.value = false }
 }
-function addRouteRule() {
-  editRtRules.value.push({
-    destination: '0.0.0.0/0',
-    destinationType: 'CIDR_BLOCK',
-    networkEntityId: vcnGateways.value[0]?.id || '',
-    description: '',
-    _k: 'k_' + Date.now() + Math.random(),
-  })
-}
-function removeRouteRule(i: number) { editRtRules.value.splice(i, 1) }
-async function doEditRt() {
-  for (const r of editRtRules.value) {
-    if (!r.destination || !r.networkEntityId) return message.warning('每条规则必须填写目标和下一跳网关')
-  }
-  editing.value = true
-  try {
-    const rules = editRtRules.value.map(r => ({
-      destination: r.destination,
-      destinationType: r.destinationType,
-      networkEntityId: r.networkEntityId,
-      description: r.description,
-    }))
-    await updateRouteTable({ ...ociBase.value, rtId: editingRtId.value, routeRules: rules })
-    message.success('路由规则已更新')
-    showEditRt.value = false
-    loadRt(true)
-  } catch (e: any) { message.error(e?.message || '更新失败') }
-  finally { editing.value = false }
+function onRouteRulesSaved() {
+  loadRt(true)
+  emit('changed')
 }
 
 // ---- Edit SL ----
