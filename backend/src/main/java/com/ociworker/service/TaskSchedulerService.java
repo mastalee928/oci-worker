@@ -61,8 +61,15 @@ public class TaskSchedulerService implements SmartLifecycle {
     private final ConcurrentHashMap<String, LocalDateTime> recentTaskCreateKeys = new ConcurrentHashMap<>();
     /** 本任务周期内不再尝试的可用域（停/改/恢复/完成/删除任务或服务重启后清空） */
     private final ConcurrentHashMap<String, Set<String>> taskExcludedAds = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, LocalDateTime> serviceLimitNotifyTimes = new ConcurrentHashMap<>();
+    private final Set<String> serviceLimitNotifyMutedTasks = ConcurrentHashMap.newKeySet();
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final int CREATE_TASK_DEDUP_SECONDS = 5;
+    private static final int SERVICE_LIMIT_NOTIFY_COOLDOWN_MINUTES = 60;
+    private static final String CALLBACK_SERVICE_LIMIT_STOP_REQUEST = "ctsl_stop_req|";
+    private static final String CALLBACK_SERVICE_LIMIT_STOP_CONFIRM = "ctsl_stop_ok|";
+    private static final String CALLBACK_SERVICE_LIMIT_MUTE = "ctsl_mute|";
+    private static final String CALLBACK_SERVICE_LIMIT_CANCEL = "ctsl_cancel|";
 
     /** 为 SmartLifecycle：仅在上下文 refresh 完成后置 true，关闭时先于 Web 优雅停机取消开机调度 */
     private volatile boolean lifecycleRunning = false;
@@ -460,6 +467,7 @@ public class TaskSchedulerService implements SmartLifecycle {
         }
         taskMapper.deleteById(taskId);
         clearTaskExcludedAds(taskId);
+        clearServiceLimitNotifyState(taskId);
     }
 
     public void stopTask(String taskId) {
@@ -479,11 +487,99 @@ public class TaskSchedulerService implements SmartLifecycle {
                     name, task.getOciRegion()));
         }
         clearTaskExcludedAds(taskId);
+        clearServiceLimitNotifyState(taskId);
+    }
+
+    public boolean tryHandleTelegramCallback(String rawData, String callbackQueryId, String answeringBotToken) {
+        if (StrUtil.isBlank(rawData) || !rawData.startsWith("ctsl_")) {
+            return false;
+        }
+        try {
+            if (rawData.startsWith(CALLBACK_SERVICE_LIMIT_STOP_REQUEST)) {
+                String taskId = callbackTaskId(rawData, CALLBACK_SERVICE_LIMIT_STOP_REQUEST);
+                if (taskId == null) {
+                    answerTaskCallback(callbackQueryId, "无效任务", false, answeringBotToken);
+                    return true;
+                }
+                OciCreateTask task = taskMapper.selectById(taskId);
+                if (task == null) {
+                    answerTaskCallback(callbackQueryId, "任务不存在", false, answeringBotToken);
+                    return true;
+                }
+                if (!TaskStatusEnum.RUNNING.getStatus().equals(task.getStatus())) {
+                    answerTaskCallback(callbackQueryId, "任务当前不是运行中", false, answeringBotToken);
+                    return true;
+                }
+                notificationService.sendHtmlWithTypeAndInlineKeyboard(
+                        NotificationService.TYPE_TASK_RESULT,
+                        "<b>确认停止开机任务？</b>\n\n任务ID: <code>" + html(taskId) + "</code>\n"
+                                + "停止后任务不会继续自动重试。",
+                        List.of(List.of(
+                                Map.of("text", "确认停止", "callback_data", CALLBACK_SERVICE_LIMIT_STOP_CONFIRM + taskId),
+                                Map.of("text", "取消", "callback_data", CALLBACK_SERVICE_LIMIT_CANCEL + taskId))));
+                answerTaskCallback(callbackQueryId, "请在新消息中确认是否停止任务", false, answeringBotToken);
+                return true;
+            }
+            if (rawData.startsWith(CALLBACK_SERVICE_LIMIT_STOP_CONFIRM)) {
+                String taskId = callbackTaskId(rawData, CALLBACK_SERVICE_LIMIT_STOP_CONFIRM);
+                if (taskId == null) {
+                    answerTaskCallback(callbackQueryId, "无效任务", false, answeringBotToken);
+                    return true;
+                }
+                OciCreateTask task = taskMapper.selectById(taskId);
+                if (task == null) {
+                    answerTaskCallback(callbackQueryId, "任务不存在", false, answeringBotToken);
+                    return true;
+                }
+                if (!TaskStatusEnum.RUNNING.getStatus().equals(task.getStatus())) {
+                    answerTaskCallback(callbackQueryId, "任务当前不是运行中", false, answeringBotToken);
+                    return true;
+                }
+                stopTask(taskId);
+                answerTaskCallback(callbackQueryId, "已停止开机任务", false, answeringBotToken);
+                return true;
+            }
+            if (rawData.startsWith(CALLBACK_SERVICE_LIMIT_MUTE)) {
+                String taskId = callbackTaskId(rawData, CALLBACK_SERVICE_LIMIT_MUTE);
+                if (taskId == null) {
+                    answerTaskCallback(callbackQueryId, "无效任务", false, answeringBotToken);
+                    return true;
+                }
+                serviceLimitNotifyMutedTasks.add(taskId);
+                answerTaskCallback(callbackQueryId, "已对当前任务关闭服务限制提醒", false, answeringBotToken);
+                return true;
+            }
+            if (rawData.startsWith(CALLBACK_SERVICE_LIMIT_CANCEL)) {
+                answerTaskCallback(callbackQueryId, "已取消", false, answeringBotToken);
+                return true;
+            }
+            answerTaskCallback(callbackQueryId, "未知操作", false, answeringBotToken);
+            return true;
+        } catch (Exception e) {
+            log.warn("开机任务 TG 回调处理失败: {}", e.getMessage());
+            answerTaskCallback(callbackQueryId, "执行失败", true, answeringBotToken);
+            return true;
+        }
+    }
+
+    private static String callbackTaskId(String rawData, String prefix) {
+        String taskId = rawData.substring(prefix.length()).trim();
+        if (taskId.isEmpty() || taskId.length() > 64) {
+            return null;
+        }
+        return taskId;
     }
 
     private void clearTaskExcludedAds(String taskId) {
         if (taskId != null) {
             taskExcludedAds.remove(taskId);
+        }
+    }
+
+    private void clearServiceLimitNotifyState(String taskId) {
+        if (taskId != null) {
+            serviceLimitNotifyTimes.remove(taskId);
+            serviceLimitNotifyMutedTasks.remove(taskId);
         }
     }
 
@@ -636,6 +732,9 @@ public class TaskSchedulerService implements SmartLifecycle {
                 }
 
                 if (result.isOutOfCapacity()) {
+                    if (result.isOciServiceLimitExceeded()) {
+                        notifyOciServiceLimitIfNeeded(taskId, head, user, region, series, arch, result, intervalSeconds);
+                    }
                     broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s] - 各可用域容量不足，[%d]秒后将重试...",
                             user, region, arch, intervalSeconds));
                     return;
@@ -825,6 +924,47 @@ public class TaskSchedulerService implements SmartLifecycle {
             task.setFailureReason(failureReason);
             taskMapper.updateById(task);
         }
+        clearServiceLimitNotifyState(taskId);
+    }
+
+    private void notifyOciServiceLimitIfNeeded(String taskId, OciCreateTask task, String username, String region,
+                                               String series, String arch, InstanceDetailDTO result,
+                                               int intervalSeconds) {
+        if (StrUtil.isBlank(taskId) || serviceLimitNotifyMutedTasks.contains(taskId)) {
+            return;
+        }
+        LocalDateTime now = LocalDateTime.now();
+        LocalDateTime last = serviceLimitNotifyTimes.get(taskId);
+        if (last != null && last.plusMinutes(SERVICE_LIMIT_NOTIFY_COOLDOWN_MINUTES).isAfter(now)) {
+            return;
+        }
+        serviceLimitNotifyTimes.put(taskId, now);
+
+        int successCount = task.getSuccessCount() != null ? task.getSuccessCount() : 0;
+        int targetCount = task.getCreateNumbers() != null && task.getCreateNumbers() > 0 ? task.getCreateNumbers() : 1;
+        String shapeLine = StrUtil.isNotBlank(result.getResolvedTargetShape()) ? result.getResolvedTargetShape() : arch;
+        String hint = StrUtil.isNotBlank(result.getFailureHint()) ? result.getFailureHint() : "已触发 OCI 服务限制，创建失败";
+        String diskConfig = BootVolumeVpusUtil.formatDiskWithVpus(
+                task.getDisk() != null ? task.getDisk() : 50,
+                BootVolumeVpusUtil.normalize(task.getVpusPerGB()));
+
+        String html = "<b>开机任务遇到 OCI 服务限制，仍在重试</b>\n\n"
+                + "👤 <b>租户：</b>" + html(username) + "\n"
+                + "🌍 <b>区域：</b><code>" + html(region) + "</code>\n"
+                + "⚙️ <b>架构：</b>" + html(series) + "\n"
+                + "💻 <b>Shape：</b><code>" + html(shapeLine) + "</code>\n"
+                + "📊 <b>配置：</b>" + html(task.getOcpus()) + "C / " + html(task.getMemory()) + "GB / "
+                + html(diskConfig) + "\n"
+                + "📈 <b>进度：</b>" + successCount + " / " + targetCount + "\n"
+                + "⏱ <b>重试间隔：</b>" + intervalSeconds + " 秒\n"
+                + "📛 <b>OCI 提示：</b>" + html(hint) + "\n"
+                + "ℹ️ <b>说明：</b>任务未停止，将继续按当前间隔重试。";
+        notificationService.sendHtmlWithTypeAndInlineKeyboard(
+                NotificationService.TYPE_TASK_RESULT,
+                html,
+                List.of(List.of(
+                        Map.of("text", "停止任务", "callback_data", CALLBACK_SERVICE_LIMIT_STOP_REQUEST + taskId),
+                        Map.of("text", "不再提醒", "callback_data", CALLBACK_SERVICE_LIMIT_MUTE + taskId))));
     }
 
     private void applyAdExcludedNoShapeBroadcast(String taskId, String user, String region, String arch,
@@ -930,6 +1070,20 @@ public class TaskSchedulerService implements SmartLifecycle {
             return "💻 <b>Shape：</b><code>" + shapeOrArchitecture.trim() + "</code>\n";
         }
         return "";
+    }
+
+    private void answerTaskCallback(String callbackQueryId, String text, boolean showAlert, String answeringBotToken) {
+        notificationService.answerTelegramCallbackQuery(callbackQueryId, text, showAlert, answeringBotToken);
+    }
+
+    private static String html(Object value) {
+        if (value == null) {
+            return "-";
+        }
+        return String.valueOf(value)
+                .replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;");
     }
 
     private static String targetShapeForLog(String shapeOrArchitecture) {

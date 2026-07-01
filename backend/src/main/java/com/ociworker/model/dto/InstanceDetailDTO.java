@@ -31,6 +31,8 @@ public class InstanceDetailDTO {
     private boolean noShape;
     private boolean noPubVcn;
     private boolean outOfCapacity;
+    /** OCI 返回服务限制/LimitExceeded，但任务仍可继续按间隔重试 */
+    private boolean ociServiceLimitExceeded;
     /** 引导卷（启动盘）块存储配额已达 OCI 上限 */
     private boolean bootVolumeQuotaExceeded;
     /** 账户/配额类不可恢复失败，继续重试也不会成功，应停止开机任务 */

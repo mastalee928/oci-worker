@@ -602,6 +602,10 @@ public class OciClientService implements Closeable {
                     String hint = describeBmcFailure(e, shape.getShape());
                     if (isOutOfHostCapacityError(e)) {
                         sawOutOfCapacity = true;
+                        if (isOciServiceLimitExceeded(e)) {
+                            result.setOciServiceLimitExceeded(true);
+                            result.setFailureHint(hint);
+                        }
                         log.warn("【开机任务】用户:[{}], AD:[{}] - 容量不足{}。{}",
                                 user.getUsername(), ad.getName(), tryNextAdSuffix, hint);
                     } else {
@@ -685,6 +689,11 @@ public class OciClientService implements Closeable {
         return e.getStatusCode() == 500 || em.contains("Out of host capacity")
                 || (e.getStatusCode() == 400 && em.contains("LimitExceeded"))
                 || e.getStatusCode() == 429;
+    }
+
+    private static boolean isOciServiceLimitExceeded(com.oracle.bmc.model.BmcException e) {
+        String em = e.getMessage() == null ? "" : e.getMessage();
+        return e.getStatusCode() == 400 && em.contains("LimitExceeded");
     }
 
     /** LaunchInstance 返回 bootVolumeQuota / 引导卷 QuotaExceeded */
