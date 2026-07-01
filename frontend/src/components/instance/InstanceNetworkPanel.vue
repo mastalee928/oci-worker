@@ -78,8 +78,18 @@
               <a-collapse-panel key="routeSecurity" header="路由与安全">
                 <div class="info-list">
                   <InfoRow label="路由表">
-                    <ResourceLink v-if="primaryIpRouteTableId(primaryVnic)" :text="primaryIpRouteTableLabel(primaryVnic)" @click="openRouteTable(primaryVnic, primaryIpRouteTableId(primaryVnic))" />
-                    <span v-else class="muted">—</span>
+                    <span class="inline-value-actions">
+                      <ResourceLink v-if="primaryIpRouteTableId(primaryVnic)" :text="primaryIpRouteTableLabel(primaryVnic)" @click="openRouteTable(primaryVnic, primaryIpRouteTableId(primaryVnic))" />
+                      <span v-else class="muted">—</span>
+                      <button
+                        class="text-action-link"
+                        type="button"
+                        :disabled="!createRouteTableVcn"
+                        @click="openCreateRouteTable"
+                      >
+                        创建路由表
+                      </button>
+                    </span>
                   </InfoRow>
                   <InfoRow label="网络安全组">
                     <template v-if="nsgIds(primaryVnic).length">
@@ -314,9 +324,6 @@
             type="路由表"
             :name="currentRouteTable.displayName || routeTableName(currentRouteTable.id)"
             :state="currentRouteTable.lifecycleState"
-            extra-text="创建路由表"
-            :extra-disabled="!currentRouteTableVcn"
-            @extra="openCreateRouteTable"
             @manage="openVcnManagerForRouteTable(currentRouteTable)"
           />
           <a-tabs v-model:activeKey="routeTableTab" class="resource-tabs">
@@ -378,27 +385,27 @@
             :initial-action="routeRulesInitialAction"
             @saved="onRouteRulesSaved"
           />
-
-          <a-modal
-            v-model:open="createRouteTableOpen"
-            title="创建路由表"
-            ok-text="创建"
-            cancel-text="取消"
-            :confirm-loading="routeTableCreating"
-            :mask-closable="false"
-            :keyboard="false"
-            centered
-            @ok="createRouteTableFromInstance"
-          >
-            <a-form layout="vertical">
-              <a-form-item label="名称" required>
-                <a-input v-model:value="newRouteTableName" />
-              </a-form-item>
-            </a-form>
-          </a-modal>
         </template>
       </template>
     </a-spin>
+
+    <a-modal
+      v-model:open="createRouteTableOpen"
+      title="创建路由表"
+      ok-text="创建"
+      cancel-text="取消"
+      :confirm-loading="routeTableCreating"
+      :mask-closable="false"
+      :keyboard="false"
+      centered
+      @ok="createRouteTableFromInstance"
+    >
+      <a-form layout="vertical">
+        <a-form-item label="名称" required>
+          <a-input v-model:value="newRouteTableName" :maxlength="255" />
+        </a-form-item>
+      </a-form>
+    </a-modal>
   </div>
 </template>
 
@@ -450,10 +457,8 @@ const ResourceHeader = defineComponent({
     type: { type: String, required: true },
     name: { type: String, required: true },
     state: { type: String, default: '' },
-    extraText: { type: String, default: '' },
-    extraDisabled: { type: Boolean, default: false },
   },
-  emits: ['manage', 'extra'],
+  emits: ['manage'],
   setup(props, { emit }) {
     const Tag = resolveComponent('a-tag')
     return () => h('div', { class: 'resource-header' }, [
@@ -465,14 +470,6 @@ const ResourceHeader = defineComponent({
         h('div', { class: 'resource-type' }, props.type),
       ]),
       h('div', { class: 'resource-header-actions' }, [
-        props.extraText
-          ? h('button', {
-            class: 'text-action-link',
-            type: 'button',
-            disabled: props.extraDisabled,
-            onClick: () => emit('extra'),
-          }, props.extraText)
-          : null,
         h('button', { class: 'text-action-link', type: 'button', onClick: () => emit('manage') }, 'VCN 管理'),
       ]),
     ])
@@ -627,6 +624,7 @@ const currentRouteTable = computed(() => {
   return { ...(routeTableIndex.value.get(id) || {}), ...(routeTableDetails.value[id] || {}), id }
 })
 const currentRouteTableVcn = computed(() => currentRouteTable.value?.id ? vcnForRouteTable(currentRouteTable.value.id) : null)
+const createRouteTableVcn = computed(() => currentRouteTableVcn.value || vcnPayload(primaryVnic.value))
 const currentViewTitle = computed(() => {
   if (currentView.value.type === 'vnic') return currentVnic.value?.displayName || 'VNIC'
   if (currentView.value.type === 'subnet') return currentSubnet.value?.displayName || '子网'
@@ -799,16 +797,17 @@ function openRouteRulesManager(action: 'manage' | 'add' = 'manage') {
 }
 
 function openCreateRouteTable() {
-  if (!currentRouteTableVcn.value) return
+  if (!createRouteTableVcn.value) return
   newRouteTableName.value = ''
   createRouteTableOpen.value = true
 }
 
 async function createRouteTableFromInstance() {
-  const vcn = currentRouteTableVcn.value
+  const vcn = createRouteTableVcn.value
   const displayName = newRouteTableName.value.trim()
   if (!vcn?.id) return message.warning('未找到 VCN，无法创建路由表')
   if (!displayName) return message.warning('请填写名称')
+  if (displayName.length > 255) return message.warning('名称不能超过 255 个字符')
   if (!props.tenant?.id) return message.warning('租户信息不存在')
   routeTableCreating.value = true
   try {
@@ -844,20 +843,20 @@ async function createRouteTableFromInstance() {
 function openVcnManagerForVnic(vnic: any) {
   const vcn = vcnPayload(vnic)
   if (!vcn) return
-  emit('open-vcn-manager', { vcn, tab: 'subnet', resourceId: vnic.subnetId })
+  emit('open-vcn-manager', { vcn })
 }
 
 function openVcnManagerForSubnet(subnet: any) {
   const owner = vnicForSubnet(subnet.id) || primaryVnic.value
   const vcn = vcnPayload(owner)
   if (!vcn) return
-  emit('open-vcn-manager', { vcn, tab: 'subnet', resourceId: subnet.id })
+  emit('open-vcn-manager', { vcn, tab: 'subnet' })
 }
 
 function openVcnManagerForRouteTable(routeTable: any) {
   const vcn = vcnForRouteTable(routeTable.id)
   if (!vcn) return
-  emit('open-vcn-manager', { vcn, tab: 'rt', resourceId: routeTable.id })
+  emit('open-vcn-manager', { vcn, tab: 'rt' })
 }
 
 function primaryIp(vnic: any) {
@@ -1230,6 +1229,15 @@ defineExpose({
   overflow-wrap: anywhere;
 }
 
+.inline-value-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  min-width: 0;
+  max-width: 100%;
+  flex-wrap: wrap;
+}
+
 .table-toolbar {
   display: flex;
   align-items: center;
@@ -1291,7 +1299,7 @@ defineExpose({
   margin-left: 6px;
 }
 
-.resource-header {
+:global(.instance-network-panel .resource-header) {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
@@ -1299,7 +1307,12 @@ defineExpose({
   margin-bottom: 12px;
 }
 
-.resource-header-actions {
+:global(.instance-network-panel .resource-header .resource-title-wrap) {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+:global(.instance-network-panel .resource-header .resource-header-actions) {
   display: flex;
   align-items: center;
   gap: 14px;
@@ -1307,23 +1320,58 @@ defineExpose({
   padding-top: 3px;
 }
 
-.resource-title-line {
+:global(.instance-network-panel .resource-header .resource-title-line) {
   display: flex;
   align-items: center;
   gap: 10px;
   min-width: 0;
+  flex-wrap: nowrap;
 }
 
-.resource-title {
+:global(.instance-network-panel .resource-header .resource-title) {
+  margin: 0;
+  color: var(--text-main);
+  font-size: 20px;
+  font-weight: 700;
+  line-height: 1.25;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-.resource-type {
+:global(.instance-network-panel .resource-header .ant-tag) {
+  flex: 0 0 auto;
+  margin-inline-end: 0;
+}
+
+:global(.instance-network-panel .resource-header .resource-type) {
   margin-top: 3px;
   color: var(--text-sub);
   font-size: 12px;
+}
+
+:global(.instance-network-panel .resource-header .text-action-link) {
+  padding: 0;
+  border: 0;
+  appearance: none;
+  background: transparent;
+  color: var(--primary);
+  cursor: pointer;
+  font-size: 12px;
+  line-height: 22px;
+  white-space: nowrap;
+}
+
+:global(.instance-network-panel .resource-header .text-action-link:hover) {
+  color: var(--primary-hover);
+  text-decoration: underline;
+}
+
+:global(.instance-network-panel .resource-header .text-action-link:disabled) {
+  color: var(--text-sub);
+  cursor: not-allowed;
+  opacity: 0.55;
+  text-decoration: none;
 }
 
 .resource-tabs {

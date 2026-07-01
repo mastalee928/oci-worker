@@ -711,17 +711,24 @@ public class VcnService {
 
     public Map<String, Object> createRouteTable(String userId, String vcnId, String displayName, String region) {
         String name = normalizeBlank(displayName);
+        String vid = normalizeBlank(vcnId);
         if (name == null) throw new OciException("请填写路由表名称");
+        if (name.length() > 255) throw new OciException("路由表名称不能超过 255 个字符");
+        if (vid == null) throw new OciException("缺少 VCN ID，无法创建路由表");
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
+        String compartmentId = null;
         try (OciClientService client = oci(ociUser, region)) {
             VirtualNetworkClient net = client.getVirtualNetworkClient();
-            Vcn vcn = net.getVcn(GetVcnRequest.builder().vcnId(vcnId).build()).getVcn();
+            Vcn vcn = net.getVcn(GetVcnRequest.builder().vcnId(vid).build()).getVcn();
+            compartmentId = normalizeBlank(vcn.getCompartmentId());
+            if (compartmentId == null) throw new OciException("VCN 缺少区间信息，无法创建路由表");
             RouteTable rt = net.createRouteTable(CreateRouteTableRequest.builder()
                     .createRouteTableDetails(CreateRouteTableDetails.builder()
-                            .compartmentId(vcn.getCompartmentId())
-                            .vcnId(vcnId)
+                            .compartmentId(compartmentId)
+                            .vcnId(vid)
                             .displayName(name)
+                            .routeRules(Collections.emptyList())
                             .build())
                     .build()).getRouteTable();
             evictVcnReadCaches(userId, region);
@@ -736,7 +743,16 @@ public class VcnService {
             m.put("timeCreated", rt.getTimeCreated() != null ? rt.getTimeCreated().toString() : null);
             return m;
         } catch (OciException e) { throw e; }
-        catch (com.oracle.bmc.model.BmcException e) { throw new OciException("创建路由表失败: " + OciBmcErrorTranslator.translate(e)); }
+        catch (com.oracle.bmc.model.BmcException e) {
+            String translated = OciBmcErrorTranslator.translate(e);
+            String raw = e.getMessage() == null ? "" : e.getMessage();
+            if ("InvalidParameter".equalsIgnoreCase(e.getServiceCode()) || raw.contains("InvalidParameter")) {
+                log.warn("createRouteTable invalid parameter userId={}, region={}, vcnId={}, compartmentId={}, displayName={}, serviceCode={}, raw={}",
+                        userId, region, vid, compartmentId, name, e.getServiceCode(), raw);
+                translated = "请求参数无效，请确认路由表名称、VCN、区域与租户是否匹配。";
+            }
+            throw new OciException("创建路由表失败: " + translated);
+        }
         catch (Exception e) { throw new OciException("创建路由表失败: " + e.getMessage()); }
     }
 

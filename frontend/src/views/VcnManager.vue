@@ -235,7 +235,7 @@
     <!-- Create Route Table -->
     <a-modal v-bind="vcnManagerModalProps" :mask-closable="false" :keyboard="false" v-model:open="showCreateRt" title="创建路由表" @ok="doCreateRt" :confirm-loading="creating">
       <a-form layout="vertical">
-        <a-form-item label="名称" required><a-input v-model:value="newRt.displayName" /></a-form-item>
+        <a-form-item label="名称" required><a-input v-model:value="newRt.displayName" :maxlength="255" /></a-form-item>
       </a-form>
     </a-modal>
 
@@ -736,10 +736,12 @@ async function doCreateLpg() {
 const showCreateRt = ref(false)
 const newRt = reactive({ displayName: '' })
 async function doCreateRt() {
-  if (!newRt.displayName.trim()) return message.warning('请填写名称')
+  const displayName = newRt.displayName.trim()
+  if (!displayName) return message.warning('请填写名称')
+  if (displayName.length > 255) return message.warning('名称不能超过 255 个字符')
   creating.value = true
   try {
-    await createRouteTable({ ...ociBase.value, vcnId: props.vcn.id, displayName: newRt.displayName.trim() })
+    await createRouteTable({ ...ociBase.value, vcnId: props.vcn.id, displayName })
     message.success('创建成功')
     showCreateRt.value = false
     newRt.displayName = ''
