@@ -2093,7 +2093,7 @@ import {
   BOOT_VOLUME_VPUS_STEP,
   snapBootVpusPerGb,
 } from '../utils/bootVolume'
-import { TASK_ARM_SHAPE, normalizeTaskArchitecture } from '../utils/shapeSeries'
+import { SHAPE_E2_MICRO, TASK_ARM_SHAPE, normalizeTaskArchitecture } from '../utils/shapeSeries'
 import { appQueryCache, createListSignature } from '../utils/queryCache'
 import dayjs from 'dayjs'
 import type { Dayjs } from 'dayjs'
@@ -3655,7 +3655,7 @@ async function loadQuickTaskShapes() {
     quickTaskForm.architecture = normalizeTaskArchitecture(quickTaskForm.architecture)
     const arch = quickTaskForm.architecture
     const ok =
-      arch === 'AMD' ||
+      arch === SHAPE_E2_MICRO ||
       quickTaskShapes.value.some((s: any) => s.shape === arch)
     if (!ok) quickTaskForm.architecture = TASK_ARM_SHAPE
     if (gen === quickTaskShapeLoadGen && isFixedTaskShapeSpec(quickTaskForm.architecture)) {
@@ -3665,6 +3665,20 @@ async function loadQuickTaskShapes() {
     if (gen === quickTaskShapeLoadGen) quickTaskShapes.value = []
   } finally {
     if (gen === quickTaskShapeLoadGen) quickTaskShapesLoading.value = false
+  }
+}
+
+function buildQuickTaskPayload(region: string) {
+  const architecture = normalizeTaskArchitecture(quickTaskForm.architecture)
+  const vpusPerGB = snapBootVpusPerGb(quickTaskForm.vpusPerGB)
+  quickTaskForm.architecture = architecture
+  quickTaskForm.vpusPerGB = vpusPerGB
+  return {
+    userId: quickTaskTenant.value.id,
+    ...quickTaskForm,
+    architecture,
+    ociRegion: region,
+    vpusPerGB,
   }
 }
 
@@ -5178,6 +5192,7 @@ async function handleQuickTask() {
     }
 
     if (!quickTaskForm.rootPassword) generateQuickTaskRandomPwd()
+    const payload = buildQuickTaskPayload(region)
 
     try {
       const checkRes = await hasRunningTask({ userId: quickTaskTenant.value.id })
@@ -5190,7 +5205,7 @@ async function handleQuickTask() {
           cancelText: '取消',
           zIndex: 1420,
           wrapClassName: 'quick-task-duplicate-confirm-wrap',
-          onOk: () => doQuickTask(),
+          onOk: () => doQuickTask(payload),
           onCancel: () => { quickTaskLoading.value = false },
           afterClose: () => { quickTaskLoading.value = false },
         })
@@ -5198,16 +5213,15 @@ async function handleQuickTask() {
       }
     } catch {}
 
-    await doQuickTask()
+    await doQuickTask(payload)
   } finally {
     if (!waitingDuplicateConfirm) quickTaskLoading.value = false
   }
 }
 
-async function doQuickTask() {
-  quickTaskForm.vpusPerGB = snapBootVpusPerGb(quickTaskForm.vpusPerGB)
+async function doQuickTask(payload: any) {
   try {
-    await createTask({ userId: quickTaskTenant.value.id, ...quickTaskForm })
+    await createTask(payload)
     message.success('开机任务已创建')
     quickTaskVisible.value = false
   } catch (e: any) {

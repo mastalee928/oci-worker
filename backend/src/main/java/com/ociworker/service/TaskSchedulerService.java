@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.conditions.update.UpdateWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.ociworker.enums.ArchitectureEnum;
 import com.ociworker.enums.TaskStatusEnum;
 import com.ociworker.exception.OciException;
 import com.ociworker.mapper.OciCreateTaskMapper;
@@ -211,6 +212,7 @@ public class TaskSchedulerService implements SmartLifecycle {
                            Boolean assignPublicIp, Boolean assignIpv6, String ociRegionOverride) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
+        String normalizedArchitecture = normalizeTaskArchitecture(architecture);
 
         String effectiveRegion = StrUtil.trimToNull(ociRegionOverride);
         if (effectiveRegion == null) {
@@ -220,27 +222,27 @@ public class TaskSchedulerService implements SmartLifecycle {
         }
 
         double[] normalized = ShapeFlexLimitsUtil.normalizeAndLogIfAdjusted(
-                architecture, ocpus, memory, "创建开机任务");
+                normalizedArchitecture, ocpus, memory, "创建开机任务");
         int normalizedVpusPerGB = BootVolumeVpusUtil.normalize(vpusPerGB);
         boolean normalizedAssignPublicIp = assignPublicIp != null ? assignPublicIp : true;
         boolean normalizedAssignIpv6 = assignIpv6 != null ? assignIpv6 : false;
         LocalDateTime now = LocalDateTime.now();
-        String dedupKey = createTaskDedupKey(userId, effectiveRegion, architecture, normalized[0], normalized[1],
+        String dedupKey = createTaskDedupKey(userId, effectiveRegion, normalizedArchitecture, normalized[0], normalized[1],
                 disk, normalizedVpusPerGB, createNumbers, interval, rootPassword, operationSystem, customScript,
                 normalizedAssignPublicIp, normalizedAssignIpv6);
         if (!acquireRecentTaskCreateGuard(dedupKey, now)) {
             log.info("忽略重复开机任务创建请求：userId={} region={} shape={}（{} 秒内同参数请求）",
-                    userId, effectiveRegion, architecture, CREATE_TASK_DEDUP_SECONDS);
+                    userId, effectiveRegion, normalizedArchitecture, CREATE_TASK_DEDUP_SECONDS);
             return;
         }
 
         boolean inserted = false;
         try {
-            if (hasRecentDuplicateCreateTask(userId, effectiveRegion, architecture, normalized[0], normalized[1],
+            if (hasRecentDuplicateCreateTask(userId, effectiveRegion, normalizedArchitecture, normalized[0], normalized[1],
                     disk, normalizedVpusPerGB, createNumbers, interval, rootPassword, operationSystem, customScript,
                     normalizedAssignPublicIp, normalizedAssignIpv6, now.minusSeconds(CREATE_TASK_DEDUP_SECONDS))) {
                 log.info("忽略重复开机任务创建请求：userId={} region={} shape={}（数据库已有同参数任务）",
-                        userId, effectiveRegion, architecture);
+                        userId, effectiveRegion, normalizedArchitecture);
                 return;
             }
 
@@ -248,7 +250,7 @@ public class TaskSchedulerService implements SmartLifecycle {
             task.setId(CommonUtils.generateId());
             task.setUserId(userId);
             task.setOciRegion(effectiveRegion);
-            task.setArchitecture(architecture);
+            task.setArchitecture(normalizedArchitecture);
             task.setOcpus(normalized[0]);
             task.setMemory(normalized[1]);
             task.setDisk(disk);
@@ -272,10 +274,10 @@ public class TaskSchedulerService implements SmartLifecycle {
             SysUserDTO dto = buildSysUserDTO(ociUser, task);
             scheduleTask(task.getId(), dto, interval);
 
-            String series = ShapeSeriesUtil.resolveSeries(architecture);
+            String series = ShapeSeriesUtil.resolveSeries(normalizedArchitecture);
             String diskConfig = BootVolumeVpusUtil.formatDiskWithVpus(disk != null ? disk : 50, task.getVpusPerGB());
             String logMsg = String.format("【开机任务】用户:[%s],区域:[%s],架构:[%s]%s,配置:[%sC/%sGB/%s],数量:[%d] - 任务已创建",
-                    ociUser.getUsername(), effectiveRegion, series, targetShapeForLog(architecture),
+                    ociUser.getUsername(), effectiveRegion, series, targetShapeForLog(normalizedArchitecture),
                     normalized[0], normalized[1], diskConfig, createNumbers);
             broadcastLog(logMsg);
 
@@ -284,7 +286,7 @@ public class TaskSchedulerService implements SmartLifecycle {
                     + "👤 <b>租户：</b>" + ociUser.getUsername() + "\n"
                     + "🌍 <b>区域：</b>" + effectiveRegion + "\n"
                     + "⚙️ <b>架构：</b>" + series + "\n"
-                    + targetShapeLineForNotify(architecture)
+                    + targetShapeLineForNotify(normalizedArchitecture)
                     + "📊 <b>配置：</b>" + normalized[0] + "C / " + normalized[1] + "GB / "
                     + diskConfig + "\n"
                     + "🔢 <b>数量：</b>" + createNumbers + "\n"
@@ -414,7 +416,7 @@ public class TaskSchedulerService implements SmartLifecycle {
             }
         }
 
-        if (architecture != null) task.setArchitecture(architecture);
+        if (architecture != null) task.setArchitecture(normalizeTaskArchitecture(architecture));
         if (ocpus != null) task.setOcpus(ocpus);
         if (memory != null) task.setMemory(memory);
         if (disk != null) task.setDisk(disk);
@@ -874,6 +876,23 @@ public class TaskSchedulerService implements SmartLifecycle {
                         .privateKeyPath(ociUser.getOciKeyPath())
                         .build())
                 .build();
+    }
+
+    private static String normalizeTaskArchitecture(String architecture) {
+        if (StrUtil.isBlank(architecture)) {
+            return ArchitectureEnum.getShape("ARM");
+        }
+        String raw = architecture.trim();
+        if (ShapeSeriesUtil.isFullShapeName(raw)) {
+            return raw;
+        }
+        if ("ARM".equalsIgnoreCase(raw) || "AMD".equalsIgnoreCase(raw)) {
+            return ArchitectureEnum.getShape(raw);
+        }
+        if ("Ampere".equalsIgnoreCase(raw)) {
+            return ArchitectureEnum.getShape("ARM");
+        }
+        throw new OciException("未知实例 Shape，请重新选择 Shape 后再创建开机任务");
     }
 
     private void cleanExpiredTasks() {

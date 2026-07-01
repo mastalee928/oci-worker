@@ -727,7 +727,7 @@ async function loadEditAvailableShapes(tenantId: string, region?: string, curren
     const res = await getAvailableShapes({ id: tenantId, ...(region?.trim() ? { region: region.trim() } : {}) })
     let rows = res.data || []
     const arch = normalizeTaskArchitecture(currentArch ?? editForm.architecture)
-    if (arch && arch !== 'AMD' && !rows.some((s: any) => s.shape === arch)) {
+    if (arch && !rows.some((s: any) => s.shape === arch)) {
       rows = [{ shape: arch, processorDescription: '当前任务' }, ...rows]
     }
     editAvailableShapes.value = rows
@@ -771,10 +771,16 @@ async function handleEdit() {
     message.error('比例错误')
     return
   }
-  editForm.vpusPerGB = snapBootVpusPerGb(editForm.vpusPerGB)
+  const payload = {
+    ...editForm,
+    architecture: normalizeTaskArchitecture(editForm.architecture),
+    vpusPerGB: snapBootVpusPerGb(editForm.vpusPerGB),
+  }
+  editForm.architecture = payload.architecture
+  editForm.vpusPerGB = payload.vpusPerGB
   editLoading.value = true
   try {
-    await updateTask(editForm)
+    await updateTask(payload)
     message.success('任务已更新')
     editVisible.value = false
     loadData()
@@ -893,7 +899,13 @@ async function handleCreate() {
       return
     }
     if (!createForm.rootPassword) generateRandomPwd()
-    createForm.vpusPerGB = snapBootVpusPerGb(createForm.vpusPerGB)
+    const payload = {
+      ...createForm,
+      architecture: normalizeTaskArchitecture(createForm.architecture),
+      vpusPerGB: snapBootVpusPerGb(createForm.vpusPerGB),
+    }
+    createForm.architecture = payload.architecture
+    createForm.vpusPerGB = payload.vpusPerGB
 
     try {
       const checkRes = await hasRunningTask({ userId: createForm.userId })
@@ -904,7 +916,7 @@ async function handleCreate() {
           content: '该账户已有正在运行的开机任务，是否仍要重复提交？',
           okText: '继续创建',
           cancelText: '取消',
-          onOk: () => doCreate(),
+          onOk: () => doCreate(payload),
           onCancel: () => { createLoading.value = false },
           afterClose: () => { createLoading.value = false },
         })
@@ -912,15 +924,15 @@ async function handleCreate() {
       }
     } catch {}
 
-    await doCreate()
+    await doCreate(payload)
   } finally {
     if (!waitingDuplicateConfirm) createLoading.value = false
   }
 }
 
-async function doCreate() {
+async function doCreate(payload: any) {
   try {
-    await createTask(createForm)
+    await createTask(payload)
     message.success('任务创建成功')
     createVisible.value = false
     loadData()

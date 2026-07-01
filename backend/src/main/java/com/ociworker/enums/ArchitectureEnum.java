@@ -14,8 +14,15 @@ public enum ArchitectureEnum {
     private final String shape;
 
     public static String getShape(String architecture) {
+        String raw = architecture == null ? "" : architecture.trim();
+        if (architecture != null) {
+            String upper = raw.toUpperCase();
+            if (upper.startsWith("VM.") || upper.startsWith("BM.")) {
+                return raw;
+            }
+        }
         for (ArchitectureEnum e : values()) {
-            if (e.getArchitecture().equalsIgnoreCase(architecture)) {
+            if (e.getArchitecture().equalsIgnoreCase(raw)) {
                 return e.getShape();
             }
         }

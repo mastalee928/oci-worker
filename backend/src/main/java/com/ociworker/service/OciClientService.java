@@ -634,13 +634,20 @@ public class OciClientService implements Closeable {
     }
 
     private static String resolveTargetShape(String arch) {
-        if (arch != null && ("ARM".equalsIgnoreCase(arch) || "AMD".equalsIgnoreCase(arch))) {
-            return ArchitectureEnum.getShape(arch);
+        if (StrUtil.isBlank(arch)) {
+            return ArchitectureEnum.getShape("ARM");
         }
-        if (ShapeSeriesUtil.isFullShapeName(arch)) {
-            return arch.trim();
+        String raw = arch.trim();
+        if ("ARM".equalsIgnoreCase(raw) || "AMD".equalsIgnoreCase(raw)) {
+            return ArchitectureEnum.getShape(raw);
         }
-        return ArchitectureEnum.getShape(arch == null ? "ARM" : arch);
+        if ("Ampere".equalsIgnoreCase(raw)) {
+            return ArchitectureEnum.getShape("ARM");
+        }
+        if (ShapeSeriesUtil.isFullShapeName(raw)) {
+            return raw;
+        }
+        throw new OciException("未知实例 Shape，请重新选择 Shape 后再创建开机任务");
     }
 
     private static void markAdExcludedNoShape(InstanceDetailDTO result, String adName) {

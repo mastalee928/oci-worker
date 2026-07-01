@@ -89,14 +89,15 @@ const FIXED_VM_SHAPE_SERIES: Record<string, string> = (() => {
 
 /** 开机任务默认 ARM Shape（完整名，不再用短码 ARM 作选项 value） */
 export const TASK_ARM_SHAPE = 'VM.Standard.A1.Flex'
-const SHAPE_AMD_SHORT = 'VM.Standard.E2.1.Micro'
+export const SHAPE_E2_MICRO = 'VM.Standard.E2.1.Micro'
 export const SHAPE_AMD_SHORT_LABEL = 'VM.Standard.E2.1.Micro (Always Free)'
 
-/** 旧任务短码 ARM → 完整 Shape；其它原样 */
+/** 旧任务短码 ARM / AMD → 完整 Shape；其它原样 */
 export function normalizeTaskArchitecture(architecture: string | null | undefined): string {
   if (!architecture?.trim()) return TASK_ARM_SHAPE
   const a = architecture.trim()
   if (a === 'ARM' || a.toUpperCase() === 'AMPERE') return TASK_ARM_SHAPE
+  if (a === 'AMD') return SHAPE_E2_MICRO
   return a
 }
 
@@ -110,6 +111,7 @@ export function formatTaskArchitectureLabel(architecture: string | null | undefi
   if (!architecture?.trim()) return '—'
   const a = architecture.trim()
   if (a === 'AMD') return SHAPE_AMD_SHORT_LABEL
+  if (a === SHAPE_E2_MICRO) return SHAPE_AMD_SHORT_LABEL
   if (a === 'ARM') return TASK_ARM_SHAPE
   return a
 }
@@ -119,8 +121,8 @@ function shortCodesForSeries(series: string, allShapes: ShapeListRow[]): ShapePi
   if (series === SHAPE_SERIES_ARM && names.has(TASK_ARM_SHAPE)) {
     return [{ value: TASK_ARM_SHAPE, label: TASK_ARM_SHAPE }]
   }
-  if (series === SHAPE_SERIES_SPECIALTY && names.has(SHAPE_AMD_SHORT)) {
-    return [{ value: 'AMD', label: SHAPE_AMD_SHORT_LABEL }]
+  if (series === SHAPE_SERIES_SPECIALTY && names.has(SHAPE_E2_MICRO)) {
+    return [{ value: SHAPE_E2_MICRO, label: SHAPE_AMD_SHORT_LABEL }]
   }
   return []
 }
