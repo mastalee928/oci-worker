@@ -80,6 +80,7 @@ declare module 'vue' {
     InstanceNetworkDetailPanel: typeof import('./components/instance/InstanceNetworkDetailPanel.vue')['default']
     InstanceNetworkPanel: typeof import('./components/instance/InstanceNetworkPanel.vue')['default']
     InstanceSecurityPanel: typeof import('./components/instance/InstanceSecurityPanel.vue')['default']
+    InstanceShapeEditPanel: typeof import('./components/instance/InstanceShapeEditPanel.vue')['default']
     InstanceTrafficPanel: typeof import('./components/instance/InstanceTrafficPanel.vue')['default']
     OciLogo: typeof import('./components/OciLogo.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
