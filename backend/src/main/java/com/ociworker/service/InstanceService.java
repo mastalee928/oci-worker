@@ -275,6 +275,10 @@ public class InstanceService {
             Map<String, Object> result = new LinkedHashMap<>();
 
             List<VnicAttachment> attachments = listVnicAttachmentsForInstance(client, instanceId, compartmentId);
+            Map<String, Subnet> subnetCache = new LinkedHashMap<>();
+            Map<String, Vcn> vcnCache = new LinkedHashMap<>();
+            Map<String, RouteTable> routeTableCache = new LinkedHashMap<>();
+            String effectiveRegion = effectiveRegion(ociUser, region);
 
             List<Map<String, Object>> vnics = new ArrayList<>();
             for (VnicAttachment att : attachments) {
@@ -286,9 +290,22 @@ public class InstanceService {
                     Map<String, Object> vnicInfo = new LinkedHashMap<>();
                     vnicInfo.put("vnicId", vnic.getId());
                     vnicInfo.put("displayName", vnic.getDisplayName());
+                    vnicInfo.put("isPrimary", vnic.getIsPrimary());
+                    vnicInfo.put("availabilityDomain", vnic.getAvailabilityDomain());
+                    vnicInfo.put("compartmentId", vnic.getCompartmentId());
                     vnicInfo.put("privateIp", vnic.getPrivateIp());
                     vnicInfo.put("publicIp", vnic.getPublicIp());
-                    vnicInfo.put("subnetId", att.getSubnetId());
+                    vnicInfo.put("hostnameLabel", vnic.getHostnameLabel());
+                    vnicInfo.put("macAddress", vnic.getMacAddress());
+                    vnicInfo.put("nsgIds", vnic.getNsgIds());
+                    vnicInfo.put("vlanId", vnic.getVlanId());
+                    vnicInfo.put("skipSourceDestCheck", vnic.getSkipSourceDestCheck());
+                    vnicInfo.put("lifecycleState", vnic.getLifecycleState() != null ? vnic.getLifecycleState().getValue() : null);
+                    vnicInfo.put("timeCreated", vnic.getTimeCreated() != null ? vnic.getTimeCreated().toString() : null);
+                    String subnetId = firstNonBlank(vnic.getSubnetId(), att.getSubnetId());
+                    vnicInfo.put("subnetId", subnetId);
+                    fillVnicNetworkResourceInfo(client, vnicInfo, subnetId, vnic.getRouteTableId(), effectiveRegion,
+                            subnetCache, vcnCache, routeTableCache);
 
                     List<Ipv6> ipv6List = client.getVirtualNetworkClient().listIpv6s(
                             ListIpv6sRequest.builder().vnicId(vnic.getId()).build()
@@ -314,6 +331,20 @@ public class InstanceService {
                         ipInfo.put("privateIpId", pip.getId());
                         ipInfo.put("privateIpAddress", pip.getIpAddress());
                         ipInfo.put("isPrimary", pip.getIsPrimary());
+                        ipInfo.put("availabilityDomain", pip.getAvailabilityDomain());
+                        ipInfo.put("compartmentId", pip.getCompartmentId());
+                        ipInfo.put("displayName", pip.getDisplayName());
+                        ipInfo.put("hostnameLabel", pip.getHostnameLabel());
+                        ipInfo.put("cidrPrefixLength", pip.getCidrPrefixLength());
+                        ipInfo.put("subnetId", pip.getSubnetId());
+                        ipInfo.put("timeCreated", pip.getTimeCreated() != null ? pip.getTimeCreated().toString() : null);
+                        ipInfo.put("vnicId", pip.getVnicId());
+                        ipInfo.put("ipState", pip.getIpState() != null ? pip.getIpState().getValue() : null);
+                        ipInfo.put("lifetime", pip.getLifetime() != null ? pip.getLifetime().getValue() : null);
+                        ipInfo.put("routeTableId", pip.getRouteTableId());
+                        ipInfo.put("ipv4SubnetCidrAtCreation", pip.getIpv4SubnetCidrAtCreation());
+                        ipInfo.put("fqdn", buildInternalFqdn(pip.getHostnameLabel(), asString(vnicInfo.get("subnetDomainName"))));
+                        fillRouteTableInfo(client, ipInfo, pip.getRouteTableId(), routeTableCache);
 
                         try {
                             PublicIp pubIp = client.getVirtualNetworkClient().getPublicIpByPrivateIpId(
@@ -325,11 +356,25 @@ public class InstanceService {
                             ).getPublicIp();
                             ipInfo.put("publicIpAddress", pubIp.getIpAddress());
                             ipInfo.put("publicIpId", pubIp.getId());
-                            ipInfo.put("publicIpLifetime", pubIp.getLifetime().getValue());
+                            ipInfo.put("publicIpLifetime", pubIp.getLifetime() != null ? pubIp.getLifetime().getValue() : null);
+                            ipInfo.put("publicIpDisplayName", pubIp.getDisplayName());
+                            ipInfo.put("publicIpLifecycleState", pubIp.getLifecycleState() != null ? pubIp.getLifecycleState().getValue() : null);
+                            ipInfo.put("publicIpScope", pubIp.getScope() != null ? pubIp.getScope().getValue() : null);
+                            ipInfo.put("publicIpTimeCreated", pubIp.getTimeCreated() != null ? pubIp.getTimeCreated().toString() : null);
+                            ipInfo.put("publicIpAssignedEntityId", pubIp.getAssignedEntityId());
+                            ipInfo.put("publicIpAssignedEntityType", pubIp.getAssignedEntityType() != null ? pubIp.getAssignedEntityType().getValue() : null);
+                            ipInfo.put("publicIpPoolId", pubIp.getPublicIpPoolId());
                         } catch (Exception ignored) {
                             ipInfo.put("publicIpAddress", null);
                             ipInfo.put("publicIpId", null);
                             ipInfo.put("publicIpLifetime", null);
+                            ipInfo.put("publicIpDisplayName", null);
+                            ipInfo.put("publicIpLifecycleState", null);
+                            ipInfo.put("publicIpScope", null);
+                            ipInfo.put("publicIpTimeCreated", null);
+                            ipInfo.put("publicIpAssignedEntityId", null);
+                            ipInfo.put("publicIpAssignedEntityType", null);
+                            ipInfo.put("publicIpPoolId", null);
                         }
                         ipDetails.add(ipInfo);
                     }
@@ -738,6 +783,148 @@ public class InstanceService {
         }
     }
 
+    private void fillVnicNetworkResourceInfo(
+            OciClientService client,
+            Map<String, Object> vnicInfo,
+            String subnetId,
+            String vnicRouteTableId,
+            String region,
+            Map<String, Subnet> subnetCache,
+            Map<String, Vcn> vcnCache,
+            Map<String, RouteTable> routeTableCache) {
+        if (subnetId == null || subnetId.isBlank()) {
+            return;
+        }
+        try {
+            Subnet subnet = subnetCache.computeIfAbsent(subnetId, id -> client.getVirtualNetworkClient().getSubnet(
+                    GetSubnetRequest.builder().subnetId(id).build()
+            ).getSubnet());
+            if (subnet == null) {
+                return;
+            }
+
+            Map<String, Object> subnetInfo = subnetToMap(subnet);
+            vnicInfo.put("subnet", subnetInfo);
+            vnicInfo.put("subnetDisplayName", subnet.getDisplayName());
+            vnicInfo.put("subnetCidrBlock", subnet.getCidrBlock());
+            vnicInfo.put("subnetLifecycleState", subnet.getLifecycleState() != null ? subnet.getLifecycleState().getValue() : null);
+            vnicInfo.put("subnetDomainName", subnet.getSubnetDomainName());
+            vnicInfo.put("internalFqdn", buildInternalFqdn(asString(vnicInfo.get("hostnameLabel")), subnet.getSubnetDomainName()));
+
+            String vcnId = subnet.getVcnId();
+            vnicInfo.put("vcnId", vcnId);
+            if (vcnId != null && !vcnId.isBlank()) {
+                Vcn vcn = vcnCache.computeIfAbsent(vcnId, id -> client.getVirtualNetworkClient().getVcn(
+                        GetVcnRequest.builder().vcnId(id).build()
+                ).getVcn());
+                if (vcn != null) {
+                    Map<String, Object> vcnInfo = vcnToMap(vcn, region);
+                    vnicInfo.put("vcn", vcnInfo);
+                    vnicInfo.put("vcnDisplayName", vcn.getDisplayName());
+                    vnicInfo.put("vcnCidrBlock", vcn.getCidrBlock());
+                    vnicInfo.put("vcnLifecycleState", vcn.getLifecycleState() != null ? vcn.getLifecycleState().getValue() : null);
+                }
+            }
+
+            String routeTableId = firstNonBlank(vnicRouteTableId, subnet.getRouteTableId());
+            vnicInfo.put("routeTableId", routeTableId);
+            if (routeTableId == null || routeTableId.isBlank()) {
+                return;
+            }
+            RouteTable routeTable = routeTableCache.computeIfAbsent(routeTableId, id -> client.getVirtualNetworkClient().getRouteTable(
+                    GetRouteTableRequest.builder().rtId(id).build()
+            ).getRouteTable());
+            if (routeTable != null) {
+                Map<String, Object> routeTableInfo = routeTableToMap(routeTable);
+                vnicInfo.put("routeTable", routeTableInfo);
+                vnicInfo.put("routeTableDisplayName", routeTable.getDisplayName());
+                vnicInfo.put("routeTableLifecycleState", routeTable.getLifecycleState() != null ? routeTable.getLifecycleState().getValue() : null);
+            }
+        } catch (Exception e) {
+            log.debug("Failed to load VCN/Subnet detail for subnet {}: {}", subnetId, e.getMessage());
+        }
+    }
+
+    private static Map<String, Object> vcnToMap(Vcn vcn, String region) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("id", vcn.getId());
+        map.put("displayName", vcn.getDisplayName());
+        map.put("cidrBlock", vcn.getCidrBlock());
+        map.put("cidrBlocks", vcn.getCidrBlocks());
+        map.put("ipv6CidrBlocks", vcn.getIpv6CidrBlocks());
+        map.put("dnsLabel", vcn.getDnsLabel());
+        map.put("vcnDomainName", vcn.getVcnDomainName());
+        map.put("lifecycleState", vcn.getLifecycleState() != null ? vcn.getLifecycleState().getValue() : null);
+        map.put("compartmentId", vcn.getCompartmentId());
+        map.put("timeCreated", vcn.getTimeCreated() != null ? vcn.getTimeCreated().toString() : null);
+        map.put("region", region);
+        return map;
+    }
+
+    private static Map<String, Object> subnetToMap(Subnet subnet) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("id", subnet.getId());
+        map.put("displayName", subnet.getDisplayName());
+        map.put("cidrBlock", subnet.getCidrBlock());
+        map.put("ipv6CidrBlock", subnet.getIpv6CidrBlock());
+        map.put("availabilityDomain", subnet.getAvailabilityDomain());
+        map.put("prohibitPublicIpOnVnic", subnet.getProhibitPublicIpOnVnic());
+        map.put("routeTableId", subnet.getRouteTableId());
+        map.put("dhcpOptionsId", subnet.getDhcpOptionsId());
+        map.put("securityListIds", subnet.getSecurityListIds());
+        map.put("subnetDomainName", subnet.getSubnetDomainName());
+        map.put("lifecycleState", subnet.getLifecycleState() != null ? subnet.getLifecycleState().getValue() : null);
+        map.put("timeCreated", subnet.getTimeCreated() != null ? subnet.getTimeCreated().toString() : null);
+        map.put("vcnId", subnet.getVcnId());
+        return map;
+    }
+
+    private static Map<String, Object> routeTableToMap(RouteTable routeTable) {
+        Map<String, Object> map = new LinkedHashMap<>();
+        map.put("id", routeTable.getId());
+        map.put("displayName", routeTable.getDisplayName());
+        map.put("vcnId", routeTable.getVcnId());
+        map.put("compartmentId", routeTable.getCompartmentId());
+        map.put("lifecycleState", routeTable.getLifecycleState() != null ? routeTable.getLifecycleState().getValue() : null);
+        map.put("routeRulesCount", routeTable.getRouteRules() != null ? routeTable.getRouteRules().size() : 0);
+        map.put("timeCreated", routeTable.getTimeCreated() != null ? routeTable.getTimeCreated().toString() : null);
+        return map;
+    }
+
+    private static void fillRouteTableInfo(
+            OciClientService client,
+            Map<String, Object> target,
+            String routeTableId,
+            Map<String, RouteTable> routeTableCache) {
+        if (routeTableId == null || routeTableId.isBlank()) {
+            return;
+        }
+        try {
+            RouteTable routeTable = routeTableCache.computeIfAbsent(routeTableId, id -> client.getVirtualNetworkClient().getRouteTable(
+                    GetRouteTableRequest.builder().rtId(id).build()
+            ).getRouteTable());
+            if (routeTable == null) {
+                return;
+            }
+            target.put("routeTable", routeTableToMap(routeTable));
+            target.put("routeTableDisplayName", routeTable.getDisplayName());
+            target.put("routeTableLifecycleState", routeTable.getLifecycleState() != null ? routeTable.getLifecycleState().getValue() : null);
+        } catch (Exception ignored) {
+            // Private IP route table is supplemental display data; keep network detail usable when it cannot be read.
+        }
+    }
+
+    private static String buildInternalFqdn(String hostnameLabel, String subnetDomainName) {
+        if (hostnameLabel == null || hostnameLabel.isBlank() || subnetDomainName == null || subnetDomainName.isBlank()) {
+            return null;
+        }
+        return hostnameLabel.trim() + "." + subnetDomainName.trim();
+    }
+
+    private static String asString(Object value) {
+        return value == null ? null : String.valueOf(value);
+    }
+
     private Map<String, Object> updateInstanceOnce(String userId, String instanceId,
                                                    String displayName, String shape,
                                                    Float ocpus, Float memoryInGBs, String region) {
@@ -1041,6 +1228,13 @@ public class InstanceService {
 
     private static String normalizeBlank(String value) {
         return value == null ? "" : value.trim();
+    }
+
+    private static String firstNonBlank(String first, String second) {
+        if (first != null && !first.isBlank()) {
+            return first.trim();
+        }
+        return second != null && !second.isBlank() ? second.trim() : null;
     }
 
     private static boolean isFlexibleShape(String shapeName) {

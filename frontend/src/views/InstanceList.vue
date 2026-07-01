@@ -590,7 +590,9 @@
             :tenant="currentTenant"
             :instance="currentInstance"
             :is-mobile="isMobile"
+            :active="activeTab === 'network'"
             :region="currentDetailRegion"
+            :compartment-id="currentInstance?.compartmentId"
             @open-vcn-manager="openDetailVcnManager"
           />
         </a-tab-pane>
@@ -721,6 +723,8 @@
       :user-id="vcnManagerUserId"
       :vcn="vcnManagerVcn"
       :oci-region="vcnManagerOciRegion"
+      :initial-tab="vcnManagerInitialTab"
+      :target-resource-id="vcnManagerTargetResourceId"
       @changed="onVcnManagerChanged"
       @editing-overlay-change="handleVcnManagerEditingOverlayChange"
     />
@@ -1782,15 +1786,19 @@ const vcnManagerOpen = ref(false)
 const vcnManagerUserId = ref('')
 const vcnManagerVcn = ref<any>(null)
 const vcnManagerOciRegion = ref('')
+const vcnManagerInitialTab = ref<'subnet' | 'rt' | ''>('')
+const vcnManagerTargetResourceId = ref('')
 function handleVcnManagerEditingOverlayChange(active: boolean) {
   vcnManagerEditingOverlayActive.value = active
 }
 function handleTenantVcnEditingOverlayChange(active: boolean) {
   byoipEditingOverlayActive.value = active
 }
-function openVcnManager(tenantId: string, vcn: any, region?: string) {
+function openVcnManager(tenantId: string, vcn: any, region?: string, options: { tab?: 'subnet' | 'rt'; resourceId?: string } = {}) {
   vcnManagerUserId.value = tenantId
   vcnManagerVcn.value = vcn
+  vcnManagerInitialTab.value = options.tab || ''
+  vcnManagerTargetResourceId.value = options.resourceId || ''
   const fromVcn = vcn?.region && String(vcn.region).trim()
   const fromPanel = region && String(region).trim()
   const fromInstance = currentInstance.value?.region && String(currentInstance.value.region).trim()
@@ -1807,13 +1815,24 @@ function openTenantVcnManager(payload: { tenantId: string; vcn: any; region?: st
   openVcnManager(payload.tenantId, payload.vcn, payload.region)
 }
 
-function openDetailVcnManager(vcn: any) {
+function openDetailVcnManager(payload: any) {
   if (!currentTenant.value) return
-  openVcnManager(currentTenant.value.id, vcn)
+  if (payload?.vcn) {
+    openVcnManager(currentTenant.value.id, payload.vcn, payload.vcn?.region, {
+      tab: payload.tab,
+      resourceId: payload.resourceId,
+    })
+    return
+  }
+  openVcnManager(currentTenant.value.id, payload)
 }
 
 watch(vcnManagerOpen, open => {
-  if (!open) vcnManagerEditingOverlayActive.value = false
+  if (!open) {
+    vcnManagerEditingOverlayActive.value = false
+    vcnManagerInitialTab.value = ''
+    vcnManagerTargetResourceId.value = ''
+  }
 })
 
 async function onVcnManagerChanged() {

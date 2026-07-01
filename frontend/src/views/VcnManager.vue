@@ -463,7 +463,14 @@ import {
   VCN_MANAGER_MODAL_Z_INDEX,
 } from '../utils/overlayZIndex'
 
-const props = withDefaults(defineProps<{ open: boolean; userId: string; vcn: any; ociRegion?: string }>(), { ociRegion: '' })
+const props = withDefaults(defineProps<{
+  open: boolean
+  userId: string
+  vcn: any
+  ociRegion?: string
+  initialTab?: string
+  targetResourceId?: string
+}>(), { ociRegion: '', initialTab: '', targetResourceId: '' })
 const emit = defineEmits<{
   (e: 'update:open', v: boolean): void
   (e: 'changed'): void
@@ -486,6 +493,7 @@ const loadingSeq = reactive({ subnet: 0, igw: 0, nat: 0, sg: 0, lpg: 0, rt: 0, s
 const contextSeq = ref(0)
 const data = reactive<Record<string, any[]>>({ subnet: [], igw: [], nat: [], sg: [], lpg: [], rt: [], sl: [] })
 const dataKeys = ['subnet', 'igw', 'nat', 'sg', 'lpg', 'rt', 'sl'] as const
+const targetOpenKey = ref('')
 
 const cols = {
   subnet: [
@@ -540,12 +548,14 @@ const cols = {
 }
 
 watch(
-  () => [props.open, props.userId, props.vcn?.id, props.ociRegion] as const,
+  () => [props.open, props.userId, props.vcn?.id, props.ociRegion, props.initialTab, props.targetResourceId] as const,
   ([open]) => {
     if (open && props.vcn?.id) {
       resetLoadedData()
-      activeTab.value = 'subnet'
-      loadSubnets()
+      targetOpenKey.value = ''
+      const tab = normalizeInitialTab(props.initialTab)
+      activeTab.value = tab
+      onTab(tab)
     }
   },
   { immediate: true },
@@ -578,6 +588,22 @@ function onTab(k: string, force = false) {
   else if (k === 'sl') loadSl(force)
 }
 
+function normalizeInitialTab(tab: string | undefined) {
+  return dataKeys.includes(tab as any) ? tab as typeof dataKeys[number] : 'subnet'
+}
+
+function maybeOpenTargetResource(tab: 'subnet' | 'rt') {
+  const targetId = props.targetResourceId?.trim()
+  if (!targetId || props.initialTab !== tab) return
+  const key = `${props.userId || ''}|${props.ociRegion?.trim() || ''}|${props.vcn?.id || ''}|${tab}|${targetId}`
+  if (targetOpenKey.value === key) return
+  const row = data[tab].find((item: any) => item?.id === targetId)
+  if (!row) return
+  targetOpenKey.value = key
+  if (tab === 'subnet') void openEditSubnet(row)
+  else void openEditRt(row)
+}
+
 async function wrap<T>(k: keyof typeof loading, fn: () => Promise<T>, stillRelevant: () => boolean): Promise<T | null> {
   const seq = ++loadingSeq[k]
   loading[k] = true
@@ -596,7 +622,10 @@ async function loadSubnets(force = false) {
   const contextKey = currentContextKey(vcnId)
   const seq = contextSeq.value
   const r = await wrap('subnet', () => listSubnets({ ...ociBase.value, vcnId, force }), () => isCurrentVcnContext(vcnId, contextKey, seq))
-  if (r && isCurrentVcnContext(vcnId, contextKey, seq)) data.subnet = r.data || []
+  if (r && isCurrentVcnContext(vcnId, contextKey, seq)) {
+    data.subnet = r.data || []
+    maybeOpenTargetResource('subnet')
+  }
 }
 async function loadIgw(force = false) {
   const vcnId = props.vcn?.id
@@ -636,7 +665,10 @@ async function loadRt(force = false) {
   const contextKey = currentContextKey(vcnId)
   const seq = contextSeq.value
   const r = await wrap('rt', () => listRouteTables({ ...ociBase.value, vcnId, force }), () => isCurrentVcnContext(vcnId, contextKey, seq))
-  if (r && isCurrentVcnContext(vcnId, contextKey, seq)) data.rt = r.data || []
+  if (r && isCurrentVcnContext(vcnId, contextKey, seq)) {
+    data.rt = r.data || []
+    maybeOpenTargetResource('rt')
+  }
 }
 async function loadSl(force = false) {
   const vcnId = props.vcn?.id
