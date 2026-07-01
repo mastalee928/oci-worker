@@ -295,7 +295,7 @@ public class TaskSchedulerService implements SmartLifecycle {
                     normalized[0], normalized[1], diskConfig, createNumbers);
             broadcastLog(logMsg);
 
-            String pwd = rootPassword != null ? rootPassword : "随机";
+            String pwd = StrUtil.isNotBlank(rootPassword) ? tgSpoiler(rootPassword) : "随机";
             String html = "📋 <b>开机任务已创建</b>\n\n"
                     + "👤 <b>租户：</b>" + ociUser.getUsername() + "\n"
                     + "🌍 <b>区域：</b>" + effectiveRegion + "\n"
@@ -304,7 +304,7 @@ public class TaskSchedulerService implements SmartLifecycle {
                     + "📊 <b>配置：</b>" + normalized[0] + "C / " + normalized[1] + "GB / "
                     + diskConfig + "\n"
                     + "🔢 <b>数量：</b>" + createNumbers + "\n"
-                    + "🔑 <b>密码：</b><code>" + pwd + "</code>";
+                    + "🔑 <b>密码：</b>" + pwd;
             notificationService.sendHtmlWithType(NotificationService.TYPE_TASK_CREATE, html);
         } catch (RuntimeException e) {
             if (!inserted) {
@@ -790,7 +790,7 @@ public class TaskSchedulerService implements SmartLifecycle {
                                 + "🌐 <b>公网IP：</b><code>" + result.getPublicIp() + "</code>\n"
                                 + (StrUtil.isNotBlank(result.getIpv6Address())
                                 ? "🌐 <b>IPv6：</b><code>" + result.getIpv6Address() + "</code>\n" : "")
-                                + "🔑 <b>密码：</b><code>" + result.getRootPassword() + "</code>";
+                                + "🔑 <b>密码：</b>" + tgSpoiler(result.getRootPassword());
                         notificationService.sendHtmlWithType(NotificationService.TYPE_TASK_RESULT, html);
                     } else {
                         // OCI 已建出实例，但行级更新因已达目标/并发被跳过
@@ -1138,6 +1138,10 @@ public class TaskSchedulerService implements SmartLifecycle {
                 .replace("&", "&amp;")
                 .replace("<", "&lt;")
                 .replace(">", "&gt;");
+    }
+
+    private static String tgSpoiler(Object value) {
+        return "<tg-spoiler>" + html(value) + "</tg-spoiler>";
     }
 
     private static String targetShapeForLog(String shapeOrArchitecture) {
