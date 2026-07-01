@@ -30,6 +30,28 @@
       </div>
     </a-modal>
 
+    <a-modal
+      v-model:open="taskPublicKeyModalVisible"
+      title="我的公钥"
+      :width="isMobile ? 'calc(100vw - 24px)' : 620"
+      ok-text="保存"
+      cancel-text="关闭"
+      :mask-closable="false"
+      centered
+      @ok="saveTaskPublicKeyDraft"
+    >
+      <a-textarea
+        v-model:value="taskPublicKeyDraft"
+        placeholder="粘贴 OpenSSH 公钥内容"
+        :auto-size="{ minRows: 5, maxRows: 10 }"
+        class="task-public-key-modal-textarea"
+      />
+      <div class="task-public-key-modal-actions">
+        <a-button size="small" :disabled="!taskPublicKeyDraft" @click="copyTaskPublicKeyDraft">复制</a-button>
+        <a-button size="small" danger :disabled="!taskPublicKeyDraft" @click="taskPublicKeyDraft = ''">清空</a-button>
+      </div>
+    </a-modal>
+
     <a-tabs v-model:active-key="activeTab" class="settings-page-tabs">
       <a-tab-pane key="security" tab="安全设置">
         <a-segmented v-model:value="securitySection" :options="securitySectionOptions" class="settings-section-segment" />
@@ -65,16 +87,25 @@
         </a-card>
 
         <a-card v-else-if="securitySection === 'credential'" title="开机凭据" class="settings-card task-credential-card">
-          <a-form layout="vertical">
-            <a-form-item label="我的密码">
+          <div class="task-credential-panel">
+            <section class="task-credential-section">
+              <div class="task-credential-section-head">
+                <span class="task-credential-title"><i class="ri-lock-password-line"></i>我的密码</span>
+                <a-tag v-if="taskCredentialForm.rootPassword" color="blue">已设置</a-tag>
+              </div>
               <a-input-password
                 v-model:value="taskCredentialForm.rootPassword"
                 placeholder="保存后，快捷开机可一键填入 Root 密码"
                 autocomplete="new-password"
                 allow-clear
               />
-            </a-form-item>
-            <a-form-item label="我的公钥">
+            </section>
+
+            <section class="task-credential-section">
+              <div class="task-credential-section-head">
+                <span class="task-credential-title"><i class="ri-key-2-line"></i>我的公钥</span>
+                <a-tag v-if="taskCredentialForm.sshPublicKey" color="green">已设置</a-tag>
+              </div>
               <a-upload-dragger
                 accept=".pub"
                 :multiple="false"
@@ -85,20 +116,31 @@
                 <p class="ant-upload-drag-icon"><InboxOutlined /></p>
                 <p class="ant-upload-text">拖入 .pub 公钥文件，或点击选择</p>
               </a-upload-dragger>
-              <a-textarea
-                v-model:value="taskCredentialForm.sshPublicKey"
-                placeholder="填写 OpenSSH 公钥，如 ssh-ed25519 或 ssh-rsa 开头"
-                :auto-size="{ minRows: 2, maxRows: 4 }"
-                allow-clear
-                style="margin-top: 8px"
-              />
-            </a-form-item>
-            <a-space wrap>
-              <a-button type="primary" :loading="taskCredentialSaving" @click="saveTaskCredentialConfig">保存开机凭据</a-button>
-              <a-button @click="reloadTaskCredentialConfig" :loading="taskCredentialLoading">重新读取</a-button>
-              <a-button danger @click="clearTaskCredentialConfig">清空</a-button>
-            </a-space>
-          </a-form>
+
+              <div class="task-public-key-summary" :class="{ 'task-public-key-summary--empty': !taskCredentialForm.sshPublicKey }">
+                <div class="task-public-key-summary-main">
+                  <span class="task-public-key-dot"></span>
+                  <div class="task-public-key-summary-text">
+                    <strong>{{ taskCredentialForm.sshPublicKey ? '公钥已隐藏' : '未设置公钥' }}</strong>
+                    <span>{{ taskCredentialForm.sshPublicKey ? maskedTaskPublicKey : '可拖入 .pub 文件，或手动粘贴保存' }}</span>
+                  </div>
+                </div>
+                <a-space size="small" wrap>
+                  <a-button size="small" @click="openTaskPublicKeyModal">{{ taskCredentialForm.sshPublicKey ? '查看/编辑' : '粘贴' }}</a-button>
+                  <a-button v-if="taskCredentialForm.sshPublicKey" size="small" @click="clearTaskPublicKey">移除</a-button>
+                </a-space>
+              </div>
+            </section>
+
+            <div class="task-credential-actions">
+              <span class="task-credential-status">已配置 {{ taskCredentialConfiguredCount }} 项</span>
+              <a-space wrap>
+                <a-button @click="reloadTaskCredentialConfig" :loading="taskCredentialLoading">重新读取</a-button>
+                <a-button danger @click="clearTaskCredentialConfig">清空</a-button>
+                <a-button type="primary" :loading="taskCredentialSaving" @click="saveTaskCredentialConfig">保存</a-button>
+              </a-space>
+            </div>
+          </div>
         </a-card>
 
         <a-card v-else title="登录安全说明" class="settings-card settings-no-select">
@@ -969,6 +1011,8 @@ const pwdForm = reactive({ oldPassword: '', newPassword: '', confirmPassword: ''
 const taskCredentialLoading = ref(false)
 const taskCredentialSaving = ref(false)
 const taskCredentialForm = reactive({ rootPassword: '', sshPublicKey: '' })
+const taskPublicKeyModalVisible = ref(false)
+const taskPublicKeyDraft = ref('')
 const TASK_PUBLIC_KEY_MAX_SIZE = 16 * 1024
 const tgConfig = reactive({ botToken: '', chatId: '', notifyTypes: [] as string[], dailyReportTime: '09:00' })
 /** 与 a-time-picker（value-format=HH:mm）一致 */
@@ -1042,6 +1086,12 @@ const notifySectionOptions = [
   { label: '云公告推送', value: 'announcement' },
   { label: '通知说明', value: 'guide' },
 ]
+
+const taskCredentialConfiguredCount = computed(() =>
+  (taskCredentialForm.rootPassword ? 1 : 0) + (taskCredentialForm.sshPublicKey ? 1 : 0),
+)
+
+const maskedTaskPublicKey = computed(() => maskOpenSshPublicKey(taskCredentialForm.sshPublicKey))
 
 type AnnouncementTenant = {
   id: string
@@ -1788,6 +1838,41 @@ async function saveTaskCredentialConfig() {
   } finally {
     taskCredentialSaving.value = false
   }
+}
+
+function maskOpenSshPublicKey(value: string) {
+  const raw = (value || '').trim().replace(/[\r\n]+/g, ' ')
+  if (!raw) return ''
+  const parts = raw.split(/\s+/)
+  const body = parts[1] || ''
+  const maskedBody = body.length > 16
+    ? `${body.slice(0, 4)}****${body.slice(-6)}`
+    : '********'
+  return `OpenSSH 公钥 ${maskedBody}`
+}
+
+function openTaskPublicKeyModal() {
+  taskPublicKeyDraft.value = taskCredentialForm.sshPublicKey || ''
+  taskPublicKeyModalVisible.value = true
+}
+
+function saveTaskPublicKeyDraft() {
+  taskCredentialForm.sshPublicKey = (taskPublicKeyDraft.value || '').trim().replace(/[\r\n]+/g, ' ')
+  taskPublicKeyModalVisible.value = false
+}
+
+async function copyTaskPublicKeyDraft() {
+  if (!taskPublicKeyDraft.value) return
+  try {
+    await navigator.clipboard.writeText(taskPublicKeyDraft.value)
+    message.success('公钥已复制')
+  } catch {
+    message.error('复制失败')
+  }
+}
+
+function clearTaskPublicKey() {
+  taskCredentialForm.sshPublicKey = ''
 }
 
 function beforeTaskPublicKeyUpload(file: File) {
@@ -3305,21 +3390,148 @@ async function handleRestore() {
   opacity: 0.9;
 }
 
+.task-credential-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.task-credential-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 8px);
+  background: rgba(148, 163, 184, 0.06);
+}
+
+.task-credential-section-head,
+.task-credential-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.task-credential-section-head {
+  min-height: 24px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+.task-credential-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.task-credential-title i {
+  color: var(--primary);
+  font-size: 16px;
+  font-weight: 400;
+}
+
 .task-public-key-upload :deep(.ant-upload-drag) {
-  padding: 10px 12px;
+  padding: 8px 12px;
+  min-height: 58px;
+  border-radius: var(--radius-sm, 6px);
+  background: rgba(148, 163, 184, 0.04);
+}
+
+.task-public-key-upload :deep(.ant-upload-btn) {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
 }
 
 .task-public-key-upload :deep(.ant-upload-drag-icon) {
-  margin-bottom: 4px;
+  margin: 0;
+  line-height: 1;
 }
 
 .task-public-key-upload :deep(.ant-upload-drag-icon .anticon) {
-  font-size: 22px;
+  font-size: 21px;
 }
 
 .task-public-key-upload :deep(.ant-upload-text) {
   margin: 0;
   font-size: 13px;
+  font-weight: 600;
+}
+
+.task-public-key-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-height: 46px;
+  padding: 8px 8px 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md, 8px);
+  background: rgba(16, 185, 129, 0.07);
+}
+
+.task-public-key-summary--empty {
+  background: rgba(148, 163, 184, 0.04);
+}
+
+.task-public-key-summary-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--text-sub);
+}
+
+.task-public-key-summary-text {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.task-public-key-summary-text strong {
+  color: var(--text-main);
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.task-public-key-summary-text span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-sub);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.task-public-key-dot {
+  width: 8px;
+  height: 8px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 0 3px rgba(16, 185, 129, 0.14);
+}
+
+.task-credential-status {
+  color: var(--text-sub);
+  font-size: 12px;
+}
+
+.task-public-key-modal-textarea {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+}
+
+.task-public-key-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 10px;
 }
 
 @media (max-width: 768px) {
@@ -3334,6 +3546,21 @@ async function handleRestore() {
   }
   .settings-section-segment {
     width: 100%;
+  }
+  .task-credential-actions {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .task-credential-actions :deep(.ant-space) {
+    width: 100%;
+  }
+  .task-public-key-summary {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .task-public-key-summary-text span {
+    white-space: normal;
+    word-break: break-word;
   }
   .announcement-toolbar,
   .announcement-item,
