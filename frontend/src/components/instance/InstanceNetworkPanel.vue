@@ -314,6 +314,9 @@
             type="路由表"
             :name="currentRouteTable.displayName || routeTableName(currentRouteTable.id)"
             :state="currentRouteTable.lifecycleState"
+            extra-text="创建路由表"
+            :extra-disabled="!currentRouteTableVcn"
+            @extra="openCreateRouteTable"
             @manage="openVcnManagerForRouteTable(currentRouteTable)"
           />
           <a-tabs v-model:activeKey="routeTableTab" class="resource-tabs">
@@ -329,7 +332,24 @@
               <ResourceTableTitle title="路由规则" />
               <div class="table-toolbar route-rule-toolbar">
                 <a-input v-model:value="routeRuleKeyword" allow-clear class="network-search" placeholder="搜索目的地 / 目标 / 说明" />
-                <a-button type="primary" size="small" @click="openRouteRulesManager" :disabled="!currentRouteTableVcn">管理路由规则</a-button>
+                <div class="route-rule-actions">
+                  <button
+                    class="text-action-link"
+                    type="button"
+                    :disabled="!currentRouteTableVcn"
+                    @click="openRouteRulesManager('add')"
+                  >
+                    添加规则
+                  </button>
+                  <button
+                    class="text-action-link"
+                    type="button"
+                    :disabled="!currentRouteTableVcn"
+                    @click="openRouteRulesManager('manage')"
+                  >
+                    编辑规则
+                  </button>
+                </div>
               </div>
               <a-spin :spinning="routeTableLoading">
                 <a-table size="small" :data-source="filteredRouteRules" :columns="routeRuleColumns" :pagination="false" row-key="_key" :scroll="{ x: 840 }">
@@ -355,8 +375,27 @@
             :vcn="currentRouteTableVcn"
             :route-table="currentRouteTable"
             :oci-region="scopeParam().region"
+            :initial-action="routeRulesInitialAction"
             @saved="onRouteRulesSaved"
           />
+
+          <a-modal
+            v-model:open="createRouteTableOpen"
+            title="创建路由表"
+            ok-text="创建"
+            cancel-text="取消"
+            :confirm-loading="routeTableCreating"
+            :mask-closable="false"
+            :keyboard="false"
+            centered
+            @ok="createRouteTableFromInstance"
+          >
+            <a-form layout="vertical">
+              <a-form-item label="名称" required>
+                <a-input v-model:value="newRouteTableName" />
+              </a-form-item>
+            </a-form>
+          </a-modal>
         </template>
       </template>
     </a-spin>
@@ -367,7 +406,7 @@
 import { computed, defineComponent, h, ref, resolveComponent, watch } from 'vue'
 import { message } from 'ant-design-vue'
 import { getInstanceNetworkDetail } from '../../api/instance'
-import { getRouteTable } from '../../api/vcn'
+import { createRouteTable, getRouteTable } from '../../api/vcn'
 import RouteTableRulesManager from '../vcn/RouteTableRulesManager.vue'
 
 const InfoRow = defineComponent({
@@ -411,8 +450,10 @@ const ResourceHeader = defineComponent({
     type: { type: String, required: true },
     name: { type: String, required: true },
     state: { type: String, default: '' },
+    extraText: { type: String, default: '' },
+    extraDisabled: { type: Boolean, default: false },
   },
-  emits: ['manage'],
+  emits: ['manage', 'extra'],
   setup(props, { emit }) {
     const Tag = resolveComponent('a-tag')
     return () => h('div', { class: 'resource-header' }, [
@@ -423,7 +464,17 @@ const ResourceHeader = defineComponent({
         ]),
         h('div', { class: 'resource-type' }, props.type),
       ]),
-      h('button', { class: 'text-action-link resource-manage-link', type: 'button', onClick: () => emit('manage') }, 'VCN 管理'),
+      h('div', { class: 'resource-header-actions' }, [
+        props.extraText
+          ? h('button', {
+            class: 'text-action-link',
+            type: 'button',
+            disabled: props.extraDisabled,
+            onClick: () => emit('extra'),
+          }, props.extraText)
+          : null,
+        h('button', { class: 'text-action-link', type: 'button', onClick: () => emit('manage') }, 'VCN 管理'),
+      ]),
     ])
   },
 })
@@ -508,6 +559,10 @@ const ipKeyword = ref('')
 const routeRuleKeyword = ref('')
 const routeTableLoading = ref(false)
 const routeRulesManagerOpen = ref(false)
+const routeRulesInitialAction = ref<'manage' | 'add'>('manage')
+const createRouteTableOpen = ref(false)
+const routeTableCreating = ref(false)
+const newRouteTableName = ref('')
 const routeTableDetails = ref<Record<string, any>>({})
 let networkLoadSeq = 0
 let routeTableSeq = 0
@@ -649,6 +704,9 @@ function reset() {
   vnicKeyword.value = ''
   ipKeyword.value = ''
   routeRuleKeyword.value = ''
+  createRouteTableOpen.value = false
+  routeTableCreating.value = false
+  newRouteTableName.value = ''
 }
 
 async function loadInstanceNetwork(force = false) {
@@ -735,8 +793,52 @@ function onRouteRulesSaved() {
   void loadInstanceNetwork(true)
 }
 
-function openRouteRulesManager() {
+function openRouteRulesManager(action: 'manage' | 'add' = 'manage') {
+  routeRulesInitialAction.value = action
   routeRulesManagerOpen.value = true
+}
+
+function openCreateRouteTable() {
+  if (!currentRouteTableVcn.value) return
+  newRouteTableName.value = ''
+  createRouteTableOpen.value = true
+}
+
+async function createRouteTableFromInstance() {
+  const vcn = currentRouteTableVcn.value
+  const displayName = newRouteTableName.value.trim()
+  if (!vcn?.id) return message.warning('未找到 VCN，无法创建路由表')
+  if (!displayName) return message.warning('请填写名称')
+  if (!props.tenant?.id) return message.warning('租户信息不存在')
+  routeTableCreating.value = true
+  try {
+    const res = await createRouteTable({
+      id: props.tenant.id,
+      vcnId: vcn.id,
+      displayName,
+      ...regionParam(),
+    })
+    const created = res.data || {}
+    if (created.id) {
+      routeTableDetails.value = {
+        ...routeTableDetails.value,
+        [created.id]: {
+          ...created,
+          routeRules: Array.isArray(created.routeRules) ? created.routeRules : [],
+        },
+      }
+      currentView.value = { type: 'routeTable', id: created.id }
+      routeTableTab.value = 'rules'
+    }
+    message.success('路由表已创建')
+    createRouteTableOpen.value = false
+    newRouteTableName.value = ''
+    void loadInstanceNetwork(true)
+  } catch (e: any) {
+    message.error(e?.message || '创建路由表失败')
+  } finally {
+    routeTableCreating.value = false
+  }
 }
 
 function openVcnManagerForVnic(vnic: any) {
@@ -1171,10 +1273,6 @@ defineExpose({
   text-decoration: none;
 }
 
-.resource-manage-link {
-  margin-top: 3px;
-}
-
 .muted,
 .sub-line {
   color: var(--text-sub);
@@ -1199,6 +1297,14 @@ defineExpose({
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 12px;
+}
+
+.resource-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex: 0 0 auto;
+  padding-top: 3px;
 }
 
 .resource-title-line {
@@ -1238,6 +1344,13 @@ defineExpose({
 .route-rule-toolbar {
   justify-content: space-between;
   flex-wrap: wrap;
+}
+
+.route-rule-actions {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  flex: 0 0 auto;
 }
 
 .mobile-card {

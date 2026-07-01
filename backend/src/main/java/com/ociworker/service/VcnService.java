@@ -709,6 +709,37 @@ public class VcnService {
         });
     }
 
+    public Map<String, Object> createRouteTable(String userId, String vcnId, String displayName, String region) {
+        String name = normalizeBlank(displayName);
+        if (name == null) throw new OciException("请填写路由表名称");
+        OciUser ociUser = userMapper.selectById(userId);
+        if (ociUser == null) throw new OciException("租户配置不存在");
+        try (OciClientService client = oci(ociUser, region)) {
+            VirtualNetworkClient net = client.getVirtualNetworkClient();
+            Vcn vcn = net.getVcn(GetVcnRequest.builder().vcnId(vcnId).build()).getVcn();
+            RouteTable rt = net.createRouteTable(CreateRouteTableRequest.builder()
+                    .createRouteTableDetails(CreateRouteTableDetails.builder()
+                            .compartmentId(vcn.getCompartmentId())
+                            .vcnId(vcnId)
+                            .displayName(name)
+                            .build())
+                    .build()).getRouteTable();
+            evictVcnReadCaches(userId, region);
+
+            Map<String, Object> m = new LinkedHashMap<>();
+            m.put("id", rt.getId());
+            m.put("displayName", rt.getDisplayName());
+            m.put("vcnId", rt.getVcnId());
+            m.put("compartmentId", rt.getCompartmentId());
+            m.put("routeRules", Collections.emptyList());
+            m.put("lifecycleState", rt.getLifecycleState() != null ? rt.getLifecycleState().getValue() : null);
+            m.put("timeCreated", rt.getTimeCreated() != null ? rt.getTimeCreated().toString() : null);
+            return m;
+        } catch (OciException e) { throw e; }
+        catch (com.oracle.bmc.model.BmcException e) { throw new OciException("创建路由表失败: " + OciBmcErrorTranslator.translate(e)); }
+        catch (Exception e) { throw new OciException("创建路由表失败: " + e.getMessage()); }
+    }
+
     public void deleteRouteTable(String userId, String rtId, String region) {
         deleteResource(userId, region, () -> "deleteRouteTable", (client) ->
                 client.getVirtualNetworkClient().deleteRouteTable(DeleteRouteTableRequest.builder().rtId(rtId).build()));

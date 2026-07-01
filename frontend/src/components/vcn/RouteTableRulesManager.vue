@@ -42,7 +42,7 @@
             </a-select-option>
           </a-select>
           <a-button size="small" @click="reload" :loading="loading || optionsLoading">刷新</a-button>
-          <a-button type="primary" size="small" @click="openAddRule">添加路由规则</a-button>
+          <a-button type="primary" size="small" @click="openAddRule">添加规则</a-button>
           <a-tag v-if="dirty" color="gold">未保存</a-tag>
         </div>
 
@@ -101,7 +101,7 @@
 
     <a-modal
       v-model:open="ruleEditorOpen"
-      :title="editingRuleKey ? '编辑路由规则' : '添加路由规则'"
+      :title="editingRuleKey ? '编辑规则' : '添加规则'"
       :width="760"
       :z-index="VCN_MANAGER_CONFIRM_MODAL_Z_INDEX"
       :wrap-class-name="VCN_MANAGER_CONFIRM_MODAL_WRAP_CLASS"
@@ -278,7 +278,8 @@ const props = withDefaults(defineProps<{
   vcn: any
   routeTable: any
   ociRegion?: string
-}>(), { ociRegion: '' })
+  initialAction?: 'manage' | 'add'
+}>(), { ociRegion: '', initialAction: 'manage' })
 
 const emit = defineEmits<{
   (e: 'update:open', value: boolean): void
@@ -380,7 +381,9 @@ watch(
         dirty.value = false
         ruleEditorOpen.value = false
       }
-      void reload()
+      void reload().then(() => {
+        if (props.initialAction === 'add' && props.open) openAddRule()
+      })
     }
   },
   { immediate: true },

@@ -208,6 +208,16 @@ public class VcnController {
         return ResponseData.ok(vcnService.listRouteTables(str(params, "id"), str(params, "vcnId"), reg(params), bool(params, "force", false)));
     }
 
+    @PostMapping("/rt/create")
+    public ResponseData<?> createRt(@RequestBody Map<String, Object> params) {
+        return ResponseData.ok(vcnService.createRouteTable(
+                str(params, "id"),
+                str(params, "vcnId"),
+                str(params, "displayName"),
+                reg(params)
+        ));
+    }
+
     @PostMapping("/rt/delete")
     public ResponseData<?> deleteRt(@RequestBody Map<String, Object> params) {
         verifyCodeService.verifyCode("deleteVcnRt", str(params, "verifyCode"));

@@ -102,6 +102,9 @@ export function updateServiceGateway(data: { id: string; sgId: string; displayNa
 export function listRouteTables(data: { id: string; vcnId: string } & R) {
   return request.post('/oci/vcn/rt/list', data)
 }
+export function createRouteTable(data: { id: string; vcnId: string; displayName: string } & R) {
+  return request.post('/oci/vcn/rt/create', data)
+}
 export function deleteRouteTable(data: { id: string; rtId: string; verifyCode: string } & R) {
   return request.post('/oci/vcn/rt/delete', data)
 }

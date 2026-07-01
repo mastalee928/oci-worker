@@ -153,6 +153,7 @@
 
       <a-tab-pane key="rt" tab="路由表">
         <div class="op-row">
+          <a-button type="primary" size="small" @click="showCreateRt = true">创建路由表</a-button>
           <a-button size="small" @click="loadRt(true)" :loading="loading.rt">刷新</a-button>
         </div>
         <a-table size="small" :loading="loading.rt" :data-source="data.rt" :columns="cols.rt" :pagination="false" row-key="id">
@@ -228,6 +229,13 @@
     <a-modal v-bind="vcnManagerModalProps" :mask-closable="false" :keyboard="false" v-model:open="showCreateLpg" title="创建 Local Peering Gateway" @ok="doCreateLpg" :confirm-loading="creating">
       <a-form layout="vertical">
         <a-form-item label="名称" required><a-input v-model:value="newLpg.displayName" /></a-form-item>
+      </a-form>
+    </a-modal>
+
+    <!-- Create Route Table -->
+    <a-modal v-bind="vcnManagerModalProps" :mask-closable="false" :keyboard="false" v-model:open="showCreateRt" title="创建路由表" @ok="doCreateRt" :confirm-loading="creating">
+      <a-form layout="vertical">
+        <a-form-item label="名称" required><a-input v-model:value="newRt.displayName" /></a-form-item>
       </a-form>
     </a-modal>
 
@@ -421,7 +429,7 @@ import {
   listInternetGateways, createInternetGateway, deleteInternetGateway, updateInternetGateway, setupIgwDefaultRoutes,
   listNatGateways, createNatGateway, deleteNatGateway, updateNatGateway,
   listServiceGateways, createServiceGateway, deleteServiceGateway, updateServiceGateway,
-  listRouteTables, deleteRouteTable,
+  listRouteTables, createRouteTable, deleteRouteTable,
   listSecurityLists, deleteSecurityList, getSecurityList, addSecurityListRule, deleteSecurityListRule,
   listLocalPeeringGateways, createLocalPeeringGateway, connectLocalPeeringGateway, deleteLocalPeeringGateway, updateLocalPeeringGateway,
   previewVcnDelete, deleteVcn, updateVcn,
@@ -721,6 +729,22 @@ async function doCreateLpg() {
     await createLocalPeeringGateway({ ...ociBase.value, vcnId: props.vcn.id, displayName: newLpg.displayName })
     message.success('创建成功'); showCreateLpg.value = false; newLpg.displayName = ''
     loadLpg(true); emit('changed')
+  } catch (e: any) { message.error(e?.message || '创建失败') }
+  finally { creating.value = false }
+}
+
+const showCreateRt = ref(false)
+const newRt = reactive({ displayName: '' })
+async function doCreateRt() {
+  if (!newRt.displayName.trim()) return message.warning('请填写名称')
+  creating.value = true
+  try {
+    await createRouteTable({ ...ociBase.value, vcnId: props.vcn.id, displayName: newRt.displayName.trim() })
+    message.success('创建成功')
+    showCreateRt.value = false
+    newRt.displayName = ''
+    loadRt(true)
+    emit('changed')
   } catch (e: any) { message.error(e?.message || '创建失败') }
   finally { creating.value = false }
 }
@@ -1067,6 +1091,7 @@ const editingOverlayOpen = computed(() => (
   showCreateNat.value ||
   showCreateSg.value ||
   showCreateLpg.value ||
+  showCreateRt.value ||
   showConnectLpg.value ||
   showRename.value ||
   showEditSubnet.value ||
