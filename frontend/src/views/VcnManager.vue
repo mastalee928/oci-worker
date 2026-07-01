@@ -4,6 +4,8 @@
     @update:open="(v: boolean) => emit('update:open', v)"
     :title="`VCN 管理 — ${vcn?.displayName || ''}`"
     width="960"
+    :z-index="VCN_MANAGER_DRAWER_Z_INDEX"
+    :wrap-class-name="VCN_MANAGER_DRAWER_WRAP_CLASS"
     destroy-on-close
   >
     <a-descriptions :column="2" size="small" bordered style="margin-bottom: 16px">
@@ -189,7 +191,7 @@
     </a-tabs>
 
     <!-- Create Subnet -->
-    <a-modal :mask-closable="false" :keyboard="false" v-model:open="showCreateSubnet" title="创建子网" @ok="doCreateSubnet" :confirm-loading="creating">
+    <a-modal v-bind="vcnManagerModalProps" :mask-closable="false" :keyboard="false" v-model:open="showCreateSubnet" title="创建子网" @ok="doCreateSubnet" :confirm-loading="creating">
       <a-form layout="vertical">
         <a-form-item label="名称" required><a-input v-model:value="newSubnet.displayName" /></a-form-item>
         <a-form-item label="CIDR" required><a-input v-model:value="newSubnet.cidrBlock" placeholder="如 10.0.1.0/24" /></a-form-item>
@@ -200,7 +202,7 @@
     </a-modal>
 
     <!-- Create IGW -->
-    <a-modal :mask-closable="false" :keyboard="false" v-model:open="showCreateIgw" title="创建 Internet 网关" @ok="doCreateIgw" :confirm-loading="creating">
+    <a-modal v-bind="vcnManagerModalProps" :mask-closable="false" :keyboard="false" v-model:open="showCreateIgw" title="创建 Internet 网关" @ok="doCreateIgw" :confirm-loading="creating">
       <a-form layout="vertical">
         <a-form-item label="名称" required><a-input v-model:value="newIgw.displayName" /></a-form-item>
         <a-form-item><a-checkbox v-model:checked="newIgw.isEnabled">启用</a-checkbox></a-form-item>
@@ -208,14 +210,14 @@
     </a-modal>
 
     <!-- Create NAT -->
-    <a-modal :mask-closable="false" :keyboard="false" v-model:open="showCreateNat" title="创建 NAT 网关" @ok="doCreateNat" :confirm-loading="creating">
+    <a-modal v-bind="vcnManagerModalProps" :mask-closable="false" :keyboard="false" v-model:open="showCreateNat" title="创建 NAT 网关" @ok="doCreateNat" :confirm-loading="creating">
       <a-form layout="vertical">
         <a-form-item label="名称" required><a-input v-model:value="newNat.displayName" /></a-form-item>
       </a-form>
     </a-modal>
 
     <!-- Create SG -->
-    <a-modal :mask-closable="false" :keyboard="false" v-model:open="showCreateSg" title="创建服务网关" @ok="doCreateSg" :confirm-loading="creating">
+    <a-modal v-bind="vcnManagerModalProps" :mask-closable="false" :keyboard="false" v-model:open="showCreateSg" title="创建服务网关" @ok="doCreateSg" :confirm-loading="creating">
       <a-form layout="vertical">
         <a-form-item label="名称" required><a-input v-model:value="newSg.displayName" /></a-form-item>
         <a-alert type="info" message="默认添加该区域的全部 Oracle Services Network 服务" show-icon />
@@ -223,14 +225,14 @@
     </a-modal>
 
     <!-- Create LPG -->
-    <a-modal :mask-closable="false" :keyboard="false" v-model:open="showCreateLpg" title="创建 Local Peering Gateway" @ok="doCreateLpg" :confirm-loading="creating">
+    <a-modal v-bind="vcnManagerModalProps" :mask-closable="false" :keyboard="false" v-model:open="showCreateLpg" title="创建 Local Peering Gateway" @ok="doCreateLpg" :confirm-loading="creating">
       <a-form layout="vertical">
         <a-form-item label="名称" required><a-input v-model:value="newLpg.displayName" /></a-form-item>
       </a-form>
     </a-modal>
 
     <!-- Connect LPG -->
-    <a-modal :mask-closable="false" :keyboard="false" v-model:open="showConnectLpg" title="连接对端 LPG" @ok="doConnectLpg" :confirm-loading="creating">
+    <a-modal v-bind="vcnManagerModalProps" :mask-closable="false" :keyboard="false" v-model:open="showConnectLpg" title="连接对端 LPG" @ok="doConnectLpg" :confirm-loading="creating">
       <a-form layout="vertical">
         <a-form-item label="对端 LPG OCID" required>
           <a-input v-model:value="connectLpgPeerId" placeholder="ocid1.localpeeringgateway..." />
@@ -239,7 +241,7 @@
     </a-modal>
 
     <!-- Rename modal -->
-    <a-modal :mask-closable="false" :keyboard="false" v-model:open="showRename" :title="'改名 — ' + renameLabel" @ok="doRename" :confirm-loading="editing">
+    <a-modal v-bind="vcnManagerModalProps" :mask-closable="false" :keyboard="false" v-model:open="showRename" :title="'改名 — ' + renameLabel" @ok="doRename" :confirm-loading="editing">
       <a-form layout="vertical">
         <a-form-item label="新名称" required>
           <a-input v-model:value="renameValue" />
@@ -248,7 +250,7 @@
     </a-modal>
 
     <!-- Edit subnet -->
-    <a-modal :mask-closable="false" :keyboard="false" v-model:open="showEditSubnet" title="编辑子网" @ok="doEditSubnet" :confirm-loading="editing" width="600px">
+    <a-modal v-bind="vcnManagerModalProps" :mask-closable="false" :keyboard="false" v-model:open="showEditSubnet" title="编辑子网" @ok="doEditSubnet" :confirm-loading="editing" width="600px">
       <a-form layout="vertical">
         <a-form-item label="名称"><a-input v-model:value="editSubnet.displayName" /></a-form-item>
         <a-form-item label="路由表">
@@ -265,7 +267,7 @@
     </a-modal>
 
     <!-- Edit route table rules -->
-    <a-modal :keyboard="false" v-model:open="showEditRt" title="编辑路由表规则" @ok="doEditRt" :confirm-loading="editing" width="900px" :mask-closable="false">
+    <a-modal v-bind="vcnManagerModalProps" :keyboard="false" v-model:open="showEditRt" title="编辑路由表规则" @ok="doEditRt" :confirm-loading="editing" width="900px" :mask-closable="false">
       <a-spin :spinning="rtDetailLoading">
         <div style="margin-bottom: 8px">
           <a-button type="primary" size="small" @click="addRouteRule">添加规则</a-button>
@@ -302,7 +304,7 @@
     </a-modal>
 
     <!-- Edit security list rules -->
-    <a-modal :keyboard="false" v-model:open="showEditSl" :title="'安全规则 — ' + (slDetail?.displayName || '')" :footer="null" width="1000px" :mask-closable="false">
+    <a-modal v-bind="vcnManagerModalProps" :keyboard="false" v-model:open="showEditSl" :title="'安全规则 — ' + (slDetail?.displayName || '')" :footer="null" width="1000px" :mask-closable="false">
       <a-spin :spinning="slDetailLoading">
         <div style="margin-bottom: 12px; display: flex; gap: 8px; flex-wrap: wrap">
           <a-button type="primary" size="small" @click="openAddSlRule('ingress')">添加入站规则</a-button>
@@ -315,7 +317,7 @@
             <template v-if="column.key === 'protocol'">{{ protocolLabel(record.protocol) }}</template>
             <template v-else-if="column.key === 'isStateless'">{{ record.isStateless ? '无状态' : '有状态' }}</template>
             <template v-else-if="column.key === 'ruleAction'">
-              <a-popconfirm title="确定删除？" @confirm="doDeleteSlRule('ingress', record.index)">
+              <a-popconfirm title="确定删除？" :z-index="VCN_MANAGER_CONFIRM_MODAL_Z_INDEX" @confirm="doDeleteSlRule('ingress', record.index)">
                 <a-button size="small" danger type="link">删除</a-button>
               </a-popconfirm>
             </template>
@@ -327,7 +329,7 @@
             <template v-if="column.key === 'protocol'">{{ protocolLabel(record.protocol) }}</template>
             <template v-else-if="column.key === 'isStateless'">{{ record.isStateless ? '无状态' : '有状态' }}</template>
             <template v-else-if="column.key === 'ruleAction'">
-              <a-popconfirm title="确定删除？" @confirm="doDeleteSlRule('egress', record.index)">
+              <a-popconfirm title="确定删除？" :z-index="VCN_MANAGER_CONFIRM_MODAL_Z_INDEX" @confirm="doDeleteSlRule('egress', record.index)">
                 <a-button size="small" danger type="link">删除</a-button>
               </a-popconfirm>
             </template>
@@ -337,7 +339,7 @@
     </a-modal>
 
     <!-- Add security list rule -->
-    <a-modal :mask-closable="false" :keyboard="false" v-model:open="showAddSlRule" :title="(addSlForm.direction === 'ingress' ? '添加入站规则' : '添加出站规则')"
+    <a-modal v-bind="vcnManagerModalProps" :mask-closable="false" :keyboard="false" v-model:open="showAddSlRule" :title="(addSlForm.direction === 'ingress' ? '添加入站规则' : '添加出站规则')"
       @ok="doAddSlRule" :confirm-loading="editing">
       <a-form layout="vertical">
         <a-form-item label="协议" required>
@@ -371,7 +373,7 @@
     </a-modal>
 
     <!-- Edit IGW: setup default routes -->
-    <a-modal :mask-closable="false" :keyboard="false" v-model:open="showEditIgw" :title="'编辑 IGW — ' + (editIgwTarget?.displayName || '')" @ok="doSetupIgwRoutes"
+    <a-modal v-bind="vcnManagerModalProps" :mask-closable="false" :keyboard="false" v-model:open="showEditIgw" :title="'编辑 IGW — ' + (editIgwTarget?.displayName || '')" @ok="doSetupIgwRoutes"
       :confirm-loading="editing" ok-text="应用到默认路由表">
       <a-alert type="info" show-icon style="margin-bottom: 12px"
         message="将在该 VCN 的默认路由表中添加指向此 IGW 的默认路由；已存在的规则会自动跳过" />
@@ -394,6 +396,7 @@
 
     <!-- Delete verify：不可点遮罩/Esc 关闭；保留底部「取消」与右上角 X -->
     <a-modal
+      v-bind="vcnManagerModalProps"
       v-model:open="showDelete"
       :title="'删除 ' + deleteLabel"
       :width="400"
@@ -414,7 +417,7 @@
     </a-modal>
 
     <!-- Delete VCN preview + verify -->
-    <a-modal :mask-closable="false" :keyboard="false" v-model:open="showDeleteVcn" title="删除 VCN" @ok="doDeleteVcn" :confirm-loading="deleting" ok-text="确认删除" :ok-button-props="{ danger: true }">
+    <a-modal v-bind="vcnManagerModalProps" :mask-closable="false" :keyboard="false" v-model:open="showDeleteVcn" title="删除 VCN" @ok="doDeleteVcn" :confirm-loading="deleting" ok-text="确认删除" :ok-button-props="{ danger: true }">
       <a-alert type="error" message="将级联删除该 VCN 下全部子资源（子网、网关、路由表、安全列表等）" show-icon style="margin-bottom: 12px" />
       <div v-if="vcnPreview" style="max-height: 300px; overflow: auto; margin-bottom: 12px">
         <div v-for="(items, key) in vcnPreview" :key="key" style="margin-bottom: 6px">
@@ -451,6 +454,14 @@ import {
   previewVcnDelete, deleteVcn, listVcnGateways, updateVcn,
 } from '../api/vcn'
 import { sendVerifyCode } from '../api/system'
+import {
+  VCN_MANAGER_CONFIRM_MODAL_WRAP_CLASS,
+  VCN_MANAGER_CONFIRM_MODAL_Z_INDEX,
+  VCN_MANAGER_DRAWER_WRAP_CLASS,
+  VCN_MANAGER_DRAWER_Z_INDEX,
+  VCN_MANAGER_MODAL_WRAP_CLASS,
+  VCN_MANAGER_MODAL_Z_INDEX,
+} from '../utils/overlayZIndex'
 
 const props = withDefaults(defineProps<{ open: boolean; userId: string; vcn: any; ociRegion?: string }>(), { ociRegion: '' })
 const emit = defineEmits<{
@@ -458,6 +469,11 @@ const emit = defineEmits<{
   (e: 'changed'): void
   (e: 'editing-overlay-change', v: boolean): void
 }>()
+
+const vcnManagerModalProps = {
+  zIndex: VCN_MANAGER_MODAL_Z_INDEX,
+  wrapClassName: VCN_MANAGER_MODAL_WRAP_CLASS,
+}
 
 const ociBase = computed((): { id: string; region?: string } => {
   const z = props.ociRegion?.trim()
@@ -1077,6 +1093,8 @@ async function doDeleteVcn() {
     content: '此操作不可恢复，确定要删除该 VCN 吗？',
     okText: '删除',
     okType: 'danger',
+    zIndex: VCN_MANAGER_CONFIRM_MODAL_Z_INDEX,
+    wrapClassName: VCN_MANAGER_CONFIRM_MODAL_WRAP_CLASS,
     onOk: async () => {
       deleting.value = true
       try {

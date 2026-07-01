@@ -41,6 +41,9 @@
   --oci-z-tenant-floating-card: 1120;
   --oci-z-tenant-floating-card-rolling: 1200;
   --oci-z-quick-task-modal: 1320;
+  --oci-z-vcn-manager-drawer: 1360;
+  --oci-z-vcn-manager-modal: 1370;
+  --oci-z-vcn-manager-confirm: 1380;
   --oci-z-instance-confirm: 1410;
   --oci-z-quick-task-confirm: 1420;
   --oci-z-instance-safety: 1450;
@@ -157,6 +160,15 @@ body::after {
 
 .quick-task-modal-wrap {
   z-index: var(--oci-z-quick-task-modal);
+}
+.vcn-manager-drawer-wrap {
+  z-index: var(--oci-z-vcn-manager-drawer);
+}
+.vcn-manager-modal-wrap {
+  z-index: var(--oci-z-vcn-manager-modal);
+}
+.vcn-manager-confirm-modal-wrap {
+  z-index: var(--oci-z-vcn-manager-confirm);
 }
 .instance-confirm-modal-wrap {
   z-index: var(--oci-z-instance-confirm);
