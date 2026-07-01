@@ -1097,7 +1097,7 @@ public class TaskSchedulerService implements SmartLifecycle {
     }
 
     private void cleanExpiredTasks() {
-        LocalDateTime cutoff = LocalDateTime.now().minusDays(7);
+        LocalDateTime cutoff = LocalDateTime.now().minusDays(15);
         taskMapper.delete(new LambdaQueryWrapper<OciCreateTask>()
                 .in(OciCreateTask::getStatus,
                         TaskStatusEnum.COMPLETED.getStatus(),
