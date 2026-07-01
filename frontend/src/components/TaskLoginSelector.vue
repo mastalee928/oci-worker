@@ -110,67 +110,64 @@ function useSavedPublicKey() {
 
 <style scoped>
 .task-login-selector {
-  --task-login-accent: #34d399;
-  --task-login-accent-bg: rgba(16, 185, 129, 0.14);
-  --task-login-accent-soft: rgba(16, 185, 129, 0.08);
-  --task-login-accent-border: rgba(16, 185, 129, 0.45);
+  --task-login-action: #9ca3ff;
+  --task-login-action-hover: #c4c8ff;
+  --task-login-success: #75e0b4;
+  --task-login-input: #0f172a;
+  --task-login-key-border: rgba(117, 224, 180, 0.32);
+  --task-login-key-bg: linear-gradient(90deg, rgba(117, 224, 180, 0.08), rgba(124, 114, 255, 0.06)), var(--task-login-input);
 }
 
 :global([data-theme="light"]) .task-login-selector {
-  --task-login-accent: #047857;
-  --task-login-accent-bg: rgba(5, 150, 105, 0.12);
-  --task-login-accent-soft: rgba(5, 150, 105, 0.08);
-  --task-login-accent-border: rgba(5, 150, 105, 0.38);
+  --task-login-action: #6366f1;
+  --task-login-action-hover: #4f46e5;
+  --task-login-success: #047857;
+  --task-login-input: #ffffff;
+  --task-login-key-border: rgba(5, 150, 105, 0.32);
+  --task-login-key-bg: linear-gradient(90deg, rgba(5, 150, 105, 0.08), rgba(99, 102, 241, 0.05)), var(--task-login-input);
 }
 
 .task-login-actions {
   display: flex;
   align-items: center;
-  flex-wrap: nowrap;
-  gap: 4px;
-  min-height: 26px;
-  margin-top: 6px;
-  overflow-x: auto;
-  white-space: nowrap;
-  scrollbar-width: none;
-}
-
-.task-login-actions::-webkit-scrollbar {
-  display: none;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 27px;
+  margin-top: 8px;
 }
 
 .task-login-action {
   appearance: none;
-  height: 20px;
-  padding: 0;
+  height: 24px;
+  padding: 0 2px;
   border: 0;
   background: transparent;
-  color: var(--primary);
+  color: var(--task-login-action);
   cursor: pointer;
-  font-size: 12px;
-  font-weight: 500;
-  line-height: 20px;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: normal;
   min-width: 0;
 }
 
 .task-login-action:hover {
-  color: var(--primary-hover);
+  color: var(--task-login-action-hover);
 }
 
 .task-login-action--active,
 .task-login-action--active:hover {
-  color: var(--task-login-accent);
-  font-weight: 600;
+  color: var(--task-login-success);
 }
 
 .task-login-public-key-input,
 :deep(.task-login-public-key-input.ant-input) {
-  border-color: var(--task-login-accent-border);
-  background: var(--task-login-accent-soft) !important;
-  color: var(--task-login-accent) !important;
-  -webkit-text-fill-color: var(--task-login-accent);
+  border-color: var(--task-login-key-border);
+  background: var(--task-login-key-bg) !important;
+  color: var(--task-login-success) !important;
+  -webkit-text-fill-color: var(--task-login-success);
   cursor: default;
-  font-weight: 600;
+  font-weight: 400;
 }
 
 .task-login-selector :deep(.ant-form-item-control-input) {
@@ -179,11 +176,11 @@ function useSavedPublicKey() {
 
 @media (max-width: 768px) {
   .task-login-actions {
-    gap: 4px;
+    gap: 8px;
   }
 
   .task-login-action {
-    padding: 0;
+    padding: 0 2px;
   }
 }
 </style>
