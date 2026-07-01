@@ -9,10 +9,12 @@ import com.ociworker.enums.ArchitectureEnum;
 import com.ociworker.enums.TaskStatusEnum;
 import com.ociworker.exception.OciException;
 import com.ociworker.mapper.OciCreateTaskMapper;
+import com.ociworker.mapper.OciKvMapper;
 import com.ociworker.mapper.OciUserMapper;
 import com.ociworker.model.dto.InstanceDetailDTO;
 import com.ociworker.model.dto.SysUserDTO;
 import com.ociworker.model.entity.OciCreateTask;
+import com.ociworker.model.entity.OciKv;
 import com.ociworker.model.entity.OciUser;
 import com.ociworker.model.params.PageParams;
 import cn.hutool.core.util.StrUtil;
@@ -55,6 +57,8 @@ public class TaskSchedulerService implements SmartLifecycle {
     private OciUserMapper userMapper;
     @Resource
     private NotificationService notificationService;
+    @Resource
+    private OciKvMapper kvMapper;
 
     private final Map<String, Future<?>> taskMap = new ConcurrentHashMap<>();
     private final Set<String> runningTasks = ConcurrentHashMap.newKeySet();
@@ -66,6 +70,7 @@ public class TaskSchedulerService implements SmartLifecycle {
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final int CREATE_TASK_DEDUP_SECONDS = 5;
     private static final int SERVICE_LIMIT_NOTIFY_COOLDOWN_MINUTES = 60;
+    private static final String SERVICE_LIMIT_MUTE_KV_TYPE = "task_service_limit_mute";
     private static final String CALLBACK_SERVICE_LIMIT_STOP_REQUEST = "ctsl_stop_req|";
     private static final String CALLBACK_SERVICE_LIMIT_STOP_CONFIRM = "ctsl_stop_ok|";
     private static final String CALLBACK_SERVICE_LIMIT_MUTE = "ctsl_mute|";
@@ -91,6 +96,7 @@ public class TaskSchedulerService implements SmartLifecycle {
                         task.setStatus(TaskStatusEnum.FAILED.getStatus());
                         task.setFailureReason("❌ 租户配置不存在，服务重启后无法恢复任务。");
                         taskMapper.updateById(task);
+                        clearServiceLimitNotifyState(task.getId());
                         continue;
                     }
                     SysUserDTO dto = buildSysUserDTO(ociUser, task);
@@ -102,6 +108,7 @@ public class TaskSchedulerService implements SmartLifecycle {
                     task.setStatus(TaskStatusEnum.FAILED.getStatus());
                     task.setFailureReason("❌ 服务重启后恢复任务失败：" + e.getMessage());
                     taskMapper.updateById(task);
+                    clearServiceLimitNotifyState(task.getId());
                 }
             }
         }
@@ -547,7 +554,7 @@ public class TaskSchedulerService implements SmartLifecycle {
                     answerTaskCallback(callbackQueryId, "无效任务", false, answeringBotToken);
                     return true;
                 }
-                serviceLimitNotifyMutedTasks.add(taskId);
+                persistServiceLimitNotifyMute(taskId);
                 answerTaskCallback(callbackQueryId, "已对当前任务关闭服务限制提醒", false, answeringBotToken);
                 return true;
             }
@@ -582,6 +589,9 @@ public class TaskSchedulerService implements SmartLifecycle {
         if (taskId != null) {
             serviceLimitNotifyTimes.remove(taskId);
             serviceLimitNotifyMutedTasks.remove(taskId);
+            kvMapper.delete(new LambdaQueryWrapper<OciKv>()
+                    .eq(OciKv::getCode, taskId)
+                    .eq(OciKv::getType, SERVICE_LIMIT_MUTE_KV_TYPE));
         }
     }
 
@@ -932,7 +942,7 @@ public class TaskSchedulerService implements SmartLifecycle {
     private void notifyOciServiceLimitIfNeeded(String taskId, OciCreateTask task, String username, String region,
                                                String series, String arch, InstanceDetailDTO result,
                                                int intervalSeconds) {
-        if (StrUtil.isBlank(taskId) || serviceLimitNotifyMutedTasks.contains(taskId)) {
+        if (StrUtil.isBlank(taskId) || isServiceLimitNotifyMuted(taskId)) {
             return;
         }
         LocalDateTime now = LocalDateTime.now();
@@ -967,6 +977,48 @@ public class TaskSchedulerService implements SmartLifecycle {
                 List.of(List.of(
                         Map.of("text", "停止任务", "callback_data", CALLBACK_SERVICE_LIMIT_STOP_REQUEST + taskId),
                         Map.of("text", "不再提醒", "callback_data", CALLBACK_SERVICE_LIMIT_MUTE + taskId))));
+    }
+
+    private boolean isServiceLimitNotifyMuted(String taskId) {
+        if (StrUtil.isBlank(taskId)) {
+            return false;
+        }
+        if (serviceLimitNotifyMutedTasks.contains(taskId)) {
+            return true;
+        }
+        OciKv existing = kvMapper.selectOne(new LambdaQueryWrapper<OciKv>()
+                .eq(OciKv::getCode, taskId)
+                .eq(OciKv::getType, SERVICE_LIMIT_MUTE_KV_TYPE)
+                .last("LIMIT 1"));
+        if (existing != null) {
+            serviceLimitNotifyMutedTasks.add(taskId);
+            return true;
+        }
+        return false;
+    }
+
+    private void persistServiceLimitNotifyMute(String taskId) {
+        if (StrUtil.isBlank(taskId)) {
+            return;
+        }
+        OciKv existing = kvMapper.selectOne(new LambdaQueryWrapper<OciKv>()
+                .eq(OciKv::getCode, taskId)
+                .eq(OciKv::getType, SERVICE_LIMIT_MUTE_KV_TYPE)
+                .last("LIMIT 1"));
+        if (existing != null) {
+            existing.setValue("1");
+            kvMapper.updateById(existing);
+            serviceLimitNotifyMutedTasks.add(taskId);
+            return;
+        }
+        OciKv kv = new OciKv();
+        kv.setId(CommonUtils.generateId());
+        kv.setCode(taskId);
+        kv.setType(SERVICE_LIMIT_MUTE_KV_TYPE);
+        kv.setValue("1");
+        kv.setCreateTime(LocalDateTime.now());
+        kvMapper.insert(kv);
+        serviceLimitNotifyMutedTasks.add(taskId);
     }
 
     private void applyAdExcludedNoShapeBroadcast(String taskId, String user, String region, String arch,
