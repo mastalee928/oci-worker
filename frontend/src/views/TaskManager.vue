@@ -1300,6 +1300,12 @@ onMounted(() => loadData())
   overflow: auto;
 }
 @media (max-width: 768px) {
+  .quick-login-options-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .quick-login-options-row > div:nth-child(3) {
+    grid-column: 1 / -1;
+  }
   .table-toolbar { margin-bottom: 12px; }
   :global(.task-mobile-modal-wrap .ant-modal) {
     top: 12px;

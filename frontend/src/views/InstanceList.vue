@@ -6105,6 +6105,12 @@ onUnmounted(() => {
 }
 
 @media (max-width: 768px) {
+  .quick-login-options-row {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+  .quick-login-options-row > div:nth-child(3) {
+    grid-column: 1 / -1;
+  }
   .instance-toolbar { flex-direction: column; align-items: stretch; }
   .toolbar-left, .toolbar-right { width: 100%; flex-wrap: wrap; }
   .toolbar-left :deep(.ant-input-search) { width: 100% !important; flex: 1 1 100%; }
