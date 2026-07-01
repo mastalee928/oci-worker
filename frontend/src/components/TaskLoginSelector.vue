@@ -4,7 +4,7 @@
       v-if="isPublicKeyMode"
       class="task-login-public-key-input"
       value="使用 SSH 公钥登录"
-      disabled
+      readonly
     />
     <a-input-password
       v-else
@@ -14,25 +14,23 @@
       @update:value="onPasswordInput"
     />
     <div class="task-login-actions" aria-label="登录凭据快捷操作">
-      <a-button type="text" size="small" class="task-login-action" @click="useRandomPassword">随机生成</a-button>
-      <a-button
-        type="text"
-        size="small"
+      <button type="button" class="task-login-action" @click="useRandomPassword">随机生成</button>
+      <button
+        type="button"
         class="task-login-action"
         :class="{ 'task-login-action--active': isSavedPasswordMode }"
         @click="useSavedPassword"
       >
         我的密码
-      </a-button>
-      <a-button
-        type="text"
-        size="small"
+      </button>
+      <button
+        type="button"
         class="task-login-action"
         :class="{ 'task-login-action--active': isPublicKeyMode }"
         @click="useSavedPublicKey"
       >
         我的公钥
-      </a-button>
+      </button>
     </div>
   </a-form-item>
 </template>
@@ -142,31 +140,36 @@ function useSavedPublicKey() {
 }
 
 .task-login-action {
-  height: 24px;
-  padding: 0 4px;
-  border-radius: 6px;
+  appearance: none;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  background: transparent;
   color: var(--primary);
+  cursor: pointer;
   font-size: 12px;
+  font-weight: 500;
+  line-height: 20px;
   min-width: 0;
 }
 
 .task-login-action:hover {
-  background: rgba(99, 102, 241, 0.1);
+  color: var(--primary-hover);
 }
 
 .task-login-action--active,
 .task-login-action--active:hover {
-  background: var(--task-login-accent-bg);
   color: var(--task-login-accent);
   font-weight: 600;
 }
 
 .task-login-public-key-input,
-:deep(.task-login-public-key-input.ant-input-disabled) {
+:deep(.task-login-public-key-input.ant-input) {
   border-color: var(--task-login-accent-border);
   background: var(--task-login-accent-soft) !important;
   color: var(--task-login-accent) !important;
   -webkit-text-fill-color: var(--task-login-accent);
+  cursor: default;
   font-weight: 600;
 }
 
@@ -180,7 +183,7 @@ function useSavedPublicKey() {
   }
 
   .task-login-action {
-    padding: 0 4px;
+    padding: 0;
   }
 }
 </style>
