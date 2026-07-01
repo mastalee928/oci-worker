@@ -2174,6 +2174,14 @@ import { collectGroupExpandKeys, isAllGroupsExpanded } from '../composables/grou
 import { useTenantCatalogStore } from '../stores/tenantCatalog'
 import { useThemeStore } from '../stores/theme'
 import { appQueryCache, createListSignature } from '../utils/queryCache'
+import {
+  formatTenantPlanLabel as formatPlanType,
+  formatTenantPlanType as formatPlanBadgeValue,
+  isFreeTierPlan,
+  isPaygPlan,
+  normalizeTenantPlanType as normalizePlanType,
+  tenantPlanTagColor as planTypeTagColor,
+} from '../utils/tenantPlan'
 import utc from 'dayjs/plugin/utc'
 
 dayjs.extend(utc)
@@ -2210,43 +2218,8 @@ function formatBillingPeriod(start: string | null | undefined, end: string | nul
   return `${s} ～ ${e}`
 }
 
-function normalizePlanType(plan: string | null | undefined) {
-  if (!plan) return ''
-  return String(plan).trim().toUpperCase().replace(/[\s-]+/g, '_')
-}
-
-function isPaygPlan(plan: string | null | undefined) {
-  const p = normalizePlanType(plan)
-  return p === 'PAYG'
-}
-
-function isFreeTierPlan(plan: string | null | undefined) {
-  const p = normalizePlanType(plan).replace(/_/g, '')
-  return p === 'FREE' || p === 'FREETIER'
-}
-
-function formatPlanType(v: string | null | undefined): string {
-  if (!v) return '—'
-  if (isFreeTierPlan(v)) return '免费套餐 (Free Tier)'
-  if (isPaygPlan(v)) return '按量付费 (PAYG)'
-  const map: Record<string, string> = {
-    PAYG: '按量付费 (PAYG)',
-  }
-  const normalized = normalizePlanType(v)
-  return map[normalized] || normalized || v
-}
-
-function planTypeTagColor(plan: string | null | undefined) {
-  if (isFreeTierPlan(plan)) return 'default'
-  return 'green'
-}
-
 function formatPlanBadge(plan: string | null | undefined, fallback = '获取中...') {
-  const normalized = normalizePlanType(plan)
-  if (!normalized) return fallback
-  if (isPaygPlan(normalized)) return 'PAYG'
-  if (isFreeTierPlan(normalized)) return normalized === 'FREE' ? 'FREE' : 'FREE_TIER'
-  return normalized
+  return formatPlanBadgeValue(plan) || fallback
 }
 
 function planTypeBadgeClass(plan: string | null | undefined) {

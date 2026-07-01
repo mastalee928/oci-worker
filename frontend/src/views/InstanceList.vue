@@ -2081,6 +2081,11 @@ import {
   BOOT_VOLUME_VPUS_MIN,
   BOOT_VOLUME_VPUS_STEP,
 } from '../utils/bootVolume'
+import {
+  formatTenantPlanType,
+  isFreeTierPlan,
+  tenantPlanTagColor,
+} from '../utils/tenantPlan'
 import { appQueryCache, createListSignature } from '../utils/queryCache'
 import {
   INSTANCE_CONFIRM_MODAL_WRAP_CLASS,
@@ -2122,28 +2127,6 @@ function formatInstanceCreatedDate(v: unknown): string {
   const m = String(d.month() + 1).padStart(2, '0')
   const day = String(d.date()).padStart(2, '0')
   return `${y}年${m}月${day}日`
-}
-
-function normalizeTenantPlanType(plan: unknown): string {
-  if (plan == null) return ''
-  return String(plan).trim().toUpperCase().replace(/[\s-]+/g, '_')
-}
-
-function isFreeTierPlan(plan: unknown): boolean {
-  const normalized = normalizeTenantPlanType(plan).replace(/_/g, '')
-  return normalized === 'FREE' || normalized === 'FREETIER'
-}
-
-function formatTenantPlanType(plan: unknown): string {
-  const normalized = normalizeTenantPlanType(plan)
-  if (!normalized) return ''
-  if (isFreeTierPlan(normalized)) return normalized === 'FREE' ? 'FREE' : 'FREE_TIER'
-  if (normalized === 'PAYG') return 'PAYG'
-  return normalized
-}
-
-function tenantPlanTagColor(plan: unknown): string {
-  return isFreeTierPlan(plan) ? 'default' : 'green'
 }
 
 function tenantPlanTagStyle(plan: unknown): Record<string, string> | undefined {
