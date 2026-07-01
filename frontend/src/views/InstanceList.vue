@@ -584,8 +584,8 @@
                 :max="quickTaskShapeLimits.maxOcpus"
                 :disabled="quickTaskBmLocked"
                 style="width: 100%"
-                @update:value="(v: number | null) => applyTaskOcpusInput(quickTaskForm, v, quickTaskShapes)"
-                @blur="() => clampTaskShapeResources(quickTaskForm, quickTaskShapes)"
+                @update:value="updateQuickTaskOcpus"
+                @blur="clampQuickTaskResources"
               />
             </a-form-item>
           </a-col>
@@ -597,8 +597,8 @@
                 :max="quickTaskShapeLimits.maxMemory"
                 :disabled="quickTaskBmLocked"
                 style="width: 100%"
-                @update:value="(v: number | null) => applyTaskMemoryInput(quickTaskForm, v, quickTaskShapes)"
-                @blur="() => clampTaskShapeResources(quickTaskForm, quickTaskShapes)"
+                @update:value="updateQuickTaskMemory"
+                @blur="clampQuickTaskResources"
               />
             </a-form-item>
           </a-col>
@@ -617,7 +617,7 @@
                 :max="BOOT_VOLUME_VPUS_MAX"
                 :step="BOOT_VOLUME_VPUS_STEP"
                 style="width: 100%"
-                @blur="quickTaskForm.vpusPerGB = snapBootVpusPerGb(quickTaskForm.vpusPerGB)"
+                @blur="snapQuickTaskBootVpus"
               />
             </a-form-item>
           </a-col>
@@ -2049,7 +2049,6 @@ import {
   stopShapeEditTask,
   assignEphemeralIp, deletePublicIp, deleteSecondaryIp,
   createConsoleConnection, deleteConsoleConnection,
-  getAvailableShapes,
   getShapesForInstance,
   forceA2ToA1,
   type ShapeEditTaskStatus,
@@ -2062,29 +2061,17 @@ const StorageManager = defineAsyncComponent(() => import('./StorageManager.vue')
 const ByoipPanel = defineAsyncComponent(() => import('./ByoipPanel.vue'))
 const ForceA2ConfirmModal = defineAsyncComponent(() => import('../components/instance/ForceA2ConfirmModal.vue'))
 const TerminateVerifyModal = defineAsyncComponent(() => import('../components/instance/TerminateVerifyModal.vue'))
-import { createTask, hasRunningTask } from '../api/task'
 import { sendVerifyCode } from '../api/system'
 import { listStorageRegions } from '../api/storage'
 import {
-  loadOciRegionCatalog,
   ociRegionSelectOptions,
-  filterOciRegionSelectOption,
 } from '../utils/ociRegionCatalog'
 import {
-  applyTaskOcpusInput,
-  applyTaskMemoryInput,
-  applyTaskShapeDefaults,
-  clampTaskShapeResources,
   getFlexShapeSpec,
-  isFixedTaskShapeSpec,
   resolveShapeEditFlexLimits,
-  resolveTaskShapeLimits,
   formatShapeResourceRangeLabel,
-  taskMemoryFieldLabel,
-  taskOcpuFieldLabel,
-  validateDenseIoFlexTier,
 } from '../constants/ociBmShapeSpecs'
-import { useDenseIoFlexTier } from '../composables/useDenseIoFlexTier'
+import { useQuickTask } from '../composables/useQuickTask'
 import { isAllGroupsExpanded } from '../composables/groupExpandToggle'
 import ShapeSeriesPicker from '../components/ShapeSeriesPicker.vue'
 import VirtualTenantCardList from '../components/tenant/VirtualTenantCardList.vue'
@@ -2093,17 +2080,13 @@ import {
   BOOT_VOLUME_VPUS_MAX,
   BOOT_VOLUME_VPUS_MIN,
   BOOT_VOLUME_VPUS_STEP,
-  snapBootVpusPerGb,
 } from '../utils/bootVolume'
-import { SHAPE_E2_MICRO, TASK_ARM_SHAPE, normalizeTaskArchitecture } from '../utils/shapeSeries'
 import { appQueryCache, createListSignature } from '../utils/queryCache'
 import {
   INSTANCE_CONFIRM_MODAL_WRAP_CLASS,
   INSTANCE_CONFIRM_MODAL_Z_INDEX,
   INSTANCE_SAFETY_MODAL_WRAP_CLASS,
   INSTANCE_SAFETY_MODAL_Z_INDEX,
-  QUICK_TASK_CONFIRM_MODAL_WRAP_CLASS,
-  QUICK_TASK_CONFIRM_MODAL_Z_INDEX,
   QUICK_TASK_MODAL_Z_INDEX,
 } from '../utils/overlayZIndex'
 import dayjs from 'dayjs'
@@ -3590,125 +3573,30 @@ async function handleForceA2ToA1Confirm() {
   }
 }
 
-const quickTaskVisible = ref(false)
-const quickTaskLoading = ref(false)
-const quickTaskTenant = ref<any>(null)
-const quickTaskShapes = ref<any[]>([])
-const quickTaskShapesLoading = ref(false)
-const quickTaskForm = reactive({
-  ociRegion: undefined as string | undefined,
-  architecture: TASK_ARM_SHAPE, operationSystem: 'Ubuntu',
-  ocpus: 1, memory: 6, disk: 50, vpusPerGB: 10, createNumbers: 1, interval: 60, rootPassword: '', customScript: '',
-  assignPublicIp: true, assignIpv6: false,
-})
-
-function quickTaskPopupContainer(triggerNode?: HTMLElement) {
-  return (triggerNode?.closest('.quick-task-modal-wrap') as HTMLElement | null) || document.body
-}
-
-function resolveQuickTaskRegion() {
-  return quickTaskForm.ociRegion?.trim() || quickTaskTenant.value?.ociRegion?.trim() || ''
-}
-
-const quickTaskBmLocked = ref(false)
-const quickTaskShapeLimits = computed(() =>
-  resolveTaskShapeLimits(quickTaskForm.architecture, quickTaskShapes.value),
-)
-const quickTaskOcpuLabel = computed(() =>
-  taskOcpuFieldLabel(quickTaskForm.architecture, quickTaskShapes.value),
-)
-const quickTaskMemoryLabel = computed(() =>
-  taskMemoryFieldLabel(quickTaskForm.architecture, quickTaskShapes.value),
-)
 const {
-  tiers: quickDenseIoTiers,
-  tierKey: quickDenseIoTierKey,
+  quickTaskVisible,
+  quickTaskLoading,
+  quickTaskTenant,
+  quickTaskShapes,
+  quickTaskShapesLoading,
+  quickTaskForm,
+  quickTaskPopupContainer,
+  quickTaskBmLocked,
+  quickTaskShapeLimits,
+  quickTaskOcpuLabel,
+  quickTaskMemoryLabel,
+  quickDenseIoTiers,
+  quickDenseIoTierKey,
   formatDenseIoTierLabel,
   denseIoFlexTierKey,
-} = useDenseIoFlexTier(quickTaskForm)
-
-watch(
-  () => quickTaskForm.architecture,
-  (arch) => {
-    if (arch == null || arch === undefined) return
-    quickTaskBmLocked.value = applyTaskShapeDefaults(quickTaskForm, quickTaskShapes.value)
-    clampTaskShapeResources(quickTaskForm, quickTaskShapes.value)
-  },
-)
-
-watch(
-  () => [quickTaskForm.ocpus, quickTaskForm.memory, quickTaskShapeLimits.value] as const,
-  () => clampTaskShapeResources(quickTaskForm, quickTaskShapes.value),
-)
-
-watch(quickTaskShapes, () => {
-  if (isFixedTaskShapeSpec(quickTaskForm.architecture)) {
-    quickTaskBmLocked.value = applyTaskShapeDefaults(quickTaskForm, quickTaskShapes.value)
-  }
-  clampTaskShapeResources(quickTaskForm, quickTaskShapes.value)
-})
-
-let quickTaskShapeLoadGen = 0
-
-async function loadQuickTaskShapes() {
-  const tid = quickTaskTenant.value?.id
-  if (!tid) {
-    quickTaskShapes.value = []
-    return
-  }
-  const gen = ++quickTaskShapeLoadGen
-  quickTaskShapesLoading.value = true
-  try {
-    const region = resolveQuickTaskRegion() || undefined
-    const res = await getAvailableShapes({ id: tid, ...(region ? { region } : {}) })
-    if (gen !== quickTaskShapeLoadGen) return
-    quickTaskShapes.value = res.data || []
-    quickTaskForm.architecture = normalizeTaskArchitecture(quickTaskForm.architecture)
-    const arch = quickTaskForm.architecture
-    const ok =
-      arch === SHAPE_E2_MICRO ||
-      quickTaskShapes.value.some((s: any) => s.shape === arch)
-    if (!ok) quickTaskForm.architecture = TASK_ARM_SHAPE
-    if (gen === quickTaskShapeLoadGen && isFixedTaskShapeSpec(quickTaskForm.architecture)) {
-      quickTaskBmLocked.value = applyTaskShapeDefaults(quickTaskForm, quickTaskShapes.value)
-    }
-  } catch {
-    if (gen === quickTaskShapeLoadGen) quickTaskShapes.value = []
-  } finally {
-    if (gen === quickTaskShapeLoadGen) quickTaskShapesLoading.value = false
-  }
-}
-
-function buildQuickTaskPayload(region: string) {
-  const architecture = normalizeTaskArchitecture(quickTaskForm.architecture)
-  const vpusPerGB = snapBootVpusPerGb(quickTaskForm.vpusPerGB)
-  quickTaskForm.architecture = architecture
-  quickTaskForm.vpusPerGB = vpusPerGB
-  return {
-    userId: quickTaskTenant.value.id,
-    ...quickTaskForm,
-    architecture,
-    ociRegion: region,
-    vpusPerGB,
-  }
-}
-
-watch(quickTaskVisible, (open) => {
-  if (!open) {
-    quickTaskShapes.value = []
-    quickTaskShapeLoadGen++
-    quickTaskShapesLoading.value = false
-    quickTaskBmLocked.value = false
-  }
-})
-
-watch(
-  () => quickTaskForm.ociRegion,
-  async () => {
-    if (!quickTaskVisible.value || !quickTaskTenant.value?.id) return
-    await loadQuickTaskShapes()
-  },
-)
+  openQuickTask,
+  generateQuickTaskRandomPwd,
+  updateQuickTaskOcpus,
+  updateQuickTaskMemory,
+  clampQuickTaskResources,
+  snapQuickTaskBootVpus,
+  handleQuickTask,
+} = useQuickTask()
 
 const consoleLoading = ref(false)
 const consoleData = ref<any>(null)
@@ -5160,88 +5048,6 @@ async function loadTraffic() {
     resetTrafficMobileWindow()
   } catch (e: any) { message.error(e?.message || '加载流量数据失败') }
   finally { trafficLoading.value = false }
-}
-
-function openQuickTask(tenant: any) {
-  quickTaskTenant.value = tenant
-  Object.assign(quickTaskForm, {
-    ociRegion: tenant.ociRegion || undefined,
-    architecture: TASK_ARM_SHAPE, operationSystem: 'Ubuntu',
-    ocpus: 1, memory: 6, disk: 50, vpusPerGB: 10, createNumbers: 1, interval: 60, rootPassword: '', customScript: '',
-    assignPublicIp: true, assignIpv6: false,
-  })
-  quickTaskBmLocked.value = false
-  quickTaskVisible.value = true
-  void loadOciRegionCatalog(tenant.id)
-  void loadQuickTaskShapes()
-}
-
-function generateQuickTaskRandomPwd() {
-  const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$%'
-  let pwd = ''
-  for (let i = 0; i < 16; i++) pwd += chars[Math.floor(Math.random() * chars.length)]
-  quickTaskForm.rootPassword = pwd
-  message.success('已生成随机密码')
-}
-
-async function handleQuickTask() {
-  if (quickTaskLoading.value) return
-  if (!quickTaskTenant.value) return
-  quickTaskLoading.value = true
-  let waitingDuplicateConfirm = false
-  try {
-    const region = resolveQuickTaskRegion()
-    if (!region) {
-      message.error('请选择目标区域')
-      return
-    }
-    quickTaskForm.ociRegion = region
-    const denseErr = validateDenseIoFlexTier(quickTaskForm.architecture, quickTaskForm.ocpus, quickTaskForm.memory)
-    if (denseErr) {
-      message.error(denseErr)
-      return
-    }
-    if (quickTaskForm.architecture?.includes('A2.Flex') && quickTaskForm.ocpus === 1 && quickTaskForm.memory === 1) {
-      message.error('比例错误')
-      return
-    }
-
-    if (!quickTaskForm.rootPassword) generateQuickTaskRandomPwd()
-    const payload = buildQuickTaskPayload(region)
-
-    try {
-      const checkRes = await hasRunningTask({ userId: quickTaskTenant.value.id })
-      if (checkRes.data === true) {
-        waitingDuplicateConfirm = true
-        Modal.confirm({
-          title: '重复任务提醒',
-          content: '该账户已有正在运行的开机任务，是否仍要重复提交？',
-          okText: '继续创建',
-          cancelText: '取消',
-          zIndex: QUICK_TASK_CONFIRM_MODAL_Z_INDEX,
-          wrapClassName: QUICK_TASK_CONFIRM_MODAL_WRAP_CLASS,
-          onOk: () => doQuickTask(payload),
-          onCancel: () => { quickTaskLoading.value = false },
-          afterClose: () => { quickTaskLoading.value = false },
-        })
-        return
-      }
-    } catch {}
-
-    await doQuickTask(payload)
-  } finally {
-    if (!waitingDuplicateConfirm) quickTaskLoading.value = false
-  }
-}
-
-async function doQuickTask(payload: any) {
-  try {
-    await createTask(payload)
-    message.success('开机任务已创建')
-    quickTaskVisible.value = false
-  } catch (e: any) {
-    message.error(e?.message || '创建任务失败')
-  }
 }
 
 onMounted(() => {
