@@ -400,6 +400,7 @@ public class TaskSchedulerService implements SmartLifecycle {
         taskMapper.updateById(task);
 
         clearTaskExcludedAds(taskId);
+        clearServiceLimitNotifyState(taskId);
         SysUserDTO dto = buildSysUserDTO(ociUser, task);
         scheduleTask(task.getId(), dto, task.getIntervalSeconds());
 
@@ -445,6 +446,7 @@ public class TaskSchedulerService implements SmartLifecycle {
         taskMapper.updateById(task);
 
         clearTaskExcludedAds(taskId);
+        clearServiceLimitNotifyState(taskId);
         if (wasRunning) {
             OciUser ociUser = userMapper.selectById(task.getUserId());
             if (ociUser != null) {
