@@ -32,7 +32,9 @@
 
     <a-tabs v-model:active-key="activeTab" class="settings-page-tabs">
       <a-tab-pane key="security" tab="安全设置">
-        <a-card title="修改登录密码" class="settings-card pwd-change-card">
+        <a-segmented v-model:value="securitySection" :options="securitySectionOptions" class="settings-section-segment" />
+
+        <a-card v-if="securitySection === 'password'" title="修改登录密码" class="settings-card pwd-change-card">
           <div v-if="!pwdTgVerified" class="lock-panel settings-no-select">
             <i :class="tgConfigured ? 'ri-shield-check-line' : 'ri-lock-2-line'" class="lock-icon"></i>
             <p class="lock-text">{{ tgConfigured ? '修改密码需要 Telegram 验证码' : '请输入登录密码以继续' }}</p>
@@ -62,7 +64,7 @@
           </a-form>
         </a-card>
 
-        <a-card title="开机凭据" class="settings-card task-credential-card" style="margin-top: 16px">
+        <a-card v-else-if="securitySection === 'credential'" title="开机凭据" class="settings-card task-credential-card">
           <a-form layout="vertical">
             <a-form-item label="我的密码">
               <a-input-password
@@ -99,7 +101,7 @@
           </a-form>
         </a-card>
 
-        <a-card title="登录安全说明" class="settings-card settings-no-select" style="margin-top: 16px">
+        <a-card v-else title="登录安全说明" class="settings-card settings-no-select">
           <a-descriptions :column="1" bordered size="small">
             <a-descriptions-item label="Token 有效期">24 小时</a-descriptions-item>
             <a-descriptions-item label="关闭浏览器">Token 保持有效，直到过期</a-descriptions-item>
@@ -953,6 +955,12 @@ const themeStore = useThemeStore()
 
 const router = useRouter()
 const activeTab = ref('security')
+const securitySection = ref<'password' | 'credential' | 'guide'>('password')
+const securitySectionOptions = [
+  { label: '登录密码', value: 'password' },
+  { label: '开机凭据', value: 'credential' },
+  { label: '安全说明', value: 'guide' },
+]
 const ANNOUNCEMENT_INBOX_STALE_MS = 30_000
 const pwdLoading = ref(false)
 const saveLoading = ref(false)
@@ -2654,6 +2662,10 @@ async function handleRestore() {
   max-width: min(1120px, 100%);
   width: 100%;
 }
+.settings-section-segment {
+  margin-bottom: 16px;
+  max-width: 100%;
+}
 .notify-section-segment {
   margin-bottom: 18px;
   max-width: 100%;
@@ -3318,6 +3330,9 @@ async function handleRestore() {
     max-width: 100% !important;
   }
   .notify-section-segment {
+    width: 100%;
+  }
+  .settings-section-segment {
     width: 100%;
   }
   .announcement-toolbar,
