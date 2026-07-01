@@ -787,72 +787,16 @@
         </a-tab-pane>
 
         <a-tab-pane key="security" tab="安全列表">
-          <div class="mobile-toolbar" style="margin-bottom: 12px">
-            <a-button @click="loadSecurityRules" :loading="secLoading">加载规则</a-button>
-            <a-button type="primary" @click="showAddRuleModal">添加规则</a-button>
-            <a-popconfirm title="确定一键放行所有端口？（VCN 未启用 IPv6 时仅放行 IPv4）" @confirm="handleReleaseAll">
-              <a-button type="primary" danger :loading="releaseLoading">一键放行</a-button>
-            </a-popconfirm>
-            <a-popconfirm title="将替换为纯TCP预设；VCN 未启用 IPv6 时仅 IPv4（TCP+ICMP），启用时含 ICMPv6。其他规则将被删除" @confirm="handleOciPreset">
-              <a-button :loading="presetLoading">纯TCP放行</a-button>
-            </a-popconfirm>
-          </div>
-          <a-tabs size="small">
-            <a-tab-pane key="ingress" tab="入站规则">
-              <a-table v-if="!isMobile" :data-source="ingressRules" :columns="secColumns" size="small" :pagination="false">
-                <template #bodyCell="{ column, index }">
-                  <template v-if="column.key === 'secAction'">
-                    <a-popconfirm title="确定删除该规则？" @confirm="handleDeleteSecurityRule('ingress', index)">
-                      <a-button type="link" danger size="small" :loading="deleteRuleLoading">删除</a-button>
-                    </a-popconfirm>
-                  </template>
-                </template>
-              </a-table>
-              <template v-else>
-                <a-empty v-if="ingressRules.length === 0" description="无入站规则" />
-                <div v-for="(rule, idx) in ingressRules" :key="idx" class="mobile-card">
-                  <div class="mobile-card-header">
-                    <span class="mobile-card-title">{{ protoMap[rule.protocol] || rule.protocol }}</span>
-                    <a-popconfirm title="确定删除？" @confirm="handleDeleteSecurityRule('ingress', idx)">
-                      <a-button type="link" danger size="small" :loading="deleteRuleLoading">删除</a-button>
-                    </a-popconfirm>
-                  </div>
-                  <div class="mobile-card-body">
-                    <div class="mobile-card-row"><span class="label">来源</span><span class="value">{{ rule.source }}</span></div>
-                    <div class="mobile-card-row"><span class="label">端口</span><span class="value">{{ rule.portRange }}</span></div>
-                    <div class="mobile-card-row" v-if="rule.description"><span class="label">描述</span><span class="value">{{ rule.description }}</span></div>
-                  </div>
-                </div>
-              </template>
-            </a-tab-pane>
-            <a-tab-pane key="egress" tab="出站规则">
-              <a-table v-if="!isMobile" :data-source="egressRules" :columns="secColumns" size="small" :pagination="false">
-                <template #bodyCell="{ column, index }">
-                  <template v-if="column.key === 'secAction'">
-                    <a-popconfirm title="确定删除该规则？" @confirm="handleDeleteSecurityRule('egress', index)">
-                      <a-button type="link" danger size="small" :loading="deleteRuleLoading">删除</a-button>
-                    </a-popconfirm>
-                  </template>
-                </template>
-              </a-table>
-              <template v-else>
-                <a-empty v-if="egressRules.length === 0" description="无出站规则" />
-                <div v-for="(rule, idx) in egressRules" :key="idx" class="mobile-card">
-                  <div class="mobile-card-header">
-                    <span class="mobile-card-title">{{ protoMap[rule.protocol] || rule.protocol }}</span>
-                    <a-popconfirm title="确定删除？" @confirm="handleDeleteSecurityRule('egress', idx)">
-                      <a-button type="link" danger size="small" :loading="deleteRuleLoading">删除</a-button>
-                    </a-popconfirm>
-                  </div>
-                  <div class="mobile-card-body">
-                    <div class="mobile-card-row"><span class="label">目的</span><span class="value">{{ rule.source }}</span></div>
-                    <div class="mobile-card-row"><span class="label">端口</span><span class="value">{{ rule.portRange }}</span></div>
-                    <div class="mobile-card-row" v-if="rule.description"><span class="label">描述</span><span class="value">{{ rule.description }}</span></div>
-                  </div>
-                </div>
-              </template>
-            </a-tab-pane>
-          </a-tabs>
+          <InstanceSecurityPanel
+            ref="securityPanelRef"
+            :tenant="currentTenant"
+            :instance="currentInstance"
+            :is-mobile="isMobile"
+            :active="activeTab === 'security'"
+            :region="currentDetailRegion"
+            :compartment-id="currentInstance?.compartmentId"
+            @overlay-active-change="securityOverlayActive = $event"
+          />
         </a-tab-pane>
 
         <a-tab-pane key="volume" tab="引导卷">
@@ -1077,41 +1021,6 @@
       </template>
     </a-drawer>
 
-
-    <!-- 添加安全规则弹窗 -->
-    <a-modal :keyboard="false" v-model:open="addRuleVisible" title="添加安全规则" @ok="handleAddRule"
-      :confirm-loading="addRuleLoading" :mask-closable="false">
-      <a-form layout="vertical">
-        <a-form-item label="方向">
-          <a-radio-group v-model:value="ruleForm.direction">
-            <a-radio value="ingress">入站</a-radio>
-            <a-radio value="egress">出站</a-radio>
-          </a-radio-group>
-        </a-form-item>
-        <a-form-item label="协议">
-          <a-select v-model:value="ruleForm.protocol">
-            <a-select-option value="TCP">TCP</a-select-option>
-            <a-select-option value="UDP">UDP</a-select-option>
-            <a-select-option value="ICMP">ICMP</a-select-option>
-            <a-select-option value="ICMPV6">ICMPv6</a-select-option>
-            <a-select-option value="ALL">全部协议</a-select-option>
-          </a-select>
-        </a-form-item>
-        <a-form-item label="来源/目的 CIDR">
-          <a-input v-model:value="ruleForm.source" placeholder="0.0.0.0/0" />
-        </a-form-item>
-        <a-form-item label="端口范围" v-if="ruleForm.protocol === 'TCP' || ruleForm.protocol === 'UDP'">
-          <a-space>
-            <a-input-number v-model:value="ruleForm.portMin" placeholder="留空=全部" :min="1" :max="65535" style="width: 140px" />
-            <span>-</span>
-            <a-input-number v-model:value="ruleForm.portMax" placeholder="留空=全部" :min="1" :max="65535" style="width: 140px" />
-          </a-space>
-        </a-form-item>
-        <a-form-item label="描述">
-          <a-input v-model:value="ruleForm.description" placeholder="可选" />
-        </a-form-item>
-      </a-form>
-    </a-modal>
 
     <!-- 新建预留IP弹窗 -->
     <a-modal :keyboard="false" v-model:open="createRipVisible" title="新建预留 IP" @ok="handleCreateReservedIp"
@@ -1342,7 +1251,7 @@ import {
 import { message, Modal } from 'ant-design-vue'
 import {
   getInstanceList, updateInstanceState, terminateInstance,
-  getSecurityRules, releaseAllPorts, releaseOciPreset, addSecurityRule, deleteSecurityRule,
+  getSecurityRules,
   getVcns,
   changeIp,
   getInstanceNetworkDetail, addIpv6, removeIpv6,
@@ -1370,6 +1279,7 @@ const TerminateVerifyModal = defineAsyncComponent(() => import('../components/in
 const BootVolumePanel = defineAsyncComponent(() => import('../components/instance/BootVolumePanel.vue'))
 const BlockStoragePanel = defineAsyncComponent(() => import('../components/instance/BlockStoragePanel.vue'))
 const InstanceTrafficPanel = defineAsyncComponent(() => import('../components/instance/InstanceTrafficPanel.vue'))
+const InstanceSecurityPanel = defineAsyncComponent(() => import('../components/instance/InstanceSecurityPanel.vue'))
 import { sendVerifyCode } from '../api/system'
 import { listStorageRegions } from '../api/storage'
 import {
@@ -1468,20 +1378,6 @@ const columns = [
   { title: '操作', key: 'action', width: 180 },
 ]
 
-const protoMap: Record<string, string> = { '6': 'TCP', '17': 'UDP', '1': 'ICMP', '58': 'ICMPv6', 'all': '全部' }
-
-const secColumns = [
-  { title: '协议', dataIndex: 'protocol', key: 'protocol', width: 80,
-    customRender: ({ text }: any) => {
-      const map: Record<string, string> = { '6': 'TCP', '17': 'UDP', '1': 'ICMP', '58': 'ICMPv6', 'all': '全部' }
-      return map[text] || text
-    }
-  },
-  { title: '来源/目的', dataIndex: 'source', key: 'source' },
-  { title: '端口范围', dataIndex: 'portRange', key: 'portRange', width: 120 },
-  { title: '描述', dataIndex: 'description', key: 'description', ellipsis: true },
-  { title: '操作', key: 'secAction', width: 80 },
-]
 const vcnColumns = [
   { title: '名称', dataIndex: 'displayName', key: 'displayName' },
   { title: 'CIDR', dataIndex: 'cidrBlock', key: 'cidrBlock', width: 160 },
@@ -2174,16 +2070,12 @@ const activeTab = ref('info')
 const bootVolumePanelRef = ref<any>(null)
 const blockStoragePanelRef = ref<any>(null)
 const trafficPanelRef = ref<any>(null)
+const securityPanelRef = ref<any>(null)
 const bootVolumeOverlayActive = ref(false)
 const blockStorageOverlayActive = ref(false)
 const trafficOverlayActive = ref(false)
+const securityOverlayActive = ref(false)
 const currentDetailRegion = computed(() => instanceDetailRegionParam().region)
-
-const secLoading = ref(false)
-const releaseLoading = ref(false)
-const presetLoading = ref(false)
-const ingressRules = ref<any[]>([])
-const egressRules = ref<any[]>([])
 
 const vcnLoading = ref(false)
 const vcns = ref<any[]>([])
@@ -2196,11 +2088,6 @@ const networkDetail = ref<any>(null)
 const ipv6AddLoading = ref<Record<string, boolean>>({})
 const ipv6RemoveLoading = ref<Record<string, boolean>>({})
 const ephemeralIpLoading = ref(false)
-
-const deleteRuleLoading = ref(false)
-const addRuleVisible = ref(false)
-const addRuleLoading = ref(false)
-const ruleForm = reactive({ direction: 'ingress', protocol: 'TCP', source: '0.0.0.0/0', portMin: null as number | null, portMax: null as number | null, description: '' })
 
 const reservedIps = ref<any[]>([])
 const reservedIpListLoading = ref(false)
@@ -2906,14 +2793,14 @@ function openDetail(tenant: any, record: any) {
   currentTenant.value = tenant
   currentInstance.value = record
   activeTab.value = 'info'
-  ingressRules.value = []
-  egressRules.value = []
   bootVolumePanelRef.value?.reset?.()
   blockStoragePanelRef.value?.reset?.()
   trafficPanelRef.value?.reset?.()
+  securityPanelRef.value?.reset?.()
   bootVolumeOverlayActive.value = false
   blockStorageOverlayActive.value = false
   trafficOverlayActive.value = false
+  securityOverlayActive.value = false
   vcns.value = []
   networkDetail.value = null
   consoleData.value = null
@@ -2921,7 +2808,6 @@ function openDetail(tenant: any, record: any) {
   shapeForm.shape = ''
   drawerVisible.value = true
   loadNetworkDetail()
-  loadSecurityRules()
 }
 
 async function handleAction(tenant: any, record: any, action: string) {
@@ -2999,7 +2885,7 @@ const deleteBootVolume = ref(true)
 const instanceManagerConfirmOverlayActive = ref(false)
 const instanceManagerModalOverlayActive = computed(() =>
   trafficOverlayActive.value ||
-  addRuleVisible.value ||
+  securityOverlayActive.value ||
   bootVolumeOverlayActive.value ||
   blockStorageOverlayActive.value ||
   createRipVisible.value ||
@@ -3213,124 +3099,6 @@ async function checkIpv6SecurityHealth() {
     })
   } catch {
     // 忽略自检失败，不影响主流程
-  }
-}
-
-async function loadSecurityRules() {
-  if (!currentInstance.value || !currentTenant.value) return
-  secLoading.value = true
-  try {
-    const res = await getSecurityRules({
-      id: currentTenant.value.id,
-      instanceId: currentInstance.value.instanceId,
-      ...instanceDetailScopeParam(),
-    })
-    const data = res.data || []
-    ingressRules.value = data.filter((r: any) => r.direction === 'ingress')
-    egressRules.value = data.filter((r: any) => r.direction === 'egress')
-  } catch (e: any) {
-    message.error(e?.message || '加载安全规则失败')
-  } finally {
-    secLoading.value = false
-  }
-}
-
-function securityReleaseSuccessMessage(ipv6RulesApplied: unknown, allPorts: boolean) {
-  if (ipv6RulesApplied === false) {
-    return allPorts
-      ? '已放行所有端口（该 VCN 未启用 IPv6，已仅放行 IPv4）'
-      : '已应用纯 TCP 预设（该 VCN 未启用 IPv6，已仅应用 IPv4 规则）'
-  }
-  return allPorts ? '已放行所有端口（含 IPv4/IPv6）' : '已应用纯 TCP 预设规则（含 IPv4/IPv6）'
-}
-
-async function handleReleaseAll() {
-  if (!currentInstance.value || !currentTenant.value) return
-  releaseLoading.value = true
-  try {
-    const res = await releaseAllPorts({
-      id: currentTenant.value.id,
-      instanceId: currentInstance.value.instanceId,
-      ...instanceDetailScopeParam(),
-    })
-    message.success(securityReleaseSuccessMessage(res.data?.ipv6RulesApplied, true))
-    loadSecurityRules()
-  } catch (e: any) {
-    message.error(e?.message || '放行失败')
-  } finally {
-    releaseLoading.value = false
-  }
-}
-
-async function handleOciPreset() {
-  if (!currentInstance.value || !currentTenant.value) return
-  presetLoading.value = true
-  try {
-    const res = await releaseOciPreset({
-      id: currentTenant.value.id,
-      instanceId: currentInstance.value.instanceId,
-      ...instanceDetailScopeParam(),
-    })
-    message.success(securityReleaseSuccessMessage(res.data?.ipv6RulesApplied, false))
-    loadSecurityRules()
-  } catch (e: any) {
-    message.error(e?.message || '应用预设失败')
-  } finally {
-    presetLoading.value = false
-  }
-}
-
-function showAddRuleModal() {
-  Object.assign(ruleForm, { direction: 'ingress', protocol: 'TCP', source: '0.0.0.0/0', portMin: null, portMax: null, description: '' })
-  addRuleVisible.value = true
-}
-
-async function handleAddRule() {
-  if (!currentInstance.value || !currentTenant.value) return
-  if (ruleForm.protocol === 'TCP' || ruleForm.protocol === 'UDP') {
-    if (!ruleForm.portMin && !ruleForm.portMax) {
-      ruleForm.portMin = 1
-      ruleForm.portMax = 65535
-    } else if (!ruleForm.portMin || !ruleForm.portMax) {
-      message.warning('请填写完整的端口范围，或留空表示全部端口')
-      return
-    }
-  }
-  addRuleLoading.value = true
-  try {
-    await addSecurityRule({
-      id: currentTenant.value.id, instanceId: currentInstance.value.instanceId,
-      direction: ruleForm.direction, protocol: ruleForm.protocol, source: ruleForm.source,
-      portMin: ruleForm.portMin?.toString(), portMax: ruleForm.portMax?.toString(), description: ruleForm.description,
-      ...instanceDetailScopeParam(),
-    })
-    message.success('规则已添加')
-    addRuleVisible.value = false
-    loadSecurityRules()
-  } catch (e: any) {
-    message.error(e?.message || '添加规则失败')
-  } finally {
-    addRuleLoading.value = false
-  }
-}
-
-async function handleDeleteSecurityRule(direction: string, ruleIndex: number) {
-  if (!currentInstance.value || !currentTenant.value) return
-  deleteRuleLoading.value = true
-  try {
-    await deleteSecurityRule({
-      id: currentTenant.value.id,
-      instanceId: currentInstance.value.instanceId,
-      direction,
-      ruleIndex,
-      ...instanceDetailScopeParam(),
-    })
-    message.success('规则已删除')
-    loadSecurityRules()
-  } catch (e: any) {
-    message.error(e?.message || '删除规则失败')
-  } finally {
-    deleteRuleLoading.value = false
   }
 }
 
