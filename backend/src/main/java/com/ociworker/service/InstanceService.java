@@ -299,6 +299,8 @@ public class InstanceService {
                     vnicInfo.put("macAddress", vnic.getMacAddress());
                     vnicInfo.put("nsgIds", vnic.getNsgIds());
                     vnicInfo.put("vlanId", vnic.getVlanId());
+                    vnicInfo.put("freeformTags", vnic.getFreeformTags());
+                    vnicInfo.put("definedTags", vnic.getDefinedTags());
                     vnicInfo.put("skipSourceDestCheck", vnic.getSkipSourceDestCheck());
                     vnicInfo.put("lifecycleState", vnic.getLifecycleState() != null ? vnic.getLifecycleState().getValue() : null);
                     vnicInfo.put("timeCreated", vnic.getTimeCreated() != null ? vnic.getTimeCreated().toString() : null);
@@ -869,10 +871,14 @@ public class InstanceService {
         map.put("ipv6CidrBlock", subnet.getIpv6CidrBlock());
         map.put("availabilityDomain", subnet.getAvailabilityDomain());
         map.put("prohibitPublicIpOnVnic", subnet.getProhibitPublicIpOnVnic());
+        map.put("virtualRouterIp", subnet.getVirtualRouterIp());
+        map.put("virtualRouterMac", subnet.getVirtualRouterMac());
         map.put("routeTableId", subnet.getRouteTableId());
         map.put("dhcpOptionsId", subnet.getDhcpOptionsId());
         map.put("securityListIds", subnet.getSecurityListIds());
         map.put("subnetDomainName", subnet.getSubnetDomainName());
+        map.put("freeformTags", subnet.getFreeformTags());
+        map.put("definedTags", subnet.getDefinedTags());
         map.put("lifecycleState", subnet.getLifecycleState() != null ? subnet.getLifecycleState().getValue() : null);
         map.put("timeCreated", subnet.getTimeCreated() != null ? subnet.getTimeCreated().toString() : null);
         map.put("vcnId", subnet.getVcnId());
@@ -887,6 +893,8 @@ public class InstanceService {
         map.put("compartmentId", routeTable.getCompartmentId());
         map.put("lifecycleState", routeTable.getLifecycleState() != null ? routeTable.getLifecycleState().getValue() : null);
         map.put("routeRulesCount", routeTable.getRouteRules() != null ? routeTable.getRouteRules().size() : 0);
+        map.put("freeformTags", routeTable.getFreeformTags());
+        map.put("definedTags", routeTable.getDefinedTags());
         map.put("timeCreated", routeTable.getTimeCreated() != null ? routeTable.getTimeCreated().toString() : null);
         return map;
     }

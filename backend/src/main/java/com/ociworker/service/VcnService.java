@@ -762,7 +762,12 @@ public class VcnService {
             Map<String, Object> m = new LinkedHashMap<>();
             m.put("id", rt.getId());
             m.put("displayName", rt.getDisplayName());
+            m.put("vcnId", rt.getVcnId());
+            m.put("compartmentId", rt.getCompartmentId());
             m.put("lifecycleState", rt.getLifecycleState() != null ? rt.getLifecycleState().getValue() : null);
+            m.put("timeCreated", rt.getTimeCreated() != null ? rt.getTimeCreated().toString() : null);
+            m.put("freeformTags", rt.getFreeformTags());
+            m.put("definedTags", rt.getDefinedTags());
             List<Map<String, Object>> rules = new ArrayList<>();
             if (rt.getRouteRules() != null) {
                 for (RouteRule r : rt.getRouteRules()) {
