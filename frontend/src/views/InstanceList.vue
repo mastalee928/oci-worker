@@ -5188,6 +5188,8 @@ async function handleQuickTask() {
           content: '该账户已有正在运行的开机任务，是否仍要重复提交？',
           okText: '继续创建',
           cancelText: '取消',
+          zIndex: 1420,
+          wrapClassName: 'quick-task-duplicate-confirm-wrap',
           onOk: () => doQuickTask(),
           onCancel: () => { quickTaskLoading.value = false },
           afterClose: () => { quickTaskLoading.value = false },
@@ -5397,6 +5399,9 @@ onUnmounted(() => {
 .tenant-card-active::before { transform: scaleX(1); }
 :global(.quick-task-modal-wrap) {
   z-index: 1320;
+}
+:global(.quick-task-duplicate-confirm-wrap) {
+  z-index: 1420;
 }
 :global(:root) {
   --tenant-workspace-mask-bg: rgba(2, 6, 23, 0.28);
