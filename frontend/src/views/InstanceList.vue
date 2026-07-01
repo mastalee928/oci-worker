@@ -856,167 +856,29 @@
         </a-tab-pane>
 
         <a-tab-pane key="volume" tab="引导卷">
-          <a-button @click="loadBootVolumes" :loading="volLoading" style="margin-bottom: 12px">加载引导卷</a-button>
-          <a-table v-if="!isMobile" :data-source="bootVolumes" :columns="volColumns" size="small" :pagination="false" row-key="id">
-            <template #bodyCell="{ column, record }">
-              <template v-if="column.key === 'volAction'">
-                <a-button
-                  type="link"
-                  size="small"
-                  :disabled="!isBootVolumeAvailable(record)"
-                  :title="bootVolumeBusyTitle(record)"
-                  @click="openEditVolume(record)"
-                >编辑</a-button>
-              </template>
-            </template>
-          </a-table>
-          <template v-else>
-            <a-empty v-if="bootVolumes.length === 0" description="暂无引导卷" />
-            <div v-for="vol in bootVolumes" :key="vol.id" class="mobile-card">
-              <div class="mobile-card-header">
-                <span class="mobile-card-title">{{ vol.displayName }}</span>
-                <a-button
-                  type="link"
-                  size="small"
-                  :disabled="!isBootVolumeAvailable(vol)"
-                  :title="bootVolumeBusyTitle(vol)"
-                  @click="openEditVolume(vol)"
-                >编辑</a-button>
-              </div>
-              <div class="mobile-card-body">
-                <div class="mobile-card-row"><span class="label">大小</span><span class="value">{{ vol.sizeInGBs }} GB</span></div>
-                <div class="mobile-card-row"><span class="label">性能</span><span class="value">{{ vol.vpusPerGB }} VPUs/GB</span></div>
-                <div class="mobile-card-row"><span class="label">状态</span><span class="value">{{ vol.lifecycleState }}</span></div>
-              </div>
-            </div>
-          </template>
-          <div v-if="bootVolumes.length > 0" style="margin-top: 20px">
-            <div style="font-size: 13px; color: var(--text-sub); margin-bottom: 10px">快捷预设（性能 120 VPUs/GB）</div>
-            <a-space wrap>
-              <a-popconfirm v-for="size in [50, 100, 150, 200]" :key="size"
-                :title="`确定将引导卷调整为 ${size} GB / 120 VPUs？`"
-                :disabled="!isBootVolumeAvailable(bootVolumes[0])"
-                @confirm="applyVolumePreset(size)">
-                <a-button
-                  :loading="editVolLoading"
-                  :disabled="!isBootVolumeAvailable(bootVolumes[0])"
-                  :title="bootVolumeBusyTitle(bootVolumes[0])"
-                >{{ size }} GB</a-button>
-              </a-popconfirm>
-            </a-space>
-          </div>
+          <BootVolumePanel
+            ref="bootVolumePanelRef"
+            :tenant="currentTenant"
+            :instance="currentInstance"
+            :is-mobile="isMobile"
+            :active="activeTab === 'volume'"
+            :region="currentDetailRegion"
+            @overlay-active-change="bootVolumeOverlayActive = $event"
+            @boot-volume-updated="onBootVolumeUpdated"
+          />
         </a-tab-pane>
 
         <a-tab-pane key="blockVolume" tab="块存储">
-          <div style="margin-bottom: 12px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center">
-            <a-button @click="loadBlockVolumes" :loading="blockVolLoading || externalBootVolLoading">刷新存储</a-button>
-            <a-button type="primary" @click="openCreateBlockVolume" :disabled="!currentInstance">创建并挂载</a-button>
-            <a-button @click="openAttachBlockVolume" :disabled="!currentInstance">挂载已有卷</a-button>
-          </div>
-          <div v-if="currentInstance" style="font-size: 12px; color: var(--text-sub); margin-bottom: 10px">
-            可用域：{{ currentInstance.availabilityDomain || '—' }} · 区间：{{ currentInstance.compartmentName || currentInstance.compartmentId || '—' }}
-          </div>
-          <div class="detail-section-title">块存储卷</div>
-          <a-table
-            v-if="!isMobile"
-            :data-source="blockVolumes"
-            :columns="blockVolColumns"
-            size="small"
-            :pagination="false"
-            :row-key="attachedVolumeRowKey"
-            :loading="blockVolLoading"
-            :scroll="{ x: 760 }"
-          >
-            <template #bodyCell="{ column, record }">
-              <template v-if="column.key === 'blockVolAction'">
-                <a-space size="small">
-                  <a-button type="link" size="small" @click="openEditAttachedVolume(record)">编辑</a-button>
-                  <a-popconfirm
-                    title="确定卸载该块存储卷？卷不会被删除，可在「存储」中再次挂载。"
-                    @confirm="handleDetachBlockVolume(record)"
-                  >
-                    <a-button type="link" danger size="small" :loading="detachBlockVolId === record.attachmentId">卸载</a-button>
-                  </a-popconfirm>
-                </a-space>
-              </template>
-            </template>
-          </a-table>
-          <template v-else>
-            <a-empty v-if="blockVolumes.length === 0" description="暂无已挂载卷" />
-            <div v-for="vol in blockVolumes" :key="attachedVolumeRowKey(vol)" class="mobile-card">
-              <div class="mobile-card-header">
-                <span class="mobile-card-title">{{ vol.displayName }}</span>
-                <a-space size="small">
-                  <a-button type="link" size="small" @click="openEditAttachedVolume(vol)">编辑</a-button>
-                  <a-popconfirm title="确定卸载？" @confirm="handleDetachBlockVolume(vol)">
-                    <a-button type="link" danger size="small">卸载</a-button>
-                  </a-popconfirm>
-                </a-space>
-              </div>
-              <div class="mobile-card-body">
-                <div class="mobile-card-row"><span class="label">大小</span><span class="value">{{ vol.sizeInGBs }} GB</span></div>
-                <div class="mobile-card-row"><span class="label">VPUs/GB</span><span class="value">{{ vol.vpusPerGB }}</span></div>
-                <div class="mobile-card-row"><span class="label">设备</span><span class="value">{{ vol.device || '—' }}</span></div>
-                <div class="mobile-card-row"><span class="label">卷状态</span><span class="value">{{ vol.volumeLifecycleState }}</span></div>
-                <div class="mobile-card-row"><span class="label">挂载状态</span><span class="value">{{ vol.attachmentLifecycleState }}</span></div>
-              </div>
-            </div>
-          </template>
-          <div class="detail-section-title external-boot-title">
-            <span>外部引导卷</span>
-            <a-button size="small" @click="loadExternalBootVolumes" :loading="externalBootVolLoading">刷新</a-button>
-          </div>
-          <a-table
-            v-if="!isMobile"
-            :data-source="externalBootVolumes"
-            :columns="externalBootVolColumns"
-            size="small"
-            :pagination="false"
-            :row-key="externalBootVolumeRowKey"
-            :loading="externalBootVolLoading"
-            :scroll="{ x: 820 }"
-          >
-            <template #bodyCell="{ column, record }">
-              <template v-if="column.key === 'externalBootState'">
-                <a-tag :color="record.attached ? 'purple' : 'green'">{{ record.attachState || (record.attached ? '已挂载' : '可挂载') }}</a-tag>
-              </template>
-              <template v-else-if="column.key === 'externalBootAction'">
-                <a-space size="small">
-                  <a-button v-if="!record.attached" type="link" size="small" @click="openAttachExternalBootVolume(record)">挂载</a-button>
-                  <a-button
-                    v-else
-                    type="link"
-                    danger
-                    size="small"
-                    :loading="detachExternalBootVolId === record.bootVolumeAttachmentId"
-                    @click="openDetachExternalBootVolume(record)"
-                  >
-                    分离
-                  </a-button>
-                </a-space>
-              </template>
-            </template>
-          </a-table>
-          <template v-else>
-            <a-empty v-if="externalBootVolumes.length === 0" description="暂无外部引导卷" />
-            <div v-for="vol in externalBootVolumes" :key="externalBootVolumeRowKey(vol)" class="mobile-card">
-              <div class="mobile-card-header">
-                <span class="mobile-card-title">{{ vol.displayName }}</span>
-                <a-space size="small">
-                  <a-tag :color="vol.attached ? 'purple' : 'green'">{{ vol.attachState || (vol.attached ? '已挂载' : '可挂载') }}</a-tag>
-                  <a-button v-if="!vol.attached" type="link" size="small" @click="openAttachExternalBootVolume(vol)">挂载</a-button>
-                  <a-button v-else type="link" danger size="small" @click="openDetachExternalBootVolume(vol)">分离</a-button>
-                </a-space>
-              </div>
-              <div class="mobile-card-body">
-                <div class="mobile-card-row"><span class="label">大小</span><span class="value">{{ vol.sizeInGBs }} GB</span></div>
-                <div class="mobile-card-row"><span class="label">VPUs/GB</span><span class="value">{{ vol.vpusPerGB }}</span></div>
-                <div class="mobile-card-row"><span class="label">卷状态</span><span class="value">{{ vol.volumeLifecycleState || vol.lifecycleState }}</span></div>
-                <div class="mobile-card-row"><span class="label">挂载状态</span><span class="value">{{ vol.attachmentLifecycleState || '—' }}</span></div>
-                <div class="mobile-card-row"><span class="label">可用域</span><span class="value">{{ vol.availabilityDomain || '—' }}</span></div>
-              </div>
-            </div>
-          </template>
+          <BlockStoragePanel
+            ref="blockStoragePanelRef"
+            :tenant="currentTenant"
+            :instance="currentInstance"
+            :is-mobile="isMobile"
+            :active="activeTab === 'blockVolume'"
+            :region="currentDetailRegion"
+            :on-stop-instance="stopCurrentDetailInstance"
+            @overlay-active-change="blockStorageOverlayActive = $event"
+          />
         </a-tab-pane>
 
         <a-tab-pane key="network" tab="网络">
@@ -1671,139 +1533,6 @@
       </a-form>
     </a-modal>
 
-    <!-- 编辑引导卷弹窗 -->
-    <a-modal :keyboard="false" v-model:open="editVolVisible" title="编辑引导卷" @ok="handleEditVolume"
-      :confirm-loading="editVolLoading" :mask-closable="false">
-      <a-form layout="vertical">
-        <a-form-item label="名称">
-          <a-input v-model:value="editVolForm.displayName" />
-        </a-form-item>
-        <a-form-item label="大小 (GB)">
-          <a-input-number v-model:value="editVolForm.sizeInGBs" :min="50" :max="32768" style="width: 100%" />
-          <div style="color: #999; font-size: 12px; margin-top: 4px">只能增大，不能缩小。最小 50 GB</div>
-        </a-form-item>
-        <a-form-item label="性能 (VPUs/GB)">
-          <a-select v-model:value="editVolForm.vpusPerGB">
-            <a-select-option :value="0">最低成本 (0)</a-select-option>
-            <a-select-option :value="10">均衡 (10)</a-select-option>
-            <a-select-option :value="20">较高性能 (20)</a-select-option>
-            <a-select-option :value="30">高性能 (30)</a-select-option>
-            <a-select-option :value="120">超高性能 (120)</a-select-option>
-          </a-select>
-        </a-form-item>
-      </a-form>
-    </a-modal>
-
-    <!-- 创建并挂载块存储卷 -->
-    <a-modal :keyboard="false" v-model:open="createBlockVolVisible" title="创建并挂载块存储卷" @ok="handleCreateBlockVolume"
-      :confirm-loading="createBlockVolLoading" :mask-closable="false" :width="isMobile ? '100%' : 480">
-      <a-form layout="vertical">
-        <a-form-item label="显示名称">
-          <a-input v-model:value="createBlockVolForm.displayName" placeholder="block-volume" />
-        </a-form-item>
-        <a-form-item label="容量 (GB)" extra="OCI 要求 50～32768 GB，步进 1 GB">
-          <a-input-number v-model:value="createBlockVolForm.sizeInGBs" :min="50" :max="32768" style="width: 100%" />
-        </a-form-item>
-        <a-form-item label="性能 (VPUs/GB)" extra="0 最低成本 · 10 均衡 · 20 较高 · 30～120 超高（步进 10）">
-          <a-select v-model:value="createBlockVolForm.vpusPerGB">
-            <a-select-option :value="0">最低成本 (0)</a-select-option>
-            <a-select-option :value="10">均衡 (10)</a-select-option>
-            <a-select-option :value="20">较高性能 (20)</a-select-option>
-            <a-select-option :value="30">高性能 (30)</a-select-option>
-            <a-select-option :value="60">高性能 (60)</a-select-option>
-            <a-select-option :value="120">超高性能 (120)</a-select-option>
-          </a-select>
-        </a-form-item>
-        <a-form-item label="挂载类型" extra="半虚拟化会自动连接；iSCSI 需要在实例内连接和挂载">
-          <a-segmented v-model:value="createBlockVolForm.attachmentType" :options="blockAttachmentTypeOptions" />
-        </a-form-item>
-        <a-form-item label="设备路径（可选）" extra="留空由 OCI 自动分配，例如 /dev/oracleoci/oraclevdb">
-          <a-input v-model:value="createBlockVolForm.device" placeholder="/dev/oracleoci/oraclevdb" allow-clear />
-        </a-form-item>
-      </a-form>
-    </a-modal>
-
-    <!-- 挂载已有块存储卷 -->
-    <a-modal :keyboard="false" v-model:open="attachBlockVolVisible" title="挂载已有块存储卷" @ok="handleAttachBlockVolume"
-      :confirm-loading="attachBlockVolLoading" :mask-closable="false" :width="isMobile ? '100%' : 520">
-      <a-form layout="vertical">
-        <a-form-item label="块存储卷" extra="仅列出与当前实例同可用域、同区间且未挂载的 AVAILABLE 卷">
-          <a-select
-            v-model:value="attachBlockVolForm.volumeId"
-            show-search
-            option-filter-prop="label"
-            placeholder="选择块存储卷"
-            :loading="unattachedBlockVolLoading"
-            :options="unattachedBlockVolOptions"
-          />
-        </a-form-item>
-        <a-form-item label="挂载类型" extra="半虚拟化会自动连接；iSCSI 需要在实例内连接和挂载">
-          <a-segmented v-model:value="attachBlockVolForm.attachmentType" :options="blockAttachmentTypeOptions" />
-        </a-form-item>
-        <a-form-item label="设备路径（可选）">
-          <a-input v-model:value="attachBlockVolForm.device" placeholder="/dev/oracleoci/oraclevdb" allow-clear />
-        </a-form-item>
-      </a-form>
-    </a-modal>
-
-    <!-- 挂载外部引导卷 -->
-    <a-modal :keyboard="false" v-model:open="attachExternalBootVisible" title="挂载外部引导卷" @ok="handleAttachExternalBootVolume"
-      :confirm-loading="attachExternalBootLoading" :mask-closable="false" :width="isMobile ? '100%' : 520">
-      <a-form layout="vertical">
-        <a-form-item label="引导卷">
-          <div class="selected-volume-box">
-            <div class="selected-volume-name">{{ attachExternalBootTarget?.displayName || '—' }}</div>
-            <div class="selected-volume-meta">
-              {{ attachExternalBootTarget?.sizeInGBs || '—' }} GB · {{ attachExternalBootTarget?.vpusPerGB ?? '—' }} VPUs/GB · {{ attachExternalBootTarget?.availabilityDomain || '—' }}
-            </div>
-          </div>
-        </a-form-item>
-      </a-form>
-    </a-modal>
-
-    <!-- 分离外部引导卷验证码 -->
-    <a-modal :mask-closable="false" :keyboard="false" v-model:open="detachExternalBootVisible" title="安全验证 — 分离外部引导卷"
-      :z-index="INSTANCE_SAFETY_MODAL_Z_INDEX"
-      :wrap-class-name="INSTANCE_SAFETY_MODAL_WRAP_CLASS"
-      :width="isMobile ? '100%' : 420" @ok="handleDetachExternalBootVolume" :confirm-loading="detachExternalBootLoading"
-      ok-text="确认分离" :ok-button-props="{ danger: true }">
-      <a-alert type="warning" show-icon style="margin-bottom: 16px">
-        <template #message>分离外部引导卷需要 Telegram 验证码</template>
-      </a-alert>
-      <div class="selected-volume-box" style="margin-bottom: 12px">
-        <div class="selected-volume-name">{{ detachExternalBootTarget?.displayName || '—' }}</div>
-        <div class="selected-volume-meta">{{ detachExternalBootTarget?.bootVolumeId || '' }}</div>
-      </div>
-      <a-input v-model:value="detachExternalBootCode" placeholder="请输入6位验证码" size="large" :maxlength="6" allow-clear />
-      <div style="margin-top: 12px; display: flex; justify-content: space-between; align-items: center">
-        <span style="color: var(--text-sub); font-size: 12px">验证码有效期 5 分钟</span>
-        <a-button type="link" size="small" :loading="detachExternalBootSending" @click="() => sendDetachExternalBootCode(false)">重新发送</a-button>
-      </div>
-    </a-modal>
-
-    <!-- 编辑块存储卷 -->
-    <a-modal :keyboard="false" v-model:open="editBlockVolVisible" title="编辑块存储卷" @ok="handleEditBlockVolume"
-      :confirm-loading="editBlockVolLoading" :mask-closable="false" :width="isMobile ? '100%' : 480">
-      <a-form layout="vertical">
-        <a-form-item label="名称">
-          <a-input v-model:value="editBlockVolForm.displayName" />
-        </a-form-item>
-        <a-form-item label="大小 (GB)">
-          <a-input-number v-model:value="editBlockVolForm.sizeInGBs" :min="50" :max="32768" style="width: 100%" />
-          <div style="color: #999; font-size: 12px; margin-top: 4px">只能增大，不能缩小。最小 50 GB</div>
-        </a-form-item>
-        <a-form-item label="性能 (VPUs/GB)">
-          <a-select v-model:value="editBlockVolForm.vpusPerGB">
-            <a-select-option :value="0">最低成本 (0)</a-select-option>
-            <a-select-option :value="10">均衡 (10)</a-select-option>
-            <a-select-option :value="20">较高性能 (20)</a-select-option>
-            <a-select-option :value="30">高性能 (30)</a-select-option>
-            <a-select-option :value="120">超高性能 (120)</a-select-option>
-          </a-select>
-        </a-form-item>
-      </a-form>
-    </a-modal>
-
     <!-- 新建预留IP弹窗 -->
     <a-modal :keyboard="false" v-model:open="createRipVisible" title="新建预留 IP" @ok="handleCreateReservedIp"
       :confirm-loading="createRipLoading" :mask-closable="false">
@@ -2035,10 +1764,6 @@ import { message, Modal } from 'ant-design-vue'
 import {
   getInstanceList, updateInstanceState, terminateInstance,
   getSecurityRules, releaseAllPorts, releaseOciPreset, addSecurityRule, deleteSecurityRule,
-  getBootVolumes, updateBootVolume,
-  getBlockVolumes, getUnattachedBlockVolumes, createBlockVolumeAndAttach,
-  attachBlockVolume, detachBlockVolume, updateBlockVolume,
-  getExternalBootVolumes, attachExternalBootVolume, detachExternalBootVolume,
   getVcns,
   getTrafficData, changeIp,
   getInstanceNetworkDetail, addIpv6, removeIpv6,
@@ -2063,6 +1788,8 @@ const StorageManager = defineAsyncComponent(() => import('./StorageManager.vue')
 const ByoipPanel = defineAsyncComponent(() => import('./ByoipPanel.vue'))
 const ForceA2ConfirmModal = defineAsyncComponent(() => import('../components/instance/ForceA2ConfirmModal.vue'))
 const TerminateVerifyModal = defineAsyncComponent(() => import('../components/instance/TerminateVerifyModal.vue'))
+const BootVolumePanel = defineAsyncComponent(() => import('../components/instance/BootVolumePanel.vue'))
+const BlockStoragePanel = defineAsyncComponent(() => import('../components/instance/BlockStoragePanel.vue'))
 import { sendVerifyCode } from '../api/system'
 import { listStorageRegions } from '../api/storage'
 import {
@@ -2093,8 +1820,6 @@ import { appQueryCache, createListSignature } from '../utils/queryCache'
 import {
   INSTANCE_CONFIRM_MODAL_WRAP_CLASS,
   INSTANCE_CONFIRM_MODAL_Z_INDEX,
-  INSTANCE_SAFETY_MODAL_WRAP_CLASS,
-  INSTANCE_SAFETY_MODAL_Z_INDEX,
   QUICK_TASK_MODAL_Z_INDEX,
 } from '../utils/overlayZIndex'
 import dayjs from 'dayjs'
@@ -2177,34 +1902,6 @@ const secColumns = [
   { title: '端口范围', dataIndex: 'portRange', key: 'portRange', width: 120 },
   { title: '描述', dataIndex: 'description', key: 'description', ellipsis: true },
   { title: '操作', key: 'secAction', width: 80 },
-]
-const blockVolColumns = [
-  { title: '名称', dataIndex: 'displayName', key: 'displayName', ellipsis: true, width: 220 },
-  { title: '大小 (GB)', dataIndex: 'sizeInGBs', key: 'sizeInGBs', width: 90 },
-  { title: 'VPUs/GB', dataIndex: 'vpusPerGB', key: 'vpusPerGB', width: 80 },
-  { title: '设备路径', dataIndex: 'device', key: 'device', width: 120, ellipsis: true },
-  { title: '卷状态', dataIndex: 'volumeLifecycleState', key: 'volumeLifecycleState', width: 100 },
-  { title: '挂载状态', dataIndex: 'attachmentLifecycleState', key: 'attachmentLifecycleState', width: 100 },
-  { title: '操作', key: 'blockVolAction', width: 120 },
-]
-
-const externalBootVolColumns = [
-  { title: '状态', dataIndex: 'attachState', key: 'externalBootState', width: 90 },
-  { title: '名称', dataIndex: 'displayName', key: 'displayName', ellipsis: true, width: 220 },
-  { title: '大小 (GB)', dataIndex: 'sizeInGBs', key: 'sizeInGBs', width: 90 },
-  { title: 'VPUs/GB', dataIndex: 'vpusPerGB', key: 'vpusPerGB', width: 80 },
-  { title: '卷状态', dataIndex: 'volumeLifecycleState', key: 'volumeLifecycleState', width: 100 },
-  { title: '挂载状态', dataIndex: 'attachmentLifecycleState', key: 'attachmentLifecycleState', width: 100 },
-  { title: '可用域', dataIndex: 'availabilityDomain', key: 'availabilityDomain', width: 170, ellipsis: true },
-  { title: '操作', key: 'externalBootAction', width: 110 },
-]
-
-const volColumns = [
-  { title: '名称', dataIndex: 'displayName', key: 'displayName' },
-  { title: '大小 (GB)', dataIndex: 'sizeInGBs', key: 'sizeInGBs', width: 100 },
-  { title: '性能', dataIndex: 'vpusPerGB', key: 'vpusPerGB', width: 130 },
-  { title: '状态', dataIndex: 'lifecycleState', key: 'lifecycleState', width: 100 },
-  { title: '操作', key: 'volAction', width: 80 },
 ]
 const vcnColumns = [
   { title: '名称', dataIndex: 'displayName', key: 'displayName' },
@@ -2952,6 +2649,11 @@ function onInstancePanelRegionUserChange() {
 
 const drawerVisible = ref(false)
 const activeTab = ref('info')
+const bootVolumePanelRef = ref<any>(null)
+const blockStoragePanelRef = ref<any>(null)
+const bootVolumeOverlayActive = ref(false)
+const blockStorageOverlayActive = ref(false)
+const currentDetailRegion = computed(() => instanceDetailRegionParam().region)
 
 const secLoading = ref(false)
 const releaseLoading = ref(false)
@@ -2959,8 +2661,6 @@ const presetLoading = ref(false)
 const ingressRules = ref<any[]>([])
 const egressRules = ref<any[]>([])
 
-const volLoading = ref(false)
-const bootVolumes = ref<any[]>([])
 const vcnLoading = ref(false)
 const vcns = ref<any[]>([])
 
@@ -3104,55 +2804,6 @@ const deleteRuleLoading = ref(false)
 const addRuleVisible = ref(false)
 const addRuleLoading = ref(false)
 const ruleForm = reactive({ direction: 'ingress', protocol: 'TCP', source: '0.0.0.0/0', portMin: null as number | null, portMax: null as number | null, description: '' })
-
-const editVolVisible = ref(false)
-const editVolLoading = ref(false)
-const editVolForm = reactive({ bootVolumeId: '', displayName: '', sizeInGBs: 50, vpusPerGB: 10 })
-
-const blockVolumes = ref<any[]>([])
-const blockVolLoading = ref(false)
-const detachBlockVolId = ref('')
-const externalBootVolumes = ref<any[]>([])
-const externalBootVolLoading = ref(false)
-const detachExternalBootVolId = ref('')
-
-const createBlockVolVisible = ref(false)
-const createBlockVolLoading = ref(false)
-const blockAttachmentTypeOptions = [
-  { label: '半虚拟化', value: 'paravirtualized' },
-  { label: 'iSCSI', value: 'iscsi' },
-]
-const createBlockVolForm = reactive({
-  displayName: '',
-  sizeInGBs: 100,
-  vpusPerGB: 10,
-  device: '',
-  attachmentType: 'paravirtualized' as 'paravirtualized' | 'iscsi',
-})
-
-const attachBlockVolVisible = ref(false)
-const attachBlockVolLoading = ref(false)
-const unattachedBlockVolLoading = ref(false)
-const unattachedBlockVolOptions = ref<{ label: string; value: string }[]>([])
-const attachBlockVolForm = reactive({
-  volumeId: '' as string,
-  device: '',
-  attachmentType: 'paravirtualized' as 'paravirtualized' | 'iscsi',
-})
-
-const attachExternalBootVisible = ref(false)
-const attachExternalBootLoading = ref(false)
-const attachExternalBootTarget = ref<any>(null)
-
-const detachExternalBootVisible = ref(false)
-const detachExternalBootLoading = ref(false)
-const detachExternalBootSending = ref(false)
-const detachExternalBootTarget = ref<any>(null)
-const detachExternalBootCode = ref('')
-
-const editBlockVolVisible = ref(false)
-const editBlockVolLoading = ref(false)
-const editBlockVolForm = reactive({ volumeId: '', displayName: '', sizeInGBs: 50, vpusPerGB: 10 })
 
 const reservedIps = ref<any[]>([])
 const reservedIpListLoading = ref(false)
@@ -3960,8 +3611,6 @@ async function loadTenantInstances(td: TenantData, options: LoadTenantInstancesO
 }
 
 function onTabChange(key: string) {
-  if (key === 'volume') loadBootVolumes()
-  if (key === 'blockVolume') loadBlockVolumes()
   if (key === 'traffic' && !trafficData.value) loadTraffic()
   if (key === 'shape') loadShapeEditOptions()
 }
@@ -3974,9 +3623,10 @@ function openDetail(tenant: any, record: any) {
   activeTab.value = 'info'
   ingressRules.value = []
   egressRules.value = []
-  bootVolumes.value = []
-  blockVolumes.value = []
-  externalBootVolumes.value = []
+  bootVolumePanelRef.value?.reset?.()
+  blockStoragePanelRef.value?.reset?.()
+  bootVolumeOverlayActive.value = false
+  blockStorageOverlayActive.value = false
   vcns.value = []
   trafficData.value = null
   trafficDateRange.value = null
@@ -4043,6 +3693,15 @@ function onInstanceMenuClick(record: any, key: string) {
   })
 }
 
+function stopCurrentDetailInstance() {
+  if (!currentTenant.value || !currentInstance.value) return
+  return handleAction(currentTenant.value, currentInstance.value, 'STOP')
+}
+
+function onBootVolumeUpdated() {
+  if (activeTab.value === 'blockVolume') blockStoragePanelRef.value?.loadBlockVolumes?.()
+}
+
 const pendingTimers = new Set<any>()
 function scheduleReload(fn: () => void, delay: number) {
   const t = setTimeout(() => {
@@ -4061,12 +3720,8 @@ const instanceManagerConfirmOverlayActive = ref(false)
 const instanceManagerModalOverlayActive = computed(() =>
   trafficChartModalOpen.value ||
   addRuleVisible.value ||
-  editVolVisible.value ||
-  createBlockVolVisible.value ||
-  attachBlockVolVisible.value ||
-  attachExternalBootVisible.value ||
-  detachExternalBootVisible.value ||
-  editBlockVolVisible.value ||
+  bootVolumeOverlayActive.value ||
+  blockStorageOverlayActive.value ||
   createRipVisible.value ||
   editInstanceVisible.value ||
   forceA2ModalVisible.value ||
@@ -4396,390 +4051,6 @@ async function handleDeleteSecurityRule(direction: string, ruleIndex: number) {
     message.error(e?.message || '删除规则失败')
   } finally {
     deleteRuleLoading.value = false
-  }
-}
-
-async function loadBootVolumes() {
-  if (!currentInstance.value || !currentTenant.value) return
-  volLoading.value = true
-  try {
-    const res = await getBootVolumes({
-      id: currentTenant.value.id,
-      instanceId: currentInstance.value.instanceId,
-      ...instanceDetailRegionParam(),
-    })
-    bootVolumes.value = res.data || []
-  } catch (e: any) {
-    message.error(e?.message || '加载引导卷失败')
-  } finally {
-    volLoading.value = false
-  }
-}
-
-async function loadBlockVolumes() {
-  if (!currentInstance.value || !currentTenant.value) return
-  blockVolLoading.value = true
-  try {
-    const res = await getBlockVolumes({
-      id: currentTenant.value.id,
-      instanceId: currentInstance.value.instanceId,
-      ...instanceDetailRegionParam(),
-    })
-    blockVolumes.value = res.data || []
-  } catch (e: any) {
-    message.error(e?.message || '加载已挂载卷失败')
-  } finally {
-    blockVolLoading.value = false
-  }
-  void loadExternalBootVolumes()
-}
-
-async function loadExternalBootVolumes() {
-  if (!currentInstance.value || !currentTenant.value) return
-  externalBootVolLoading.value = true
-  try {
-    const res = await getExternalBootVolumes({
-      id: currentTenant.value.id,
-      instanceId: currentInstance.value.instanceId,
-      ...instanceDetailRegionParam(),
-    })
-    externalBootVolumes.value = res.data || []
-  } catch (e: any) {
-    message.error(e?.message || '加载外部引导卷失败')
-  } finally {
-    externalBootVolLoading.value = false
-  }
-}
-
-function attachedVolumeRowKey(record: any) {
-  return record?.rowKey || record?.bootVolumeAttachmentId || record?.attachmentId || record?.id
-}
-
-function externalBootVolumeRowKey(record: any) {
-  return record?.rowKey || record?.bootVolumeAttachmentId || record?.bootVolumeId || record?.id
-}
-
-function openEditAttachedVolume(record: any) {
-  openEditBlockVolume(record)
-}
-
-function defaultBlockVolumeName() {
-  const inst = currentInstance.value
-  if (!inst?.name) return 'block-volume'
-  return `${inst.name}-data`
-}
-
-function openCreateBlockVolume() {
-  createBlockVolForm.displayName = defaultBlockVolumeName()
-  createBlockVolForm.sizeInGBs = 100
-  createBlockVolForm.vpusPerGB = 10
-  createBlockVolForm.device = ''
-  createBlockVolForm.attachmentType = 'paravirtualized'
-  createBlockVolVisible.value = true
-}
-
-async function handleCreateBlockVolume() {
-  if (!currentInstance.value || !currentTenant.value) return
-  if (!createBlockVolForm.sizeInGBs || createBlockVolForm.sizeInGBs < 50) {
-    message.warning('容量须至少 50 GB')
-    return
-  }
-  createBlockVolLoading.value = true
-  try {
-    await createBlockVolumeAndAttach({
-      id: currentTenant.value.id,
-      instanceId: currentInstance.value.instanceId,
-      displayName: createBlockVolForm.displayName?.trim() || defaultBlockVolumeName(),
-      sizeInGBs: createBlockVolForm.sizeInGBs,
-      vpusPerGB: createBlockVolForm.vpusPerGB,
-      device: createBlockVolForm.device?.trim() || undefined,
-      attachmentType: createBlockVolForm.attachmentType,
-      ...instanceDetailRegionParam(),
-    })
-    message.success('块存储卷已创建并提交挂载')
-    createBlockVolVisible.value = false
-    loadBlockVolumes()
-  } catch (e: any) {
-    message.error(e?.message || '创建并挂载失败')
-  } finally {
-    createBlockVolLoading.value = false
-  }
-}
-
-async function loadUnattachedBlockVolumeOptions() {
-  if (!currentInstance.value || !currentTenant.value) return
-  unattachedBlockVolLoading.value = true
-  try {
-    const res = await getUnattachedBlockVolumes({
-      id: currentTenant.value.id,
-      instanceId: currentInstance.value.instanceId,
-      ...instanceDetailRegionParam(),
-    })
-    const rows = res.data || []
-    unattachedBlockVolOptions.value = rows.map((r: any) => ({
-      value: r.id,
-      label: `${r.displayName || r.id} · ${r.sizeInGBs} GB · ${r.vpusPerGB ?? '—'} VPUs`,
-    }))
-  } catch (e: any) {
-    message.error(e?.message || '加载可挂载卷失败')
-    unattachedBlockVolOptions.value = []
-  } finally {
-    unattachedBlockVolLoading.value = false
-  }
-}
-
-function openAttachBlockVolume() {
-  attachBlockVolForm.volumeId = ''
-  attachBlockVolForm.device = ''
-  attachBlockVolForm.attachmentType = 'paravirtualized'
-  attachBlockVolVisible.value = true
-  loadUnattachedBlockVolumeOptions()
-}
-
-async function handleAttachBlockVolume() {
-  if (!currentInstance.value || !currentTenant.value) return
-  if (!attachBlockVolForm.volumeId) {
-    message.warning('请选择块存储卷')
-    return
-  }
-  attachBlockVolLoading.value = true
-  try {
-    await attachBlockVolume({
-      id: currentTenant.value.id,
-      instanceId: currentInstance.value.instanceId,
-      volumeId: attachBlockVolForm.volumeId,
-      device: attachBlockVolForm.device?.trim() || undefined,
-      attachmentType: attachBlockVolForm.attachmentType,
-      ...instanceDetailRegionParam(),
-    })
-    message.success('已提交挂载')
-    attachBlockVolVisible.value = false
-    loadBlockVolumes()
-  } catch (e: any) {
-    message.error(e?.message || '挂载失败')
-  } finally {
-    attachBlockVolLoading.value = false
-  }
-}
-
-function openAttachExternalBootVolume(record: any) {
-  attachExternalBootTarget.value = record
-  attachExternalBootVisible.value = true
-}
-
-async function handleAttachExternalBootVolume() {
-  if (!currentInstance.value || !currentTenant.value || !attachExternalBootTarget.value?.bootVolumeId) return
-  attachExternalBootLoading.value = true
-  try {
-    await attachExternalBootVolume({
-      id: currentTenant.value.id,
-      instanceId: currentInstance.value.instanceId,
-      bootVolumeId: attachExternalBootTarget.value.bootVolumeId,
-      ...instanceDetailRegionParam(),
-    })
-    message.success('已提交挂载外部引导卷')
-    attachExternalBootVisible.value = false
-    loadExternalBootVolumes()
-  } catch (e: any) {
-    message.error(e?.message || '挂载外部引导卷失败')
-  } finally {
-    attachExternalBootLoading.value = false
-  }
-}
-
-function currentInstanceState() {
-  return String(currentInstance.value?.state || currentInstance.value?.lifecycleState || '').toUpperCase()
-}
-
-function bootVolumeState(record: any) {
-  return String(record?.lifecycleState || record?.volumeLifecycleState || '').trim().toUpperCase()
-}
-
-function isBootVolumeAvailable(record: any) {
-  const state = bootVolumeState(record)
-  return !state || state === 'AVAILABLE'
-}
-
-function bootVolumeBusyTitle(record: any) {
-  if (isBootVolumeAvailable(record)) return ''
-  const state = bootVolumeState(record) || '未知'
-  return state === 'UPDATE_PENDING'
-    ? '引导卷正在更新中，请等待状态变为 AVAILABLE（可用）后再操作。'
-    : `引导卷当前状态为 ${state}，请等待状态变为 AVAILABLE（可用）后再操作。`
-}
-
-function ensureBootVolumeAvailable(record: any) {
-  if (isBootVolumeAvailable(record)) return true
-  message.warning(bootVolumeBusyTitle(record))
-  return false
-}
-
-function openDetachExternalBootVolume(record: any) {
-  if (!currentInstance.value || !currentTenant.value) return
-  if (!record?.bootVolumeAttachmentId) {
-    message.warning('未找到引导卷附加关系')
-    return
-  }
-  if (currentInstanceState() !== 'STOPPED') {
-    instanceManagerConfirmOverlayActive.value = true
-    Modal.confirm({
-      title: '需要先停止实例',
-      content: `实例状态为 ${currentInstance.value.state || currentInstance.value.lifecycleState || '未知'}，请先断电停止实例后再分离外部引导卷。`,
-      okText: '断电停止',
-      cancelText: '取消',
-      okButtonProps: { danger: true },
-      zIndex: INSTANCE_CONFIRM_MODAL_Z_INDEX,
-      wrapClassName: INSTANCE_CONFIRM_MODAL_WRAP_CLASS,
-      async onOk() {
-        await handleAction(currentTenant.value, currentInstance.value, 'STOP')
-      },
-      afterClose: () => {
-        instanceManagerConfirmOverlayActive.value = false
-      },
-    })
-    return
-  }
-  detachExternalBootTarget.value = record
-  detachExternalBootCode.value = ''
-  void sendDetachExternalBootCode(true)
-}
-
-async function sendDetachExternalBootCode(openAfterSend = false) {
-  detachExternalBootSending.value = true
-  try {
-    await sendVerifyCode('detachBootVolume')
-    message.success(openAfterSend ? '验证码已发送至 Telegram' : '验证码已重新发送')
-    if (openAfterSend) detachExternalBootVisible.value = true
-  } catch (e: any) {
-    message.error(e?.message || '发送验证码失败')
-  } finally {
-    detachExternalBootSending.value = false
-  }
-}
-
-async function handleDetachExternalBootVolume() {
-  if (!currentInstance.value || !currentTenant.value || !detachExternalBootTarget.value?.bootVolumeAttachmentId) return
-  if (!detachExternalBootCode.value || detachExternalBootCode.value.length !== 6) {
-    message.warning('请输入6位验证码')
-    return
-  }
-  detachExternalBootLoading.value = true
-  detachExternalBootVolId.value = detachExternalBootTarget.value.bootVolumeAttachmentId
-  try {
-    await detachExternalBootVolume({
-      id: currentTenant.value.id,
-      instanceId: currentInstance.value.instanceId,
-      bootVolumeAttachmentId: detachExternalBootTarget.value.bootVolumeAttachmentId,
-      verifyCode: detachExternalBootCode.value,
-      ...instanceDetailRegionParam(),
-    })
-    message.success('已提交分离外部引导卷')
-    detachExternalBootVisible.value = false
-    loadExternalBootVolumes()
-  } catch (e: any) {
-    message.error(e?.message || '分离外部引导卷失败')
-  } finally {
-    detachExternalBootLoading.value = false
-    detachExternalBootVolId.value = ''
-  }
-}
-
-function openEditBlockVolume(record: any) {
-  editBlockVolForm.volumeId = record.volumeId
-  editBlockVolForm.displayName = record.displayName
-  editBlockVolForm.sizeInGBs = record.sizeInGBs != null ? Number(record.sizeInGBs) : 50
-  editBlockVolForm.vpusPerGB = record.vpusPerGB ?? 10
-  editBlockVolVisible.value = true
-}
-
-async function handleEditBlockVolume() {
-  if (!currentTenant.value || !editBlockVolForm.volumeId) return
-  editBlockVolLoading.value = true
-  try {
-    await updateBlockVolume({
-      id: currentTenant.value.id,
-      volumeId: editBlockVolForm.volumeId,
-      displayName: editBlockVolForm.displayName,
-      sizeInGBs: editBlockVolForm.sizeInGBs,
-      vpusPerGB: editBlockVolForm.vpusPerGB,
-      ...instanceDetailRegionParam(),
-    })
-    message.success('块存储卷已更新')
-    editBlockVolVisible.value = false
-    loadBlockVolumes()
-  } catch (e: any) {
-    message.error(e?.message || '更新块存储卷失败')
-  } finally {
-    editBlockVolLoading.value = false
-  }
-}
-
-async function handleDetachBlockVolume(record: any) {
-  if (!currentTenant.value || !record?.attachmentId) return
-  detachBlockVolId.value = record.attachmentId
-  try {
-    await detachBlockVolume({
-      id: currentTenant.value.id,
-      volumeAttachmentId: record.attachmentId,
-      ...instanceDetailRegionParam(),
-    })
-    message.success('已提交卸载')
-    loadBlockVolumes()
-  } catch (e: any) {
-    message.error(e?.message || '卸载失败')
-  } finally {
-    detachBlockVolId.value = ''
-  }
-}
-
-function openEditVolume(record: any) {
-  if (!ensureBootVolumeAvailable(record)) return
-  Object.assign(editVolForm, {
-    bootVolumeId: record.bootVolumeId || record.id,
-    displayName: record.displayName,
-    sizeInGBs: record.sizeInGBs,
-    vpusPerGB: record.vpusPerGB ?? 10,
-  })
-  editVolVisible.value = true
-}
-
-async function handleEditVolume() {
-  const currentVol = bootVolumes.value.find((v: any) => (v.bootVolumeId || v.id) === editVolForm.bootVolumeId)
-  if (currentVol && !ensureBootVolumeAvailable(currentVol)) return
-  editVolLoading.value = true
-  try {
-    await updateBootVolume({ id: currentTenant.value.id, ...editVolForm, ...instanceDetailRegionParam() })
-    message.success('引导卷已更新')
-    editVolVisible.value = false
-    loadBootVolumes()
-    if (activeTab.value === 'blockVolume') loadBlockVolumes()
-  } catch (e: any) {
-    message.error(e?.message || '更新引导卷失败')
-  } finally {
-    editVolLoading.value = false
-  }
-}
-
-async function applyVolumePreset(size: number) {
-  if (bootVolumes.value.length === 0) return
-  const vol = bootVolumes.value[0]
-  if (!ensureBootVolumeAvailable(vol)) return
-  editVolLoading.value = true
-  try {
-    await updateBootVolume({
-      id: currentTenant.value.id,
-      bootVolumeId: vol.id,
-      displayName: vol.displayName,
-      sizeInGBs: size,
-      vpusPerGB: 120,
-      ...instanceDetailRegionParam(),
-    })
-    message.success(`引导卷已调整为 ${size} GB / 120 VPUs`)
-    loadBootVolumes()
-  } catch (e: any) {
-    message.error(e?.message || '调整引导卷失败')
-  } finally {
-    editVolLoading.value = false
   }
 }
 
@@ -5905,41 +5176,6 @@ onUnmounted(() => {
   display: flex;
   flex-direction: column;
   gap: 10px;
-}
-.detail-section-title {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin: 12px 0 8px;
-  color: var(--text-main);
-  font-size: 13px;
-  font-weight: 700;
-}
-.external-boot-title {
-  margin-top: 18px;
-  padding-top: 12px;
-  border-top: 1px solid var(--border);
-}
-.selected-volume-box {
-  min-width: 0;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg-sidebar);
-}
-.selected-volume-name {
-  color: var(--text-main);
-  font-weight: 700;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.selected-volume-meta {
-  margin-top: 4px;
-  color: var(--text-sub);
-  font-size: 12px;
-  overflow-wrap: anywhere;
 }
 .mobile-card {
   background: var(--bg-sidebar);

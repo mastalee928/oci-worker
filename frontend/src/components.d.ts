@@ -73,6 +73,8 @@ declare module 'vue' {
     ATypographyText: typeof import('ant-design-vue/es')['TypographyText']
     AuditLogTable: typeof import('./components/AuditLogTable.vue')['default']
     AUploadDragger: typeof import('ant-design-vue/es')['UploadDragger']
+    BlockStoragePanel: typeof import('./components/instance/BlockStoragePanel.vue')['default']
+    BootVolumePanel: typeof import('./components/instance/BootVolumePanel.vue')['default']
     CompartmentManager: typeof import('./components/CompartmentManager.vue')['default']
     ForceA2ConfirmModal: typeof import('./components/instance/ForceA2ConfirmModal.vue')['default']
     OciLogo: typeof import('./components/OciLogo.vue')['default']
