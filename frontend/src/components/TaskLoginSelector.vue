@@ -2,6 +2,7 @@
   <a-form-item :label="isPublicKeyMode ? '登录方式' : label" class="task-root-password-item task-login-selector">
     <a-input
       v-if="isPublicKeyMode"
+      class="task-login-public-key-input"
       value="使用 SSH 公钥登录"
       disabled
     />
@@ -12,10 +13,26 @@
       autocomplete="new-password"
       @update:value="onPasswordInput"
     />
-    <div class="task-login-actions">
-      <a-button type="link" size="small" class="task-root-password-gen" @click="useRandomPassword">随机生成</a-button>
-      <a-button type="link" size="small" class="task-root-password-gen" @click="useSavedPassword">我的密码</a-button>
-      <a-button type="link" size="small" class="task-root-password-gen" @click="useSavedPublicKey">我的公钥</a-button>
+    <div class="task-login-actions" aria-label="登录凭据快捷操作">
+      <a-button type="text" size="small" class="task-login-action" @click="useRandomPassword">随机生成</a-button>
+      <a-button
+        type="text"
+        size="small"
+        class="task-login-action"
+        :class="{ 'task-login-action--active': isSavedPasswordMode }"
+        @click="useSavedPassword"
+      >
+        我的密码
+      </a-button>
+      <a-button
+        type="text"
+        size="small"
+        class="task-login-action"
+        :class="{ 'task-login-action--active': isPublicKeyMode }"
+        @click="useSavedPublicKey"
+      >
+        我的公钥
+      </a-button>
     </div>
   </a-form-item>
 </template>
@@ -49,6 +66,9 @@ const emit = defineEmits<{
 }>()
 
 const isPublicKeyMode = computed(() => props.loginMode === 'SSH_PUBLIC_KEY')
+const isSavedPasswordMode = computed(() =>
+  props.loginMode === 'PASSWORD' && !!props.savedRootPassword && props.rootPassword === props.savedRootPassword,
+)
 
 function randomPassword() {
   const chars = 'ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$%'
@@ -91,17 +111,75 @@ function useSavedPublicKey() {
 </script>
 
 <style scoped>
+.task-login-selector {
+  --task-login-accent: #34d399;
+  --task-login-accent-bg: rgba(16, 185, 129, 0.14);
+  --task-login-accent-soft: rgba(16, 185, 129, 0.08);
+  --task-login-accent-border: rgba(16, 185, 129, 0.45);
+}
+
+:global([data-theme="light"]) .task-login-selector {
+  --task-login-accent: #047857;
+  --task-login-accent-bg: rgba(5, 150, 105, 0.12);
+  --task-login-accent-soft: rgba(5, 150, 105, 0.08);
+  --task-login-accent-border: rgba(5, 150, 105, 0.38);
+}
+
 .task-login-actions {
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  min-height: 24px;
-  margin-top: 4px;
+  flex-wrap: nowrap;
+  gap: 6px;
+  min-height: 26px;
+  margin-top: 6px;
+  overflow-x: auto;
+  white-space: nowrap;
+  scrollbar-width: none;
 }
 
-.task-login-actions :deep(.ant-btn-link) {
-  height: 22px;
-  padding: 0;
+.task-login-actions::-webkit-scrollbar {
+  display: none;
+}
+
+.task-login-action {
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 6px;
+  color: var(--primary);
+  font-size: 12px;
+}
+
+.task-login-action:hover {
+  background: rgba(99, 102, 241, 0.1);
+}
+
+.task-login-action--active,
+.task-login-action--active:hover {
+  background: var(--task-login-accent-bg);
+  color: var(--task-login-accent);
+  font-weight: 600;
+}
+
+.task-login-public-key-input,
+:deep(.task-login-public-key-input.ant-input-disabled) {
+  border-color: var(--task-login-accent-border);
+  background: var(--task-login-accent-soft) !important;
+  color: var(--task-login-accent) !important;
+  -webkit-text-fill-color: var(--task-login-accent);
+  font-weight: 600;
+}
+
+.task-login-selector :deep(.ant-form-item-control-input) {
+  min-height: 0;
+}
+
+@media (max-width: 768px) {
+  .task-login-actions {
+    gap: 4px;
+  }
+
+  .task-login-action {
+    padding: 0 6px;
+  }
 }
 </style>

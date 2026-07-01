@@ -532,6 +532,7 @@
       @ok="handleQuickTask"
       :confirm-loading="quickTaskLoading"
       :mask-closable="false"
+      centered
     >
       <div style="margin-bottom: 12px">
         <a-tag color="blue">{{ quickTaskTenant?.username }}</a-tag>
@@ -633,7 +634,7 @@
               <a-input-number v-model:value="quickTaskForm.interval" :min="10" :max="600" style="width: 100%" />
             </a-form-item>
           </a-col>
-          <a-col :xs="24" :sm="8">
+          <a-col :xs="24" :sm="24">
             <TaskLoginSelector
               v-model:root-password="quickTaskForm.rootPassword"
               v-model:login-mode="quickTaskForm.loginMode"

@@ -170,6 +170,7 @@
 
     <a-modal :keyboard="false" v-model:open="createVisible" title="创建开机任务" :width="isMobile ? 'calc(100vw - 24px)' : 600" @ok="handleCreate"
       :confirm-loading="createLoading" :mask-closable="false" :body-style="taskModalBodyStyle"
+      centered
       :wrap-class-name="isMobile ? 'task-mobile-modal-wrap' : undefined">
       <a-form :model="createForm" layout="vertical">
         <a-form-item label="选择租户" required>
@@ -266,7 +267,7 @@
               <a-input-number v-model:value="createForm.interval" :min="10" :max="600" style="width: 100%" />
             </a-form-item>
           </a-col>
-          <a-col :xs="24" :sm="8">
+          <a-col :xs="24" :sm="24">
             <TaskLoginSelector
               v-model:root-password="createForm.rootPassword"
               v-model:login-mode="createForm.loginMode"
@@ -300,6 +301,7 @@
     <!-- 编辑任务弹窗 -->
     <a-modal :keyboard="false" v-model:open="editVisible" title="编辑开机任务" :width="isMobile ? 'calc(100vw - 24px)' : 600" @ok="handleEdit"
       :confirm-loading="editLoading" :mask-closable="false" :body-style="taskModalBodyStyle"
+      centered
       :wrap-class-name="isMobile ? 'task-mobile-modal-wrap' : undefined">
       <a-form :model="editForm" layout="vertical">
         <ShapeSeriesPicker
@@ -388,7 +390,7 @@
               <a-input-number v-model:value="editForm.interval" :min="10" :max="600" style="width: 100%" />
             </a-form-item>
           </a-col>
-          <a-col :xs="24" :sm="8">
+          <a-col :xs="24" :sm="24">
             <TaskLoginSelector
               v-model:root-password="editForm.rootPassword"
               v-model:login-mode="editForm.loginMode"
