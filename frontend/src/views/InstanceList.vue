@@ -849,17 +849,6 @@
     </a-drawer>
 
 
-    <!-- 新建预留IP弹窗 -->
-    <a-modal :keyboard="false" v-model:open="createRipVisible" title="新建预留 IP" @ok="handleCreateReservedIp"
-      :confirm-loading="createRipLoading" :mask-closable="false">
-      <a-form layout="vertical">
-        <a-form-item label="名称（可选）">
-          <a-input v-model:value="createRipName" placeholder="reserved-ip" />
-        </a-form-item>
-        <div style="color: #999; font-size: 12px">创建一个未绑定的预留 IP。创建后可在列表中绑定到实例。</div>
-      </a-form>
-    </a-modal>
-
     <!-- 修改实例弹窗 -->
     <a-modal :keyboard="false" v-model:open="editInstanceVisible" title="修改实例" @ok="handleEditInstance"
       :confirm-loading="editInstanceLoading" :mask-closable="false" :width="isMobile ? '100%' : 480">
@@ -895,87 +884,17 @@
       :on-resend="resendTerminateVerifyCode"
     />
 
-    <!-- 虚拟云网络抽屉 -->
-    <a-drawer :keyboard="false" v-model:open="vcnVisible" :title="'虚拟云网络 — ' + (vcnTenant?.username || '')"
-      :width="instancePanelWidth" :mask-closable="false" :mask-style="tenantWorkspaceMaskStyle" destroy-on-close
-      :wrap-class-name="vcnPanelWrapClass">
-      <div v-if="vcnTenant" class="vcn-panel-toolbar">
-        <span class="instance-panel-toolbar-label">Region</span>
-        <a-select
-          v-model:value="vcnPanelRegion"
-          class="instance-panel-region-select"
-          :options="vcnRegionOptions"
-          :loading="vcnSubscribedRegionsLoading"
-          show-search
-          option-filter-prop="label"
-          placeholder="选择区域"
-          @change="onVcnPanelRegionUserChange"
-        />
-        <span v-if="vcnSubscribedRegionsLoading" class="instance-panel-region-hint">正在同步订阅区域…</span>
-      </div>
-      <a-spin :spinning="vcnListLoading">
-        <a-empty v-if="!vcnListLoading && vcnList.length === 0" description="无 VCN 数据" />
-        <div v-else>
-          <div v-for="vcn in vcnList" :key="vcn.id" class="vcn-item">
-            <div class="vcn-item-header">
-              <div style="display: flex; align-items: center; gap: 8px">
-                <i class="ri-share-line" style="font-size: 18px; color: var(--primary)"></i>
-                <span style="font-weight: 700">{{ vcn.displayName }}</span>
-              </div>
-              <a-space>
-                <a-tag color="purple">{{ vcn.compartmentName }}</a-tag>
-                <a-button size="small" type="primary" @click="openVcnManager(vcnTenant?.id, vcn)">管理</a-button>
-              </a-space>
-            </div>
-            <div class="vcn-item-body">
-              <div class="vcn-info-row"><span class="info-label">CIDR</span><span>{{ (vcn.cidrBlocks || []).join(', ') }}</span></div>
-              <div class="vcn-info-row"><span class="info-label">状态</span><a-badge :status="vcn.state === 'AVAILABLE' ? 'success' : 'default'" :text="vcn.state" /></div>
-            </div>
-            <div v-if="vcn.subnets && vcn.subnets.length > 0" style="margin-top: 8px">
-              <div style="font-size: 12px; color: var(--text-sub); margin-bottom: 4px">子网：</div>
-              <div v-for="sub in vcn.subnets" :key="sub.id" class="vcn-subnet-row">
-                <span>{{ sub.displayName }}</span>
-                <a-tag size="small">{{ sub.cidrBlock }}</a-tag>
-                <a-tag :color="sub.isPublic ? 'green' : 'default'" size="small">{{ sub.isPublic ? '公有' : '私有' }}</a-tag>
-              </div>
-            </div>
-          </div>
-          <div class="vcn-item">
-            <div class="vcn-item-header">
-              <div style="display: flex; align-items: center; gap: 8px">
-                <i class="ri-map-pin-line" style="font-size: 18px; color: var(--primary)"></i>
-                <span style="font-weight: 700">预留 IP</span>
-              </div>
-              <a-space>
-                <a-button size="small" :loading="reservedIpListLoading" @click="loadReservedIps">刷新</a-button>
-                <a-button size="small" type="primary" @click="showCreateReservedIpModal">新建</a-button>
-              </a-space>
-            </div>
-            <a-spin :spinning="reservedIpListLoading">
-              <a-empty v-if="!reservedIpListLoading && ociReservedIps.length === 0" description="暂无预留 IP" />
-              <div v-for="rip in ociReservedIps" :key="rip.id" class="vcn-ip-row">
-                <a-typography-text copyable>{{ rip.ipAddress }}</a-typography-text>
-                <a-tag :color="rip.isAssigned ? 'green' : 'default'">{{ rip.isAssigned ? '已绑定' : '未绑定' }}</a-tag>
-                <span v-if="rip.assignedInstanceName" class="vcn-ip-meta">{{ rip.assignedInstanceName }}</span>
-                <a-popconfirm v-if="!rip.isAssigned" title="确定删除？" @confirm="handleDeleteReservedIp(rip.id)">
-                  <a-button type="link" danger size="small">删除</a-button>
-                </a-popconfirm>
-                <a-button v-if="rip.isAssigned" type="link" size="small" @click="handleUnassignReservedIp(rip.id)">解绑</a-button>
-              </div>
-            </a-spin>
-            <p class="vcn-panel-hint">OCI 分配的预留公网 IP，可绑定到实例。</p>
-          </div>
-
-          <ByoipPanel
-            v-if="vcnTenant"
-            :user-id="vcnTenant.id"
-            :region="vcnPanelRegion"
-            @changed="onByoipChanged"
-            @editing-overlay-change="handleByoipEditingOverlayChange"
-          />
-        </div>
-      </a-spin>
-    </a-drawer>
+    <TenantVcnPanel
+      ref="tenantVcnPanelRef"
+      v-model:open="vcnVisible"
+      :tenant="vcnTenant"
+      :width="instancePanelWidth"
+      :mask-style="tenantWorkspaceMaskStyle"
+      :wrap-class-name="vcnPanelWrapClass"
+      @open-vcn-manager="openTenantVcnManager"
+      @editing-overlay-change="handleTenantVcnEditingOverlayChange"
+      @reserved-ip-changed="handleTenantVcnReservedIpChanged"
+    />
 
     <VcnManager
       v-model:open="vcnManagerOpen"
@@ -1075,10 +994,7 @@ import {
 import { message, Modal } from 'ant-design-vue'
 import {
   getInstanceList, updateInstanceState, terminateInstance,
-  getVcns,
   changeIp,
-  createReservedIp, listReservedIps, deleteReservedIp,
-  assignReservedIp, unassignReservedIp,
   updateInstance,
   createConsoleConnection, deleteConsoleConnection,
   forceA2ToA1,
@@ -1088,7 +1004,6 @@ import { useTenantCatalogStore } from '../stores/tenantCatalog'
 
 const VcnManager = defineAsyncComponent(() => import('./VcnManager.vue'))
 const StorageManager = defineAsyncComponent(() => import('./StorageManager.vue'))
-const ByoipPanel = defineAsyncComponent(() => import('./ByoipPanel.vue'))
 const ForceA2ConfirmModal = defineAsyncComponent(() => import('../components/instance/ForceA2ConfirmModal.vue'))
 const TerminateVerifyModal = defineAsyncComponent(() => import('../components/instance/TerminateVerifyModal.vue'))
 const BootVolumePanel = defineAsyncComponent(() => import('../components/instance/BootVolumePanel.vue'))
@@ -1098,6 +1013,7 @@ const InstanceSecurityPanel = defineAsyncComponent(() => import('../components/i
 const InstanceNetworkPanel = defineAsyncComponent(() => import('../components/instance/InstanceNetworkPanel.vue'))
 const InstanceNetworkDetailPanel = defineAsyncComponent(() => import('../components/instance/InstanceNetworkDetailPanel.vue'))
 const InstanceShapeEditPanel = defineAsyncComponent(() => import('../components/instance/InstanceShapeEditPanel.vue'))
+const TenantVcnPanel = defineAsyncComponent(() => import('../components/instance/TenantVcnPanel.vue'))
 import { sendVerifyCode } from '../api/system'
 import { listStorageRegions } from '../api/storage'
 import {
@@ -1737,10 +1653,6 @@ const instancePanelRegion = ref('')
 const instanceRegionOptions = ref<{ label: string; value: string }[]>([])
 const instanceSubscribedRegionsLoading = ref(false)
 
-const vcnPanelRegion = ref('')
-const vcnRegionOptions = ref<{ label: string; value: string }[]>([])
-const vcnSubscribedRegionsLoading = ref(false)
-
 function panelRegionMemKey(prefix: string, tenant: any) {
   return `${prefix}:${tenant?.id || ''}`
 }
@@ -1796,11 +1708,6 @@ function instanceDetailScopeParam(): { region?: string; compartmentId?: string }
   const compartmentId = currentInstance.value?.compartmentId
   const cid = compartmentId && String(compartmentId).trim() ? String(compartmentId).trim() : ''
   return cid ? { ...base, compartmentId: cid } : base
-}
-
-function vcnReservedIpRegionParam(): { region?: string } {
-  const r = (vcnPanelRegion.value?.trim() || vcnTenant.value?.ociRegion || '').trim()
-  return r ? { region: r } : {}
 }
 
 async function prefetchSubscribedRegions(
@@ -1888,13 +1795,6 @@ const currentDetailRegion = computed(() => instanceDetailRegionParam().region)
 const changeIpLoading = ref(false)
 
 const instanceInfoLoading = ref(false)
-
-const reservedIps = ref<any[]>([])
-const reservedIpListLoading = ref(false)
-const ociReservedIps = computed(() => reservedIps.value.filter((r: any) => !r.publicIpPoolId))
-const createRipVisible = ref(false)
-const createRipLoading = ref(false)
-const createRipName = ref('')
 
 const editInstanceVisible = ref(false)
 const editInstanceLoading = ref(false)
@@ -2062,10 +1962,9 @@ async function handleDeleteConsole() {
   }
 }
 
-const vcnVisible = ref(false)
-const vcnListLoading = ref(false)
 const vcnTenant = ref<any>(null)
-const vcnList = ref<any[]>([])
+const vcnVisible = ref(false)
+const tenantVcnPanelRef = ref<any>(null)
 
 const vcnManagerOpen = ref(false)
 const vcnManagerUserId = ref('')
@@ -2074,21 +1973,26 @@ const vcnManagerOciRegion = ref('')
 function handleVcnManagerEditingOverlayChange(active: boolean) {
   vcnManagerEditingOverlayActive.value = active
 }
-function handleByoipEditingOverlayChange(active: boolean) {
+function handleTenantVcnEditingOverlayChange(active: boolean) {
   byoipEditingOverlayActive.value = active
 }
-function openVcnManager(tenantId: string, vcn: any) {
+function openVcnManager(tenantId: string, vcn: any, region?: string) {
   vcnManagerUserId.value = tenantId
   vcnManagerVcn.value = vcn
   const fromVcn = vcn?.region && String(vcn.region).trim()
+  const fromPanel = region && String(region).trim()
   const fromInstance = currentInstance.value?.region && String(currentInstance.value.region).trim()
   vcnManagerOciRegion.value =
     fromVcn ||
+    fromPanel ||
     fromInstance ||
-    (vcnVisible.value ? (vcnPanelRegion.value?.trim() || '') : '') ||
     (currentTenant.value?.ociRegion && String(currentTenant.value.ociRegion).trim()) ||
     ''
   vcnManagerOpen.value = true
+}
+
+function openTenantVcnManager(payload: { tenantId: string; vcn: any; region?: string }) {
+  openVcnManager(payload.tenantId, payload.vcn, payload.region)
 }
 
 function openDetailVcnManager(vcn: any) {
@@ -2101,19 +2005,10 @@ watch(vcnManagerOpen, open => {
 })
 
 async function onVcnManagerChanged() {
-  if (!vcnVisible.value || !vcnTenant.value) {
+  if (vcnVisible.value && vcnTenant.value) {
+    await tenantVcnPanelRef.value?.loadVcns?.(true)
+  } else {
     networkPanelRef.value?.loadVcns?.(true)
-    return
-  }
-  vcnListLoading.value = true
-  try {
-    const reg = (vcnPanelRegion.value?.trim() || vcnTenant.value.ociRegion || '').trim()
-    const res = await getVcns({ id: vcnTenant.value.id, region: reg, force: true })
-    vcnList.value = res.data || []
-  } catch (e: any) {
-    message.error(e?.message || '刷新 VCN 列表失败')
-  } finally {
-    vcnListLoading.value = false
   }
 }
 
@@ -2152,64 +2047,22 @@ function openStoragePanel(tenant: any, options: TenantWorkspaceOpenOptions = {})
   })
 }
 
-async function openVcnPanel(tenant: any, options: TenantWorkspaceOpenOptions = {}) {
+function openVcnPanel(tenant: any, options: TenantWorkspaceOpenOptions = {}) {
   beginTenantWorkspace('vcn', tenant, options)
   closeTenantWorkspacePanels('vcn')
   vcnTenant.value = tenant
-  vcnList.value = []
-  reservedIps.value = []
   currentTenant.value = tenant
-  const def = tenant.ociRegion || ''
-  vcnPanelRegion.value = loadPanelRegionFromLs('vcnPanel.region', tenant, def) || def
-  vcnRegionOptions.value = vcnPanelRegion.value
-    ? [{ label: vcnPanelRegion.value, value: vcnPanelRegion.value }]
-    : []
-  savePanelRegionLs('vcnPanel.region', tenant, vcnPanelRegion.value)
   if (!isMobile.value) vcnVisible.value = false
+  void nextTick(() => tenantVcnPanelRef.value?.loadPanel?.())
   scheduleTenantWorkspaceOpen(() => {
     if (tenantWorkspaceKind.value === 'vcn' && vcnTenant.value?.id === tenant.id) {
       vcnVisible.value = true
     }
   })
-  vcnListLoading.value = true
-  try {
-    const reg = (vcnPanelRegion.value?.trim() || tenant.ociRegion || '').trim()
-    const res = await getVcns({ id: tenant.id, region: reg })
-    vcnList.value = res.data || []
-  } catch (e: any) {
-    message.error(e?.message || '加载 VCN 失败')
-  } finally {
-    vcnListLoading.value = false
-  }
-  void prefetchSubscribedRegions(
-    tenant.id,
-    vcnPanelRegion.value,
-    (ids) => {
-      vcnRegionOptions.value = ids.map((x) => ({ label: x, value: x }))
-    },
-    vcnSubscribedRegionsLoading,
-  )
-  loadReservedIps()
 }
 
-async function onVcnPanelRegionUserChange() {
-  if (!vcnVisible.value || !vcnTenant.value) return
-  savePanelRegionLs('vcnPanel.region', vcnTenant.value, vcnPanelRegion.value || '')
-  vcnListLoading.value = true
-  try {
-    const reg = (vcnPanelRegion.value?.trim() || vcnTenant.value.ociRegion || '').trim()
-    const res = await getVcns({ id: vcnTenant.value.id, region: reg, force: true })
-    vcnList.value = res.data || []
-  } catch (e: any) {
-    message.error(e?.message || '加载 VCN 失败')
-  } finally {
-    vcnListLoading.value = false
-  }
-  loadReservedIps()
-}
-
-function onByoipChanged() {
-  loadReservedIps()
+function handleTenantVcnReservedIpChanged() {
+  networkDetailPanelRef.value?.loadNetworkDetail?.()
 }
 
 async function loadAllTenants(force = false) {
@@ -2380,7 +2233,6 @@ const instanceManagerModalOverlayActive = computed(() =>
   securityOverlayActive.value ||
   bootVolumeOverlayActive.value ||
   blockStorageOverlayActive.value ||
-  createRipVisible.value ||
   editInstanceVisible.value ||
   forceA2ModalVisible.value ||
   verifyModalVisible.value ||
@@ -2499,82 +2351,6 @@ async function refreshInstanceInfo() {
   } finally {
     instanceInfoLoading.value = false
   }
-}
-
-function showCreateReservedIpModal() { createRipName.value = ''; createRipVisible.value = true }
-
-async function handleCreateReservedIp() {
-  createRipLoading.value = true
-  try {
-    const res = await createReservedIp({
-      id: currentTenant.value.id,
-      displayName: createRipName.value || undefined,
-      ...vcnReservedIpRegionParam(),
-    })
-    message.success('预留IP已创建: ' + (res.data?.ipAddress || ''))
-    createRipVisible.value = false
-    loadReservedIps()
-  } catch (e: any) {
-    message.error(e?.message || '创建预留IP失败')
-  } finally {
-    createRipLoading.value = false
-  }
-}
-
-async function loadReservedIps() {
-  if (!currentTenant.value) return
-  reservedIpListLoading.value = true
-  try {
-    const res = await listReservedIps({
-      id: currentTenant.value.id,
-      ...vcnReservedIpRegionParam(),
-    })
-    reservedIps.value = res.data || []
-  } catch (e: any) {
-    message.error(e?.message || '加载预留 IP 失败')
-  } finally {
-    reservedIpListLoading.value = false
-  }
-}
-
-async function handleDeleteReservedIp(publicIpId: string) {
-  try {
-    await deleteReservedIp({
-      id: currentTenant.value.id,
-      publicIpId,
-      ...vcnReservedIpRegionParam(),
-    })
-    message.success('预留IP已删除')
-    loadReservedIps()
-  } catch (e: any) { message.error(e?.message || '删除预留IP失败') }
-}
-
-async function handleAssignReservedIp(publicIpId: string) {
-  if (!currentInstance.value) return
-  try {
-    await assignReservedIp({
-      id: currentTenant.value.id,
-      publicIpId,
-      instanceId: currentInstance.value.instanceId,
-      ...instanceDetailScopeParam(),
-    })
-    message.success('预留IP已绑定')
-    loadReservedIps()
-    networkDetailPanelRef.value?.loadNetworkDetail?.()
-  } catch (e: any) { message.error(e?.message || '绑定失败') }
-}
-
-async function handleUnassignReservedIp(publicIpId: string) {
-  try {
-    await unassignReservedIp({
-      id: currentTenant.value.id,
-      publicIpId,
-      ...vcnReservedIpRegionParam(),
-    })
-    message.success('预留IP已解绑')
-    loadReservedIps()
-    networkDetailPanelRef.value?.loadNetworkDetail?.()
-  } catch (e: any) { message.error(e?.message || '解绑失败') }
 }
 
 function openEditInstance() {
@@ -2983,8 +2759,7 @@ onUnmounted(() => {
   -webkit-backdrop-filter: none;
   box-shadow: none;
 }
-.instance-panel-toolbar,
-.vcn-panel-toolbar {
+.instance-panel-toolbar {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -2994,9 +2769,6 @@ onUnmounted(() => {
   background: var(--bg-sidebar);
   border: 1px solid var(--border);
   border-radius: 10px;
-}
-.vcn-panel-toolbar {
-  margin-top: 0;
 }
 .instance-panel-toolbar-label {
   color: var(--text-sub);
@@ -3101,65 +2873,6 @@ onUnmounted(() => {
   font-size: 12px;
   white-space: nowrap;
 }
-.info-label { color: var(--text-sub); flex-shrink: 0; }
-
-.vcn-item {
-  background: var(--bg-sidebar);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  padding: 16px;
-  margin-bottom: 12px;
-}
-.vcn-item-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 8px;
-}
-.vcn-item-body {
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  font-size: 13px;
-}
-.vcn-info-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.vcn-subnet-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 4px 0;
-  font-size: 12px;
-}
-.vcn-ip-row {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-  padding: 6px 0;
-  font-size: 13px;
-}
-.vcn-ip-meta {
-  color: var(--text-sub);
-  font-size: 12px;
-}
-.vcn-panel-hint {
-  margin: 0 0 10px;
-  font-size: 12px;
-  color: var(--text-sub);
-  line-height: 1.5;
-}
-.vcn-byoip-block {
-  margin-top: 10px;
-}
-.vcn-byoip-label {
-  font-size: 12px;
-  color: var(--text-sub);
-  margin-bottom: 4px;
-}
 
 .tenant-table-wrap {
   background: var(--bg-card);
@@ -3191,8 +2904,7 @@ onUnmounted(() => {
   .tenant-card { padding: 14px; border-radius: 12px; }
   .tc-icon { font-size: 22px; }
   .tc-name { font-size: 13px; }
-  .instance-panel-toolbar,
-  .vcn-panel-toolbar {
+  .instance-panel-toolbar {
     flex-direction: column;
     align-items: stretch;
     gap: 8px;
