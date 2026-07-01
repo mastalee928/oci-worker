@@ -78,6 +78,7 @@ public class DatabaseGuardService {
                 assign_public_ip TINYINT(1) DEFAULT 1,
                 assign_ipv6 TINYINT(1) DEFAULT 0,
                 status VARCHAR(16) DEFAULT 'RUNNING',
+                status_time DATETIME DEFAULT NULL,
                 attempt_count INT DEFAULT 0,
                 success_count INT DEFAULT 0,
                 created_instances TEXT DEFAULT NULL,
@@ -532,6 +533,7 @@ public class DatabaseGuardService {
         addColumnIfMissing(conn, "oci_create_task", "vpus_per_gb", "INT DEFAULT 10 AFTER disk");
         addColumnIfMissing(conn, "oci_create_task", "assign_public_ip", "TINYINT(1) DEFAULT 1 AFTER custom_script");
         addColumnIfMissing(conn, "oci_create_task", "assign_ipv6", "TINYINT(1) DEFAULT 0 AFTER assign_public_ip");
+        addColumnIfMissing(conn, "oci_create_task", "status_time", "DATETIME DEFAULT NULL AFTER status");
         addColumnIfMissing(conn, "oci_create_task", "success_count", "INT DEFAULT 0 AFTER attempt_count");
         addColumnIfMissing(conn, "oci_create_task", "created_instances", "TEXT DEFAULT NULL AFTER success_count");
         addColumnIfMissing(conn, "oci_create_task", "failure_reason", "TEXT DEFAULT NULL AFTER created_instances");

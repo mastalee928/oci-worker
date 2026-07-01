@@ -445,6 +445,11 @@ public class BackupService {
                 "disk", "vpus_per_gb", "architecture", "interval_seconds", "create_numbers",
                 "root_password", "operation_system", "custom_script", "assign_public_ip", "assign_ipv6",
                 "status", "attempt_count", "success_count", "created_instances", "failure_reason", "create_time");
+        addLegacyColumns(map, "oci_create_task", "id", "user_id", "oci_region", "ocpus", "memory",
+                "disk", "vpus_per_gb", "architecture", "interval_seconds", "create_numbers",
+                "root_password", "operation_system", "custom_script", "assign_public_ip", "assign_ipv6",
+                "status", "status_time", "attempt_count", "success_count", "created_instances",
+                "failure_reason", "create_time");
 
         addLegacyColumns(map, "oci_login_audit", "id", "account", "password_attempt", "ip", "success",
                 "device_id", "os_name", "browser_name", "login_channel", "user_agent", "create_time");

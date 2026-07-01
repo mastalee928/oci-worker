@@ -94,6 +94,7 @@ public class TaskSchedulerService implements SmartLifecycle {
                     OciUser ociUser = userMapper.selectById(task.getUserId());
                     if (ociUser == null) {
                         task.setStatus(TaskStatusEnum.FAILED.getStatus());
+                        task.setStatusTime(LocalDateTime.now());
                         task.setFailureReason("❌ 租户配置不存在，服务重启后无法恢复任务。");
                         taskMapper.updateById(task);
                         clearServiceLimitNotifyState(task.getId());
@@ -106,6 +107,7 @@ public class TaskSchedulerService implements SmartLifecycle {
                 } catch (Exception e) {
                     log.error("Failed to restore task {}: {}", task.getId(), e.getMessage());
                     task.setStatus(TaskStatusEnum.FAILED.getStatus());
+                    task.setStatusTime(LocalDateTime.now());
                     task.setFailureReason("❌ 服务重启后恢复任务失败：" + e.getMessage());
                     taskMapper.updateById(task);
                     clearServiceLimitNotifyState(task.getId());
@@ -207,6 +209,7 @@ public class TaskSchedulerService implements SmartLifecycle {
             map.put("assignPublicIp", task.getAssignPublicIp() != null ? task.getAssignPublicIp() : true);
             map.put("assignIpv6", task.getAssignIpv6() != null ? task.getAssignIpv6() : false);
             map.put("status", task.getStatus());
+            map.put("statusTime", task.getStatusTime());
             map.put("attemptCount", task.getAttemptCount());
             int scL = task.getSuccessCount() != null ? task.getSuccessCount() : 0;
             int tgtL = task.getCreateNumbers() != null && task.getCreateNumbers() > 0 ? task.getCreateNumbers() : 1;
@@ -403,6 +406,7 @@ public class TaskSchedulerService implements SmartLifecycle {
         if (ociUser == null) throw new OciException("租户配置不存在");
 
         task.setStatus(TaskStatusEnum.RUNNING.getStatus());
+        task.setStatusTime(null);
         task.setFailureReason(null);
         taskMapper.updateById(task);
 
@@ -489,6 +493,7 @@ public class TaskSchedulerService implements SmartLifecycle {
         OciCreateTask task = taskMapper.selectById(taskId);
         if (task != null) {
             task.setStatus(TaskStatusEnum.STOPPED.getStatus());
+            task.setStatusTime(LocalDateTime.now());
             taskMapper.updateById(task);
             OciUser user = userMapper.selectById(task.getUserId());
             String name = user != null ? user.getUsername() : "unknown";
@@ -908,6 +913,7 @@ public class TaskSchedulerService implements SmartLifecycle {
         data.put("assignPublicIp", task.getAssignPublicIp() != null ? task.getAssignPublicIp() : true);
         data.put("assignIpv6", task.getAssignIpv6() != null ? task.getAssignIpv6() : false);
         data.put("status", task.getStatus());
+        data.put("statusTime", task.getStatusTime());
         data.put("attemptCount", task.getAttemptCount());
         int scD = task.getSuccessCount() != null ? task.getSuccessCount() : 0;
         int tgtD = task.getCreateNumbers() != null && task.getCreateNumbers() > 0 ? task.getCreateNumbers() : 1;
@@ -933,6 +939,7 @@ public class TaskSchedulerService implements SmartLifecycle {
         OciCreateTask task = taskMapper.selectById(taskId);
         if (task != null) {
             task.setStatus(status.getStatus());
+            task.setStatusTime(LocalDateTime.now());
             task.setFailureReason(failureReason);
             taskMapper.updateById(task);
         }
@@ -1092,8 +1099,12 @@ public class TaskSchedulerService implements SmartLifecycle {
     private void cleanExpiredTasks() {
         LocalDateTime cutoff = LocalDateTime.now().minusDays(7);
         taskMapper.delete(new LambdaQueryWrapper<OciCreateTask>()
-                .ne(OciCreateTask::getStatus, TaskStatusEnum.RUNNING.getStatus())
-                .lt(OciCreateTask::getCreateTime, cutoff));
+                .in(OciCreateTask::getStatus,
+                        TaskStatusEnum.COMPLETED.getStatus(),
+                        TaskStatusEnum.FAILED.getStatus())
+                .and(w -> w.lt(OciCreateTask::getStatusTime, cutoff)
+                        .or(q -> q.isNull(OciCreateTask::getStatusTime)
+                                .lt(OciCreateTask::getCreateTime, cutoff))));
     }
 
     /**
