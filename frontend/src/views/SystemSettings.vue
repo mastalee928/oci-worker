@@ -62,6 +62,43 @@
           </a-form>
         </a-card>
 
+        <a-card title="开机凭据" class="settings-card task-credential-card" style="margin-top: 16px">
+          <a-form layout="vertical">
+            <a-form-item label="我的密码">
+              <a-input-password
+                v-model:value="taskCredentialForm.rootPassword"
+                placeholder="保存后，快捷开机可一键填入 Root 密码"
+                autocomplete="new-password"
+                allow-clear
+              />
+            </a-form-item>
+            <a-form-item label="我的公钥">
+              <a-upload-dragger
+                accept=".pub"
+                :multiple="false"
+                :show-upload-list="false"
+                :before-upload="beforeTaskPublicKeyUpload"
+                class="task-public-key-upload"
+              >
+                <p class="ant-upload-drag-icon"><InboxOutlined /></p>
+                <p class="ant-upload-text">拖入 .pub 公钥文件，或点击选择</p>
+              </a-upload-dragger>
+              <a-textarea
+                v-model:value="taskCredentialForm.sshPublicKey"
+                placeholder="填写 OpenSSH 公钥，如 ssh-ed25519 或 ssh-rsa 开头"
+                :auto-size="{ minRows: 2, maxRows: 4 }"
+                allow-clear
+                style="margin-top: 8px"
+              />
+            </a-form-item>
+            <a-space wrap>
+              <a-button type="primary" :loading="taskCredentialSaving" @click="saveTaskCredentialConfig">保存开机凭据</a-button>
+              <a-button @click="reloadTaskCredentialConfig" :loading="taskCredentialLoading">重新读取</a-button>
+              <a-button danger @click="clearTaskCredentialConfig">清空</a-button>
+            </a-space>
+          </a-form>
+        </a-card>
+
         <a-card title="登录安全说明" class="settings-card settings-no-select" style="margin-top: 16px">
           <a-descriptions :column="1" bordered size="small">
             <a-descriptions-item label="Token 有效期">24 小时</a-descriptions-item>
@@ -903,7 +940,7 @@ import { Modal, message } from 'ant-design-vue'
 import type { UploadFile } from 'ant-design-vue'
 import { useUserStore } from '../stores/user'
 import { useThemeStore } from '../stores/theme'
-import { sendVerifyCode } from '../api/system'
+import { getTaskCredential, saveTaskCredential, sendVerifyCode } from '../api/system'
 import UpgradeLoader from '../components/UpgradeLoader.vue'
 import AnnouncementInboxPanel from '../components/settings/AnnouncementInboxPanel.vue'
 import request from '../utils/request'
@@ -921,6 +958,10 @@ const pwdLoading = ref(false)
 const saveLoading = ref(false)
 const testLoading = ref(false)
 const pwdForm = reactive({ oldPassword: '', newPassword: '', confirmPassword: '' })
+const taskCredentialLoading = ref(false)
+const taskCredentialSaving = ref(false)
+const taskCredentialForm = reactive({ rootPassword: '', sshPublicKey: '' })
+const TASK_PUBLIC_KEY_MAX_SIZE = 16 * 1024
 const tgConfig = reactive({ botToken: '', chatId: '', notifyTypes: [] as string[], dailyReportTime: '09:00' })
 /** 与 a-time-picker（value-format=HH:mm）一致 */
 const dailyReportTimePicked = ref<string | null>('09:00')
@@ -1197,6 +1238,7 @@ onMounted(async () => {
     window.addEventListener('resize', checkMobile)
   }
   loadNotifyConfig()
+  reloadTaskCredentialConfig()
   loadAnnouncementPushConfig()
   loadAnnouncementTenants()
   loadAnnouncementStatus()
@@ -1709,6 +1751,83 @@ async function handleChangePassword() {
   } finally {
     pwdLoading.value = false
   }
+}
+
+async function reloadTaskCredentialConfig() {
+  taskCredentialLoading.value = true
+  try {
+    const res = await getTaskCredential()
+    taskCredentialForm.rootPassword = res.data?.rootPassword || ''
+    taskCredentialForm.sshPublicKey = res.data?.sshPublicKey || ''
+  } catch (e: any) {
+    message.error(e?.message || '读取开机凭据失败')
+  } finally {
+    taskCredentialLoading.value = false
+  }
+}
+
+async function saveTaskCredentialConfig() {
+  taskCredentialSaving.value = true
+  try {
+    await saveTaskCredential({
+      rootPassword: taskCredentialForm.rootPassword || '',
+      sshPublicKey: taskCredentialForm.sshPublicKey || '',
+    })
+    message.success('开机凭据已保存')
+    await reloadTaskCredentialConfig()
+  } catch (e: any) {
+    message.error(e?.message || '保存开机凭据失败')
+  } finally {
+    taskCredentialSaving.value = false
+  }
+}
+
+function beforeTaskPublicKeyUpload(file: File) {
+  const name = file.name || ''
+  if (!name.toLowerCase().endsWith('.pub')) {
+    message.warning('请选择 .pub 公钥文件')
+    return false
+  }
+  if (file.size > TASK_PUBLIC_KEY_MAX_SIZE) {
+    message.warning('公钥文件过大，请确认选择的是 .pub 公钥文件')
+    return false
+  }
+  const reader = new FileReader()
+  reader.onload = () => {
+    const content = String(reader.result || '').trim().replace(/[\r\n]+/g, ' ')
+    if (!content) {
+      message.warning('公钥文件为空')
+      return
+    }
+    taskCredentialForm.sshPublicKey = content
+    message.success('公钥已读取')
+  }
+  reader.onerror = () => message.error('读取公钥文件失败')
+  reader.readAsText(file)
+  return false
+}
+
+function clearTaskCredentialConfig() {
+  Modal.confirm({
+    title: '清空开机凭据',
+    content: '确定清空我的密码和我的公钥？',
+    okText: '清空',
+    okType: 'danger',
+    cancelText: '取消',
+    async onOk() {
+      taskCredentialSaving.value = true
+      try {
+        await saveTaskCredential({ rootPassword: '', sshPublicKey: '' })
+        taskCredentialForm.rootPassword = ''
+        taskCredentialForm.sshPublicKey = ''
+        message.success('开机凭据已清空')
+      } catch (e: any) {
+        message.error(e?.message || '清空开机凭据失败')
+      } finally {
+        taskCredentialSaving.value = false
+      }
+    },
+  })
 }
 
 function handleForceLogout() {
@@ -3172,6 +3291,23 @@ async function handleRestore() {
 .cf-settings-help-note {
   font-size: 12px;
   opacity: 0.9;
+}
+
+.task-public-key-upload :deep(.ant-upload-drag) {
+  padding: 10px 12px;
+}
+
+.task-public-key-upload :deep(.ant-upload-drag-icon) {
+  margin-bottom: 4px;
+}
+
+.task-public-key-upload :deep(.ant-upload-drag-icon .anticon) {
+  font-size: 22px;
+}
+
+.task-public-key-upload :deep(.ant-upload-text) {
+  margin: 0;
+  font-size: 13px;
 }
 
 @media (max-width: 768px) {

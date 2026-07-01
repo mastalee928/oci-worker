@@ -447,7 +447,8 @@ public class BackupService {
                 "status", "attempt_count", "success_count", "created_instances", "failure_reason", "create_time");
         addLegacyColumns(map, "oci_create_task", "id", "user_id", "oci_region", "ocpus", "memory",
                 "disk", "vpus_per_gb", "architecture", "interval_seconds", "create_numbers",
-                "root_password", "operation_system", "custom_script", "assign_public_ip", "assign_ipv6",
+                "root_password", "login_mode", "ssh_public_key", "operation_system", "custom_script",
+                "assign_public_ip", "assign_ipv6",
                 "status", "status_time", "attempt_count", "success_count", "created_instances",
                 "failure_reason", "create_time");
 

@@ -26,6 +26,7 @@ public class InstanceDetailDTO {
     private String ipv6Address;
     private String image;
     private String rootPassword;
+    private String loginMode;
     private boolean success;
     private boolean die;
     private boolean noShape;

@@ -2,6 +2,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { message, Modal } from 'ant-design-vue'
 import { getAvailableShapes } from '../api/instance'
 import { createTask, hasRunningTask } from '../api/task'
+import { getTaskCredential } from '../api/system'
 import { loadOciRegionCatalog } from '../utils/ociRegionCatalog'
 import {
   applyTaskMemoryInput,
@@ -39,12 +40,16 @@ export function useQuickTask() {
     createNumbers: 1,
     interval: 60,
     rootPassword: '',
+    loginMode: 'PASSWORD',
+    sshPublicKey: '',
     customScript: '',
     assignPublicIp: true,
     assignIpv6: false,
   })
 
   const quickTaskBmLocked = ref(false)
+  const quickTaskSavedRootPassword = ref('')
+  const quickTaskSavedSshPublicKey = ref('')
   const quickTaskShapeLimits = computed(() =>
     resolveTaskShapeLimits(quickTaskForm.architecture, quickTaskShapes.value),
   )
@@ -114,6 +119,28 @@ export function useQuickTask() {
     }
   }
 
+  async function loadQuickTaskCredential() {
+    try {
+      const res = await getTaskCredential()
+      quickTaskSavedRootPassword.value = res.data?.rootPassword || ''
+      quickTaskSavedSshPublicKey.value = res.data?.sshPublicKey || ''
+    } catch {
+      quickTaskSavedRootPassword.value = ''
+      quickTaskSavedSshPublicKey.value = ''
+    }
+  }
+
+  function warnQuickTaskCredentialMissing(type: 'password' | 'publicKey') {
+    Modal.warning({
+      title: type === 'password' ? '未设置我的密码' : '未设置我的公钥',
+      content: type === 'password'
+        ? '请先到系统设置 - 安全设置 - 开机凭据中配置我的密码。'
+        : '请先到系统设置 - 安全设置 - 开机凭据中配置我的公钥。',
+      zIndex: QUICK_TASK_CONFIRM_MODAL_Z_INDEX + 10,
+      wrapClassName: QUICK_TASK_CONFIRM_MODAL_WRAP_CLASS,
+    })
+  }
+
   function openQuickTask(tenant: any) {
     quickTaskTenant.value = tenant
     Object.assign(quickTaskForm, {
@@ -127,6 +154,8 @@ export function useQuickTask() {
       createNumbers: 1,
       interval: 60,
       rootPassword: '',
+      loginMode: 'PASSWORD',
+      sshPublicKey: '',
       customScript: '',
       assignPublicIp: true,
       assignIpv6: false,
@@ -134,6 +163,7 @@ export function useQuickTask() {
     quickTaskBmLocked.value = false
     quickTaskVisible.value = true
     void loadOciRegionCatalog(tenant.id)
+    void loadQuickTaskCredential()
     void loadQuickTaskShapes()
   }
 
@@ -142,7 +172,8 @@ export function useQuickTask() {
     let pwd = ''
     for (let i = 0; i < 16; i++) pwd += chars[Math.floor(Math.random() * chars.length)]
     quickTaskForm.rootPassword = pwd
-    message.success('已生成随机密码')
+    quickTaskForm.loginMode = 'PASSWORD'
+    quickTaskForm.sshPublicKey = ''
   }
 
   function updateQuickTaskOcpus(value: number | null) {
@@ -193,7 +224,15 @@ export function useQuickTask() {
         return
       }
 
-      if (!quickTaskForm.rootPassword) generateQuickTaskRandomPwd()
+      if (quickTaskForm.loginMode === 'SSH_PUBLIC_KEY') {
+        if (!quickTaskForm.sshPublicKey) {
+          warnQuickTaskCredentialMissing('publicKey')
+          return
+        }
+        quickTaskForm.rootPassword = ''
+      } else if (!quickTaskForm.rootPassword) {
+        generateQuickTaskRandomPwd()
+      }
       const payload = buildQuickTaskPayload(region)
 
       try {
@@ -268,6 +307,8 @@ export function useQuickTask() {
     quickTaskForm,
     quickTaskPopupContainer,
     quickTaskBmLocked,
+    quickTaskSavedRootPassword,
+    quickTaskSavedSshPublicKey,
     quickTaskShapeLimits,
     quickTaskOcpuLabel,
     quickTaskMemoryLabel,
@@ -277,6 +318,7 @@ export function useQuickTask() {
     denseIoFlexTierKey,
     openQuickTask,
     generateQuickTaskRandomPwd,
+    warnQuickTaskCredentialMissing,
     updateQuickTaskOcpus,
     updateQuickTaskMemory,
     clampQuickTaskResources,

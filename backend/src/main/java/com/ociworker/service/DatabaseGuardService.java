@@ -73,6 +73,8 @@ public class DatabaseGuardService {
                 interval_seconds INT DEFAULT 60,
                 create_numbers INT DEFAULT 1,
                 root_password VARCHAR(64),
+                login_mode VARCHAR(32) DEFAULT 'PASSWORD',
+                ssh_public_key TEXT DEFAULT NULL,
                 operation_system VARCHAR(64) DEFAULT 'Ubuntu',
                 custom_script TEXT,
                 assign_public_ip TINYINT(1) DEFAULT 1,
@@ -531,6 +533,8 @@ public class DatabaseGuardService {
         addUniqueIndexIfMissing(conn, "oci_user", "uk_oci_user_tenant_id", "oci_tenant_id");
         addColumnIfMissing(conn, "oci_create_task", "custom_script", "TEXT DEFAULT NULL AFTER operation_system");
         addColumnIfMissing(conn, "oci_create_task", "vpus_per_gb", "INT DEFAULT 10 AFTER disk");
+        addColumnIfMissing(conn, "oci_create_task", "login_mode", "VARCHAR(32) DEFAULT 'PASSWORD' AFTER root_password");
+        addColumnIfMissing(conn, "oci_create_task", "ssh_public_key", "TEXT DEFAULT NULL AFTER login_mode");
         addColumnIfMissing(conn, "oci_create_task", "assign_public_ip", "TINYINT(1) DEFAULT 1 AFTER custom_script");
         addColumnIfMissing(conn, "oci_create_task", "assign_ipv6", "TINYINT(1) DEFAULT 0 AFTER assign_public_ip");
         addColumnIfMissing(conn, "oci_create_task", "status_time", "DATETIME DEFAULT NULL AFTER status");

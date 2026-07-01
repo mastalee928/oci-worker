@@ -634,14 +634,15 @@
             </a-form-item>
           </a-col>
           <a-col :xs="24" :sm="8">
-            <a-form-item label="Root 密码" class="task-root-password-item">
-              <a-input-password
-                v-model:value="quickTaskForm.rootPassword"
-                placeholder="留空=随机生成"
-                autocomplete="new-password"
-              />
-              <a-button type="link" size="small" class="task-root-password-gen" @click="generateQuickTaskRandomPwd">随机生成</a-button>
-            </a-form-item>
+            <TaskLoginSelector
+              v-model:root-password="quickTaskForm.rootPassword"
+              v-model:login-mode="quickTaskForm.loginMode"
+              v-model:ssh-public-key="quickTaskForm.sshPublicKey"
+              :saved-root-password="quickTaskSavedRootPassword"
+              :saved-ssh-public-key="quickTaskSavedSshPublicKey"
+              placeholder="留空=随机生成"
+              @missing="warnQuickTaskCredentialMissing"
+            />
           </a-col>
         </a-row>
         <div style="display: flex; align-items: center; gap: 32px; margin-bottom: 16px">
@@ -2074,6 +2075,7 @@ import {
 import { useQuickTask } from '../composables/useQuickTask'
 import { isAllGroupsExpanded } from '../composables/groupExpandToggle'
 import ShapeSeriesPicker from '../components/ShapeSeriesPicker.vue'
+import TaskLoginSelector from '../components/TaskLoginSelector.vue'
 import VirtualTenantCardList from '../components/tenant/VirtualTenantCardList.vue'
 import VirtualTenantGridList from '../components/tenant/VirtualTenantGridList.vue'
 import {
@@ -3565,6 +3567,8 @@ const {
   quickTaskForm,
   quickTaskPopupContainer,
   quickTaskBmLocked,
+  quickTaskSavedRootPassword,
+  quickTaskSavedSshPublicKey,
   quickTaskShapeLimits,
   quickTaskOcpuLabel,
   quickTaskMemoryLabel,
@@ -3573,7 +3577,7 @@ const {
   formatDenseIoTierLabel,
   denseIoFlexTierKey,
   openQuickTask,
-  generateQuickTaskRandomPwd,
+  warnQuickTaskCredentialMissing,
   updateQuickTaskOcpus,
   updateQuickTaskMemory,
   clampQuickTaskResources,

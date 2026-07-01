@@ -15,6 +15,9 @@ public class UpdateTaskParams {
     private Integer createNumbers;
     private Integer interval;
     private String rootPassword;
+    /** PASSWORD / SSH_PUBLIC_KEY */
+    private String loginMode;
+    private String sshPublicKey;
     private String operationSystem;
     private String customScript;
     private Boolean assignPublicIp;

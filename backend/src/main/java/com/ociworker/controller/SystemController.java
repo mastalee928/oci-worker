@@ -17,8 +17,10 @@ import com.ociworker.service.SystemService;
 import com.ociworker.service.TgNotifyConfigRollbackService;
 import com.ociworker.service.VerifyCodeService;
 import com.ociworker.util.HttpRequestUtil;
+import com.ociworker.util.OciOpenaiKeyCipher;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.LinkedHashMap;
@@ -31,6 +33,8 @@ import java.util.regex.Pattern;
 public class SystemController {
 
     private static final Pattern DAILY_REPORT_TIME = Pattern.compile("^([01]\\d|2[0-3]):[0-5]\\d$");
+    private static final Pattern OPENSSH_PUBLIC_KEY = Pattern.compile(
+            "^(ssh-rsa|ssh-dss|ssh-ed25519|ecdsa-sha2-nistp(256|384|521))\\s+[A-Za-z0-9+/=]+(\\s+.*)?$");
     private static final String BANLIST_SESSION_HEADER = "X-Oci-Banlist-Session";
     private static final String LOGIN_AUDIT_SESSION_HEADER = "X-Oci-Login-Audit-Session";
 
@@ -56,6 +60,8 @@ public class SystemController {
     private TgNotifyConfigRollbackService tgNotifyConfigRollbackService;
     @Resource
     private AnnouncementPushService announcementPushService;
+    @Value("${web.password}")
+    private String webPassword;
 
     @GetMapping("/glance")
     public ResponseData<?> glance() {
@@ -66,6 +72,51 @@ public class SystemController {
     @GetMapping("/ociRegionOptions")
     public ResponseData<?> ociRegionOptions(@RequestParam(required = false) String userId) {
         return ResponseData.ok(systemService.listOciRegionCatalog(userId));
+    }
+
+    @GetMapping("/taskCredential")
+    public ResponseData<?> getTaskCredential() {
+        Map<String, Object> data = new LinkedHashMap<>();
+        String encryptedPwd = notificationService.getKvValue(SysCfgEnum.TASK_SAVED_ROOT_PASSWORD);
+        String rootPassword = "";
+        if (StrUtil.isNotBlank(encryptedPwd)) {
+            try {
+                rootPassword = StrUtil.nullToEmpty(OciOpenaiKeyCipher.decrypt(encryptedPwd, webPassword));
+            } catch (Exception ignored) {
+                rootPassword = "";
+            }
+        }
+        String publicKey = StrUtil.nullToEmpty(notificationService.getKvValue(SysCfgEnum.TASK_SAVED_SSH_PUBLIC_KEY));
+        data.put("rootPasswordConfigured", StrUtil.isNotBlank(rootPassword));
+        data.put("rootPassword", rootPassword);
+        data.put("sshPublicKeyConfigured", StrUtil.isNotBlank(publicKey));
+        data.put("sshPublicKey", publicKey);
+        return ResponseData.ok(data);
+    }
+
+    @PostMapping("/taskCredential")
+    public ResponseData<?> saveTaskCredential(@RequestBody Map<String, String> params) {
+        if (params.containsKey("rootPassword")) {
+            String rootPassword = StrUtil.trimToEmpty(params.get("rootPassword"));
+            if (rootPassword.isBlank()) {
+                notificationService.removeKvValue(SysCfgEnum.TASK_SAVED_ROOT_PASSWORD);
+            } else {
+                notificationService.saveKvValue(SysCfgEnum.TASK_SAVED_ROOT_PASSWORD,
+                        OciOpenaiKeyCipher.encrypt(rootPassword, webPassword));
+            }
+        }
+        if (params.containsKey("sshPublicKey")) {
+            String publicKey = StrUtil.trimToEmpty(params.get("sshPublicKey")).replaceAll("[\\r\\n]+", " ");
+            if (publicKey.isBlank()) {
+                notificationService.removeKvValue(SysCfgEnum.TASK_SAVED_SSH_PUBLIC_KEY);
+            } else {
+                if (!OPENSSH_PUBLIC_KEY.matcher(publicKey).matches()) {
+                    return ResponseData.error("SSH 公钥格式不正确，请填写 OpenSSH 公钥（如 ssh-ed25519 或 ssh-rsa 开头）");
+                }
+                notificationService.saveKvValue(SysCfgEnum.TASK_SAVED_SSH_PUBLIC_KEY, publicKey);
+            }
+        }
+        return ResponseData.ok();
     }
 
     @GetMapping("/notifyConfig")

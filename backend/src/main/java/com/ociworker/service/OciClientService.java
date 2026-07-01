@@ -22,6 +22,7 @@ import com.oracle.bmc.networkloadbalancer.NetworkLoadBalancerClient;
 import com.oracle.bmc.objectstorage.ObjectStorageClient;
 import com.oracle.bmc.workrequests.WorkRequestClient;
 import com.ociworker.enums.ArchitectureEnum;
+import com.ociworker.enums.TaskLoginModeEnum;
 import com.ociworker.exception.OciException;
 import com.ociworker.model.dto.InstanceDetailDTO;
 import com.ociworker.model.dto.OciProxySnapshot;
@@ -528,7 +529,9 @@ public class OciClientService implements Closeable {
                         user.getUsername(), user.getOciCfg().getRegion(), ad.getName(), subnet.getDisplayName());
 
                 try {
-                    String cloudInitScript = CommonUtils.getPwdShell(user.getRootPassword(), user.getCustomScript());
+                    String cloudInitScript = TaskLoginModeEnum.isSshPublicKey(user.getLoginMode())
+                            ? CommonUtils.getSshPublicKeyShell(user.getSshPublicKey(), user.getCustomScript())
+                            : CommonUtils.getPwdShell(user.getRootPassword(), user.getCustomScript());
                     LaunchInstanceDetails launchDetails = buildLaunchDetails(ad, shape, image, subnet, cloudInitScript);
                     Instance instance = launchInstance(launchDetails);
 
@@ -576,6 +579,7 @@ public class OciClientService implements Closeable {
                     result.setPublicIp(publicIp);
                     result.setImage(image.getId());
                     result.setRootPassword(user.getRootPassword());
+                    result.setLoginMode(user.getLoginMode());
                     result.setRegion(user.getOciCfg().getRegion());
                     return result;
                 } catch (com.oracle.bmc.model.BmcException e) {

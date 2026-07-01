@@ -59,6 +59,9 @@ public enum SysCfgEnum {
     /** 阿里云DNS AccessKey */
     ALIDNS_ACCESS_KEY_ID("alidns_access_key_id", "sys"),
     ALIDNS_ACCESS_KEY_SECRET("alidns_access_key_secret", "sys"),
+
+    TASK_SAVED_ROOT_PASSWORD("task_saved_root_password", "sys"),
+    TASK_SAVED_SSH_PUBLIC_KEY("task_saved_ssh_public_key", "sys"),
     ;
 
     private final String code;

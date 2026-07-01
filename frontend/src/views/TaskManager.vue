@@ -267,14 +267,15 @@
             </a-form-item>
           </a-col>
           <a-col :xs="24" :sm="8">
-            <a-form-item label="Root 密码" class="task-root-password-item">
-              <a-input-password
-                v-model:value="createForm.rootPassword"
-                placeholder="留空=随机生成"
-                autocomplete="new-password"
-              />
-              <a-button type="link" size="small" class="task-root-password-gen" @click="generateRandomPwd">随机生成</a-button>
-            </a-form-item>
+            <TaskLoginSelector
+              v-model:root-password="createForm.rootPassword"
+              v-model:login-mode="createForm.loginMode"
+              v-model:ssh-public-key="createForm.sshPublicKey"
+              :saved-root-password="taskSavedRootPassword"
+              :saved-ssh-public-key="taskSavedSshPublicKey"
+              placeholder="留空=随机生成"
+              @missing="warnTaskCredentialMissing"
+            />
           </a-col>
         </a-row>
         <div style="display: flex; align-items: center; gap: 32px; margin-bottom: 16px">
@@ -388,9 +389,15 @@
             </a-form-item>
           </a-col>
           <a-col :xs="24" :sm="8">
-            <a-form-item label="Root 密码">
-              <a-input-password v-model:value="editForm.rootPassword" placeholder="留空=保持不变" />
-            </a-form-item>
+            <TaskLoginSelector
+              v-model:root-password="editForm.rootPassword"
+              v-model:login-mode="editForm.loginMode"
+              v-model:ssh-public-key="editForm.sshPublicKey"
+              :saved-root-password="taskSavedRootPassword"
+              :saved-ssh-public-key="taskSavedSshPublicKey"
+              placeholder="留空=保持不变"
+              @missing="warnTaskCredentialMissing"
+            />
           </a-col>
         </a-row>
         <div style="display: flex; align-items: center; gap: 32px; margin-bottom: 16px">
@@ -438,7 +445,11 @@
                 <a-badge :status="badgeStatusMap[detailData.status] || 'default'" :text="statusMap[detailData.status] || detailData.status" />
               </a-descriptions-item>
               <a-descriptions-item label="创建时间">{{ detailData.createTime }}</a-descriptions-item>
-              <a-descriptions-item label="Root 密码" :span="isMobile ? 1 : 2">
+              <a-descriptions-item label="登录用户">root</a-descriptions-item>
+              <a-descriptions-item label="登录方式">
+                {{ detailData.loginMode === 'SSH_PUBLIC_KEY' ? 'SSH 公钥' : 'Root 密码' }}
+              </a-descriptions-item>
+              <a-descriptions-item v-if="detailData.loginMode !== 'SSH_PUBLIC_KEY'" label="Root 密码" :span="isMobile ? 1 : 2">
                 <a-typography-text v-if="detailData.rootPassword" copyable>
                   {{ pwdVisible ? detailData.rootPassword : '••••••••' }}
                 </a-typography-text>
@@ -533,6 +544,7 @@ import { message, Modal } from 'ant-design-vue'
 import { getTaskList, createTask, updateTask, stopTask, hasRunningTask, resumeTask, deleteTask, batchStopTask, batchResumeTask, getTaskDetail } from '../api/task'
 import { getTenantList } from '../api/tenant'
 import { getAvailableShapes } from '../api/instance'
+import { getTaskCredential } from '../api/system'
 import {
   applyTaskOcpusInput,
   applyTaskMemoryInput,
@@ -546,6 +558,7 @@ import {
 } from '../constants/ociBmShapeSpecs'
 import { useDenseIoFlexTier } from '../composables/useDenseIoFlexTier'
 import ShapeSeriesPicker from '../components/ShapeSeriesPicker.vue'
+import TaskLoginSelector from '../components/TaskLoginSelector.vue'
 import {
   BOOT_VOLUME_VPUS_MAX,
   BOOT_VOLUME_VPUS_MIN,
@@ -609,6 +622,8 @@ const tableData = ref<any[]>([])
 const tenants = ref<any[]>([])
 const availableShapes = ref<any[]>([])
 const createVisible = ref(false)
+const taskSavedRootPassword = ref('')
+const taskSavedSshPublicKey = ref('')
 const searchKeyword = ref('')
 const filterStatus = ref('')
 const pagination = reactive({ current: 1, pageSize: 10, total: 0 })
@@ -643,6 +658,7 @@ function selectedTaskIds() {
 const createForm = reactive({
   userId: '', architecture: TASK_ARM_SHAPE, operationSystem: 'Ubuntu',
   ocpus: 1, memory: 6, disk: 50, vpusPerGB: 10, createNumbers: 1, interval: 60, rootPassword: '',
+  loginMode: 'PASSWORD', sshPublicKey: '',
   customScript: '', assignPublicIp: true, assignIpv6: false,
 })
 
@@ -690,6 +706,7 @@ const editForm = reactive({
   userId: '',
   architecture: TASK_ARM_SHAPE, operationSystem: 'Ubuntu',
   ocpus: 1, memory: 6, disk: 50, vpusPerGB: 10, createNumbers: 1, interval: 60, rootPassword: '',
+  loginMode: 'PASSWORD', sshPublicKey: '',
   customScript: '', assignPublicIp: true, assignIpv6: false,
 })
 const {
@@ -738,7 +755,29 @@ async function loadEditAvailableShapes(tenantId: string, region?: string, curren
   }
 }
 
+async function loadTaskCredential() {
+  try {
+    const res = await getTaskCredential()
+    taskSavedRootPassword.value = res.data?.rootPassword || ''
+    taskSavedSshPublicKey.value = res.data?.sshPublicKey || ''
+  } catch {
+    taskSavedRootPassword.value = ''
+    taskSavedSshPublicKey.value = ''
+  }
+}
+
+function warnTaskCredentialMissing(type: 'password' | 'publicKey') {
+  Modal.warning({
+    title: type === 'password' ? '未设置我的密码' : '未设置我的公钥',
+    content: type === 'password'
+      ? '请先到系统设置 - 安全设置 - 开机凭据中配置我的密码。'
+      : '请先到系统设置 - 安全设置 - 开机凭据中配置我的公钥。',
+    zIndex: 1300,
+  })
+}
+
 async function showEditModal(record: any) {
+  void loadTaskCredential()
   Object.assign(editForm, {
     taskId: record.id,
     userId: record.userId || '',
@@ -751,6 +790,8 @@ async function showEditModal(record: any) {
     createNumbers: record.createNumbers,
     interval: record.intervalSeconds,
     rootPassword: '',
+    loginMode: record.loginMode || 'PASSWORD',
+    sshPublicKey: record.sshPublicKey || '',
     customScript: record.customScript || '',
     assignPublicIp: record.assignPublicIp ?? true,
     assignIpv6: record.assignIpv6 ?? false,
@@ -769,6 +810,10 @@ async function handleEdit() {
   }
   if (editForm.architecture?.includes('A2.Flex') && editForm.ocpus === 1 && editForm.memory === 1) {
     message.error('比例错误')
+    return
+  }
+  if (editForm.loginMode === 'SSH_PUBLIC_KEY' && !editForm.sshPublicKey) {
+    warnTaskCredentialMissing('publicKey')
     return
   }
   const payload = {
@@ -873,10 +918,12 @@ function handleMobilePageChange(page: number) {
 
 function showCreateModal() {
   loadTenants()
+  void loadTaskCredential()
   availableShapes.value = []
   Object.assign(createForm, {
     userId: '', architecture: TASK_ARM_SHAPE, operationSystem: 'Ubuntu',
     ocpus: 1, memory: 6, disk: 50, vpusPerGB: 10, createNumbers: 1, interval: 60, rootPassword: '',
+    loginMode: 'PASSWORD', sshPublicKey: '',
     customScript: '', assignPublicIp: true, assignIpv6: false,
   })
   createBmLocked.value = false
@@ -898,7 +945,15 @@ async function handleCreate() {
       message.error('比例错误')
       return
     }
-    if (!createForm.rootPassword) generateRandomPwd()
+    if (createForm.loginMode === 'SSH_PUBLIC_KEY') {
+      if (!createForm.sshPublicKey) {
+        warnTaskCredentialMissing('publicKey')
+        return
+      }
+      createForm.rootPassword = ''
+    } else if (!createForm.rootPassword) {
+      generateRandomPwd()
+    }
     const payload = {
       ...createForm,
       architecture: normalizeTaskArchitecture(createForm.architecture),

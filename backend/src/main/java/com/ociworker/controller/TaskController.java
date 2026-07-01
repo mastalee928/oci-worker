@@ -39,7 +39,7 @@ public class TaskController {
                 params.getUserId(), params.getArchitecture(),
                 params.getOcpus(), params.getMemory(), params.getDisk(), params.getVpusPerGB(),
                 params.getCreateNumbers(), params.getInterval(),
-                params.getRootPassword(), params.getOperationSystem(),
+                params.getRootPassword(), params.getLoginMode(), params.getSshPublicKey(), params.getOperationSystem(),
                 params.getCustomScript(),
                 params.getAssignPublicIp(), params.getAssignIpv6(),
                 params.getOciRegion());
@@ -52,7 +52,7 @@ public class TaskController {
                 params.getTaskId(), params.getArchitecture(),
                 params.getOcpus(), params.getMemory(), params.getDisk(), params.getVpusPerGB(),
                 params.getCreateNumbers(), params.getInterval(),
-                params.getRootPassword(), params.getOperationSystem(),
+                params.getRootPassword(), params.getLoginMode(), params.getSshPublicKey(), params.getOperationSystem(),
                 params.getCustomScript(),
                 params.getAssignPublicIp(), params.getAssignIpv6());
         return ResponseData.ok();

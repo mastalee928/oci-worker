@@ -24,6 +24,8 @@ public class OciCreateTask {
     private Integer intervalSeconds;
     private Integer createNumbers;
     private String rootPassword;
+    private String loginMode;
+    private String sshPublicKey;
     private String operationSystem;
     private String customScript;
     private Boolean assignPublicIp;

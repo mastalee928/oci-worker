@@ -16,6 +16,9 @@ public class CreateTaskParams {
     private Integer createNumbers = 1;
     private Integer interval = 60;
     private String rootPassword;
+    /** PASSWORD / SSH_PUBLIC_KEY */
+    private String loginMode = "PASSWORD";
+    private String sshPublicKey;
     private String operationSystem = "Ubuntu";
     private String customScript;
     private Boolean assignPublicIp = true;

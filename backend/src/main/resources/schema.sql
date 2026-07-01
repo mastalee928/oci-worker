@@ -38,6 +38,8 @@ CREATE TABLE IF NOT EXISTS oci_create_task (
     interval_seconds INT DEFAULT 60,
     create_numbers INT DEFAULT 1,
     root_password VARCHAR(64),
+    login_mode VARCHAR(32) DEFAULT 'PASSWORD',
+    ssh_public_key TEXT DEFAULT NULL,
     operation_system VARCHAR(64) DEFAULT 'Ubuntu',
     custom_script TEXT,
     status VARCHAR(16) DEFAULT 'RUNNING',

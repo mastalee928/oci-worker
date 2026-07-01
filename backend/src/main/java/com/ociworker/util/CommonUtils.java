@@ -97,4 +97,49 @@ public class CommonUtils {
         }
         return sb.length() > "#!/bin/bash\n".length() ? sb.toString() : "";
     }
+
+    public static String getSshPublicKeyShell(String publicKey, String customScript) {
+        StringBuilder sb = new StringBuilder("#!/bin/bash\n");
+        if (publicKey != null && !publicKey.isBlank()) {
+            String keyB64 = Base64.getEncoder().encodeToString(
+                    publicKey.trim().getBytes(StandardCharsets.UTF_8));
+            sb.append("set -e\n");
+            sb.append("mkdir -p /root/.ssh\n");
+            sb.append("printf '%s' '").append(keyB64).append("' | base64 -d > /root/.ssh/authorized_keys\n");
+            sb.append("printf '\\n' >> /root/.ssh/authorized_keys\n");
+            sb.append("chown -R root:root /root/.ssh\n");
+            sb.append("chmod 700 /root/.ssh\n");
+            sb.append("chmod 600 /root/.ssh/authorized_keys\n");
+            sb.append("set +e\n");
+            sb.append("SSH_KEY_FIX() {\n");
+            sb.append("  sed -i -E 's/^[#[:space:]]*PermitRootLogin[[:space:]].*/PermitRootLogin yes/; ");
+            sb.append("s/^[#[:space:]]*PubkeyAuthentication[[:space:]].*/PubkeyAuthentication yes/' \"$1\" 2>/dev/null || true\n");
+            sb.append("}\n");
+            sb.append("mkdir -p /etc/ssh/sshd_config.d\n");
+            sb.append("if [ -f /etc/ssh/sshd_config ]; then SSH_KEY_FIX /etc/ssh/sshd_config; fi\n");
+            sb.append("shopt -s nullglob; for f in /etc/ssh/sshd_config.d/*.conf; do ");
+            sb.append("SSH_KEY_FIX \"$f\"; done; shopt -u nullglob\n");
+            sb.append("cat > /etc/ssh/sshd_config.d/99-ociworker-key.conf <<'SSHEOF'\n");
+            sb.append("PermitRootLogin yes\n");
+            sb.append("PubkeyAuthentication yes\n");
+            sb.append("SSHEOF\n");
+            sb.append("cat > /etc/ssh/sshd_config.d/zz-ociworker-key-override.conf <<'SSHEOF2'\n");
+            sb.append("PermitRootLogin yes\n");
+            sb.append("PubkeyAuthentication yes\n");
+            sb.append("SSHEOF2\n");
+            sb.append("chmod 644 /etc/ssh/sshd_config.d/99-ociworker-key.conf /etc/ssh/sshd_config.d/zz-ociworker-key-override.conf 2>/dev/null || true\n");
+            sb.append("if getenforce 2>/dev/null | grep -q Enforcing; then restorecon -RFv /root/.ssh /etc/ssh /etc/ssh/sshd_config.d 2>/dev/null || true; fi\n");
+            sb.append("if sshd -t 2>>/var/log/ociworker-bootstrap.log; then\n");
+            sb.append("  systemctl restart sshd 2>/dev/null || systemctl restart ssh 2>/dev/null || ");
+            sb.append("service sshd restart 2>/dev/null || service ssh restart\n");
+            sb.append("else\n");
+            sb.append("  echo 'ociworker: sshd -t failed, not restarting ssh' >>/var/log/ociworker-bootstrap.log\n");
+            sb.append("fi\n");
+        }
+        if (customScript != null && !customScript.trim().isEmpty()) {
+            sb.append("\n# --- Custom Script ---\n");
+            sb.append(customScript.trim()).append("\n");
+        }
+        return sb.length() > "#!/bin/bash\n".length() ? sb.toString() : "";
+    }
 }
