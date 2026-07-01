@@ -129,7 +129,7 @@ function useSavedPublicKey() {
   display: flex;
   align-items: center;
   flex-wrap: nowrap;
-  gap: 6px;
+  gap: 4px;
   min-height: 26px;
   margin-top: 6px;
   overflow-x: auto;
@@ -143,10 +143,11 @@ function useSavedPublicKey() {
 
 .task-login-action {
   height: 24px;
-  padding: 0 8px;
+  padding: 0 4px;
   border-radius: 6px;
   color: var(--primary);
   font-size: 12px;
+  min-width: 0;
 }
 
 .task-login-action:hover {
@@ -179,7 +180,7 @@ function useSavedPublicKey() {
   }
 
   .task-login-action {
-    padding: 0 6px;
+    padding: 0 4px;
   }
 }
 </style>

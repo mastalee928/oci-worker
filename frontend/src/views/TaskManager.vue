@@ -267,7 +267,7 @@
               <a-input-number v-model:value="createForm.interval" :min="10" :max="600" style="width: 100%" />
             </a-form-item>
           </a-col>
-          <a-col :xs="24" :sm="24">
+          <a-col :xs="24" :sm="8">
             <TaskLoginSelector
               v-model:root-password="createForm.rootPassword"
               v-model:login-mode="createForm.loginMode"
@@ -390,7 +390,7 @@
               <a-input-number v-model:value="editForm.interval" :min="10" :max="600" style="width: 100%" />
             </a-form-item>
           </a-col>
-          <a-col :xs="24" :sm="24">
+          <a-col :xs="24" :sm="8">
             <TaskLoginSelector
               v-model:root-password="editForm.rootPassword"
               v-model:login-mode="editForm.loginMode"
