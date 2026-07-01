@@ -1835,22 +1835,16 @@
       @cancel="resetForceA2Modal"
     />
 
-    <!-- 终止实例验证码弹窗 -->
-    <a-modal :mask-closable="false" :keyboard="false" v-model:open="verifyModalVisible" title="安全验证 — 终止实例" :width="400"
-      @ok="handleTerminateWithCode" :confirm-loading="verifyLoading" ok-text="确认终止" ok-type="primary"
-      :ok-button-props="{ danger: true }">
-      <a-alert type="warning" show-icon style="margin-bottom: 16px">
-        <template #message>终止实例不可逆，验证码已发送至 Telegram</template>
-      </a-alert>
-      <a-input v-model:value="verifyCode" placeholder="请输入6位验证码" size="large" :maxlength="6" allow-clear />
-      <div style="margin-top: 12px">
-        <a-checkbox v-model:checked="deleteBootVolume">同时删除引导卷（不可恢复）</a-checkbox>
-      </div>
-      <div style="margin-top: 12px; display: flex; justify-content: space-between; align-items: center">
-        <span style="color: var(--text-sub); font-size: 12px">验证码有效期 5 分钟</span>
-        <a-button type="link" size="small" :loading="verifySending" @click="resendVerifyCode('terminate')">重新发送</a-button>
-      </div>
-    </a-modal>
+    <TerminateVerifyModal
+      v-if="verifyModalVisible"
+      v-model:open="verifyModalVisible"
+      v-model:code="verifyCode"
+      v-model:delete-boot-volume="deleteBootVolume"
+      :loading="verifyLoading"
+      :sending="verifySending"
+      :on-confirm="handleTerminateWithCode"
+      :on-resend="resendTerminateVerifyCode"
+    />
 
     <!-- 虚拟云网络抽屉 -->
     <a-drawer :keyboard="false" v-model:open="vcnVisible" :title="'虚拟云网络 — ' + (vcnTenant?.username || '')"
@@ -2065,6 +2059,7 @@ const VcnManager = defineAsyncComponent(() => import('./VcnManager.vue'))
 const StorageManager = defineAsyncComponent(() => import('./StorageManager.vue'))
 const ByoipPanel = defineAsyncComponent(() => import('./ByoipPanel.vue'))
 const ForceA2ConfirmModal = defineAsyncComponent(() => import('../components/instance/ForceA2ConfirmModal.vue'))
+const TerminateVerifyModal = defineAsyncComponent(() => import('../components/instance/TerminateVerifyModal.vue'))
 import { createTask, hasRunningTask } from '../api/task'
 import { sendVerifyCode } from '../api/system'
 import { listStorageRegions } from '../api/storage'
@@ -4211,6 +4206,10 @@ async function resendVerifyCode(action: string) {
   } finally {
     verifySending.value = false
   }
+}
+
+function resendTerminateVerifyCode() {
+  return resendVerifyCode('terminate')
 }
 
 async function handleTerminateWithCode() {

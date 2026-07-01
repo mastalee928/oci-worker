@@ -79,6 +79,7 @@ declare module 'vue' {
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
     ShapeSeriesPicker: typeof import('./components/ShapeSeriesPicker.vue')['default']
+    TerminateVerifyModal: typeof import('./components/instance/TerminateVerifyModal.vue')['default']
     UpgradeLoader: typeof import('./components/UpgradeLoader.vue')['default']
     VirtualTenantCardList: typeof import('./components/tenant/VirtualTenantCardList.vue')['default']
     VirtualTenantGridList: typeof import('./components/tenant/VirtualTenantGridList.vue')['default']
