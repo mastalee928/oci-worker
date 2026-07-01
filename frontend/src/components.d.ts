@@ -77,6 +77,8 @@ declare module 'vue' {
     BootVolumePanel: typeof import('./components/instance/BootVolumePanel.vue')['default']
     CompartmentManager: typeof import('./components/CompartmentManager.vue')['default']
     ForceA2ConfirmModal: typeof import('./components/instance/ForceA2ConfirmModal.vue')['default']
+    InstanceNetworkDetailPanel: typeof import('./components/instance/InstanceNetworkDetailPanel.vue')['default']
+    InstanceNetworkPanel: typeof import('./components/instance/InstanceNetworkPanel.vue')['default']
     InstanceSecurityPanel: typeof import('./components/instance/InstanceSecurityPanel.vue')['default']
     InstanceTrafficPanel: typeof import('./components/instance/InstanceTrafficPanel.vue')['default']
     OciLogo: typeof import('./components/OciLogo.vue')['default']

@@ -698,75 +698,14 @@
           </a-descriptions>
 
           <a-divider orientation="left">网络信息</a-divider>
-          <a-spin :spinning="netDetailLoading">
-            <a-button size="small" @click="loadNetworkDetail" :loading="netDetailLoading" style="margin-bottom: 12px">
-              刷新网络信息
-            </a-button>
-            <template v-if="networkDetail">
-              <div v-for="(vnic, vi) in networkDetail.vnics" :key="vi" style="margin-bottom: 16px">
-                <a-descriptions :column="1" bordered size="small">
-                  <a-descriptions-item v-for="(ipd, idx) in getPrimaryIps(vnic)" :key="'p'+idx" label="主IP">
-                    <div>
-                      <template v-if="ipd.publicIpAddress">
-                        公网IP<a-tag :color="ipd.publicIpLifetime === 'RESERVED' ? 'green' : 'orange'" style="margin: 0 6px">{{ ipd.publicIpLifetime === 'RESERVED' ? '预留' : '临时' }}</a-tag><a-typography-text copyable>{{ ipd.publicIpAddress }}</a-typography-text>
-                        <span style="color: #999; margin-left: 6px">( {{ ipd.privateIpAddress }} )</span>
-                        <a-popconfirm title="确定删除该公网IP？" @confirm="handleDeletePublicIp(ipd)">
-                          <a-button type="link" danger size="small">删除</a-button>
-                        </a-popconfirm>
-                      </template>
-                      <template v-else>
-                        内网IP: <a-typography-text copyable>{{ ipd.privateIpAddress }}</a-typography-text>
-                        <span style="color: #999; margin-left: 6px">（无公网IP）</span>
-                        <a-button type="link" size="small" @click="handleAssignEphemeralIp(ipd)" :loading="ephemeralIpLoading">附加 IPv4</a-button>
-                      </template>
-                    </div>
-                  </a-descriptions-item>
-                  <a-descriptions-item label="辅助IP">
-                    <template v-if="getSecondaryIps(vnic).length > 0">
-                      <div v-for="(ipd, idx) in getSecondaryIps(vnic)" :key="'s'+idx" style="margin-bottom: 4px">
-                        <template v-if="ipd.publicIpAddress">
-                          公网IP<a-tag :color="ipd.publicIpLifetime === 'RESERVED' ? 'green' : 'orange'" style="margin: 0 6px">{{ ipd.publicIpLifetime === 'RESERVED' ? '预留' : '临时' }}</a-tag><a-typography-text copyable>{{ ipd.publicIpAddress }}</a-typography-text>
-                          <span style="color: #999; margin-left: 6px">( {{ ipd.privateIpAddress }} )</span>
-                          <a-popconfirm title="将同时删除公网IP和内网IP，确定？" @confirm="handleDeleteSecondaryIp(ipd)">
-                            <a-button type="link" danger size="small">删除</a-button>
-                          </a-popconfirm>
-                        </template>
-                        <template v-else>
-                          内网IP: <a-typography-text copyable>{{ ipd.privateIpAddress }}</a-typography-text>
-                          <a-popconfirm title="确定删除该辅助IP？" @confirm="handleDeleteSecondaryIp(ipd)">
-                            <a-button type="link" danger size="small">删除</a-button>
-                          </a-popconfirm>
-                        </template>
-                      </div>
-                    </template>
-                    <template v-else>
-                      <span style="color: #999">无</span>
-                      <a-button type="link" size="small" @click="handleAddAuxIp" :loading="auxIpLoading" style="margin-left: 8px">添加辅助IP</a-button>
-                    </template>
-                  </a-descriptions-item>
-                  <a-descriptions-item label="IPv6">
-                    <template v-if="vnic.ipv6List && vnic.ipv6List.length > 0">
-                      <div v-for="(ip6, i6) in vnic.ipv6List" :key="ip6.ipv6Id || i6" style="margin-bottom: 4px">
-                        <a-typography-text copyable>{{ ip6.ipAddress }}</a-typography-text>
-                        <a-popconfirm title="确定取消分配该 IPv6？" @confirm="handleRemoveIpv6(ip6)">
-                          <a-button type="link" danger size="small" :loading="ipv6RemoveLoading[ip6.ipv6Id]">取消分配</a-button>
-                        </a-popconfirm>
-                      </div>
-                      <div>
-                        <a-button type="link" size="small" @click="handleAddIpv6(vnic)" :loading="ipv6AddLoading[vnic.vnicId]">
-                          分配 IPv6
-                        </a-button>
-                      </div>
-                    </template>
-                    <span v-else style="color: #999">
-                      无
-                      <a-button type="link" size="small" @click="handleAddIpv6(vnic)" :loading="ipv6AddLoading[vnic.vnicId]">添加 IPv6</a-button>
-                    </span>
-                  </a-descriptions-item>
-                </a-descriptions>
-              </div>
-            </template>
-          </a-spin>
+          <InstanceNetworkDetailPanel
+            ref="networkDetailPanelRef"
+            :tenant="currentTenant"
+            :instance="currentInstance"
+            :active="activeTab === 'info'"
+            :region="currentDetailRegion"
+            :compartment-id="currentInstance?.compartmentId"
+          />
 
           <a-divider />
           <a-space>
@@ -826,29 +765,14 @@
         </a-tab-pane>
 
         <a-tab-pane key="network" tab="网络">
-          <a-button @click="loadVcns(true)" :loading="vcnLoading" style="margin-bottom: 12px">加载 VCN</a-button>
-          <a-table v-if="!isMobile" :data-source="vcns" :columns="vcnColumns" size="small" :pagination="false" row-key="id">
-            <template #bodyCell="{ column, record }">
-              <template v-if="column.key === 'vcnAction'">
-                <a-button size="small" type="primary" @click="openVcnManager(currentTenant?.id, record)">管理</a-button>
-              </template>
-            </template>
-          </a-table>
-          <template v-else>
-            <a-empty v-if="vcns.length === 0" description="暂无 VCN" />
-            <div v-for="v in vcns" :key="v.id" class="mobile-card">
-              <div class="mobile-card-header">
-                <span class="mobile-card-title">{{ v.displayName }}</span>
-              </div>
-              <div class="mobile-card-body">
-                <div class="mobile-card-row"><span class="label">CIDR</span><span class="value">{{ v.cidrBlock }}</span></div>
-                <div class="mobile-card-row"><span class="label">状态</span><span class="value">{{ v.lifecycleState }}</span></div>
-              </div>
-              <div style="margin-top: 8px">
-                <a-button block size="small" type="primary" @click="openVcnManager(currentTenant?.id, v)">管理</a-button>
-              </div>
-            </div>
-          </template>
+          <InstanceNetworkPanel
+            ref="networkPanelRef"
+            :tenant="currentTenant"
+            :instance="currentInstance"
+            :is-mobile="isMobile"
+            :region="currentDetailRegion"
+            @open-vcn-manager="openDetailVcnManager"
+          />
         </a-tab-pane>
 
         <a-tab-pane key="traffic" tab="流量统计">
@@ -1251,10 +1175,8 @@ import {
 import { message, Modal } from 'ant-design-vue'
 import {
   getInstanceList, updateInstanceState, terminateInstance,
-  getSecurityRules,
   getVcns,
   changeIp,
-  getInstanceNetworkDetail, addIpv6, removeIpv6,
   createReservedIp, listReservedIps, deleteReservedIp,
   assignReservedIp, unassignReservedIp,
   updateInstance,
@@ -1262,7 +1184,6 @@ import {
   pauseShapeEditTask,
   resumeShapeEditTask,
   stopShapeEditTask,
-  assignEphemeralIp, deletePublicIp, deleteSecondaryIp,
   createConsoleConnection, deleteConsoleConnection,
   getShapesForInstance,
   forceA2ToA1,
@@ -1280,6 +1201,8 @@ const BootVolumePanel = defineAsyncComponent(() => import('../components/instanc
 const BlockStoragePanel = defineAsyncComponent(() => import('../components/instance/BlockStoragePanel.vue'))
 const InstanceTrafficPanel = defineAsyncComponent(() => import('../components/instance/InstanceTrafficPanel.vue'))
 const InstanceSecurityPanel = defineAsyncComponent(() => import('../components/instance/InstanceSecurityPanel.vue'))
+const InstanceNetworkPanel = defineAsyncComponent(() => import('../components/instance/InstanceNetworkPanel.vue'))
+const InstanceNetworkDetailPanel = defineAsyncComponent(() => import('../components/instance/InstanceNetworkDetailPanel.vue'))
 import { sendVerifyCode } from '../api/system'
 import { listStorageRegions } from '../api/storage'
 import {
@@ -1376,13 +1299,6 @@ const columns = [
   { title: '公网 IP', dataIndex: 'publicIp', key: 'publicIp', width: 150 },
   { title: '状态', dataIndex: 'state', key: 'state', width: 110 },
   { title: '操作', key: 'action', width: 180 },
-]
-
-const vcnColumns = [
-  { title: '名称', dataIndex: 'displayName', key: 'displayName' },
-  { title: 'CIDR', dataIndex: 'cidrBlock', key: 'cidrBlock', width: 160 },
-  { title: '状态', dataIndex: 'lifecycleState', key: 'lifecycleState', width: 100 },
-  { title: '操作', key: 'vcnAction', width: 100 },
 ]
 
 const isMobile = ref(window.innerWidth < 768)
@@ -2071,23 +1987,17 @@ const bootVolumePanelRef = ref<any>(null)
 const blockStoragePanelRef = ref<any>(null)
 const trafficPanelRef = ref<any>(null)
 const securityPanelRef = ref<any>(null)
+const networkPanelRef = ref<any>(null)
+const networkDetailPanelRef = ref<any>(null)
 const bootVolumeOverlayActive = ref(false)
 const blockStorageOverlayActive = ref(false)
 const trafficOverlayActive = ref(false)
 const securityOverlayActive = ref(false)
 const currentDetailRegion = computed(() => instanceDetailRegionParam().region)
 
-const vcnLoading = ref(false)
-const vcns = ref<any[]>([])
-
 const changeIpLoading = ref(false)
 
-const netDetailLoading = ref(false)
 const instanceInfoLoading = ref(false)
-const networkDetail = ref<any>(null)
-const ipv6AddLoading = ref<Record<string, boolean>>({})
-const ipv6RemoveLoading = ref<Record<string, boolean>>({})
-const ephemeralIpLoading = ref(false)
 
 const reservedIps = ref<any[]>([])
 const reservedIpListLoading = ref(false)
@@ -2606,12 +2516,20 @@ function openVcnManager(tenantId: string, vcn: any) {
   vcnManagerOpen.value = true
 }
 
+function openDetailVcnManager(vcn: any) {
+  if (!currentTenant.value) return
+  openVcnManager(currentTenant.value.id, vcn)
+}
+
 watch(vcnManagerOpen, open => {
   if (!open) vcnManagerEditingOverlayActive.value = false
 })
 
 async function onVcnManagerChanged() {
-  if (!vcnVisible.value || !vcnTenant.value) return
+  if (!vcnVisible.value || !vcnTenant.value) {
+    networkPanelRef.value?.loadVcns?.(true)
+    return
+  }
   vcnListLoading.value = true
   try {
     const reg = (vcnPanelRegion.value?.trim() || vcnTenant.value.ociRegion || '').trim()
@@ -2797,17 +2715,16 @@ function openDetail(tenant: any, record: any) {
   blockStoragePanelRef.value?.reset?.()
   trafficPanelRef.value?.reset?.()
   securityPanelRef.value?.reset?.()
+  networkPanelRef.value?.reset?.()
+  networkDetailPanelRef.value?.reset?.()
   bootVolumeOverlayActive.value = false
   blockStorageOverlayActive.value = false
   trafficOverlayActive.value = false
   securityOverlayActive.value = false
-  vcns.value = []
-  networkDetail.value = null
   consoleData.value = null
   shapeEditOptions.value = []
   shapeForm.shape = ''
   drawerVisible.value = true
-  loadNetworkDetail()
 }
 
 async function handleAction(tenant: any, record: any, action: string) {
@@ -2972,7 +2889,7 @@ async function handleChangeIp() {
       ...instanceDetailScopeParam(),
     })
     message.success('换 IP 请求已提交')
-    scheduleReload(() => loadNetworkDetail(), 3000)
+    scheduleReload(() => networkDetailPanelRef.value?.loadNetworkDetail?.(), 3000)
   } catch (e: any) {
     message.error(e?.message || '换 IP 失败')
   } finally {
@@ -3006,205 +2923,6 @@ async function refreshInstanceInfo() {
     message.error(e?.message || '刷新实例信息失败')
   } finally {
     instanceInfoLoading.value = false
-  }
-}
-
-async function loadNetworkDetail() {
-  if (!currentInstance.value || !currentTenant.value) return
-  netDetailLoading.value = true
-  try {
-    const res = await getInstanceNetworkDetail({
-      id: currentTenant.value.id,
-      instanceId: currentInstance.value.instanceId,
-      ...instanceDetailScopeParam(),
-    })
-    networkDetail.value = res.data || null
-  } catch (e: any) {
-    message.error(e?.message || '加载网络详情失败')
-  } finally {
-    netDetailLoading.value = false
-  }
-}
-
-async function handleAddIpv6(vnic?: any) {
-  if (!currentInstance.value || !currentTenant.value) return
-  const vnicId = vnic?.vnicId || 'default'
-  ipv6AddLoading.value[vnicId] = true
-  try {
-    const res = await addIpv6({
-      id: currentTenant.value.id,
-      instanceId: currentInstance.value.instanceId,
-      vnicId: vnic?.vnicId,
-      ...instanceDetailScopeParam(),
-    })
-    message.success('IPv6 已分配: ' + (res.data?.ipv6Address || ''))
-    loadNetworkDetail()
-    await checkIpv6SecurityHealth()
-  } catch (e: any) {
-    message.error(e?.message || '分配 IPv6 失败')
-  } finally {
-    ipv6AddLoading.value[vnicId] = false
-  }
-}
-
-async function handleRemoveIpv6(ip6: any) {
-  if (!currentTenant.value) return
-  const ipv6Id = ip6?.ipv6Id
-  if (!ipv6Id) {
-    message.error('缺少 ipv6Id，无法取消分配')
-    return
-  }
-  ipv6RemoveLoading.value[ipv6Id] = true
-  try {
-    await removeIpv6({ id: currentTenant.value.id, ipv6Id, ...instanceDetailRegionParam() })
-    message.success('IPv6 已取消分配')
-    loadNetworkDetail()
-  } catch (e: any) {
-    message.error(e?.message || '取消分配 IPv6 失败')
-  } finally {
-    ipv6RemoveLoading.value[ipv6Id] = false
-  }
-}
-
-function isIpv6Cidr(cidr: string | undefined) {
-  if (!cidr) return false
-  return cidr.includes(':')
-}
-
-async function checkIpv6SecurityHealth() {
-  if (!currentInstance.value || !currentTenant.value) return
-  try {
-    const res = await getSecurityRules({
-      id: currentTenant.value.id,
-      instanceId: currentInstance.value.instanceId,
-      ...instanceDetailScopeParam(),
-    })
-    const data = res.data || []
-    const ingress = data.filter((r: any) => r.direction === 'ingress')
-    const egress = data.filter((r: any) => r.direction === 'egress')
-
-    const hasIpv6Ingress = ingress.some((r: any) => isIpv6Cidr(r.source))
-    const hasIpv6Egress = egress.some((r: any) => isIpv6Cidr(r.source))
-
-    if (hasIpv6Ingress && hasIpv6Egress) return
-
-    const missing: string[] = []
-    if (!hasIpv6Ingress) missing.push('IPv6 入站规则')
-    if (!hasIpv6Egress) missing.push('IPv6 出站规则')
-
-    Modal.warning({
-      title: 'IPv6 连通性自检提醒',
-      content: `检测到当前安全列表缺少 ${missing.join('、')}，可能出现“有 IPv6 地址但不通”。建议前往“安全列表”补充对应 IPv6 规则（如 ::/0）。`,
-      okText: '知道了',
-    })
-  } catch {
-    // 忽略自检失败，不影响主流程
-  }
-}
-
-async function handleAssignEphemeralIp(ipd: any) {
-  if (!currentInstance.value || !currentTenant.value) return
-  ephemeralIpLoading.value = true
-  try {
-    await assignEphemeralIp({
-      id: currentTenant.value.id,
-      instanceId: currentInstance.value.instanceId,
-      privateIpId: ipd.privateIpId,
-      ...instanceDetailScopeParam(),
-    })
-    message.success('公网 IPv4 已分配')
-    loadNetworkDetail()
-  } catch (e: any) {
-    message.error(e?.message || '分配公网IP失败')
-  } finally {
-    ephemeralIpLoading.value = false
-  }
-}
-
-async function handleDeletePublicIp(ipd: any) {
-  if (!currentTenant.value) return
-  try {
-    await deletePublicIp({
-      id: currentTenant.value.id,
-      privateIpId: ipd.privateIpId,
-      ...instanceDetailRegionParam(),
-    })
-    message.success('公网IP已删除')
-    loadNetworkDetail()
-  } catch (e: any) {
-    message.error(e?.message || '删除公网IP失败')
-  }
-}
-
-async function handleDeleteSecondaryIp(ipd: any) {
-  if (!currentTenant.value) return
-  try {
-    await deleteSecondaryIp({
-      id: currentTenant.value.id,
-      privateIpId: ipd.privateIpId,
-      ...instanceDetailRegionParam(),
-    })
-    message.success('辅助IP已删除')
-    loadNetworkDetail()
-  } catch (e: any) {
-    message.error(e?.message || '删除辅助IP失败')
-  }
-}
-
-function getPrimaryIps(vnic: any) {
-  return (vnic.ipDetails || []).filter((ip: any) => ip.isPrimary)
-}
-function getSecondaryIps(vnic: any) {
-  return (vnic.ipDetails || []).filter((ip: any) => !ip.isPrimary)
-}
-
-const auxIpLoading = ref(false)
-async function handleAddAuxIp() {
-  if (!currentTenant.value || !currentInstance.value) return
-  auxIpLoading.value = true
-  try {
-    let ipId = ''
-    let ipAddr = ''
-
-    // 先查找未绑定的预留IP
-    try {
-      const listRes = await listReservedIps({
-        id: currentTenant.value.id,
-        ...instanceDetailRegionParam(),
-      })
-      const unbound = (listRes.data || []).find((ip: any) => !ip.isAssigned)
-      if (unbound) {
-        ipId = unbound.id
-        ipAddr = unbound.ipAddress
-        message.info('使用已有预留IP: ' + ipAddr)
-      }
-    } catch {}
-
-    // 没有未绑定的预留IP，才创建新的
-    if (!ipId) {
-      const res = await createReservedIp({
-        id: currentTenant.value.id,
-        displayName: 'aux-' + Date.now(),
-        ...instanceDetailRegionParam(),
-      })
-      ipId = res.data?.publicIpId || res.data?.id
-      ipAddr = res.data?.ipAddress || ''
-      if (!ipId) throw new Error('创建预留IP失败')
-      message.success('预留IP已创建: ' + ipAddr)
-    }
-
-    await assignReservedIp({
-      id: currentTenant.value.id,
-      publicIpId: ipId,
-      instanceId: currentInstance.value.instanceId,
-      ...instanceDetailScopeParam(),
-    })
-    message.success('辅助IP已附加到实例: ' + ipAddr)
-    loadNetworkDetail()
-  } catch (e: any) {
-    message.error(e?.message || '添加辅助IP失败')
-  } finally {
-    auxIpLoading.value = false
   }
 }
 
@@ -3266,7 +2984,8 @@ async function handleAssignReservedIp(publicIpId: string) {
       ...instanceDetailScopeParam(),
     })
     message.success('预留IP已绑定')
-    loadReservedIps(); loadNetworkDetail()
+    loadReservedIps()
+    networkDetailPanelRef.value?.loadNetworkDetail?.()
   } catch (e: any) { message.error(e?.message || '绑定失败') }
 }
 
@@ -3278,7 +2997,8 @@ async function handleUnassignReservedIp(publicIpId: string) {
       ...vcnReservedIpRegionParam(),
     })
     message.success('预留IP已解绑')
-    loadReservedIps(); loadNetworkDetail()
+    loadReservedIps()
+    networkDetailPanelRef.value?.loadNetworkDetail?.()
   } catch (e: any) { message.error(e?.message || '解绑失败') }
 }
 
@@ -3313,20 +3033,6 @@ async function handleEditInstance() {
     editInstanceLoading.value = false
   }
 }
-
-async function loadVcns(force = false) {
-  vcnLoading.value = true
-  try {
-    const res = await getVcns({
-      id: currentTenant.value.id,
-      ...instanceDetailRegionParam(),
-      force,
-    })
-    vcns.value = res.data || []
-  } catch (e: any) { message.error(e?.message || '加载 VCN 失败') }
-  finally { vcnLoading.value = false }
-}
-
 
 onMounted(() => {
   void loadGroups()
