@@ -14,7 +14,14 @@
       @update:value="onPasswordInput"
     />
     <div class="task-login-actions" aria-label="登录凭据快捷操作">
-      <button type="button" class="task-login-action" @click="useRandomPassword">随机生成</button>
+      <button
+        type="button"
+        class="task-login-action"
+        :class="{ 'task-login-action--active': activeLoginAction === 'random' }"
+        @click="useRandomPassword"
+      >
+        随机生成
+      </button>
       <button
         type="button"
         class="task-login-action"
@@ -36,7 +43,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 
 const props = withDefaults(defineProps<{
   rootPassword?: string
@@ -64,8 +71,10 @@ const emit = defineEmits<{
 }>()
 
 const isPublicKeyMode = computed(() => props.loginMode === 'SSH_PUBLIC_KEY')
+const activeLoginAction = ref<'' | 'random' | 'password' | 'publicKey'>('')
 const isSavedPasswordMode = computed(() =>
-  props.loginMode === 'PASSWORD' && !!props.savedRootPassword && props.rootPassword === props.savedRootPassword,
+  activeLoginAction.value === 'password'
+  || (props.loginMode === 'PASSWORD' && !!props.savedRootPassword && props.rootPassword === props.savedRootPassword),
 )
 
 function randomPassword() {
@@ -82,10 +91,12 @@ function setPasswordMode(value: string) {
 }
 
 function onPasswordInput(value: string) {
+  activeLoginAction.value = ''
   setPasswordMode(value)
 }
 
 function useRandomPassword() {
+  activeLoginAction.value = 'random'
   setPasswordMode(randomPassword())
 }
 
@@ -94,6 +105,7 @@ function useSavedPassword() {
     emit('missing', 'password')
     return
   }
+  activeLoginAction.value = 'password'
   setPasswordMode(props.savedRootPassword)
 }
 
@@ -102,6 +114,7 @@ function useSavedPublicKey() {
     emit('missing', 'publicKey')
     return
   }
+  activeLoginAction.value = 'publicKey'
   emit('update:loginMode', 'SSH_PUBLIC_KEY')
   emit('update:rootPassword', '')
   emit('update:sshPublicKey', props.savedSshPublicKey)
