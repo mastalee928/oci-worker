@@ -74,6 +74,7 @@ declare module 'vue' {
     AuditLogTable: typeof import('./components/AuditLogTable.vue')['default']
     AUploadDragger: typeof import('ant-design-vue/es')['UploadDragger']
     CompartmentManager: typeof import('./components/CompartmentManager.vue')['default']
+    ForceA2ConfirmModal: typeof import('./components/instance/ForceA2ConfirmModal.vue')['default']
     OciLogo: typeof import('./components/OciLogo.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']

@@ -1822,32 +1822,18 @@
       </a-form>
     </a-modal>
 
-    <a-modal :keyboard="false"
+    <ForceA2ConfirmModal
+      v-if="forceA2ModalVisible"
       v-model:open="forceA2ModalVisible"
-      title="A2 强改 A1"
-      ok-text="确认执行"
-      cancel-text="取消"
-      :confirm-loading="forceA2Loading"
-      :ok-button-props="{ disabled: !forceA2AllYes, danger: true }"
-      :mask-closable="false"
-      :width="isMobile ? '100%' : 480"
-      @ok="handleForceA2ToA1Confirm"
+      v-model:trial="forceA2Q.trial"
+      v-model:a2-shape="forceA2Q.a2Shape"
+      v-model:risk="forceA2Q.risk"
+      :loading="forceA2Loading"
+      :all-yes="forceA2AllYes"
+      :is-mobile="isMobile"
+      :on-confirm="handleForceA2ToA1Confirm"
       @cancel="resetForceA2Modal"
-    >
-      <a-alert type="error" show-icon style="margin-bottom: 16px" message="强行 A2→A1 存在账号封禁等风险，请谨慎操作。" />
-      <div class="force-a2-q">
-        <div class="force-a2-q-label">该账户是否在试用期内？</div>
-        <a-radio-group v-model:value="forceA2Q.trial" :options="forceA2YesNoOptions" />
-      </div>
-      <div class="force-a2-q">
-        <div class="force-a2-q-label">请确认目前该形状为 VM.Standard.A2.Flex？</div>
-        <a-radio-group v-model:value="forceA2Q.a2Shape" :options="forceA2YesNoOptions" />
-      </div>
-      <div class="force-a2-q">
-        <div class="force-a2-q-label">是否知悉强行转 A1 有被封号的风险？</div>
-        <a-radio-group v-model:value="forceA2Q.risk" :options="forceA2YesNoOptions" />
-      </div>
-    </a-modal>
+    />
 
     <!-- 终止实例验证码弹窗 -->
     <a-modal :mask-closable="false" :keyboard="false" v-model:open="verifyModalVisible" title="安全验证 — 终止实例" :width="400"
@@ -2078,6 +2064,7 @@ import { useTenantCatalogStore } from '../stores/tenantCatalog'
 const VcnManager = defineAsyncComponent(() => import('./VcnManager.vue'))
 const StorageManager = defineAsyncComponent(() => import('./StorageManager.vue'))
 const ByoipPanel = defineAsyncComponent(() => import('./ByoipPanel.vue'))
+const ForceA2ConfirmModal = defineAsyncComponent(() => import('../components/instance/ForceA2ConfirmModal.vue'))
 import { createTask, hasRunningTask } from '../api/task'
 import { sendVerifyCode } from '../api/system'
 import { listStorageRegions } from '../api/storage'
@@ -3545,10 +3532,6 @@ const forceA2Q = reactive({
   a2Shape: undefined as boolean | undefined,
   risk: undefined as boolean | undefined,
 })
-const forceA2YesNoOptions = [
-  { label: '是', value: true },
-  { label: '否', value: false },
-]
 const forceA2AllYes = computed(
   () => forceA2Q.trial === true && forceA2Q.a2Shape === true && forceA2Q.risk === true,
 )
@@ -6471,17 +6454,6 @@ onUnmounted(() => {
 .instance-drawer-shape-footer {
   display: flex;
   justify-content: flex-end;
-}
-.force-a2-q {
-  margin-bottom: 16px;
-}
-.force-a2-q:last-child {
-  margin-bottom: 0;
-}
-.force-a2-q-label {
-  margin-bottom: 8px;
-  font-weight: 500;
-  color: var(--text-main);
 }
 .ip-copy :deep(.ant-typography-copy) {
   margin-inline-start: 4px;
