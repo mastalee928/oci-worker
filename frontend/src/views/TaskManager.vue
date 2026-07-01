@@ -256,18 +256,18 @@
             </a-form-item>
           </a-col>
         </a-row>
-        <a-row :gutter="12">
-          <a-col :xs="12" :sm="8">
+        <div class="quick-login-options-row">
+          <div>
             <a-form-item label="开机数量">
               <a-input-number v-model:value="createForm.createNumbers" :min="1" :max="5" style="width: 100%" />
             </a-form-item>
-          </a-col>
-          <a-col :xs="12" :sm="8">
+          </div>
+          <div>
             <a-form-item label="重试间隔 (秒)">
               <a-input-number v-model:value="createForm.interval" :min="10" :max="600" style="width: 100%" />
             </a-form-item>
-          </a-col>
-          <a-col :xs="24" :sm="8">
+          </div>
+          <div>
             <TaskLoginSelector
               v-model:root-password="createForm.rootPassword"
               v-model:login-mode="createForm.loginMode"
@@ -277,8 +277,8 @@
               placeholder="留空=随机生成"
               @missing="warnTaskCredentialMissing"
             />
-          </a-col>
-        </a-row>
+          </div>
+        </div>
         <div style="display: flex; align-items: center; gap: 32px; margin-bottom: 16px">
           <span style="display: inline-flex; align-items: center; gap: 8px">
             <a-switch v-model:checked="createForm.assignPublicIp" />
@@ -379,18 +379,18 @@
             </a-form-item>
           </a-col>
         </a-row>
-        <a-row :gutter="12">
-          <a-col :xs="12" :sm="8">
+        <div class="quick-login-options-row">
+          <div>
             <a-form-item label="开机数量">
               <a-input-number v-model:value="editForm.createNumbers" :min="1" :max="5" style="width: 100%" />
             </a-form-item>
-          </a-col>
-          <a-col :xs="12" :sm="8">
+          </div>
+          <div>
             <a-form-item label="重试间隔 (秒)">
               <a-input-number v-model:value="editForm.interval" :min="10" :max="600" style="width: 100%" />
             </a-form-item>
-          </a-col>
-          <a-col :xs="24" :sm="8">
+          </div>
+          <div>
             <TaskLoginSelector
               v-model:root-password="editForm.rootPassword"
               v-model:login-mode="editForm.loginMode"
@@ -400,8 +400,8 @@
               placeholder="留空=保持不变"
               @missing="warnTaskCredentialMissing"
             />
-          </a-col>
-        </a-row>
+          </div>
+        </div>
         <div style="display: flex; align-items: center; gap: 32px; margin-bottom: 16px">
           <span style="display: inline-flex; align-items: center; gap: 8px">
             <a-switch v-model:checked="editForm.assignPublicIp" />
@@ -1111,6 +1111,13 @@ onMounted(() => loadData())
 </script>
 
 <style scoped>
+.quick-login-options-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.15fr;
+  gap: 12px;
+  align-items: start;
+}
+
 .table-toolbar { margin-bottom: 16px; transition: var(--trans); }
 :deep(.row-inactive td) {
   color: var(--text-sub) !important;

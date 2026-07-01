@@ -623,18 +623,18 @@
             </a-form-item>
           </a-col>
         </a-row>
-        <a-row :gutter="12">
-          <a-col :xs="12" :sm="8">
+        <div class="quick-login-options-row">
+          <div>
             <a-form-item label="数量">
               <a-input-number v-model:value="quickTaskForm.createNumbers" :min="1" :max="5" style="width: 100%" />
             </a-form-item>
-          </a-col>
-          <a-col :xs="12" :sm="8">
+          </div>
+          <div>
             <a-form-item label="间隔 (秒)">
               <a-input-number v-model:value="quickTaskForm.interval" :min="10" :max="600" style="width: 100%" />
             </a-form-item>
-          </a-col>
-          <a-col :xs="24" :sm="8">
+          </div>
+          <div>
             <TaskLoginSelector
               v-model:root-password="quickTaskForm.rootPassword"
               v-model:login-mode="quickTaskForm.loginMode"
@@ -644,8 +644,8 @@
               placeholder="留空=随机生成"
               @missing="warnQuickTaskCredentialMissing"
             />
-          </a-col>
-        </a-row>
+          </div>
+        </div>
         <div style="display: flex; align-items: center; gap: 32px; margin-bottom: 16px">
           <span style="display: inline-flex; align-items: center; gap: 8px">
             <a-switch v-model:checked="quickTaskForm.assignPublicIp" />
@@ -5065,6 +5065,13 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
+.quick-login-options-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.15fr;
+  gap: 12px;
+  align-items: start;
+}
+
 :global(:root) {
   --tenant-free-tier-color: rgba(255, 255, 255, 0.94);
   --tenant-free-tier-bg: rgba(255, 255, 255, 0.1);
