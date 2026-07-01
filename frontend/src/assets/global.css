@@ -38,6 +38,12 @@
   --radius-pill: 9999px;
   --trans: background-color 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease, opacity 0.2s ease;
   --shadow-card: 0 2px 12px -2px rgba(0, 0, 0, 0.3);
+  --oci-z-tenant-floating-card: 1120;
+  --oci-z-tenant-floating-card-rolling: 1200;
+  --oci-z-quick-task-modal: 1320;
+  --oci-z-instance-confirm: 1410;
+  --oci-z-quick-task-confirm: 1420;
+  --oci-z-instance-safety: 1450;
 }
 
 /* Light Theme */
@@ -148,6 +154,19 @@ body::after {
   -webkit-backdrop-filter: blur(20px);
 }
 .ant-layout-header { background: transparent !important; }
+
+.quick-task-modal-wrap {
+  z-index: var(--oci-z-quick-task-modal);
+}
+.instance-confirm-modal-wrap {
+  z-index: var(--oci-z-instance-confirm);
+}
+.quick-task-duplicate-confirm-wrap {
+  z-index: var(--oci-z-quick-task-confirm);
+}
+.instance-safety-modal-wrap {
+  z-index: var(--oci-z-instance-safety);
+}
 
 .ant-card {
   background: var(--bg-card) !important;

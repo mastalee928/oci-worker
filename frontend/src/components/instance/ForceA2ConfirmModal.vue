@@ -9,6 +9,8 @@
     :ok-button-props="{ disabled: !allYes, danger: true }"
     :mask-closable="false"
     :width="isMobile ? '100%' : 480"
+    :z-index="INSTANCE_SAFETY_MODAL_Z_INDEX"
+    :wrap-class-name="INSTANCE_SAFETY_MODAL_WRAP_CLASS"
     @update:open="emit('update:open', $event)"
     @ok="handleOk"
     @cancel="emit('cancel')"
@@ -42,6 +44,8 @@
 </template>
 
 <script setup lang="ts">
+import { INSTANCE_SAFETY_MODAL_WRAP_CLASS, INSTANCE_SAFETY_MODAL_Z_INDEX } from '../../utils/overlayZIndex'
+
 const props = defineProps<{
   open: boolean
   loading: boolean

@@ -527,7 +527,7 @@
       v-model:open="quickTaskVisible"
       title="快捷开机任务"
       :width="isMobile ? '100%' : 600"
-      :z-index="1320"
+      :z-index="QUICK_TASK_MODAL_Z_INDEX"
       wrap-class-name="quick-task-modal-wrap"
       @ok="handleQuickTask"
       :confirm-loading="quickTaskLoading"
@@ -1761,6 +1761,8 @@
 
     <!-- 分离外部引导卷验证码 -->
     <a-modal :mask-closable="false" :keyboard="false" v-model:open="detachExternalBootVisible" title="安全验证 — 分离外部引导卷"
+      :z-index="INSTANCE_SAFETY_MODAL_Z_INDEX"
+      :wrap-class-name="INSTANCE_SAFETY_MODAL_WRAP_CLASS"
       :width="isMobile ? '100%' : 420" @ok="handleDetachExternalBootVolume" :confirm-loading="detachExternalBootLoading"
       ok-text="确认分离" :ok-button-props="{ danger: true }">
       <a-alert type="warning" show-icon style="margin-bottom: 16px">
@@ -2095,6 +2097,15 @@ import {
 } from '../utils/bootVolume'
 import { SHAPE_E2_MICRO, TASK_ARM_SHAPE, normalizeTaskArchitecture } from '../utils/shapeSeries'
 import { appQueryCache, createListSignature } from '../utils/queryCache'
+import {
+  INSTANCE_CONFIRM_MODAL_WRAP_CLASS,
+  INSTANCE_CONFIRM_MODAL_Z_INDEX,
+  INSTANCE_SAFETY_MODAL_WRAP_CLASS,
+  INSTANCE_SAFETY_MODAL_Z_INDEX,
+  QUICK_TASK_CONFIRM_MODAL_WRAP_CLASS,
+  QUICK_TASK_CONFIRM_MODAL_Z_INDEX,
+  QUICK_TASK_MODAL_Z_INDEX,
+} from '../utils/overlayZIndex'
 import dayjs from 'dayjs'
 import type { Dayjs } from 'dayjs'
 import utc from 'dayjs/plugin/utc'
@@ -4147,6 +4158,8 @@ function onInstanceMenuClick(record: any, key: string) {
     okText: '确定',
     okButtonProps: danger ? { danger: true } : undefined,
     cancelText: '取消',
+    zIndex: INSTANCE_CONFIRM_MODAL_Z_INDEX,
+    wrapClassName: INSTANCE_CONFIRM_MODAL_WRAP_CLASS,
     onOk: () => handleAction(tenant, record, key),
     afterClose: () => {
       instanceManagerConfirmOverlayActive.value = false
@@ -4739,6 +4752,8 @@ function openDetachExternalBootVolume(record: any) {
       okText: '断电停止',
       cancelText: '取消',
       okButtonProps: { danger: true },
+      zIndex: INSTANCE_CONFIRM_MODAL_Z_INDEX,
+      wrapClassName: INSTANCE_CONFIRM_MODAL_WRAP_CLASS,
       async onOk() {
         await handleAction(currentTenant.value, currentInstance.value, 'STOP')
       },
@@ -5203,8 +5218,8 @@ async function handleQuickTask() {
           content: '该账户已有正在运行的开机任务，是否仍要重复提交？',
           okText: '继续创建',
           cancelText: '取消',
-          zIndex: 1420,
-          wrapClassName: 'quick-task-duplicate-confirm-wrap',
+          zIndex: QUICK_TASK_CONFIRM_MODAL_Z_INDEX,
+          wrapClassName: QUICK_TASK_CONFIRM_MODAL_WRAP_CLASS,
           onOk: () => doQuickTask(payload),
           onCancel: () => { quickTaskLoading.value = false },
           afterClose: () => { quickTaskLoading.value = false },
@@ -5411,12 +5426,6 @@ onUnmounted(() => {
   box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2), var(--shadow-card);
 }
 .tenant-card-active::before { transform: scaleX(1); }
-:global(.quick-task-modal-wrap) {
-  z-index: 1320;
-}
-:global(.quick-task-duplicate-confirm-wrap) {
-  z-index: 1420;
-}
 :global(:root) {
   --tenant-workspace-mask-bg: rgba(2, 6, 23, 0.28);
   --tenant-floating-card-bg: rgba(30, 41, 59, 0.78);
@@ -5449,7 +5458,7 @@ onUnmounted(() => {
 }
 .tenant-floating-card {
   position: fixed;
-  z-index: 1120;
+  z-index: var(--oci-z-tenant-floating-card);
   perspective: 1200px;
   perspective-origin: center center;
   transform-style: preserve-3d;
@@ -5459,7 +5468,7 @@ onUnmounted(() => {
   transform: translateZ(0);
 }
 .tenant-floating-card-rolling {
-  z-index: 1200;
+  z-index: var(--oci-z-tenant-floating-card-rolling);
   pointer-events: none;
   will-change: transform;
   animation: tenantFloatingFlight var(--tenant-float-duration) cubic-bezier(0.18, 0.82, 0.22, 1) forwards;

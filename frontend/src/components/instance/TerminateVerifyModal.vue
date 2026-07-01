@@ -5,6 +5,8 @@
     :open="open"
     title="安全验证 — 终止实例"
     :width="400"
+    :z-index="INSTANCE_SAFETY_MODAL_Z_INDEX"
+    :wrap-class-name="INSTANCE_SAFETY_MODAL_WRAP_CLASS"
     :confirm-loading="loading"
     ok-text="确认终止"
     ok-type="primary"
@@ -39,6 +41,8 @@
 </template>
 
 <script setup lang="ts">
+import { INSTANCE_SAFETY_MODAL_WRAP_CLASS, INSTANCE_SAFETY_MODAL_Z_INDEX } from '../../utils/overlayZIndex'
+
 const props = defineProps<{
   open: boolean
   code: string
