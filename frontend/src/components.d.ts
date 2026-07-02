@@ -79,6 +79,7 @@ declare module 'vue' {
     ForceA2ConfirmModal: typeof import('./components/instance/ForceA2ConfirmModal.vue')['default']
     InstanceDetailInfoPanel: typeof import('./components/instance/InstanceDetailInfoPanel.vue')['default']
     InstanceDrawerListPanel: typeof import('./components/instance/InstanceDrawerListPanel.vue')['default']
+    InstanceFloatingTenantCard: typeof import('./components/instance/InstanceFloatingTenantCard.vue')['default']
     InstanceNetworkDetailPanel: typeof import('./components/instance/InstanceNetworkDetailPanel.vue')['default']
     InstanceNetworkPanel: typeof import('./components/instance/InstanceNetworkPanel.vue')['default']
     InstanceSecurityPanel: typeof import('./components/instance/InstanceSecurityPanel.vue')['default']
