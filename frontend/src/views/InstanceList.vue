@@ -271,10 +271,9 @@ import {
   MenuUnfoldOutlined,
   VerticalAlignTopOutlined,
 } from '@ant-design/icons-vue'
-import { message, Modal } from 'ant-design-vue'
+import { message } from 'ant-design-vue'
 import {
-  getInstanceList, updateInstanceState,
-  changeIp,
+  getInstanceList,
   updateInstance,
 } from '../api/instance'
 import { getTenantGroups } from '../api/tenant'
@@ -295,6 +294,7 @@ const InstanceFloatingTenantCard = defineAppAsyncComponent(() => import('../comp
 import { listStorageRegions } from '../api/storage'
 import { useQuickTask } from '../composables/useQuickTask'
 import { useForceA2ToA1 } from '../composables/useForceA2ToA1'
+import { useInstanceActions } from '../composables/useInstanceActions'
 import { useInstanceConsole } from '../composables/useInstanceConsole'
 import { useTerminateInstanceVerify } from '../composables/useTerminateInstanceVerify'
 import {
@@ -309,10 +309,6 @@ import {
   tenantPlanTagColor,
 } from '../utils/tenantPlan'
 import { appQueryCache, createListSignature } from '../utils/queryCache'
-import {
-  INSTANCE_CONFIRM_MODAL_WRAP_CLASS,
-  INSTANCE_CONFIRM_MODAL_Z_INDEX,
-} from '../utils/overlayZIndex'
 
 const catalog = useTenantCatalogStore()
 const VIRTUAL_CARD_MIN = 12
@@ -373,7 +369,6 @@ const tenantViewMode = ref<'card' | 'table'>('card')
 const searchKeyword = ref('')
 const globalLoading = ref(false)
 const tenantDataList = ref<TenantData[]>([])
-const actionLoading = reactive<Record<string, boolean>>({})
 
 const currentTenant = ref<any>(null)
 const currentInstance = ref<any>(null)
@@ -758,10 +753,6 @@ const trafficOverlayActive = ref(false)
 const securityOverlayActive = ref(false)
 const currentDetailRegion = computed(() => instanceDetailRegionParam().region)
 
-const changeIpLoading = ref(false)
-
-const instanceInfoLoading = ref(false)
-
 const editInstanceVisible = ref(false)
 const editInstanceLoading = ref(false)
 const editInstanceForm = reactive({ displayName: '' })
@@ -1090,68 +1081,9 @@ function openDetail(tenant: any, record: any) {
   drawerVisible.value = true
 }
 
-async function handleAction(tenant: any, record: any, action: string) {
-  actionLoading[record.instanceId] = true
-  try {
-    const reg =
-      (record.region && String(record.region).trim()) ||
-      (instancePanelRegion.value?.trim() || tenant.ociRegion || '').trim()
-    await updateInstanceState({ id: tenant.id, instanceId: record.instanceId, action, region: reg })
-    message.success('操作已提交')
-    const td = tenantDataList.value.find(t => t.tenant.id === tenant.id)
-    if (td) scheduleReload(() => loadTenantInstances(td, { force: true }), 3000)
-  } catch (e: any) {
-    message.error(e?.message || '操作失败')
-  } finally {
-    actionLoading[record.instanceId] = false
-  }
-}
-
-const INSTANCE_ACTION_LABELS: Record<string, string> = {
-  START: '启动',
-  SOFTRESET: '重启',
-  RESET: '断电重启',
-  SOFTSTOP: '暂停',
-}
-
-function onInstanceMenuClick(record: any, key: string) {
-  if (!activeTenantData.value) return
-  const tenant = activeTenantData.value.tenant
-  if (key === 'TERMINATE') {
-    openTerminateVerify(tenant, record)
-    return
-  }
-  const label = INSTANCE_ACTION_LABELS[key] || key
-  const danger = key === 'RESET' || key === 'SOFTSTOP'
-  instanceManagerConfirmOverlayActive.value = true
-  Modal.confirm({
-    title: `确定${label}实例？`,
-    content: `目标实例：${record.name || record.instanceId}`,
-    okText: '确定',
-    okButtonProps: danger ? { danger: true } : undefined,
-    cancelText: '取消',
-    zIndex: INSTANCE_CONFIRM_MODAL_Z_INDEX,
-    wrapClassName: INSTANCE_CONFIRM_MODAL_WRAP_CLASS,
-    onOk: () => handleAction(tenant, record, key),
-    afterClose: () => {
-      instanceManagerConfirmOverlayActive.value = false
-    },
-  })
-}
-
-function handleCurrentInstanceAction(action: 'START' | 'STOP' | 'RESET') {
-  if (!currentTenant.value || !currentInstance.value) return
-  void handleAction(currentTenant.value, currentInstance.value, action)
-}
-
 function openCurrentTerminateVerify() {
   if (!currentTenant.value || !currentInstance.value) return
   void openTerminateVerify(currentTenant.value, currentInstance.value)
-}
-
-function stopCurrentDetailInstance() {
-  if (!currentTenant.value || !currentInstance.value) return
-  return handleAction(currentTenant.value, currentInstance.value, 'STOP')
 }
 
 function onBootVolumeUpdated() {
@@ -1187,6 +1119,34 @@ const {
   },
 })
 const instanceManagerConfirmOverlayActive = ref(false)
+const {
+  actionLoading,
+  changeIpLoading,
+  instanceInfoLoading,
+  onInstanceMenuClick,
+  handleCurrentInstanceAction,
+  stopCurrentDetailInstance,
+  handleChangeIp,
+  refreshInstanceInfo,
+} = useInstanceActions({
+  getActiveTenantData: () => activeTenantData.value,
+  getCurrentTenant: () => currentTenant.value,
+  getCurrentInstance: () => currentInstance.value,
+  setCurrentInstance: (instance) => {
+    currentInstance.value = instance
+  },
+  findTenantDataById,
+  getInstancePanelRegion: () => instancePanelRegion.value,
+  resolveDetailRegionParam: instanceDetailRegionParam,
+  resolveDetailScopeParam: instanceDetailScopeParam,
+  scheduleReload,
+  loadTenantInstances,
+  loadNetworkDetail: () => callDetailDrawerShell('loadNetworkDetail'),
+  openTerminateVerify,
+  setConfirmOverlayActive: (active) => {
+    instanceManagerConfirmOverlayActive.value = active
+  },
+})
 const instanceManagerModalOverlayActive = computed(() =>
   trafficOverlayActive.value ||
   securityOverlayActive.value ||
@@ -1205,53 +1165,6 @@ watch(
   },
   { immediate: true },
 )
-
-async function handleChangeIp() {
-  if (!currentInstance.value || !currentTenant.value) return
-  changeIpLoading.value = true
-  try {
-    await changeIp({
-      id: currentTenant.value.id,
-      instanceId: currentInstance.value.instanceId,
-      ...instanceDetailScopeParam(),
-    })
-    message.success('换 IP 请求已提交')
-    scheduleReload(() => { void callDetailDrawerShell('loadNetworkDetail') }, 3000)
-  } catch (e: any) {
-    message.error(e?.message || '换 IP 失败')
-  } finally {
-    changeIpLoading.value = false
-  }
-}
-
-async function refreshInstanceInfo() {
-  if (!currentInstance.value || !currentTenant.value) return
-  const instanceId = currentInstance.value.instanceId
-  instanceInfoLoading.value = true
-  try {
-    const res = await getInstanceList({
-      id: currentTenant.value.id,
-      ...instanceDetailRegionParam(),
-      force: true,
-    })
-    const fresh = (res.data || []).find((i: any) => i.instanceId === instanceId)
-    if (!fresh) {
-      message.warning('实例不存在或已终止')
-      return
-    }
-    currentInstance.value = { ...currentInstance.value, ...fresh }
-    const td = tenantDataList.value.find(t => t.tenant.id === currentTenant.value.id)
-    if (td) {
-      const idx = td.instances.findIndex((i: any) => i.instanceId === instanceId)
-      if (idx >= 0) td.instances[idx] = { ...td.instances[idx], ...fresh }
-    }
-    message.success('实例信息已刷新')
-  } catch (e: any) {
-    message.error(e?.message || '刷新实例信息失败')
-  } finally {
-    instanceInfoLoading.value = false
-  }
-}
 
 function openEditInstance() {
   if (!currentInstance.value) return
