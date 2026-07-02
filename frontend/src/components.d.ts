@@ -83,6 +83,7 @@ declare module 'vue' {
     InstanceNetworkPanel: typeof import('./components/instance/InstanceNetworkPanel.vue')['default']
     InstanceSecurityPanel: typeof import('./components/instance/InstanceSecurityPanel.vue')['default']
     InstanceShapeEditPanel: typeof import('./components/instance/InstanceShapeEditPanel.vue')['default']
+    InstanceTenantEntryPanel: typeof import('./components/instance/InstanceTenantEntryPanel.vue')['default']
     InstanceTrafficPanel: typeof import('./components/instance/InstanceTrafficPanel.vue')['default']
     OciLogo: typeof import('./components/OciLogo.vue')['default']
     QuickTaskModal: typeof import('./components/instance/QuickTaskModal.vue')['default']
