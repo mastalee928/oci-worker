@@ -882,8 +882,7 @@ const {
   beginTenantWorkspace,
   scheduleTenantWorkspaceOpen,
   clearFloatingTenantCard,
-  onVcnBeforeOpen: (tenant) => {
-    currentTenant.value = tenant
+  onVcnBeforeOpen: () => {
     void nextTick(() => tenantVcnPanelRef.value?.loadPanel?.())
   },
 })
@@ -984,6 +983,9 @@ function openVcnPanel(tenant: any, options: TenantWorkspaceOpenOptions = {}) {
 }
 
 function handleTenantVcnReservedIpChanged() {
+  if (!drawerVisible.value) return
+  if (!currentTenant.value?.id || !currentInstance.value?.instanceId) return
+  if (String(currentTenant.value.id) !== String(vcnTenant.value?.id || '')) return
   void callDetailDrawerShell('loadNetworkDetail')
 }
 
