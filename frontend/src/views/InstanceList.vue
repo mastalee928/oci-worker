@@ -493,57 +493,23 @@
     >
       <a-tabs v-model:activeKey="activeTab" @change="onTabChange">
         <a-tab-pane key="info" tab="基本信息">
-          <a-button size="small" @click="refreshInstanceInfo" :loading="instanceInfoLoading" style="margin-bottom: 12px">
-            刷新实例信息
-          </a-button>
-          <a-descriptions :column="1" bordered size="small" v-if="currentInstance">
-            <a-descriptions-item label="实例名称">
-              {{ currentInstance.name }}
-              <a-button type="link" size="small" @click="openEditInstance" style="margin-left: 8px">
-                <template #icon><EditOutlined /></template>修改
-              </a-button>
-            </a-descriptions-item>
-            <a-descriptions-item label="实例 ID">
-              <a-typography-text copyable style="font-size: 12px">{{ currentInstance.instanceId }}</a-typography-text>
-            </a-descriptions-item>
-            <a-descriptions-item label="Region">{{ currentInstance.region }}</a-descriptions-item>
-            <a-descriptions-item label="Shape">{{ currentInstance.shape }}</a-descriptions-item>
-            <a-descriptions-item label="配置">{{ currentInstance.ocpus }} OCPU / {{ currentInstance.memoryInGBs }} GB</a-descriptions-item>
-            <a-descriptions-item label="区间 (Compartment)">{{ currentInstance.compartmentName || '—' }}</a-descriptions-item>
-            <a-descriptions-item label="状态">
-              <a-badge :status="stateColorMap[currentInstance.state] || 'default'" :text="currentInstance.state" />
-            </a-descriptions-item>
-            <a-descriptions-item label="创建日期">
-              {{ formatInstanceCreatedDate(currentInstance.timeCreated) }}
-            </a-descriptions-item>
-          </a-descriptions>
-
-          <a-divider orientation="left">网络信息</a-divider>
-          <InstanceNetworkDetailPanel
-            ref="networkDetailPanelRef"
+          <InstanceDetailInfoPanel
+            ref="detailInfoPanelRef"
+            mode="info"
             :tenant="currentTenant"
             :instance="currentInstance"
             :active="activeTab === 'info'"
             :region="currentDetailRegion"
-            :compartment-id="currentInstance?.compartmentId"
+            :state-color-map="stateColorMap"
+            :action-loading="actionLoading"
+            :change-ip-loading="changeIpLoading"
+            :instance-info-loading="instanceInfoLoading"
+            @refresh-info="refreshInstanceInfo"
+            @edit-instance="openEditInstance"
+            @instance-action="handleCurrentInstanceAction"
+            @change-ip="handleChangeIp"
+            @terminate="openCurrentTerminateVerify"
           />
-
-          <a-divider />
-          <a-space>
-            <a-popconfirm v-if="currentInstance?.state === 'STOPPED'" title="确定启动？" @confirm="handleAction(currentTenant!, currentInstance!, 'START')">
-              <a-button type="primary" :loading="actionLoading[currentInstance?.instanceId]">启动</a-button>
-            </a-popconfirm>
-            <a-popconfirm v-if="currentInstance?.state === 'RUNNING'" title="确定停止？" @confirm="handleAction(currentTenant!, currentInstance!, 'STOP')">
-              <a-button :loading="actionLoading[currentInstance?.instanceId]">停止</a-button>
-            </a-popconfirm>
-            <a-popconfirm v-if="currentInstance?.state === 'RUNNING'" title="确定重启？" @confirm="handleAction(currentTenant!, currentInstance!, 'RESET')">
-              <a-button :loading="actionLoading[currentInstance?.instanceId]">重启</a-button>
-            </a-popconfirm>
-            <a-popconfirm title="确定换 IP？" @confirm="handleChangeIp">
-              <a-button :loading="changeIpLoading" :disabled="currentInstance?.state !== 'RUNNING'">换 IP</a-button>
-            </a-popconfirm>
-            <a-button danger @click="openTerminateVerify(currentTenant!, currentInstance!)">终止</a-button>
-          </a-space>
         </a-tab-pane>
 
         <a-tab-pane key="security" tab="安全列表">
@@ -624,44 +590,14 @@
         </a-tab-pane>
 
         <a-tab-pane key="console" tab="串行控制台">
-          <a-alert type="info" show-icon style="margin-bottom: 16px">
-            <template #message>用于实例网络异常时的紧急救援，通过 OCI 内部通道连接实例串口</template>
-          </a-alert>
-
-          <template v-if="!consoleData">
-            <a-button type="primary" @click="handleCreateConsole" :loading="consoleLoading">
-              <i class="ri-terminal-line" style="margin-right: 6px"></i>创建控制台连接
-            </a-button>
-            <div style="margin-top: 8px; color: var(--text-sub); font-size: 12px">
-              创建后会生成一个一键连接链接，可直接进入串口终端
-            </div>
-          </template>
-
-          <template v-else>
-            <a-descriptions :column="1" bordered size="small">
-              <a-descriptions-item label="连接状态">
-                <a-badge status="success" text="已就绪" />
-              </a-descriptions-item>
-              <a-descriptions-item label="一键连接">
-                <a-button type="primary" @click="openConsoleWebSSH">
-                  <i class="ri-external-link-line" style="margin-right: 6px"></i>打开串行控制台
-                </a-button>
-              </a-descriptions-item>
-              <a-descriptions-item label="SSH 命令">
-                <a-typography-text copyable :content="consoleData.sshCommand" style="font-size: 11px; word-break: break-all">
-                  {{ consoleData.sshCommand?.substring(0, 80) }}...
-                </a-typography-text>
-              </a-descriptions-item>
-            </a-descriptions>
-            <div style="margin-top: 12px">
-              <a-popconfirm title="确定断开控制台连接？" @confirm="handleDeleteConsole">
-                <a-button danger :loading="consoleLoading">断开连接</a-button>
-              </a-popconfirm>
-            </div>
-            <div style="margin-top: 8px; color: var(--text-sub); font-size: 12px">
-              提示：断开后临时用户将自动清理。进入控制台后按 Ctrl+] 或 ~. 退出。
-            </div>
-          </template>
+          <InstanceDetailInfoPanel
+            mode="console"
+            :console-loading="consoleLoading"
+            :console-data="consoleData"
+            @create-console="handleCreateConsole"
+            @open-console="openConsoleWebSSH"
+            @delete-console="handleDeleteConsole"
+          />
         </a-tab-pane>
       </a-tabs>
       <template v-if="activeTab === 'shape' && showForceA2ToA1Button" #footer>
@@ -810,7 +746,6 @@ defineOptions({ name: 'InstanceList' })
 import { ref, reactive, computed, nextTick, onMounted, onActivated, onUnmounted, watch } from 'vue'
 import {
   ReloadOutlined,
-  EditOutlined,
   DownOutlined,
   MenuFoldOutlined,
   MenuUnfoldOutlined,
@@ -837,7 +772,7 @@ const BlockStoragePanel = defineAppAsyncComponent(() => import('../components/in
 const InstanceTrafficPanel = defineAppAsyncComponent(() => import('../components/instance/InstanceTrafficPanel.vue'))
 const InstanceSecurityPanel = defineAppAsyncComponent(() => import('../components/instance/InstanceSecurityPanel.vue'))
 const InstanceNetworkPanel = defineAppAsyncComponent(() => import('../components/instance/InstanceNetworkPanel.vue'))
-const InstanceNetworkDetailPanel = defineAppAsyncComponent(() => import('../components/instance/InstanceNetworkDetailPanel.vue'))
+const InstanceDetailInfoPanel = defineAppAsyncComponent(() => import('../components/instance/InstanceDetailInfoPanel.vue'))
 const InstanceShapeEditPanel = defineAppAsyncComponent(() => import('../components/instance/InstanceShapeEditPanel.vue'))
 const InstanceDrawerListPanel = defineAppAsyncComponent(() => import('../components/instance/InstanceDrawerListPanel.vue'))
 const TenantVcnPanel = defineAppAsyncComponent(() => import('../components/instance/TenantVcnPanel.vue'))
@@ -867,10 +802,6 @@ import {
   INSTANCE_CONFIRM_MODAL_Z_INDEX,
   QUICK_TASK_MODAL_Z_INDEX,
 } from '../utils/overlayZIndex'
-import dayjs from 'dayjs'
-import utc from 'dayjs/plugin/utc'
-
-dayjs.extend(utc)
 
 const catalog = useTenantCatalogStore()
 const VIRTUAL_CARD_MIN = 12
@@ -888,17 +819,6 @@ function isGroupPanelOpen(key: string) {
 
 function isL2PanelOpen(key: string) {
   return activeL2Keys.value.includes(key)
-}
-
-function formatInstanceCreatedDate(v: unknown): string {
-  if (v == null || v === '') return '—'
-  if (typeof v !== 'string' && typeof v !== 'number' && !(v instanceof Date)) return '—'
-  const d = dayjs.utc(v)
-  if (!d.isValid()) return '—'
-  const y = d.year()
-  const m = String(d.month() + 1).padStart(2, '0')
-  const day = String(d.date()).padStart(2, '0')
-  return `${y}年${m}月${day}日`
 }
 
 function tenantPlanTagStyle(plan: unknown): Record<string, string> | undefined {
@@ -1603,7 +1523,7 @@ const blockStoragePanelRef = ref<any>(null)
 const trafficPanelRef = ref<any>(null)
 const securityPanelRef = ref<any>(null)
 const networkPanelRef = ref<any>(null)
-const networkDetailPanelRef = ref<any>(null)
+const detailInfoPanelRef = ref<any>(null)
 const bootVolumeOverlayActive = ref(false)
 const blockStorageOverlayActive = ref(false)
 const trafficOverlayActive = ref(false)
@@ -1896,7 +1816,7 @@ function openVcnPanel(tenant: any, options: TenantWorkspaceOpenOptions = {}) {
 }
 
 function handleTenantVcnReservedIpChanged() {
-  networkDetailPanelRef.value?.loadNetworkDetail?.()
+  detailInfoPanelRef.value?.loadNetworkDetail?.()
 }
 
 async function loadAllTenants(force = false) {
@@ -1988,7 +1908,7 @@ function openDetail(tenant: any, record: any) {
   trafficPanelRef.value?.reset?.()
   securityPanelRef.value?.reset?.()
   networkPanelRef.value?.reset?.()
-  networkDetailPanelRef.value?.reset?.()
+  detailInfoPanelRef.value?.reset?.()
   shapeEditPanelRef.value?.reset?.()
   bootVolumeOverlayActive.value = false
   blockStorageOverlayActive.value = false
@@ -2045,6 +1965,16 @@ function onInstanceMenuClick(record: any, key: string) {
       instanceManagerConfirmOverlayActive.value = false
     },
   })
+}
+
+function handleCurrentInstanceAction(action: 'START' | 'STOP' | 'RESET') {
+  if (!currentTenant.value || !currentInstance.value) return
+  void handleAction(currentTenant.value, currentInstance.value, action)
+}
+
+function openCurrentTerminateVerify() {
+  if (!currentTenant.value || !currentInstance.value) return
+  void openTerminateVerify(currentTenant.value, currentInstance.value)
 }
 
 function stopCurrentDetailInstance() {
@@ -2159,7 +2089,7 @@ async function handleChangeIp() {
       ...instanceDetailScopeParam(),
     })
     message.success('换 IP 请求已提交')
-    scheduleReload(() => networkDetailPanelRef.value?.loadNetworkDetail?.(), 3000)
+    scheduleReload(() => detailInfoPanelRef.value?.loadNetworkDetail?.(), 3000)
   } catch (e: any) {
     message.error(e?.message || '换 IP 失败')
   } finally {
