@@ -153,8 +153,8 @@
           <a-input v-model:value="ruleForm.destination" placeholder="如 0.0.0.0/0 或 10.0.0.0/16" />
         </a-form-item>
 
-        <div class="rt-form-grid">
-          <a-form-item label="目标区间" required>
+        <div v-if="ruleForm.targetType !== 'privateIp'" class="rt-form-grid">
+          <a-form-item :label="targetCompartmentLabel" required>
             <a-select
               v-model:value="selectedCompartmentId"
               :loading="optionsLoading"
@@ -173,7 +173,7 @@
             </a-select>
           </a-form-item>
 
-          <a-form-item label="目标资源" required>
+          <a-form-item :label="targetResourceLabel" required>
             <a-input
               v-if="ruleForm.manualTarget"
               v-model:value="ruleForm.networkEntityId"
@@ -208,6 +208,40 @@
             </button>
           </a-form-item>
         </div>
+        <a-form-item v-else label="目标选择" required>
+          <a-input
+            v-if="ruleForm.manualTarget"
+            v-model:value="ruleForm.networkEntityId"
+            placeholder="ocid1..."
+          />
+          <a-select
+            v-else
+            v-model:value="ruleForm.networkEntityId"
+            :loading="optionsLoading"
+            placeholder="选择目标专用 IP"
+            show-search
+            option-filter-prop="title"
+            :not-found-content="optionsLoading ? '加载中...' : '当前区间没有可用专用 IP'"
+          >
+            <a-select-option
+              v-for="item in currentTargetItems"
+              :key="item.id"
+              :value="item.id"
+              :title="targetSearchText(item)"
+            >
+              <div class="rt-option-title">
+                {{ targetOptionTitle(item) }}
+                <a-tag v-if="item.type === 'privateIp' && item.skipSourceDestCheck === false" color="warning">
+                  源/目的检查未关闭
+                </a-tag>
+              </div>
+              <div class="rt-option-sub">{{ targetOptionSubtitle(item) }}</div>
+            </a-select-option>
+          </a-select>
+          <button type="button" class="rt-manual-toggle" @click="ruleForm.manualTarget = !ruleForm.manualTarget">
+            {{ ruleForm.manualTarget ? '从候选资源选择' : '手动输入 OCID' }}
+          </button>
+        </a-form-item>
 
         <a-alert
           v-if="selectedTarget?.type === 'privateIp' && selectedTarget.skipSourceDestCheck === false"
@@ -350,6 +384,18 @@ const targetIndex = computed(() => {
 })
 const currentTargetItems = computed(() => targetGroupMap.value[ruleForm.targetType] || [])
 const selectedTarget = computed(() => targetIndex.value.get(ruleForm.networkEntityId))
+const targetFieldLabels = computed(() => {
+  const map: Record<string, { compartment: string; resource: string }> = {
+    drg: { compartment: '目标动态路由网关 区间', resource: '目标动态路由网关' },
+    internetGateway: { compartment: '目标 Internet 网关 区间', resource: '目标 Internet 网关' },
+    localPeeringGateway: { compartment: '目标本地对等连接网关 区间', resource: '目标本地对等连接网关' },
+    natGateway: { compartment: '目标 NAT 网关 区间', resource: '目标 NAT 网关' },
+    serviceGateway: { compartment: '目标服务网关 区间', resource: '目标服务网关' },
+  }
+  return map[ruleForm.targetType] || { compartment: '目标区间', resource: '目标资源' }
+})
+const targetCompartmentLabel = computed(() => targetFieldLabels.value.compartment)
+const targetResourceLabel = computed(() => targetFieldLabels.value.resource)
 const filteredRules = computed(() => {
   const q = keyword.value.trim().toLowerCase()
   if (!q) return rules.value
