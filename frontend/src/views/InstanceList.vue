@@ -296,6 +296,7 @@ import { useQuickTask } from '../composables/useQuickTask'
 import { useForceA2ToA1 } from '../composables/useForceA2ToA1'
 import { useInstanceActions } from '../composables/useInstanceActions'
 import { useInstanceConsole } from '../composables/useInstanceConsole'
+import { useInstanceDetailContext } from '../composables/useInstanceDetailContext'
 import { useTerminateInstanceVerify } from '../composables/useTerminateInstanceVerify'
 import {
   useTenantWorkspaceDock,
@@ -369,9 +370,6 @@ const tenantViewMode = ref<'card' | 'table'>('card')
 const searchKeyword = ref('')
 const globalLoading = ref(false)
 const tenantDataList = ref<TenantData[]>([])
-
-const currentTenant = ref<any>(null)
-const currentInstance = ref<any>(null)
 
 const filteredTenants = computed(() => {
   if (!searchKeyword.value) return tenantDataList.value
@@ -726,32 +724,33 @@ function onInstancePanelRegionUserChange() {
   loadTenantInstances(td)
 }
 
-const drawerVisible = ref(false)
-const activeTab = ref('info')
-const detailDrawerShellRef = ref<any>(null)
-type DetailDrawerShellMethod =
-  | 'resetAllPanels'
-  | 'stopShapeSilently'
-  | 'loadShapeOptions'
-  | 'loadNetworkVcns'
-  | 'loadBlockVolumes'
-  | 'loadNetworkDetail'
-
-async function callDetailDrawerShell(method: DetailDrawerShellMethod, args: any[] = [], retries = 6) {
-  for (let attempt = 0; attempt <= retries; attempt += 1) {
-    const fn = detailDrawerShellRef.value?.[method]
-    if (typeof fn === 'function') return fn(...args)
-    if (attempt >= retries) return undefined
-    await nextTick()
-    await new Promise(resolve => window.setTimeout(resolve, 80))
-  }
-  return undefined
-}
 const bootVolumeOverlayActive = ref(false)
 const blockStorageOverlayActive = ref(false)
 const trafficOverlayActive = ref(false)
 const securityOverlayActive = ref(false)
-const currentDetailRegion = computed(() => instanceDetailRegionParam().region)
+
+const {
+  currentTenant,
+  currentInstance,
+  drawerVisible,
+  activeTab,
+  detailDrawerShellRef,
+  currentDetailRegion,
+  callDetailDrawerShell,
+  onTabChange,
+  handleInstanceListOpenDetail,
+  closeDrawer,
+} = useInstanceDetailContext({
+  getActiveTenantData: () => activeTenantData.value,
+  resolveDetailRegionParam: instanceDetailRegionParam,
+  clearDetailOverlays: () => {
+    bootVolumeOverlayActive.value = false
+    blockStorageOverlayActive.value = false
+    trafficOverlayActive.value = false
+    securityOverlayActive.value = false
+  },
+  clearConsoleData: () => clearConsoleData(),
+})
 
 const editInstanceVisible = ref(false)
 const editInstanceLoading = ref(false)
@@ -1052,33 +1051,8 @@ async function loadTenantInstances(td: TenantData, options: LoadTenantInstancesO
   }
 }
 
-function onTabChange(key: string) {
-  if (key === 'shape') {
-    void nextTick(() => callDetailDrawerShell('loadShapeOptions'))
-  }
-}
-
-function handleInstanceListOpenDetail(record: any) {
-  if (!activeTenantData.value) return
-  openDetail(activeTenantData.value.tenant, record)
-}
-
 function handleInstanceListMenuClick(payload: { record: any; key: string }) {
   onInstanceMenuClick(payload.record, payload.key)
-}
-
-function openDetail(tenant: any, record: any) {
-  void callDetailDrawerShell('stopShapeSilently', [], 0)
-  currentTenant.value = tenant
-  currentInstance.value = record
-  activeTab.value = 'info'
-  void callDetailDrawerShell('resetAllPanels')
-  bootVolumeOverlayActive.value = false
-  blockStorageOverlayActive.value = false
-  trafficOverlayActive.value = false
-  securityOverlayActive.value = false
-  clearConsoleData()
-  drawerVisible.value = true
 }
 
 function openCurrentTerminateVerify() {
@@ -1113,7 +1087,7 @@ const {
   currentInstance,
   resolveRegionParam: instanceDetailRegionParam,
   onTerminated: (tenant) => {
-    drawerVisible.value = false
+    closeDrawer()
     const td = tenantDataList.value.find(t => t.tenant.id === tenant.id)
     if (td) scheduleReload(() => loadTenantInstances(td, { force: true }), 3000)
   },
