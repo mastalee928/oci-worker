@@ -4,8 +4,8 @@ export function getGlance() {
   return request.get('/sys/glance')
 }
 
-export function sendVerifyCode(action: string) {
-  return request.post('/sys/sendVerifyCode', { action })
+export function sendVerifyCode(action: string, context?: { contextKey?: string; contextText?: string }) {
+  return request.post('/sys/sendVerifyCode', { action, ...(context || {}) })
 }
 
 export function getTgStatus() {

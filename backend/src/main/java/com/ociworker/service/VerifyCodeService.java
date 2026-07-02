@@ -21,7 +21,7 @@ public class VerifyCodeService {
     @Resource
     private NotificationService notificationService;
 
-    private record CodeEntry(String code, long expireAt) {}
+    private record CodeEntry(String code, long expireAt, String contextKey) {}
 
     public boolean isTgConfigured() {
         String token = notificationService.getKvValue(SysCfgEnum.TG_BOT_TOKEN);
@@ -30,11 +30,15 @@ public class VerifyCodeService {
     }
 
     public void sendCode(String action) {
+        sendCode(action, null, null);
+    }
+
+    public void sendCode(String action, String contextKey, String contextText) {
         if (!isTgConfigured()) {
             throw new OciException("未绑定 Telegram，无法执行此操作。请先在系统设置中配置 TG Bot。");
         }
         String code = RandomUtil.randomNumbers(6);
-        codeStore.put(action, new CodeEntry(code, System.currentTimeMillis() + CODE_EXPIRE_MS));
+        codeStore.put(action, new CodeEntry(code, System.currentTimeMillis() + CODE_EXPIRE_MS, StrUtil.trimToNull(contextKey)));
 
         String actionName = switch (action) {
             case "terminate" -> "终止实例";
@@ -78,12 +82,17 @@ public class VerifyCodeService {
             case "cfEmailDnsUnlock" -> "Cloudflare 解锁 Email DNS MX";
             default -> action;
         };
-        String msg = String.format("【OCI Worker 安全验证】\n操作：%s\n验证码：%s\n有效期：5分钟\n\n如非本人操作，请检查账户安全。", actionName, code);
+        String targetLine = StrUtil.isBlank(contextText) ? "" : "\n目标：" + contextText.trim();
+        String msg = String.format("【OCI Worker 安全验证】\n操作：%s%s\n验证码：%s\n有效期：5分钟\n\n如非本人操作，请检查账户安全。", actionName, targetLine, code);
         notificationService.sendMessage(msg);
         log.info("Verification code sent for action: {}", action);
     }
 
     public void verifyCode(String action, String inputCode) {
+        verifyCode(action, inputCode, null);
+    }
+
+    public void verifyCode(String action, String inputCode, String expectedContextKey) {
         if (!isTgConfigured()) {
             throw new OciException("未绑定 Telegram，无法执行此操作");
         }
@@ -97,6 +106,10 @@ public class VerifyCodeService {
         }
         if (!entry.code().equals(inputCode)) {
             throw new OciException("验证码错误");
+        }
+        String expected = StrUtil.trimToNull(expectedContextKey);
+        if (expected != null && !expected.equals(entry.contextKey())) {
+            throw new OciException("验证码与当前操作目标不匹配，请重新获取");
         }
         codeStore.remove(action);
     }

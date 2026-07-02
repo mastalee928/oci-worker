@@ -273,7 +273,7 @@ import {
 } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
 import {
-  getInstanceList, updateInstanceState, terminateInstance,
+  getInstanceList, updateInstanceState,
   changeIp,
   updateInstance,
   createConsoleConnection, deleteConsoleConnection,
@@ -294,9 +294,9 @@ const TenantVcnPanel = defineAppAsyncComponent(() => import('../components/insta
 const QuickTaskModal = defineAppAsyncComponent(() => import('../components/instance/QuickTaskModal.vue'))
 const InstanceTenantEntryPanel = defineAppAsyncComponent(() => import('../components/instance/InstanceTenantEntryPanel.vue'))
 const InstanceFloatingTenantCard = defineAppAsyncComponent(() => import('../components/instance/InstanceFloatingTenantCard.vue'))
-import { sendVerifyCode } from '../api/system'
 import { listStorageRegions } from '../api/storage'
 import { useQuickTask } from '../composables/useQuickTask'
+import { useTerminateInstanceVerify } from '../composables/useTerminateInstanceVerify'
 import { isAllGroupsExpanded } from '../composables/groupExpandToggle'
 import {
   formatTenantPlanType,
@@ -1507,11 +1507,25 @@ function scheduleReload(fn: () => void, delay: number) {
   pendingTimers.add(t)
 }
 
-const verifyModalVisible = ref(false)
-const verifyCode = ref('')
-const verifyLoading = ref(false)
-const verifySending = ref(false)
-const deleteBootVolume = ref(true)
+const {
+  verifyModalVisible,
+  verifyCode,
+  verifyLoading,
+  verifySending,
+  deleteBootVolume,
+  openTerminateVerify,
+  resendTerminateVerifyCode,
+  handleTerminateWithCode,
+} = useTerminateInstanceVerify({
+  currentTenant,
+  currentInstance,
+  resolveRegionParam: instanceDetailRegionParam,
+  onTerminated: (tenant) => {
+    drawerVisible.value = false
+    const td = tenantDataList.value.find(t => t.tenant.id === tenant.id)
+    if (td) scheduleReload(() => loadTenantInstances(td, { force: true }), 3000)
+  },
+})
 const instanceManagerConfirmOverlayActive = ref(false)
 const instanceManagerModalOverlayActive = computed(() =>
   trafficOverlayActive.value ||
@@ -1531,65 +1545,6 @@ watch(
   },
   { immediate: true },
 )
-
-async function openTerminateVerify(tenant: any, record: any) {
-  currentTenant.value = tenant
-  currentInstance.value = record
-  verifyCode.value = ''
-  deleteBootVolume.value = true
-  verifySending.value = true
-  try {
-    await sendVerifyCode('terminate')
-    message.success('验证码已发送至 Telegram')
-    verifyModalVisible.value = true
-  } catch (e: any) {
-    message.error(e?.message || '发送验证码失败')
-  } finally {
-    verifySending.value = false
-  }
-}
-
-async function resendVerifyCode(action: string) {
-  verifySending.value = true
-  try {
-    await sendVerifyCode(action)
-    message.success('验证码已重新发送')
-  } catch (e: any) {
-    message.error(e?.message || '发送失败')
-  } finally {
-    verifySending.value = false
-  }
-}
-
-function resendTerminateVerifyCode() {
-  return resendVerifyCode('terminate')
-}
-
-async function handleTerminateWithCode() {
-  if (!verifyCode.value || verifyCode.value.length !== 6) {
-    message.warning('请输入6位验证码')
-    return
-  }
-  verifyLoading.value = true
-  try {
-    await terminateInstance({
-      id: currentTenant.value.id,
-      instanceId: currentInstance.value.instanceId,
-      verifyCode: verifyCode.value,
-      preserveBootVolume: !deleteBootVolume.value,
-      ...instanceDetailRegionParam(),
-    })
-    message.success('实例已终止')
-    verifyModalVisible.value = false
-    drawerVisible.value = false
-    const td = tenantDataList.value.find(t => t.tenant.id === currentTenant.value.id)
-    if (td) scheduleReload(() => loadTenantInstances(td, { force: true }), 3000)
-  } catch (e: any) {
-    message.error(e?.message || '终止失败')
-  } finally {
-    verifyLoading.value = false
-  }
-}
 
 async function handleChangeIp() {
   if (!currentInstance.value || !currentTenant.value) return

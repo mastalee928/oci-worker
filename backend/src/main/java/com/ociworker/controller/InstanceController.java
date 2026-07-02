@@ -1,6 +1,7 @@
 package com.ociworker.controller;
 
 import com.ociworker.model.vo.ResponseData;
+import com.ociworker.exception.OciException;
 import com.ociworker.service.ConsoleService;
 import com.ociworker.service.InstanceService;
 import com.ociworker.service.ShapeEditTaskManager;
@@ -36,13 +37,17 @@ public class InstanceController {
 
     @PostMapping("/terminate")
     public ResponseData<?> terminate(@RequestBody Map<String, Object> params) {
-        verifyCodeService.verifyCode("terminate", params.get("verifyCode") == null ? null : String.valueOf(params.get("verifyCode")));
+        String userId = asString(params.get("id"));
+        String instanceId = asString(params.get("instanceId"));
+        String region = regObj(params);
+        if (userId == null || userId.isBlank() || instanceId == null || instanceId.isBlank()) {
+            throw new OciException("缺少终止实例目标信息");
+        }
+        verifyCodeService.verifyCode("terminate",
+                asString(params.get("verifyCode")),
+                terminateVerifyContextKey(userId, instanceId, region));
         boolean preserveBootVolume = Boolean.TRUE.equals(params.get("preserveBootVolume"));
-        instanceService.terminateInstance(
-                params.get("id") == null ? null : String.valueOf(params.get("id")),
-                params.get("instanceId") == null ? null : String.valueOf(params.get("instanceId")),
-                preserveBootVolume,
-                regObj(params));
+        instanceService.terminateInstance(userId, instanceId, preserveBootVolume, region);
         return ResponseData.ok();
     }
 
@@ -304,5 +309,12 @@ public class InstanceController {
         if (v == null) return null;
         String s = String.valueOf(v).trim();
         return s.isEmpty() ? null : s;
+    }
+
+    private static String terminateVerifyContextKey(String userId, String instanceId, String region) {
+        return String.join("|",
+                userId == null ? "" : userId.trim(),
+                instanceId == null ? "" : instanceId.trim(),
+                region == null ? "" : region.trim());
     }
 }

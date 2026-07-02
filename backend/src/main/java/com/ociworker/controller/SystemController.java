@@ -289,7 +289,7 @@ public class SystemController {
 
     @PostMapping("/sendVerifyCode")
     public ResponseData<?> sendVerifyCode(@RequestBody Map<String, String> params) {
-        verifyCodeService.sendCode(params.get("action"));
+        verifyCodeService.sendCode(params.get("action"), params.get("contextKey"), params.get("contextText"));
         return ResponseData.ok();
     }
 
