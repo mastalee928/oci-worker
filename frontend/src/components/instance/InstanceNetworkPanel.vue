@@ -11,7 +11,7 @@
           <span class="path-item">{{ currentViewTitle }}</span>
         </template>
       </div>
-      <a-button size="small" @click="loadInstanceNetwork(true)" :loading="networkLoading">
+      <a-button size="small" @click="refreshNetwork" :loading="networkLoading || vcnRouteTablesLoading">
         刷新网络
       </a-button>
     </div>
@@ -90,6 +90,18 @@
                         创建路由表
                       </button>
                     </span>
+                  </InfoRow>
+                  <InfoRow label="VCN 路由表">
+                    <span v-if="vcnRouteTablesLoading" class="muted">加载中...</span>
+                    <span v-else-if="allVcnRouteTables.length" class="route-table-link-list">
+                      <ResourceLink
+                        v-for="rt in allVcnRouteTables"
+                        :key="rt.id"
+                        :text="rt.displayName || routeTableName(rt.id)"
+                        @click="openRouteTableById(rt.id)"
+                      />
+                    </span>
+                    <span v-else class="muted">—</span>
                   </InfoRow>
                   <InfoRow label="网络安全组">
                     <template v-if="nsgIds(primaryVnic).length">
@@ -413,7 +425,7 @@
 import { computed, defineComponent, h, ref, resolveComponent, watch } from 'vue'
 import { message } from 'ant-design-vue'
 import { getInstanceNetworkDetail } from '../../api/instance'
-import { createRouteTable, getRouteTable } from '../../api/vcn'
+import { createRouteTable, getRouteTable, listRouteTables } from '../../api/vcn'
 import RouteTableRulesManager from '../vcn/RouteTableRulesManager.vue'
 
 const InfoRow = defineComponent({
@@ -561,8 +573,11 @@ const createRouteTableOpen = ref(false)
 const routeTableCreating = ref(false)
 const newRouteTableName = ref('')
 const routeTableDetails = ref<Record<string, any>>({})
+const vcnRouteTables = ref<any[]>([])
+const vcnRouteTablesLoading = ref(false)
 let networkLoadSeq = 0
 let routeTableSeq = 0
+let vcnRouteTablesSeq = 0
 
 const vnics = computed(() => {
   const list = networkDetail.value?.vnics
@@ -644,6 +659,19 @@ const filteredCurrentIps = computed(() => {
   ].some((item) => String(item || '').toLowerCase().includes(q)))
 })
 const currentRouteRules = computed(() => Array.isArray(currentRouteTable.value?.routeRules) ? currentRouteTable.value.routeRules : [])
+const allVcnRouteTables = computed(() => {
+  const map = new Map<string, any>()
+  for (const rt of vcnRouteTables.value) {
+    if (rt?.id) map.set(rt.id, rt)
+  }
+  for (const [id, rt] of Object.entries(routeTableDetails.value)) {
+    if (!id) continue
+    const detail = rt || {}
+    const sameVcn = !detail.vcnId || !overviewVcnId.value || detail.vcnId === overviewVcnId.value
+    if (sameVcn) map.set(id, { ...(map.get(id) || {}), ...detail, id })
+  }
+  return [...map.values()].sort((a, b) => String(a.displayName || a.id || '').localeCompare(String(b.displayName || b.id || '')))
+})
 const filteredRouteRules = computed(() => {
   const q = routeRuleKeyword.value.trim().toLowerCase()
   const rows = currentRouteRules.value.map((rule: any, index: number) => ({ ...rule, _key: `${index}_${rule.destination || ''}_${rule.networkEntityId || ''}` }))
@@ -693,9 +721,12 @@ function sameTarget(targetKey: string) {
 function reset() {
   networkLoadSeq += 1
   routeTableSeq += 1
+  vcnRouteTablesSeq += 1
   networkLoading.value = false
   routeTableLoading.value = false
+  vcnRouteTablesLoading.value = false
   routeTableDetails.value = {}
+  vcnRouteTables.value = []
   networkDetail.value = null
   currentView.value = { type: 'overview' }
   networkInfoKeys.value = ['vcn', 'subnet']
@@ -727,10 +758,38 @@ async function loadInstanceNetwork(force = false) {
     if (currentView.value.type !== 'overview' && currentView.value.id && !resourceExists(currentView.value.type, currentView.value.id)) {
       currentView.value = { type: 'overview' }
     }
+    void loadVcnRouteTables(force)
   } catch (e: any) {
     if (requestId === networkLoadSeq && sameTarget(targetKey)) message.error(e?.message || '加载实例网络失败')
   } finally {
     if (requestId === networkLoadSeq && sameTarget(targetKey)) networkLoading.value = false
+  }
+}
+
+function refreshNetwork() {
+  void loadInstanceNetwork(true)
+  if (currentView.value.type === 'routeTable' && currentView.value.id) {
+    void loadRouteTableDetail(currentView.value.id, true)
+  }
+}
+
+async function loadVcnRouteTables(force = false) {
+  const vcnId = overviewVcnId.value
+  if (!props.tenant?.id || !vcnId) {
+    vcnRouteTables.value = []
+    return
+  }
+  const requestId = ++vcnRouteTablesSeq
+  const targetKey = currentTargetKey()
+  vcnRouteTablesLoading.value = true
+  try {
+    const res = await listRouteTables({ id: props.tenant.id, vcnId, ...regionParam(), force })
+    if (requestId !== vcnRouteTablesSeq || !sameTarget(targetKey)) return
+    vcnRouteTables.value = Array.isArray(res.data) ? res.data : []
+  } catch (e: any) {
+    if (requestId === vcnRouteTablesSeq && sameTarget(targetKey)) message.error(e?.message || '加载 VCN 路由表失败')
+  } finally {
+    if (requestId === vcnRouteTablesSeq && sameTarget(targetKey)) vcnRouteTablesLoading.value = false
   }
 }
 
@@ -819,6 +878,10 @@ async function createRouteTableFromInstance() {
     })
     const created = res.data || {}
     if (created.id) {
+      vcnRouteTables.value = [
+        ...vcnRouteTables.value.filter((rt: any) => rt?.id !== created.id),
+        created,
+      ]
       routeTableDetails.value = {
         ...routeTableDetails.value,
         [created.id]: {
@@ -1054,6 +1117,7 @@ watch(
 defineExpose({
   loadInstanceNetwork,
   loadVcns: loadInstanceNetwork,
+  refreshNetwork,
   reset,
 })
 </script>
@@ -1233,6 +1297,15 @@ defineExpose({
   display: inline-flex;
   align-items: center;
   gap: 14px;
+  min-width: 0;
+  max-width: 100%;
+  flex-wrap: wrap;
+}
+
+.route-table-link-list {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px 14px;
   min-width: 0;
   max-width: 100%;
   flex-wrap: wrap;
