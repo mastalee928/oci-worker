@@ -28,8 +28,8 @@
             class="rt-compartment"
             :loading="optionsLoading"
             placeholder="目标区间"
-            show-search
-            option-filter-prop="title"
+            :show-search="false"
+            :get-popup-container="routeRulePopupContainer"
             @change="onCompartmentChange"
           >
             <a-select-option
@@ -122,7 +122,12 @@
         />
 
         <a-form-item label="目标类型" required>
-          <a-select v-model:value="ruleForm.targetType" @change="onTargetTypeChange">
+          <a-select
+            v-model:value="ruleForm.targetType"
+            :show-search="false"
+            :get-popup-container="routeRulePopupContainer"
+            @change="onTargetTypeChange"
+          >
             <a-select-option v-for="item in targetTypeOptions" :key="item.value" :value="item.value">
               {{ item.label }}
             </a-select-option>
@@ -130,7 +135,12 @@
         </a-form-item>
 
         <a-form-item v-if="showDestinationTypeField" label="目的地类型" required>
-          <a-select v-model:value="ruleForm.destinationType" disabled>
+          <a-select
+            v-model:value="ruleForm.destinationType"
+            disabled
+            :show-search="false"
+            :get-popup-container="routeRulePopupContainer"
+          >
             <a-select-option value="CIDR_BLOCK">CIDR 块</a-select-option>
             <a-select-option value="SERVICE_CIDR_BLOCK">服务</a-select-option>
           </a-select>
@@ -141,8 +151,8 @@
             v-model:value="ruleForm.destination"
             :loading="optionsLoading"
             placeholder="选择 Oracle 服务"
-            show-search
-            option-filter-prop="title"
+            :show-search="false"
+            :get-popup-container="routeRulePopupContainer"
           >
             <a-select-option
               v-for="item in serviceOptions"
@@ -164,8 +174,8 @@
             <a-select
               v-model:value="selectedCompartmentId"
               :loading="optionsLoading"
-              show-search
-              option-filter-prop="title"
+              :show-search="false"
+              :get-popup-container="routeRulePopupContainer"
               @change="onCompartmentChange"
             >
               <a-select-option
@@ -191,8 +201,8 @@
               :loading="optionsLoading"
               :disabled="targetSelectDisabled"
               :placeholder="targetResourcePlaceholder"
-              show-search
-              option-filter-prop="title"
+              :show-search="false"
+              :get-popup-container="routeRulePopupContainer"
               :not-found-content="targetNotFoundContent"
             >
               <a-select-option
@@ -227,8 +237,8 @@
             :loading="optionsLoading"
             :disabled="targetSelectDisabled"
             :placeholder="targetResourcePlaceholder"
-            show-search
-            option-filter-prop="title"
+            :show-search="false"
+            :get-popup-container="routeRulePopupContainer"
             :not-found-content="targetNotFoundContent"
           >
             <a-select-option
@@ -774,6 +784,10 @@ function shortId(id?: string) {
   if (!id) return '—'
   if (id.length <= 24) return id
   return `${id.slice(0, 12)}...${id.slice(-8)}`
+}
+
+function routeRulePopupContainer(trigger?: HTMLElement) {
+  return (trigger?.closest('.ant-modal-content') as HTMLElement) || document.body
 }
 </script>
 
