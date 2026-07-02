@@ -113,7 +113,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, defineAsyncComponent, ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
 import {
   createReservedIp,
@@ -123,8 +123,9 @@ import {
   unassignReservedIp,
 } from '../../api/instance'
 import { listStorageRegions } from '../../api/storage'
+import { defineAppAsyncComponent } from '../../utils/asyncComponent'
 
-const ByoipPanel = defineAsyncComponent(() => import('../../views/ByoipPanel.vue'))
+const ByoipPanel = defineAppAsyncComponent(() => import('../../views/ByoipPanel.vue'))
 
 const props = defineProps<{
   open: boolean

@@ -1,3 +1,5 @@
+import { isStaleChunkError, reloadOnceForUpdatedAssets } from './asyncComponent'
+
 const routeImporters: Record<string, () => Promise<unknown>> = {
   dashboard: () => import('../views/Dashboard.vue'),
   tenant: () => import('../views/TenantConfig.vue'),
@@ -11,7 +13,10 @@ const routeImporters: Record<string, () => Promise<unknown>> = {
 
 export function prefetchRouteChunk(menuKey: string) {
   const fn = routeImporters[menuKey]
-  if (fn) void fn()
+  if (!fn) return
+  void fn().catch((error) => {
+    if (isStaleChunkError(error)) reloadOnceForUpdatedAssets()
+  })
 }
 
 export function prefetchMainRoutesIdle() {

@@ -102,6 +102,17 @@ body.wallpaper-active {
   background-image: none !important;
 }
 
+.async-component-error {
+  margin: 24px 0;
+  padding: 18px 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+  color: var(--text-sub);
+  font-size: 13px;
+  text-align: center;
+}
+
 /* Wallpaper layer */
 #wallpaperLayer {
   display: none;

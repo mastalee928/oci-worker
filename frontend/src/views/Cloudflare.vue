@@ -22,10 +22,11 @@
 
 <script setup lang="ts">
 defineOptions({ name: 'Cloudflare' })
-import { ref, onMounted, nextTick, defineAsyncComponent } from 'vue'
+import { ref, onMounted, nextTick } from 'vue'
 import type { ComponentPublicInstance } from 'vue'
-const CfZoneWorkspace = defineAsyncComponent(() => import('./cloudflare/CfZoneWorkspace.vue'))
-const CfAccountPanel = defineAsyncComponent(() => import('./cloudflare/CfAccountPanel.vue'))
+import { defineAppAsyncComponent } from '../utils/asyncComponent'
+const CfZoneWorkspace = defineAppAsyncComponent(() => import('./cloudflare/CfZoneWorkspace.vue'))
+const CfAccountPanel = defineAppAsyncComponent(() => import('./cloudflare/CfAccountPanel.vue'))
 import { getCfAccountConfig } from '../api/cloudflare'
 
 const topTab = ref('zones')

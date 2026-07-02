@@ -807,7 +807,7 @@
 <script setup lang="ts">
 defineOptions({ name: 'InstanceList' })
 
-import { ref, reactive, computed, nextTick, onMounted, onActivated, onUnmounted, watch, defineAsyncComponent } from 'vue'
+import { ref, reactive, computed, nextTick, onMounted, onActivated, onUnmounted, watch } from 'vue'
 import {
   ReloadOutlined,
   EditOutlined,
@@ -826,20 +826,21 @@ import {
 } from '../api/instance'
 import { getTenantGroups } from '../api/tenant'
 import { useTenantCatalogStore } from '../stores/tenantCatalog'
+import { defineAppAsyncComponent } from '../utils/asyncComponent'
 
-const VcnManager = defineAsyncComponent(() => import('./VcnManager.vue'))
-const StorageManager = defineAsyncComponent(() => import('./StorageManager.vue'))
-const ForceA2ConfirmModal = defineAsyncComponent(() => import('../components/instance/ForceA2ConfirmModal.vue'))
-const TerminateVerifyModal = defineAsyncComponent(() => import('../components/instance/TerminateVerifyModal.vue'))
-const BootVolumePanel = defineAsyncComponent(() => import('../components/instance/BootVolumePanel.vue'))
-const BlockStoragePanel = defineAsyncComponent(() => import('../components/instance/BlockStoragePanel.vue'))
-const InstanceTrafficPanel = defineAsyncComponent(() => import('../components/instance/InstanceTrafficPanel.vue'))
-const InstanceSecurityPanel = defineAsyncComponent(() => import('../components/instance/InstanceSecurityPanel.vue'))
-const InstanceNetworkPanel = defineAsyncComponent(() => import('../components/instance/InstanceNetworkPanel.vue'))
-const InstanceNetworkDetailPanel = defineAsyncComponent(() => import('../components/instance/InstanceNetworkDetailPanel.vue'))
-const InstanceShapeEditPanel = defineAsyncComponent(() => import('../components/instance/InstanceShapeEditPanel.vue'))
-const InstanceDrawerListPanel = defineAsyncComponent(() => import('../components/instance/InstanceDrawerListPanel.vue'))
-const TenantVcnPanel = defineAsyncComponent(() => import('../components/instance/TenantVcnPanel.vue'))
+const VcnManager = defineAppAsyncComponent(() => import('./VcnManager.vue'))
+const StorageManager = defineAppAsyncComponent(() => import('./StorageManager.vue'))
+const ForceA2ConfirmModal = defineAppAsyncComponent(() => import('../components/instance/ForceA2ConfirmModal.vue'))
+const TerminateVerifyModal = defineAppAsyncComponent(() => import('../components/instance/TerminateVerifyModal.vue'))
+const BootVolumePanel = defineAppAsyncComponent(() => import('../components/instance/BootVolumePanel.vue'))
+const BlockStoragePanel = defineAppAsyncComponent(() => import('../components/instance/BlockStoragePanel.vue'))
+const InstanceTrafficPanel = defineAppAsyncComponent(() => import('../components/instance/InstanceTrafficPanel.vue'))
+const InstanceSecurityPanel = defineAppAsyncComponent(() => import('../components/instance/InstanceSecurityPanel.vue'))
+const InstanceNetworkPanel = defineAppAsyncComponent(() => import('../components/instance/InstanceNetworkPanel.vue'))
+const InstanceNetworkDetailPanel = defineAppAsyncComponent(() => import('../components/instance/InstanceNetworkDetailPanel.vue'))
+const InstanceShapeEditPanel = defineAppAsyncComponent(() => import('../components/instance/InstanceShapeEditPanel.vue'))
+const InstanceDrawerListPanel = defineAppAsyncComponent(() => import('../components/instance/InstanceDrawerListPanel.vue'))
+const TenantVcnPanel = defineAppAsyncComponent(() => import('../components/instance/TenantVcnPanel.vue'))
 import { sendVerifyCode } from '../api/system'
 import { listStorageRegions } from '../api/storage'
 import {

@@ -1,4 +1,5 @@
 import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-router'
+import { isStaleChunkError, reloadOnceForUpdatedAssets } from '../utils/asyncComponent'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -99,6 +100,12 @@ router.beforeEach(async (to, _from, next) => {
     next('/login')
   } else {
     next()
+  }
+})
+
+router.onError((error) => {
+  if (isStaleChunkError(error)) {
+    reloadOnceForUpdatedAssets()
   }
 })
 
