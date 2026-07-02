@@ -342,146 +342,33 @@
     </a-drawer>
 
     <!-- 快捷开机任务弹窗 -->
-    <a-modal
-      :keyboard="false"
+    <QuickTaskModal
       v-model:open="quickTaskVisible"
-      title="快捷开机任务"
-      :width="isMobile ? '100%' : 600"
-      :z-index="QUICK_TASK_MODAL_Z_INDEX"
-      wrap-class-name="quick-task-modal-wrap"
-      @ok="handleQuickTask"
-      :confirm-loading="quickTaskLoading"
-      :mask-closable="false"
-      centered
-    >
-      <div style="margin-bottom: 12px">
-        <a-tag color="blue">{{ quickTaskTenant?.username }}</a-tag>
-        <span style="color: var(--text-sub); font-size: 12px; margin-left: 8px">租户配置区域：{{ quickTaskTenant?.ociRegion || '—' }}</span>
-      </div>
-      <a-form :model="quickTaskForm" layout="vertical">
-        <a-form-item label="目标区域（开机任务）">
-          <a-select
-            v-model:value="quickTaskForm.ociRegion"
-            placeholder="选择目标区域"
-            :show-search="false"
-            :options="ociRegionSelectOptions"
-            :get-popup-container="quickTaskPopupContainer"
-          />
-        </a-form-item>
-        <ShapeSeriesPicker
-          v-model:architecture="quickTaskForm.architecture"
-          :shapes="quickTaskShapes"
-          :loading="quickTaskShapesLoading"
-          :hint="quickTaskShapes.length ? `已从 OCI 加载 ${quickTaskShapes.length} 个可用 Shape（随目标区域变化）` : ''"
-          :is-mobile="isMobile"
-          :get-popup-container="quickTaskPopupContainer"
-        />
-        <a-form-item label="操作系统">
-          <a-select v-model:value="quickTaskForm.operationSystem" :get-popup-container="quickTaskPopupContainer">
-            <a-select-option value="Ubuntu">Ubuntu（最新版）</a-select-option>
-            <a-select-option value="Ubuntu 24.04">Ubuntu 24.04 LTS</a-select-option>
-            <a-select-option value="Ubuntu 22.04">Ubuntu 22.04 LTS</a-select-option>
-            <a-select-option value="Ubuntu 20.04">Ubuntu 20.04 LTS</a-select-option>
-            <a-select-option value="Oracle Linux">Oracle Linux</a-select-option>
-            <a-select-option value="CentOS">CentOS</a-select-option>
-          </a-select>
-        </a-form-item>
-        <a-form-item v-if="quickDenseIoTiers?.length" label="DenseIO 档位">
-          <a-select v-model:value="quickDenseIoTierKey" style="width: 100%" :get-popup-container="quickTaskPopupContainer">
-            <a-select-option v-for="t in quickDenseIoTiers" :key="denseIoFlexTierKey(t)" :value="denseIoFlexTierKey(t)">
-              {{ formatDenseIoTierLabel(t) }}
-            </a-select-option>
-          </a-select>
-          <div style="color: var(--text-sub); font-size: 12px; margin-top: 4px">
-            本地 NVMe 与网络带宽随档位由 OCI 自动配置，与控制台一致
-          </div>
-        </a-form-item>
-        <a-row v-if="!quickDenseIoTiers?.length" :gutter="12">
-          <a-col :xs="12" :sm="12">
-            <a-form-item :label="quickTaskOcpuLabel">
-              <a-input-number
-                :value="quickTaskForm.ocpus"
-                :min="quickTaskShapeLimits.minOcpus"
-                :max="quickTaskShapeLimits.maxOcpus"
-                :disabled="quickTaskBmLocked"
-                style="width: 100%"
-                @update:value="updateQuickTaskOcpus"
-                @blur="clampQuickTaskResources"
-              />
-            </a-form-item>
-          </a-col>
-          <a-col :xs="12" :sm="12">
-            <a-form-item :label="quickTaskMemoryLabel">
-              <a-input-number
-                :value="quickTaskForm.memory"
-                :min="quickTaskShapeLimits.minMemory"
-                :max="quickTaskShapeLimits.maxMemory"
-                :disabled="quickTaskBmLocked"
-                style="width: 100%"
-                @update:value="updateQuickTaskMemory"
-                @blur="clampQuickTaskResources"
-              />
-            </a-form-item>
-          </a-col>
-        </a-row>
-        <a-row :gutter="12">
-          <a-col :xs="12" :sm="12">
-            <a-form-item label="磁盘 (GB)">
-              <a-input-number v-model:value="quickTaskForm.disk" :min="47" :max="200" style="width: 100%" />
-            </a-form-item>
-          </a-col>
-          <a-col :xs="12" :sm="12">
-            <a-form-item label="VPUs/GB">
-              <a-input-number
-                v-model:value="quickTaskForm.vpusPerGB"
-                :min="BOOT_VOLUME_VPUS_MIN"
-                :max="BOOT_VOLUME_VPUS_MAX"
-                :step="BOOT_VOLUME_VPUS_STEP"
-                style="width: 100%"
-                @blur="snapQuickTaskBootVpus"
-              />
-            </a-form-item>
-          </a-col>
-        </a-row>
-        <div class="quick-login-options-row">
-          <div>
-            <a-form-item label="数量">
-              <a-input-number v-model:value="quickTaskForm.createNumbers" :min="1" :max="5" style="width: 100%" />
-            </a-form-item>
-          </div>
-          <div>
-            <a-form-item label="间隔 (秒)">
-              <a-input-number v-model:value="quickTaskForm.interval" :min="10" :max="600" style="width: 100%" />
-            </a-form-item>
-          </div>
-          <div>
-            <TaskLoginSelector
-              v-model:root-password="quickTaskForm.rootPassword"
-              v-model:login-mode="quickTaskForm.loginMode"
-              v-model:ssh-public-key="quickTaskForm.sshPublicKey"
-              :saved-root-password="quickTaskSavedRootPassword"
-              :saved-ssh-public-key="quickTaskSavedSshPublicKey"
-              :credential-loading="quickTaskCredentialLoading"
-              placeholder="留空=随机生成"
-              @missing="warnQuickTaskCredentialMissing"
-            />
-          </div>
-        </div>
-        <div style="display: flex; align-items: center; gap: 32px; margin-bottom: 16px">
-          <span style="display: inline-flex; align-items: center; gap: 8px">
-            <a-switch v-model:checked="quickTaskForm.assignPublicIp" />
-            <span>公网IP</span>
-          </span>
-          <span style="display: inline-flex; align-items: center; gap: 8px">
-            <a-switch v-model:checked="quickTaskForm.assignIpv6" />
-            <span>IPv6</span>
-          </span>
-        </div>
-        <a-form-item label="自定义开机脚本">
-          <a-textarea v-model:value="quickTaskForm.customScript" placeholder="可选，留空不执行" :auto-size="{ minRows: 2, maxRows: 5 }" />
-        </a-form-item>
-      </a-form>
-    </a-modal>
+      v-model:dense-io-tier-key="quickDenseIoTierKey"
+      :loading="quickTaskLoading"
+      :tenant="quickTaskTenant"
+      :form="quickTaskForm"
+      :shapes="quickTaskShapes"
+      :shapes-loading="quickTaskShapesLoading"
+      :popup-container="quickTaskPopupContainer"
+      :bm-locked="quickTaskBmLocked"
+      :saved-root-password="quickTaskSavedRootPassword"
+      :saved-ssh-public-key="quickTaskSavedSshPublicKey"
+      :credential-loading="quickTaskCredentialLoading"
+      :shape-limits="quickTaskShapeLimits"
+      :ocpu-label="quickTaskOcpuLabel"
+      :memory-label="quickTaskMemoryLabel"
+      :dense-io-tiers="quickDenseIoTiers"
+      :format-dense-io-tier-label="formatDenseIoTierLabel"
+      :dense-io-flex-tier-key="denseIoFlexTierKey"
+      :is-mobile="isMobile"
+      @confirm="handleQuickTask"
+      @credential-missing="warnQuickTaskCredentialMissing"
+      @update-ocpus="updateQuickTaskOcpus"
+      @update-memory="updateQuickTaskMemory"
+      @clamp-resources="clampQuickTaskResources"
+      @snap-boot-vpus="snapQuickTaskBootVpus"
+    />
 
     <!-- 实例详情抽屉 -->
     <a-drawer :keyboard="false"
@@ -776,21 +663,12 @@ const InstanceDetailInfoPanel = defineAppAsyncComponent(() => import('../compone
 const InstanceShapeEditPanel = defineAppAsyncComponent(() => import('../components/instance/InstanceShapeEditPanel.vue'))
 const InstanceDrawerListPanel = defineAppAsyncComponent(() => import('../components/instance/InstanceDrawerListPanel.vue'))
 const TenantVcnPanel = defineAppAsyncComponent(() => import('../components/instance/TenantVcnPanel.vue'))
+const QuickTaskModal = defineAppAsyncComponent(() => import('../components/instance/QuickTaskModal.vue'))
 import { sendVerifyCode } from '../api/system'
 import { listStorageRegions } from '../api/storage'
-import {
-  ociRegionSelectOptions,
-} from '../utils/ociRegionCatalog'
 import { useQuickTask } from '../composables/useQuickTask'
 import { isAllGroupsExpanded } from '../composables/groupExpandToggle'
-import ShapeSeriesPicker from '../components/ShapeSeriesPicker.vue'
-import TaskLoginSelector from '../components/TaskLoginSelector.vue'
 import VirtualTenantGridList from '../components/tenant/VirtualTenantGridList.vue'
-import {
-  BOOT_VOLUME_VPUS_MAX,
-  BOOT_VOLUME_VPUS_MIN,
-  BOOT_VOLUME_VPUS_STEP,
-} from '../utils/bootVolume'
 import {
   formatTenantPlanType,
   isFreeTierPlan,
@@ -800,7 +678,6 @@ import { appQueryCache, createListSignature } from '../utils/queryCache'
 import {
   INSTANCE_CONFIRM_MODAL_WRAP_CLASS,
   INSTANCE_CONFIRM_MODAL_Z_INDEX,
-  QUICK_TASK_MODAL_Z_INDEX,
 } from '../utils/overlayZIndex'
 
 const catalog = useTenantCatalogStore()
@@ -2182,13 +2059,6 @@ onUnmounted(() => {
 </script>
 
 <style scoped>
-.quick-login-options-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr 1.15fr;
-  gap: 12px;
-  align-items: start;
-}
-
 :global(:root) {
   --tenant-free-tier-color: rgba(255, 255, 255, 0.94);
   --tenant-free-tier-bg: rgba(255, 255, 255, 0.1);
@@ -2618,12 +2488,6 @@ onUnmounted(() => {
 }
 
 @media (max-width: 768px) {
-  .quick-login-options-row {
-    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  }
-  .quick-login-options-row > div:nth-child(3) {
-    grid-column: 1 / -1;
-  }
   .instance-toolbar { flex-direction: column; align-items: stretch; }
   .toolbar-left, .toolbar-right { width: 100%; flex-wrap: wrap; }
   .toolbar-left :deep(.ant-input-search) { width: 100% !important; flex: 1 1 100%; }
