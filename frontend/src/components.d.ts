@@ -77,6 +77,7 @@ declare module 'vue' {
     BootVolumePanel: typeof import('./components/instance/BootVolumePanel.vue')['default']
     CompartmentManager: typeof import('./components/CompartmentManager.vue')['default']
     ForceA2ConfirmModal: typeof import('./components/instance/ForceA2ConfirmModal.vue')['default']
+    InstanceDetailDrawerShell: typeof import('./components/instance/InstanceDetailDrawerShell.vue')['default']
     InstanceDetailInfoPanel: typeof import('./components/instance/InstanceDetailInfoPanel.vue')['default']
     InstanceDrawerListPanel: typeof import('./components/instance/InstanceDrawerListPanel.vue')['default']
     InstanceFloatingTenantCard: typeof import('./components/instance/InstanceFloatingTenantCard.vue')['default']

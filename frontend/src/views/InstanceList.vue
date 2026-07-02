@@ -120,129 +120,42 @@
       @snap-boot-vpus="snapQuickTaskBootVpus"
     />
 
-    <!-- 实例详情抽屉 -->
-    <a-drawer :keyboard="false"
+    <InstanceDetailDrawerShell
+      ref="detailDrawerShellRef"
       v-model:open="drawerVisible"
-      :title="currentInstance?.name || '实例详情'"
-      :width="isMobile ? '100%' : 780"
-      placement="right"
-      :mask-closable="false"
-    >
-      <a-tabs v-model:activeKey="activeTab" @change="onTabChange">
-        <a-tab-pane key="info" tab="基本信息">
-          <InstanceDetailInfoPanel
-            ref="detailInfoPanelRef"
-            mode="info"
-            :tenant="currentTenant"
-            :instance="currentInstance"
-            :active="activeTab === 'info'"
-            :region="currentDetailRegion"
-            :state-color-map="stateColorMap"
-            :action-loading="actionLoading"
-            :change-ip-loading="changeIpLoading"
-            :instance-info-loading="instanceInfoLoading"
-            @refresh-info="refreshInstanceInfo"
-            @edit-instance="openEditInstance"
-            @instance-action="handleCurrentInstanceAction"
-            @change-ip="handleChangeIp"
-            @terminate="openCurrentTerminateVerify"
-          />
-        </a-tab-pane>
-
-        <a-tab-pane key="security" tab="安全列表">
-          <InstanceSecurityPanel
-            ref="securityPanelRef"
-            :tenant="currentTenant"
-            :instance="currentInstance"
-            :is-mobile="isMobile"
-            :active="activeTab === 'security'"
-            :region="currentDetailRegion"
-            :compartment-id="currentInstance?.compartmentId"
-            @overlay-active-change="securityOverlayActive = $event"
-          />
-        </a-tab-pane>
-
-        <a-tab-pane key="volume" tab="引导卷">
-          <BootVolumePanel
-            ref="bootVolumePanelRef"
-            :tenant="currentTenant"
-            :instance="currentInstance"
-            :is-mobile="isMobile"
-            :active="activeTab === 'volume'"
-            :region="currentDetailRegion"
-            @overlay-active-change="bootVolumeOverlayActive = $event"
-            @boot-volume-updated="onBootVolumeUpdated"
-          />
-        </a-tab-pane>
-
-        <a-tab-pane key="blockVolume" tab="块存储">
-          <BlockStoragePanel
-            ref="blockStoragePanelRef"
-            :tenant="currentTenant"
-            :instance="currentInstance"
-            :is-mobile="isMobile"
-            :active="activeTab === 'blockVolume'"
-            :region="currentDetailRegion"
-            :on-stop-instance="stopCurrentDetailInstance"
-            @overlay-active-change="blockStorageOverlayActive = $event"
-          />
-        </a-tab-pane>
-
-        <a-tab-pane key="network" tab="网络">
-          <InstanceNetworkPanel
-            ref="networkPanelRef"
-            :tenant="currentTenant"
-            :instance="currentInstance"
-            :is-mobile="isMobile"
-            :active="activeTab === 'network'"
-            :region="currentDetailRegion"
-            :compartment-id="currentInstance?.compartmentId"
-            @open-vcn-manager="openDetailVcnManager"
-          />
-        </a-tab-pane>
-
-        <a-tab-pane key="traffic" tab="流量统计">
-          <InstanceTrafficPanel
-            ref="trafficPanelRef"
-            :tenant="currentTenant"
-            :instance="currentInstance"
-            :is-mobile="isMobile"
-            :active="activeTab === 'traffic'"
-            :region="currentDetailRegion"
-            @overlay-active-change="trafficOverlayActive = $event"
-          />
-        </a-tab-pane>
-
-        <a-tab-pane key="shape" tab="形状编辑">
-          <InstanceShapeEditPanel
-            ref="shapeEditPanelRef"
-            :tenant="currentTenant"
-            :instance="currentInstance"
-            :active="activeTab === 'shape'"
-            :region="currentDetailRegion"
-            @focus-panel="activeTab = 'shape'"
-            @instance-updated="handleShapeEditInstanceUpdated"
-            @reload-instance-list="scheduleCurrentTenantInstanceReload"
-          />
-        </a-tab-pane>
-
-        <a-tab-pane key="console" tab="串行控制台">
-          <InstanceDetailInfoPanel
-            mode="console"
-            :console-loading="consoleLoading"
-            :console-data="consoleData"
-            @create-console="handleCreateConsole"
-            @open-console="openConsoleWebSSH"
-            @delete-console="handleDeleteConsole"
-          />
-        </a-tab-pane>
-      </a-tabs>
-      <template v-if="activeTab === 'shape' && showForceA2ToA1Button" #footer>
-        <div class="instance-drawer-shape-footer">
-          <a-button danger @click="openForceA2ToA1Modal">A2强改A1</a-button>
-        </div>
-      </template>
-    </a-drawer>
+      v-model:active-tab="activeTab"
+      :tenant="currentTenant"
+      :instance="currentInstance"
+      :is-mobile="isMobile"
+      :current-detail-region="currentDetailRegion"
+      :state-color-map="stateColorMap"
+      :action-loading="actionLoading"
+      :change-ip-loading="changeIpLoading"
+      :instance-info-loading="instanceInfoLoading"
+      :show-force-a2-to-a1-button="showForceA2ToA1Button"
+      :console-loading="consoleLoading"
+      :console-data="consoleData"
+      :on-stop-instance="stopCurrentDetailInstance"
+      @tab-change="onTabChange"
+      @refresh-info="refreshInstanceInfo"
+      @edit-instance="openEditInstance"
+      @instance-action="handleCurrentInstanceAction"
+      @change-ip="handleChangeIp"
+      @terminate="openCurrentTerminateVerify"
+      @security-overlay-active-change="securityOverlayActive = $event"
+      @boot-volume-overlay-active-change="bootVolumeOverlayActive = $event"
+      @boot-volume-updated="onBootVolumeUpdated"
+      @block-storage-overlay-active-change="blockStorageOverlayActive = $event"
+      @open-vcn-manager="openDetailVcnManager"
+      @traffic-overlay-active-change="trafficOverlayActive = $event"
+      @focus-shape-panel="activeTab = 'shape'"
+      @shape-instance-updated="handleShapeEditInstanceUpdated"
+      @reload-instance-list="scheduleCurrentTenantInstanceReload"
+      @open-force-a2-to-a1="openForceA2ToA1Modal"
+      @create-console="handleCreateConsole"
+      @open-console="openConsoleWebSSH"
+      @delete-console="handleDeleteConsole"
+    />
 
 
     <!-- 修改实例弹窗 -->
@@ -375,13 +288,7 @@ const VcnManager = defineAppAsyncComponent(() => import('./VcnManager.vue'))
 const StorageManager = defineAppAsyncComponent(() => import('./StorageManager.vue'))
 const ForceA2ConfirmModal = defineAppAsyncComponent(() => import('../components/instance/ForceA2ConfirmModal.vue'))
 const TerminateVerifyModal = defineAppAsyncComponent(() => import('../components/instance/TerminateVerifyModal.vue'))
-const BootVolumePanel = defineAppAsyncComponent(() => import('../components/instance/BootVolumePanel.vue'))
-const BlockStoragePanel = defineAppAsyncComponent(() => import('../components/instance/BlockStoragePanel.vue'))
-const InstanceTrafficPanel = defineAppAsyncComponent(() => import('../components/instance/InstanceTrafficPanel.vue'))
-const InstanceSecurityPanel = defineAppAsyncComponent(() => import('../components/instance/InstanceSecurityPanel.vue'))
-const InstanceNetworkPanel = defineAppAsyncComponent(() => import('../components/instance/InstanceNetworkPanel.vue'))
-const InstanceDetailInfoPanel = defineAppAsyncComponent(() => import('../components/instance/InstanceDetailInfoPanel.vue'))
-const InstanceShapeEditPanel = defineAppAsyncComponent(() => import('../components/instance/InstanceShapeEditPanel.vue'))
+const InstanceDetailDrawerShell = defineAppAsyncComponent(() => import('../components/instance/InstanceDetailDrawerShell.vue'))
 const InstanceDrawerListPanel = defineAppAsyncComponent(() => import('../components/instance/InstanceDrawerListPanel.vue'))
 const TenantVcnPanel = defineAppAsyncComponent(() => import('../components/instance/TenantVcnPanel.vue'))
 const QuickTaskModal = defineAppAsyncComponent(() => import('../components/instance/QuickTaskModal.vue'))
@@ -1117,12 +1024,25 @@ function onInstancePanelRegionUserChange() {
 
 const drawerVisible = ref(false)
 const activeTab = ref('info')
-const bootVolumePanelRef = ref<any>(null)
-const blockStoragePanelRef = ref<any>(null)
-const trafficPanelRef = ref<any>(null)
-const securityPanelRef = ref<any>(null)
-const networkPanelRef = ref<any>(null)
-const detailInfoPanelRef = ref<any>(null)
+const detailDrawerShellRef = ref<any>(null)
+type DetailDrawerShellMethod =
+  | 'resetAllPanels'
+  | 'stopShapeSilently'
+  | 'loadShapeOptions'
+  | 'loadNetworkVcns'
+  | 'loadBlockVolumes'
+  | 'loadNetworkDetail'
+
+async function callDetailDrawerShell(method: DetailDrawerShellMethod, args: any[] = [], retries = 6) {
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    const fn = detailDrawerShellRef.value?.[method]
+    if (typeof fn === 'function') return fn(...args)
+    if (attempt >= retries) return undefined
+    await nextTick()
+    await new Promise(resolve => window.setTimeout(resolve, 80))
+  }
+  return undefined
+}
 const bootVolumeOverlayActive = ref(false)
 const blockStorageOverlayActive = ref(false)
 const trafficOverlayActive = ref(false)
@@ -1137,7 +1057,6 @@ const editInstanceVisible = ref(false)
 const editInstanceLoading = ref(false)
 const editInstanceForm = reactive({ displayName: '' })
 
-const shapeEditPanelRef = ref<any>(null)
 const showForceA2ToA1Button = computed(
   () => currentInstance.value?.shape === 'VM.Standard.A2.Flex',
 )
@@ -1201,7 +1120,7 @@ async function handleForceA2ToA1Confirm() {
     if (res.data?.memoryInGBs != null) inst.memoryInGBs = res.data.memoryInGBs
     forceA2ModalVisible.value = false
     resetForceA2Modal()
-    await shapeEditPanelRef.value?.loadOptions?.()
+    await callDetailDrawerShell('loadShapeOptions')
     scheduleCurrentTenantInstanceReload()
   } catch (e: any) {
     const msg = String(e?.message || '')
@@ -1361,7 +1280,7 @@ async function onVcnManagerChanged() {
   if (vcnVisible.value && vcnTenant.value) {
     await tenantVcnPanelRef.value?.loadVcns?.(true)
   } else {
-    networkPanelRef.value?.loadVcns?.(true)
+    void callDetailDrawerShell('loadNetworkVcns', [true])
   }
 }
 
@@ -1415,7 +1334,7 @@ function openVcnPanel(tenant: any, options: TenantWorkspaceOpenOptions = {}) {
 }
 
 function handleTenantVcnReservedIpChanged() {
-  detailInfoPanelRef.value?.loadNetworkDetail?.()
+  void callDetailDrawerShell('loadNetworkDetail')
 }
 
 async function loadAllTenants(force = false) {
@@ -1484,7 +1403,7 @@ async function loadTenantInstances(td: TenantData, options: LoadTenantInstancesO
 
 function onTabChange(key: string) {
   if (key === 'shape') {
-    void nextTick(() => shapeEditPanelRef.value?.loadOptions?.())
+    void nextTick(() => callDetailDrawerShell('loadShapeOptions'))
   }
 }
 
@@ -1498,17 +1417,11 @@ function handleInstanceListMenuClick(payload: { record: any; key: string }) {
 }
 
 function openDetail(tenant: any, record: any) {
-  void shapeEditPanelRef.value?.stopSilently?.()
+  void callDetailDrawerShell('stopShapeSilently', [], 0)
   currentTenant.value = tenant
   currentInstance.value = record
   activeTab.value = 'info'
-  bootVolumePanelRef.value?.reset?.()
-  blockStoragePanelRef.value?.reset?.()
-  trafficPanelRef.value?.reset?.()
-  securityPanelRef.value?.reset?.()
-  networkPanelRef.value?.reset?.()
-  detailInfoPanelRef.value?.reset?.()
-  shapeEditPanelRef.value?.reset?.()
+  void callDetailDrawerShell('resetAllPanels')
   bootVolumeOverlayActive.value = false
   blockStorageOverlayActive.value = false
   trafficOverlayActive.value = false
@@ -1582,7 +1495,7 @@ function stopCurrentDetailInstance() {
 }
 
 function onBootVolumeUpdated() {
-  if (activeTab.value === 'blockVolume') blockStoragePanelRef.value?.loadBlockVolumes?.()
+  if (activeTab.value === 'blockVolume') void callDetailDrawerShell('loadBlockVolumes')
 }
 
 const pendingTimers = new Set<any>()
@@ -1688,7 +1601,7 @@ async function handleChangeIp() {
       ...instanceDetailScopeParam(),
     })
     message.success('换 IP 请求已提交')
-    scheduleReload(() => detailInfoPanelRef.value?.loadNetworkDetail?.(), 3000)
+    scheduleReload(() => { void callDetailDrawerShell('loadNetworkDetail') }, 3000)
   } catch (e: any) {
     message.error(e?.message || '换 IP 失败')
   } finally {
@@ -1774,7 +1687,7 @@ onUnmounted(() => {
   window.removeEventListener('resize', checkMobile)
   if (tenantFloatTimer) window.clearTimeout(tenantFloatTimer)
   if (tenantWorkspaceOpenTimer) window.clearTimeout(tenantWorkspaceOpenTimer)
-  void shapeEditPanelRef.value?.stopSilently?.()
+  void callDetailDrawerShell('stopShapeSilently', [], 0)
   pendingTimers.forEach((t: any) => clearTimeout(t))
   pendingTimers.clear()
 })
@@ -1884,11 +1797,6 @@ onUnmounted(() => {
 .instance-manager-drawer :deep(.ant-drawer-header) {
   padding: 12px 16px;
 }
-.instance-drawer-shape-footer {
-  display: flex;
-  justify-content: flex-end;
-}
-
 /* 移动端：抽屉头部名称省略 */
 .drawer-username {
   max-width: 180px;
