@@ -299,9 +299,9 @@ import { useQuickTask } from '../composables/useQuickTask'
 import { useTerminateInstanceVerify } from '../composables/useTerminateInstanceVerify'
 import {
   useTenantWorkspaceDock,
-  type TenantWorkspaceKind,
   type TenantWorkspaceOpenOptions,
 } from '../composables/useTenantWorkspaceDock'
+import { useTenantWorkspacePanels } from '../composables/useTenantWorkspacePanels'
 import { isAllGroupsExpanded } from '../composables/groupExpandToggle'
 import {
   formatTenantPlanType,
@@ -374,7 +374,6 @@ const searchKeyword = ref('')
 const globalLoading = ref(false)
 const tenantDataList = ref<TenantData[]>([])
 const actionLoading = reactive<Record<string, boolean>>({})
-const activeTenantId = ref('')
 
 const currentTenant = ref<any>(null)
 const currentInstance = ref<any>(null)
@@ -570,7 +569,7 @@ watch(searchKeyword, (kw) => {
 
 const activeTenantData = computed(() => {
   if (!activeTenantId.value) return null
-  return tenantDataList.value.find(td => td.tenant.id === activeTenantId.value) || null
+  return tenantDataList.value.find(td => String(td.tenant.id || '') === activeTenantId.value) || null
 })
 const instanceMobileVirtualMaxHeight = computed(() => Math.max(360, Math.min(680, viewportHeight.value - 220)))
 const instanceVirtualResetKey = computed(() =>
@@ -579,34 +578,11 @@ const instanceVirtualResetKey = computed(() =>
 function instanceRecordKey(item: unknown, index: number) {
   return String((item as any)?.instanceId ?? index)
 }
-const instancePanelVisible = computed({
-  get: () => instancePanelOpen.value && !!activeTenantData.value,
-  set: (val: boolean) => {
-    if (!val) {
-      instancePanelOpen.value = false
-      activeTenantId.value = ''
-      if (!tenantWorkspaceTransitioning.value) {
-        if (tenantWorkspaceKind.value === 'instance') tenantWorkspaceKind.value = null
-        clearFloatingTenantCard()
-      }
-    }
-  },
-})
-const instancePanelOpen = ref(false)
 const instancePanelWidth = computed(() => (isMobile.value ? '100%' : 'clamp(960px, 68vw, 1280px)'))
 const vcnManagerEditingOverlayActive = ref(false)
 const storageManagerEditingOverlayActive = ref(false)
 const byoipEditingOverlayActive = ref(false)
 const instanceManagerEditingOverlayActive = ref(false)
-
-function closeTenantWorkspacePanels(except: TenantWorkspaceKind) {
-  if (except !== 'instance') {
-    instancePanelOpen.value = false
-    activeTenantId.value = ''
-  }
-  if (except !== 'vcn') vcnVisible.value = false
-  if (except !== 'storage') storageManagerOpen.value = false
-}
 
 function resolveFloatingTenantFromWorkspace() {
   if (floatingTenantCard.tenant) return floatingTenantCard.tenant
@@ -722,16 +698,7 @@ async function prefetchSubscribedRegions(
 }
 
 async function selectTenant(td: TenantData, options: TenantWorkspaceOpenOptions = {}) {
-  const tenantId = td.tenant.id
-  beginTenantWorkspace('instance', td.tenant, options)
-  closeTenantWorkspacePanels('instance')
-  activeTenantId.value = td.tenant.id
-  if (!isMobile.value) instancePanelOpen.value = false
-  scheduleTenantWorkspaceOpen(() => {
-    if (activeTenantId.value === tenantId && tenantWorkspaceKind.value === 'instance') {
-      instancePanelOpen.value = true
-    }
-  })
+  const tenantId = openInstanceWorkspace(td.tenant, options)
   const def = td.tenant.ociRegion || ''
   instancePanelRegion.value = loadPanelRegionFromLs('instancePanel.region', td.tenant, def) || def
   instanceRegionOptions.value = instancePanelRegion.value
@@ -948,6 +915,34 @@ const {
   },
 })
 
+const {
+  activeTenantId,
+  instancePanelVisible,
+  vcnVisible,
+  vcnTenant,
+  storageManagerOpen,
+  storageManagerUserId,
+  storageManagerTenantName,
+  storageManagerDefaultRegion,
+  openInstanceWorkspace,
+  openVcnWorkspace,
+  openStorageWorkspace,
+  handleVcnWorkspaceClosed,
+  handleStorageWorkspaceClosed,
+} = useTenantWorkspacePanels({
+  isMobile,
+  hasActiveTenant: () => !!activeTenantData.value,
+  tenantWorkspaceKind,
+  tenantWorkspaceTransitioning,
+  beginTenantWorkspace,
+  scheduleTenantWorkspaceOpen,
+  clearFloatingTenantCard,
+  onVcnBeforeOpen: (tenant) => {
+    currentTenant.value = tenant
+    void nextTick(() => tenantVcnPanelRef.value?.loadPanel?.())
+  },
+})
+
 const consoleLoading = ref(false)
 const consoleData = ref<any>(null)
 
@@ -1004,8 +999,6 @@ async function handleDeleteConsole() {
   }
 }
 
-const vcnTenant = ref<any>(null)
-const vcnVisible = ref(false)
 const tenantVcnPanelRef = ref<any>(null)
 
 const vcnManagerOpen = ref(false)
@@ -1069,53 +1062,23 @@ async function onVcnManagerChanged() {
   }
 }
 
-const storageManagerOpen = ref(false)
-const storageManagerUserId = ref('')
-const storageManagerTenantName = ref('')
-const storageManagerDefaultRegion = ref('')
 function handleStorageManagerEditingOverlayChange(active: boolean) {
   storageManagerEditingOverlayActive.value = active
 }
 watch(vcnVisible, (open) => {
   if (!open) byoipEditingOverlayActive.value = false
-  if (!open && tenantWorkspaceKind.value === 'vcn' && !tenantWorkspaceTransitioning.value) {
-    tenantWorkspaceKind.value = null
-    clearFloatingTenantCard()
-  }
+  if (!open) handleVcnWorkspaceClosed()
 })
 watch(storageManagerOpen, (open) => {
   if (!open) storageManagerEditingOverlayActive.value = false
-  if (!open && tenantWorkspaceKind.value === 'storage' && !tenantWorkspaceTransitioning.value) {
-    tenantWorkspaceKind.value = null
-    clearFloatingTenantCard()
-  }
+  if (!open) handleStorageWorkspaceClosed()
 })
 function openStoragePanel(tenant: any, options: TenantWorkspaceOpenOptions = {}) {
-  beginTenantWorkspace('storage', tenant, options)
-  closeTenantWorkspacePanels('storage')
-  storageManagerUserId.value = tenant.id
-  storageManagerTenantName.value = tenant.username || tenant.tenantName || ''
-  storageManagerDefaultRegion.value = tenant.ociRegion || ''
-  if (!isMobile.value) storageManagerOpen.value = false
-  scheduleTenantWorkspaceOpen(() => {
-    if (tenantWorkspaceKind.value === 'storage' && storageManagerUserId.value === tenant.id) {
-      storageManagerOpen.value = true
-    }
-  })
+  openStorageWorkspace(tenant, options)
 }
 
 function openVcnPanel(tenant: any, options: TenantWorkspaceOpenOptions = {}) {
-  beginTenantWorkspace('vcn', tenant, options)
-  closeTenantWorkspacePanels('vcn')
-  vcnTenant.value = tenant
-  currentTenant.value = tenant
-  if (!isMobile.value) vcnVisible.value = false
-  void nextTick(() => tenantVcnPanelRef.value?.loadPanel?.())
-  scheduleTenantWorkspaceOpen(() => {
-    if (tenantWorkspaceKind.value === 'vcn' && vcnTenant.value?.id === tenant.id) {
-      vcnVisible.value = true
-    }
-  })
+  openVcnWorkspace(tenant, options)
 }
 
 function handleTenantVcnReservedIpChanged() {
