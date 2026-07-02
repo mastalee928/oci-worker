@@ -297,6 +297,11 @@ const InstanceFloatingTenantCard = defineAppAsyncComponent(() => import('../comp
 import { listStorageRegions } from '../api/storage'
 import { useQuickTask } from '../composables/useQuickTask'
 import { useTerminateInstanceVerify } from '../composables/useTerminateInstanceVerify'
+import {
+  useTenantWorkspaceDock,
+  type TenantWorkspaceKind,
+  type TenantWorkspaceOpenOptions,
+} from '../composables/useTenantWorkspaceDock'
 import { isAllGroupsExpanded } from '../composables/groupExpandToggle'
 import {
   formatTenantPlanType,
@@ -357,7 +362,7 @@ function checkMobile() {
   viewportHeight.value = window.innerHeight
   isMobile.value = window.innerWidth < 768
   if (isMobile.value) {
-    if (floatingTenantCard.phase !== 'idle') floatingTenantCard.phase = 'idle'
+    hideFloatingTenantCard()
     return
   }
   const tenant = resolveFloatingTenantFromWorkspace()
@@ -587,129 +592,12 @@ const instancePanelVisible = computed({
     }
   },
 })
-type TenantWorkspaceKind = 'instance' | 'vcn' | 'storage'
 const instancePanelOpen = ref(false)
-const tenantWorkspaceKind = ref<TenantWorkspaceKind | null>(null)
-const tenantWorkspaceTransitioning = ref(false)
 const instancePanelWidth = computed(() => (isMobile.value ? '100%' : 'clamp(960px, 68vw, 1280px)'))
-const tenantWorkspaceMaskStyle = computed(() =>
-  isMobile.value
-    ? undefined
-    : {
-        background: 'var(--tenant-workspace-mask-bg, rgba(15, 23, 42, 0.34))',
-        backdropFilter: 'blur(8px)',
-        WebkitBackdropFilter: 'blur(8px)',
-      },
-)
-const instancePanelWrapClass = computed(() =>
-  `instance-manager-drawer tenant-workspace-drawer tenant-workspace-${tenantWorkspaceKind.value || 'idle'}`,
-)
-const vcnPanelWrapClass = computed(() =>
-  `vcn-panel-drawer tenant-workspace-drawer tenant-workspace-${tenantWorkspaceKind.value || 'idle'}`,
-)
-
-type FloatingTenantCardPhase = 'idle' | 'rolling' | 'docked'
-type FloatingTenantActionKey = TenantWorkspaceKind | 'quick'
-const floatingTenantActionItems: { key: FloatingTenantActionKey; label: string; icon: string }[] = [
-  { key: 'instance', label: '实例管理', icon: 'ri-server-line' },
-  { key: 'vcn', label: '虚拟云网络', icon: 'ri-share-line' },
-  { key: 'storage', label: '存储', icon: 'ri-database-2-line' },
-  { key: 'quick', label: '快捷开机', icon: 'ri-play-circle-line' },
-]
-const floatingTenantCard = reactive<{
-  phase: FloatingTenantCardPhase
-  tenant: any | null
-  tenantId: string
-  username: string
-  tenantName: string
-  region: string
-  planType: string
-  left: string
-  top: string
-  width: string
-  height: string
-  dx: string
-  dy: string
-}>({
-  phase: 'idle',
-  tenant: null,
-  tenantId: '',
-  username: '',
-  tenantName: '',
-  region: '',
-  planType: '',
-  left: '0px',
-  top: '0px',
-  width: '260px',
-  height: '220px',
-  dx: '0px',
-  dy: '0px',
-})
 const vcnManagerEditingOverlayActive = ref(false)
 const storageManagerEditingOverlayActive = ref(false)
 const byoipEditingOverlayActive = ref(false)
 const instanceManagerEditingOverlayActive = ref(false)
-const floatingTenantCardVisible = computed(
-  () =>
-    !isMobile.value &&
-    !vcnManagerEditingOverlayActive.value &&
-    !storageManagerEditingOverlayActive.value &&
-    !byoipEditingOverlayActive.value &&
-    !instanceManagerEditingOverlayActive.value &&
-    !quickTaskVisible.value &&
-    floatingTenantCard.phase !== 'idle' &&
-    !!floatingTenantCard.tenantId,
-)
-const floatingTenantCardStyle = computed<Record<string, string>>(() => ({
-  left: floatingTenantCard.left,
-  top: floatingTenantCard.top,
-  width: floatingTenantCard.width,
-  height: floatingTenantCard.height,
-  '--tenant-float-dx': floatingTenantCard.dx,
-  '--tenant-float-dy': floatingTenantCard.dy,
-  '--tenant-float-duration': `${TENANT_FLOAT_DURATION_MS}ms`,
-}))
-const TENANT_FLOAT_DURATION_MS = 760
-const TENANT_DRAWER_DELAY_MS = 220
-let tenantFloatTimer: ReturnType<typeof setTimeout> | null = null
-let tenantWorkspaceOpenTimer: ReturnType<typeof setTimeout> | null = null
-
-type TenantWorkspaceOpenOptions = { dockSwitch?: boolean }
-
-function beginTenantWorkspace(kind: TenantWorkspaceKind, tenant: any, options: TenantWorkspaceOpenOptions = {}) {
-  tenantWorkspaceKind.value = kind
-  if (isMobile.value) return
-  if (options.dockSwitch) {
-    tenantWorkspaceTransitioning.value = true
-    refreshFloatingTenantCard(tenant)
-  } else {
-    tenantWorkspaceTransitioning.value = startFloatingTenantCard(tenant)
-  }
-}
-
-function scheduleTenantWorkspaceOpen(openPanel: () => void) {
-  if (tenantWorkspaceOpenTimer) window.clearTimeout(tenantWorkspaceOpenTimer)
-  if (isMobile.value) {
-    openPanel()
-    return
-  }
-  if (!tenantWorkspaceTransitioning.value) {
-    openPanel()
-    return
-  }
-  tenantWorkspaceOpenTimer = window.setTimeout(() => {
-    tenantWorkspaceOpenTimer = null
-    openPanel()
-    window.setTimeout(() => {
-      tenantWorkspaceTransitioning.value = false
-    }, 120)
-  }, TENANT_DRAWER_DELAY_MS)
-}
-
-function isFloatingTenantSource(tenant: any) {
-  const tenantId = String(tenant?.id || '')
-  return !isMobile.value && floatingTenantCard.phase !== 'idle' && floatingTenantCard.tenantId === tenantId
-}
 
 function closeTenantWorkspacePanels(except: TenantWorkspaceKind) {
   if (except !== 'instance') {
@@ -718,67 +606,6 @@ function closeTenantWorkspacePanels(except: TenantWorkspaceKind) {
   }
   if (except !== 'vcn') vcnVisible.value = false
   if (except !== 'storage') storageManagerOpen.value = false
-}
-
-function findTenantCardElement(tenantId: string) {
-  if (typeof document === 'undefined' || !tenantId) return null
-  const cards = Array.from(document.querySelectorAll<HTMLElement>('.tenant-card[data-tenant-id]'))
-  return cards.find((card) => card.dataset.tenantId === tenantId) || null
-}
-
-function desktopWorkspaceWidthPx() {
-  if (typeof window === 'undefined') return 960
-  return Math.min(1280, Math.max(960, window.innerWidth * 0.68))
-}
-
-function calculateFloatingTenantRect(sourceRect?: DOMRect | null) {
-  if (typeof window === 'undefined') return null
-  const drawerWidth = desktopWorkspaceWidthPx()
-  const drawerLeft = window.innerWidth - drawerWidth
-  const roomy = drawerLeft >= 320
-  const gap = roomy ? 24 : 12
-  const minWidth = roomy ? 220 : 168
-  const availableWidth = Math.max(0, drawerLeft - gap * 2)
-  const baseWidth = sourceRect?.width || Number.parseFloat(floatingTenantCard.width) || 260
-  const baseHeight = sourceRect?.height || Number.parseFloat(floatingTenantCard.height) || 220
-  const fallbackWidth = Math.max(minWidth, Math.min(220, window.innerWidth - gap * 2))
-  const width = Math.min(roomy ? 320 : 220, Math.max(minWidth, Math.min(baseWidth, availableWidth || fallbackWidth)))
-  const height = Math.max(180, Math.min(baseHeight, window.innerHeight - 96))
-  const maxLeft = Math.max(gap, window.innerWidth - width - gap)
-  const left = Math.max(gap, Math.min(drawerLeft - width - gap, maxLeft))
-  const preferredTop = sourceRect ? sourceRect.top - 90 : Number.parseFloat(floatingTenantCard.top) || 88
-  const top = Math.max(72, Math.min(window.innerHeight - height - gap, preferredTop))
-  return { left, top, width, height }
-}
-
-function assignFloatingTenantCard(tenant: any, rect?: DOMRect | null, phase: FloatingTenantCardPhase = 'docked') {
-  const dockRect = calculateFloatingTenantRect(rect)
-  Object.assign(floatingTenantCard, {
-    phase: dockRect ? phase : 'idle',
-    tenant,
-    tenantId: String(tenant?.id || ''),
-    username: tenant?.username || tenant?.tenantName || '租户',
-    tenantName: tenant?.tenantName || '',
-    region: tenant?.ociRegion || '',
-    planType: tenant?.planType || '',
-    left: `${dockRect?.left || 0}px`,
-    top: `${dockRect?.top || 0}px`,
-    width: `${dockRect?.width || 260}px`,
-    height: `${dockRect?.height || 220}px`,
-    dx: '0px',
-    dy: '0px',
-  })
-  return dockRect
-}
-
-function floatingTenantButtonType(action: FloatingTenantActionKey) {
-  return action !== 'quick' && tenantWorkspaceKind.value === action ? 'primary' : 'default'
-}
-
-function refreshFloatingTenantCard(tenant = floatingTenantCard.tenant) {
-  if (!tenant || isMobile.value) return
-  const source = findTenantCardElement(String(tenant?.id || ''))
-  assignFloatingTenantCard(tenant, source?.getBoundingClientRect() || null, 'docked')
 }
 
 function resolveFloatingTenantFromWorkspace() {
@@ -804,93 +631,8 @@ function resolveFloatingTenantFromWorkspace() {
   return null
 }
 
-function clearFloatingTenantCard() {
-  Object.assign(floatingTenantCard, {
-    phase: 'idle',
-    tenant: null,
-    tenantId: '',
-    dx: '0px',
-    dy: '0px',
-  })
-}
-
 function findTenantDataById(tenantId: string) {
   return tenantDataList.value.find((td) => td.tenant?.id === tenantId) || null
-}
-
-function switchFloatingTenantPanel(kind: TenantWorkspaceKind) {
-  const tenant = floatingTenantCard.tenant
-  if (!tenant || isMobile.value) return
-  if (tenantWorkspaceKind.value === kind) return
-  if (kind === 'instance') {
-    const td = findTenantDataById(String(tenant.id || ''))
-    if (td) void selectTenant(td, { dockSwitch: true })
-    return
-  }
-  if (kind === 'vcn') {
-    void openVcnPanel(tenant, { dockSwitch: true })
-    return
-  }
-  openStoragePanel(tenant, { dockSwitch: true })
-}
-
-function handleFloatingTenantAction(action: FloatingTenantActionKey) {
-  if (floatingTenantCard.phase === 'rolling') return
-  const tenant = floatingTenantCard.tenant
-  if (!tenant) return
-  if (action === 'quick') {
-    openQuickTask(tenant)
-    return
-  }
-  switchFloatingTenantPanel(action)
-}
-
-function startFloatingTenantCard(tenant: any) {
-  const source = findTenantCardElement(String(tenant?.id || ''))
-  if (!source || typeof window === 'undefined') return false
-  const rect = source.getBoundingClientRect()
-  if (rect.width <= 0 || rect.height <= 0) return false
-  const dockRect = calculateFloatingTenantRect(rect)
-  if (!dockRect) return false
-  const targetLeft = dockRect?.left ?? Math.max(24, rect.left)
-  const targetTop = dockRect?.top ?? Math.max(72, Math.min(window.innerHeight - rect.height - 24, rect.top - 90))
-  const dx = targetLeft - rect.left
-  const dy = targetTop - rect.top
-
-  if (tenantFloatTimer) window.clearTimeout(tenantFloatTimer)
-  Object.assign(floatingTenantCard, {
-    phase: 'idle',
-    tenant,
-    tenantId: String(tenant?.id || ''),
-    username: tenant?.username || tenant?.tenantName || '租户',
-    tenantName: tenant?.tenantName || '',
-    region: tenant?.ociRegion || '',
-    planType: tenant?.planType || '',
-    left: `${rect.left}px`,
-    top: `${rect.top}px`,
-    width: `${rect.width}px`,
-    height: `${rect.height}px`,
-    dx: `${dx}px`,
-    dy: `${dy}px`,
-  })
-  requestAnimationFrame(() => {
-    floatingTenantCard.phase = 'rolling'
-    tenantFloatTimer = window.setTimeout(() => {
-      if (floatingTenantCard.tenantId === String(tenant?.id || '') && dockRect) {
-        Object.assign(floatingTenantCard, {
-          phase: 'docked',
-          left: `${dockRect.left}px`,
-          top: `${dockRect.top}px`,
-          width: `${dockRect.width}px`,
-          height: `${dockRect.height}px`,
-          dx: '0px',
-          dy: '0px',
-        })
-      }
-      tenantFloatTimer = null
-    }, TENANT_FLOAT_DURATION_MS)
-  })
-  return true
 }
 
 const instancePanelRegion = ref('')
@@ -1162,6 +904,49 @@ const {
   snapQuickTaskBootVpus,
   handleQuickTask,
 } = useQuickTask()
+
+const {
+  tenantWorkspaceKind,
+  tenantWorkspaceTransitioning,
+  tenantWorkspaceMaskStyle,
+  instancePanelWrapClass,
+  vcnPanelWrapClass,
+  floatingTenantActionItems,
+  floatingTenantCard,
+  floatingTenantCardVisible,
+  floatingTenantCardStyle,
+  beginTenantWorkspace,
+  scheduleTenantWorkspaceOpen,
+  isFloatingTenantSource,
+  floatingTenantButtonType,
+  refreshFloatingTenantCard,
+  hideFloatingTenantCard,
+  clearFloatingTenantCard,
+  handleFloatingTenantAction,
+  cleanupTenantWorkspaceDock,
+} = useTenantWorkspaceDock({
+  isMobile,
+  overlayActive: {
+    vcnManagerEditingOverlayActive,
+    storageManagerEditingOverlayActive,
+    byoipEditingOverlayActive,
+    instanceManagerEditingOverlayActive,
+    quickTaskVisible,
+  },
+  onFloatingAction: {
+    quick: openQuickTask,
+    instance: (tenant) => {
+      const td = findTenantDataById(String(tenant?.id || ''))
+      if (td) void selectTenant(td, { dockSwitch: true })
+    },
+    vcn: (tenant) => {
+      void openVcnPanel(tenant, { dockSwitch: true })
+    },
+    storage: (tenant) => {
+      openStoragePanel(tenant, { dockSwitch: true })
+    },
+  },
+})
 
 const consoleLoading = ref(false)
 const consoleData = ref<any>(null)
@@ -1641,8 +1426,7 @@ onActivated(() => {
 })
 onUnmounted(() => {
   window.removeEventListener('resize', checkMobile)
-  if (tenantFloatTimer) window.clearTimeout(tenantFloatTimer)
-  if (tenantWorkspaceOpenTimer) window.clearTimeout(tenantWorkspaceOpenTimer)
+  cleanupTenantWorkspaceDock()
   void callDetailDrawerShell('stopShapeSilently', [], 0)
   pendingTimers.forEach((t: any) => clearTimeout(t))
   pendingTimers.clear()
