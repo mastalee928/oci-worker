@@ -158,16 +158,15 @@
     />
 
 
-    <!-- 修改实例弹窗 -->
-    <a-modal :keyboard="false" v-model:open="editInstanceVisible" title="修改实例" @ok="handleEditInstance"
-      :confirm-loading="editInstanceLoading" :mask-closable="false" :width="isMobile ? '100%' : 480">
-      <a-form layout="vertical" v-if="currentInstance">
-        <a-form-item label="实例名称">
-          <a-input v-model:value="editInstanceForm.displayName" placeholder="输入新名称" />
-        </a-form-item>
-        <div style="color: #999; font-size: 12px">调整 Shape / OCPU / 内存请使用详情抽屉中的「形状编辑」页签。</div>
-      </a-form>
-    </a-modal>
+    <InstanceEditModal
+      v-if="editInstanceVisible || editInstanceLoading"
+      v-model:open="editInstanceVisible"
+      v-model:display-name="editInstanceForm.displayName"
+      :instance="currentInstance"
+      :loading="editInstanceLoading"
+      :is-mobile="isMobile"
+      :on-confirm="handleEditInstance"
+    />
 
     <ForceA2ConfirmModal
       v-if="forceA2ModalVisible"
@@ -289,6 +288,7 @@ const StorageManager = defineAppAsyncComponent(() => import('./StorageManager.vu
 const ForceA2ConfirmModal = defineAppAsyncComponent(() => import('../components/instance/ForceA2ConfirmModal.vue'))
 const TerminateVerifyModal = defineAppAsyncComponent(() => import('../components/instance/TerminateVerifyModal.vue'))
 const InstanceDetailDrawerShell = defineAppAsyncComponent(() => import('../components/instance/InstanceDetailDrawerShell.vue'))
+const InstanceEditModal = defineAppAsyncComponent(() => import('../components/instance/InstanceEditModal.vue'))
 const InstanceDrawerListPanel = defineAppAsyncComponent(() => import('../components/instance/InstanceDrawerListPanel.vue'))
 const TenantVcnPanel = defineAppAsyncComponent(() => import('../components/instance/TenantVcnPanel.vue'))
 const QuickTaskModal = defineAppAsyncComponent(() => import('../components/instance/QuickTaskModal.vue'))
@@ -1646,7 +1646,8 @@ function openEditInstance() {
 
 async function handleEditInstance() {
   if (!currentInstance.value || !currentTenant.value) return
-  if (!editInstanceForm.displayName || editInstanceForm.displayName === currentInstance.value.name) {
+  const displayName = editInstanceForm.displayName.trim()
+  if (!displayName || displayName === currentInstance.value.name) {
     message.info('请输入新的实例名称')
     return
   }
@@ -1655,7 +1656,7 @@ async function handleEditInstance() {
     const res = await updateInstance({
       id: currentTenant.value.id,
       instanceId: currentInstance.value.instanceId,
-      displayName: editInstanceForm.displayName,
+      displayName,
       ...instanceDetailRegionParam(),
     })
     message.success('实例名称已更新')

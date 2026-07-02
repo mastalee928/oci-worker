@@ -80,6 +80,7 @@ declare module 'vue' {
     InstanceDetailDrawerShell: typeof import('./components/instance/InstanceDetailDrawerShell.vue')['default']
     InstanceDetailInfoPanel: typeof import('./components/instance/InstanceDetailInfoPanel.vue')['default']
     InstanceDrawerListPanel: typeof import('./components/instance/InstanceDrawerListPanel.vue')['default']
+    InstanceEditModal: typeof import('./components/instance/InstanceEditModal.vue')['default']
     InstanceFloatingTenantCard: typeof import('./components/instance/InstanceFloatingTenantCard.vue')['default']
     InstanceNetworkDetailPanel: typeof import('./components/instance/InstanceNetworkDetailPanel.vue')['default']
     InstanceNetworkPanel: typeof import('./components/instance/InstanceNetworkPanel.vue')['default']
