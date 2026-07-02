@@ -64,13 +64,6 @@
           <a-badge :count="activeTenantData.instances.length" :show-zero="true" class="oci-group-count-badge" style="margin-left: 8px" />
         </div>
       </template>
-      <template #extra>
-        <div v-if="activeTenantData" class="panel-actions">
-          <a-button size="small" @click.stop="refreshActiveTenantInstances" :loading="activeTenantData.loading">
-            <template #icon><ReloadOutlined /></template>{{ isMobile ? '' : '刷新' }}
-          </a-button>
-        </div>
-      </template>
       <InstanceDrawerListPanel
         v-if="activeTenantData"
         :tenant-data="activeTenantData"
@@ -1260,38 +1253,12 @@ onUnmounted(() => {
   min-width: 0;
   overflow: hidden;
 }
-.instance-manager-drawer :deep(.ant-drawer-extra) {
-  flex-shrink: 0;
-}
-.panel-actions {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  flex-wrap: wrap;
-}
-.region-switch {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-right: 4px;
-}
-.region-switch-label {
-  color: var(--text-sub);
-  font-size: 12px;
-  white-space: nowrap;
-}
 
 @media (max-width: 768px) {
   .instance-toolbar { flex-direction: column; align-items: stretch; }
   .toolbar-left, .toolbar-right { width: 100%; flex-wrap: wrap; }
   .toolbar-left :deep(.ant-input-search) { width: 100% !important; flex: 1 1 100%; }
   .toolbar-right { justify-content: space-between; }
-  .panel-actions {
-    gap: 4px;
-  }
-  .panel-actions .region-switch {
-    margin-right: 0;
-  }
 }
 
 .instance-manager-drawer :deep(.ant-drawer-body) {

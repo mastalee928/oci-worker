@@ -1,15 +1,15 @@
 <template>
   <div class="instance-network-panel">
-    <div class="network-toolbar">
-      <div class="network-path">
-        <button v-if="currentView.type !== 'overview'" class="back-link" type="button" @click="showOverview">
+    <div class="network-toolbar" :class="{ 'overview-toolbar': currentView.type === 'overview' }">
+      <div v-if="currentView.type === 'overview' && primaryVnic" class="section-head network-overview-head">
+        <h3>网络信息</h3>
+        <a-tag :color="stateColor(overviewVcn?.lifecycleState)">{{ overviewVcn?.lifecycleState || '—' }}</a-tag>
+      </div>
+      <div v-else-if="currentView.type !== 'overview'" class="network-path">
+        <button class="back-link" type="button" @click="showOverview">
           返回网络
         </button>
-        <span class="path-item">网络</span>
-        <template v-if="currentView.type !== 'overview'">
-          <span class="path-sep">/</span>
-          <span class="path-item">{{ currentViewTitle }}</span>
-        </template>
+        <span class="path-item">{{ currentViewTitle }}</span>
       </div>
       <a-button size="small" @click="refreshNetwork" :loading="networkLoading || vcnRouteTablesLoading">
         刷新网络
@@ -22,11 +22,6 @@
       <template v-else>
         <template v-if="currentView.type === 'overview'">
           <section v-if="primaryVnic" class="network-section">
-            <div class="section-head">
-              <h3>网络信息</h3>
-              <a-tag :color="stateColor(overviewVcn?.lifecycleState)">{{ overviewVcn?.lifecycleState || '—' }}</a-tag>
-            </div>
-
             <div class="network-home-title">
               <span class="network-home-type">VCN</span>
               <span class="network-home-name">{{ vcnLabel(primaryVnic) }}</span>
@@ -1133,6 +1128,11 @@ defineExpose({
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 14px;
+}
+
+.network-overview-head {
+  min-width: 0;
+  margin-bottom: 0;
 }
 
 .network-path {
