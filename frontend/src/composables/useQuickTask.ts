@@ -50,6 +50,7 @@ export function useQuickTask() {
   const quickTaskBmLocked = ref(false)
   const quickTaskSavedRootPassword = ref('')
   const quickTaskSavedSshPublicKey = ref('')
+  const quickTaskCredentialLoading = ref(false)
   const quickTaskShapeLimits = computed(() =>
     resolveTaskShapeLimits(quickTaskForm.architecture, quickTaskShapes.value),
   )
@@ -67,6 +68,7 @@ export function useQuickTask() {
   } = useDenseIoFlexTier(quickTaskForm)
 
   let quickTaskShapeLoadGen = 0
+  let quickTaskCredentialLoadGen = 0
 
   function quickTaskPopupContainer(triggerNode?: HTMLElement) {
     return (triggerNode?.closest('.quick-task-modal-wrap') as HTMLElement | null) || document.body
@@ -120,13 +122,19 @@ export function useQuickTask() {
   }
 
   async function loadQuickTaskCredential() {
+    const gen = ++quickTaskCredentialLoadGen
+    quickTaskCredentialLoading.value = true
     try {
       const res = await getTaskCredential()
-      quickTaskSavedRootPassword.value = res.data?.rootPassword || ''
-      quickTaskSavedSshPublicKey.value = res.data?.sshPublicKey || ''
+      if (gen !== quickTaskCredentialLoadGen) return
+      quickTaskSavedRootPassword.value = String(res.data?.rootPassword || '').trim()
+      quickTaskSavedSshPublicKey.value = String(res.data?.sshPublicKey || '').trim()
     } catch {
-      quickTaskSavedRootPassword.value = ''
-      quickTaskSavedSshPublicKey.value = ''
+      if (gen !== quickTaskCredentialLoadGen) return
+      quickTaskSavedRootPassword.value = quickTaskSavedRootPassword.value.trim()
+      quickTaskSavedSshPublicKey.value = quickTaskSavedSshPublicKey.value.trim()
+    } finally {
+      if (gen === quickTaskCredentialLoadGen) quickTaskCredentialLoading.value = false
     }
   }
 
@@ -309,6 +317,7 @@ export function useQuickTask() {
     quickTaskBmLocked,
     quickTaskSavedRootPassword,
     quickTaskSavedSshPublicKey,
+    quickTaskCredentialLoading,
     quickTaskShapeLimits,
     quickTaskOcpuLabel,
     quickTaskMemoryLabel,

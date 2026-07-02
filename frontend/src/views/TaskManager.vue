@@ -274,6 +274,7 @@
               v-model:ssh-public-key="createForm.sshPublicKey"
               :saved-root-password="taskSavedRootPassword"
               :saved-ssh-public-key="taskSavedSshPublicKey"
+              :credential-loading="taskCredentialLoading"
               placeholder="留空=随机生成"
               @missing="warnTaskCredentialMissing"
             />
@@ -397,6 +398,7 @@
               v-model:ssh-public-key="editForm.sshPublicKey"
               :saved-root-password="taskSavedRootPassword"
               :saved-ssh-public-key="taskSavedSshPublicKey"
+              :credential-loading="taskCredentialLoading"
               placeholder="留空=保持不变"
               @missing="warnTaskCredentialMissing"
             />
@@ -626,6 +628,7 @@ const availableShapes = ref<any[]>([])
 const createVisible = ref(false)
 const taskSavedRootPassword = ref('')
 const taskSavedSshPublicKey = ref('')
+const taskCredentialLoading = ref(false)
 const searchKeyword = ref('')
 const filterStatus = ref('')
 const pagination = reactive({ current: 1, pageSize: 10, total: 0 })
@@ -716,6 +719,8 @@ const {
   tierKey: editDenseIoTierKey,
 } = useDenseIoFlexTier(editForm)
 
+let taskCredentialLoadGen = 0
+
 watch(
   () => editForm.architecture,
   (arch) => {
@@ -758,13 +763,19 @@ async function loadEditAvailableShapes(tenantId: string, region?: string, curren
 }
 
 async function loadTaskCredential() {
+  const gen = ++taskCredentialLoadGen
+  taskCredentialLoading.value = true
   try {
     const res = await getTaskCredential()
-    taskSavedRootPassword.value = res.data?.rootPassword || ''
-    taskSavedSshPublicKey.value = res.data?.sshPublicKey || ''
+    if (gen !== taskCredentialLoadGen) return
+    taskSavedRootPassword.value = String(res.data?.rootPassword || '').trim()
+    taskSavedSshPublicKey.value = String(res.data?.sshPublicKey || '').trim()
   } catch {
-    taskSavedRootPassword.value = ''
-    taskSavedSshPublicKey.value = ''
+    if (gen !== taskCredentialLoadGen) return
+    taskSavedRootPassword.value = taskSavedRootPassword.value.trim()
+    taskSavedSshPublicKey.value = taskSavedSshPublicKey.value.trim()
+  } finally {
+    if (gen === taskCredentialLoadGen) taskCredentialLoading.value = false
   }
 }
 

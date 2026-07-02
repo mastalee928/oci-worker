@@ -26,6 +26,7 @@
         type="button"
         class="task-login-action"
         :class="{ 'task-login-action--active': isSavedPasswordMode }"
+        :disabled="credentialLoading"
         @click="useSavedPassword"
       >
         我的密码
@@ -34,6 +35,7 @@
         type="button"
         class="task-login-action"
         :class="{ 'task-login-action--active': isPublicKeyMode }"
+        :disabled="credentialLoading"
         @click="useSavedPublicKey"
       >
         我的公钥
@@ -51,6 +53,7 @@ const props = withDefaults(defineProps<{
   sshPublicKey?: string
   savedRootPassword?: string
   savedSshPublicKey?: string
+  credentialLoading?: boolean
   placeholder?: string
   label?: string
 }>(), {
@@ -59,6 +62,7 @@ const props = withDefaults(defineProps<{
   sshPublicKey: '',
   savedRootPassword: '',
   savedSshPublicKey: '',
+  credentialLoading: false,
   placeholder: '留空=随机生成',
   label: 'Root 密码',
 })
@@ -72,6 +76,7 @@ const emit = defineEmits<{
 
 const isPublicKeyMode = computed(() => props.loginMode === 'SSH_PUBLIC_KEY')
 const activeLoginAction = ref<'' | 'random' | 'password' | 'publicKey'>('')
+const credentialLoading = computed(() => props.credentialLoading)
 const isSavedPasswordMode = computed(() =>
   activeLoginAction.value === 'password'
   || (props.loginMode === 'PASSWORD' && !!props.savedRootPassword && props.rootPassword === props.savedRootPassword),
@@ -101,6 +106,7 @@ function useRandomPassword() {
 }
 
 function useSavedPassword() {
+  if (credentialLoading.value) return
   if (!props.savedRootPassword) {
     emit('missing', 'password')
     return
@@ -110,6 +116,7 @@ function useSavedPassword() {
 }
 
 function useSavedPublicKey() {
+  if (credentialLoading.value) return
   if (!props.savedSshPublicKey) {
     emit('missing', 'publicKey')
     return
@@ -171,6 +178,11 @@ function useSavedPublicKey() {
 .task-login-action--active,
 .task-login-action--active:hover {
   color: var(--task-login-success);
+}
+
+.task-login-action:disabled {
+  cursor: default;
+  opacity: 0.55;
 }
 
 .task-login-public-key-input,

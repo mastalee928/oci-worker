@@ -461,6 +461,7 @@
               v-model:ssh-public-key="quickTaskForm.sshPublicKey"
               :saved-root-password="quickTaskSavedRootPassword"
               :saved-ssh-public-key="quickTaskSavedSshPublicKey"
+              :credential-loading="quickTaskCredentialLoading"
               placeholder="留空=随机生成"
               @missing="warnQuickTaskCredentialMissing"
             />
@@ -1706,6 +1707,7 @@ const {
   quickTaskBmLocked,
   quickTaskSavedRootPassword,
   quickTaskSavedSshPublicKey,
+  quickTaskCredentialLoading,
   quickTaskShapeLimits,
   quickTaskOcpuLabel,
   quickTaskMemoryLabel,
