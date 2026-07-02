@@ -276,7 +276,6 @@ import {
   getInstanceList, updateInstanceState,
   changeIp,
   updateInstance,
-  createConsoleConnection, deleteConsoleConnection,
   forceA2ToA1,
 } from '../api/instance'
 import { getTenantGroups } from '../api/tenant'
@@ -296,6 +295,7 @@ const InstanceTenantEntryPanel = defineAppAsyncComponent(() => import('../compon
 const InstanceFloatingTenantCard = defineAppAsyncComponent(() => import('../components/instance/InstanceFloatingTenantCard.vue'))
 import { listStorageRegions } from '../api/storage'
 import { useQuickTask } from '../composables/useQuickTask'
+import { useInstanceConsole } from '../composables/useInstanceConsole'
 import { useTerminateInstanceVerify } from '../composables/useTerminateInstanceVerify'
 import {
   useTenantWorkspaceDock,
@@ -943,61 +943,18 @@ const {
   },
 })
 
-const consoleLoading = ref(false)
-const consoleData = ref<any>(null)
-
-async function handleCreateConsole() {
-  if (!currentInstance.value || !currentTenant.value) return
-  consoleLoading.value = true
-  try {
-    const res = await createConsoleConnection({
-      id: currentTenant.value.id,
-      instanceId: currentInstance.value.instanceId,
-      ...instanceDetailRegionParam(),
-    })
-    consoleData.value = res.data
-    message.success('控制台连接已创建')
-    openConsoleWebSSH()
-  } catch (e: any) {
-    message.error(e?.message || '创建控制台连接失败')
-  } finally {
-    consoleLoading.value = false
-  }
-}
-
-function openConsoleWebSSH() {
-  if (!consoleData.value?.connectionId) return
-  const label = currentInstance.value?.displayName || currentInstance.value?.instanceId || 'Serial Console'
-  const params = new URLSearchParams({
-    console: '1',
-    connectionId: consoleData.value.connectionId,
-    label,
-  })
-  if (currentTenant.value?.id != null) params.set('userId', String(currentTenant.value.id))
-  if (currentInstance.value?.instanceId) params.set('instanceId', currentInstance.value.instanceId)
-  const region = instanceDetailRegionParam().region
-  if (region) params.set('region', region)
-  if (currentInstance.value?.state) params.set('state', currentInstance.value.state)
-  window.open('/webssh/index.html#' + params.toString(), '_blank')
-}
-
-async function handleDeleteConsole() {
-  if (!consoleData.value || !currentTenant.value) return
-  consoleLoading.value = true
-  try {
-    await deleteConsoleConnection({
-      id: currentTenant.value.id,
-      connectionId: consoleData.value.connectionId,
-      ...instanceDetailRegionParam(),
-    })
-    consoleData.value = null
-    message.success('控制台连接已断开')
-  } catch (e: any) {
-    message.error(e?.message || '断开连接失败')
-  } finally {
-    consoleLoading.value = false
-  }
-}
+const {
+  consoleLoading,
+  consoleData,
+  clearConsoleData,
+  handleCreateConsole,
+  openConsoleWebSSH,
+  handleDeleteConsole,
+} = useInstanceConsole({
+  getTenant: () => currentTenant.value,
+  getInstance: () => currentInstance.value,
+  resolveRegionParam: instanceDetailRegionParam,
+})
 
 const tenantVcnPanelRef = ref<any>(null)
 
@@ -1174,7 +1131,7 @@ function openDetail(tenant: any, record: any) {
   blockStorageOverlayActive.value = false
   trafficOverlayActive.value = false
   securityOverlayActive.value = false
-  consoleData.value = null
+  clearConsoleData()
   drawerVisible.value = true
 }
 
