@@ -868,7 +868,7 @@ public class VcnService {
             List<Map<String, Object>> targetGroups = new ArrayList<>();
             List<Map<String, Object>> warnings = new ArrayList<>();
             addRouteTargetGroup(targetGroups, warnings, "drg", "动态路由网关",
-                    () -> listDrgRouteTargets(net, selectedCompartmentId, compartmentNames));
+                    () -> listDrgRouteTargets(net, selectedCompartmentId, vcnId, compartmentNames, warnings));
             addRouteTargetGroup(targetGroups, warnings, "internetGateway", "Internet 网关",
                     () -> listInternetGatewayRouteTargets(net, selectedCompartmentId, vcnId, compartmentNames));
             addRouteTargetGroup(targetGroups, warnings, "localPeeringGateway", "本地对等连接网关",
@@ -876,7 +876,7 @@ public class VcnService {
             addRouteTargetGroup(targetGroups, warnings, "natGateway", "NAT 网关",
                     () -> listNatGatewayRouteTargets(net, selectedCompartmentId, vcnId, compartmentNames));
             addRouteTargetGroup(targetGroups, warnings, "privateIp", "专用 IP",
-                    () -> listPrivateIpRouteTargets(net, selectedCompartmentId, vcnId, compartmentNames));
+                    () -> listPrivateIpRouteTargets(net, vcnId, compartmentNames, warnings));
             addRouteTargetGroup(targetGroups, warnings, "serviceGateway", "服务网关",
                     () -> listServiceGatewayRouteTargets(net, selectedCompartmentId, vcnId, compartmentNames));
 
@@ -934,21 +934,65 @@ public class VcnService {
         groups.add(group);
     }
 
-    private List<Map<String, Object>> listDrgRouteTargets(VirtualNetworkClient net, String compartmentId,
-                                                          Map<String, String> compartmentNames) {
+    private void addRouteOptionWarning(List<Map<String, Object>> warnings, String type, String label, String message) {
+        Map<String, Object> warning = new LinkedHashMap<>();
+        warning.put("type", type);
+        warning.put("label", label);
+        warning.put("message", message);
+        warnings.add(warning);
+    }
+
+    private List<Map<String, Object>> listDrgRouteTargets(VirtualNetworkClient net, String compartmentId, String vcnId,
+                                                          Map<String, String> compartmentNames,
+                                                          List<Map<String, Object>> warnings) {
         List<Map<String, Object>> list = new ArrayList<>();
-        String page = null;
-        do {
-            var resp = net.listDrgs(ListDrgsRequest.builder()
-                    .compartmentId(compartmentId).limit(1000).page(page).build());
-            for (var drg : resp.getItems()) {
-                if (drg.getLifecycleState() == Drg.LifecycleState.Terminated) continue;
-                Map<String, Object> m = routeTargetOption("drg", drg.getId(), drg.getDisplayName(),
-                        compartmentId, compartmentNames, drg.getLifecycleState() != null ? drg.getLifecycleState().getValue() : null);
-                list.add(m);
+        Set<String> seen = new HashSet<>();
+        Map<String, Drg> drgCache = new HashMap<>();
+        for (String attachmentCompartmentId : compartmentNames.keySet()) {
+            String page = null;
+            try {
+                do {
+                    var resp = net.listDrgAttachments(ListDrgAttachmentsRequest.builder()
+                            .compartmentId(attachmentCompartmentId)
+                            .vcnId(vcnId)
+                            .attachmentType(ListDrgAttachmentsRequest.AttachmentType.Vcn)
+                            .lifecycleState(DrgAttachment.LifecycleState.Attached)
+                            .limit(1000)
+                            .page(page)
+                            .build());
+                    for (var attachment : resp.getItems()) {
+                        if (attachment.getDrgId() == null || attachment.getDrgId().isBlank()) continue;
+                        Drg drg = drgCache.get(attachment.getDrgId());
+                        if (drg == null) {
+                            try {
+                                drg = net.getDrg(GetDrgRequest.builder().drgId(attachment.getDrgId()).build()).getDrg();
+                                drgCache.put(attachment.getDrgId(), drg);
+                            } catch (Exception e) {
+                                addRouteOptionWarning(warnings, "drg", "动态路由网关",
+                                        "读取 DRG 详情失败: " + e.getMessage());
+                                continue;
+                            }
+                        }
+                        if (drg.getLifecycleState() == Drg.LifecycleState.Terminated) continue;
+                        String drgCompartmentId = firstNonBlank(drg.getCompartmentId(), attachmentCompartmentId);
+                        if (!Objects.equals(drgCompartmentId, compartmentId) || !seen.add(drg.getId())) continue;
+                        Map<String, Object> m = routeTargetOption("drg", drg.getId(), drg.getDisplayName(),
+                                drgCompartmentId, compartmentNames,
+                                drg.getLifecycleState() != null ? drg.getLifecycleState().getValue() : null);
+                        m.put("attachmentId", attachment.getId());
+                        m.put("attachmentName", attachment.getDisplayName());
+                        m.put("attachmentCompartmentId", attachmentCompartmentId);
+                        m.put("attachmentCompartmentName", compartmentNames.getOrDefault(attachmentCompartmentId, attachmentCompartmentId));
+                        list.add(m);
+                    }
+                    page = resp.getOpcNextPage();
+                } while (page != null);
+            } catch (Exception e) {
+                String compartmentName = compartmentNames.getOrDefault(attachmentCompartmentId, attachmentCompartmentId);
+                addRouteOptionWarning(warnings, "drg", "动态路由网关 / " + compartmentName,
+                        "查询当前 VCN 的 DRG 附加关系失败: " + e.getMessage());
             }
-            page = resp.getOpcNextPage();
-        } while (page != null);
+        }
         return list;
     }
 
@@ -1031,62 +1075,76 @@ public class VcnService {
         return list;
     }
 
-    private List<Map<String, Object>> listPrivateIpRouteTargets(VirtualNetworkClient net, String compartmentId,
-                                                                String vcnId, Map<String, String> compartmentNames) {
+    private List<Map<String, Object>> listPrivateIpRouteTargets(VirtualNetworkClient net, String vcnId,
+                                                                Map<String, String> compartmentNames,
+                                                                List<Map<String, Object>> warnings) {
         List<Map<String, Object>> list = new ArrayList<>();
         Map<String, Subnet> subnets = new LinkedHashMap<>();
-        String subnetPage = null;
-        do {
-            var subnetResp = net.listSubnets(ListSubnetsRequest.builder()
-                    .compartmentId(compartmentId).vcnId(vcnId).limit(1000).page(subnetPage).build());
-            for (Subnet subnet : subnetResp.getItems()) {
-                if (subnet.getLifecycleState() == Subnet.LifecycleState.Terminated) continue;
-                subnets.put(subnet.getId(), subnet);
+        for (String subnetCompartmentId : compartmentNames.keySet()) {
+            String subnetPage = null;
+            try {
+                do {
+                    var subnetResp = net.listSubnets(ListSubnetsRequest.builder()
+                            .compartmentId(subnetCompartmentId).vcnId(vcnId).limit(1000).page(subnetPage).build());
+                    for (Subnet subnet : subnetResp.getItems()) {
+                        if (subnet.getLifecycleState() == Subnet.LifecycleState.Terminated) continue;
+                        subnets.put(subnet.getId(), subnet);
+                    }
+                    subnetPage = subnetResp.getOpcNextPage();
+                } while (subnetPage != null);
+            } catch (Exception e) {
+                String compartmentName = compartmentNames.getOrDefault(subnetCompartmentId, subnetCompartmentId);
+                addRouteOptionWarning(warnings, "privateIp", "专用 IP / " + compartmentName,
+                        "查询当前 VCN 的子网失败: " + e.getMessage());
             }
-            subnetPage = subnetResp.getOpcNextPage();
-        } while (subnetPage != null);
+        }
 
         Map<String, Vnic> vnicCache = new HashMap<>();
         for (Subnet subnet : subnets.values()) {
             String page = null;
-            do {
-                var resp = net.listPrivateIps(ListPrivateIpsRequest.builder()
-                        .subnetId(subnet.getId()).limit(1000).page(page).build());
-                for (PrivateIp ip : resp.getItems()) {
-                    if (ip.getId() == null) continue;
-                    String ipCompartmentId = firstNonBlank(ip.getCompartmentId(), compartmentId);
-                    Map<String, Object> m = routeTargetOption("privateIp", ip.getId(),
-                            privateIpDisplayName(ip, subnet), ipCompartmentId, compartmentNames,
-                            ip.getIpState() != null ? ip.getIpState().getValue() : null);
-                    m.put("ipAddress", ip.getIpAddress());
-                    m.put("privateIpAddress", ip.getIpAddress());
-                    m.put("isPrimary", ip.getIsPrimary());
-                    m.put("hostnameLabel", ip.getHostnameLabel());
-                    m.put("subnetId", subnet.getId());
-                    m.put("subnetName", subnet.getDisplayName());
-                    m.put("subnetCidrBlock", subnet.getCidrBlock());
-                    m.put("vnicId", ip.getVnicId());
-                    m.put("routeTableId", ip.getRouteTableId());
-                    if (ip.getVnicId() != null && !ip.getVnicId().isBlank()) {
-                        Vnic vnic = vnicCache.get(ip.getVnicId());
-                        if (vnic == null && !vnicCache.containsKey(ip.getVnicId())) {
-                            try {
-                                vnic = net.getVnic(GetVnicRequest.builder().vnicId(ip.getVnicId()).build()).getVnic();
-                            } catch (Exception ignored) {
-                                vnic = null;
+            try {
+                do {
+                    var resp = net.listPrivateIps(ListPrivateIpsRequest.builder()
+                            .subnetId(subnet.getId()).limit(1000).page(page).build());
+                    for (PrivateIp ip : resp.getItems()) {
+                        if (ip.getId() == null) continue;
+                        String ipCompartmentId = firstNonBlank(ip.getCompartmentId(), subnet.getCompartmentId());
+                        Map<String, Object> m = routeTargetOption("privateIp", ip.getId(),
+                                privateIpDisplayName(ip, subnet), ipCompartmentId, compartmentNames,
+                                ip.getIpState() != null ? ip.getIpState().getValue() : null);
+                        m.put("ipAddress", ip.getIpAddress());
+                        m.put("privateIpAddress", ip.getIpAddress());
+                        m.put("isPrimary", ip.getIsPrimary());
+                        m.put("hostnameLabel", ip.getHostnameLabel());
+                        m.put("subnetId", subnet.getId());
+                        m.put("subnetName", subnet.getDisplayName());
+                        m.put("subnetCidrBlock", subnet.getCidrBlock());
+                        m.put("vnicId", ip.getVnicId());
+                        m.put("routeTableId", ip.getRouteTableId());
+                        if (ip.getVnicId() != null && !ip.getVnicId().isBlank()) {
+                            Vnic vnic = vnicCache.get(ip.getVnicId());
+                            if (vnic == null && !vnicCache.containsKey(ip.getVnicId())) {
+                                try {
+                                    vnic = net.getVnic(GetVnicRequest.builder().vnicId(ip.getVnicId()).build()).getVnic();
+                                } catch (Exception ignored) {
+                                    vnic = null;
+                                }
+                                vnicCache.put(ip.getVnicId(), vnic);
                             }
-                            vnicCache.put(ip.getVnicId(), vnic);
+                            if (vnic != null) {
+                                m.put("vnicDisplayName", vnic.getDisplayName());
+                                m.put("vnicPrivateIp", vnic.getPrivateIp());
+                                m.put("skipSourceDestCheck", vnic.getSkipSourceDestCheck());
+                            }
                         }
-                        if (vnic != null) {
-                            m.put("vnicDisplayName", vnic.getDisplayName());
-                            m.put("vnicPrivateIp", vnic.getPrivateIp());
-                            m.put("skipSourceDestCheck", vnic.getSkipSourceDestCheck());
-                        }
+                        list.add(m);
                     }
-                    list.add(m);
-                }
-                page = resp.getOpcNextPage();
-            } while (page != null);
+                    page = resp.getOpcNextPage();
+                } while (page != null);
+            } catch (Exception e) {
+                addRouteOptionWarning(warnings, "privateIp", "专用 IP / " + firstNonBlank(subnet.getDisplayName(), subnet.getId()),
+                        "查询子网内专用 IP 失败: " + e.getMessage());
+            }
         }
         return list;
     }

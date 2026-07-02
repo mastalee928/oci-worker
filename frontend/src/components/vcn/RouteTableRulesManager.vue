@@ -113,22 +113,28 @@
       @ok="saveRuleDraft"
     >
       <a-form layout="vertical" class="rt-rule-form">
-        <div class="rt-form-grid">
-          <a-form-item label="目标类型" required>
-            <a-select v-model:value="ruleForm.targetType" @change="onTargetTypeChange">
-              <a-select-option v-for="item in targetTypeOptions" :key="item.value" :value="item.value">
-                {{ item.label }}
-              </a-select-option>
-            </a-select>
-          </a-form-item>
+        <a-alert
+          class="rt-route-tip"
+          type="warning"
+          show-icon
+          message="重要提示："
+          description="对于以某个专用 IP 作为目标的路由规则，您必须首先对被分配了该专用 IP 的 VNIC 启用“跳过源/目的地检查”。"
+        />
 
-          <a-form-item label="目的地类型" required>
-            <a-select v-model:value="ruleForm.destinationType" disabled>
-              <a-select-option value="CIDR_BLOCK">CIDR 块</a-select-option>
-              <a-select-option value="SERVICE_CIDR_BLOCK">服务</a-select-option>
-            </a-select>
-          </a-form-item>
-        </div>
+        <a-form-item label="目标类型" required>
+          <a-select v-model:value="ruleForm.targetType" @change="onTargetTypeChange">
+            <a-select-option v-for="item in targetTypeOptions" :key="item.value" :value="item.value">
+              {{ item.label }}
+            </a-select-option>
+          </a-select>
+        </a-form-item>
+
+        <a-form-item v-if="showDestinationTypeField" label="目的地类型" required>
+          <a-select v-model:value="ruleForm.destinationType" disabled>
+            <a-select-option value="CIDR_BLOCK">CIDR 块</a-select-option>
+            <a-select-option value="SERVICE_CIDR_BLOCK">服务</a-select-option>
+          </a-select>
+        </a-form-item>
 
         <a-form-item v-if="ruleForm.destinationType === 'SERVICE_CIDR_BLOCK'" label="目的地服务" required>
           <a-select
@@ -183,10 +189,11 @@
               v-else
               v-model:value="ruleForm.networkEntityId"
               :loading="optionsLoading"
-              placeholder="选择目标资源"
+              :disabled="targetSelectDisabled"
+              :placeholder="targetResourcePlaceholder"
               show-search
               option-filter-prop="title"
-              :not-found-content="optionsLoading ? '加载中...' : '当前区间没有该类型目标'"
+              :not-found-content="targetNotFoundContent"
             >
               <a-select-option
                 v-for="item in currentTargetItems"
@@ -218,10 +225,11 @@
             v-else
             v-model:value="ruleForm.networkEntityId"
             :loading="optionsLoading"
-            placeholder="选择目标专用 IP"
+            :disabled="targetSelectDisabled"
+            :placeholder="targetResourcePlaceholder"
             show-search
             option-filter-prop="title"
-            :not-found-content="optionsLoading ? '加载中...' : '当前区间没有可用专用 IP'"
+            :not-found-content="targetNotFoundContent"
           >
             <a-select-option
               v-for="item in currentTargetItems"
@@ -253,6 +261,10 @@
         <a-form-item label="描述">
           <a-textarea v-model:value="ruleForm.description" :rows="3" :maxlength="255" show-count />
         </a-form-item>
+
+        <div v-if="!editingRuleKey" class="rt-add-more-row">
+          <a-button size="small" @click="saveRuleDraft(true)">+ 其他路由规则</a-button>
+        </div>
       </a-form>
     </a-modal>
   </a-modal>
@@ -384,6 +396,8 @@ const targetIndex = computed(() => {
 })
 const currentTargetItems = computed(() => targetGroupMap.value[ruleForm.targetType] || [])
 const selectedTarget = computed(() => targetIndex.value.get(ruleForm.networkEntityId))
+const showDestinationTypeField = computed(() => ['drg', 'privateIp'].includes(ruleForm.targetType))
+const targetSelectDisabled = computed(() => !ruleForm.manualTarget && !optionsLoading.value && currentTargetItems.value.length === 0)
 const targetFieldLabels = computed(() => {
   const map: Record<string, { compartment: string; resource: string }> = {
     drg: { compartment: '目标动态路由网关 区间', resource: '目标动态路由网关' },
@@ -396,6 +410,16 @@ const targetFieldLabels = computed(() => {
 })
 const targetCompartmentLabel = computed(() => targetFieldLabels.value.compartment)
 const targetResourceLabel = computed(() => targetFieldLabels.value.resource)
+const targetResourcePlaceholder = computed(() => {
+  if (targetSelectDisabled.value) {
+    return ruleForm.targetType === 'privateIp' ? '当前 VCN 没有可用专用 IP' : `当前区间没有${targetTypeLabel(ruleForm.targetType)}`
+  }
+  return ruleForm.targetType === 'privateIp' ? '选择目标专用 IP' : `选择${targetResourceLabel.value}`
+})
+const targetNotFoundContent = computed(() => {
+  if (optionsLoading.value) return '加载中...'
+  return ruleForm.targetType === 'privateIp' ? '当前 VCN 没有可用专用 IP' : `当前区间没有${targetTypeLabel(ruleForm.targetType)}`
+})
 const filteredRules = computed(() => {
   const q = keyword.value.trim().toLowerCase()
   if (!q) return rules.value
@@ -534,6 +558,12 @@ function normalizeRule(rule: any, index: number): RouteRule {
 }
 
 function openAddRule() {
+  resetRuleFormForAdd()
+  editingRuleKey.value = ''
+  ruleEditorOpen.value = true
+}
+
+function resetRuleFormForAdd() {
   const targetType = firstAvailableTargetType()
   Object.assign(ruleForm, {
     targetType,
@@ -543,8 +573,6 @@ function openAddRule() {
     description: '',
     manualTarget: false,
   })
-  editingRuleKey.value = ''
-  ruleEditorOpen.value = true
 }
 
 function openEditRule(rule: RouteRule) {
@@ -574,7 +602,7 @@ function onTargetTypeChange() {
   }
 }
 
-function saveRuleDraft() {
+function saveRuleDraft(keepOpen = false) {
   const draft: RouteRule = {
     _key: editingRuleKey.value || `rt_${Date.now()}_${Math.random()}`,
     destination: ruleForm.destination.trim(),
@@ -592,18 +620,24 @@ function saveRuleDraft() {
       content: '该 Private IP 所属 VNIC 尚未关闭源/目的检查，可能导致流量黑洞。确认继续保存这条规则吗？',
       zIndex: VCN_MANAGER_CONFIRM_MODAL_Z_INDEX,
       wrapClassName: VCN_MANAGER_CONFIRM_MODAL_WRAP_CLASS,
-      onOk: () => commitRuleDraft(draft),
+      onOk: () => commitRuleDraft(draft, keepOpen),
     })
     return
   }
-  commitRuleDraft(draft)
+  commitRuleDraft(draft, keepOpen)
 }
 
-function commitRuleDraft(draft: RouteRule) {
+function commitRuleDraft(draft: RouteRule, keepOpen = false) {
   const index = rules.value.findIndex((item) => item._key === draft._key)
   if (index >= 0) rules.value.splice(index, 1, draft)
   else rules.value.push(draft)
   dirty.value = true
+  if (keepOpen) {
+    editingRuleKey.value = ''
+    resetRuleFormForAdd()
+    ruleEditorOpen.value = true
+    return
+  }
   ruleEditorOpen.value = false
 }
 
@@ -808,6 +842,10 @@ function shortId(id?: string) {
   margin-top: 4px;
 }
 
+.rt-route-tip {
+  margin-bottom: 12px;
+}
+
 .rt-form-grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -846,6 +884,13 @@ function shortId(id?: string) {
   color: var(--primary-hover);
 }
 
+.rt-add-more-row {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 8px;
+  border-top: 1px solid var(--border-color);
+}
+
 @media (max-width: 720px) {
   .rt-search,
   .rt-compartment {
@@ -855,6 +900,14 @@ function shortId(id?: string) {
   .rt-form-grid {
     grid-template-columns: 1fr;
     gap: 0;
+  }
+
+  .rt-add-more-row {
+    justify-content: stretch;
+  }
+
+  .rt-add-more-row :deep(.ant-btn) {
+    width: 100%;
   }
 }
 </style>

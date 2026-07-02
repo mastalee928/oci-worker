@@ -243,14 +243,21 @@ public class OciClientService implements Closeable {
             all.add(root);
         }
         try {
-            all.addAll(identityClient.listCompartments(
-                    ListCompartmentsRequest.builder()
-                            .compartmentId(tenantId)
-                            .accessLevel(ListCompartmentsRequest.AccessLevel.Accessible)
-                            .compartmentIdInSubtree(true)
-                            .lifecycleState(Compartment.LifecycleState.Active)
-                            .build()
-            ).getItems());
+            String page = null;
+            do {
+                var resp = identityClient.listCompartments(
+                        ListCompartmentsRequest.builder()
+                                .compartmentId(tenantId)
+                                .accessLevel(ListCompartmentsRequest.AccessLevel.Accessible)
+                                .compartmentIdInSubtree(true)
+                                .lifecycleState(Compartment.LifecycleState.Active)
+                                .limit(1000)
+                                .page(page)
+                                .build()
+                );
+                all.addAll(resp.getItems());
+                page = resp.getOpcNextPage();
+            } while (page != null);
         } catch (Exception e) {
             log.warn("Failed to list compartments: {}", e.getMessage());
         }
