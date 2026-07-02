@@ -276,7 +276,6 @@ import {
   getInstanceList, updateInstanceState,
   changeIp,
   updateInstance,
-  forceA2ToA1,
 } from '../api/instance'
 import { getTenantGroups } from '../api/tenant'
 import { useTenantCatalogStore } from '../stores/tenantCatalog'
@@ -295,6 +294,7 @@ const InstanceTenantEntryPanel = defineAppAsyncComponent(() => import('../compon
 const InstanceFloatingTenantCard = defineAppAsyncComponent(() => import('../components/instance/InstanceFloatingTenantCard.vue'))
 import { listStorageRegions } from '../api/storage'
 import { useQuickTask } from '../composables/useQuickTask'
+import { useForceA2ToA1 } from '../composables/useForceA2ToA1'
 import { useInstanceConsole } from '../composables/useInstanceConsole'
 import { useTerminateInstanceVerify } from '../composables/useTerminateInstanceVerify'
 import {
@@ -766,10 +766,6 @@ const editInstanceVisible = ref(false)
 const editInstanceLoading = ref(false)
 const editInstanceForm = reactive({ displayName: '' })
 
-const showForceA2ToA1Button = computed(
-  () => currentInstance.value?.shape === 'VM.Standard.A2.Flex',
-)
-
 function handleShapeEditInstanceUpdated(result?: Record<string, any>) {
   if (!result || !currentInstance.value || !currentTenant.value) return
   const inst = currentInstance.value
@@ -786,63 +782,22 @@ function scheduleCurrentTenantInstanceReload() {
   if (td) scheduleReload(() => loadTenantInstances(td, { force: true }), 3000)
 }
 
-const forceA2ModalVisible = ref(false)
-const forceA2Loading = ref(false)
-const forceA2Q = reactive({
-  trial: undefined as boolean | undefined,
-  a2Shape: undefined as boolean | undefined,
-  risk: undefined as boolean | undefined,
+const {
+  showForceA2ToA1Button,
+  forceA2ModalVisible,
+  forceA2Loading,
+  forceA2Q,
+  forceA2AllYes,
+  resetForceA2Modal,
+  openForceA2ToA1Modal,
+  handleForceA2ToA1Confirm,
+} = useForceA2ToA1({
+  getTenant: () => currentTenant.value,
+  getInstance: () => currentInstance.value,
+  resolveRegionParam: instanceDetailRegionParam,
+  refreshShapeOptions: () => callDetailDrawerShell('loadShapeOptions'),
+  reloadCurrentTenantInstances: scheduleCurrentTenantInstanceReload,
 })
-const forceA2AllYes = computed(
-  () => forceA2Q.trial === true && forceA2Q.a2Shape === true && forceA2Q.risk === true,
-)
-
-function resetForceA2Modal() {
-  forceA2Q.trial = undefined
-  forceA2Q.a2Shape = undefined
-  forceA2Q.risk = undefined
-}
-
-function openForceA2ToA1Modal() {
-  if (!currentInstance.value) return
-  resetForceA2Modal()
-  forceA2ModalVisible.value = true
-}
-
-async function handleForceA2ToA1Confirm() {
-  if (!forceA2AllYes.value) {
-    message.warning('请三项均选择「是」后再执行')
-    return Promise.reject()
-  }
-  if (!currentInstance.value || !currentTenant.value) return Promise.reject()
-  forceA2Loading.value = true
-  try {
-    const res = await forceA2ToA1({
-      id: currentTenant.value.id,
-      instanceId: currentInstance.value.instanceId,
-      ...instanceDetailRegionParam(),
-    })
-    message.success('已成功转为A1，稍后刷新页面后在基本信息中查看')
-    const inst = currentInstance.value
-    if (res.data?.shape) inst.shape = res.data.shape
-    if (res.data?.ocpus != null) inst.ocpus = res.data.ocpus
-    if (res.data?.memoryInGBs != null) inst.memoryInGBs = res.data.memoryInGBs
-    forceA2ModalVisible.value = false
-    resetForceA2Modal()
-    await callDetailDrawerShell('loadShapeOptions')
-    scheduleCurrentTenantInstanceReload()
-  } catch (e: any) {
-    const msg = String(e?.message || '')
-    if (msg.includes('当前实例 Shape 不是') && msg.includes('请检查当前 Shape')) {
-      Modal.error({ title: '无法执行强改', content: msg, okText: '知道了' })
-    } else {
-      message.error('本次更改失败，您可再次尝试！')
-    }
-    return Promise.reject()
-  } finally {
-    forceA2Loading.value = false
-  }
-}
 
 const {
   quickTaskVisible,
