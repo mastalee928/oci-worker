@@ -22,12 +22,13 @@
     <div v-if="isSearchMode" style="margin-bottom: 8px">
       <a-tag color="blue">搜索结果: {{ searchResults.length }} 条</a-tag>
       <a-tag>关键词: {{ activeSearchKeyword }}</a-tag>
+      <a-tag v-if="searchResults.length > displayRows.length">仅显示最近 {{ displayRows.length }} 条</a-tag>
     </div>
     <div ref="logContainer" class="log-container">
-      <div v-if="isSearchMode" v-for="(line, i) in displayLines" :key="'s'+i" class="log-line" :class="getLogClass(line)"
-           v-html="highlightText(line)"></div>
-      <div v-else v-for="(line, i) in displayLines" :key="'r'+i" class="log-line" :class="getLogClass(line)">{{ line }}</div>
-      <div v-if="!displayLines.length" class="log-empty">
+      <div v-if="isSearchMode" v-for="row in displayRows" :key="row.key" class="log-line" :class="getLogClass(row.line)"
+           v-html="highlightText(row.line)"></div>
+      <div v-else v-for="row in displayRows" :key="row.key" class="log-line" :class="getLogClass(row.line)">{{ row.line }}</div>
+      <div v-if="!displayRows.length" class="log-empty">
         {{ isSearchMode ? '未找到匹配日志' : '等待日志数据...' }}
       </div>
     </div>
@@ -36,26 +37,49 @@
 
 <script setup lang="ts">
 defineOptions({ name: 'LogViewer' })
-import { ref, computed, nextTick, onMounted, onUnmounted } from 'vue'
+import { ref, computed, nextTick, onMounted, onActivated, onDeactivated, onUnmounted } from 'vue'
 import { message } from 'ant-design-vue'
 import request from '../utils/request'
 
-const logLines = ref<string[]>([])
+interface RealtimeLogLine {
+  seq: number
+  text: string
+}
+
+interface LogDisplayRow {
+  key: string
+  line: string
+}
+
+const logLines = ref<RealtimeLogLine[]>([])
 const connected = ref(false)
 const autoScroll = ref(true)
 const logContainer = ref<HTMLElement>()
 let ws: WebSocket | null = null
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+let scrollRaf: number | null = null
 let manualDisconnect = false
+let viewActive = false
+const shouldAutoConnect = ref(true)
 
 const searchKeyword = ref('')
 const activeSearchKeyword = ref('')
 const searchResults = ref<string[]>([])
 const searchLoading = ref(false)
 const isSearchMode = ref(false)
+const REALTIME_RENDER_LIMIT = 1500
+const SEARCH_RENDER_LIMIT = 1000
+let logSeq = 0
 
-const displayLines = computed(() => {
-  return isSearchMode.value ? searchResults.value : logLines.value
+const displayRows = computed<LogDisplayRow[]>(() => {
+  if (isSearchMode.value) {
+    const source = searchResults.value
+    const start = Math.max(source.length - SEARCH_RENDER_LIMIT, 0)
+    return source.slice(start).map((line, index) => ({ key: `s-${start + index}`, line }))
+  }
+  const source = logLines.value
+  const start = Math.max(source.length - REALTIME_RENDER_LIMIT, 0)
+  return source.slice(start).map((item) => ({ key: `r-${item.seq}`, line: item.text }))
 })
 
 function getWsUrl() {
@@ -65,33 +89,38 @@ function getWsUrl() {
 }
 
 function connect() {
+  if (!viewActive || !shouldAutoConnect.value) return
   if (ws && ws.readyState <= WebSocket.OPEN) return
   manualDisconnect = false
 
-  ws = new WebSocket(getWsUrl())
-  ws.onopen = () => {
+  const socket = new WebSocket(getWsUrl())
+  ws = socket
+  socket.onopen = () => {
+    if (ws !== socket) return
     connected.value = true
     stopReconnect()
   }
-  ws.onclose = () => {
+  socket.onclose = () => {
+    if (ws !== socket) return
     connected.value = false
-    if (!manualDisconnect) scheduleReconnect()
+    if (!manualDisconnect && viewActive && shouldAutoConnect.value) scheduleReconnect()
   }
-  ws.onerror = () => {
+  socket.onerror = () => {
+    if (ws !== socket) return
     connected.value = false
   }
-  ws.onmessage = (e) => {
-    logLines.value.push(e.data)
+  socket.onmessage = (e) => {
+    if (ws !== socket || !viewActive) return
+    logLines.value.push({ seq: ++logSeq, text: String(e.data) })
     if (logLines.value.length > 10000) logLines.value.splice(0, 2000)
     if (autoScroll.value && !isSearchMode.value) {
-      nextTick(() => {
-        logContainer.value?.scrollTo(0, logContainer.value.scrollHeight)
-      })
+      scheduleScrollToBottom()
     }
   }
 }
 
-function disconnect() {
+function disconnect(manual = true) {
+  if (manual) shouldAutoConnect.value = false
   manualDisconnect = true
   stopReconnect()
   ws?.close()
@@ -103,11 +132,13 @@ function toggleConnection() {
   if (connected.value) {
     disconnect()
   } else {
+    shouldAutoConnect.value = true
     connect()
   }
 }
 
 function scheduleReconnect() {
+  if (!viewActive || !shouldAutoConnect.value) return
   stopReconnect()
   reconnectTimer = setTimeout(() => connect(), 3000)
 }
@@ -119,8 +150,26 @@ function stopReconnect() {
   }
 }
 
+function cancelScheduledScroll() {
+  if (scrollRaf != null) {
+    cancelAnimationFrame(scrollRaf)
+    scrollRaf = null
+  }
+}
+
+function scheduleScrollToBottom() {
+  if (!viewActive || scrollRaf != null) return
+  scrollRaf = requestAnimationFrame(() => {
+    scrollRaf = null
+    if (!viewActive || !autoScroll.value || isSearchMode.value) return
+    const el = logContainer.value
+    if (el) el.scrollTo(0, el.scrollHeight)
+  })
+}
+
 function clearLogs() {
   logLines.value = []
+  logSeq = 0
 }
 
 async function handleSearch(value: string) {
@@ -173,8 +222,26 @@ function getLogClass(line: string) {
   return ''
 }
 
-onMounted(() => connect())
-onUnmounted(() => disconnect())
+function activateLogViewer() {
+  viewActive = true
+  connect()
+}
+
+function deactivateLogViewer() {
+  viewActive = false
+  cancelScheduledScroll()
+  disconnect(false)
+}
+
+onMounted(activateLogViewer)
+onActivated(activateLogViewer)
+onDeactivated(deactivateLogViewer)
+
+onUnmounted(() => {
+  viewActive = false
+  cancelScheduledScroll()
+  disconnect(false)
+})
 </script>
 
 <style scoped>
