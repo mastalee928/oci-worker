@@ -306,12 +306,15 @@ import { appQueryCache, createListSignature } from '../utils/queryCache'
 
 const catalog = useTenantCatalogStore()
 const VIRTUAL_CARD_MIN = 12
-const INSTANCE_LIST_CACHE_TTL_MS = 60_000
+const INSTANCE_LIST_CACHE_TTL_MS = 15_000
 let instanceListActivatedOnce = false
+let instanceListLoadSeq = 0
+const instanceListActiveRequests = new Map<string, number>()
 
 interface LoadTenantInstancesOptions {
   force?: boolean
   notify?: boolean
+  region?: string
 }
 
 function isGroupPanelOpen(key: string) {
@@ -337,6 +340,7 @@ function tenantPlanTagStyle(plan: unknown): Record<string, string> | undefined {
 interface TenantData {
   tenant: any
   instances: any[]
+  instancesRegion?: string
   loading: boolean
   collapsed: boolean
 }
@@ -628,6 +632,10 @@ function instanceListCacheKey(td: TenantData, region: string) {
   return ['instanceList', 'instances', td.tenant.id || '', region || ''] as const
 }
 
+function instanceListCacheKeyByTenant(tenantId: string, region: string) {
+  return ['instanceList', 'instances', tenantId || '', region || ''] as const
+}
+
 function getInstanceListCache(td: TenantData, region: string) {
   const key = instanceListCacheKey(td, region)
   const rows = appQueryCache.get<any[]>(key)
@@ -635,6 +643,73 @@ function getInstanceListCache(td: TenantData, region: string) {
   return {
     rows,
     fetchedAt: appQueryCache.getUpdatedAt(key),
+  }
+}
+
+function setInstanceListCache(td: TenantData, region: string, rows: any[]) {
+  appQueryCache.set(instanceListCacheKey(td, region), rows, INSTANCE_LIST_CACHE_TTL_MS)
+}
+
+function invalidateInstanceListCache(td: TenantData, region?: string) {
+  const tenantId = String(td.tenant?.id || '')
+  if (!tenantId) return
+  if (region != null) {
+    appQueryCache.invalidate(instanceListCacheKey(td, region))
+    return
+  }
+  appQueryCache.invalidate(['instanceList', 'instances', tenantId])
+}
+
+function invalidateTenantInstanceCache(tenantId: string, region?: string) {
+  const td = findTenantDataById(String(tenantId || ''))
+  if (!td) return
+  invalidateInstanceListCache(td, region)
+}
+
+function patchInstanceInListAndCache(
+  tenantId: string,
+  region: string | undefined,
+  instanceId: string,
+  fresh: Record<string, any>,
+) {
+  const normalizedTenantId = String(tenantId || '')
+  const normalizedInstanceId = String(instanceId || '')
+  if (!normalizedTenantId || !normalizedInstanceId) return
+
+  const td = findTenantDataById(normalizedTenantId)
+  if (!td) return
+
+  const targetRegion = String(
+    region ||
+    fresh.region ||
+    detailOciRegion() ||
+    td.tenant?.ociRegion ||
+    '',
+  ).trim()
+  if (!targetRegion) return
+
+  const patchRows = (rows: any[]) => {
+    let changed = false
+    const next = rows.map((row: any) => {
+      if (String(row?.instanceId || '') !== normalizedInstanceId) return row
+      changed = true
+      return { ...row, ...fresh }
+    })
+    return changed ? next : rows
+  }
+
+  const visibleRegion = instanceListRegion(td)
+  const visibleRowsMatchTarget = visibleRegion === targetRegion && td.instancesRegion === targetRegion
+  if (visibleRowsMatchTarget) {
+    td.instances = patchRows(td.instances || [])
+  }
+
+  const key = instanceListCacheKeyByTenant(normalizedTenantId, targetRegion)
+  const cachedRows = appQueryCache.get<any[]>(key)
+  if (cachedRows) {
+    appQueryCache.set(key, patchRows(cachedRows), INSTANCE_LIST_CACHE_TTL_MS)
+  } else if (visibleRowsMatchTarget) {
+    appQueryCache.set(key, td.instances || [], INSTANCE_LIST_CACHE_TTL_MS)
   }
 }
 
@@ -756,13 +831,23 @@ function handleShapeEditInstanceUpdated(result?: Record<string, any>) {
   if (result.ocpus != null) inst.ocpus = result.ocpus
   if (result.memoryInGBs != null) inst.memoryInGBs = result.memoryInGBs
   if (result.name) inst.name = result.name
+  patchInstanceInListAndCache(
+    String(currentTenant.value.id || ''),
+    instanceDetailRegionParam().region || inst.region,
+    String(inst.instanceId || ''),
+    result,
+  )
 }
 
 function scheduleCurrentTenantInstanceReload() {
   const tenantId = currentTenant.value?.id
   if (!tenantId) return
   const td = tenantDataList.value.find(t => t.tenant.id === tenantId)
-  if (td) scheduleReload(() => loadTenantInstances(td, { force: true }), 3000)
+  if (td) {
+    const region = instanceDetailRegionParam().region || instanceListRegion(td)
+    invalidateInstanceListCache(td, region)
+    scheduleReload(() => loadTenantInstances(td, { force: true, region }), 3000)
+  }
 }
 
 const {
@@ -808,7 +893,16 @@ const {
   clampQuickTaskResources,
   snapQuickTaskBootVpus,
   handleQuickTask,
-} = useQuickTask()
+} = useQuickTask({
+  onTaskCreated: (tenant, region) => {
+    const td = findTenantDataById(String(tenant?.id || ''))
+    if (!td) return
+    invalidateInstanceListCache(td, region || instanceListRegion(td))
+    if (String(activeTenantId.value || '') === String(tenant?.id || '')) {
+      scheduleReload(() => loadTenantInstances(td, { force: true, region: region || instanceListRegion(td) }), 5000)
+    }
+  },
+})
 
 const {
   tenantWorkspaceKind,
@@ -1005,17 +1099,35 @@ async function loadTenantInstances(td: TenantData, options: LoadTenantInstancesO
     : options
   const force = opts.force === true
   const notify = opts.notify === true
-  const reg = instanceListRegion(td)
+  const reg = (opts.region?.trim() || instanceListRegion(td)).trim()
+  const tenantId = String(td.tenant?.id || '')
+  const isSameVisibleRegion = () =>
+    String(activeTenantId.value || '') !== tenantId || instanceListRegion(td) === reg
   const cached = getInstanceListCache(td, reg)
+  const hadVisibleRows = td.instancesRegion === reg && Array.isArray(td.instances) && td.instances.length > 0
 
   if (cached) {
-    td.instances = cached.rows
+    if (isSameVisibleRegion()) {
+      td.instances = cached.rows
+      td.instancesRegion = reg
+    }
     if (!force && Date.now() - cached.fetchedAt < INSTANCE_LIST_CACHE_TTL_MS) {
+      if (isSameVisibleRegion()) td.loading = false
       return
     }
   }
+  if (!cached && isSameVisibleRegion() && td.instancesRegion !== reg) {
+    td.instances = []
+    td.instancesRegion = reg
+  }
 
-  td.loading = true
+  const requestSeq = ++instanceListLoadSeq
+  const requestKey = tenantId ? `${tenantId}|${reg}` : ''
+  if (requestKey) instanceListActiveRequests.set(requestKey, requestSeq)
+  const isLatestRequest = () => !requestKey || instanceListActiveRequests.get(requestKey) === requestSeq
+  const canApplyResult = () => isLatestRequest() && isSameVisibleRegion()
+
+  if (isSameVisibleRegion()) td.loading = true
   try {
     const rows = await appQueryCache.fetch(
       instanceListCacheKey(td, reg),
@@ -1026,23 +1138,29 @@ async function loadTenantInstances(td: TenantData, options: LoadTenantInstancesO
       { staleMs: INSTANCE_LIST_CACHE_TTL_MS, force },
     )
 
-    const sameVisibleRegion = activeTenantId.value !== td.tenant.id || instanceListRegion(td) === reg
-    if (!sameVisibleRegion) return
+    if (!canApplyResult()) return
 
+    setInstanceListCache(td, reg, rows)
     td.instances = rows
+    td.instancesRegion = reg
     if (currentTenant.value?.id === td.tenant.id && currentInstance.value?.instanceId) {
       const fresh = rows.find((i: any) => i.instanceId === currentInstance.value.instanceId)
       if (fresh) currentInstance.value = { ...currentInstance.value, ...fresh }
     }
     if (notify) message.success('实例列表已刷新')
   } catch (e: any) {
+    if (!canApplyResult()) return
     if (notify) {
       message.error(e?.message || '刷新实例列表失败')
-    } else if (!cached) {
+    } else if (!cached && !hadVisibleRows) {
       td.instances = []
+      td.instancesRegion = reg
     }
   } finally {
-    td.loading = false
+    if (isLatestRequest()) {
+      if (isSameVisibleRegion()) td.loading = false
+      if (requestKey) instanceListActiveRequests.delete(requestKey)
+    }
   }
 }
 
@@ -1081,10 +1199,14 @@ const {
   currentTenant,
   currentInstance,
   resolveRegionParam: instanceDetailRegionParam,
-  onTerminated: (tenant) => {
+  onTerminated: (tenant, instance) => {
+    const region = String(instance?.region || instanceDetailRegionParam().region || '').trim()
     closeDrawer()
     const td = tenantDataList.value.find(t => t.tenant.id === tenant.id)
-    if (td) scheduleReload(() => loadTenantInstances(td, { force: true }), 3000)
+    if (td) {
+      invalidateInstanceListCache(td, region || instanceListRegion(td))
+      scheduleReload(() => loadTenantInstances(td, { force: true, region: region || instanceListRegion(td) }), 3000)
+    }
   },
 })
 const instanceManagerConfirmOverlayActive = ref(false)
@@ -1110,6 +1232,8 @@ const {
   resolveDetailScopeParam: instanceDetailScopeParam,
   scheduleReload,
   loadTenantInstances,
+  invalidateTenantInstanceCache,
+  patchInstanceInListAndCache,
   loadNetworkDetail: () => callDetailDrawerShell('loadNetworkDetail'),
   openTerminateVerify,
   setConfirmOverlayActive: (active) => {
@@ -1143,24 +1267,41 @@ function openEditInstance() {
 
 async function handleEditInstance() {
   if (!currentInstance.value || !currentTenant.value) return
+  const tenant = currentTenant.value
+  const instance = currentInstance.value
+  const tenantId = String(tenant.id || '')
+  const instanceId = String(instance.instanceId || '')
+  const regionParam = instanceDetailRegionParam()
+  const region = String(regionParam.region || instance.region || '').trim()
   const displayName = editInstanceForm.displayName.trim()
-  if (!displayName || displayName === currentInstance.value.name) {
+  if (!displayName || displayName === instance.name) {
     message.info('请输入新的实例名称')
     return
   }
   editInstanceLoading.value = true
   try {
     const res = await updateInstance({
-      id: currentTenant.value.id,
-      instanceId: currentInstance.value.instanceId,
+      id: tenantId,
+      instanceId,
       displayName,
-      ...instanceDetailRegionParam(),
+      ...(region ? { region } : {}),
     })
     message.success('实例名称已更新')
-    if (res.data?.name) currentInstance.value.name = res.data.name
+    const stillCurrent =
+      String(currentTenant.value?.id || '') === tenantId &&
+      String(currentInstance.value?.instanceId || '') === instanceId
+    if (stillCurrent && res.data?.name) currentInstance.value.name = res.data.name
     editInstanceVisible.value = false
-    const td = tenantDataList.value.find(t => t.tenant.id === currentTenant.value.id)
-    if (td) loadTenantInstances(td, { force: true })
+    const td = findTenantDataById(tenantId)
+    if (td) {
+      patchInstanceInListAndCache(
+        tenantId,
+        region,
+        instanceId,
+        res.data || { name: displayName },
+      )
+      void loadTenantInstances(td, { force: true, region })
+    }
   } catch (e: any) {
     message.error(e?.message || '修改实例失败')
   } finally {

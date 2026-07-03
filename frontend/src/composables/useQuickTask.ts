@@ -23,7 +23,11 @@ import {
   QUICK_TASK_CONFIRM_MODAL_Z_INDEX,
 } from '../utils/overlayZIndex'
 
-export function useQuickTask() {
+interface UseQuickTaskOptions {
+  onTaskCreated?: (tenant: any, region: string) => void | Promise<void>
+}
+
+export function useQuickTask(options: UseQuickTaskOptions = {}) {
   const quickTaskVisible = ref(false)
   const quickTaskLoading = ref(false)
   const quickTaskTenant = ref<any>(null)
@@ -205,6 +209,9 @@ export function useQuickTask() {
       await createTask(payload)
       message.success('开机任务已创建')
       quickTaskVisible.value = false
+      try {
+        await options.onTaskCreated?.(quickTaskTenant.value, String(payload?.ociRegion || '').trim())
+      } catch {}
     } catch (e: any) {
       message.error(e?.message || '创建任务失败')
     }

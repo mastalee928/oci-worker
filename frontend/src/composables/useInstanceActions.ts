@@ -21,6 +21,8 @@ interface UseInstanceActionsOptions {
   resolveDetailScopeParam: () => { region?: string; compartmentId?: string }
   scheduleReload: (fn: () => void, delay: number) => void
   loadTenantInstances: (td: any, options?: any) => Promise<unknown> | unknown
+  invalidateTenantInstanceCache?: (tenantId: string, region?: string) => void
+  patchInstanceInListAndCache?: (tenantId: string, region: string | undefined, instanceId: string, fresh: Record<string, any>) => void
   loadNetworkDetail: () => Promise<unknown> | unknown
   openTerminateVerify: (tenant: any, record: any) => void
   setConfirmOverlayActive: (active: boolean) => void
@@ -71,7 +73,10 @@ export function useInstanceActions(options: UseInstanceActionsOptions) {
       await updateInstanceState({ id: tenantId, instanceId, action, region: reg })
       message.success('操作已提交')
       const td = options.findTenantDataById(tenantId)
-      if (td) options.scheduleReload(() => options.loadTenantInstances(td, { force: true }), 3000)
+      if (td) {
+        options.invalidateTenantInstanceCache?.(tenantId, reg)
+        options.scheduleReload(() => options.loadTenantInstances(td, { force: true, region: reg }), 3000)
+      }
     } catch (e: any) {
       message.error(e?.message || '操作失败')
     } finally {
@@ -131,13 +136,20 @@ export function useInstanceActions(options: UseInstanceActionsOptions) {
     const gen = ++changeIpRequestGen
     changeIpLoadingOwner.value = instanceId
     try {
+      const scopeParam = options.resolveDetailScopeParam()
       await changeIp({
         id: tenantId,
         instanceId,
-        ...options.resolveDetailScopeParam(),
+        ...scopeParam,
       })
       if (!isCurrentInstance(tenantId, instanceId)) return
       message.success('换 IP 请求已提交')
+      const td = options.findTenantDataById(tenantId)
+      if (td) {
+        const refreshRegion = scopeParam.region || String(instance.region || tenant.ociRegion || '').trim()
+        options.invalidateTenantInstanceCache?.(tenantId, refreshRegion)
+        options.scheduleReload(() => options.loadTenantInstances(td, { force: true, region: refreshRegion }), 3000)
+      }
       options.scheduleReload(() => { void options.loadNetworkDetail() }, 3000)
     } catch (e: any) {
       if (!isCurrentInstance(tenantId, instanceId)) return
@@ -156,9 +168,10 @@ export function useInstanceActions(options: UseInstanceActionsOptions) {
     const gen = ++refreshInfoRequestGen
     instanceInfoLoadingOwner.value = instanceId
     try {
+      const regionParam = options.resolveDetailRegionParam()
       const res = await getInstanceList({
         id: tenantId,
-        ...options.resolveDetailRegionParam(),
+        ...regionParam,
         force: true,
       })
       if (!isCurrentInstance(tenantId, instanceId)) return
@@ -169,10 +182,14 @@ export function useInstanceActions(options: UseInstanceActionsOptions) {
       }
       const current = options.getCurrentInstance()
       options.setCurrentInstance({ ...current, ...fresh })
-      const td = options.findTenantDataById(tenantId)
-      if (td) {
-        const idx = td.instances.findIndex((i: any) => i.instanceId === instanceId)
-        if (idx >= 0) td.instances[idx] = { ...td.instances[idx], ...fresh }
+      if (options.patchInstanceInListAndCache) {
+        options.patchInstanceInListAndCache(tenantId, regionParam.region || fresh.region, instanceId, fresh)
+      } else {
+        const td = options.findTenantDataById(tenantId)
+        if (td) {
+          const idx = td.instances.findIndex((i: any) => i.instanceId === instanceId)
+          if (idx >= 0) td.instances[idx] = { ...td.instances[idx], ...fresh }
+        }
       }
       message.success('实例信息已刷新')
     } catch (e: any) {
