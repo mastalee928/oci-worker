@@ -990,11 +990,11 @@ const settingsPrimaryTabs = [
 ] as const
 const settingsSecondaryTabs: Record<typeof settingsPrimaryTabs[number]['key'], SettingsSecondaryTab[]> = {
   security: [
-    { key: 'password', label: '登录密码', title: '登录密码', desc: '安全一级 Tab 通过一次 Telegram 验证后，直接显示改密表单。' },
+    { key: 'password', label: '登录密码', title: '登录密码', desc: '' },
     { key: 'credential', label: '开机凭据', title: '开机凭据', desc: '保存我的密码和我的公钥，供快捷开机一键使用。' },
-    { key: 'guide', label: '安全说明', title: '安全说明', desc: '查看 Token 有效期、关闭浏览器后的登录状态和退出登录入口。' },
     { key: 'audit', label: '登录统计', title: '登录统计', desc: '查看登录记录，支持刷新、分页、复制 IP/设备码和展开详情。' },
     { key: 'banlist', label: '封禁列表', title: '封禁列表', desc: '管理被封禁的 IP 和设备，支持新增、刷新和解除。' },
+    { key: 'guide', label: '安全说明', title: '安全说明', desc: '查看 Token 有效期、关闭浏览器后的登录状态和退出登录入口。' },
   ],
   notify: [
     { key: 'telegram', label: 'Telegram 基础', title: 'Telegram 基础', desc: '配置 Bot Token、Chat ID 和通知类型。' },
@@ -1015,13 +1015,14 @@ const settingsSecondaryTabs: Record<typeof settingsPrimaryTabs[number]['key'], S
 const activeSettingsSecondaryTabs = computed(() => settingsSecondaryTabs[activeSettingsPrimary.value])
 const activeSettingsSecondaryMeta = computed(() => {
   if (activeSettingsPrimary.value === 'security' && !securityTgVerified.value) {
-    return { label: 'Telegram 验证', title: '安全验证', desc: '进入安全设置只做一次 Telegram 验证，通过后显示登录密码、开机凭据、登录统计和封禁列表。' }
+    return { label: '', title: '安全验证', desc: '' }
   }
   return activeSettingsSecondaryTabs.value.find((tab) => isSettingsSecondaryActive(tab.key)) || activeSettingsSecondaryTabs.value[0]
 })
 const activeSettingsContentTitle = computed(() => activeSettingsSecondaryMeta.value.title)
 const activeSettingsContentDesc = computed(() => activeSettingsSecondaryMeta.value.desc)
 const activeSettingsPath = computed(() => {
+  if (activeSettingsPrimary.value === 'security' && !securityTgVerified.value) return ''
   const primary = settingsPrimaryTabs.find((tab) => tab.key === activeSettingsPrimary.value)?.label || ''
   return `${primary} / ${activeSettingsSecondaryMeta.value.label}`
 })

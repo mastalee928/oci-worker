@@ -14,23 +14,18 @@
       </button>
     </nav>
 
-    <div class="settings-secondary-wrap">
+    <div v-if="!secondaryLocked" class="settings-secondary-wrap">
       <nav class="settings-secondary-tabs" aria-label="系统设置二级分类">
-        <span v-if="secondaryLocked" class="settings-secondary-note">
-          完成 Telegram 验证后显示安全设置
-        </span>
-        <template v-else>
-          <button
-            v-for="tab in secondaryTabs"
-            :key="tab.key"
-            type="button"
-            class="settings-secondary-tab"
-            :class="{ active: isSecondaryActive(tab.key) }"
-            @click="emit('selectSecondary', tab.key)"
-          >
-            {{ tab.label }}
-          </button>
-        </template>
+        <button
+          v-for="tab in secondaryTabs"
+          :key="tab.key"
+          type="button"
+          class="settings-secondary-tab"
+          :class="{ active: isSecondaryActive(tab.key) }"
+          @click="emit('selectSecondary', tab.key)"
+        >
+          {{ tab.label }}
+        </button>
       </nav>
     </div>
 
@@ -38,9 +33,9 @@
       <div class="settings-content-head">
         <div class="settings-content-title">
           <h2>{{ activeTitle }}</h2>
-          <p>{{ activeDesc }}</p>
+          <p v-if="activeDesc">{{ activeDesc }}</p>
         </div>
-        <span class="settings-path-tag">{{ activePath }}</span>
+        <span v-if="activePath" class="settings-path-tag">{{ activePath }}</span>
       </div>
 
       <slot />
@@ -81,6 +76,8 @@ const emit = defineEmits<{
 
 <style scoped>
 .settings-tabs-frame {
+  --settings-secondary-bg: rgba(15, 23, 42, 0.16);
+
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
@@ -88,6 +85,10 @@ const emit = defineEmits<{
   box-shadow: var(--shadow-card);
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
+}
+
+:global(html[data-theme="light"] .settings-tabs-frame) {
+  --settings-secondary-bg: rgba(248, 250, 252, 0.52);
 }
 
 .settings-primary-tabs {
@@ -155,10 +156,10 @@ const emit = defineEmits<{
 .settings-secondary-wrap {
   border-top: 1px solid var(--border);
   padding: 0 18px;
-  background: rgba(15, 23, 42, 0.16);
+  background: var(--settings-secondary-bg);
 }
 
-:global([data-theme="light"]) .settings-secondary-wrap {
+:global(html[data-theme="light"] .settings-secondary-wrap) {
   background: rgba(248, 250, 252, 0.52);
 }
 
@@ -203,15 +204,6 @@ const emit = defineEmits<{
   height: 2px;
   border-radius: 2px 2px 0 0;
   background: var(--primary);
-}
-
-.settings-secondary-note {
-  display: inline-flex;
-  align-items: center;
-  min-height: 46px;
-  color: var(--text-sub);
-  font-size: 13px;
-  white-space: nowrap;
 }
 
 .settings-content {
