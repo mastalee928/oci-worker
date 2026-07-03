@@ -82,7 +82,13 @@
                   allow-clear
                   @pressEnter="unlockSecuritySettingsPanel"
                 />
-                <a-button type="primary" block @click="unlockSecuritySettingsPanel" :disabled="!securityUnlockCode">
+                <a-button
+                  type="primary"
+                  block
+                  @click="unlockSecuritySettingsPanel"
+                  :loading="securityUnlocking"
+                  :disabled="!securityUnlockCode || securityUnlocking"
+                >
                   验证并进入安全设置
                 </a-button>
               </a-space>
@@ -1043,6 +1049,7 @@ const SECURITY_SETTINGS_SESSION_HDR = 'X-Oci-Security-Settings-Session'
 const securityTgVerified = ref(false)
 const securityUnlockCode = ref('')
 const securityCodeSending = ref(false)
+const securityUnlocking = ref(false)
 const securityCodeCountdown = ref(0)
 const securitySession = ref('')
 let securityCountdownTimer: ReturnType<typeof setInterval> | null = null
@@ -1832,11 +1839,13 @@ async function sendSecuritySettingsCode() {
 }
 
 async function unlockSecuritySettingsPanel() {
+  if (securityUnlocking.value) return
   const c = securityUnlockCode.value?.trim()
   if (!c || c.length !== 6) {
     message.warning('请输入 6 位验证码')
     return
   }
+  securityUnlocking.value = true
   try {
     const res = await unlockSecuritySettings(c)
     securitySession.value = res.data?.securitySession || ''
@@ -1852,6 +1861,8 @@ async function unlockSecuritySettingsPanel() {
     selectSettingsSecondary('password')
   } catch {
     /* 全局已提示 */
+  } finally {
+    securityUnlocking.value = false
   }
 }
 
