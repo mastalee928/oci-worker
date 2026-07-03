@@ -59,7 +59,7 @@
       :active-title="activeSettingsContentTitle"
       :active-desc="activeSettingsContentDesc"
       :active-path="activeSettingsPath"
-      :secondary-locked="activeSettingsPrimary === 'security' && !securityTgVerified"
+      :secondary-locked="settingsSecondaryLocked"
       :is-secondary-active="isSettingsSecondaryKeyActive"
       @select-primary="handleSettingsPrimarySelect"
       @select-secondary="handleSettingsSecondarySelect"
@@ -180,17 +180,23 @@
         </a-card>
         </template>
 
+        <template v-else-if="activeSettingsPrimary === 'notify' && !notifyPwdVerified">
+          <a-card title="登录密码验证" class="settings-card pwd-change-card security-gate-card">
+            <template #extra><a-tag color="warning">待验证</a-tag></template>
+            <div class="lock-panel settings-no-select">
+              <i class="ri-lock-2-line lock-icon"></i>
+              <p class="lock-text">请输入登录密码进入通知设置</p>
+              <a-space direction="vertical" style="width: 100%">
+                <a-input-password v-model:value="notifyPwd" placeholder="输入登录密码" @pressEnter="verifyNotifyPwd" />
+                <a-button type="primary" block @click="verifyNotifyPwd" :disabled="!notifyPwd">验证并进入通知设置</a-button>
+              </a-space>
+            </div>
+          </a-card>
+        </template>
+
         <template v-else-if="activeTab === 'notify'">
         <a-card title="消息通知" class="settings-card-wide notify-tg-card notify-settings-card">
-          <div v-if="!notifyPwdVerified" class="lock-panel settings-no-select">
-            <i class="ri-lock-2-line lock-icon"></i>
-            <p class="lock-text">请输入登录密码进行配置</p>
-            <a-space direction="vertical" style="width: 100%">
-              <a-input-password v-model:value="notifyPwd" placeholder="输入登录密码" @pressEnter="verifyNotifyPwd" />
-              <a-button type="primary" block @click="verifyNotifyPwd" :disabled="!notifyPwd">验证</a-button>
-            </a-space>
-          </div>
-          <div v-else>
+          <div>
             <a-form v-if="notifySection === 'telegram'" layout="vertical" class="notify-section-panel">
               <a-form-item label="Bot Token">
                 <a-input v-model:value="tgConfig.botToken" placeholder="输入 Telegram Bot Token" />
@@ -1013,16 +1019,23 @@ const settingsSecondaryTabs: Record<typeof settingsPrimaryTabs[number]['key'], S
   ],
 }
 const activeSettingsSecondaryTabs = computed(() => settingsSecondaryTabs[activeSettingsPrimary.value])
+const settingsSecondaryLocked = computed(() =>
+  (activeSettingsPrimary.value === 'security' && !securityTgVerified.value)
+  || (activeSettingsPrimary.value === 'notify' && !notifyPwdVerified.value),
+)
 const activeSettingsSecondaryMeta = computed(() => {
   if (activeSettingsPrimary.value === 'security' && !securityTgVerified.value) {
     return { label: '', title: '安全验证', desc: '' }
+  }
+  if (activeSettingsPrimary.value === 'notify' && !notifyPwdVerified.value) {
+    return { label: '', title: '通知验证', desc: '' }
   }
   return activeSettingsSecondaryTabs.value.find((tab) => isSettingsSecondaryActive(tab.key)) || activeSettingsSecondaryTabs.value[0]
 })
 const activeSettingsContentTitle = computed(() => activeSettingsSecondaryMeta.value.title)
 const activeSettingsContentDesc = computed(() => activeSettingsSecondaryMeta.value.desc)
 const activeSettingsPath = computed(() => {
-  if (activeSettingsPrimary.value === 'security' && !securityTgVerified.value) return ''
+  if (settingsSecondaryLocked.value) return ''
   const primary = settingsPrimaryTabs.find((tab) => tab.key === activeSettingsPrimary.value)?.label || ''
   return `${primary} / ${activeSettingsSecondaryMeta.value.label}`
 })
@@ -1128,6 +1141,12 @@ function selectSettingsPrimary(key: typeof settingsPrimaryTabs[number]['key']) {
       activeTab.value = 'security'
       securitySection.value = 'password'
     }
+    return
+  }
+  if (key === 'notify') {
+    activeTab.value = 'notify'
+    notifySection.value = 'telegram'
+    if (notifyPwdVerified.value) selectSettingsSecondary('telegram')
     return
   }
   selectSettingsSecondary(settingsSecondaryTabs[key][0].key)
@@ -1858,6 +1877,7 @@ async function verifyNotifyPwd() {
   try {
     await request.post('/auth/verifyPassword', { password: notifyPwd.value }, { skipBusinessMessage: true } as object)
     notifyVerifiedPwd.value = notifyPwd.value
+    notifyPwd.value = ''
     notifyPwdVerified.value = true
     message.success('验证通过')
   } catch (e: any) {
