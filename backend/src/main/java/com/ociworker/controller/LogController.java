@@ -5,7 +5,6 @@ import com.ociworker.service.LogPersistService;
 import jakarta.annotation.Resource;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.List;
 import java.util.Map;
 
 @RestController
@@ -14,18 +13,31 @@ public class LogController {
 
     @Resource
     private LogPersistService logPersistService;
+    private static final int DEFAULT_SEARCH_LIMIT = 1000;
+    private static final int MAX_SEARCH_LIMIT = 3000;
 
     @PostMapping("/search")
-    public ResponseData<?> search(@RequestBody Map<String, String> params) {
-        String keyword = params.get("keyword");
-        List<String> all = logPersistService.readAllLines();
-        if (keyword == null || keyword.isBlank()) {
-            return ResponseData.ok(all);
+    public ResponseData<?> search(@RequestBody(required = false) Map<String, Object> params) {
+        String keyword = normalizeKeyword(params == null ? null : params.get("keyword"));
+        int limit = normalizeLimit(params == null ? null : params.get("limit"));
+        return ResponseData.ok(logPersistService.searchRecent(keyword, limit));
+    }
+
+    private String normalizeKeyword(Object rawKeyword) {
+        return rawKeyword == null ? "" : String.valueOf(rawKeyword);
+    }
+
+    private int normalizeLimit(Object rawLimit) {
+        int value = DEFAULT_SEARCH_LIMIT;
+        if (rawLimit instanceof Number n) {
+            value = n.intValue();
+        } else if (rawLimit instanceof String s && !s.isBlank()) {
+            try {
+                value = Integer.parseInt(s.trim());
+            } catch (NumberFormatException ignored) {
+                value = DEFAULT_SEARCH_LIMIT;
+            }
         }
-        String lowerKey = keyword.toLowerCase();
-        List<String> matched = all.stream()
-                .filter(line -> line.toLowerCase().contains(lowerKey))
-                .toList();
-        return ResponseData.ok(matched);
+        return Math.max(1, Math.min(MAX_SEARCH_LIMIT, value));
     }
 }

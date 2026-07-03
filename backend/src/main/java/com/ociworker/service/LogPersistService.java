@@ -7,9 +7,11 @@ import org.springframework.stereotype.Service;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
+import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 @Slf4j
@@ -19,6 +21,7 @@ public class LogPersistService {
     private static final long MAX_SIZE = 20 * 1024 * 1024; // 20MB
     private static final long TRIM_TARGET = 15 * 1024 * 1024; // trim to 15MB when exceeds
     private static final String LOG_FILE = "logs/app-ws.log";
+    private static final int MAX_SEARCH_RESULT_LIMIT = 3000;
 
     private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
     private Path logPath;
@@ -53,14 +56,35 @@ public class LogPersistService {
         }
     }
 
-    public List<String> readAllLines() {
+    public LogSearchResult searchRecent(String keyword, int limit) {
+        String kw = keyword == null ? "" : keyword.trim();
+        int safeLimit = Math.max(1, Math.min(MAX_SEARCH_RESULT_LIMIT, limit));
+        if (kw.isEmpty()) {
+            return new LogSearchResult(Collections.emptyList(), 0, false, safeLimit);
+        }
+
         lock.readLock().lock();
         try {
-            if (!Files.exists(logPath)) return Collections.emptyList();
-            return Files.readAllLines(logPath, StandardCharsets.UTF_8);
+            if (!Files.exists(logPath)) {
+                return new LogSearchResult(Collections.emptyList(), 0, false, safeLimit);
+            }
+            String lowerKey = kw.toLowerCase(Locale.ROOT);
+            ArrayDeque<String> recent = new ArrayDeque<>(safeLimit);
+            int total = 0;
+            for (String line : Files.readAllLines(logPath, StandardCharsets.UTF_8)) {
+                if (!line.toLowerCase(Locale.ROOT).contains(lowerKey)) {
+                    continue;
+                }
+                total++;
+                if (recent.size() == safeLimit) {
+                    recent.removeFirst();
+                }
+                recent.addLast(line);
+            }
+            return new LogSearchResult(new ArrayList<>(recent), total, total > safeLimit, safeLimit);
         } catch (IOException e) {
-            log.error("Failed to read log: {}", e.getMessage());
-            return Collections.emptyList();
+            log.error("Failed to search log: {}", e.getMessage());
+            return new LogSearchResult(Collections.emptyList(), 0, false, safeLimit);
         } finally {
             lock.readLock().unlock();
         }
@@ -100,5 +124,8 @@ public class LogPersistService {
         } catch (IOException e) {
             log.error("Failed to trim log file: {}", e.getMessage());
         }
+    }
+
+    public record LogSearchResult(List<String> records, int total, boolean limited, int limit) {
     }
 }

@@ -20,9 +20,10 @@
       </a-space>
     </div>
     <div v-if="isSearchMode" style="margin-bottom: 8px">
-      <a-tag color="blue">搜索结果: {{ searchResults.length }} 条</a-tag>
+      <a-tag color="blue">搜索结果: {{ searchTotal }} 条</a-tag>
       <a-tag>关键词: {{ activeSearchKeyword }}</a-tag>
-      <a-tag v-if="searchResults.length > displayRows.length">仅显示最近 {{ displayRows.length }} 条</a-tag>
+      <a-tag v-if="searchBackendLimited">仅返回最近 {{ searchLimit }} 条</a-tag>
+      <a-tag v-else-if="searchResults.length > displayRows.length">仅显示最近 {{ displayRows.length }} 条</a-tag>
     </div>
     <div ref="logContainer" class="log-container">
       <div v-if="isSearchMode" v-for="row in displayRows" :key="row.key" class="log-line" :class="getLogClass(row.line)"
@@ -65,11 +66,16 @@ const shouldAutoConnect = ref(true)
 const searchKeyword = ref('')
 const activeSearchKeyword = ref('')
 const searchResults = ref<string[]>([])
+const searchTotal = ref(0)
+const searchBackendLimited = ref(false)
+const searchLimit = ref(0)
 const searchLoading = ref(false)
 const isSearchMode = ref(false)
 const REALTIME_RENDER_LIMIT = 1500
 const SEARCH_RENDER_LIMIT = 1000
+const SEARCH_REQUEST_LIMIT = 1000
 let logSeq = 0
+let searchRequestSeq = 0
 
 const displayRows = computed<LogDisplayRow[]>(() => {
   if (isSearchMode.value) {
@@ -178,25 +184,47 @@ async function handleSearch(value: string) {
     message.warning('请输入搜索关键词')
     return
   }
+  const requestSeq = ++searchRequestSeq
   searchLoading.value = true
   try {
-    const res = await request.post('/log/search', { keyword: kw })
-    searchResults.value = res.data || []
+    const res = await request.post('/log/search', { keyword: kw, limit: SEARCH_REQUEST_LIMIT })
+    if (requestSeq !== searchRequestSeq) return
+    const payload = res.data
+    if (Array.isArray(payload)) {
+      searchResults.value = payload
+      searchTotal.value = payload.length
+      searchBackendLimited.value = false
+      searchLimit.value = SEARCH_RENDER_LIMIT
+    } else {
+      const records = Array.isArray(payload?.records) ? payload.records : []
+      searchResults.value = records
+      searchTotal.value = Number(payload?.total ?? records.length) || 0
+      searchBackendLimited.value = payload?.limited === true
+      searchLimit.value = Number(payload?.limit ?? SEARCH_REQUEST_LIMIT) || SEARCH_REQUEST_LIMIT
+    }
     activeSearchKeyword.value = kw
     isSearchMode.value = true
     nextTick(() => {
       logContainer.value?.scrollTo(0, logContainer.value.scrollHeight)
     })
   } catch (e: any) {
-    message.error(e?.message || '搜索失败')
+    if (requestSeq === searchRequestSeq) {
+      message.error(e?.message || '搜索失败')
+    }
   } finally {
-    searchLoading.value = false
+    if (requestSeq === searchRequestSeq) {
+      searchLoading.value = false
+    }
   }
 }
 
 function exitSearch() {
+  searchRequestSeq++
   isSearchMode.value = false
   searchResults.value = []
+  searchTotal.value = 0
+  searchBackendLimited.value = false
+  searchLimit.value = 0
   activeSearchKeyword.value = ''
   nextTick(() => {
     logContainer.value?.scrollTo(0, logContainer.value.scrollHeight)
