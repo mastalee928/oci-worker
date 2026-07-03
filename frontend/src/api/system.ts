@@ -8,6 +8,14 @@ export function sendVerifyCode(action: string, context?: { contextKey?: string; 
   return request.post('/sys/sendVerifyCode', { action, ...(context || {}) })
 }
 
+export function sendSecuritySettingsVerifyCode() {
+  return request.post('/sys/security/sendVerifyCode')
+}
+
+export function unlockSecuritySettings(verifyCode: string) {
+  return request.post('/sys/security/unlock', { verifyCode })
+}
+
 export function getTgStatus() {
   return request.get('/sys/tgStatus')
 }

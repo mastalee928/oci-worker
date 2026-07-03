@@ -13,6 +13,7 @@ import com.ociworker.service.LoginSecurityService;
 import com.ociworker.service.AnnouncementPushService;
 import com.ociworker.service.NotificationService;
 import com.ociworker.service.OciProxyConfigService;
+import com.ociworker.service.SecuritySettingsSessionService;
 import com.ociworker.service.SystemService;
 import com.ociworker.service.TgNotifyConfigRollbackService;
 import com.ociworker.service.VerifyCodeService;
@@ -37,6 +38,7 @@ public class SystemController {
             "^(ssh-rsa|ssh-dss|ssh-ed25519|ecdsa-sha2-nistp(256|384|521))\\s+[A-Za-z0-9+/=]+(\\s+.*)?$");
     private static final String BANLIST_SESSION_HEADER = "X-Oci-Banlist-Session";
     private static final String LOGIN_AUDIT_SESSION_HEADER = "X-Oci-Login-Audit-Session";
+    private static final String SECURITY_SETTINGS_ACTION = "securitySettings";
 
     @Resource
     private SystemService systemService;
@@ -56,6 +58,8 @@ public class SystemController {
     private BanlistViewSessionService banlistViewSessionService;
     @Resource
     private LoginAuditViewSessionService loginAuditViewSessionService;
+    @Resource
+    private SecuritySettingsSessionService securitySettingsSessionService;
     @Resource
     private TgNotifyConfigRollbackService tgNotifyConfigRollbackService;
     @Resource
@@ -296,6 +300,22 @@ public class SystemController {
     @GetMapping("/tgStatus")
     public ResponseData<?> tgStatus() {
         return ResponseData.ok(Map.of("configured", verifyCodeService.isTgConfigured()));
+    }
+
+    @PostMapping("/security/sendVerifyCode")
+    public ResponseData<?> sendSecurityVerifyCode() {
+        verifyCodeService.sendCode(SECURITY_SETTINGS_ACTION);
+        return ResponseData.ok();
+    }
+
+    @PostMapping("/security/unlock")
+    public ResponseData<?> securityUnlock(@RequestBody Map<String, String> body) {
+        verifyCodeService.verifyCode(SECURITY_SETTINGS_ACTION, body.get("verifyCode"));
+        Map<String, String> sessions = new LinkedHashMap<>();
+        sessions.put("securitySession", securitySettingsSessionService.issue());
+        sessions.put("loginAuditSession", loginAuditViewSessionService.issue());
+        sessions.put("banlistSession", banlistViewSessionService.issue());
+        return ResponseData.ok(sessions);
     }
 
     /** 查看登录统计前：校验 TG 验证码（action=loginAudit），下发短期会话 ID。 */

@@ -52,27 +52,49 @@
       </div>
     </a-modal>
 
-    <a-tabs v-model:active-key="activeTab" class="settings-page-tabs">
-      <a-tab-pane key="security" tab="安全设置">
-        <a-segmented v-model:value="securitySection" :options="securitySectionOptions" class="settings-section-segment" />
+    <SystemSettingsTabsFrame
+      :primary-tabs="settingsPrimaryTabs"
+      :secondary-tabs="activeSettingsSecondaryTabs"
+      :active-primary="activeSettingsPrimary"
+      :active-title="activeSettingsContentTitle"
+      :active-desc="activeSettingsContentDesc"
+      :active-path="activeSettingsPath"
+      :secondary-locked="activeSettingsPrimary === 'security' && !securityTgVerified"
+      :is-secondary-active="isSettingsSecondaryKeyActive"
+      @select-primary="handleSettingsPrimarySelect"
+      @select-secondary="handleSettingsSecondarySelect"
+    >
+
+        <template v-if="activeSettingsPrimary === 'security' && !securityTgVerified">
+          <a-card title="Telegram 验证" class="settings-card pwd-change-card security-gate-card">
+            <template #extra><a-tag color="warning">待验证</a-tag></template>
+            <div class="lock-panel settings-no-select">
+              <i class="ri-shield-check-line lock-icon"></i>
+              <p class="lock-text">查看和修改安全设置前，请完成 Telegram 验证</p>
+              <a-space direction="vertical" style="width: 100%">
+                <a-button block @click="sendSecuritySettingsCode" :loading="securityCodeSending" :disabled="securityCodeCountdown > 0">
+                  {{ securityCodeCountdown > 0 ? securityCodeCountdown + ' 秒后可重新发送' : '发送验证码到 Telegram' }}
+                </a-button>
+                <a-input
+                  v-model:value="securityUnlockCode"
+                  placeholder="输入 6 位验证码"
+                  maxlength="6"
+                  allow-clear
+                  @pressEnter="unlockSecuritySettingsPanel"
+                />
+                <a-button type="primary" block @click="unlockSecuritySettingsPanel" :disabled="!securityUnlockCode">
+                  验证并进入安全设置
+                </a-button>
+              </a-space>
+            </div>
+          </a-card>
+        </template>
+
+        <template v-else-if="activeTab === 'security'">
 
         <a-card v-if="securitySection === 'password'" title="修改登录密码" class="settings-card pwd-change-card">
-          <div v-if="!pwdTgVerified" class="lock-panel settings-no-select">
-            <i :class="tgConfigured ? 'ri-shield-check-line' : 'ri-lock-2-line'" class="lock-icon"></i>
-            <p class="lock-text">{{ tgConfigured ? '修改密码需要 Telegram 验证码' : '请输入登录密码以继续' }}</p>
-            <a-space v-if="tgConfigured" direction="vertical" style="width: 100%">
-              <a-button block @click="sendPwdVerifyCode" :loading="pwdCodeSending" :disabled="pwdCodeCountdown > 0">
-                {{ pwdCodeCountdown > 0 ? pwdCodeCountdown + '秒后重新发送' : '发送验证码' }}
-              </a-button>
-              <a-input v-model:value="pwdTgCode" placeholder="输入 TG 验证码" @pressEnter="verifyPwdTgCode" />
-              <a-button type="primary" block @click="verifyPwdTgCode" :disabled="!pwdTgCode">验证</a-button>
-            </a-space>
-            <a-space v-else direction="vertical" style="width: 100%">
-              <a-input-password v-model:value="pwdOverlayPwd" placeholder="输入登录密码" @pressEnter="verifyPwdOverlay" />
-              <a-button type="primary" block @click="verifyPwdOverlay" :disabled="!pwdOverlayPwd">验证</a-button>
-            </a-space>
-          </div>
-          <a-form v-else :model="pwdForm" layout="vertical">
+          <template #extra><a-tag color="success">已通过安全验证</a-tag></template>
+          <a-form :model="pwdForm" layout="vertical">
             <a-form-item label="原密码" required>
               <a-input-password v-model:value="pwdForm.oldPassword" placeholder="输入当前密码" />
             </a-form-item>
@@ -87,11 +109,13 @@
         </a-card>
 
         <a-card v-else-if="securitySection === 'credential'" title="开机凭据" class="settings-card task-credential-card">
+          <template #extra><a-tag>已配置 {{ taskCredentialConfiguredCount }} 项</a-tag></template>
           <div class="task-credential-panel">
             <section class="task-credential-section">
               <div class="task-credential-section-head">
                 <span class="task-credential-title"><i class="ri-lock-password-line"></i>我的密码</span>
                 <a-tag v-if="taskCredentialForm.rootPassword" color="blue">已设置</a-tag>
+                <a-tag v-else>未设置</a-tag>
               </div>
               <a-input-password
                 v-model:value="taskCredentialForm.rootPassword"
@@ -105,6 +129,7 @@
               <div class="task-credential-section-head">
                 <span class="task-credential-title"><i class="ri-key-2-line"></i>我的公钥</span>
                 <a-tag v-if="taskCredentialForm.sshPublicKey" color="green">已设置</a-tag>
+                <a-tag v-else>未设置</a-tag>
               </div>
               <a-upload-dragger
                 accept=".pub"
@@ -153,9 +178,9 @@
             <a-button danger @click="handleForceLogout">立即退出登录</a-button>
           </div>
         </a-card>
-      </a-tab-pane>
+        </template>
 
-      <a-tab-pane key="notify" tab="消息通知">
+        <template v-else-if="activeTab === 'notify'">
         <a-card title="消息通知" class="settings-card-wide notify-tg-card notify-settings-card">
           <div v-if="!notifyPwdVerified" class="lock-panel settings-no-select">
             <i class="ri-lock-2-line lock-icon"></i>
@@ -166,8 +191,6 @@
             </a-space>
           </div>
           <div v-else>
-            <a-segmented v-model:value="notifySection" :options="notifySectionOptions" class="notify-section-segment" />
-
             <a-form v-if="notifySection === 'telegram'" layout="vertical" class="notify-section-panel">
               <a-form-item label="Bot Token">
                 <a-input v-model:value="tgConfig.botToken" placeholder="输入 Telegram Bot Token" />
@@ -521,9 +544,9 @@
             </a-button>
           </div>
         </a-modal>
-      </a-tab-pane>
+        </template>
 
-      <a-tab-pane key="proxy" tab="OCI 代理">
+        <template v-else-if="activeTab === 'proxy'">
         <a-card class="settings-card-wide settings-card-oci-proxy">
           <template #title>
             <span><i class="ri-server-line" style="margin-right: 8px; vertical-align: middle"></i>OCI 代理配置</span>
@@ -583,9 +606,9 @@
             </a-space>
           </a-form>
         </a-card>
-      </a-tab-pane>
+        </template>
 
-      <a-tab-pane key="alidns" tab="阿里云DNS">
+        <template v-else-if="activeTab === 'alidns'">
         <a-card class="settings-card-wide settings-card-wide--alidns">
           <template #title>
             <span><i class="ri-global-line" style="margin-right: 8px; vertical-align: middle"></i>阿里云DNS 凭据</span>
@@ -615,9 +638,9 @@
             </a-form>
           </div>
         </a-card>
-      </a-tab-pane>
+        </template>
 
-      <a-tab-pane key="cloudflare" tab="Cloudflare">
+        <template v-else-if="activeTab === 'cloudflare'">
         <a-card class="settings-card-wide settings-card-wide--cf">
           <template #title>
             <span><i class="ri-cloud-line" style="margin-right: 8px; vertical-align: middle"></i>Cloudflare 全局凭据</span>
@@ -674,48 +697,17 @@
             </div>
           </div>
         </a-card>
-      </a-tab-pane>
+        </template>
 
-      <a-tab-pane key="audit" tab="登录统计">
+        <template v-else-if="activeTab === 'audit'">
         <a-card class="settings-card-audit">
           <template #title>登录记录（保留 7 天，超时自动清理）</template>
           <template #extra>
-            <a-button v-if="auditTgVerified" type="link" size="small" :loading="auditLoading" @click="loadAudit">
+            <a-button type="link" size="small" :loading="auditLoading" @click="loadAudit">
               <template #icon><ReloadOutlined /></template>
               刷新
             </a-button>
           </template>
-          <div v-if="!tgConfigured">
-            <a-alert
-              type="error"
-              show-icon
-              message="登录统计需通过 Telegram 验证后才能查看"
-              description="请先在「消息通知」中配置 Telegram Bot 与 Chat ID。"
-            />
-          </div>
-          <div v-else-if="!auditTgVerified" class="lock-panel audit-lock-panel">
-            <i class="ri-shield-check-line lock-icon"></i>
-            <p class="lock-text">查看登录记录前请完成 Telegram 验证</p>
-            <a-space direction="vertical" style="width: 100%; max-width: 320px">
-              <a-button
-                block
-                @click="sendAuditVerifyCode"
-                :loading="auditCodeSending"
-                :disabled="auditCodeCountdown > 0"
-              >
-                {{ auditCodeCountdown > 0 ? auditCodeCountdown + ' 秒后可重新发送' : '发送验证码到 Telegram' }}
-              </a-button>
-              <a-input
-                v-model:value="auditUnlockCode"
-                placeholder="输入 6 位验证码"
-                maxlength="6"
-                allow-clear
-                @pressEnter="verifyAuditUnlock"
-              />
-              <a-button type="primary" block @click="verifyAuditUnlock" :disabled="!auditUnlockCode">查看登录记录</a-button>
-            </a-space>
-          </div>
-          <template v-else>
             <a-table
               class="audit-table"
               table-layout="fixed"
@@ -773,49 +765,18 @@
                 </template>
               </template>
             </a-table>
-          </template>
         </a-card>
-      </a-tab-pane>
+        </template>
 
-      <a-tab-pane key="banlist" tab="封禁列表">
+        <template v-else-if="activeTab === 'banlist'">
         <a-card class="settings-card-wide settings-card-ban">
           <template #title>封禁列表</template>
-          <div v-if="!tgConfigured">
-            <a-alert
-              type="error"
-              show-icon
-              message="封禁列表需通过 Telegram 验证后才能进入"
-              description="请先在「消息通知」中配置 Telegram Bot 与 Chat ID。"
-            />
-          </div>
-          <div v-else-if="!banlistTgVerified" class="lock-panel banlist-lock-panel">
-            <i class="ri-shield-check-line lock-icon"></i>
-            <p class="lock-text">进入封禁列表前请完成 Telegram 验证</p>
-            <a-space direction="vertical" style="width: 100%; max-width: 320px">
-              <a-button
-                block
-                @click="sendBanlistVerifyCode"
-                :loading="banlistCodeSending"
-                :disabled="banlistCodeCountdown > 0"
-              >
-                {{ banlistCodeCountdown > 0 ? banlistCodeCountdown + ' 秒后可重新发送' : '发送验证码到 Telegram' }}
-              </a-button>
-              <a-input
-                v-model:value="banlistUnlockCode"
-                placeholder="输入 6 位验证码"
-                maxlength="6"
-                allow-clear
-                @pressEnter="verifyBanlistUnlock"
-              />
-              <a-button type="primary" block @click="verifyBanlistUnlock" :disabled="!banlistUnlockCode">进入封禁列表</a-button>
-            </a-space>
-          </div>
-          <template v-else>
+          <template #extra><a-tag color="success">已通过安全验证</a-tag></template>
             <a-space direction="vertical" size="middle" style="width: 100%">
               <a-alert
                 type="warning"
                 show-icon
-                message="已进入封禁列表（已通过 Telegram 验证）。封禁或解除后，对应 IP 或设备在下一次请求起将无法再访问面板接口（含当前已登录会话）。"
+                message="已通过安全验证。封禁或解除后，对应 IP 或设备在下一次请求起将无法再访问面板接口（含当前已登录会话）。"
               />
               <a-form layout="vertical" class="ban-form-compact">
                 <a-form-item label="新增封禁">
@@ -853,11 +814,10 @@
                 </a-col>
               </a-row>
             </a-space>
-          </template>
         </a-card>
-      </a-tab-pane>
+        </template>
 
-      <a-tab-pane key="update" tab="系统更新">
+        <template v-else-if="activeTab === 'update'">
         <a-card title="一键更新" class="settings-card-wide">
           <a-spin :spinning="updateChecking">
             <a-descriptions :column="1" bordered size="small" v-if="updateInfo">
@@ -917,8 +877,8 @@
             <a-descriptions-item label="注意事项">更新期间页面将短暂无法访问，完成后自动恢复</a-descriptions-item>
           </a-descriptions>
         </a-card>
-      </a-tab-pane>
-      <a-tab-pane key="backup" tab="备份恢复">
+        </template>
+        <template v-else-if="activeTab === 'backup'">
         <div class="backup-restore-stack">
           <a-card title="备份" class="settings-card-wide">
             <a-form layout="vertical">
@@ -969,9 +929,14 @@
             <span style="color: var(--text-sub); font-size: 12px">验证码有效期 5 分钟</span>
             <a-button type="link" size="small" :loading="backupCodeSending" @click="resendBackupCode">重新发送</a-button>
           </div>
+          <div style="margin-top: 8px">
+            <a-button type="link" size="small" style="padding: 0; height: auto" @click="showNotifyTgLostHint">
+              Telegram丢失
+            </a-button>
+          </div>
         </a-modal>
-      </a-tab-pane>
-    </a-tabs>
+        </template>
+    </SystemSettingsTabsFrame>
   </div>
 </template>
 
@@ -984,9 +949,10 @@ import { Modal, message } from 'ant-design-vue'
 import type { UploadFile } from 'ant-design-vue'
 import { useUserStore } from '../stores/user'
 import { useThemeStore } from '../stores/theme'
-import { getTaskCredential, saveTaskCredential, sendVerifyCode } from '../api/system'
+import { getTaskCredential, saveTaskCredential, sendSecuritySettingsVerifyCode, sendVerifyCode, unlockSecuritySettings } from '../api/system'
 import UpgradeLoader from '../components/UpgradeLoader.vue'
 import AnnouncementInboxPanel from '../components/settings/AnnouncementInboxPanel.vue'
+import SystemSettingsTabsFrame from '../components/settings/SystemSettingsTabsFrame.vue'
 import request from '../utils/request'
 import { appQueryCache } from '../utils/queryCache'
 import { getCfAccountConfig, saveCfAccountConfig, testCfAccountConfig } from '../api/cloudflare'
@@ -997,12 +963,75 @@ const themeStore = useThemeStore()
 
 const router = useRouter()
 const activeTab = ref('security')
+const activeSettingsPrimary = ref<'security' | 'notify' | 'integration' | 'system'>('security')
 const securitySection = ref<'password' | 'credential' | 'guide'>('password')
-const securitySectionOptions = [
-  { label: '登录密码', value: 'password' },
-  { label: '开机凭据', value: 'credential' },
-  { label: '安全说明', value: 'guide' },
-]
+type SettingsSecondaryKey =
+  | 'password'
+  | 'credential'
+  | 'guide'
+  | 'audit'
+  | 'banlist'
+  | 'telegram'
+  | 'daily'
+  | 'announcement'
+  | 'notifyGuide'
+  | 'proxy'
+  | 'alidns'
+  | 'cloudflare'
+  | 'update'
+  | 'backup'
+type SettingsSecondaryTab = { key: SettingsSecondaryKey; label: string; title: string; desc: string }
+
+const settingsPrimaryTabs = [
+  { key: 'security', label: '安全', count: 5 },
+  { key: 'notify', label: '通知', count: 4 },
+  { key: 'integration', label: '集成', count: 3 },
+  { key: 'system', label: '系统', count: 2 },
+] as const
+const settingsSecondaryTabs: Record<typeof settingsPrimaryTabs[number]['key'], SettingsSecondaryTab[]> = {
+  security: [
+    { key: 'password', label: '登录密码', title: '登录密码', desc: '安全一级 Tab 通过一次 Telegram 验证后，直接显示改密表单。' },
+    { key: 'credential', label: '开机凭据', title: '开机凭据', desc: '保存我的密码和我的公钥，供快捷开机一键使用。' },
+    { key: 'guide', label: '安全说明', title: '安全说明', desc: '查看 Token 有效期、关闭浏览器后的登录状态和退出登录入口。' },
+    { key: 'audit', label: '登录统计', title: '登录统计', desc: '查看登录记录，支持刷新、分页、复制 IP/设备码和展开详情。' },
+    { key: 'banlist', label: '封禁列表', title: '封禁列表', desc: '管理被封禁的 IP 和设备，支持新增、刷新和解除。' },
+  ],
+  notify: [
+    { key: 'telegram', label: 'Telegram 基础', title: 'Telegram 基础', desc: '配置 Bot Token、Chat ID 和通知类型。' },
+    { key: 'daily', label: '每日播报', title: '每日播报', desc: '设置每日播报开关和东八区播报时间。' },
+    { key: 'announcement', label: '云公告推送', title: '云公告推送', desc: '配置云公告推送、收件箱、推送历史和扫描状态。' },
+    { key: 'notifyGuide', label: '通知说明', title: '通知说明', desc: '查看各类 Telegram 通知的触发规则。' },
+  ],
+  integration: [
+    { key: 'proxy', label: 'OCI 代理', title: 'OCI 代理', desc: '配置 OCI API 代理类型、主机、端口、认证和完整代理 URL。' },
+    { key: 'alidns', label: '阿里云DNS', title: '阿里云DNS', desc: '配置阿里云 DNS 凭据并测试连接。' },
+    { key: 'cloudflare', label: 'Cloudflare', title: 'Cloudflare', desc: '配置 Cloudflare 全局凭据并测试连接。' },
+  ],
+  system: [
+    { key: 'update', label: '系统更新', title: '系统更新', desc: '检查版本、执行一键更新并查看更新说明。' },
+    { key: 'backup', label: '备份恢复', title: '备份恢复', desc: '创建加密备份，或从备份包恢复配置。' },
+  ],
+}
+const activeSettingsSecondaryTabs = computed(() => settingsSecondaryTabs[activeSettingsPrimary.value])
+const activeSettingsSecondaryMeta = computed(() => {
+  if (activeSettingsPrimary.value === 'security' && !securityTgVerified.value) {
+    return { label: 'Telegram 验证', title: '安全验证', desc: '进入安全设置只做一次 Telegram 验证，通过后显示登录密码、开机凭据、登录统计和封禁列表。' }
+  }
+  return activeSettingsSecondaryTabs.value.find((tab) => isSettingsSecondaryActive(tab.key)) || activeSettingsSecondaryTabs.value[0]
+})
+const activeSettingsContentTitle = computed(() => activeSettingsSecondaryMeta.value.title)
+const activeSettingsContentDesc = computed(() => activeSettingsSecondaryMeta.value.desc)
+const activeSettingsPath = computed(() => {
+  const primary = settingsPrimaryTabs.find((tab) => tab.key === activeSettingsPrimary.value)?.label || ''
+  return `${primary} / ${activeSettingsSecondaryMeta.value.label}`
+})
+const SECURITY_SETTINGS_SESSION_HDR = 'X-Oci-Security-Settings-Session'
+const securityTgVerified = ref(false)
+const securityUnlockCode = ref('')
+const securityCodeSending = ref(false)
+const securityCodeCountdown = ref(0)
+const securitySession = ref('')
+let securityCountdownTimer: ReturnType<typeof setInterval> | null = null
 const ANNOUNCEMENT_INBOX_STALE_MS = 30_000
 const pwdLoading = ref(false)
 const saveLoading = ref(false)
@@ -1019,15 +1048,6 @@ const tgConfig = reactive({ botToken: '', chatId: '', notifyTypes: [] as string[
 const dailyReportTimePicked = ref<string | null>('09:00')
 
 const tgConfigured = ref(false)
-const pwdTgVerified = ref(false)
-const pwdTgCode = ref('')
-const pwdTgVerifiedCode = ref('')
-const pwdCodeSending = ref(false)
-const pwdCodeCountdown = ref(0)
-let pwdCountdownTimer: any = null
-
-const pwdOverlayPwd = ref('')
-
 const notifyPwdVerified = ref(false)
 const notifyPwd = ref('')
 const notifyVerifiedPwd = ref('')
@@ -1080,12 +1100,80 @@ const notifyTypeOptions = [
 ]
 
 const notifySection = ref<'telegram' | 'daily' | 'announcement' | 'guide'>('telegram')
-const notifySectionOptions = [
-  { label: 'Telegram 基础', value: 'telegram' },
-  { label: '每日播报', value: 'daily' },
-  { label: '云公告推送', value: 'announcement' },
-  { label: '通知说明', value: 'guide' },
-]
+
+function isSettingsSecondaryActive(key: SettingsSecondaryKey): boolean {
+  if (key === 'password' || key === 'credential' || key === 'guide') {
+    return activeTab.value === 'security' && securitySection.value === key
+  }
+  if (key === 'telegram' || key === 'daily' || key === 'announcement') {
+    return activeTab.value === 'notify' && notifySection.value === key
+  }
+  if (key === 'notifyGuide') {
+    return activeTab.value === 'notify' && notifySection.value === 'guide'
+  }
+  return activeTab.value === key
+}
+
+function isSettingsSecondaryKeyActive(key: string): boolean {
+  return isSettingsSecondaryActive(key as SettingsSecondaryKey)
+}
+
+function selectSettingsPrimary(key: typeof settingsPrimaryTabs[number]['key']) {
+  activeSettingsPrimary.value = key
+  if (key === 'security') {
+    if (securityTgVerified.value) {
+      selectSettingsSecondary('password')
+    } else {
+      activeTab.value = 'security'
+      securitySection.value = 'password'
+    }
+    return
+  }
+  selectSettingsSecondary(settingsSecondaryTabs[key][0].key)
+}
+
+function handleSettingsPrimarySelect(key: string) {
+  if (key === 'security' || key === 'notify' || key === 'integration' || key === 'system') {
+    selectSettingsPrimary(key)
+  }
+}
+
+function selectSettingsSecondary(key: SettingsSecondaryKey) {
+  if (key === 'password' || key === 'credential' || key === 'guide') {
+    activeSettingsPrimary.value = 'security'
+    activeTab.value = 'security'
+    securitySection.value = key
+    return
+  }
+  if (key === 'audit' || key === 'banlist') {
+    activeSettingsPrimary.value = 'security'
+    activeTab.value = key
+    return
+  }
+  if (key === 'telegram' || key === 'daily' || key === 'announcement') {
+    activeSettingsPrimary.value = 'notify'
+    activeTab.value = 'notify'
+    notifySection.value = key
+    return
+  }
+  if (key === 'notifyGuide') {
+    activeSettingsPrimary.value = 'notify'
+    activeTab.value = 'notify'
+    notifySection.value = 'guide'
+    return
+  }
+  if (key === 'proxy' || key === 'alidns' || key === 'cloudflare') {
+    activeSettingsPrimary.value = 'integration'
+    activeTab.value = key
+    return
+  }
+  activeSettingsPrimary.value = 'system'
+  activeTab.value = key
+}
+
+function handleSettingsSecondarySelect(key: string) {
+  selectSettingsSecondary(key as SettingsSecondaryKey)
+}
 
 const taskCredentialConfiguredCount = computed(() =>
   (taskCredentialForm.rootPassword ? 1 : 0) + (taskCredentialForm.sshPublicKey ? 1 : 0),
@@ -1248,35 +1336,12 @@ watch(announcementSelectedTenantCount, () => {
   if (tenantSelectedPage.value > maxPage) tenantSelectedPage.value = maxPage
 })
 
-watch(activeTab, (k, prev) => {
-  if (prev === 'audit') {
-    auditTgVerified.value = false
-    auditUnlockCode.value = ''
-    auditSession.value = ''
-    auditExpandedKeys.value = []
-    if (auditCountdownTimer) {
-      clearInterval(auditCountdownTimer)
-      auditCountdownTimer = null
-    }
-    auditCodeCountdown.value = 0
+watch(activeTab, (k) => {
+  if (k === 'audit' && securityTgVerified.value) {
+    loadAudit()
   }
-  if (prev === 'banlist') {
-    banlistTgVerified.value = false
-    banlistUnlockCode.value = ''
-    banlistSession.value = ''
-    if (banlistCountdownTimer) {
-      clearInterval(banlistCountdownTimer)
-      banlistCountdownTimer = null
-    }
-    banlistCodeCountdown.value = 0
-  }
-  if (k === 'audit') {
-    auditTgVerified.value = false
-    auditUnlockCode.value = ''
-  }
-  if (k === 'banlist') {
-    banlistTgVerified.value = false
-    banlistUnlockCode.value = ''
+  if (k === 'banlist' && securityTgVerified.value) {
+    loadBanlist()
   }
   if (k === 'cloudflare') {
     loadCfConfig()
@@ -1725,40 +1790,66 @@ function formatDateTime(value: any) {
   }
 }
 
-async function sendPwdVerifyCode() {
-  pwdCodeSending.value = true
+async function sendSecuritySettingsCode() {
+  securityCodeSending.value = true
   try {
-    await request.post('/sys/sendVerifyCode', { action: 'changePassword' })
+    await sendSecuritySettingsVerifyCode()
     message.success('验证码已发送到 Telegram')
-    pwdCodeCountdown.value = 60
-    if (pwdCountdownTimer) clearInterval(pwdCountdownTimer)
-    pwdCountdownTimer = setInterval(() => {
-      pwdCodeCountdown.value--
-      if (pwdCodeCountdown.value <= 0) clearInterval(pwdCountdownTimer)
+    securityCodeCountdown.value = 60
+    if (securityCountdownTimer) clearInterval(securityCountdownTimer)
+    securityCountdownTimer = setInterval(() => {
+      securityCodeCountdown.value--
+      if (securityCodeCountdown.value <= 0 && securityCountdownTimer) {
+        clearInterval(securityCountdownTimer)
+        securityCountdownTimer = null
+      }
     }, 1000)
   } catch (e: any) {
     message.error(e?.message || '发送失败')
   } finally {
-    pwdCodeSending.value = false
+    securityCodeSending.value = false
   }
 }
 
-function verifyPwdTgCode() {
-  if (!pwdTgCode.value) { message.warning('请输入验证码'); return }
-  pwdTgVerifiedCode.value = pwdTgCode.value
-  pwdTgVerified.value = true
-  message.success('验证通过')
-}
-
-async function verifyPwdOverlay() {
-  if (!pwdOverlayPwd.value) { message.warning('请输入密码'); return }
+async function unlockSecuritySettingsPanel() {
+  const c = securityUnlockCode.value?.trim()
+  if (!c || c.length !== 6) {
+    message.warning('请输入 6 位验证码')
+    return
+  }
   try {
-    await request.post('/auth/verifyPassword', { password: pwdOverlayPwd.value })
-    pwdTgVerified.value = true
+    const res = await unlockSecuritySettings(c)
+    securitySession.value = res.data?.securitySession || ''
+    auditSession.value = res.data?.loginAuditSession || ''
+    banlistSession.value = res.data?.banlistSession || ''
+    if (!securitySession.value || !auditSession.value || !banlistSession.value) {
+      message.error('未返回安全会话，请重试')
+      return
+    }
+    securityTgVerified.value = true
+    securityUnlockCode.value = ''
     message.success('验证通过')
-  } catch (e: any) {
-    message.error(e?.message || '密码错误')
+    selectSettingsSecondary('password')
+  } catch {
+    /* 全局已提示 */
   }
+}
+
+function handleSecuritySessionLost(e: unknown): boolean {
+  const msg = e instanceof Error ? e.message : String(e ?? '')
+  if (!msg.includes('安全设置') && !msg.includes('Telegram 验证') && !msg.includes('登录统计') && !msg.includes('封禁列表')) {
+    return false
+  }
+  securityTgVerified.value = false
+  securitySession.value = ''
+  auditSession.value = ''
+  banlistSession.value = ''
+  securityUnlockCode.value = ''
+  activeSettingsPrimary.value = 'security'
+  activeTab.value = 'security'
+  securitySection.value = 'password'
+  auditExpandedKeys.value = []
+  return true
 }
 
 async function verifyNotifyPwd() {
@@ -1788,11 +1879,12 @@ async function handleChangePassword() {
   }
   pwdLoading.value = true
   try {
+    const headers = securitySession.value ? { [SECURITY_SETTINGS_SESSION_HDR]: securitySession.value } : undefined
+    const config = { ...(headers ? { headers } : {}), skipBusinessMessage: true } as object
     const res = await request.post('/auth/changePassword', {
       oldPassword: pwdForm.oldPassword,
       newPassword: pwdForm.newPassword,
-      verifyCode: pwdTgVerifiedCode.value || undefined,
-    })
+    }, config)
     if (res.data?.token) {
       userStore.setLoginSession(res.data.token, res.data.account)
     }
@@ -1800,12 +1892,12 @@ async function handleChangePassword() {
     pwdForm.oldPassword = ''
     pwdForm.newPassword = ''
     pwdForm.confirmPassword = ''
-    pwdTgVerified.value = false
-    pwdTgCode.value = ''
-    pwdTgVerifiedCode.value = ''
-    pwdOverlayPwd.value = ''
   } catch (e: any) {
-    message.error(e?.message || '修改密码失败')
+    if (handleSecuritySessionLost(e)) {
+      message.warning('安全验证已失效，请重新验证')
+    } else {
+      message.error(e?.message || '修改密码失败')
+    }
   } finally {
     pwdLoading.value = false
   }
@@ -2026,11 +2118,6 @@ async function testTgNotify() {
   }
 }
 
-const auditTgVerified = ref(false)
-const auditUnlockCode = ref('')
-const auditCodeSending = ref(false)
-const auditCodeCountdown = ref(0)
-let auditCountdownTimer: ReturnType<typeof setInterval> | null = null
 const LOGIN_AUDIT_SESSION_HDR = 'X-Oci-Login-Audit-Session'
 const auditSession = ref('')
 
@@ -2040,55 +2127,7 @@ function auditHeaders(): Record<string, string> {
 }
 
 function handleAuditSessionLost(e: unknown) {
-  const msg = e instanceof Error ? e.message : String(e ?? '')
-  if (msg.includes('登录统计') || msg.includes('Telegram 验证')) {
-    auditTgVerified.value = false
-    auditSession.value = ''
-  }
-}
-
-async function sendAuditVerifyCode() {
-  auditCodeSending.value = true
-  try {
-    await sendVerifyCode('loginAudit')
-    message.success('验证码已发送到 Telegram')
-    auditCodeCountdown.value = 60
-    if (auditCountdownTimer) clearInterval(auditCountdownTimer)
-    auditCountdownTimer = setInterval(() => {
-      auditCodeCountdown.value--
-      if (auditCodeCountdown.value <= 0 && auditCountdownTimer) {
-        clearInterval(auditCountdownTimer)
-        auditCountdownTimer = null
-      }
-    }, 1000)
-  } catch (e: any) {
-    message.error(e?.message || '发送失败')
-  } finally {
-    auditCodeSending.value = false
-  }
-}
-
-async function verifyAuditUnlock() {
-  const c = auditUnlockCode.value?.trim()
-  if (!c || c.length !== 6) {
-    message.warning('请输入 6 位验证码')
-    return
-  }
-  try {
-    const res = await request.post('/sys/loginAudit/unlock', { verifyCode: c })
-    const sid = (res.data as { loginAuditSession?: string } | null)?.loginAuditSession?.trim()
-    if (!sid) {
-      message.error('未返回会话，请重试')
-      return
-    }
-    auditSession.value = sid
-    auditTgVerified.value = true
-    auditUnlockCode.value = ''
-    message.success('验证通过')
-    await loadAudit()
-  } catch {
-    /* 全局已提示 */
-  }
+  handleSecuritySessionLost(e)
 }
 
 const auditLoading = ref(false)
@@ -2232,56 +2271,6 @@ function auditDetailSections(record: Record<string, unknown>): AuditDetailSectio
   }
 }
 
-const banlistTgVerified = ref(false)
-const banlistUnlockCode = ref('')
-const banlistCodeSending = ref(false)
-const banlistCodeCountdown = ref(0)
-let banlistCountdownTimer: ReturnType<typeof setInterval> | null = null
-
-async function sendBanlistVerifyCode() {
-  banlistCodeSending.value = true
-  try {
-    await sendVerifyCode('banlist')
-    message.success('验证码已发送到 Telegram')
-    banlistCodeCountdown.value = 60
-    if (banlistCountdownTimer) clearInterval(banlistCountdownTimer)
-    banlistCountdownTimer = setInterval(() => {
-      banlistCodeCountdown.value--
-      if (banlistCodeCountdown.value <= 0 && banlistCountdownTimer) {
-        clearInterval(banlistCountdownTimer)
-        banlistCountdownTimer = null
-      }
-    }, 1000)
-  } catch (e: any) {
-    message.error(e?.message || '发送失败')
-  } finally {
-    banlistCodeSending.value = false
-  }
-}
-
-async function verifyBanlistUnlock() {
-  const c = banlistUnlockCode.value?.trim()
-  if (!c || c.length !== 6) {
-    message.warning('请输入 6 位验证码')
-    return
-  }
-  try {
-    const res = await request.post('/sys/banlist/unlock', { verifyCode: c })
-    const sid = (res.data as { banlistSession?: string } | null)?.banlistSession?.trim()
-    if (!sid) {
-      message.error('未返回会话，请重试')
-      return
-    }
-    banlistSession.value = sid
-    banlistTgVerified.value = true
-    banlistUnlockCode.value = ''
-    message.success('验证通过')
-    await loadBanlist()
-  } catch {
-    /* 全局已提示 */
-  }
-}
-
 const BANLIST_SESSION_HDR = 'X-Oci-Banlist-Session'
 const banlistSession = ref('')
 
@@ -2291,11 +2280,7 @@ function banlistHeaders(): Record<string, string> {
 }
 
 function handleBanlistSessionLost(e: unknown) {
-  const msg = e instanceof Error ? e.message : String(e ?? '')
-  if (msg.includes('封禁列表') || msg.includes('Telegram 验证')) {
-    banlistTgVerified.value = false
-    banlistSession.value = ''
-  }
+  handleSecuritySessionLost(e)
 }
 
 const banInput = ref('')
@@ -2539,9 +2524,7 @@ const isMobile = ref(window.innerWidth < 768)
 function checkMobile() { isMobile.value = window.innerWidth < 768 }
 onUnmounted(() => {
   window.removeEventListener('resize', checkMobile)
-  if (pwdCountdownTimer) clearInterval(pwdCountdownTimer)
-  if (auditCountdownTimer) clearInterval(auditCountdownTimer)
-  if (banlistCountdownTimer) clearInterval(banlistCountdownTimer)
+  if (securityCountdownTimer) clearInterval(securityCountdownTimer)
   if (updatePollTimer) clearInterval(updatePollTimer)
   if (updateStartTimer) clearTimeout(updateStartTimer)
   if (updateRedirectTimer) clearTimeout(updateRedirectTimer)
@@ -2692,10 +2675,8 @@ async function handleRestore() {
   contain-intrinsic-size: 44px;
 }
 
-.settings-page-tabs :deep(.ant-tabs-tab),
-.settings-page-tabs :deep(.ant-tabs-tab-btn) {
-  user-select: none;
-  -webkit-user-select: none;
+.security-gate-card {
+  max-width: 520px;
 }
 
 .backup-restore-stack {
@@ -2746,15 +2727,6 @@ async function handleRestore() {
 .notify-settings-card {
   max-width: min(1120px, 100%);
   width: 100%;
-}
-.settings-section-segment {
-  margin-bottom: 16px;
-  max-width: 100%;
-}
-.notify-section-segment {
-  margin-bottom: 18px;
-  max-width: 100%;
-  overflow-x: auto;
 }
 :global(.upgrade-flow-modal .ant-modal-content) {
   overflow: hidden;
@@ -3282,10 +3254,6 @@ async function handleRestore() {
 .ban-form-compact {
   max-width: 560px;
 }
-.audit-lock-panel,
-.banlist-lock-panel {
-  max-width: 100%;
-}
 .ban-col-title {
   font-weight: 600;
   margin-bottom: 8px;
@@ -3540,12 +3508,6 @@ async function handleRestore() {
   .settings-card-audit,
   .backup-restore-stack {
     max-width: 100% !important;
-  }
-  .notify-section-segment {
-    width: 100%;
-  }
-  .settings-section-segment {
-    width: 100%;
   }
   .task-credential-actions {
     align-items: flex-start;

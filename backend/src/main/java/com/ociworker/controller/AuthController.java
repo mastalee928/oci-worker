@@ -11,6 +11,7 @@ import com.ociworker.model.vo.ResponseData;
 import com.ociworker.service.LoginAuditService;
 import com.ociworker.service.LoginSecurityService;
 import com.ociworker.service.NotificationService;
+import com.ociworker.service.SecuritySettingsSessionService;
 import com.ociworker.service.VerifyCodeService;
 import com.ociworker.util.CommonUtils;
 import com.ociworker.util.HttpRequestUtil;
@@ -49,6 +50,8 @@ public class AuthController {
     private LoginSecurityService loginSecurityService;
     @Resource
     private LoginAuditService loginAuditService;
+    @Resource
+    private SecuritySettingsSessionService securitySettingsSessionService;
 
     private static final long TG_CODE_EXPIRE_MS = 30 * 1000;
     private static final int TG_CODE_MAX_ATTEMPTS = 3;
@@ -65,6 +68,7 @@ public class AuthController {
     private static final String CODE_ACCOUNT = "web_account";
     private static final String CODE_PASSWORD = "web_password";
     private static final String TYPE = "sys_config";
+    private static final String SECURITY_SETTINGS_SESSION_HEADER = "X-Oci-Security-Settings-Session";
 
     private String getKv(String code) {
         OciKv kv = kvMapper.selectOne(new LambdaQueryWrapper<OciKv>()
@@ -338,13 +342,19 @@ public class AuthController {
     }
 
     @PostMapping("/changePassword")
-    public ResponseData<?> changePassword(@RequestBody Map<String, String> params, HttpServletRequest request) {
+    public ResponseData<?> changePassword(
+            @RequestBody Map<String, String> params,
+            @RequestHeader(value = SECURITY_SETTINGS_SESSION_HEADER, required = false) String securitySession,
+            HttpServletRequest request) {
         if (verifyCodeService.isTgConfigured()) {
-            String code = params.get("verifyCode");
-            if (code == null || code.isBlank()) {
-                return ResponseData.error("请输入 TG 验证码");
+            boolean securitySessionValid = securitySettingsSessionService.isValid(securitySession);
+            if (!securitySessionValid) {
+                String code = params.get("verifyCode");
+                if (code == null || code.isBlank()) {
+                    return ResponseData.error("请先通过 Telegram 验证进入安全设置");
+                }
+                verifyCodeService.verifyCode("changePassword", code);
             }
-            verifyCodeService.verifyCode("changePassword", code);
         }
 
         String oldPwd = params.get("oldPassword");
