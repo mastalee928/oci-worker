@@ -2432,8 +2432,13 @@ const searchTableData = ref<any[]>([])
 const searchText = ref('')
 const normalizedSearchText = computed(() => searchText.value.trim())
 const isSearchingTenants = computed(() => !!normalizedSearchText.value)
-const loading = computed(() => isSearchingTenants.value ? searchLoading.value : catalog.tenantsLoading)
 const tableData = computed(() => (normalizedSearchText.value ? searchTableData.value : catalog.tenants) as any[])
+const loading = computed(() => {
+  const rows = tableData.value
+  const hasRows = Array.isArray(rows) && rows.length > 0
+  if (isSearchingTenants.value) return searchLoading.value && !hasRows
+  return catalog.tenantsLoading && !hasRows
+})
 const tenantMobileSearchResetKey = computed(() =>
   `search|${normalizedSearchText.value}|${createListSignature(tableData.value, (r: any) => r.id)}`,
 )

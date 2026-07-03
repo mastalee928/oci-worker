@@ -1004,7 +1004,7 @@ const settingsSecondaryTabs: Record<typeof settingsPrimaryTabs[number]['key'], S
   security: [
     { key: 'password', label: '登录密码', title: '登录密码', desc: '' },
     { key: 'credential', label: '开机凭据', title: '开机凭据', desc: '保存我的密码和我的公钥，供快捷开机一键使用。' },
-    { key: 'audit', label: '登录统计', title: '登录统计', desc: '查看登录记录，支持刷新、分页、复制 IP/设备码和展开详情。' },
+    { key: 'audit', label: '登录统计', title: '登录统计', desc: '' },
     { key: 'banlist', label: '封禁列表', title: '封禁列表', desc: '管理被封禁的 IP 和设备，支持新增、刷新和解除。' },
     { key: 'guide', label: '安全说明', title: '安全说明', desc: '查看 Token 有效期、关闭浏览器后的登录状态和退出登录入口。' },
   ],
@@ -1020,8 +1020,8 @@ const settingsSecondaryTabs: Record<typeof settingsPrimaryTabs[number]['key'], S
     { key: 'cloudflare', label: 'Cloudflare', title: 'Cloudflare', desc: '配置 Cloudflare 全局凭据并测试连接。' },
   ],
   system: [
-    { key: 'update', label: '系统更新', title: '系统更新', desc: '检查版本、执行一键更新并查看更新说明。' },
-    { key: 'backup', label: '备份恢复', title: '备份恢复', desc: '创建加密备份，或从备份包恢复配置。' },
+    { key: 'update', label: '系统更新', title: '系统更新', desc: '' },
+    { key: 'backup', label: '备份恢复', title: '备份恢复', desc: '' },
   ],
 }
 const activeSettingsSecondaryTabs = computed(() => settingsSecondaryTabs[activeSettingsPrimary.value])
