@@ -206,26 +206,37 @@ async function handleSetup() {
   border: 1px solid rgba(99, 102, 241, 0.2);
   border-radius: 12px;
   font-size: 13px;
+  line-height: 1.4;
   color: #94a3b8;
   margin-bottom: 24px;
+}
+.security-notice span {
+  display: flex;
+  align-items: center;
+  min-height: 18px;
 }
 .input-prefix-icon {
   color: #94a3b8;
   font-size: 18px;
 }
 .setup-input {
+  display: inline-flex !important;
+  align-items: center !important;
+  width: 100%;
   height: 48px !important;
+  min-height: 48px !important;
   background: rgba(15, 23, 42, 0.5) !important;
   border: 1px solid rgba(255, 255, 255, 0.1) !important;
   border-radius: 12px !important;
   font-size: 15px !important;
   padding: 4px 16px !important;
+  overflow: visible !important;
 }
 .setup-input:hover {
   border-color: rgba(255, 255, 255, 0.2) !important;
 }
 .setup-input:where(.ant-input-affix-wrapper-focused),
-.setup-input:focus {
+.setup-input:focus-within {
   border-color: #6366f1 !important;
   background: rgba(15, 23, 42, 0.8) !important;
   box-shadow: 0 0 0 4px rgba(99, 102, 241, 0.15) !important;
@@ -237,12 +248,18 @@ async function handleSetup() {
   color: #fff !important;
   font-size: 15px !important;
   caret-color: #fff !important;
+  overflow: visible !important;
 }
 .setup-input :deep(.ant-input-prefix) {
   margin-inline-end: 12px;
 }
 .setup-input :deep(.ant-input-suffix) {
   color: #94a3b8;
+}
+.setup-input.ant-input-affix-wrapper-lg :deep(input.ant-input) {
+  height: auto !important;
+  min-height: unset !important;
+  line-height: 1.5715 !important;
 }
 .password-strength {
   display: flex;
