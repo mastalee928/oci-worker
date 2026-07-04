@@ -1,10 +1,10 @@
 package com.ociworker.service;
 
-import cn.hutool.core.util.RandomUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.json.JSONArray;
 import cn.hutool.json.JSONObject;
 import com.ociworker.enums.SysCfgEnum;
+import com.ociworker.util.SecureRandomUtil;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -68,7 +68,7 @@ public class TgNotifyConfigRollbackService {
             String offenderDeviceId) {
         clearRollbackState(false);
 
-        String sessionId = RandomUtil.randomString("abcdef0123456789", 16);
+        String sessionId = SecureRandomUtil.randomHex(8);
         long expireAt = System.currentTimeMillis() + ROLLBACK_TTL_MS;
 
         notificationService.saveKvValue(SysCfgEnum.TG_ROLLBACK_SESSION_ID, sessionId);

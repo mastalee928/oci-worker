@@ -1,9 +1,9 @@
 package com.ociworker.service;
 
 import cn.hutool.core.util.IdUtil;
-import cn.hutool.core.util.RandomUtil;
 import cn.hutool.core.util.StrUtil;
 import com.ociworker.enums.SysCfgEnum;
+import com.ociworker.util.SecureRandomUtil;
 import com.ociworker.util.HttpRequestUtil;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
@@ -293,7 +293,7 @@ public class LoginSecurityService {
 
     private String registerPending(Pending pending) {
         for (int i = 0; i < 12; i++) {
-            String token = RandomUtil.randomString("abcdef0123456789", 16);
+            String token = SecureRandomUtil.randomHex(8);
             if (pendingByToken.putIfAbsent(token, pending) == null) {
                 return token;
             }

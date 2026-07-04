@@ -1,6 +1,5 @@
 package com.ociworker.controller;
 
-import cn.hutool.core.util.RandomUtil;
 import cn.hutool.core.util.StrUtil;
 import cn.hutool.crypto.digest.DigestUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
@@ -13,8 +12,10 @@ import com.ociworker.service.LoginSecurityService;
 import com.ociworker.service.NotificationService;
 import com.ociworker.service.SecuritySettingsSessionService;
 import com.ociworker.service.VerifyCodeService;
+import com.ociworker.service.WorkerInstanceSecretService;
 import com.ociworker.util.CommonUtils;
 import com.ociworker.util.HttpRequestUtil;
+import com.ociworker.util.SecureRandomUtil;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
@@ -52,6 +53,8 @@ public class AuthController {
     private LoginAuditService loginAuditService;
     @Resource
     private SecuritySettingsSessionService securitySettingsSessionService;
+    @Resource
+    private WorkerInstanceSecretService workerInstanceSecretService;
 
     private static final long TG_CODE_EXPIRE_MS = 30 * 1000;
     private static final int TG_CODE_MAX_ATTEMPTS = 3;
@@ -229,8 +232,8 @@ public class AuthController {
             }
         }
 
-        String numPart = RandomUtil.randomNumbers(6);
-        String mixPart = RandomUtil.randomString("ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789", 11);
+        String numPart = SecureRandomUtil.randomDigits(6, workerInstanceSecretService.getSecret());
+        String mixPart = SecureRandomUtil.randomString("ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789", 11);
         String code = numPart + ":" + mixPart;
         tgLoginCode = code;
         tgLoginCodeExpireAt = now + TG_CODE_EXPIRE_MS;

@@ -33,6 +33,7 @@ public enum SysCfgEnum {
     TG_ROLLBACK_EXPIRE_AT("tg_rollback_expire_at", "sys"),
     TG_ROLLBACK_SESSION_ID("tg_rollback_session_id", "sys"),
     TG_ROLLBACK_UPDATES_OFFSET("tg_rollback_updates_offset", "sys"),
+    WORKER_INSTANCE_SECRET("worker_instance_secret", "sys"),
 
     OCI_PROXY_ENABLED("oci_proxy_enabled", "sys"),
     OCI_PROXY_TYPE("oci_proxy_type", "sys"),
