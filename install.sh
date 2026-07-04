@@ -525,7 +525,9 @@ mysql_output_is_one() {
 }
 
 docker_mysql_logs_final_ready() {
-    docker logs oci-worker-mysql 2>&1 | grep -qE 'ready for connections.*port: 3306'
+    local logs
+    logs="$(docker logs --tail=200 oci-worker-mysql 2>&1 || true)"
+    grep -qE 'ready for connections.*port: 3306' <<<"${logs}"
 }
 
 # Host mysql: keep stderr separate so MariaDB client WARNING lines do not break parsing.
@@ -606,9 +608,10 @@ docker_mysql_select1_status() {
 }
 
 wait_docker_mysql_user() {
-    info "等待 MySQL 就绪（最多 60 秒）..."
+    local max_wait=180
+    info "等待 MySQL 就绪（最多 ${max_wait} 秒）..."
     local waited=0 status consecutive=0
-    while [ "${waited}" -lt 60 ]; do
+    while [ "${waited}" -lt "${max_wait}" ]; do
         if ! docker_mysql_logs_final_ready; then
             consecutive=0
             sleep 2
