@@ -488,7 +488,7 @@ var PRESET_SCRIPTS = [
     { name: 'CentOS 切换阿里云源', cmd: "sed -i 's|mirror.centos.org|mirrors.aliyun.com|g' /etc/yum.repos.d/CentOS-*.repo && yum makecache" },
     { name: 'Debian/Ubuntu 安装常用工具', cmd: 'apt update && apt install -y sudo wget curl vim net-tools' },
     { name: 'CentOS 安装常用工具', cmd: 'yum install -y sudo wget curl vim net-tools' },
-    { name: '安装 Docker', cmd: 'curl -fsSL https://get.docker.com | sh' },
+    { name: '安装 Docker', cmd: 'if command -v apt-get >/dev/null 2>&1; then apt-get update || true; DEBIAN_FRONTEND=noninteractive apt-get install -y docker.io; elif command -v dnf >/dev/null 2>&1; then repo=centos; [ -r /etc/os-release ] && . /etc/os-release && [ "$ID" = "rhel" ] && repo=rhel; dnf install -y dnf-plugins-core || true; dnf config-manager --add-repo https://download.docker.com/linux/${repo}/docker-ce.repo || true; dnf install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin || dnf install -y docker; elif command -v yum >/dev/null 2>&1; then repo=centos; [ -r /etc/os-release ] && . /etc/os-release && [ "$ID" = "rhel" ] && repo=rhel; yum install -y yum-utils || true; yum-config-manager --add-repo https://download.docker.com/linux/${repo}/docker-ce.repo || true; yum install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin || yum install -y docker; else curl -fsSL https://get.docker.com | sh; fi && systemctl enable --now docker' },
     { name: '启动 Docker', cmd: 'systemctl enable docker && systemctl start docker' },
     { name: '查看 Docker 容器', cmd: 'docker ps -a' },
     { name: '查看 Docker 镜像', cmd: 'docker images' },

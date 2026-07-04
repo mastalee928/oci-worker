@@ -184,7 +184,14 @@ ociworker config   # 选 2) 数据库修改 / 迁移，按提示填新库的地�
 ### 第一步：启动 MySQL
 
 ```bash
-curl -fsSL https://get.docker.com | sh
+# Debian 11/12/13、Ubuntu 20.04/22.04/24.04 可直接使用系统 Docker 包，
+# 避免 Docker 官方便捷脚本在部分系统上尝试安装非必需的 docker-model-plugin。
+apt-get update
+apt-get install -y docker.io
+systemctl enable --now docker
+
+# CentOS / RHEL / Rocky / AlmaLinux / Oracle Linux 建议直接使用上面的 v2 智能安装器；
+# 安装器会优先配置 Docker 官方 RPM 源，失败后再走系统仓库/兜底方案。
 
 docker run -d \
   --name oci-worker-mysql \

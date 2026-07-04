@@ -93,6 +93,8 @@ ociworker update
 - 创建/复用容器 **`oci-worker-mysql`**，端口 **`127.0.0.1:3306`**
 - 把连接写入 `/opt/oci-worker/application.yml`（`spring.datasource.url` 为 `localhost:3306`）
 - 部署 `/usr/local/bin/ociworker`
+- Debian 11/12/13、Ubuntu 20.04/22.04/24.04 会使用可控的 Docker Engine 安装流程，不依赖 Docker 官方便捷脚本的 `docker-model-plugin` 可选包；其它 apt 系统会自动兜底到 `docker.io`
+- CentOS / RHEL / Rocky / AlmaLinux / Oracle Linux 会优先使用 Docker 官方 RPM 源安装 Docker Engine，失败后再尝试系统仓库包，最后才使用便捷脚本兜底
 
 本机**多数不会**安装 `mysql` 客户端（`ensure_mysql_client` 失败时安装器会警告并继续），因此：
 

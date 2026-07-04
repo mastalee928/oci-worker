@@ -209,6 +209,227 @@ ensure_cmd() {
     fi
 }
 
+docker_service_start() {
+    if command -v systemctl >/dev/null 2>&1; then
+        systemctl enable docker >/dev/null 2>&1 || true
+        systemctl start docker >/dev/null 2>&1 || true
+    elif command -v service >/dev/null 2>&1; then
+        service docker start >/dev/null 2>&1 || true
+    fi
+}
+
+install_docker_engine_apt_distro() {
+    warn "改用系统 docker.io 包安装 Docker..."
+    rm -f /etc/apt/sources.list.d/ociworker-docker.list
+    DEBIAN_FRONTEND=noninteractive apt-get update -qq \
+        || warn "apt-get update 失败，将尝试使用现有软件包缓存继续安装 docker.io"
+    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq docker.io
+}
+
+docker_official_apt_codename_supported() {
+    # Known Docker APT channels. Unknown codenames use distro docker.io instead.
+    # Debian 11/12/13: bullseye/bookworm/trixie
+    # Ubuntu 20.04/22.04/24.04: focal/jammy/noble
+    local repo_os="$1" codename="$2"
+    case "${repo_os}:${codename}" in
+        debian:bullseye|debian:bookworm|debian:trixie) return 0 ;;
+        ubuntu:focal|ubuntu:jammy|ubuntu:noble) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+install_docker_engine_apt() {
+    local os_id="" os_like="" codename="" repo_os="" arch="" docker_list="/etc/apt/sources.list.d/ociworker-docker.list"
+    if [ -r /etc/os-release ]; then
+        # shellcheck disable=SC1091
+        . /etc/os-release
+        os_id="${ID:-}"
+        os_like="${ID_LIKE:-}"
+        codename="${VERSION_CODENAME:-${UBUNTU_CODENAME:-}}"
+    fi
+
+    case "${os_id}" in
+        ubuntu) repo_os="ubuntu" ;;
+        debian) repo_os="debian" ;;
+        *)
+            if printf '%s' " ${os_like} " | grep -qw "ubuntu"; then
+                repo_os="ubuntu"
+            elif printf '%s' " ${os_like} " | grep -qw "debian"; then
+                repo_os="debian"
+            else
+                install_docker_engine_apt_distro
+                return $?
+            fi
+            ;;
+    esac
+    if [ -z "${codename}" ]; then
+        install_docker_engine_apt_distro
+        return $?
+    fi
+    if ! docker_official_apt_codename_supported "${repo_os}" "${codename}"; then
+        warn "当前 ${repo_os}/${codename} 不在安装器内置 Docker 官方源白名单，改用系统 docker.io 包。"
+        install_docker_engine_apt_distro
+        return $?
+    fi
+
+    info "使用 Docker 官方 ${repo_os}/${codename} APT 源安装 Docker Engine..."
+    warn "本项目不需要 docker-model-plugin；为避免部分 Debian/Ubuntu 找不到该可选包，安装器不会安装它。"
+    DEBIAN_FRONTEND=noninteractive apt-get update -qq \
+        || warn "apt-get update 失败，将继续尝试安装 Docker 必需依赖"
+    if ! DEBIAN_FRONTEND=noninteractive apt-get install -y -qq ca-certificates curl gnupg; then
+        install_docker_engine_apt_distro
+        return $?
+    fi
+    install -m 0755 -d /etc/apt/keyrings
+    if ! curl -fsSL --retry 3 --retry-delay 3 --connect-timeout 15 \
+            "https://download.docker.com/linux/${repo_os}/gpg" \
+            -o /etc/apt/keyrings/docker.asc; then
+        install_docker_engine_apt_distro
+        return $?
+    fi
+    chmod a+r /etc/apt/keyrings/docker.asc
+    arch="$(dpkg --print-architecture)"
+    printf 'deb [arch=%s signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/%s %s stable\n' \
+        "${arch}" "${repo_os}" "${codename}" > "${docker_list}"
+    if ! DEBIAN_FRONTEND=noninteractive apt-get update -qq; then
+        install_docker_engine_apt_distro
+        return $?
+    fi
+
+    if DEBIAN_FRONTEND=noninteractive apt-get install -y -qq \
+            docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin; then
+        return 0
+    fi
+
+    if command -v docker >/dev/null 2>&1; then
+        return 0
+    fi
+    install_docker_engine_apt_distro
+}
+
+install_docker_engine_rpm_distro() {
+    local pm="$1"
+    warn "改用系统仓库 Docker 包安装..."
+    rm -f /etc/yum.repos.d/ociworker-docker.repo
+    ${pm} makecache -q >/dev/null 2>&1 || true
+    ${pm} install -y -q docker || ${pm} install -y -q moby-engine
+}
+
+docker_official_rpm_repo_os() {
+    local os_id="$1" os_like="$2"
+    case "${os_id}" in
+        rhel) echo "rhel"; return 0 ;;
+        centos|rocky|almalinux|ol|oraclelinux) echo "centos"; return 0 ;;
+        *)
+            if printf '%s' " ${os_like} " | grep -Eqw "rhel|centos|fedora"; then
+                echo "centos"
+                return 0
+            fi
+            return 1
+            ;;
+    esac
+}
+
+docker_official_rpm_major_supported() {
+    local repo_os="$1" major="$2"
+    case "${repo_os}:${major}" in
+        centos:7|centos:8|centos:9|rhel:8|rhel:9) return 0 ;;
+        *) return 1 ;;
+    esac
+}
+
+install_docker_engine_rpm() {
+    local pm="$1" os_id="" os_like="" version_id="" major="" repo_os="" repo_file="/etc/yum.repos.d/ociworker-docker.repo"
+    if [ -r /etc/os-release ]; then
+        # shellcheck disable=SC1091
+        . /etc/os-release
+        os_id="${ID:-}"
+        os_like="${ID_LIKE:-}"
+        version_id="${VERSION_ID:-}"
+    fi
+    major="${version_id%%.*}"
+    if ! repo_os="$(docker_official_rpm_repo_os "${os_id}" "${os_like}")" || [ -z "${major}" ]; then
+        install_docker_engine_rpm_distro "${pm}"
+        return $?
+    fi
+    if ! docker_official_rpm_major_supported "${repo_os}" "${major}"; then
+        warn "当前 ${os_id:-rpm}/${version_id:-unknown} 不在安装器内置 Docker 官方 RPM 源白名单，改用系统仓库。"
+        install_docker_engine_rpm_distro "${pm}"
+        return $?
+    fi
+
+    info "使用 Docker 官方 ${repo_os}/${major} RPM 源安装 Docker Engine..."
+    warn "本项目不需要 docker-model-plugin；安装器只安装 Docker Engine 与 Compose 插件等必要包。"
+    ${pm} install -y -q ca-certificates curl || {
+        install_docker_engine_rpm_distro "${pm}"
+        return $?
+    }
+    printf '%s\n' \
+        '[docker-ce-stable]' \
+        'name=Docker CE Stable - $basearch' \
+        "baseurl=https://download.docker.com/linux/${repo_os}/${major}/\$basearch/stable" \
+        'enabled=1' \
+        'gpgcheck=1' \
+        "gpgkey=https://download.docker.com/linux/${repo_os}/gpg" \
+        > "${repo_file}"
+    ${pm} makecache -q >/dev/null 2>&1 || {
+        install_docker_engine_rpm_distro "${pm}"
+        return $?
+    }
+    if ${pm} install -y -q docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin; then
+        return 0
+    fi
+    if command -v docker >/dev/null 2>&1; then
+        return 0
+    fi
+    install_docker_engine_rpm_distro "${pm}"
+}
+
+install_docker_engine() {
+    local pm
+    pm="$(detect_pkg_mgr)"
+    case "${pm}" in
+        apt)
+            install_docker_engine_apt \
+                || die "Docker 安装失败。Debian/Ubuntu 可手动执行：apt-get update && apt-get install -y docker.io && systemctl enable --now docker"
+            ;;
+        dnf|yum)
+            install_docker_engine_rpm "${pm}" || {
+                warn "RPM 官方源和系统仓库均未完成 Docker 安装，最后尝试 Docker 官方便捷脚本兜底..."
+                ensure_cmd curl
+                curl -fsSL https://get.docker.com | sh \
+                    || die "Docker 安装失败。请先手动安装 Docker Engine 后重跑安装器。"
+            }
+            ;;
+        *)
+            die "未识别的包管理器，请先手动安装 Docker Engine 后重跑安装器。"
+            ;;
+    esac
+}
+
+ensure_docker_ready() {
+    if ! command -v docker >/dev/null 2>&1; then
+        info "未检测到 Docker，正在安装..."
+        install_docker_engine
+    fi
+
+    if ! docker info >/dev/null 2>&1; then
+        info "Docker 已安装，正在启动 Docker 服务..."
+        docker_service_start
+    fi
+
+    if ! docker info >/dev/null 2>&1; then
+        warn "检测到 docker 命令，但 Docker 服务仍不可用，尝试重新安装/修复 Docker Engine..."
+        install_docker_engine
+        docker_service_start
+    fi
+
+    if ! docker info >/dev/null 2>&1; then
+        die "Docker 服务不可用。请检查：systemctl status docker"
+    fi
+    ok "Docker 已可用"
+}
+
 # -----------------------------------------------------------------------------
 # Mode detection
 # -----------------------------------------------------------------------------
@@ -658,10 +879,7 @@ EOT
 prompt_db_docker() {
     # Spin up an isolated MySQL 8.0 in Docker.
     section "Docker MySQL 自动安装"
-    if ! command -v docker >/dev/null 2>&1; then
-        info "未检测到 Docker，正在安装..."
-        curl -fsSL https://get.docker.com | sh || die "Docker 安装失败"
-    fi
+    ensure_docker_ready
     DB_HOST="127.0.0.1"
     DB_PORT="3306"
     DB_NAME="$(ask "数据库名"   "oci_worker")"
