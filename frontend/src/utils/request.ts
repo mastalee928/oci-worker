@@ -2,6 +2,7 @@ import axios from 'axios'
 import type { AxiosRequestConfig } from 'axios'
 import { message } from 'ant-design-vue'
 import router from '../router'
+import { clearPanelSession, getPanelToken } from './session'
 
 export interface OciRequestConfig extends AxiosRequestConfig {
   /** 业务 code≠0 时不弹全局 message（由调用方自行提示） */
@@ -17,13 +18,12 @@ const request = axios.create({
 })
 
 function getToken() {
-  const t = localStorage.getItem('token')
+  const t = getPanelToken()
   return t ? t.trim() : ''
 }
 
 function clearSession() {
-  localStorage.removeItem('token')
-  localStorage.removeItem('account')
+  clearPanelSession()
 }
 
 request.interceptors.request.use((config) => {

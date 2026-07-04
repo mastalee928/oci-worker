@@ -47,6 +47,8 @@ curl -fsSL https://github.com/mastalee928/oci-worker/releases/download/installer
 
 5 分钟搞定，**不在 SSH 里设置管理员账号密码**——服务起来后到浏览器 `http://<ip>:<端口>` 完成首次设置即可。这是后端的设计：账号密码以 sha256 哈希存进数据库，不进 yml，更安全。
 
+WebSSH 是 OCI Worker 的内置终端功能，随主程序一起提供，不需要额外部署或单独维护服务。
+
 ### 动效 / Orbis UI 版
 
 预编译 JAR 发布在独立的 **[ui-latest](https://github.com/mastalee928/oci-worker/releases/tag/ui-latest)**。与上面同一脚本，任选一：

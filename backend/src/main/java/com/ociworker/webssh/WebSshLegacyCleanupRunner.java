@@ -10,7 +10,7 @@ import java.nio.file.Path;
 import java.util.concurrent.TimeUnit;
 
 /**
- * 启动时清理旧版独立 sidecar 服务与二进制（若存在）。
+ * 启动时清理旧版终端组件残留服务与二进制（若存在）。
  */
 @Slf4j
 @Component
@@ -21,10 +21,10 @@ public class WebSshLegacyCleanupRunner implements ApplicationRunner {
 
     @Override
     public void run(ApplicationArguments args) {
-        cleanupLegacyWebssh();
+        cleanupLegacyTerminalComponent();
     }
 
-    public static void cleanupLegacyWebssh() {
+    public static void cleanupLegacyTerminalComponent() {
         try {
             runQuiet("systemctl", "stop", LEGACY_UNIT);
             runQuiet("systemctl", "disable", LEGACY_UNIT);
@@ -38,7 +38,7 @@ public class WebSshLegacyCleanupRunner implements ApplicationRunner {
                 runQuiet("systemctl", "daemon-reload");
             }
         } catch (Exception e) {
-            log.debug("Legacy sidecar cleanup partial failure: {}", e.getMessage());
+            log.debug("Legacy terminal cleanup partial failure: {}", e.getMessage());
         }
     }
 

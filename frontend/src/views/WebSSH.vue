@@ -13,10 +13,19 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
 import { useThemeStore } from '../stores/theme'
+import { getPanelToken, setWebSshTokenCookie } from '../utils/session'
 
 const themeStore = useThemeStore()
 const webSshFrame = ref<HTMLIFrameElement | null>(null)
-const webSshSrc = ref(`/webssh/index.html?appTheme=${encodeURIComponent(themeStore.mode)}`)
+
+function buildWebSshSrc() {
+  const params = new URLSearchParams()
+  params.set('appTheme', themeStore.mode)
+  setWebSshTokenCookie(getPanelToken())
+  return `/webssh/index.html?${params.toString()}`
+}
+
+const webSshSrc = ref(buildWebSshSrc())
 
 function syncWebSshTheme() {
   webSshFrame.value?.contentWindow?.postMessage(

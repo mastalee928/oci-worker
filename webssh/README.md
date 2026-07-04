@@ -1,5 +1,9 @@
 # WebSSH
 
+> OCI Worker 说明：本目录仅保留 WebSSH 内置终端的历史来源、静态资源和构建参考。
+> 当前项目安装、更新与运行均以项目根目录的 `install.sh` / `ociworker` / 主程序 JAR 为准。
+> 不要把本目录作为 OCI Worker 的独立部署入口；下方原始部署说明仅用于回溯和维护参考。
+
 一个基于 Go + WebSocket 的 Web SSH 终端，支持密码和密钥认证，带有炫酷的毛玻璃 UI。
 
 ## 示例

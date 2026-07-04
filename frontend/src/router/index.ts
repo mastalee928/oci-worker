@@ -1,5 +1,6 @@
 import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-router'
 import { isStaleChunkError, reloadOnceForUpdatedAssets } from '../utils/asyncComponent'
+import { setWebSshTokenCookie } from '../utils/session'
 
 const routes: RouteRecordRaw[] = [
   {
@@ -99,6 +100,7 @@ router.beforeEach(async (to, _from, next) => {
   if (!to.meta.public && !token) {
     next('/login')
   } else {
+    if (token) setWebSshTokenCookie(token)
     next()
   }
 })

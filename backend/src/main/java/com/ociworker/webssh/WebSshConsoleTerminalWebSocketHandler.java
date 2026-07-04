@@ -124,11 +124,14 @@ public class WebSshConsoleTerminalWebSocketHandler implements WebSocketHandler {
         if (payload.startsWith("resize:")) {
             String[] parts = payload.split(":");
             if (parts.length >= 3) {
-                int rows = Integer.parseInt(parts[1]);
-                int cols = Integer.parseInt(parts[2]);
-                Object processObj = ws.getAttributes().get("process");
-                if (processObj instanceof PtyProcess process && process.isAlive()) {
-                    process.setWinSize(new WinSize(cols, rows));
+                try {
+                    int rows = Integer.parseInt(parts[1]);
+                    int cols = Integer.parseInt(parts[2]);
+                    Object processObj = ws.getAttributes().get("process");
+                    if (processObj instanceof PtyProcess process && process.isAlive()) {
+                        process.setWinSize(new WinSize(cols, rows));
+                    }
+                } catch (NumberFormatException ignored) {
                 }
             }
             return;

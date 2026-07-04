@@ -1,6 +1,7 @@
 import { ref } from 'vue'
 import { message } from 'ant-design-vue'
 import { createConsoleConnection, deleteConsoleConnection } from '../api/instance'
+import { getPanelToken, setWebSshTokenCookie } from '../utils/session'
 
 interface UseInstanceConsoleOptions {
   getTenant: () => any | null
@@ -42,6 +43,7 @@ export function useInstanceConsole(options: UseInstanceConsoleOptions) {
     const region = options.resolveRegionParam().region
     if (region) params.set('region', region)
     if (instance?.state) params.set('state', instance.state)
+    setWebSshTokenCookie(getPanelToken())
     window.open('/webssh/index.html#' + params.toString(), '_blank')
   }
 

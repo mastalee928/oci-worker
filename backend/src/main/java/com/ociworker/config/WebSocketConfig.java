@@ -23,16 +23,21 @@ public class WebSocketConfig implements WebSocketConfigurer {
     private WebSshConsoleTerminalWebSocketHandler webSshConsoleTerminalWebSocketHandler;
     @Resource
     private WebSshUploadProgressWebSocketHandler webSshUploadProgressWebSocketHandler;
+    @Resource
+    private WebSshAuthHandshakeInterceptor webSshAuthHandshakeInterceptor;
 
     @Override
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
         registry.addHandler(logWebSocketHandler, "/ws/log")
                 .setAllowedOrigins("*");
         registry.addHandler(webSshTerminalWebSocketHandler, "/webssh-api/term")
+                .addInterceptors(webSshAuthHandshakeInterceptor)
                 .setAllowedOrigins("*");
         registry.addHandler(webSshConsoleTerminalWebSocketHandler, "/webssh-api/console-term")
+                .addInterceptors(webSshAuthHandshakeInterceptor)
                 .setAllowedOrigins("*");
         registry.addHandler(webSshUploadProgressWebSocketHandler, "/webssh-api/file/progress")
+                .addInterceptors(webSshAuthHandshakeInterceptor)
                 .setAllowedOrigins("*");
     }
 }

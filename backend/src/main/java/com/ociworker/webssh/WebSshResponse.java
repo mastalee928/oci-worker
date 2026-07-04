@@ -24,7 +24,7 @@ public final class WebSshResponse {
         return body(msg, null, null);
     }
 
-    /** Matches webssh2 Go {@code ResponseBody} JSON field names ({@code Msg}, {@code Data}, {@code Duration}). */
+    /** Keeps the WebSSH front-end response field names ({@code Msg}, {@code Data}, {@code Duration}). */
     public static Map<String, Object> body(String msg, Object data, String duration) {
         Map<String, Object> m = new LinkedHashMap<>();
         if (duration != null) {

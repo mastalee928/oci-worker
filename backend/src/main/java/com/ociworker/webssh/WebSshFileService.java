@@ -52,7 +52,7 @@ public class WebSshFileService {
                 row.put("ModifyTime", formatTime(attrs.getMTime()));
                 list.add(row);
             }
-            list.sort(Comparator.comparing((Map<String, Object> m) -> !(Boolean) m.get("IsDir")).reversed()
+            list.sort(Comparator.comparing((Map<String, Object> m) -> !(Boolean) m.get("IsDir"))
                     .thenComparing(m -> String.valueOf(m.get("Name"))));
             Map<String, Object> data = new LinkedHashMap<>();
             data.put("list", list);
@@ -100,20 +100,20 @@ public class WebSshFileService {
                 mkdirsIfMissing(sftp, dir);
                 base = dir;
             }
-            String dst = base + "/" + file.getOriginalFilename();
+            String dst = base + "/" + sanitizeFileName(file.getOriginalFilename());
             uploadRegistry.track(uploadId);
             try (InputStream in = file.getInputStream()) {
                 byte[] buf = new byte[8192];
                 int n;
-                OutputStream dstOut = sftp.put(dst);
-                while ((n = in.read(buf)) >= 0) {
-                    if (n == 0) {
-                        continue;
+                try (OutputStream dstOut = sftp.put(dst)) {
+                    while ((n = in.read(buf)) >= 0) {
+                        if (n == 0) {
+                            continue;
+                        }
+                        dstOut.write(buf, 0, n);
+                        uploadRegistry.add(uploadId, n);
                     }
-                    dstOut.write(buf, 0, n);
-                    uploadRegistry.add(uploadId, n);
                 }
-                dstOut.close();
             } finally {
                 uploadRegistry.remove(uploadId);
             }
@@ -164,6 +164,21 @@ public class WebSshFileService {
                 sftp.mkdir(path);
             }
         }
+    }
+
+    private static String sanitizeFileName(String fileName) {
+        if (fileName == null || fileName.isBlank()) {
+            return "upload.bin";
+        }
+        String normalized = fileName.replace('\\', '/');
+        int slash = normalized.lastIndexOf('/');
+        if (slash >= 0) {
+            normalized = normalized.substring(slash + 1);
+        }
+        normalized = normalized.trim();
+        return normalized.isBlank() || ".".equals(normalized) || "..".equals(normalized)
+                ? "upload.bin"
+                : normalized;
     }
 
     private static String formatTime(int mtime) {

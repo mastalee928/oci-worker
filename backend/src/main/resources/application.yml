@@ -5,6 +5,7 @@ server:
 
 webssh:
   timeout-minutes: 120
+  max-upload-size: 200MB
 ociworker:
   openaiApi:
     # 0 = 不启用第二端口；>0 且与 server.port 不同时，Tomcat 额外监听该口供 /v1 等 OpenAI 路由
@@ -26,6 +27,10 @@ spring:
   threads:
     virtual:
       enabled: true
+  servlet:
+    multipart:
+      max-file-size: ${webssh.max-upload-size:200MB}
+      max-request-size: ${webssh.max-upload-size:200MB}
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: jdbc:mysql://localhost:3306/oci_worker?useUnicode=true&characterEncoding=utf8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true

@@ -34,8 +34,9 @@ readonly JAR_ASSET="oci-worker-1.0.0.jar"
 readonly CONFIG_FILE="${INSTALL_DIR}/application.yml"
 readonly SERVICE_NAME="oci-worker"
 readonly SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
-readonly LEGACY_WEBSSH_BIN="${INSTALL_DIR}/oci-webssh"
-readonly LEGACY_WEBSSH_SERVICE="oci-webssh"
+readonly LEGACY_TERMINAL_BIN="${INSTALL_DIR}/oci-webssh"
+readonly LEGACY_TERMINAL_SERVICE="oci-webssh"
+readonly LEGACY_TERMINAL_CONTAINER="webssh"
 
 readonly REPO="mastalee928/oci-worker"
 # 默认从 GitHub Releases 的 `latest` 下 master 构建的 JAR。
@@ -1263,14 +1264,14 @@ firewall_open_port() {
     fi
 }
 
-cleanup_legacy_webssh() {
-    systemctl stop "${LEGACY_WEBSSH_SERVICE}" 2>/dev/null || true
-    systemctl disable "${LEGACY_WEBSSH_SERVICE}" 2>/dev/null || true
-    rm -f "${LEGACY_WEBSSH_BIN}"
-    rm -f "/etc/systemd/system/${LEGACY_WEBSSH_SERVICE}.service"
+cleanup_legacy_terminal_component() {
+    systemctl stop "${LEGACY_TERMINAL_SERVICE}" 2>/dev/null || true
+    systemctl disable "${LEGACY_TERMINAL_SERVICE}" 2>/dev/null || true
+    rm -f "${LEGACY_TERMINAL_BIN}"
+    rm -f "/etc/systemd/system/${LEGACY_TERMINAL_SERVICE}.service"
     systemctl daemon-reload 2>/dev/null || true
-    if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "webssh"; then
-        docker stop webssh >/dev/null 2>&1 || true
+    if docker ps --format '{{.Names}}' 2>/dev/null | grep -qx "${LEGACY_TERMINAL_CONTAINER}"; then
+        docker stop "${LEGACY_TERMINAL_CONTAINER}" >/dev/null 2>&1 || true
         (cd /opt/oci-worker/webssh 2>/dev/null && docker compose down >/dev/null 2>&1) || true
     fi
 }
@@ -1361,7 +1362,7 @@ do_install() {
     write_application_yml
     write_systemd_unit
 
-    cleanup_legacy_webssh
+    cleanup_legacy_terminal_component
 
     firewall_open_port "${WEB_PORT}"
     install_ociworker_cli
@@ -1422,7 +1423,7 @@ do_upgrade() {
         die "升级失败"
     fi
 
-    cleanup_legacy_webssh
+    cleanup_legacy_terminal_component
 
     install_ociworker_cli
 

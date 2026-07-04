@@ -36,6 +36,34 @@ function esc(s) { var d = document.createElement('div'); d.textContent = s; retu
 function fmtB(b) { b = parseInt(b) || 0; if (!b) return '0B'; var u = ['B', 'KB', 'MB', 'GB', 'TB'], i = Math.floor(Math.log(b) / Math.log(1024)); return (b / Math.pow(1024, i)).toFixed(i > 1 ? 1 : 0) + u[i]; }
 function pct(u, t) { return Math.round((parseInt(u) || 0) / (parseInt(t) || 1) * 100); }
 function pillCls(v) { return v >= 90 ? 'danger' : v >= 70 ? 'warn' : ''; }
+function getWebSshAuthToken() {
+    try {
+        var t = localStorage.getItem('token') || getCookie('ow_panel_token') || '';
+        t = (t || '').trim();
+        if (t.indexOf('Bearer ') === 0) t = t.substring(7).trim();
+        return t;
+    } catch (e) { return ''; }
+}
+function getCookie(name) {
+    var prefix = name + '=';
+    var parts = (document.cookie || '').split(';');
+    for (var i = 0; i < parts.length; i++) {
+        var p = parts[i].trim();
+        if (p.indexOf(prefix) === 0) {
+            try { return decodeURIComponent(p.substring(prefix.length)); } catch (e) { return p.substring(prefix.length); }
+        }
+    }
+    return '';
+}
+function getWebSshAuthHeaders(base) {
+    var headers = base || {};
+    var token = getWebSshAuthToken();
+    if (token) headers['Authorization'] = 'Bearer ' + token;
+    return headers;
+}
+function withWebSshAuth(url) {
+    return url;
+}
 
 function showToast(msg, type) {
     type = type || 'info';
@@ -247,7 +275,7 @@ function updateMetricsForActive() {
 function connectSession(session) {
     var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     var cols = session.term.cols, rows = session.term.rows;
-    var wsUrl = proto + '//' + location.host + '/webssh-api/term?cols=' + cols + '&rows=' + rows;
+    var wsUrl = withWebSshAuth(proto + '//' + location.host + '/webssh-api/term?cols=' + cols + '&rows=' + rows);
     var ws = new WebSocket(wsUrl);
     session.ws = ws;
     var got = false;
@@ -373,7 +401,7 @@ function addNewTab() {
 // ==================== System Info ====================
 function fetchSysInfoFor(session) {
     if (!session.sshInfo) return;
-    fetch('/webssh-api/sysinfo?sshInfo=' + encodeURIComponent(session.sshInfo))
+    fetch('/webssh-api/sysinfo?sshInfo=' + encodeURIComponent(session.sshInfo), { headers: getWebSshAuthHeaders() })
         .then(function (r) { return r.json(); })
         .then(function (d) {
             if (d.Msg === 'success' && d.Data) {
@@ -567,7 +595,7 @@ function sftpLoad(path) {
     sftpCurrentPath = path;
     document.getElementById('sftpPath').value = path;
     document.getElementById('sftpBody').innerHTML = '<div class="sftp-loading">加载中...</div>';
-    fetch('/webssh-api/file/list?sshInfo=' + encodeURIComponent(sshInfo) + '&path=' + encodeURIComponent(path))
+    fetch('/webssh-api/file/list?sshInfo=' + encodeURIComponent(sshInfo) + '&path=' + encodeURIComponent(path), { headers: getWebSshAuthHeaders() })
         .then(function (r) { return r.json(); })
         .then(function (d) {
             if (d.Msg !== 'success') { document.getElementById('sftpBody').innerHTML = '<div class="sftp-loading" style="color:var(--err)">' + esc(d.Msg) + '</div>'; return; }
@@ -591,7 +619,7 @@ function sftpUp() { var p = sftpCurrentPath.replace(/\/$/, ''); var i = p.lastIn
 
 function sftpDownload(path) {
     if (activeIdx < 0 || !sessions[activeIdx]) return;
-    window.open('/webssh-api/file/download?sshInfo=' + encodeURIComponent(sessions[activeIdx].sshInfo) + '&path=' + encodeURIComponent(path), '_blank');
+    window.open(withWebSshAuth('/webssh-api/file/download?sshInfo=' + encodeURIComponent(sessions[activeIdx].sshInfo) + '&path=' + encodeURIComponent(path)), '_blank');
 }
 
 function sftpUpload() {
@@ -601,7 +629,7 @@ function sftpUpload() {
     Array.from(input.files).forEach(function (f) {
         var fd = new FormData();
         fd.append('file', f); fd.append('sshInfo', sshInfo); fd.append('path', sftpCurrentPath); fd.append('id', Date.now().toString());
-        fetch('/webssh-api/file/upload', { method: 'POST', body: fd })
+        fetch('/webssh-api/file/upload', { method: 'POST', body: fd, headers: getWebSshAuthHeaders() })
             .then(function (r) { return r.json(); })
             .then(function (d) { if (d.Msg === 'success') { showToast('上传成功: ' + f.name, 'success'); sftpLoad(sftpCurrentPath); } else showToast('上传失败', 'error'); })
             .catch(function () { showToast('上传失败', 'error'); });
@@ -1464,7 +1492,7 @@ function fitConsoleToContainer(session) {
 function connectConsoleSession(session) {
     var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     fitConsoleToContainer(session);
-    var wsUrl = proto + '//' + location.host + '/webssh-api/console-term?cols=' + CONSOLE_COLS + '&rows=' + CONSOLE_ROWS;
+    var wsUrl = withWebSshAuth(proto + '//' + location.host + '/webssh-api/console-term?cols=' + CONSOLE_COLS + '&rows=' + CONSOLE_ROWS);
     var ws = new WebSocket(wsUrl);
     session.ws = ws;
     var got = false;
@@ -1500,16 +1528,7 @@ function connectConsoleSession(session) {
 }
 
 function getApiAuthHeaders() {
-    var headers = { 'Content-Type': 'application/json' };
-    try {
-        var t = localStorage.getItem('token');
-        if (t) {
-            t = t.trim();
-            if (t && t.indexOf('Bearer ') !== 0) t = 'Bearer ' + t;
-            headers['Authorization'] = t;
-        }
-    } catch (e) { }
-    return headers;
+    return getWebSshAuthHeaders({ 'Content-Type': 'application/json' });
 }
 
 var consoleActionLabels = { SOFTRESET: '重启', RESET: '断电重启' };
@@ -1655,6 +1674,8 @@ tryAutoLogin();
 
     var req = new XMLHttpRequest();
     req.open('GET', '/webssh-api/config', true);
+    var token = getWebSshAuthToken();
+    if (token) req.setRequestHeader('Authorization', 'Bearer ' + token);
     req.timeout = 3000;
     req.onload = function () {
         if (req.status === 200) {

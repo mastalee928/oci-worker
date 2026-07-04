@@ -100,11 +100,14 @@ public class WebSshTerminalWebSocketHandler implements WebSocketHandler {
         if (payload.startsWith("resize:")) {
             String[] parts = payload.split(":");
             if (parts.length >= 3) {
-                int rows = Integer.parseInt(parts[1]);
-                int cols = Integer.parseInt(parts[2]);
-                Object shellObj = ws.getAttributes().get("shell");
-                if (shellObj instanceof ChannelShell shell) {
-                    WebSshJschSupport.resizeShell(shell, cols, rows);
+                try {
+                    int rows = Integer.parseInt(parts[1]);
+                    int cols = Integer.parseInt(parts[2]);
+                    Object shellObj = ws.getAttributes().get("shell");
+                    if (shellObj instanceof ChannelShell shell) {
+                        WebSshJschSupport.resizeShell(shell, cols, rows);
+                    }
+                } catch (NumberFormatException ignored) {
                 }
             }
             return;

@@ -30,8 +30,9 @@ readonly CONFIG_FILE="${INSTALL_DIR}/application.yml"
 readonly JAR_NAME="oci-worker.jar"
 readonly SERVICE_NAME="oci-worker"
 readonly SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
-readonly LEGACY_WEBSSH_SERVICE_NAME="oci-webssh"
-readonly LEGACY_WEBSSH_SERVICE_FILE="/etc/systemd/system/${LEGACY_WEBSSH_SERVICE_NAME}.service"
+readonly LEGACY_TERMINAL_BIN="${INSTALL_DIR}/oci-webssh"
+readonly LEGACY_TERMINAL_SERVICE_NAME="oci-webssh"
+readonly LEGACY_TERMINAL_SERVICE_FILE="/etc/systemd/system/${LEGACY_TERMINAL_SERVICE_NAME}.service"
 readonly REPO="mastalee928/oci-worker"
 readonly INSTALLER_RELEASE_TAG="installer-latest"
 readonly RAW_BASE="https://raw.githubusercontent.com/${REPO}/master"
@@ -696,11 +697,11 @@ cmd_uninstall() {
 
     info "停止服务..."
     systemctl stop "${SERVICE_NAME}" 2>/dev/null || true
-    systemctl stop "${LEGACY_WEBSSH_SERVICE_NAME}" 2>/dev/null || true
+    systemctl stop "${LEGACY_TERMINAL_SERVICE_NAME}" 2>/dev/null || true
     systemctl disable "${SERVICE_NAME}" 2>/dev/null || true
-    systemctl disable "${LEGACY_WEBSSH_SERVICE_NAME}" 2>/dev/null || true
-    rm -f "${SERVICE_FILE}" "${LEGACY_WEBSSH_SERVICE_FILE}"
-    rm -f "${INSTALL_DIR}/oci-webssh"
+    systemctl disable "${LEGACY_TERMINAL_SERVICE_NAME}" 2>/dev/null || true
+    rm -f "${SERVICE_FILE}" "${LEGACY_TERMINAL_SERVICE_FILE}"
+    rm -f "${LEGACY_TERMINAL_BIN}"
     systemctl daemon-reload
 
     if [ "$(ask_yes_no "删除 ${INSTALL_DIR}（含 application.yml、keys、JAR、备份）？" "N")" = "y" ]; then
