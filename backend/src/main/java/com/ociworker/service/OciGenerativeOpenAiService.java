@@ -846,18 +846,22 @@ public class OciGenerativeOpenAiService {
                 return false;
             }
             JsonNode messages = object.get("messages");
-            if (messages == null || !messages.isArray()) {
-                return true;
+            if (messages == null || !messages.isArray() || messages.isEmpty()) {
+                return false;
             }
+            boolean hasUsableMessage = false;
             for (JsonNode message : messages) {
                 if (!(message instanceof ObjectNode messageObject)) {
-                    continue;
+                    return false;
+                }
+                if (messageObject.get("content") != null || messageObject.get("tool_calls") != null) {
+                    hasUsableMessage = true;
                 }
                 if (!isTextOnlyChatContent(messageObject.get("content"))) {
                     return false;
                 }
             }
-            return true;
+            return hasUsableMessage;
         } catch (Exception ignored) {
             return false;
         }
@@ -1200,31 +1204,59 @@ public class OciGenerativeOpenAiService {
         ArrayNode choices = MAPPER.createArrayNode();
         Usage usage = null;
         BaseChatResponse response = result == null ? null : result.getChatResponse();
-        if (response instanceof GenericChatResponse generic) {
-            usage = generic.getUsage();
-            List<ChatChoice> nativeChoices = generic.getChoices();
-            if (nativeChoices != null) {
-                for (ChatChoice choice : nativeChoices) {
-                    if (choice == null) {
-                        continue;
-                    }
-                    ObjectNode item = MAPPER.createObjectNode();
-                    item.put("index", choice.getIndex() == null ? choices.size() : choice.getIndex());
-                    ObjectNode message = nativeMessageToOpenAiMessage(choice.getMessage());
-                    item.set("message", message);
-                    item.put("finish_reason", normalizeNativeFinishReason(
-                            choice.getFinishReason(),
-                            message.path("tool_calls").isArray() && !message.path("tool_calls").isEmpty()));
-                    choices.add(item);
-                    if (usage == null) {
-                        usage = choice.getUsage();
-                    }
-                }
+        if (!(response instanceof GenericChatResponse generic)) {
+            throw new OciException("Gemini 原生 Chat 未返回可转换的对话结果");
+        }
+        usage = generic.getUsage();
+        List<ChatChoice> nativeChoices = generic.getChoices();
+        if (nativeChoices == null || nativeChoices.isEmpty()) {
+            throw new OciException("Gemini 原生 Chat 未返回 choices");
+        }
+        boolean hasVisibleOutput = false;
+        for (ChatChoice choice : nativeChoices) {
+            if (choice == null) {
+                continue;
             }
+            ObjectNode item = MAPPER.createObjectNode();
+            item.put("index", choice.getIndex() == null ? choices.size() : choice.getIndex());
+            ObjectNode message = nativeMessageToOpenAiMessage(choice.getMessage());
+            if (hasVisibleChatCompletionMessage(message)) {
+                hasVisibleOutput = true;
+            }
+            item.set("message", message);
+            item.put("finish_reason", normalizeNativeFinishReason(
+                    choice.getFinishReason(),
+                    message.path("tool_calls").isArray() && !message.path("tool_calls").isEmpty()));
+            choices.add(item);
+            if (usage == null) {
+                usage = choice.getUsage();
+            }
+        }
+        if (choices.isEmpty()) {
+            throw new OciException("Gemini 原生 Chat 返回的 choices 无有效内容");
+        }
+        if (!hasVisibleOutput) {
+            throw new OciException("Gemini 原生 Chat 未返回文本、推理内容或工具调用");
         }
         root.set("choices", choices);
         root.set("usage", nativeUsageToOpenAiUsage(usage));
         return MAPPER.writeValueAsString(root);
+    }
+
+    private static boolean hasVisibleChatCompletionMessage(ObjectNode message) {
+        if (message == null) {
+            return false;
+        }
+        String content = chatMessageContentText(message.get("content"));
+        if (content != null && !content.isBlank()) {
+            return true;
+        }
+        String reasoning = textOrNull(message, "reasoning_content");
+        if (reasoning != null && !reasoning.isBlank()) {
+            return true;
+        }
+        JsonNode toolCalls = message.get("tool_calls");
+        return toolCalls != null && toolCalls.isArray() && !toolCalls.isEmpty();
     }
 
     private static ObjectNode nativeMessageToOpenAiMessage(Message message) {
@@ -4460,17 +4492,21 @@ public class OciGenerativeOpenAiService {
             JsonNode toolCalls = message.get("tool_calls");
             boolean hasToolCalls = toolCalls != null && toolCalls.isArray() && !toolCalls.isEmpty();
             String content = chatMessageContentText(message.get("content"));
+            String reasoning = textOrNull(message, "reasoning_content");
 
             ObjectNode roleDelta = MAPPER.createObjectNode();
             roleDelta.put("role", "assistant");
             appendChatCompletionSseChunk(out, id, created, model, index, roleDelta, null, null);
 
+            if (reasoning != null && !reasoning.isEmpty()) {
+                appendChatCompletionReasoningSse(out, id, created, model, index, reasoning);
+            }
             if (content != null && !content.isEmpty()) {
                 appendChatCompletionContentSse(out, id, created, model, index, content);
             }
             if (hasToolCalls) {
                 ObjectNode toolDelta = MAPPER.createObjectNode();
-                toolDelta.set("tool_calls", toolCalls.deepCopy());
+                toolDelta.set("tool_calls", chatCompletionSseToolCalls(toolCalls));
                 appendChatCompletionSseChunk(out, id, created, model, index, toolDelta, null, null);
             }
 
@@ -4487,6 +4523,37 @@ public class OciGenerativeOpenAiService {
         }
         out.append("data: [DONE]\n\n");
         return out.toString();
+    }
+
+    private static ArrayNode chatCompletionSseToolCalls(JsonNode toolCalls) {
+        ArrayNode out = MAPPER.createArrayNode();
+        if (toolCalls == null || !toolCalls.isArray()) {
+            return out;
+        }
+        int fallbackIndex = 0;
+        for (JsonNode item : toolCalls) {
+            if (!(item instanceof ObjectNode call)) {
+                continue;
+            }
+            ObjectNode copy = call.deepCopy();
+            JsonNode index = copy.get("index");
+            if (index == null || !index.isNumber()) {
+                copy.put("index", fallbackIndex);
+            }
+            fallbackIndex++;
+            out.add(copy);
+        }
+        return out;
+    }
+
+    private static void appendChatCompletionReasoningSse(
+            StringBuilder out, String id, long created, String model, int index, String reasoning) throws Exception {
+        int step = 200;
+        for (int i = 0; i < reasoning.length(); i += step) {
+            ObjectNode delta = MAPPER.createObjectNode();
+            delta.put("reasoning_content", reasoning.substring(i, Math.min(reasoning.length(), i + step)));
+            appendChatCompletionSseChunk(out, id, created, model, index, delta, null, null);
+        }
     }
 
     private static void appendChatCompletionContentSse(

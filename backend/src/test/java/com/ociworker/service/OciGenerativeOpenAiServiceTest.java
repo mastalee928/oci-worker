@@ -191,6 +191,22 @@ class OciGenerativeOpenAiServiceTest {
     }
 
     @Test
+    void doesNotRouteGeminiRequestsWithoutMessagesToNativeBridge() {
+        assertThat(OciGenerativeOpenAiService.canUseNativeTextGenericChat("""
+                {"model":"google.gemini-2.5-pro","stream":true}
+                """.getBytes())).isFalse();
+        assertThat(OciGenerativeOpenAiService.canUseNativeTextGenericChat("""
+                {"model":"google.gemini-2.5-pro","messages":[],"stream":true}
+                """.getBytes())).isFalse();
+        assertThat(OciGenerativeOpenAiService.canUseNativeTextGenericChat("""
+                {"model":"google.gemini-2.5-pro","messages":[{}],"stream":true}
+                """.getBytes())).isFalse();
+        assertThat(OciGenerativeOpenAiService.canUseNativeTextGenericChat("""
+                {"model":"google.gemini-2.5-pro","messages":[null],"stream":true}
+                """.getBytes())).isFalse();
+    }
+
+    @Test
     void convertsOpenAiChatRequestToNativeGenericChatRequest() throws Exception {
         ObjectNode payload = (ObjectNode) MAPPER.readTree("""
                 {
@@ -258,6 +274,40 @@ class OciGenerativeOpenAiServiceTest {
     }
 
     @Test
+    void rejectsNativeGenericChatResultWithoutChoices() {
+        ChatResult result = ChatResult.builder()
+                .modelId("google.gemini-2.5-pro")
+                .chatResponse(GenericChatResponse.builder().choices(List.of()).build())
+                .build();
+
+        assertThatThrownBy(() -> OciGenerativeOpenAiService.nativeGenericChatResultToOpenAiJson(
+                result, "google.gemini-2.5-pro"))
+                .isInstanceOf(com.ociworker.exception.OciException.class)
+                .hasMessageContaining("未返回 choices");
+    }
+
+    @Test
+    void rejectsNativeGenericChatResultWithoutVisibleOutput() {
+        ChatResult result = ChatResult.builder()
+                .modelId("google.gemini-2.5-pro")
+                .chatResponse(GenericChatResponse.builder()
+                        .choices(List.of(ChatChoice.builder()
+                                .index(0)
+                                .message(AssistantMessage.builder()
+                                        .content(List.of(TextContent.builder().text("").build()))
+                                        .build())
+                                .finishReason("stop")
+                                .build()))
+                        .build())
+                .build();
+
+        assertThatThrownBy(() -> OciGenerativeOpenAiService.nativeGenericChatResultToOpenAiJson(
+                result, "google.gemini-2.5-pro"))
+                .isInstanceOf(com.ociworker.exception.OciException.class)
+                .hasMessageContaining("未返回文本");
+    }
+
+    @Test
     void convertsBufferedChatCompletionJsonToOpenAiSse() throws Exception {
         String payload = """
                 {
@@ -266,7 +316,7 @@ class OciGenerativeOpenAiServiceTest {
                   "created":123,
                   "model":"google.gemini-2.5-pro",
                   "choices":[
-                    {"index":0,"message":{"role":"assistant","content":"我的模型是 google/gemini-2.5-pro。"},"finish_reason":"stop"},
+                    {"index":0,"message":{"role":"assistant","reasoning_content":"先确认系统信息。","content":"我的模型是 google/gemini-2.5-pro。"},"finish_reason":"stop"},
                     {"index":1,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_a","type":"function","function":{"name":"read_cpu","arguments":"{}"}}]},"finish_reason":"tool_calls"}
                   ],
                   "usage":{"prompt_tokens":3,"completion_tokens":5,"total_tokens":8}
@@ -277,8 +327,11 @@ class OciGenerativeOpenAiServiceTest {
 
         assertThat(sse).contains("data: ");
         assertThat(sse).contains("\"delta\":{\"role\":\"assistant\"}");
+        assertThat(sse).contains("\"reasoning_content\":\"先确认系统信息。\"");
         assertThat(sse).contains("我的模型是 google/gemini-2.5-pro。");
         assertThat(sse).contains("\"tool_calls\"");
+        assertThat(sse).contains("\"id\":\"call_a\"");
+        assertThat(sse).contains("\"index\":0");
         assertThat(sse).contains("\"finish_reason\":\"tool_calls\"");
         assertThat(sse).contains("\"choices\":[],\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":5,\"total_tokens\":8}");
         assertThat(sse).endsWith("data: [DONE]\n\n");
