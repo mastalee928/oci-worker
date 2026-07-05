@@ -495,6 +495,74 @@ class OciGenerativeOpenAiServiceTest {
     }
 
     @Test
+    void sanitizesUnsupportedJsonSchemaKeywordsBeforeNativeGenericChat() throws Exception {
+        String payload = """
+                {
+                  "model":"google.gemini-2.5-pro",
+                  "messages":[{"role":"user","content":"你的 CPU 型号是？"}],
+                  "tools":[{
+                    "type":"function",
+                    "function":{
+                      "name":"read_cpu",
+                      "description":"read cpu",
+                      "parameters":{
+                        "$schema":"https://json-schema.org/draft/2020-12/schema",
+                        "type":"object",
+                        "additionalProperties":false,
+                        "propertyNames":{"pattern":"^[a-z]+$"},
+                        "properties":{
+                          "path":{
+                            "type":["string","null"],
+                            "description":"file path",
+                            "propertyNames":{"pattern":"^x"}
+                          },
+                          "meta":{
+                            "type":"object",
+                            "additionalProperties":{"type":"string"},
+                            "propertyNames":{"pattern":"^m"}
+                          },
+                          "mode":{
+                            "oneOf":[
+                              {"type":"string","enum":["fast","safe"]},
+                              {"type":"integer"}
+                            ]
+                          }
+                        },
+                        "required":["path","mode"]
+                      }
+                    }
+                  }],
+                  "tool_choice":"auto",
+                  "stream":true
+                }
+                """;
+
+        ObjectNode normalized = (ObjectNode) MAPPER.readTree(
+                OciGenerativeOpenAiService.transformChatCompletionsJson(payload.getBytes(), 128));
+        JsonNode parameters = normalized.at("/tools/0/function/parameters");
+
+        assertThat(parameters.toString())
+                .doesNotContain("$schema")
+                .doesNotContain("propertyNames")
+                .doesNotContain("additionalProperties")
+                .doesNotContain("oneOf");
+        assertThat(parameters.path("type").asText()).isEqualTo("object");
+        assertThat(parameters.at("/properties/path/type").asText()).isEqualTo("string");
+        assertThat(parameters.at("/properties/path/nullable").asBoolean()).isTrue();
+        assertThat(parameters.at("/properties/mode/type").asText()).isEqualTo("string");
+        assertThat(parameters.at("/properties/mode/enum/0").asText()).isEqualTo("fast");
+        assertThat(parameters.path("required")).hasSize(2);
+
+        GenericChatRequest request = OciGenerativeOpenAiService.toNativeGenericChatRequest(normalized);
+        Object nativeParameters = ((FunctionDefinition) request.getTools().get(0)).getParameters();
+        assertThat(String.valueOf(nativeParameters))
+                .doesNotContain("$schema")
+                .doesNotContain("propertyNames")
+                .doesNotContain("additionalProperties")
+                .doesNotContain("oneOf");
+    }
+
+    @Test
     void convertsNativeGenericChatResultToOpenAiChatCompletion() throws Exception {
         AssistantMessage answer = AssistantMessage.builder()
                 .content(List.of(TextContent.builder().text("我的模型是 google/gemini-2.5-pro。").build()))

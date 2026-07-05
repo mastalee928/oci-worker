@@ -107,6 +107,11 @@ public class OciGenerativeOpenAiService {
     private static final Duration MODEL_LIST_CACHE_TTL = Duration.ofMinutes(5);
     private static final int GEMINI_MIN_CHAT_COMPLETION_TOKENS = 128;
     private static final String REGION_CONTEXT_TYPE = "oracle_ai_region_context";
+    private static final Set<String> OCI_TOOL_SCHEMA_ALLOWED_FIELDS = Set.of(
+            "type", "format", "description", "nullable", "enum",
+            "items", "properties", "required", "propertyOrdering",
+            "minItems", "maxItems", "minLength", "maxLength",
+            "minimum", "maximum", "minProperties", "maxProperties");
     private static volatile IntSupplier defaultMaxTokensSupplier = () -> DEFAULT_MAX_TOKENS;
     private final Map<String, CachedModels> modelsCache = new ConcurrentHashMap<>();
 
@@ -1376,7 +1381,8 @@ public class OciGenerativeOpenAiService {
             }
             JsonNode parameters = fn.get("parameters");
             if (parameters != null && !parameters.isNull() && !parameters.isMissingNode()) {
-                builder.parameters(MAPPER.convertValue(parameters, Object.class));
+                JsonNode sanitized = sanitizeOciToolParameters(parameters);
+                builder.parameters(MAPPER.convertValue(sanitized == null ? parameters : sanitized, Object.class));
             }
             out.add(builder.build());
         }
@@ -2236,9 +2242,10 @@ public class OciGenerativeOpenAiService {
                 return input;
             }
             ObjectNode in = (ObjectNode) root;
+            sanitizeResponsesToolSchema(in);
             JsonNode inputNode = in.get("input");
             if (inputNode == null || inputNode.isNull() || inputNode.isMissingNode()) {
-                return input;
+                return MAPPER.writeValueAsBytes(in);
             }
             if (inputNode.isTextual()) {
                 ArrayNode arr = MAPPER.createArrayNode();
@@ -2357,9 +2364,38 @@ public class OciGenerativeOpenAiService {
                 in.set("input", outArr);
                 return MAPPER.writeValueAsBytes(in);
             }
-            return input;
+            return MAPPER.writeValueAsBytes(in);
         } catch (Exception e) {
             return input;
+        }
+    }
+
+    private static void sanitizeResponsesToolSchema(ObjectNode root) {
+        JsonNode tools = root.get("tools");
+        if (tools == null || !tools.isArray()) {
+            return;
+        }
+        ArrayNode normalizedTools = MAPPER.createArrayNode();
+        boolean changed = false;
+        for (JsonNode tool : tools) {
+            if (!(tool instanceof ObjectNode source)) {
+                normalizedTools.add(tool);
+                continue;
+            }
+            ObjectNode normalized = source.deepCopy();
+            ObjectNode fn = normalized.get("function") instanceof ObjectNode functionObject
+                    ? functionObject
+                    : normalized;
+            JsonNode before = fn.get("parameters");
+            JsonNode after = sanitizeOciToolParameters(before);
+            if (after != null && !after.equals(before)) {
+                fn.set("parameters", after);
+                changed = true;
+            }
+            normalizedTools.add(normalized);
+        }
+        if (changed) {
+            root.set("tools", normalizedTools);
         }
     }
 
@@ -2613,7 +2649,7 @@ public class OciGenerativeOpenAiService {
                         ObjectNode fn = MAPPER.createObjectNode();
                         copyIfPresent(source, fn, "name");
                         copyIfPresent(source, fn, "description");
-                        copyIfPresent(source, fn, "parameters");
+                        copySanitizedParametersIfPresent(source, fn);
                         copyIfPresent(source, fn, "strict");
                         normalized.set("function", fn);
                         normalizedTools.add(normalized);
@@ -2621,7 +2657,21 @@ public class OciGenerativeOpenAiService {
                         continue;
                     }
                 }
-                normalizedTools.add(tool);
+                if (tool instanceof ObjectNode source) {
+                    ObjectNode normalized = source.deepCopy();
+                    ObjectNode fn = normalized.get("function") instanceof ObjectNode functionObject
+                            ? functionObject
+                            : normalized;
+                    JsonNode before = fn.get("parameters");
+                    JsonNode after = sanitizeOciToolParameters(before);
+                    if (after != null && !after.equals(before)) {
+                        fn.set("parameters", after);
+                        changed = true;
+                    }
+                    normalizedTools.add(normalized);
+                } else {
+                    normalizedTools.add(tool);
+                }
             }
             if (changed) {
                 root.set("tools", normalizedTools);
@@ -2651,6 +2701,209 @@ public class OciGenerativeOpenAiService {
         if (value != null && !value.isNull() && !value.isMissingNode()) {
             target.set(field, value);
         }
+    }
+
+    private static void copySanitizedParametersIfPresent(ObjectNode source, ObjectNode target) {
+        JsonNode value = source.get("parameters");
+        if (value == null || value.isNull() || value.isMissingNode()) {
+            return;
+        }
+        JsonNode sanitized = sanitizeOciToolParameters(value);
+        target.set("parameters", sanitized == null ? value : sanitized);
+    }
+
+    private static JsonNode sanitizeOciToolParameters(JsonNode schema) {
+        if (schema == null || schema.isNull() || schema.isMissingNode()) {
+            return null;
+        }
+        JsonNode sanitized = sanitizeOciToolSchema(schema);
+        if (!(sanitized instanceof ObjectNode object)) {
+            ObjectNode fallback = MAPPER.createObjectNode();
+            fallback.put("type", "object");
+            fallback.set("properties", MAPPER.createObjectNode());
+            return fallback;
+        }
+        if (!object.hasNonNull("type")) {
+            if (object.has("properties")) {
+                object.put("type", "object");
+            } else if (object.has("items")) {
+                object.put("type", "array");
+            } else {
+                object.put("type", "object");
+                object.set("properties", MAPPER.createObjectNode());
+            }
+        }
+        return object;
+    }
+
+    private static JsonNode sanitizeOciToolSchema(JsonNode schema) {
+        if (!(schema instanceof ObjectNode object)) {
+            return null;
+        }
+        ObjectNode out = MAPPER.createObjectNode();
+
+        JsonNode type = object.get("type");
+        if (type != null && !type.isNull() && !type.isMissingNode()) {
+            copySanitizedSchemaType(out, type);
+        }
+
+        for (String field : OCI_TOOL_SCHEMA_ALLOWED_FIELDS) {
+            if ("type".equals(field) || "enum".equals(field) || "items".equals(field)
+                    || "properties".equals(field) || "required".equals(field)
+                    || "propertyOrdering".equals(field)) {
+                continue;
+            }
+            JsonNode value = object.get(field);
+            if (value != null && !value.isNull() && !value.isMissingNode()) {
+                out.set(field, value.deepCopy());
+            }
+        }
+
+        JsonNode enumNode = object.get("enum");
+        if (enumNode != null && enumNode.isArray()) {
+            ArrayNode values = MAPPER.createArrayNode();
+            for (JsonNode item : enumNode) {
+                if (item == null || item.isNull()) {
+                    out.put("nullable", true);
+                } else if (item.isTextual() || item.isNumber() || item.isBoolean()) {
+                    values.add(item.asText());
+                }
+            }
+            if (!values.isEmpty()) {
+                out.set("enum", values);
+            }
+        }
+
+        JsonNode properties = object.get("properties");
+        if (properties != null && properties.isObject()) {
+            ObjectNode outProperties = MAPPER.createObjectNode();
+            Iterator<Map.Entry<String, JsonNode>> fields = properties.fields();
+            while (fields.hasNext()) {
+                Map.Entry<String, JsonNode> entry = fields.next();
+                JsonNode child = sanitizeOciToolSchema(entry.getValue());
+                if (child instanceof ObjectNode childObject) {
+                    if (!childObject.hasNonNull("type")) {
+                        if (childObject.has("properties")) {
+                            childObject.put("type", "object");
+                        } else if (childObject.has("items")) {
+                            childObject.put("type", "array");
+                        }
+                    }
+                    outProperties.set(entry.getKey(), childObject);
+                } else {
+                    ObjectNode fallback = MAPPER.createObjectNode();
+                    fallback.put("type", "string");
+                    outProperties.set(entry.getKey(), fallback);
+                }
+            }
+            if (!outProperties.isEmpty()) {
+                out.set("properties", outProperties);
+            }
+        }
+
+        JsonNode items = object.get("items");
+        JsonNode sanitizedItems = sanitizeOciToolSchema(items);
+        if (sanitizedItems instanceof ObjectNode itemObject) {
+            if (!itemObject.hasNonNull("type")) {
+                itemObject.put("type", "string");
+            }
+            out.set("items", itemObject);
+        }
+
+        copyStringArraySchemaField(object, out, "required");
+        copyStringArraySchemaField(object, out, "propertyOrdering");
+
+        if (!out.hasNonNull("type")) {
+            JsonNode union = firstSupportedUnionSchema(object);
+            if (union instanceof ObjectNode unionObject) {
+                unionObject.fields().forEachRemaining(entry -> {
+                    if (!out.has(entry.getKey()) && OCI_TOOL_SCHEMA_ALLOWED_FIELDS.contains(entry.getKey())) {
+                        out.set(entry.getKey(), entry.getValue().deepCopy());
+                    }
+                });
+            }
+        }
+        return out;
+    }
+
+    private static void copySanitizedSchemaType(ObjectNode out, JsonNode type) {
+        if (type.isTextual()) {
+            String value = sanitizeSchemaType(type.asText());
+            if (value != null) {
+                out.put("type", value);
+            } else if ("null".equalsIgnoreCase(type.asText())) {
+                out.put("nullable", true);
+            }
+            return;
+        }
+        if (type.isArray()) {
+            boolean nullable = false;
+            String selected = null;
+            for (JsonNode item : type) {
+                if (!item.isTextual()) {
+                    continue;
+                }
+                String raw = item.asText();
+                if ("null".equalsIgnoreCase(raw)) {
+                    nullable = true;
+                    continue;
+                }
+                String candidate = sanitizeSchemaType(raw);
+                if (selected == null && candidate != null) {
+                    selected = candidate;
+                }
+            }
+            if (selected != null) {
+                out.put("type", selected);
+            }
+            if (nullable) {
+                out.put("nullable", true);
+            }
+        }
+    }
+
+    private static String sanitizeSchemaType(String type) {
+        if (type == null) {
+            return null;
+        }
+        String value = type.trim().toLowerCase(Locale.ROOT);
+        return switch (value) {
+            case "object", "array", "string", "number", "integer", "boolean" -> value;
+            default -> null;
+        };
+    }
+
+    private static void copyStringArraySchemaField(ObjectNode source, ObjectNode target, String field) {
+        JsonNode node = source.get(field);
+        if (node == null || !node.isArray()) {
+            return;
+        }
+        ArrayNode values = MAPPER.createArrayNode();
+        for (JsonNode item : node) {
+            if (item != null && item.isTextual() && !item.asText().isBlank()) {
+                values.add(item.asText());
+            }
+        }
+        if (!values.isEmpty()) {
+            target.set(field, values);
+        }
+    }
+
+    private static JsonNode firstSupportedUnionSchema(ObjectNode object) {
+        for (String field : List.of("anyOf", "oneOf", "allOf")) {
+            JsonNode union = object.get(field);
+            if (union == null || !union.isArray()) {
+                continue;
+            }
+            for (JsonNode candidate : union) {
+                JsonNode sanitized = sanitizeOciToolSchema(candidate);
+                if (sanitized instanceof ObjectNode schema && (schema.hasNonNull("type")
+                        || schema.has("properties") || schema.has("items"))) {
+                    return schema;
+                }
+            }
+        }
+        return null;
     }
 
     static byte[] transformResponsesToChatCompletionsJson(byte[] input, int defaultMaxTokens) {
@@ -2698,7 +2951,7 @@ public class OciGenerativeOpenAiService {
                     ObjectNode fn = MAPPER.createObjectNode();
                     copyIfPresent(source, fn, "name");
                     copyIfPresent(source, fn, "description");
-                    copyIfPresent(source, fn, "parameters");
+                    copySanitizedParametersIfPresent(source, fn);
                     copyIfPresent(source, fn, "strict");
                     chatTool.set("function", fn);
                     chatTools.add(chatTool);
@@ -3174,7 +3427,7 @@ public class OciGenerativeOpenAiService {
             responseTool.put("type", "function");
             responseTool.put("name", name);
             copyIfPresent(fn, responseTool, "description");
-            copyIfPresent(fn, responseTool, "parameters");
+            copySanitizedParametersIfPresent(fn, responseTool);
             copyIfPresent(fn, responseTool, "strict");
             out.add(responseTool);
         }
