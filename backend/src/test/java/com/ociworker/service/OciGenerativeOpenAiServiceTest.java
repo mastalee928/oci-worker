@@ -500,6 +500,17 @@ class OciGenerativeOpenAiServiceTest {
     }
 
     @Test
+    void recognizesAudioSpeechAsBinaryOpenAiCompatibleEndpoint() {
+        assertThat(OciGenerativeOpenAiService.isAudioSpeechPath("/audio/speech")).isTrue();
+        assertThat(OciGenerativeOpenAiService.isAudioSpeechPath("/v1/audio/speech")).isTrue();
+        assertThat(OciGenerativeOpenAiService.isAudioSpeechPath("/chat/completions")).isFalse();
+
+        assertThat(OciGenerativeOpenAiService.shouldUseBinaryProxy("/audio/speech")).isTrue();
+        assertThat(OciGenerativeOpenAiService.shouldUseBinaryProxy("/v1/audio/speech")).isTrue();
+        assertThat(OciGenerativeOpenAiService.shouldUseBinaryProxy("/responses")).isFalse();
+    }
+
+    @Test
     void usesGeminiNativeChatForStreamingAndNonStreamingChatCompletionsOnly() throws Exception {
         String streamingPayload = """
                 {

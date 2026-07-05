@@ -98,6 +98,24 @@ public final class OracleAiModelCapability {
         return !isKnownChatGeneration(value);
     }
 
+    public static boolean isAudioSpeechEndpointCompatible(String model) {
+        if (model == null || model.isBlank()) {
+            return true;
+        }
+        String value = model.trim().toLowerCase(Locale.ROOT);
+        String capability = classify(value);
+        if (AUDIO.equals(capability)) {
+            return true;
+        }
+        if (MULTI_AGENT.equals(capability)
+                || EMBEDDING.equals(capability)
+                || RERANK.equals(capability)
+                || MODERATION.equals(capability)) {
+            return false;
+        }
+        return !isKnownChatGeneration(value);
+    }
+
     public static boolean isMultiAgent(String model) {
         if (model == null || model.isBlank()) {
             return false;
@@ -141,6 +159,18 @@ public final class OracleAiModelCapability {
             case AUDIO -> "模型 " + name + " 是语音/音频模型，不能用于 /v1/rerank。";
             case MODERATION -> "模型 " + name + " 是安全/审核模型，不能用于 /v1/rerank。";
             default -> "模型 " + name + " 不适用于 /v1/rerank。";
+        };
+    }
+
+    public static String audioSpeechEndpointMismatchMessage(String model) {
+        String capability = classify(model);
+        String name = model == null || model.isBlank() ? "未指定模型" : model.trim();
+        return switch (capability) {
+            case CHAT, MULTI_AGENT -> "模型 " + name + " 是聊天/生成模型，不能用于 /v1/audio/speech，请选择 xai.grok-tts。";
+            case EMBEDDING -> "模型 " + name + " 是 Embedding 模型，不能用于 /v1/audio/speech。";
+            case RERANK -> "模型 " + name + " 是 Rerank 模型，不能用于 /v1/audio/speech。";
+            case MODERATION -> "模型 " + name + " 是安全/审核模型，不能用于 /v1/audio/speech。";
+            default -> "模型 " + name + " 不适用于 /v1/audio/speech。";
         };
     }
 

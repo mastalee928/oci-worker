@@ -230,6 +230,15 @@ public class OciGenerativeOpenAiService {
                     "model_endpoint_mismatch");
             return;
         }
+        if (isAudioSpeechPath(origPathAfterV1)
+                && requestedModel != null
+                && !requestedModel.isBlank()
+                && !OracleAiModelCapability.isAudioSpeechEndpointCompatible(requestedModel)) {
+            writeOpenAiError(response, 400, "invalid_request_error",
+                    OracleAiModelCapability.audioSpeechEndpointMismatchMessage(requestedModel),
+                    "model_endpoint_mismatch");
+            return;
+        }
         // 记录原始 /v1 之后路径，便于排障
         request.setAttribute("ociworker.debug.origPathAfterV1", origPathAfterV1);
 
@@ -428,6 +437,8 @@ public class OciGenerativeOpenAiService {
 
         if (useStreamCopy) {
             longCopyStream(client, httpRequest, response, request);
+        } else if (shouldUseBinaryProxy(origPathAfterV1)) {
+            bufferAndCopyBytes(client, httpRequest, response, request);
         } else {
             bufferAndCopy(client, httpRequest, response, request);
         }
@@ -2312,6 +2323,14 @@ public class OciGenerativeOpenAiService {
         return p != null && (p.equals("/embeddings") || p.endsWith("/embeddings"));
     }
 
+    static boolean isAudioSpeechPath(String p) {
+        return p != null && (p.equals("/audio/speech") || p.endsWith("/audio/speech"));
+    }
+
+    static boolean shouldUseBinaryProxy(String p) {
+        return isAudioSpeechPath(p);
+    }
+
     private static boolean isRerankPath(String p) {
         return p != null && (p.equals("/rerank")
                 || p.endsWith("/rerank")
@@ -2322,7 +2341,11 @@ public class OciGenerativeOpenAiService {
     }
 
     private static boolean isModelScopedRequestPath(String p) {
-        return isChatCompletionsPath(p) || isResponsesPath(p) || isEmbeddingsPath(p) || isRerankPath(p);
+        return isChatCompletionsPath(p)
+                || isResponsesPath(p)
+                || isEmbeddingsPath(p)
+                || isRerankPath(p)
+                || isAudioSpeechPath(p);
     }
 
     private static String extractModelFromBody(byte[] body, String contentType) {
@@ -5081,6 +5104,62 @@ public class OciGenerativeOpenAiService {
                 }
             }
             response.getOutputStream().write(b.getBytes(StandardCharsets.UTF_8));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new OciException("请求中断");
+        } catch (IOException e) {
+            if (isClientAbort(e)) {
+                markClientAborted(request);
+                return;
+            }
+            throw e;
+        }
+    }
+
+    private void bufferAndCopyBytes(
+            HttpClient client, HttpRequest httpRequest, HttpServletResponse response, HttpServletRequest request)
+            throws IOException {
+        try {
+            HttpResponse<byte[]> resp = client.send(httpRequest, HttpResponse.BodyHandlers.ofByteArray());
+            int code = resp.statusCode();
+            if (request != null) {
+                request.setAttribute(OpenAiApiConstants.ATTR_UPSTREAM_STATUS, code);
+            }
+            resp.headers().map().forEach((k, vals) -> {
+                if (k == null || vals == null) {
+                    return;
+                }
+                if ("transfer-encoding".equalsIgnoreCase(k) || "connection".equalsIgnoreCase(k)
+                        || "content-length".equalsIgnoreCase(k)) {
+                    return;
+                }
+                for (String v : vals) {
+                    if (v != null) {
+                        response.addHeader(k, v);
+                    }
+                }
+            });
+            if (response.getContentType() == null) {
+                String ct = resp.headers().firstValue("content-type").orElse("application/octet-stream");
+                response.setContentType(ct);
+            }
+            response.setStatus(code);
+            byte[] b = resp.body() != null ? resp.body() : new byte[0];
+            if (code >= 400 && request != null) {
+                String rid = firstRequestHeader(
+                        request,
+                        "x-request-id",
+                        "x-cursor-request-id",
+                        "x-openai-request-id",
+                        "x-amzn-trace-id",
+                        "traceparent");
+                String origPath = String.valueOf(request.getAttribute("ociworker.debug.origPathAfterV1"));
+                String finalPath = String.valueOf(request.getAttribute("ociworker.debug.finalPathAfterV1"));
+                String bodyText = new String(b, StandardCharsets.UTF_8);
+                log.warn("OCI binary proxy error; rid={} code={} origPath={} finalPath={} body={}",
+                        rid, code, origPath, finalPath, truncate(bodyText, 1200));
+            }
+            response.getOutputStream().write(b);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new OciException("请求中断");

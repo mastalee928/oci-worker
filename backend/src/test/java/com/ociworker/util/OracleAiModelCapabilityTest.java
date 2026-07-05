@@ -66,6 +66,18 @@ class OracleAiModelCapabilityTest {
     }
 
     @Test
+    void audioSpeechEndpointAcceptsAudioModelsAndRejectsKnownWrongFamilies() {
+        assertThat(OracleAiModelCapability.isAudioSpeechEndpointCompatible("xai.grok-tts")).isTrue();
+        assertThat(OracleAiModelCapability.isAudioSpeechEndpointCompatible("oracle.tts-v1")).isTrue();
+        assertThat(OracleAiModelCapability.isAudioSpeechEndpointCompatible("oracle.future-speech-v1")).isTrue();
+        assertThat(OracleAiModelCapability.isAudioSpeechEndpointCompatible("xai.grok-4.3")).isFalse();
+        assertThat(OracleAiModelCapability.isAudioSpeechEndpointCompatible("xai.grok-4.20-multi-agent")).isFalse();
+        assertThat(OracleAiModelCapability.isAudioSpeechEndpointCompatible("cohere.embed-v4.0")).isFalse();
+        assertThat(OracleAiModelCapability.isAudioSpeechEndpointCompatible("cohere.rerank-v4.0-fast")).isFalse();
+        assertThat(OracleAiModelCapability.isAudioSpeechEndpointCompatible("content-moderator")).isFalse();
+    }
+
+    @Test
     void unknownModelsAreAllowedThroughRerankEndpointForFutureOciAdditions() {
         assertThat(OracleAiModelCapability.isRerankEndpointCompatible("oracle.semantic-ranker-v1")).isTrue();
     }
@@ -84,5 +96,13 @@ class OracleAiModelCapabilityTest {
                 .contains("聊天/生成模型")
                 .contains("/v1/rerank")
                 .contains("cohere.rerank-*");
+    }
+
+    @Test
+    void explainsAudioSpeechEndpointMismatchWithoutOciRawError() {
+        assertThat(OracleAiModelCapability.audioSpeechEndpointMismatchMessage("xai.grok-4.3"))
+                .contains("聊天/生成模型")
+                .contains("/v1/audio/speech")
+                .contains("xai.grok-tts");
     }
 }
