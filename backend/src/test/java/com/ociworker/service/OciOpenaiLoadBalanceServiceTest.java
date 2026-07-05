@@ -1,5 +1,8 @@
 package com.ociworker.service;
 
+import com.ociworker.model.entity.OciOpenaiLbMember;
+import com.ociworker.model.entity.OciOpenaiPortBinding;
+import com.ociworker.model.entity.OciUser;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -63,5 +66,26 @@ class OciOpenaiLoadBalanceServiceTest {
                 400,
                 "Model xai.grok-voice-agent is unsupported for this API operation"))
                 .isFalse();
+    }
+
+    @Test
+    void loadBalanceMemberSelectorMatchesCommonAccountFields() {
+        OciOpenaiLbMember member = new OciOpenaiLbMember();
+        member.setId("member-1");
+        member.setPortBindingId("binding-1");
+        OciOpenaiPortBinding binding = new OciOpenaiPortBinding();
+        binding.setId("binding-1");
+        binding.setName("tokyo-main");
+        binding.setPort(30001);
+        binding.setOciUserId("tenant-row-1");
+        OciUser user = new OciUser();
+        user.setId("tenant-row-1");
+        user.setUsername("friend-a");
+        user.setTenantName("Friend Tenant");
+
+        assertThat(OciOpenaiLoadBalanceService.memberMatchesRequestedAccount(member, binding, user, "member-1")).isTrue();
+        assertThat(OciOpenaiLoadBalanceService.memberMatchesRequestedAccount(member, binding, user, "30001")).isTrue();
+        assertThat(OciOpenaiLoadBalanceService.memberMatchesRequestedAccount(member, binding, user, "friend tenant")).isTrue();
+        assertThat(OciOpenaiLoadBalanceService.memberMatchesRequestedAccount(member, binding, user, "other")).isFalse();
     }
 }

@@ -43,6 +43,7 @@ import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -393,7 +394,15 @@ public class OciOpenaiLoadBalanceService {
     }
 
     public int eligibleMemberCount(String requestedModel, long estimatedTokens, boolean requireGenerativeContext) {
-        return eligibleCandidates(requestedModel, estimatedTokens, Set.of(), LocalDateTime.now(), true).size();
+        return eligibleMemberCount(requestedModel, estimatedTokens, requireGenerativeContext, null);
+    }
+
+    public int eligibleMemberCount(
+            String requestedModel,
+            long estimatedTokens,
+            boolean requireGenerativeContext,
+            String requestedAccount) {
+        return eligibleCandidates(requestedModel, estimatedTokens, Set.of(), LocalDateTime.now(), true, requestedAccount).size();
     }
 
     public Selection selectMember(String requestedModel, long estimatedTokens, Set<String> excludedMemberIds) {
@@ -405,10 +414,22 @@ public class OciOpenaiLoadBalanceService {
             long estimatedTokens,
             Set<String> excludedMemberIds,
             boolean requireGenerativeContext) {
+        return selectMember(requestedModel, estimatedTokens, excludedMemberIds, requireGenerativeContext, null);
+    }
+
+    public Selection selectMember(
+            String requestedModel,
+            long estimatedTokens,
+            Set<String> excludedMemberIds,
+            boolean requireGenerativeContext,
+            String requestedAccount) {
         LocalDateTime now = LocalDateTime.now();
-        List<Candidate> candidates = eligibleCandidates(requestedModel, estimatedTokens, excludedMemberIds, now, false);
+        List<Candidate> candidates = eligibleCandidates(requestedModel, estimatedTokens, excludedMemberIds, now, false, requestedAccount);
         if (candidates.isEmpty()) {
-            candidates = eligibleCandidates(requestedModel, estimatedTokens, excludedMemberIds, now, true);
+            candidates = eligibleCandidates(requestedModel, estimatedTokens, excludedMemberIds, now, true, requestedAccount);
+        }
+        if (candidates.isEmpty() && hasText(requestedAccount)) {
+            throw new OciException("指定的负载均衡成员不可用或不存在: " + trimTo(requestedAccount, 128));
         }
         List<Candidate> ordered = candidates.stream()
                 .sorted(candidateComparator())
@@ -430,11 +451,21 @@ public class OciOpenaiLoadBalanceService {
         if (selected == null) {
             throw new OciException("没有可用的负载均衡成员");
         }
-        inFlight.computeIfAbsent(selected.member().getId(), ignored -> new AtomicInteger()).incrementAndGet();
+        String selectedMemberId = selected.member() == null ? null : selected.member().getId();
+        if (!hasText(selectedMemberId)) {
+            throw new OciException("负载均衡成员数据异常: memberId 为空");
+        }
+        inFlight.computeIfAbsent(selectedMemberId, ignored -> new AtomicInteger()).incrementAndGet();
         return new Selection(selected.member(), selected.binding());
     }
 
-    private List<Candidate> eligibleCandidates(String requestedModel, long estimatedTokens, Set<String> excludedMemberIds, LocalDateTime now, boolean includeCooling) {
+    private List<Candidate> eligibleCandidates(
+            String requestedModel,
+            long estimatedTokens,
+            Set<String> excludedMemberIds,
+            LocalDateTime now,
+            boolean includeCooling,
+            String requestedAccount) {
         List<Candidate> candidates = new ArrayList<>();
         for (OciOpenaiLbMember member : memberMapper.selectList(new LambdaQueryWrapper<OciOpenaiLbMember>()
                 .eq(OciOpenaiLbMember::getEnabled, 1))) {
@@ -444,6 +475,16 @@ public class OciOpenaiLoadBalanceService {
             OciOpenaiPortBinding binding = portBindingMapper.selectById(member.getPortBindingId());
             if (binding == null || binding.getEnabled() == null || binding.getEnabled() != 1) {
                 continue;
+            }
+            if (hasText(bindingKeyUnavailableMessage(binding))) {
+                continue;
+            }
+            OciUser requestedUser = null;
+            if (hasText(requestedAccount)) {
+                requestedUser = binding.getOciUserId() == null ? null : userMapper.selectById(binding.getOciUserId());
+                if (!memberMatchesRequestedAccount(member, binding, requestedUser, requestedAccount)) {
+                    continue;
+                }
             }
             boolean cooling = member.getCooldownUntil() != null && member.getCooldownUntil().isAfter(now);
             if (cooling && !includeCooling) {
@@ -457,7 +498,7 @@ public class OciOpenaiLoadBalanceService {
                 continue;
             }
             int weight = member.getWeight() == null || member.getWeight() < 1 ? 1 : member.getWeight();
-            int current = inFlight.computeIfAbsent(member.getId(), ignored -> new AtomicInteger()).get();
+            int current = inFlightCount(member.getId());
             if (member.getMaxConcurrency() != null && member.getMaxConcurrency() > 0
                     && current >= member.getMaxConcurrency()) {
                 continue;
@@ -855,76 +896,204 @@ public class OciOpenaiLoadBalanceService {
     }
 
     private void releaseInFlight(String memberId) {
+        if (memberId == null || memberId.isBlank()) {
+            return;
+        }
         AtomicInteger current = inFlight.get(memberId);
         if (current != null) {
             current.updateAndGet(value -> Math.max(0, value - 1));
         }
     }
 
+    private int inFlightCount(String memberId) {
+        if (memberId == null || memberId.isBlank()) {
+            return 0;
+        }
+        AtomicInteger current = inFlight.get(memberId);
+        return current == null ? 0 : current.get();
+    }
+
+    private String bindingKeyUnavailableMessage(OciOpenaiPortBinding binding) {
+        if (binding == null) {
+            return null;
+        }
+        if (binding.getOpenaiKeyId() == null || binding.getOpenaiKeyId().isBlank()) {
+            return "成员 API Key 未配置";
+        }
+        OciOpenaiKey key = openaiKeyMapper.selectById(binding.getOpenaiKeyId());
+        if (key == null) {
+            return "成员 API Key 不存在";
+        }
+        if (key.getDisabled() != null && key.getDisabled() == 1) {
+            return "成员 API Key 已禁用";
+        }
+        return null;
+    }
+
     public ObjectNode modelsJson() {
+        return modelsJson(null, true);
+    }
+
+    public ObjectNode modelsJson(String requestedAccount, boolean useCache) {
         LocalDateTime now = LocalDateTime.now();
-        Set<String> models = new LinkedHashSet<>();
+        Map<String, ObjectNode> models = new LinkedHashMap<>();
+        ArrayNode members = MAPPER.createArrayNode();
+        ArrayNode errors = MAPPER.createArrayNode();
+        int matchedMembers = 0;
         for (OciOpenaiLbMember member : memberMapper.selectList(new LambdaQueryWrapper<OciOpenaiLbMember>()
-                .eq(OciOpenaiLbMember::getEnabled, 1))) {
+                .eq(OciOpenaiLbMember::getEnabled, 1)
+                .orderByAsc(OciOpenaiLbMember::getCreateTime))) {
             OciOpenaiPortBinding binding = portBindingMapper.selectById(member.getPortBindingId());
-            if (binding == null || binding.getEnabled() == null || binding.getEnabled() != 1) {
+            OciUser user = binding == null || binding.getOciUserId() == null ? null : userMapper.selectById(binding.getOciUserId());
+            if (hasText(requestedAccount) && !memberMatchesRequestedAccount(member, binding, user, requestedAccount)) {
                 continue;
             }
+            matchedMembers++;
+            if (binding == null) {
+                addModelError(errors, member, null, null, "绑定端口不存在");
+                continue;
+            }
+            if (binding.getEnabled() == null || binding.getEnabled() != 1) {
+                addModelError(errors, member, binding, user, "中转端口已停用");
+                continue;
+            }
+            String keyUnavailable = bindingKeyUnavailableMessage(binding);
+            if (hasText(keyUnavailable)) {
+                addModelError(errors, member, binding, user, keyUnavailable);
+                continue;
+            }
+            ObjectNode source = memberSourceJson(member, binding, user, now);
+            members.add(source.deepCopy());
             List<String> allowedModels = OracleAiPortBindingService.decodeAllowedModels(binding.getAllowedModelsJson());
             if (!allowedModels.isEmpty()) {
+                ObjectNode configuredSource = source.deepCopy();
+                configuredSource.put("modelSource", "configured");
                 for (String model : allowedModels) {
-                    if (!modelUnavailable(member.getId(), model, now)) {
-                        models.add(model);
+                    if (model != null && !model.isBlank() && !modelUnavailable(member.getId(), model, now)) {
+                        mergeModelSource(models, model.trim(), configuredSource);
                     }
                 }
                 continue;
             }
-            OciUser user = binding.getOciUserId() == null ? null : userMapper.selectById(binding.getOciUserId());
             if (user == null) {
+                addModelError(errors, member, binding, null, "租户不存在");
                 continue;
             }
             try {
-                addModelIds(models, generativeOpenAiService.getModelsAsJsonCached(user, binding.getOciRegion()));
+                JsonNode upstream = useCache
+                        ? generativeOpenAiService.getModelsAsJsonCached(user, binding.getOciRegion())
+                        : generativeOpenAiService.getModelsAsJson(user, binding.getOciRegion(), null, null);
+                ObjectNode liveSource = source.deepCopy();
+                liveSource.put("modelSource", useCache ? "live_cache" : "live");
+                addModelRows(models, upstream, liveSource, member.getId(), now);
             } catch (Exception e) {
-                log.debug("Failed to load LB member models for binding {}: {}", binding.getId(), e.getMessage());
+                String message = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+                addModelError(errors, member, binding, user, message);
+                log.debug("Failed to load LB member models for binding {}: {}", binding.getId(), message);
             }
         }
+        if (hasText(requestedAccount) && matchedMembers == 0) {
+            ObjectNode error = MAPPER.createObjectNode();
+            error.put("account", trimTo(requestedAccount, 128));
+            error.put("error", "指定的负载均衡成员不存在或未启用");
+            errors.add(error);
+        }
         ArrayNode data = MAPPER.createArrayNode();
-        for (String model : models) {
-            ObjectNode row = MAPPER.createObjectNode();
-            row.put("id", model);
-            row.put("object", "model");
-            row.put("ociworkerCapability", OracleAiModelCapability.classify(model));
+        for (ObjectNode row : models.values()) {
             data.add(row);
         }
         ObjectNode root = MAPPER.createObjectNode();
         root.put("object", "list");
         root.set("data", data);
+        root.set("members", members);
+        root.set("errors", errors);
+        ObjectNode cache = MAPPER.createObjectNode();
+        cache.put("enabled", useCache);
+        cache.put("ttlSeconds", 300);
+        root.set("cache", cache);
+        if (hasText(requestedAccount)) {
+            root.put("requestedAccount", trimTo(requestedAccount, 128));
+        }
+        root.put("memberCount", members.size());
+        root.put("errorCount", errors.size());
         return root;
     }
 
-    private static void addModelIds(Set<String> out, JsonNode root) {
-        if (out == null || root == null) {
+    private void addModelRows(
+            Map<String, ObjectNode> rows,
+            JsonNode root,
+            ObjectNode source,
+            String memberId,
+            LocalDateTime now) {
+        if (rows == null || root == null) {
             return;
         }
         JsonNode data = root.get("data");
         if (data != null && data.isArray()) {
             for (JsonNode item : data) {
-                String id = modelId(item);
-                if (id != null && !id.isBlank()) {
-                    out.add(id.trim());
-                }
+                addModelRow(rows, item, source, memberId, now);
             }
             return;
         }
         if (root.isArray()) {
             for (JsonNode item : root) {
-                String id = modelId(item);
-                if (id != null && !id.isBlank()) {
-                    out.add(id.trim());
-                }
+                addModelRow(rows, item, source, memberId, now);
             }
         }
+    }
+
+    private void addModelRow(
+            Map<String, ObjectNode> rows,
+            JsonNode item,
+            ObjectNode source,
+            String memberId,
+            LocalDateTime now) {
+        String id = modelId(item);
+        if (id == null || id.isBlank() || modelUnavailable(memberId, id, now)) {
+            return;
+        }
+        mergeModelSource(rows, id.trim(), source);
+    }
+
+    private static void mergeModelSource(Map<String, ObjectNode> rows, String model, ObjectNode source) {
+        if (rows == null || model == null || model.isBlank()) {
+            return;
+        }
+        ObjectNode row = rows.computeIfAbsent(model, id -> {
+            ObjectNode created = MAPPER.createObjectNode();
+            created.put("id", id);
+            created.put("object", "model");
+            created.put("owned_by", "oracle");
+            created.put("ociworkerCapability", OracleAiModelCapability.classify(id));
+            created.set("ociworkerSources", MAPPER.createArrayNode());
+            return created;
+        });
+        if (source != null) {
+            ArrayNode sources = (ArrayNode) row.withArray("ociworkerSources");
+            if (!containsSameSource(sources, source)) {
+                sources.add(source.deepCopy());
+            }
+        }
+    }
+
+    private static boolean containsSameSource(ArrayNode sources, ObjectNode source) {
+        if (sources == null || source == null) {
+            return false;
+        }
+        String memberId = text(source, "memberId");
+        String portBindingId = text(source, "portBindingId");
+        String modelSource = text(source, "modelSource");
+        for (JsonNode item : sources) {
+            if (!(item instanceof ObjectNode object)) {
+                continue;
+            }
+            if (selectorMatches(firstNonBlank(memberId, ""), firstNonBlank(text(object, "memberId"), ""))
+                    && selectorMatches(firstNonBlank(portBindingId, ""), firstNonBlank(text(object, "portBindingId"), ""))
+                    && selectorMatches(firstNonBlank(modelSource, ""), firstNonBlank(text(object, "modelSource"), ""))) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static String modelId(JsonNode item) {
@@ -942,6 +1111,196 @@ public class OciOpenaiLoadBalanceService {
             JsonNode name = item.get("name");
             if (name != null && name.isTextual()) {
                 return name.asText();
+            }
+        }
+        return null;
+    }
+
+    public ObjectNode healthJson() {
+        LocalDateTime now = LocalDateTime.now();
+        int port = DynamicOpenAiPortService.loadBalancePort();
+        List<OciOpenaiLbMember> rows = memberMapper.selectList(new LambdaQueryWrapper<OciOpenaiLbMember>()
+                .orderByDesc(OciOpenaiLbMember::getEnabled)
+                .orderByAsc(OciOpenaiLbMember::getCreateTime));
+        ArrayNode members = MAPPER.createArrayNode();
+        int enabledMemberCount = 0;
+        int healthyMemberCount = 0;
+        int inFlightCount = 0;
+        for (OciOpenaiLbMember member : rows) {
+            OciOpenaiPortBinding binding = member == null ? null : portBindingMapper.selectById(member.getPortBindingId());
+            OciUser user = binding == null || binding.getOciUserId() == null ? null : userMapper.selectById(binding.getOciUserId());
+            HealthCheckResult health = localHealth(member, now);
+            ObjectNode row = memberSourceJson(member, binding, user, now);
+            if (health != null) {
+                row.put("healthStatus", health.status());
+                row.put("healthMessage", health.message());
+                if ("healthy".equalsIgnoreCase(health.status())) {
+                    healthyMemberCount++;
+                }
+            }
+            boolean memberEnabled = member != null && member.getEnabled() != null && member.getEnabled() == 1;
+            boolean bindingEnabled = binding != null && binding.getEnabled() != null && binding.getEnabled() == 1;
+            if (memberEnabled && bindingEnabled) {
+                enabledMemberCount++;
+            }
+            int current = inFlightCount(member == null ? null : member.getId());
+            inFlightCount += current;
+            row.put("inFlight", current);
+            if (member != null) {
+                row.put("failCount", member.getFailCount() == null ? 0 : member.getFailCount());
+                putTime(row, "cooldownUntil", member.getCooldownUntil());
+                putTime(row, "recoveryUntil", member.getRecoveryUntil());
+                putTime(row, "lastUsed", member.getLastUsed());
+                putTime(row, "healthCheckedAt", member.getHealthCheckedAt());
+            }
+            members.add(row);
+        }
+        ObjectNode root = MAPPER.createObjectNode();
+        root.put("ok", true);
+        root.put("object", "ociworker.openai_load_balance.health");
+        root.put("port", port);
+        root.put("baseUrl", "http://<host>:" + port + "/v1");
+        root.put("running", dynamicPortService.isRunning(port));
+        root.put("keyCount", lbKeyMapper.selectCount(null));
+        root.put("memberCount", rows.size());
+        root.put("enabledMemberCount", enabledMemberCount);
+        root.put("healthyMemberCount", healthyMemberCount);
+        root.put("inFlight", inFlightCount);
+        root.put("recentFailureCount", recentFailureCount(now.minusMinutes(15)));
+        root.set("members", members);
+        return root;
+    }
+
+    private long recentFailureCount(LocalDateTime since) {
+        if (since == null) {
+            return 0L;
+        }
+        return requestLogMapper.selectCount(new LambdaQueryWrapper<OciOpenaiLbRequestLog>()
+                .eq(OciOpenaiLbRequestLog::getStatus, "failed")
+                .ge(OciOpenaiLbRequestLog::getCreateTime, since));
+    }
+
+    private ObjectNode memberSourceJson(
+            OciOpenaiLbMember member,
+            OciOpenaiPortBinding binding,
+            OciUser user,
+            LocalDateTime now) {
+        ObjectNode row = MAPPER.createObjectNode();
+        if (member != null) {
+            putText(row, "memberId", member.getId());
+            putText(row, "portBindingId", member.getPortBindingId());
+            row.put("enabled", member.getEnabled() != null && member.getEnabled() == 1);
+            putText(row, "healthStatus", firstNonBlank(member.getHealthStatus(), localHealthStatus(member, now)));
+            putText(row, "healthMessage", member.getHealthMessage());
+            if (member.getLastStatus() != null) {
+                row.put("lastStatus", member.getLastStatus());
+            }
+            putText(row, "lastErrorType", member.getLastErrorType());
+            putText(row, "lastError", trimTo(member.getLastError(), 256));
+            row.put("inFlight", inFlightCount(member.getId()));
+        }
+        if (binding != null) {
+            putText(row, "portBindingId", binding.getId());
+            if (binding.getPort() != null) {
+                row.put("port", binding.getPort());
+            }
+            putText(row, "bindingName", binding.getName());
+            putText(row, "ociUserId", binding.getOciUserId());
+            putText(row, "ociRegion", binding.getOciRegion());
+            row.put("bindingEnabled", binding.getEnabled() != null && binding.getEnabled() == 1);
+            putText(row, "bindingStatus", binding.getStatus());
+            putText(row, "bindingStatusMessage", trimTo(binding.getStatusMessage(), 256));
+        }
+        if (user != null) {
+            putText(row, "tenantId", user.getId());
+            putText(row, "tenantName", firstNonBlank(user.getTenantName(), user.getUsername()));
+            putText(row, "tenantUsername", user.getUsername());
+            putText(row, "tenantDefaultRegion", user.getOciRegion());
+        }
+        return row;
+    }
+
+    private String localHealthStatus(OciOpenaiLbMember member, LocalDateTime now) {
+        HealthCheckResult health = localHealth(member, now);
+        return health == null ? null : health.status();
+    }
+
+    private void addModelError(
+            ArrayNode errors,
+            OciOpenaiLbMember member,
+            OciOpenaiPortBinding binding,
+            OciUser user,
+            String message) {
+        if (errors == null) {
+            return;
+        }
+        ObjectNode row = memberSourceJson(member, binding, user, LocalDateTime.now());
+        row.put("error", trimTo(message, 512));
+        errors.add(row);
+    }
+
+    static boolean memberMatchesRequestedAccount(
+            OciOpenaiLbMember member,
+            OciOpenaiPortBinding binding,
+            OciUser user,
+            String requestedAccount) {
+        String requested = normalizeSelector(requestedAccount);
+        if (requested == null) {
+            return true;
+        }
+        return selectorMatches(requested, member == null ? null : member.getId())
+                || selectorMatches(requested, member == null ? null : member.getPortBindingId())
+                || selectorMatches(requested, binding == null ? null : binding.getId())
+                || selectorMatches(requested, binding == null ? null : binding.getName())
+                || selectorMatches(requested, binding == null || binding.getPort() == null ? null : String.valueOf(binding.getPort()))
+                || selectorMatches(requested, binding == null ? null : binding.getOciUserId())
+                || selectorMatches(requested, user == null ? null : user.getId())
+                || selectorMatches(requested, user == null ? null : user.getUsername())
+                || selectorMatches(requested, user == null ? null : user.getTenantName());
+    }
+
+    private static boolean selectorMatches(String requested, String candidate) {
+        if (requested == null || candidate == null || candidate.isBlank()) {
+            return false;
+        }
+        return requested.equalsIgnoreCase(candidate.trim());
+    }
+
+    private static String normalizeSelector(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        return trimmed.isEmpty() ? null : trimmed;
+    }
+
+    private static void putText(ObjectNode row, String field, String value) {
+        if (row != null && field != null && value != null && !value.isBlank()) {
+            row.put(field, value.trim());
+        }
+    }
+
+    private static String text(ObjectNode row, String field) {
+        if (row == null || field == null) {
+            return null;
+        }
+        JsonNode value = row.get(field);
+        return value != null && value.isTextual() ? value.asText() : null;
+    }
+
+    private static void putTime(ObjectNode row, String field, LocalDateTime value) {
+        if (row != null && field != null && value != null) {
+            row.put(field, value.toString());
+        }
+    }
+
+    private static String firstNonBlank(String... values) {
+        if (values == null) {
+            return null;
+        }
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value.trim();
             }
         }
         return null;
@@ -1085,9 +1444,9 @@ public class OciOpenaiLoadBalanceService {
         if (binding.getEnabled() == null || binding.getEnabled() != 1) {
             return new HealthCheckResult("unhealthy", "中转端口已停用");
         }
-        OciOpenaiKey key = binding.getOpenaiKeyId() == null ? null : openaiKeyMapper.selectById(binding.getOpenaiKeyId());
-        if (key != null && key.getDisabled() != null && key.getDisabled() == 1) {
-            return new HealthCheckResult("unhealthy", "成员 API Key 已禁用");
+        String keyUnavailable = bindingKeyUnavailableMessage(binding);
+        if (hasText(keyUnavailable)) {
+            return new HealthCheckResult("unhealthy", keyUnavailable);
         }
         if (member.getCooldownUntil() != null && member.getCooldownUntil().isAfter(now)) {
             return new HealthCheckResult("cooling", "冷却到 " + member.getCooldownUntil());
@@ -1148,7 +1507,7 @@ public class OciOpenaiLoadBalanceService {
         row.put("recoveryUntil", member.getRecoveryUntil());
         row.put("modelStates", memberModelStates(member.getId()));
         row.put("lastUsed", member.getLastUsed());
-        row.put("inFlight", inFlight.getOrDefault(member.getId(), new AtomicInteger()).get());
+        row.put("inFlight", inFlightCount(member.getId()));
         row.put("usage5h", usageStats(member.getId(), LocalDateTime.now().minusHours(5)));
         row.put("usage7d", usageStats(member.getId(), LocalDateTime.now().minusDays(7)));
 

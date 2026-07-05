@@ -3,6 +3,7 @@ package com.ociworker.controller;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.springframework.mock.web.MockHttpServletRequest;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -400,6 +401,66 @@ class OpenAiV1ControllerTest {
         long inputTokens = OpenAiV1Controller.estimateInputTokens(payload.getBytes(), "application/json");
 
         assertThat(inputTokens).isLessThan(200);
+    }
+
+    @Test
+    void extractsLoadBalanceAccountFromHeaderAndBody() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addHeader("X-OCI-Account", " tenant-a ");
+
+        assertThat(OpenAiV1Controller.requestedLbAccount(request, null, null)).isEqualTo("tenant-a");
+
+        String payload = """
+                {"model":"xai.grok-4.3","oci_account":"port-30001"}
+                """;
+        assertThat(OpenAiV1Controller.requestedLbAccount(
+                new MockHttpServletRequest(),
+                payload.getBytes(StandardCharsets.UTF_8),
+                "application/json"))
+                .isEqualTo("port-30001");
+
+        String numericPayload = """
+                {"model":"xai.grok-4.3","oci_account":30001}
+                """;
+        assertThat(OpenAiV1Controller.requestedLbAccount(
+                new MockHttpServletRequest(),
+                numericPayload.getBytes(StandardCharsets.UTF_8),
+                "application/json"))
+                .isEqualTo("30001");
+    }
+
+    @Test
+    void stripsLoadBalanceRoutingFieldsBeforeProxyingUpstream() throws Exception {
+        String payload = """
+                {
+                  "model":"xai.grok-4.3",
+                  "messages":[{"role":"user","content":"hi"}],
+                  "oci_account":"tenant-a",
+                  "lbMember":"member-a",
+                  "port_binding_id":"binding-a"
+                }
+                """;
+
+        JsonNode root = MAPPER.readTree(OpenAiV1Controller.stripLoadBalanceRoutingFields(
+                payload.getBytes(StandardCharsets.UTF_8),
+                "application/json"));
+
+        assertThat(root.path("model").asText()).isEqualTo("xai.grok-4.3");
+        assertThat(root.has("messages")).isTrue();
+        assertThat(root.has("oci_account")).isFalse();
+        assertThat(root.has("lbMember")).isFalse();
+        assertThat(root.has("port_binding_id")).isFalse();
+    }
+
+    @Test
+    void loadBalanceRefreshFlagsAreTruthyOnlyForExplicitValues() {
+        MockHttpServletRequest request = new MockHttpServletRequest();
+        request.addParameter("refresh", "true");
+        assertThat(OpenAiV1Controller.boolRequestFlag(request, "refresh")).isTrue();
+
+        MockHttpServletRequest falseRequest = new MockHttpServletRequest();
+        falseRequest.addParameter("refresh", "false");
+        assertThat(OpenAiV1Controller.boolRequestFlag(falseRequest, "refresh")).isFalse();
     }
 
     @Test

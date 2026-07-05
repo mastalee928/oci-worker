@@ -46,6 +46,15 @@ import java.util.UUID;
 public class OpenAiV1Controller {
 
     private static final ObjectMapper MAPPER = new ObjectMapper();
+    private static final List<String> LB_ROUTING_BODY_FIELDS = List.of(
+            "oci_account",
+            "ociAccount",
+            "lb_member",
+            "lbMember",
+            "member_id",
+            "memberId",
+            "port_binding_id",
+            "portBindingId");
 
     @Resource
     private OciGenerativeOpenAiService generativeOpenAiService;
@@ -133,10 +142,22 @@ public class OpenAiV1Controller {
         if ("GET".equalsIgnoreCase(request.getMethod()) && isModelsPath(pathAfterV1)) {
             response.setStatus(200);
             response.setContentType("application/json; charset=utf-8");
-            response.getOutputStream().write(loadBalanceService.modelsJson().toString().getBytes(StandardCharsets.UTF_8));
+            boolean useCache = !boolRequestFlag(request, "refresh", "no_cache", "nocache", "force");
+            response.getOutputStream().write(loadBalanceService
+                    .modelsJson(requestedLbAccount(request, null, null), useCache)
+                    .toString()
+                    .getBytes(StandardCharsets.UTF_8));
+            return;
+        }
+        if ("GET".equalsIgnoreCase(request.getMethod()) && isHealthPath(pathAfterV1)) {
+            response.setStatus(200);
+            response.setContentType("application/json; charset=utf-8");
+            response.getOutputStream().write(loadBalanceService.healthJson().toString().getBytes(StandardCharsets.UTF_8));
             return;
         }
         byte[] body = shouldReadBody(request.getMethod()) ? request.getInputStream().readAllBytes() : null;
+        String requestedLbAccount = requestedLbAccount(request, body, request.getContentType());
+        body = stripLoadBalanceRoutingFields(body, request.getContentType());
         String requestLogPath = pathAfterV1;
         boolean anthropicMessages = isMessagesPath(pathAfterV1);
         boolean anthropicStream = anthropicMessages && isStreamRequest(body, request.getContentType());
@@ -192,8 +213,11 @@ public class OpenAiV1Controller {
                 && requiresResponsesGenerativeContext(requestedModel);
         long estimatedTokens = estimateTokens(body, request.getContentType());
         Set<String> triedMembers = new HashSet<>();
-        int eligibleCount = loadBalanceService.eligibleMemberCount(requestedModel, estimatedTokens, requireGenerativeContext);
-        if (requireGenerativeContext && eligibleCount <= 0) {
+        int eligibleCount = loadBalanceService.eligibleMemberCount(
+                requestedModel, estimatedTokens, requireGenerativeContext, requestedLbAccount);
+        if (requireGenerativeContext
+                && eligibleCount <= 0
+                && (requestedLbAccount == null || requestedLbAccount.isBlank())) {
             error(response, 503, "Responses API 调用非 OpenAI 模型需要 OpenAI-Project 或 opc-conversation-store-id，自动创建默认 OpenAI-Project 失败，请检查成员租户是否有 Generative AI Project 创建权限");
             return;
         }
@@ -206,7 +230,8 @@ public class OpenAiV1Controller {
         for (int attempt = 0; attempt < maxAttempts; attempt++) {
             OciOpenaiLoadBalanceService.Selection selection;
             try {
-                selection = selectMemberWithBriefWait(requestedModel, estimatedTokens, triedMembers, requireGenerativeContext);
+                selection = selectMemberWithBriefWait(
+                        requestedModel, estimatedTokens, triedMembers, requireGenerativeContext, requestedLbAccount);
             } catch (OciException e) {
                 if (attempt == 0) {
                     if (anthropicMessages) {
@@ -364,11 +389,13 @@ public class OpenAiV1Controller {
             String requestedModel,
             long estimatedTokens,
             Set<String> triedMembers,
-            boolean requireGenerativeContext) {
+            boolean requireGenerativeContext,
+            String requestedLbAccount) {
         OciException last = null;
         for (int i = 0; i < 4; i++) {
             try {
-                return loadBalanceService.selectMember(requestedModel, estimatedTokens, triedMembers, requireGenerativeContext);
+                return loadBalanceService.selectMember(
+                        requestedModel, estimatedTokens, triedMembers, requireGenerativeContext, requestedLbAccount);
             } catch (OciException e) {
                 last = e;
                 if (i >= 3) {
@@ -496,6 +523,115 @@ public class OpenAiV1Controller {
 
     private static boolean isModelsPath(String pathAfterV1) {
         return pathAfterV1 != null && (pathAfterV1.equals("/models") || pathAfterV1.endsWith("/models"));
+    }
+
+    private static boolean isHealthPath(String pathAfterV1) {
+        return pathAfterV1 != null && (pathAfterV1.equals("/health") || pathAfterV1.endsWith("/health"));
+    }
+
+    static boolean boolRequestFlag(HttpServletRequest request, String... names) {
+        if (request == null || names == null) {
+            return false;
+        }
+        for (String name : names) {
+            if (name == null || name.isBlank()) {
+                continue;
+            }
+            String value = request.getParameter(name);
+            if (isTruthy(value)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    static String requestedLbAccount(HttpServletRequest request, byte[] body, String contentType) {
+        String fromHeader = firstNonBlank(
+                header(request, "X-OCI-Account"),
+                header(request, "X-OCIWorker-Account"),
+                header(request, "X-OCIworker-Account"),
+                header(request, "X-OCI-LB-Member"),
+                header(request, "X-OCIworker-LB-Member"));
+        if (fromHeader != null) {
+            return fromHeader;
+        }
+        if (!isJsonContent(contentType) || body == null || body.length == 0) {
+            return null;
+        }
+        try {
+            JsonNode root = MAPPER.readTree(body);
+            if (!(root instanceof ObjectNode object)) {
+                return null;
+            }
+            for (String field : LB_ROUTING_BODY_FIELDS) {
+                String value = scalarText(object, field);
+                if (value != null && !value.isBlank()) {
+                    return value.trim();
+                }
+            }
+        } catch (Exception ignored) {
+            return null;
+        }
+        return null;
+    }
+
+    static byte[] stripLoadBalanceRoutingFields(byte[] body, String contentType) {
+        if (!isJsonContent(contentType) || body == null || body.length == 0) {
+            return body;
+        }
+        try {
+            JsonNode root = MAPPER.readTree(body);
+            if (!(root instanceof ObjectNode object)) {
+                return body;
+            }
+            boolean changed = false;
+            for (String field : LB_ROUTING_BODY_FIELDS) {
+                if (object.has(field)) {
+                    object.remove(field);
+                    changed = true;
+                }
+            }
+            return changed ? MAPPER.writeValueAsBytes(object) : body;
+        } catch (Exception ignored) {
+            return body;
+        }
+    }
+
+    private static String header(HttpServletRequest request, String name) {
+        if (request == null || name == null || name.isBlank()) {
+            return null;
+        }
+        String value = request.getHeader(name);
+        return value == null || value.isBlank() ? null : value.trim();
+    }
+
+    private static String scalarText(ObjectNode object, String field) {
+        if (object == null || field == null || field.isBlank()) {
+            return null;
+        }
+        JsonNode value = object.get(field);
+        if (value == null || value.isNull() || value.isContainerNode()) {
+            return null;
+        }
+        return value.asText();
+    }
+
+    private static boolean isTruthy(String value) {
+        if (value == null) {
+            return false;
+        }
+        String normalized = value.trim().toLowerCase();
+        return normalized.equals("1")
+                || normalized.equals("true")
+                || normalized.equals("yes")
+                || normalized.equals("y")
+                || normalized.equals("on");
+    }
+
+    private static boolean isJsonContent(String contentType) {
+        return contentType == null
+                || contentType.isBlank()
+                || contentType.toLowerCase().contains("json");
     }
 
     private static boolean isResponsesPath(String pathAfterV1) {
