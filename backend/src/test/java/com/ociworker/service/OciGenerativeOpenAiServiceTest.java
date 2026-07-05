@@ -180,6 +180,76 @@ class OciGenerativeOpenAiServiceTest {
     }
 
     @Test
+    void normalizesNullChatMessageContentBeforeProxyingToOci() throws Exception {
+        String payload = """
+                {
+                  "model":"google.gemini-2.5-pro",
+                  "messages":[
+                    {"role":"user","content":null},
+                    {"role":"assistant","content":null,"tool_calls":[{"id":"call_a","type":"function","function":{"name":"read_cpu","arguments":"{}"}}]},
+                    {"role":"tool","tool_call_id":"call_a","content":null}
+                  ],
+                  "stream":true
+                }
+                """;
+
+        byte[] normalized = OciGenerativeOpenAiService.transformChatCompletionsJson(payload.getBytes(), 128);
+
+        JsonNode root = MAPPER.readTree(normalized);
+        JsonNode messages = root.path("messages");
+        assertThat(messages.get(0).path("content").asText()).isEmpty();
+        assertThat(messages.get(1).path("content").asText()).isEmpty();
+        assertThat(messages.get(1).path("tool_calls")).hasSize(1);
+        assertThat(messages.get(2).path("content").asText()).isEmpty();
+    }
+
+    @Test
+    void doesNotRouteAllNullContentGeminiRequestToNativeBridge() {
+        String payload = """
+                {
+                  "model":"google.gemini-2.5-pro",
+                  "messages":[{"role":"user","content":null}],
+                  "stream":true
+                }
+                """;
+
+        assertThat(OciGenerativeOpenAiService.canUseNativeGenericChat(payload.getBytes())).isFalse();
+    }
+
+    @Test
+    void routesGeminiRequestWithNullSystemAndValidUserToNativeBridge() {
+        String payload = """
+                {
+                  "model":"google.gemini-2.5-pro",
+                  "messages":[
+                    {"role":"system","content":null},
+                    {"role":"user","content":"你是谁？"}
+                  ],
+                  "stream":true
+                }
+                """;
+
+        assertThat(OciGenerativeOpenAiService.canUseNativeGenericChat(payload.getBytes())).isTrue();
+    }
+
+    @Test
+    void normalizesNullChatContentPartsBeforeProxyingToOci() throws Exception {
+        String payload = """
+                {
+                  "model":"google.gemini-2.5-pro",
+                  "messages":[{"role":"user","content":[null, {"type":"text","text":null}]}]
+                }
+                """;
+
+        byte[] normalized = OciGenerativeOpenAiService.transformChatCompletionsJson(payload.getBytes(), 128);
+
+        JsonNode content = MAPPER.readTree(normalized).path("messages").get(0).path("content");
+        assertThat(content).hasSize(1);
+        assertThat(content.get(0).path("type").asText()).isEqualTo("text");
+        assertThat(content.get(0).path("text").asText()).isEmpty();
+    }
+
+    @Test
     void rewritesChatCompletionsOnlyForActualMultiAgentModelName() {
         assertThat(OciGenerativeOpenAiService.shouldRewriteChatCompletionsToResponses("xai.grok-4.3")).isFalse();
         assertThat(OciGenerativeOpenAiService.shouldRewriteChatCompletionsToResponses("google.gemini-2.5-pro")).isFalse();

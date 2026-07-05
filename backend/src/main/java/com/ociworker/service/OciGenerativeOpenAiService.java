@@ -872,7 +872,7 @@ public class OciGenerativeOpenAiService {
                     return false;
                 }
                 String role = firstNonBlank(textOrNull(messageObject, "role"), "user").toLowerCase(Locale.ROOT);
-                if (messageObject.get("content") != null || messageObject.get("tool_calls") != null) {
+                if (hasNativeGenericChatPayload(messageObject)) {
                     hasUsableMessage = true;
                 }
                 if (!isNativeGenericChatContent(messageObject.get("content"))) {
@@ -886,6 +886,57 @@ public class OciGenerativeOpenAiService {
         } catch (Exception ignored) {
             return false;
         }
+    }
+
+    private static boolean hasNativeGenericChatPayload(ObjectNode message) {
+        if (message == null) {
+            return false;
+        }
+        JsonNode toolCalls = message.get("tool_calls");
+        if (toolCalls != null && toolCalls.isArray() && !toolCalls.isEmpty()) {
+            return true;
+        }
+        JsonNode content = message.get("content");
+        if (content == null || content.isNull() || content.isMissingNode()) {
+            return false;
+        }
+        if (content.isTextual()) {
+            return !content.asText().isBlank();
+        }
+        if (content.isNumber() || content.isBoolean()) {
+            return true;
+        }
+        if (!content.isArray()) {
+            return false;
+        }
+        for (JsonNode part : content) {
+            if (part == null || part.isNull()) {
+                continue;
+            }
+            if (part.isTextual()) {
+                if (!part.asText().isBlank()) {
+                    return true;
+                }
+                continue;
+            }
+            if (!(part instanceof ObjectNode object)) {
+                continue;
+            }
+            String type = firstNonBlank(textOrNull(object, "type"), "").toLowerCase(Locale.ROOT);
+            if ("text".equals(type) || "input_text".equals(type) || type.isBlank()) {
+                String text = textOrNull(object, "text");
+                if (text != null && !text.isBlank()) {
+                    return true;
+                }
+            }
+            if ("image_url".equals(type) || "input_image".equals(type) || "image".equals(type)
+                    || object.get("image_url") != null || object.get("image") != null) {
+                if (nativeImageUrl(object) != null) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     private static boolean isNativeGenericChatContent(JsonNode content) {
@@ -2788,13 +2839,13 @@ public class OciGenerativeOpenAiService {
             if ("tool".equalsIgnoreCase(role)) {
                 String toolCallId = textOrNull(object, "tool_call_id");
                 if (toolCallId == null || toolCallId.isBlank()) {
-                    normalized.add(object.deepCopy());
+                    normalized.add(normalizeChatMessageForOci(object));
                 }
                 continue;
             }
             JsonNode toolCalls = object.get("tool_calls");
             if (!"assistant".equalsIgnoreCase(role) || toolCalls == null || !toolCalls.isArray() || toolCalls.isEmpty()) {
-                normalized.add(object.deepCopy());
+                normalized.add(normalizeChatMessageForOci(object));
                 continue;
             }
 
@@ -2821,19 +2872,55 @@ public class OciGenerativeOpenAiService {
                 if (hasUsableChatContent(object.get("content"))) {
                     ObjectNode plainAssistant = object.deepCopy();
                     plainAssistant.remove("tool_calls");
-                    normalized.add(plainAssistant);
+                    normalized.add(normalizeChatMessageForOci(plainAssistant));
                 }
                 continue;
             }
 
             ObjectNode assistant = object.deepCopy();
             assistant.set("tool_calls", answeredToolCalls);
-            normalized.add(assistant);
+            normalized.add(normalizeChatMessageForOci(assistant));
             for (ObjectNode reply : answeredReplies) {
-                normalized.add(reply.deepCopy());
+                normalized.add(normalizeChatMessageForOci(reply));
             }
         }
         return normalized;
+    }
+
+    private static ObjectNode normalizeChatMessageForOci(ObjectNode source) {
+        ObjectNode out = source == null ? MAPPER.createObjectNode() : source.deepCopy();
+        JsonNode content = out.get("content");
+        if (content == null || content.isNull() || content.isMissingNode()) {
+            out.put("content", "");
+            return out;
+        }
+        if (!content.isArray()) {
+            return out;
+        }
+        ArrayNode normalized = MAPPER.createArrayNode();
+        for (JsonNode part : content) {
+            if (part == null || part.isNull()) {
+                continue;
+            }
+            if (part instanceof ObjectNode objectPart) {
+                ObjectNode copy = objectPart.deepCopy();
+                String type = firstNonBlank(textOrNull(copy, "type"), "").toLowerCase(Locale.ROOT);
+                JsonNode text = copy.get("text");
+                if (("text".equals(type) || "input_text".equals(type))
+                        && (text == null || text.isNull() || text.isMissingNode())) {
+                    copy.put("text", "");
+                }
+                normalized.add(copy);
+            } else {
+                normalized.add(part.deepCopy());
+            }
+        }
+        if (normalized.isEmpty()) {
+            out.put("content", "");
+        } else {
+            out.set("content", normalized);
+        }
+        return out;
     }
 
     private static boolean hasUsableChatContent(JsonNode content) {
