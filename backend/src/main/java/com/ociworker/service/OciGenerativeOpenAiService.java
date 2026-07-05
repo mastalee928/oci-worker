@@ -882,13 +882,14 @@ public class OciGenerativeOpenAiService {
                     return false;
                 }
                 String role = normalizeChatRole(textOrNull(messageObject, "role"));
+                JsonNode nativeContent = nativeMessageContent(messageObject);
                 if (hasNativeGenericChatPayload(messageObject)) {
                     hasUsableMessage = true;
                 }
-                if (!isNativeGenericChatContent(messageObject.get("content"))) {
+                if (!isNativeGenericChatContent(nativeContent)) {
                     return false;
                 }
-                if (!"user".equals(role) && hasNativeImageContent(messageObject.get("content"))) {
+                if (!"user".equals(role) && hasNativeImageContent(nativeContent)) {
                     return false;
                 }
             }
@@ -906,7 +907,22 @@ public class OciGenerativeOpenAiService {
         if (toolCalls != null && toolCalls.isArray() && !toolCalls.isEmpty()) {
             return true;
         }
+        return hasNativeGenericChatPayloadContent(nativeMessageContent(message));
+    }
+
+    private static JsonNode nativeMessageContent(ObjectNode message) {
+        if (message == null) {
+            return null;
+        }
         JsonNode content = message.get("content");
+        if (hasNativeGenericChatPayloadContent(content) || !isNativeGenericChatContent(content)) {
+            return content;
+        }
+        JsonNode fallback = firstExisting(message, "text", "value", "prompt", "input", "query", "parts");
+        return fallback == null ? content : fallback;
+    }
+
+    private static boolean hasNativeGenericChatPayloadContent(JsonNode content) {
         if (content == null || content.isNull() || content.isMissingNode()) {
             return false;
         }
@@ -1297,10 +1313,13 @@ public class OciGenerativeOpenAiService {
                     continue;
                 }
                 String role = normalizeChatRole(textOrNull(message, "role"));
-                List<ChatContent> content = toNativeContent(message.get("content"));
+                List<ChatContent> content = toNativeContent(nativeMessageContent(message));
                 String name = textOrNull(message, "name");
                 switch (role) {
                     case "system" -> {
+                        if (!hasUsableNativeContent(content)) {
+                            continue;
+                        }
                         SystemMessage.Builder builder = SystemMessage.builder().content(content);
                         if (name != null && !name.isBlank()) {
                             builder.name(name);
@@ -1308,6 +1327,9 @@ public class OciGenerativeOpenAiService {
                         out.add(builder.build());
                     }
                     case "developer" -> {
+                        if (!hasUsableNativeContent(content)) {
+                            continue;
+                        }
                         DeveloperMessage.Builder builder = DeveloperMessage.builder().content(content);
                         if (name != null && !name.isBlank()) {
                             builder.name(name);
@@ -1315,6 +1337,10 @@ public class OciGenerativeOpenAiService {
                         out.add(builder.build());
                     }
                     case "assistant" -> {
+                        List<ToolCall> toolCalls = toNativeToolCalls(message.get("tool_calls"));
+                        if (!hasUsableNativeContent(content) && toolCalls.isEmpty()) {
+                            continue;
+                        }
                         AssistantMessage.Builder builder = AssistantMessage.builder().content(content);
                         if (name != null && !name.isBlank()) {
                             builder.name(name);
@@ -1323,13 +1349,15 @@ public class OciGenerativeOpenAiService {
                         if (reasoning != null && !reasoning.isBlank()) {
                             builder.reasoningContent(reasoning);
                         }
-                        List<ToolCall> toolCalls = toNativeToolCalls(message.get("tool_calls"));
                         if (!toolCalls.isEmpty()) {
                             builder.toolCalls(toolCalls);
                         }
                         out.add(builder.build());
                     }
                     case "tool" -> {
+                        if (!hasUsableNativeContent(content)) {
+                            continue;
+                        }
                         ToolMessage.Builder builder = ToolMessage.builder().content(content);
                         String toolCallId = textOrNull(message, "tool_call_id");
                         if (toolCallId != null && !toolCallId.isBlank()) {
@@ -1338,6 +1366,9 @@ public class OciGenerativeOpenAiService {
                         out.add(builder.build());
                     }
                     default -> {
+                        if (!hasUsableNativeContent(content)) {
+                            continue;
+                        }
                         UserMessage.Builder builder = UserMessage.builder().content(content);
                         if (name != null && !name.isBlank()) {
                             builder.name(name);
@@ -1348,20 +1379,27 @@ public class OciGenerativeOpenAiService {
             }
         }
         if (out.isEmpty()) {
-            out.add(UserMessage.builder().content(List.of(TextContent.builder().text("").build())).build());
+            out.add(UserMessage.builder().content(List.of(TextContent.builder().text(" ").build())).build());
         }
         return out;
     }
 
     private static List<ChatContent> toNativeContent(JsonNode content) {
         if (content == null || content.isNull() || content.isMissingNode()) {
-            return List.of(TextContent.builder().text("").build());
+            return List.of();
         }
-        if (content.isTextual() || content.isNumber() || content.isBoolean()) {
+        if (content.isTextual()) {
+            String text = content.asText();
+            return text == null || text.isBlank()
+                    ? List.of()
+                    : List.of(TextContent.builder().text(text).build());
+        }
+        if (content.isNumber() || content.isBoolean()) {
             return List.of(TextContent.builder().text(content.asText()).build());
         }
         if (content instanceof ObjectNode object) {
-            return List.of(toNativeContentPart(object));
+            ChatContent part = toNativeContentPart(object);
+            return hasUsableNativeContent(part) ? List.of(part) : List.of();
         }
         if (!content.isArray()) {
             return List.of(TextContent.builder().text(content.toString()).build());
@@ -1371,10 +1409,10 @@ public class OciGenerativeOpenAiService {
             if (part == null || part.isNull()) {
                 continue;
             }
-            out.add(toNativeContentPart(part));
-        }
-        if (out.isEmpty()) {
-            out.add(TextContent.builder().text("").build());
+            ChatContent converted = toNativeContentPart(part);
+            if (hasUsableNativeContent(converted)) {
+                out.add(converted);
+            }
         }
         return out;
     }
@@ -1397,6 +1435,34 @@ public class OciGenerativeOpenAiService {
         }
         String text = chatTextPartText(object);
         return TextContent.builder().text(text == null ? object.toString() : text).build();
+    }
+
+    private static boolean hasUsableNativeContent(List<ChatContent> content) {
+        if (content == null || content.isEmpty()) {
+            return false;
+        }
+        for (ChatContent item : content) {
+            if (hasUsableNativeContent(item)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean hasUsableNativeContent(ChatContent content) {
+        if (content == null) {
+            return false;
+        }
+        if (content instanceof TextContent textContent) {
+            String text = textContent.getText();
+            return text != null && !text.isBlank();
+        }
+        if (content instanceof ImageContent imageContent) {
+            return imageContent.getImageUrl() != null
+                    && imageContent.getImageUrl().getUrl() != null
+                    && !imageContent.getImageUrl().getUrl().isBlank();
+        }
+        return true;
     }
 
     private static String chatTextPartText(ObjectNode object) {

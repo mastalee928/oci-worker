@@ -18,6 +18,7 @@ import com.oracle.bmc.generativeaiinference.model.ImageContent;
 import com.oracle.bmc.generativeaiinference.model.TextContent;
 import com.oracle.bmc.generativeaiinference.model.ToolChoiceAuto;
 import com.oracle.bmc.generativeaiinference.model.Usage;
+import com.oracle.bmc.generativeaiinference.model.UserMessage;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 
@@ -318,6 +319,85 @@ class OciGenerativeOpenAiServiceTest {
                 """;
 
         assertThat(OciGenerativeOpenAiService.canUseNativeGenericChat(payload.getBytes())).isTrue();
+    }
+
+    @Test
+    void skipsEmptyNativeMessagesBeforeCallingOciSdk() throws Exception {
+        String payload = """
+                {
+                  "model":"google.gemini-2.5-pro",
+                  "messages":[
+                    {"role":"system","content":null},
+                    {"role":"developer","content":[{"type":"text","text":""}]},
+                    {"role":"user","content":"你是谁？"}
+                  ],
+                  "stream":true
+                }
+                """;
+
+        assertThat(OciGenerativeOpenAiService.canUseNativeGenericChat(payload.getBytes())).isTrue();
+
+        GenericChatRequest request = OciGenerativeOpenAiService.toNativeGenericChatRequest(
+                (ObjectNode) MAPPER.readTree(payload));
+        assertThat(request.getMessages()).hasSize(1);
+        assertThat(request.getMessages().get(0)).isInstanceOf(UserMessage.class);
+        assertThat(((TextContent) request.getMessages().get(0).getContent().get(0)).getText()).isEqualTo("你是谁？");
+    }
+
+    @Test
+    void usesMessageFallbackFieldsWhenGeminiContentIsEmpty() throws Exception {
+        String payload = """
+                {
+                  "model":"google.gemini-2.5-pro",
+                  "messages":[{"role":"user","content":"","parts":[{"type":"text","text":"在？"}]}],
+                  "stream":true
+                }
+                """;
+
+        assertThat(OciGenerativeOpenAiService.canUseNativeGenericChat(payload.getBytes())).isTrue();
+
+        GenericChatRequest request = OciGenerativeOpenAiService.toNativeGenericChatRequest(
+                (ObjectNode) MAPPER.readTree(payload));
+        assertThat(request.getMessages()).hasSize(1);
+        assertThat(((TextContent) request.getMessages().get(0).getContent().get(0)).getText()).isEqualTo("在？");
+    }
+
+    @Test
+    void doesNotUseUnsupportedFallbackDocumentContentForNativeBridge() {
+        String payload = """
+                {
+                  "model":"google.gemini-2.5-pro",
+                  "messages":[{"role":"user","content":"","parts":[
+                    {"type":"document","source":{"type":"base64","media_type":"application/pdf","data":"abc"}}
+                  ]}],
+                  "stream":true
+                }
+                """;
+
+        assertThat(OciGenerativeOpenAiService.canUseNativeGenericChat(payload.getBytes())).isFalse();
+    }
+
+    @Test
+    void preservesAssistantToolCallsWithoutEmptyTextContentForNativeBridge() throws Exception {
+        String payload = """
+                {
+                  "model":"google.gemini-2.5-pro",
+                  "messages":[
+                    {"role":"assistant","content":null,"tool_calls":[{"id":"call_a","type":"function","function":{"name":"read_cpu","arguments":"{}"}}]},
+                    {"role":"user","content":"继续"}
+                  ],
+                  "stream":false
+                }
+                """;
+
+        assertThat(OciGenerativeOpenAiService.canUseNativeGenericChat(payload.getBytes())).isTrue();
+
+        GenericChatRequest request = OciGenerativeOpenAiService.toNativeGenericChatRequest(
+                (ObjectNode) MAPPER.readTree(payload));
+        assertThat(request.getMessages().get(0)).isInstanceOf(AssistantMessage.class);
+        AssistantMessage assistant = (AssistantMessage) request.getMessages().get(0);
+        assertThat(assistant.getContent()).isEmpty();
+        assertThat(assistant.getToolCalls()).hasSize(1);
     }
 
     @Test
