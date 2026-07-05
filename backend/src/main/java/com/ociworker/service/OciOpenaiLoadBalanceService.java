@@ -1318,13 +1318,44 @@ public class OciOpenaiLoadBalanceService {
     }
 
     public List<Map<String, Object>> recentRequests(int limit) {
-        int safeLimit = Math.max(1, Math.min(200, limit <= 0 ? 50 : limit));
-        return requestLogMapper.selectList(new LambdaQueryWrapper<OciOpenaiLbRequestLog>()
-                        .orderByDesc(OciOpenaiLbRequestLog::getCreateTime)
-                        .last("LIMIT " + safeLimit))
-                .stream()
-                .map(this::requestLogRow)
-                .collect(Collectors.toList());
+        return recentRequests(new RequestLogQuery(limit, null, null, null, null, null, null));
+    }
+
+    public List<Map<String, Object>> recentRequests(RequestLogQuery query) {
+        int safeLimit = Math.max(1, Math.min(500, query == null || query.limit() <= 0 ? 50 : query.limit()));
+        LambdaQueryWrapper<OciOpenaiLbRequestLog> wrapper = new LambdaQueryWrapper<OciOpenaiLbRequestLog>()
+                .orderByDesc(OciOpenaiLbRequestLog::getCreateTime);
+        String status = trimTo(query == null ? null : query.status(), 32);
+        boolean statusIsClientAborted = false;
+        if (status != null && !"all".equalsIgnoreCase(status)) {
+            if ("client_aborted".equalsIgnoreCase(status)) {
+                wrapper.eq(OciOpenaiLbRequestLog::getClientAborted, 1);
+                statusIsClientAborted = true;
+            } else {
+                wrapper.eq(OciOpenaiLbRequestLog::getStatus, status);
+            }
+        }
+        String memberId = trimTo(query == null ? null : query.memberId(), 64);
+        if (memberId != null) {
+            wrapper.eq(OciOpenaiLbRequestLog::getMemberId, memberId);
+        }
+        String model = trimTo(query == null ? null : query.model(), 128);
+        if (model != null) {
+            wrapper.like(OciOpenaiLbRequestLog::getModel, model);
+        }
+        String requestId = trimTo(query == null ? null : query.requestId(), 128);
+        if (requestId != null) {
+            wrapper.like(OciOpenaiLbRequestLog::getRequestId, requestId);
+        }
+        Boolean hasTools = query == null ? null : query.hasTools();
+        if (hasTools != null) {
+            wrapper.eq(OciOpenaiLbRequestLog::getHasTools, hasTools ? 1 : 0);
+        }
+        Boolean clientAborted = query == null ? null : query.clientAborted();
+        if (clientAborted != null && !statusIsClientAborted) {
+            wrapper.eq(OciOpenaiLbRequestLog::getClientAborted, clientAborted ? 1 : 0);
+        }
+        return requestLogRows(requestLogMapper.selectList(wrapper.last("LIMIT " + safeLimit)));
     }
 
     public void recordRequestLog(RequestLogInput input) {
@@ -1606,7 +1637,75 @@ public class OciOpenaiLoadBalanceService {
         return tokens;
     }
 
-    private Map<String, Object> requestLogRow(OciOpenaiLbRequestLog logRow) {
+    private List<Map<String, Object>> requestLogRows(List<OciOpenaiLbRequestLog> logRows) {
+        if (logRows == null || logRows.isEmpty()) {
+            return List.of();
+        }
+        Set<String> memberIds = new LinkedHashSet<>();
+        Set<String> bindingIds = new LinkedHashSet<>();
+        for (OciOpenaiLbRequestLog logRow : logRows) {
+            if (logRow == null) {
+                continue;
+            }
+            if (hasText(logRow.getMemberId())) {
+                memberIds.add(logRow.getMemberId());
+            }
+            if (hasText(logRow.getPortBindingId())) {
+                bindingIds.add(logRow.getPortBindingId());
+            }
+        }
+        Map<String, OciOpenaiLbMember> memberMap = new HashMap<>();
+        if (!memberIds.isEmpty()) {
+            for (OciOpenaiLbMember member : memberMapper.selectBatchIds(memberIds)) {
+                if (member != null && hasText(member.getId())) {
+                    memberMap.put(member.getId(), member);
+                    if (hasText(member.getPortBindingId())) {
+                        bindingIds.add(member.getPortBindingId());
+                    }
+                }
+            }
+        }
+        Map<String, OciOpenaiPortBinding> bindingMap = new HashMap<>();
+        Set<String> userIds = new LinkedHashSet<>();
+        if (!bindingIds.isEmpty()) {
+            for (OciOpenaiPortBinding binding : portBindingMapper.selectBatchIds(bindingIds)) {
+                if (binding != null && hasText(binding.getId())) {
+                    bindingMap.put(binding.getId(), binding);
+                    if (hasText(binding.getOciUserId())) {
+                        userIds.add(binding.getOciUserId());
+                    }
+                }
+            }
+        }
+        Map<String, OciUser> userMap = new HashMap<>();
+        if (!userIds.isEmpty()) {
+            for (OciUser user : userMapper.selectBatchIds(userIds)) {
+                if (user != null && hasText(user.getId())) {
+                    userMap.put(user.getId(), user);
+                }
+            }
+        }
+        List<Map<String, Object>> rows = new ArrayList<>(logRows.size());
+        for (OciOpenaiLbRequestLog logRow : logRows) {
+            if (logRow == null) {
+                continue;
+            }
+            OciOpenaiLbMember member = hasText(logRow.getMemberId()) ? memberMap.get(logRow.getMemberId()) : null;
+            OciOpenaiPortBinding binding = hasText(logRow.getPortBindingId()) ? bindingMap.get(logRow.getPortBindingId()) : null;
+            if (binding == null && member != null && hasText(member.getPortBindingId())) {
+                binding = bindingMap.get(member.getPortBindingId());
+            }
+            OciUser user = binding != null && hasText(binding.getOciUserId()) ? userMap.get(binding.getOciUserId()) : null;
+            rows.add(requestLogRow(logRow, member, binding, user));
+        }
+        return rows;
+    }
+
+    private Map<String, Object> requestLogRow(
+            OciOpenaiLbRequestLog logRow,
+            OciOpenaiLbMember member,
+            OciOpenaiPortBinding binding,
+            OciUser user) {
         Map<String, Object> row = new HashMap<>();
         row.put("id", logRow.getId());
         row.put("requestId", logRow.getRequestId());
@@ -1634,7 +1733,40 @@ public class OciOpenaiLoadBalanceService {
         row.put("clientAborted", logRow.getClientAborted() != null && logRow.getClientAborted() == 1);
         row.put("retryCount", logRow.getRetryCount());
         row.put("createTime", logRow.getCreateTime());
+        enrichRequestLogRow(row, member, binding, user);
         return row;
+    }
+
+    private void enrichRequestLogRow(
+            Map<String, Object> row,
+            OciOpenaiLbMember member,
+            OciOpenaiPortBinding binding,
+            OciUser user) {
+        if (row == null) {
+            return;
+        }
+        if (member != null) {
+            row.put("memberEnabled", member.getEnabled() != null && member.getEnabled() == 1);
+            row.put("memberWeight", member.getWeight());
+            row.put("memberHealthStatus", member.getHealthStatus());
+            row.put("memberHealthMessage", member.getHealthMessage());
+        }
+        if (binding != null) {
+            row.put("bindingName", binding.getName());
+            row.put("memberName", binding.getName());
+            row.put("ociUserId", binding.getOciUserId());
+            row.put("ociRegion", binding.getOciRegion());
+            row.put("bindingStatus", binding.getStatus());
+            row.put("bindingEnabled", binding.getEnabled() != null && binding.getEnabled() == 1);
+            if (row.get("port") == null) {
+                row.put("port", binding.getPort());
+            }
+            if (user != null) {
+                row.put("tenantName", firstNonBlank(user.getTenantName(), user.getUsername()));
+                row.put("tenantUsername", user.getUsername());
+                row.put("tenantDefaultRegion", user.getOciRegion());
+            }
+        }
     }
 
     private String maskForList(OciOpenaiLbKey key) {
@@ -1771,4 +1903,13 @@ public class OciOpenaiLoadBalanceService {
             long tokenCount,
             boolean clientAborted,
             int retryCount) {}
+
+    public record RequestLogQuery(
+            int limit,
+            String status,
+            String memberId,
+            String model,
+            String requestId,
+            Boolean hasTools,
+            Boolean clientAborted) {}
 }

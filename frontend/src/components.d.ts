@@ -89,6 +89,7 @@ declare module 'vue' {
     InstanceTenantEntryPanel: typeof import('./components/instance/InstanceTenantEntryPanel.vue')['default']
     InstanceTrafficPanel: typeof import('./components/instance/InstanceTrafficPanel.vue')['default']
     OciLogo: typeof import('./components/OciLogo.vue')['default']
+    OracleAiDiagnosticsPanel: typeof import('./components/oracle-ai/OracleAiDiagnosticsPanel.vue')['default']
     QuickTaskModal: typeof import('./components/instance/QuickTaskModal.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']

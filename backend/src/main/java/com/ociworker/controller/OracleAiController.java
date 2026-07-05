@@ -10,6 +10,7 @@ import com.ociworker.model.entity.OciKv;
 import com.ociworker.model.vo.ResponseData;
 import com.ociworker.service.OciGenerativeOpenAiService;
 import com.ociworker.service.OciOpenaiKeyService;
+import com.ociworker.service.OciOpenaiLoadBalanceService.RequestLogQuery;
 import com.ociworker.mapper.OciKvMapper;
 import com.ociworker.mapper.OciUserMapper;
 import com.ociworker.util.CommonUtils;
@@ -350,6 +351,18 @@ public class OracleAiController {
         return ResponseData.ok(loadBalanceService.overview());
     }
 
+    @PostMapping("/lb/health")
+    public ResponseData<?> lbHealth() {
+        return ResponseData.ok(loadBalanceService.healthJson());
+    }
+
+    @PostMapping("/lb/models")
+    public ResponseData<?> lbModels(@RequestBody(required = false) Map<String, Object> body) {
+        String account = body == null ? null : trimObj(body.get("account"));
+        boolean refresh = boolValue(body == null ? null : body.get("refresh"), false);
+        return ResponseData.ok(loadBalanceService.modelsJson(account, !refresh));
+    }
+
     @PostMapping("/lb/keys/create")
     public ResponseData<?> createLbKey(@RequestBody Map<String, String> body) {
         String name = body == null ? null : body.get("name");
@@ -495,7 +508,14 @@ public class OracleAiController {
     @PostMapping("/lb/requests/list")
     public ResponseData<?> listLbRequests(@RequestBody(required = false) Map<String, Object> body) {
         int limit = intValue(body == null ? null : body.get("limit"), 50);
-        return ResponseData.ok(loadBalanceService.recentRequests(limit));
+        return ResponseData.ok(loadBalanceService.recentRequests(new RequestLogQuery(
+                limit,
+                body == null ? null : trimObj(body.get("status")),
+                body == null ? null : trimObj(body.get("memberId")),
+                body == null ? null : trimObj(body.get("model")),
+                body == null ? null : trimObj(body.get("requestId")),
+                body == null || body.get("hasTools") == null ? null : boolValue(body.get("hasTools"), false),
+                body == null || body.get("clientAborted") == null ? null : boolValue(body.get("clientAborted"), false))));
     }
 
     @PostMapping("/models")

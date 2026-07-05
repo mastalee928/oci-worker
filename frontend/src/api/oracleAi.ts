@@ -62,6 +62,14 @@ export function getOracleAiLbOverview() {
   return request.post('/oci/oracle-ai/lb/overview', {})
 }
 
+export function getOracleAiLbHealth() {
+  return request.post('/oci/oracle-ai/lb/health', {})
+}
+
+export function listOracleAiLbModels(data: { account?: string; refresh?: boolean } = {}) {
+  return request.post('/oci/oracle-ai/lb/models', data)
+}
+
 export function createOracleAiLbKey(data: { name?: string }) {
   return request.post('/oci/oracle-ai/lb/keys/create', data)
 }
@@ -116,7 +124,15 @@ export function clearOracleAiLbMemberModelState(data: { id: string; model?: stri
   return request.post('/oci/oracle-ai/lb/members/model-state/clear', data)
 }
 
-export function listOracleAiLbRequests(data: { limit?: number } = {}) {
+export function listOracleAiLbRequests(data: {
+  limit?: number
+  status?: string
+  memberId?: string
+  model?: string
+  requestId?: string
+  hasTools?: boolean
+  clientAborted?: boolean
+} = {}) {
   return request.post('/oci/oracle-ai/lb/requests/list', data)
 }
 

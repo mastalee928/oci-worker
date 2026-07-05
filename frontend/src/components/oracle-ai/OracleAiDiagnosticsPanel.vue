@@ -1,0 +1,763 @@
+<template>
+  <div class="oracle-ai-diagnostics">
+    <div class="diagnostic-head">
+      <a-segmented v-model:value="activeSection" :options="sectionOptions" />
+      <a-space wrap>
+        <a-button :loading="activeLoading" @click="refreshActive">刷新</a-button>
+        <a-switch v-if="activeSection === 'requests'" v-model:checked="autoRefresh" />
+      </a-space>
+    </div>
+
+    <a-card v-if="activeSection === 'requests'" title="请求日志" :bordered="false" class="diagnostic-card">
+      <div class="filter-bar">
+        <a-select v-model:value="requestFilters.limit" :options="limitOptions" class="filter-small" :get-popup-container="popupContainer" />
+        <a-select v-model:value="requestFilters.status" :options="statusOptions" class="filter-small" :get-popup-container="popupContainer" />
+        <a-select
+          v-model:value="requestFilters.memberId"
+          :options="memberOptions"
+          class="filter-member"
+          allow-clear
+          placeholder="成员"
+          :show-search="false"
+          :get-popup-container="popupContainer"
+        />
+        <a-select v-model:value="requestFilters.keywordType" :options="keywordTypeOptions" class="filter-small" :get-popup-container="popupContainer" />
+        <a-input
+          v-model:value="requestFilters.keyword"
+          class="filter-keyword"
+          allow-clear
+          placeholder="输入关键词"
+          @press-enter="loadRequests"
+        />
+        <a-select v-model:value="requestFilters.hasTools" :options="booleanOptions" class="filter-small" :get-popup-container="popupContainer" />
+        <a-select v-model:value="requestFilters.clientAborted" :options="abortOptions" class="filter-small" :get-popup-container="popupContainer" />
+        <a-button type="primary" :loading="requestsLoading" @click="loadRequests">查询</a-button>
+      </div>
+
+      <a-table
+        v-if="!isMobile"
+        class="diagnostic-table"
+        :columns="requestColumns"
+        :data-source="requests"
+        :loading="requestsLoading"
+        row-key="id"
+        size="small"
+        :pagination="{ pageSize: 12, size: 'small' }"
+        :scroll="{ x: 1360 }"
+      >
+        <template #bodyCell="{ column, record }">
+          <template v-if="column.key === 'time'">
+            <div>{{ formatTime(record.createTime) }}</div>
+            <code>{{ shortId(record.requestId) }}</code>
+          </template>
+          <template v-else-if="column.key === 'member'">
+            <div class="strong-line">{{ requestMemberName(record) }}</div>
+            <div class="sub-line">{{ requestMemberMeta(record) }}</div>
+          </template>
+          <template v-else-if="column.key === 'model'">
+            <a-tooltip :title="record.model">
+              <span class="ellipsis">{{ record.model || '-' }}</span>
+            </a-tooltip>
+          </template>
+          <template v-else-if="column.key === 'protocol'">
+            <div>{{ record.requestPath || '-' }}</div>
+            <div class="sub-line">
+              {{ record.stream ? 'stream' : 'json' }} · tools {{ record.toolCount || 0 }}
+              <span v-if="record.bridgeType"> · {{ record.bridgeType }}</span>
+            </div>
+          </template>
+          <template v-else-if="column.key === 'status'">
+            <a-tag :color="requestStatusColor(record)">{{ requestStatusText(record) }}</a-tag>
+            <div v-if="record.errorType" class="sub-line">{{ record.errorType }}</div>
+          </template>
+          <template v-else-if="column.key === 'latency'">
+            <div>{{ formatMs(record.latencyMs) }}</div>
+            <div v-if="record.firstChunkMs" class="sub-line">首块 {{ formatMs(record.firstChunkMs) }}</div>
+          </template>
+          <template v-else-if="column.key === 'tokens'">
+            <div>{{ record.tokenCount || 0 }}</div>
+            <div class="sub-line">估 {{ record.estimatedPromptTokens || 0 }}</div>
+          </template>
+          <template v-else-if="column.key === 'action'">
+            <a-button size="small" @click="openRequestDetail(record)">详情</a-button>
+          </template>
+        </template>
+      </a-table>
+
+      <div v-else class="request-card-list">
+        <a-spin v-if="requestsLoading" />
+        <a-empty v-if="!requests.length && !requestsLoading" description="暂无日志" />
+        <div v-for="record in requests" :key="record.id" class="request-card" @click="openRequestDetail(record)">
+          <div class="request-card-head">
+            <div>
+              <div class="strong-line">{{ requestMemberName(record) }}</div>
+              <code>{{ shortId(record.requestId) }}</code>
+            </div>
+            <a-tag :color="requestStatusColor(record)">{{ requestStatusText(record) }}</a-tag>
+          </div>
+          <div class="request-card-grid">
+            <span>模型</span><b>{{ record.model || '-' }}</b>
+            <span>协议</span><b>{{ record.requestPath || '-' }}</b>
+            <span>工具</span><b>{{ record.toolCount || 0 }}</b>
+            <span>耗时</span><b>{{ formatMs(record.latencyMs) }}</b>
+            <span>时间</span><b>{{ formatTime(record.createTime) }}</b>
+          </div>
+        </div>
+      </div>
+    </a-card>
+
+    <a-card v-else-if="activeSection === 'health'" title="健康诊断" :bordered="false" class="diagnostic-card">
+      <div class="metric-grid">
+        <div class="metric-item">
+          <span>监听</span>
+          <b>{{ health.running ? '正常' : '未监听' }}</b>
+        </div>
+        <div class="metric-item">
+          <span>端口</span>
+          <b>{{ health.port || '-' }}</b>
+        </div>
+        <div class="metric-item">
+          <span>成员</span>
+          <b>{{ health.enabledMemberCount || 0 }}/{{ health.memberCount || 0 }}</b>
+        </div>
+        <div class="metric-item">
+          <span>健康</span>
+          <b>{{ health.healthyMemberCount || 0 }}</b>
+        </div>
+        <div class="metric-item">
+          <span>并发</span>
+          <b>{{ health.inFlight || 0 }}</b>
+        </div>
+        <div class="metric-item">
+          <span>失败</span>
+          <b>{{ health.recentFailureCount || 0 }}</b>
+        </div>
+      </div>
+      <a-table
+        class="diagnostic-table"
+        :columns="healthColumns"
+        :data-source="healthMembers"
+        :loading="healthLoading"
+        row-key="memberId"
+        size="small"
+        :pagination="{ pageSize: 10, size: 'small' }"
+        :scroll="{ x: 1080 }"
+      >
+        <template #bodyCell="{ column, record }">
+          <template v-if="column.key === 'member'">
+            <div class="strong-line">{{ record.bindingName || record.memberId || '-' }}</div>
+            <div class="sub-line">{{ record.port || '-' }} · {{ record.tenantName || record.tenantUsername || '-' }}</div>
+          </template>
+          <template v-else-if="column.key === 'region'">
+            {{ record.ociRegion || record.tenantDefaultRegion || '-' }}
+          </template>
+          <template v-else-if="column.key === 'health'">
+            <a-tag :color="healthColor(record.healthStatus)">{{ healthText(record.healthStatus) }}</a-tag>
+            <div v-if="record.healthMessage" class="sub-line">{{ record.healthMessage }}</div>
+          </template>
+          <template v-else-if="column.key === 'last'">
+            <div>{{ record.lastStatus ? `HTTP ${record.lastStatus}` : '-' }}</div>
+            <div v-if="record.lastErrorType" class="sub-line">{{ record.lastErrorType }}</div>
+          </template>
+        </template>
+      </a-table>
+    </a-card>
+
+    <a-card v-else title="模型来源" :bordered="false" class="diagnostic-card">
+      <div class="filter-bar">
+        <a-input v-model:value="modelAccount" class="filter-keyword" allow-clear placeholder="指定成员/端口/租户，可留空" />
+        <a-switch v-model:checked="forceModelRefresh" />
+        <span class="sub-line">强制刷新</span>
+        <a-button type="primary" :loading="modelsLoading" @click="loadModels">查询</a-button>
+      </div>
+      <a-table
+        class="diagnostic-table"
+        :columns="modelColumns"
+        :data-source="modelRows"
+        :loading="modelsLoading"
+        row-key="id"
+        size="small"
+        :pagination="{ pageSize: 12, size: 'small' }"
+        :scroll="{ x: 980 }"
+      >
+        <template #bodyCell="{ column, record }">
+          <template v-if="column.key === 'model'">
+            <a-tooltip :title="record.id">
+              <span class="ellipsis model-id">{{ record.id }}</span>
+            </a-tooltip>
+          </template>
+          <template v-else-if="column.key === 'capability'">
+            <a-tag :color="capabilityColor(record.ociworkerCapability)">{{ record.ociworkerCapability || '-' }}</a-tag>
+          </template>
+          <template v-else-if="column.key === 'sources'">
+            <span>{{ sourceCount(record) }}</span>
+          </template>
+          <template v-else-if="column.key === 'action'">
+            <a-button size="small" @click="openModelDetail(record)">来源</a-button>
+          </template>
+        </template>
+      </a-table>
+      <div v-if="modelErrors.length" class="model-error-list">
+        <div v-for="(item, idx) in modelErrors" :key="idx" class="model-error-row">
+          <a-tag color="red">错误</a-tag>
+          <span>{{ sourceTitle(item) }}</span>
+          <code>{{ item.error }}</code>
+        </div>
+      </div>
+    </a-card>
+
+    <a-drawer
+      v-model:open="requestDetailOpen"
+      title="请求详情"
+      :width="drawerWidth"
+      placement="right"
+      destroy-on-close
+    >
+      <a-descriptions v-if="requestDetail" bordered size="small" :column="1">
+        <a-descriptions-item label="Request ID"><code>{{ requestDetail.requestId || '-' }}</code></a-descriptions-item>
+        <a-descriptions-item label="成员">{{ requestMemberName(requestDetail) }}</a-descriptions-item>
+        <a-descriptions-item label="成员 ID"><code>{{ requestDetail.memberId || '-' }}</code></a-descriptions-item>
+        <a-descriptions-item label="端口绑定"><code>{{ requestDetail.portBindingId || '-' }}</code></a-descriptions-item>
+        <a-descriptions-item label="模型">{{ requestDetail.model || '-' }}</a-descriptions-item>
+        <a-descriptions-item label="协议">{{ requestDetail.requestPath || '-' }} / {{ requestDetail.stream ? 'stream' : 'json' }}</a-descriptions-item>
+        <a-descriptions-item label="工具">{{ requestDetail.toolCount || 0 }} / 返回 {{ requestDetail.responseToolCallCount || 0 }} / {{ requestDetail.toolLifecycleCompleted ? '完整' : '未标记完整' }}</a-descriptions-item>
+        <a-descriptions-item label="状态">{{ requestStatusText(requestDetail) }}</a-descriptions-item>
+        <a-descriptions-item label="耗时">{{ formatMs(requestDetail.latencyMs) }} / 首块 {{ formatMs(requestDetail.firstChunkMs) }}</a-descriptions-item>
+        <a-descriptions-item label="Tokens">{{ requestDetail.tokenCount || 0 }} / 估算 {{ requestDetail.estimatedPromptTokens || 0 }}</a-descriptions-item>
+        <a-descriptions-item label="重试">{{ requestDetail.retryCount || 0 }}</a-descriptions-item>
+        <a-descriptions-item label="时间">{{ formatTime(requestDetail.createTime) }}</a-descriptions-item>
+        <a-descriptions-item label="错误类型">{{ requestDetail.errorType || '-' }}</a-descriptions-item>
+        <a-descriptions-item label="错误内容">
+          <pre class="detail-pre">{{ requestDetail.errorMessage || '-' }}</pre>
+        </a-descriptions-item>
+      </a-descriptions>
+    </a-drawer>
+
+    <a-drawer
+      v-model:open="modelDetailOpen"
+      title="模型来源"
+      :width="drawerWidth"
+      placement="right"
+      destroy-on-close
+    >
+      <template v-if="modelDetail">
+        <div class="drawer-title">{{ modelDetail.id }}</div>
+        <a-empty v-if="!modelSources(modelDetail).length" description="暂无来源" />
+        <div v-for="(source, idx) in modelSources(modelDetail)" :key="idx" class="source-row">
+          <div class="strong-line">{{ sourceTitle(source) }}</div>
+          <div class="sub-line">{{ source.ociRegion || '-' }} · {{ source.modelSource || '-' }}</div>
+          <div v-if="source.healthStatus" class="source-status">
+            <a-tag :color="healthColor(source.healthStatus)">{{ healthText(source.healthStatus) }}</a-tag>
+            <span>{{ source.healthMessage || '' }}</span>
+          </div>
+        </div>
+      </template>
+    </a-drawer>
+  </div>
+</template>
+
+<script setup lang="ts">
+defineOptions({ name: 'OracleAiDiagnosticsPanel' })
+import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
+import { message } from 'ant-design-vue'
+import {
+  getOracleAiLbHealth,
+  listOracleAiLbModels,
+  listOracleAiLbRequests,
+} from '../../api/oracleAi'
+
+const activeSection = ref<'requests' | 'health' | 'models'>('requests')
+const sectionOptions = [
+  { label: '请求日志', value: 'requests' },
+  { label: '健康诊断', value: 'health' },
+  { label: '模型来源', value: 'models' },
+]
+const limitOptions = [50, 100, 200, 500].map((value) => ({ label: `${value} 条`, value }))
+const statusOptions = [
+  { label: '全部状态', value: 'all' },
+  { label: '成功', value: 'success' },
+  { label: '失败', value: 'failed' },
+  { label: '客户端断开', value: 'client_aborted' },
+]
+const keywordTypeOptions = [
+  { label: '模型', value: 'model' },
+  { label: '请求ID', value: 'requestId' },
+]
+const booleanOptions = [
+  { label: '工具不限', value: 'all' },
+  { label: '有工具', value: 'true' },
+  { label: '无工具', value: 'false' },
+]
+const abortOptions = [
+  { label: '断开不限', value: 'all' },
+  { label: '已断开', value: 'true' },
+  { label: '未断开', value: 'false' },
+]
+
+const requestColumns = [
+  { title: '时间 / 请求', key: 'time', width: 178 },
+  { title: '成员', key: 'member', width: 230 },
+  { title: '模型', key: 'model', width: 230 },
+  { title: '协议', key: 'protocol', width: 190 },
+  { title: '状态', key: 'status', width: 190 },
+  { title: '耗时', key: 'latency', width: 130 },
+  { title: 'Tokens', key: 'tokens', width: 110 },
+  { title: '操作', key: 'action', width: 90 },
+] as any
+const healthColumns = [
+  { title: '成员', key: 'member', width: 260 },
+  { title: '区域', key: 'region', width: 190 },
+  { title: '健康', key: 'health', width: 320 },
+  { title: '并发', dataIndex: 'inFlight', key: 'inFlight', width: 90 },
+  { title: '最近状态', key: 'last', width: 160 },
+] as any
+const modelColumns = [
+  { title: '模型', key: 'model', width: 420 },
+  { title: '能力', key: 'capability', width: 150 },
+  { title: '来源', key: 'sources', width: 110 },
+  { title: '操作', key: 'action', width: 90 },
+] as any
+
+const requests = ref<any[]>([])
+const health = ref<any>({})
+const models = ref<any>({})
+const requestsLoading = ref(false)
+const healthLoading = ref(false)
+const modelsLoading = ref(false)
+const autoRefresh = ref(false)
+const forceModelRefresh = ref(false)
+const modelAccount = ref('')
+const isMobile = ref(false)
+const requestDetailOpen = ref(false)
+const requestDetail = ref<any | null>(null)
+const modelDetailOpen = ref(false)
+const modelDetail = ref<any | null>(null)
+let autoTimer: ReturnType<typeof setInterval> | undefined
+
+const requestFilters = reactive({
+  limit: 100,
+  status: 'all',
+  memberId: '',
+  keywordType: 'model',
+  keyword: '',
+  hasTools: 'all',
+  clientAborted: 'all',
+})
+
+const activeLoading = computed(() => {
+  if (activeSection.value === 'requests') return requestsLoading.value
+  if (activeSection.value === 'health') return healthLoading.value
+  return modelsLoading.value
+})
+const drawerWidth = computed(() => isMobile.value ? 'calc(100vw - 24px)' : 720)
+const healthMembers = computed(() => Array.isArray(health.value?.members) ? health.value.members : [])
+const modelRows = computed(() => Array.isArray(models.value?.data) ? models.value.data : [])
+const modelErrors = computed(() => Array.isArray(models.value?.errors) ? models.value.errors : [])
+const memberOptions = computed(() => {
+  const seen = new Set<string>()
+  const options: { label: string; value: string }[] = [{ label: '全部成员', value: '' }]
+  for (const source of [...healthMembers.value, ...requests.value]) {
+    const id = String(source?.memberId || '').trim()
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    options.push({ label: sourceTitle(source), value: id })
+  }
+  return options
+})
+
+function popupContainer() {
+  return document.body
+}
+
+function updateViewport() {
+  isMobile.value = typeof window !== 'undefined' && window.innerWidth < 768
+}
+
+function requestPayload() {
+  const keyword = requestFilters.keyword.trim()
+  const status = requestFilters.status === 'all' ? undefined : requestFilters.status
+  const payload: any = {
+    limit: requestFilters.limit,
+    status,
+    memberId: String(requestFilters.memberId || '').trim() || undefined,
+    hasTools: requestFilters.hasTools === 'all' ? undefined : requestFilters.hasTools === 'true',
+    clientAborted: status === 'client_aborted' || requestFilters.clientAborted === 'all'
+      ? undefined
+      : requestFilters.clientAborted === 'true',
+  }
+  if (keyword) {
+    payload[requestFilters.keywordType] = keyword
+  }
+  return payload
+}
+
+async function loadRequests() {
+  requestsLoading.value = true
+  try {
+    const r: any = await listOracleAiLbRequests(requestPayload())
+    requests.value = Array.isArray(r?.data) ? r.data : []
+  } catch (e: any) {
+    message.error(e?.message || '读取请求日志失败')
+  } finally {
+    requestsLoading.value = false
+  }
+}
+
+async function loadHealth() {
+  healthLoading.value = true
+  try {
+    const r: any = await getOracleAiLbHealth()
+    health.value = r?.data || {}
+  } catch (e: any) {
+    message.error(e?.message || '读取健康诊断失败')
+  } finally {
+    healthLoading.value = false
+  }
+}
+
+async function loadModels() {
+  modelsLoading.value = true
+  try {
+    const r: any = await listOracleAiLbModels({
+      account: modelAccount.value.trim() || undefined,
+      refresh: forceModelRefresh.value,
+    })
+    models.value = r?.data || {}
+  } catch (e: any) {
+    message.error(e?.message || '读取模型来源失败')
+  } finally {
+    modelsLoading.value = false
+  }
+}
+
+function refreshActive() {
+  if (activeSection.value === 'requests') return loadRequests()
+  if (activeSection.value === 'health') return loadHealth()
+  return loadModels()
+}
+
+function startAutoRefresh() {
+  stopAutoRefresh()
+  autoTimer = setInterval(() => {
+    if (activeSection.value === 'requests' && !requestsLoading.value) {
+      loadRequests()
+    }
+  }, 10000)
+}
+
+function stopAutoRefresh() {
+  if (autoTimer) {
+    clearInterval(autoTimer)
+    autoTimer = undefined
+  }
+}
+
+function openRequestDetail(row: any) {
+  requestDetail.value = row
+  requestDetailOpen.value = true
+}
+
+function openModelDetail(row: any) {
+  modelDetail.value = row
+  modelDetailOpen.value = true
+}
+
+function formatTime(value?: string | null) {
+  if (!value) return '-'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return String(value)
+  return date.toLocaleString('zh-CN', { hour12: false })
+}
+
+function shortId(id?: string) {
+  const value = String(id || '')
+  if (!value) return '-'
+  if (value.length <= 14) return value
+  return `${value.slice(0, 8)}...${value.slice(-4)}`
+}
+
+function valueOrDash(value: any) {
+  return value === null || value === undefined || value === '' ? '-' : value
+}
+
+function formatMs(value: any) {
+  const normalized = valueOrDash(value)
+  return normalized === '-' ? '-' : `${normalized}ms`
+}
+
+function requestMemberName(row: any) {
+  return row?.memberName || row?.bindingName || (row?.port ? `port-${row.port}` : row?.memberId || '-')
+}
+
+function requestMemberMeta(row: any) {
+  const pieces = []
+  if (row?.port) pieces.push(`端口 ${row.port}`)
+  if (row?.tenantName || row?.tenantUsername) pieces.push(row.tenantName || row.tenantUsername)
+  if (row?.ociRegion) pieces.push(row.ociRegion)
+  return pieces.join(' · ') || '-'
+}
+
+function requestStatusText(row: any) {
+  if (row?.clientAborted) return '客户端断开'
+  const code = Number(row?.statusCode || 0)
+  if (row?.status === 'success' || (code >= 200 && code < 400)) return `HTTP ${code || 200}`
+  return code ? `HTTP ${code}` : row?.status || '失败'
+}
+
+function requestStatusColor(row: any) {
+  if (row?.clientAborted) return 'default'
+  const code = Number(row?.statusCode || 0)
+  if (code >= 200 && code < 400) return 'green'
+  if (code === 429) return 'orange'
+  if (code >= 500) return 'red'
+  return row?.status === 'success' ? 'green' : 'red'
+}
+
+function healthText(status?: string) {
+  const value = String(status || '').toLowerCase()
+  if (value === 'healthy') return '健康'
+  if (value === 'unhealthy') return '异常'
+  if (value === 'cooling') return '冷却'
+  if (value === 'recovering') return '恢复观察'
+  if (value === 'disabled') return '禁用'
+  return status || '未知'
+}
+
+function healthColor(status?: string) {
+  const value = String(status || '').toLowerCase()
+  if (value === 'healthy') return 'green'
+  if (value === 'unhealthy') return 'red'
+  if (value === 'cooling') return 'orange'
+  if (value === 'recovering') return 'blue'
+  return 'default'
+}
+
+function capabilityColor(capability?: string) {
+  const value = String(capability || '').toLowerCase()
+  if (value.includes('embed')) return 'purple'
+  if (value.includes('rerank')) return 'cyan'
+  if (value.includes('chat')) return 'green'
+  return 'default'
+}
+
+function sourceCount(row: any) {
+  return modelSources(row).length
+}
+
+function modelSources(row: any) {
+  return Array.isArray(row?.ociworkerSources) ? row.ociworkerSources : []
+}
+
+function sourceTitle(source: any) {
+  const name = source?.bindingName || source?.memberName || (source?.port ? `port-${source.port}` : source?.memberId)
+  const tenant = source?.tenantName || source?.tenantUsername
+  return [name || '-', tenant].filter(Boolean).join(' · ')
+}
+
+watch(autoRefresh, (enabled) => {
+  if (enabled) startAutoRefresh()
+  else stopAutoRefresh()
+})
+
+watch(activeSection, (section) => {
+  if (section === 'requests' && !requests.value.length) loadRequests()
+  if (section === 'health' && !healthMembers.value.length) loadHealth()
+  if (section === 'models' && !modelRows.value.length) loadModels()
+})
+
+onMounted(() => {
+  updateViewport()
+  window.addEventListener('resize', updateViewport)
+  loadRequests()
+  loadHealth()
+})
+
+onUnmounted(() => {
+  stopAutoRefresh()
+  window.removeEventListener('resize', updateViewport)
+})
+</script>
+
+<style scoped>
+.oracle-ai-diagnostics {
+  display: grid;
+  gap: 12px;
+}
+.diagnostic-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.diagnostic-card {
+  margin-top: 0;
+}
+.filter-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+.filter-small {
+  width: 128px;
+}
+.filter-member {
+  width: 220px;
+}
+.filter-keyword {
+  width: 260px;
+  max-width: 100%;
+}
+.diagnostic-table :deep(.ant-table-cell) {
+  vertical-align: middle;
+}
+.diagnostic-table :deep(.ant-table),
+.diagnostic-table :deep(.ant-table-container),
+.diagnostic-table :deep(.ant-table-thead > tr > th),
+.diagnostic-table :deep(.ant-table-tbody > tr > td) {
+  background: transparent;
+}
+.strong-line {
+  font-weight: 600;
+  min-width: 0;
+}
+.sub-line {
+  color: var(--text-sub, #666);
+  font-size: 12px;
+  line-height: 1.55;
+}
+.ellipsis {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
+.model-id {
+  max-width: 360px;
+}
+.metric-grid {
+  display: grid;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.metric-item {
+  border: 1px solid var(--border, rgba(148, 163, 184, 0.22));
+  border-radius: 8px;
+  padding: 10px;
+  min-width: 0;
+}
+.metric-item span {
+  display: block;
+  color: var(--text-sub, #666);
+  font-size: 12px;
+}
+.metric-item b {
+  display: block;
+  margin-top: 4px;
+  font-size: 18px;
+  font-weight: 600;
+}
+.request-card-list {
+  display: grid;
+  gap: 10px;
+}
+.request-card {
+  border: 1px solid var(--border, rgba(148, 163, 184, 0.22));
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--bg-card, rgba(30, 41, 59, 0.32));
+}
+.request-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: flex-start;
+  margin-bottom: 8px;
+}
+.request-card-grid {
+  display: grid;
+  grid-template-columns: 54px minmax(0, 1fr);
+  gap: 5px 10px;
+  font-size: 13px;
+}
+.request-card-grid span {
+  color: var(--text-sub, #666);
+}
+.request-card-grid b {
+  font-weight: 500;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.detail-pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+  line-height: 1.55;
+}
+.drawer-title {
+  font-weight: 600;
+  margin-bottom: 12px;
+  word-break: break-all;
+}
+.source-row,
+.model-error-row {
+  border-bottom: 1px solid var(--border, rgba(148, 163, 184, 0.18));
+  padding: 10px 0;
+}
+.source-row:first-child,
+.model-error-row:first-child {
+  padding-top: 0;
+}
+.source-status {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-top: 6px;
+  color: var(--text-sub, #666);
+  font-size: 12px;
+}
+.model-error-list {
+  display: grid;
+  gap: 6px;
+  margin-top: 12px;
+}
+.model-error-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  min-width: 0;
+}
+.model-error-row code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 12px;
+}
+@media (max-width: 767px) {
+  .diagnostic-head {
+    align-items: flex-start;
+  }
+  .filter-bar {
+    align-items: stretch;
+  }
+  .filter-small,
+  .filter-member,
+  .filter-keyword {
+    width: 100%;
+  }
+  .metric-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .metric-item {
+    padding: 8px;
+  }
+  .metric-item b {
+    font-size: 16px;
+  }
+}
+</style>

@@ -641,8 +641,8 @@
                 </div>
               </template>
               <template v-else-if="column.key === 'latency'">
-                <div>{{ record.latencyMs ?? '-' }}ms</div>
-                <div v-if="record.firstChunkMs" class="sub-muted status-message">首块 {{ record.firstChunkMs }}ms</div>
+                <div>{{ record.latencyMs == null ? '-' : `${record.latencyMs}ms` }}</div>
+                <div v-if="record.firstChunkMs != null" class="sub-muted status-message">首块 {{ record.firstChunkMs }}ms</div>
               </template>
               <template v-else-if="column.key === 'tokens'">
                 <div>{{ record.tokenCount || 0 }}</div>
@@ -651,6 +651,10 @@
             </template>
           </a-table>
         </a-card>
+      </a-tab-pane>
+
+      <a-tab-pane key="diagnostics" tab="日志诊断">
+        <OracleAiDiagnosticsPanel v-if="activeModeTab === 'diagnostics'" />
       </a-tab-pane>
     </a-tabs>
 
@@ -1001,9 +1005,12 @@
       说明：多账户端口用于给 sub2api / New API 做负载均衡；端口范围 <code>30000-39999</code>。
       每个端口可单独设置 <code>max_tokens</code> 和模型列表；模型留空表示不限制。
     </div>
-    <div class="sub sub-bottom" v-else>
+    <div class="sub sub-bottom" v-else-if="activeModeTab === 'lb'">
       说明：固定负载均衡入口监听 <code>{{ lbPort }}</code>，成员来自已保存的多账户中转端口。
       用量为本地网关统计窗口，格式为 <code>请求/成功/失败</code>。
+    </div>
+    <div class="sub sub-bottom" v-else-if="activeModeTab === 'diagnostics'">
+      说明：日志诊断只展示负载均衡本地调度记录、健康状态和模型来源，不显示完整密钥。
     </div>
   </div>
 </template>
@@ -1012,6 +1019,7 @@
 defineOptions({ name: 'OracleAI' })
 import { ref, computed, onMounted, onUnmounted, watch } from 'vue'
 import { message } from 'ant-design-vue'
+import { defineAppAsyncComponent } from '../utils/asyncComponent'
 import { getTenantList } from '../api/tenant'
 import { listOciRegionOptions } from '../api/system'
 import {
@@ -1050,6 +1058,8 @@ import {
   getOracleAiModelWhitelist,
   saveOracleAiModelWhitelist,
 } from '../api/oracleAi'
+
+const OracleAiDiagnosticsPanel = defineAppAsyncComponent(() => import('../components/oracle-ai/OracleAiDiagnosticsPanel.vue'))
 
 const tenantsLoading = ref(false)
 const activeModeTab = ref('single')
