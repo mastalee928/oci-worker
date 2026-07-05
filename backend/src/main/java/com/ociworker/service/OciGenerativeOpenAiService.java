@@ -10,12 +10,16 @@ import com.oracle.bmc.ClientConfiguration;
 import com.oracle.bmc.auth.SimpleAuthenticationDetailsProvider;
 import com.oracle.bmc.generativeaiinference.GenerativeAiInferenceClient;
 import com.oracle.bmc.generativeaiinference.model.AssistantMessage;
+import com.oracle.bmc.generativeaiinference.model.AudioContent;
+import com.oracle.bmc.generativeaiinference.model.AudioUrl;
 import com.oracle.bmc.generativeaiinference.model.BaseChatResponse;
 import com.oracle.bmc.generativeaiinference.model.ChatChoice;
 import com.oracle.bmc.generativeaiinference.model.ChatContent;
 import com.oracle.bmc.generativeaiinference.model.ChatDetails;
 import com.oracle.bmc.generativeaiinference.model.ChatResult;
 import com.oracle.bmc.generativeaiinference.model.DeveloperMessage;
+import com.oracle.bmc.generativeaiinference.model.DocumentContent;
+import com.oracle.bmc.generativeaiinference.model.DocumentUrl;
 import com.oracle.bmc.generativeaiinference.model.FunctionCall;
 import com.oracle.bmc.generativeaiinference.model.FunctionDefinition;
 import com.oracle.bmc.generativeaiinference.model.GenericChatRequest;
@@ -36,6 +40,8 @@ import com.oracle.bmc.generativeaiinference.model.ToolDefinition;
 import com.oracle.bmc.generativeaiinference.model.ToolMessage;
 import com.oracle.bmc.generativeaiinference.model.Usage;
 import com.oracle.bmc.generativeaiinference.model.UserMessage;
+import com.oracle.bmc.generativeaiinference.model.VideoContent;
+import com.oracle.bmc.generativeaiinference.model.VideoUrl;
 import com.oracle.bmc.generativeaiinference.requests.ChatRequest;
 import com.oracle.bmc.http.signing.DefaultRequestSigner;
 import com.oracle.bmc.http.signing.RequestSigner;
@@ -81,6 +87,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.Iterator;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -113,6 +120,15 @@ public class OciGenerativeOpenAiService {
             "items", "properties", "required", "propertyOrdering",
             "minItems", "maxItems", "minLength", "maxLength",
             "minimum", "maximum", "minProperties", "maxProperties");
+    private static final Set<String> GEMINI_NATIVE_DOCUMENT_MIME_TYPES = Set.of(
+            "text/plain", "application/pdf");
+    private static final Set<String> GEMINI_NATIVE_IMAGE_MIME_TYPES = Set.of(
+            "image/png", "image/jpeg", "image/webp", "image/heic", "image/heif");
+    private static final Set<String> GEMINI_NATIVE_AUDIO_MIME_TYPES = Set.of(
+            "audio/wav", "audio/mp3", "audio/aiff", "audio/aac", "audio/ogg", "audio/flac");
+    private static final Set<String> GEMINI_NATIVE_VIDEO_MIME_TYPES = Set.of(
+            "video/mp4", "video/mpeg", "video/mov", "video/avi", "video/x-flv",
+            "video/mpg", "video/webm", "video/wmv", "video/3gpp");
     private static volatile IntSupplier defaultMaxTokensSupplier = () -> DEFAULT_MAX_TOKENS;
     private final Map<String, CachedModels> modelsCache = new ConcurrentHashMap<>();
 
@@ -889,7 +905,7 @@ public class OciGenerativeOpenAiService {
                 if (!isNativeGenericChatContent(nativeContent)) {
                     return false;
                 }
-                if (!"user".equals(role) && hasNativeImageContent(nativeContent)) {
+                if (!"user".equals(role) && hasNativeMediaContent(nativeContent)) {
                     return false;
                 }
             }
@@ -974,6 +990,15 @@ public class OciGenerativeOpenAiService {
         if (isImageLikeNativeContentObject(object, type)) {
             return nativeImageUrl(object) != null;
         }
+        if (isDocumentLikeNativeContentObject(object, type)) {
+            return nativeDocumentUrl(object) != null;
+        }
+        if (isAudioLikeNativeContentObject(object, type)) {
+            return nativeAudioUrl(object) != null;
+        }
+        if (isVideoLikeNativeContentObject(object, type)) {
+            return nativeVideoUrl(object) != null;
+        }
         return !isUnsupportedNativeContentObject(object);
     }
 
@@ -1023,12 +1048,21 @@ public class OciGenerativeOpenAiService {
         if (isImageLikeNativeContentObject(object, type)) {
             return nativeImageUrl(object) != null;
         }
+        if (isDocumentLikeNativeContentObject(object, type)) {
+            return nativeDocumentUrl(object) != null;
+        }
+        if (isAudioLikeNativeContentObject(object, type)) {
+            return nativeAudioUrl(object) != null;
+        }
+        if (isVideoLikeNativeContentObject(object, type)) {
+            return nativeVideoUrl(object) != null;
+        }
         return !isUnsupportedNativeContentObject(object);
     }
 
-    private static boolean hasNativeImageContent(JsonNode content) {
+    private static boolean hasNativeMediaContent(JsonNode content) {
         if (content instanceof ObjectNode object) {
-            return hasNativeImageContentObject(object);
+            return hasNativeMediaContentObject(object);
         }
         if (content == null || !content.isArray()) {
             return false;
@@ -1037,17 +1071,22 @@ public class OciGenerativeOpenAiService {
             if (!(part instanceof ObjectNode object)) {
                 continue;
             }
-            if (hasNativeImageContentObject(object)) {
+            if (hasNativeMediaContentObject(object)) {
                 return true;
             }
         }
         return false;
     }
 
-    private static boolean hasNativeImageContentObject(ObjectNode object) {
-        return object != null
-                && isImageLikeNativeContentObject(object, nativeContentObjectType(object))
-                && nativeImageUrl(object) != null;
+    private static boolean hasNativeMediaContentObject(ObjectNode object) {
+        if (object == null) {
+            return false;
+        }
+        String type = nativeContentObjectType(object);
+        return isImageLikeNativeContentObject(object, type) && nativeImageUrl(object) != null
+                || isDocumentLikeNativeContentObject(object, type) && nativeDocumentUrl(object) != null
+                || isAudioLikeNativeContentObject(object, type) && nativeAudioUrl(object) != null
+                || isVideoLikeNativeContentObject(object, type) && nativeVideoUrl(object) != null;
     }
 
     private static String nativeContentObjectType(ObjectNode object) {
@@ -1070,8 +1109,42 @@ public class OciGenerativeOpenAiService {
                 || object.get("image") != null;
     }
 
+    private static boolean isDocumentLikeNativeContentObject(ObjectNode object, String type) {
+        return "document".equals(type)
+                || "input_document".equals(type)
+                || "input_file".equals(type)
+                || "file".equals(type)
+                || object.get("document_url") != null
+                || object.get("document") != null
+                || object.get("file") != null
+                || object.get("file_data") != null
+                || object.get("file_url") != null;
+    }
+
+    private static boolean isAudioLikeNativeContentObject(ObjectNode object, String type) {
+        return "audio".equals(type)
+                || "input_audio".equals(type)
+                || object.get("audio_url") != null
+                || object.get("audio") != null;
+    }
+
+    private static boolean isVideoLikeNativeContentObject(ObjectNode object, String type) {
+        return "video".equals(type)
+                || "input_video".equals(type)
+                || object.get("video_url") != null
+                || object.get("video") != null;
+    }
+
     private static boolean isUnsupportedNativeContentObject(ObjectNode object) {
-        return object.get("file") != null
+        String type = nativeContentObjectType(object);
+        if (isDocumentLikeNativeContentObject(object, type) && nativeDocumentUrl(object) != null
+                || isAudioLikeNativeContentObject(object, type) && nativeAudioUrl(object) != null
+                || isVideoLikeNativeContentObject(object, type) && nativeVideoUrl(object) != null) {
+            return false;
+        }
+        return isDocumentLikeNativeContentObject(object, type)
+                || isAudioLikeNativeContentObject(object, type)
+                || isVideoLikeNativeContentObject(object, type)
                 || object.get("document") != null
                 || object.get("audio") != null
                 || object.get("video") != null
@@ -1086,6 +1159,7 @@ public class OciGenerativeOpenAiService {
                 nativeImageUrlString(object.get("image_url")),
                 nativeImageUrlString(object.get("image")),
                 nativeImageUrlString(object.get("url")),
+                nativeImageUrlString(object.get("uri")),
                 nativeImageSourceUrl(object.get("source")));
         if (url == null || url.isBlank()) {
             return null;
@@ -1106,37 +1180,24 @@ public class OciGenerativeOpenAiService {
             return null;
         }
         if (node.isTextual()) {
-            return node.asText();
+            return nativeMediaDirectUrl(node.asText(), GEMINI_NATIVE_IMAGE_MIME_TYPES);
         }
         if (node instanceof ObjectNode object) {
+            String mediaType = nativeMediaType(object, null);
             return firstNonBlank(
-                    textOrNull(object, "url"),
-                    textOrNull(object, "image_url"),
+                    nativeMediaDirectUrl(textOrNull(object, "url"), mediaType, GEMINI_NATIVE_IMAGE_MIME_TYPES),
+                    nativeMediaDirectUrl(textOrNull(object, "uri"), mediaType, GEMINI_NATIVE_IMAGE_MIME_TYPES),
+                    nativeMediaDirectUrl(textOrNull(object, "image_url"), mediaType, GEMINI_NATIVE_IMAGE_MIME_TYPES),
+                    nativeMediaInlineDataUrl(textOrNull(object, "data"),
+                            nativeMediaType(object, "image/png"),
+                            GEMINI_NATIVE_IMAGE_MIME_TYPES),
                     nativeImageSourceUrl(object.get("source")));
         }
         return null;
     }
 
     private static String nativeImageSourceUrl(JsonNode sourceNode) {
-        if (!(sourceNode instanceof ObjectNode source)) {
-            return null;
-        }
-        String sourceType = firstNonBlank(textOrNull(source, "type"), "").toLowerCase(Locale.ROOT);
-        if ("url".equals(sourceType)) {
-            return textOrNull(source, "url");
-        }
-        if ("base64".equals(sourceType)) {
-            String data = textOrNull(source, "data");
-            if (data == null || data.isBlank()) {
-                return null;
-            }
-            String mediaType = firstNonBlank(textOrNull(source, "media_type"), textOrNull(source, "mediaType"), "image/png");
-            if (!mediaType.toLowerCase(Locale.ROOT).startsWith("image/")) {
-                return null;
-            }
-            return "data:" + mediaType + ";base64," + data.trim();
-        }
-        return null;
+        return nativeMediaSourceUrl(sourceNode, GEMINI_NATIVE_IMAGE_MIME_TYPES, "image/png");
     }
 
     private static String nativeImageDetailString(JsonNode node) {
@@ -1154,6 +1215,291 @@ public class OciGenerativeOpenAiService {
             case "auto" -> ImageUrl.Detail.Auto;
             case "high" -> ImageUrl.Detail.High;
             case "low" -> ImageUrl.Detail.Low;
+            default -> null;
+        };
+    }
+
+    private static DocumentUrl nativeDocumentUrl(ObjectNode object) {
+        if (object == null) {
+            return null;
+        }
+        String url = firstNonBlank(
+                nativeMediaUrlString(object.get("document_url"), GEMINI_NATIVE_DOCUMENT_MIME_TYPES, null),
+                nativeMediaUrlString(object.get("document"), GEMINI_NATIVE_DOCUMENT_MIME_TYPES, null),
+                nativeMediaUrlString(object.get("file"), GEMINI_NATIVE_DOCUMENT_MIME_TYPES, null),
+                nativeMediaDirectUrl(textOrNull(object, "url"),
+                        nativeMediaType(object, null),
+                        GEMINI_NATIVE_DOCUMENT_MIME_TYPES),
+                nativeMediaDirectUrl(textOrNull(object, "uri"),
+                        nativeMediaType(object, null),
+                        GEMINI_NATIVE_DOCUMENT_MIME_TYPES),
+                nativeMediaDirectUrl(textOrNull(object, "file_url"),
+                        nativeMediaType(object, null),
+                        GEMINI_NATIVE_DOCUMENT_MIME_TYPES),
+                nativeMediaInlineDataUrl(textOrNull(object, "file_data"),
+                        nativeMediaType(object, null),
+                        GEMINI_NATIVE_DOCUMENT_MIME_TYPES),
+                nativeMediaInlineDataUrl(textOrNull(object, "data"),
+                        nativeMediaType(object, null),
+                        GEMINI_NATIVE_DOCUMENT_MIME_TYPES),
+                nativeMediaSourceUrl(object.get("source"), GEMINI_NATIVE_DOCUMENT_MIME_TYPES, null));
+        if (url == null || url.isBlank()) {
+            return null;
+        }
+        DocumentUrl.Builder builder = DocumentUrl.builder().url(url.trim());
+        DocumentUrl.Detail detail = nativeDocumentDetail(firstNonBlank(
+                textOrNull(object, "detail"),
+                nativeMediaDetailString(object.get("document_url")),
+                nativeMediaDetailString(object.get("document")),
+                nativeMediaDetailString(object.get("file"))));
+        if (detail != null) {
+            builder.detail(detail);
+        }
+        return builder.build();
+    }
+
+    private static AudioUrl nativeAudioUrl(ObjectNode object) {
+        if (object == null) {
+            return null;
+        }
+        String url = firstNonBlank(
+                nativeMediaUrlString(object.get("audio_url"), GEMINI_NATIVE_AUDIO_MIME_TYPES, null),
+                nativeMediaUrlString(object.get("audio"), GEMINI_NATIVE_AUDIO_MIME_TYPES, null),
+                nativeMediaDirectUrl(textOrNull(object, "url"),
+                        nativeMediaType(object, null),
+                        GEMINI_NATIVE_AUDIO_MIME_TYPES),
+                nativeMediaDirectUrl(textOrNull(object, "uri"),
+                        nativeMediaType(object, null),
+                        GEMINI_NATIVE_AUDIO_MIME_TYPES),
+                nativeMediaInlineDataUrl(textOrNull(object, "data"),
+                        nativeMediaType(object, null),
+                        GEMINI_NATIVE_AUDIO_MIME_TYPES),
+                nativeMediaSourceUrl(object.get("source"), GEMINI_NATIVE_AUDIO_MIME_TYPES, null));
+        if (url == null || url.isBlank()) {
+            return null;
+        }
+        AudioUrl.Builder builder = AudioUrl.builder().url(url.trim());
+        AudioUrl.Detail detail = nativeAudioDetail(firstNonBlank(
+                textOrNull(object, "detail"),
+                nativeMediaDetailString(object.get("audio_url")),
+                nativeMediaDetailString(object.get("audio"))));
+        if (detail != null) {
+            builder.detail(detail);
+        }
+        return builder.build();
+    }
+
+    private static VideoUrl nativeVideoUrl(ObjectNode object) {
+        if (object == null) {
+            return null;
+        }
+        String url = firstNonBlank(
+                nativeMediaUrlString(object.get("video_url"), GEMINI_NATIVE_VIDEO_MIME_TYPES, null),
+                nativeMediaUrlString(object.get("video"), GEMINI_NATIVE_VIDEO_MIME_TYPES, null),
+                nativeMediaDirectUrl(textOrNull(object, "url"),
+                        nativeMediaType(object, null),
+                        GEMINI_NATIVE_VIDEO_MIME_TYPES),
+                nativeMediaDirectUrl(textOrNull(object, "uri"),
+                        nativeMediaType(object, null),
+                        GEMINI_NATIVE_VIDEO_MIME_TYPES),
+                nativeMediaInlineDataUrl(textOrNull(object, "data"),
+                        nativeMediaType(object, null),
+                        GEMINI_NATIVE_VIDEO_MIME_TYPES),
+                nativeMediaSourceUrl(object.get("source"), GEMINI_NATIVE_VIDEO_MIME_TYPES, null));
+        if (url == null || url.isBlank()) {
+            return null;
+        }
+        VideoUrl.Builder builder = VideoUrl.builder().url(url.trim());
+        VideoUrl.Detail detail = nativeVideoDetail(firstNonBlank(
+                textOrNull(object, "detail"),
+                nativeMediaDetailString(object.get("video_url")),
+                nativeMediaDetailString(object.get("video"))));
+        if (detail != null) {
+            builder.detail(detail);
+        }
+        return builder.build();
+    }
+
+    private static String nativeMediaUrlString(JsonNode node, Set<String> allowedMimeTypes, String defaultMimeType) {
+        if (node == null || node.isNull() || node.isMissingNode()) {
+            return null;
+        }
+        if (node.isTextual()) {
+            return nativeMediaDirectUrl(node.asText(), allowedMimeTypes);
+        }
+        if (node instanceof ObjectNode object) {
+            String mediaType = nativeMediaType(object, defaultMimeType);
+            return firstNonBlank(
+                    nativeMediaDirectUrl(textOrNull(object, "url"), mediaType, allowedMimeTypes),
+                    nativeMediaDirectUrl(textOrNull(object, "uri"), mediaType, allowedMimeTypes),
+                    nativeMediaDirectUrl(textOrNull(object, "file_url"), mediaType, allowedMimeTypes),
+                    nativeMediaInlineDataUrl(textOrNull(object, "file_data"), mediaType, allowedMimeTypes),
+                    nativeMediaInlineDataUrl(textOrNull(object, "data"), mediaType, allowedMimeTypes),
+                    nativeMediaSourceUrl(object.get("source"), allowedMimeTypes, defaultMimeType));
+        }
+        return null;
+    }
+
+    private static String nativeMediaSourceUrl(JsonNode sourceNode, Set<String> allowedMimeTypes, String defaultMimeType) {
+        if (!(sourceNode instanceof ObjectNode source)) {
+            return null;
+        }
+        String sourceType = firstNonBlank(textOrNull(source, "type"), "").toLowerCase(Locale.ROOT);
+        if ("url".equals(sourceType) || "uri".equals(sourceType)) {
+            return nativeMediaDirectUrl(firstNonBlank(textOrNull(source, "url"), textOrNull(source, "uri")),
+                    nativeMediaType(source, null),
+                    allowedMimeTypes);
+        }
+        if ("base64".equals(sourceType)) {
+            return nativeMediaInlineDataUrl(textOrNull(source, "data"),
+                    nativeMediaType(source, defaultMimeType),
+                    allowedMimeTypes);
+        }
+        if ("text".equals(sourceType) && allowedMimeTypes.contains("text/plain")) {
+            String text = firstNonBlank(textOrNull(source, "text"), textOrNull(source, "data"));
+            if (text == null || text.isBlank()) {
+                return null;
+            }
+            String encoded = Base64.getEncoder().encodeToString(text.getBytes(StandardCharsets.UTF_8));
+            return "data:text/plain;base64," + encoded;
+        }
+        return null;
+    }
+
+    private static String nativeMediaDirectUrl(String value, Set<String> allowedMimeTypes) {
+        return nativeMediaDirectUrl(value, null, allowedMimeTypes);
+    }
+
+    private static String nativeMediaDirectUrl(String value, String mediaType, Set<String> allowedMimeTypes) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        String trimmed = value.trim();
+        if (mediaType != null && !isAllowedNativeMimeType(mediaType, allowedMimeTypes)) {
+            return null;
+        }
+        if (isDataUrl(trimmed) && !isAllowedNativeMimeType(dataUrlMimeType(trimmed), allowedMimeTypes)) {
+            return null;
+        }
+        return trimmed;
+    }
+
+    private static String nativeMediaInlineDataUrl(String data, String mediaType, Set<String> allowedMimeTypes) {
+        if (data == null || data.isBlank()) {
+            return null;
+        }
+        String trimmed = data.trim();
+        if (isDataUrl(trimmed)) {
+            return nativeMediaDirectUrl(trimmed, allowedMimeTypes);
+        }
+        if (looksLikeExternalMediaUrl(trimmed)) {
+            return nativeMediaDirectUrl(trimmed, allowedMimeTypes);
+        }
+        if (!isAllowedNativeMimeType(mediaType, allowedMimeTypes)) {
+            return null;
+        }
+        return "data:" + normalizeMediaType(mediaType) + ";base64," + trimmed;
+    }
+
+    private static String nativeMediaType(ObjectNode object, String defaultMimeType) {
+        if (object == null) {
+            return defaultMimeType;
+        }
+        return firstNonBlank(
+                textOrNull(object, "media_type"),
+                textOrNull(object, "mediaType"),
+                textOrNull(object, "mime_type"),
+                textOrNull(object, "mimeType"),
+                defaultMimeType);
+    }
+
+    private static String nativeMediaDetailString(JsonNode node) {
+        if (node instanceof ObjectNode object) {
+            return textOrNull(object, "detail");
+        }
+        return null;
+    }
+
+    private static String dataUrlMimeType(String value) {
+        if (value == null) {
+            return null;
+        }
+        String trimmed = value.trim();
+        if (!isDataUrl(trimmed)) {
+            return null;
+        }
+        int comma = trimmed.indexOf(',');
+        if (comma < 0) {
+            return null;
+        }
+        String header = trimmed.substring(5, comma);
+        int semicolon = header.indexOf(';');
+        String mediaType = semicolon >= 0 ? header.substring(0, semicolon) : header;
+        return mediaType == null || mediaType.isBlank() ? null : mediaType;
+    }
+
+    private static boolean isDataUrl(String value) {
+        return value != null && value.trim().regionMatches(true, 0, "data:", 0, 5);
+    }
+
+    private static boolean looksLikeExternalMediaUrl(String value) {
+        if (value == null) {
+            return false;
+        }
+        String lower = value.trim().toLowerCase(Locale.ROOT);
+        return lower.startsWith("http://")
+                || lower.startsWith("https://")
+                || lower.startsWith("oci://")
+                || lower.startsWith("gs://")
+                || lower.startsWith("file://");
+    }
+
+    private static boolean isAllowedNativeMimeType(String mediaType, Set<String> allowedMimeTypes) {
+        String normalized = normalizeMediaType(mediaType);
+        return normalized != null && allowedMimeTypes.contains(normalized);
+    }
+
+    private static String normalizeMediaType(String mediaType) {
+        if (mediaType == null || mediaType.isBlank()) {
+            return null;
+        }
+        String value = mediaType.trim().toLowerCase(Locale.ROOT);
+        int semicolon = value.indexOf(';');
+        return semicolon >= 0 ? value.substring(0, semicolon).trim() : value;
+    }
+
+    private static DocumentUrl.Detail nativeDocumentDetail(String detail) {
+        if (detail == null || detail.isBlank()) {
+            return null;
+        }
+        return switch (detail.trim().toLowerCase(Locale.ROOT)) {
+            case "auto" -> DocumentUrl.Detail.Auto;
+            case "high" -> DocumentUrl.Detail.High;
+            case "low" -> DocumentUrl.Detail.Low;
+            default -> null;
+        };
+    }
+
+    private static AudioUrl.Detail nativeAudioDetail(String detail) {
+        if (detail == null || detail.isBlank()) {
+            return null;
+        }
+        return switch (detail.trim().toLowerCase(Locale.ROOT)) {
+            case "auto" -> AudioUrl.Detail.Auto;
+            case "high" -> AudioUrl.Detail.High;
+            case "low" -> AudioUrl.Detail.Low;
+            default -> null;
+        };
+    }
+
+    private static VideoUrl.Detail nativeVideoDetail(String detail) {
+        if (detail == null || detail.isBlank()) {
+            return null;
+        }
+        return switch (detail.trim().toLowerCase(Locale.ROOT)) {
+            case "auto" -> VideoUrl.Detail.Auto;
+            case "high" -> VideoUrl.Detail.High;
+            case "low" -> VideoUrl.Detail.Low;
             default -> null;
         };
     }
@@ -1433,6 +1779,25 @@ public class OciGenerativeOpenAiService {
                 return ImageContent.builder().imageUrl(imageUrl).build();
             }
         }
+        String type = nativeContentObjectType(object);
+        if (isDocumentLikeNativeContentObject(object, type)) {
+            DocumentUrl documentUrl = nativeDocumentUrl(object);
+            if (documentUrl != null) {
+                return DocumentContent.builder().documentUrl(documentUrl).build();
+            }
+        }
+        if (isAudioLikeNativeContentObject(object, type)) {
+            AudioUrl audioUrl = nativeAudioUrl(object);
+            if (audioUrl != null) {
+                return AudioContent.builder().audioUrl(audioUrl).build();
+            }
+        }
+        if (isVideoLikeNativeContentObject(object, type)) {
+            VideoUrl videoUrl = nativeVideoUrl(object);
+            if (videoUrl != null) {
+                return VideoContent.builder().videoUrl(videoUrl).build();
+            }
+        }
         String text = chatTextPartText(object);
         return TextContent.builder().text(text == null ? object.toString() : text).build();
     }
@@ -1461,6 +1826,21 @@ public class OciGenerativeOpenAiService {
             return imageContent.getImageUrl() != null
                     && imageContent.getImageUrl().getUrl() != null
                     && !imageContent.getImageUrl().getUrl().isBlank();
+        }
+        if (content instanceof DocumentContent documentContent) {
+            return documentContent.getDocumentUrl() != null
+                    && documentContent.getDocumentUrl().getUrl() != null
+                    && !documentContent.getDocumentUrl().getUrl().isBlank();
+        }
+        if (content instanceof AudioContent audioContent) {
+            return audioContent.getAudioUrl() != null
+                    && audioContent.getAudioUrl().getUrl() != null
+                    && !audioContent.getAudioUrl().getUrl().isBlank();
+        }
+        if (content instanceof VideoContent videoContent) {
+            return videoContent.getVideoUrl() != null
+                    && videoContent.getVideoUrl().getUrl() != null
+                    && !videoContent.getVideoUrl().getUrl().isBlank();
         }
         return true;
     }

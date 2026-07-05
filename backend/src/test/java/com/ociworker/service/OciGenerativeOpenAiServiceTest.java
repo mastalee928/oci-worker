@@ -5,11 +5,13 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.oracle.bmc.generativeaiinference.model.AssistantMessage;
+import com.oracle.bmc.generativeaiinference.model.AudioContent;
 import com.oracle.bmc.generativeaiinference.model.BaseChatRequest;
 import com.oracle.bmc.generativeaiinference.model.ChatChoice;
 import com.oracle.bmc.generativeaiinference.model.ChatContent;
 import com.oracle.bmc.generativeaiinference.model.ChatResult;
 import com.oracle.bmc.generativeaiinference.model.DeveloperMessage;
+import com.oracle.bmc.generativeaiinference.model.DocumentContent;
 import com.oracle.bmc.generativeaiinference.model.FunctionCall;
 import com.oracle.bmc.generativeaiinference.model.FunctionDefinition;
 import com.oracle.bmc.generativeaiinference.model.GenericChatRequest;
@@ -19,6 +21,7 @@ import com.oracle.bmc.generativeaiinference.model.TextContent;
 import com.oracle.bmc.generativeaiinference.model.ToolChoiceAuto;
 import com.oracle.bmc.generativeaiinference.model.Usage;
 import com.oracle.bmc.generativeaiinference.model.UserMessage;
+import com.oracle.bmc.generativeaiinference.model.VideoContent;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 
@@ -363,7 +366,7 @@ class OciGenerativeOpenAiServiceTest {
     }
 
     @Test
-    void doesNotUseUnsupportedFallbackDocumentContentForNativeBridge() {
+    void usesOfficialDocumentFallbackContentForNativeBridge() throws Exception {
         String payload = """
                 {
                   "model":"google.gemini-2.5-pro",
@@ -374,7 +377,13 @@ class OciGenerativeOpenAiServiceTest {
                 }
                 """;
 
-        assertThat(OciGenerativeOpenAiService.canUseNativeGenericChat(payload.getBytes())).isFalse();
+        assertThat(OciGenerativeOpenAiService.canUseNativeGenericChat(payload.getBytes())).isTrue();
+
+        GenericChatRequest request = OciGenerativeOpenAiService.toNativeGenericChatRequest(
+                (ObjectNode) MAPPER.readTree(payload));
+        assertThat(request.getMessages().get(0).getContent().get(0)).isInstanceOf(DocumentContent.class);
+        DocumentContent document = (DocumentContent) request.getMessages().get(0).getContent().get(0);
+        assertThat(document.getDocumentUrl().getUrl()).isEqualTo("data:application/pdf;base64,abc");
     }
 
     @Test
@@ -637,7 +646,7 @@ class OciGenerativeOpenAiServiceTest {
     }
 
     @Test
-    void doesNotRouteGeminiDocumentRequestsToNativeBridge() {
+    void routesGeminiDocumentRequestsToNativeBridge() throws Exception {
         String payload = """
                 {
                   "model":"google.gemini-2.5-pro",
@@ -649,15 +658,128 @@ class OciGenerativeOpenAiServiceTest {
                 }
                 """;
 
-        assertThat(OciGenerativeOpenAiService.canUseNativeGenericChat(payload.getBytes())).isFalse();
+        assertThat(OciGenerativeOpenAiService.canUseNativeGenericChat(payload.getBytes())).isTrue();
+
+        GenericChatRequest request = OciGenerativeOpenAiService.toNativeGenericChatRequest(
+                (ObjectNode) MAPPER.readTree(payload));
+        List<ChatContent> content = request.getMessages().get(0).getContent();
+        assertThat(content).hasSize(2);
+        assertThat(content.get(1)).isInstanceOf(DocumentContent.class);
+        DocumentContent document = (DocumentContent) content.get(1);
+        assertThat(document.getDocumentUrl().getUrl()).isEqualTo("data:application/pdf;base64,abc");
     }
 
     @Test
-    void doesNotRouteSingleObjectGeminiDocumentRequestsToNativeBridge() {
+    void routesSingleObjectGeminiDocumentRequestsToNativeBridge() throws Exception {
         String payload = """
                 {
                   "model":"google.gemini-2.5-pro",
                   "messages":[{"role":"user","content":{"type":"document","source":{"type":"base64","media_type":"application/pdf","data":"abc"}}}],
+                  "stream":true
+                }
+                """;
+
+        assertThat(OciGenerativeOpenAiService.canUseNativeGenericChat(payload.getBytes())).isTrue();
+
+        GenericChatRequest request = OciGenerativeOpenAiService.toNativeGenericChatRequest(
+                (ObjectNode) MAPPER.readTree(payload));
+        assertThat(request.getMessages().get(0).getContent().get(0)).isInstanceOf(DocumentContent.class);
+    }
+
+    @Test
+    void doesNotRouteUnsupportedOfficeDocumentRequestsToNativeBridge() {
+        String payload = """
+                {
+                  "model":"google.gemini-2.5-pro",
+                  "messages":[{"role":"user","content":[
+                    {"type":"document","source":{"type":"base64","media_type":"application/vnd.openxmlformats-officedocument.wordprocessingml.document","data":"abc"}}
+                  ]}],
+                  "stream":true
+                }
+                """;
+
+        assertThat(OciGenerativeOpenAiService.canUseNativeGenericChat(payload.getBytes())).isFalse();
+    }
+
+    @Test
+    void doesNotRouteDocumentUrlWithUnsupportedExplicitMimeTypeToNativeBridge() {
+        String payload = """
+                {
+                  "model":"google.gemini-2.5-pro",
+                  "messages":[{"role":"user","content":[
+                    {"type":"document","source":{"type":"url","media_type":"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet","url":"https://example.com/quota.xlsx"}}
+                  ]}],
+                  "stream":true
+                }
+                """;
+
+        assertThat(OciGenerativeOpenAiService.canUseNativeGenericChat(payload.getBytes())).isFalse();
+    }
+
+    @Test
+    void routesGeminiTextDocumentAudioAndVideoRequestsToNativeBridge() throws Exception {
+        String payload = """
+                {
+                  "model":"google.gemini-2.5-pro",
+                  "messages":[{"role":"user","content":[
+                    {"type":"document","source":{"type":"text","text":"hello"}},
+                    {"type":"audio","source":{"type":"base64","media_type":"audio/mp3","data":"aaaa"}},
+                    {"type":"video","source":{"type":"base64","media_type":"video/mp4","data":"bbbb"}}
+                  ]}],
+                  "stream":false
+                }
+                """;
+
+        assertThat(OciGenerativeOpenAiService.canUseNativeGenericChat(payload.getBytes())).isTrue();
+
+        GenericChatRequest request = OciGenerativeOpenAiService.toNativeGenericChatRequest(
+                (ObjectNode) MAPPER.readTree(payload));
+        List<ChatContent> content = request.getMessages().get(0).getContent();
+        assertThat(content).hasSize(3);
+        assertThat(content.get(0)).isInstanceOf(DocumentContent.class);
+        assertThat(content.get(1)).isInstanceOf(AudioContent.class);
+        assertThat(content.get(2)).isInstanceOf(VideoContent.class);
+        assertThat(((DocumentContent) content.get(0)).getDocumentUrl().getUrl())
+                .isEqualTo("data:text/plain;base64,aGVsbG8=");
+        assertThat(((AudioContent) content.get(1)).getAudioUrl().getUrl())
+                .isEqualTo("data:audio/mp3;base64,aaaa");
+        assertThat(((VideoContent) content.get(2)).getVideoUrl().getUrl())
+                .isEqualTo("data:video/mp4;base64,bbbb");
+    }
+
+    @Test
+    void doesNotRouteUnsupportedAudioAndVideoMimeTypesToNativeBridge() {
+        String audioPayload = """
+                {
+                  "model":"google.gemini-2.5-pro",
+                  "messages":[{"role":"user","content":[
+                    {"type":"audio","source":{"type":"base64","media_type":"audio/m4a","data":"aaaa"}}
+                  ]}]
+                }
+                """;
+        String videoPayload = """
+                {
+                  "model":"google.gemini-2.5-pro",
+                  "messages":[{"role":"user","content":[
+                    {"type":"video","source":{"type":"base64","media_type":"video/mkv","data":"bbbb"}}
+                  ]}]
+                }
+                """;
+
+        assertThat(OciGenerativeOpenAiService.canUseNativeGenericChat(audioPayload.getBytes())).isFalse();
+        assertThat(OciGenerativeOpenAiService.canUseNativeGenericChat(videoPayload.getBytes())).isFalse();
+    }
+
+    @Test
+    void doesNotRouteNonUserDocumentAudioOrVideoMessagesToNativeBridge() {
+        String payload = """
+                {
+                  "model":"google.gemini-2.5-pro",
+                  "messages":[
+                    {"role":"system","content":[{"type":"document","source":{"type":"base64","media_type":"application/pdf","data":"abc"}}]},
+                    {"role":"assistant","content":[{"type":"audio","source":{"type":"base64","media_type":"audio/mp3","data":"abc"}}]},
+                    {"role":"developer","content":[{"type":"video","source":{"type":"base64","media_type":"video/mp4","data":"abc"}}]}
+                  ],
                   "stream":true
                 }
                 """;
@@ -749,7 +871,12 @@ class OciGenerativeOpenAiServiceTest {
                   "model":"google.gemini-2.5-pro",
                   "messages":[
                     {"role":"developer","content":"Prefer direct answers."},
-                    {"role":"user","content":[{"type":"text","text":"hi"}]}
+                    {"role":"user","content":[
+                      {"type":"text","text":"hi"},
+                      {"type":"document","source":{"type":"base64","media_type":"application/pdf","data":"abc"}},
+                      {"type":"audio","source":{"type":"base64","media_type":"audio/mp3","data":"aaaa"}},
+                      {"type":"video","source":{"type":"base64","media_type":"video/mp4","data":"bbbb"}}
+                    ]}
                   ],
                   "tools":[{"type":"function","function":{"name":"write_file","parameters":{"type":"object"}}}],
                   "tool_choice":"auto",
@@ -769,6 +896,9 @@ class OciGenerativeOpenAiServiceTest {
         assertThat(root.path("messages").get(0).path("role").asText()).isEqualTo("DEVELOPER");
         assertThat(root.path("messages").get(1).path("role").asText()).isEqualTo("USER");
         assertThat(root.path("messages").get(1).path("content").get(0).path("type").asText()).isEqualTo("TEXT");
+        assertThat(root.path("messages").get(1).path("content").get(1).path("type").asText()).isEqualTo("DOCUMENT");
+        assertThat(root.path("messages").get(1).path("content").get(2).path("type").asText()).isEqualTo("AUDIO");
+        assertThat(root.path("messages").get(1).path("content").get(3).path("type").asText()).isEqualTo("VIDEO");
         assertThat(root.path("tools").get(0).path("type").asText()).isEqualTo("FUNCTION");
         assertThat(root.path("tools").get(0).path("name").asText()).isEqualTo("write_file");
         assertThat(root.path("toolChoice").path("type").asText()).isEqualTo("AUTO");
