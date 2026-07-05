@@ -336,6 +336,48 @@ class OciGenerativeOpenAiServiceTest {
     }
 
     @Test
+    void normalizesObjectTextChatContentPartsForGeminiNativeBridge() throws Exception {
+        String payload = """
+                {
+                  "model":"google.gemini-2.5-pro",
+                  "messages":[{"role":"user","content":[{"type":"text","text":{"value":"你是谁？"}}]}],
+                  "stream":true
+                }
+                """;
+
+        byte[] normalized = OciGenerativeOpenAiService.transformChatCompletionsJson(payload.getBytes(), 128);
+        JsonNode content = MAPPER.readTree(normalized).path("messages").get(0).path("content");
+
+        assertThat(content.get(0).path("text").asText()).isEqualTo("你是谁？");
+        assertThat(OciGenerativeOpenAiService.canUseNativeGenericChat(normalized)).isTrue();
+
+        GenericChatRequest request = OciGenerativeOpenAiService.toNativeGenericChatRequest(
+                (ObjectNode) MAPPER.readTree(normalized));
+        TextContent text = (TextContent) request.getMessages().get(0).getContent().get(0);
+        assertThat(text.getText()).isEqualTo("你是谁？");
+    }
+
+    @Test
+    void usesPromptFallbackWhenChatMessagesHaveNoUsableContent() throws Exception {
+        String payload = """
+                {
+                  "model":"google.gemini-2.5-pro",
+                  "prompt":"你是谁？",
+                  "messages":[{"role":"user","content":[{"type":"text","text":""}]}],
+                  "stream":true
+                }
+                """;
+
+        byte[] normalized = OciGenerativeOpenAiService.transformChatCompletionsJson(payload.getBytes(), 128);
+        JsonNode messages = MAPPER.readTree(normalized).path("messages");
+
+        assertThat(messages).hasSize(2);
+        assertThat(messages.get(1).path("role").asText()).isEqualTo("user");
+        assertThat(messages.get(1).path("content").asText()).isEqualTo("你是谁？");
+        assertThat(OciGenerativeOpenAiService.canUseNativeGenericChat(normalized)).isTrue();
+    }
+
+    @Test
     void rewritesChatCompletionsOnlyForActualMultiAgentModelName() {
         assertThat(OciGenerativeOpenAiService.shouldRewriteChatCompletionsToResponses("xai.grok-4.3")).isFalse();
         assertThat(OciGenerativeOpenAiService.shouldRewriteChatCompletionsToResponses("google.gemini-2.5-pro")).isFalse();
@@ -578,7 +620,7 @@ class OciGenerativeOpenAiServiceTest {
         GenericChatResponse response = GenericChatResponse.builder()
                 .choices(List.of(
                         ChatChoice.builder().index(0).message(answer).finishReason("stop").build(),
-                        ChatChoice.builder().index(1).message(toolAnswer).finishReason("tool_calls").build()))
+                        ChatChoice.builder().index(1).message(toolAnswer).finishReason("stop").build()))
                 .usage(Usage.builder().promptTokens(3).completionTokens(5).totalTokens(8).build())
                 .build();
         ChatResult result = ChatResult.builder()
@@ -668,7 +710,7 @@ class OciGenerativeOpenAiServiceTest {
                   "model":"google.gemini-2.5-pro",
                   "choices":[
                     {"index":0,"message":{"role":"assistant","reasoning_content":"先确认系统信息。","content":"我的模型是 google/gemini-2.5-pro。"},"finish_reason":"stop"},
-                    {"index":1,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_a","type":"function","function":{"name":"read_cpu","arguments":"{}"}}]},"finish_reason":"tool_calls"}
+                    {"index":1,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_a","type":"function","function":{"name":"read_cpu","arguments":"{}"}}]},"finish_reason":"stop"}
                   ],
                   "usage":{"prompt_tokens":3,"completion_tokens":5,"total_tokens":8}
                 }
