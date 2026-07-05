@@ -6,26 +6,61 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.oracle.bmc.ClientConfiguration;
 import com.oracle.bmc.auth.SimpleAuthenticationDetailsProvider;
+import com.oracle.bmc.generativeaiinference.GenerativeAiInferenceClient;
+import com.oracle.bmc.generativeaiinference.model.AssistantMessage;
+import com.oracle.bmc.generativeaiinference.model.BaseChatResponse;
+import com.oracle.bmc.generativeaiinference.model.ChatChoice;
+import com.oracle.bmc.generativeaiinference.model.ChatContent;
+import com.oracle.bmc.generativeaiinference.model.ChatDetails;
+import com.oracle.bmc.generativeaiinference.model.ChatResult;
+import com.oracle.bmc.generativeaiinference.model.FunctionCall;
+import com.oracle.bmc.generativeaiinference.model.FunctionDefinition;
+import com.oracle.bmc.generativeaiinference.model.GenericChatRequest;
+import com.oracle.bmc.generativeaiinference.model.GenericChatResponse;
+import com.oracle.bmc.generativeaiinference.model.Message;
+import com.oracle.bmc.generativeaiinference.model.OnDemandServingMode;
+import com.oracle.bmc.generativeaiinference.model.SystemMessage;
+import com.oracle.bmc.generativeaiinference.model.TextContent;
+import com.oracle.bmc.generativeaiinference.model.ToolCall;
+import com.oracle.bmc.generativeaiinference.model.ToolChoice;
+import com.oracle.bmc.generativeaiinference.model.ToolChoiceAuto;
+import com.oracle.bmc.generativeaiinference.model.ToolChoiceFunction;
+import com.oracle.bmc.generativeaiinference.model.ToolChoiceNone;
+import com.oracle.bmc.generativeaiinference.model.ToolChoiceRequired;
+import com.oracle.bmc.generativeaiinference.model.ToolDefinition;
+import com.oracle.bmc.generativeaiinference.model.ToolMessage;
+import com.oracle.bmc.generativeaiinference.model.Usage;
+import com.oracle.bmc.generativeaiinference.model.UserMessage;
+import com.oracle.bmc.generativeaiinference.requests.ChatRequest;
 import com.oracle.bmc.http.signing.DefaultRequestSigner;
 import com.oracle.bmc.http.signing.RequestSigner;
+import com.oracle.bmc.http.ClientConfigurator;
+import com.oracle.bmc.http.client.ProxyConfiguration;
+import com.oracle.bmc.http.client.StandardClientProperties;
+import com.oracle.bmc.http.client.jersey3.ApacheClientProperties;
 import com.ociworker.config.OpenAiApiConstants;
 import com.ociworker.exception.OciException;
 import com.ociworker.mapper.OciKvMapper;
 import com.ociworker.model.entity.OciKv;
 import com.ociworker.model.entity.OciUser;
+import com.ociworker.model.dto.OciProxySnapshot;
 import com.ociworker.util.CommonUtils;
 import com.ociworker.util.OciBasicForSigning;
 import com.ociworker.util.OciDuplicatableByteArrayInputStream;
 import com.ociworker.util.OracleAiModelCapability;
 import com.ociworker.util.OciRegionUtil;
+import com.ociworker.util.socks.OciSocksApacheConnectionManager;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
+import org.apache.http.conn.HttpClientConnectionManager;
 import org.springframework.stereotype.Service;
 
+import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -46,6 +81,7 @@ import java.util.ArrayList;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -256,6 +292,17 @@ public class OciGenerativeOpenAiService {
             } else if (looksLikeJson && !chatBodyAlreadyTransformed) {
                 body = transformChatCompletionsJson(origBody, requestDefaultMaxTokens);
             }
+            if (!rewriteChatToResponses
+                    && isStreamRequest(origBody, contentType)
+                    && shouldBufferChatCompletionStream(requestedModel)
+                    && canUseNativeTextGenericChat(body)) {
+                body = forceChatCompletionNonStreamJson(body);
+                request.setAttribute("ociworker.rewrite.forceBuffer", Boolean.TRUE);
+                request.setAttribute("ociworker.rewrite.simulateChatCompletionSse", Boolean.TRUE);
+                request.setAttribute("ociworker.rewrite.useNativeGenericChat", Boolean.TRUE);
+                request.setAttribute("ociworker.lb.bridgeType", "native_generic_chat");
+                request.setAttribute("ociworker.rewrite.model", requestedModel);
+            }
         } else if (isChatCompletionsPath(origPathAfterV1) && body != null && body.length > 0 && looksLikeJson) {
             body = transformChatCompletionsJson(body, requestDefaultMaxTokens);
         }
@@ -314,6 +361,11 @@ public class OciGenerativeOpenAiService {
             }
         }
         request.setAttribute("ociworker.debug.finalPathAfterV1", pathAfterV1);
+
+        if (Boolean.TRUE.equals(request.getAttribute("ociworker.rewrite.useNativeGenericChat"))) {
+            proxyNativeGenericChat(tenant, regionId, body, requestedModel, request, response);
+            return;
+        }
 
         StringBuilder u = new StringBuilder(useRawApiBase ? baseRawApi : (useRawV1Base ? baseRawV1 : baseOpenAi));
         u.append(pathAfterV1);
@@ -758,6 +810,508 @@ public class OciGenerativeOpenAiService {
 
     static boolean shouldRewriteChatCompletionsToResponses(String model) {
         return OracleAiModelCapability.isMultiAgent(model);
+    }
+
+    static boolean shouldBufferChatCompletionStream(String model) {
+        if (model == null || model.isBlank()) {
+            return false;
+        }
+        String value = model.trim().toLowerCase(Locale.ROOT);
+        return value.startsWith("google.gemini-");
+    }
+
+    static byte[] forceChatCompletionNonStreamJson(byte[] input) {
+        if (input == null || input.length == 0) {
+            return input;
+        }
+        try {
+            JsonNode root = MAPPER.readTree(input);
+            if (root instanceof ObjectNode object) {
+                object.put("stream", false);
+                object.remove("stream_options");
+                return MAPPER.writeValueAsBytes(object);
+            }
+        } catch (Exception ignored) {
+        }
+        return input;
+    }
+
+    static boolean canUseNativeTextGenericChat(byte[] input) {
+        if (input == null || input.length == 0) {
+            return false;
+        }
+        try {
+            JsonNode root = MAPPER.readTree(input);
+            if (!(root instanceof ObjectNode object)) {
+                return false;
+            }
+            JsonNode messages = object.get("messages");
+            if (messages == null || !messages.isArray()) {
+                return true;
+            }
+            for (JsonNode message : messages) {
+                if (!(message instanceof ObjectNode messageObject)) {
+                    continue;
+                }
+                if (!isTextOnlyChatContent(messageObject.get("content"))) {
+                    return false;
+                }
+            }
+            return true;
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private static boolean isTextOnlyChatContent(JsonNode content) {
+        if (content == null || content.isNull() || content.isMissingNode()) {
+            return true;
+        }
+        if (content.isTextual() || content.isNumber() || content.isBoolean()) {
+            return true;
+        }
+        if (!content.isArray()) {
+            return false;
+        }
+        for (JsonNode part : content) {
+            if (part == null || part.isNull()) {
+                continue;
+            }
+            if (part.isTextual()) {
+                continue;
+            }
+            if (!(part instanceof ObjectNode object)) {
+                return false;
+            }
+            String type = firstNonBlank(textOrNull(object, "type"), "").toLowerCase(Locale.ROOT);
+            if ("text".equals(type) || "input_text".equals(type)) {
+                continue;
+            }
+            if (object.get("image_url") != null
+                    || object.get("image") != null
+                    || object.get("source") != null
+                    || object.get("file") != null
+                    || object.get("document") != null
+                    || object.get("audio") != null
+                    || object.get("video") != null) {
+                return false;
+            }
+            if (type.isBlank() && object.get("text") != null && object.size() <= 2) {
+                continue;
+            }
+            return false;
+        }
+        return true;
+    }
+
+    private void proxyNativeGenericChat(
+            OciUser tenant,
+            String regionId,
+            byte[] body,
+            String modelHint,
+            HttpServletRequest request,
+            HttpServletResponse response) throws IOException {
+        try (NativeGenericChatClient nativeClient = newNativeGenericChatClient(tenant, regionId)) {
+            ObjectNode input = readObjectNode(body, "Gemini 原生 Chat 请求必须是 JSON 对象");
+            String model = firstNonBlank(textOrNull(input, "model"), modelHint);
+            if (model == null || model.isBlank()) {
+                throw new OciException("Gemini 原生 Chat 请求缺少 model");
+            }
+            GenericChatRequest chatRequest = toNativeGenericChatRequest(input);
+            ChatDetails details = ChatDetails.builder()
+                    .compartmentId(tenant != null ? tenant.getOciTenantId() : null)
+                    .servingMode(OnDemandServingMode.builder().modelId(model).build())
+                    .chatRequest(chatRequest)
+                    .build();
+            ChatResult result = nativeClient.client().chat(ChatRequest.builder()
+                            .chatDetails(details)
+                            .build())
+                    .getChatResult();
+            String json = nativeGenericChatResultToOpenAiJson(result, model);
+            captureUsageTokens(request, json);
+            captureChatCompletionToolStats(request, json);
+            if (Boolean.TRUE.equals(request.getAttribute("ociworker.rewrite.simulateChatCompletionSse"))) {
+                response.setStatus(200);
+                response.setHeader("cache-control", "no-cache");
+                response.setContentType("text/event-stream; charset=utf-8");
+                String sse = chatCompletionJsonToSse(json, model);
+                response.getOutputStream().write((sse == null ? "data: [DONE]\n\n" : sse).getBytes(StandardCharsets.UTF_8));
+                return;
+            }
+            response.setStatus(200);
+            response.setContentType("application/json; charset=utf-8");
+            response.getOutputStream().write(json.getBytes(StandardCharsets.UTF_8));
+        } catch (OciException | IOException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new OciException("Gemini 原生 Chat 调用失败: " + (e.getMessage() != null ? e.getMessage() : "未知错误"));
+        }
+    }
+
+    private NativeGenericChatClient newNativeGenericChatClient(OciUser tenant, String regionId) {
+        ClientConfiguration clientConfig = ClientConfiguration.builder()
+                .connectionTimeoutMillis(10_000)
+                .readTimeoutMillis(3_600_000)
+                .build();
+        OciProxyConfigService ps = OciProxyConfigService.instance();
+        OciProxySnapshot snap = ps == null ? null : ps.snapshot();
+        if (ps == null || !ps.ociUsesExplicitClientProxy()) {
+            OciProxyConfigService.clearInProcessHttpSocksProxySystemProperties();
+        }
+        final org.apache.http.impl.conn.PoolingHttpClientConnectionManager socksPool =
+                snap != null && snap.usesSocksForOci() ? OciSocksApacheConnectionManager.create(snap) : null;
+        final ClientConfigurator ociClientConfigurator;
+        if (socksPool != null) {
+            ociClientConfigurator = b -> {
+                b.property(ApacheClientProperties.CONNECTION_MANAGER, socksPool);
+                b.property(ApacheClientProperties.CONNECTION_MANAGER_SHARED, Boolean.TRUE);
+            };
+        } else {
+            java.util.Optional<ProxyConfiguration> proxyConfiguration =
+                    ps == null ? java.util.Optional.empty() : ps.getOciProxyConfiguration();
+            if (proxyConfiguration.isPresent()) {
+                ProxyConfiguration pc = proxyConfiguration.get();
+                ociClientConfigurator = c -> c.property(StandardClientProperties.PROXY, pc);
+            } else {
+                ociClientConfigurator = OciProxyConfigService.ociSdkJerseyDirectConfigurator();
+            }
+        }
+        var builder = GenerativeAiInferenceClient.builder().configuration(clientConfig);
+        builder.additionalClientConfigurator(ociClientConfigurator);
+        GenerativeAiInferenceClient client = builder.build(buildProvider(tenant, regionId));
+        client.setRegion(regionId);
+        return new NativeGenericChatClient(client, socksPool);
+    }
+
+    private static ObjectNode readObjectNode(byte[] body, String message) throws Exception {
+        JsonNode root = body == null ? null : MAPPER.readTree(body);
+        if (root instanceof ObjectNode object) {
+            return object;
+        }
+        throw new OciException(message);
+    }
+
+    static GenericChatRequest toNativeGenericChatRequest(ObjectNode input) {
+        GenericChatRequest.Builder builder = GenericChatRequest.builder()
+                .messages(toNativeMessages(input.get("messages")))
+                .isStream(false);
+        Integer maxTokens = firstInteger(input, "max_tokens", "maxTokens");
+        if (maxTokens != null && maxTokens > 0) {
+            builder.maxTokens(maxTokens);
+        }
+        Integer maxCompletionTokens = firstInteger(input, "max_completion_tokens", "maxCompletionTokens");
+        if (maxCompletionTokens != null && maxCompletionTokens > 0) {
+            builder.maxCompletionTokens(maxCompletionTokens);
+        }
+        Double temperature = firstDouble(input, "temperature");
+        if (temperature != null) {
+            builder.temperature(temperature);
+        }
+        Double topP = firstDouble(input, "top_p", "topP");
+        if (topP != null) {
+            builder.topP(topP);
+        }
+        Double frequencyPenalty = firstDouble(input, "frequency_penalty", "frequencyPenalty");
+        if (frequencyPenalty != null) {
+            builder.frequencyPenalty(frequencyPenalty);
+        }
+        Double presencePenalty = firstDouble(input, "presence_penalty", "presencePenalty");
+        if (presencePenalty != null) {
+            builder.presencePenalty(presencePenalty);
+        }
+        List<String> stop = stringList(input.get("stop"));
+        if (!stop.isEmpty()) {
+            builder.stop(stop);
+        }
+        Boolean parallelToolCalls = firstBoolean(input, "parallel_tool_calls", "parallelToolCalls");
+        if (parallelToolCalls != null) {
+            builder.isParallelToolCalls(parallelToolCalls);
+        }
+        List<ToolDefinition> tools = toNativeToolDefinitions(input.get("tools"));
+        if (!tools.isEmpty()) {
+            builder.tools(tools);
+        }
+        ToolChoice toolChoice = toNativeToolChoice(input.get("tool_choice"));
+        if (toolChoice != null) {
+            builder.toolChoice(toolChoice);
+        }
+        return builder.build();
+    }
+
+    private static List<Message> toNativeMessages(JsonNode messagesNode) {
+        List<Message> out = new ArrayList<>();
+        if (messagesNode != null && messagesNode.isArray()) {
+            for (JsonNode item : messagesNode) {
+                if (!(item instanceof ObjectNode message)) {
+                    continue;
+                }
+                String role = firstNonBlank(textOrNull(message, "role"), "user").toLowerCase(Locale.ROOT);
+                List<ChatContent> content = toNativeTextContent(message.get("content"));
+                String name = textOrNull(message, "name");
+                switch (role) {
+                    case "system", "developer" -> {
+                        SystemMessage.Builder builder = SystemMessage.builder().content(content);
+                        if (name != null && !name.isBlank()) {
+                            builder.name(name);
+                        }
+                        out.add(builder.build());
+                    }
+                    case "assistant" -> {
+                        AssistantMessage.Builder builder = AssistantMessage.builder().content(content);
+                        if (name != null && !name.isBlank()) {
+                            builder.name(name);
+                        }
+                        String reasoning = textOrNull(message, "reasoning_content");
+                        if (reasoning != null && !reasoning.isBlank()) {
+                            builder.reasoningContent(reasoning);
+                        }
+                        List<ToolCall> toolCalls = toNativeToolCalls(message.get("tool_calls"));
+                        if (!toolCalls.isEmpty()) {
+                            builder.toolCalls(toolCalls);
+                        }
+                        out.add(builder.build());
+                    }
+                    case "tool" -> {
+                        ToolMessage.Builder builder = ToolMessage.builder().content(content);
+                        String toolCallId = textOrNull(message, "tool_call_id");
+                        if (toolCallId != null && !toolCallId.isBlank()) {
+                            builder.toolCallId(toolCallId);
+                        }
+                        out.add(builder.build());
+                    }
+                    default -> {
+                        UserMessage.Builder builder = UserMessage.builder().content(content);
+                        if (name != null && !name.isBlank()) {
+                            builder.name(name);
+                        }
+                        out.add(builder.build());
+                    }
+                }
+            }
+        }
+        if (out.isEmpty()) {
+            out.add(UserMessage.builder().content(List.of(TextContent.builder().text("").build())).build());
+        }
+        return out;
+    }
+
+    private static List<ChatContent> toNativeTextContent(JsonNode content) {
+        String text = chatMessageContentText(content);
+        return List.of(TextContent.builder().text(text == null ? "" : text).build());
+    }
+
+    private static List<ToolCall> toNativeToolCalls(JsonNode toolCallsNode) {
+        List<ToolCall> out = new ArrayList<>();
+        if (toolCallsNode == null || !toolCallsNode.isArray()) {
+            return out;
+        }
+        for (JsonNode item : toolCallsNode) {
+            if (!(item instanceof ObjectNode call)) {
+                continue;
+            }
+            JsonNode fnNode = call.get("function");
+            ObjectNode fn = fnNode instanceof ObjectNode functionObject ? functionObject : MAPPER.createObjectNode();
+            String name = firstNonBlank(textOrNull(fn, "name"), textOrNull(call, "name"), "tool");
+            String arguments = firstNonBlank(textOrNull(fn, "arguments"), textOrNull(call, "arguments"), "{}");
+            out.add(FunctionCall.builder()
+                    .id(firstNonBlank(textOrNull(call, "id"), "call_" + CommonUtils.generateId()))
+                    .name(name)
+                    .arguments(arguments)
+                    .build());
+        }
+        return out;
+    }
+
+    private static List<ToolDefinition> toNativeToolDefinitions(JsonNode toolsNode) {
+        List<ToolDefinition> out = new ArrayList<>();
+        if (toolsNode == null || !toolsNode.isArray()) {
+            return out;
+        }
+        for (JsonNode item : toolsNode) {
+            if (!(item instanceof ObjectNode tool)) {
+                continue;
+            }
+            JsonNode fnNode = tool.get("function");
+            ObjectNode fn = fnNode instanceof ObjectNode functionObject ? functionObject : tool;
+            String type = firstNonBlank(textOrNull(tool, "type"), "function");
+            if (!"function".equalsIgnoreCase(type)) {
+                continue;
+            }
+            String name = textOrNull(fn, "name");
+            if (name == null || name.isBlank()) {
+                continue;
+            }
+            FunctionDefinition.Builder builder = FunctionDefinition.builder().name(name);
+            String description = textOrNull(fn, "description");
+            if (description != null && !description.isBlank()) {
+                builder.description(description);
+            }
+            JsonNode parameters = fn.get("parameters");
+            if (parameters != null && !parameters.isNull() && !parameters.isMissingNode()) {
+                builder.parameters(MAPPER.convertValue(parameters, Object.class));
+            }
+            out.add(builder.build());
+        }
+        return out;
+    }
+
+    private static ToolChoice toNativeToolChoice(JsonNode toolChoice) {
+        if (toolChoice == null || toolChoice.isNull() || toolChoice.isMissingNode()) {
+            return null;
+        }
+        if (toolChoice.isTextual()) {
+            String value = toolChoice.asText("").trim().toLowerCase(Locale.ROOT);
+            return switch (value) {
+                case "auto" -> ToolChoiceAuto.builder().build();
+                case "none" -> ToolChoiceNone.builder().build();
+                case "required", "any" -> ToolChoiceRequired.builder().build();
+                default -> null;
+            };
+        }
+        if (toolChoice instanceof ObjectNode object) {
+            String type = firstNonBlank(textOrNull(object, "type"), "").toLowerCase(Locale.ROOT);
+            if ("auto".equals(type)) {
+                return ToolChoiceAuto.builder().build();
+            }
+            if ("none".equals(type)) {
+                return ToolChoiceNone.builder().build();
+            }
+            if ("required".equals(type) || "any".equals(type)) {
+                return ToolChoiceRequired.builder().build();
+            }
+            if ("function".equals(type)) {
+                JsonNode fnNode = object.get("function");
+                ObjectNode fn = fnNode instanceof ObjectNode functionObject ? functionObject : object;
+                String name = textOrNull(fn, "name");
+                if (name != null && !name.isBlank()) {
+                    return ToolChoiceFunction.builder().name(name).build();
+                }
+            }
+        }
+        return null;
+    }
+
+    static String nativeGenericChatResultToOpenAiJson(ChatResult result, String modelHint) throws Exception {
+        ObjectNode root = MAPPER.createObjectNode();
+        root.put("id", "chatcmpl-" + CommonUtils.generateId());
+        root.put("object", "chat.completion");
+        root.put("created", Instant.now().getEpochSecond());
+        root.put("model", firstNonBlank(result == null ? null : result.getModelId(), modelHint, ""));
+        ArrayNode choices = MAPPER.createArrayNode();
+        Usage usage = null;
+        BaseChatResponse response = result == null ? null : result.getChatResponse();
+        if (response instanceof GenericChatResponse generic) {
+            usage = generic.getUsage();
+            List<ChatChoice> nativeChoices = generic.getChoices();
+            if (nativeChoices != null) {
+                for (ChatChoice choice : nativeChoices) {
+                    if (choice == null) {
+                        continue;
+                    }
+                    ObjectNode item = MAPPER.createObjectNode();
+                    item.put("index", choice.getIndex() == null ? choices.size() : choice.getIndex());
+                    ObjectNode message = nativeMessageToOpenAiMessage(choice.getMessage());
+                    item.set("message", message);
+                    item.put("finish_reason", normalizeNativeFinishReason(
+                            choice.getFinishReason(),
+                            message.path("tool_calls").isArray() && !message.path("tool_calls").isEmpty()));
+                    choices.add(item);
+                    if (usage == null) {
+                        usage = choice.getUsage();
+                    }
+                }
+            }
+        }
+        root.set("choices", choices);
+        root.set("usage", nativeUsageToOpenAiUsage(usage));
+        return MAPPER.writeValueAsString(root);
+    }
+
+    private static ObjectNode nativeMessageToOpenAiMessage(Message message) {
+        ObjectNode out = MAPPER.createObjectNode();
+        out.put("role", "assistant");
+        out.put("content", nativeContentText(message == null ? null : message.getContent()));
+        if (message instanceof AssistantMessage assistant) {
+            String reasoning = assistant.getReasoningContent();
+            if (reasoning != null && !reasoning.isBlank()) {
+                out.put("reasoning_content", reasoning);
+            }
+            List<ToolCall> toolCalls = assistant.getToolCalls();
+            if (toolCalls != null && !toolCalls.isEmpty()) {
+                ArrayNode calls = MAPPER.createArrayNode();
+                for (ToolCall toolCall : toolCalls) {
+                    if (toolCall instanceof FunctionCall functionCall) {
+                        ObjectNode call = MAPPER.createObjectNode();
+                        call.put("id", firstNonBlank(functionCall.getId(), "call_" + CommonUtils.generateId()));
+                        call.put("type", "function");
+                        ObjectNode fn = MAPPER.createObjectNode();
+                        fn.put("name", firstNonBlank(functionCall.getName(), "tool"));
+                        fn.put("arguments", firstNonBlank(functionCall.getArguments(), "{}"));
+                        call.set("function", fn);
+                        calls.add(call);
+                    }
+                }
+                if (!calls.isEmpty()) {
+                    out.putNull("content");
+                    out.set("tool_calls", calls);
+                }
+            }
+        }
+        return out;
+    }
+
+    private static String nativeContentText(List<ChatContent> content) {
+        if (content == null || content.isEmpty()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (ChatContent item : content) {
+            String text;
+            if (item instanceof TextContent textContent) {
+                text = textContent.getText();
+            } else {
+                text = item == null ? "" : item.toString();
+            }
+            if (text == null || text.isBlank()) {
+                continue;
+            }
+            if (sb.length() > 0) {
+                sb.append('\n');
+            }
+            sb.append(text);
+        }
+        return sb.toString();
+    }
+
+    private static ObjectNode nativeUsageToOpenAiUsage(Usage usage) {
+        ObjectNode out = MAPPER.createObjectNode();
+        int prompt = usage == null || usage.getPromptTokens() == null ? 0 : Math.max(0, usage.getPromptTokens());
+        int completion = usage == null || usage.getCompletionTokens() == null ? 0 : Math.max(0, usage.getCompletionTokens());
+        int total = usage == null || usage.getTotalTokens() == null ? prompt + completion : Math.max(0, usage.getTotalTokens());
+        out.put("prompt_tokens", prompt);
+        out.put("completion_tokens", completion);
+        out.put("total_tokens", total > 0 ? total : prompt + completion);
+        return out;
+    }
+
+    private static String normalizeNativeFinishReason(String reason, boolean hasToolCalls) {
+        if (reason == null || reason.isBlank()) {
+            return hasToolCalls ? "tool_calls" : "stop";
+        }
+        String value = reason.trim().toLowerCase(Locale.ROOT).replace('-', '_').replace(' ', '_');
+        if (value.contains("tool")) {
+            return "tool_calls";
+        }
+        if (value.contains("length") || value.contains("max")) {
+            return "length";
+        }
+        if (value.contains("filter") || value.contains("safety")) {
+            return "content_filter";
+        }
+        if (value.contains("stop") || value.contains("end")) {
+            return "stop";
+        }
+        return hasToolCalls ? "tool_calls" : "stop";
     }
 
     private static String firstText(JsonNode o, String... fieldNames) {
@@ -1301,6 +1855,43 @@ public class OciGenerativeOpenAiService {
             }
         }
         return null;
+    }
+
+    private static Double firstDouble(ObjectNode node, String... fields) {
+        JsonNode value = firstExisting(node, fields);
+        if (value == null || value.isNull()) {
+            return null;
+        }
+        if (value.isNumber()) {
+            return value.asDouble();
+        }
+        if (value.isTextual()) {
+            try {
+                return Double.parseDouble(value.asText().trim());
+            } catch (Exception ignored) {
+            }
+        }
+        return null;
+    }
+
+    private static List<String> stringList(JsonNode node) {
+        if (node == null || node.isNull() || node.isMissingNode()) {
+            return List.of();
+        }
+        if (node.isTextual()) {
+            String value = node.asText();
+            return value == null || value.isBlank() ? List.of() : List.of(value);
+        }
+        if (!node.isArray()) {
+            return List.of();
+        }
+        List<String> out = new ArrayList<>();
+        for (JsonNode item : node) {
+            if (item != null && item.isTextual() && !item.asText().isBlank()) {
+                out.add(item.asText());
+            }
+        }
+        return out;
     }
 
     private static Boolean firstBoolean(ObjectNode node, String... fields) {
@@ -3245,6 +3836,29 @@ public class OciGenerativeOpenAiService {
                     }
                 }
             }
+            if (code >= 200
+                    && code < 300
+                    && request != null
+                    && Boolean.TRUE.equals(request.getAttribute("ociworker.rewrite.simulateChatCompletionSse"))
+                    && b != null
+                    && !b.isBlank()) {
+                String ct = resp.headers().firstValue("content-type").orElse("application/json; charset=utf-8");
+                if (ct.toLowerCase(Locale.ROOT).contains("json")) {
+                    try {
+                        String modelHint = (String) request.getAttribute("ociworker.rewrite.model");
+                        String sse = chatCompletionJsonToSse(b, modelHint);
+                        if (sse != null && !sse.isBlank()) {
+                            response.setStatus(200);
+                            response.setHeader("cache-control", "no-cache");
+                            response.setContentType("text/event-stream; charset=utf-8");
+                            response.getOutputStream().write(sse.getBytes(StandardCharsets.UTF_8));
+                            return;
+                        }
+                    } catch (Exception e) {
+                        log.warn("Failed to simulate chat completion SSE: {}", e.getMessage());
+                    }
+                }
+            }
             response.getOutputStream().write(b.getBytes(StandardCharsets.UTF_8));
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -3816,6 +4430,108 @@ public class OciGenerativeOpenAiService {
         out.flush();
     }
 
+    static String chatCompletionJsonToSse(String body, String modelHint) throws Exception {
+        if (body == null || body.isBlank()) {
+            return null;
+        }
+        JsonNode root = MAPPER.readTree(body);
+        if (!(root instanceof ObjectNode object)) {
+            return null;
+        }
+        JsonNode choicesNode = object.get("choices");
+        if (choicesNode == null || !choicesNode.isArray()) {
+            return null;
+        }
+        String id = firstNonBlank(textOrNull(object, "id"), "chatcmpl-ociworker");
+        long created = longField(object, "created");
+        if (created <= 0) {
+            created = System.currentTimeMillis() / 1000L;
+        }
+        String model = firstNonBlank(textOrNull(object, "model"), modelHint, "");
+        StringBuilder out = new StringBuilder(Math.max(256, body.length() + 128));
+        int emittedChoices = 0;
+        for (JsonNode choiceNode : choicesNode) {
+            if (!(choiceNode instanceof ObjectNode choice)) {
+                continue;
+            }
+            int index = (int) longField(choice, "index");
+            JsonNode messageNode = choice.get("message");
+            ObjectNode message = messageNode instanceof ObjectNode messageObject ? messageObject : MAPPER.createObjectNode();
+            JsonNode toolCalls = message.get("tool_calls");
+            boolean hasToolCalls = toolCalls != null && toolCalls.isArray() && !toolCalls.isEmpty();
+            String content = chatMessageContentText(message.get("content"));
+
+            ObjectNode roleDelta = MAPPER.createObjectNode();
+            roleDelta.put("role", "assistant");
+            appendChatCompletionSseChunk(out, id, created, model, index, roleDelta, null, null);
+
+            if (content != null && !content.isEmpty()) {
+                appendChatCompletionContentSse(out, id, created, model, index, content);
+            }
+            if (hasToolCalls) {
+                ObjectNode toolDelta = MAPPER.createObjectNode();
+                toolDelta.set("tool_calls", toolCalls.deepCopy());
+                appendChatCompletionSseChunk(out, id, created, model, index, toolDelta, null, null);
+            }
+
+            String finishReason = firstNonBlank(textOrNull(choice, "finish_reason"), hasToolCalls ? "tool_calls" : "stop");
+            appendChatCompletionSseChunk(out, id, created, model, index, MAPPER.createObjectNode(), finishReason, null);
+            emittedChoices++;
+        }
+        if (emittedChoices <= 0) {
+            return null;
+        }
+        JsonNode usage = object.get("usage");
+        if (usage != null && usage.isObject()) {
+            appendChatCompletionSseChunk(out, id, created, model, -1, null, null, usage);
+        }
+        out.append("data: [DONE]\n\n");
+        return out.toString();
+    }
+
+    private static void appendChatCompletionContentSse(
+            StringBuilder out, String id, long created, String model, int index, String content) throws Exception {
+        int step = 200;
+        for (int i = 0; i < content.length(); i += step) {
+            ObjectNode delta = MAPPER.createObjectNode();
+            delta.put("content", content.substring(i, Math.min(content.length(), i + step)));
+            appendChatCompletionSseChunk(out, id, created, model, index, delta, null, null);
+        }
+    }
+
+    private static void appendChatCompletionSseChunk(
+            StringBuilder out,
+            String id,
+            long created,
+            String model,
+            int index,
+            ObjectNode delta,
+            String finishReason,
+            JsonNode usage) throws Exception {
+        ObjectNode chunk = MAPPER.createObjectNode();
+        chunk.put("id", firstNonBlank(id, "chatcmpl-ociworker"));
+        chunk.put("object", "chat.completion.chunk");
+        chunk.put("created", created);
+        chunk.put("model", model == null ? "" : model);
+        ArrayNode choices = MAPPER.createArrayNode();
+        if (index >= 0) {
+            ObjectNode choice = MAPPER.createObjectNode();
+            choice.put("index", index);
+            choice.set("delta", delta == null ? MAPPER.createObjectNode() : delta);
+            if (finishReason == null) {
+                choice.putNull("finish_reason");
+            } else {
+                choice.put("finish_reason", finishReason);
+            }
+            choices.add(choice);
+        }
+        chunk.set("choices", choices);
+        if (usage != null && usage.isObject()) {
+            chunk.set("usage", usage.deepCopy());
+        }
+        out.append("data: ").append(MAPPER.writeValueAsString(chunk)).append("\n\n");
+    }
+
     private static String escapeJson(String s) {
         if (s == null) {
             return "";
@@ -4091,4 +4807,21 @@ public class OciGenerativeOpenAiService {
             String originalDocumentsJson,
             boolean returnDocuments,
             String compartmentId) {}
+
+    private record NativeGenericChatClient(
+            GenerativeAiInferenceClient client,
+            HttpClientConnectionManager socksPool) implements Closeable {
+        @Override
+        public void close() throws IOException {
+            if (client != null) {
+                client.close();
+            }
+            if (socksPool != null) {
+                try {
+                    socksPool.shutdown();
+                } catch (Exception ignored) {
+                }
+            }
+        }
+    }
 }

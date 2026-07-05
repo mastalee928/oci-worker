@@ -3,8 +3,21 @@ package com.ociworker.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.oracle.bmc.generativeaiinference.model.AssistantMessage;
+import com.oracle.bmc.generativeaiinference.model.ChatChoice;
+import com.oracle.bmc.generativeaiinference.model.ChatResult;
+import com.oracle.bmc.generativeaiinference.model.FunctionCall;
+import com.oracle.bmc.generativeaiinference.model.FunctionDefinition;
+import com.oracle.bmc.generativeaiinference.model.GenericChatRequest;
+import com.oracle.bmc.generativeaiinference.model.GenericChatResponse;
+import com.oracle.bmc.generativeaiinference.model.TextContent;
+import com.oracle.bmc.generativeaiinference.model.ToolChoiceAuto;
+import com.oracle.bmc.generativeaiinference.model.Usage;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
+
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -138,6 +151,137 @@ class OciGenerativeOpenAiServiceTest {
         assertThat(OciGenerativeOpenAiService.shouldRewriteChatCompletionsToResponses("cohere.embed-v4.0")).isFalse();
         assertThat(OciGenerativeOpenAiService.shouldRewriteChatCompletionsToResponses("xai.grok-tts")).isFalse();
         assertThat(OciGenerativeOpenAiService.shouldRewriteChatCompletionsToResponses("oci.multi-agent-runtime")).isTrue();
+    }
+
+    @Test
+    void buffersGeminiChatCompletionStreamsOnly() throws Exception {
+        assertThat(OciGenerativeOpenAiService.shouldBufferChatCompletionStream("google.gemini-2.5-pro")).isTrue();
+        assertThat(OciGenerativeOpenAiService.shouldBufferChatCompletionStream("google.gemini-2.5-flash")).isTrue();
+        assertThat(OciGenerativeOpenAiService.shouldBufferChatCompletionStream("xai.grok-4.3")).isFalse();
+
+        String payload = """
+                {
+                  "model":"google.gemini-2.5-pro",
+                  "messages":[{"role":"user","content":"hi"}],
+                  "stream":true,
+                  "stream_options":{"include_usage":true}
+                }
+                """;
+        JsonNode root = MAPPER.readTree(OciGenerativeOpenAiService.forceChatCompletionNonStreamJson(payload.getBytes()));
+
+        assertThat(root.path("stream").asBoolean()).isFalse();
+        assertThat(root.has("stream_options")).isFalse();
+        assertThat(OciGenerativeOpenAiService.canUseNativeTextGenericChat(payload.getBytes())).isTrue();
+    }
+
+    @Test
+    void doesNotRouteGeminiMultimodalRequestsToTextOnlyNativeBridge() {
+        String payload = """
+                {
+                  "model":"google.gemini-2.5-pro",
+                  "messages":[{"role":"user","content":[
+                    {"type":"text","text":"inspect"},
+                    {"type":"image_url","image_url":{"url":"data:image/png;base64,abc"}}
+                  ]}],
+                  "stream":true
+                }
+                """;
+
+        assertThat(OciGenerativeOpenAiService.canUseNativeTextGenericChat(payload.getBytes())).isFalse();
+    }
+
+    @Test
+    void convertsOpenAiChatRequestToNativeGenericChatRequest() throws Exception {
+        ObjectNode payload = (ObjectNode) MAPPER.readTree("""
+                {
+                  "model":"google.gemini-2.5-pro",
+                  "messages":[
+                    {"role":"system","content":"You are concise."},
+                    {"role":"user","content":[{"type":"text","text":"你的 CPU 型号是？"}]}
+                  ],
+                  "tools":[{"type":"function","function":{"name":"read_cpu","description":"read cpu","parameters":{"type":"object"}}}],
+                  "tool_choice":"auto",
+                  "parallel_tool_calls":true,
+                  "max_tokens":128,
+                  "temperature":0.2,
+                  "stream":false
+                }
+                """);
+
+        GenericChatRequest request = OciGenerativeOpenAiService.toNativeGenericChatRequest(payload);
+
+        assertThat(request.getIsStream()).isFalse();
+        assertThat(request.getMaxTokens()).isEqualTo(128);
+        assertThat(request.getTemperature()).isEqualTo(0.2D);
+        assertThat(request.getMessages()).hasSize(2);
+        assertThat(request.getTools()).hasSize(1);
+        assertThat(request.getTools().get(0)).isInstanceOf(FunctionDefinition.class);
+        assertThat(((FunctionDefinition) request.getTools().get(0)).getName()).isEqualTo("read_cpu");
+        assertThat(request.getToolChoice()).isInstanceOf(ToolChoiceAuto.class);
+        assertThat(request.getIsParallelToolCalls()).isTrue();
+    }
+
+    @Test
+    void convertsNativeGenericChatResultToOpenAiChatCompletion() throws Exception {
+        AssistantMessage answer = AssistantMessage.builder()
+                .content(List.of(TextContent.builder().text("我的模型是 google/gemini-2.5-pro。").build()))
+                .build();
+        AssistantMessage toolAnswer = AssistantMessage.builder()
+                .content(List.of(TextContent.builder().text("").build()))
+                .toolCalls(List.of(FunctionCall.builder()
+                        .id("call_a")
+                        .name("read_cpu")
+                        .arguments("{}")
+                        .build()))
+                .build();
+        GenericChatResponse response = GenericChatResponse.builder()
+                .choices(List.of(
+                        ChatChoice.builder().index(0).message(answer).finishReason("stop").build(),
+                        ChatChoice.builder().index(1).message(toolAnswer).finishReason("tool_calls").build()))
+                .usage(Usage.builder().promptTokens(3).completionTokens(5).totalTokens(8).build())
+                .build();
+        ChatResult result = ChatResult.builder()
+                .modelId("google.gemini-2.5-pro")
+                .chatResponse(response)
+                .build();
+
+        JsonNode root = MAPPER.readTree(OciGenerativeOpenAiService.nativeGenericChatResultToOpenAiJson(
+                result, "google.gemini-2.5-pro"));
+
+        assertThat(root.path("model").asText()).isEqualTo("google.gemini-2.5-pro");
+        assertThat(root.path("choices").get(0).path("message").path("content").asText())
+                .isEqualTo("我的模型是 google/gemini-2.5-pro。");
+        assertThat(root.path("choices").get(1).path("finish_reason").asText()).isEqualTo("tool_calls");
+        assertThat(root.path("choices").get(1).path("message").path("tool_calls").get(0)
+                .path("function").path("name").asText()).isEqualTo("read_cpu");
+        assertThat(root.path("usage").path("total_tokens").asInt()).isEqualTo(8);
+    }
+
+    @Test
+    void convertsBufferedChatCompletionJsonToOpenAiSse() throws Exception {
+        String payload = """
+                {
+                  "id":"chatcmpl-buffered",
+                  "object":"chat.completion",
+                  "created":123,
+                  "model":"google.gemini-2.5-pro",
+                  "choices":[
+                    {"index":0,"message":{"role":"assistant","content":"我的模型是 google/gemini-2.5-pro。"},"finish_reason":"stop"},
+                    {"index":1,"message":{"role":"assistant","content":null,"tool_calls":[{"id":"call_a","type":"function","function":{"name":"read_cpu","arguments":"{}"}}]},"finish_reason":"tool_calls"}
+                  ],
+                  "usage":{"prompt_tokens":3,"completion_tokens":5,"total_tokens":8}
+                }
+                """;
+
+        String sse = OciGenerativeOpenAiService.chatCompletionJsonToSse(payload, "google.gemini-2.5-pro");
+
+        assertThat(sse).contains("data: ");
+        assertThat(sse).contains("\"delta\":{\"role\":\"assistant\"}");
+        assertThat(sse).contains("我的模型是 google/gemini-2.5-pro。");
+        assertThat(sse).contains("\"tool_calls\"");
+        assertThat(sse).contains("\"finish_reason\":\"tool_calls\"");
+        assertThat(sse).contains("\"choices\":[],\"usage\":{\"prompt_tokens\":3,\"completion_tokens\":5,\"total_tokens\":8}");
+        assertThat(sse).endsWith("data: [DONE]\n\n");
     }
 
     @Test
