@@ -871,7 +871,7 @@ public class OciGenerativeOpenAiService {
                 if (!(message instanceof ObjectNode messageObject)) {
                     return false;
                 }
-                String role = firstNonBlank(textOrNull(messageObject, "role"), "user").toLowerCase(Locale.ROOT);
+                String role = normalizeChatRole(textOrNull(messageObject, "role"));
                 if (hasNativeGenericChatPayload(messageObject)) {
                     hasUsableMessage = true;
                 }
@@ -1237,7 +1237,7 @@ public class OciGenerativeOpenAiService {
                 if (!(item instanceof ObjectNode message)) {
                     continue;
                 }
-                String role = firstNonBlank(textOrNull(message, "role"), "user").toLowerCase(Locale.ROOT);
+                String role = normalizeChatRole(textOrNull(message, "role"));
                 List<ChatContent> content = toNativeContent(message.get("content"));
                 String name = textOrNull(message, "name");
                 switch (role) {
@@ -2835,7 +2835,7 @@ public class OciGenerativeOpenAiService {
                 normalized.add(message);
                 continue;
             }
-            String role = textOrNull(object, "role");
+            String role = normalizeChatRole(textOrNull(object, "role"));
             if ("tool".equalsIgnoreCase(role)) {
                 String toolCallId = textOrNull(object, "tool_call_id");
                 if (toolCallId == null || toolCallId.isBlank()) {
@@ -2889,6 +2889,7 @@ public class OciGenerativeOpenAiService {
 
     private static ObjectNode normalizeChatMessageForOci(ObjectNode source) {
         ObjectNode out = source == null ? MAPPER.createObjectNode() : source.deepCopy();
+        out.put("role", normalizeChatRole(textOrNull(out, "role")));
         JsonNode content = out.get("content");
         if (content == null || content.isNull() || content.isMissingNode()) {
             out.put("content", "");
@@ -2958,11 +2959,15 @@ public class OciGenerativeOpenAiService {
         if (role == null || role.isBlank()) {
             return "user";
         }
-        if ("developer".equalsIgnoreCase(role)) {
-            return "system";
+        String value = role.trim().toLowerCase(java.util.Locale.ROOT);
+        if ("assistant".equals(value) || "system".equals(value) || "tool".equals(value) || "developer".equals(value)) {
+            return value;
         }
-        if ("assistant".equalsIgnoreCase(role) || "system".equalsIgnoreCase(role) || "tool".equalsIgnoreCase(role)) {
-            return role.toLowerCase(java.util.Locale.ROOT);
+        if ("model".equals(value) || "ai".equals(value) || "bot".equals(value)) {
+            return "assistant";
+        }
+        if ("human".equals(value)) {
+            return "user";
         }
         return "user";
     }

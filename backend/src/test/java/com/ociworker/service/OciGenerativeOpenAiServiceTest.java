@@ -204,6 +204,49 @@ class OciGenerativeOpenAiServiceTest {
     }
 
     @Test
+    void normalizesGeminiModelRoleBeforeProxyingToOci() throws Exception {
+        String payload = """
+                {
+                  "model":"google.gemini-2.5-pro",
+                  "messages":[
+                    {"role":"user","content":"你是谁？"},
+                    {"role":"model","content":"我是助手。"}
+                  ],
+                  "stream":true
+                }
+                """;
+
+        byte[] normalized = OciGenerativeOpenAiService.transformChatCompletionsJson(payload.getBytes(), 128);
+
+        JsonNode messages = MAPPER.readTree(normalized).path("messages");
+        assertThat(messages.get(0).path("role").asText()).isEqualTo("user");
+        assertThat(messages.get(1).path("role").asText()).isEqualTo("assistant");
+        assertThat(OciGenerativeOpenAiService.canUseNativeGenericChat(normalized)).isTrue();
+    }
+
+    @Test
+    void treatsGeminiModelRoleToolCallsAsAssistantHistory() throws Exception {
+        String payload = """
+                {
+                  "model":"google.gemini-2.5-pro",
+                  "messages":[
+                    {"role":"model","content":null,"tool_calls":[{"id":"call_a","type":"function","function":{"name":"read_cpu","arguments":"{}"}}]},
+                    {"role":"tool","tool_call_id":"call_a","content":"Intel"}
+                  ],
+                  "stream":true
+                }
+                """;
+
+        byte[] normalized = OciGenerativeOpenAiService.transformChatCompletionsJson(payload.getBytes(), 128);
+
+        JsonNode messages = MAPPER.readTree(normalized).path("messages");
+        assertThat(messages.get(0).path("role").asText()).isEqualTo("assistant");
+        assertThat(messages.get(0).path("tool_calls")).hasSize(1);
+        assertThat(messages.get(1).path("role").asText()).isEqualTo("tool");
+        assertThat(messages.get(1).path("content").asText()).isEqualTo("Intel");
+    }
+
+    @Test
     void doesNotRouteAllNullContentGeminiRequestToNativeBridge() {
         String payload = """
                 {
