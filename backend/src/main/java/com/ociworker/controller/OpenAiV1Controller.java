@@ -221,9 +221,7 @@ public class OpenAiV1Controller {
             error(response, 503, "Responses API 调用非 OpenAI 模型需要 OpenAI-Project 或 opc-conversation-store-id，自动创建默认 OpenAI-Project 失败，请检查成员租户是否有 Generative AI Project 创建权限");
             return;
         }
-        int maxAttempts = stream && !bufferedToolStream
-                ? 1
-                : Math.max(2, Math.min(6, eligibleCount <= 0 ? 2 : eligibleCount));
+        int maxAttempts = Math.max(2, Math.min(6, eligibleCount <= 0 ? 2 : eligibleCount));
         String lastError = null;
         int lastStatus = 503;
         loadBalanceService.touchKey((String) request.getAttribute(OpenAiApiConstants.ATTR_LB_KEY_ID));
@@ -311,21 +309,27 @@ public class OpenAiV1Controller {
             } catch (OciException e) {
                 long latency = elapsedMs(started);
                 String message = e.getMessage() != null ? e.getMessage() : "OCI 错误";
-                loadBalanceService.finishRequest(selection.member().getId(), 502, 0L, latency,
-                        errorType(request, "oci_error"), message, requestedModel);
-                recordAttempt(request, lbRequestId, selection, requestedModel, stream, estimatedTokens, 502,
-                        "failed", errorType(request, "oci_error"), message, latency, attempt);
-                lastStatus = 502;
+                int status = statusFrom(request, targetResponse);
+                status = status >= 400 ? status : 502;
+                String type = status == 502 ? errorType(request, "oci_error") : "upstream_status";
+                boolean retry = attempt + 1 < maxAttempts
+                        && !response.isCommitted()
+                        && isRetryableStatus(status, true);
+                loadBalanceService.finishRequest(selection.member().getId(), status, 0L, latency,
+                        retry ? "retryable_status" : type, message, requestedModel);
+                recordAttempt(request, lbRequestId, selection, requestedModel, stream, estimatedTokens, status,
+                        "failed", retry ? "retryable_status" : type, message, latency, attempt);
+                lastStatus = status;
                 lastError = message;
                 log.warn("OpenAI LB upstream error requestId={} memberId={} port={} message={}",
                         lbRequestId, selection.member().getId(), binding.getPort(), message);
-                if ((!stream || bufferedToolStream) && attempt + 1 < maxAttempts) {
+                if (retry) {
                     continue;
                 }
                 if (anthropicMessages) {
-                    anthropicError(response, 502, "api_error", message);
+                    anthropicError(response, status, status >= 500 ? "api_error" : "invalid_request_error", message);
                 } else {
-                    error(response, 502, message);
+                    error(response, status, message);
                 }
                 return;
             } catch (IOException e) {
@@ -341,15 +345,18 @@ public class OpenAiV1Controller {
                 String type = errorType(request, "io_error");
                 int status = statusFrom(request, targetResponse);
                 status = status >= 400 ? status : 502;
+                boolean retry = !response.isCommitted()
+                        && attempt + 1 < maxAttempts
+                        && isRetryableStatus(status, true);
                 loadBalanceService.finishRequest(selection.member().getId(), status, 0L, latency,
-                        type, e.getMessage(), requestedModel);
+                        retry ? "retryable_status" : type, e.getMessage(), requestedModel);
                 recordAttempt(request, lbRequestId, selection, requestedModel, stream, estimatedTokens, status,
-                        "failed", type, e.getMessage(), latency, attempt);
+                        "failed", retry ? "retryable_status" : type, e.getMessage(), latency, attempt);
                 lastStatus = status;
                 lastError = e.getMessage() != null ? e.getMessage() : "转发出错";
                 log.warn("OpenAI LB IO error requestId={} memberId={} port={} message={}",
                         lbRequestId, selection.member().getId(), binding.getPort(), e.getMessage());
-                if ((!stream || bufferedToolStream) && attempt + 1 < maxAttempts) {
+                if (retry) {
                     continue;
                 }
                 if (!response.isCommitted()) {

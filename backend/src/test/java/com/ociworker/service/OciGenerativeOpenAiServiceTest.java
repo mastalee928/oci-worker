@@ -146,6 +146,40 @@ class OciGenerativeOpenAiServiceTest {
     }
 
     @Test
+    void convertsMaxCompletionTokensToMaxTokensForOciChatCompletions() throws Exception {
+        String payload = """
+                {
+                  "model":"openai.gpt-oss-120b",
+                  "messages":[{"role":"user","content":"hello"}],
+                  "max_completion_tokens":32
+                }
+                """;
+
+        byte[] normalized = OciGenerativeOpenAiService.transformChatCompletionsJson(payload.getBytes(), 128);
+
+        JsonNode root = MAPPER.readTree(normalized);
+        assertThat(root.path("max_tokens").asInt()).isEqualTo(32);
+        assertThat(root.has("max_completion_tokens")).isFalse();
+    }
+
+    @Test
+    void raisesSmallGeminiChatCompletionBudgetForOci() throws Exception {
+        String payload = """
+                {
+                  "model":"google.gemini-2.5-pro",
+                  "messages":[{"role":"user","content":"只回复 OK"}],
+                  "max_tokens":16,
+                  "stream":true
+                }
+                """;
+
+        byte[] normalized = OciGenerativeOpenAiService.transformChatCompletionsJson(payload.getBytes(), 128);
+
+        JsonNode root = MAPPER.readTree(normalized);
+        assertThat(root.path("max_tokens").asInt()).isEqualTo(128);
+    }
+
+    @Test
     void rewritesChatCompletionsOnlyForActualMultiAgentModelName() {
         assertThat(OciGenerativeOpenAiService.shouldRewriteChatCompletionsToResponses("xai.grok-4.3")).isFalse();
         assertThat(OciGenerativeOpenAiService.shouldRewriteChatCompletionsToResponses("google.gemini-2.5-pro")).isFalse();
@@ -354,7 +388,7 @@ class OciGenerativeOpenAiServiceTest {
     }
 
     @Test
-    void rejectsNativeGenericChatResultWithoutVisibleOutput() {
+    void returnsNativeGenericChatResultWithoutVisibleOutputAsValidCompletion() throws Exception {
         ChatResult result = ChatResult.builder()
                 .modelId("google.gemini-2.5-pro")
                 .chatResponse(GenericChatResponse.builder()
@@ -368,10 +402,36 @@ class OciGenerativeOpenAiServiceTest {
                         .build())
                 .build();
 
-        assertThatThrownBy(() -> OciGenerativeOpenAiService.nativeGenericChatResultToOpenAiJson(
-                result, "google.gemini-2.5-pro"))
-                .isInstanceOf(com.ociworker.exception.OciException.class)
-                .hasMessageContaining("未返回文本");
+        JsonNode root = MAPPER.readTree(OciGenerativeOpenAiService.nativeGenericChatResultToOpenAiJson(
+                result, "google.gemini-2.5-pro"));
+
+        assertThat(root.path("choices")).hasSize(1);
+        assertThat(root.path("choices").get(0).path("message").path("content").asText()).isEmpty();
+        assertThat(root.path("choices").get(0).path("finish_reason").asText()).isEqualTo("stop");
+    }
+
+    @Test
+    void mapsEmptyNativeGenericChatMaxTokenResultToLengthCompletion() throws Exception {
+        ChatResult result = ChatResult.builder()
+                .modelId("google.gemini-2.5-pro")
+                .chatResponse(GenericChatResponse.builder()
+                        .choices(List.of(ChatChoice.builder()
+                                .index(0)
+                                .message(AssistantMessage.builder()
+                                        .content(List.of(TextContent.builder().text("").build()))
+                                        .build())
+                                .finishReason("max_tokens")
+                                .build()))
+                        .usage(Usage.builder().promptTokens(3).completionTokens(16).totalTokens(19).build())
+                        .build())
+                .build();
+
+        JsonNode root = MAPPER.readTree(OciGenerativeOpenAiService.nativeGenericChatResultToOpenAiJson(
+                result, "google.gemini-2.5-pro"));
+
+        assertThat(root.path("choices").get(0).path("message").path("content").asText()).isEmpty();
+        assertThat(root.path("choices").get(0).path("finish_reason").asText()).isEqualTo("length");
+        assertThat(root.path("usage").path("total_tokens").asInt()).isEqualTo(19);
     }
 
     @Test
@@ -463,6 +523,24 @@ class OciGenerativeOpenAiServiceTest {
     }
 
     @Test
+    void raisesSmallGeminiResponsesBudgetWhenConvertedToChatCompletions() throws Exception {
+        String payload = """
+                {
+                  "model":"google.gemini-2.5-pro",
+                  "input":"只回复 OK",
+                  "stream":true,
+                  "max_output_tokens":16
+                }
+                """;
+
+        byte[] converted = OciGenerativeOpenAiService.transformResponsesToChatCompletionsJson(payload.getBytes(), 128);
+
+        JsonNode root = MAPPER.readTree(converted);
+        assertThat(root.path("max_tokens").asInt()).isEqualTo(128);
+        assertThat(root.path("stream").asBoolean()).isTrue();
+    }
+
+    @Test
     void convertsChatCompletionToolsToResponsesRequestForMultiAgent() throws Exception {
         String payload = """
                 {
@@ -549,6 +627,30 @@ class OciGenerativeOpenAiServiceTest {
         assertThat(sse).contains("\"sequence_number\":0");
         assertThat(sse).contains("\"sequence_number\":1");
         assertThat(sse).contains("\"sequence_number\":2");
+    }
+
+    @Test
+    void convertsBufferedChatCompletionJsonToResponsesSse() throws Exception {
+        String payload = """
+                {
+                  "id":"chatcmpl-buffered",
+                  "object":"chat.completion",
+                  "created":123,
+                  "model":"google.gemini-2.5-pro",
+                  "choices":[{"index":0,"message":{"role":"assistant","content":"OK"},"finish_reason":"stop"}],
+                  "usage":{"prompt_tokens":3,"completion_tokens":1,"total_tokens":4}
+                }
+                """;
+
+        String sse = OciGenerativeOpenAiService.chatCompletionJsonToResponsesSse(
+                payload, "google.gemini-2.5-pro", null);
+
+        assertThat(sse).contains("event: response.created");
+        assertThat(sse).contains("event: response.output_text.delta");
+        assertThat(sse).contains("event: response.completed");
+        assertThat(sse).contains("data: [DONE]");
+        assertThat(sse).contains("\"model\":\"google.gemini-2.5-pro\"");
+        assertThat(sse).contains("\"text\":\"OK\"");
     }
 
     @Test

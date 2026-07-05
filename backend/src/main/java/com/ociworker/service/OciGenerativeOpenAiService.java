@@ -105,6 +105,7 @@ public class OciGenerativeOpenAiService {
     private static final int LIST_MAX_PAGES = 50;
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final Duration MODEL_LIST_CACHE_TTL = Duration.ofMinutes(5);
+    private static final int GEMINI_MIN_CHAT_COMPLETION_TOKENS = 128;
     private static final String REGION_CONTEXT_TYPE = "oracle_ai_region_context";
     private static volatile IntSupplier defaultMaxTokensSupplier = () -> DEFAULT_MAX_TOKENS;
     private final Map<String, CachedModels> modelsCache = new ConcurrentHashMap<>();
@@ -320,6 +321,16 @@ public class OciGenerativeOpenAiService {
             request.setAttribute("ociworker.rewrite.model", requestedModel);
             pathAfterV1 = "/chat/completions";
             body = transformResponsesToChatCompletionsJson(origBody, requestDefaultMaxTokens);
+            if (isStreamRequest(origBody, contentType)) {
+                request.setAttribute("ociworker.rewrite.simulateResponsesSse", Boolean.TRUE);
+            }
+            if (shouldBufferChatCompletionStream(requestedModel) && canUseNativeGenericChat(body)) {
+                body = forceChatCompletionNonStreamJson(body);
+                request.setAttribute("ociworker.rewrite.forceBuffer", Boolean.TRUE);
+                request.setAttribute("ociworker.rewrite.useNativeGenericChat", Boolean.TRUE);
+                request.setAttribute("ociworker.lb.bridgeType", "native_generic_chat_responses");
+                request.setAttribute("ociworker.rewrite.model", requestedModel);
+            }
         }
 
         // 对直接调用 /v1/responses 的请求：OCI 对 input 的 ModelInput 格式较严格。
@@ -815,6 +826,10 @@ public class OciGenerativeOpenAiService {
     }
 
     static boolean shouldBufferChatCompletionStream(String model) {
+        return isGeminiChatModel(model);
+    }
+
+    private static boolean isGeminiChatModel(String model) {
         if (model == null || model.isBlank()) {
             return false;
         }
@@ -1043,6 +1058,19 @@ public class OciGenerativeOpenAiService {
             String json = nativeGenericChatResultToOpenAiJson(result, model);
             captureUsageTokens(request, json);
             captureChatCompletionToolStats(request, json);
+            if (Boolean.TRUE.equals(request.getAttribute("ociworker.rewrite.responsesToChat"))) {
+                response.setStatus(200);
+                if (Boolean.TRUE.equals(request.getAttribute("ociworker.rewrite.simulateResponsesSse"))) {
+                    response.setHeader("cache-control", "no-cache");
+                    response.setContentType("text/event-stream; charset=utf-8");
+                    String sse = chatCompletionJsonToResponsesSse(json, model, request);
+                    response.getOutputStream().write(sse.getBytes(StandardCharsets.UTF_8));
+                    return;
+                }
+                response.setContentType("application/json; charset=utf-8");
+                response.getOutputStream().write(convertChatCompletionJsonToResponsesJson(json, model).getBytes(StandardCharsets.UTF_8));
+                return;
+            }
             if (Boolean.TRUE.equals(request.getAttribute("ociworker.rewrite.simulateChatCompletionSse"))) {
                 response.setStatus(200);
                 response.setHeader("cache-control", "no-cache");
@@ -1380,8 +1408,8 @@ public class OciGenerativeOpenAiService {
         if (choices.isEmpty()) {
             throw new OciException("Gemini 原生 Chat 返回的 choices 无有效内容");
         }
-        if (!hasVisibleOutput) {
-            throw new OciException("Gemini 原生 Chat 未返回文本、推理内容或工具调用");
+        if (!hasVisibleOutput && log.isDebugEnabled()) {
+            log.debug("Gemini native Chat returned choices without visible output; model={}", root.path("model").asText());
         }
         root.set("choices", choices);
         root.set("usage", nativeUsageToOpenAiUsage(usage));
@@ -1447,7 +1475,10 @@ public class OciGenerativeOpenAiService {
             if (item instanceof TextContent textContent) {
                 text = textContent.getText();
             } else {
-                text = item == null ? "" : item.toString();
+                text = reflectiveText(item);
+                if (text == null || text.isBlank()) {
+                    text = item == null ? "" : item.toString();
+                }
             }
             if (text == null || text.isBlank()) {
                 continue;
@@ -1458,6 +1489,18 @@ public class OciGenerativeOpenAiService {
             sb.append(text);
         }
         return sb.toString();
+    }
+
+    private static String reflectiveText(Object item) {
+        if (item == null) {
+            return null;
+        }
+        try {
+            Object value = item.getClass().getMethod("getText").invoke(item);
+            return value == null ? null : String.valueOf(value);
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     private static ObjectNode nativeUsageToOpenAiUsage(Usage usage) {
@@ -2445,9 +2488,7 @@ public class OciGenerativeOpenAiService {
                 return input;
             }
             ObjectNode o = (ObjectNode) root;
-            if (o.get("max_tokens") == null || o.get("max_tokens").isNull() || o.get("max_tokens").isMissingNode()) {
-                o.put("max_tokens", OracleAiGatewayConfigService.normalizeDefaultMaxTokens(defaultMaxTokens));
-            }
+            normalizeChatCompletionTokenBudget(o, defaultMaxTokens);
             JsonNode force = o.get("force_non_stream");
             if (force != null && (force.isBoolean() && force.asBoolean()
                     || (force.isTextual() && "true".equalsIgnoreCase(force.asText())))) {
@@ -2473,6 +2514,48 @@ public class OciGenerativeOpenAiService {
         root.remove("reasoningEffort");
         root.remove("reasoning_effort");
         root.remove("reasoning");
+        root.remove("max_completion_tokens");
+    }
+
+    private static void normalizeChatCompletionTokenBudget(ObjectNode root, int defaultMaxTokens) {
+        if (root == null) {
+            return;
+        }
+        JsonNode maxTokens = root.get("max_tokens");
+        JsonNode maxCompletionTokens = root.get("max_completion_tokens");
+        if (maxTokens == null || maxTokens.isNull() || maxTokens.isMissingNode()) {
+            if (maxCompletionTokens != null && !maxCompletionTokens.isNull() && !maxCompletionTokens.isMissingNode()) {
+                root.set("max_tokens", maxCompletionTokens.deepCopy());
+            } else {
+                root.put("max_tokens", OracleAiGatewayConfigService.normalizeDefaultMaxTokens(defaultMaxTokens));
+            }
+        }
+        int value = positiveInt(root.get("max_tokens"), OracleAiGatewayConfigService.normalizeDefaultMaxTokens(defaultMaxTokens));
+        if (value <= 0) {
+            value = OracleAiGatewayConfigService.normalizeDefaultMaxTokens(defaultMaxTokens);
+        }
+        if (isGeminiChatModel(textOrNull(root, "model"))) {
+            if (value > 0 && value < GEMINI_MIN_CHAT_COMPLETION_TOKENS) {
+                value = GEMINI_MIN_CHAT_COMPLETION_TOKENS;
+            }
+        }
+        root.put("max_tokens", value);
+    }
+
+    private static int positiveInt(JsonNode node, int fallback) {
+        if (node == null || node.isNull() || node.isMissingNode()) {
+            return fallback;
+        }
+        try {
+            if (node.isNumber()) {
+                return node.intValue();
+            }
+            if (node.isTextual()) {
+                return Integer.parseInt(node.asText().trim());
+            }
+        } catch (Exception ignored) {
+        }
+        return fallback;
     }
 
     private static void normalizeChatToolSchema(ObjectNode root) {
@@ -2605,6 +2688,7 @@ public class OciGenerativeOpenAiService {
                 streamOptions.put("include_usage", true);
                 out.set("stream_options", streamOptions);
             }
+            normalizeChatCompletionTokenBudget(out, defaultMaxTokens);
             return MAPPER.writeValueAsBytes(out);
         } catch (Exception e) {
             return input;
@@ -3033,6 +3117,14 @@ public class OciGenerativeOpenAiService {
             if (request != null) {
                 request.setAttribute(OpenAiApiConstants.ATTR_UPSTREAM_STATUS, code);
             }
+            if (code >= 400 && Boolean.TRUE.equals(request == null ? null : request.getAttribute(OpenAiApiConstants.ATTR_LB_REQUEST))) {
+                byte[] bytes;
+                try (InputStream in = resp.body()) {
+                    bytes = in == null ? new byte[0] : in.readAllBytes();
+                }
+                logStreamProxyError(request, code, bytes);
+                throw new OciException(upstreamStatusMessage(code, bytes));
+            }
             for (var e : resp.headers().map().entrySet()) {
                 String k = e.getKey();
                 if (k == null) {
@@ -3064,36 +3156,7 @@ public class OciGenerativeOpenAiService {
                         response.getOutputStream().write(bytes);
                     }
                 }
-                try {
-                    String b = bytes.length > 0 ? new String(bytes, StandardCharsets.UTF_8) : "";
-                    String bl = b.toLowerCase(java.util.Locale.ROOT);
-                    boolean looksLikeInputDeserializeError =
-                            bl.contains("failed to deserialize")
-                                    || bl.contains("untagged enum")
-                                    || bl.contains("modelinput")
-                                    || bl.contains("modellnput");
-                    if (request != null) {
-                        String rid = firstRequestHeader(
-                                request,
-                                "x-request-id",
-                                "x-cursor-request-id",
-                                "x-openai-request-id",
-                                "x-amzn-trace-id",
-                                "traceparent");
-                        String origPath = String.valueOf(request.getAttribute("ociworker.debug.origPathAfterV1"));
-                        String finalPath = String.valueOf(request.getAttribute("ociworker.debug.finalPathAfterV1"));
-                        String before = String.valueOf(request.getAttribute("ociworker.debug.responsesInputShape.before"));
-                        String after = String.valueOf(request.getAttribute("ociworker.debug.responsesInputShape.after"));
-                        // 任何 4xx/5xx 都打印一条结构化摘要，避免 Cursor 端不显示 body 时“无输出”
-                        log.warn("OCI proxy error(stream); rid={} code={} origPath={} finalPath={} before={} after={} body={}",
-                                rid, code, origPath, finalPath, before, after, truncate(b, 1200));
-                        if (looksLikeInputDeserializeError && isResponsesPath(extractPathAfterV1(request))) {
-                            log.warn("OCI /responses ModelInput error(stream); rid={} before={} after={} body={}",
-                                    rid, before, after, truncate(b, 1200));
-                        }
-                    }
-                } catch (Exception ignored) {
-                }
+                logStreamProxyError(request, code, bytes);
                 return;
             }
             if (response.getContentType() == null) {
@@ -3201,6 +3264,47 @@ public class OciGenerativeOpenAiService {
                 request.setAttribute(OpenAiApiConstants.ATTR_STREAM_TIMEOUT_TYPE, "idle");
             }
             throw e;
+        }
+    }
+
+    private static String upstreamStatusMessage(int code, byte[] bytes) {
+        String body = bytes == null || bytes.length == 0 ? "" : new String(bytes, StandardCharsets.UTF_8).trim();
+        if (body.isBlank()) {
+            return "HTTP " + code;
+        }
+        return "HTTP " + code + ": " + truncate(body, 500);
+    }
+
+    private static void logStreamProxyError(HttpServletRequest request, int code, byte[] bytes) {
+        try {
+            String b = bytes == null || bytes.length == 0 ? "" : new String(bytes, StandardCharsets.UTF_8);
+            String bl = b.toLowerCase(java.util.Locale.ROOT);
+            boolean looksLikeInputDeserializeError =
+                    bl.contains("failed to deserialize")
+                            || bl.contains("untagged enum")
+                            || bl.contains("modelinput")
+                            || bl.contains("modellnput");
+            if (request != null) {
+                String rid = firstRequestHeader(
+                        request,
+                        "x-request-id",
+                        "x-cursor-request-id",
+                        "x-openai-request-id",
+                        "x-amzn-trace-id",
+                        "traceparent");
+                String origPath = String.valueOf(request.getAttribute("ociworker.debug.origPathAfterV1"));
+                String finalPath = String.valueOf(request.getAttribute("ociworker.debug.finalPathAfterV1"));
+                String before = String.valueOf(request.getAttribute("ociworker.debug.responsesInputShape.before"));
+                String after = String.valueOf(request.getAttribute("ociworker.debug.responsesInputShape.after"));
+                // 任何 4xx/5xx 都打印一条结构化摘要，避免客户端不显示 body 时“无输出”
+                log.warn("OCI proxy error(stream); rid={} code={} origPath={} finalPath={} before={} after={} body={}",
+                        rid, code, origPath, finalPath, before, after, truncate(b, 1200));
+                if (looksLikeInputDeserializeError && isResponsesPath(extractPathAfterV1(request))) {
+                    log.warn("OCI /responses ModelInput error(stream); rid={} before={} after={} body={}",
+                            rid, before, after, truncate(b, 1200));
+                }
+            }
+        } catch (Exception ignored) {
         }
     }
 
@@ -4667,6 +4771,21 @@ public class OciGenerativeOpenAiService {
             appendChatCompletionSseChunk(out, id, created, model, -1, null, null, usage);
         }
         out.append("data: [DONE]\n\n");
+        return out.toString();
+    }
+
+    static String chatCompletionJsonToResponsesSse(String body, String modelHint, HttpServletRequest request) throws Exception {
+        ResponsesBridgeStreamState state = new ResponsesBridgeStreamState(firstNonBlank(modelHint, ""));
+        String chatSse = chatCompletionJsonToSse(body, modelHint);
+        StringBuilder pending = new StringBuilder(chatSse == null ? "" : chatSse);
+        StringBuilder out = new StringBuilder();
+        out.append(drainChatCompletionsAsResponsesEvents(pending, request, state));
+        if (!state.doneSent) {
+            out.append(finalizeResponsesBridgeStream(state));
+            state.doneSent = true;
+            captureResponsesBridgeToolStats(request, state);
+            out.append("data: [DONE]\n\n");
+        }
         return out.toString();
     }
 
