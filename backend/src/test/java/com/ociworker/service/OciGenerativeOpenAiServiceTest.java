@@ -5,9 +5,11 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.oracle.bmc.generativeaiinference.model.AssistantMessage;
+import com.oracle.bmc.generativeaiinference.model.BaseChatRequest;
 import com.oracle.bmc.generativeaiinference.model.ChatChoice;
 import com.oracle.bmc.generativeaiinference.model.ChatContent;
 import com.oracle.bmc.generativeaiinference.model.ChatResult;
+import com.oracle.bmc.generativeaiinference.model.DeveloperMessage;
 import com.oracle.bmc.generativeaiinference.model.FunctionCall;
 import com.oracle.bmc.generativeaiinference.model.FunctionDefinition;
 import com.oracle.bmc.generativeaiinference.model.GenericChatRequest;
@@ -409,6 +411,102 @@ class OciGenerativeOpenAiServiceTest {
     }
 
     @Test
+    void usesGeminiNativeChatForStreamingAndNonStreamingChatCompletionsOnly() throws Exception {
+        String streamingPayload = """
+                {
+                  "model":"google.gemini-2.5-pro",
+                  "messages":[{"role":"user","content":"hi"}],
+                  "stream":true
+                }
+                """;
+        String nonStreamingPayload = """
+                {
+                  "model":"google.gemini-2.5-pro",
+                  "messages":[{"role":"user","content":"hi"}],
+                  "stream":false
+                }
+                """;
+
+        byte[] streaming = OciGenerativeOpenAiService.transformChatCompletionsJson(streamingPayload.getBytes(), 128);
+        byte[] nonStreaming = OciGenerativeOpenAiService.transformChatCompletionsJson(nonStreamingPayload.getBytes(), 128);
+
+        assertThat(OciGenerativeOpenAiService.shouldUseGeminiNativeChat("google.gemini-2.5-pro", streaming)).isTrue();
+        assertThat(OciGenerativeOpenAiService.shouldUseGeminiNativeChat("google.gemini-2.5-pro", nonStreaming)).isTrue();
+        assertThat(OciGenerativeOpenAiService.shouldUseGeminiNativeChat("xai.grok-4.3", streaming)).isFalse();
+        assertThat(OciGenerativeOpenAiService.shouldUseGeminiNativeChat("openai.gpt-oss-120b", streaming)).isFalse();
+    }
+
+    @Test
+    void convertsUnknownGeminiContentObjectsToTextForNativeBridge() throws Exception {
+        String payload = """
+                {
+                  "model":"google.gemini-2.5-pro",
+                  "messages":[{"role":"user","content":[
+                    {"type":"custom_context","payload":{"path":"a.txt","value":"null"}}
+                  ]}],
+                  "stream":false
+                }
+                """;
+
+        assertThat(OciGenerativeOpenAiService.canUseNativeGenericChat(payload.getBytes())).isTrue();
+
+        GenericChatRequest request = OciGenerativeOpenAiService.toNativeGenericChatRequest(
+                (ObjectNode) MAPPER.readTree(payload));
+        assertThat(request.getMessages().get(0).getContent()).hasSize(1);
+        assertThat(request.getMessages().get(0).getContent().get(0)).isInstanceOf(TextContent.class);
+        assertThat(((TextContent) request.getMessages().get(0).getContent().get(0)).getText())
+                .contains("custom_context")
+                .contains("a.txt");
+    }
+
+    @Test
+    void convertsPrimitiveGeminiContentPartsToTextForNativeBridge() throws Exception {
+        String payload = """
+                {
+                  "model":"google.gemini-2.5-pro",
+                  "messages":[{"role":"user","content":[123, true]}],
+                  "stream":false
+                }
+                """;
+
+        assertThat(OciGenerativeOpenAiService.canUseNativeGenericChat(payload.getBytes())).isTrue();
+
+        GenericChatRequest request = OciGenerativeOpenAiService.toNativeGenericChatRequest(
+                (ObjectNode) MAPPER.readTree(payload));
+        assertThat(request.getMessages().get(0).getContent()).hasSize(2);
+        assertThat(((TextContent) request.getMessages().get(0).getContent().get(0)).getText()).isEqualTo("123");
+        assertThat(((TextContent) request.getMessages().get(0).getContent().get(1)).getText()).isEqualTo("true");
+    }
+
+    @Test
+    void convertsSingleObjectGeminiContentForNativeBridge() throws Exception {
+        String textPayload = """
+                {
+                  "model":"google.gemini-2.5-pro",
+                  "messages":[{"role":"user","content":{"type":"text","text":"hi"}}],
+                  "stream":false
+                }
+                """;
+        String imagePayload = """
+                {
+                  "model":"google.gemini-2.5-pro",
+                  "messages":[{"role":"user","content":{"type":"image_url","image_url":{"url":"data:image/png;base64,abc"}}}],
+                  "stream":false
+                }
+                """;
+
+        assertThat(OciGenerativeOpenAiService.canUseNativeGenericChat(textPayload.getBytes())).isTrue();
+        GenericChatRequest textRequest = OciGenerativeOpenAiService.toNativeGenericChatRequest(
+                (ObjectNode) MAPPER.readTree(textPayload));
+        assertThat(((TextContent) textRequest.getMessages().get(0).getContent().get(0)).getText()).isEqualTo("hi");
+
+        assertThat(OciGenerativeOpenAiService.canUseNativeGenericChat(imagePayload.getBytes())).isTrue();
+        GenericChatRequest imageRequest = OciGenerativeOpenAiService.toNativeGenericChatRequest(
+                (ObjectNode) MAPPER.readTree(imagePayload));
+        assertThat(imageRequest.getMessages().get(0).getContent().get(0)).isInstanceOf(ImageContent.class);
+    }
+
+    @Test
     void routesGeminiImageRequestsToNativeBridge() throws Exception {
         String payload = """
                 {
@@ -475,6 +573,19 @@ class OciGenerativeOpenAiServiceTest {
     }
 
     @Test
+    void doesNotRouteSingleObjectGeminiDocumentRequestsToNativeBridge() {
+        String payload = """
+                {
+                  "model":"google.gemini-2.5-pro",
+                  "messages":[{"role":"user","content":{"type":"document","source":{"type":"base64","media_type":"application/pdf","data":"abc"}}}],
+                  "stream":true
+                }
+                """;
+
+        assertThat(OciGenerativeOpenAiService.canUseNativeGenericChat(payload.getBytes())).isFalse();
+    }
+
+    @Test
     void doesNotRouteNonUserImageMessagesToNativeBridge() {
         String payload = """
                 {
@@ -482,6 +593,19 @@ class OciGenerativeOpenAiServiceTest {
                   "messages":[{"role":"system","content":[
                     {"type":"image_url","image_url":{"url":"data:image/png;base64,abc"}}
                   ]}],
+                  "stream":true
+                }
+                """;
+
+        assertThat(OciGenerativeOpenAiService.canUseNativeGenericChat(payload.getBytes())).isFalse();
+    }
+
+    @Test
+    void doesNotRouteNonUserSingleObjectImageMessagesToNativeBridge() {
+        String payload = """
+                {
+                  "model":"google.gemini-2.5-pro",
+                  "messages":[{"role":"system","content":{"type":"image_url","image_url":{"url":"data:image/png;base64,abc"}}}],
                   "stream":true
                 }
                 """;
@@ -512,6 +636,7 @@ class OciGenerativeOpenAiServiceTest {
                   "model":"google.gemini-2.5-pro",
                   "messages":[
                     {"role":"system","content":"You are concise."},
+                    {"role":"developer","content":"Prefer direct answers."},
                     {"role":"user","content":[{"type":"text","text":"你的 CPU 型号是？"}]}
                   ],
                   "tools":[{"type":"function","function":{"name":"read_cpu","description":"read cpu","parameters":{"type":"object"}}}],
@@ -528,12 +653,46 @@ class OciGenerativeOpenAiServiceTest {
         assertThat(request.getIsStream()).isFalse();
         assertThat(request.getMaxTokens()).isEqualTo(128);
         assertThat(request.getTemperature()).isEqualTo(0.2D);
-        assertThat(request.getMessages()).hasSize(2);
+        assertThat(request.getMessages()).hasSize(3);
+        assertThat(request.getMessages().get(1)).isInstanceOf(DeveloperMessage.class);
         assertThat(request.getTools()).hasSize(1);
         assertThat(request.getTools().get(0)).isInstanceOf(FunctionDefinition.class);
         assertThat(((FunctionDefinition) request.getTools().get(0)).getName()).isEqualTo("read_cpu");
         assertThat(request.getToolChoice()).isInstanceOf(ToolChoiceAuto.class);
         assertThat(request.getIsParallelToolCalls()).isTrue();
+    }
+
+    @Test
+    void nativeGenericChatRequestSerializesWithOciSdkDiscriminators() throws Exception {
+        ObjectNode payload = (ObjectNode) MAPPER.readTree("""
+                {
+                  "model":"google.gemini-2.5-pro",
+                  "messages":[
+                    {"role":"developer","content":"Prefer direct answers."},
+                    {"role":"user","content":[{"type":"text","text":"hi"}]}
+                  ],
+                  "tools":[{"type":"function","function":{"name":"write_file","parameters":{"type":"object"}}}],
+                  "tool_choice":"auto",
+                  "parallel_tool_calls":true,
+                  "stream":true
+                }
+                """);
+
+        GenericChatRequest request = OciGenerativeOpenAiService.toNativeGenericChatRequest(payload);
+        ObjectMapper sdkMapper = new ObjectMapper()
+                .setFilterProvider(new com.fasterxml.jackson.databind.ser.impl.SimpleFilterProvider()
+                        .setFailOnUnknownId(false));
+        JsonNode root = sdkMapper.readTree(sdkMapper.writerFor(BaseChatRequest.class).writeValueAsString(request));
+
+        assertThat(root.path("apiFormat").asText()).isEqualTo("GENERIC");
+        assertThat(root.path("isStream").asBoolean()).isFalse();
+        assertThat(root.path("messages").get(0).path("role").asText()).isEqualTo("DEVELOPER");
+        assertThat(root.path("messages").get(1).path("role").asText()).isEqualTo("USER");
+        assertThat(root.path("messages").get(1).path("content").get(0).path("type").asText()).isEqualTo("TEXT");
+        assertThat(root.path("tools").get(0).path("type").asText()).isEqualTo("FUNCTION");
+        assertThat(root.path("tools").get(0).path("name").asText()).isEqualTo("write_file");
+        assertThat(root.path("toolChoice").path("type").asText()).isEqualTo("AUTO");
+        assertThat(root.path("isParallelToolCalls").asBoolean()).isTrue();
     }
 
     @Test
@@ -635,6 +794,7 @@ class OciGenerativeOpenAiServiceTest {
         assertThat(root.path("choices").get(0).path("message").path("content").asText())
                 .isEqualTo("我的模型是 google/gemini-2.5-pro。");
         assertThat(root.path("choices").get(1).path("finish_reason").asText()).isEqualTo("tool_calls");
+        assertThat(root.path("choices").get(1).path("message").get("content").isNull()).isTrue();
         assertThat(root.path("choices").get(1).path("message").path("tool_calls").get(0)
                 .path("function").path("name").asText()).isEqualTo("read_cpu");
         assertThat(root.path("usage").path("total_tokens").asInt()).isEqualTo(8);

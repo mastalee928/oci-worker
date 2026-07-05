@@ -15,6 +15,7 @@ import com.oracle.bmc.generativeaiinference.model.ChatChoice;
 import com.oracle.bmc.generativeaiinference.model.ChatContent;
 import com.oracle.bmc.generativeaiinference.model.ChatDetails;
 import com.oracle.bmc.generativeaiinference.model.ChatResult;
+import com.oracle.bmc.generativeaiinference.model.DeveloperMessage;
 import com.oracle.bmc.generativeaiinference.model.FunctionCall;
 import com.oracle.bmc.generativeaiinference.model.FunctionDefinition;
 import com.oracle.bmc.generativeaiinference.model.GenericChatRequest;
@@ -301,12 +302,12 @@ public class OciGenerativeOpenAiService {
                 body = transformChatCompletionsJson(origBody, requestDefaultMaxTokens);
             }
             if (!rewriteChatToResponses
-                    && isStreamRequest(origBody, contentType)
-                    && shouldBufferChatCompletionStream(requestedModel)
-                    && canUseNativeGenericChat(body)) {
+                    && shouldUseGeminiNativeChat(requestedModel, body)) {
                 body = forceChatCompletionNonStreamJson(body);
-                request.setAttribute("ociworker.rewrite.forceBuffer", Boolean.TRUE);
-                request.setAttribute("ociworker.rewrite.simulateChatCompletionSse", Boolean.TRUE);
+                if (isStreamRequest(origBody, contentType)) {
+                    request.setAttribute("ociworker.rewrite.forceBuffer", Boolean.TRUE);
+                    request.setAttribute("ociworker.rewrite.simulateChatCompletionSse", Boolean.TRUE);
+                }
                 request.setAttribute("ociworker.rewrite.useNativeGenericChat", Boolean.TRUE);
                 request.setAttribute("ociworker.lb.bridgeType", "native_generic_chat");
                 request.setAttribute("ociworker.rewrite.model", requestedModel);
@@ -329,7 +330,7 @@ public class OciGenerativeOpenAiService {
             if (isStreamRequest(origBody, contentType)) {
                 request.setAttribute("ociworker.rewrite.simulateResponsesSse", Boolean.TRUE);
             }
-            if (shouldBufferChatCompletionStream(requestedModel) && canUseNativeGenericChat(body)) {
+            if (shouldUseGeminiNativeChat(requestedModel, body)) {
                 body = forceChatCompletionNonStreamJson(body);
                 request.setAttribute("ociworker.rewrite.forceBuffer", Boolean.TRUE);
                 request.setAttribute("ociworker.rewrite.useNativeGenericChat", Boolean.TRUE);
@@ -834,6 +835,10 @@ public class OciGenerativeOpenAiService {
         return isGeminiChatModel(model);
     }
 
+    static boolean shouldUseGeminiNativeChat(String model, byte[] body) {
+        return isGeminiChatModel(model) && canUseNativeGenericChat(body);
+    }
+
     private static boolean isGeminiChatModel(String model) {
         if (model == null || model.isBlank()) {
             return false;
@@ -911,40 +916,49 @@ public class OciGenerativeOpenAiService {
         if (content.isNumber() || content.isBoolean()) {
             return true;
         }
-        if (content.isObject()) {
-            return true;
+        if (content instanceof ObjectNode object) {
+            return hasNativeGenericChatPayloadObject(object);
         }
         if (!content.isArray()) {
             return false;
         }
         for (JsonNode part : content) {
-            if (part == null || part.isNull()) {
-                continue;
-            }
-            if (part.isTextual()) {
-                if (!part.asText().isBlank()) {
-                    return true;
-                }
-                continue;
-            }
-            if (!(part instanceof ObjectNode object)) {
-                continue;
-            }
-            String type = firstNonBlank(textOrNull(object, "type"), "").toLowerCase(Locale.ROOT);
-            if ("text".equals(type) || "input_text".equals(type) || type.isBlank()) {
-                String text = chatTextPartText(object);
-                if (text != null && !text.isBlank()) {
-                    return true;
-                }
-            }
-            if ("image_url".equals(type) || "input_image".equals(type) || "image".equals(type)
-                    || object.get("image_url") != null || object.get("image") != null) {
-                if (nativeImageUrl(object) != null) {
-                    return true;
-                }
+            if (hasNativeGenericChatPayloadPart(part)) {
+                return true;
             }
         }
         return false;
+    }
+
+    private static boolean hasNativeGenericChatPayloadPart(JsonNode part) {
+        if (part == null || part.isNull()) {
+            return false;
+        }
+        if (part.isTextual()) {
+            return !part.asText().isBlank();
+        }
+        if (part.isNumber() || part.isBoolean()) {
+            return true;
+        }
+        if (part instanceof ObjectNode object) {
+            return hasNativeGenericChatPayloadObject(object);
+        }
+        return true;
+    }
+
+    private static boolean hasNativeGenericChatPayloadObject(ObjectNode object) {
+        if (object == null || object.isEmpty()) {
+            return false;
+        }
+        String type = nativeContentObjectType(object);
+        if (isTextLikeNativeContentObject(object, type)) {
+            String text = chatTextPartText(object);
+            return text != null && !text.isBlank();
+        }
+        if (isImageLikeNativeContentObject(object, type)) {
+            return nativeImageUrl(object) != null;
+        }
+        return !isUnsupportedNativeContentObject(object);
     }
 
     private static boolean isNativeGenericChatContent(JsonNode content) {
@@ -954,49 +968,52 @@ public class OciGenerativeOpenAiService {
         if (content.isTextual() || content.isNumber() || content.isBoolean()) {
             return true;
         }
-        if (content.isObject()) {
-            return true;
+        if (content instanceof ObjectNode object) {
+            return isNativeGenericChatContentObject(object);
         }
         if (!content.isArray()) {
             return false;
         }
         for (JsonNode part : content) {
-            if (part == null || part.isNull()) {
-                continue;
-            }
-            if (part.isTextual()) {
-                continue;
-            }
-            if (!(part instanceof ObjectNode object)) {
+            if (!isNativeGenericChatContentPart(part)) {
                 return false;
             }
-            String type = firstNonBlank(textOrNull(object, "type"), "").toLowerCase(Locale.ROOT);
-            if ("text".equals(type) || "input_text".equals(type)) {
-                continue;
-            }
-            if ("image_url".equals(type) || "input_image".equals(type) || "image".equals(type)
-                    || object.get("image_url") != null || object.get("image") != null) {
-                if (nativeImageUrl(object) != null) {
-                    continue;
-                }
-                return false;
-            }
-            if (object.get("file") != null
-                    || object.get("document") != null
-                    || object.get("audio") != null
-                    || object.get("video") != null
-                    || object.get("source") != null) {
-                return false;
-            }
-            if (type.isBlank() && object.get("text") != null && object.size() <= 2) {
-                continue;
-            }
-            return false;
         }
         return true;
     }
 
+    private static boolean isNativeGenericChatContentPart(JsonNode part) {
+        if (part == null || part.isNull()) {
+            return true;
+        }
+        if (part.isTextual() || part.isNumber() || part.isBoolean()) {
+            return true;
+        }
+        if (part instanceof ObjectNode object) {
+            return isNativeGenericChatContentObject(object);
+        }
+        return true;
+    }
+
+    private static boolean isNativeGenericChatContentObject(ObjectNode object) {
+        if (object == null) {
+            return true;
+        }
+        String type = nativeContentObjectType(object);
+        if ("text".equals(type) || "input_text".equals(type)
+                || (type.isBlank() && object.get("text") != null && object.size() <= 2)) {
+            return true;
+        }
+        if (isImageLikeNativeContentObject(object, type)) {
+            return nativeImageUrl(object) != null;
+        }
+        return !isUnsupportedNativeContentObject(object);
+    }
+
     private static boolean hasNativeImageContent(JsonNode content) {
+        if (content instanceof ObjectNode object) {
+            return hasNativeImageContentObject(object);
+        }
         if (content == null || !content.isArray()) {
             return false;
         }
@@ -1004,14 +1021,45 @@ public class OciGenerativeOpenAiService {
             if (!(part instanceof ObjectNode object)) {
                 continue;
             }
-            String type = firstNonBlank(textOrNull(object, "type"), "").toLowerCase(Locale.ROOT);
-            if (("image_url".equals(type) || "input_image".equals(type) || "image".equals(type)
-                    || object.get("image_url") != null || object.get("image") != null)
-                    && nativeImageUrl(object) != null) {
+            if (hasNativeImageContentObject(object)) {
                 return true;
             }
         }
         return false;
+    }
+
+    private static boolean hasNativeImageContentObject(ObjectNode object) {
+        return object != null
+                && isImageLikeNativeContentObject(object, nativeContentObjectType(object))
+                && nativeImageUrl(object) != null;
+    }
+
+    private static String nativeContentObjectType(ObjectNode object) {
+        return firstNonBlank(textOrNull(object, "type"), "").toLowerCase(Locale.ROOT);
+    }
+
+    private static boolean isTextLikeNativeContentObject(ObjectNode object, String type) {
+        return "text".equals(type)
+                || "input_text".equals(type)
+                || (type.isBlank() && (object.get("text") != null
+                || object.get("value") != null
+                || object.get("content") != null));
+    }
+
+    private static boolean isImageLikeNativeContentObject(ObjectNode object, String type) {
+        return "image_url".equals(type)
+                || "input_image".equals(type)
+                || "image".equals(type)
+                || object.get("image_url") != null
+                || object.get("image") != null;
+    }
+
+    private static boolean isUnsupportedNativeContentObject(ObjectNode object) {
+        return object.get("file") != null
+                || object.get("document") != null
+                || object.get("audio") != null
+                || object.get("video") != null
+                || object.get("source") != null;
     }
 
     private static ImageUrl nativeImageUrl(ObjectNode object) {
@@ -1252,8 +1300,15 @@ public class OciGenerativeOpenAiService {
                 List<ChatContent> content = toNativeContent(message.get("content"));
                 String name = textOrNull(message, "name");
                 switch (role) {
-                    case "system", "developer" -> {
+                    case "system" -> {
                         SystemMessage.Builder builder = SystemMessage.builder().content(content);
+                        if (name != null && !name.isBlank()) {
+                            builder.name(name);
+                        }
+                        out.add(builder.build());
+                    }
+                    case "developer" -> {
+                        DeveloperMessage.Builder builder = DeveloperMessage.builder().content(content);
                         if (name != null && !name.isBlank()) {
                             builder.name(name);
                         }
@@ -1305,6 +1360,9 @@ public class OciGenerativeOpenAiService {
         if (content.isTextual() || content.isNumber() || content.isBoolean()) {
             return List.of(TextContent.builder().text(content.asText()).build());
         }
+        if (content instanceof ObjectNode object) {
+            return List.of(toNativeContentPart(object));
+        }
         if (!content.isArray()) {
             return List.of(TextContent.builder().text(content.toString()).build());
         }
@@ -1313,30 +1371,32 @@ public class OciGenerativeOpenAiService {
             if (part == null || part.isNull()) {
                 continue;
             }
-            if (part.isTextual() || part.isNumber() || part.isBoolean()) {
-                out.add(TextContent.builder().text(part.asText()).build());
-                continue;
-            }
-            if (!(part instanceof ObjectNode object)) {
-                out.add(TextContent.builder().text(part.toString()).build());
-                continue;
-            }
-            String type = firstNonBlank(textOrNull(object, "type"), "").toLowerCase(Locale.ROOT);
-            if ("image_url".equals(type) || "input_image".equals(type) || "image".equals(type)
-                    || object.get("image_url") != null || object.get("image") != null) {
-                ImageUrl imageUrl = nativeImageUrl(object);
-                if (imageUrl != null) {
-                    out.add(ImageContent.builder().imageUrl(imageUrl).build());
-                    continue;
-                }
-            }
-            String text = chatTextPartText(object);
-            out.add(TextContent.builder().text(text == null ? object.toString() : text).build());
+            out.add(toNativeContentPart(part));
         }
         if (out.isEmpty()) {
             out.add(TextContent.builder().text("").build());
         }
         return out;
+    }
+
+    private static ChatContent toNativeContentPart(JsonNode part) {
+        if (part == null || part.isNull()) {
+            return TextContent.builder().text("").build();
+        }
+        if (part.isTextual() || part.isNumber() || part.isBoolean()) {
+            return TextContent.builder().text(part.asText()).build();
+        }
+        if (!(part instanceof ObjectNode object)) {
+            return TextContent.builder().text(part.toString()).build();
+        }
+        if (isImageLikeNativeContentObject(object, nativeContentObjectType(object))) {
+            ImageUrl imageUrl = nativeImageUrl(object);
+            if (imageUrl != null) {
+                return ImageContent.builder().imageUrl(imageUrl).build();
+            }
+        }
+        String text = chatTextPartText(object);
+        return TextContent.builder().text(text == null ? object.toString() : text).build();
     }
 
     private static String chatTextPartText(ObjectNode object) {
