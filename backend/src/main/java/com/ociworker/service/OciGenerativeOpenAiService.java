@@ -19,6 +19,8 @@ import com.oracle.bmc.generativeaiinference.model.FunctionCall;
 import com.oracle.bmc.generativeaiinference.model.FunctionDefinition;
 import com.oracle.bmc.generativeaiinference.model.GenericChatRequest;
 import com.oracle.bmc.generativeaiinference.model.GenericChatResponse;
+import com.oracle.bmc.generativeaiinference.model.ImageContent;
+import com.oracle.bmc.generativeaiinference.model.ImageUrl;
 import com.oracle.bmc.generativeaiinference.model.Message;
 import com.oracle.bmc.generativeaiinference.model.OnDemandServingMode;
 import com.oracle.bmc.generativeaiinference.model.SystemMessage;
@@ -295,7 +297,7 @@ public class OciGenerativeOpenAiService {
             if (!rewriteChatToResponses
                     && isStreamRequest(origBody, contentType)
                     && shouldBufferChatCompletionStream(requestedModel)
-                    && canUseNativeTextGenericChat(body)) {
+                    && canUseNativeGenericChat(body)) {
                 body = forceChatCompletionNonStreamJson(body);
                 request.setAttribute("ociworker.rewrite.forceBuffer", Boolean.TRUE);
                 request.setAttribute("ociworker.rewrite.simulateChatCompletionSse", Boolean.TRUE);
@@ -836,7 +838,7 @@ public class OciGenerativeOpenAiService {
         return input;
     }
 
-    static boolean canUseNativeTextGenericChat(byte[] input) {
+    static boolean canUseNativeGenericChat(byte[] input) {
         if (input == null || input.length == 0) {
             return false;
         }
@@ -854,10 +856,14 @@ public class OciGenerativeOpenAiService {
                 if (!(message instanceof ObjectNode messageObject)) {
                     return false;
                 }
+                String role = firstNonBlank(textOrNull(messageObject, "role"), "user").toLowerCase(Locale.ROOT);
                 if (messageObject.get("content") != null || messageObject.get("tool_calls") != null) {
                     hasUsableMessage = true;
                 }
-                if (!isTextOnlyChatContent(messageObject.get("content"))) {
+                if (!isNativeGenericChatContent(messageObject.get("content"))) {
+                    return false;
+                }
+                if (!"user".equals(role) && hasNativeImageContent(messageObject.get("content"))) {
                     return false;
                 }
             }
@@ -867,7 +873,7 @@ public class OciGenerativeOpenAiService {
         }
     }
 
-    private static boolean isTextOnlyChatContent(JsonNode content) {
+    private static boolean isNativeGenericChatContent(JsonNode content) {
         if (content == null || content.isNull() || content.isMissingNode()) {
             return true;
         }
@@ -891,13 +897,18 @@ public class OciGenerativeOpenAiService {
             if ("text".equals(type) || "input_text".equals(type)) {
                 continue;
             }
-            if (object.get("image_url") != null
-                    || object.get("image") != null
-                    || object.get("source") != null
-                    || object.get("file") != null
+            if ("image_url".equals(type) || "input_image".equals(type) || "image".equals(type)
+                    || object.get("image_url") != null || object.get("image") != null) {
+                if (nativeImageUrl(object) != null) {
+                    continue;
+                }
+                return false;
+            }
+            if (object.get("file") != null
                     || object.get("document") != null
                     || object.get("audio") != null
-                    || object.get("video") != null) {
+                    || object.get("video") != null
+                    || object.get("source") != null) {
                 return false;
             }
             if (type.isBlank() && object.get("text") != null && object.size() <= 2) {
@@ -906,6 +917,104 @@ public class OciGenerativeOpenAiService {
             return false;
         }
         return true;
+    }
+
+    private static boolean hasNativeImageContent(JsonNode content) {
+        if (content == null || !content.isArray()) {
+            return false;
+        }
+        for (JsonNode part : content) {
+            if (!(part instanceof ObjectNode object)) {
+                continue;
+            }
+            String type = firstNonBlank(textOrNull(object, "type"), "").toLowerCase(Locale.ROOT);
+            if (("image_url".equals(type) || "input_image".equals(type) || "image".equals(type)
+                    || object.get("image_url") != null || object.get("image") != null)
+                    && nativeImageUrl(object) != null) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static ImageUrl nativeImageUrl(ObjectNode object) {
+        if (object == null) {
+            return null;
+        }
+        String url = firstNonBlank(
+                nativeImageUrlString(object.get("image_url")),
+                nativeImageUrlString(object.get("image")),
+                nativeImageUrlString(object.get("url")),
+                nativeImageSourceUrl(object.get("source")));
+        if (url == null || url.isBlank()) {
+            return null;
+        }
+        ImageUrl.Builder builder = ImageUrl.builder().url(url.trim());
+        ImageUrl.Detail detail = nativeImageDetail(firstNonBlank(
+                textOrNull(object, "detail"),
+                nativeImageDetailString(object.get("image_url")),
+                nativeImageDetailString(object.get("image"))));
+        if (detail != null) {
+            builder.detail(detail);
+        }
+        return builder.build();
+    }
+
+    private static String nativeImageUrlString(JsonNode node) {
+        if (node == null || node.isNull() || node.isMissingNode()) {
+            return null;
+        }
+        if (node.isTextual()) {
+            return node.asText();
+        }
+        if (node instanceof ObjectNode object) {
+            return firstNonBlank(
+                    textOrNull(object, "url"),
+                    textOrNull(object, "image_url"),
+                    nativeImageSourceUrl(object.get("source")));
+        }
+        return null;
+    }
+
+    private static String nativeImageSourceUrl(JsonNode sourceNode) {
+        if (!(sourceNode instanceof ObjectNode source)) {
+            return null;
+        }
+        String sourceType = firstNonBlank(textOrNull(source, "type"), "").toLowerCase(Locale.ROOT);
+        if ("url".equals(sourceType)) {
+            return textOrNull(source, "url");
+        }
+        if ("base64".equals(sourceType)) {
+            String data = textOrNull(source, "data");
+            if (data == null || data.isBlank()) {
+                return null;
+            }
+            String mediaType = firstNonBlank(textOrNull(source, "media_type"), textOrNull(source, "mediaType"), "image/png");
+            if (!mediaType.toLowerCase(Locale.ROOT).startsWith("image/")) {
+                return null;
+            }
+            return "data:" + mediaType + ";base64," + data.trim();
+        }
+        return null;
+    }
+
+    private static String nativeImageDetailString(JsonNode node) {
+        if (node instanceof ObjectNode object) {
+            return textOrNull(object, "detail");
+        }
+        return null;
+    }
+
+    private static ImageUrl.Detail nativeImageDetail(String detail) {
+        if (detail == null || detail.isBlank()) {
+            return null;
+        }
+        return switch (detail.trim().toLowerCase(Locale.ROOT)) {
+            case "auto" -> ImageUrl.Detail.Auto;
+            case "high" -> ImageUrl.Detail.High;
+            case "low" -> ImageUrl.Detail.Low;
+            default -> null;
+        };
     }
 
     private void proxyNativeGenericChat(
@@ -1050,7 +1159,7 @@ public class OciGenerativeOpenAiService {
                     continue;
                 }
                 String role = firstNonBlank(textOrNull(message, "role"), "user").toLowerCase(Locale.ROOT);
-                List<ChatContent> content = toNativeTextContent(message.get("content"));
+                List<ChatContent> content = toNativeContent(message.get("content"));
                 String name = textOrNull(message, "name");
                 switch (role) {
                     case "system", "developer" -> {
@@ -1099,9 +1208,45 @@ public class OciGenerativeOpenAiService {
         return out;
     }
 
-    private static List<ChatContent> toNativeTextContent(JsonNode content) {
-        String text = chatMessageContentText(content);
-        return List.of(TextContent.builder().text(text == null ? "" : text).build());
+    private static List<ChatContent> toNativeContent(JsonNode content) {
+        if (content == null || content.isNull() || content.isMissingNode()) {
+            return List.of(TextContent.builder().text("").build());
+        }
+        if (content.isTextual() || content.isNumber() || content.isBoolean()) {
+            return List.of(TextContent.builder().text(content.asText()).build());
+        }
+        if (!content.isArray()) {
+            return List.of(TextContent.builder().text(content.toString()).build());
+        }
+        List<ChatContent> out = new ArrayList<>();
+        for (JsonNode part : content) {
+            if (part == null || part.isNull()) {
+                continue;
+            }
+            if (part.isTextual() || part.isNumber() || part.isBoolean()) {
+                out.add(TextContent.builder().text(part.asText()).build());
+                continue;
+            }
+            if (!(part instanceof ObjectNode object)) {
+                out.add(TextContent.builder().text(part.toString()).build());
+                continue;
+            }
+            String type = firstNonBlank(textOrNull(object, "type"), "").toLowerCase(Locale.ROOT);
+            if ("image_url".equals(type) || "input_image".equals(type) || "image".equals(type)
+                    || object.get("image_url") != null || object.get("image") != null) {
+                ImageUrl imageUrl = nativeImageUrl(object);
+                if (imageUrl != null) {
+                    out.add(ImageContent.builder().imageUrl(imageUrl).build());
+                    continue;
+                }
+            }
+            String text = textOrNull(object, "text");
+            out.add(TextContent.builder().text(text == null ? object.toString() : text).build());
+        }
+        if (out.isEmpty()) {
+            out.add(TextContent.builder().text("").build());
+        }
+        return out;
     }
 
     private static List<ToolCall> toNativeToolCalls(JsonNode toolCallsNode) {

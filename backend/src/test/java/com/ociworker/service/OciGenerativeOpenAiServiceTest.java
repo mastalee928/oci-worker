@@ -6,11 +6,13 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.oracle.bmc.generativeaiinference.model.AssistantMessage;
 import com.oracle.bmc.generativeaiinference.model.ChatChoice;
+import com.oracle.bmc.generativeaiinference.model.ChatContent;
 import com.oracle.bmc.generativeaiinference.model.ChatResult;
 import com.oracle.bmc.generativeaiinference.model.FunctionCall;
 import com.oracle.bmc.generativeaiinference.model.FunctionDefinition;
 import com.oracle.bmc.generativeaiinference.model.GenericChatRequest;
 import com.oracle.bmc.generativeaiinference.model.GenericChatResponse;
+import com.oracle.bmc.generativeaiinference.model.ImageContent;
 import com.oracle.bmc.generativeaiinference.model.TextContent;
 import com.oracle.bmc.generativeaiinference.model.ToolChoiceAuto;
 import com.oracle.bmc.generativeaiinference.model.Usage;
@@ -171,37 +173,102 @@ class OciGenerativeOpenAiServiceTest {
 
         assertThat(root.path("stream").asBoolean()).isFalse();
         assertThat(root.has("stream_options")).isFalse();
-        assertThat(OciGenerativeOpenAiService.canUseNativeTextGenericChat(payload.getBytes())).isTrue();
+        assertThat(OciGenerativeOpenAiService.canUseNativeGenericChat(payload.getBytes())).isTrue();
     }
 
     @Test
-    void doesNotRouteGeminiMultimodalRequestsToTextOnlyNativeBridge() {
+    void routesGeminiImageRequestsToNativeBridge() throws Exception {
         String payload = """
                 {
                   "model":"google.gemini-2.5-pro",
                   "messages":[{"role":"user","content":[
                     {"type":"text","text":"inspect"},
+                    {"type":"image_url","image_url":{"url":"data:image/png;base64,abc","detail":"high"}}
+                  ]}],
+                  "stream":true
+                }
+                """;
+
+        assertThat(OciGenerativeOpenAiService.canUseNativeGenericChat(payload.getBytes())).isTrue();
+
+        GenericChatRequest request = OciGenerativeOpenAiService.toNativeGenericChatRequest(
+                (ObjectNode) MAPPER.readTree(payload));
+        List<ChatContent> content = request.getMessages().get(0).getContent();
+        assertThat(content).hasSize(2);
+        assertThat(content.get(0)).isInstanceOf(TextContent.class);
+        assertThat(content.get(1)).isInstanceOf(ImageContent.class);
+        ImageContent image = (ImageContent) content.get(1);
+        assertThat(image.getImageUrl().getUrl()).isEqualTo("data:image/png;base64,abc");
+        assertThat(image.getImageUrl().getDetail().getValue()).isEqualTo("HIGH");
+    }
+
+    @Test
+    void supportsInputImageAndAnthropicSourceImagesInNativeBridge() throws Exception {
+        String payload = """
+                {
+                  "model":"google.gemini-2.5-pro",
+                  "messages":[{"role":"user","content":[
+                    {"type":"input_image","image_url":"https://example.com/a.png"},
+                    {"type":"image","source":{"type":"base64","media_type":"image/jpeg","data":"abcd"}}
+                  ]}],
+                  "stream":true
+                }
+                """;
+
+        assertThat(OciGenerativeOpenAiService.canUseNativeGenericChat(payload.getBytes())).isTrue();
+        GenericChatRequest request = OciGenerativeOpenAiService.toNativeGenericChatRequest(
+                (ObjectNode) MAPPER.readTree(payload));
+        assertThat(request.getMessages().get(0).getContent())
+                .allMatch(ImageContent.class::isInstance);
+        assertThat(((ImageContent) request.getMessages().get(0).getContent().get(0)).getImageUrl().getUrl())
+                .isEqualTo("https://example.com/a.png");
+        assertThat(((ImageContent) request.getMessages().get(0).getContent().get(1)).getImageUrl().getUrl())
+                .isEqualTo("data:image/jpeg;base64,abcd");
+    }
+
+    @Test
+    void doesNotRouteGeminiDocumentRequestsToNativeBridge() {
+        String payload = """
+                {
+                  "model":"google.gemini-2.5-pro",
+                  "messages":[{"role":"user","content":[
+                    {"type":"text","text":"inspect"},
+                    {"type":"document","source":{"type":"base64","media_type":"application/pdf","data":"abc"}}
+                  ]}],
+                  "stream":true
+                }
+                """;
+
+        assertThat(OciGenerativeOpenAiService.canUseNativeGenericChat(payload.getBytes())).isFalse();
+    }
+
+    @Test
+    void doesNotRouteNonUserImageMessagesToNativeBridge() {
+        String payload = """
+                {
+                  "model":"google.gemini-2.5-pro",
+                  "messages":[{"role":"system","content":[
                     {"type":"image_url","image_url":{"url":"data:image/png;base64,abc"}}
                   ]}],
                   "stream":true
                 }
                 """;
 
-        assertThat(OciGenerativeOpenAiService.canUseNativeTextGenericChat(payload.getBytes())).isFalse();
+        assertThat(OciGenerativeOpenAiService.canUseNativeGenericChat(payload.getBytes())).isFalse();
     }
 
     @Test
     void doesNotRouteGeminiRequestsWithoutMessagesToNativeBridge() {
-        assertThat(OciGenerativeOpenAiService.canUseNativeTextGenericChat("""
+        assertThat(OciGenerativeOpenAiService.canUseNativeGenericChat("""
                 {"model":"google.gemini-2.5-pro","stream":true}
                 """.getBytes())).isFalse();
-        assertThat(OciGenerativeOpenAiService.canUseNativeTextGenericChat("""
+        assertThat(OciGenerativeOpenAiService.canUseNativeGenericChat("""
                 {"model":"google.gemini-2.5-pro","messages":[],"stream":true}
                 """.getBytes())).isFalse();
-        assertThat(OciGenerativeOpenAiService.canUseNativeTextGenericChat("""
+        assertThat(OciGenerativeOpenAiService.canUseNativeGenericChat("""
                 {"model":"google.gemini-2.5-pro","messages":[{}],"stream":true}
                 """.getBytes())).isFalse();
-        assertThat(OciGenerativeOpenAiService.canUseNativeTextGenericChat("""
+        assertThat(OciGenerativeOpenAiService.canUseNativeGenericChat("""
                 {"model":"google.gemini-2.5-pro","messages":[null],"stream":true}
                 """.getBytes())).isFalse();
     }
