@@ -3545,6 +3545,7 @@ public class OciGenerativeOpenAiService {
             copyIfPresent(in, out, "top_p");
             copyIfPresent(in, out, "stream");
             copyIfPresent(in, out, "service_tier");
+            copyResponsesStructuredOutputFormat(in, out);
             if (in.get("stream") != null && in.get("stream").asBoolean(false)) {
                 ObjectNode streamOptions = MAPPER.createObjectNode();
                 streamOptions.put("include_usage", true);
@@ -3554,6 +3555,60 @@ public class OciGenerativeOpenAiService {
             return MAPPER.writeValueAsBytes(out);
         } catch (Exception e) {
             return input;
+        }
+    }
+
+    private static void copyResponsesStructuredOutputFormat(ObjectNode in, ObjectNode out) {
+        if (in == null || out == null || out.has("response_format")) {
+            return;
+        }
+        JsonNode responseFormat = in.get("response_format");
+        if (responseFormat != null && !responseFormat.isNull() && !responseFormat.isMissingNode()) {
+            out.set("response_format", responseFormat.deepCopy());
+            return;
+        }
+        JsonNode text = in.get("text");
+        if (!(text instanceof ObjectNode textObject)) {
+            return;
+        }
+        JsonNode formatNode = textObject.get("format");
+        if (!(formatNode instanceof ObjectNode format)) {
+            return;
+        }
+        String type = textOrNull(format, "type");
+        if (type == null || type.isBlank()) {
+            return;
+        }
+        if ("json_schema".equalsIgnoreCase(type)) {
+            ObjectNode response = MAPPER.createObjectNode();
+            response.put("type", "json_schema");
+            ObjectNode jsonSchema = MAPPER.createObjectNode();
+            JsonNode existing = format.get("json_schema");
+            if (existing instanceof ObjectNode existingObject) {
+                jsonSchema.setAll(existingObject);
+            }
+            copyIfAbsent(format, jsonSchema, "name");
+            copyIfAbsent(format, jsonSchema, "description");
+            copyIfAbsent(format, jsonSchema, "schema");
+            copyIfAbsent(format, jsonSchema, "strict");
+            response.set("json_schema", jsonSchema);
+            out.set("response_format", response);
+            return;
+        }
+        if ("json_object".equalsIgnoreCase(type)) {
+            ObjectNode response = MAPPER.createObjectNode();
+            response.put("type", "json_object");
+            out.set("response_format", response);
+        }
+    }
+
+    private static void copyIfAbsent(ObjectNode source, ObjectNode target, String field) {
+        if (source == null || target == null || target.has(field)) {
+            return;
+        }
+        JsonNode value = source.get(field);
+        if (value != null && !value.isNull() && !value.isMissingNode()) {
+            target.set(field, value.deepCopy());
         }
     }
 
@@ -3608,8 +3663,142 @@ public class OciGenerativeOpenAiService {
                 continue;
             }
             String role = firstNonBlank(textOrNull(o, "role"), "message".equalsIgnoreCase(type) ? "user" : "user");
-            addChatMessage(messages, normalizeChatRole(role), responsesContentText(o.get("content"), o));
+            addResponsesChatMessage(messages, normalizeChatRole(role), o.get("content"), o);
         }
+    }
+
+    private static void addResponsesChatMessage(ArrayNode messages, String role, JsonNode content, ObjectNode fallback) {
+        ObjectNode msg = MAPPER.createObjectNode();
+        msg.put("role", normalizeChatRole(role));
+        JsonNode chatContent = responsesContentToChatContent(content, fallback);
+        if (chatContent == null || chatContent.isNull() || chatContent.isMissingNode()) {
+            msg.put("content", "");
+        } else if (chatContent.isTextual()) {
+            msg.put("content", chatContent.asText());
+        } else {
+            msg.set("content", chatContent);
+        }
+        messages.add(msg);
+    }
+
+    private static JsonNode responsesContentToChatContent(JsonNode content, ObjectNode fallback) {
+        if (content == null || content.isNull() || content.isMissingNode()) {
+            return MAPPER.getNodeFactory().textNode(firstNonBlank(textOrNull(fallback, "text"), ""));
+        }
+        if (content.isTextual()) {
+            return content.deepCopy();
+        }
+        if (content.isObject()) {
+            ObjectNode object = (ObjectNode) content;
+            String type = textOrNull(object, "type");
+            if ("input_image".equalsIgnoreCase(type) || "image_url".equalsIgnoreCase(type)) {
+                ObjectNode image = responsesImagePartToChatImage(object);
+                if (image != null) {
+                    ArrayNode rich = MAPPER.createArrayNode();
+                    rich.add(image);
+                    return rich;
+                }
+            }
+            String text = firstNonBlank(textOrNull(object, "text"), content.toString());
+            return MAPPER.getNodeFactory().textNode(text);
+        }
+        if (!content.isArray()) {
+            return MAPPER.getNodeFactory().textNode(content.toString());
+        }
+
+        StringBuilder text = new StringBuilder();
+        ArrayNode rich = MAPPER.createArrayNode();
+        boolean hasRichPart = false;
+        for (JsonNode part : content) {
+            if (part == null || part.isNull()) {
+                continue;
+            }
+            if (part.isTextual()) {
+                appendResponseTextPart(text, part.asText());
+                continue;
+            }
+            if (!(part instanceof ObjectNode partObject)) {
+                appendResponseTextPart(text, part.toString());
+                continue;
+            }
+            String type = textOrNull(partObject, "type");
+            if ("text".equalsIgnoreCase(type) || "input_text".equalsIgnoreCase(type)) {
+                appendResponseTextPart(text, firstNonBlank(textOrNull(partObject, "text"), ""));
+                continue;
+            }
+            if ("input_image".equalsIgnoreCase(type) || "image_url".equalsIgnoreCase(type)) {
+                ObjectNode image = responsesImagePartToChatImage(partObject);
+                if (image != null) {
+                    flushChatTextPart(rich, text);
+                    rich.add(image);
+                    hasRichPart = true;
+                    continue;
+                }
+            }
+            appendResponseTextPart(text, part.toString());
+        }
+        if (!hasRichPart) {
+            return MAPPER.getNodeFactory().textNode(text.toString());
+        }
+        flushChatTextPart(rich, text);
+        return rich;
+    }
+
+    private static ObjectNode responsesImagePartToChatImage(ObjectNode part) {
+        if (part == null) {
+            return null;
+        }
+        String url = null;
+        JsonNode imageUrl = part.get("image_url");
+        if (imageUrl != null && !imageUrl.isNull() && !imageUrl.isMissingNode()) {
+            if (imageUrl.isTextual()) {
+                url = imageUrl.asText();
+            } else if (imageUrl instanceof ObjectNode imageUrlObject) {
+                url = textOrNull(imageUrlObject, "url");
+            }
+        }
+        url = firstNonBlank(url, textOrNull(part, "url"), textOrNull(part, "file_data"), textOrNull(part, "data"));
+        if (url == null || url.isBlank()) {
+            return null;
+        }
+        String trimmedUrl = url.trim();
+        if (!isDataUrl(trimmedUrl) && !trimmedUrl.regionMatches(true, 0, "http://", 0, 7)
+                && !trimmedUrl.regionMatches(true, 0, "https://", 0, 8)) {
+            String mediaType = firstNonBlank(textOrNull(part, "media_type"), textOrNull(part, "mime_type"), "image/png");
+            trimmedUrl = "data:" + normalizeMediaType(mediaType) + ";base64," + trimmedUrl;
+        }
+        ObjectNode imageUrlObject = MAPPER.createObjectNode();
+        imageUrlObject.put("url", trimmedUrl);
+        String detail = firstNonBlank(textOrNull(part, "detail"),
+                imageUrl instanceof ObjectNode object ? textOrNull(object, "detail") : null);
+        if (detail != null && !detail.isBlank()) {
+            imageUrlObject.put("detail", detail);
+        }
+        ObjectNode out = MAPPER.createObjectNode();
+        out.put("type", "image_url");
+        out.set("image_url", imageUrlObject);
+        return out;
+    }
+
+    private static void appendResponseTextPart(StringBuilder text, String value) {
+        if (value == null || value.isBlank()) {
+            return;
+        }
+        if (text.length() > 0) {
+            text.append("\n\n");
+        }
+        text.append(value);
+    }
+
+    private static void flushChatTextPart(ArrayNode rich, StringBuilder text) {
+        if (rich == null || text == null || text.length() == 0) {
+            return;
+        }
+        ObjectNode textPart = MAPPER.createObjectNode();
+        textPart.put("type", "text");
+        textPart.put("text", text.toString());
+        rich.add(textPart);
+        text.setLength(0);
     }
 
     private static boolean isResponsesFunctionCallType(String type) {
@@ -3932,32 +4121,7 @@ public class OciGenerativeOpenAiService {
                     if (content == null || content.isNull()) {
                         continue;
                     }
-                    if (content.isTextual()) {
-                        ArrayNode parts = MAPPER.createArrayNode();
-                        ObjectNode p = MAPPER.createObjectNode();
-                        p.put("type", "input_text");
-                        p.put("text", content.asText());
-                        parts.add(p);
-                        item.set("content", parts);
-                    } else if (content.isArray()) {
-                        // 尽量复用已是“块数组”的内容（兼容部分客户端可能已经按 responses 格式发来）
-                        item.set("content", content);
-                    } else if (content.isObject()) {
-                        // 极少数客户端会把 content 作为对象；兜底为 JSON 字符串
-                        ArrayNode parts = MAPPER.createArrayNode();
-                        ObjectNode p = MAPPER.createObjectNode();
-                        p.put("type", "input_text");
-                        p.put("text", content.toString());
-                        parts.add(p);
-                        item.set("content", parts);
-                    } else {
-                        ArrayNode parts = MAPPER.createArrayNode();
-                        ObjectNode p = MAPPER.createObjectNode();
-                        p.put("type", "input_text");
-                        p.put("text", String.valueOf(content.asText()));
-                        parts.add(p);
-                        item.set("content", parts);
-                    }
+                    item.set("content", chatContentToResponsesParts(content));
                     inputArr.add(item);
                 }
                 out.set("input", inputArr);
@@ -3998,12 +4162,134 @@ public class OciGenerativeOpenAiService {
             if (topP != null && !topP.isNull() && !topP.isMissingNode()) {
                 out.set("top_p", topP);
             }
+            copyChatStructuredOutputFormat(in, out);
             // responses API 的流式事件与 chat_completions 不同，默认关闭
             out.put("stream", false);
             return MAPPER.writeValueAsBytes(out);
         } catch (Exception e) {
             return input;
         }
+    }
+
+    private static ArrayNode chatContentToResponsesParts(JsonNode content) {
+        if (content == null || content.isNull() || content.isMissingNode()) {
+            return toInputTextParts("");
+        }
+        if (content.isTextual()) {
+            return toInputTextParts(content.asText());
+        }
+        ArrayNode out = MAPPER.createArrayNode();
+        if (content.isArray()) {
+            for (JsonNode part : content) {
+                appendChatContentPartAsResponsesPart(out, part);
+            }
+        } else {
+            appendChatContentPartAsResponsesPart(out, content);
+        }
+        if (out.isEmpty()) {
+            out.add(toInputTextPartNode(""));
+        }
+        return out;
+    }
+
+    private static void appendChatContentPartAsResponsesPart(ArrayNode out, JsonNode part) {
+        if (out == null || part == null || part.isNull()) {
+            return;
+        }
+        if (part.isTextual()) {
+            out.add(toInputTextPartNode(part.asText()));
+            return;
+        }
+        if (!(part instanceof ObjectNode object)) {
+            out.add(toInputTextPartNode(part.toString()));
+            return;
+        }
+        ObjectNode image = chatImagePartToResponsesImage(object);
+        if (image != null) {
+            out.add(image);
+            return;
+        }
+        String type = textOrNull(object, "type");
+        if ("text".equalsIgnoreCase(type) || "input_text".equalsIgnoreCase(type)
+                || (type == null && object.get("text") != null)) {
+            out.add(toInputTextPartNode(firstNonBlank(chatTextPartText(object), "")));
+            return;
+        }
+        out.add(toInputTextPartNode(part.toString()));
+    }
+
+    private static ObjectNode chatImagePartToResponsesImage(ObjectNode part) {
+        if (part == null) {
+            return null;
+        }
+        String type = firstNonBlank(textOrNull(part, "type"), "").toLowerCase(Locale.ROOT);
+        if (!"image_url".equals(type) && !"input_image".equals(type) && part.get("image_url") == null) {
+            return null;
+        }
+        String url = null;
+        JsonNode imageUrl = part.get("image_url");
+        if (imageUrl != null && !imageUrl.isNull() && !imageUrl.isMissingNode()) {
+            if (imageUrl.isTextual()) {
+                url = imageUrl.asText();
+            } else if (imageUrl instanceof ObjectNode object) {
+                url = textOrNull(object, "url");
+            }
+        }
+        url = firstNonBlank(url, textOrNull(part, "url"), textOrNull(part, "file_data"), textOrNull(part, "data"));
+        if (url == null || url.isBlank()) {
+            return null;
+        }
+        String trimmedUrl = url.trim();
+        if (!isDataUrl(trimmedUrl) && !trimmedUrl.regionMatches(true, 0, "http://", 0, 7)
+                && !trimmedUrl.regionMatches(true, 0, "https://", 0, 8)) {
+            String mediaType = firstNonBlank(textOrNull(part, "media_type"), textOrNull(part, "mime_type"), "image/png");
+            trimmedUrl = "data:" + normalizeMediaType(mediaType) + ";base64," + trimmedUrl;
+        }
+        ObjectNode out = MAPPER.createObjectNode();
+        out.put("type", "input_image");
+        out.put("image_url", trimmedUrl);
+        String detail = firstNonBlank(textOrNull(part, "detail"),
+                imageUrl instanceof ObjectNode object ? textOrNull(object, "detail") : null);
+        if (detail != null && !detail.isBlank()) {
+            out.put("detail", detail);
+        }
+        return out;
+    }
+
+    private static void copyChatStructuredOutputFormat(ObjectNode in, ObjectNode out) {
+        if (in == null || out == null || out.has("text")) {
+            return;
+        }
+        JsonNode responseFormat = in.get("response_format");
+        if (!(responseFormat instanceof ObjectNode formatSource)) {
+            return;
+        }
+        String type = textOrNull(formatSource, "type");
+        if (type == null || type.isBlank() || "text".equalsIgnoreCase(type)) {
+            return;
+        }
+        ObjectNode format = MAPPER.createObjectNode();
+        if ("json_schema".equalsIgnoreCase(type)) {
+            format.put("type", "json_schema");
+            JsonNode jsonSchema = formatSource.get("json_schema");
+            if (jsonSchema instanceof ObjectNode schemaObject) {
+                copyIfPresent(schemaObject, format, "name");
+                copyIfPresent(schemaObject, format, "description");
+                copyIfPresent(schemaObject, format, "schema");
+                copyIfPresent(schemaObject, format, "strict");
+            }
+            copyIfAbsent(formatSource, format, "name");
+            copyIfAbsent(formatSource, format, "description");
+            copyIfAbsent(formatSource, format, "schema");
+            copyIfAbsent(formatSource, format, "strict");
+        } else if ("json_object".equalsIgnoreCase(type)) {
+            format.put("type", "json_object");
+        } else {
+            return;
+        }
+        ObjectNode text = MAPPER.createObjectNode();
+        text.set("format", format);
+        out.set("text", text);
     }
 
     private static ArrayNode chatToolsToResponsesTools(ArrayNode tools) {

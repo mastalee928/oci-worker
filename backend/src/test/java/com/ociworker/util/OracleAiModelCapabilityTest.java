@@ -12,6 +12,12 @@ class OracleAiModelCapabilityTest {
                 .isEqualTo(OracleAiModelCapability.CHAT);
         assertThat(OracleAiModelCapability.classify("xai.grok-4.20-0309-reasoning"))
                 .isEqualTo(OracleAiModelCapability.CHAT);
+        assertThat(OracleAiModelCapability.classify("xai.grok-4.20-reasoning"))
+                .isEqualTo(OracleAiModelCapability.CHAT);
+        assertThat(OracleAiModelCapability.classify("xai.grok-4.20-0309-non-reasoning"))
+                .isEqualTo(OracleAiModelCapability.CHAT);
+        assertThat(OracleAiModelCapability.classify("xai.grok-4.20-non-reasoning"))
+                .isEqualTo(OracleAiModelCapability.CHAT);
         assertThat(OracleAiModelCapability.classify("xai.grok-4.20-multi-agent-0309"))
                 .isEqualTo(OracleAiModelCapability.MULTI_AGENT);
         assertThat(OracleAiModelCapability.classify("cohere.embed-v4.0"))

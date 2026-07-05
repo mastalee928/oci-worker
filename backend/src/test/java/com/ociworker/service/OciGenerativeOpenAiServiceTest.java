@@ -471,6 +471,10 @@ class OciGenerativeOpenAiServiceTest {
     @Test
     void rewritesChatCompletionsOnlyForActualMultiAgentModelName() {
         assertThat(OciGenerativeOpenAiService.shouldRewriteChatCompletionsToResponses("xai.grok-4.3")).isFalse();
+        assertThat(OciGenerativeOpenAiService.shouldRewriteChatCompletionsToResponses("xai.grok-4.20-0309-reasoning")).isFalse();
+        assertThat(OciGenerativeOpenAiService.shouldRewriteChatCompletionsToResponses("xai.grok-4.20-reasoning")).isFalse();
+        assertThat(OciGenerativeOpenAiService.shouldRewriteChatCompletionsToResponses("xai.grok-4.20-0309-non-reasoning")).isFalse();
+        assertThat(OciGenerativeOpenAiService.shouldRewriteChatCompletionsToResponses("xai.grok-4.20-non-reasoning")).isFalse();
         assertThat(OciGenerativeOpenAiService.shouldRewriteChatCompletionsToResponses("google.gemini-2.5-pro")).isFalse();
         assertThat(OciGenerativeOpenAiService.shouldRewriteChatCompletionsToResponses("cohere.command-a-03-2025")).isFalse();
         assertThat(OciGenerativeOpenAiService.shouldRewriteChatCompletionsToResponses("cohere.embed-v4.0")).isFalse();
@@ -1170,6 +1174,67 @@ class OciGenerativeOpenAiServiceTest {
     }
 
     @Test
+    void preservesResponsesImageInputWhenConvertedToChatCompletions() throws Exception {
+        String payload = """
+                {
+                  "model":"xai.grok-4.3",
+                  "input":[{
+                    "role":"user",
+                    "content":[
+                      {"type":"input_text","text":"describe this"},
+                      {"type":"input_image","image_url":"data:image/png;base64,abc","detail":"high"}
+                    ]
+                  }],
+                  "max_output_tokens":256
+                }
+                """;
+
+        byte[] converted = OciGenerativeOpenAiService.transformResponsesToChatCompletionsJson(payload.getBytes(), 128);
+
+        JsonNode root = MAPPER.readTree(converted);
+        JsonNode content = root.path("messages").get(0).path("content");
+        assertThat(content.isArray()).isTrue();
+        assertThat(content.get(0).path("type").asText()).isEqualTo("text");
+        assertThat(content.get(0).path("text").asText()).isEqualTo("describe this");
+        assertThat(content.get(1).path("type").asText()).isEqualTo("image_url");
+        assertThat(content.get(1).path("image_url").path("url").asText())
+                .isEqualTo("data:image/png;base64,abc");
+        assertThat(content.get(1).path("image_url").path("detail").asText()).isEqualTo("high");
+    }
+
+    @Test
+    void mapsResponsesStructuredOutputFormatToChatCompletions() throws Exception {
+        String payload = """
+                {
+                  "model":"xai.grok-4.3",
+                  "input":"return json",
+                  "text":{
+                    "format":{
+                      "type":"json_schema",
+                      "name":"answer",
+                      "schema":{
+                        "type":"object",
+                        "properties":{"ok":{"type":"boolean"}},
+                        "required":["ok"],
+                        "additionalProperties":false
+                      },
+                      "strict":true
+                    }
+                  }
+                }
+                """;
+
+        byte[] converted = OciGenerativeOpenAiService.transformResponsesToChatCompletionsJson(payload.getBytes(), 128);
+
+        JsonNode root = MAPPER.readTree(converted);
+        assertThat(root.path("response_format").path("type").asText()).isEqualTo("json_schema");
+        assertThat(root.path("response_format").path("json_schema").path("name").asText()).isEqualTo("answer");
+        assertThat(root.path("response_format").path("json_schema").path("strict").asBoolean()).isTrue();
+        assertThat(root.path("response_format").path("json_schema").path("schema").path("properties").path("ok").path("type").asText())
+                .isEqualTo("boolean");
+    }
+
+    @Test
     void raisesSmallGeminiResponsesBudgetWhenConvertedToChatCompletions() throws Exception {
         String payload = """
                 {
@@ -1216,6 +1281,62 @@ class OciGenerativeOpenAiServiceTest {
         assertThat(root.path("parallel_tool_calls").asBoolean()).isTrue();
         assertThat(root.path("max_output_tokens").asInt()).isEqualTo(512);
         assertThat(root.path("stream").asBoolean()).isFalse();
+    }
+
+    @Test
+    void convertsChatCompletionImagesToResponsesInputImagesForMultiAgent() throws Exception {
+        String payload = """
+                {
+                  "model":"xai.grok-4.20-multi-agent",
+                  "messages":[{"role":"user","content":[
+                    {"type":"text","text":"describe this"},
+                    {"type":"image_url","image_url":{"url":"data:image/png;base64,abc","detail":"high"}}
+                  ]}],
+                  "max_tokens":512
+                }
+                """;
+
+        byte[] converted = OciGenerativeOpenAiService.transformChatCompletionsToResponsesJson(payload.getBytes(), 128);
+
+        JsonNode root = MAPPER.readTree(converted);
+        JsonNode content = root.path("input").get(0).path("content");
+        assertThat(content.get(0).path("type").asText()).isEqualTo("input_text");
+        assertThat(content.get(0).path("text").asText()).isEqualTo("describe this");
+        assertThat(content.get(1).path("type").asText()).isEqualTo("input_image");
+        assertThat(content.get(1).path("image_url").asText()).isEqualTo("data:image/png;base64,abc");
+        assertThat(content.get(1).path("detail").asText()).isEqualTo("high");
+    }
+
+    @Test
+    void mapsChatCompletionResponseFormatToResponsesTextFormatForMultiAgent() throws Exception {
+        String payload = """
+                {
+                  "model":"xai.grok-4.20-multi-agent",
+                  "messages":[{"role":"user","content":"return json"}],
+                  "response_format":{
+                    "type":"json_schema",
+                    "json_schema":{
+                      "name":"answer",
+                      "schema":{
+                        "type":"object",
+                        "properties":{"ok":{"type":"boolean"}},
+                        "required":["ok"],
+                        "additionalProperties":false
+                      },
+                      "strict":true
+                    }
+                  }
+                }
+                """;
+
+        byte[] converted = OciGenerativeOpenAiService.transformChatCompletionsToResponsesJson(payload.getBytes(), 128);
+
+        JsonNode root = MAPPER.readTree(converted);
+        assertThat(root.path("text").path("format").path("type").asText()).isEqualTo("json_schema");
+        assertThat(root.path("text").path("format").path("name").asText()).isEqualTo("answer");
+        assertThat(root.path("text").path("format").path("strict").asBoolean()).isTrue();
+        assertThat(root.path("text").path("format").path("schema").path("properties").path("ok").path("type").asText())
+                .isEqualTo("boolean");
     }
 
     @Test
