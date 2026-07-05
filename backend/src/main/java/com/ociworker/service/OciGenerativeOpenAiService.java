@@ -2269,8 +2269,7 @@ public class OciGenerativeOpenAiService {
                 }
                 ArrayNode arr = MAPPER.createArrayNode();
                 ObjectNode item = MAPPER.createObjectNode();
-                String role = textOrNull(io, "role");
-                item.put("role", (role == null || role.isBlank()) ? "user" : role);
+                item.put("role", normalizeResponsesMessageRole(textOrNull(io, "role")));
                 JsonNode content = io.get("content");
                 if (content != null && content.isTextual()) {
                     item.set("content", toInputTextParts(content.asText()));
@@ -2309,17 +2308,7 @@ public class OciGenerativeOpenAiService {
                     }
                     ObjectNode io = (ObjectNode) it;
                     // role 只允许文本；未知 role 统一降级为 user（OCI ModelInput 更严格）
-                    String role = textOrNull(io, "role");
-                    if (role == null || role.isBlank()) {
-                        role = "user";
-                    } else {
-                        String rl = role.toLowerCase(java.util.Locale.ROOT);
-                        // Cursor/SDK 可能出现 tool/function/developer 等 role；统一降级
-                        if (!("user".equals(rl) || "assistant".equals(rl) || "system".equals(rl))) {
-                            role = "user";
-                        }
-                    }
-                    io.put("role", role);
+                    io.put("role", normalizeResponsesMessageRole(textOrNull(io, "role")));
                     JsonNode content = io.get("content");
                     if (content != null && content.isTextual()) {
                         io.set("content", toInputTextParts(content.asText()));
@@ -2820,7 +2809,7 @@ public class OciGenerativeOpenAiService {
             if (!(message instanceof ObjectNode object)) {
                 continue;
             }
-            if (!"tool".equalsIgnoreCase(textOrNull(object, "role"))) {
+            if (!"tool".equalsIgnoreCase(normalizeChatRole(textOrNull(object, "role")))) {
                 continue;
             }
             String toolCallId = textOrNull(object, "tool_call_id");
@@ -2832,7 +2821,10 @@ public class OciGenerativeOpenAiService {
         Set<String> emittedToolReplyIds = new HashSet<>();
         for (JsonNode message : messages) {
             if (!(message instanceof ObjectNode object)) {
-                normalized.add(message);
+                ObjectNode scalarMessage = normalizeNonObjectChatMessage(message);
+                if (scalarMessage != null) {
+                    normalized.add(scalarMessage);
+                }
                 continue;
             }
             String role = normalizeChatRole(textOrNull(object, "role"));
@@ -2885,6 +2877,20 @@ public class OciGenerativeOpenAiService {
             }
         }
         return normalized;
+    }
+
+    private static ObjectNode normalizeNonObjectChatMessage(JsonNode message) {
+        if (message == null || message.isNull() || message.isMissingNode()) {
+            return null;
+        }
+        ObjectNode out = MAPPER.createObjectNode();
+        out.put("role", "user");
+        if (message.isTextual() || message.isNumber() || message.isBoolean()) {
+            out.put("content", message.asText());
+        } else {
+            out.put("content", message.toString());
+        }
+        return out;
     }
 
     private static ObjectNode normalizeChatMessageForOci(ObjectNode source) {
@@ -2972,6 +2978,17 @@ public class OciGenerativeOpenAiService {
         return "user";
     }
 
+    private static String normalizeResponsesMessageRole(String role) {
+        String value = normalizeChatRole(role);
+        if ("assistant".equals(value) || "system".equals(value) || "user".equals(value)) {
+            return value;
+        }
+        if ("developer".equals(value)) {
+            return "system";
+        }
+        return "user";
+    }
+
     private static String responsesContentText(JsonNode content, ObjectNode fallback) {
         if (content == null || content.isNull() || content.isMissingNode()) {
             return firstNonBlank(textOrNull(fallback, "text"), "");
@@ -3050,12 +3067,8 @@ public class OciGenerativeOpenAiService {
                         continue;
                     }
                     ObjectNode mo = (ObjectNode) m;
-                    String role = textOrNull(mo, "role");
-                    if (role == null || role.isBlank()) {
-                        role = "user";
-                    }
                     ObjectNode item = MAPPER.createObjectNode();
-                    item.put("role", role);
+                    item.put("role", normalizeResponsesMessageRole(textOrNull(mo, "role")));
 
                     JsonNode content = mo.get("content");
                     if (content == null || content.isNull()) {

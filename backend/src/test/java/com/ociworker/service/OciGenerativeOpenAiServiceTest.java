@@ -225,6 +225,27 @@ class OciGenerativeOpenAiServiceTest {
     }
 
     @Test
+    void normalizesNonObjectChatMessagesBeforeProxyingToOci() throws Exception {
+        String payload = """
+                {
+                  "model":"google.gemini-2.5-pro",
+                  "messages":[null, "hello", 7, {"role":"human","content":"继续"}],
+                  "stream":true
+                }
+                """;
+
+        byte[] normalized = OciGenerativeOpenAiService.transformChatCompletionsJson(payload.getBytes(), 128);
+
+        JsonNode messages = MAPPER.readTree(normalized).path("messages");
+        assertThat(messages).hasSize(3);
+        assertThat(messages.get(0).path("role").asText()).isEqualTo("user");
+        assertThat(messages.get(0).path("content").asText()).isEqualTo("hello");
+        assertThat(messages.get(1).path("content").asText()).isEqualTo("7");
+        assertThat(messages.get(2).path("role").asText()).isEqualTo("user");
+        assertThat(messages.get(2).path("content").asText()).isEqualTo("继续");
+    }
+
+    @Test
     void treatsGeminiModelRoleToolCallsAsAssistantHistory() throws Exception {
         String payload = """
                 {
@@ -244,6 +265,28 @@ class OciGenerativeOpenAiServiceTest {
         assertThat(messages.get(0).path("tool_calls")).hasSize(1);
         assertThat(messages.get(1).path("role").asText()).isEqualTo("tool");
         assertThat(messages.get(1).path("content").asText()).isEqualTo("Intel");
+    }
+
+    @Test
+    void normalizesModelRoleWhenConvertingChatCompletionsToResponses() throws Exception {
+        String payload = """
+                {
+                  "model":"xai.grok-4.20-multi-agent",
+                  "messages":[
+                    {"role":"user","content":"hi"},
+                    {"role":"model","content":"hello"},
+                    {"role":"developer","content":"stay concise"}
+                  ]
+                }
+                """;
+
+        JsonNode root = MAPPER.readTree(
+                OciGenerativeOpenAiService.transformChatCompletionsToResponsesJson(payload.getBytes(), 128));
+
+        JsonNode input = root.path("input");
+        assertThat(input.get(0).path("role").asText()).isEqualTo("user");
+        assertThat(input.get(1).path("role").asText()).isEqualTo("assistant");
+        assertThat(input.get(2).path("role").asText()).isEqualTo("system");
     }
 
     @Test
