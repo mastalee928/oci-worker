@@ -40,4 +40,27 @@ class OracleAiModelCapabilityTest {
         assertThat(OracleAiModelCapability.isChatEndpointCompatible("cohere.rerank-v4.0-pro")).isFalse();
         assertThat(OracleAiModelCapability.isChatEndpointCompatible("xai.grok-tts")).isFalse();
     }
+
+    @Test
+    void knownNonEmbeddingModelsAreRejectedByEmbeddingsEndpoint() {
+        assertThat(OracleAiModelCapability.isEmbeddingEndpointCompatible("cohere.embed-v4.0")).isTrue();
+        assertThat(OracleAiModelCapability.isEmbeddingEndpointCompatible("cohere.embed-english-v3.0")).isTrue();
+        assertThat(OracleAiModelCapability.isEmbeddingEndpointCompatible("xai.grok-4.3")).isFalse();
+        assertThat(OracleAiModelCapability.isEmbeddingEndpointCompatible("xai.grok-4.20-multi-agent")).isFalse();
+        assertThat(OracleAiModelCapability.isEmbeddingEndpointCompatible("cohere.rerank-v4.0-fast")).isFalse();
+        assertThat(OracleAiModelCapability.isEmbeddingEndpointCompatible("xai.grok-tts")).isFalse();
+    }
+
+    @Test
+    void unknownModelsAreAllowedThroughEmbeddingsEndpointForFutureOciAdditions() {
+        assertThat(OracleAiModelCapability.isEmbeddingEndpointCompatible("oracle.vector-v1")).isTrue();
+    }
+
+    @Test
+    void explainsEmbeddingsEndpointMismatchWithoutOciRawError() {
+        assertThat(OracleAiModelCapability.embeddingEndpointMismatchMessage("xai.grok-4.3"))
+                .contains("聊天/生成模型")
+                .contains("/v1/embeddings")
+                .contains("cohere.embed-*");
+    }
 }

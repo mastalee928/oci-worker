@@ -62,6 +62,24 @@ public final class OracleAiModelCapability {
         return CHAT.equals(capability) || MULTI_AGENT.equals(capability);
     }
 
+    public static boolean isEmbeddingEndpointCompatible(String model) {
+        if (model == null || model.isBlank()) {
+            return true;
+        }
+        String value = model.trim().toLowerCase(Locale.ROOT);
+        String capability = classify(value);
+        if (EMBEDDING.equals(capability)) {
+            return true;
+        }
+        if (MULTI_AGENT.equals(capability)
+                || RERANK.equals(capability)
+                || AUDIO.equals(capability)
+                || MODERATION.equals(capability)) {
+            return false;
+        }
+        return !isKnownChatGeneration(value);
+    }
+
     public static boolean isMultiAgent(String model) {
         if (model == null || model.isBlank()) {
             return false;
@@ -81,6 +99,18 @@ public final class OracleAiModelCapability {
             case AUDIO -> "模型 " + name + " 是语音/音频模型，不属于聊天/工具调用模型；xai.grok-tts 请使用音频语音接口。";
             case MODERATION -> "模型 " + name + " 是安全/审核模型，不属于聊天/工具调用模型，请使用对应审核接口。";
             default -> "模型 " + name + " 不适用于当前聊天接口。";
+        };
+    }
+
+    public static String embeddingEndpointMismatchMessage(String model) {
+        String capability = classify(model);
+        String name = model == null || model.isBlank() ? "未指定模型" : model.trim();
+        return switch (capability) {
+            case CHAT, MULTI_AGENT -> "模型 " + name + " 是聊天/生成模型，不能用于 /v1/embeddings，请选择 cohere.embed-* 等 Embedding 模型。";
+            case RERANK -> "模型 " + name + " 是 Rerank 模型，不能用于 /v1/embeddings，请使用重排序接口。";
+            case AUDIO -> "模型 " + name + " 是语音/音频模型，不能用于 /v1/embeddings。";
+            case MODERATION -> "模型 " + name + " 是安全/审核模型，不能用于 /v1/embeddings。";
+            default -> "模型 " + name + " 不适用于 /v1/embeddings。";
         };
     }
 
@@ -109,5 +139,14 @@ public final class OracleAiModelCapability {
                 || value.contains("moderation")
                 || value.contains("moderator")
                 || value.contains("llama-guard");
+    }
+
+    private static boolean isKnownChatGeneration(String value) {
+        return value.startsWith("xai.grok-")
+                || value.startsWith("cohere.command")
+                || value.startsWith("google.gemini")
+                || value.startsWith("openai.gpt-oss")
+                || value.startsWith("meta.llama-")
+                || value.startsWith("mistral.");
     }
 }

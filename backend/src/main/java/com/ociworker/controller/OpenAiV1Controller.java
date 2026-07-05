@@ -164,6 +164,13 @@ public class OpenAiV1Controller {
             }
             return;
         }
+        if (isEmbeddingsPath(pathAfterV1)
+                && requestedModel != null
+                && !requestedModel.isBlank()
+                && !OracleAiModelCapability.isEmbeddingEndpointCompatible(requestedModel)) {
+            error(response, 400, OracleAiModelCapability.embeddingEndpointMismatchMessage(requestedModel));
+            return;
+        }
         boolean stream = isStreamRequest(body, request.getContentType());
         boolean bufferedToolStream = stream && hasToolRequest(body, request.getContentType());
         int toolCount = toolCount(body, request.getContentType());
@@ -475,6 +482,10 @@ public class OpenAiV1Controller {
         return isChatCompletionsPath(pathAfterV1) || isResponsesPath(pathAfterV1) || isMessagesPath(pathAfterV1);
     }
 
+    private static boolean isEmbeddingsPath(String pathAfterV1) {
+        return pathAfterV1 != null && (pathAfterV1.equals("/embeddings") || pathAfterV1.endsWith("/embeddings"));
+    }
+
     private static boolean isMessagesPath(String pathAfterV1) {
         return pathAfterV1 != null && (pathAfterV1.equals("/messages") || pathAfterV1.endsWith("/messages"));
     }
@@ -502,6 +513,9 @@ public class OpenAiV1Controller {
         }
         if (pathAfterV1.equals("/models") || pathAfterV1.endsWith("/models")) {
             return "models";
+        }
+        if (pathAfterV1.equals("/embeddings") || pathAfterV1.endsWith("/embeddings")) {
+            return "embeddings";
         }
         return pathAfterV1.length() > 64 ? pathAfterV1.substring(0, 64) : pathAfterV1;
     }

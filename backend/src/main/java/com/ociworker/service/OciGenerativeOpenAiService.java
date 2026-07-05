@@ -130,7 +130,7 @@ public class OciGenerativeOpenAiService {
             return;
         }
         String requestedModel = extractModelFromBody(origBody, contentType);
-        if ((isChatCompletionsPath(origPathAfterV1) || isResponsesPath(origPathAfterV1))
+        if (isModelScopedRequestPath(origPathAfterV1)
                 && !isAllowedModel(requestedModel, requestAllowedModels)) {
             writeOpenAiError(response, 400, "invalid_request_error",
                     "Model is not allowed for this port binding: " + requestedModel,
@@ -143,6 +143,15 @@ public class OciGenerativeOpenAiService {
                 && !OracleAiModelCapability.isChatEndpointCompatible(requestedModel)) {
             writeOpenAiError(response, 400, "invalid_request_error",
                     OracleAiModelCapability.chatEndpointMismatchMessage(requestedModel),
+                    "model_endpoint_mismatch");
+            return;
+        }
+        if (isEmbeddingsPath(origPathAfterV1)
+                && requestedModel != null
+                && !requestedModel.isBlank()
+                && !OracleAiModelCapability.isEmbeddingEndpointCompatible(requestedModel)) {
+            writeOpenAiError(response, 400, "invalid_request_error",
+                    OracleAiModelCapability.embeddingEndpointMismatchMessage(requestedModel),
                     "model_endpoint_mismatch");
             return;
         }
@@ -886,6 +895,14 @@ public class OciGenerativeOpenAiService {
 
     private static boolean isModelsPath(String p) {
         return p != null && (p.equals("/models") || p.endsWith("/models"));
+    }
+
+    private static boolean isEmbeddingsPath(String p) {
+        return p != null && (p.equals("/embeddings") || p.endsWith("/embeddings"));
+    }
+
+    private static boolean isModelScopedRequestPath(String p) {
+        return isChatCompletionsPath(p) || isResponsesPath(p) || isEmbeddingsPath(p);
     }
 
     private static String extractModelFromBody(byte[] body, String contentType) {
