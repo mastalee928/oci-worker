@@ -7,6 +7,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class OciGenerativeOpenAiServiceTest {
 
@@ -487,6 +488,171 @@ class OciGenerativeOpenAiServiceTest {
 
         assertThat(OciGenerativeOpenAiService.countNewStreamingToolCalls(firstChunkCalls, request)).isEqualTo(1);
         assertThat(OciGenerativeOpenAiService.countNewStreamingToolCalls(repeatedMetadataChunk, request)).isZero();
+    }
+
+    @Test
+    void convertsCohereRerankRequestToOciRerankTextDetails() throws Exception {
+        String payload = """
+                {
+                  "model":"cohere.rerank-v4.0-fast",
+                  "query":"capital city",
+                  "documents":[
+                    "Washington, D.C. is the capital of the United States.",
+                    {"title":"Nevada","text":"Carson City is the capital of Nevada."}
+                  ],
+                  "top_n":1,
+                  "return_documents":true,
+                  "max_chunks_per_doc":2,
+                  "max_tokens_per_doc":256
+                }
+                """;
+
+        OciGenerativeOpenAiService.RerankBridgeRequest converted =
+                OciGenerativeOpenAiService.transformRerankRequestJson(
+                        payload.getBytes(), "ocid1.tenancy.oc1..example");
+        JsonNode root = MAPPER.readTree(converted.body());
+
+        assertThat(root.path("input").asText()).isEqualTo("capital city");
+        assertThat(root.path("compartmentId").asText()).isEqualTo("ocid1.tenancy.oc1..example");
+        assertThat(root.path("servingMode").path("servingType").asText()).isEqualTo("ON_DEMAND");
+        assertThat(root.path("servingMode").path("modelId").asText()).isEqualTo("cohere.rerank-v4.0-fast");
+        assertThat(root.path("documents")).hasSize(2);
+        assertThat(root.path("documents").get(1).asText()).isEqualTo("Carson City is the capital of Nevada.");
+        assertThat(root.path("topN").asInt()).isEqualTo(1);
+        assertThat(root.path("isEcho").asBoolean()).isTrue();
+        assertThat(root.path("maxChunksPerDocument").asInt()).isEqualTo(2);
+        assertThat(root.path("maxTokensPerDocument").asInt()).isEqualTo(256);
+        assertThat(converted.returnDocuments()).isTrue();
+        assertThat(converted.originalDocumentsJson()).contains("Washington, D.C.").contains("Nevada");
+    }
+
+    @Test
+    void preservesNativeRerankServingMode() throws Exception {
+        String payload = """
+                {
+                  "input":"find docs",
+                  "compartmentId":"ocid1.compartment.oc1..example",
+                  "servingMode":{"servingType":"DEDICATED","endpointId":"ocid1.generativeaiendpoint.oc1..example"},
+                  "documents":["a","b"],
+                  "topN":2
+                }
+                """;
+
+        JsonNode root = MAPPER.readTree(OciGenerativeOpenAiService.transformRerankRequestJson(
+                payload.getBytes(), "ocid1.tenancy.oc1..example").body());
+
+        assertThat(root.path("servingMode").path("servingType").asText()).isEqualTo("DEDICATED");
+        assertThat(root.path("servingMode").path("endpointId").asText())
+                .isEqualTo("ocid1.generativeaiendpoint.oc1..example");
+        assertThat(root.path("compartmentId").asText()).isEqualTo("ocid1.compartment.oc1..example");
+    }
+
+    @Test
+    void doesNotKeepOriginalRerankDocumentsWhenEchoIsDisabled() throws Exception {
+        String payload = """
+                {
+                  "model":"cohere.rerank-v4.0-fast",
+                  "query":"capital city",
+                  "documents":["doc zero","doc one"],
+                  "return_documents":false
+                }
+                """;
+
+        OciGenerativeOpenAiService.RerankBridgeRequest converted =
+                OciGenerativeOpenAiService.transformRerankRequestJson(
+                        payload.getBytes(), "ocid1.tenancy.oc1..example");
+
+        assertThat(converted.returnDocuments()).isFalse();
+        assertThat(converted.originalDocumentsJson()).isNull();
+    }
+
+    @Test
+    void rejectsInvalidRerankRequestBoundariesBeforeCallingOci() {
+        String blankDocument = """
+                {
+                  "model":"cohere.rerank-v4.0-fast",
+                  "query":"capital city",
+                  "documents":[""]
+                }
+                """;
+        assertThatThrownBy(() -> OciGenerativeOpenAiService.transformRerankRequestJson(
+                blankDocument.getBytes(), "ocid1.tenancy.oc1..example"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("documents[0]");
+
+        String invalidTopN = """
+                {
+                  "model":"cohere.rerank-v4.0-fast",
+                  "query":"capital city",
+                  "documents":["doc one"],
+                  "top_n":0
+                }
+                """;
+        assertThatThrownBy(() -> OciGenerativeOpenAiService.transformRerankRequestJson(
+                invalidTopN.getBytes(), "ocid1.tenancy.oc1..example"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("top_n");
+
+        String invalidMaxTokens = """
+                {
+                  "model":"cohere.rerank-v4.0-fast",
+                  "query":"capital city",
+                  "documents":["doc one"],
+                  "max_tokens_per_document":0
+                }
+                """;
+        assertThatThrownBy(() -> OciGenerativeOpenAiService.transformRerankRequestJson(
+                invalidMaxTokens.getBytes(), "ocid1.tenancy.oc1..example"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("max_tokens_per_document");
+    }
+
+    @Test
+    void convertsOciRerankTextResultToCohereStyleResponse() throws Exception {
+        String payload = """
+                {
+                  "id":"rerank-oci-1",
+                  "modelId":"cohere.rerank-v4.0-fast",
+                  "modelVersion":"1.0",
+                  "documentRanks":[
+                    {"index":1,"relevanceScore":0.91},
+                    {"index":0,"relevanceScore":0.42,"document":{"text":"doc zero"}}
+                  ]
+                }
+                """;
+        String originalDocs = """
+                ["doc zero", {"text":"doc one","source":"local"}]
+                """;
+
+        JsonNode root = MAPPER.readTree(OciGenerativeOpenAiService.transformRerankResponseJson(
+                payload, originalDocs, true));
+
+        assertThat(root.path("id").asText()).isEqualTo("rerank-oci-1");
+        assertThat(root.path("model").asText()).isEqualTo("cohere.rerank-v4.0-fast");
+        assertThat(root.path("model_version").asText()).isEqualTo("1.0");
+        assertThat(root.path("results")).hasSize(2);
+        assertThat(root.path("results").get(0).path("index").asInt()).isEqualTo(1);
+        assertThat(root.path("results").get(0).path("relevance_score").asDouble()).isEqualTo(0.91D);
+        assertThat(root.path("results").get(0).path("document").path("text").asText()).isEqualTo("doc one");
+        assertThat(root.path("results").get(1).path("document").path("text").asText()).isEqualTo("doc zero");
+        assertThat(root.path("meta").path("api_version").path("version").asText()).isEqualTo("2");
+    }
+
+    @Test
+    void omitsRerankDocumentsWhenReturnDocumentsIsFalse() throws Exception {
+        String payload = """
+                {
+                  "id":"rerank-oci-1",
+                  "documentRanks":[
+                    {"index":0,"relevanceScore":0.91,"document":{"text":"doc zero"}}
+                  ]
+                }
+                """;
+
+        JsonNode root = MAPPER.readTree(OciGenerativeOpenAiService.transformRerankResponseJson(
+                payload, "[\"doc zero\"]", false));
+
+        assertThat(root.path("results").get(0).has("document")).isFalse();
     }
 
     private static int countOccurrences(String value, String needle) {

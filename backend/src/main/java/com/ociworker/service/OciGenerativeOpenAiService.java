@@ -93,6 +93,7 @@ public class OciGenerativeOpenAiService {
         }
         final String origPathAfterV1 = pathAfterV1;
         String regionId = effectivePublicRegionId(tenant, request.getAttribute(OpenAiApiConstants.ATTR_OCI_REGION));
+        String baseRawApi = "https://inference.generativeai." + regionId + ".oci.oraclecloud.com";
         String baseOpenAi = "https://inference.generativeai." + regionId + ".oci.oraclecloud.com/openai/v1";
         String baseRawV1 = "https://inference.generativeai." + regionId + ".oci.oraclecloud.com/v1";
         String query = request.getQueryString();
@@ -115,6 +116,10 @@ public class OciGenerativeOpenAiService {
             body = request.getInputStream().readAllBytes();
         }
         final byte[] origBody = body;
+        boolean looksLikeJson =
+                contentType == null
+                        || contentType.isBlank()
+                        || contentType.toLowerCase().contains("json");
         final int requestDefaultMaxTokens = requestDefaultMaxTokens(request);
         final List<String> requestAllowedModels = requestAllowedModels(request);
         if ("GET".equalsIgnoreCase(method) && isModelsPath(origPathAfterV1)) {
@@ -155,15 +160,52 @@ public class OciGenerativeOpenAiService {
                     "model_endpoint_mismatch");
             return;
         }
+        if (isRerankPath(origPathAfterV1)
+                && requestedModel != null
+                && !requestedModel.isBlank()
+                && !OracleAiModelCapability.isRerankEndpointCompatible(requestedModel)) {
+            writeOpenAiError(response, 400, "invalid_request_error",
+                    OracleAiModelCapability.rerankEndpointMismatchMessage(requestedModel),
+                    "model_endpoint_mismatch");
+            return;
+        }
         // 记录原始 /v1 之后路径，便于排障
         request.setAttribute("ociworker.debug.origPathAfterV1", origPathAfterV1);
 
+        boolean useRawApiBase = false;
+        String opcCompartmentId = tenant != null ? tenant.getOciTenantId() : null;
+        if ("POST".equalsIgnoreCase(method) && isRerankPath(origPathAfterV1)) {
+            if (!looksLikeJson || origBody == null || origBody.length == 0) {
+                writeOpenAiError(response, 400, "invalid_request_error",
+                        "Rerank 请求必须是 JSON，并包含 model、query/input 和 documents。",
+                        "invalid_rerank_request");
+                return;
+            }
+            try {
+                RerankBridgeRequest rerank = transformRerankRequestJson(origBody, opcCompartmentId);
+                body = rerank.body();
+                pathAfterV1 = "/" + GA_API_VERSION + "/actions/rerankText";
+                useRawApiBase = true;
+                contentType = "application/json";
+                accept = "application/json";
+                opcCompartmentId = firstNonBlank(rerank.compartmentId(), opcCompartmentId);
+                request.setAttribute("ociworker.rewrite.rerankToCommon", Boolean.TRUE);
+                if (rerank.originalDocumentsJson() != null) {
+                    request.setAttribute("ociworker.rerank.originalDocumentsJson", rerank.originalDocumentsJson());
+                }
+                request.setAttribute("ociworker.rerank.returnDocuments", rerank.returnDocuments());
+            } catch (IllegalArgumentException e) {
+                writeOpenAiError(response, 400, "invalid_request_error",
+                        e.getMessage() != null ? e.getMessage() : "Rerank 请求格式无效",
+                        "invalid_rerank_request");
+                return;
+            } catch (Exception e) {
+                throw new OciException("转换 Rerank 请求失败: " + (e.getMessage() != null ? e.getMessage() : "未知错误"));
+            }
+        }
+
         // OCI：Multi Agent 模型不允许走 /v1/chat/completions，需要改走 /v1/responses
         // 且按 OCI 文档，该模型的 endpoints 为 /v1/responses（非 /openai/v1/responses）
-        boolean looksLikeJson =
-                contentType == null
-                        || contentType.isBlank()
-                        || contentType.toLowerCase().contains("json");
         if ("POST".equalsIgnoreCase(method)
                 && isChatCompletionsPath(origPathAfterV1)
                 && origBody != null
@@ -273,7 +315,7 @@ public class OciGenerativeOpenAiService {
         }
         request.setAttribute("ociworker.debug.finalPathAfterV1", pathAfterV1);
 
-        StringBuilder u = new StringBuilder(useRawV1Base ? baseRawV1 : baseOpenAi);
+        StringBuilder u = new StringBuilder(useRawApiBase ? baseRawApi : (useRawV1Base ? baseRawV1 : baseOpenAi));
         u.append(pathAfterV1);
         if (query != null && !query.isEmpty()) {
             u.append("?").append(query);
@@ -292,7 +334,7 @@ public class OciGenerativeOpenAiService {
                 body,
                 contentType,
                 accept,
-                tenant != null ? tenant.getOciTenantId() : null,
+                opcCompartmentId,
                 extractOciGenerativeForwardHeaders(request, tenant),
                 useStreamCopy ? Duration.ofMillis(timeoutMs(request, OpenAiApiConstants.ATTR_STREAM_FIRST_CHUNK_TIMEOUT_SECONDS, 60)) : Duration.ofHours(1L));
         HttpClient client = pickHttpClient();
@@ -901,8 +943,17 @@ public class OciGenerativeOpenAiService {
         return p != null && (p.equals("/embeddings") || p.endsWith("/embeddings"));
     }
 
+    private static boolean isRerankPath(String p) {
+        return p != null && (p.equals("/rerank")
+                || p.endsWith("/rerank")
+                || p.equals("/rerankText")
+                || p.endsWith("/rerankText")
+                || p.equals("/rerank_text")
+                || p.endsWith("/rerank_text"));
+    }
+
     private static boolean isModelScopedRequestPath(String p) {
-        return isChatCompletionsPath(p) || isResponsesPath(p) || isEmbeddingsPath(p);
+        return isChatCompletionsPath(p) || isResponsesPath(p) || isEmbeddingsPath(p) || isRerankPath(p);
     }
 
     private static String extractModelFromBody(byte[] body, String contentType) {
@@ -915,7 +966,12 @@ public class OciGenerativeOpenAiService {
         try {
             JsonNode root = MAPPER.readTree(body);
             if (root != null && root.isObject()) {
-                return textOrNull((ObjectNode) root, "model");
+                ObjectNode object = (ObjectNode) root;
+                return firstNonBlank(
+                        textOrNull(object, "model"),
+                        textOrNull(object, "modelId"),
+                        textOrNull(object, "model_id"),
+                        servingModeModelId(object.get("servingMode")));
             }
         } catch (Exception ignored) {
         }
@@ -983,6 +1039,325 @@ public class OciGenerativeOpenAiService {
         error.put("code", code);
         root.set("error", error);
         response.getOutputStream().write(MAPPER.writeValueAsBytes(root));
+    }
+
+    static RerankBridgeRequest transformRerankRequestJson(byte[] input, String defaultCompartmentId) throws Exception {
+        if (input == null || input.length == 0) {
+            throw new IllegalArgumentException("Rerank 请求体不能为空");
+        }
+        JsonNode root = MAPPER.readTree(input);
+        if (root == null || !root.isObject()) {
+            throw new IllegalArgumentException("Rerank 请求必须是 JSON 对象");
+        }
+        ObjectNode in = (ObjectNode) root;
+        String model = firstNonBlank(
+                textOrNull(in, "model"),
+                textOrNull(in, "modelId"),
+                textOrNull(in, "model_id"),
+                servingModeModelId(in.get("servingMode")));
+        String query = firstNonBlank(textOrNull(in, "query"), textOrNull(in, "input"));
+        if (query == null || query.isBlank()) {
+            throw new IllegalArgumentException("Rerank 请求缺少 query/input");
+        }
+        JsonNode documentsNode = firstExisting(in, "documents", "texts");
+        if (documentsNode == null || !documentsNode.isArray()) {
+            throw new IllegalArgumentException("Rerank 请求缺少 documents 数组");
+        }
+        List<String> rankFields = textList(firstExisting(in, "rank_fields", "rankFields"));
+        ArrayNode documents = MAPPER.createArrayNode();
+        ArrayNode originalDocuments = MAPPER.createArrayNode();
+        int documentIndex = 0;
+        for (JsonNode document : documentsNode) {
+            if (document == null || document.isNull()) {
+                documentIndex++;
+                continue;
+            }
+            String text = rerankDocumentToText(document, rankFields);
+            if (text == null || text.isBlank()) {
+                throw new IllegalArgumentException("Rerank documents[" + documentIndex + "] 不能为空");
+            }
+            documents.add(text);
+            originalDocuments.add(document.deepCopy());
+            documentIndex++;
+        }
+        if (documents.isEmpty()) {
+            throw new IllegalArgumentException("Rerank documents 至少需要 1 条内容");
+        }
+        String compartmentId = firstNonBlank(
+                textOrNull(in, "compartmentId"),
+                textOrNull(in, "compartment_id"),
+                defaultCompartmentId);
+        if (compartmentId == null || compartmentId.isBlank()) {
+            throw new IllegalArgumentException("Rerank 请求缺少 compartmentId，且当前租户无 ociTenantId");
+        }
+
+        ObjectNode out = MAPPER.createObjectNode();
+        out.put("input", query);
+        out.put("compartmentId", compartmentId);
+        JsonNode servingMode = in.get("servingMode");
+        if (servingMode != null && servingMode.isObject()) {
+            out.set("servingMode", servingMode.deepCopy());
+        } else {
+            if (model == null || model.isBlank()) {
+                throw new IllegalArgumentException("Rerank 请求缺少 model/modelId");
+            }
+            ObjectNode onDemand = MAPPER.createObjectNode();
+            onDemand.put("servingType", "ON_DEMAND");
+            onDemand.put("modelId", model);
+            out.set("servingMode", onDemand);
+        }
+        out.set("documents", documents);
+        putPositiveIntegerIfPresent(out, "topN", firstInteger(in, "topN", "top_n"), "top_n");
+        Boolean returnDocuments = firstBoolean(in, "return_documents", "returnDocuments", "isEcho", "is_echo");
+        if (returnDocuments != null) {
+            out.put("isEcho", returnDocuments);
+        }
+        putPositiveIntegerIfPresent(out, "maxChunksPerDocument",
+                firstInteger(in, "maxChunksPerDocument", "max_chunks_per_document", "max_chunks_per_doc"),
+                "max_chunks_per_document");
+        putPositiveIntegerIfPresent(out, "maxTokensPerDocument",
+                firstInteger(in, "maxTokensPerDocument", "max_tokens_per_document", "max_tokens_per_doc"),
+                "max_tokens_per_document");
+        return new RerankBridgeRequest(
+                MAPPER.writeValueAsBytes(out),
+                Boolean.TRUE.equals(returnDocuments) ? MAPPER.writeValueAsString(originalDocuments) : null,
+                Boolean.TRUE.equals(returnDocuments),
+                compartmentId);
+    }
+
+    static String transformRerankResponseJson(String body, String originalDocumentsJson, boolean returnDocuments) throws Exception {
+        if (body == null || body.isBlank()) {
+            return body;
+        }
+        JsonNode root = MAPPER.readTree(body);
+        if (root == null || !root.isObject()) {
+            return body;
+        }
+        if (root.has("results") && !root.has("documentRanks")) {
+            return body;
+        }
+        JsonNode documentRanks = root.get("documentRanks");
+        if (documentRanks == null || !documentRanks.isArray()) {
+            return body;
+        }
+        ArrayNode originalDocuments = readJsonArray(originalDocumentsJson);
+        ObjectNode out = MAPPER.createObjectNode();
+        String id = firstNonBlank(firstText(root, "id"), "rerank-" + CommonUtils.generateId());
+        out.put("id", id);
+        String modelId = firstText(root, "modelId");
+        if (modelId != null && !modelId.isBlank()) {
+            out.put("model", modelId);
+            out.put("model_id", modelId);
+        }
+        String modelVersion = firstText(root, "modelVersion");
+        if (modelVersion != null && !modelVersion.isBlank()) {
+            out.put("model_version", modelVersion);
+        }
+        ArrayNode results = MAPPER.createArrayNode();
+        int fallbackIndex = 0;
+        for (JsonNode rank : documentRanks) {
+            if (rank == null || !rank.isObject()) {
+                continue;
+            }
+            ObjectNode rankObject = (ObjectNode) rank;
+            Integer parsedIndex = firstInteger(rankObject, "index");
+            int index = parsedIndex != null ? parsedIndex : fallbackIndex;
+            ObjectNode item = MAPPER.createObjectNode();
+            item.put("index", index);
+            JsonNode score = firstExisting(rankObject, "relevanceScore", "relevance_score");
+            if (score != null && score.isNumber()) {
+                item.put("relevance_score", score.asDouble());
+            } else {
+                item.put("relevance_score", 0D);
+            }
+            JsonNode document = returnDocuments ? commonRerankDocument(rankObject.get("document"), originalDocuments, index) : null;
+            if (document != null) {
+                item.set("document", document);
+            }
+            results.add(item);
+            fallbackIndex++;
+        }
+        out.set("results", results);
+        ObjectNode meta = MAPPER.createObjectNode();
+        ObjectNode apiVersion = MAPPER.createObjectNode();
+        apiVersion.put("version", "2");
+        meta.set("api_version", apiVersion);
+        out.set("meta", meta);
+        return MAPPER.writeValueAsString(out);
+    }
+
+    private static JsonNode firstExisting(ObjectNode node, String... fields) {
+        if (node == null || fields == null) {
+            return null;
+        }
+        for (String field : fields) {
+            if (field == null) {
+                continue;
+            }
+            JsonNode value = node.get(field);
+            if (value != null && !value.isMissingNode() && !value.isNull()) {
+                return value;
+            }
+        }
+        return null;
+    }
+
+    private static String servingModeModelId(JsonNode servingMode) {
+        if (servingMode != null && servingMode.isObject()) {
+            return textOrNull((ObjectNode) servingMode, "modelId");
+        }
+        return null;
+    }
+
+    private static List<String> textList(JsonNode node) {
+        if (node == null || !node.isArray()) {
+            return List.of();
+        }
+        List<String> out = new ArrayList<>();
+        for (JsonNode item : node) {
+            if (item != null && item.isTextual() && !item.asText().isBlank()) {
+                out.add(item.asText().trim());
+            }
+        }
+        return out;
+    }
+
+    private static String rerankDocumentToText(JsonNode document, List<String> rankFields) throws Exception {
+        if (document == null || document.isNull()) {
+            return "";
+        }
+        if (document.isTextual()) {
+            return document.asText();
+        }
+        if (document.isNumber() || document.isBoolean()) {
+            return document.asText();
+        }
+        if (document.isObject()) {
+            ObjectNode object = (ObjectNode) document;
+            StringBuilder sb = new StringBuilder();
+            if (rankFields != null && !rankFields.isEmpty()) {
+                for (String field : rankFields) {
+                    appendRerankText(sb, object.get(field));
+                }
+            }
+            if (sb.length() == 0) {
+                appendRerankText(sb, firstExisting(object, "text", "content", "body", "title"));
+            }
+            return sb.length() > 0 ? sb.toString() : MAPPER.writeValueAsString(document);
+        }
+        return MAPPER.writeValueAsString(document);
+    }
+
+    private static void appendRerankText(StringBuilder sb, JsonNode value) throws Exception {
+        if (value == null || value.isNull()) {
+            return;
+        }
+        String text;
+        if (value.isTextual() || value.isNumber() || value.isBoolean()) {
+            text = value.asText();
+        } else {
+            text = MAPPER.writeValueAsString(value);
+        }
+        if (text == null || text.isBlank()) {
+            return;
+        }
+        if (sb.length() > 0) {
+            sb.append('\n');
+        }
+        sb.append(text);
+    }
+
+    private static void putIntegerIfPresent(ObjectNode node, String field, Integer value) {
+        if (node != null && field != null && value != null) {
+            node.put(field, value);
+        }
+    }
+
+    private static void putPositiveIntegerIfPresent(ObjectNode node, String field, Integer value, String inputName) {
+        if (value == null) {
+            return;
+        }
+        if (value < 1) {
+            throw new IllegalArgumentException("Rerank " + firstNonBlank(inputName, field) + " 必须大于 0");
+        }
+        putIntegerIfPresent(node, field, value);
+    }
+
+    private static Integer firstInteger(ObjectNode node, String... fields) {
+        JsonNode value = firstExisting(node, fields);
+        if (value == null || value.isNull()) {
+            return null;
+        }
+        if (value.isInt() || value.isLong()) {
+            return value.asInt();
+        }
+        if (value.isNumber()) {
+            return (int) Math.round(value.asDouble());
+        }
+        if (value.isTextual()) {
+            try {
+                return Integer.parseInt(value.asText().trim());
+            } catch (Exception ignored) {
+            }
+        }
+        return null;
+    }
+
+    private static Boolean firstBoolean(ObjectNode node, String... fields) {
+        JsonNode value = firstExisting(node, fields);
+        if (value == null || value.isNull()) {
+            return null;
+        }
+        if (value.isBoolean()) {
+            return value.asBoolean();
+        }
+        if (value.isTextual()) {
+            String s = value.asText().trim();
+            if ("true".equalsIgnoreCase(s) || "1".equals(s) || "yes".equalsIgnoreCase(s)) {
+                return true;
+            }
+            if ("false".equalsIgnoreCase(s) || "0".equals(s) || "no".equalsIgnoreCase(s)) {
+                return false;
+            }
+        }
+        return null;
+    }
+
+    private static ArrayNode readJsonArray(String json) {
+        if (json == null || json.isBlank()) {
+            return MAPPER.createArrayNode();
+        }
+        try {
+            JsonNode root = MAPPER.readTree(json);
+            if (root != null && root.isArray()) {
+                return (ArrayNode) root;
+            }
+        } catch (Exception ignored) {
+        }
+        return MAPPER.createArrayNode();
+    }
+
+    private static JsonNode commonRerankDocument(JsonNode ociDocument, ArrayNode originalDocuments, int index) {
+        if (ociDocument != null && !ociDocument.isNull() && !ociDocument.isMissingNode()) {
+            if (ociDocument.isObject()) {
+                return ociDocument.deepCopy();
+            }
+            ObjectNode doc = MAPPER.createObjectNode();
+            doc.put("text", ociDocument.asText(""));
+            return doc;
+        }
+        if (originalDocuments != null && index >= 0 && index < originalDocuments.size()) {
+            JsonNode original = originalDocuments.get(index);
+            if (original != null && !original.isNull()) {
+                if (original.isObject()) {
+                    return original.deepCopy();
+                }
+                ObjectNode doc = MAPPER.createObjectNode();
+                doc.put("text", original.asText(""));
+                return doc;
+            }
+        }
+        return null;
     }
 
     /**
@@ -2772,6 +3147,25 @@ public class OciGenerativeOpenAiService {
             String b = resp.body() != null ? resp.body() : "";
             captureUsageTokens(request, b);
             captureChatCompletionToolStats(request, b);
+            if (code >= 200
+                    && code < 300
+                    && request != null
+                    && Boolean.TRUE.equals(request.getAttribute("ociworker.rewrite.rerankToCommon"))
+                    && b != null
+                    && !b.isBlank()) {
+                String ct = resp.headers().firstValue("content-type").orElse("application/json; charset=utf-8");
+                if (ct.toLowerCase().contains("json")) {
+                    try {
+                        b = transformRerankResponseJson(
+                                b,
+                                stringAttr(request, "ociworker.rerank.originalDocumentsJson"),
+                                Boolean.TRUE.equals(request.getAttribute("ociworker.rerank.returnDocuments")));
+                        response.setContentType("application/json; charset=utf-8");
+                    } catch (Exception e) {
+                        log.warn("Failed to transform OCI rerank response: {}", e.getMessage());
+                    }
+                }
+            }
             if (code >= 400
                     && request != null
                     && b != null) {
@@ -3691,4 +4085,10 @@ public class OciGenerativeOpenAiService {
     }
 
     private record CachedModels(JsonNode body, Instant expiresAt) {}
+
+    record RerankBridgeRequest(
+            byte[] body,
+            String originalDocumentsJson,
+            boolean returnDocuments,
+            String compartmentId) {}
 }

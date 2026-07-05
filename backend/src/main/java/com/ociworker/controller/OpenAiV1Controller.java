@@ -160,7 +160,7 @@ public class OpenAiV1Controller {
             if (anthropicMessages) {
                 anthropicError(response, 400, "invalid_request_error", message);
             } else {
-                error(response, 400, message);
+                openAiError(response, 400, "invalid_request_error", message, "model_endpoint_mismatch");
             }
             return;
         }
@@ -168,7 +168,18 @@ public class OpenAiV1Controller {
                 && requestedModel != null
                 && !requestedModel.isBlank()
                 && !OracleAiModelCapability.isEmbeddingEndpointCompatible(requestedModel)) {
-            error(response, 400, OracleAiModelCapability.embeddingEndpointMismatchMessage(requestedModel));
+            openAiError(response, 400, "invalid_request_error",
+                    OracleAiModelCapability.embeddingEndpointMismatchMessage(requestedModel),
+                    "model_endpoint_mismatch");
+            return;
+        }
+        if (isRerankPath(pathAfterV1)
+                && requestedModel != null
+                && !requestedModel.isBlank()
+                && !OracleAiModelCapability.isRerankEndpointCompatible(requestedModel)) {
+            openAiError(response, 400, "invalid_request_error",
+                    OracleAiModelCapability.rerankEndpointMismatchMessage(requestedModel),
+                    "model_endpoint_mismatch");
             return;
         }
         boolean stream = isStreamRequest(body, request.getContentType());
@@ -436,6 +447,23 @@ public class OpenAiV1Controller {
                 String.format("{\"error\":{\"type\":\"oci_error\",\"message\":%s}}", safe).getBytes(StandardCharsets.UTF_8));
     }
 
+    private static void openAiError(HttpServletResponse response, int status, String type, String message, String code) throws IOException {
+        if (response.isCommitted()) {
+            return;
+        }
+        response.setStatus(status);
+        response.setContentType("application/json; charset=utf-8");
+        ObjectNode root = MAPPER.createObjectNode();
+        ObjectNode error = MAPPER.createObjectNode();
+        error.put("type", firstNonBlank(type, "invalid_request_error"));
+        error.put("message", firstNonBlank(message, "请求失败"));
+        if (code != null && !code.isBlank()) {
+            error.put("code", code);
+        }
+        root.set("error", error);
+        response.getOutputStream().write(MAPPER.writeValueAsBytes(root));
+    }
+
     private static void anthropicError(HttpServletResponse response, int status, String type, String message) throws IOException {
         if (response.isCommitted()) {
             return;
@@ -486,6 +514,15 @@ public class OpenAiV1Controller {
         return pathAfterV1 != null && (pathAfterV1.equals("/embeddings") || pathAfterV1.endsWith("/embeddings"));
     }
 
+    private static boolean isRerankPath(String pathAfterV1) {
+        return pathAfterV1 != null && (pathAfterV1.equals("/rerank")
+                || pathAfterV1.endsWith("/rerank")
+                || pathAfterV1.equals("/rerankText")
+                || pathAfterV1.endsWith("/rerankText")
+                || pathAfterV1.equals("/rerank_text")
+                || pathAfterV1.endsWith("/rerank_text"));
+    }
+
     private static boolean isMessagesPath(String pathAfterV1) {
         return pathAfterV1 != null && (pathAfterV1.equals("/messages") || pathAfterV1.endsWith("/messages"));
     }
@@ -516,6 +553,9 @@ public class OpenAiV1Controller {
         }
         if (pathAfterV1.equals("/embeddings") || pathAfterV1.endsWith("/embeddings")) {
             return "embeddings";
+        }
+        if (isRerankPath(pathAfterV1)) {
+            return "rerank";
         }
         return pathAfterV1.length() > 64 ? pathAfterV1.substring(0, 64) : pathAfterV1;
     }
@@ -1134,6 +1174,14 @@ public class OpenAiV1Controller {
         return value.isValueNode() ? value.asText() : value.toString();
     }
 
+    private static String textOnly(JsonNode node, String field) {
+        if (node == null || !node.isObject() || field == null) {
+            return null;
+        }
+        JsonNode value = node.get(field);
+        return value != null && value.isTextual() ? value.asText() : null;
+    }
+
     private static String firstNonBlank(String... values) {
         if (values == null) {
             return null;
@@ -1342,8 +1390,14 @@ public class OpenAiV1Controller {
         }
         try {
             JsonNode root = MAPPER.readTree(body);
-            JsonNode model = root == null ? null : root.get("model");
-            return model != null && model.isTextual() ? model.asText() : null;
+            if (root instanceof ObjectNode object) {
+                return firstNonBlank(
+                        textOnly(object, "model"),
+                        textOnly(object, "modelId"),
+                        textOnly(object, "model_id"),
+                        root.path("servingMode").isObject() ? textOnly(root.path("servingMode"), "modelId") : null);
+            }
+            return null;
         } catch (Exception ignored) {
             return null;
         }

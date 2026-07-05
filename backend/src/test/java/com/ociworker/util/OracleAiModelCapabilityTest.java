@@ -57,10 +57,32 @@ class OracleAiModelCapabilityTest {
     }
 
     @Test
+    void knownNonRerankModelsAreRejectedByRerankEndpoint() {
+        assertThat(OracleAiModelCapability.isRerankEndpointCompatible("cohere.rerank-v4.0-fast")).isTrue();
+        assertThat(OracleAiModelCapability.isRerankEndpointCompatible("xai.grok-4.3")).isFalse();
+        assertThat(OracleAiModelCapability.isRerankEndpointCompatible("xai.grok-4.20-multi-agent")).isFalse();
+        assertThat(OracleAiModelCapability.isRerankEndpointCompatible("cohere.embed-v4.0")).isFalse();
+        assertThat(OracleAiModelCapability.isRerankEndpointCompatible("xai.grok-tts")).isFalse();
+    }
+
+    @Test
+    void unknownModelsAreAllowedThroughRerankEndpointForFutureOciAdditions() {
+        assertThat(OracleAiModelCapability.isRerankEndpointCompatible("oracle.semantic-ranker-v1")).isTrue();
+    }
+
+    @Test
     void explainsEmbeddingsEndpointMismatchWithoutOciRawError() {
         assertThat(OracleAiModelCapability.embeddingEndpointMismatchMessage("xai.grok-4.3"))
                 .contains("聊天/生成模型")
                 .contains("/v1/embeddings")
                 .contains("cohere.embed-*");
+    }
+
+    @Test
+    void explainsRerankEndpointMismatchWithoutOciRawError() {
+        assertThat(OracleAiModelCapability.rerankEndpointMismatchMessage("xai.grok-4.3"))
+                .contains("聊天/生成模型")
+                .contains("/v1/rerank")
+                .contains("cohere.rerank-*");
     }
 }
