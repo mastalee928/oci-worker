@@ -17,6 +17,7 @@ import com.ociworker.model.entity.OciUser;
 import com.ociworker.util.CommonUtils;
 import com.ociworker.util.OciBasicForSigning;
 import com.ociworker.util.OciDuplicatableByteArrayInputStream;
+import com.ociworker.util.OracleAiModelCapability;
 import com.ociworker.util.OciRegionUtil;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
@@ -134,6 +135,15 @@ public class OciGenerativeOpenAiService {
             writeOpenAiError(response, 400, "invalid_request_error",
                     "Model is not allowed for this port binding: " + requestedModel,
                     "model_not_allowed");
+            return;
+        }
+        if ((isChatCompletionsPath(origPathAfterV1) || isResponsesPath(origPathAfterV1))
+                && requestedModel != null
+                && !requestedModel.isBlank()
+                && !OracleAiModelCapability.isChatEndpointCompatible(requestedModel)) {
+            writeOpenAiError(response, 400, "invalid_request_error",
+                    OracleAiModelCapability.chatEndpointMismatchMessage(requestedModel),
+                    "model_endpoint_mismatch");
             return;
         }
         // 记录原始 /v1 之后路径，便于排障
@@ -666,6 +676,9 @@ public class OciGenerativeOpenAiService {
         if (dn != null && !dn.isBlank()) {
             row.put("displayName", dn);
         }
+        String rawType = firstText(oci, "type", "modelType", "inferenceType");
+        String capability = OracleAiModelCapability.classifyAny(id, dn, rawType);
+        row.put("ociworkerCapability", capability);
         // 额外透出原始 OCID，便于前端 hover/排障（不影响 OpenAI model id）
         if (oci != null) {
             JsonNode ociId = oci.get("id");
@@ -674,7 +687,7 @@ public class OciGenerativeOpenAiService {
             }
         }
         // 管理面 ListModels 会返回多种“模型产品形态”，不保证都适用于 OpenAI 兼容的 /v1/chat/completions
-        if (isLikelyMultiAgentModelName(id) || (display != null && display.isTextual() && isLikelyMultiAgentModelName(display.asText()))) {
+        if (OracleAiModelCapability.MULTI_AGENT.equals(capability)) {
             row.put(
                     "ociworkerNote",
                     "该模型为 Multi Agent：本网关会把 /v1/chat/completions 改写为 /v1/responses 并尽量把响应装成 chat.completion。"
@@ -689,11 +702,11 @@ public class OciGenerativeOpenAiService {
         }
         String t = s.toLowerCase();
         // 以名称启发式为主（避免在网关侧做额外管理面查询）
-        return t.contains("multi-agent") || t.contains("multi agent") || t.contains("multiagent");
+        return OracleAiModelCapability.isMultiAgent(t);
     }
 
     static boolean shouldRewriteChatCompletionsToResponses(String model) {
-        return isLikelyMultiAgentModelName(model);
+        return OracleAiModelCapability.isMultiAgent(model);
     }
 
     private static String firstText(JsonNode o, String... fieldNames) {
@@ -927,8 +940,10 @@ public class OciGenerativeOpenAiService {
                     continue;
                 }
                 ObjectNode row = MAPPER.createObjectNode();
-                row.put("id", model.trim());
+                String id = model.trim();
+                row.put("id", id);
                 row.put("object", "model");
+                row.put("ociworkerCapability", OracleAiModelCapability.classify(id));
                 data.add(row);
             }
         }
@@ -1278,6 +1293,7 @@ public class OciGenerativeOpenAiService {
                     || (force.isTextual() && "true".equalsIgnoreCase(force.asText())))) {
                 o.put("stream", false);
             }
+            removeOciUnsupportedChatRequestFields(o);
             normalizeChatToolSchema(o);
             JsonNode messages = o.get("messages");
             if (messages instanceof ArrayNode arrayMessages) {
@@ -1288,6 +1304,15 @@ public class OciGenerativeOpenAiService {
         } catch (Exception e) {
             return input;
         }
+    }
+
+    private static void removeOciUnsupportedChatRequestFields(ObjectNode root) {
+        if (root == null) {
+            return;
+        }
+        root.remove("reasoningEffort");
+        root.remove("reasoning_effort");
+        root.remove("reasoning");
     }
 
     private static void normalizeChatToolSchema(ObjectNode root) {
@@ -1667,7 +1692,7 @@ public class OciGenerativeOpenAiService {
         return out;
     }
 
-    private static byte[] transformChatCompletionsToResponsesJson(byte[] input, int defaultMaxTokens) {
+    static byte[] transformChatCompletionsToResponsesJson(byte[] input, int defaultMaxTokens) {
         try {
             JsonNode root = MAPPER.readTree(input);
             if (root == null || !root.isObject()) {
@@ -1736,6 +1761,18 @@ public class OciGenerativeOpenAiService {
                     out.put("input", p.asText());
                 }
             }
+            JsonNode tools = in.get("tools");
+            if (tools != null && tools.isArray()) {
+                ArrayNode responseTools = chatToolsToResponsesTools((ArrayNode) tools);
+                if (!responseTools.isEmpty()) {
+                    out.set("tools", responseTools);
+                    JsonNode toolChoice = chatToolChoiceToResponsesToolChoice(in.get("tool_choice"));
+                    if (toolChoice != null) {
+                        out.set("tool_choice", toolChoice);
+                    }
+                    copyIfPresent(in, out, "parallel_tool_calls");
+                }
+            }
             JsonNode mt = in.get("max_tokens");
             if (mt != null && !mt.isNull() && !mt.isMissingNode()) {
                 if (mt.isNumber()) {
@@ -1760,6 +1797,71 @@ public class OciGenerativeOpenAiService {
         } catch (Exception e) {
             return input;
         }
+    }
+
+    private static ArrayNode chatToolsToResponsesTools(ArrayNode tools) {
+        ArrayNode out = MAPPER.createArrayNode();
+        if (tools == null || tools.isEmpty()) {
+            return out;
+        }
+        for (JsonNode tool : tools) {
+            if (!(tool instanceof ObjectNode source)) {
+                continue;
+            }
+            String type = textOrNull(source, "type");
+            JsonNode functionNode = source.get("function");
+            ObjectNode fn = functionNode != null && functionNode.isObject()
+                    ? (ObjectNode) functionNode
+                    : source;
+            if (type != null && !type.isBlank() && !"function".equalsIgnoreCase(type)
+                    && functionNode == null) {
+                continue;
+            }
+            String name = textOrNull(fn, "name");
+            if (name == null || name.isBlank()) {
+                continue;
+            }
+            ObjectNode responseTool = MAPPER.createObjectNode();
+            responseTool.put("type", "function");
+            responseTool.put("name", name);
+            copyIfPresent(fn, responseTool, "description");
+            copyIfPresent(fn, responseTool, "parameters");
+            copyIfPresent(fn, responseTool, "strict");
+            out.add(responseTool);
+        }
+        return out;
+    }
+
+    private static JsonNode chatToolChoiceToResponsesToolChoice(JsonNode toolChoice) {
+        if (toolChoice == null || toolChoice.isNull() || toolChoice.isMissingNode()) {
+            return null;
+        }
+        if (toolChoice.isTextual()) {
+            String value = toolChoice.asText();
+            if (value == null || value.isBlank()) {
+                return null;
+            }
+            return MAPPER.getNodeFactory().textNode(value);
+        }
+        if (!toolChoice.isObject()) {
+            return toolChoice;
+        }
+        ObjectNode choice = (ObjectNode) toolChoice;
+        String type = textOrNull(choice, "type");
+        if (!"function".equalsIgnoreCase(firstNonBlank(type, ""))) {
+            return toolChoice;
+        }
+        String name = firstNonBlank(textOrNull(choice, "name"),
+                choice.get("function") != null && choice.get("function").isObject()
+                        ? textOrNull((ObjectNode) choice.get("function"), "name")
+                        : null);
+        if (name == null || name.isBlank()) {
+            return null;
+        }
+        ObjectNode out = MAPPER.createObjectNode();
+        out.put("type", "function");
+        out.put("name", name);
+        return out;
     }
 
     private void longCopyStream(

@@ -103,10 +103,39 @@ class OciGenerativeOpenAiServiceTest {
     }
 
     @Test
+    void stripsReasoningControlsUnsupportedByOciChatCompletions() throws Exception {
+        String payload = """
+                {
+                  "model":"xai.grok-4.20-0309-reasoning",
+                  "messages":[{"role":"user","content":"hello"}],
+                  "reasoningEffort":"high",
+                  "reasoning_effort":"high",
+                  "reasoning":{"effort":"high"},
+                  "tools":[{"type":"function","function":{"name":"write_file","parameters":{"type":"object"}}}],
+                  "tool_choice":"auto",
+                  "stream":true
+                }
+                """;
+
+        byte[] normalized = OciGenerativeOpenAiService.transformChatCompletionsJson(payload.getBytes(), 128);
+
+        JsonNode root = MAPPER.readTree(normalized);
+        assertThat(root.has("reasoningEffort")).isFalse();
+        assertThat(root.has("reasoning_effort")).isFalse();
+        assertThat(root.has("reasoning")).isFalse();
+        assertThat(root.path("tools").get(0).path("function").path("name").asText()).isEqualTo("write_file");
+        assertThat(root.path("tool_choice").asText()).isEqualTo("auto");
+        assertThat(root.path("stream").asBoolean()).isTrue();
+        assertThat(root.path("model").asText()).isEqualTo("xai.grok-4.20-0309-reasoning");
+    }
+
+    @Test
     void rewritesChatCompletionsOnlyForActualMultiAgentModelName() {
         assertThat(OciGenerativeOpenAiService.shouldRewriteChatCompletionsToResponses("xai.grok-4.3")).isFalse();
         assertThat(OciGenerativeOpenAiService.shouldRewriteChatCompletionsToResponses("google.gemini-2.5-pro")).isFalse();
         assertThat(OciGenerativeOpenAiService.shouldRewriteChatCompletionsToResponses("cohere.command-a-03-2025")).isFalse();
+        assertThat(OciGenerativeOpenAiService.shouldRewriteChatCompletionsToResponses("cohere.embed-v4.0")).isFalse();
+        assertThat(OciGenerativeOpenAiService.shouldRewriteChatCompletionsToResponses("xai.grok-tts")).isFalse();
         assertThat(OciGenerativeOpenAiService.shouldRewriteChatCompletionsToResponses("oci.multi-agent-runtime")).isTrue();
     }
 
@@ -169,6 +198,37 @@ class OciGenerativeOpenAiServiceTest {
     }
 
     @Test
+    void convertsChatCompletionToolsToResponsesRequestForMultiAgent() throws Exception {
+        String payload = """
+                {
+                  "model":"xai.grok-4.20-multi-agent",
+                  "messages":[{"role":"user","content":"create a file"}],
+                  "tools":[{"type":"function","function":{"name":"write_file","description":"write","parameters":{"type":"object"},"strict":true}}],
+                  "tool_choice":{"type":"function","function":{"name":"write_file"}},
+                  "parallel_tool_calls":true,
+                  "max_tokens":512,
+                  "stream":true
+                }
+                """;
+
+        byte[] converted = OciGenerativeOpenAiService.transformChatCompletionsToResponsesJson(payload.getBytes(), 128);
+
+        JsonNode root = MAPPER.readTree(converted);
+        assertThat(root.path("model").asText()).isEqualTo("xai.grok-4.20-multi-agent");
+        assertThat(root.path("input").get(0).path("role").asText()).isEqualTo("user");
+        assertThat(root.path("input").get(0).path("content").get(0).path("type").asText()).isEqualTo("input_text");
+        assertThat(root.path("tools").get(0).path("type").asText()).isEqualTo("function");
+        assertThat(root.path("tools").get(0).path("name").asText()).isEqualTo("write_file");
+        assertThat(root.path("tools").get(0).path("parameters").path("type").asText()).isEqualTo("object");
+        assertThat(root.path("tools").get(0).path("strict").asBoolean()).isTrue();
+        assertThat(root.path("tool_choice").path("type").asText()).isEqualTo("function");
+        assertThat(root.path("tool_choice").path("name").asText()).isEqualTo("write_file");
+        assertThat(root.path("parallel_tool_calls").asBoolean()).isTrue();
+        assertThat(root.path("max_output_tokens").asInt()).isEqualTo(512);
+        assertThat(root.path("stream").asBoolean()).isFalse();
+    }
+
+    @Test
     void convertsChatCompletionToolCallsToResponsesJson() throws Exception {
         String payload = """
                 {
@@ -224,6 +284,29 @@ class OciGenerativeOpenAiServiceTest {
         assertThat(sse).contains("\"sequence_number\":0");
         assertThat(sse).contains("\"sequence_number\":1");
         assertThat(sse).contains("\"sequence_number\":2");
+    }
+
+    @Test
+    void convertsReasoningThenStreamingToolCallToResponsesEvents() throws Exception {
+        OciGenerativeOpenAiService.ResponsesBridgeStreamState state =
+                new OciGenerativeOpenAiService.ResponsesBridgeStreamState("xai.grok-4.20-0309-reasoning");
+        String reasoning = """
+                {"id":"chatcmpl-1","object":"chat.completion.chunk","model":"xai.grok-4.20-0309-reasoning","choices":[{"index":0,"delta":{"reasoning_content":"need to call a tool"}}]}
+                """;
+        String tool = """
+                {"id":"chatcmpl-1","object":"chat.completion.chunk","model":"xai.grok-4.20-0309-reasoning","choices":[{"index":0,"delta":{"tool_calls":[{"index":0,"id":"call_a","type":"function","function":{"name":"write_file","arguments":"{\\\"path\\\":\\\"a.txt\\\"}"}}]},"finish_reason":"tool_calls"}]}
+                """;
+
+        String sse = OciGenerativeOpenAiService.chatChunkToResponsesSse(MAPPER.readTree(reasoning), state)
+                + OciGenerativeOpenAiService.chatChunkToResponsesSse(MAPPER.readTree(tool), state)
+                + OciGenerativeOpenAiService.finalizeResponsesBridgeStream(state);
+
+        assertThat(sse).contains("\"type\":\"response.reasoning_summary_text.delta\"");
+        assertThat(sse).contains("\"type\":\"response.reasoning_summary_part.done\"");
+        assertThat(sse).contains("\"type\":\"response.function_call_arguments.delta\"");
+        assertThat(sse).contains("\"call_id\":\"call_a\"");
+        assertThat(sse).contains("\"name\":\"write_file\"");
+        assertThat(sse).contains("\"arguments\":\"{\\\"path\\\":\\\"a.txt\\\"}\"");
     }
 
     @Test

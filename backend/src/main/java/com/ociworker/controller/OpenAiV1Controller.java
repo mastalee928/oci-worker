@@ -11,6 +11,7 @@ import com.ociworker.model.entity.OciUser;
 import com.ociworker.service.OciGenerativeOpenAiService;
 import com.ociworker.service.OciOpenaiLoadBalanceService;
 import com.ociworker.util.AnthropicDocumentExtractor;
+import com.ociworker.util.OracleAiModelCapability;
 import jakarta.annotation.Resource;
 import jakarta.servlet.ReadListener;
 import jakarta.servlet.ServletOutputStream;
@@ -151,6 +152,18 @@ public class OpenAiV1Controller {
             body = transformResponsesInputFilesToTextJson(body);
         }
         String requestedModel = extractModelFromBody(body, request.getContentType());
+        if (isChatLikeGenerationPath(pathAfterV1)
+                && requestedModel != null
+                && !requestedModel.isBlank()
+                && !OracleAiModelCapability.isChatEndpointCompatible(requestedModel)) {
+            String message = OracleAiModelCapability.chatEndpointMismatchMessage(requestedModel);
+            if (anthropicMessages) {
+                anthropicError(response, 400, "invalid_request_error", message);
+            } else {
+                error(response, 400, message);
+            }
+            return;
+        }
         boolean stream = isStreamRequest(body, request.getContentType());
         boolean bufferedToolStream = stream && hasToolRequest(body, request.getContentType());
         int toolCount = toolCount(body, request.getContentType());
@@ -452,6 +465,14 @@ public class OpenAiV1Controller {
 
     private static boolean isResponsesPath(String pathAfterV1) {
         return pathAfterV1 != null && (pathAfterV1.equals("/responses") || pathAfterV1.endsWith("/responses"));
+    }
+
+    private static boolean isChatCompletionsPath(String pathAfterV1) {
+        return pathAfterV1 != null && (pathAfterV1.equals("/chat/completions") || pathAfterV1.endsWith("/chat/completions"));
+    }
+
+    private static boolean isChatLikeGenerationPath(String pathAfterV1) {
+        return isChatCompletionsPath(pathAfterV1) || isResponsesPath(pathAfterV1) || isMessagesPath(pathAfterV1);
     }
 
     private static boolean isMessagesPath(String pathAfterV1) {
@@ -1269,11 +1290,7 @@ public class OpenAiV1Controller {
     }
 
     private static boolean requiresResponsesGenerativeContext(String requestedModel) {
-        if (requestedModel == null || requestedModel.isBlank()) {
-            return false;
-        }
-        String model = requestedModel.trim().toLowerCase();
-        return model.contains("multi-agent") || model.contains("multiagent") || model.contains("multi agent");
+        return OracleAiModelCapability.isMultiAgent(requestedModel);
     }
 
     private static boolean isClientAbort(IOException e) {

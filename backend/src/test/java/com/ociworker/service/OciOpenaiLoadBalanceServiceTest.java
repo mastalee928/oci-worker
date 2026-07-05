@@ -40,4 +40,28 @@ class OciOpenaiLoadBalanceServiceTest {
                 "The model generated invalid tool arguments"))
                 .isFalse();
     }
+
+    @Test
+    void unsupportedRequestParameterIsNotModelAvailabilityFailure() {
+        assertThat(OciOpenaiLoadBalanceService.isModelAvailabilityFailure(
+                400,
+                "{\"code\":\"invalid-argument\",\"error\":\"Model grok-4.20-0309-reasoning does not support parameter reasoningEffort.\"}"))
+                .isFalse();
+        assertThat(OciOpenaiLoadBalanceService.isModelAvailabilityFailure(
+                400,
+                "{\"code\":\"invalid-argument\",\"error\":\"This model does not support parameter reasoning_effort.\"}"))
+                .isFalse();
+    }
+
+    @Test
+    void endpointCapabilityMismatchIsNotModelAvailabilityFailure() {
+        assertThat(OciOpenaiLoadBalanceService.isModelAvailabilityFailure(
+                400,
+                "Model cohere.embed-v4.0 does not support chat/completions endpoint"))
+                .isFalse();
+        assertThat(OciOpenaiLoadBalanceService.isModelAvailabilityFailure(
+                400,
+                "Model xai.grok-voice-agent is unsupported for this API operation"))
+                .isFalse();
+    }
 }

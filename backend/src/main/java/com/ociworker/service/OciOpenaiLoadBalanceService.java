@@ -26,6 +26,7 @@ import com.ociworker.model.entity.OciOpenaiPortBinding;
 import com.ociworker.model.entity.OciUser;
 import com.ociworker.util.CommonUtils;
 import com.ociworker.util.OciOpenaiKeyCipher;
+import com.ociworker.util.OracleAiModelCapability;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -746,6 +747,12 @@ public class OciOpenaiLoadBalanceService {
                 || "http 422".equals(message)) {
             return false;
         }
+        if (isUnsupportedRequestParameterFailure(message)) {
+            return false;
+        }
+        if (isEndpointOrCapabilityMismatchFailure(message)) {
+            return false;
+        }
         return message.contains("model")
                 && (message.contains("not found")
                 || message.contains("not exist")
@@ -754,12 +761,46 @@ public class OciOpenaiLoadBalanceService {
                 || message.contains("not available")
                 || message.contains("not allowed")
                 || message.contains("not authorized")
-                || message.contains("not supported")
-                || message.contains("unsupported")
                 || message.contains("no access")
                 || message.contains("access denied")
                 || message.contains("unknown model")
                 || message.contains("invalid model"));
+    }
+
+    private static boolean isUnsupportedRequestParameterFailure(String message) {
+        if (message == null || message.isBlank()) {
+            return false;
+        }
+        return (message.contains("parameter") || message.contains("param"))
+                && (message.contains("not support")
+                || message.contains("not supported")
+                || message.contains("unsupported")
+                || message.contains("invalid-argument")
+                || message.contains("invalid argument"));
+    }
+
+    private static boolean isEndpointOrCapabilityMismatchFailure(String message) {
+        if (message == null || message.isBlank()) {
+            return false;
+        }
+        boolean capabilityMismatch =
+                message.contains("not support")
+                        || message.contains("not supported")
+                        || message.contains("unsupported")
+                        || message.contains("does not support");
+        if (!capabilityMismatch) {
+            return false;
+        }
+        return message.contains("chat")
+                || message.contains("completion")
+                || message.contains("completions")
+                || message.contains("responses")
+                || message.contains("messages")
+                || message.contains("endpoint")
+                || message.contains("operation")
+                || message.contains("api")
+                || message.contains("capability")
+                || message.contains("modality");
     }
 
     private static double adaptiveScore(OciOpenaiLbMember member, int current, int weight, LocalDateTime now) {
@@ -853,6 +894,7 @@ public class OciOpenaiLoadBalanceService {
             ObjectNode row = MAPPER.createObjectNode();
             row.put("id", model);
             row.put("object", "model");
+            row.put("ociworkerCapability", OracleAiModelCapability.classify(model));
             data.add(row);
         }
         ObjectNode root = MAPPER.createObjectNode();
