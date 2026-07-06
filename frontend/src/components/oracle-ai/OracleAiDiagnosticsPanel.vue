@@ -155,7 +155,7 @@
       </div>
       <a-spin v-if="healthLoading && !healthMembers.length" />
       <a-empty v-else-if="!healthMembers.length" description="暂无健康数据" />
-      <div v-else class="table-wrap">
+      <div v-else-if="!isMobile" class="table-wrap">
         <table class="table-mid">
           <thead>
             <tr>
@@ -186,6 +186,24 @@
           </tbody>
         </table>
       </div>
+      <div v-else class="health-card-list">
+        <div v-for="(record, idx) in healthMembers" :key="record.memberId || record.port || record.bindingName || idx" class="health-card">
+          <div class="health-card-head">
+            <div class="health-card-title">
+              <strong>{{ record.bindingName || record.memberId || '-' }}</strong>
+              <span>{{ record.port || '-' }} · {{ record.tenantName || record.tenantUsername || '-' }}</span>
+            </div>
+            <a-tag :color="healthColor(record.healthStatus)">{{ healthText(record.healthStatus) }}</a-tag>
+          </div>
+          <div class="health-card-grid">
+            <span>区域</span><b>{{ record.ociRegion || record.tenantDefaultRegion || '-' }}</b>
+            <span>并发</span><b>{{ record.inFlight || 0 }}</b>
+            <span>最近状态</span><b>{{ record.lastStatus ? `HTTP ${record.lastStatus}` : '-' }}</b>
+            <span v-if="record.lastErrorType">错误类型</span><b v-if="record.lastErrorType">{{ record.lastErrorType }}</b>
+          </div>
+          <div v-if="record.healthMessage" class="health-card-message">{{ record.healthMessage }}</div>
+        </div>
+      </div>
     </a-card>
 
     <a-card v-else title="模型来源" :bordered="false" class="diagnostic-card">
@@ -197,7 +215,7 @@
       </div>
       <a-spin v-if="modelsLoading && !modelRows.length" />
       <a-empty v-else-if="!modelRows.length" description="暂无模型来源" />
-      <div v-else class="table-wrap">
+      <div v-else-if="!isMobile" class="table-wrap">
         <table class="table-mid">
           <thead>
             <tr>
@@ -220,6 +238,18 @@
             </tr>
           </tbody>
         </table>
+      </div>
+      <div v-else class="model-card-list">
+        <div v-for="record in modelRows" :key="record.id" class="model-card">
+          <div class="model-card-head">
+            <span class="model-card-id">{{ record.id }}</span>
+            <a-tag :color="capabilityColor(record.ociworkerCapability)">{{ record.ociworkerCapability || '-' }}</a-tag>
+          </div>
+          <div class="model-card-grid">
+            <span>来源</span><b>{{ sourceCount(record) }}</b>
+          </div>
+          <a-button size="small" block @click="openModelDetail(record)">查看来源</a-button>
+        </div>
       </div>
       <div v-if="modelErrors.length" class="model-error-list">
         <div v-for="(item, idx) in modelErrors" :key="idx" class="model-error-row">
@@ -787,6 +817,87 @@ onUnmounted(() => {
   min-width: 0;
   overflow-wrap: anywhere;
 }
+.health-card-list,
+.model-card-list {
+  display: grid;
+  gap: 10px;
+}
+.health-card,
+.model-card {
+  border: 1px solid var(--border, rgba(148, 163, 184, 0.22));
+  border-radius: 8px;
+  padding: 10px;
+  background: var(--bg-card, rgba(30, 41, 59, 0.32));
+  min-width: 0;
+}
+.health-card-head,
+.model-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  align-items: flex-start;
+  margin-bottom: 9px;
+  min-width: 0;
+}
+.health-card-head :deep(.ant-tag),
+.model-card-head :deep(.ant-tag) {
+  flex-shrink: 0;
+  margin-inline-end: 0;
+}
+.health-card-title,
+.model-card-id {
+  min-width: 0;
+}
+.health-card-title strong,
+.model-card-id {
+  display: block;
+  color: var(--text-main);
+  font-weight: 600;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.health-card-title span {
+  display: block;
+  margin-top: 2px;
+  color: var(--text-sub, #666);
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.health-card-grid,
+.model-card-grid {
+  display: grid;
+  grid-template-columns: 68px minmax(0, 1fr);
+  gap: 6px 10px;
+  align-items: start;
+  font-size: 13px;
+}
+.health-card-grid span,
+.model-card-grid span {
+  color: var(--text-sub, #666);
+}
+.health-card-grid b,
+.model-card-grid b {
+  min-width: 0;
+  color: var(--text-main);
+  font-weight: 500;
+  overflow-wrap: anywhere;
+}
+.model-card-grid {
+  margin-bottom: 10px;
+}
+.model-card :deep(.ant-btn) {
+  width: 100%;
+}
+.health-card-message {
+  margin-top: 9px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border, rgba(148, 163, 184, 0.18));
+  color: var(--text-sub, #666);
+  font-size: 12px;
+  line-height: 1.55;
+  overflow-wrap: anywhere;
+}
 .pagination {
   display: flex;
   justify-content: flex-end;
@@ -876,11 +987,48 @@ onUnmounted(() => {
   .metric-item b {
     font-size: 16px;
   }
+  .diagnostic-card :deep(.ant-card-head) {
+    min-height: 48px;
+    padding: 0 14px;
+  }
+  .diagnostic-card :deep(.ant-card-body) {
+    padding: 14px;
+  }
+  .diagnostic-head :deep(.ant-segmented) {
+    width: 100%;
+  }
+  .diagnostic-head :deep(.ant-segmented-group) {
+    width: 100%;
+  }
+  .diagnostic-head :deep(.ant-segmented-item) {
+    flex: 1;
+    min-width: 0;
+  }
+  .diagnostic-head :deep(.ant-space) {
+    width: 100%;
+    justify-content: space-between;
+  }
+  .model-error-row {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+  .model-error-row > span {
+    flex: 1 1 calc(100% - 56px);
+    min-width: 0;
+    overflow-wrap: anywhere;
+  }
+  .model-error-row code {
+    flex: 1 1 100%;
+  }
 }
 :global([data-theme='light']) .diagnostic-head :deep(.ant-segmented) {
   background: rgba(248, 250, 252, 0.72);
 }
 :global([data-theme='light']) .metric-item {
+  background: rgba(248, 250, 252, 0.72);
+}
+:global([data-theme='light']) .health-card,
+:global([data-theme='light']) .model-card {
   background: rgba(248, 250, 252, 0.72);
 }
 </style>
