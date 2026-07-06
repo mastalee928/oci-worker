@@ -120,35 +120,29 @@
           />
         </a-form-item>
         <a-form-item v-if="selectedRegion" label="区域">
-          <a-tag color="blue">{{ selectedRegion }}</a-tag>
-        </a-form-item>
-        <a-form-item label="模型白名单（OCI 管理面 ListModels）">
           <a-select
-            v-model:value="modelPick"
-            mode="multiple"
-            :options="modelOptions"
-            :loading="modelsLoading"
-            placeholder="留空表示不限制模型"
-            allow-clear
-            :show-search="false"
-            :filter-option="filterModel"
-            :max-tag-count="6"
-            :max-tag-placeholder="(omittedValues: any[]) => `+${omittedValues?.length || 0}`"
+            v-if="singleRegionOptions.length > 1"
+            v-model:value="singleRegion"
+            :options="singleRegionOptions"
+            :loading="singleRegionsLoading"
+            placeholder="选择该租户订阅的 Region"
+            :filter-option="filterOciRegionSelectOption"
             :get-popup-container="selectPopupContainer"
-            :dropdown-style="{ maxHeight: 'min(70vh, 480px)' }"
+            @change="onSingleRegionChange"
           />
-          <div class="sub-muted form-help">
-            留空即允许全部模型；保存后，此租户的单账户网关只允许所选模型。
-          </div>
+          <a-tag v-else color="blue">{{ selectedRegion }}</a-tag>
         </a-form-item>
-        <a-space wrap>
-          <a-button type="primary" :loading="modelsLoading" :disabled="!ociUserId" @click="() => loadModelsIfNeeded(true)">
-            刷新模型列表
-          </a-button>
-          <a-button :loading="modelSelectionSaving" :disabled="!ociUserId" @click="saveModelSelection">
-            保存
-          </a-button>
-        </a-space>
+        <OracleAiModelSummary
+          :model-value="modelPick"
+          :options="modelOptions"
+          :loading="modelsLoading"
+          :saving="modelSelectionSaving"
+          :disabled="!ociUserId"
+          :last-refreshed-text="modelsLastRefreshedText"
+          @refresh-models="() => loadModelsIfNeeded(true)"
+          @save-selection="saveModelSelection"
+          @open-picker="modelPickerOpen = true"
+        />
       </a-form>
     </a-card>
 
@@ -159,46 +153,78 @@
         show-icon
         message="由服务端本机访问 OpenAI 兼容端口快速验证（绕过浏览器跨域和防火墙差异）。"
       />
-      <a-form layout="vertical">
-        <a-form-item label="API Key（sk-...，仅保存在浏览器本地）">
-          <a-input-password v-model:value="chatApiKey" placeholder="sk-..." allow-clear />
-        </a-form-item>
-        <a-form-item label="模型">
-          <a-select
-            v-model:value="chatModel"
-            :options="chatModelOptions"
-            :disabled="!chatModelOptions.length"
-            placeholder="先在上方拉取模型列表"
-            show-search
-            :filter-option="filterModel"
-            allow-clear
-            :get-popup-container="selectPopupContainer"
-            :dropdown-style="{ maxHeight: 'min(70vh, 480px)' }"
-          />
-        </a-form-item>
-        <a-form-item label="用户消息">
-          <a-textarea v-model:value="chatUserText" :rows="4" placeholder="输入要测试的内容…" />
-        </a-form-item>
-        <a-space wrap>
-          <a-button
-            type="primary"
-            :loading="chatSending"
-            :disabled="!chatApiKey || !chatModel || !chatUserText"
-            @click="sendChatTest"
-          >
-            发送测试
-          </a-button>
-          <a-button :disabled="chatSending" @click="clearChatTest">清空</a-button>
-        </a-space>
-      </a-form>
+      <div class="single-grid">
+        <a-form layout="vertical" class="form-stack">
+          <a-form-item label="API Key（sk-...，仅保存在浏览器本地）">
+            <a-input-password v-model:value="chatApiKey" placeholder="sk-..." allow-clear />
+          </a-form-item>
+          <a-form-item label="模型">
+            <a-select
+              v-model:value="chatModel"
+              :options="chatModelOptions"
+              :disabled="!chatModelOptions.length"
+              placeholder="先在上方拉取模型列表"
+              show-search
+              :filter-option="filterModel"
+              allow-clear
+              :get-popup-container="selectPopupContainer"
+              :dropdown-style="{ maxHeight: 'min(70vh, 480px)' }"
+            />
+          </a-form-item>
+          <a-form-item label="用户消息">
+            <a-textarea v-model:value="chatUserText" :rows="4" placeholder="输入要测试的内容…" />
+          </a-form-item>
+          <a-space wrap>
+            <a-button
+              type="primary"
+              :loading="chatSending"
+              :disabled="!chatApiKey || !chatModel || !chatUserText"
+              @click="sendChatTest"
+            >
+              发送测试
+            </a-button>
+            <a-button :disabled="chatSending" @click="clearChatTest">清空</a-button>
+          </a-space>
+        </a-form>
 
-      <div v-if="chatError" class="chat-box chat-error">
-        <div class="chat-label">错误</div>
-        <pre class="chat-pre">{{ chatError }}</pre>
-      </div>
-      <div v-if="chatAssistantText" class="chat-box">
-        <div class="chat-label">Assistant</div>
-        <pre class="chat-pre">{{ chatAssistantText }}</pre>
+        <div class="form-stack">
+          <div v-if="chatError" class="chat-box chat-error">
+            <div class="chat-label">错误</div>
+            <pre class="chat-pre">{{ chatError }}</pre>
+          </div>
+          <div v-else class="chat-box">
+            <div class="chat-label">Assistant</div>
+            <pre class="chat-pre">{{ chatAssistantText || '' }}</pre>
+          </div>
+          <div class="chat-recent-block">
+            <div class="chat-label">最近请求</div>
+            <div class="table-wrap">
+              <table class="table-compact chat-recent-table">
+                <thead>
+                  <tr>
+                    <th>模型</th>
+                    <th>协议</th>
+                    <th>状态</th>
+                    <th>耗时</th>
+                    <th>Tokens</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr v-for="item in chatRecentRequests" :key="item.id">
+                    <td>{{ item.model }}</td>
+                    <td>{{ item.protocol }}</td>
+                    <td><a-tag :color="item.ok ? 'green' : 'red'">{{ item.statusText }}</a-tag></td>
+                    <td>{{ item.latencyText }}</td>
+                    <td>{{ item.tokensText }}</td>
+                  </tr>
+                  <tr v-if="!chatRecentRequests.length">
+                    <td colspan="5" class="sub-muted">暂无测试请求</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
       </div>
     </a-card>
 
@@ -317,17 +343,14 @@
 
       <a-tab-pane key="lb" tab="负载均衡">
         <a-card title="固定负载均衡入口" :bordered="false" class="mt-card" :loading="lbOverviewLoading">
-          <a-space direction="vertical" style="width: 100%">
-            <div class="sub top-line">
+          <div class="lb-summary-row">
+            <div>
+              <div class="sub top-line lb-base-line">
               <div>
                 Base：
                 <code>http://&lt;主机或域名&gt;:{{ lbPort }}/v1</code>
                 <span class="sub-muted">（Header：<code>Authorization: Bearer sk-lb-...</code>）</span>
               </div>
-              <a-space>
-                <a-tag :color="lbRunning ? 'green' : 'orange'">{{ lbRunning ? '监听中' : '未监听' }}</a-tag>
-                <a-button size="small" :loading="lbOverviewLoading || lbKeysLoading || lbMembersLoading" @click="loadLbAll">刷新</a-button>
-              </a-space>
             </div>
             <a-typography-paragraph copyable :content="lbIpBaseUrl">
               <code class="code-wrap">{{ lbIpBaseUrl }}</code>
@@ -337,7 +360,12 @@
               <span>成员：{{ lbOverview.memberCount ?? lbMembers.length }}</span>
               <span>端口：{{ lbPort }}</span>
             </div>
-          </a-space>
+            </div>
+            <div class="lb-summary-actions">
+              <a-tag :color="lbRunning ? 'green' : 'orange'">{{ lbRunning ? '监听中' : '未监听' }}</a-tag>
+              <a-button size="small" :loading="lbOverviewLoading || lbKeysLoading || lbMembersLoading" @click="loadLbAll">刷新</a-button>
+            </div>
+          </div>
         </a-card>
 
         <a-card title="LB Key" :bordered="false" class="mt-card">
@@ -445,8 +473,10 @@
                     </a-tooltip>
                     <a-progress
                       v-if="record.requestLimit5h"
+                      class="lb-usage-progress"
+                      :class="{ 'lb-usage-progress-warn': lbUsageIsWarn(record, record.usage5h, record.requestLimit5h, '5h') }"
                       :percent="lbUsagePercent(record.usage5h, record.requestLimit5h)"
-                      :status="lbUsageProgressStatus(record.usage5h, record.requestLimit5h)"
+                      :show-info="false"
                       size="small"
                     />
                     <div v-else class="lb-usage-unlimited">
@@ -459,8 +489,10 @@
                     </a-tooltip>
                     <a-progress
                       v-if="record.requestLimit7d"
+                      class="lb-usage-progress"
+                      :class="{ 'lb-usage-progress-warn': lbUsageIsWarn(record, record.usage7d, record.requestLimit7d, '7d') }"
                       :percent="lbUsagePercent(record.usage7d, record.requestLimit7d)"
-                      :status="lbUsageProgressStatus(record.usage7d, record.requestLimit7d)"
+                      :show-info="false"
                       size="small"
                     />
                     <div v-else class="lb-usage-unlimited">
@@ -544,8 +576,10 @@
                     </a-tooltip>
                     <a-progress
                       v-if="record.requestLimit5h"
+                      class="lb-usage-progress"
+                      :class="{ 'lb-usage-progress-warn': lbUsageIsWarn(record, record.usage5h, record.requestLimit5h, '5h') }"
                       :percent="lbUsagePercent(record.usage5h, record.requestLimit5h)"
-                      :status="lbUsageProgressStatus(record.usage5h, record.requestLimit5h)"
+                      :show-info="false"
                       size="small"
                     />
                     <div v-else class="lb-usage-unlimited">
@@ -558,8 +592,10 @@
                     </a-tooltip>
                     <a-progress
                       v-if="record.requestLimit7d"
+                      class="lb-usage-progress"
+                      :class="{ 'lb-usage-progress-warn': lbUsageIsWarn(record, record.usage7d, record.requestLimit7d, '7d') }"
                       :percent="lbUsagePercent(record.usage7d, record.requestLimit7d)"
-                      :status="lbUsageProgressStatus(record.usage7d, record.requestLimit7d)"
+                      :show-info="false"
                       size="small"
                     />
                     <div v-else class="lb-usage-unlimited">
@@ -657,6 +693,15 @@
         <OracleAiDiagnosticsPanel v-if="activeModeTab === 'diagnostics'" />
       </a-tab-pane>
     </a-tabs>
+
+    <OracleAiModelPickerModal
+      v-model:open="modelPickerOpen"
+      v-model="modelPick"
+      :options="modelOptions"
+      :saving="modelSelectionSaving"
+      :disabled="!ociUserId"
+      @confirm="saveModelSelectionFromPicker"
+    />
 
     <a-modal :mask-closable="false" :keyboard="false" v-model:open="keyModalOpen" title="新密钥" :confirm-loading="keyCreating" @ok="submitKey">
       <a-form layout="vertical">
@@ -1060,6 +1105,8 @@ import {
 } from '../api/oracleAi'
 
 const OracleAiDiagnosticsPanel = defineAppAsyncComponent(() => import('../components/oracle-ai/OracleAiDiagnosticsPanel.vue'))
+const OracleAiModelPickerModal = defineAppAsyncComponent(() => import('../components/oracle-ai/OracleAiModelPickerModal.vue'))
+const OracleAiModelSummary = defineAppAsyncComponent(() => import('../components/oracle-ai/OracleAiModelSummary.vue'))
 
 const tenantsLoading = ref(false)
 const activeModeTab = ref('single')
@@ -1072,6 +1119,9 @@ const openaiPath = '/v1'
 const ociUserId = ref<string | undefined>(undefined)
 // 注意：后端 id 可能是 number；这里统一用 string，避免 localStorage 回填比较失败
 const tenantOptions = ref<{ label: string; value: string; ociRegion: string }[]>([])
+const singleRegionsLoading = ref(false)
+const singleRegionOptions = ref<{ label: string; value: string }[]>([])
+const singleRegion = ref<string | undefined>(undefined)
 const keys = ref<any[]>([])
 const portBindings = ref<any[]>([])
 const portBindingsLoading = ref(false)
@@ -1174,6 +1224,8 @@ const defaultMaxTokens = ref(2048)
 const defaultMaxTokensInput = ref<number | null>(2048)
 const savingDefaultMaxTokens = ref(false)
 const modelSelectionSaving = ref(false)
+const modelPickerOpen = ref(false)
+const modelsLastRefreshedAt = ref('')
 
 const keyViewOpen = ref(false)
 const keyViewRow = ref<any | null>(null)
@@ -1188,6 +1240,17 @@ const chatUserText = ref('')
 const chatAssistantText = ref('')
 const chatError = ref('')
 const chatSending = ref(false)
+const chatRecentRequests = ref<
+  {
+    id: string
+    model: string
+    protocol: string
+    ok: boolean
+    statusText: string
+    latencyText: string
+    tokensText: string
+  }[]
+>([])
 
 const keyColumns = [
   { title: '备注', dataIndex: 'name', key: 'name' },
@@ -1256,7 +1319,12 @@ function selectPopupContainer() {
 }
 
 const selectedRegion = computed(() => {
-  return tenantOptions.value.find((x) => x.value === ociUserId.value)?.ociRegion
+  return singleRegion.value || tenantOptions.value.find((x) => x.value === ociUserId.value)?.ociRegion
+})
+
+const modelsLastRefreshedText = computed(() => {
+  if (!modelsLastRefreshedAt.value) return ''
+  return formatKeyTime(modelsLastRefreshedAt.value)
 })
 
 function regionDisplay(region?: string) {
@@ -1395,7 +1463,7 @@ function persistState() {
 }
 
 async function saveModelSelection() {
-  if (!selectionPersistEnabled.value || !ociUserId.value) return
+  if (!selectionPersistEnabled.value || !ociUserId.value) return false
   modelSelectionSaving.value = true
   try {
     const r: any = await saveOracleAiModelWhitelist({
@@ -1405,11 +1473,21 @@ async function saveModelSelection() {
     const saved = Array.isArray(r?.data?.allowedModels) ? r.data.allowedModels : modelPick.value || []
     modelPick.value = saved.filter((x: any) => typeof x === 'string')
     message.success(modelPick.value?.length ? '已保存所选模型' : '已保存为不限制模型')
+    return true
   } catch (e: any) {
     message.error(e?.message || '保存失败')
+    return false
   } finally {
     modelSelectionSaving.value = false
   }
+}
+
+async function saveModelSelectionFromPicker(models?: string[]) {
+  if (Array.isArray(models)) {
+    modelPick.value = normalizeModelSelection(models)
+  }
+  const ok = await saveModelSelection()
+  if (ok) modelPickerOpen.value = false
 }
 
 /** 租户列表已就绪后，从 localStorage 再应用一次，抵消 Select 在 options 空时的误清空 */
@@ -1426,10 +1504,14 @@ function reapplyOracleAiSelectionFromStorage() {
     }
     if (ociUserId.value && tenantOptions.value.some((x) => x.value === ociUserId.value)) {
       const tenantId = ociUserId.value
-      loadSavedModelWhitelist(tenantId).finally(() => {
+      loadSingleRegions(tenantId).finally(() => {
         if (ociUserId.value === tenantId) {
-          loadModelsIfNeeded(false)
-          refreshKeys()
+          loadSavedModelWhitelist(tenantId).finally(() => {
+            if (ociUserId.value === tenantId) {
+              loadModelsIfNeeded(false)
+              refreshKeys()
+            }
+          })
         }
       })
     }
@@ -1661,6 +1743,37 @@ async function loadSavedModelWhitelist(tenantId?: string) {
   }
 }
 
+async function loadSingleRegions(tenantId?: string, preferred?: string) {
+  const id = String(tenantId || '').trim()
+  singleRegionOptions.value = []
+  singleRegion.value = undefined
+  if (!id) return
+  singleRegionsLoading.value = true
+  try {
+    const r: any = await listOciRegionOptions(id)
+    const rows = Array.isArray(r?.data) ? r.data : []
+    const options = rows
+      .map((x: any) => ({
+        value: String(x.regionId || '').trim(),
+        label: x.label || String(x.regionId || '').trim(),
+      }))
+      .filter((x: any) => x.value)
+    const tenantDefault = tenantOptions.value.find((x) => x.value === id)?.ociRegion || ''
+    const selected = String(preferred || tenantDefault || '').trim()
+    if (selected && !options.some((x: any) => x.value === selected)) {
+      options.unshift({ value: selected, label: regionDisplay(selected) })
+    }
+    singleRegionOptions.value = options
+    singleRegion.value = selected || options[0]?.value
+  } catch {
+    const fallback = String(preferred || tenantOptions.value.find((x) => x.value === id)?.ociRegion || '').trim()
+    singleRegionOptions.value = fallback ? [{ value: fallback, label: regionDisplay(fallback) }] : []
+    singleRegion.value = fallback || undefined
+  } finally {
+    singleRegionsLoading.value = false
+  }
+}
+
 async function onTenantChange() {
   if (restoring.value) {
     persistState()
@@ -1668,11 +1781,19 @@ async function onTenantChange() {
   }
   modelOptions.value = []
   modelPick.value = []
+  modelsLastRefreshedAt.value = ''
   persistState()
   const tenantId = ociUserId.value
+  await loadSingleRegions(tenantId)
   await loadSavedModelWhitelist(tenantId)
   await loadModelsIfNeeded(false)
   refreshKeys()
+}
+
+async function onSingleRegionChange() {
+  modelOptions.value = []
+  modelsLastRefreshedAt.value = ''
+  await loadModelsIfNeeded(true)
 }
 
 watch(
@@ -1744,7 +1865,7 @@ async function loadModelsIfNeeded(alertOnErr: boolean) {
   if (!ociUserId.value) return
   modelsLoading.value = true
   try {
-    const r: any = await listOpenAiModels({ ociUserId: ociUserId.value })
+    const r: any = await listOpenAiModels({ ociUserId: ociUserId.value, ociRegion: selectedRegion.value })
     modelOptions.value = mapModelOptions(r?.data)
 
     // 防止“已选模型”因 options 刷新而丢失：把已选 value 补进 options（只做展示）
@@ -1754,6 +1875,7 @@ async function loadModelsIfNeeded(alertOnErr: boolean) {
     ])
 
     syncChatModelSelection()
+    modelsLastRefreshedAt.value = new Date().toISOString()
     if (!modelOptions.value.length && alertOnErr) {
       message.info('无模型条目或 OCI 返回与预期结构不同，请查看后端日志。')
     }
@@ -1771,26 +1893,36 @@ async function sendChatTest() {
   chatSending.value = true
   chatAssistantText.value = ''
   chatError.value = ''
+  const startedAt = typeof performance !== 'undefined' ? performance.now() : Date.now()
+  const addRecent = (item: { model: string; protocol: string; ok: boolean; statusText: string; tokensText?: string }) => {
+    const endedAt = typeof performance !== 'undefined' ? performance.now() : Date.now()
+    chatRecentRequests.value = [
+      {
+        id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        latencyText: `${Math.max(0, Math.round(endedAt - startedAt))}ms`,
+        tokensText: item.tokensText || '-',
+        ...item,
+      },
+      ...chatRecentRequests.value,
+    ].slice(0, 6)
+  }
   try {
     const model = String(chatModel.value || '')
     const isMultiAgent = model.toLowerCase().includes('multi-agent') || model.toLowerCase().includes('multiagent')
+    const protocol = isMultiAgent ? 'responses · json' : 'chat/completions · json'
 
-    const payload = isMultiAgent
-      ? {
-          model,
-          input: [
-            {
-              role: 'user',
-              content: [{ type: 'input_text', text: chatUserText.value }],
-            },
-          ],
-          stream: false,
-        }
-      : {
-          model,
-          messages: [{ role: 'user', content: chatUserText.value }],
-          stream: false,
-        }
+    const tokenTextFromJson = (json: any) => {
+      const usage = json?.usage || {}
+      const total =
+        usage?.total_tokens ??
+        usage?.totalTokens ??
+        usage?.output_tokens ??
+        usage?.outputTokens ??
+        usage?.completion_tokens ??
+        usage?.completionTokens
+      const n = Number(total)
+      return Number.isFinite(n) && n >= 0 ? String(n) : '-'
+    }
 
     const parseAndSet = (raw: string) => {
       let json: any
@@ -1798,7 +1930,7 @@ async function sendChatTest() {
         json = raw ? JSON.parse(raw) : {}
       } catch {
         chatAssistantText.value = raw
-        return
+        return '-'
       }
       if (isMultiAgent) {
         const outText =
@@ -1806,11 +1938,12 @@ async function sendChatTest() {
           json?.output?.[0]?.content?.find?.((x: any) => x?.type === 'output_text')?.text ||
           json?.output?.[0]?.content?.find?.((x: any) => x?.type === 'text')?.text
         chatAssistantText.value = typeof outText === 'string' && outText ? outText : JSON.stringify(json, null, 2)
-        return
+        return tokenTextFromJson(json)
       }
       const c0 = json?.choices?.[0]
       const content = c0?.message?.content
       chatAssistantText.value = typeof content === 'string' ? content : JSON.stringify(json, null, 2)
+      return tokenTextFromJson(json)
     }
 
     // 为避免浏览器环境下的 HTTPS/CORS/网络策略导致失败，统一走同源 /api 代请求（服务端本机访问 OpenAI 兼容端口）。
@@ -1823,11 +1956,19 @@ async function sendChatTest() {
     const body = r?.data?.body ?? r?.body ?? ''
     if (typeof status === 'number' && status >= 400) {
       chatError.value = `HTTP ${status}\n${String(body || '')}`
+      addRecent({ model, protocol, ok: false, statusText: `HTTP ${status}` })
       return
     }
-    parseAndSet(String(body || ''))
+    const tokensText = parseAndSet(String(body || ''))
+    addRecent({ model, protocol, ok: true, statusText: `HTTP ${status || 200}`, tokensText })
   } catch (e: any) {
     chatError.value = e?.message || String(e)
+    addRecent({
+      model: String(chatModel.value || '-'),
+      protocol: String(chatModel.value || '').toLowerCase().includes('multi-agent') ? 'responses · json' : 'chat/completions · json',
+      ok: false,
+      statusText: '失败',
+    })
   } finally {
     chatSending.value = false
   }
@@ -2493,8 +2634,16 @@ function lbUsagePercent(stats: any, limit?: number | null) {
   return Math.min(100, Math.round((requests / lim) * 100))
 }
 
-function lbUsageProgressStatus(stats: any, limit?: number | null) {
-  return lbUsagePercent(stats, limit) >= 100 ? 'exception' : 'normal'
+function lbUsageIsWarn(row: any, stats: any, limit?: number | null, window?: '5h' | '7d') {
+  if (lbUsagePercent(stats, limit) >= 100) return true
+  if (window !== '5h') return false
+  const health = String(row?.healthStatus || '').toLowerCase()
+  const binding = String(row?.bindingStatus || '').toLowerCase()
+  return isLbCoolingDown(row)
+    || health === 'cooling'
+    || health === 'recovering'
+    || health === 'unhealthy'
+    || binding === 'failed'
 }
 
 function lbUsageTooltip(stats: any, limit?: number | null) {
@@ -2583,8 +2732,9 @@ async function viewKey(k: any) {
 
 <style scoped>
 .oracle-ai-page {
-  max-width: 1200px;
-  margin: 0 auto;
+  width: 100%;
+  max-width: none;
+  margin: 0;
 }
 .sub {
   line-height: 1.6;
@@ -2595,21 +2745,203 @@ async function viewKey(k: any) {
   font-size: 12px;
   padding: 0 4px;
 }
-.sub-muted { color: var(--text-sub, #666); opacity: 0.9; }
+.sub-muted { color: var(--text-sub, #666); opacity: 0.9; font-size: 13px; line-height: 1.5; }
 .top-line { display: flex; justify-content: space-between; gap: 12px; align-items: center; flex-wrap: wrap; }
+.lb-base-line { margin: 0; }
 .proxy-switch { margin-left: auto; }
 .sub-bottom {
   margin-bottom: 24px;
 }
-.key-toolbar {
-  /* 12px - 16px：按钮行与表格之间的安全间距 */
-  margin-bottom: 14px;
-}
+.key-toolbar { margin-bottom: 14px; }
 .key-toolbar :deep(.ant-btn) {
   max-width: 100%;
 }
 .mb-card { margin-bottom: 16px; }
 .mt-card { margin-top: 8px; }
+.oracle-ai-page :deep(.ant-tabs-nav) {
+  margin: 0 0 8px;
+}
+.oracle-ai-page :deep(.ant-tabs-nav::before) {
+  border-bottom-color: var(--border) !important;
+}
+.oracle-ai-page :deep(.ant-tabs-tab) {
+  height: 46px;
+  padding: 0 2px;
+  color: var(--text-sub);
+}
+.oracle-ai-page :deep(.ant-tabs-tab + .ant-tabs-tab) {
+  margin-left: 24px;
+}
+.oracle-ai-page :deep(.ant-tabs-tab-active .ant-tabs-tab-btn) {
+  color: var(--primary) !important;
+}
+.oracle-ai-page :deep(.ant-tabs-ink-bar) {
+  height: 2px !important;
+  border-radius: 999px;
+}
+.oracle-ai-page :deep(.ant-card) {
+  width: 100%;
+  margin-top: 8px;
+  border: 1px solid var(--border) !important;
+  border-radius: var(--radius-lg) !important;
+  background: var(--bg-card) !important;
+  box-shadow: var(--shadow-card, 0 2px 12px -2px rgba(0, 0, 0, 0.3));
+  backdrop-filter: blur(12px);
+  overflow: visible;
+}
+.oracle-ai-page :deep(.ant-card-head) {
+  min-height: 56px;
+  padding: 0 24px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-main);
+  font-weight: 600;
+}
+.oracle-ai-page :deep(.ant-card-body) {
+  padding: 24px;
+}
+.oracle-ai-page :deep(.ant-btn) {
+  height: 32px;
+  padding: 0 15px;
+  border-color: var(--border);
+  border-radius: var(--radius-md) !important;
+  background: var(--bg-card);
+  color: var(--text-main);
+  font-weight: 500;
+}
+.oracle-ai-page :deep(.ant-btn-sm) {
+  height: 28px;
+  padding: 0 10px;
+  font-size: 13px;
+}
+.oracle-ai-page :deep(.ant-btn-primary) {
+  border-color: var(--primary) !important;
+  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%) !important;
+  color: #fff !important;
+  font-weight: 600;
+  box-shadow: 0 4px 10px -2px rgba(99, 102, 241, 0.4);
+}
+.oracle-ai-page :deep(.ant-btn-link) {
+  border-color: transparent !important;
+  background: transparent !important;
+  color: var(--primary) !important;
+  padding-left: 4px;
+  padding-right: 4px;
+}
+.oracle-ai-page :deep(.ant-form-item) {
+  margin-bottom: 14px;
+}
+.oracle-ai-page :deep(.ant-form-item-label > label) {
+  color: var(--text-sub);
+  font-size: 13px;
+  line-height: 1.4;
+}
+.oracle-ai-page :deep(.ant-input),
+.oracle-ai-page :deep(.ant-input-number),
+.oracle-ai-page :deep(.ant-input-number-input),
+.oracle-ai-page :deep(.ant-select-selector),
+.oracle-ai-page :deep(.ant-input-affix-wrapper) {
+  min-height: 32px;
+  border-color: var(--border) !important;
+  border-radius: var(--radius-md) !important;
+  background: var(--input-bg) !important;
+  color: var(--text-main) !important;
+}
+.oracle-ai-page :deep(.ant-input-number) {
+  width: 100%;
+}
+.oracle-ai-page :deep(.ant-select-selection-item),
+.oracle-ai-page :deep(textarea.ant-input) {
+  color: var(--text-main) !important;
+}
+.oracle-ai-page :deep(.ant-select-selection-placeholder),
+.oracle-ai-page :deep(.ant-input::placeholder),
+.oracle-ai-page :deep(textarea.ant-input::placeholder) {
+  color: var(--text-sub) !important;
+}
+.oracle-ai-page :deep(.ant-tag) {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  border-radius: 6px !important;
+  font-size: 12px;
+  line-height: 1;
+  margin-inline-end: 4px;
+}
+.oracle-ai-page :deep(.ant-tag-green) {
+  color: #86efac !important;
+  background: rgba(34, 197, 94, 0.12) !important;
+  border-color: rgba(34, 197, 94, 0.22) !important;
+}
+.oracle-ai-page :deep(.ant-tag-blue) {
+  color: #93c5fd !important;
+  background: rgba(59, 130, 246, 0.12) !important;
+  border-color: rgba(59, 130, 246, 0.22) !important;
+}
+.oracle-ai-page :deep(.ant-tag-red) {
+  color: #fca5a5 !important;
+  background: rgba(239, 68, 68, 0.12) !important;
+  border-color: rgba(239, 68, 68, 0.22) !important;
+}
+.oracle-ai-page :deep(.ant-tag-orange) {
+  color: #fcd34d !important;
+  background: rgba(245, 158, 11, 0.12) !important;
+  border-color: rgba(245, 158, 11, 0.22) !important;
+}
+.oracle-ai-page :deep(.ant-tag-default) {
+  color: var(--text-sub) !important;
+  background: rgba(148, 163, 184, 0.1) !important;
+  border-color: rgba(148, 163, 184, 0.18) !important;
+}
+.oracle-ai-page :deep(.ant-table-wrapper) {
+  width: 100%;
+}
+.oracle-ai-page :deep(.ant-table) {
+  color: var(--text-main);
+  font-size: 14px;
+  background: transparent;
+}
+.oracle-ai-page :deep(.ant-table-container),
+.oracle-ai-page :deep(.ant-table-thead > tr > th),
+.oracle-ai-page :deep(.ant-table-tbody > tr > td) {
+  background: transparent;
+}
+.oracle-ai-page :deep(.ant-table-thead > tr > th),
+.oracle-ai-page :deep(.ant-table-tbody > tr > td) {
+  padding: 13px 16px;
+}
+.oracle-ai-page :deep(.ant-table-thead > tr > th) {
+  color: var(--text-sub);
+  font-weight: 600;
+  font-size: 13px;
+}
+.table-wrap {
+  width: 100%;
+  overflow-x: auto;
+}
+.table-compact {
+  width: 100%;
+  min-width: 720px;
+  border-collapse: collapse;
+  color: var(--text-main);
+  font-size: 14px;
+}
+.table-compact th,
+.table-compact td {
+  padding: 13px 16px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: middle;
+  background: transparent;
+  white-space: nowrap;
+}
+.table-compact th {
+  color: var(--text-sub);
+  font-weight: 600;
+  font-size: 13px;
+}
+.table-compact tbody tr:last-child td {
+  border-bottom: 0;
+}
 .ma-hint {
   display: block;
   font-size: 12px;
@@ -2627,6 +2959,30 @@ async function viewKey(k: any) {
   gap: 8px 16px;
   color: var(--text-sub, #666);
   font-size: 13px;
+  margin-top: 8px;
+}
+.lb-summary-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  align-items: center;
+}
+.lb-summary-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  white-space: nowrap;
+}
+.single-grid {
+  display: grid;
+  grid-template-columns: minmax(460px, 0.9fr) minmax(520px, 1.1fr);
+  gap: 8px;
+  align-items: start;
+  margin-top: 8px;
+}
+.form-stack {
+  display: grid;
+  gap: 14px;
 }
 .lb-usage-pair {
   display: grid;
@@ -2653,8 +3009,23 @@ async function viewKey(k: any) {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.lb-usage-progress :deep(.ant-progress-line),
 .lb-usage-pair :deep(.ant-progress-line) {
   margin-bottom: 0;
+}
+.lb-usage-progress :deep(.ant-progress-inner) {
+  height: 6px !important;
+  border-radius: 999px;
+  background: rgba(148, 163, 184, 0.16);
+  border: 1px solid rgba(148, 163, 184, 0.1);
+}
+.lb-usage-progress :deep(.ant-progress-bg) {
+  height: 6px !important;
+  border-radius: 999px;
+  background: linear-gradient(90deg, #60a5fa, #818cf8) !important;
+}
+.lb-usage-progress.lb-usage-progress-warn :deep(.ant-progress-bg) {
+  background: linear-gradient(90deg, #f59e0b, #f97316) !important;
 }
 .lb-usage-unlimited {
   display: grid;
@@ -2730,7 +3101,7 @@ async function viewKey(k: any) {
 }
 .model-summary {
   display: inline-block;
-  max-width: 150px;
+  max-width: 160px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2813,20 +3184,52 @@ async function viewKey(k: any) {
 .key-masked { font-size: 12px; user-select: none; }
 .key-card-m { padding: 8px; border: 1px solid var(--border, #e8e8e8); border-radius: 6px; margin-bottom: 8px; }
 .key-card-m .p { font-size: 12px; }
-.chat-box {
-  margin-top: 12px;
-  border: 1px solid var(--border, #e8e8e8);
-  border-radius: 8px;
-  padding: 10px;
+.chat-box,
+.chat-recent-block {
+  display: grid;
+  gap: 7px;
+  min-width: 0;
 }
-.chat-error { border-color: #ffccc7; }
-.chat-label { font-weight: 600; margin-bottom: 6px; }
+.chat-error .chat-pre { border-color: rgba(239, 68, 68, 0.45); }
+.chat-label {
+  color: var(--text-sub);
+  font-size: 13px;
+  line-height: 1.4;
+}
 .chat-pre {
+  min-height: 104px;
   margin: 0;
+  padding: 12px;
+  border: 1px solid var(--border, #e8e8e8);
+  border-radius: var(--radius-md, 12px);
+  background: rgba(15, 23, 42, 0.52);
+  color: #dbeafe;
   white-space: pre-wrap;
   word-break: break-word;
   font-size: 12px;
   line-height: 1.55;
+}
+.chat-recent-table {
+  min-width: 620px;
+}
+:global([data-theme="light"]) .oracle-ai-page :deep(.ant-tag-green) {
+  color: #047857 !important;
+  background: rgba(16, 185, 129, 0.11) !important;
+  border-color: rgba(16, 185, 129, 0.28) !important;
+}
+:global([data-theme="light"]) .oracle-ai-page :deep(.ant-tag-blue) {
+  color: #1d4ed8 !important;
+  background: rgba(59, 130, 246, 0.1) !important;
+  border-color: rgba(59, 130, 246, 0.24) !important;
+}
+:global([data-theme="light"]) .oracle-ai-page :deep(.ant-tag-orange) {
+  color: #b45309 !important;
+  background: rgba(245, 158, 11, 0.12) !important;
+  border-color: rgba(245, 158, 11, 0.26) !important;
+}
+:global([data-theme="light"]) .oracle-ai-page .chat-pre {
+  background: rgba(248, 250, 252, 0.72);
+  color: #1e3a8a;
 }
 @media (max-width: 767px) {
   .oracle-ai-page {
@@ -2850,6 +3253,18 @@ async function viewKey(k: any) {
   }
   .lb-usage-pair {
     min-width: 0;
+  }
+  .lb-summary-row {
+    grid-template-columns: 1fr;
+  }
+  .lb-summary-actions {
+    justify-content: flex-start;
+  }
+  .single-grid {
+    grid-template-columns: 1fr;
+  }
+  .table-compact {
+    min-width: 620px;
   }
   .mobile-model-select {
     width: 100%;

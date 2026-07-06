@@ -581,7 +581,7 @@ onUnmounted(() => {
 <style scoped>
 .oracle-ai-diagnostics {
   display: grid;
-  gap: 12px;
+  gap: 8px;
 }
 .diagnostic-head {
   display: flex;
@@ -589,9 +589,26 @@ onUnmounted(() => {
   gap: 12px;
   align-items: center;
   flex-wrap: wrap;
+  margin-top: 8px;
+  margin-bottom: 4px;
+}
+.diagnostic-head :deep(.ant-segmented) {
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: rgba(15, 23, 42, 0.48);
+}
+.diagnostic-head :deep(.ant-segmented-item) {
+  min-width: 88px;
+  border-radius: 8px;
+  color: var(--text-sub);
+}
+.diagnostic-head :deep(.ant-segmented-item-selected) {
+  background: rgba(129, 140, 248, 0.18);
+  color: var(--text-main);
 }
 .diagnostic-card {
-  margin-top: 0;
+  margin-top: 8px;
 }
 .filter-bar {
   display: flex;
@@ -618,6 +635,10 @@ onUnmounted(() => {
 .diagnostic-table :deep(.ant-table-thead > tr > th),
 .diagnostic-table :deep(.ant-table-tbody > tr > td) {
   background: transparent;
+}
+.diagnostic-table :deep(.ant-table-thead > tr > th),
+.diagnostic-table :deep(.ant-table-tbody > tr > td) {
+  padding: 13px 16px;
 }
 .strong-line {
   font-weight: 600;
@@ -650,6 +671,7 @@ onUnmounted(() => {
   border-radius: 8px;
   padding: 10px;
   min-width: 0;
+  background: rgba(15, 23, 42, 0.22);
 }
 .metric-item span {
   display: block;
@@ -759,5 +781,11 @@ onUnmounted(() => {
   .metric-item b {
     font-size: 16px;
   }
+}
+:global([data-theme='light']) .diagnostic-head :deep(.ant-segmented) {
+  background: rgba(248, 250, 252, 0.72);
+}
+:global([data-theme='light']) .metric-item {
+  background: rgba(248, 250, 252, 0.72);
 }
 </style>
