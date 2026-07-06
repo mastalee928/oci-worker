@@ -34,55 +34,75 @@
         <a-button type="primary" :loading="requestsLoading" @click="loadRequests">查询</a-button>
       </div>
 
-      <a-table
-        v-if="!isMobile"
-        class="diagnostic-table"
-        :columns="requestColumns"
-        :data-source="requests"
-        :loading="requestsLoading"
-        row-key="id"
-        size="small"
-        :pagination="{ pageSize: 12, size: 'small' }"
-        :scroll="{ x: 1360 }"
-      >
-        <template #bodyCell="{ column, record }">
-          <template v-if="column.key === 'time'">
-            <div>{{ formatTime(record.createTime) }}</div>
-            <code>{{ shortId(record.requestId) }}</code>
-          </template>
-          <template v-else-if="column.key === 'member'">
-            <div class="strong-line">{{ requestMemberName(record) }}</div>
-            <div class="sub-line">{{ requestMemberMeta(record) }}</div>
-          </template>
-          <template v-else-if="column.key === 'model'">
-            <a-tooltip :title="record.model">
-              <span class="ellipsis">{{ record.model || '-' }}</span>
-            </a-tooltip>
-          </template>
-          <template v-else-if="column.key === 'protocol'">
-            <div>{{ record.requestPath || '-' }}</div>
-            <div class="sub-line">
-              {{ record.stream ? 'stream' : 'json' }} · tools {{ record.toolCount || 0 }}
-              <span v-if="record.bridgeType"> · {{ record.bridgeType }}</span>
-            </div>
-          </template>
-          <template v-else-if="column.key === 'status'">
-            <a-tag :color="requestStatusColor(record)">{{ requestStatusText(record) }}</a-tag>
-            <div v-if="record.errorType" class="sub-line">{{ record.errorType }}</div>
-          </template>
-          <template v-else-if="column.key === 'latency'">
-            <div>{{ formatMs(record.latencyMs) }}</div>
-            <div v-if="record.firstChunkMs" class="sub-line">首块 {{ formatMs(record.firstChunkMs) }}</div>
-          </template>
-          <template v-else-if="column.key === 'tokens'">
-            <div>{{ record.tokenCount || 0 }}</div>
-            <div class="sub-line">估 {{ record.estimatedPromptTokens || 0 }}</div>
-          </template>
-          <template v-else-if="column.key === 'action'">
-            <a-button size="small" @click="openRequestDetail(record)">详情</a-button>
-          </template>
-        </template>
-      </a-table>
+      <a-spin v-if="!isMobile && requestsLoading && !requests.length" />
+      <a-empty v-else-if="!isMobile && !requests.length" description="暂无日志" />
+      <template v-else-if="!isMobile">
+        <div class="table-wrap">
+          <table class="table-wide">
+            <thead>
+              <tr>
+                <th>时间/请求</th>
+                <th>成员</th>
+                <th>模型</th>
+                <th>协议</th>
+                <th>状态</th>
+                <th>耗时</th>
+                <th>Tokens</th>
+                <th>操作</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="record in requestPageRows" :key="record.id">
+                <td>
+                  {{ formatTime(record.createTime) }}
+                  <span class="muted-block"><code>{{ shortId(record.requestId) }}</code></span>
+                </td>
+                <td>
+                  <strong>{{ requestMemberName(record) }}</strong>
+                  <span class="muted-block">{{ requestMemberMeta(record) }}</span>
+                </td>
+                <td>
+                  <a-tooltip :title="record.model">
+                    <span class="model-summary">{{ record.model || '-' }}</span>
+                  </a-tooltip>
+                </td>
+                <td>
+                  {{ requestPathText(record.requestPath) }}
+                  <span class="muted-block">
+                    {{ record.stream ? 'stream' : 'json' }} · tools {{ record.toolCount || 0 }}
+                    <span v-if="record.bridgeType"> · {{ record.bridgeType }}</span>
+                  </span>
+                </td>
+                <td>
+                  <a-tag :color="requestStatusColor(record)">{{ requestStatusText(record) }}</a-tag>
+                  <span v-if="record.errorType" class="muted-block">{{ record.errorType }}</span>
+                </td>
+                <td>
+                  {{ formatMs(record.latencyMs) }}
+                  <span v-if="record.firstChunkMs" class="muted-block">首块 {{ formatMs(record.firstChunkMs) }}</span>
+                </td>
+                <td>
+                  {{ record.tokenCount || 0 }}
+                  <span class="muted-block">估 {{ record.estimatedPromptTokens || 0 }}</span>
+                </td>
+                <td><a-button size="small" @click="openRequestDetail(record)">详情</a-button></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="pagination">
+          <span>共 {{ requests.length }} 条</span>
+          <button
+            v-for="page in requestPages"
+            :key="page"
+            type="button"
+            :class="{ 'page-chip': page === requestPage }"
+            @click="requestPage = page"
+          >
+            {{ page }}
+          </button>
+        </div>
+      </template>
 
       <div v-else class="request-card-list">
         <a-spin v-if="requestsLoading" />
@@ -133,34 +153,39 @@
           <b>{{ health.recentFailureCount || 0 }}</b>
         </div>
       </div>
-      <a-table
-        class="diagnostic-table"
-        :columns="healthColumns"
-        :data-source="healthMembers"
-        :loading="healthLoading"
-        row-key="memberId"
-        size="small"
-        :pagination="{ pageSize: 10, size: 'small' }"
-        :scroll="{ x: 1080 }"
-      >
-        <template #bodyCell="{ column, record }">
-          <template v-if="column.key === 'member'">
-            <div class="strong-line">{{ record.bindingName || record.memberId || '-' }}</div>
-            <div class="sub-line">{{ record.port || '-' }} · {{ record.tenantName || record.tenantUsername || '-' }}</div>
-          </template>
-          <template v-else-if="column.key === 'region'">
-            {{ record.ociRegion || record.tenantDefaultRegion || '-' }}
-          </template>
-          <template v-else-if="column.key === 'health'">
-            <a-tag :color="healthColor(record.healthStatus)">{{ healthText(record.healthStatus) }}</a-tag>
-            <div v-if="record.healthMessage" class="sub-line">{{ record.healthMessage }}</div>
-          </template>
-          <template v-else-if="column.key === 'last'">
-            <div>{{ record.lastStatus ? `HTTP ${record.lastStatus}` : '-' }}</div>
-            <div v-if="record.lastErrorType" class="sub-line">{{ record.lastErrorType }}</div>
-          </template>
-        </template>
-      </a-table>
+      <a-spin v-if="healthLoading && !healthMembers.length" />
+      <a-empty v-else-if="!healthMembers.length" description="暂无健康数据" />
+      <div v-else class="table-wrap">
+        <table class="table-mid">
+          <thead>
+            <tr>
+              <th>成员</th>
+              <th>区域</th>
+              <th>健康</th>
+              <th>并发</th>
+              <th>最近状态</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="record in healthMembers" :key="record.memberId">
+              <td>
+                <strong>{{ record.bindingName || record.memberId || '-' }}</strong>
+                <span class="muted-block">{{ record.port || '-' }} · {{ record.tenantName || record.tenantUsername || '-' }}</span>
+              </td>
+              <td>{{ record.ociRegion || record.tenantDefaultRegion || '-' }}</td>
+              <td>
+                <a-tag :color="healthColor(record.healthStatus)">{{ healthText(record.healthStatus) }}</a-tag>
+                <span v-if="record.healthMessage" class="muted-block status-message">{{ record.healthMessage }}</span>
+              </td>
+              <td>{{ record.inFlight || 0 }}</td>
+              <td>
+                {{ record.lastStatus ? `HTTP ${record.lastStatus}` : '-' }}
+                <span v-if="record.lastErrorType" class="muted-block">{{ record.lastErrorType }}</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
     </a-card>
 
     <a-card v-else title="模型来源" :bordered="false" class="diagnostic-card">
@@ -170,33 +195,32 @@
         <span class="sub-line">强制刷新</span>
         <a-button type="primary" :loading="modelsLoading" @click="loadModels">查询</a-button>
       </div>
-      <a-table
-        class="diagnostic-table"
-        :columns="modelColumns"
-        :data-source="modelRows"
-        :loading="modelsLoading"
-        row-key="id"
-        size="small"
-        :pagination="{ pageSize: 12, size: 'small' }"
-        :scroll="{ x: 980 }"
-      >
-        <template #bodyCell="{ column, record }">
-          <template v-if="column.key === 'model'">
-            <a-tooltip :title="record.id">
-              <span class="ellipsis model-id">{{ record.id }}</span>
-            </a-tooltip>
-          </template>
-          <template v-else-if="column.key === 'capability'">
-            <a-tag :color="capabilityColor(record.ociworkerCapability)">{{ record.ociworkerCapability || '-' }}</a-tag>
-          </template>
-          <template v-else-if="column.key === 'sources'">
-            <span>{{ sourceCount(record) }}</span>
-          </template>
-          <template v-else-if="column.key === 'action'">
-            <a-button size="small" @click="openModelDetail(record)">来源</a-button>
-          </template>
-        </template>
-      </a-table>
+      <a-spin v-if="modelsLoading && !modelRows.length" />
+      <a-empty v-else-if="!modelRows.length" description="暂无模型来源" />
+      <div v-else class="table-wrap">
+        <table class="table-mid">
+          <thead>
+            <tr>
+              <th>模型</th>
+              <th>能力</th>
+              <th>来源</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="record in modelRows" :key="record.id">
+              <td>
+                <a-tooltip :title="record.id">
+                  <span class="model-id">{{ record.id }}</span>
+                </a-tooltip>
+              </td>
+              <td><a-tag :color="capabilityColor(record.ociworkerCapability)">{{ record.ociworkerCapability || '-' }}</a-tag></td>
+              <td>{{ sourceCount(record) }}</td>
+              <td><a-button size="small" @click="openModelDetail(record)">来源</a-button></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
       <div v-if="modelErrors.length" class="model-error-list">
         <div v-for="(item, idx) in modelErrors" :key="idx" class="model-error-row">
           <a-tag color="red">错误</a-tag>
@@ -294,30 +318,6 @@ const abortOptions = [
   { label: '未断开', value: 'false' },
 ]
 
-const requestColumns = [
-  { title: '时间 / 请求', key: 'time', width: 178 },
-  { title: '成员', key: 'member', width: 230 },
-  { title: '模型', key: 'model', width: 230 },
-  { title: '协议', key: 'protocol', width: 190 },
-  { title: '状态', key: 'status', width: 190 },
-  { title: '耗时', key: 'latency', width: 130 },
-  { title: 'Tokens', key: 'tokens', width: 110 },
-  { title: '操作', key: 'action', width: 90 },
-] as any
-const healthColumns = [
-  { title: '成员', key: 'member', width: 260 },
-  { title: '区域', key: 'region', width: 190 },
-  { title: '健康', key: 'health', width: 320 },
-  { title: '并发', dataIndex: 'inFlight', key: 'inFlight', width: 90 },
-  { title: '最近状态', key: 'last', width: 160 },
-] as any
-const modelColumns = [
-  { title: '模型', key: 'model', width: 420 },
-  { title: '能力', key: 'capability', width: 150 },
-  { title: '来源', key: 'sources', width: 110 },
-  { title: '操作', key: 'action', width: 90 },
-] as any
-
 const requests = ref<any[]>([])
 const health = ref<any>({})
 const models = ref<any>({})
@@ -327,6 +327,8 @@ const modelsLoading = ref(false)
 const autoRefresh = ref(false)
 const forceModelRefresh = ref(false)
 const modelAccount = ref('')
+const requestPage = ref(1)
+const requestPageSize = 12
 const isMobile = ref(false)
 const requestDetailOpen = ref(false)
 const requestDetail = ref<any | null>(null)
@@ -353,6 +355,11 @@ const drawerWidth = computed(() => isMobile.value ? 'calc(100vw - 24px)' : 720)
 const healthMembers = computed(() => Array.isArray(health.value?.members) ? health.value.members : [])
 const modelRows = computed(() => Array.isArray(models.value?.data) ? models.value.data : [])
 const modelErrors = computed(() => Array.isArray(models.value?.errors) ? models.value.errors : [])
+const requestPages = computed(() => Math.max(1, Math.ceil(requests.value.length / requestPageSize)))
+const requestPageRows = computed(() => {
+  const start = (requestPage.value - 1) * requestPageSize
+  return requests.value.slice(start, start + requestPageSize)
+})
 const memberOptions = computed(() => {
   const seen = new Set<string>()
   const options: { label: string; value: string }[] = [{ label: '全部成员', value: '' }]
@@ -466,7 +473,8 @@ function formatTime(value?: string | null) {
   if (!value) return '-'
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return String(value)
-  return date.toLocaleString('zh-CN', { hour12: false })
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
 }
 
 function shortId(id?: string) {
@@ -491,10 +499,18 @@ function requestMemberName(row: any) {
 
 function requestMemberMeta(row: any) {
   const pieces = []
-  if (row?.port) pieces.push(`端口 ${row.port}`)
+  if (row?.port) pieces.push(String(row.port))
   if (row?.tenantName || row?.tenantUsername) pieces.push(row.tenantName || row.tenantUsername)
-  if (row?.ociRegion) pieces.push(row.ociRegion)
   return pieces.join(' · ') || '-'
+}
+
+function requestPathText(path?: string) {
+  const raw = String(path || '').trim()
+  if (!raw) return '-'
+  const normalized = raw.startsWith('/') ? raw : `/${raw}`
+  if (normalized.startsWith('/v1/')) return normalized
+  if (normalized === '/v1') return normalized
+  return `/v1${normalized}`
 }
 
 function requestStatusText(row: any) {
@@ -528,7 +544,7 @@ function healthColor(status?: string) {
   if (value === 'healthy') return 'green'
   if (value === 'unhealthy') return 'red'
   if (value === 'cooling') return 'orange'
-  if (value === 'recovering') return 'blue'
+  if (value === 'recovering') return 'orange'
   return 'default'
 }
 
@@ -563,6 +579,11 @@ watch(activeSection, (section) => {
   if (section === 'requests' && !requests.value.length) loadRequests()
   if (section === 'health' && !healthMembers.value.length) loadHealth()
   if (section === 'models' && !modelRows.value.length) loadModels()
+})
+
+watch(requests, () => {
+  if (requestPage.value > requestPages.value) requestPage.value = requestPages.value
+  if (requestPage.value < 1) requestPage.value = 1
 })
 
 onMounted(() => {
@@ -627,18 +648,43 @@ onUnmounted(() => {
   width: 260px;
   max-width: 100%;
 }
-.diagnostic-table :deep(.ant-table-cell) {
-  vertical-align: middle;
+.table-wrap {
+  width: 100%;
+  overflow-x: auto;
 }
-.diagnostic-table :deep(.ant-table),
-.diagnostic-table :deep(.ant-table-container),
-.diagnostic-table :deep(.ant-table-thead > tr > th),
-.diagnostic-table :deep(.ant-table-tbody > tr > td) {
-  background: transparent;
+.table-mid,
+.table-wide {
+  width: 100%;
+  border-collapse: collapse;
+  color: var(--text-main);
+  font-size: 14px;
 }
-.diagnostic-table :deep(.ant-table-thead > tr > th),
-.diagnostic-table :deep(.ant-table-tbody > tr > td) {
+.table-mid { min-width: 1180px; }
+.table-wide { min-width: 1580px; }
+.table-mid th,
+.table-mid td,
+.table-wide th,
+.table-wide td {
   padding: 13px 16px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: middle;
+  background: transparent;
+  white-space: nowrap;
+}
+.table-mid th,
+.table-wide th {
+  color: var(--text-sub);
+  font-weight: 600;
+  font-size: 13px;
+}
+.table-mid tbody tr:hover,
+.table-wide tbody tr:hover {
+  background: rgba(129, 140, 248, 0.04);
+}
+.table-mid tbody tr:last-child td,
+.table-wide tbody tr:last-child td {
+  border-bottom: 0;
 }
 .strong-line {
   font-weight: 600;
@@ -657,8 +703,34 @@ onUnmounted(() => {
   white-space: nowrap;
   vertical-align: bottom;
 }
+.muted-block {
+  display: block;
+  margin-top: 3px;
+  color: var(--text-sub, #666);
+  font-size: 12px;
+}
+.status-message {
+  max-width: 330px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 4px;
+}
+.model-summary {
+  display: inline-block;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
+}
 .model-id {
+  display: inline-block;
   max-width: 360px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  vertical-align: bottom;
 }
 .metric-grid {
   display: grid;
@@ -714,6 +786,29 @@ onUnmounted(() => {
   font-weight: 500;
   min-width: 0;
   overflow-wrap: anywhere;
+}
+.pagination {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 6px;
+  padding-top: 12px;
+  color: var(--text-sub);
+  font-size: 12px;
+}
+.pagination button {
+  border: 0;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  min-width: 28px;
+  height: 28px;
+  border-radius: 8px;
+}
+.pagination .page-chip {
+  border: 1px solid var(--border);
+  color: var(--text-main);
+  background: rgba(129, 140, 248, 0.14);
 }
 .detail-pre {
   margin: 0;

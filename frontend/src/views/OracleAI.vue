@@ -3,8 +3,7 @@
     <a-tabs v-model:activeKey="activeModeTab" class="mode-tabs">
       <a-tab-pane key="single" tab="单账户模式">
     <a-card class="mb-card" title="Oracle 生成式 AI 网关" :bordered="false">
-      <a-space direction="vertical" style="width: 100%">
-        <div class="sub top-line">
+        <div class="top-line">
           <div>
             Base：
             <code>http://&lt;主机或域名&gt;:{{ openaiPort }}/v1</code>
@@ -15,10 +14,9 @@
             <span class="sub-muted">启用 OpenAI 转发</span>
           </a-space>
         </div>
-        <a-typography-paragraph copyable :content="publicBaseUrl">
+        <a-typography-paragraph class="copy-line" copyable :content="publicBaseUrl">
           <code class="code-wrap">{{ publicBaseUrl }}</code>
         </a-typography-paragraph>
-      </a-space>
     </a-card>
 
     <a-card title="API 密钥" :bordered="false" class="mt-card">
@@ -30,43 +28,43 @@
           <a-button :disabled="!ociUserId" @click="refreshKeys">刷新</a-button>
         </a-col>
       </a-row>
-      <a-table
-        v-if="!isMobile"
-        :columns="keyColumns"
-        :data-source="keys"
-        :loading="keysLoading"
-        row-key="id"
-        size="middle"
-        :pagination="false"
-      >
-        <template #bodyCell="{ column, record }">
-          <template v-if="column.key === 'dis'">
-            <a-tag :color="record.disabled ? 'red' : 'green'">{{ record.disabled ? '已禁用' : '正常' }}</a-tag>
-          </template>
-          <template v-else-if="column.key === 'keyMasked'">
-            <code class="key-masked">{{ record.keyMasked || 'sk-****' }}</code>
-          </template>
-          <template v-else-if="column.key === 'createTime'">
-            {{ formatKeyTime(record.createTime) }}
-          </template>
-          <template v-else-if="column.key === 'lastUsed'">
-            {{ formatKeyTime(record.lastUsed) }}
-          </template>
-          <template v-else-if="column.key === 'a'">
-            <a-space>
-              <a-button size="small" type="link" @click="viewKey(record)">查看</a-button>
-              <a-button size="small" @click="toggleKey(record)">
-                {{ record.disabled ? '启用' : '禁用' }}
-              </a-button>
-              <a-popconfirm title="确定删除？客户端需改密钥。" @confirm="removeK(record)">
-                <a-button size="small" danger>删除</a-button>
-              </a-popconfirm>
-            </a-space>
-          </template>
-        </template>
-      </a-table>
+      <a-spin v-if="keysLoading && !keys.length" />
+      <a-empty v-else-if="!keys.length" description="无密钥" />
+      <div v-else-if="!isMobile" class="table-wrap">
+        <table class="table-mid api-key-table">
+          <thead>
+            <tr>
+              <th>备注</th>
+              <th>状态</th>
+              <th>密钥</th>
+              <th>创建时间</th>
+              <th>最后使用</th>
+              <th>操作</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr v-for="record in keys" :key="record.id">
+              <td>{{ record.name || '未命名' }}</td>
+              <td><a-tag :color="record.disabled ? 'default' : 'green'">{{ record.disabled ? '已禁用' : '正常' }}</a-tag></td>
+              <td><code class="key-masked">{{ record.keyMasked || 'sk-****' }}</code></td>
+              <td>{{ formatKeyTime(record.createTime) }}</td>
+              <td>{{ formatKeyTime(record.lastUsed) }}</td>
+              <td>
+                <a-space class="actions" :size="4">
+                  <a-button size="small" type="link" @click="viewKey(record)">查看</a-button>
+                  <a-button size="small" @click="toggleKey(record)">
+                    {{ record.disabled ? '启用' : '禁用' }}
+                  </a-button>
+                  <a-popconfirm title="确定删除？客户端需改密钥。" @confirm="removeK(record)">
+                    <a-button size="small" danger>删除</a-button>
+                  </a-popconfirm>
+                </a-space>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
       <template v-else>
-        <a-empty v-if="!keys.length && !keysLoading" description="无密钥" />
         <div v-for="k in keys" :key="k.id" class="key-card-m">
           <div>
             <b>{{ k.name || '未命名' }}</b> <code class="p">{{ k.keyMasked || 'sk-****' }}</code>
@@ -281,62 +279,60 @@
               </a-space>
             </div>
           </div>
-          <a-table
-            v-else
-            class="port-table"
-            :columns="portColumns"
-            :data-source="portBindings"
-            :loading="portBindingsLoading"
-            row-key="id"
-            size="middle"
-            :pagination="false"
-            :scroll="{ x: 1610 }"
-          >
-            <template #bodyCell="{ column, record }">
-              <template v-if="column.key === 'enabled'">
-                <a-switch :checked="record.enabled" :loading="portSwitchingId === record.id" @change="(v: boolean) => togglePortBinding(record, v)" />
-              </template>
-              <template v-else-if="column.key === 'port'">
-                <code>{{ record.port }}</code>
-              </template>
-              <template v-else-if="column.key === 'tenant'">
-                <div>{{ record.tenantName || record.ociUserId || '-' }}</div>
-                <span class="sub-muted">{{ regionDisplay(record.ociRegion) || '-' }}</span>
-              </template>
-              <template v-else-if="column.key === 'base'">
-                <a-typography-paragraph copyable :content="portIpBaseUrl(record.port)" style="margin: 0">
-                  <code class="code-wrap">{{ portIpBaseUrl(record.port) }}</code>
-                </a-typography-paragraph>
-              </template>
-              <template v-else-if="column.key === 'maxTokens'">
-                {{ record.defaultMaxTokens || '全局默认' }}
-              </template>
-              <template v-else-if="column.key === 'models'">
-                <a-tooltip :title="modelTooltip(record.allowedModels)">
-                  <span class="model-summary">{{ modelSummary(record.allowedModels) }}</span>
-                </a-tooltip>
-              </template>
-              <template v-else-if="column.key === 'status'">
-                <a-tag :color="portStatusColor(record)">{{ portStatusText(record) }}</a-tag>
-                <div v-if="record.statusMessage" class="sub-muted status-message">{{ record.statusMessage }}</div>
-              </template>
-              <template v-else-if="column.key === 'key'">
-                <code class="key-masked">{{ record.keyName || record.keyMasked || 'sk-****' }}</code>
-              </template>
-              <template v-else-if="column.key === 'lastUsed'">
-                {{ formatKeyTime(record.lastUsed) }}
-              </template>
-              <template v-else-if="column.key === 'a'">
-                <a-space class="port-actions" :size="4">
-                  <a-button size="small" @click="revealPortKey(record)">查看密钥</a-button>
-                  <a-button size="small" @click="openPortModal(record)">编辑</a-button>
-                  <a-popconfirm title="确定删除该端口绑定？" @confirm="removePortBindingRow(record)">
-                    <a-button size="small" danger>删除</a-button>
-                  </a-popconfirm>
-                </a-space>
-              </template>
-            </template>
-          </a-table>
+          <a-spin v-else-if="portBindingsLoading && !portBindings.length" />
+          <a-empty v-else-if="!portBindings.length" description="暂无端口绑定" />
+          <div v-else class="table-wrap">
+            <table class="table-wide port-binding-table">
+              <thead>
+                <tr>
+                  <th>开关</th>
+                  <th>端口</th>
+                  <th>租户</th>
+                  <th>状态</th>
+                  <th>Base URL</th>
+                  <th>上限</th>
+                  <th>模型</th>
+                  <th>Key备注</th>
+                  <th>最后使用</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="record in portBindings" :key="record.id">
+                  <td>
+                    <a-switch :checked="record.enabled" :loading="portSwitchingId === record.id" @change="(v: boolean) => togglePortBinding(record, v)" />
+                  </td>
+                  <td><code>{{ record.port }}</code></td>
+                  <td>
+                    {{ record.tenantName || record.ociUserId || '-' }}
+                    <span class="muted-block">{{ record.ociRegion || '-' }}</span>
+                  </td>
+                  <td>
+                    <a-tag :color="portStatusColor(record)">{{ portStatusText(record) }}</a-tag>
+                    <span v-if="record.statusMessage" class="muted-block status-message">{{ record.statusMessage }}</span>
+                  </td>
+                  <td><code>{{ portIpBaseUrl(record.port) }}</code></td>
+                  <td>{{ record.defaultMaxTokens || '全局默认' }}</td>
+                  <td>
+                    <a-tooltip :title="modelTooltip(record.allowedModels)">
+                      <span class="model-summary">{{ modelSummary(record.allowedModels) }}</span>
+                    </a-tooltip>
+                  </td>
+                  <td><code class="key-masked">{{ record.keyName || record.keyMasked || 'sk-****' }}</code></td>
+                  <td>{{ formatKeyTime(record.lastUsed) }}</td>
+                  <td>
+                    <a-space class="actions" :size="4">
+                      <a-button size="small" @click="revealPortKey(record)">查看密钥</a-button>
+                      <a-button size="small" @click="openPortModal(record)">编辑</a-button>
+                      <a-popconfirm title="确定删除该端口绑定？" @confirm="removePortBindingRow(record)">
+                        <a-button size="small" danger>删除</a-button>
+                      </a-popconfirm>
+                    </a-space>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </a-card>
       </a-tab-pane>
 
@@ -344,21 +340,19 @@
         <a-card title="固定负载均衡入口" :bordered="false" class="mt-card" :loading="lbOverviewLoading">
           <div class="lb-summary-row">
             <div>
-              <div class="sub top-line lb-base-line">
-              <div>
+              <div class="sub-muted lb-base-line">
                 Base：
                 <code>http://&lt;主机或域名&gt;:{{ lbPort }}/v1</code>
-                <span class="sub-muted">（Header：<code>Authorization: Bearer sk-lb-...</code>）</span>
+                <span>（Header：<code>Authorization: Bearer sk-lb-...</code>）</span>
               </div>
-            </div>
-            <a-typography-paragraph copyable :content="lbIpBaseUrl">
-              <code class="code-wrap">{{ lbIpBaseUrl }}</code>
-            </a-typography-paragraph>
-            <div class="lb-overview">
-              <span>Key：{{ lbOverview.keyCount ?? lbKeys.length }}</span>
-              <span>成员：{{ lbOverview.memberCount ?? lbMembers.length }}</span>
-              <span>端口：{{ lbPort }}</span>
-            </div>
+              <a-typography-paragraph class="copy-line" copyable :content="lbIpBaseUrl">
+                <code class="code-wrap">{{ lbIpBaseUrl }}</code>
+              </a-typography-paragraph>
+              <div class="lb-overview">
+                <span>Key：{{ lbOverview.keyCount ?? lbKeys.length }}</span>
+                <span>成员：{{ lbOverview.memberCount ?? lbMembers.length }}</span>
+                <span>端口：{{ lbPort }}</span>
+              </div>
             </div>
             <div class="lb-summary-actions">
               <a-tag :color="lbRunning ? 'green' : 'orange'">{{ lbRunning ? '监听中' : '未监听' }}</a-tag>
@@ -376,43 +370,43 @@
               <a-button :loading="lbKeysLoading" @click="loadLbKeys">刷新</a-button>
             </a-col>
           </a-row>
-          <a-table
-            v-if="!isMobile"
-            :columns="lbKeyColumns"
-            :data-source="lbKeys"
-            :loading="lbKeysLoading"
-            row-key="id"
-            size="middle"
-            :pagination="false"
-          >
-            <template #bodyCell="{ column, record }">
-              <template v-if="column.key === 'dis'">
-                <a-tag :color="record.disabled ? 'red' : 'green'">{{ record.disabled ? '已禁用' : '正常' }}</a-tag>
-              </template>
-              <template v-else-if="column.key === 'keyMasked'">
-                <code class="key-masked">{{ record.keyMasked || 'sk-lb-****' }}</code>
-              </template>
-              <template v-else-if="column.key === 'createTime'">
-                {{ formatKeyTime(record.createTime) }}
-              </template>
-              <template v-else-if="column.key === 'lastUsed'">
-                {{ formatKeyTime(record.lastUsed) }}
-              </template>
-              <template v-else-if="column.key === 'a'">
-                <a-space>
-                  <a-button size="small" type="link" @click="viewLbKey(record)">查看</a-button>
-                  <a-button size="small" :loading="lbKeySwitchingId === record.id" @click="toggleLbKey(record)">
-                    {{ record.disabled ? '启用' : '禁用' }}
-                  </a-button>
-                  <a-popconfirm title="确定删除？客户端需改密钥。" @confirm="removeLbKeyRow(record)">
-                    <a-button size="small" danger>删除</a-button>
-                  </a-popconfirm>
-                </a-space>
-              </template>
-            </template>
-          </a-table>
+          <a-spin v-if="lbKeysLoading && !lbKeys.length" />
+          <a-empty v-else-if="!lbKeys.length" description="无 LB Key" />
+          <div v-else-if="!isMobile" class="table-wrap">
+            <table class="table-wide lb-key-table">
+              <thead>
+                <tr>
+                  <th>备注</th>
+                  <th>状态</th>
+                  <th>密钥</th>
+                  <th>创建时间</th>
+                  <th>最后使用</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="record in lbKeys" :key="record.id">
+                  <td>{{ record.name || '未命名' }}</td>
+                  <td><a-tag :color="record.disabled ? 'default' : 'green'">{{ record.disabled ? '已禁用' : '正常' }}</a-tag></td>
+                  <td><code class="key-masked">{{ record.keyMasked || 'sk-lb-****' }}</code></td>
+                  <td>{{ formatKeyTime(record.createTime) }}</td>
+                  <td>{{ formatKeyTime(record.lastUsed) }}</td>
+                  <td>
+                    <a-space class="actions" :size="4">
+                      <a-button size="small" type="link" @click="viewLbKey(record)">查看</a-button>
+                      <a-button size="small" :loading="lbKeySwitchingId === record.id" @click="toggleLbKey(record)">
+                        {{ record.disabled ? '启用' : '禁用' }}
+                      </a-button>
+                      <a-popconfirm title="确定删除？客户端需改密钥。" @confirm="removeLbKeyRow(record)">
+                        <a-button size="small" danger>删除</a-button>
+                      </a-popconfirm>
+                    </a-space>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
           <template v-else>
-            <a-empty v-if="!lbKeys.length && !lbKeysLoading" description="无 LB Key" />
             <div v-for="k in lbKeys" :key="k.id" class="key-card-m">
               <div>
                 <b>{{ k.name || '未命名' }}</b> <code class="p">{{ k.keyMasked || 'sk-lb-****' }}</code>
@@ -470,14 +464,13 @@
                     <a-tooltip :title="lbUsageTooltip(record.usage5h, record.requestLimit5h)">
                       <div class="lb-usage-head"><span>5h</span><b>{{ lbUsageText(record.usage5h, record.requestLimit5h) }}</b></div>
                     </a-tooltip>
-                    <a-progress
+                    <div
                       v-if="record.requestLimit5h"
                       class="lb-usage-progress"
                       :class="{ 'lb-usage-progress-warn': lbUsageIsWarn(record, record.usage5h, record.requestLimit5h, '5h') }"
-                      :percent="lbUsagePercent(record.usage5h, record.requestLimit5h)"
-                      :show-info="false"
-                      size="small"
-                    />
+                    >
+                      <span :style="{ width: `${lbUsagePercent(record.usage5h, record.requestLimit5h)}%` }"></span>
+                    </div>
                     <div v-else class="lb-usage-unlimited">
                       <span></span><em>未设上限</em>
                     </div>
@@ -486,14 +479,13 @@
                     <a-tooltip :title="lbUsageTooltip(record.usage7d, record.requestLimit7d)">
                       <div class="lb-usage-head"><span>7d</span><b>{{ lbUsageText(record.usage7d, record.requestLimit7d) }}</b></div>
                     </a-tooltip>
-                    <a-progress
+                    <div
                       v-if="record.requestLimit7d"
                       class="lb-usage-progress"
                       :class="{ 'lb-usage-progress-warn': lbUsageIsWarn(record, record.usage7d, record.requestLimit7d, '7d') }"
-                      :percent="lbUsagePercent(record.usage7d, record.requestLimit7d)"
-                      :show-info="false"
-                      size="small"
-                    />
+                    >
+                      <span :style="{ width: `${lbUsagePercent(record.usage7d, record.requestLimit7d)}%` }"></span>
+                    </div>
                     <div v-else class="lb-usage-unlimited">
                       <span></span><em>未设上限</em>
                     </div>
@@ -523,110 +515,119 @@
               </a-space>
             </div>
           </div>
-          <a-table
-            v-else
-            class="port-table"
-            :columns="lbMemberColumns"
-            :data-source="lbMembers"
-            :loading="lbMembersLoading"
-            row-key="id"
-            size="middle"
-            :pagination="false"
-            :scroll="{ x: 1510 }"
-          >
-            <template #bodyCell="{ column, record }">
-              <template v-if="column.key === 'enabled'">
-                <a-switch :checked="record.enabled" :loading="lbMemberSwitchingId === record.id" @change="(v: boolean) => toggleLbMember(record, v)" />
-              </template>
-              <template v-else-if="column.key === 'port'">
-                <div><code>{{ record.port || '-' }}</code></div>
-                <span class="sub-muted">{{ lbMemberName(record) }}</span>
-              </template>
-              <template v-else-if="column.key === 'tenant'">
-                <div>{{ record.tenantName || record.ociUserId || '-' }}</div>
-                <span class="sub-muted">{{ regionDisplay(record.ociRegion) || '-' }}</span>
-              </template>
-              <template v-else-if="column.key === 'status'">
-                <div class="lb-status-tags">
-                  <a-tag :color="lbMemberStatusColor(record)">{{ lbMemberStatusText(record) }}</a-tag>
-                  <a-tag v-if="record.healthStatus" class="lb-health-tag" :color="lbHealthColor(record)">{{ lbHealthText(record) }}</a-tag>
-                </div>
-                <div v-if="lbStatusMessages(record).length" class="lb-status-messages">
-                  <div v-for="m in lbStatusMessages(record)" :key="m.key" class="sub-muted status-message">
-                    <span class="lb-status-label">{{ m.label }}</span>{{ m.text }}
-                  </div>
-                </div>
-                <div v-if="lbUnavailableModelStates(record).length" class="lb-model-state-list">
-                  <a-tag v-for="s in lbUnavailableModelStates(record)" :key="s.model" color="red">
-                    模型剔除：{{ s.model }} 到 {{ formatKeyTime(s.unavailableUntil) }}
-                  </a-tag>
-                  <a-button size="small" type="link" @click="clearLbModelState(record)">清除</a-button>
-                </div>
-              </template>
-              <template v-else-if="column.key === 'load'">
-                <div>{{ record.weight || 1 }} / {{ record.inFlight || 0 }}</div>
-                <div class="sub-muted status-message">{{ lbLimitSummary(record) }}</div>
-              </template>
-              <template v-else-if="column.key === 'usage'">
-                <div class="lb-usage-pair">
-                  <div class="lb-usage-item">
-                    <a-tooltip :title="lbUsageTooltip(record.usage5h, record.requestLimit5h)">
-                      <div class="lb-usage-head"><span>5h</span><b>{{ lbUsageText(record.usage5h, record.requestLimit5h) }}</b></div>
-                    </a-tooltip>
-                    <a-progress
-                      v-if="record.requestLimit5h"
-                      class="lb-usage-progress"
-                      :class="{ 'lb-usage-progress-warn': lbUsageIsWarn(record, record.usage5h, record.requestLimit5h, '5h') }"
-                      :percent="lbUsagePercent(record.usage5h, record.requestLimit5h)"
-                      :show-info="false"
-                      size="small"
-                    />
-                    <div v-else class="lb-usage-unlimited">
-                      <span></span><em>未设上限</em>
+          <a-spin v-else-if="lbMembersLoading && !lbMembers.length" />
+          <a-empty v-else-if="!lbMembers.length" description="暂无成员" />
+          <div v-else class="table-wrap">
+            <table class="table-wide lb-member-table">
+              <thead>
+                <tr>
+                  <th>开关</th>
+                  <th>端口</th>
+                  <th>租户</th>
+                  <th>状态</th>
+                  <th>权重/并发</th>
+                  <th>用量</th>
+                  <th>模型</th>
+                  <th>最后使用</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="record in lbMembers" :key="record.id">
+                  <td>
+                    <a-switch :checked="record.enabled" :loading="lbMemberSwitchingId === record.id" @change="(v: boolean) => toggleLbMember(record, v)" />
+                  </td>
+                  <td>
+                    <code>{{ record.port || '-' }}</code>
+                    <span class="muted-block">{{ lbMemberName(record) }}</span>
+                  </td>
+                  <td>
+                    {{ record.tenantName || record.ociUserId || '-' }}
+                    <span class="muted-block">{{ record.ociRegion || '-' }}</span>
+                  </td>
+                  <td>
+                    <div class="lb-status-tags">
+                      <a-tag :color="lbMemberStatusColor(record)">{{ lbMemberStatusText(record) }}</a-tag>
+                      <a-tag
+                        v-if="lbHealthText(record) && lbHealthText(record) !== lbMemberStatusText(record)"
+                        class="lb-health-tag"
+                        :color="lbHealthColor(record)"
+                      >
+                        {{ lbHealthText(record) }}
+                      </a-tag>
                     </div>
-                  </div>
-                  <div class="lb-usage-item">
-                    <a-tooltip :title="lbUsageTooltip(record.usage7d, record.requestLimit7d)">
-                      <div class="lb-usage-head"><span>7d</span><b>{{ lbUsageText(record.usage7d, record.requestLimit7d) }}</b></div>
-                    </a-tooltip>
-                    <a-progress
-                      v-if="record.requestLimit7d"
-                      class="lb-usage-progress"
-                      :class="{ 'lb-usage-progress-warn': lbUsageIsWarn(record, record.usage7d, record.requestLimit7d, '7d') }"
-                      :percent="lbUsagePercent(record.usage7d, record.requestLimit7d)"
-                      :show-info="false"
-                      size="small"
-                    />
-                    <div v-else class="lb-usage-unlimited">
-                      <span></span><em>未设上限</em>
+                    <div v-if="lbStatusMessages(record).length" class="lb-status-messages">
+                      <div v-for="m in lbStatusMessages(record)" :key="m.key" class="sub-muted status-message">
+                        <span class="lb-status-label">{{ m.label }}</span>{{ m.text }}
+                      </div>
                     </div>
-                  </div>
-                </div>
-              </template>
-              <template v-else-if="column.key === 'models'">
-                <a-tooltip :title="modelTooltip(record.allowedModels)">
-                  <span class="model-summary">{{ modelSummary(record.allowedModels) }}</span>
-                </a-tooltip>
-              </template>
-              <template v-else-if="column.key === 'lastUsed'">
-                {{ formatKeyTime(record.lastUsed) }}
-                <div v-if="record.lastStatus" class="sub-muted status-message">
-                  HTTP {{ record.lastStatus }} · {{ record.lastLatencyMs || 0 }}ms
-                </div>
-                <div v-if="record.ewmaSuccessRate || record.ewmaLatencyMs" class="sub-muted status-message">
-                  EWMA {{ lbEwmaText(record) }}
-                </div>
-              </template>
-              <template v-else-if="column.key === 'a'">
-                <a-space class="port-actions" :size="4">
-                  <a-button size="small" @click="openLbMemberModal(record)">编辑</a-button>
-                  <a-popconfirm title="确定删除该成员？" @confirm="removeLbMemberRow(record)">
-                    <a-button size="small" danger>删除</a-button>
-                  </a-popconfirm>
-                </a-space>
-              </template>
-            </template>
-          </a-table>
+                    <div v-if="lbUnavailableModelStates(record).length" class="lb-model-state-list">
+                      <a-tag v-for="s in lbUnavailableModelStates(record)" :key="s.model" color="red">
+                        模型剔除：{{ s.model }} 到 {{ formatKeyTime(s.unavailableUntil) }}
+                      </a-tag>
+                      <a-button size="small" type="link" @click="clearLbModelState(record)">清除</a-button>
+                    </div>
+                  </td>
+                  <td>
+                    {{ record.weight || 1 }} / {{ record.inFlight || 0 }}
+                    <span class="muted-block">{{ lbLimitSummary(record) }}</span>
+                  </td>
+                  <td>
+                    <div class="lb-usage-pair">
+                      <div class="lb-usage-item">
+                        <a-tooltip :title="lbUsageTooltip(record.usage5h, record.requestLimit5h)">
+                          <div class="lb-usage-head"><span>5h</span><b>{{ lbUsageText(record.usage5h, record.requestLimit5h) }}</b></div>
+                        </a-tooltip>
+                        <div
+                          v-if="record.requestLimit5h"
+                          class="lb-usage-progress"
+                          :class="{ 'lb-usage-progress-warn': lbUsageIsWarn(record, record.usage5h, record.requestLimit5h, '5h') }"
+                        >
+                          <span :style="{ width: `${lbUsagePercent(record.usage5h, record.requestLimit5h)}%` }"></span>
+                        </div>
+                        <div v-else class="lb-usage-unlimited">
+                          <span></span><em>未设上限</em>
+                        </div>
+                      </div>
+                      <div class="lb-usage-item">
+                        <a-tooltip :title="lbUsageTooltip(record.usage7d, record.requestLimit7d)">
+                          <div class="lb-usage-head"><span>7d</span><b>{{ lbUsageText(record.usage7d, record.requestLimit7d) }}</b></div>
+                        </a-tooltip>
+                        <div
+                          v-if="record.requestLimit7d"
+                          class="lb-usage-progress"
+                          :class="{ 'lb-usage-progress-warn': lbUsageIsWarn(record, record.usage7d, record.requestLimit7d, '7d') }"
+                        >
+                          <span :style="{ width: `${lbUsagePercent(record.usage7d, record.requestLimit7d)}%` }"></span>
+                        </div>
+                        <div v-else class="lb-usage-unlimited">
+                          <span></span><em>未设上限</em>
+                        </div>
+                      </div>
+                    </div>
+                  </td>
+                  <td>
+                    <a-tooltip :title="modelTooltip(record.allowedModels)">
+                      <span class="model-summary">{{ modelSummary(record.allowedModels) }}</span>
+                    </a-tooltip>
+                  </td>
+                  <td>
+                    {{ formatKeyTime(record.lastUsed) }}
+                    <span v-if="record.lastStatus" class="muted-block">HTTP {{ record.lastStatus }} · {{ record.lastLatencyMs || 0 }}ms</span>
+                    <span v-else-if="record.ewmaSuccessRate || record.ewmaLatencyMs" class="muted-block">EWMA {{ lbEwmaText(record) }}</span>
+                  </td>
+                  <td>
+                    <a-space class="actions" :size="4">
+                      <a-button size="small" @click="openLbMemberModal(record)">编辑</a-button>
+                      <a-popconfirm title="确定删除该成员？" @confirm="removeLbMemberRow(record)">
+                        <a-button size="small" danger>删除</a-button>
+                      </a-popconfirm>
+                    </a-space>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </a-card>
 
         <a-card title="最近请求" :bordered="false" class="mt-card">
@@ -638,53 +639,57 @@
               <span class="sub-muted">记录最近的 LB 调度、重试、断流和超时。</span>
             </a-col>
           </a-row>
-          <a-table
-            class="port-table lb-request-table"
-            :columns="lbRequestColumns"
-            :data-source="lbRequests"
-            :loading="lbRequestsLoading"
-            row-key="id"
-            size="small"
-            :pagination="{ pageSize: 10, size: 'small' }"
-            :scroll="{ x: 1240 }"
-          >
-            <template #bodyCell="{ column, record }">
-              <template v-if="column.key === 'request'">
-                <code>{{ shortId(record.requestId) }}</code>
-                <div class="sub-muted status-message">{{ formatKeyTime(record.createTime) }}</div>
-              </template>
-              <template v-else-if="column.key === 'member'">
-                <code>{{ record.port || '-' }}</code>
-                <div class="sub-muted status-message">retry {{ record.retryCount || 0 }}</div>
-              </template>
-              <template v-else-if="column.key === 'mode'">
-                <a-tag :color="record.stream ? 'blue' : 'default'">{{ record.stream ? 'stream' : 'json' }}</a-tag>
-              </template>
-              <template v-else-if="column.key === 'protocol'">
-                <div>{{ record.requestPath || '-' }}</div>
-                <div class="sub-muted status-message">
-                  tools {{ record.toolCount || 0 }}<span v-if="record.bridgeType"> · {{ record.bridgeType }}</span>
-                </div>
-                <div v-if="record.responseToolCallCount || record.toolLifecycleCompleted" class="sub-muted status-message">
-                  返回 {{ record.responseToolCallCount || 0 }}<span v-if="record.toolLifecycleCompleted"> · 完整</span>
-                </div>
-              </template>
-              <template v-else-if="column.key === 'status'">
-                <a-tag :color="lbRequestStatusColor(record)">{{ lbRequestStatusText(record) }}</a-tag>
-                <div v-if="record.errorType || record.errorMessage" class="sub-muted status-message">
-                  {{ record.errorType || '' }} {{ record.errorMessage || '' }}
-                </div>
-              </template>
-              <template v-else-if="column.key === 'latency'">
-                <div>{{ record.latencyMs == null ? '-' : `${record.latencyMs}ms` }}</div>
-                <div v-if="record.firstChunkMs != null" class="sub-muted status-message">首块 {{ record.firstChunkMs }}ms</div>
-              </template>
-              <template v-else-if="column.key === 'tokens'">
-                <div>{{ record.tokenCount || 0 }}</div>
-                <div class="sub-muted status-message">估 {{ record.estimatedPromptTokens || 0 }}</div>
-              </template>
-            </template>
-          </a-table>
+          <a-spin v-if="lbRequestsLoading" />
+          <a-empty v-else-if="!lbRequests.length" description="暂无请求" />
+          <div v-else class="table-wrap">
+            <table class="table-mid lb-request-native-table">
+              <thead>
+                <tr>
+                  <th>请求</th>
+                  <th>成员</th>
+                  <th>模型</th>
+                  <th>模式</th>
+                  <th>协议</th>
+                  <th>状态</th>
+                  <th>耗时</th>
+                  <th>Tokens</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr v-for="record in lbRequests.slice(0, 10)" :key="record.id || record.requestId">
+                  <td>
+                    <code>{{ lbRequestShortText(record) }}</code>
+                    <span class="muted-block">{{ formatKeyTime(record.createTime) }}</span>
+                  </td>
+                  <td>
+                    <code>{{ record.port || '-' }}</code>
+                    <span class="muted-block">retry {{ record.retryCount || 0 }}</span>
+                  </td>
+                  <td>
+                    <a-tooltip :title="record.model">
+                      <span class="model-summary">{{ record.model || '-' }}</span>
+                    </a-tooltip>
+                  </td>
+                  <td><a-tag :color="record.stream ? 'blue' : 'default'">{{ record.stream ? 'stream' : 'json' }}</a-tag></td>
+                  <td>
+                    <div>{{ lbRequestPathText(record.requestPath) }}</div>
+                    <span class="muted-block">
+                      tools {{ record.toolCount || 0 }}<span v-if="record.bridgeType"> · {{ record.bridgeType }}</span>
+                    </span>
+                  </td>
+                  <td><a-tag :color="lbRequestStatusColor(record)">{{ lbRequestStatusText(record) }}</a-tag></td>
+                  <td>
+                    <div>{{ record.latencyMs == null ? '-' : `${record.latencyMs}ms` }}</div>
+                    <span v-if="record.firstChunkMs != null" class="muted-block">首块 {{ record.firstChunkMs }}ms</span>
+                  </td>
+                  <td>
+                    <div>{{ record.tokenCount || 0 }}</div>
+                    <span class="muted-block">估 {{ record.estimatedPromptTokens || 0 }}</span>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
         </a-card>
       </a-tab-pane>
 
@@ -1251,65 +1256,12 @@ const chatRecentRequests = ref<
   }[]
 >([])
 
-const keyColumns = [
-  { title: '备注', dataIndex: 'name', key: 'name' },
-  { title: '密钥', key: 'keyMasked', width: 200 },
-  { title: '状态', key: 'dis' },
-  { title: '创建', key: 'createTime', width: 168 },
-  { title: '最后使用', key: 'lastUsed', width: 168 },
-  { title: '操作', key: 'a', width: 200 },
-] as any
-
-const portColumns = [
-  { title: '开关', key: 'enabled', width: 84 },
-  { title: '端口', key: 'port', width: 88 },
-  { title: '租户', key: 'tenant', width: 220 },
-  { title: '状态', key: 'status', width: 130 },
-  { title: 'Base URL', key: 'base', width: 280 },
-  { title: '上限', key: 'maxTokens', width: 96 },
-  { title: '模型', key: 'models', width: 180 },
-  { title: 'Key备注', key: 'key', width: 170 },
-  { title: '最近使用', key: 'lastUsed', width: 140 },
-  { title: '操作', key: 'a', width: 220 },
-] as any
-
-const lbKeyColumns = [
-  { title: '备注', dataIndex: 'name', key: 'name' },
-  { title: '密钥', key: 'keyMasked', width: 220 },
-  { title: '状态', key: 'dis', width: 100 },
-  { title: '创建', key: 'createTime', width: 168 },
-  { title: '最后使用', key: 'lastUsed', width: 168 },
-  { title: '操作', key: 'a', width: 210 },
-] as any
-
-const lbMemberColumns = [
-  { title: '开关', key: 'enabled', width: 84 },
-  { title: '端口', key: 'port', width: 108 },
-  { title: '租户', key: 'tenant', width: 220 },
-  { title: '状态', key: 'status', width: 190 },
-  { title: '权重/并发', key: 'load', width: 170 },
-  { title: '用量窗口', key: 'usage', width: 260 },
-  { title: '模型', key: 'models', width: 170 },
-  { title: '最近使用', key: 'lastUsed', width: 140 },
-  { title: '操作', key: 'a', width: 170 },
-] as any
-
-const lbRequestColumns = [
-  { title: '请求', key: 'request', width: 170 },
-  { title: '成员', key: 'member', width: 90 },
-  { title: '模型', dataIndex: 'model', key: 'model', width: 220, ellipsis: true },
-  { title: '模式', key: 'mode', width: 90 },
-  { title: '协议', key: 'protocol', width: 170 },
-  { title: '状态', key: 'status', width: 240 },
-  { title: '耗时', key: 'latency', width: 120 },
-  { title: 'Tokens', key: 'tokens', width: 110 },
-] as any
-
 function formatKeyTime(iso?: string | null) {
-  if (!iso) return '—'
+  if (!iso) return '-'
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return String(iso)
-  return d.toLocaleString('zh-CN', { hour12: false })
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
 }
 
 /** 下拉挂到 body，避免挂在 .app-content 内与 overflow 滚轮「抢事件」导致难滚回顶部 */
@@ -2483,31 +2435,35 @@ function isLbCoolingDown(row: any) {
 }
 
 function lbMemberStatusText(row: any) {
-  if (!row?.enabled) return '成员禁用'
+  if (!row?.enabled) return '已停用'
   if (!row?.bindingEnabled) return '端口停用'
   if (row?.keyDisabled) return 'Key禁用'
-  if (isLbCoolingDown(row)) return '冷却中'
+  const health = String(row?.healthStatus || '').toLowerCase()
+  if (health === 'recovering') return '恢复观察'
+  if (health === 'cooling' || isLbCoolingDown(row)) return '冷却中'
   if (row?.bindingStatus === 'failed') return '端口异常'
-  if (row?.bindingStatus === 'listening') return '端口可用'
+  if (row?.bindingStatus === 'listening') return '启用'
   return row?.bindingStatus || '待监听'
 }
 
 function lbMemberStatusColor(row: any) {
   if (!row?.enabled) return 'default'
   if (!row?.bindingEnabled || row?.keyDisabled || row?.bindingStatus === 'failed') return 'red'
-  if (isLbCoolingDown(row)) return 'orange'
+  const health = String(row?.healthStatus || '').toLowerCase()
+  if (health === 'recovering' || health === 'cooling' || isLbCoolingDown(row)) return 'orange'
   if (row?.bindingStatus === 'listening') return 'green'
   return 'orange'
 }
 
 function lbHealthText(row: any) {
   const s = String(row?.healthStatus || '').toLowerCase()
-  if (s === 'healthy') return '调度健康'
+  if (s === 'recovering' && isLbCoolingDown(row)) return '冷却'
+  if (s === 'healthy') return '健康'
   if (s === 'unhealthy') return '调度异常'
-  if (s === 'cooling') return '调度冷却'
+  if (s === 'cooling') return '冷却'
   if (s === 'recovering') return '恢复观察'
-  if (s === 'disabled') return '调度禁用'
-  return '调度未知'
+  if (s === 'disabled') return '禁用'
+  return ''
 }
 
 function lbHealthColor(row: any) {
@@ -2515,7 +2471,7 @@ function lbHealthColor(row: any) {
   if (s === 'healthy') return 'green'
   if (s === 'unhealthy') return 'red'
   if (s === 'cooling') return 'orange'
-  if (s === 'recovering') return 'blue'
+  if (s === 'recovering') return 'orange'
   return 'default'
 }
 
@@ -2559,7 +2515,7 @@ function lbLimitSummary(row: any) {
   if (row?.rpmLimit) parts.push(`RPM≤${row.rpmLimit}`)
   if (row?.tpmLimit) parts.push(`TPM≤${row.tpmLimit}`)
   if (row?.contextLimit) parts.push(`CTX≤${row.contextLimit}`)
-  return parts.length ? parts.join(' · ') : '不限流'
+  return parts.length ? parts.join(' · ') : '不限制请求数'
 }
 
 function lbEwmaText(row: any) {
@@ -2613,16 +2569,34 @@ function shortId(id?: string) {
   return `${s.slice(0, 8)}…${s.slice(-4)}`
 }
 
+function lbRequestShortText(row: any) {
+  const id = String(row?.requestId || row?.id || '').trim()
+  if (!id) return '-'
+  const d = row?.createTime ? new Date(row.createTime) : null
+  if (d && !Number.isNaN(d.getTime())) {
+    const pad = (n: number) => String(n).padStart(2, '0')
+    return `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}...${id.slice(-4)}`
+  }
+  return shortId(id)
+}
+
+function lbRequestPathText(path?: string) {
+  const raw = String(path || '').trim()
+  if (!raw) return '-'
+  const normalized = raw.startsWith('/') ? raw : `/${raw}`
+  if (normalized.startsWith('/v1/')) return normalized
+  if (normalized === '/v1') return normalized
+  return `/v1${normalized}`
+}
+
 function lbUsageText(stats: any, limit?: number | null) {
   const requests = Number(stats?.requestCount || 0)
   const success = Number(stats?.successCount || 0)
   const failure = Number(stats?.failureCount || 0)
-  const tokens = Number(stats?.tokenCount || 0)
   const base = `${requests}/${success}/${failure}`
-  const tokenText = tokens > 0 ? ` · ${tokens} tokens` : ''
-  if (!limit) return `${base}${tokenText}`
+  if (!limit) return base
   const percent = Math.min(999, Math.round((requests / Number(limit)) * 100))
-  return `${base} · ${percent}%${tokenText}`
+  return `${base} · ${percent}%`
 }
 
 function lbUsagePercent(stats: any, limit?: number | null) {
@@ -2745,8 +2719,16 @@ async function viewKey(k: any) {
   padding: 0 4px;
 }
 .sub-muted { color: var(--text-sub, #666); opacity: 0.9; font-size: 13px; line-height: 1.5; }
+.sub-muted code {
+  font-size: 12px;
+}
 .top-line { display: flex; justify-content: space-between; gap: 12px; align-items: center; flex-wrap: wrap; }
 .lb-base-line { margin: 0; }
+.copy-line {
+  margin: 10px 0 0 !important;
+  color: #dbeafe;
+  line-height: 1.5;
+}
 .proxy-switch { margin-left: auto; }
 .sub-bottom {
   margin-bottom: 24px;
@@ -2891,41 +2873,27 @@ async function viewKey(k: any) {
   background: rgba(148, 163, 184, 0.1) !important;
   border-color: rgba(148, 163, 184, 0.18) !important;
 }
-.oracle-ai-page :deep(.ant-table-wrapper) {
-  width: 100%;
-}
-.oracle-ai-page :deep(.ant-table) {
-  color: var(--text-main);
-  font-size: 14px;
-  background: transparent;
-}
-.oracle-ai-page :deep(.ant-table-container),
-.oracle-ai-page :deep(.ant-table-thead > tr > th),
-.oracle-ai-page :deep(.ant-table-tbody > tr > td) {
-  background: transparent;
-}
-.oracle-ai-page :deep(.ant-table-thead > tr > th),
-.oracle-ai-page :deep(.ant-table-tbody > tr > td) {
-  padding: 13px 16px;
-}
-.oracle-ai-page :deep(.ant-table-thead > tr > th) {
-  color: var(--text-sub);
-  font-weight: 600;
-  font-size: 13px;
-}
 .table-wrap {
   width: 100%;
   overflow-x: auto;
 }
-.table-compact {
+.table-compact,
+.table-mid,
+.table-wide {
   width: 100%;
-  min-width: 720px;
   border-collapse: collapse;
   color: var(--text-main);
   font-size: 14px;
 }
+.table-compact { min-width: 720px; }
+.table-mid { min-width: 1180px; }
+.table-wide { min-width: 1580px; }
 .table-compact th,
-.table-compact td {
+.table-compact td,
+.table-mid th,
+.table-mid td,
+.table-wide th,
+.table-wide td {
   padding: 13px 16px;
   border-bottom: 1px solid var(--border);
   text-align: left;
@@ -2933,13 +2901,41 @@ async function viewKey(k: any) {
   background: transparent;
   white-space: nowrap;
 }
-.table-compact th {
+.table-compact th,
+.table-mid th,
+.table-wide th {
   color: var(--text-sub);
   font-weight: 600;
   font-size: 13px;
 }
-.table-compact tbody tr:last-child td {
+.table-compact tbody tr:last-child td,
+.table-mid tbody tr:last-child td,
+.table-wide tbody tr:last-child td {
   border-bottom: 0;
+}
+.table-compact tbody tr:hover,
+.table-mid tbody tr:hover,
+.table-wide tbody tr:hover {
+  background: rgba(129, 140, 248, 0.04);
+}
+.muted-block {
+  display: block;
+  margin-top: 3px;
+  color: var(--text-sub);
+  font-size: 12px;
+}
+.status-message {
+  max-width: 330px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 4px;
+}
+.actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
 }
 .ma-hint {
   display: block;
@@ -3008,23 +3004,21 @@ async function viewKey(k: any) {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.lb-usage-progress :deep(.ant-progress-line),
-.lb-usage-pair :deep(.ant-progress-line) {
-  margin-bottom: 0;
-}
-.lb-usage-progress :deep(.ant-progress-inner) {
-  height: 6px !important;
+.lb-usage-progress {
+  height: 6px;
   border-radius: 999px;
   background: rgba(148, 163, 184, 0.16);
+  overflow: hidden;
   border: 1px solid rgba(148, 163, 184, 0.1);
 }
-.lb-usage-progress :deep(.ant-progress-bg) {
-  height: 6px !important;
-  border-radius: 999px;
-  background: linear-gradient(90deg, #60a5fa, #818cf8) !important;
+.lb-usage-progress > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #60a5fa, #818cf8);
 }
-.lb-usage-progress.lb-usage-progress-warn :deep(.ant-progress-bg) {
-  background: linear-gradient(90deg, #f59e0b, #f97316) !important;
+.lb-usage-progress.lb-usage-progress-warn > span {
+  background: linear-gradient(90deg, #f59e0b, #f97316);
 }
 .lb-usage-unlimited {
   display: grid;
@@ -3081,22 +3075,6 @@ async function viewKey(k: any) {
   gap: 4px;
   align-items: center;
   margin-top: 4px;
-}
-.port-table :deep(.ant-table-cell) {
-  vertical-align: middle;
-}
-.port-table :deep(.ant-table),
-.port-table :deep(.ant-table-container),
-.port-table :deep(.ant-table-thead > tr > th),
-.port-table :deep(.ant-table-tbody > tr > td) {
-  background: transparent;
-}
-.port-actions {
-  white-space: nowrap;
-}
-.port-actions :deep(.ant-btn-link) {
-  padding-left: 4px;
-  padding-right: 4px;
 }
 .model-summary {
   display: inline-block;
@@ -3180,7 +3158,11 @@ async function viewKey(k: any) {
     word-break: normal;
   }
 }
-.key-masked { font-size: 12px; user-select: none; }
+.key-masked {
+  color: #c4b5fd;
+  font-size: 12px;
+  user-select: none;
+}
 .key-card-m { padding: 8px; border: 1px solid var(--border, #e8e8e8); border-radius: 6px; margin-bottom: 8px; }
 .key-card-m .p { font-size: 12px; }
 .chat-box,
@@ -3225,6 +3207,9 @@ async function viewKey(k: any) {
   color: #b45309 !important;
   background: rgba(245, 158, 11, 0.12) !important;
   border-color: rgba(245, 158, 11, 0.26) !important;
+}
+:global([data-theme="light"]) .oracle-ai-page .copy-line {
+  color: #1d4ed8;
 }
 :global([data-theme="light"]) .oracle-ai-page .chat-pre {
   background: rgba(248, 250, 252, 0.72);
