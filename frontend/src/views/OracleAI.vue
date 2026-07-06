@@ -119,18 +119,17 @@
             :get-popup-container="selectPopupContainer"
           />
         </a-form-item>
-        <a-form-item v-if="selectedRegion" label="区域">
+        <a-form-item v-if="ociUserId" label="区域">
           <a-select
-            v-if="singleRegionOptions.length > 1"
             v-model:value="singleRegion"
             :options="singleRegionOptions"
             :loading="singleRegionsLoading"
+            :disabled="singleRegionsLoading || !singleRegionOptions.length"
             placeholder="选择该租户订阅的 Region"
             :filter-option="filterOciRegionSelectOption"
             :get-popup-container="selectPopupContainer"
             @change="onSingleRegionChange"
           />
-          <a-tag v-else color="blue">{{ selectedRegion }}</a-tag>
         </a-form-item>
         <OracleAiModelSummary
           :model-value="modelPick"

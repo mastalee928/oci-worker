@@ -1,5 +1,5 @@
 <template>
-  <a-form-item label="模型白名单（OCI 管理面 ListModels）">
+  <a-form-item class="model-summary-field" label="模型白名单（OCI 管理面 ListModels）">
     <div class="model-summary-panel">
       <div class="model-summary-main">
         <div class="model-summary-title">已选模型</div>
@@ -67,6 +67,9 @@ const chatCompatibleCount = computed(() => {
 </script>
 
 <style scoped>
+.model-summary-field {
+  container-type: inline-size;
+}
 .model-summary-panel {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -133,7 +136,11 @@ const chatCompatibleCount = computed(() => {
   margin-bottom: 0;
 }
 .model-summary-actions {
+  min-width: 0;
   justify-content: flex-end;
+}
+.model-summary-actions :deep(.ant-btn) {
+  max-width: 100%;
 }
 .model-save-row {
   margin-top: 0;
@@ -152,6 +159,14 @@ const chatCompatibleCount = computed(() => {
   border-color: rgba(100, 116, 139, 0.2);
 }
 @media (max-width: 900px) {
+  .model-summary-panel {
+    grid-template-columns: 1fr;
+  }
+  .model-summary-actions {
+    justify-content: flex-start;
+  }
+}
+@container (max-width: 760px) {
   .model-summary-panel {
     grid-template-columns: 1fr;
   }
