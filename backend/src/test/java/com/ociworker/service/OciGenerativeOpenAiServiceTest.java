@@ -486,6 +486,7 @@ class OciGenerativeOpenAiServiceTest {
     void buffersGeminiChatCompletionStreamsOnly() throws Exception {
         assertThat(OciGenerativeOpenAiService.shouldBufferChatCompletionStream("google.gemini-2.5-pro")).isTrue();
         assertThat(OciGenerativeOpenAiService.shouldBufferChatCompletionStream("google.gemini-2.5-flash")).isTrue();
+        assertThat(OciGenerativeOpenAiService.shouldBufferChatCompletionStream("google.gemini-2.5-flash-lite")).isTrue();
         assertThat(OciGenerativeOpenAiService.shouldBufferChatCompletionStream("xai.grok-4.3")).isFalse();
 
         String payload = """
@@ -535,6 +536,8 @@ class OciGenerativeOpenAiServiceTest {
         byte[] nonStreaming = OciGenerativeOpenAiService.transformChatCompletionsJson(nonStreamingPayload.getBytes(), 128);
 
         assertThat(OciGenerativeOpenAiService.shouldUseGeminiNativeChat("google.gemini-2.5-pro", streaming)).isTrue();
+        assertThat(OciGenerativeOpenAiService.shouldUseGeminiNativeChat("google.gemini-2.5-flash", streaming)).isTrue();
+        assertThat(OciGenerativeOpenAiService.shouldUseGeminiNativeChat("google.gemini-2.5-flash-lite", streaming)).isTrue();
         assertThat(OciGenerativeOpenAiService.shouldUseGeminiNativeChat("google.gemini-2.5-pro", nonStreaming)).isTrue();
         assertThat(OciGenerativeOpenAiService.shouldUseGeminiNativeChat("xai.grok-4.3", streaming)).isFalse();
         assertThat(OciGenerativeOpenAiService.shouldUseGeminiNativeChat("openai.gpt-oss-120b", streaming)).isFalse();

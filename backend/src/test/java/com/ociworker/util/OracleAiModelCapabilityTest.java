@@ -20,6 +20,12 @@ class OracleAiModelCapabilityTest {
                 .isEqualTo(OracleAiModelCapability.CHAT);
         assertThat(OracleAiModelCapability.classify("xai.grok-4.20-multi-agent-0309"))
                 .isEqualTo(OracleAiModelCapability.MULTI_AGENT);
+        assertThat(OracleAiModelCapability.classify("google.gemini-2.5-pro"))
+                .isEqualTo(OracleAiModelCapability.CHAT);
+        assertThat(OracleAiModelCapability.classify("google.gemini-2.5-flash"))
+                .isEqualTo(OracleAiModelCapability.CHAT);
+        assertThat(OracleAiModelCapability.classify("google.gemini-2.5-flash-lite"))
+                .isEqualTo(OracleAiModelCapability.CHAT);
         assertThat(OracleAiModelCapability.classify("cohere.embed-v4.0"))
                 .isEqualTo(OracleAiModelCapability.EMBEDDING);
         assertThat(OracleAiModelCapability.classify("cohere.rerank-v4.0-fast"))
