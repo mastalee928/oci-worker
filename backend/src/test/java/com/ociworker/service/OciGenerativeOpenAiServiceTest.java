@@ -19,6 +19,7 @@ import com.oracle.bmc.generativeaiinference.model.GenericChatResponse;
 import com.oracle.bmc.generativeaiinference.model.ImageContent;
 import com.oracle.bmc.generativeaiinference.model.TextContent;
 import com.oracle.bmc.generativeaiinference.model.ToolChoiceAuto;
+import com.oracle.bmc.generativeaiinference.model.ToolMessage;
 import com.oracle.bmc.generativeaiinference.model.Usage;
 import com.oracle.bmc.generativeaiinference.model.UserMessage;
 import com.oracle.bmc.generativeaiinference.model.VideoContent;
@@ -407,6 +408,137 @@ class OciGenerativeOpenAiServiceTest {
         AssistantMessage assistant = (AssistantMessage) request.getMessages().get(0);
         assertThat(assistant.getContent()).isEmpty();
         assertThat(assistant.getToolCalls()).hasSize(1);
+    }
+
+    @Test
+    void splitsParallelGeminiToolCallsIntoPairedNativeTurns() throws Exception {
+        String payload = """
+                {
+                  "model":"google.gemini-2.5-pro",
+                  "messages":[
+                    {"role":"assistant","content":null,"tool_calls":[
+                      {"id":"call_a","type":"function","function":{"name":"read_cpu","arguments":"{}"}},
+                      {"id":"call_b","type":"function","function":{"name":"write_file","arguments":"{\\"path\\":\\"a.txt\\"}"}}
+                    ]},
+                    {"role":"tool","tool_call_id":"call_a","content":"Intel"},
+                    {"role":"tool","tool_call_id":"call_b","content":"ok"}
+                  ],
+                  "stream":true
+                }
+                """;
+
+        JsonNode messages = MAPPER.readTree(
+                OciGenerativeOpenAiService.transformChatCompletionsJson(payload.getBytes(), 128)).path("messages");
+
+        assertThat(messages).hasSize(4);
+        assertThat(messages.get(0).path("role").asText()).isEqualTo("assistant");
+        assertThat(messages.get(0).path("tool_calls")).hasSize(1);
+        assertThat(messages.get(0).path("tool_calls").get(0).path("id").asText()).isEqualTo("call_a");
+        assertThat(messages.get(1).path("role").asText()).isEqualTo("tool");
+        assertThat(messages.get(1).path("tool_call_id").asText()).isEqualTo("call_a");
+        assertThat(messages.get(2).path("role").asText()).isEqualTo("assistant");
+        assertThat(messages.get(2).path("tool_calls")).hasSize(1);
+        assertThat(messages.get(2).path("tool_calls").get(0).path("id").asText()).isEqualTo("call_b");
+        assertThat(messages.get(3).path("role").asText()).isEqualTo("tool");
+        assertThat(messages.get(3).path("tool_call_id").asText()).isEqualTo("call_b");
+    }
+
+    @Test
+    void splitsHermesSizedParallelGeminiToolCallsIntoStrictPairs() throws Exception {
+        ObjectNode root = MAPPER.createObjectNode();
+        root.put("model", "google.gemini-2.5-pro");
+        root.put("stream", true);
+        ArrayNode messages = MAPPER.createArrayNode();
+        ObjectNode assistant = MAPPER.createObjectNode();
+        assistant.put("role", "assistant");
+        assistant.putNull("content");
+        ArrayNode toolCalls = MAPPER.createArrayNode();
+        for (int i = 0; i < 31; i++) {
+            ObjectNode call = MAPPER.createObjectNode();
+            call.put("id", "call_" + i);
+            call.put("type", "function");
+            ObjectNode fn = MAPPER.createObjectNode();
+            fn.put("name", "tool_" + i);
+            fn.put("arguments", "{}");
+            call.set("function", fn);
+            toolCalls.add(call);
+        }
+        assistant.set("tool_calls", toolCalls);
+        messages.add(assistant);
+        for (int i = 0; i < 31; i++) {
+            ObjectNode tool = MAPPER.createObjectNode();
+            tool.put("role", "tool");
+            tool.put("tool_call_id", "call_" + i);
+            tool.put("content", "result_" + i);
+            messages.add(tool);
+        }
+        root.set("messages", messages);
+
+        JsonNode normalizedMessages = MAPPER.readTree(
+                OciGenerativeOpenAiService.transformChatCompletionsJson(
+                        MAPPER.writeValueAsBytes(root), 128)).path("messages");
+
+        assertThat(normalizedMessages).hasSize(62);
+        for (int i = 0; i < 31; i++) {
+            JsonNode assistantTurn = normalizedMessages.get(i * 2);
+            JsonNode toolTurn = normalizedMessages.get(i * 2 + 1);
+            assertThat(assistantTurn.path("role").asText()).isEqualTo("assistant");
+            assertThat(assistantTurn.path("tool_calls")).hasSize(1);
+            assertThat(assistantTurn.path("tool_calls").get(0).path("id").asText()).isEqualTo("call_" + i);
+            assertThat(toolTurn.path("role").asText()).isEqualTo("tool");
+            assertThat(toolTurn.path("tool_call_id").asText()).isEqualTo("call_" + i);
+        }
+    }
+
+    @Test
+    void keepsParallelToolCallsForNonGeminiChatModels() throws Exception {
+        String payload = """
+                {
+                  "model":"xai.grok-4.3",
+                  "messages":[
+                    {"role":"assistant","content":null,"tool_calls":[
+                      {"id":"call_a","type":"function","function":{"name":"read_cpu","arguments":"{}"}},
+                      {"id":"call_b","type":"function","function":{"name":"write_file","arguments":"{\\"path\\":\\"a.txt\\"}"}}
+                    ]},
+                    {"role":"tool","tool_call_id":"call_a","content":"Intel"},
+                    {"role":"tool","tool_call_id":"call_b","content":"ok"}
+                  ],
+                  "stream":true
+                }
+                """;
+
+        JsonNode messages = MAPPER.readTree(
+                OciGenerativeOpenAiService.transformChatCompletionsJson(payload.getBytes(), 128)).path("messages");
+
+        assertThat(messages).hasSize(3);
+        assertThat(messages.get(0).path("role").asText()).isEqualTo("assistant");
+        assertThat(messages.get(0).path("tool_calls")).hasSize(2);
+        assertThat(messages.get(1).path("tool_call_id").asText()).isEqualTo("call_a");
+        assertThat(messages.get(2).path("tool_call_id").asText()).isEqualTo("call_b");
+    }
+
+    @Test
+    void preservesEmptyToolResultAsCountableNativeToolMessage() throws Exception {
+        String payload = """
+                {
+                  "model":"google.gemini-2.5-pro",
+                  "messages":[
+                    {"role":"assistant","content":null,"tool_calls":[{"id":"call_a","type":"function","function":{"name":"read_cpu","arguments":"{}"}}]},
+                    {"role":"tool","tool_call_id":"call_a","content":null}
+                  ],
+                  "stream":false
+                }
+                """;
+
+        GenericChatRequest request = OciGenerativeOpenAiService.toNativeGenericChatRequest(
+                (ObjectNode) MAPPER.readTree(payload));
+
+        assertThat(request.getMessages()).hasSize(2);
+        assertThat(request.getMessages().get(1)).isInstanceOf(ToolMessage.class);
+        ToolMessage toolMessage = (ToolMessage) request.getMessages().get(1);
+        assertThat(toolMessage.getToolCallId()).isEqualTo("call_a");
+        assertThat(toolMessage.getContent()).hasSize(1);
+        assertThat(((TextContent) toolMessage.getContent().get(0)).getText()).isEqualTo("null");
     }
 
     @Test

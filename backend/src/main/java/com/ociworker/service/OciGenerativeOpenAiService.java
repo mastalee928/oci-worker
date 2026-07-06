@@ -1712,11 +1712,14 @@ public class OciGenerativeOpenAiService {
                         out.add(builder.build());
                     }
                     case "tool" -> {
-                        if (!hasUsableNativeContent(content)) {
-                            continue;
-                        }
                         ToolMessage.Builder builder = ToolMessage.builder().content(content);
                         String toolCallId = textOrNull(message, "tool_call_id");
+                        if (!hasUsableNativeContent(content)) {
+                            if (toolCallId == null || toolCallId.isBlank()) {
+                                continue;
+                            }
+                            builder.content(List.of(TextContent.builder().text("null").build()));
+                        }
                         if (toolCallId != null && !toolCallId.isBlank()) {
                             builder.toolCallId(toolCallId);
                         }
@@ -3138,7 +3141,9 @@ public class OciGenerativeOpenAiService {
             normalizeChatToolSchema(o);
             JsonNode messages = o.get("messages");
             if (messages instanceof ArrayNode arrayMessages) {
-                ArrayNode normalizedMessages = normalizeChatToolMessages(arrayMessages);
+                ArrayNode normalizedMessages = normalizeChatToolMessages(
+                        arrayMessages,
+                        isGeminiChatModel(textOrNull(o, "model")));
                 String fallback = chatPromptFallback(o);
                 if (!hasUsableChatMessages(normalizedMessages) && fallback != null && !fallback.isBlank()) {
                     addChatMessage(normalizedMessages, "user", fallback);
@@ -3494,7 +3499,7 @@ public class OciGenerativeOpenAiService {
                 messages.add(sys);
             }
             appendResponsesInputAsChatMessages(messages, in.get("input"));
-            messages = normalizeChatToolMessages(messages);
+            messages = normalizeChatToolMessages(messages, isGeminiChatModel(textOrNull(in, "model")));
             if (messages.isEmpty()) {
                 ObjectNode user = MAPPER.createObjectNode();
                 user.put("role", "user");
@@ -3810,6 +3815,10 @@ public class OciGenerativeOpenAiService {
     }
 
     static ArrayNode normalizeChatToolMessages(ArrayNode messages) {
+        return normalizeChatToolMessages(messages, false);
+    }
+
+    static ArrayNode normalizeChatToolMessages(ArrayNode messages, boolean splitParallelToolCalls) {
         ArrayNode normalized = MAPPER.createArrayNode();
         if (messages == null || messages.isEmpty()) {
             return normalized;
@@ -3882,9 +3891,24 @@ public class OciGenerativeOpenAiService {
 
             ObjectNode assistant = object.deepCopy();
             assistant.set("tool_calls", answeredToolCalls);
-            normalized.add(normalizeChatMessageForOci(assistant));
-            for (ObjectNode reply : answeredReplies) {
-                normalized.add(normalizeChatMessageForOci(reply));
+            if (!splitParallelToolCalls || answeredToolCalls.size() <= 1) {
+                normalized.add(normalizeChatMessageForOci(assistant));
+                for (ObjectNode reply : answeredReplies) {
+                    normalized.add(normalizeChatMessageForOci(reply));
+                }
+                continue;
+            }
+
+            for (int i = 0; i < answeredToolCalls.size(); i++) {
+                ObjectNode singleAssistant = object.deepCopy();
+                ArrayNode singleCall = MAPPER.createArrayNode();
+                singleCall.add(answeredToolCalls.get(i).deepCopy());
+                singleAssistant.set("tool_calls", singleCall);
+                if (i > 0 && singleAssistant.has("content")) {
+                    singleAssistant.put("content", "");
+                }
+                normalized.add(normalizeChatMessageForOci(singleAssistant));
+                normalized.add(normalizeChatMessageForOci(answeredReplies.get(i)));
             }
         }
         return normalized;
