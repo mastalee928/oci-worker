@@ -10,10 +10,12 @@ import com.oracle.bmc.generativeaiinference.model.BaseChatRequest;
 import com.oracle.bmc.generativeaiinference.model.ChatChoice;
 import com.oracle.bmc.generativeaiinference.model.ChatContent;
 import com.oracle.bmc.generativeaiinference.model.ChatResult;
+import com.oracle.bmc.generativeaiinference.model.CitationOptionsV2;
 import com.oracle.bmc.generativeaiinference.model.CohereAssistantMessageV2;
 import com.oracle.bmc.generativeaiinference.model.CohereChatRequestV2;
 import com.oracle.bmc.generativeaiinference.model.CohereChatResponseV2;
 import com.oracle.bmc.generativeaiinference.model.CohereImageContentV2;
+import com.oracle.bmc.generativeaiinference.model.CohereResponseJsonFormat;
 import com.oracle.bmc.generativeaiinference.model.CohereTextContentV2;
 import com.oracle.bmc.generativeaiinference.model.CohereThinkingContentV2;
 import com.oracle.bmc.generativeaiinference.model.CohereThinkingV2;
@@ -296,7 +298,15 @@ class OciGenerativeOpenAiServiceTest {
                   "presence_penalty":0.2,
                   "seed":1234,
                   "thinking":{"type":"enabled","token_budget":31000},
+                  "documents":[{"title":"手册","snippet":"OCI Generative AI"}],
+                  "citation_options":{"mode":"accurate"},
+                  "response_format":{"type":"json_schema","json_schema":{"schema":{"type":"object","properties":{"answer":{"type":"string"}}}}},
                   "safety_mode":"strict",
+                  "logprobs":true,
+                  "search_queries_only":false,
+                  "stream_options":{"include_usage":true},
+                  "priority":10,
+                  "raw_prompting":true,
                   "tool_choice":"required",
                   "tools":[{"type":"function","function":{"name":"lookup","description":"查资料","parameters":{"type":"object","properties":{"q":{"type":"string"}}}}}]
                 }
@@ -313,7 +323,15 @@ class OciGenerativeOpenAiServiceTest {
         assertThat(request.getSeed()).isEqualTo(1234);
         assertThat(request.getThinking().getType()).isEqualTo(CohereThinkingV2.Type.Enabled);
         assertThat(request.getThinking().getTokenBudget()).isEqualTo(31000);
+        assertThat(request.getDocuments()).hasSize(1);
+        assertThat(request.getCitationOptions().getMode()).isEqualTo(CitationOptionsV2.Mode.Accurate);
+        assertThat(request.getResponseFormat()).isInstanceOf(CohereResponseJsonFormat.class);
         assertThat(request.getSafetyMode()).isEqualTo(CohereChatRequestV2.SafetyMode.Strict);
+        assertThat(request.getIsLogProbsEnabled()).isTrue();
+        assertThat(request.getIsSearchQueriesOnly()).isFalse();
+        assertThat(request.getStreamOptions().getIsIncludeUsage()).isTrue();
+        assertThat(request.getPriority()).isEqualTo(10);
+        assertThat(request.getIsRawPrompting()).isTrue();
         assertThat(request.getToolsChoice()).isEqualTo(CohereChatRequestV2.ToolsChoice.Required);
         assertThat(request.getTools()).hasSize(1);
         assertThat(request.getMessages()).hasSize(2);

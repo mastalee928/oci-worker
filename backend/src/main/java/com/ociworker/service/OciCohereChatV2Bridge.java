@@ -8,6 +8,7 @@ import com.ociworker.exception.OciException;
 import com.ociworker.util.CommonUtils;
 import com.oracle.bmc.generativeaiinference.model.BaseChatResponse;
 import com.oracle.bmc.generativeaiinference.model.ChatResult;
+import com.oracle.bmc.generativeaiinference.model.CitationOptionsV2;
 import com.oracle.bmc.generativeaiinference.model.CohereAssistantMessageV2;
 import com.oracle.bmc.generativeaiinference.model.CohereChatRequestV2;
 import com.oracle.bmc.generativeaiinference.model.CohereChatResponseV2;
@@ -16,6 +17,9 @@ import com.oracle.bmc.generativeaiinference.model.CohereDocumentContentV2;
 import com.oracle.bmc.generativeaiinference.model.CohereImageContentV2;
 import com.oracle.bmc.generativeaiinference.model.CohereImageUrlV2;
 import com.oracle.bmc.generativeaiinference.model.CohereMessageV2;
+import com.oracle.bmc.generativeaiinference.model.CohereResponseFormat;
+import com.oracle.bmc.generativeaiinference.model.CohereResponseJsonFormat;
+import com.oracle.bmc.generativeaiinference.model.CohereResponseTextFormat;
 import com.oracle.bmc.generativeaiinference.model.CohereSystemMessageV2;
 import com.oracle.bmc.generativeaiinference.model.CohereTextContentV2;
 import com.oracle.bmc.generativeaiinference.model.CohereThinkingContentV2;
@@ -26,6 +30,7 @@ import com.oracle.bmc.generativeaiinference.model.CohereToolV2;
 import com.oracle.bmc.generativeaiinference.model.CohereUserMessageV2;
 import com.oracle.bmc.generativeaiinference.model.Function;
 import com.oracle.bmc.generativeaiinference.model.ImageUrl;
+import com.oracle.bmc.generativeaiinference.model.StreamOptions;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -248,9 +253,23 @@ final class OciCohereChatV2Bridge {
         if (!stop.isEmpty()) {
             builder.stopSequences(stop);
         }
+        List<Object> documents = objectList(OciGenerativeOpenAiService.firstExisting(input, "documents", "document"));
+        if (!documents.isEmpty()) {
+            builder.documents(documents);
+        }
+        CitationOptionsV2 citationOptions = toCitationOptions(
+                OciGenerativeOpenAiService.firstExisting(input, "citation_options", "citationOptions"));
+        if (citationOptions != null) {
+            builder.citationOptions(citationOptions);
+        }
         CohereThinkingV2 thinking = toThinking(input.get("thinking"));
         if (thinking != null) {
             builder.thinking(thinking);
+        }
+        CohereResponseFormat responseFormat = toResponseFormat(
+                OciGenerativeOpenAiService.firstExisting(input, "response_format", "responseFormat"));
+        if (responseFormat != null) {
+            builder.responseFormat(responseFormat);
         }
         CohereChatRequestV2.SafetyMode safetyMode = toSafetyMode(
                 OciGenerativeOpenAiService.firstText(input, "safety_mode", "safetyMode"));
@@ -261,6 +280,30 @@ final class OciCohereChatV2Bridge {
                 input, "strict_tools", "strictTools", "is_strict_tools_enabled", "isStrictToolsEnabled");
         if (strictTools != null) {
             builder.isStrictToolsEnabled(strictTools);
+        }
+        Boolean logProbs = OciGenerativeOpenAiService.firstBoolean(
+                input, "logprobs", "is_log_probs_enabled", "isLogProbsEnabled");
+        if (logProbs != null) {
+            builder.isLogProbsEnabled(logProbs);
+        }
+        Boolean searchQueriesOnly = OciGenerativeOpenAiService.firstBoolean(
+                input, "search_queries_only", "searchQueriesOnly", "is_search_queries_only", "isSearchQueriesOnly");
+        if (searchQueriesOnly != null) {
+            builder.isSearchQueriesOnly(searchQueriesOnly);
+        }
+        StreamOptions streamOptions = toStreamOptions(
+                OciGenerativeOpenAiService.firstExisting(input, "stream_options", "streamOptions"));
+        if (streamOptions != null) {
+            builder.streamOptions(streamOptions);
+        }
+        Integer priority = OciGenerativeOpenAiService.firstInteger(input, "priority");
+        if (priority != null) {
+            builder.priority(priority);
+        }
+        Boolean rawPrompting = OciGenerativeOpenAiService.firstBoolean(
+                input, "raw_prompting", "is_raw_prompting", "isRawPrompting");
+        if (rawPrompting != null) {
+            builder.isRawPrompting(rawPrompting);
         }
         List<CohereToolV2> tools = toToolDefinitions(input.get("tools"));
         if (!tools.isEmpty()) {
@@ -310,6 +353,88 @@ final class OciCohereChatV2Bridge {
             }
         }
         return hasValue ? builder.build() : null;
+    }
+
+    private static List<Object> objectList(JsonNode node) {
+        List<Object> out = new ArrayList<>();
+        if (node == null || node.isNull() || node.isMissingNode()) {
+            return out;
+        }
+        if (node.isArray()) {
+            for (JsonNode item : node) {
+                if (item != null && !item.isNull() && !item.isMissingNode()) {
+                    out.add(MAPPER.convertValue(item, Object.class));
+                }
+            }
+            return out;
+        }
+        out.add(MAPPER.convertValue(node, Object.class));
+        return out;
+    }
+
+    private static CitationOptionsV2 toCitationOptions(JsonNode node) {
+        if (node == null || node.isNull() || node.isMissingNode()) {
+            return null;
+        }
+        String mode = null;
+        if (node.isTextual()) {
+            mode = node.asText("");
+        } else if (node instanceof ObjectNode object) {
+            mode = OciGenerativeOpenAiService.firstText(object, "mode");
+        }
+        if (mode == null || mode.isBlank()) {
+            return null;
+        }
+        CitationOptionsV2.Mode value = switch (mode.trim().toLowerCase(Locale.ROOT)) {
+            case "fast" -> CitationOptionsV2.Mode.Fast;
+            case "accurate" -> CitationOptionsV2.Mode.Accurate;
+            case "off", "none", "disabled" -> CitationOptionsV2.Mode.Off;
+            default -> null;
+        };
+        return value == null ? null : CitationOptionsV2.builder().mode(value).build();
+    }
+
+    private static CohereResponseFormat toResponseFormat(JsonNode node) {
+        if (node == null || node.isNull() || node.isMissingNode()) {
+            return null;
+        }
+        String type = null;
+        JsonNode schema = null;
+        if (node.isTextual()) {
+            type = node.asText("");
+        } else if (node instanceof ObjectNode object) {
+            type = OciGenerativeOpenAiService.firstText(object, "type");
+            schema = OciGenerativeOpenAiService.firstExisting(object, "schema", "json_schema", "jsonSchema");
+            if (schema instanceof ObjectNode schemaObject) {
+                JsonNode nestedSchema = OciGenerativeOpenAiService.firstExisting(schemaObject, "schema");
+                schema = nestedSchema == null ? schema : nestedSchema;
+            }
+        }
+        if (type == null || type.isBlank()) {
+            return null;
+        }
+        return switch (type.trim().toLowerCase(Locale.ROOT)) {
+            case "text" -> CohereResponseTextFormat.builder().build();
+            case "json", "json_object", "json_schema" -> {
+                CohereResponseJsonFormat.Builder builder = CohereResponseJsonFormat.builder();
+                if (schema != null && !schema.isNull() && !schema.isMissingNode()) {
+                    builder.schema(MAPPER.convertValue(schema, Object.class));
+                }
+                yield builder.build();
+            }
+            default -> null;
+        };
+    }
+
+    private static StreamOptions toStreamOptions(JsonNode node) {
+        if (node == null || node.isNull() || node.isMissingNode()) {
+            return null;
+        }
+        if (node instanceof ObjectNode object) {
+            Boolean includeUsage = OciGenerativeOpenAiService.firstBoolean(object, "include_usage", "isIncludeUsage");
+            return includeUsage == null ? null : StreamOptions.builder().isIncludeUsage(includeUsage).build();
+        }
+        return null;
     }
 
     private static CohereChatRequestV2.SafetyMode toSafetyMode(String value) {
