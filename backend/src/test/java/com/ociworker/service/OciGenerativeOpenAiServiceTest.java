@@ -279,6 +279,53 @@ class OciGenerativeOpenAiServiceTest {
     }
 
     @Test
+    void capsCohereCommandA032025OnDemandOutputTokens() throws Exception {
+        String payload = """
+                {
+                  "model":"cohere.command-a-03-2025",
+                  "messages":[{"role":"user","content":"hello"}],
+                  "max_tokens":12000
+                }
+                """;
+
+        byte[] normalized = OciGenerativeOpenAiService.transformChatCompletionsJson(payload.getBytes(), 2048);
+
+        JsonNode root = MAPPER.readTree(normalized);
+        assertThat(root.path("max_tokens").asInt()).isEqualTo(4000);
+    }
+
+    @Test
+    void doesNotApplyReasoningOutputCapToCohereCommandAVision() throws Exception {
+        String payload = """
+                {
+                  "model":"cohere.command-a-vision",
+                  "messages":[{"role":"user","content":"describe this"}],
+                  "max_tokens":12000
+                }
+                """;
+
+        byte[] normalized = OciGenerativeOpenAiService.transformChatCompletionsJson(payload.getBytes(), 2048);
+
+        JsonNode root = MAPPER.readTree(normalized);
+        assertThat(root.path("max_tokens").asInt()).isEqualTo(12000);
+    }
+
+    @Test
+    void keepsCohereCommandAVisionMaxTokensWhenBuildingV2Request() throws Exception {
+        ObjectNode input = (ObjectNode) MAPPER.readTree("""
+                {
+                  "model":"cohere.command-a-vision",
+                  "messages":[{"role":"user","content":"describe this"}],
+                  "max_tokens":12000
+                }
+                """);
+
+        CohereChatRequestV2 request = OciCohereChatV2Bridge.toNativeChatRequest(input);
+
+        assertThat(request.getMaxTokens()).isEqualTo(12000);
+    }
+
+    @Test
     void convertsOpenAiChatPayloadToCohereCommandAReasoningV2Request() throws Exception {
         ObjectNode input = (ObjectNode) MAPPER.readTree("""
                 {
@@ -824,6 +871,7 @@ class OciGenerativeOpenAiServiceTest {
         assertThat(OciGenerativeOpenAiService.shouldBufferChatCompletionStream("google.gemini-2.5-flash")).isTrue();
         assertThat(OciGenerativeOpenAiService.shouldBufferChatCompletionStream("google.gemini-2.5-flash-lite")).isTrue();
         assertThat(OciGenerativeOpenAiService.shouldBufferChatCompletionStream("cohere.command-a-reasoning")).isTrue();
+        assertThat(OciGenerativeOpenAiService.shouldBufferChatCompletionStream("cohere.command-a-vision")).isTrue();
         assertThat(OciGenerativeOpenAiService.shouldBufferChatCompletionStream("xai.grok-4.3")).isFalse();
 
         String payload = """
@@ -881,7 +929,7 @@ class OciGenerativeOpenAiServiceTest {
     }
 
     @Test
-    void usesCohereV2NativeChatOnlyForCommandAReasoning() throws Exception {
+    void usesCohereV2NativeChatOnlyForCommandAV2Models() throws Exception {
         String payload = """
                 {
                   "model":"cohere.command-a-reasoning",
@@ -895,8 +943,12 @@ class OciGenerativeOpenAiServiceTest {
         assertThat(OciGenerativeOpenAiService.shouldUseCohereCommandAReasoningNativeChat(
                 "cohere.command-a-reasoning", normalized)).isTrue();
         assertThat(OciGenerativeOpenAiService.shouldUseCohereCommandAReasoningNativeChat(
+                "cohere.command-a-vision", normalized)).isFalse();
+        assertThat(OciGenerativeOpenAiService.shouldUseCohereNativeChatV2(
+                "cohere.command-a-vision", normalized)).isTrue();
+        assertThat(OciGenerativeOpenAiService.shouldUseCohereNativeChatV2(
                 "cohere.command-a-03-2025", normalized)).isFalse();
-        assertThat(OciGenerativeOpenAiService.shouldUseCohereCommandAReasoningNativeChat(
+        assertThat(OciGenerativeOpenAiService.shouldUseCohereNativeChatV2(
                 "google.gemini-2.5-pro", normalized)).isFalse();
     }
 

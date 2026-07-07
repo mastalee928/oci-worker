@@ -55,8 +55,20 @@ final class OciCohereChatV2Bridge {
         return value.equals("cohere.command-a-reasoning");
     }
 
+    static boolean isCommandAVisionModel(String model) {
+        if (model == null || model.isBlank()) {
+            return false;
+        }
+        String value = model.trim().toLowerCase(Locale.ROOT);
+        return value.equals("cohere.command-a-vision");
+    }
+
+    static boolean isNativeChatModel(String model) {
+        return isCommandAReasoningModel(model) || isCommandAVisionModel(model);
+    }
+
     static boolean shouldUseNativeChat(String model, byte[] body) {
-        return isCommandAReasoningModel(model) && canUseNativeChat(body);
+        return isNativeChatModel(model) && canUseNativeChat(body);
     }
 
     static int capOnDemandMaxTokens(String model, int value) {
@@ -223,7 +235,7 @@ final class OciCohereChatV2Bridge {
                 .isStream(false);
         Integer maxTokens = OciGenerativeOpenAiService.firstInteger(input, "max_tokens", "maxTokens");
         if (maxTokens != null && maxTokens > 0) {
-            builder.maxTokens(Math.min(maxTokens, COMMAND_A_REASONING_ON_DEMAND_MAX_TOKENS));
+            builder.maxTokens(capOnDemandMaxTokens(OciGenerativeOpenAiService.textOrNull(input, "model"), maxTokens));
         }
         Double temperature = OciGenerativeOpenAiService.firstDouble(input, "temperature");
         if (temperature != null) {

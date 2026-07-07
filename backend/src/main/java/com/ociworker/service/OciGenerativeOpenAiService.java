@@ -116,6 +116,7 @@ public class OciGenerativeOpenAiService {
     private static final Duration MODEL_LIST_CACHE_TTL = Duration.ofMinutes(5);
     private static final int GEMINI_MIN_CHAT_COMPLETION_TOKENS = 128;
     private static final int META_LLAMA_ON_DEMAND_MAX_TOKENS = 4000;
+    private static final int COHERE_COMMAND_A_ON_DEMAND_MAX_TOKENS = 4000;
     private static final String REGION_CONTEXT_TYPE = "oracle_ai_region_context";
     private static final Set<String> OCI_TOOL_SCHEMA_ALLOWED_FIELDS = Set.of(
             "type", "format", "description", "nullable", "enum",
@@ -339,7 +340,7 @@ public class OciGenerativeOpenAiService {
                 request.setAttribute("ociworker.lb.bridgeType", "native_generic_chat");
                 request.setAttribute("ociworker.rewrite.model", requestedModel);
             } else if (!rewriteChatToResponses
-                    && shouldUseCohereCommandAReasoningNativeChat(requestedModel, body)) {
+                    && shouldUseCohereNativeChatV2(requestedModel, body)) {
                 body = forceChatCompletionNonStreamJson(body);
                 if (isStreamRequest(origBody, contentType)) {
                     request.setAttribute("ociworker.rewrite.forceBuffer", Boolean.TRUE);
@@ -373,7 +374,7 @@ public class OciGenerativeOpenAiService {
                 request.setAttribute("ociworker.rewrite.useNativeGenericChat", Boolean.TRUE);
                 request.setAttribute("ociworker.lb.bridgeType", "native_generic_chat_responses");
                 request.setAttribute("ociworker.rewrite.model", requestedModel);
-            } else if (shouldUseCohereCommandAReasoningNativeChat(requestedModel, body)) {
+            } else if (shouldUseCohereNativeChatV2(requestedModel, body)) {
                 body = forceChatCompletionNonStreamJson(body);
                 request.setAttribute("ociworker.rewrite.forceBuffer", Boolean.TRUE);
                 request.setAttribute("ociworker.rewrite.useNativeCohereChatV2", Boolean.TRUE);
@@ -881,15 +882,20 @@ public class OciGenerativeOpenAiService {
     }
 
     static boolean shouldBufferChatCompletionStream(String model) {
-        return isGeminiChatModel(model) || OciCohereChatV2Bridge.isCommandAReasoningModel(model);
+        return isGeminiChatModel(model) || OciCohereChatV2Bridge.isNativeChatModel(model);
     }
 
     static boolean shouldUseGeminiNativeChat(String model, byte[] body) {
         return isGeminiChatModel(model) && canUseNativeGenericChat(body);
     }
 
-    static boolean shouldUseCohereCommandAReasoningNativeChat(String model, byte[] body) {
+    static boolean shouldUseCohereNativeChatV2(String model, byte[] body) {
         return OciCohereChatV2Bridge.shouldUseNativeChat(model, body);
+    }
+
+    static boolean shouldUseCohereCommandAReasoningNativeChat(String model, byte[] body) {
+        return OciCohereChatV2Bridge.isCommandAReasoningModel(model)
+                && OciCohereChatV2Bridge.canUseNativeChat(body);
     }
 
     private static boolean isGeminiChatModel(String model) {
@@ -3292,6 +3298,10 @@ public class OciGenerativeOpenAiService {
                 && value > META_LLAMA_ON_DEMAND_MAX_TOKENS) {
             value = META_LLAMA_ON_DEMAND_MAX_TOKENS;
         }
+        if (isCohereCommandAOnDemandCappedModel(textOrNull(root, "model"))
+                && value > COHERE_COMMAND_A_ON_DEMAND_MAX_TOKENS) {
+            value = COHERE_COMMAND_A_ON_DEMAND_MAX_TOKENS;
+        }
         value = OciCohereChatV2Bridge.capOnDemandMaxTokens(textOrNull(root, "model"), value);
         root.put("max_tokens", value);
     }
@@ -3303,6 +3313,14 @@ public class OciGenerativeOpenAiService {
         String value = model.trim().toLowerCase(Locale.ROOT);
         return value.contains("llama-4-")
                 || value.contains("llama-3.3-70b-instruct");
+    }
+
+    private static boolean isCohereCommandAOnDemandCappedModel(String model) {
+        if (model == null || model.isBlank()) {
+            return false;
+        }
+        String value = model.trim().toLowerCase(Locale.ROOT);
+        return value.equals("cohere.command-a-03-2025");
     }
 
     private static int positiveInt(JsonNode node, int fallback) {

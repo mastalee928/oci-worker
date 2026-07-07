@@ -28,6 +28,10 @@ class OracleAiModelCapabilityTest {
                 .isEqualTo(OracleAiModelCapability.CHAT);
         assertThat(OracleAiModelCapability.classify("cohere.command-a-reasoning"))
                 .isEqualTo(OracleAiModelCapability.CHAT);
+        assertThat(OracleAiModelCapability.classify("cohere.command-a-03-2025"))
+                .isEqualTo(OracleAiModelCapability.CHAT);
+        assertThat(OracleAiModelCapability.classify("cohere.command-a-vision"))
+                .isEqualTo(OracleAiModelCapability.CHAT);
         assertThat(OracleAiModelCapability.classify("meta.llama-4-maverick-17b-128e-instruct-fp8"))
                 .isEqualTo(OracleAiModelCapability.CHAT);
         assertThat(OracleAiModelCapability.classify("meta.llama-4-scout-17b-16e-instruct"))
@@ -59,6 +63,8 @@ class OracleAiModelCapabilityTest {
         assertThat(OracleAiModelCapability.isChatEndpointCompatible("xai.grok-4.3")).isTrue();
         assertThat(OracleAiModelCapability.isChatEndpointCompatible("xai.grok-4.20-multi-agent")).isTrue();
         assertThat(OracleAiModelCapability.isChatEndpointCompatible("cohere.command-a-reasoning")).isTrue();
+        assertThat(OracleAiModelCapability.isChatEndpointCompatible("cohere.command-a-03-2025")).isTrue();
+        assertThat(OracleAiModelCapability.isChatEndpointCompatible("cohere.command-a-vision")).isTrue();
         assertThat(OracleAiModelCapability.isChatEndpointCompatible("meta.llama-4-maverick-17b-128e-instruct-fp8")).isTrue();
         assertThat(OracleAiModelCapability.isChatEndpointCompatible("meta.llama-4-scout-17b-16e-instruct")).isTrue();
         assertThat(OracleAiModelCapability.isChatEndpointCompatible("meta.llama-3.3-70b-instruct")).isTrue();
@@ -75,6 +81,8 @@ class OracleAiModelCapabilityTest {
         assertThat(OracleAiModelCapability.isEmbeddingEndpointCompatible("cohere.embed-english-v3.0")).isTrue();
         assertThat(OracleAiModelCapability.isEmbeddingEndpointCompatible("xai.grok-4.3")).isFalse();
         assertThat(OracleAiModelCapability.isEmbeddingEndpointCompatible("cohere.command-a-reasoning")).isFalse();
+        assertThat(OracleAiModelCapability.isEmbeddingEndpointCompatible("cohere.command-a-03-2025")).isFalse();
+        assertThat(OracleAiModelCapability.isEmbeddingEndpointCompatible("cohere.command-a-vision")).isFalse();
         assertThat(OracleAiModelCapability.isEmbeddingEndpointCompatible("meta.llama-4-maverick-17b-128e-instruct-fp8")).isFalse();
         assertThat(OracleAiModelCapability.isEmbeddingEndpointCompatible("meta.llama-4-scout-17b-16e-instruct")).isFalse();
         assertThat(OracleAiModelCapability.isEmbeddingEndpointCompatible("meta.llama-3.3-70b-instruct")).isFalse();
@@ -94,6 +102,8 @@ class OracleAiModelCapabilityTest {
         assertThat(OracleAiModelCapability.isRerankEndpointCompatible("cohere.rerank-v4.0-fast")).isTrue();
         assertThat(OracleAiModelCapability.isRerankEndpointCompatible("xai.grok-4.3")).isFalse();
         assertThat(OracleAiModelCapability.isRerankEndpointCompatible("cohere.command-a-reasoning")).isFalse();
+        assertThat(OracleAiModelCapability.isRerankEndpointCompatible("cohere.command-a-03-2025")).isFalse();
+        assertThat(OracleAiModelCapability.isRerankEndpointCompatible("cohere.command-a-vision")).isFalse();
         assertThat(OracleAiModelCapability.isRerankEndpointCompatible("meta.llama-4-maverick-17b-128e-instruct-fp8")).isFalse();
         assertThat(OracleAiModelCapability.isRerankEndpointCompatible("meta.llama-4-scout-17b-16e-instruct")).isFalse();
         assertThat(OracleAiModelCapability.isRerankEndpointCompatible("meta.llama-3.3-70b-instruct")).isFalse();
@@ -110,6 +120,8 @@ class OracleAiModelCapabilityTest {
         assertThat(OracleAiModelCapability.isAudioSpeechEndpointCompatible("oracle.future-speech-v1")).isTrue();
         assertThat(OracleAiModelCapability.isAudioSpeechEndpointCompatible("xai.grok-4.3")).isFalse();
         assertThat(OracleAiModelCapability.isAudioSpeechEndpointCompatible("cohere.command-a-reasoning")).isFalse();
+        assertThat(OracleAiModelCapability.isAudioSpeechEndpointCompatible("cohere.command-a-03-2025")).isFalse();
+        assertThat(OracleAiModelCapability.isAudioSpeechEndpointCompatible("cohere.command-a-vision")).isFalse();
         assertThat(OracleAiModelCapability.isAudioSpeechEndpointCompatible("meta.llama-4-maverick-17b-128e-instruct-fp8")).isFalse();
         assertThat(OracleAiModelCapability.isAudioSpeechEndpointCompatible("meta.llama-4-scout-17b-16e-instruct")).isFalse();
         assertThat(OracleAiModelCapability.isAudioSpeechEndpointCompatible("meta.llama-3.3-70b-instruct")).isFalse();
