@@ -4,7 +4,6 @@
       v-if="open"
       class="model-library-backdrop"
       aria-hidden="false"
-      @click.self="emit('update:open', false)"
     >
       <section class="model-library-modal" role="dialog" aria-modal="true" aria-labelledby="modelModalTitle" @wheel.stop>
         <div class="model-library-head">
@@ -144,11 +143,7 @@
         </div>
 
         <div class="model-library-footer">
-          <div class="model-footer-note">
-            这个结构不是只为 TTS 服务，后续 Rerank、Embedding、安全审核都能继续扩展。
-          </div>
           <div class="model-footer-actions">
-            <button class="model-btn" type="button" @click="emit('update:open', false)">取消</button>
             <button class="model-btn primary" type="button" :disabled="saving || disabled" @click="confirmSelection">
               保存模型库
             </button>
@@ -336,9 +331,7 @@ function confirmSelection() {
 }
 
 function onKeydown(event: KeyboardEvent) {
-  if (event.key === 'Escape' && props.open) {
-    emit('update:open', false)
-  }
+  if (event.key === 'Escape' && props.open) event.preventDefault()
 }
 
 function lockPageScroll() {
@@ -788,17 +781,11 @@ onUnmounted(() => {
 
 .model-library-footer {
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   align-items: center;
   gap: 12px;
   padding: 14px 18px;
   border-top: 1px solid var(--border);
-}
-
-.model-footer-note {
-  color: var(--text-sub);
-  font-size: 12px;
-  line-height: 1.45;
 }
 
 .model-footer-actions {
