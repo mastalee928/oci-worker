@@ -21,11 +21,25 @@ export function reloadOnceForUpdatedAssets() {
 
 export function defineAppAsyncComponent<T extends Component>(
   loader: () => Promise<T | { default: T }>,
+  options: { loadingText?: string } = {},
 ) {
   return defineAsyncComponent({
     loader,
     delay: 120,
     timeout: 30_000,
+    loadingComponent: {
+      setup() {
+        const text = options.loadingText || '组件加载中...'
+        return () => h('div', { class: 'async-component-loading' }, [
+          h('div', { class: 'async-component-loading-bar' }, [
+            h('span'),
+            h('span'),
+            h('span'),
+          ]),
+          h('div', { class: 'async-component-loading-card' }, text),
+        ])
+      },
+    },
     errorComponent: {
       setup() {
         return () => h('div', { class: 'async-component-error' }, '组件资源加载失败，请刷新页面后重试')

@@ -1108,7 +1108,10 @@ import {
   saveOracleAiModelWhitelist,
 } from '../api/oracleAi'
 
-const OracleAiDiagnosticsPanel = defineAppAsyncComponent(() => import('../components/oracle-ai/OracleAiDiagnosticsPanel.vue'))
+const OracleAiDiagnosticsPanel = defineAppAsyncComponent(
+  () => import('../components/oracle-ai/OracleAiDiagnosticsPanel.vue'),
+  { loadingText: '日志诊断加载中...' },
+)
 const OracleAiModelPickerModal = defineAppAsyncComponent(() => import('../components/oracle-ai/OracleAiModelPickerModal.vue'))
 const OracleAiModelSummary = defineAppAsyncComponent(() => import('../components/oracle-ai/OracleAiModelSummary.vue'))
 

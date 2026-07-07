@@ -112,6 +112,32 @@ body.wallpaper-active {
   font-size: 13px;
   text-align: center;
 }
+.async-component-loading {
+  display: grid;
+  gap: 12px;
+  margin: 8px 0 24px;
+}
+.async-component-loading-bar {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+}
+.async-component-loading-bar span {
+  width: 88px;
+  height: 30px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg-card);
+}
+.async-component-loading-card {
+  min-height: 112px;
+  padding: 18px 20px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-card);
+  color: var(--text-sub);
+  font-size: 13px;
+}
 
 /* Wallpaper layer */
 #wallpaperLayer {
