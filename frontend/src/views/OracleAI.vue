@@ -2711,6 +2711,14 @@ async function viewKey(k: any) {
   max-width: none;
   margin: 0;
 }
+:global([data-theme="light"] .oracle-ai-page) {
+  min-height: calc(100vh - 104px);
+  background-color: transparent;
+  background-image:
+    linear-gradient(var(--grid-color) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
+  background-size: 24px 24px;
+}
 :global([data-theme="light"] body.oracle-ai-route-active::before),
 :global([data-theme="light"] body.oracle-ai-route-active::after) {
   background: none !important;
@@ -2766,6 +2774,12 @@ async function viewKey(k: any) {
 .oracle-ai-page :deep(.ant-tabs-ink-bar) {
   height: 2px !important;
   border-radius: 999px;
+}
+:global([data-theme="light"] .oracle-ai-page .ant-tabs),
+:global([data-theme="light"] .oracle-ai-page .ant-tabs-content-holder),
+:global([data-theme="light"] .oracle-ai-page .ant-tabs-content),
+:global([data-theme="light"] .oracle-ai-page .ant-tabs-tabpane) {
+  background: transparent !important;
 }
 .oracle-ai-page :deep(.ant-card) {
   width: 100%;
