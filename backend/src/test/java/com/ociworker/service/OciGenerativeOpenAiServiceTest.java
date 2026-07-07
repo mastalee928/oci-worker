@@ -170,6 +170,86 @@ class OciGenerativeOpenAiServiceTest {
     }
 
     @Test
+    void capsMetaLlamaOnDemandOutputTokensAndKeepsSupportedParameters() throws Exception {
+        String payload = """
+                {
+                  "model":"meta.llama-4-maverick-17b-128e-instruct-fp8",
+                  "messages":[{"role":"user","content":"hello"}],
+                  "max_tokens":12000,
+                  "top_k":40,
+                  "frequency_penalty":0.2,
+                  "presence_penalty":0.1,
+                  "seed":1234
+                }
+                """;
+
+        byte[] normalized = OciGenerativeOpenAiService.transformChatCompletionsJson(payload.getBytes(), 2048);
+
+        JsonNode root = MAPPER.readTree(normalized);
+        assertThat(root.path("max_tokens").asInt()).isEqualTo(4000);
+        assertThat(root.path("top_k").asInt()).isEqualTo(40);
+        assertThat(root.path("frequency_penalty").asDouble()).isEqualTo(0.2D);
+        assertThat(root.path("presence_penalty").asDouble()).isEqualTo(0.1D);
+        assertThat(root.path("seed").asInt()).isEqualTo(1234);
+    }
+
+    @Test
+    void capsLlama4ScoutOnDemandOutputTokens() throws Exception {
+        String payload = """
+                {
+                  "model":"meta.llama-4-scout-17b-16e-instruct",
+                  "messages":[{"role":"user","content":"hello"}],
+                  "max_tokens":12000
+                }
+                """;
+
+        byte[] normalized = OciGenerativeOpenAiService.transformChatCompletionsJson(payload.getBytes(), 2048);
+
+        JsonNode root = MAPPER.readTree(normalized);
+        assertThat(root.path("max_tokens").asInt()).isEqualTo(4000);
+    }
+
+    @Test
+    void capsLlama33StandardOnDemandOutputTokens() throws Exception {
+        String payload = """
+                {
+                  "model":"meta.llama-3.3-70b-instruct",
+                  "messages":[{"role":"user","content":"hello"}],
+                  "max_tokens":12000,
+                  "top_k":40,
+                  "frequency_penalty":-0.2,
+                  "presence_penalty":0.1,
+                  "seed":1234
+                }
+                """;
+
+        byte[] normalized = OciGenerativeOpenAiService.transformChatCompletionsJson(payload.getBytes(), 2048);
+
+        JsonNode root = MAPPER.readTree(normalized);
+        assertThat(root.path("max_tokens").asInt()).isEqualTo(4000);
+        assertThat(root.path("top_k").asInt()).isEqualTo(40);
+        assertThat(root.path("frequency_penalty").asDouble()).isEqualTo(-0.2D);
+        assertThat(root.path("presence_penalty").asDouble()).isEqualTo(0.1D);
+        assertThat(root.path("seed").asInt()).isEqualTo(1234);
+    }
+
+    @Test
+    void capsLlama33Fp8DynamicOnDemandOutputTokens() throws Exception {
+        String payload = """
+                {
+                  "model":"meta.llama-3.3-70b-instruct-fp8-dynamic",
+                  "messages":[{"role":"user","content":"hello"}],
+                  "max_tokens":12000
+                }
+                """;
+
+        byte[] normalized = OciGenerativeOpenAiService.transformChatCompletionsJson(payload.getBytes(), 2048);
+
+        JsonNode root = MAPPER.readTree(normalized);
+        assertThat(root.path("max_tokens").asInt()).isEqualTo(4000);
+    }
+
+    @Test
     void raisesSmallGeminiChatCompletionBudgetForOci() throws Exception {
         String payload = """
                 {

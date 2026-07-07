@@ -270,7 +270,7 @@ export function inferOracleAiModelMeta(option: OracleAiModelOption | string): Or
       statusLabel: forcedDisabled ? '停用' : 'Reasoning',
     }
   }
-  if (lower.includes('vision') || lower.includes('gemini')) {
+  if (lower.includes('vision') || lower.includes('gemini') || lower.includes('llama-4-')) {
     return {
       id,
       label,

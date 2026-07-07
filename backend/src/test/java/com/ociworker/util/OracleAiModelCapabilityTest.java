@@ -26,6 +26,14 @@ class OracleAiModelCapabilityTest {
                 .isEqualTo(OracleAiModelCapability.CHAT);
         assertThat(OracleAiModelCapability.classify("google.gemini-2.5-flash-lite"))
                 .isEqualTo(OracleAiModelCapability.CHAT);
+        assertThat(OracleAiModelCapability.classify("meta.llama-4-maverick-17b-128e-instruct-fp8"))
+                .isEqualTo(OracleAiModelCapability.CHAT);
+        assertThat(OracleAiModelCapability.classify("meta.llama-4-scout-17b-16e-instruct"))
+                .isEqualTo(OracleAiModelCapability.CHAT);
+        assertThat(OracleAiModelCapability.classify("meta.llama-3.3-70b-instruct"))
+                .isEqualTo(OracleAiModelCapability.CHAT);
+        assertThat(OracleAiModelCapability.classify("meta.llama-3.3-70b-instruct-fp8-dynamic"))
+                .isEqualTo(OracleAiModelCapability.CHAT);
         assertThat(OracleAiModelCapability.classify("cohere.embed-v4.0"))
                 .isEqualTo(OracleAiModelCapability.EMBEDDING);
         assertThat(OracleAiModelCapability.classify("cohere.rerank-v4.0-fast"))
@@ -48,9 +56,14 @@ class OracleAiModelCapabilityTest {
     void onlyChatAndMultiAgentAreAcceptedByChatStyleEndpoints() {
         assertThat(OracleAiModelCapability.isChatEndpointCompatible("xai.grok-4.3")).isTrue();
         assertThat(OracleAiModelCapability.isChatEndpointCompatible("xai.grok-4.20-multi-agent")).isTrue();
+        assertThat(OracleAiModelCapability.isChatEndpointCompatible("meta.llama-4-maverick-17b-128e-instruct-fp8")).isTrue();
+        assertThat(OracleAiModelCapability.isChatEndpointCompatible("meta.llama-4-scout-17b-16e-instruct")).isTrue();
+        assertThat(OracleAiModelCapability.isChatEndpointCompatible("meta.llama-3.3-70b-instruct")).isTrue();
+        assertThat(OracleAiModelCapability.isChatEndpointCompatible("meta.llama-3.3-70b-instruct-fp8-dynamic")).isTrue();
         assertThat(OracleAiModelCapability.isChatEndpointCompatible("cohere.embed-v4.0")).isFalse();
         assertThat(OracleAiModelCapability.isChatEndpointCompatible("cohere.rerank-v4.0-pro")).isFalse();
         assertThat(OracleAiModelCapability.isChatEndpointCompatible("xai.grok-tts")).isFalse();
+        assertThat(OracleAiModelCapability.isChatEndpointCompatible("meta.llama-guard-4-12b")).isFalse();
     }
 
     @Test
@@ -58,6 +71,10 @@ class OracleAiModelCapabilityTest {
         assertThat(OracleAiModelCapability.isEmbeddingEndpointCompatible("cohere.embed-v4.0")).isTrue();
         assertThat(OracleAiModelCapability.isEmbeddingEndpointCompatible("cohere.embed-english-v3.0")).isTrue();
         assertThat(OracleAiModelCapability.isEmbeddingEndpointCompatible("xai.grok-4.3")).isFalse();
+        assertThat(OracleAiModelCapability.isEmbeddingEndpointCompatible("meta.llama-4-maverick-17b-128e-instruct-fp8")).isFalse();
+        assertThat(OracleAiModelCapability.isEmbeddingEndpointCompatible("meta.llama-4-scout-17b-16e-instruct")).isFalse();
+        assertThat(OracleAiModelCapability.isEmbeddingEndpointCompatible("meta.llama-3.3-70b-instruct")).isFalse();
+        assertThat(OracleAiModelCapability.isEmbeddingEndpointCompatible("meta.llama-3.3-70b-instruct-fp8-dynamic")).isFalse();
         assertThat(OracleAiModelCapability.isEmbeddingEndpointCompatible("xai.grok-4.20-multi-agent")).isFalse();
         assertThat(OracleAiModelCapability.isEmbeddingEndpointCompatible("cohere.rerank-v4.0-fast")).isFalse();
         assertThat(OracleAiModelCapability.isEmbeddingEndpointCompatible("xai.grok-tts")).isFalse();
@@ -72,6 +89,10 @@ class OracleAiModelCapabilityTest {
     void knownNonRerankModelsAreRejectedByRerankEndpoint() {
         assertThat(OracleAiModelCapability.isRerankEndpointCompatible("cohere.rerank-v4.0-fast")).isTrue();
         assertThat(OracleAiModelCapability.isRerankEndpointCompatible("xai.grok-4.3")).isFalse();
+        assertThat(OracleAiModelCapability.isRerankEndpointCompatible("meta.llama-4-maverick-17b-128e-instruct-fp8")).isFalse();
+        assertThat(OracleAiModelCapability.isRerankEndpointCompatible("meta.llama-4-scout-17b-16e-instruct")).isFalse();
+        assertThat(OracleAiModelCapability.isRerankEndpointCompatible("meta.llama-3.3-70b-instruct")).isFalse();
+        assertThat(OracleAiModelCapability.isRerankEndpointCompatible("meta.llama-3.3-70b-instruct-fp8-dynamic")).isFalse();
         assertThat(OracleAiModelCapability.isRerankEndpointCompatible("xai.grok-4.20-multi-agent")).isFalse();
         assertThat(OracleAiModelCapability.isRerankEndpointCompatible("cohere.embed-v4.0")).isFalse();
         assertThat(OracleAiModelCapability.isRerankEndpointCompatible("xai.grok-tts")).isFalse();
@@ -83,6 +104,10 @@ class OracleAiModelCapabilityTest {
         assertThat(OracleAiModelCapability.isAudioSpeechEndpointCompatible("oracle.tts-v1")).isTrue();
         assertThat(OracleAiModelCapability.isAudioSpeechEndpointCompatible("oracle.future-speech-v1")).isTrue();
         assertThat(OracleAiModelCapability.isAudioSpeechEndpointCompatible("xai.grok-4.3")).isFalse();
+        assertThat(OracleAiModelCapability.isAudioSpeechEndpointCompatible("meta.llama-4-maverick-17b-128e-instruct-fp8")).isFalse();
+        assertThat(OracleAiModelCapability.isAudioSpeechEndpointCompatible("meta.llama-4-scout-17b-16e-instruct")).isFalse();
+        assertThat(OracleAiModelCapability.isAudioSpeechEndpointCompatible("meta.llama-3.3-70b-instruct")).isFalse();
+        assertThat(OracleAiModelCapability.isAudioSpeechEndpointCompatible("meta.llama-3.3-70b-instruct-fp8-dynamic")).isFalse();
         assertThat(OracleAiModelCapability.isAudioSpeechEndpointCompatible("xai.grok-4.20-multi-agent")).isFalse();
         assertThat(OracleAiModelCapability.isAudioSpeechEndpointCompatible("cohere.embed-v4.0")).isFalse();
         assertThat(OracleAiModelCapability.isAudioSpeechEndpointCompatible("cohere.rerank-v4.0-fast")).isFalse();

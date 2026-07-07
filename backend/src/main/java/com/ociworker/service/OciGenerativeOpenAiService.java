@@ -114,6 +114,7 @@ public class OciGenerativeOpenAiService {
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final Duration MODEL_LIST_CACHE_TTL = Duration.ofMinutes(5);
     private static final int GEMINI_MIN_CHAT_COMPLETION_TOKENS = 128;
+    private static final int META_LLAMA_ON_DEMAND_MAX_TOKENS = 4000;
     private static final String REGION_CONTEXT_TYPE = "oracle_ai_region_context";
     private static final Set<String> OCI_TOOL_SCHEMA_ALLOWED_FIELDS = Set.of(
             "type", "format", "description", "nullable", "enum",
@@ -3189,7 +3190,20 @@ public class OciGenerativeOpenAiService {
                 value = GEMINI_MIN_CHAT_COMPLETION_TOKENS;
             }
         }
+        if (isMetaLlamaOnDemandCappedModel(textOrNull(root, "model"))
+                && value > META_LLAMA_ON_DEMAND_MAX_TOKENS) {
+            value = META_LLAMA_ON_DEMAND_MAX_TOKENS;
+        }
         root.put("max_tokens", value);
+    }
+
+    private static boolean isMetaLlamaOnDemandCappedModel(String model) {
+        if (model == null || model.isBlank()) {
+            return false;
+        }
+        String value = model.trim().toLowerCase(Locale.ROOT);
+        return value.contains("llama-4-")
+                || value.contains("llama-3.3-70b-instruct");
     }
 
     private static int positiveInt(JsonNode node, int fallback) {
