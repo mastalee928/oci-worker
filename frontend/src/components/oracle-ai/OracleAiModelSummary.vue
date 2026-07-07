@@ -1,5 +1,5 @@
 <template>
-  <a-form-item class="model-summary-field" label="模型白名单（OCI 管理面 ListModels）">
+  <a-form-item class="model-summary-field" label="模型库（OCI 管理面 ListModels）">
     <div class="model-summary-panel">
       <div class="model-summary-main">
         <div class="model-summary-title">已选模型</div>
@@ -11,7 +11,7 @@
           <span v-else class="tag default">不限制模型</span>
         </div>
         <div class="model-summary-meta">
-          <span>聊天兼容：{{ chatCompatibleCount }}</span>
+          <span>可选模型：{{ selectableCount }}</span>
           <span>可用模型：{{ availableCount }}</span>
           <span>上次刷新：{{ lastRefreshedText || '-' }}</span>
         </div>
@@ -61,7 +61,7 @@ const selectedModels = computed(() => uniqueModels(props.modelValue))
 const visibleSelectedModels = computed(() => selectedModels.value.slice(0, 3))
 const hiddenSelectedCount = computed(() => Math.max(0, selectedModels.value.length - visibleSelectedModels.value.length))
 const availableCount = computed(() => props.options?.length || 0)
-const chatCompatibleCount = computed(() => {
+const selectableCount = computed(() => {
   return (props.options || []).filter((option) => inferOracleAiModelMeta(option).selectable).length
 })
 </script>

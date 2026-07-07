@@ -2,129 +2,157 @@
   <teleport to="body">
     <div
       v-if="open"
-      class="modal-backdrop open"
+      class="model-library-backdrop"
       aria-hidden="false"
       @click.self="emit('update:open', false)"
     >
-      <section class="model-modal" role="dialog" aria-modal="true" aria-labelledby="modelModalTitle">
-        <div class="modal-head">
+      <section class="model-library-modal" role="dialog" aria-modal="true" aria-labelledby="modelModalTitle">
+        <div class="model-library-head">
           <div>
-            <div id="modelModalTitle" class="modal-title">管理模型白名单</div>
-            <div class="modal-subtitle">主页面只保留摘要；完整模型库在这里搜索、筛选、勾选。</div>
+            <div id="modelModalTitle" class="model-library-title">管理模型库</div>
+            <div class="model-library-subtitle">
+              所有模型统一展示，但按端点能力分组保存，避免聊天、TTS、Embedding、Rerank 混在一起。
+            </div>
           </div>
-          <button class="modal-close" type="button" @click="emit('update:open', false)">×</button>
-        </div>
+          <button class="model-library-close" type="button" @click="emit('update:open', false)">×</button>
 
-        <div class="modal-body">
-          <div class="model-toolbar">
+          <div class="model-library-toolbar">
             <input
               ref="searchInputRef"
               v-model="keyword"
-              class="input"
-              placeholder="搜索模型 ID，例如 gemini / grok / gpt-oss"
+              class="model-library-input"
+              placeholder="全局搜索模型 ID，例如 grok / gemini / rerank / embed"
             />
-            <select v-model="capabilityFilter" class="select">
-              <option value="">全部能力</option>
-              <option value="chat">聊天</option>
-              <option value="vision">视觉</option>
-              <option value="reasoning">推理</option>
-              <option value="responses">多代理</option>
-              <option value="code">代码</option>
-              <option value="non-chat">非聊天端点</option>
+            <select v-model="providerFilter" class="model-library-select">
+              <option value="">全部来源</option>
+              <option value="xai">xAI</option>
+              <option value="google">Google</option>
+              <option value="openai">OpenAI OSS</option>
+              <option value="cohere">Cohere</option>
+              <option value="meta">Meta</option>
+              <option value="oracle">Oracle AI</option>
             </select>
-            <select v-model="endpointFilter" class="select">
+            <select v-model="groupFilter" class="model-library-select">
               <option value="">全部端点</option>
-              <option value="chat">Chat Completions</option>
-              <option value="responses">Responses</option>
-              <option value="embed">Embeddings</option>
+              <option value="chat">聊天</option>
+              <option value="audio">Audio Speech</option>
+              <option value="embed">Embedding</option>
               <option value="rerank">Rerank</option>
-              <option value="audio">Audio</option>
+              <option value="safety">安全审核</option>
+              <option value="pending">待确认</option>
             </select>
-            <label class="selected-only">
-              <input v-model="selectedOnly" type="checkbox" />
-              只看已选
-            </label>
+            <select v-model="statusFilter" class="model-library-select">
+              <option value="">全部状态</option>
+              <option value="selected">已选择</option>
+              <option value="unselected">未选择</option>
+              <option value="pending">待确认</option>
+            </select>
           </div>
+        </div>
 
-          <div class="model-modal-layout">
-            <div class="model-list-panel">
-              <div class="model-list-head">
-                <span>模型列表</span>
-                <span class="sub-muted">{{ availableCount }} 个模型 · 当前显示 {{ filteredModels.length }} 个</span>
-              </div>
-              <div class="model-list-scroll">
-                <table class="model-table">
-                  <thead>
-                    <tr>
-                      <th>选择</th>
-                      <th>模型</th>
-                      <th>能力</th>
-                      <th>端点</th>
-                      <th>状态</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <tr
-                      v-for="model in filteredModels"
-                      :key="model.id"
-                      :class="{ 'model-row-disabled': !model.selectable }"
-                    >
-                      <td>
-                        <input
-                          type="checkbox"
-                          :checked="isSelected(model.id)"
-                          :disabled="!model.selectable && !isSelected(model.id)"
-                          @change="toggleModel(model.id, model.selectable)"
-                        />
-                      </td>
-                      <td>
-                        <div class="model-id-cell">
-                          <span class="model-id-main" :title="model.id">{{ model.id }}</span>
-                          <span class="model-id-sub">{{ model.description }}</span>
-                        </div>
-                      </td>
-                      <td><span class="tag" :class="model.tagColor">{{ model.capability }}</span></td>
-                      <td>{{ model.endpoint }}</td>
-                      <td><span class="tag" :class="model.selectable ? 'green' : 'default'">{{ model.selectable ? '可选' : '不可选' }}</span></td>
-                    </tr>
-                    <tr v-if="!filteredModels.length">
-                      <td colspan="5" class="model-empty">没有符合条件的模型</td>
-                    </tr>
-                  </tbody>
-                </table>
-              </div>
+        <div class="model-library-body">
+          <div class="model-library-layout">
+            <div class="model-groups">
+              <section
+                v-for="group in visibleGroups"
+                :key="group.id"
+                class="model-group"
+                :class="{ empty: !group.models.length }"
+              >
+                <div class="model-group-head">
+                  <div>
+                    <div class="model-group-title-row">
+                      <span class="model-dot" :class="group.dotClass"></span>
+                      <span class="model-group-title">{{ group.title }}</span>
+                      <span class="model-tag" :class="group.tagClass">{{ group.configKey }}</span>
+                    </div>
+                    <div class="model-group-desc">{{ group.description }}</div>
+                  </div>
+                  <span class="model-tag" :class="group.tagClass">{{ groupSelectedCount(group.id) ? `已选 ${groupSelectedCount(group.id)}` : group.id === 'pending' ? '等待确认' : '未选择' }}</span>
+                </div>
+
+                <div class="model-list">
+                  <label
+                    v-for="model in group.models"
+                    :key="model.id"
+                    class="model-row"
+                    :class="[
+                      model.group === 'audio' ? 'audio' : '',
+                      model.group === 'pending' ? 'pending' : '',
+                      isSelected(model.id) ? 'active' : '',
+                    ]"
+                  >
+                    <input
+                      type="checkbox"
+                      :checked="isSelected(model.id)"
+                      :disabled="!model.selectable && !isSelected(model.id)"
+                      @change="toggleModel(model.id, model.selectable)"
+                    />
+                    <span class="model-row-main">
+                      <span class="model-name" :title="model.id">{{ model.id }}</span>
+                      <span class="model-desc">{{ model.description }}</span>
+                    </span>
+                    <span class="model-actions">
+                      <span class="model-tag" :class="model.tagColor">{{ model.capability }}</span>
+                      <span class="model-tag" :class="endpointTagClass(model.group)">{{ model.statusLabel }}</span>
+                    </span>
+                  </label>
+                  <div v-if="!group.models.length" class="model-empty-line">{{ group.emptyText }}</div>
+                </div>
+              </section>
             </div>
 
-            <aside class="model-selected-panel">
-              <div class="selected-head">
-                <span>已选预览</span>
-                <span class="tag green">{{ draftSelected.length }}</span>
+            <aside class="model-preview-panel">
+              <div class="model-preview-title">
+                <span>保存预览</span>
+                <span class="model-tag blue">分池写入</span>
               </div>
-              <div class="selected-list">
-                <template v-if="selectedPreview.length">
-                  <div v-for="model in selectedPreview" :key="model.id" class="selected-item">
-                    <b :title="model.id">{{ model.id }}</b>
-                    <span>{{ model.endpoint }} · {{ model.capability }}</span>
-                  </div>
-                  <div v-if="selectedHiddenCount > 0" class="selected-item">
-                    <b>+ {{ selectedHiddenCount }} 个</b>
-                    <span>保存时写入白名单</span>
-                  </div>
-                </template>
-                <div v-else class="selected-item">
-                  <b>不限制模型</b>
-                  <span>留空即允许全部模型</span>
+
+              <div v-if="!draftSelected.length" class="model-preview-block">
+                <div class="model-preview-block-title">allowedModels</div>
+                <div class="model-preview-item">不限制模型</div>
+              </div>
+
+              <template v-else>
+                <div
+                  v-for="group in groups"
+                  :key="group.id"
+                  class="model-preview-block"
+                >
+                  <div class="model-preview-block-title">{{ group.configKey }}</div>
+                  <template v-if="selectedByGroup[group.id]?.length">
+                    <div
+                      v-for="model in selectedByGroup[group.id]"
+                      :key="model.id"
+                      class="model-preview-item"
+                      :title="model.id"
+                    >
+                      {{ model.id }}
+                    </div>
+                  </template>
+                  <div v-else class="model-preview-item muted">未选择</div>
                 </div>
+              </template>
+
+              <div class="model-endpoint-map">
+                <div><b>聊天请求</b> 不会主动选择 TTS / Rerank / Embedding 模型</div>
+                <div><b>非聊天请求</b> 按端点进入对应模型池</div>
+                <div><b>未来模型</b> 先分类，未确认时进入待确认</div>
               </div>
             </aside>
           </div>
         </div>
 
-        <div class="modal-footer">
-          <button class="btn" type="button" @click="emit('update:open', false)">取消</button>
-          <button class="btn primary" type="button" :disabled="saving || disabled" @click="confirmSelection">
-            保存选择
-          </button>
+        <div class="model-library-footer">
+          <div class="model-footer-note">
+            这个结构不是只为 TTS 服务，后续 Rerank、Embedding、安全审核都能继续扩展。
+          </div>
+          <div class="model-footer-actions">
+            <button class="model-btn" type="button" @click="emit('update:open', false)">取消</button>
+            <button class="model-btn primary" type="button" :disabled="saving || disabled" @click="confirmSelection">
+              保存模型库
+            </button>
+          </div>
         </div>
       </section>
     </div>
@@ -134,8 +162,10 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import {
+  ORACLE_AI_MODEL_GROUPS,
   inferOracleAiModelMeta,
   uniqueModels,
+  type OracleAiModelGroupId,
   type OracleAiModelMeta,
   type OracleAiModelOption,
 } from './modelMeta'
@@ -161,11 +191,13 @@ const emit = defineEmits<{
 }>()
 
 const keyword = ref('')
-const capabilityFilter = ref('')
-const endpointFilter = ref('')
-const selectedOnly = ref(false)
+const providerFilter = ref('')
+const groupFilter = ref<'' | OracleAiModelGroupId>('')
+const statusFilter = ref('')
 const draftSelected = ref<string[]>([])
 const searchInputRef = ref<HTMLInputElement | null>(null)
+
+const groups = ORACLE_AI_MODEL_GROUPS
 
 const models = computed<OracleAiModelMeta[]>(() => {
   const rows = (props.options || []).map((option) => inferOracleAiModelMeta(option)).filter((x) => x.id)
@@ -182,23 +214,26 @@ const models = computed<OracleAiModelMeta[]>(() => {
   }
   return out
 })
-const availableCount = computed(() => models.value.length)
+
 const selectedSet = computed(() => new Set(draftSelected.value))
-const selectedOnlyMeta = computed(() => {
+const selectedByGroup = computed<Record<OracleAiModelGroupId, OracleAiModelMeta[]>>(() => {
   const byId = new Map(models.value.map((model) => [model.id, model]))
-  return draftSelected.value.map((id) => byId.get(id) || inferOracleAiModelMeta(id))
+  const bucket = emptyGroupBucket()
+  for (const id of draftSelected.value) {
+    const model = byId.get(id) || inferOracleAiModelMeta(id)
+    bucket[model.group].push(model)
+  }
+  return bucket
 })
-const selectedPreview = computed(() => selectedOnlyMeta.value.slice(0, 6))
-const selectedHiddenCount = computed(() => Math.max(0, draftSelected.value.length - selectedPreview.value.length))
-const filteredModels = computed(() => {
-  const q = keyword.value.trim().toLowerCase()
-  return models.value.filter((model) => {
-    if (q && !model.id.toLowerCase().includes(q) && !model.description.toLowerCase().includes(q)) return false
-    if (capabilityFilter.value && model.capabilityValue !== capabilityFilter.value) return false
-    if (endpointFilter.value && model.endpointValue !== endpointFilter.value) return false
-    if (selectedOnly.value && !selectedSet.value.has(model.id)) return false
-    return true
-  })
+
+const visibleGroups = computed(() => {
+  const filtered = filterModels(models.value)
+  return groups
+    .filter((group) => !groupFilter.value || group.id === groupFilter.value)
+    .map((group) => ({
+      ...group,
+      models: filtered.filter((model) => model.group === group.id),
+    }))
 })
 
 watch(
@@ -219,8 +254,62 @@ watch(
   { deep: true, immediate: true },
 )
 
+function emptyGroupBucket(): Record<OracleAiModelGroupId, OracleAiModelMeta[]> {
+  return {
+    chat: [],
+    audio: [],
+    embed: [],
+    rerank: [],
+    safety: [],
+    pending: [],
+  }
+}
+
+function providerValue(model: OracleAiModelMeta) {
+  const id = model.id.toLowerCase()
+  if (id.startsWith('xai.')) return 'xai'
+  if (id.startsWith('google.')) return 'google'
+  if (id.startsWith('openai.')) return 'openai'
+  if (id.startsWith('cohere.')) return 'cohere'
+  if (id.startsWith('meta.')) return 'meta'
+  return 'oracle'
+}
+
+function filterModels(input: OracleAiModelMeta[]) {
+  const q = keyword.value.trim().toLowerCase()
+  return input.filter((model) => {
+    const haystack = [
+      model.id,
+      model.label,
+      model.description,
+      model.provider,
+      model.capability,
+      model.endpoint,
+    ].join(' ').toLowerCase()
+    if (q && !haystack.includes(q)) return false
+    if (providerFilter.value && providerValue(model) !== providerFilter.value) return false
+    if (statusFilter.value === 'selected' && !selectedSet.value.has(model.id)) return false
+    if (statusFilter.value === 'unselected' && selectedSet.value.has(model.id)) return false
+    if (statusFilter.value === 'pending' && model.group !== 'pending') return false
+    return true
+  })
+}
+
+function groupSelectedCount(group: OracleAiModelGroupId) {
+  return selectedByGroup.value[group]?.length || 0
+}
+
 function isSelected(id: string) {
   return selectedSet.value.has(id)
+}
+
+function endpointTagClass(group: OracleAiModelGroupId) {
+  if (group === 'audio') return 'green'
+  if (group === 'embed') return 'cyan'
+  if (group === 'rerank') return 'amber'
+  if (group === 'safety') return 'rose'
+  if (group === 'pending') return 'default'
+  return 'blue'
 }
 
 function toggleModel(id: string, selectable: boolean) {
@@ -250,293 +339,498 @@ onMounted(() => document.addEventListener('keydown', onKeydown))
 onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 </script>
 
-<style scoped>
-.modal-backdrop {
+<style>
+.model-library-backdrop {
   position: fixed;
   inset: 0;
   z-index: 2200;
   display: grid;
   place-items: center;
   padding: 28px;
-  background: rgba(2, 6, 23, 0.72);
-  backdrop-filter: blur(8px);
+  background: rgba(2, 6, 23, 0.56);
+  backdrop-filter: blur(7px);
 }
-.model-modal {
-  width: min(1240px, calc(100vw - 56px));
-  max-height: min(860px, calc(100vh - 56px));
-  display: flex;
-  flex-direction: column;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: rgba(15, 23, 42, 0.96);
-  box-shadow: 0 24px 80px rgba(0, 0, 0, 0.42);
+
+[data-theme='light'] .model-library-backdrop {
+  background: rgba(15, 23, 42, 0.16);
+}
+
+.model-library-modal {
+  width: min(1240px, calc(100vw - 48px));
+  max-height: min(880px, calc(100vh - 56px));
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   overflow: hidden;
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 18px;
+  background: rgba(15, 23, 42, 0.78);
+  box-shadow: 0 22px 70px rgba(0, 0, 0, 0.36);
   color: var(--text-main);
 }
-.modal-head,
-.modal-footer {
-  display: flex;
-  justify-content: space-between;
-  gap: 12px;
-  align-items: center;
-  padding: 16px 18px;
+
+[data-theme='light'] .model-library-modal {
+  border-color: rgba(15, 23, 42, 0.12);
+  background: rgba(255, 255, 255, 0.96);
+  box-shadow: 0 20px 58px rgba(15, 23, 42, 0.12);
+}
+
+.model-library-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 16px;
+  padding: 18px 20px 14px;
   border-bottom: 1px solid var(--border);
 }
-.modal-title {
-  font-size: 16px;
-  font-weight: 700;
+
+.model-library-title {
+  font-size: 18px;
+  font-weight: 750;
 }
-.modal-subtitle {
-  margin-top: 3px;
+
+.model-library-subtitle {
+  margin-top: 4px;
   color: var(--text-sub);
-  font-size: 12px;
+  font-size: 13px;
 }
-.modal-close {
+
+.model-library-close {
   width: 34px;
   height: 34px;
   border: 1px solid var(--border);
   border-radius: 10px;
-  background: rgba(15, 23, 42, 0.5);
-  color: var(--text-main);
+  background: var(--bg-card);
+  color: var(--text-sub);
   cursor: pointer;
 }
-.modal-body {
-  min-height: 0;
-  padding: 16px 18px;
-  overflow: hidden;
-}
-.modal-footer {
-  justify-content: flex-end;
-  border-top: 1px solid var(--border);
-  border-bottom: 0;
-}
-.model-toolbar {
+
+.model-library-toolbar {
+  grid-column: 1 / -1;
   display: grid;
-  grid-template-columns: minmax(260px, 1fr) 168px 168px auto;
-  gap: 8px;
-  align-items: center;
-  margin-bottom: 12px;
+  grid-template-columns: minmax(240px, 1fr) 150px 150px 136px;
+  gap: 10px;
+  margin-top: 14px;
 }
-.input,
-.select {
-  height: 32px;
+
+.model-library-input,
+.model-library-select {
+  width: 100%;
+  height: 36px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-md);
+  border-radius: 10px;
   background: var(--input-bg);
   color: var(--text-main);
-  padding: 0 12px;
   outline: none;
 }
-.selected-only {
-  display: flex;
-  gap: 8px;
-  align-items: center;
+
+.model-library-input {
+  padding: 0 12px;
+}
+
+.model-library-select {
+  padding: 0 10px;
+}
+
+.model-library-input::placeholder {
   color: var(--text-sub);
-  font-size: 13px;
-  line-height: 1.5;
-  white-space: nowrap;
 }
-.selected-only input,
-.model-table input {
-  accent-color: var(--primary);
+
+.model-library-input:focus,
+.model-library-select:focus {
+  border-color: rgba(129, 140, 248, 0.48);
+  box-shadow: 0 0 0 3px rgba(129, 140, 248, 0.15);
 }
-.model-modal-layout {
+
+.model-library-body {
+  min-height: 0;
+  overflow: auto;
+  padding: 16px 18px 18px;
+}
+
+.model-library-layout {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 14px;
+  align-items: start;
+}
+
+.model-groups {
+  display: grid;
   gap: 12px;
-  min-height: 0;
 }
-.model-list-panel,
-.model-selected-panel {
-  min-width: 0;
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  background: rgba(2, 6, 23, 0.22);
+
+.model-group {
   overflow: hidden;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: rgba(2, 6, 23, 0.12);
 }
-.model-list-head,
-.selected-head {
-  display: flex;
-  justify-content: space-between;
+
+[data-theme='light'] .model-group {
+  background: rgba(248, 250, 252, 0.72);
+}
+
+.model-group-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
   gap: 10px;
   align-items: center;
-  padding: 11px 12px;
+  padding: 13px 14px;
   border-bottom: 1px solid var(--border);
-  font-weight: 600;
-  font-size: 13px;
 }
-.sub-muted {
+
+.model-group-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.model-group-title {
+  font-weight: 750;
+}
+
+.model-group-desc {
+  margin-top: 4px;
   color: var(--text-sub);
-  font-size: 13px;
-  line-height: 1.5;
-  font-weight: 400;
-}
-.model-list-scroll {
-  max-height: min(430px, calc(100vh - 310px));
-  overflow: auto;
-}
-.model-table {
-  width: 100%;
-  min-width: 820px;
-  border-collapse: collapse;
-  font-size: 13px;
-}
-.model-table th,
-.model-table td {
-  padding: 10px 12px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.055);
-  white-space: nowrap;
-  text-align: left;
-}
-.model-table th {
-  position: sticky;
-  top: 0;
-  z-index: 1;
-  background: rgba(15, 23, 42, 0.96);
-  color: var(--text-sub);
-  font-weight: 600;
-}
-.model-table tr:hover td {
-  background: rgba(129, 140, 248, 0.04);
-}
-.model-row-disabled {
-  opacity: 0.72;
-}
-.model-id-cell {
-  display: grid;
-  gap: 3px;
-  min-width: 0;
-}
-.model-id-main {
-  max-width: 360px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-size: 12px;
+  line-height: 1.45;
 }
-.model-id-sub {
-  color: var(--text-sub);
-  font-size: 11px;
+
+.model-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--primary);
+  box-shadow: 0 0 0 4px rgba(129, 140, 248, 0.15);
 }
-.tag {
+
+.model-dot.green {
+  background: #22c55e;
+  box-shadow: 0 0 0 4px rgba(34, 197, 94, 0.13);
+}
+
+.model-dot.amber {
+  background: #f59e0b;
+  box-shadow: 0 0 0 4px rgba(245, 158, 11, 0.12);
+}
+
+.model-dot.cyan {
+  background: #22d3ee;
+  box-shadow: 0 0 0 4px rgba(34, 211, 238, 0.12);
+}
+
+.model-dot.rose {
+  background: #fb7185;
+  box-shadow: 0 0 0 4px rgba(251, 113, 133, 0.12);
+}
+
+[data-theme='light'] .model-dot.green {
+  background: #16a34a;
+  box-shadow: 0 0 0 4px rgba(22, 163, 74, 0.1);
+}
+
+[data-theme='light'] .model-dot.amber {
+  background: #d97706;
+  box-shadow: 0 0 0 4px rgba(217, 119, 6, 0.1);
+}
+
+[data-theme='light'] .model-dot.cyan {
+  background: #0891b2;
+  box-shadow: 0 0 0 4px rgba(8, 145, 178, 0.1);
+}
+
+[data-theme='light'] .model-dot.rose {
+  background: #e11d48;
+  box-shadow: 0 0 0 4px rgba(225, 29, 72, 0.1);
+}
+
+.model-tag {
   display: inline-flex;
   align-items: center;
   height: 22px;
-  padding: 0 7px;
-  border-radius: 6px;
-  font-size: 12px;
-  line-height: 1;
-  border: 1px solid transparent;
-}
-.tag.green {
-  color: #86efac;
-  background: rgba(34, 197, 94, 0.12);
-  border-color: rgba(34, 197, 94, 0.22);
-}
-.tag.blue {
-  color: #93c5fd;
-  background: rgba(59, 130, 246, 0.12);
-  border-color: rgba(59, 130, 246, 0.22);
-}
-.tag.orange {
-  color: #fcd34d;
-  background: rgba(245, 158, 11, 0.12);
-  border-color: rgba(245, 158, 11, 0.22);
-}
-.tag.default {
+  padding: 0 8px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
   color: var(--text-sub);
-  background: rgba(148, 163, 184, 0.1);
-  border-color: rgba(148, 163, 184, 0.18);
+  background: rgba(148, 163, 184, 0.08);
+  font-size: 12px;
+  white-space: nowrap;
 }
-.selected-list {
+
+.model-tag.blue {
+  color: var(--primary);
+  border-color: rgba(129, 140, 248, 0.28);
+  background: rgba(129, 140, 248, 0.15);
+}
+
+.model-tag.green {
+  color: #22c55e;
+  border-color: rgba(34, 197, 94, 0.26);
+  background: rgba(34, 197, 94, 0.13);
+}
+
+.model-tag.orange,
+.model-tag.amber {
+  color: #f59e0b;
+  border-color: rgba(245, 158, 11, 0.26);
+  background: rgba(245, 158, 11, 0.12);
+}
+
+.model-tag.cyan {
+  color: #22d3ee;
+  border-color: rgba(34, 211, 238, 0.26);
+  background: rgba(34, 211, 238, 0.12);
+}
+
+.model-tag.rose {
+  color: #fb7185;
+  border-color: rgba(251, 113, 133, 0.26);
+  background: rgba(251, 113, 133, 0.12);
+}
+
+[data-theme='light'] .model-tag.green {
+  color: #16a34a;
+  background: rgba(22, 163, 74, 0.1);
+}
+
+[data-theme='light'] .model-tag.orange,
+[data-theme='light'] .model-tag.amber {
+  color: #d97706;
+  background: rgba(217, 119, 6, 0.1);
+}
+
+[data-theme='light'] .model-tag.cyan {
+  color: #0891b2;
+  background: rgba(8, 145, 178, 0.1);
+}
+
+[data-theme='light'] .model-tag.rose {
+  color: #e11d48;
+  background: rgba(225, 29, 72, 0.1);
+}
+
+.model-list {
   display: grid;
   gap: 8px;
-  max-height: min(430px, calc(100vh - 310px));
-  padding: 12px;
-  overflow: auto;
+  padding: 10px;
 }
-.selected-item {
+
+.model-row {
   display: grid;
-  gap: 4px;
-  padding: 9px 10px;
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  background: rgba(15, 23, 42, 0.45);
-}
-.selected-item b {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-size: 12px;
-}
-.selected-item span {
-  color: var(--text-sub);
-  font-size: 11px;
-}
-.model-empty {
-  color: var(--text-sub);
-  text-align: center;
-}
-.btn {
-  height: 32px;
-  padding: 0 15px;
+  grid-template-columns: 28px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  min-height: 62px;
+  padding: 10px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
+  background: var(--bg-card);
+  cursor: pointer;
+}
+
+.model-row input {
+  accent-color: var(--primary);
+}
+
+.model-row.active {
+  border-color: rgba(129, 140, 248, 0.34);
+  background: linear-gradient(135deg, rgba(129, 140, 248, 0.15), rgba(99, 102, 241, 0.04));
+}
+
+.model-row.audio.active {
+  border-color: rgba(34, 197, 94, 0.34);
+  background: linear-gradient(135deg, rgba(34, 197, 94, 0.13), rgba(34, 197, 94, 0.04));
+}
+
+.model-row.pending {
+  cursor: default;
+  opacity: 0.72;
+}
+
+.model-row-main {
+  min-width: 0;
+}
+
+.model-name {
+  display: block;
+  overflow: hidden;
+  color: var(--text-main);
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-desc {
+  display: block;
+  margin-top: 4px;
+  overflow: hidden;
+  color: var(--text-sub);
+  font-size: 12px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.model-empty-line {
+  padding: 16px;
+  color: var(--text-sub);
+  text-align: center;
+  font-size: 12px;
+}
+
+.model-preview-panel {
+  position: sticky;
+  top: 0;
+  display: grid;
+  gap: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-card);
+  padding: 14px;
+}
+
+.model-preview-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  font-weight: 750;
+}
+
+.model-preview-block {
+  display: grid;
+  gap: 8px;
+  padding: 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: rgba(148, 163, 184, 0.07);
+}
+
+.model-preview-block-title {
+  color: var(--text-sub);
+  font-size: 12px;
+}
+
+.model-preview-item {
+  overflow: hidden;
+  padding: 6px 8px;
+  border-radius: 8px;
+  background: rgba(148, 163, 184, 0.08);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.model-preview-item.muted {
+  color: var(--text-sub);
+  font-family: inherit;
+}
+
+.model-endpoint-map {
+  display: grid;
+  gap: 7px;
+  color: var(--text-sub);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.model-endpoint-map b {
+  color: var(--text-main);
+  font-weight: 650;
+}
+
+.model-library-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 18px;
+  border-top: 1px solid var(--border);
+}
+
+.model-footer-note {
+  color: var(--text-sub);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.model-footer-actions {
+  display: flex;
+  gap: 8px;
+  white-space: nowrap;
+}
+
+.model-btn {
+  height: 36px;
+  padding: 0 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
   background: var(--bg-card);
   color: var(--text-main);
   font-weight: 500;
   cursor: pointer;
 }
-.btn.primary {
-  border-color: var(--primary);
-  background: linear-gradient(135deg, var(--primary) 0%, var(--primary-hover) 100%);
+
+.model-btn.primary {
+  border-color: rgba(99, 102, 241, 0.34);
   color: #fff;
-  font-weight: 600;
-  box-shadow: 0 4px 10px -2px rgba(99, 102, 241, 0.4);
+  background: linear-gradient(135deg, var(--primary), var(--primary-hover));
+  box-shadow: 0 10px 22px rgba(99, 102, 241, 0.22);
 }
-.btn:disabled {
+
+.model-btn:disabled {
   cursor: not-allowed;
   opacity: 0.58;
 }
-:global([data-theme='light']) .model-modal {
-  background: rgba(255, 255, 255, 0.96);
+
+@media (max-width: 1100px) {
+  .model-library-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .model-preview-panel {
+    position: static;
+  }
 }
-:global([data-theme='light']) .model-list-panel,
-:global([data-theme='light']) .model-selected-panel {
-  background: rgba(248, 250, 252, 0.6);
-}
-:global([data-theme='light']) .model-table th {
-  background: rgba(248, 250, 252, 0.96);
-}
-:global([data-theme='light']) .tag.green {
-  color: #047857;
-  background: rgba(16, 185, 129, 0.11);
-  border-color: rgba(16, 185, 129, 0.28);
-}
-:global([data-theme='light']) .tag.blue {
-  color: #1d4ed8;
-  background: rgba(59, 130, 246, 0.1);
-  border-color: rgba(59, 130, 246, 0.24);
-}
-:global([data-theme='light']) .tag.orange {
-  color: #b45309;
-  background: rgba(245, 158, 11, 0.12);
-  border-color: rgba(245, 158, 11, 0.26);
-}
-@media (max-width: 900px) {
-  .modal-backdrop {
+
+@media (max-width: 980px) {
+  .model-library-backdrop {
     padding: 12px;
   }
-  .model-modal {
+
+  .model-library-modal {
     width: calc(100vw - 24px);
     max-height: calc(100vh - 24px);
   }
-  .model-toolbar,
-  .model-modal-layout {
+
+  .model-library-toolbar {
     grid-template-columns: 1fr;
+  }
+
+  .model-library-footer {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .model-footer-actions {
+    justify-content: flex-end;
+  }
+
+  .model-row {
+    grid-template-columns: 26px minmax(0, 1fr);
+  }
+
+  .model-actions {
+    grid-column: 2;
+    justify-content: flex-start;
   }
 }
 </style>
