@@ -236,6 +236,23 @@ export function inferOracleAiModelMeta(option: OracleAiModelOption | string): Or
       statusLabel: forcedDisabled ? '停用' : 'Chat',
     }
   }
+  if (lower.includes('cohere.command-a-reasoning')) {
+    return {
+      id,
+      label,
+      title,
+      provider: source,
+      description: `${source} · 多模态推理`,
+      capability: 'Vision Reasoning',
+      capabilityValue: 'vision',
+      endpoint: 'Chat Completions',
+      endpointValue: 'chat',
+      group: 'chat',
+      tagColor: 'blue',
+      selectable: !forcedDisabled,
+      statusLabel: forcedDisabled ? '停用' : 'Reasoning',
+    }
+  }
   if (lower.includes('non-reasoning')) {
     return {
       id,

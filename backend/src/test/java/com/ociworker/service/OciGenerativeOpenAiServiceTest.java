@@ -10,6 +10,14 @@ import com.oracle.bmc.generativeaiinference.model.BaseChatRequest;
 import com.oracle.bmc.generativeaiinference.model.ChatChoice;
 import com.oracle.bmc.generativeaiinference.model.ChatContent;
 import com.oracle.bmc.generativeaiinference.model.ChatResult;
+import com.oracle.bmc.generativeaiinference.model.CohereAssistantMessageV2;
+import com.oracle.bmc.generativeaiinference.model.CohereChatRequestV2;
+import com.oracle.bmc.generativeaiinference.model.CohereChatResponseV2;
+import com.oracle.bmc.generativeaiinference.model.CohereImageContentV2;
+import com.oracle.bmc.generativeaiinference.model.CohereTextContentV2;
+import com.oracle.bmc.generativeaiinference.model.CohereThinkingContentV2;
+import com.oracle.bmc.generativeaiinference.model.CohereThinkingV2;
+import com.oracle.bmc.generativeaiinference.model.CohereToolCallV2;
 import com.oracle.bmc.generativeaiinference.model.DeveloperMessage;
 import com.oracle.bmc.generativeaiinference.model.DocumentContent;
 import com.oracle.bmc.generativeaiinference.model.FunctionCall;
@@ -27,6 +35,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
 
 import java.util.List;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
@@ -247,6 +256,102 @@ class OciGenerativeOpenAiServiceTest {
 
         JsonNode root = MAPPER.readTree(normalized);
         assertThat(root.path("max_tokens").asInt()).isEqualTo(4000);
+    }
+
+    @Test
+    void capsCohereCommandAReasoningOnDemandOutputTokens() throws Exception {
+        String payload = """
+                {
+                  "model":"cohere.command-a-reasoning",
+                  "messages":[{"role":"user","content":"hello"}],
+                  "max_tokens":12000,
+                  "reasoning_effort":"high"
+                }
+                """;
+
+        byte[] normalized = OciGenerativeOpenAiService.transformChatCompletionsJson(payload.getBytes(), 2048);
+
+        JsonNode root = MAPPER.readTree(normalized);
+        assertThat(root.path("max_tokens").asInt()).isEqualTo(4000);
+        assertThat(root.has("reasoning_effort")).isFalse();
+    }
+
+    @Test
+    void convertsOpenAiChatPayloadToCohereCommandAReasoningV2Request() throws Exception {
+        ObjectNode input = (ObjectNode) MAPPER.readTree("""
+                {
+                  "model":"cohere.command-a-reasoning",
+                  "messages":[
+                    {"role":"system","content":"你是企业助手"},
+                    {"role":"user","content":[
+                      {"type":"text","text":"看图回答"},
+                      {"type":"image_url","image_url":{"url":"data:image/png;base64,AAAA","detail":"high"}}
+                    ]}
+                  ],
+                  "max_tokens":12000,
+                  "temperature":0.2,
+                  "top_k":40,
+                  "top_p":0.9,
+                  "frequency_penalty":0.1,
+                  "presence_penalty":0.2,
+                  "seed":1234,
+                  "thinking":{"type":"enabled","token_budget":31000},
+                  "safety_mode":"strict",
+                  "tool_choice":"required",
+                  "tools":[{"type":"function","function":{"name":"lookup","description":"查资料","parameters":{"type":"object","properties":{"q":{"type":"string"}}}}}]
+                }
+                """);
+
+        CohereChatRequestV2 request = OciGenerativeOpenAiService.toNativeCohereChatRequestV2(input);
+
+        assertThat(request.getMaxTokens()).isEqualTo(4000);
+        assertThat(request.getTemperature()).isEqualTo(0.2D);
+        assertThat(request.getTopK()).isEqualTo(40);
+        assertThat(request.getTopP()).isEqualTo(0.9D);
+        assertThat(request.getFrequencyPenalty()).isEqualTo(0.1D);
+        assertThat(request.getPresencePenalty()).isEqualTo(0.2D);
+        assertThat(request.getSeed()).isEqualTo(1234);
+        assertThat(request.getThinking().getType()).isEqualTo(CohereThinkingV2.Type.Enabled);
+        assertThat(request.getThinking().getTokenBudget()).isEqualTo(31000);
+        assertThat(request.getSafetyMode()).isEqualTo(CohereChatRequestV2.SafetyMode.Strict);
+        assertThat(request.getToolsChoice()).isEqualTo(CohereChatRequestV2.ToolsChoice.Required);
+        assertThat(request.getTools()).hasSize(1);
+        assertThat(request.getMessages()).hasSize(2);
+        assertThat(request.getMessages().get(1).getContent())
+                .anyMatch(CohereTextContentV2.class::isInstance)
+                .anyMatch(CohereImageContentV2.class::isInstance);
+    }
+
+    @Test
+    void convertsCohereCommandAReasoningV2ResponseToOpenAiChatCompletion() throws Exception {
+        ChatResult result = ChatResult.builder()
+                .modelId("cohere.command-a-reasoning")
+                .chatResponse(CohereChatResponseV2.builder()
+                        .message(CohereAssistantMessageV2.builder()
+                                .content(List.of(
+                                        CohereThinkingContentV2.builder().thinking("先分析问题。").build(),
+                                        CohereTextContentV2.builder().text("需要调用工具。").build()))
+                                .toolCalls(List.of(CohereToolCallV2.builder()
+                                        .id("call_a")
+                                        .type(CohereToolCallV2.Type.Function)
+                                        .function(Map.of("name", "write_file", "arguments", "{\"path\":\"a.txt\"}"))
+                                        .build()))
+                                .build())
+                        .finishReason(CohereChatResponseV2.FinishReason.ToolCall)
+                        .usage(Usage.builder().promptTokens(10).completionTokens(5).totalTokens(15).build())
+                        .build())
+                .build();
+
+        JsonNode root = MAPPER.readTree(OciGenerativeOpenAiService.nativeCohereChatV2ResultToOpenAiJson(
+                result, "cohere.command-a-reasoning"));
+
+        JsonNode message = root.path("choices").get(0).path("message");
+        assertThat(root.path("model").asText()).isEqualTo("cohere.command-a-reasoning");
+        assertThat(root.path("choices").get(0).path("finish_reason").asText()).isEqualTo("tool_calls");
+        assertThat(message.path("reasoning_content").asText()).isEqualTo("先分析问题。");
+        assertThat(message.path("tool_calls").get(0).path("function").path("name").asText()).isEqualTo("write_file");
+        assertThat(message.path("tool_calls").get(0).path("function").path("arguments").asText()).isEqualTo("{\"path\":\"a.txt\"}");
+        assertThat(root.path("usage").path("total_tokens").asInt()).isEqualTo(15);
     }
 
     @Test
@@ -688,6 +793,7 @@ class OciGenerativeOpenAiServiceTest {
         assertThat(OciGenerativeOpenAiService.shouldRewriteChatCompletionsToResponses("xai.grok-4.20-0309-non-reasoning")).isFalse();
         assertThat(OciGenerativeOpenAiService.shouldRewriteChatCompletionsToResponses("xai.grok-4.20-non-reasoning")).isFalse();
         assertThat(OciGenerativeOpenAiService.shouldRewriteChatCompletionsToResponses("google.gemini-2.5-pro")).isFalse();
+        assertThat(OciGenerativeOpenAiService.shouldRewriteChatCompletionsToResponses("cohere.command-a-reasoning")).isFalse();
         assertThat(OciGenerativeOpenAiService.shouldRewriteChatCompletionsToResponses("cohere.command-a-03-2025")).isFalse();
         assertThat(OciGenerativeOpenAiService.shouldRewriteChatCompletionsToResponses("cohere.embed-v4.0")).isFalse();
         assertThat(OciGenerativeOpenAiService.shouldRewriteChatCompletionsToResponses("xai.grok-tts")).isFalse();
@@ -695,10 +801,11 @@ class OciGenerativeOpenAiServiceTest {
     }
 
     @Test
-    void buffersGeminiChatCompletionStreamsOnly() throws Exception {
+    void buffersNativeSdkChatCompletionStreamsOnly() throws Exception {
         assertThat(OciGenerativeOpenAiService.shouldBufferChatCompletionStream("google.gemini-2.5-pro")).isTrue();
         assertThat(OciGenerativeOpenAiService.shouldBufferChatCompletionStream("google.gemini-2.5-flash")).isTrue();
         assertThat(OciGenerativeOpenAiService.shouldBufferChatCompletionStream("google.gemini-2.5-flash-lite")).isTrue();
+        assertThat(OciGenerativeOpenAiService.shouldBufferChatCompletionStream("cohere.command-a-reasoning")).isTrue();
         assertThat(OciGenerativeOpenAiService.shouldBufferChatCompletionStream("xai.grok-4.3")).isFalse();
 
         String payload = """
@@ -753,6 +860,59 @@ class OciGenerativeOpenAiServiceTest {
         assertThat(OciGenerativeOpenAiService.shouldUseGeminiNativeChat("google.gemini-2.5-pro", nonStreaming)).isTrue();
         assertThat(OciGenerativeOpenAiService.shouldUseGeminiNativeChat("xai.grok-4.3", streaming)).isFalse();
         assertThat(OciGenerativeOpenAiService.shouldUseGeminiNativeChat("openai.gpt-oss-120b", streaming)).isFalse();
+    }
+
+    @Test
+    void usesCohereV2NativeChatOnlyForCommandAReasoning() throws Exception {
+        String payload = """
+                {
+                  "model":"cohere.command-a-reasoning",
+                  "messages":[{"role":"user","content":"hi"}],
+                  "stream":true
+                }
+                """;
+
+        byte[] normalized = OciGenerativeOpenAiService.transformChatCompletionsJson(payload.getBytes(), 128);
+
+        assertThat(OciGenerativeOpenAiService.shouldUseCohereCommandAReasoningNativeChat(
+                "cohere.command-a-reasoning", normalized)).isTrue();
+        assertThat(OciGenerativeOpenAiService.shouldUseCohereCommandAReasoningNativeChat(
+                "cohere.command-a-03-2025", normalized)).isFalse();
+        assertThat(OciGenerativeOpenAiService.shouldUseCohereCommandAReasoningNativeChat(
+                "google.gemini-2.5-pro", normalized)).isFalse();
+    }
+
+    @Test
+    void rejectsAudioAndVideoPayloadsForCohereV2NativeChat() throws Exception {
+        String audioPayload = """
+                {
+                  "model":"cohere.command-a-reasoning",
+                  "messages":[{"role":"user","content":[
+                    {"type":"input_audio","audio_url":{"url":"data:audio/wav;base64,AAAA"}}
+                  ]}]
+                }
+                """;
+        String videoPayload = """
+                {
+                  "model":"cohere.command-a-reasoning",
+                  "messages":[{"role":"user","content":[
+                    {"type":"input_video","video_url":{"url":"data:video/mp4;base64,AAAA"}}
+                  ]}]
+                }
+                """;
+        String imagePayload = """
+                {
+                  "model":"cohere.command-a-reasoning",
+                  "messages":[{"role":"user","content":[
+                    {"type":"text","text":"看图"},
+                    {"type":"image_url","image_url":{"url":"data:image/png;base64,AAAA"}}
+                  ]}]
+                }
+                """;
+
+        assertThat(OciGenerativeOpenAiService.canUseNativeCohereChatV2(audioPayload.getBytes())).isFalse();
+        assertThat(OciGenerativeOpenAiService.canUseNativeCohereChatV2(videoPayload.getBytes())).isFalse();
+        assertThat(OciGenerativeOpenAiService.canUseNativeCohereChatV2(imagePayload.getBytes())).isTrue();
     }
 
     @Test
