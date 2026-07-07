@@ -228,112 +228,20 @@
       </a-tab-pane>
 
       <a-tab-pane key="multi" tab="多账户中转">
-        <a-card title="独立中转端口" :bordered="false" class="mt-card">
-          <a-row class="key-toolbar" :gutter="[8, 8]" align="middle">
-            <a-col>
-              <a-button type="primary" @click="openPortModal()">添加端口绑定</a-button>
-            </a-col>
-            <a-col>
-              <a-button :loading="portBindingsLoading" @click="loadPortBindings">刷新</a-button>
-            </a-col>
-            <a-col>
-              <span class="sub-muted">端口范围 30000-39999，保存后立即生效。</span>
-            </a-col>
-          </a-row>
-          <a-alert
-            class="mb-alert"
-            type="info"
-            show-icon
-            message="保存后 OCIworker 会立即监听本机端口；如需外网访问，还需要在系统防火墙和 OCI 安全列表放行对应端口。"
-          />
-          <div v-if="isMobile" class="port-mobile-list">
-            <a-spin v-if="portBindingsLoading" />
-            <a-empty v-if="!portBindings.length && !portBindingsLoading" description="暂无端口绑定" />
-            <div v-for="record in portBindings" :key="record.id" class="port-card-m">
-              <div class="port-card-head">
-                <div>
-                  <div class="port-card-title">{{ record.name || `port-${record.port}` }}</div>
-                  <code>{{ portIpBaseUrl(record.port) }}</code>
-                </div>
-                <a-switch :checked="record.enabled" :loading="portSwitchingId === record.id" @change="(v: boolean) => togglePortBinding(record, v)" />
-              </div>
-              <div class="port-card-grid">
-                <span>端口</span><b>{{ record.port }}</b>
-                <span>租户</span><b>{{ record.tenantName || record.ociUserId || '-' }}</b>
-                <span>区域</span><b>{{ regionDisplay(record.ociRegion) || '-' }}</b>
-                <span>Tokens</span><b>{{ record.defaultMaxTokens || '全局默认' }}</b>
-                <span>模型</span>
-                <a-tooltip :title="modelTooltip(record.allowedModels)">
-                  <b class="model-summary">{{ modelSummary(record.allowedModels) }}</b>
-                </a-tooltip>
-                <span>状态</span><a-tag :color="portStatusColor(record)">{{ portStatusText(record) }}</a-tag>
-                <span>Key备注</span><code class="key-masked">{{ record.keyName || record.keyMasked || 'sk-****' }}</code>
-              </div>
-              <div v-if="record.statusMessage" class="sub-muted status-message">{{ record.statusMessage }}</div>
-              <a-space class="port-card-actions" wrap>
-                <a-button size="small" @click="revealPortKey(record)">查看密钥</a-button>
-                <a-button size="small" @click="openPortModal(record)">编辑</a-button>
-                <a-popconfirm title="确定删除该端口绑定？" @confirm="removePortBindingRow(record)">
-                  <a-button size="small" danger>删除</a-button>
-                </a-popconfirm>
-              </a-space>
-            </div>
-          </div>
-          <a-spin v-else-if="portBindingsLoading && !portBindings.length" />
-          <a-empty v-else-if="!portBindings.length" description="暂无端口绑定" />
-          <div v-else class="table-wrap">
-            <table class="table-wide port-binding-table">
-              <thead>
-                <tr>
-                  <th>开关</th>
-                  <th>端口</th>
-                  <th>租户</th>
-                  <th>状态</th>
-                  <th>Base URL</th>
-                  <th>上限</th>
-                  <th>模型</th>
-                  <th>Key备注</th>
-                  <th>最后使用</th>
-                  <th>操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                <tr v-for="record in portBindings" :key="record.id">
-                  <td>
-                    <a-switch :checked="record.enabled" :loading="portSwitchingId === record.id" @change="(v: boolean) => togglePortBinding(record, v)" />
-                  </td>
-                  <td><code>{{ record.port }}</code></td>
-                  <td>
-                    {{ record.tenantName || record.ociUserId || '-' }}
-                    <span class="muted-block">{{ record.ociRegion || '-' }}</span>
-                  </td>
-                  <td>
-                    <a-tag :color="portStatusColor(record)">{{ portStatusText(record) }}</a-tag>
-                    <span v-if="record.statusMessage" class="muted-block status-message">{{ record.statusMessage }}</span>
-                  </td>
-                  <td><code>{{ portIpBaseUrl(record.port) }}</code></td>
-                  <td>{{ record.defaultMaxTokens || '全局默认' }}</td>
-                  <td>
-                    <a-tooltip :title="modelTooltip(record.allowedModels)">
-                      <span class="model-summary">{{ modelSummary(record.allowedModels) }}</span>
-                    </a-tooltip>
-                  </td>
-                  <td><code class="key-masked">{{ record.keyName || record.keyMasked || 'sk-****' }}</code></td>
-                  <td>{{ formatKeyTime(record.lastUsed) }}</td>
-                  <td>
-                    <a-space class="actions" :size="4">
-                      <a-button size="small" @click="revealPortKey(record)">查看密钥</a-button>
-                      <a-button size="small" @click="openPortModal(record)">编辑</a-button>
-                      <a-popconfirm title="确定删除该端口绑定？" @confirm="removePortBindingRow(record)">
-                        <a-button size="small" danger>删除</a-button>
-                      </a-popconfirm>
-                    </a-space>
-                  </td>
-                </tr>
-              </tbody>
-            </table>
-          </div>
-        </a-card>
+        <OracleAiPortBindingsPanel
+          :items="portBindings"
+          :loading="portBindingsLoading"
+          :switching-id="portSwitchingId"
+          :is-mobile="isMobile"
+          :server-ip="serverIp"
+          :openai-path="openaiPath"
+          @create="openPortModal()"
+          @refresh="loadPortBindings"
+          @toggle="togglePortBinding"
+          @view-key="revealPortKey"
+          @edit="openPortModal"
+          @remove="removePortBindingRow"
+        />
       </a-tab-pane>
 
       <a-tab-pane key="lb" tab="负载均衡">
@@ -706,6 +614,16 @@
       :disabled="!ociUserId"
       @confirm="saveModelSelectionFromPicker"
     />
+    <OracleAiPortBindingModal
+      ref="portBindingModalRef"
+      :tenant-options="tenantOptions"
+      :tenants-loading="tenantsLoading"
+      :port-bindings="portBindings"
+      :is-mobile="isMobile"
+      @ensure-tenants="ensurePortTenantOptionsLoading"
+      @generated-key="handlePortGeneratedKey"
+      @saved="handlePortBindingSaved"
+    />
 
     <a-modal :mask-closable="false" :keyboard="false" v-model:open="keyModalOpen" title="新密钥" :confirm-loading="keyCreating" @ok="submitKey">
       <a-form layout="vertical">
@@ -777,126 +695,6 @@
       />
     </a-modal>
 
-
-    <a-modal :mask-closable="false" :keyboard="false" v-model:open="portModalOpen" :title="portForm.id ? '编辑端口绑定' : '添加端口绑定'" :confirm-loading="portSaving" :width="isMobile ? 'calc(100vw - 32px)' : 720" @ok="savePortBindingRow">
-      <a-form layout="vertical">
-        <a-form-item label="租户">
-          <a-select
-            v-model:value="portForm.ociUserId"
-            :options="tenantOptions"
-            :loading="tenantsLoading"
-            placeholder="选择 OCI 租户"
-            show-search
-            :filter-option="filterTenant"
-            :get-popup-container="selectPopupContainer"
-            @change="onPortTenantChange"
-          />
-        </a-form-item>
-        <a-form-item label="Region">
-          <a-select
-            v-model:value="portForm.ociRegion"
-            :options="portRegionOptions"
-            :loading="portRegionsLoading"
-            placeholder="选择该租户订阅的 Region"
-            show-search
-            :filter-option="filterOciRegionSelectOption"
-            :disabled="!portForm.ociUserId"
-            :get-popup-container="selectPopupContainer"
-            @change="onPortRegionChange"
-          />
-          <div class="sub-muted form-help">该端口会固定转发到这里选择的 OCI Generative AI 区域。</div>
-        </a-form-item>
-        <a-form-item label="API Key">
-          <a-space direction="vertical" style="width: 100%">
-            <a-select
-              v-model:value="portForm.openaiKeyId"
-              :options="portKeyOptions"
-              :loading="portKeysLoading"
-              placeholder="选择该租户的 API Key"
-              :get-popup-container="selectPopupContainer"
-            />
-            <a-button size="small" :disabled="!portForm.ociUserId" :loading="portKeyCreating" @click="createPortTenantKey">
-              生成该租户 API Key
-            </a-button>
-          </a-space>
-        </a-form-item>
-        <a-form-item label="端口">
-          <a-input-number v-model:value="portForm.port" :min="30000" :max="39999" :precision="0" style="width: 100%" />
-        </a-form-item>
-        <a-form-item label="默认 max_tokens">
-          <a-input-number
-            v-model:value="portForm.defaultMaxTokens"
-            :min="1"
-            :max="200000"
-            :precision="0"
-            :controls="false"
-            placeholder="留空使用全局默认"
-            style="width: 100%"
-          />
-          <div class="sub-muted form-help">仅在请求未显式传 max_tokens 时生效。</div>
-        </a-form-item>
-        <a-form-item label="备注">
-          <a-input v-model:value="portForm.name" placeholder="sub2api-channel-1" />
-        </a-form-item>
-        <a-form-item label="模型">
-          <a-radio-group
-            v-model:value="portForm.modelLimitMode"
-            class="model-mode-group"
-            @change="onPortModelLimitModeChange"
-          >
-            <a-radio-button value="unlimited">不限制模型</a-radio-button>
-            <a-radio-button value="limited">限制模型</a-radio-button>
-          </a-radio-group>
-          <template v-if="isMobile">
-            <select
-              class="mobile-model-select"
-              multiple
-              :value="portForm.allowedModels"
-              @change="(e: Event) => { const sel = e.target as HTMLSelectElement; portForm.allowedModels = Array.from(sel.selectedOptions, (o: HTMLOptionElement) => o.value) }"
-              size="6"
-              style="width:100%;min-height:80px"
-              :disabled="portModelsLoading || portForm.modelLimitMode === 'unlimited'"
-            >
-              <option v-if="!portModelOptions.length" disabled>暂无可用模型</option>
-              <option v-for="m in portModelOptions" :key="m.value" :value="m.value">{{ m.label }}</option>
-            </select>
-            <div class="sub-muted form-help">限制模型时该端口的 /v1/models 只返回这里选择的模型；不限制时返回该区域可用模型。</div>
-            <a-button
-              class="port-model-refresh"
-              size="small"
-              :loading="portModelsLoading"
-              :disabled="!portForm.ociUserId"
-              @click="() => portForm.ociUserId && loadPortModels(portForm.ociUserId, portForm.ociRegion, true)"
-            >
-              刷新模型列表
-            </a-button>
-          </template>
-          <a-select
-            v-else
-            v-model:value="portForm.allowedModels"
-            mode="multiple"
-            :options="portModelOptions"
-            :loading="portModelsLoading"
-            :disabled="portForm.modelLimitMode === 'unlimited'"
-            :placeholder="portForm.modelLimitMode === 'unlimited' ? '当前不限制模型' : '至少选择一个模型'"
-            allow-clear
-            show-search
-            :filter-option="filterModel"
-            :max-tag-count="6"
-            :max-tag-placeholder="(omittedValues: any[]) => `+${omittedValues?.length || 0}`"
-            :get-popup-container="selectPopupContainer"
-            :dropdown-style="{ maxHeight: 'min(70vh, 480px)' }"
-          />
-          <div v-if="portForm.modelLimitMode === 'limited' && !portForm.allowedModels.length" class="sub-muted form-help">
-            限制模型时至少保留一个模型；不限制时请切回“不限制模型”。
-          </div>
-        </a-form-item>
-
-        <a-form-item label="启用">
-          <a-switch v-model:checked="portForm.enabled" />
-        </a-form-item>
-      </a-form>
-    </a-modal>
 
     <a-modal :mask-closable="false" :keyboard="false" v-model:open="lbKeyModalOpen" title="新 LB Key" :confirm-loading="lbKeyCreating" @ok="submitLbKey">
       <a-form layout="vertical">
@@ -1086,7 +884,6 @@ import {
   setOracleKeyDisabled,
   removeOracleKey,
   listOracleAiPortBindings,
-  saveOracleAiPortBinding,
   setOracleAiPortBindingEnabled,
   removeOracleAiPortBinding,
   getOracleAiLbOverview,
@@ -1113,6 +910,8 @@ const OracleAiDiagnosticsPanel = defineAppAsyncComponent(
   () => import('../components/oracle-ai/OracleAiDiagnosticsPanel.vue'),
   { loadingText: '日志诊断加载中...' },
 )
+const OracleAiPortBindingsPanel = defineAppAsyncComponent(() => import('../components/oracle-ai/OracleAiPortBindingsPanel.vue'))
+const OracleAiPortBindingModal = defineAppAsyncComponent(() => import('../components/oracle-ai/OracleAiPortBindingModal.vue'))
 const OracleAiModelPickerModal = defineAppAsyncComponent(() => import('../components/oracle-ai/OracleAiModelPickerModal.vue'))
 const OracleAiModelSummary = defineAppAsyncComponent(() => import('../components/oracle-ai/OracleAiModelSummary.vue'))
 
@@ -1134,33 +933,8 @@ const keys = ref<any[]>([])
 const portBindings = ref<any[]>([])
 const portBindingsLoading = ref(false)
 const portSwitchingId = ref('')
-const portModalOpen = ref(false)
-const portSaving = ref(false)
-const portKeysLoading = ref(false)
-const portKeyCreating = ref(false)
-const portKeyOptions = ref<{ label: string; value: string }[]>([])
-const portRegionsLoading = ref(false)
-const portRegionOptions = ref<{ label: string; value: string }[]>([])
-const portModelsLoading = ref(false)
-const portModelOptions = ref<{ label: string; value: string; title?: string }[]>([])
-const portForm = ref<{
-  id?: string
-  name?: string
-  port: number
-  ociUserId?: string
-  ociRegion?: string
-  openaiKeyId?: string
-  defaultMaxTokens?: number | null
-  allowedModels: string[]
-  modelLimitMode: 'unlimited' | 'limited'
-  enabled: boolean
-}>({
-  port: 30000,
-  defaultMaxTokens: null,
-  allowedModels: [],
-  modelLimitMode: 'unlimited',
-  enabled: true,
-})
+const portBindingModalRef = ref<any>(null)
+const pendingPortModalRow = ref<{ row?: any } | null>(null)
 const lbOverview = ref<any>({})
 const lbKeys = ref<any[]>([])
 const lbMembers = ref<any[]>([])
@@ -1781,18 +1555,6 @@ function normalizeModelSelection(models?: unknown) {
   return out
 }
 
-function onPortModelLimitModeChange(e?: any) {
-  const nextMode = e?.target?.value || portForm.value.modelLimitMode
-  if (nextMode === 'unlimited') {
-    portForm.value.allowedModels = []
-  } else {
-    portForm.value.allowedModels = normalizeModelSelection(portForm.value.allowedModels)
-    if (portForm.value.ociUserId) {
-      void loadPortModels(portForm.value.ociUserId, portForm.value.ociRegion, true)
-    }
-  }
-}
-
 function syncChatModelSelection() {
   const options = chatModelOptions.value || []
   if (!options.length) {
@@ -1817,6 +1579,17 @@ watch(
       loadLbAll()
     }
   },
+)
+
+watch(
+  () => portBindingModalRef.value,
+  (modal) => {
+    if (!modal?.open || !pendingPortModalRow.value) return
+    const row = pendingPortModalRow.value.row
+    pendingPortModalRow.value = null
+    modal.open(row)
+  },
+  { flush: 'post' },
 )
 
 async function loadModelsIfNeeded(alertOnErr: boolean) {
@@ -2177,14 +1950,6 @@ async function removeLbMemberRow(row: any) {
   await loadLbOverview()
 }
 
-function nextPortValue() {
-  const used = new Set((portBindings.value || []).map((x: any) => Number(x?.port)).filter((x: number) => Number.isFinite(x)))
-  for (let p = 30000; p <= 39999; p++) {
-    if (!used.has(p)) return p
-  }
-  return 30000
-}
-
 function ensurePortTenantOptionsLoading() {
   if (!tenantOptions.value.length && !tenantsLoading.value) {
     void loadTenants()
@@ -2192,176 +1957,24 @@ function ensurePortTenantOptionsLoading() {
 }
 
 function openPortModal(row?: any) {
+  const modal = portBindingModalRef.value
+  if (modal?.open) {
+    modal.open(row)
+    return
+  }
   if (!row) ensurePortTenantOptionsLoading()
-  portForm.value = {
-    id: row?.id,
-    name: row?.name || '',
-    port: Number(row?.port || nextPortValue()),
-    ociUserId: row?.ociUserId || undefined,
-    ociRegion: row?.ociRegion || row?.tenantDefaultRegion || undefined,
-    openaiKeyId: row?.openaiKeyId || undefined,
-    defaultMaxTokens: row?.defaultMaxTokens ? Number(row.defaultMaxTokens) : null,
-    allowedModels: Array.isArray(row?.allowedModels) ? row.allowedModels : [],
-    modelLimitMode: Array.isArray(row?.allowedModels) && row.allowedModels.length ? 'limited' : 'unlimited',
-    enabled: row?.enabled !== false,
-  }
-  portModalOpen.value = true
-  portKeyOptions.value = []
-  portRegionOptions.value = []
-  portModelOptions.value = ensureSelectedModelsInOptions([], portForm.value.allowedModels || [])
-  if (portForm.value.ociUserId) {
-    const tenantId = portForm.value.ociUserId
-    void loadPortModalTenantContext(
-      tenantId,
-      portForm.value.ociRegion,
-      portForm.value.modelLimitMode === 'limited',
-    )
-  } else {
-    portKeysLoading.value = false
-    portRegionsLoading.value = false
-    portModelsLoading.value = false
+  pendingPortModalRow.value = { row }
+}
+
+function handlePortGeneratedKey(apiKey: string) {
+  newKeyPlain.value = apiKey || ''
+  if (newKeyPlain.value) {
+    plainKeyModalOpen.value = true
   }
 }
 
-async function loadPortModalTenantContext(tenantId: string, preferredRegion?: string, loadModels = false) {
-  await Promise.all([
-    loadPortKeys(tenantId).catch(() => {}),
-    loadPortRegions(tenantId, preferredRegion).catch(() => {}),
-  ])
-  if (loadModels && portForm.value.ociUserId === tenantId) {
-    await loadPortModels(tenantId, portForm.value.ociRegion)
-  }
-}
-
-function onPortTenantChange() {
-  portForm.value.openaiKeyId = undefined
-  portForm.value.ociRegion = undefined
-  portForm.value.allowedModels = []
-  portForm.value.modelLimitMode = 'unlimited'
-  portKeyOptions.value = []
-  portRegionOptions.value = []
-  portModelOptions.value = []
-  if (portForm.value.ociUserId) {
-    const tenantId = portForm.value.ociUserId
-    void loadPortModalTenantContext(tenantId)
-  } else {
-    portKeysLoading.value = false
-    portRegionsLoading.value = false
-    portModelsLoading.value = false
-  }
-}
-
-function onPortRegionChange() {
-  portForm.value.allowedModels = []
-  portForm.value.modelLimitMode = 'unlimited'
-  portModelOptions.value = []
-}
-
-async function loadPortRegions(tenantId: string, preferred?: string) {
-  portRegionsLoading.value = true
-  try {
-    const r: any = await listOciRegionOptions(tenantId)
-    if (portForm.value.ociUserId !== tenantId) return
-    const rows = Array.isArray(r?.data) ? r.data : []
-    const options = rows
-      .map((x: any) => ({
-        value: String(x.regionId || '').trim(),
-        label: x.label || String(x.regionId || '').trim(),
-      }))
-      .filter((x: any) => x.value)
-    const tenantDefault = tenantOptions.value.find((x) => x.value === tenantId)?.ociRegion || ''
-    const selected = String(preferred || portForm.value.ociRegion || tenantDefault || '').trim()
-    if (selected && !options.some((x: any) => x.value === selected)) {
-      options.unshift({ value: selected, label: regionDisplay(selected) })
-    }
-    portRegionOptions.value = options
-    if (!portForm.value.ociRegion) {
-      portForm.value.ociRegion = selected || options[0]?.value
-    }
-  } catch {
-    if (portForm.value.ociUserId !== tenantId) return
-    const fallback = String(preferred || tenantOptions.value.find((x) => x.value === tenantId)?.ociRegion || '').trim()
-    portRegionOptions.value = fallback ? [{ value: fallback, label: regionDisplay(fallback) }] : []
-    if (!portForm.value.ociRegion) {
-      portForm.value.ociRegion = fallback || undefined
-    }
-  } finally {
-    if (portForm.value.ociUserId === tenantId) {
-      portRegionsLoading.value = false
-    }
-  }
-}
-
-async function loadPortKeys(tenantId: string) {
-  portKeysLoading.value = true
-  try {
-    const r: any = await listOracleKeys({ ociUserId: tenantId })
-    if (portForm.value.ociUserId !== tenantId) return
-    const raw = Array.isArray(r?.data) ? r.data : r?.data?.records || []
-    portKeyOptions.value = raw
-      .filter((x: any) => !x.disabled)
-      .map((x: any) => ({
-        value: x.id,
-        label: `${x.name || '未命名'} (${x.keyMasked || 'sk-****'})`,
-      }))
-    if (!portForm.value.openaiKeyId && portKeyOptions.value.length) {
-      portForm.value.openaiKeyId = portKeyOptions.value[0].value
-    }
-  } catch {
-    if (portForm.value.ociUserId !== tenantId) return
-    portKeyOptions.value = []
-  } finally {
-    if (portForm.value.ociUserId === tenantId) {
-      portKeysLoading.value = false
-    }
-  }
-}
-
-async function createPortTenantKey() {
-  const tenantId = portForm.value.ociUserId
-  if (!tenantId) return
-  portKeyCreating.value = true
-  try {
-    const r: any = await createOracleKey({
-      ociUserId: tenantId,
-      name: portForm.value.name || `port-${portForm.value.port}`,
-    })
-    const id = r?.data?.id
-    newKeyPlain.value = r?.data?.apiKey || ''
-    await loadPortKeys(tenantId)
-    if (id) {
-      portForm.value.openaiKeyId = id
-    }
-    if (newKeyPlain.value) {
-      plainKeyModalOpen.value = true
-    }
-    message.success('已生成 API Key')
-  } catch (e: any) {
-    message.error(e?.message || '生成失败')
-  } finally {
-    portKeyCreating.value = false
-  }
-}
-
-async function loadPortModels(tenantId: string, region?: string, alertOnErr = false) {
-  portModelsLoading.value = true
-  try {
-    const r: any = await listOpenAiModels({ ociUserId: tenantId, ociRegion: region })
-    if (portForm.value.ociUserId !== tenantId) return
-    portModelOptions.value = ensureSelectedModelsInOptions(mapModelOptions(r?.data), portForm.value.allowedModels || [])
-    if (!portModelOptions.value.length && alertOnErr) {
-      message.info('无模型条目或 OCI 返回与预期结构不同，请查看后端日志。')
-    }
-  } catch (e: any) {
-    if (portForm.value.ociUserId !== tenantId) return
-    if (alertOnErr) {
-      message.error(e?.message || '刷新模型失败')
-    }
-  } finally {
-    if (portForm.value.ociUserId === tenantId) {
-      portModelsLoading.value = false
-    }
-  }
+async function handlePortBindingSaved() {
+  await loadPortBindings()
 }
 
 async function revealPortKey(row: any) {
@@ -2391,44 +2004,6 @@ async function revealPortKey(row: any) {
   }
 }
 
-async function savePortBindingRow() {
-  const f = portForm.value
-  const selectedModels = normalizeModelSelection(f.allowedModels)
-  if (!f.ociUserId || !f.openaiKeyId) {
-    message.warning('请选择租户和 API Key')
-    return
-  }
-  if (!Number.isFinite(Number(f.port)) || Number(f.port) < 30000 || Number(f.port) > 39999) {
-    message.warning('端口必须在 30000-39999 之间')
-    return
-  }
-  if (f.modelLimitMode === 'limited' && !selectedModels.length) {
-    message.warning('限制模型时至少选择一个模型')
-    return
-  }
-  portSaving.value = true
-  try {
-    await saveOracleAiPortBinding({
-      id: f.id,
-      name: f.name,
-      port: Math.trunc(Number(f.port)),
-      ociUserId: f.ociUserId,
-      ociRegion: f.ociRegion,
-      openaiKeyId: f.openaiKeyId,
-      defaultMaxTokens: f.defaultMaxTokens ? Math.trunc(Number(f.defaultMaxTokens)) : null,
-      allowedModels: f.modelLimitMode === 'limited' ? selectedModels : [],
-      enabled: f.enabled,
-    })
-    portModalOpen.value = false
-    message.success('已保存，端口已同步')
-    await loadPortBindings()
-  } catch (e: any) {
-    message.error(e?.message || '保存失败')
-  } finally {
-    portSaving.value = false
-  }
-}
-
 async function togglePortBinding(row: any, enabled: boolean) {
   if (!row?.id) return
   portSwitchingId.value = row.id
@@ -2449,20 +2024,6 @@ async function removePortBindingRow(row: any) {
   await removeOracleAiPortBinding({ id: row.id })
   message.success('已删除')
   await loadPortBindings()
-}
-
-function portStatusText(row: any) {
-  if (!row?.enabled) return '已禁用'
-  if (row?.status === 'listening') return '监听中'
-  if (row?.status === 'failed') return '启动失败'
-  return row?.status || '未监听'
-}
-
-function portStatusColor(row: any) {
-  if (!row?.enabled) return 'default'
-  if (row?.status === 'listening') return 'green'
-  if (row?.status === 'failed') return 'red'
-  return 'orange'
 }
 
 function isLbCoolingDown(row: any) {

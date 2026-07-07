@@ -92,6 +92,8 @@ declare module 'vue' {
     OracleAiDiagnosticsPanel: typeof import('./components/oracle-ai/OracleAiDiagnosticsPanel.vue')['default']
     OracleAiModelPickerModal: typeof import('./components/oracle-ai/OracleAiModelPickerModal.vue')['default']
     OracleAiModelSummary: typeof import('./components/oracle-ai/OracleAiModelSummary.vue')['default']
+    OracleAiPortBindingModal: typeof import('./components/oracle-ai/OracleAiPortBindingModal.vue')['default']
+    OracleAiPortBindingsPanel: typeof import('./components/oracle-ai/OracleAiPortBindingsPanel.vue')['default']
     QuickTaskModal: typeof import('./components/instance/QuickTaskModal.vue')['default']
     RouterLink: typeof import('vue-router')['RouterLink']
     RouterView: typeof import('vue-router')['RouterView']
