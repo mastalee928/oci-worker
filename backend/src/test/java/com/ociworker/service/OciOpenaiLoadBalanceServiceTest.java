@@ -5,6 +5,8 @@ import com.ociworker.model.entity.OciOpenaiPortBinding;
 import com.ociworker.model.entity.OciUser;
 import org.junit.jupiter.api.Test;
 
+import java.time.LocalDateTime;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 class OciOpenaiLoadBalanceServiceTest {
@@ -87,5 +89,35 @@ class OciOpenaiLoadBalanceServiceTest {
         assertThat(OciOpenaiLoadBalanceService.memberMatchesRequestedAccount(member, binding, user, "30001")).isTrue();
         assertThat(OciOpenaiLoadBalanceService.memberMatchesRequestedAccount(member, binding, user, "friend tenant")).isTrue();
         assertThat(OciOpenaiLoadBalanceService.memberMatchesRequestedAccount(member, binding, user, "other")).isFalse();
+    }
+
+    @Test
+    void staleTransientMemberErrorRequiresExpiredFailureOutsideCooldown() {
+        LocalDateTime now = LocalDateTime.of(2026, 7, 7, 13, 0);
+        OciOpenaiLbMember stale = failedMember(now.minusDays(3));
+        assertThat(OciOpenaiLoadBalanceService.isStaleTransientMemberError(stale, now, 6)).isTrue();
+
+        OciOpenaiLbMember recent = failedMember(now.minusHours(2));
+        assertThat(OciOpenaiLoadBalanceService.isStaleTransientMemberError(recent, now, 6)).isFalse();
+
+        OciOpenaiLbMember cooling = failedMember(now.minusDays(3));
+        cooling.setCooldownUntil(now.plusMinutes(5));
+        assertThat(OciOpenaiLoadBalanceService.isStaleTransientMemberError(cooling, now, 6)).isFalse();
+
+        OciOpenaiLbMember recovering = failedMember(now.minusDays(3));
+        recovering.setRecoveryUntil(now.plusMinutes(5));
+        assertThat(OciOpenaiLoadBalanceService.isStaleTransientMemberError(recovering, now, 6)).isFalse();
+
+        OciOpenaiLbMember noLastUsed = failedMember(null);
+        assertThat(OciOpenaiLoadBalanceService.isStaleTransientMemberError(noLastUsed, now, 6)).isFalse();
+    }
+
+    private static OciOpenaiLbMember failedMember(LocalDateTime lastUsed) {
+        OciOpenaiLbMember member = new OciOpenaiLbMember();
+        member.setId("member-1");
+        member.setFailCount(1);
+        member.setLastUsed(lastUsed);
+        member.setLastError("Gemini 原生 Chat 调用失败");
+        return member;
     }
 }

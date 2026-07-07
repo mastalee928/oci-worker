@@ -91,6 +91,8 @@ public class OciOpenaiLoadBalanceService {
     private int modelFailThreshold;
     @Value("${ociworker.openaiLoadBalance.modelUnavailableHours:24}")
     private int modelUnavailableHours;
+    @Value("${ociworker.openaiLoadBalance.staleErrorHours:6}")
+    private int staleErrorHours;
 
     private final Map<String, AtomicInteger> inFlight = new ConcurrentHashMap<>();
     private final Map<String, Object> generativeContextLocks = new ConcurrentHashMap<>();
@@ -180,9 +182,13 @@ public class OciOpenaiLoadBalanceService {
     public List<Map<String, Object>> listMembers() {
         purgeOrphanMembers();
         purgeInvalidModelStates();
+        LocalDateTime now = LocalDateTime.now();
         List<OciOpenaiLbMember> rows = memberMapper.selectList(new LambdaQueryWrapper<OciOpenaiLbMember>()
                 .orderByDesc(OciOpenaiLbMember::getEnabled)
                 .orderByAsc(OciOpenaiLbMember::getCreateTime));
+        for (OciOpenaiLbMember row : rows) {
+            clearStaleTransientError(row, now);
+        }
         return rows.stream().map(this::memberRow).collect(Collectors.toList());
     }
 
@@ -307,6 +313,7 @@ public class OciOpenaiLoadBalanceService {
         LocalDateTime now = LocalDateTime.now();
         for (OciOpenaiLbMember member : memberMapper.selectList(null)) {
             try {
+                clearStaleTransientError(member, now);
                 HealthCheckResult health = localHealth(member, now);
                 if (health == null) {
                     continue;
@@ -360,6 +367,51 @@ public class OciOpenaiLoadBalanceService {
             log.info("Removed {} orphan OpenAI LB member(s)", removed);
         }
         return removed;
+    }
+
+    private boolean clearStaleTransientError(OciOpenaiLbMember member, LocalDateTime now) {
+        if (!isStaleTransientMemberError(member, now, staleErrorHours)) {
+            return false;
+        }
+        OciOpenaiPortBinding binding = portBindingMapper.selectById(member.getPortBindingId());
+        if (binding == null
+                || binding.getEnabled() == null
+                || binding.getEnabled() != 1
+                || !"listening".equalsIgnoreCase(binding.getStatus())
+                || hasText(bindingKeyUnavailableMessage(binding))) {
+            return false;
+        }
+        member.setFailCount(0);
+        member.setCooldownUntil(null);
+        member.setRecoveryUntil(null);
+        member.setLastError(null);
+        member.setLastErrorType(null);
+        member.setHealthStatus("healthy");
+        member.setHealthMessage(null);
+        member.setHealthCheckedAt(now);
+        member.setUpdateTime(now);
+        memberMapper.updateById(member);
+        return true;
+    }
+
+    static boolean isStaleTransientMemberError(OciOpenaiLbMember member, LocalDateTime now, int staleHours) {
+        if (member == null || member.getId() == null || now == null) {
+            return false;
+        }
+        if (member.getFailCount() == null || member.getFailCount() <= 0) {
+            return false;
+        }
+        if (member.getCooldownUntil() != null && member.getCooldownUntil().isAfter(now)) {
+            return false;
+        }
+        if (member.getRecoveryUntil() != null && member.getRecoveryUntil().isAfter(now)) {
+            return false;
+        }
+        LocalDateTime lastUsed = member.getLastUsed();
+        if (lastUsed == null) {
+            return false;
+        }
+        return !lastUsed.plusHours(Math.max(1, staleHours)).isAfter(now);
     }
 
     private int purgeInvalidModelStates() {
