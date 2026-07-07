@@ -255,7 +255,7 @@ export function inferOracleAiModelMeta(option: OracleAiModelOption | string): Or
       label,
       title,
       provider: source,
-      description: `${source} · 需要 Responses 桥接`,
+      description: `${source} · Responses 多智能体端点`,
       capability: 'Multi-Agent',
       capabilityValue: 'responses',
       endpoint: 'Responses',
