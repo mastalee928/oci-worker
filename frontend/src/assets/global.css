@@ -148,7 +148,6 @@ body.wallpaper-active {
 }
 
 /* Fixed global background layers */
-#globalGridLayer,
 #wallpaperLayer {
   position: fixed;
   top: 0;
@@ -161,50 +160,40 @@ body.wallpaper-active {
   background-repeat: no-repeat;
   pointer-events: none;
 }
-#globalGridLayer {
-  display: block;
-  background-image:
-    linear-gradient(var(--grid-color) 1px, transparent 1px),
-    linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
-  background-size: 24px 24px;
-  background-position: 0 0;
-}
 #wallpaperLayer {
   display: none;
 }
 #wallpaperLayer.active {
   display: block;
 }
-body.wallpaper-active #globalGridLayer {
-  display: none;
-}
 
-/* Decorative background glows */
+/* Fixed grid background */
 body::before {
   content: '';
   position: fixed;
-  top: -10%;
-  left: -10%;
-  width: 50%;
-  height: 50%;
-  background: radial-gradient(circle, rgba(99, 102, 241, 0.08) 0%, transparent 60%);
-  z-index: -1;
+  inset: 0;
+  z-index: 0;
   pointer-events: none;
-  filter: blur(60px);
+  background-image:
+    linear-gradient(var(--grid-color) 1px, transparent 1px),
+    linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
+  background-size: 24px 24px;
+  background-position: 0 0;
+  background-repeat: repeat;
 }
+
+/* Decorative background glows */
 body::after {
   content: '';
   position: fixed;
-  bottom: -10%;
-  right: -10%;
-  width: 50%;
-  height: 50%;
-  background: radial-gradient(circle, rgba(168, 85, 247, 0.08) 0%, transparent 60%);
-  z-index: -1;
+  inset: 0;
+  background:
+    radial-gradient(circle at -10% -10%, rgba(99, 102, 241, 0.08) 0%, transparent 30%),
+    radial-gradient(circle at 110% 110%, rgba(168, 85, 247, 0.08) 0%, transparent 30%);
+  z-index: 0;
   pointer-events: none;
   filter: blur(60px);
 }
-[data-theme="light"] body::before,
 [data-theme="light"] body::after {
   display: none;
   background: none;
