@@ -92,8 +92,14 @@
                       <span class="model-desc">{{ model.description }}</span>
                     </span>
                     <span class="model-actions">
-                      <span class="model-tag" :class="model.tagColor">{{ model.capability }}</span>
-                      <span class="model-tag" :class="endpointTagClass(model.group)">{{ model.statusLabel }}</span>
+                      <span
+                        v-for="tag in modelTags(model)"
+                        :key="tag.text"
+                        class="model-tag"
+                        :class="tag.className"
+                      >
+                        {{ tag.text }}
+                      </span>
                     </span>
                   </label>
                   <div v-if="!group.models.length" class="model-empty-line">{{ group.emptyText }}</div>
@@ -311,6 +317,17 @@ function endpointTagClass(group: OracleAiModelGroupId) {
   if (group === 'safety') return 'rose'
   if (group === 'pending') return 'default'
   return 'blue'
+}
+
+function modelTags(model: OracleAiModelMeta) {
+  const tags = [
+    { text: model.capability, className: model.tagColor },
+    { text: model.statusLabel, className: endpointTagClass(model.group) },
+  ].filter((tag) => tag.text)
+  if (tags.length < 2 || tags[0].text === tags[1].text) {
+    return tags.slice(0, 1)
+  }
+  return tags
 }
 
 function toggleModel(id: string, selectable: boolean) {
