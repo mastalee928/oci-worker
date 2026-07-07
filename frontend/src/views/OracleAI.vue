@@ -1501,6 +1501,7 @@ function checkM() {
 }
 
 onMounted(() => {
+  document.body.classList.add('oracle-ai-route-active')
   checkM()
   window.addEventListener('resize', checkM)
   loadPersistedState()
@@ -1516,6 +1517,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  document.body.classList.remove('oracle-ai-route-active')
   window.removeEventListener('resize', checkM)
   if (gatewayIpRetryTimer) {
     clearTimeout(gatewayIpRetryTimer)
@@ -2709,6 +2711,11 @@ async function viewKey(k: any) {
   max-width: none;
   margin: 0;
 }
+:global([data-theme="light"] body.oracle-ai-route-active::before),
+:global([data-theme="light"] body.oracle-ai-route-active::after) {
+  background: none !important;
+  opacity: 0 !important;
+}
 .sub {
   line-height: 1.6;
   color: var(--text-sub, #666);
@@ -3194,41 +3201,41 @@ async function viewKey(k: any) {
 .chat-recent-table {
   min-width: 620px;
 }
-:global([data-theme="light"]) .oracle-ai-page :deep(.ant-tag-green) {
+:global([data-theme="light"] .oracle-ai-page .ant-tag-green) {
   color: #047857 !important;
   background: rgba(16, 185, 129, 0.11) !important;
   border-color: rgba(16, 185, 129, 0.28) !important;
 }
-:global([data-theme="light"]) .oracle-ai-page :deep(.ant-tag-blue) {
+:global([data-theme="light"] .oracle-ai-page .ant-tag-blue) {
   color: #1d4ed8 !important;
   background: rgba(59, 130, 246, 0.1) !important;
   border-color: rgba(59, 130, 246, 0.24) !important;
 }
-:global([data-theme="light"]) .oracle-ai-page :deep(.ant-tag-orange) {
+:global([data-theme="light"] .oracle-ai-page .ant-tag-orange) {
   color: #b45309 !important;
   background: rgba(245, 158, 11, 0.12) !important;
   border-color: rgba(245, 158, 11, 0.26) !important;
 }
-:global([data-theme="light"]) .oracle-ai-page .copy-line {
+:global([data-theme="light"] .oracle-ai-page .copy-line) {
   color: #1d4ed8;
 }
-:global([data-theme="light"]) .oracle-ai-page :deep(.ant-card) {
+:global([data-theme="light"] .oracle-ai-page .ant-card) {
   background: rgba(255, 255, 255, 0.96) !important;
   box-shadow: 0 12px 34px rgba(15, 23, 42, 0.08);
 }
-:global([data-theme="light"]) .oracle-ai-page :deep(.ant-card-head) {
+:global([data-theme="light"] .oracle-ai-page .ant-card-head) {
   border-bottom-color: rgba(15, 23, 42, 0.08);
 }
-:global([data-theme="light"]) .oracle-ai-page :deep(.ant-input),
-:global([data-theme="light"]) .oracle-ai-page :deep(.ant-input-number),
-:global([data-theme="light"]) .oracle-ai-page :deep(.ant-input-number-input),
-:global([data-theme="light"]) .oracle-ai-page :deep(.ant-select-selector),
-:global([data-theme="light"]) .oracle-ai-page :deep(.ant-input-affix-wrapper) {
+:global([data-theme="light"] .oracle-ai-page .ant-input),
+:global([data-theme="light"] .oracle-ai-page .ant-input-number),
+:global([data-theme="light"] .oracle-ai-page .ant-input-number-input),
+:global([data-theme="light"] .oracle-ai-page .ant-select-selector),
+:global([data-theme="light"] .oracle-ai-page .ant-input-affix-wrapper) {
   border-color: rgba(15, 23, 42, 0.1) !important;
   background: #f8fafc !important;
   color: #0f172a !important;
 }
-:global([data-theme="light"]) .oracle-ai-page .chat-pre {
+:global([data-theme="light"] .oracle-ai-page .chat-pre) {
   border-color: rgba(15, 23, 42, 0.1);
   background: #f8fafc;
   color: #0f172a;
