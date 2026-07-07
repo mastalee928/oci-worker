@@ -2707,10 +2707,7 @@ async function viewKey(k: any) {
 .oracle-ai-page {
   width: 100%;
   max-width: none;
-  min-height: calc(100vh - 120px);
-  margin: -8px -32px -32px;
-  padding: 8px 32px 32px;
-  background: var(--bg-body);
+  margin: 0;
 }
 .sub {
   line-height: 1.6;
@@ -3215,9 +3212,6 @@ async function viewKey(k: any) {
 :global([data-theme="light"]) .oracle-ai-page .copy-line {
   color: #1d4ed8;
 }
-:global([data-theme="light"]) .oracle-ai-page {
-  background: #f8fafc;
-}
 :global([data-theme="light"]) .oracle-ai-page :deep(.ant-card) {
   background: rgba(255, 255, 255, 0.96) !important;
   box-shadow: 0 12px 34px rgba(15, 23, 42, 0.08);
@@ -3242,9 +3236,6 @@ async function viewKey(k: any) {
 @media (max-width: 767px) {
   .oracle-ai-page {
     max-width: 100%;
-    min-height: calc(100vh - 88px);
-    margin: -8px -16px -24px;
-    padding: 8px 16px 24px;
   }
   .key-toolbar {
     align-items: flex-start;
