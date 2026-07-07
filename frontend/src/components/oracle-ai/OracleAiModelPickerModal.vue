@@ -10,7 +10,7 @@
           <div>
             <div id="modelModalTitle" class="model-library-title">管理模型库</div>
             <div class="model-library-subtitle">
-              所有模型统一展示，但按端点能力分组保存，避免聊天、TTS、Embedding、Rerank 混在一起。
+              选择要启用的模型，系统会按用途保存。
             </div>
           </div>
           <button class="model-library-close" type="button" @click="emit('update:open', false)">×</button>
