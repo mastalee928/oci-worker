@@ -145,17 +145,17 @@ const selectableCount = computed(() => {
 .model-save-row {
   margin-top: 0;
 }
-:global([data-theme='light']) .model-summary-panel {
+:global([data-theme='light'] .model-summary-panel) {
   border-color: rgba(15, 23, 42, 0.08);
   background: #f8fafc;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
 }
-:global([data-theme='light']) .tag.green {
+:global([data-theme='light'] .tag.green) {
   color: #047857;
   background: rgba(16, 185, 129, 0.11);
   border-color: rgba(16, 185, 129, 0.28);
 }
-:global([data-theme='light']) .tag.default {
+:global([data-theme='light'] .tag.default) {
   color: #475569;
   background: rgba(100, 116, 139, 0.1);
   border-color: rgba(100, 116, 139, 0.2);

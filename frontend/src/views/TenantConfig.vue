@@ -5961,7 +5961,7 @@ onUnmounted(() => {
   -webkit-backdrop-filter: blur(10px) saturate(145%);
 }
 .tag-gray { background: rgba(150, 150, 150, 0.15); color: #999; }
-:global([data-theme="light"]) .tag-free-tier {
+:global([data-theme="light"] .tag-free-tier) {
   color: rgba(15, 23, 42, 0.9);
   background: rgba(15, 23, 42, 0.1);
   border-color: rgba(15, 23, 42, 0.18);
@@ -6056,13 +6056,13 @@ onUnmounted(() => {
   to { transform: rotate(360deg); }
 }
 
-:global([data-theme="light"]) .tenant-account-refresh {
+:global([data-theme="light"] .tenant-account-refresh) {
   border-color: rgba(15, 23, 42, 0.12);
   background: rgba(15, 23, 42, 0.035);
   color: rgba(71, 85, 105, 0.82);
 }
 
-:global([data-theme="light"]) .tenant-account-refresh:hover:not(:disabled) {
+:global([data-theme="light"] .tenant-account-refresh:hover:not(:disabled)) {
   border-color: rgba(37, 99, 235, 0.38);
   background: rgba(37, 99, 235, 0.08);
   color: #2563eb;

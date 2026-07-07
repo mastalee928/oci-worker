@@ -588,20 +588,20 @@ defineExpose({ open })
   color: #fff;
 }
 
-:global([data-theme="light"]) .mobile-model-select {
+:global([data-theme="light"] .mobile-model-select) {
   border-color: rgba(15, 23, 42, 0.14);
   background: #f8fafc;
   color: #0f172a;
 }
 
-:global([data-theme="light"]) .mobile-model-select option {
+:global([data-theme="light"] .mobile-model-select option) {
   background: #fff;
   color: #0f172a;
 }
 
-:global([data-theme="light"]) .mobile-model-select option:checked,
-:global([data-theme="light"]) .mobile-model-select option:focus,
-:global([data-theme="light"]) .mobile-model-select option:hover {
+:global([data-theme="light"] .mobile-model-select option:checked),
+:global([data-theme="light"] .mobile-model-select option:focus),
+:global([data-theme="light"] .mobile-model-select option:hover) {
   background: rgba(59, 130, 246, 0.16);
   color: #0f172a;
 }

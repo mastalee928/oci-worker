@@ -138,7 +138,7 @@ function useSavedPublicKey() {
   --task-login-key-bg: linear-gradient(90deg, rgba(117, 224, 180, 0.08), rgba(124, 114, 255, 0.06)), var(--task-login-input);
 }
 
-:global([data-theme="light"]) .task-login-selector {
+:global([data-theme="light"] .task-login-selector) {
   --task-login-action: #6366f1;
   --task-login-action-hover: #4f46e5;
   --task-login-success: #047857;

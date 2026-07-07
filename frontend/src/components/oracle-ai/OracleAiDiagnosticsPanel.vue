@@ -1041,14 +1041,14 @@ onUnmounted(() => {
     flex: 1 1 100%;
   }
 }
-:global([data-theme='light']) .diagnostic-head :deep(.ant-segmented) {
+:global([data-theme='light'] .diagnostic-head .ant-segmented) {
   background: rgba(248, 250, 252, 0.72);
 }
-:global([data-theme='light']) .metric-item {
+:global([data-theme='light'] .metric-item) {
   background: rgba(248, 250, 252, 0.72);
 }
-:global([data-theme='light']) .health-card,
-:global([data-theme='light']) .model-card {
+:global([data-theme='light'] .health-card),
+:global([data-theme='light'] .model-card) {
   background: rgba(248, 250, 252, 0.72);
 }
 </style>

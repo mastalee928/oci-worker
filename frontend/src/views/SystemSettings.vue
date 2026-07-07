@@ -2780,7 +2780,7 @@ async function handleRestore() {
   overflow: hidden;
   color: rgba(255, 255, 255, 0.92);
 }
-:global([data-theme="light"]) .upgrade-flow-dialog {
+:global([data-theme="light"] .upgrade-flow-dialog) {
   color: rgba(15, 23, 42, 0.9);
 }
 .upgrade-flow-dialog--done {
@@ -2791,7 +2791,7 @@ async function handleRestore() {
   text-align: center;
   background: rgba(0, 0, 0, 0.12);
 }
-:global([data-theme="light"]) .upgrade-flow-status {
+:global([data-theme="light"] .upgrade-flow-status) {
   background: rgba(255, 255, 255, 0.42);
 }
 .upgrade-flow-status strong {

@@ -946,7 +946,7 @@ function buildRedHatScript(token: string) {
   color: var(--mesh-text);
 }
 
-:global([data-theme='light']) .cf-mesh-tab {
+:global([data-theme='light'] .cf-mesh-tab) {
   --mesh-surface: rgba(255, 255, 255, 0.88);
   --mesh-surface-soft: rgba(248, 250, 252, 0.86);
   --mesh-surface-muted: rgba(248, 250, 252, 0.9);
