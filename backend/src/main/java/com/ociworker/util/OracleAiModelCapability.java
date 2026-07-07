@@ -126,6 +126,94 @@ public final class OracleAiModelCapability {
                 || value.contains("multi agent");
     }
 
+    public static long documentedContextLimit(String model) {
+        return documentedContextLimit(model, null);
+    }
+
+    public static long documentedContextLimit(String model, String region) {
+        if (model == null || model.isBlank()) {
+            return 0L;
+        }
+        String value = model.trim().toLowerCase(Locale.ROOT);
+        if (value.startsWith("xai.grok-4.3")
+                || value.startsWith("xai.grok-4.20")) {
+            return 1_000_000L;
+        }
+        if (value.startsWith("xai.grok-4-1-fast")
+                || value.startsWith("xai.grok-4-fast")) {
+            return 2_000_000L;
+        }
+        if (value.startsWith("xai.grok-code-fast")) {
+            return 256_000L;
+        }
+        if (value.startsWith("xai.grok-4")) {
+            return 128_000L;
+        }
+        if (value.startsWith("xai.grok-3")) {
+            return 131_072L;
+        }
+        if (value.startsWith("google.gemini-2.5")) {
+            if (isGemini25Flash(value) && isOsakaRegion(region)) {
+                return 128_000L;
+            }
+            return 1_000_000L;
+        }
+        if (value.startsWith("openai.gpt-oss")) {
+            return 128_000L;
+        }
+        if (value.contains("llama-4-maverick")) {
+            return 512_000L;
+        }
+        if (value.contains("llama-4-scout")) {
+            return 192_000L;
+        }
+        if (value.contains("llama-3.3-70b")) {
+            return 128_000L;
+        }
+        if (value.contains("cohere.command-a-reasoning")
+                || value.contains("cohere.command-a-03-2025")) {
+            return 256_000L;
+        }
+        if (value.contains("cohere.command-a-vision")) {
+            return 128_000L;
+        }
+        if (value.contains("cohere.command-r-08-2024")
+                || value.contains("cohere.command-r-plus-08-2024")) {
+            return 128_000L;
+        }
+        return 0L;
+    }
+
+    public static long documentedTpmLimit(String model) {
+        if (model == null || model.isBlank()) {
+            return 0L;
+        }
+        String value = model.trim().toLowerCase(Locale.ROOT);
+        if (value.startsWith("xai.grok-4.3")
+                || value.startsWith("xai.grok-4.20")) {
+            return 200_000L;
+        }
+        if (value.startsWith("xai.grok-4")
+                || value.startsWith("xai.grok-code-fast")) {
+            return 200_000L;
+        }
+        if (value.startsWith("xai.grok-3")) {
+            return 100_000L;
+        }
+        if (value.startsWith("google.gemini-2.5")) {
+            return 100_000L;
+        }
+        return 0L;
+    }
+
+    private static boolean isOsakaRegion(String region) {
+        return region != null && region.trim().equalsIgnoreCase("ap-osaka-1");
+    }
+
+    private static boolean isGemini25Flash(String value) {
+        return "google.gemini-2.5-flash".equals(value);
+    }
+
     public static String chatEndpointMismatchMessage(String model) {
         String capability = classify(model);
         String name = model == null || model.isBlank() ? "未指定模型" : model.trim();

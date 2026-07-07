@@ -59,6 +59,25 @@ class OracleAiModelCapabilityTest {
     }
 
     @Test
+    void returnsDocumentedContextAndTpmLimitsForKnownOciChatModels() {
+        assertThat(OracleAiModelCapability.documentedContextLimit("xai.grok-4.3")).isEqualTo(1_000_000L);
+        assertThat(OracleAiModelCapability.documentedTpmLimit("xai.grok-4.3")).isEqualTo(200_000L);
+        assertThat(OracleAiModelCapability.documentedContextLimit("xai.grok-4-fast-reasoning")).isEqualTo(2_000_000L);
+        assertThat(OracleAiModelCapability.documentedContextLimit("xai.grok-code-fast-1")).isEqualTo(256_000L);
+        assertThat(OracleAiModelCapability.documentedContextLimit("xai.grok-3-mini-fast")).isEqualTo(131_072L);
+        assertThat(OracleAiModelCapability.documentedTpmLimit("xai.grok-3-mini-fast")).isEqualTo(100_000L);
+        assertThat(OracleAiModelCapability.documentedContextLimit("google.gemini-2.5-pro")).isEqualTo(1_000_000L);
+        assertThat(OracleAiModelCapability.documentedContextLimit("google.gemini-2.5-flash", "ap-osaka-1")).isEqualTo(128_000L);
+        assertThat(OracleAiModelCapability.documentedContextLimit("google.gemini-2.5-flash-lite", "ap-osaka-1")).isEqualTo(1_000_000L);
+        assertThat(OracleAiModelCapability.documentedTpmLimit("google.gemini-2.5-flash")).isEqualTo(100_000L);
+        assertThat(OracleAiModelCapability.documentedContextLimit("openai.gpt-oss-120b")).isEqualTo(128_000L);
+        assertThat(OracleAiModelCapability.documentedContextLimit("meta.llama-4-maverick-17b-128e-instruct-fp8")).isEqualTo(512_000L);
+        assertThat(OracleAiModelCapability.documentedContextLimit("cohere.command-a-reasoning")).isEqualTo(256_000L);
+        assertThat(OracleAiModelCapability.documentedContextLimit("cohere.command-r-plus-08-2024")).isEqualTo(128_000L);
+        assertThat(OracleAiModelCapability.documentedTpmLimit("cohere.command-a-reasoning")).isZero();
+    }
+
+    @Test
     void onlyChatAndMultiAgentAreAcceptedByChatStyleEndpoints() {
         assertThat(OracleAiModelCapability.isChatEndpointCompatible("xai.grok-4.3")).isTrue();
         assertThat(OracleAiModelCapability.isChatEndpointCompatible("xai.grok-4.20-multi-agent")).isTrue();

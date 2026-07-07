@@ -809,20 +809,23 @@
           </a-col>
           <a-col :xs="24" :sm="12">
             <a-form-item label="RPM 上限">
-              <a-input-number v-model:value="lbMemberForm.rpmLimit" :min="1" :precision="0" :controls="false" placeholder="留空不限" style="width: 100%" />
+              <a-input-number v-model:value="lbMemberForm.rpmLimit" :min="1" :precision="0" :controls="false" placeholder="留空使用动态避让" style="width: 100%" />
             </a-form-item>
           </a-col>
           <a-col :xs="24" :sm="12">
             <a-form-item label="TPM 上限">
-              <a-input-number v-model:value="lbMemberForm.tpmLimit" :min="1" :precision="0" :controls="false" placeholder="留空不限" style="width: 100%" />
+              <a-input-number v-model:value="lbMemberForm.tpmLimit" :min="1" :precision="0" :controls="false" placeholder="留空按模型/429自动避让" style="width: 100%" />
             </a-form-item>
           </a-col>
           <a-col :xs="24" :sm="12">
             <a-form-item label="上下文上限">
-              <a-input-number v-model:value="lbMemberForm.contextLimit" :min="1" :precision="0" :controls="false" placeholder="留空继承" style="width: 100%" />
+              <a-input-number v-model:value="lbMemberForm.contextLimit" :min="1" :precision="0" :controls="false" placeholder="留空按模型文档" style="width: 100%" />
             </a-form-item>
           </a-col>
         </a-row>
+        <div class="sub-muted form-help">
+          手动填写的 RPM/TPM/上下文上限会作为自定义限额；留空时按 OCI 文档限额调度，运行时 429 actual/limit 会临时收紧避让。
+        </div>
         <a-row :gutter="12">
           <a-col :xs="24" :sm="8">
             <a-form-item label="首块超时(秒)">
@@ -2110,9 +2113,9 @@ function lbLimitSummary(row: any) {
   const parts = []
   if (row?.maxConcurrency) parts.push(`并发≤${row.maxConcurrency}`)
   if (row?.rpmLimit) parts.push(`RPM≤${row.rpmLimit}`)
-  if (row?.tpmLimit) parts.push(`TPM≤${row.tpmLimit}`)
-  if (row?.contextLimit) parts.push(`CTX≤${row.contextLimit}`)
-  return parts.length ? parts.join(' · ') : '不限制请求数'
+  parts.push(row?.tpmLimit ? `TPM≤${row.tpmLimit}` : 'TPM自动')
+  parts.push(row?.contextLimit ? `CTX≤${row.contextLimit}` : 'CTX按模型')
+  return parts.length ? parts.join(' · ') : '动态避让'
 }
 
 function lbEwmaText(row: any) {

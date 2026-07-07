@@ -46,10 +46,13 @@ import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -59,6 +62,7 @@ public class OciOpenaiLoadBalanceService {
     private static final ObjectMapper MAPPER = new ObjectMapper();
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final String KEY_PREFIX = "sk-lb-";
+    private static final Pattern TPM_ACTUAL_LIMIT_PATTERN = Pattern.compile("actual/limit\\s*:\\s*([\\d,]+)\\s*/\\s*([\\d,]+)", Pattern.CASE_INSENSITIVE);
 
     @Resource
     private DynamicOpenAiPortService dynamicPortService;
@@ -96,6 +100,7 @@ public class OciOpenaiLoadBalanceService {
 
     private final Map<String, AtomicInteger> inFlight = new ConcurrentHashMap<>();
     private final Map<String, Object> generativeContextLocks = new ConcurrentHashMap<>();
+    private final Map<String, RuntimeTpmLimit> runtimeTpmLimits = new ConcurrentHashMap<>();
 
     @EventListener
     @Order(Ordered.HIGHEST_PRECEDENCE + 20)
@@ -311,6 +316,7 @@ public class OciOpenaiLoadBalanceService {
         purgeOrphanMembers();
         purgeInvalidModelStates();
         LocalDateTime now = LocalDateTime.now();
+        purgeExpiredRuntimeTpmLimits(now);
         for (OciOpenaiLbMember member : memberMapper.selectList(null)) {
             try {
                 clearStaleTransientError(member, now);
@@ -367,6 +373,16 @@ public class OciOpenaiLoadBalanceService {
             log.info("Removed {} orphan OpenAI LB member(s)", removed);
         }
         return removed;
+    }
+
+    private void purgeExpiredRuntimeTpmLimits(LocalDateTime now) {
+        if (now == null || runtimeTpmLimits.isEmpty()) {
+            return;
+        }
+        runtimeTpmLimits.entrySet().removeIf(entry -> {
+            RuntimeTpmLimit limit = entry.getValue();
+            return limit == null || limit.expiresAt() == null || !limit.expiresAt().isAfter(now);
+        });
     }
 
     private boolean clearStaleTransientError(OciOpenaiLbMember member, LocalDateTime now) {
@@ -555,19 +571,27 @@ public class OciOpenaiLoadBalanceService {
                     && current >= member.getMaxConcurrency()) {
                 continue;
             }
-            if (estimatedTokens > 0 && member.getContextLimit() != null && member.getContextLimit() > 0
-                    && estimatedTokens > member.getContextLimit()) {
+            long contextLimit = effectiveContextLimit(member, binding, requestedModel);
+            if (estimatedTokens > 0 && contextLimit > 0 && estimatedTokens > contextLimit) {
                 continue;
             }
             if (member.getRpmLimit() != null && member.getRpmLimit() > 0
                     && recentRequestCount(member.getId(), now.minusMinutes(1)) >= member.getRpmLimit()) {
                 continue;
             }
-            if (member.getTpmLimit() != null && member.getTpmLimit() > 0
-                    && recentTokenCount(member.getId(), now.minusMinutes(1)) + Math.max(0L, estimatedTokens) > member.getTpmLimit()) {
+            boolean manualTpmLimit = member.getTpmLimit() != null && member.getTpmLimit() > 0;
+            long recentTokens = manualTpmLimit
+                    ? recentTokenCount(member.getId(), now.minusMinutes(1))
+                    : recentTokenCount(member.getId(), requestedModel, now.minusMinutes(1));
+            RuntimeTpmLimit runtimeTpm = runtimeTpmLimit(member.getId(), requestedModel, now);
+            long effectiveTpmLimit = effectiveTpmLimit(member, requestedModel, runtimeTpm);
+            long pressureTokens = Math.max(recentTokens, runtimeTpm == null ? 0L : runtimeTpm.observedActualTokens());
+            if (effectiveTpmLimit > 0
+                    && pressureTokens + Math.max(0L, estimatedTokens) > effectiveTpmLimit) {
                 continue;
             }
-            double score = adaptiveScore(member, current, weight, now);
+            double score = adaptiveScore(member, current, weight, now)
+                    + tokenPressureScore(pressureTokens, estimatedTokens, effectiveTpmLimit);
             if (cooling) {
                 score += 4D;
             }
@@ -725,13 +749,20 @@ public class OciOpenaiLoadBalanceService {
             }
         } else {
             String msg = errorMessage == null || errorMessage.isBlank() ? "HTTP " + status : errorMessage;
+            RuntimeTpmLimit parsedTpm = status == 429 ? parseRuntimeTpmLimit(msg, now) : null;
+            boolean modelScopedTpmLimit = parsedTpm != null && normalizeModel(requestedModel) != null;
+            if (parsedTpm != null) {
+                runtimeTpmLimits.put(runtimeTpmKey(memberId, requestedModel), parsedTpm);
+            }
             member.setLastError(trimTo(msg, 512));
-            member.setHealthStatus("unhealthy");
-            member.setHealthMessage(trimTo(msg, 512));
-            if (shouldCooldown) {
+            member.setHealthStatus(modelScopedTpmLimit ? "cooling" : "unhealthy");
+            member.setHealthMessage(trimTo(runtimeTpmMessage(parsedTpm, msg), 512));
+            if (shouldCooldown && !modelScopedTpmLimit) {
                 int failCount = member.getFailCount() == null ? 1 : member.getFailCount() + 1;
                 member.setFailCount(failCount);
-                LocalDateTime cooldownUntil = now.plusSeconds(Math.min(300, 10L * failCount));
+                LocalDateTime cooldownUntil = parsedTpm == null
+                        ? now.plusSeconds(Math.min(300, 10L * failCount))
+                        : parsedTpm.expiresAt();
                 member.setCooldownUntil(cooldownUntil);
                 member.setRecoveryUntil(cooldownUntil.plusSeconds(Math.min(600, 30L * failCount)));
             }
@@ -921,6 +952,104 @@ public class OciOpenaiLoadBalanceService {
             score += 2D;
         }
         return score;
+    }
+
+    private long effectiveContextLimit(OciOpenaiLbMember member, OciOpenaiPortBinding binding, String requestedModel) {
+        long manualLimit = 0L;
+        if (member != null && member.getContextLimit() != null && member.getContextLimit() > 0) {
+            manualLimit = member.getContextLimit();
+        }
+        long documentedLimit = OracleAiModelCapability.documentedContextLimit(requestedModel, binding == null ? null : binding.getOciRegion());
+        return minPositiveLimit(manualLimit, documentedLimit);
+    }
+
+    private long effectiveTpmLimit(OciOpenaiLbMember member, String requestedModel, RuntimeTpmLimit runtimeTpm) {
+        long configuredLimit = member != null && member.getTpmLimit() != null && member.getTpmLimit() > 0
+                ? member.getTpmLimit()
+                : OracleAiModelCapability.documentedTpmLimit(requestedModel);
+        long runtimeLimit = 0L;
+        if (runtimeTpm != null && runtimeTpm.limitTokens() > 0) {
+            runtimeLimit = runtimeTpm.limitTokens();
+        }
+        return minPositiveLimit(configuredLimit, runtimeLimit);
+    }
+
+    private static long minPositiveLimit(long... limits) {
+        long min = 0L;
+        if (limits == null) {
+            return min;
+        }
+        for (long limit : limits) {
+            if (limit <= 0) {
+                continue;
+            }
+            min = min <= 0 ? limit : Math.min(min, limit);
+        }
+        return min;
+    }
+
+    private RuntimeTpmLimit runtimeTpmLimit(String memberId, String requestedModel, LocalDateTime now) {
+        if (memberId == null || memberId.isBlank()) {
+            return null;
+        }
+        String key = runtimeTpmKey(memberId, requestedModel);
+        RuntimeTpmLimit limit = runtimeTpmLimits.get(key);
+        if (limit == null) {
+            return null;
+        }
+        if (limit.expiresAt() == null || !limit.expiresAt().isAfter(now)) {
+            runtimeTpmLimits.remove(key);
+            return null;
+        }
+        return limit;
+    }
+
+    private static String runtimeTpmKey(String memberId, String requestedModel) {
+        String model = normalizeModel(requestedModel);
+        return memberId + "|" + (model == null ? "*" : model.toLowerCase(Locale.ROOT));
+    }
+
+    private static double tokenPressureScore(long recentTokens, long estimatedTokens, long tpmLimit) {
+        if (tpmLimit <= 0) {
+            long total = Math.max(0L, recentTokens) + Math.max(0L, estimatedTokens);
+            if (total <= 0) {
+                return 0D;
+            }
+            return Math.min(1.5D, total / 200_000D);
+        }
+        double ratio = (Math.max(0L, recentTokens) + Math.max(0L, estimatedTokens)) / (double) tpmLimit;
+        if (ratio <= 0D) {
+            return 0D;
+        }
+        return Math.min(4D, ratio * ratio * 2D);
+    }
+
+    private static RuntimeTpmLimit parseRuntimeTpmLimit(String message, LocalDateTime now) {
+        if (message == null || message.isBlank() || now == null) {
+            return null;
+        }
+        Matcher matcher = TPM_ACTUAL_LIMIT_PATTERN.matcher(message);
+        if (!matcher.find()) {
+            return null;
+        }
+        try {
+            long actual = Long.parseLong(matcher.group(1).replace(",", ""));
+            long limit = Long.parseLong(matcher.group(2).replace(",", ""));
+            if (limit <= 0) {
+                return null;
+            }
+            return new RuntimeTpmLimit(limit, Math.max(0L, actual), now.plusSeconds(70));
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private static String runtimeTpmMessage(RuntimeTpmLimit limit, String fallback) {
+        if (limit == null) {
+            return fallback;
+        }
+        return "TPM 限流: " + limit.observedActualTokens() + "/" + limit.limitTokens()
+                + "，已临时避让到 " + limit.expiresAt();
     }
 
     private static void updateEwma(OciOpenaiLbMember member, boolean success, Long latencyMs) {
@@ -1674,13 +1803,22 @@ public class OciOpenaiLoadBalanceService {
     }
 
     private long recentTokenCount(String memberId, LocalDateTime since) {
+        return recentTokenCount(memberId, null, since);
+    }
+
+    private long recentTokenCount(String memberId, String requestedModel, LocalDateTime since) {
         long tokens = 0L;
         if (memberId == null || since == null) {
             return tokens;
         }
-        List<OciOpenaiLbRequestLog> rows = requestLogMapper.selectList(new LambdaQueryWrapper<OciOpenaiLbRequestLog>()
+        LambdaQueryWrapper<OciOpenaiLbRequestLog> wrapper = new LambdaQueryWrapper<OciOpenaiLbRequestLog>()
                 .eq(OciOpenaiLbRequestLog::getMemberId, memberId)
-                .ge(OciOpenaiLbRequestLog::getCreateTime, since));
+                .ge(OciOpenaiLbRequestLog::getCreateTime, since);
+        String model = normalizeModel(requestedModel);
+        if (model != null) {
+            wrapper.eq(OciOpenaiLbRequestLog::getModel, model);
+        }
+        List<OciOpenaiLbRequestLog> rows = requestLogMapper.selectList(wrapper);
         for (OciOpenaiLbRequestLog row : rows) {
             long actual = row.getTokenCount() == null ? 0L : row.getTokenCount();
             long estimated = row.getEstimatedPromptTokens() == null ? 0L : row.getEstimatedPromptTokens();
@@ -1927,6 +2065,8 @@ public class OciOpenaiLoadBalanceService {
     private record Candidate(OciOpenaiLbMember member, OciOpenaiPortBinding binding, double loadRate) {}
 
     private record HealthCheckResult(String status, String message) {}
+
+    private record RuntimeTpmLimit(long limitTokens, long observedActualTokens, LocalDateTime expiresAt) {}
 
     public record UsageStats(int requestCount, int successCount, int failureCount, long tokenCount) {}
 
