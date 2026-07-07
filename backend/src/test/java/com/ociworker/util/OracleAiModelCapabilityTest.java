@@ -2,9 +2,34 @@ package com.ociworker.util;
 
 import org.junit.jupiter.api.Test;
 
+import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 class OracleAiModelCapabilityTest {
+
+    private static final List<String> OFFICIAL_GROK_CHAT_MODELS = List.of(
+            "xai.grok-4.3",
+            "xai.grok-4.20-0309-reasoning",
+            "xai.grok-4.20-reasoning",
+            "xai.grok-4.20-0309-non-reasoning",
+            "xai.grok-4.20-non-reasoning",
+            "xai.grok-code-fast-1",
+            "xai.grok-4-1-fast-reasoning",
+            "xai.grok-4-1-fast-non-reasoning",
+            "xai.grok-4-fast-reasoning",
+            "xai.grok-4-fast-non-reasoning",
+            "xai.grok-4",
+            "xai.grok-3",
+            "xai.grok-3-fast",
+            "xai.grok-3-mini",
+            "xai.grok-3-mini-fast"
+    );
+
+    private static final List<String> OFFICIAL_GROK_MULTI_AGENT_MODELS = List.of(
+            "xai.grok-4.20-multi-agent-0309",
+            "xai.grok-4.20-multi-agent"
+    );
 
     @Test
     void classifiesKnownOracleAiModelFamiliesWithoutFullAllowlist() {
@@ -53,6 +78,22 @@ class OracleAiModelCapabilityTest {
     }
 
     @Test
+    void classifiesEveryOfficialXaiGrokModelForGatewayRouting() {
+        for (String model : OFFICIAL_GROK_CHAT_MODELS) {
+            assertThat(OracleAiModelCapability.classify(model))
+                    .as("chat capability for %s", model)
+                    .isEqualTo(OracleAiModelCapability.CHAT);
+        }
+        for (String model : OFFICIAL_GROK_MULTI_AGENT_MODELS) {
+            assertThat(OracleAiModelCapability.classify(model))
+                    .as("responses capability for %s", model)
+                    .isEqualTo(OracleAiModelCapability.MULTI_AGENT);
+        }
+        assertThat(OracleAiModelCapability.classify("xai.grok-tts"))
+                .isEqualTo(OracleAiModelCapability.AUDIO);
+    }
+
+    @Test
     void keepsUnconfirmedVoiceAgentPendingUntilOciCapabilityIsKnown() {
         assertThat(OracleAiModelCapability.classify("xai.grok-voice-agent"))
                 .isEqualTo(OracleAiModelCapability.PENDING);
@@ -81,6 +122,16 @@ class OracleAiModelCapabilityTest {
     void onlyChatAndMultiAgentAreAcceptedByChatStyleEndpoints() {
         assertThat(OracleAiModelCapability.isChatEndpointCompatible("xai.grok-4.3")).isTrue();
         assertThat(OracleAiModelCapability.isChatEndpointCompatible("xai.grok-4.20-multi-agent")).isTrue();
+        for (String model : OFFICIAL_GROK_CHAT_MODELS) {
+            assertThat(OracleAiModelCapability.isChatEndpointCompatible(model))
+                    .as("chat endpoint for %s", model)
+                    .isTrue();
+        }
+        for (String model : OFFICIAL_GROK_MULTI_AGENT_MODELS) {
+            assertThat(OracleAiModelCapability.isChatEndpointCompatible(model))
+                    .as("responses bridge endpoint for %s", model)
+                    .isTrue();
+        }
         assertThat(OracleAiModelCapability.isChatEndpointCompatible("cohere.command-a-reasoning")).isTrue();
         assertThat(OracleAiModelCapability.isChatEndpointCompatible("cohere.command-a-03-2025")).isTrue();
         assertThat(OracleAiModelCapability.isChatEndpointCompatible("cohere.command-a-vision")).isTrue();
@@ -99,6 +150,11 @@ class OracleAiModelCapabilityTest {
     void knownNonEmbeddingModelsAreRejectedByEmbeddingsEndpoint() {
         assertThat(OracleAiModelCapability.isEmbeddingEndpointCompatible("cohere.embed-v4.0")).isTrue();
         assertThat(OracleAiModelCapability.isEmbeddingEndpointCompatible("cohere.embed-english-v3.0")).isTrue();
+        for (String model : OFFICIAL_GROK_CHAT_MODELS) {
+            assertThat(OracleAiModelCapability.isEmbeddingEndpointCompatible(model))
+                    .as("embedding endpoint rejects %s", model)
+                    .isFalse();
+        }
         assertThat(OracleAiModelCapability.isEmbeddingEndpointCompatible("xai.grok-4.3")).isFalse();
         assertThat(OracleAiModelCapability.isEmbeddingEndpointCompatible("cohere.command-a-reasoning")).isFalse();
         assertThat(OracleAiModelCapability.isEmbeddingEndpointCompatible("cohere.command-a-03-2025")).isFalse();
@@ -121,6 +177,11 @@ class OracleAiModelCapabilityTest {
     @Test
     void knownNonRerankModelsAreRejectedByRerankEndpoint() {
         assertThat(OracleAiModelCapability.isRerankEndpointCompatible("cohere.rerank-v4.0-fast")).isTrue();
+        for (String model : OFFICIAL_GROK_CHAT_MODELS) {
+            assertThat(OracleAiModelCapability.isRerankEndpointCompatible(model))
+                    .as("rerank endpoint rejects %s", model)
+                    .isFalse();
+        }
         assertThat(OracleAiModelCapability.isRerankEndpointCompatible("xai.grok-4.3")).isFalse();
         assertThat(OracleAiModelCapability.isRerankEndpointCompatible("cohere.command-a-reasoning")).isFalse();
         assertThat(OracleAiModelCapability.isRerankEndpointCompatible("cohere.command-a-03-2025")).isFalse();
@@ -140,6 +201,11 @@ class OracleAiModelCapabilityTest {
         assertThat(OracleAiModelCapability.isAudioSpeechEndpointCompatible("xai.grok-tts")).isTrue();
         assertThat(OracleAiModelCapability.isAudioSpeechEndpointCompatible("oracle.tts-v1")).isTrue();
         assertThat(OracleAiModelCapability.isAudioSpeechEndpointCompatible("oracle.future-speech-v1")).isTrue();
+        for (String model : OFFICIAL_GROK_CHAT_MODELS) {
+            assertThat(OracleAiModelCapability.isAudioSpeechEndpointCompatible(model))
+                    .as("audio endpoint rejects %s", model)
+                    .isFalse();
+        }
         assertThat(OracleAiModelCapability.isAudioSpeechEndpointCompatible("xai.grok-4.3")).isFalse();
         assertThat(OracleAiModelCapability.isAudioSpeechEndpointCompatible("cohere.command-a-reasoning")).isFalse();
         assertThat(OracleAiModelCapability.isAudioSpeechEndpointCompatible("cohere.command-a-03-2025")).isFalse();

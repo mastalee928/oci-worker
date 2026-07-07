@@ -38,10 +38,45 @@ function providerName(id: string) {
   return 'Oracle AI'
 }
 
+const GROK_AUDIO_MODEL_IDS = new Set([
+  'xai.grok-tts',
+])
+
+const GROK_MULTI_AGENT_MODEL_IDS = new Set([
+  'xai.grok-4.20-multi-agent-0309',
+  'xai.grok-4.20-multi-agent',
+])
+
+const GROK_CODE_MODEL_IDS = new Set([
+  'xai.grok-code-fast-1',
+])
+
+const GROK_REASONING_MODEL_IDS = new Set([
+  'xai.grok-4.3',
+  'xai.grok-4.20-0309-reasoning',
+  'xai.grok-4.20-reasoning',
+  'xai.grok-4-1-fast-reasoning',
+  'xai.grok-4-fast-reasoning',
+  'xai.grok-4',
+  'xai.grok-3-mini',
+  'xai.grok-3-mini-fast',
+])
+
+const GROK_NON_REASONING_MODEL_IDS = new Set([
+  'xai.grok-4.20-0309-non-reasoning',
+  'xai.grok-4.20-non-reasoning',
+  'xai.grok-4-1-fast-non-reasoning',
+  'xai.grok-4-fast-non-reasoning',
+  'xai.grok-3',
+  'xai.grok-3-fast',
+])
+
 function isGrokReasoningModel(id: string) {
-  return id === 'xai.grok-4.3'
-    || id === 'xai.grok-3-mini'
-    || id === 'xai.grok-3-mini-fast'
+  return GROK_REASONING_MODEL_IDS.has(id)
+}
+
+function isGrokNonReasoningModel(id: string) {
+  return GROK_NON_REASONING_MODEL_IDS.has(id)
 }
 
 export const ORACLE_AI_MODEL_GROUPS: Array<{
@@ -169,7 +204,13 @@ export function inferOracleAiModelMeta(option: OracleAiModelOption | string): Or
       statusLabel: forcedDisabled ? '停用' : 'Rerank',
     }
   }
-  if (lower.includes('tts') || lower.includes('speech') || lower.includes('text-to-speech') || lower.includes('audio')) {
+  if (
+    GROK_AUDIO_MODEL_IDS.has(lower)
+    || lower.includes('tts')
+    || lower.includes('speech')
+    || lower.includes('text-to-speech')
+    || lower.includes('audio')
+  ) {
     return {
       id,
       label,
@@ -208,7 +249,7 @@ export function inferOracleAiModelMeta(option: OracleAiModelOption | string): Or
       statusLabel: '待接入',
     }
   }
-  if (lower.includes('multi-agent') || lower.includes('multiagent')) {
+  if (GROK_MULTI_AGENT_MODEL_IDS.has(lower) || lower.includes('multi-agent') || lower.includes('multiagent')) {
     return {
       id,
       label,
@@ -225,7 +266,7 @@ export function inferOracleAiModelMeta(option: OracleAiModelOption | string): Or
       statusLabel: forcedDisabled ? '停用' : 'Responses',
     }
   }
-  if (lower.includes('code')) {
+  if (GROK_CODE_MODEL_IDS.has(lower) || lower.includes('code')) {
     return {
       id,
       label,
@@ -259,7 +300,7 @@ export function inferOracleAiModelMeta(option: OracleAiModelOption | string): Or
       statusLabel: forcedDisabled ? '停用' : 'Reasoning',
     }
   }
-  if (lower.includes('non-reasoning')) {
+  if (isGrokNonReasoningModel(lower) || lower.includes('non-reasoning')) {
     return {
       id,
       label,
