@@ -146,7 +146,9 @@ const selectableCount = computed(() => {
   margin-top: 0;
 }
 :global([data-theme='light']) .model-summary-panel {
-  background: rgba(248, 250, 252, 0.72);
+  border-color: rgba(15, 23, 42, 0.08);
+  background: #f8fafc;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.72);
 }
 :global([data-theme='light']) .tag.green {
   color: #047857;

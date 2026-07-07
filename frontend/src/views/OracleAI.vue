@@ -2876,6 +2876,7 @@ async function viewKey(k: any) {
 .table-wrap {
   width: 100%;
   overflow-x: auto;
+  overflow-y: hidden;
 }
 .table-compact,
 .table-mid,
@@ -3211,9 +3212,26 @@ async function viewKey(k: any) {
 :global([data-theme="light"]) .oracle-ai-page .copy-line {
   color: #1d4ed8;
 }
+:global([data-theme="light"]) .oracle-ai-page :deep(.ant-card) {
+  background: rgba(255, 255, 255, 0.96) !important;
+  box-shadow: 0 12px 34px rgba(15, 23, 42, 0.08);
+}
+:global([data-theme="light"]) .oracle-ai-page :deep(.ant-card-head) {
+  border-bottom-color: rgba(15, 23, 42, 0.08);
+}
+:global([data-theme="light"]) .oracle-ai-page :deep(.ant-input),
+:global([data-theme="light"]) .oracle-ai-page :deep(.ant-input-number),
+:global([data-theme="light"]) .oracle-ai-page :deep(.ant-input-number-input),
+:global([data-theme="light"]) .oracle-ai-page :deep(.ant-select-selector),
+:global([data-theme="light"]) .oracle-ai-page :deep(.ant-input-affix-wrapper) {
+  border-color: rgba(15, 23, 42, 0.1) !important;
+  background: #f8fafc !important;
+  color: #0f172a !important;
+}
 :global([data-theme="light"]) .oracle-ai-page .chat-pre {
-  background: rgba(248, 250, 252, 0.72);
-  color: #1e3a8a;
+  border-color: rgba(15, 23, 42, 0.1);
+  background: #f8fafc;
+  color: #0f172a;
 }
 @media (max-width: 767px) {
   .oracle-ai-page {
