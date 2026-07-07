@@ -78,7 +78,7 @@ const selectableCount = computed(() => {
   padding: 12px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  background: rgba(15, 23, 42, 0.38);
+  background: color-mix(in srgb, var(--bg-card) 58%, var(--bg-body));
 }
 .model-summary-main {
   min-width: 0;

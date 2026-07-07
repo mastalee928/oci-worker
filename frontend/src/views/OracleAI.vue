@@ -3187,8 +3187,8 @@ async function viewKey(k: any) {
   padding: 12px;
   border: 1px solid var(--border, #e8e8e8);
   border-radius: var(--radius-md, 12px);
-  background: rgba(15, 23, 42, 0.52);
-  color: #dbeafe;
+  background: color-mix(in srgb, var(--bg-card) 62%, var(--bg-body));
+  color: var(--text-main);
   white-space: pre-wrap;
   word-break: break-word;
   font-size: 12px;
