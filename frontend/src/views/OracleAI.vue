@@ -3222,8 +3222,10 @@ async function viewKey(k: any) {
   color: #1d4ed8;
 }
 :global([data-theme="light"] .oracle-ai-page .ant-card) {
-  background: rgba(255, 255, 255, 0.96) !important;
+  background: rgba(255, 255, 255, 0.84) !important;
   box-shadow: 0 12px 34px rgba(15, 23, 42, 0.08);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
 }
 :global([data-theme="light"] .oracle-ai-page .ant-card-head) {
   border-bottom-color: rgba(15, 23, 42, 0.08);
