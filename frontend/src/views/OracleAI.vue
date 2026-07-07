@@ -784,6 +784,7 @@
           <a-select
             v-model:value="portForm.ociUserId"
             :options="tenantOptions"
+            :loading="tenantsLoading"
             placeholder="选择 OCI 租户"
             show-search
             :filter-option="filterTenant"
@@ -1786,6 +1787,9 @@ function onPortModelLimitModeChange(e?: any) {
     portForm.value.allowedModels = []
   } else {
     portForm.value.allowedModels = normalizeModelSelection(portForm.value.allowedModels)
+    if (portForm.value.ociUserId) {
+      void loadPortModels(portForm.value.ociUserId, portForm.value.ociRegion, true)
+    }
   }
 }
 
@@ -2181,10 +2185,14 @@ function nextPortValue() {
   return 30000
 }
 
-async function openPortModal(row?: any) {
-  if (!row) {
-    await loadTenants({ silent: true })
+function ensurePortTenantOptionsLoading() {
+  if (!tenantOptions.value.length && !tenantsLoading.value) {
+    void loadTenants()
   }
+}
+
+function openPortModal(row?: any) {
+  if (!row) ensurePortTenantOptionsLoading()
   portForm.value = {
     id: row?.id,
     name: row?.name || '',
@@ -2200,17 +2208,32 @@ async function openPortModal(row?: any) {
   portModalOpen.value = true
   portKeyOptions.value = []
   portRegionOptions.value = []
-  portModelOptions.value = []
+  portModelOptions.value = ensureSelectedModelsInOptions([], portForm.value.allowedModels || [])
   if (portForm.value.ociUserId) {
     const tenantId = portForm.value.ociUserId
-    const keyTask = loadPortKeys(tenantId).catch(() => {})
-    await loadPortRegions(tenantId, portForm.value.ociRegion)
-    await loadPortModels(tenantId, portForm.value.ociRegion)
-    await keyTask
+    void loadPortModalTenantContext(
+      tenantId,
+      portForm.value.ociRegion,
+      portForm.value.modelLimitMode === 'limited',
+    )
+  } else {
+    portKeysLoading.value = false
+    portRegionsLoading.value = false
+    portModelsLoading.value = false
   }
 }
 
-async function onPortTenantChange() {
+async function loadPortModalTenantContext(tenantId: string, preferredRegion?: string, loadModels = false) {
+  await Promise.all([
+    loadPortKeys(tenantId).catch(() => {}),
+    loadPortRegions(tenantId, preferredRegion).catch(() => {}),
+  ])
+  if (loadModels && portForm.value.ociUserId === tenantId) {
+    await loadPortModels(tenantId, portForm.value.ociRegion)
+  }
+}
+
+function onPortTenantChange() {
   portForm.value.openaiKeyId = undefined
   portForm.value.ociRegion = undefined
   portForm.value.allowedModels = []
@@ -2220,26 +2243,25 @@ async function onPortTenantChange() {
   portModelOptions.value = []
   if (portForm.value.ociUserId) {
     const tenantId = portForm.value.ociUserId
-    const keyTask = loadPortKeys(tenantId).catch(() => {})
-    await loadPortRegions(tenantId)
-    await loadPortModels(tenantId, portForm.value.ociRegion)
-    await keyTask
+    void loadPortModalTenantContext(tenantId)
+  } else {
+    portKeysLoading.value = false
+    portRegionsLoading.value = false
+    portModelsLoading.value = false
   }
 }
 
-async function onPortRegionChange() {
+function onPortRegionChange() {
   portForm.value.allowedModels = []
   portForm.value.modelLimitMode = 'unlimited'
   portModelOptions.value = []
-  if (portForm.value.ociUserId) {
-    await loadPortModels(portForm.value.ociUserId, portForm.value.ociRegion, true)
-  }
 }
 
 async function loadPortRegions(tenantId: string, preferred?: string) {
   portRegionsLoading.value = true
   try {
     const r: any = await listOciRegionOptions(tenantId)
+    if (portForm.value.ociUserId !== tenantId) return
     const rows = Array.isArray(r?.data) ? r.data : []
     const options = rows
       .map((x: any) => ({
@@ -2257,13 +2279,16 @@ async function loadPortRegions(tenantId: string, preferred?: string) {
       portForm.value.ociRegion = selected || options[0]?.value
     }
   } catch {
+    if (portForm.value.ociUserId !== tenantId) return
     const fallback = String(preferred || tenantOptions.value.find((x) => x.value === tenantId)?.ociRegion || '').trim()
     portRegionOptions.value = fallback ? [{ value: fallback, label: regionDisplay(fallback) }] : []
     if (!portForm.value.ociRegion) {
       portForm.value.ociRegion = fallback || undefined
     }
   } finally {
-    portRegionsLoading.value = false
+    if (portForm.value.ociUserId === tenantId) {
+      portRegionsLoading.value = false
+    }
   }
 }
 
@@ -2271,6 +2296,7 @@ async function loadPortKeys(tenantId: string) {
   portKeysLoading.value = true
   try {
     const r: any = await listOracleKeys({ ociUserId: tenantId })
+    if (portForm.value.ociUserId !== tenantId) return
     const raw = Array.isArray(r?.data) ? r.data : r?.data?.records || []
     portKeyOptions.value = raw
       .filter((x: any) => !x.disabled)
@@ -2282,9 +2308,12 @@ async function loadPortKeys(tenantId: string) {
       portForm.value.openaiKeyId = portKeyOptions.value[0].value
     }
   } catch {
+    if (portForm.value.ociUserId !== tenantId) return
     portKeyOptions.value = []
   } finally {
-    portKeysLoading.value = false
+    if (portForm.value.ociUserId === tenantId) {
+      portKeysLoading.value = false
+    }
   }
 }
 
@@ -2318,16 +2347,20 @@ async function loadPortModels(tenantId: string, region?: string, alertOnErr = fa
   portModelsLoading.value = true
   try {
     const r: any = await listOpenAiModels({ ociUserId: tenantId, ociRegion: region })
+    if (portForm.value.ociUserId !== tenantId) return
     portModelOptions.value = ensureSelectedModelsInOptions(mapModelOptions(r?.data), portForm.value.allowedModels || [])
     if (!portModelOptions.value.length && alertOnErr) {
       message.info('无模型条目或 OCI 返回与预期结构不同，请查看后端日志。')
     }
   } catch (e: any) {
+    if (portForm.value.ociUserId !== tenantId) return
     if (alertOnErr) {
       message.error(e?.message || '刷新模型失败')
     }
   } finally {
-    portModelsLoading.value = false
+    if (portForm.value.ociUserId === tenantId) {
+      portModelsLoading.value = false
+    }
   }
 }
 
