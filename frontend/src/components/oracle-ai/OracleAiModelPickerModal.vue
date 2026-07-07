@@ -6,7 +6,7 @@
       aria-hidden="false"
       @click.self="emit('update:open', false)"
     >
-      <section class="model-library-modal" role="dialog" aria-modal="true" aria-labelledby="modelModalTitle">
+      <section class="model-library-modal" role="dialog" aria-modal="true" aria-labelledby="modelModalTitle" @wheel.stop>
         <div class="model-library-head">
           <div>
             <div id="modelModalTitle" class="model-library-title">管理模型库</div>
@@ -196,6 +196,7 @@ const groupFilter = ref<'' | OracleAiModelGroupId>('')
 const statusFilter = ref('')
 const draftSelected = ref<string[]>([])
 const searchInputRef = ref<HTMLInputElement | null>(null)
+let previousBodyOverflow: string | null = null
 
 const groups = ORACLE_AI_MODEL_GROUPS
 
@@ -239,11 +240,16 @@ const visibleGroups = computed(() => {
 watch(
   () => props.open,
   async (open) => {
-    if (!open) return
+    if (!open) {
+      unlockPageScroll()
+      return
+    }
+    lockPageScroll()
     draftSelected.value = uniqueModels(props.modelValue)
     await nextTick()
     searchInputRef.value?.focus()
   },
+  { immediate: true },
 )
 
 watch(
@@ -335,8 +341,23 @@ function onKeydown(event: KeyboardEvent) {
   }
 }
 
+function lockPageScroll() {
+  if (typeof document === 'undefined' || previousBodyOverflow !== null) return
+  previousBodyOverflow = document.body.style.overflow
+  document.body.style.overflow = 'hidden'
+}
+
+function unlockPageScroll() {
+  if (typeof document === 'undefined' || previousBodyOverflow === null) return
+  document.body.style.overflow = previousBodyOverflow
+  previousBodyOverflow = null
+}
+
 onMounted(() => document.addEventListener('keydown', onKeydown))
-onUnmounted(() => document.removeEventListener('keydown', onKeydown))
+onUnmounted(() => {
+  document.removeEventListener('keydown', onKeydown)
+  unlockPageScroll()
+})
 </script>
 
 <style>
@@ -349,6 +370,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
   padding: 28px;
   background: rgba(2, 6, 23, 0.56);
   backdrop-filter: blur(7px);
+  overscroll-behavior: contain;
 }
 
 [data-theme='light'] .model-library-backdrop {
@@ -367,6 +389,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
   background: rgba(15, 23, 42, 0.78);
   box-shadow: 0 22px 70px rgba(0, 0, 0, 0.36);
   color: var(--text-main);
+  overscroll-behavior: contain;
 }
 
 [data-theme='light'] .model-library-modal {
@@ -445,6 +468,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
   min-height: 0;
   overflow: hidden;
   padding: 16px 18px 18px;
+  overscroll-behavior: contain;
 }
 
 .model-library-layout {
@@ -457,24 +481,27 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 }
 
 .model-groups {
-  display: grid;
-  align-content: start;
-  gap: 12px;
   min-height: 0;
-  overflow-x: hidden;
-  overflow-y: auto;
-  padding-right: 6px;
-}
-
-.model-group {
-  overflow: hidden;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: rgba(2, 6, 23, 0.12);
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
 }
 
-[data-theme='light'] .model-group {
+[data-theme='light'] .model-groups {
   background: rgba(248, 250, 252, 0.72);
+}
+
+.model-group {
+  overflow: visible;
+  border-bottom: 1px solid var(--border);
+  background: transparent;
+}
+
+.model-group:last-child {
+  border-bottom: 0;
 }
 
 .model-group-head {
@@ -701,6 +728,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
   max-height: 100%;
   overflow-x: hidden;
   overflow-y: auto;
+  overscroll-behavior: contain;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: var(--bg-card);
@@ -814,7 +842,6 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 
   .model-groups {
     overflow: visible;
-    padding-right: 0;
   }
 
   .model-preview-panel {
