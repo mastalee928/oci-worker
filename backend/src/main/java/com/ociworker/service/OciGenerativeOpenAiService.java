@@ -17,26 +17,10 @@ import com.oracle.bmc.generativeaiinference.model.ChatChoice;
 import com.oracle.bmc.generativeaiinference.model.ChatContent;
 import com.oracle.bmc.generativeaiinference.model.ChatDetails;
 import com.oracle.bmc.generativeaiinference.model.ChatResult;
-import com.oracle.bmc.generativeaiinference.model.CohereAssistantMessageV2;
 import com.oracle.bmc.generativeaiinference.model.CohereChatRequestV2;
-import com.oracle.bmc.generativeaiinference.model.CohereChatResponseV2;
-import com.oracle.bmc.generativeaiinference.model.CohereContentV2;
-import com.oracle.bmc.generativeaiinference.model.CohereDocumentContentV2;
-import com.oracle.bmc.generativeaiinference.model.CohereImageContentV2;
-import com.oracle.bmc.generativeaiinference.model.CohereImageUrlV2;
-import com.oracle.bmc.generativeaiinference.model.CohereMessageV2;
-import com.oracle.bmc.generativeaiinference.model.CohereSystemMessageV2;
-import com.oracle.bmc.generativeaiinference.model.CohereTextContentV2;
-import com.oracle.bmc.generativeaiinference.model.CohereThinkingContentV2;
-import com.oracle.bmc.generativeaiinference.model.CohereThinkingV2;
-import com.oracle.bmc.generativeaiinference.model.CohereToolCallV2;
-import com.oracle.bmc.generativeaiinference.model.CohereToolMessageV2;
-import com.oracle.bmc.generativeaiinference.model.CohereToolV2;
-import com.oracle.bmc.generativeaiinference.model.CohereUserMessageV2;
 import com.oracle.bmc.generativeaiinference.model.DeveloperMessage;
 import com.oracle.bmc.generativeaiinference.model.DocumentContent;
 import com.oracle.bmc.generativeaiinference.model.DocumentUrl;
-import com.oracle.bmc.generativeaiinference.model.Function;
 import com.oracle.bmc.generativeaiinference.model.FunctionCall;
 import com.oracle.bmc.generativeaiinference.model.FunctionDefinition;
 import com.oracle.bmc.generativeaiinference.model.GenericChatRequest;
@@ -132,7 +116,6 @@ public class OciGenerativeOpenAiService {
     private static final Duration MODEL_LIST_CACHE_TTL = Duration.ofMinutes(5);
     private static final int GEMINI_MIN_CHAT_COMPLETION_TOKENS = 128;
     private static final int META_LLAMA_ON_DEMAND_MAX_TOKENS = 4000;
-    private static final int COHERE_COMMAND_A_REASONING_ON_DEMAND_MAX_TOKENS = 4000;
     private static final String REGION_CONTEXT_TYPE = "oracle_ai_region_context";
     private static final Set<String> OCI_TOOL_SCHEMA_ALLOWED_FIELDS = Set.of(
             "type", "format", "description", "nullable", "enum",
@@ -898,7 +881,7 @@ public class OciGenerativeOpenAiService {
     }
 
     static boolean shouldBufferChatCompletionStream(String model) {
-        return isGeminiChatModel(model) || isCohereCommandAReasoningModel(model);
+        return isGeminiChatModel(model) || OciCohereChatV2Bridge.isCommandAReasoningModel(model);
     }
 
     static boolean shouldUseGeminiNativeChat(String model, byte[] body) {
@@ -906,7 +889,7 @@ public class OciGenerativeOpenAiService {
     }
 
     static boolean shouldUseCohereCommandAReasoningNativeChat(String model, byte[] body) {
-        return isCohereCommandAReasoningModel(model) && canUseNativeCohereChatV2(body);
+        return OciCohereChatV2Bridge.shouldUseNativeChat(model, body);
     }
 
     private static boolean isGeminiChatModel(String model) {
@@ -917,12 +900,8 @@ public class OciGenerativeOpenAiService {
         return value.startsWith("google.gemini-");
     }
 
-    private static boolean isCohereCommandAReasoningModel(String model) {
-        if (model == null || model.isBlank()) {
-            return false;
-        }
-        String value = model.trim().toLowerCase(Locale.ROOT);
-        return value.equals("cohere.command-a-reasoning");
+    static boolean isCohereCommandAReasoningModel(String model) {
+        return OciCohereChatV2Bridge.isCommandAReasoningModel(model);
     }
 
     static byte[] forceChatCompletionNonStreamJson(byte[] input) {
@@ -978,151 +957,7 @@ public class OciGenerativeOpenAiService {
     }
 
     static boolean canUseNativeCohereChatV2(byte[] input) {
-        if (input == null || input.length == 0) {
-            return false;
-        }
-        try {
-            JsonNode root = MAPPER.readTree(input);
-            if (!(root instanceof ObjectNode object)) {
-                return false;
-            }
-            JsonNode messages = object.get("messages");
-            if (messages == null || !messages.isArray() || messages.isEmpty()) {
-                return false;
-            }
-            boolean hasUsableMessage = false;
-            for (JsonNode message : messages) {
-                if (!(message instanceof ObjectNode messageObject)) {
-                    return false;
-                }
-                String role = normalizeChatRole(textOrNull(messageObject, "role"));
-                JsonNode nativeContent = nativeMessageContent(messageObject);
-                if (hasNativeCohereChatV2Payload(messageObject)) {
-                    hasUsableMessage = true;
-                }
-                if (!isNativeCohereChatV2Content(nativeContent)) {
-                    return false;
-                }
-                if (!"user".equals(role) && hasNativeCohereChatV2MediaContent(nativeContent)) {
-                    return false;
-                }
-            }
-            return hasUsableMessage;
-        } catch (Exception ignored) {
-            return false;
-        }
-    }
-
-    private static boolean hasNativeCohereChatV2Payload(ObjectNode message) {
-        if (message == null) {
-            return false;
-        }
-        JsonNode toolCalls = message.get("tool_calls");
-        if (toolCalls != null && toolCalls.isArray() && !toolCalls.isEmpty()) {
-            return true;
-        }
-        return hasNativeCohereChatV2PayloadContent(nativeMessageContent(message));
-    }
-
-    private static boolean hasNativeCohereChatV2PayloadContent(JsonNode content) {
-        if (content == null || content.isNull() || content.isMissingNode()) {
-            return false;
-        }
-        if (content.isTextual()) {
-            return !content.asText().isBlank();
-        }
-        if (content.isNumber() || content.isBoolean()) {
-            return true;
-        }
-        if (content instanceof ObjectNode object) {
-            return hasNativeCohereChatV2PayloadObject(object);
-        }
-        if (!content.isArray()) {
-            return false;
-        }
-        for (JsonNode part : content) {
-            if (hasNativeCohereChatV2PayloadContent(part)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static boolean hasNativeCohereChatV2PayloadObject(ObjectNode object) {
-        if (object == null || object.isEmpty()) {
-            return false;
-        }
-        String type = nativeContentObjectType(object);
-        if (isTextLikeNativeContentObject(object, type)) {
-            String text = chatTextPartText(object);
-            return text != null && !text.isBlank();
-        }
-        if (isImageLikeNativeContentObject(object, type)) {
-            return nativeImageUrl(object) != null;
-        }
-        if (isDocumentLikeNativeContentObject(object, type)) {
-            return firstExisting(object, "document", "file", "source") != null;
-        }
-        if (isAudioLikeNativeContentObject(object, type) || isVideoLikeNativeContentObject(object, type)) {
-            return false;
-        }
-        return !isUnsupportedNativeContentObject(object);
-    }
-
-    private static boolean isNativeCohereChatV2Content(JsonNode content) {
-        if (content == null || content.isNull() || content.isMissingNode()) {
-            return true;
-        }
-        if (content.isTextual() || content.isNumber() || content.isBoolean()) {
-            return true;
-        }
-        if (content instanceof ObjectNode object) {
-            return isNativeCohereChatV2ContentObject(object);
-        }
-        if (!content.isArray()) {
-            return false;
-        }
-        for (JsonNode part : content) {
-            if (!isNativeCohereChatV2Content(part)) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    private static boolean isNativeCohereChatV2ContentObject(ObjectNode object) {
-        if (object == null) {
-            return false;
-        }
-        String type = nativeContentObjectType(object);
-        if (isAudioLikeNativeContentObject(object, type) || isVideoLikeNativeContentObject(object, type)) {
-            return false;
-        }
-        if (isTextLikeNativeContentObject(object, type)
-                || isImageLikeNativeContentObject(object, type)
-                || isDocumentLikeNativeContentObject(object, type)) {
-            return true;
-        }
-        return !isUnsupportedNativeContentObject(object);
-    }
-
-    private static boolean hasNativeCohereChatV2MediaContent(JsonNode content) {
-        if (content == null || content.isNull() || content.isMissingNode()) {
-            return false;
-        }
-        if (content instanceof ObjectNode object) {
-            String type = nativeContentObjectType(object);
-            return isImageLikeNativeContentObject(object, type)
-                    || isDocumentLikeNativeContentObject(object, type);
-        }
-        if (content.isArray()) {
-            for (JsonNode part : content) {
-                if (hasNativeCohereChatV2MediaContent(part)) {
-                    return true;
-                }
-            }
-        }
-        return false;
+        return OciCohereChatV2Bridge.canUseNativeChat(input);
     }
 
     private static boolean hasNativeGenericChatPayload(ObjectNode message) {
@@ -1136,7 +971,7 @@ public class OciGenerativeOpenAiService {
         return hasNativeGenericChatPayloadContent(nativeMessageContent(message));
     }
 
-    private static JsonNode nativeMessageContent(ObjectNode message) {
+    static JsonNode nativeMessageContent(ObjectNode message) {
         if (message == null) {
             return null;
         }
@@ -1299,11 +1134,11 @@ public class OciGenerativeOpenAiService {
                 || isVideoLikeNativeContentObject(object, type) && nativeVideoUrl(object) != null;
     }
 
-    private static String nativeContentObjectType(ObjectNode object) {
+    static String nativeContentObjectType(ObjectNode object) {
         return firstNonBlank(textOrNull(object, "type"), "").toLowerCase(Locale.ROOT);
     }
 
-    private static boolean isTextLikeNativeContentObject(ObjectNode object, String type) {
+    static boolean isTextLikeNativeContentObject(ObjectNode object, String type) {
         return "text".equals(type)
                 || "input_text".equals(type)
                 || (type.isBlank() && (object.get("text") != null
@@ -1311,7 +1146,7 @@ public class OciGenerativeOpenAiService {
                 || object.get("content") != null));
     }
 
-    private static boolean isImageLikeNativeContentObject(ObjectNode object, String type) {
+    static boolean isImageLikeNativeContentObject(ObjectNode object, String type) {
         return "image_url".equals(type)
                 || "input_image".equals(type)
                 || "image".equals(type)
@@ -1319,7 +1154,7 @@ public class OciGenerativeOpenAiService {
                 || object.get("image") != null;
     }
 
-    private static boolean isDocumentLikeNativeContentObject(ObjectNode object, String type) {
+    static boolean isDocumentLikeNativeContentObject(ObjectNode object, String type) {
         return "document".equals(type)
                 || "input_document".equals(type)
                 || "input_file".equals(type)
@@ -1331,21 +1166,21 @@ public class OciGenerativeOpenAiService {
                 || object.get("file_url") != null;
     }
 
-    private static boolean isAudioLikeNativeContentObject(ObjectNode object, String type) {
+    static boolean isAudioLikeNativeContentObject(ObjectNode object, String type) {
         return "audio".equals(type)
                 || "input_audio".equals(type)
                 || object.get("audio_url") != null
                 || object.get("audio") != null;
     }
 
-    private static boolean isVideoLikeNativeContentObject(ObjectNode object, String type) {
+    static boolean isVideoLikeNativeContentObject(ObjectNode object, String type) {
         return "video".equals(type)
                 || "input_video".equals(type)
                 || object.get("video_url") != null
                 || object.get("video") != null;
     }
 
-    private static boolean isUnsupportedNativeContentObject(ObjectNode object) {
+    static boolean isUnsupportedNativeContentObject(ObjectNode object) {
         String type = nativeContentObjectType(object);
         if (isDocumentLikeNativeContentObject(object, type) && nativeDocumentUrl(object) != null
                 || isAudioLikeNativeContentObject(object, type) && nativeAudioUrl(object) != null
@@ -1361,7 +1196,7 @@ public class OciGenerativeOpenAiService {
                 || object.get("source") != null;
     }
 
-    private static ImageUrl nativeImageUrl(ObjectNode object) {
+    static ImageUrl nativeImageUrl(ObjectNode object) {
         if (object == null) {
             return null;
         }
@@ -1919,362 +1754,7 @@ public class OciGenerativeOpenAiService {
     }
 
     static CohereChatRequestV2 toNativeCohereChatRequestV2(ObjectNode input) {
-        CohereChatRequestV2.Builder builder = CohereChatRequestV2.builder()
-                .messages(toCohereMessagesV2(input.get("messages")))
-                .isStream(false);
-        Integer maxTokens = firstInteger(input, "max_tokens", "maxTokens");
-        if (maxTokens != null && maxTokens > 0) {
-            builder.maxTokens(Math.min(maxTokens, COHERE_COMMAND_A_REASONING_ON_DEMAND_MAX_TOKENS));
-        }
-        Double temperature = firstDouble(input, "temperature");
-        if (temperature != null) {
-            builder.temperature(temperature);
-        }
-        Integer topK = firstInteger(input, "top_k", "topK");
-        if (topK != null) {
-            builder.topK(topK);
-        }
-        Double topP = firstDouble(input, "top_p", "topP");
-        if (topP != null) {
-            builder.topP(topP);
-        }
-        Double frequencyPenalty = firstDouble(input, "frequency_penalty", "frequencyPenalty");
-        if (frequencyPenalty != null) {
-            builder.frequencyPenalty(frequencyPenalty);
-        }
-        Double presencePenalty = firstDouble(input, "presence_penalty", "presencePenalty");
-        if (presencePenalty != null) {
-            builder.presencePenalty(presencePenalty);
-        }
-        Integer seed = firstInteger(input, "seed");
-        if (seed != null) {
-            builder.seed(seed);
-        }
-        List<String> stop = stringList(input.get("stop"));
-        if (!stop.isEmpty()) {
-            builder.stopSequences(stop);
-        }
-        CohereThinkingV2 thinking = toCohereThinkingV2(input.get("thinking"));
-        if (thinking != null) {
-            builder.thinking(thinking);
-        }
-        CohereChatRequestV2.SafetyMode safetyMode = toCohereSafetyMode(firstText(input, "safety_mode", "safetyMode"));
-        if (safetyMode != null) {
-            builder.safetyMode(safetyMode);
-        }
-        Boolean strictTools = firstBoolean(input, "strict_tools", "strictTools", "is_strict_tools_enabled", "isStrictToolsEnabled");
-        if (strictTools != null) {
-            builder.isStrictToolsEnabled(strictTools);
-        }
-        List<CohereToolV2> tools = toCohereToolDefinitionsV2(input.get("tools"));
-        if (!tools.isEmpty()) {
-            builder.tools(tools);
-        }
-        CohereChatRequestV2.ToolsChoice toolsChoice = toCohereToolsChoice(input.get("tool_choice"));
-        if (toolsChoice != null) {
-            builder.toolsChoice(toolsChoice);
-        }
-        return builder.build();
-    }
-
-    private static CohereThinkingV2 toCohereThinkingV2(JsonNode node) {
-        if (node == null || node.isNull() || node.isMissingNode()) {
-            return null;
-        }
-        CohereThinkingV2.Builder builder = CohereThinkingV2.builder();
-        boolean hasValue = false;
-        if (node.isBoolean()) {
-            builder.type(node.asBoolean() ? CohereThinkingV2.Type.Enabled : CohereThinkingV2.Type.Disabled);
-            hasValue = true;
-        } else if (node.isTextual()) {
-            String value = node.asText("").trim().toLowerCase(Locale.ROOT);
-            if ("disabled".equals(value) || "false".equals(value) || "off".equals(value)) {
-                builder.type(CohereThinkingV2.Type.Disabled);
-                hasValue = true;
-            } else if ("enabled".equals(value) || "true".equals(value) || "on".equals(value)) {
-                builder.type(CohereThinkingV2.Type.Enabled);
-                hasValue = true;
-            }
-        } else if (node instanceof ObjectNode object) {
-            String type = firstText(object, "type");
-            if (type != null && !type.isBlank()) {
-                String value = type.trim().toLowerCase(Locale.ROOT);
-                if ("disabled".equals(value) || "false".equals(value) || "off".equals(value)) {
-                    builder.type(CohereThinkingV2.Type.Disabled);
-                    hasValue = true;
-                } else if ("enabled".equals(value) || "true".equals(value) || "on".equals(value)) {
-                    builder.type(CohereThinkingV2.Type.Enabled);
-                    hasValue = true;
-                }
-            }
-            Integer budget = firstInteger(object, "token_budget", "tokenBudget");
-            if (budget != null && budget > 0) {
-                builder.tokenBudget(budget);
-                hasValue = true;
-            }
-        }
-        return hasValue ? builder.build() : null;
-    }
-
-    private static CohereChatRequestV2.SafetyMode toCohereSafetyMode(String value) {
-        if (value == null || value.isBlank()) {
-            return null;
-        }
-        String normalized = value.trim().toLowerCase(Locale.ROOT);
-        return switch (normalized) {
-            case "contextual" -> CohereChatRequestV2.SafetyMode.Contextual;
-            case "strict" -> CohereChatRequestV2.SafetyMode.Strict;
-            case "off", "none", "disabled" -> CohereChatRequestV2.SafetyMode.Off;
-            default -> null;
-        };
-    }
-
-    private static CohereChatRequestV2.ToolsChoice toCohereToolsChoice(JsonNode toolChoice) {
-        if (toolChoice == null || toolChoice.isNull() || toolChoice.isMissingNode()) {
-            return null;
-        }
-        String value = null;
-        if (toolChoice.isTextual()) {
-            value = toolChoice.asText("");
-        } else if (toolChoice instanceof ObjectNode object) {
-            value = firstText(object, "type");
-        }
-        if (value == null || value.isBlank()) {
-            return null;
-        }
-        return switch (value.trim().toLowerCase(Locale.ROOT)) {
-            case "none" -> CohereChatRequestV2.ToolsChoice.None;
-            case "required", "any" -> CohereChatRequestV2.ToolsChoice.Required;
-            default -> null;
-        };
-    }
-
-    private static List<CohereMessageV2> toCohereMessagesV2(JsonNode messagesNode) {
-        List<CohereMessageV2> out = new ArrayList<>();
-        if (messagesNode != null && messagesNode.isArray()) {
-            for (JsonNode item : messagesNode) {
-                if (!(item instanceof ObjectNode message)) {
-                    continue;
-                }
-                String role = normalizeChatRole(textOrNull(message, "role"));
-                List<CohereContentV2> content = toCohereContentV2(nativeMessageContent(message));
-                switch (role) {
-                    case "system", "developer" -> {
-                        if (!hasUsableCohereContentV2(content)) {
-                            continue;
-                        }
-                        out.add(CohereSystemMessageV2.builder().content(content).build());
-                    }
-                    case "assistant" -> {
-                        List<CohereToolCallV2> toolCalls = toCohereToolCallsV2(message.get("tool_calls"));
-                        if (!hasUsableCohereContentV2(content) && toolCalls.isEmpty()) {
-                            continue;
-                        }
-                        CohereAssistantMessageV2.Builder builder = CohereAssistantMessageV2.builder().content(content);
-                        String reasoning = textOrNull(message, "reasoning_content");
-                        if (reasoning != null && !reasoning.isBlank()) {
-                            builder.toolPlan(reasoning);
-                        }
-                        if (!toolCalls.isEmpty()) {
-                            builder.toolCalls(toolCalls);
-                        }
-                        out.add(builder.build());
-                    }
-                    case "tool" -> {
-                        String toolCallId = textOrNull(message, "tool_call_id");
-                        if (!hasUsableCohereContentV2(content)) {
-                            if (toolCallId == null || toolCallId.isBlank()) {
-                                continue;
-                            }
-                            content = List.of(CohereTextContentV2.builder().text("null").build());
-                        }
-                        CohereToolMessageV2.Builder builder = CohereToolMessageV2.builder().content(content);
-                        if (toolCallId != null && !toolCallId.isBlank()) {
-                            builder.toolCallId(toolCallId);
-                        }
-                        out.add(builder.build());
-                    }
-                    default -> {
-                        if (!hasUsableCohereContentV2(content)) {
-                            continue;
-                        }
-                        out.add(CohereUserMessageV2.builder().content(content).build());
-                    }
-                }
-            }
-        }
-        if (out.isEmpty()) {
-            out.add(CohereUserMessageV2.builder()
-                    .content(List.of(CohereTextContentV2.builder().text(" ").build()))
-                    .build());
-        }
-        return out;
-    }
-
-    private static List<CohereContentV2> toCohereContentV2(JsonNode content) {
-        if (content == null || content.isNull() || content.isMissingNode()) {
-            return List.of();
-        }
-        if (content.isTextual()) {
-            String text = content.asText();
-            return text == null || text.isBlank()
-                    ? List.of()
-                    : List.of(CohereTextContentV2.builder().text(text).build());
-        }
-        if (content.isNumber() || content.isBoolean()) {
-            return List.of(CohereTextContentV2.builder().text(content.asText()).build());
-        }
-        if (content instanceof ObjectNode object) {
-            CohereContentV2 part = toCohereContentPartV2(object);
-            return hasUsableCohereContentV2(part) ? List.of(part) : List.of();
-        }
-        if (!content.isArray()) {
-            return List.of(CohereTextContentV2.builder().text(content.toString()).build());
-        }
-        List<CohereContentV2> out = new ArrayList<>();
-        for (JsonNode part : content) {
-            if (part == null || part.isNull()) {
-                continue;
-            }
-            CohereContentV2 converted = toCohereContentPartV2(part);
-            if (hasUsableCohereContentV2(converted)) {
-                out.add(converted);
-            }
-        }
-        return out;
-    }
-
-    private static CohereContentV2 toCohereContentPartV2(JsonNode part) {
-        if (part == null || part.isNull()) {
-            return CohereTextContentV2.builder().text("").build();
-        }
-        if (part.isTextual() || part.isNumber() || part.isBoolean()) {
-            return CohereTextContentV2.builder().text(part.asText()).build();
-        }
-        if (!(part instanceof ObjectNode object)) {
-            return CohereTextContentV2.builder().text(part.toString()).build();
-        }
-        if (isImageLikeNativeContentObject(object, nativeContentObjectType(object))) {
-            CohereImageUrlV2 imageUrl = cohereImageUrlV2(object);
-            if (imageUrl != null) {
-                return CohereImageContentV2.builder().imageUrl(imageUrl).build();
-            }
-        }
-        String type = nativeContentObjectType(object);
-        if (isDocumentLikeNativeContentObject(object, type)) {
-            JsonNode document = firstExisting(object, "document", "file", "source");
-            if (document != null && !document.isNull() && !document.isMissingNode()) {
-                return CohereDocumentContentV2.builder().document(MAPPER.convertValue(document, Object.class)).build();
-            }
-        }
-        String text = chatTextPartText(object);
-        return CohereTextContentV2.builder().text(text == null ? object.toString() : text).build();
-    }
-
-    private static CohereImageUrlV2 cohereImageUrlV2(ObjectNode object) {
-        ImageUrl imageUrl = nativeImageUrl(object);
-        if (imageUrl == null || imageUrl.getUrl() == null || imageUrl.getUrl().isBlank()) {
-            return null;
-        }
-        CohereImageUrlV2.Builder builder = CohereImageUrlV2.builder().url(imageUrl.getUrl());
-        if (imageUrl.getDetail() != null) {
-            builder.detail(CohereImageUrlV2.Detail.create(imageUrl.getDetail().getValue()));
-        }
-        return builder.build();
-    }
-
-    private static boolean hasUsableCohereContentV2(List<CohereContentV2> content) {
-        if (content == null || content.isEmpty()) {
-            return false;
-        }
-        for (CohereContentV2 item : content) {
-            if (hasUsableCohereContentV2(item)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private static boolean hasUsableCohereContentV2(CohereContentV2 content) {
-        if (content == null) {
-            return false;
-        }
-        if (content instanceof CohereTextContentV2 textContent) {
-            String text = textContent.getText();
-            return text != null && !text.isBlank();
-        }
-        if (content instanceof CohereThinkingContentV2 thinkingContent) {
-            String thinking = thinkingContent.getThinking();
-            return thinking != null && !thinking.isBlank();
-        }
-        if (content instanceof CohereImageContentV2 imageContent) {
-            return imageContent.getImageUrl() != null
-                    && imageContent.getImageUrl().getUrl() != null
-                    && !imageContent.getImageUrl().getUrl().isBlank();
-        }
-        return true;
-    }
-
-    private static List<CohereToolV2> toCohereToolDefinitionsV2(JsonNode toolsNode) {
-        List<CohereToolV2> out = new ArrayList<>();
-        if (toolsNode == null || !toolsNode.isArray()) {
-            return out;
-        }
-        for (JsonNode item : toolsNode) {
-            if (!(item instanceof ObjectNode tool)) {
-                continue;
-            }
-            JsonNode fnNode = tool.get("function");
-            ObjectNode fn = fnNode instanceof ObjectNode functionObject ? functionObject : tool;
-            String type = firstNonBlank(textOrNull(tool, "type"), "function");
-            if (!"function".equalsIgnoreCase(type)) {
-                continue;
-            }
-            String name = textOrNull(fn, "name");
-            if (name == null || name.isBlank()) {
-                continue;
-            }
-            Function.Builder function = Function.builder().name(name);
-            String description = textOrNull(fn, "description");
-            if (description != null && !description.isBlank()) {
-                function.description(description);
-            }
-            JsonNode parameters = fn.get("parameters");
-            if (parameters != null && !parameters.isNull() && !parameters.isMissingNode()) {
-                JsonNode sanitized = sanitizeOciToolParameters(parameters);
-                function.parameters(MAPPER.convertValue(sanitized == null ? parameters : sanitized, Object.class));
-            }
-            out.add(CohereToolV2.builder()
-                    .type(CohereToolV2.Type.Function)
-                    .function(function.build())
-                    .build());
-        }
-        return out;
-    }
-
-    private static List<CohereToolCallV2> toCohereToolCallsV2(JsonNode toolCallsNode) {
-        List<CohereToolCallV2> out = new ArrayList<>();
-        if (toolCallsNode == null || !toolCallsNode.isArray()) {
-            return out;
-        }
-        for (JsonNode item : toolCallsNode) {
-            if (!(item instanceof ObjectNode call)) {
-                continue;
-            }
-            JsonNode fnNode = call.get("function");
-            ObjectNode fn = fnNode instanceof ObjectNode functionObject ? functionObject : MAPPER.createObjectNode();
-            String name = firstNonBlank(textOrNull(fn, "name"), textOrNull(call, "name"), "tool");
-            String arguments = firstNonBlank(textOrNull(fn, "arguments"), textOrNull(call, "arguments"), "{}");
-            Map<String, Object> function = new LinkedHashMap<>();
-            function.put("name", name);
-            function.put("arguments", arguments);
-            out.add(CohereToolCallV2.builder()
-                    .id(firstNonBlank(textOrNull(call, "id"), "call_" + CommonUtils.generateId()))
-                    .type(CohereToolCallV2.Type.Function)
-                    .function(function)
-                    .build());
-        }
-        return out;
+        return OciCohereChatV2Bridge.toNativeChatRequest(input);
     }
 
     private static List<Message> toNativeMessages(JsonNode messagesNode) {
@@ -2474,7 +1954,7 @@ public class OciGenerativeOpenAiService {
         return true;
     }
 
-    private static String chatTextPartText(ObjectNode object) {
+    static String chatTextPartText(ObjectNode object) {
         if (object == null) {
             return null;
         }
@@ -2638,129 +2118,10 @@ public class OciGenerativeOpenAiService {
     }
 
     static String nativeCohereChatV2ResultToOpenAiJson(ChatResult result, String modelHint) throws Exception {
-        ObjectNode root = MAPPER.createObjectNode();
-        root.put("id", "chatcmpl-" + CommonUtils.generateId());
-        root.put("object", "chat.completion");
-        root.put("created", Instant.now().getEpochSecond());
-        root.put("model", firstNonBlank(result == null ? null : result.getModelId(), modelHint, ""));
-        BaseChatResponse response = result == null ? null : result.getChatResponse();
-        if (!(response instanceof CohereChatResponseV2 cohere)) {
-            throw new OciException("Cohere V2 Chat 未返回可转换的对话结果");
-        }
-        if (cohere.getErrorMessage() != null && !cohere.getErrorMessage().isBlank()) {
-            throw new OciException("Cohere V2 Chat 返回错误: " + cohere.getErrorMessage());
-        }
-        CohereAssistantMessageV2 message = cohere.getMessage();
-        if (message == null) {
-            throw new OciException("Cohere V2 Chat 未返回 message");
-        }
-        ObjectNode openAiMessage = cohereV2MessageToOpenAiMessage(message);
-        if (!hasVisibleChatCompletionMessage(openAiMessage)) {
-            throw new OciException("Cohere V2 Chat 返回空内容");
-        }
-        ArrayNode choices = MAPPER.createArrayNode();
-        ObjectNode choice = MAPPER.createObjectNode();
-        choice.put("index", 0);
-        choice.set("message", openAiMessage);
-        boolean hasToolCalls = openAiMessage.path("tool_calls").isArray() && !openAiMessage.path("tool_calls").isEmpty();
-        choice.put("finish_reason", normalizeNativeFinishReason(
-                cohere.getFinishReason() == null ? null : cohere.getFinishReason().getValue(),
-                hasToolCalls));
-        choices.add(choice);
-        root.set("choices", choices);
-        root.set("usage", nativeUsageToOpenAiUsage(cohere.getUsage()));
-        return MAPPER.writeValueAsString(root);
+        return OciCohereChatV2Bridge.nativeResultToOpenAiJson(result, modelHint);
     }
 
-    private static ObjectNode cohereV2MessageToOpenAiMessage(CohereAssistantMessageV2 message) {
-        ObjectNode out = MAPPER.createObjectNode();
-        out.put("role", "assistant");
-        String text = cohereV2ContentText(message == null ? null : message.getContent(), false);
-        String thinking = cohereV2ContentText(message == null ? null : message.getContent(), true);
-        List<CohereToolCallV2> toolCalls = message == null ? null : message.getToolCalls();
-        if (toolCalls != null && !toolCalls.isEmpty()) {
-            out.putNull("content");
-        } else {
-            out.put("content", text == null ? "" : text);
-        }
-        if (thinking != null && !thinking.isBlank()) {
-            out.put("reasoning_content", thinking);
-        } else if (message != null && message.getToolPlan() != null && !message.getToolPlan().isBlank()) {
-            out.put("reasoning_content", message.getToolPlan());
-        }
-        ArrayNode calls = cohereV2ToolCallsToOpenAi(toolCalls);
-        if (!calls.isEmpty()) {
-            out.set("tool_calls", calls);
-        }
-        return out;
-    }
-
-    private static String cohereV2ContentText(List<CohereContentV2> content, boolean thinkingOnly) {
-        if (content == null || content.isEmpty()) {
-            return "";
-        }
-        StringBuilder sb = new StringBuilder();
-        for (CohereContentV2 item : content) {
-            String text = null;
-            if (thinkingOnly) {
-                if (item instanceof CohereThinkingContentV2 thinking) {
-                    text = thinking.getThinking();
-                }
-            } else if (item instanceof CohereTextContentV2 textContent) {
-                text = textContent.getText();
-            }
-            if (text == null || text.isBlank()) {
-                continue;
-            }
-            if (sb.length() > 0) {
-                sb.append('\n');
-            }
-            sb.append(text);
-        }
-        return sb.toString();
-    }
-
-    private static ArrayNode cohereV2ToolCallsToOpenAi(List<CohereToolCallV2> toolCalls) {
-        ArrayNode calls = MAPPER.createArrayNode();
-        if (toolCalls == null || toolCalls.isEmpty()) {
-            return calls;
-        }
-        for (CohereToolCallV2 toolCall : toolCalls) {
-            if (toolCall == null || toolCall.getType() != CohereToolCallV2.Type.Function) {
-                continue;
-            }
-            ObjectNode call = MAPPER.createObjectNode();
-            call.put("id", firstNonBlank(toolCall.getId(), "call_" + CommonUtils.generateId()));
-            call.put("type", "function");
-            ObjectNode fn = MAPPER.createObjectNode();
-            JsonNode function = MAPPER.convertValue(toolCall.getFunction(), JsonNode.class);
-            String name = function instanceof ObjectNode object
-                    ? firstNonBlank(firstText(object, "name"), firstText(object, "functionName"), "tool")
-                    : "tool";
-            JsonNode argumentsNode = function instanceof ObjectNode object
-                    ? firstExisting(object, "arguments", "parameters")
-                    : null;
-            String arguments;
-            if (argumentsNode == null || argumentsNode.isNull() || argumentsNode.isMissingNode()) {
-                arguments = "{}";
-            } else if (argumentsNode.isTextual()) {
-                arguments = firstNonBlank(argumentsNode.asText(), "{}");
-            } else {
-                try {
-                    arguments = MAPPER.writeValueAsString(argumentsNode);
-                } catch (Exception ignored) {
-                    arguments = "{}";
-                }
-            }
-            fn.put("name", name);
-            fn.put("arguments", arguments);
-            call.set("function", fn);
-            calls.add(call);
-        }
-        return calls;
-    }
-
-    private static boolean hasVisibleChatCompletionMessage(ObjectNode message) {
+    static boolean hasVisibleChatCompletionMessage(ObjectNode message) {
         if (message == null) {
             return false;
         }
@@ -2847,7 +2208,7 @@ public class OciGenerativeOpenAiService {
         }
     }
 
-    private static ObjectNode nativeUsageToOpenAiUsage(Usage usage) {
+    static ObjectNode nativeUsageToOpenAiUsage(Usage usage) {
         ObjectNode out = MAPPER.createObjectNode();
         int prompt = usage == null || usage.getPromptTokens() == null ? 0 : Math.max(0, usage.getPromptTokens());
         int completion = usage == null || usage.getCompletionTokens() == null ? 0 : Math.max(0, usage.getCompletionTokens());
@@ -2858,7 +2219,7 @@ public class OciGenerativeOpenAiService {
         return out;
     }
 
-    private static String normalizeNativeFinishReason(String reason, boolean hasToolCalls) {
+    static String normalizeNativeFinishReason(String reason, boolean hasToolCalls) {
         if (hasToolCalls) {
             return "tool_calls";
         }
@@ -2881,7 +2242,7 @@ public class OciGenerativeOpenAiService {
         return "stop";
     }
 
-    private static String firstText(JsonNode o, String... fieldNames) {
+    static String firstText(JsonNode o, String... fieldNames) {
         if (o == null) {
             return null;
         }
@@ -3029,7 +2390,7 @@ public class OciGenerativeOpenAiService {
         return v != null && v.isTextual() ? v.asText() : null;
     }
 
-    private static String firstNonBlank(String... values) {
+    static String firstNonBlank(String... values) {
         if (values == null) {
             return null;
         }
@@ -3319,7 +2680,7 @@ public class OciGenerativeOpenAiService {
         return MAPPER.writeValueAsString(out);
     }
 
-    private static JsonNode firstExisting(ObjectNode node, String... fields) {
+    static JsonNode firstExisting(ObjectNode node, String... fields) {
         if (node == null || fields == null) {
             return null;
         }
@@ -3416,7 +2777,7 @@ public class OciGenerativeOpenAiService {
         putIntegerIfPresent(node, field, value);
     }
 
-    private static Integer firstInteger(ObjectNode node, String... fields) {
+    static Integer firstInteger(ObjectNode node, String... fields) {
         JsonNode value = firstExisting(node, fields);
         if (value == null || value.isNull()) {
             return null;
@@ -3436,7 +2797,7 @@ public class OciGenerativeOpenAiService {
         return null;
     }
 
-    private static Double firstDouble(ObjectNode node, String... fields) {
+    static Double firstDouble(ObjectNode node, String... fields) {
         JsonNode value = firstExisting(node, fields);
         if (value == null || value.isNull()) {
             return null;
@@ -3453,7 +2814,7 @@ public class OciGenerativeOpenAiService {
         return null;
     }
 
-    private static List<String> stringList(JsonNode node) {
+    static List<String> stringList(JsonNode node) {
         if (node == null || node.isNull() || node.isMissingNode()) {
             return List.of();
         }
@@ -3473,7 +2834,7 @@ public class OciGenerativeOpenAiService {
         return out;
     }
 
-    private static Boolean firstBoolean(ObjectNode node, String... fields) {
+    static Boolean firstBoolean(ObjectNode node, String... fields) {
         JsonNode value = firstExisting(node, fields);
         if (value == null || value.isNull()) {
             return null;
@@ -3931,10 +3292,7 @@ public class OciGenerativeOpenAiService {
                 && value > META_LLAMA_ON_DEMAND_MAX_TOKENS) {
             value = META_LLAMA_ON_DEMAND_MAX_TOKENS;
         }
-        if (isCohereCommandAReasoningModel(textOrNull(root, "model"))
-                && value > COHERE_COMMAND_A_REASONING_ON_DEMAND_MAX_TOKENS) {
-            value = COHERE_COMMAND_A_REASONING_ON_DEMAND_MAX_TOKENS;
-        }
+        value = OciCohereChatV2Bridge.capOnDemandMaxTokens(textOrNull(root, "model"), value);
         root.put("max_tokens", value);
     }
 
@@ -4041,7 +3399,7 @@ public class OciGenerativeOpenAiService {
         target.set("parameters", sanitized == null ? value : sanitized);
     }
 
-    private static JsonNode sanitizeOciToolParameters(JsonNode schema) {
+    static JsonNode sanitizeOciToolParameters(JsonNode schema) {
         if (schema == null || schema.isNull() || schema.isMissingNode()) {
             return null;
         }
@@ -4787,7 +4145,7 @@ public class OciGenerativeOpenAiService {
         messages.add(msg);
     }
 
-    private static String normalizeChatRole(String role) {
+    static String normalizeChatRole(String role) {
         if (role == null || role.isBlank()) {
             return "user";
         }
@@ -6427,7 +5785,7 @@ public class OciGenerativeOpenAiService {
         return 0L;
     }
 
-    private static String textOrNull(ObjectNode o, String field) {
+    static String textOrNull(ObjectNode o, String field) {
         if (o == null) {
             return null;
         }

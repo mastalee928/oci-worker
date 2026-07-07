@@ -302,7 +302,7 @@ class OciGenerativeOpenAiServiceTest {
                 }
                 """);
 
-        CohereChatRequestV2 request = OciGenerativeOpenAiService.toNativeCohereChatRequestV2(input);
+        CohereChatRequestV2 request = OciCohereChatV2Bridge.toNativeChatRequest(input);
 
         assertThat(request.getMaxTokens()).isEqualTo(4000);
         assertThat(request.getTemperature()).isEqualTo(0.2D);
@@ -342,7 +342,7 @@ class OciGenerativeOpenAiServiceTest {
                         .build())
                 .build();
 
-        JsonNode root = MAPPER.readTree(OciGenerativeOpenAiService.nativeCohereChatV2ResultToOpenAiJson(
+        JsonNode root = MAPPER.readTree(OciCohereChatV2Bridge.nativeResultToOpenAiJson(
                 result, "cohere.command-a-reasoning"));
 
         JsonNode message = root.path("choices").get(0).path("message");
@@ -910,9 +910,9 @@ class OciGenerativeOpenAiServiceTest {
                 }
                 """;
 
-        assertThat(OciGenerativeOpenAiService.canUseNativeCohereChatV2(audioPayload.getBytes())).isFalse();
-        assertThat(OciGenerativeOpenAiService.canUseNativeCohereChatV2(videoPayload.getBytes())).isFalse();
-        assertThat(OciGenerativeOpenAiService.canUseNativeCohereChatV2(imagePayload.getBytes())).isTrue();
+        assertThat(OciCohereChatV2Bridge.canUseNativeChat(audioPayload.getBytes())).isFalse();
+        assertThat(OciCohereChatV2Bridge.canUseNativeChat(videoPayload.getBytes())).isFalse();
+        assertThat(OciCohereChatV2Bridge.canUseNativeChat(imagePayload.getBytes())).isTrue();
     }
 
     @Test
