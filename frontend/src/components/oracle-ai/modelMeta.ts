@@ -38,6 +38,12 @@ function providerName(id: string) {
   return 'Oracle AI'
 }
 
+function isGrokReasoningModel(id: string) {
+  return id === 'xai.grok-4.3'
+    || id === 'xai.grok-3-mini'
+    || id === 'xai.grok-3-mini-fast'
+}
+
 export const ORACLE_AI_MODEL_GROUPS: Array<{
   id: OracleAiModelGroupId
   title: string
@@ -270,7 +276,7 @@ export function inferOracleAiModelMeta(option: OracleAiModelOption | string): Or
       statusLabel: forcedDisabled ? '停用' : 'Chat',
     }
   }
-  if (lower.includes('reasoning') || lower.includes('gpt-oss')) {
+  if (isGrokReasoningModel(lower) || lower.includes('reasoning') || lower.includes('gpt-oss')) {
     return {
       id,
       label,

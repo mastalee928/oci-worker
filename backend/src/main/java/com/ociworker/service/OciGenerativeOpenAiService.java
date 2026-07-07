@@ -3680,9 +3680,7 @@ public class OciGenerativeOpenAiService {
         if (root == null) {
             return;
         }
-        root.remove("reasoningEffort");
-        root.remove("reasoning_effort");
-        root.remove("reasoning");
+        OciGrokBridge.normalizeReasoningEffort(root);
         root.remove("max_completion_tokens");
     }
 

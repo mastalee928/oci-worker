@@ -161,6 +161,61 @@ class OciGenerativeOpenAiServiceTest {
         assertThat(root.path("tool_choice").asText()).isEqualTo("auto");
         assertThat(root.path("stream").asBoolean()).isTrue();
         assertThat(root.path("model").asText()).isEqualTo("xai.grok-4.20-0309-reasoning");
+
+        byte[] grok43Normalized = OciGenerativeOpenAiService.transformChatCompletionsJson(
+                payload.replace("xai.grok-4.20-0309-reasoning", "xai.grok-4.3").getBytes(),
+                128);
+        JsonNode grok43Root = MAPPER.readTree(grok43Normalized);
+        assertThat(grok43Root.has("reasoningEffort")).isFalse();
+        assertThat(grok43Root.has("reasoning_effort")).isFalse();
+        assertThat(grok43Root.has("reasoning")).isFalse();
+        assertThat(grok43Root.path("model").asText()).isEqualTo("xai.grok-4.3");
+    }
+
+    @Test
+    void preservesDocumentedGrok3MiniReasoningEffortForOciChatCompletions() throws Exception {
+        String payload = """
+                {
+                  "model":"xai.grok-3-mini",
+                  "messages":[{"role":"user","content":"hello"}],
+                  "reasoningEffort":"HIGH",
+                  "tools":[{"type":"function","function":{"name":"write_file","parameters":{"type":"object"}}}],
+                  "tool_choice":"auto"
+                }
+                """;
+
+        byte[] normalized = OciGenerativeOpenAiService.transformChatCompletionsJson(payload.getBytes(), 128);
+
+        JsonNode root = MAPPER.readTree(normalized);
+        assertThat(root.has("reasoningEffort")).isFalse();
+        assertThat(root.has("reasoning")).isFalse();
+        assertThat(root.path("reasoning_effort").asText()).isEqualTo("high");
+        assertThat(root.path("tools").get(0).path("function").path("name").asText()).isEqualTo("write_file");
+
+        byte[] fastNormalized = OciGenerativeOpenAiService.transformChatCompletionsJson(
+                payload.replace("xai.grok-3-mini", "xai.grok-3-mini-fast")
+                        .replace("\"reasoningEffort\":\"HIGH\"", "\"reasoning\":{\"effort\":\"low\"}")
+                        .getBytes(),
+                128);
+        JsonNode fastRoot = MAPPER.readTree(fastNormalized);
+        assertThat(fastRoot.path("reasoning_effort").asText()).isEqualTo("low");
+        assertThat(fastRoot.has("reasoning")).isFalse();
+    }
+
+    @Test
+    void stripsInvalidGrok3MiniReasoningEffortForOciChatCompletions() throws Exception {
+        String payload = """
+                {
+                  "model":"xai.grok-3-mini-fast",
+                  "messages":[{"role":"user","content":"hello"}],
+                  "reasoning_effort":"medium"
+                }
+                """;
+
+        byte[] normalized = OciGenerativeOpenAiService.transformChatCompletionsJson(payload.getBytes(), 128);
+
+        JsonNode root = MAPPER.readTree(normalized);
+        assertThat(root.has("reasoning_effort")).isFalse();
     }
 
     @Test
