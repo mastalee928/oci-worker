@@ -276,6 +276,34 @@ public class OciGenerativeOpenAiService {
                 throw new OciException("转换 Rerank 请求失败: " + (e.getMessage() != null ? e.getMessage() : "未知错误"));
             }
         }
+        if ("POST".equalsIgnoreCase(method)
+                && isEmbeddingsPath(origPathAfterV1)
+                && isCohereEmbedV4Model(requestedModel)) {
+            if (!looksLikeJson || origBody == null || origBody.length == 0) {
+                writeOpenAiError(response, 400, "invalid_request_error",
+                        "Embedding 请求必须是 JSON，并包含 model 和 input/inputs/embedContents。",
+                        "invalid_embedding_request");
+                return;
+            }
+            try {
+                EmbeddingBridgeRequest embedding = transformEmbeddingRequestJson(origBody, opcCompartmentId);
+                body = embedding.body();
+                pathAfterV1 = "/" + GA_API_VERSION + "/actions/embedText";
+                useRawApiBase = true;
+                contentType = "application/json";
+                accept = "application/json";
+                opcCompartmentId = firstNonBlank(embedding.compartmentId(), opcCompartmentId);
+                request.setAttribute("ociworker.rewrite.embedTextToOpenAi", Boolean.TRUE);
+                request.setAttribute("ociworker.embedding.model", embedding.model());
+            } catch (IllegalArgumentException e) {
+                writeOpenAiError(response, 400, "invalid_request_error",
+                        e.getMessage() != null ? e.getMessage() : "Embedding 请求格式无效",
+                        "invalid_embedding_request");
+                return;
+            } catch (Exception e) {
+                throw new OciException("转换 Embedding 请求失败: " + (e.getMessage() != null ? e.getMessage() : "未知错误"));
+            }
+        }
 
         // OCI：Multi Agent 模型不允许走 /v1/chat/completions，需要改走 /v1/responses
         // 且按 OCI 文档，该模型的 endpoints 为 /v1/responses（非 /openai/v1/responses）
@@ -2431,6 +2459,10 @@ public class OciGenerativeOpenAiService {
         return p != null && (p.equals("/embeddings") || p.endsWith("/embeddings"));
     }
 
+    static boolean isCohereEmbedV4Model(String model) {
+        return model != null && "cohere.embed-v4.0".equalsIgnoreCase(model.trim());
+    }
+
     static boolean isAudioSpeechPath(String p) {
         return p != null && (p.equals("/audio/speech") || p.endsWith("/audio/speech"));
     }
@@ -2684,6 +2716,373 @@ public class OciGenerativeOpenAiService {
         meta.set("api_version", apiVersion);
         out.set("meta", meta);
         return MAPPER.writeValueAsString(out);
+    }
+
+    static EmbeddingBridgeRequest transformEmbeddingRequestJson(byte[] input, String defaultCompartmentId) throws Exception {
+        if (input == null || input.length == 0) {
+            throw new IllegalArgumentException("Embedding 请求体不能为空");
+        }
+        JsonNode root = MAPPER.readTree(input);
+        if (root == null || !root.isObject()) {
+            throw new IllegalArgumentException("Embedding 请求必须是 JSON 对象");
+        }
+        ObjectNode in = (ObjectNode) root;
+        String model = firstNonBlank(
+                textOrNull(in, "model"),
+                textOrNull(in, "modelId"),
+                textOrNull(in, "model_id"),
+                servingModeModelId(in.get("servingMode")));
+        if (model == null || model.isBlank()) {
+            throw new IllegalArgumentException("Embedding 请求缺少 model/modelId");
+        }
+        String compartmentId = firstNonBlank(
+                textOrNull(in, "compartmentId"),
+                textOrNull(in, "compartment_id"),
+                defaultCompartmentId);
+        if (compartmentId == null || compartmentId.isBlank()) {
+            throw new IllegalArgumentException("Embedding 请求缺少 compartmentId，且当前租户无 ociTenantId");
+        }
+
+        ObjectNode out = MAPPER.createObjectNode();
+        JsonNode servingMode = in.get("servingMode");
+        if (servingMode != null && servingMode.isObject()) {
+            out.set("servingMode", servingMode.deepCopy());
+        } else {
+            ObjectNode onDemand = MAPPER.createObjectNode();
+            onDemand.put("servingType", "ON_DEMAND");
+            onDemand.put("modelId", model);
+            out.set("servingMode", onDemand);
+        }
+        out.put("compartmentId", compartmentId);
+
+        JsonNode inputNode = firstExisting(in, "embedContents", "input", "inputs");
+        if (inputNode == null) {
+            throw new IllegalArgumentException("Embedding 请求缺少 input/inputs/embedContents");
+        }
+        boolean forceEmbedContents = in.has("embedContents") || embeddingInputLooksMultimodal(inputNode);
+        if (forceEmbedContents) {
+            ArrayNode embedContents = normalizeEmbedContents(inputNode);
+            if (embedContents.isEmpty()) {
+                throw new IllegalArgumentException("Embedding embedContents 至少需要 1 条文本或图片内容");
+            }
+            out.set("embedContents", embedContents);
+        } else {
+            ArrayNode inputs = normalizeEmbeddingInputs(inputNode);
+            if (inputs.isEmpty()) {
+                throw new IllegalArgumentException("Embedding input 至少需要 1 条文本内容");
+            }
+            out.set("inputs", inputs);
+        }
+
+        Boolean isEcho = firstBoolean(in, "isEcho", "is_echo", "echo");
+        if (isEcho != null) {
+            out.put("isEcho", isEcho);
+        }
+        ArrayNode embeddingTypes = normalizeEmbeddingTypes(firstExisting(in, "embeddingTypes", "embedding_types"), textOrNull(in, "encoding_format"));
+        if (embeddingTypes != null && !embeddingTypes.isEmpty()) {
+            out.set("embeddingTypes", embeddingTypes);
+        }
+        Integer outputDimensions = firstInteger(in, "outputDimensions", "output_dimensions", "dimensions");
+        if (outputDimensions != null) {
+            if (outputDimensions != 256 && outputDimensions != 512 && outputDimensions != 1024 && outputDimensions != 1536) {
+                throw new IllegalArgumentException("Embedding outputDimensions/dimensions 只支持 256、512、1024、1536");
+            }
+            out.put("outputDimensions", outputDimensions);
+        }
+        String truncate = normalizeEmbeddingEnum(textOrNull(in, "truncate"), Set.of("NONE", "START", "END"));
+        if (truncate != null) {
+            out.put("truncate", truncate);
+        }
+        String inputType = normalizeEmbeddingEnum(firstNonBlank(textOrNull(in, "inputType"), textOrNull(in, "input_type")),
+                Set.of("SEARCH_DOCUMENT", "SEARCH_QUERY", "CLASSIFICATION", "CLUSTERING", "IMAGE"));
+        if (inputType != null) {
+            out.put("inputType", inputType);
+        }
+        return new EmbeddingBridgeRequest(MAPPER.writeValueAsBytes(out), compartmentId, model);
+    }
+
+    static String transformEmbeddingResponseJson(String body, String modelHint) throws Exception {
+        if (body == null || body.isBlank()) {
+            return body;
+        }
+        JsonNode root = MAPPER.readTree(body);
+        if (root == null || !root.isObject() || root.has("data")) {
+            return body;
+        }
+        ObjectNode object = (ObjectNode) root;
+        JsonNode embeddings = firstExisting(object, "embeddings");
+        JsonNode embeddingsByType = firstExisting(object, "embeddingsByType", "embeddings_by_type");
+        if ((embeddings == null || !embeddings.isArray()) && embeddingsByType != null && embeddingsByType.isObject()) {
+            embeddings = firstExisting((ObjectNode) embeddingsByType, "float", "int8", "uint8", "binary", "ubinary", "base64");
+        }
+
+        ObjectNode out = MAPPER.createObjectNode();
+        out.put("object", "list");
+        String model = firstNonBlank(firstText(root, "modelId", "model_id", "model"), modelHint, "");
+        if (!model.isBlank()) {
+            out.put("model", model);
+        }
+        ArrayNode data = MAPPER.createArrayNode();
+        if (embeddings != null && embeddings.isArray()) {
+            int index = 0;
+            for (JsonNode embedding : embeddings) {
+                ObjectNode item = MAPPER.createObjectNode();
+                item.put("object", "embedding");
+                item.put("index", index++);
+                item.set("embedding", embedding == null || embedding.isNull() ? MAPPER.createArrayNode() : embedding.deepCopy());
+                data.add(item);
+            }
+        }
+        out.set("data", data);
+        JsonNode usage = root.get("usage");
+        if (usage != null && usage.isObject()) {
+            ObjectNode usageOut = MAPPER.createObjectNode();
+            long promptTokens = longField(usage, "promptTokens", "prompt_tokens", "inputTokens", "input_tokens");
+            long totalTokens = longField(usage, "totalTokens", "total_tokens");
+            usageOut.put("prompt_tokens", promptTokens);
+            usageOut.put("completion_tokens", 0);
+            usageOut.put("total_tokens", totalTokens > 0 ? totalTokens : promptTokens);
+            out.set("usage", usageOut);
+        }
+        if (embeddingsByType != null && !embeddingsByType.isMissingNode() && !embeddingsByType.isNull()) {
+            out.set("embeddings_by_type", embeddingsByType.deepCopy());
+        }
+        String id = firstText(root, "id");
+        if (id != null && !id.isBlank()) {
+            out.put("id", id);
+        }
+        String modelVersion = firstText(root, "modelVersion");
+        if (modelVersion != null && !modelVersion.isBlank()) {
+            out.put("model_version", modelVersion);
+        }
+        return MAPPER.writeValueAsString(out);
+    }
+
+    private static boolean embeddingInputLooksMultimodal(JsonNode node) {
+        if (node == null || node.isNull()) {
+            return false;
+        }
+        if (node.isObject()) {
+            return true;
+        }
+        if (node.isArray()) {
+            for (JsonNode item : node) {
+                if (item != null && item.isObject()) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static ArrayNode normalizeEmbeddingInputs(JsonNode node) {
+        ArrayNode out = MAPPER.createArrayNode();
+        if (node == null || node.isNull()) {
+            return out;
+        }
+        if (node.isTextual() || node.isNumber() || node.isBoolean()) {
+            String value = node.asText();
+            if (value != null && !value.isBlank()) {
+                out.add(value);
+            }
+            return out;
+        }
+        if (node.isArray()) {
+            for (JsonNode item : node) {
+                if (item == null || item.isNull()) {
+                    continue;
+                }
+                if (item.isTextual() || item.isNumber() || item.isBoolean()) {
+                    String value = item.asText();
+                    if (value != null && !value.isBlank()) {
+                        out.add(value);
+                    }
+                }
+            }
+        }
+        return out;
+    }
+
+    private static ArrayNode normalizeEmbedContents(JsonNode node) throws Exception {
+        ArrayNode out = MAPPER.createArrayNode();
+        int[] imageCount = new int[]{0};
+        if (node == null || node.isNull()) {
+            return out;
+        }
+        if (node.isArray()) {
+            for (JsonNode item : node) {
+                appendEmbedContent(out, item, imageCount);
+            }
+        } else {
+            appendEmbedContent(out, node, imageCount);
+        }
+        if (imageCount[0] > 1) {
+            throw new IllegalArgumentException("cohere.embed-v4.0 每次 Embedding 请求最多只能包含 1 张图片");
+        }
+        return out;
+    }
+
+    private static void appendEmbedContent(ArrayNode out, JsonNode item, int[] imageCount) throws Exception {
+        if (item == null || item.isNull()) {
+            return;
+        }
+        if (item.isTextual() || item.isNumber() || item.isBoolean()) {
+            String value = item.asText();
+            if (value != null && !value.isBlank()) {
+                ObjectNode text = MAPPER.createObjectNode();
+                text.put("type", "TEXT");
+                text.put("text", value);
+                out.add(text);
+            }
+            return;
+        }
+        if (!item.isObject()) {
+            return;
+        }
+        ObjectNode object = (ObjectNode) item;
+        String type = firstNonBlank(textOrNull(object, "type"), "").toLowerCase(Locale.ROOT);
+        boolean image = type.contains("image") || object.has("imageUrl") || object.has("image_url") || object.has("image");
+        if (image) {
+            String url = embeddingImageUrl(object);
+            if (url == null || url.isBlank()) {
+                throw new IllegalArgumentException("Embedding 图片内容缺少 imageUrl.url/url/data");
+            }
+            imageCount[0]++;
+            ObjectNode imageContent = MAPPER.createObjectNode();
+            imageContent.put("type", "IMAGE");
+            ObjectNode imageUrl = MAPPER.createObjectNode();
+            imageUrl.put("url", url);
+            String detail = normalizeEmbeddingEnum(firstNonBlank(textOrNull(object, "detail"), nestedText(object.get("imageUrl"), "detail"),
+                    nestedText(object.get("image_url"), "detail")), Set.of("AUTO", "HIGH", "LOW"));
+            if (detail != null) {
+                imageUrl.put("detail", detail);
+            }
+            imageContent.set("imageUrl", imageUrl);
+            out.add(imageContent);
+            return;
+        }
+        String textValue = firstNonBlank(
+                textOrNull(object, "text"),
+                textOrNull(object, "input_text"),
+                textOrNull(object, "content"),
+                textOrNull(object, "value"));
+        if (textValue != null && !textValue.isBlank()) {
+            ObjectNode text = MAPPER.createObjectNode();
+            text.put("type", "TEXT");
+            text.put("text", textValue);
+            out.add(text);
+        }
+    }
+
+    private static String embeddingImageUrl(ObjectNode object) {
+        JsonNode imageUrlNode = firstExisting(object, "imageUrl", "image_url", "image");
+        String url = firstNonBlank(
+                embeddingImageUrlNodeString(imageUrlNode),
+                textOrNull(object, "url"),
+                textOrNull(object, "uri"),
+                textOrNull(object, "data"),
+                textOrNull(object, "file_data"));
+        if (url == null || url.isBlank()) {
+            return null;
+        }
+        String trimmed = url.trim();
+        if (trimmed.startsWith("data:")) {
+            return trimmed;
+        }
+        String mediaType = firstNonBlank(
+                textOrNull(object, "media_type"),
+                textOrNull(object, "mime_type"),
+                nestedText(imageUrlNode, "media_type"),
+                nestedText(imageUrlNode, "mime_type"),
+                "image/png");
+        if (looksLikeBase64Image(trimmed)) {
+            return "data:" + mediaType + ";base64," + trimmed;
+        }
+        return "data:" + mediaType + ";uri," + trimmed;
+    }
+
+    private static String embeddingImageUrlNodeString(JsonNode node) {
+        if (node == null || node.isNull() || node.isMissingNode()) {
+            return null;
+        }
+        if (node.isTextual()) {
+            return node.asText();
+        }
+        if (node.isObject()) {
+            ObjectNode object = (ObjectNode) node;
+            return firstNonBlank(
+                    textOrNull(object, "url"),
+                    textOrNull(object, "uri"),
+                    textOrNull(object, "data"),
+                    textOrNull(object, "file_data"));
+        }
+        return null;
+    }
+
+    private static boolean looksLikeBase64Image(String value) {
+        if (value == null || value.isBlank() || value.contains("://") || value.contains(",")) {
+            return false;
+        }
+        return value.matches("[A-Za-z0-9+/=\\r\\n]+");
+    }
+
+    private static String nestedText(JsonNode node, String field) {
+        if (node != null && node.isObject()) {
+            return textOrNull((ObjectNode) node, field);
+        }
+        return null;
+    }
+
+    private static ArrayNode normalizeEmbeddingTypes(JsonNode node, String encodingFormat) {
+        ArrayNode out = MAPPER.createArrayNode();
+        Set<String> allowed = Set.of("float", "int8", "uint8", "binary", "ubinary", "base64");
+        if (node == null || node.isNull()) {
+            String single = normalizeEmbeddingType(encodingFormat, allowed);
+            if (single != null) {
+                out.add(single);
+            }
+            return out;
+        }
+        if (node.isTextual()) {
+            String single = normalizeEmbeddingType(node.asText(), allowed);
+            if (single != null) {
+                out.add(single);
+            }
+            return out;
+        }
+        if (node.isArray()) {
+            for (JsonNode item : node) {
+                if (item != null && item.isTextual()) {
+                    String single = normalizeEmbeddingType(item.asText(), allowed);
+                    if (single != null) {
+                        out.add(single);
+                    }
+                }
+            }
+        }
+        return out;
+    }
+
+    private static String normalizeEmbeddingType(String value, Set<String> allowed) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        String normalized = value.trim().toLowerCase(Locale.ROOT);
+        if (!allowed.contains(normalized)) {
+            throw new IllegalArgumentException("Embedding embeddingTypes/encoding_format 不支持: " + value);
+        }
+        return normalized;
+    }
+
+    private static String normalizeEmbeddingEnum(String value, Set<String> allowed) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        String normalized = value.trim().replace('-', '_').toUpperCase(Locale.ROOT);
+        if (!allowed.contains(normalized)) {
+            throw new IllegalArgumentException("Embedding 参数值不支持: " + value);
+        }
+        return normalized;
     }
 
     static JsonNode firstExisting(ObjectNode node, String... fields) {
@@ -5442,6 +5841,24 @@ public class OciGenerativeOpenAiService {
                     }
                 }
             }
+            if (code >= 200
+                    && code < 300
+                    && request != null
+                    && Boolean.TRUE.equals(request.getAttribute("ociworker.rewrite.embedTextToOpenAi"))
+                    && b != null
+                    && !b.isBlank()) {
+                String ct = resp.headers().firstValue("content-type").orElse("application/json; charset=utf-8");
+                if (ct.toLowerCase().contains("json")) {
+                    try {
+                        b = transformEmbeddingResponseJson(
+                                b,
+                                stringAttr(request, "ociworker.embedding.model"));
+                        response.setContentType("application/json; charset=utf-8");
+                    } catch (Exception e) {
+                        log.warn("Failed to transform OCI embedding response: {}", e.getMessage());
+                    }
+                }
+            }
             if (code >= 400
                     && request != null
                     && b != null) {
@@ -6600,6 +7017,11 @@ public class OciGenerativeOpenAiService {
             String originalDocumentsJson,
             boolean returnDocuments,
             String compartmentId) {}
+
+    record EmbeddingBridgeRequest(
+            byte[] body,
+            String compartmentId,
+            String model) {}
 
     private record NativeGenericChatClient(
             GenerativeAiInferenceClient client,

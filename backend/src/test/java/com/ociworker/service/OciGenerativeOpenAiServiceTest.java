@@ -953,6 +953,157 @@ class OciGenerativeOpenAiServiceTest {
     }
 
     @Test
+    void rewritesCohereEmbedV4TextRequestToNativeEmbedText() throws Exception {
+        String payload = """
+                {
+                  "model":"cohere.embed-v4.0",
+                  "input":["hello","world"],
+                  "encoding_format":"float",
+                  "dimensions":512,
+                  "truncate":"end",
+                  "input_type":"search_query"
+                }
+                """;
+
+        OciGenerativeOpenAiService.EmbeddingBridgeRequest request =
+                OciGenerativeOpenAiService.transformEmbeddingRequestJson(payload.getBytes(), "ocid1.tenancy.oc1..test");
+        JsonNode root = MAPPER.readTree(request.body());
+
+        assertThat(root.path("servingMode").path("servingType").asText()).isEqualTo("ON_DEMAND");
+        assertThat(root.path("servingMode").path("modelId").asText()).isEqualTo("cohere.embed-v4.0");
+        assertThat(root.path("compartmentId").asText()).isEqualTo("ocid1.tenancy.oc1..test");
+        assertThat(root.path("inputs")).hasSize(2);
+        assertThat(root.path("embeddingTypes").get(0).asText()).isEqualTo("float");
+        assertThat(root.path("outputDimensions").asInt()).isEqualTo(512);
+        assertThat(root.path("truncate").asText()).isEqualTo("END");
+        assertThat(root.path("inputType").asText()).isEqualTo("SEARCH_QUERY");
+    }
+
+    @Test
+    void rewritesCohereEmbedV4MultimodalRequestToEmbedContents() throws Exception {
+        String payload = """
+                {
+                  "model":"cohere.embed-v4.0",
+                  "input":[
+                    {"type":"text","text":"describe"},
+                    {"type":"image_url","image_url":{"url":"data:image/png;base64,AAAA","detail":"auto"}}
+                  ],
+                  "embedding_types":["float","base64"],
+                  "output_dimensions":1536
+                }
+                """;
+
+        OciGenerativeOpenAiService.EmbeddingBridgeRequest request =
+                OciGenerativeOpenAiService.transformEmbeddingRequestJson(payload.getBytes(), "ocid1.tenancy.oc1..test");
+        JsonNode root = MAPPER.readTree(request.body());
+
+        assertThat(root.has("inputs")).isFalse();
+        assertThat(root.path("embedContents")).hasSize(2);
+        assertThat(root.path("embedContents").get(0).path("type").asText()).isEqualTo("TEXT");
+        assertThat(root.path("embedContents").get(1).path("type").asText()).isEqualTo("IMAGE");
+        assertThat(root.path("embedContents").get(1).path("imageUrl").path("url").asText())
+                .isEqualTo("data:image/png;base64,AAAA");
+        assertThat(root.path("embedContents").get(1).path("imageUrl").path("detail").asText()).isEqualTo("AUTO");
+        assertThat(root.path("embeddingTypes")).hasSize(2);
+        assertThat(root.path("outputDimensions").asInt()).isEqualTo(1536);
+    }
+
+    @Test
+    void rejectsCohereEmbedV4MoreThanOneImage() {
+        String payload = """
+                {
+                  "model":"cohere.embed-v4.0",
+                  "input":[
+                    {"type":"image_url","image_url":{"url":"data:image/png;base64,AAAA"}},
+                    {"type":"image_url","image_url":{"url":"data:image/png;base64,BBBB"}}
+                  ]
+                }
+                """;
+
+        assertThatThrownBy(() -> OciGenerativeOpenAiService.transformEmbeddingRequestJson(
+                payload.getBytes(), "ocid1.tenancy.oc1..test"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("最多只能包含 1 张图片");
+    }
+
+    @Test
+    void treatsCohereEmbedV4RawImageDataAsBase64() throws Exception {
+        String payload = """
+                {
+                  "model":"cohere.embed-v4.0",
+                  "input":[
+                    {"type":"text","text":"image"},
+                    {"type":"image","data":"AAAA","media_type":"image/png"}
+                  ]
+                }
+                """;
+
+        OciGenerativeOpenAiService.EmbeddingBridgeRequest request =
+                OciGenerativeOpenAiService.transformEmbeddingRequestJson(payload.getBytes(), "ocid1.tenancy.oc1..test");
+        JsonNode root = MAPPER.readTree(request.body());
+
+        assertThat(root.path("embedContents").get(1).path("imageUrl").path("url").asText())
+                .isEqualTo("data:image/png;base64,AAAA");
+    }
+
+    @Test
+    void acceptsCohereEmbedV4StringImageUrlPart() throws Exception {
+        String payload = """
+                {
+                  "model":"cohere.embed-v4.0",
+                  "input":[
+                    {"type":"input_text","text":"image"},
+                    {"type":"input_image","image_url":"data:image/png;base64,AAAA"}
+                  ]
+                }
+                """;
+
+        OciGenerativeOpenAiService.EmbeddingBridgeRequest request =
+                OciGenerativeOpenAiService.transformEmbeddingRequestJson(payload.getBytes(), "ocid1.tenancy.oc1..test");
+        JsonNode root = MAPPER.readTree(request.body());
+
+        assertThat(root.path("embedContents").get(1).path("type").asText()).isEqualTo("IMAGE");
+        assertThat(root.path("embedContents").get(1).path("imageUrl").path("url").asText())
+                .isEqualTo("data:image/png;base64,AAAA");
+    }
+
+    @Test
+    void rejectsCohereEmbedV4UnsupportedDimensions() {
+        String payload = """
+                {"model":"cohere.embed-v4.0","input":"hello","dimensions":768}
+                """;
+
+        assertThatThrownBy(() -> OciGenerativeOpenAiService.transformEmbeddingRequestJson(
+                payload.getBytes(), "ocid1.tenancy.oc1..test"))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("256、512、1024、1536");
+    }
+
+    @Test
+    void transformsNativeEmbedTextResponseToOpenAiEmbeddings() throws Exception {
+        String payload = """
+                {
+                  "id":"embed-1",
+                  "modelId":"cohere.embed-v4.0",
+                  "modelVersion":"1.0",
+                  "embeddings":[[0.1,0.2],[0.3,0.4]],
+                  "usage":{"promptTokens":5,"totalTokens":5}
+                }
+                """;
+
+        String transformed = OciGenerativeOpenAiService.transformEmbeddingResponseJson(payload, "cohere.embed-v4.0");
+        JsonNode root = MAPPER.readTree(transformed);
+
+        assertThat(root.path("object").asText()).isEqualTo("list");
+        assertThat(root.path("model").asText()).isEqualTo("cohere.embed-v4.0");
+        assertThat(root.path("data")).hasSize(2);
+        assertThat(root.path("data").get(0).path("object").asText()).isEqualTo("embedding");
+        assertThat(root.path("data").get(0).path("embedding").get(1).asDouble()).isEqualTo(0.2D);
+        assertThat(root.path("usage").path("prompt_tokens").asInt()).isEqualTo(5);
+        assertThat(root.path("model_version").asText()).isEqualTo("1.0");
+    }
+
+    @Test
     void rejectsAudioAndVideoPayloadsForCohereV2NativeChat() throws Exception {
         String audioPayload = """
                 {
