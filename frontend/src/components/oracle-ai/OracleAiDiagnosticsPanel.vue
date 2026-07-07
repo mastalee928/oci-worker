@@ -2,7 +2,7 @@
   <div class="oracle-ai-diagnostics">
     <div class="diagnostic-head">
       <a-segmented v-model:value="activeSection" :options="sectionOptions" />
-      <a-space wrap>
+      <a-space class="diagnostic-actions" wrap>
         <a-button :loading="activeLoading" @click="refreshActive">刷新</a-button>
         <a-switch v-if="activeSection === 'requests'" v-model:checked="autoRefresh" />
       </a-space>
@@ -633,6 +633,7 @@ onUnmounted(() => {
 .oracle-ai-diagnostics {
   display: grid;
   gap: 8px;
+  min-width: 0;
 }
 .diagnostic-head {
   display: flex;
@@ -642,12 +643,21 @@ onUnmounted(() => {
   flex-wrap: wrap;
   margin-top: 8px;
   margin-bottom: 4px;
+  min-width: 0;
 }
 .diagnostic-head :deep(.ant-segmented) {
+  max-width: 100%;
   padding: 2px;
   border: 1px solid var(--border);
   border-radius: 10px;
   background: rgba(15, 23, 42, 0.48);
+}
+.diagnostic-actions {
+  flex: 0 1 auto;
+  max-width: 100%;
+  min-width: 0;
+  margin-left: auto;
+  justify-content: flex-end;
 }
 .diagnostic-head :deep(.ant-segmented-item) {
   min-width: 88px;
@@ -965,6 +975,16 @@ onUnmounted(() => {
   min-width: 0;
   overflow-wrap: anywhere;
   font-size: 12px;
+}
+@media (max-width: 1100px) {
+  .diagnostic-head {
+    align-items: flex-start;
+  }
+  .diagnostic-actions {
+    width: 100%;
+    margin-left: 0;
+    justify-content: flex-end;
+  }
 }
 @media (max-width: 767px) {
   .diagnostic-head {
