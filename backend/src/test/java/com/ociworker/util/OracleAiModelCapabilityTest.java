@@ -53,9 +53,9 @@ class OracleAiModelCapabilityTest {
     }
 
     @Test
-    void keepsUnconfirmedVoiceAgentAsChatUntilOciCapabilityIsKnown() {
+    void keepsUnconfirmedVoiceAgentPendingUntilOciCapabilityIsKnown() {
         assertThat(OracleAiModelCapability.classify("xai.grok-voice-agent"))
-                .isEqualTo(OracleAiModelCapability.CHAT);
+                .isEqualTo(OracleAiModelCapability.PENDING);
     }
 
     @Test
@@ -91,6 +91,7 @@ class OracleAiModelCapabilityTest {
         assertThat(OracleAiModelCapability.isChatEndpointCompatible("cohere.embed-v4.0")).isFalse();
         assertThat(OracleAiModelCapability.isChatEndpointCompatible("cohere.rerank-v4.0-pro")).isFalse();
         assertThat(OracleAiModelCapability.isChatEndpointCompatible("xai.grok-tts")).isFalse();
+        assertThat(OracleAiModelCapability.isChatEndpointCompatible("xai.grok-voice-agent")).isFalse();
         assertThat(OracleAiModelCapability.isChatEndpointCompatible("meta.llama-guard-4-12b")).isFalse();
     }
 
@@ -109,6 +110,7 @@ class OracleAiModelCapabilityTest {
         assertThat(OracleAiModelCapability.isEmbeddingEndpointCompatible("xai.grok-4.20-multi-agent")).isFalse();
         assertThat(OracleAiModelCapability.isEmbeddingEndpointCompatible("cohere.rerank-v4.0-fast")).isFalse();
         assertThat(OracleAiModelCapability.isEmbeddingEndpointCompatible("xai.grok-tts")).isFalse();
+        assertThat(OracleAiModelCapability.isEmbeddingEndpointCompatible("xai.grok-voice-agent")).isFalse();
     }
 
     @Test
@@ -130,6 +132,7 @@ class OracleAiModelCapabilityTest {
         assertThat(OracleAiModelCapability.isRerankEndpointCompatible("xai.grok-4.20-multi-agent")).isFalse();
         assertThat(OracleAiModelCapability.isRerankEndpointCompatible("cohere.embed-v4.0")).isFalse();
         assertThat(OracleAiModelCapability.isRerankEndpointCompatible("xai.grok-tts")).isFalse();
+        assertThat(OracleAiModelCapability.isRerankEndpointCompatible("xai.grok-voice-agent")).isFalse();
     }
 
     @Test
@@ -149,6 +152,7 @@ class OracleAiModelCapabilityTest {
         assertThat(OracleAiModelCapability.isAudioSpeechEndpointCompatible("cohere.embed-v4.0")).isFalse();
         assertThat(OracleAiModelCapability.isAudioSpeechEndpointCompatible("cohere.rerank-v4.0-fast")).isFalse();
         assertThat(OracleAiModelCapability.isAudioSpeechEndpointCompatible("content-moderator")).isFalse();
+        assertThat(OracleAiModelCapability.isAudioSpeechEndpointCompatible("xai.grok-voice-agent")).isFalse();
     }
 
     @Test
@@ -178,5 +182,15 @@ class OracleAiModelCapabilityTest {
                 .contains("聊天/生成模型")
                 .contains("/v1/audio/speech")
                 .contains("xai.grok-tts");
+    }
+
+    @Test
+    void explainsPendingModelCapabilityWithoutOciRawError() {
+        assertThat(OracleAiModelCapability.chatEndpointMismatchMessage("xai.grok-voice-agent"))
+                .contains("接口能力尚未确认")
+                .contains("暂不开放");
+        assertThat(OracleAiModelCapability.audioSpeechEndpointMismatchMessage("xai.grok-voice-agent"))
+                .contains("接口能力尚未确认")
+                .contains("/v1/audio/speech");
     }
 }

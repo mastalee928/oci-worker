@@ -16,6 +16,7 @@ public final class OracleAiModelCapability {
     public static final String RERANK = "rerank";
     public static final String AUDIO = "audio";
     public static final String MODERATION = "moderation";
+    public static final String PENDING = "pending";
 
     private OracleAiModelCapability() {
     }
@@ -25,6 +26,10 @@ public final class OracleAiModelCapability {
             return CHAT;
         }
         String value = model.trim().toLowerCase(Locale.ROOT);
+        String grokCapability = OracleAiGrokModelCatalog.classify(value);
+        if (grokCapability != null) {
+            return grokCapability;
+        }
         if (isMultiAgent(value)) {
             return MULTI_AGENT;
         }
@@ -74,7 +79,8 @@ public final class OracleAiModelCapability {
         if (MULTI_AGENT.equals(capability)
                 || RERANK.equals(capability)
                 || AUDIO.equals(capability)
-                || MODERATION.equals(capability)) {
+                || MODERATION.equals(capability)
+                || PENDING.equals(capability)) {
             return false;
         }
         return !isKnownChatGeneration(value);
@@ -92,7 +98,8 @@ public final class OracleAiModelCapability {
         if (MULTI_AGENT.equals(capability)
                 || EMBEDDING.equals(capability)
                 || AUDIO.equals(capability)
-                || MODERATION.equals(capability)) {
+                || MODERATION.equals(capability)
+                || PENDING.equals(capability)) {
             return false;
         }
         return !isKnownChatGeneration(value);
@@ -110,7 +117,8 @@ public final class OracleAiModelCapability {
         if (MULTI_AGENT.equals(capability)
                 || EMBEDDING.equals(capability)
                 || RERANK.equals(capability)
-                || MODERATION.equals(capability)) {
+                || MODERATION.equals(capability)
+                || PENDING.equals(capability)) {
             return false;
         }
         return !isKnownChatGeneration(value);
@@ -135,22 +143,9 @@ public final class OracleAiModelCapability {
             return 0L;
         }
         String value = model.trim().toLowerCase(Locale.ROOT);
-        if (value.startsWith("xai.grok-4.3")
-                || value.startsWith("xai.grok-4.20")) {
-            return 1_000_000L;
-        }
-        if (value.startsWith("xai.grok-4-1-fast")
-                || value.startsWith("xai.grok-4-fast")) {
-            return 2_000_000L;
-        }
-        if (value.startsWith("xai.grok-code-fast")) {
-            return 256_000L;
-        }
-        if (value.startsWith("xai.grok-4")) {
-            return 128_000L;
-        }
-        if (value.startsWith("xai.grok-3")) {
-            return 131_072L;
+        long grokLimit = OracleAiGrokModelCatalog.documentedContextLimit(value);
+        if (grokLimit > 0L) {
+            return grokLimit;
         }
         if (value.startsWith("google.gemini-2.5")) {
             if (isGemini25Flash(value) && isOsakaRegion(region)) {
@@ -189,16 +184,9 @@ public final class OracleAiModelCapability {
             return 0L;
         }
         String value = model.trim().toLowerCase(Locale.ROOT);
-        if (value.startsWith("xai.grok-4.3")
-                || value.startsWith("xai.grok-4.20")) {
-            return 200_000L;
-        }
-        if (value.startsWith("xai.grok-4")
-                || value.startsWith("xai.grok-code-fast")) {
-            return 200_000L;
-        }
-        if (value.startsWith("xai.grok-3")) {
-            return 100_000L;
+        long grokLimit = OracleAiGrokModelCatalog.documentedTpmLimit(value);
+        if (grokLimit > 0L) {
+            return grokLimit;
         }
         if (value.startsWith("google.gemini-2.5")) {
             return 100_000L;
@@ -222,6 +210,7 @@ public final class OracleAiModelCapability {
             case RERANK -> "模型 " + name + " 是 Rerank 模型，不属于聊天/工具调用模型，请使用重排序接口。";
             case AUDIO -> "模型 " + name + " 是语音/音频模型，不属于聊天/工具调用模型；xai.grok-tts 请使用音频语音接口。";
             case MODERATION -> "模型 " + name + " 是安全/审核模型，不属于聊天/工具调用模型，请使用对应审核接口。";
+            case PENDING -> "模型 " + name + " 的接口能力尚未确认，暂不开放聊天/工具调用。";
             default -> "模型 " + name + " 不适用于当前聊天接口。";
         };
     }
@@ -234,6 +223,7 @@ public final class OracleAiModelCapability {
             case RERANK -> "模型 " + name + " 是 Rerank 模型，不能用于 /v1/embeddings，请使用重排序接口。";
             case AUDIO -> "模型 " + name + " 是语音/音频模型，不能用于 /v1/embeddings。";
             case MODERATION -> "模型 " + name + " 是安全/审核模型，不能用于 /v1/embeddings。";
+            case PENDING -> "模型 " + name + " 的接口能力尚未确认，不能用于 /v1/embeddings。";
             default -> "模型 " + name + " 不适用于 /v1/embeddings。";
         };
     }
@@ -246,6 +236,7 @@ public final class OracleAiModelCapability {
             case EMBEDDING -> "模型 " + name + " 是 Embedding 模型，不能用于 /v1/rerank，请使用 /v1/embeddings。";
             case AUDIO -> "模型 " + name + " 是语音/音频模型，不能用于 /v1/rerank。";
             case MODERATION -> "模型 " + name + " 是安全/审核模型，不能用于 /v1/rerank。";
+            case PENDING -> "模型 " + name + " 的接口能力尚未确认，不能用于 /v1/rerank。";
             default -> "模型 " + name + " 不适用于 /v1/rerank。";
         };
     }
@@ -258,6 +249,7 @@ public final class OracleAiModelCapability {
             case EMBEDDING -> "模型 " + name + " 是 Embedding 模型，不能用于 /v1/audio/speech。";
             case RERANK -> "模型 " + name + " 是 Rerank 模型，不能用于 /v1/audio/speech。";
             case MODERATION -> "模型 " + name + " 是安全/审核模型，不能用于 /v1/audio/speech。";
+            case PENDING -> "模型 " + name + " 的接口能力尚未确认，不能用于 /v1/audio/speech。";
             default -> "模型 " + name + " 不适用于 /v1/audio/speech。";
         };
     }
@@ -277,7 +269,6 @@ public final class OracleAiModelCapability {
     private static boolean isAudio(String value) {
         return value.contains(".tts")
                 || value.contains("-tts")
-                || value.contains("grok-tts")
                 || value.contains("text-to-speech")
                 || value.contains("audio");
     }
@@ -290,7 +281,7 @@ public final class OracleAiModelCapability {
     }
 
     private static boolean isKnownChatGeneration(String value) {
-        return value.startsWith("xai.grok-")
+        return OracleAiGrokModelCatalog.isGrokModel(value)
                 || value.startsWith("cohere.command")
                 || value.startsWith("google.gemini")
                 || value.startsWith("openai.gpt-oss")
