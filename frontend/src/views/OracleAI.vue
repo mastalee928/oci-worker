@@ -1504,7 +1504,6 @@ function checkM() {
 }
 
 onMounted(() => {
-  document.body.classList.add('oracle-ai-route-active')
   checkM()
   window.addEventListener('resize', checkM)
   loadPersistedState()
@@ -1520,7 +1519,6 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
-  document.body.classList.remove('oracle-ai-route-active')
   window.removeEventListener('resize', checkM)
   if (gatewayIpRetryTimer) {
     clearTimeout(gatewayIpRetryTimer)
@@ -2713,19 +2711,6 @@ async function viewKey(k: any) {
   width: 100%;
   max-width: none;
   margin: 0;
-}
-:global([data-theme="light"] .oracle-ai-page) {
-  min-height: calc(100vh - 104px);
-  background-color: transparent;
-  background-image:
-    linear-gradient(var(--grid-color) 1px, transparent 1px),
-    linear-gradient(90deg, var(--grid-color) 1px, transparent 1px);
-  background-size: 24px 24px;
-}
-:global([data-theme="light"] body.oracle-ai-route-active::before),
-:global([data-theme="light"] body.oracle-ai-route-active::after) {
-  background: none !important;
-  opacity: 0 !important;
 }
 .sub {
   line-height: 1.6;

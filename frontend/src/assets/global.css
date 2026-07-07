@@ -178,6 +178,11 @@ body::after {
   pointer-events: none;
   filter: blur(60px);
 }
+[data-theme="light"] body::before,
+[data-theme="light"] body::after {
+  display: none;
+  background: none;
+}
 
 /* Scrollbar */
 ::-webkit-scrollbar { width: 6px; height: 6px; }
