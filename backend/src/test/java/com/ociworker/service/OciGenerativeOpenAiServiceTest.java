@@ -221,6 +221,23 @@ class OciGenerativeOpenAiServiceTest {
     }
 
     @Test
+    void doesNotCapMetaLlamaDedicatedServingModeOutputTokens() throws Exception {
+        String payload = """
+                {
+                  "model":"meta.llama-4-maverick-17b-128e-instruct-fp8",
+                  "servingMode":{"servingType":"DEDICATED","endpointId":"ocid1.generativeaiendpoint.oc1..test"},
+                  "messages":[{"role":"user","content":"hello"}],
+                  "max_tokens":12000
+                }
+                """;
+
+        byte[] normalized = OciGenerativeOpenAiService.transformChatCompletionsJson(payload.getBytes(), 2048);
+
+        JsonNode root = MAPPER.readTree(normalized);
+        assertThat(root.path("max_tokens").asInt()).isEqualTo(12000);
+    }
+
+    @Test
     void capsLlama33StandardOnDemandOutputTokens() throws Exception {
         String payload = """
                 {
