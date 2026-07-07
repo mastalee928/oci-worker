@@ -357,6 +357,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 
 .model-library-modal {
   width: min(1240px, calc(100vw - 48px));
+  height: min(880px, calc(100vh - 56px));
   max-height: min(880px, calc(100vh - 56px));
   display: grid;
   grid-template-rows: auto minmax(0, 1fr) auto;
@@ -442,7 +443,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 
 .model-library-body {
   min-height: 0;
-  overflow: auto;
+  overflow: hidden;
   padding: 16px 18px 18px;
 }
 
@@ -450,12 +451,19 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
   display: grid;
   grid-template-columns: minmax(0, 1fr) 320px;
   gap: 14px;
-  align-items: start;
+  align-items: stretch;
+  min-height: 0;
+  height: 100%;
 }
 
 .model-groups {
   display: grid;
+  align-content: start;
   gap: 12px;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-right: 6px;
 }
 
 .model-group {
@@ -686,10 +694,13 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 }
 
 .model-preview-panel {
-  position: sticky;
-  top: 0;
   display: grid;
+  align-content: start;
   gap: 12px;
+  min-height: 0;
+  max-height: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: var(--bg-card);
@@ -792,12 +803,22 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 }
 
 @media (max-width: 1100px) {
+  .model-library-body {
+    overflow: auto;
+  }
+
   .model-library-layout {
     grid-template-columns: 1fr;
+    height: auto;
+  }
+
+  .model-groups {
+    overflow: visible;
+    padding-right: 0;
   }
 
   .model-preview-panel {
-    position: static;
+    max-height: 360px;
   }
 }
 
@@ -808,6 +829,7 @@ onUnmounted(() => document.removeEventListener('keydown', onKeydown))
 
   .model-library-modal {
     width: calc(100vw - 24px);
+    height: calc(100vh - 24px);
     max-height: calc(100vh - 24px);
   }
 
