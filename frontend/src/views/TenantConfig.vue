@@ -123,134 +123,31 @@
       :on-confirm="handleAddSubGroupConfirm"
     />
 
-    <!-- 新增/编辑弹窗（内嵌快速导入） -->
-    <a-modal :keyboard="false"
+    <TenantConfigFormModal
       v-model:open="modalVisible"
-      :title="editingId ? '编辑配置' : '新增配置'"
-      :width="isMobile ? '100%' : 680"
-      :body-style="{ maxHeight: '75vh', overflow: 'auto' }"
-      @ok="handleSubmit"
-      :confirm-loading="submitLoading"
-      :mask-closable="false"
-    >
-      <a-form :model="formState" layout="vertical" class="tenant-form-compact">
-        <div v-if="!editingId" class="tenant-quick-import-block">
-          <div class="tenant-quick-import-header">⚡ 快速导入 — 粘贴 OCI 配置自动填充</div>
-          <div class="tenant-quick-import-body">
-            <a-textarea
-              v-model:value="importText"
-              :rows="6"
-              placeholder="粘贴 OCI 配置内容，例如：
-[Profile-Name]
-user=ocid1.user.oc1...
-fingerprint=a5:48:75:06...
-tenancy=ocid1.tenancy.oc1...
-region=ap-tokyo-1"
-              style="font-family: monospace; font-size: 12px"
-            />
-            <a-button type="primary" size="small" style="margin-top: 8px" @click="parseAndFill">
-              <template #icon><ThunderboltOutlined /></template>解析并填充
-            </a-button>
-          </div>
-        </div>
-
-        <a-form-item label="自定义名称" required>
-          <a-input v-model:value="formState.username" placeholder="例：我的甲骨文1号" />
-        </a-form-item>
-        <a-form-item label="Tenant OCID" required>
-          <a-input v-model:value="formState.ociTenantId" placeholder="ocid1.tenancy.oc1.." />
-        </a-form-item>
-        <a-form-item label="User OCID" required>
-          <a-input v-model:value="formState.ociUserId" placeholder="ocid1.user.oc1.." />
-        </a-form-item>
-        <a-form-item label="Fingerprint" required>
-          <a-input v-model:value="formState.ociFingerprint" placeholder="xx:xx:xx:..." />
-        </a-form-item>
-        <a-form-item label="Region" required>
-          <a-segmented
-            v-model:value="regionInputMode"
-            :options="regionInputModeOptions"
-            block
-            size="small"
-            class="region-input-mode"
-          />
-          <a-select
-            v-if="regionInputMode === 'select'"
-            v-model:value="formState.ociRegion"
-            placeholder="选择区域"
-            show-search
-            :loading="regionOptionsLoading"
-            :filter-option="filterOciRegionSelectOption"
-            @change="normalizeRegionInput"
-          >
-            <a-select-option v-for="opt in ociRegionSelectOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</a-select-option>
-          </a-select>
-          <a-input
-            v-else
-            v-model:value="formState.ociRegion"
-            placeholder="如 eu-turin-1"
-            allow-clear
-            @blur="normalizeRegionInput"
-            @press-enter="normalizeRegionInput"
-          />
-        </a-form-item>
-        <a-form-item label="私钥 (.pem)" required>
-          <a-segmented
-            v-model:value="keyInputMode"
-            block
-            class="pem-input-mode-segmented"
-            :options="[
-              { label: '上传文件', value: 'upload' },
-              { label: '粘贴内容', value: 'paste' },
-            ]"
-            @change="onKeyInputModeChange"
-          />
-          <div class="pem-key-input-slot">
-            <a-upload-dragger
-              v-if="keyInputMode === 'upload'"
-              class="pem-upload-dragger"
-              :before-upload="handleUpload"
-              :max-count="1"
-              accept=".pem"
-              :file-list="fileList"
-              :show-upload-list="false"
-              @remove="handleRemoveFile"
-            >
-              <p class="ant-upload-drag-icon"><InboxOutlined /></p>
-              <p class="ant-upload-text">{{ isMobile ? '点击选择 PEM 文件' : '点击或拖拽 PEM 文件到此处' }}</p>
-            </a-upload-dragger>
-            <a-textarea
-              v-else
-              v-model:value="pemPasteText"
-              :rows="4"
-              class="pem-paste-textarea"
-              placeholder="粘贴完整 PEM 私钥，须包含：
------BEGIN PRIVATE KEY-----
-...
------END PRIVATE KEY-----"
-            />
-          </div>
-          <div v-if="keyInputMode === 'upload' && fileList.length" class="pem-upload-filename">
-            {{ fileList[0]?.name }}
-            <a class="pem-upload-remove" @click.prevent="handleRemoveFile">移除</a>
-          </div>
-          <span v-if="formState.ociKeyPath && !fileList.length && !pemPasteText.trim()" class="pem-existing-hint">
-            已有密钥：{{ formState.ociKeyPath }}（上传或粘贴可覆盖）
-          </span>
-        </a-form-item>
-        <a-form-item label="一级分组">
-          <a-select v-model:value="formState.groupLevel1" placeholder="不选则归入「未分组」" allow-clear show-search
-            @change="formState.groupLevel2 = ''">
-            <a-select-option v-for="g in groupData.level1.filter(n => n !== '未分组')" :key="g" :value="g">{{ g }}</a-select-option>
-          </a-select>
-        </a-form-item>
-        <a-form-item v-if="formState.groupLevel1" label="二级分组（可选）">
-          <a-select v-model:value="formState.groupLevel2" placeholder="不选则直接归入一级分组" allow-clear show-search>
-            <a-select-option v-for="g in level2Options" :key="g" :value="g">{{ g }}</a-select-option>
-          </a-select>
-        </a-form-item>
-      </a-form>
-    </a-modal>
+      v-model:import-text="importText"
+      v-model:key-input-mode="keyInputMode"
+      v-model:pem-paste-text="pemPasteText"
+      v-model:region-input-mode="regionInputMode"
+      :editing-id="editingId"
+      :loading="submitLoading"
+      :is-mobile="isMobile"
+      :form-state="formState"
+      :file-list="fileList"
+      :region-input-mode-options="regionInputModeOptions"
+      :region-options-loading="regionOptionsLoading"
+      :region-options="ociRegionSelectOptions"
+      :filter-region-option="filterOciRegionSelectOption"
+      :group-level1-options="formGroupLevel1Options"
+      :level2-options="level2Options"
+      :before-upload="handleUpload"
+      :on-submit="handleSubmit"
+      @parse-and-fill="parseAndFill"
+      @normalize-region="normalizeRegionInput"
+      @key-input-mode-change="onKeyInputModeChange"
+      @remove-file="handleRemoveFile"
+      @clear-group-level2="formState.groupLevel2 = ''"
+    />
 
     <!-- 租户级管理 -->
     <a-modal v-model:open="tenantMgmtVisible" :title="'租户 — ' + (tenantMgmtTenant?.username || '')"
@@ -1649,7 +1546,7 @@ defineOptions({ name: 'TenantConfig' })
 
 import { ref, reactive, computed, h, onMounted, onActivated, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { PlusOutlined, ThunderboltOutlined, InboxOutlined, ReloadOutlined, MenuFoldOutlined, MenuUnfoldOutlined, VerticalAlignTopOutlined } from '@ant-design/icons-vue'
+import { PlusOutlined, ReloadOutlined, MenuFoldOutlined, MenuUnfoldOutlined, VerticalAlignTopOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
 import type { UploadFile } from 'ant-design-vue'
 import { getTenantList, addTenant, updateTenant, removeTenant, batchMoveTenantGroup, uploadKey, getTenantFullInfo, getTenantBillingSummary, downloadInvoicePdf, listBudgets, createBudget, updateBudget, deleteBudget, listBudgetAlertRules, createBudgetAlertRule, updateBudgetAlertRule, deleteBudgetAlertRule, listTenantRegions, subscribeTenantRegion, getDomainSettings, updateMfa, updatePasswordExpiry, unlockDomainNotifications, getDomainNotifications, updateDomainNotifications, getAuditLogs, getServiceQuotas, listIamPolicies, getIamPolicy, listAnnouncements, getAnnouncementDetail, markAnnouncementRead, getTenantGroups, createGroup, renameGroup, deleteGroup, saveGroupOrder, unlockAuthFactors, getAuthFactors, updateAuthFactors } from '../api/tenant'
@@ -1688,6 +1585,7 @@ const TenantBatchMoveModal = defineAppAsyncComponent(() => import('./tenant-conf
 const TenantGroupManagerModal = defineAppAsyncComponent(() => import('./tenant-config/components/TenantGroupManagerModal.vue'))
 const TenantRenameGroupModal = defineAppAsyncComponent(() => import('./tenant-config/components/TenantRenameGroupModal.vue'))
 const TenantAddSubGroupModal = defineAppAsyncComponent(() => import('./tenant-config/components/TenantAddSubGroupModal.vue'))
+const TenantConfigFormModal = defineAppAsyncComponent(() => import('./tenant-config/components/TenantConfigFormModal.vue'))
 
 const router = useRouter()
 const catalog = useTenantCatalogStore()
@@ -2384,8 +2282,8 @@ function resetForm() {
   keyInputMode.value = isMobile.value ? 'paste' : 'upload'
 }
 
-function onKeyInputModeChange() {
-  if (keyInputMode.value === 'upload') {
+function onKeyInputModeChange(mode: 'upload' | 'paste' = keyInputMode.value) {
+  if (mode === 'upload') {
     pemPasteText.value = ''
   } else {
     pendingFile = null
@@ -3393,6 +3291,10 @@ const level2Options = computed(() => {
   if (!formState.groupLevel1) return []
   return groupData.value.level2[formState.groupLevel1] || []
 })
+
+const formGroupLevel1Options = computed(() =>
+  (groupData.value.level1 || []).filter((name: string) => name !== '未分组')
+)
 
 const batchMoveLevel1Options = computed(() => {
   const set = new Set<string>(groupData.value.level1 || [])
@@ -5217,30 +5119,6 @@ onUnmounted(() => {
   gap: 8px;
   transition: var(--trans);
 }
-/* 快速导入（无折叠，仅展示） */
-.tenant-quick-import-block {
-  margin-bottom: 12px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  box-shadow: var(--shadow-card);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
-  transition: var(--trans);
-  overflow: hidden;
-}
-.tenant-quick-import-header {
-  padding: 12px 16px;
-  font-weight: 600;
-  font-size: 14px;
-  color: var(--text-main);
-  cursor: default;
-  user-select: none;
-  border-bottom: 1px solid var(--border);
-}
-.tenant-quick-import-body {
-  padding: 12px 16px 16px;
-}
 .group-section {
   margin-bottom: 12px;
   transition: transform 0.15s ease, opacity 0.15s ease;
@@ -5566,18 +5444,6 @@ onUnmounted(() => {
   color: #2563eb;
 }
 
-.tenant-form-compact :deep(.ant-form-item) {
-  margin-bottom: 12px;
-}
-.tenant-form-compact :deep(.ant-form-item-label) {
-  padding-bottom: 2px;
-}
-.pem-input-mode-segmented {
-  margin-bottom: 8px;
-}
-.region-input-mode {
-  margin-bottom: 8px;
-}
 .quota-toolbar {
   display: flex;
   align-items: center;
@@ -5666,67 +5532,6 @@ onUnmounted(() => {
   .quota-toolbar .ant-btn {
     width: 100%;
   }
-}
-/* 与 rows=4 的 textarea 同高（约 118px） */
-.pem-key-input-slot {
-  height: 118px;
-}
-.pem-key-input-slot .pem-upload-dragger,
-.pem-key-input-slot .pem-upload-dragger :deep(.ant-upload),
-.pem-key-input-slot .pem-upload-dragger :deep(.ant-upload-drag) {
-  height: 118px;
-  margin: 0;
-  padding: 0;
-  display: block;
-}
-.pem-key-input-slot .pem-upload-dragger :deep(.ant-upload-drag) {
-  height: 100%;
-}
-.pem-key-input-slot .pem-upload-dragger :deep(.ant-upload-btn) {
-  display: flex !important;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  height: 100%;
-  width: 100%;
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-.pem-key-input-slot .pem-upload-dragger :deep(.ant-upload-drag-icon) {
-  margin: 0 0 6px 0;
-  font-size: 28px;
-  line-height: 1;
-}
-.pem-key-input-slot .pem-upload-dragger :deep(.ant-upload-text) {
-  margin: 0;
-  padding: 0 8px;
-  font-size: 13px;
-  line-height: 1.4;
-  text-align: center;
-}
-.pem-key-input-slot .pem-paste-textarea,
-.pem-key-input-slot .pem-paste-textarea :deep(textarea) {
-  height: 118px !important;
-  min-height: 118px !important;
-  margin: 0;
-  resize: none;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-  font-size: 12px;
-}
-.pem-upload-filename {
-  margin-top: 6px;
-  font-size: 12px;
-  color: var(--text-sub, #888);
-}
-.pem-upload-remove {
-  margin-left: 8px;
-}
-.pem-existing-hint {
-  color: var(--text-sub, #888);
-  font-size: 12px;
-  margin-top: 6px;
-  display: block;
 }
 .tenant-page-float-actions {
   position: fixed;
