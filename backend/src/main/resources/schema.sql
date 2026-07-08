@@ -192,7 +192,7 @@ CREATE TABLE IF NOT EXISTS oci_openai_lb_member (
     max_concurrency INT DEFAULT NULL,
     rpm_limit INT DEFAULT NULL,
     tpm_limit BIGINT DEFAULT NULL,
-    context_limit INT DEFAULT NULL,
+    context_limit BIGINT DEFAULT NULL,
     stream_first_chunk_timeout_seconds INT DEFAULT NULL,
     stream_idle_timeout_seconds INT DEFAULT NULL,
     stream_max_seconds INT DEFAULT NULL,

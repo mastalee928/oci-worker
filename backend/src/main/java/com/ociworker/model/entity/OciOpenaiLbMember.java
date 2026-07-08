@@ -30,7 +30,7 @@ public class OciOpenaiLbMember {
     @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private Long tpmLimit;
     @TableField(updateStrategy = FieldStrategy.ALWAYS)
-    private Integer contextLimit;
+    private Long contextLimit;
     @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private Integer streamFirstChunkTimeoutSeconds;
     @TableField(updateStrategy = FieldStrategy.ALWAYS)

@@ -208,7 +208,7 @@ public class OciOpenaiLoadBalanceService {
             Integer maxConcurrency,
             Integer rpmLimit,
             Long tpmLimit,
-            Integer contextLimit,
+            Long contextLimit,
             Integer streamFirstChunkTimeoutSeconds,
             Integer streamIdleTimeoutSeconds,
             Integer streamMaxSeconds) {
@@ -239,7 +239,7 @@ public class OciOpenaiLoadBalanceService {
         row.setMaxConcurrency(normalizeLimit(maxConcurrency));
         row.setRpmLimit(normalizeLimit(rpmLimit));
         row.setTpmLimit(normalizeLongLimit(tpmLimit));
-        row.setContextLimit(normalizeLimit(contextLimit));
+        row.setContextLimit(normalizeLongLimit(contextLimit));
         row.setStreamFirstChunkTimeoutSeconds(normalizeTimeout(streamFirstChunkTimeoutSeconds, 5, 600));
         row.setStreamIdleTimeoutSeconds(normalizeTimeout(streamIdleTimeoutSeconds, 5, 600));
         row.setStreamMaxSeconds(normalizeTimeout(streamMaxSeconds, 30, 21600));

@@ -193,7 +193,7 @@ public class DatabaseGuardService {
                 max_concurrency INT DEFAULT NULL,
                 rpm_limit INT DEFAULT NULL,
                 tpm_limit BIGINT DEFAULT NULL,
-                context_limit INT DEFAULT NULL,
+                context_limit BIGINT DEFAULT NULL,
                 stream_first_chunk_timeout_seconds INT DEFAULT NULL,
                 stream_idle_timeout_seconds INT DEFAULT NULL,
                 stream_max_seconds INT DEFAULT NULL,
@@ -566,7 +566,9 @@ public class DatabaseGuardService {
         addColumnIfMissing(conn, "oci_openai_lb_member", "tpm_limit",
                 "BIGINT DEFAULT NULL AFTER rpm_limit");
         addColumnIfMissing(conn, "oci_openai_lb_member", "context_limit",
-                "INT DEFAULT NULL AFTER tpm_limit");
+                "BIGINT DEFAULT NULL AFTER tpm_limit");
+        modifyColumnIfPresent(conn, "oci_openai_lb_member", "context_limit",
+                "BIGINT DEFAULT NULL");
         addColumnIfMissing(conn, "oci_openai_lb_member", "stream_first_chunk_timeout_seconds",
                 "INT DEFAULT NULL AFTER context_limit");
         addColumnIfMissing(conn, "oci_openai_lb_member", "stream_idle_timeout_seconds",
@@ -615,6 +617,24 @@ public class DatabaseGuardService {
             }
         } catch (SQLException e) {
             log.warn("【数据库守护】检查/添加字段 {}.{} 失败: {}", table, column, e.getMessage());
+        }
+    }
+
+    private void modifyColumnIfPresent(Connection conn, String table, String column, String definition) {
+        try (ResultSet rs = conn.getMetaData().getColumns(conn.getCatalog(), null, table, column)) {
+            if (!rs.next()) {
+                return;
+            }
+            String typeName = rs.getString("TYPE_NAME");
+            if (typeName != null && typeName.toUpperCase().contains("BIGINT")) {
+                return;
+            }
+            try (Statement stmt = conn.createStatement()) {
+                stmt.execute("ALTER TABLE `" + table + "` MODIFY COLUMN `" + column + "` " + definition);
+                log.info("【数据库守护】自动修正字段类型 {}.{}", table, column);
+            }
+        } catch (SQLException e) {
+            log.warn("【数据库守护】检查/修正字段 {}.{} 失败: {}", table, column, e.getMessage());
         }
     }
 

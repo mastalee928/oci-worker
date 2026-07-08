@@ -463,7 +463,7 @@ public class OracleAiController {
                     nullableIntValue(body == null ? null : body.get("maxConcurrency"), "最大并发必须是数字"),
                     nullableIntValue(body == null ? null : body.get("rpmLimit"), "RPM 上限必须是数字"),
                     nullableLongValue(body == null ? null : body.get("tpmLimit"), "TPM 上限必须是数字"),
-                    nullableIntValue(body == null ? null : body.get("contextLimit"), "上下文上限必须是数字"),
+                    nullableLongValue(body == null ? null : body.get("contextLimit"), "上下文上限必须是数字"),
                     nullableIntValue(body == null ? null : body.get("streamFirstChunkTimeoutSeconds"), "首块超时必须是数字"),
                     nullableIntValue(body == null ? null : body.get("streamIdleTimeoutSeconds"), "空闲超时必须是数字"),
                     nullableIntValue(body == null ? null : body.get("streamMaxSeconds"), "最长流时长必须是数字"));

@@ -128,6 +128,12 @@ class OciOpenaiLoadBalanceServiceTest {
         assertFieldAllowsNullUpdate("streamMaxSeconds");
     }
 
+    @Test
+    void loadBalanceMemberContextLimitUsesLongStorage() throws NoSuchFieldException {
+        Field field = OciOpenaiLbMember.class.getDeclaredField("contextLimit");
+        assertThat(field.getType()).isEqualTo(Long.class);
+    }
+
     private static OciOpenaiLbMember failedMember(LocalDateTime lastUsed) {
         OciOpenaiLbMember member = new OciOpenaiLbMember();
         member.setId("member-1");
