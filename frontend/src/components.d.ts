@@ -88,6 +88,7 @@ declare module 'vue' {
     InstanceShapeEditPanel: typeof import('./components/instance/InstanceShapeEditPanel.vue')['default']
     InstanceTenantEntryPanel: typeof import('./components/instance/InstanceTenantEntryPanel.vue')['default']
     InstanceTrafficPanel: typeof import('./components/instance/InstanceTrafficPanel.vue')['default']
+    LbLimitInput: typeof import('./components/oracle-ai/LbLimitInput.vue')['default']
     OciLogo: typeof import('./components/OciLogo.vue')['default']
     OracleAiDiagnosticsPanel: typeof import('./components/oracle-ai/OracleAiDiagnosticsPanel.vue')['default']
     OracleAiModelPickerModal: typeof import('./components/oracle-ai/OracleAiModelPickerModal.vue')['default']

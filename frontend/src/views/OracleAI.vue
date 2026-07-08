@@ -778,25 +778,19 @@
         <a-row :gutter="12">
           <a-col :xs="24" :sm="12">
             <a-form-item label="5小时请求上限">
-              <a-input-number
+              <LbLimitInput
                 v-model:value="lbMemberForm.requestLimit5h"
                 :min="1"
-                :precision="0"
-                :controls="false"
                 placeholder="留空不限"
-                style="width: 100%"
               />
             </a-form-item>
           </a-col>
           <a-col :xs="24" :sm="12">
             <a-form-item label="7天请求上限">
-              <a-input-number
+              <LbLimitInput
                 v-model:value="lbMemberForm.requestLimit7d"
                 :min="1"
-                :precision="0"
-                :controls="false"
                 placeholder="留空不限"
-                style="width: 100%"
               />
             </a-form-item>
           </a-col>
@@ -804,22 +798,22 @@
         <a-row :gutter="12">
           <a-col :xs="24" :sm="12">
             <a-form-item label="最大并发">
-              <a-input-number v-model:value="lbMemberForm.maxConcurrency" :min="1" :precision="0" :controls="false" placeholder="留空不限" style="width: 100%" />
+              <LbLimitInput v-model:value="lbMemberForm.maxConcurrency" :min="1" placeholder="留空不限" />
             </a-form-item>
           </a-col>
           <a-col :xs="24" :sm="12">
             <a-form-item label="RPM 上限">
-              <a-input-number v-model:value="lbMemberForm.rpmLimit" :min="1" :precision="0" :controls="false" placeholder="留空使用动态避让" style="width: 100%" />
+              <LbLimitInput v-model:value="lbMemberForm.rpmLimit" :min="1" placeholder="留空使用动态避让" />
             </a-form-item>
           </a-col>
           <a-col :xs="24" :sm="12">
             <a-form-item label="TPM 上限">
-              <a-input-number v-model:value="lbMemberForm.tpmLimit" :min="1" :precision="0" :controls="false" placeholder="留空按模型/429自动避让" style="width: 100%" />
+              <LbLimitInput v-model:value="lbMemberForm.tpmLimit" :min="1" placeholder="留空按模型/429自动避让" />
             </a-form-item>
           </a-col>
           <a-col :xs="24" :sm="12">
             <a-form-item label="上下文上限">
-              <a-input-number v-model:value="lbMemberForm.contextLimit" :min="1" :precision="0" :controls="false" placeholder="留空按模型文档" style="width: 100%" />
+              <LbLimitInput v-model:value="lbMemberForm.contextLimit" :min="1" placeholder="留空按模型文档" />
             </a-form-item>
           </a-col>
         </a-row>
@@ -829,17 +823,17 @@
         <a-row :gutter="12">
           <a-col :xs="24" :sm="8">
             <a-form-item label="首块超时(秒)">
-              <a-input-number v-model:value="lbMemberForm.streamFirstChunkTimeoutSeconds" :min="5" :max="600" :precision="0" :controls="false" placeholder="默认60" style="width: 100%" />
+              <LbLimitInput v-model:value="lbMemberForm.streamFirstChunkTimeoutSeconds" :min="5" :max="600" placeholder="默认60" />
             </a-form-item>
           </a-col>
           <a-col :xs="24" :sm="8">
             <a-form-item label="空闲超时(秒)">
-              <a-input-number v-model:value="lbMemberForm.streamIdleTimeoutSeconds" :min="5" :max="600" :precision="0" :controls="false" placeholder="默认180" style="width: 100%" />
+              <LbLimitInput v-model:value="lbMemberForm.streamIdleTimeoutSeconds" :min="5" :max="600" placeholder="默认180" />
             </a-form-item>
           </a-col>
           <a-col :xs="24" :sm="8">
             <a-form-item label="最长流(秒)">
-              <a-input-number v-model:value="lbMemberForm.streamMaxSeconds" :min="30" :max="21600" :precision="0" :controls="false" placeholder="默认7200" style="width: 100%" />
+              <LbLimitInput v-model:value="lbMemberForm.streamMaxSeconds" :min="30" :max="21600" placeholder="默认7200" />
             </a-form-item>
           </a-col>
         </a-row>
@@ -917,6 +911,7 @@ const OracleAiPortBindingsPanel = defineAppAsyncComponent(() => import('../compo
 const OracleAiPortBindingModal = defineAppAsyncComponent(() => import('../components/oracle-ai/OracleAiPortBindingModal.vue'))
 const OracleAiModelPickerModal = defineAppAsyncComponent(() => import('../components/oracle-ai/OracleAiModelPickerModal.vue'))
 const OracleAiModelSummary = defineAppAsyncComponent(() => import('../components/oracle-ai/OracleAiModelSummary.vue'))
+const LbLimitInput = defineAppAsyncComponent(() => import('../components/oracle-ai/LbLimitInput.vue'))
 
 const tenantsLoading = ref(false)
 const activeModeTab = ref('single')
@@ -1886,7 +1881,7 @@ async function openLbMemberModal(row?: any) {
   lbMemberModalOpen.value = true
 }
 
-function toNullablePositiveInt(value: unknown) {
+function toNullablePositiveInteger(value: unknown) {
   if (value === null || value === undefined || value === '') return null
   const numeric = Number(value)
   if (!Number.isFinite(numeric) || numeric <= 0) return null
@@ -1915,15 +1910,15 @@ async function saveLbMemberRow() {
         portBindingId,
         weight: Math.trunc(weight),
         enabled: f.enabled,
-        requestLimit5h: toNullablePositiveInt(f.requestLimit5h),
-        requestLimit7d: toNullablePositiveInt(f.requestLimit7d),
-        maxConcurrency: toNullablePositiveInt(f.maxConcurrency),
-        rpmLimit: toNullablePositiveInt(f.rpmLimit),
-        tpmLimit: toNullablePositiveInt(f.tpmLimit),
-        contextLimit: toNullablePositiveInt(f.contextLimit),
-        streamFirstChunkTimeoutSeconds: toNullablePositiveInt(f.streamFirstChunkTimeoutSeconds),
-        streamIdleTimeoutSeconds: toNullablePositiveInt(f.streamIdleTimeoutSeconds),
-        streamMaxSeconds: toNullablePositiveInt(f.streamMaxSeconds),
+        requestLimit5h: toNullablePositiveInteger(f.requestLimit5h),
+        requestLimit7d: toNullablePositiveInteger(f.requestLimit7d),
+        maxConcurrency: toNullablePositiveInteger(f.maxConcurrency),
+        rpmLimit: toNullablePositiveInteger(f.rpmLimit),
+        tpmLimit: toNullablePositiveInteger(f.tpmLimit),
+        contextLimit: toNullablePositiveInteger(f.contextLimit),
+        streamFirstChunkTimeoutSeconds: toNullablePositiveInteger(f.streamFirstChunkTimeoutSeconds),
+        streamIdleTimeoutSeconds: toNullablePositiveInteger(f.streamIdleTimeoutSeconds),
+        streamMaxSeconds: toNullablePositiveInteger(f.streamMaxSeconds),
       })
     }
     lbMemberModalOpen.value = false
