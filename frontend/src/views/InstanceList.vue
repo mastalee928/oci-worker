@@ -216,20 +216,22 @@
       @editing-overlay-change="handleStorageManagerEditingOverlayChange"
     />
 
-    <div v-show="floatingTenantCardVisible">
-      <InstanceFloatingTenantCard
-        :visible="floatingTenantCardVisible"
-        :card="floatingTenantCard"
-        :card-style="floatingTenantCardStyle"
-        :workspace-kind="tenantWorkspaceKind"
-        :action-items="floatingTenantActionItems"
-        :tenant-plan-tag-style="tenantPlanTagStyle"
-        :tenant-plan-tag-color="tenantPlanTagColor"
-        :format-tenant-plan-type="formatTenantPlanType"
-        :floating-tenant-button-type="floatingTenantButtonType"
-        @action-click="handleFloatingTenantAction"
-      />
-    </div>
+    <Teleport to="body">
+      <div v-show="floatingTenantCardVisible">
+        <InstanceFloatingTenantCard
+          :visible="floatingTenantCardVisible"
+          :card="floatingTenantCard"
+          :card-style="floatingTenantCardStyle"
+          :workspace-kind="tenantWorkspaceKind"
+          :action-items="floatingTenantActionItems"
+          :tenant-plan-tag-style="tenantPlanTagStyle"
+          :tenant-plan-tag-color="tenantPlanTagColor"
+          :format-tenant-plan-type="formatTenantPlanType"
+          :floating-tenant-button-type="floatingTenantButtonType"
+          @action-click="handleFloatingTenantAction"
+        />
+      </div>
+    </Teleport>
 
     <div class="tenant-page-float-actions" aria-label="页面快捷操作">
       <a-tooltip

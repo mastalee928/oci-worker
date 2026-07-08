@@ -545,6 +545,7 @@ import {
 } from '../api/storage'
 import { updateInstanceState } from '../api/instance'
 import { sendVerifyCode } from '../api/system'
+import { INSTANCE_CONFIRM_MODAL_WRAP_CLASS, INSTANCE_CONFIRM_MODAL_Z_INDEX } from '../utils/overlayZIndex'
 
 const props = withDefaults(
   defineProps<{
@@ -1468,14 +1469,20 @@ function handleDetachBootVolume(row: any) {
   }
   const state = String(att.instanceState || '').toUpperCase()
   if (state !== 'STOPPED') {
+    storageConfirmOverlayActive.value = true
     Modal.confirm({
       title: '需要先停止实例',
       content: `引导卷当前挂载在 ${bootAttachmentName(att)}，实例状态为 ${att.instanceState || '未知'}。请先断电停止实例后再分离引导卷。`,
       okText: '断电停止',
       cancelText: '取消',
       okButtonProps: { danger: true },
+      zIndex: INSTANCE_CONFIRM_MODAL_Z_INDEX,
+      wrapClassName: INSTANCE_CONFIRM_MODAL_WRAP_CLASS,
       async onOk() {
         await stopBootVolumeInstance(att)
+      },
+      afterClose: () => {
+        storageConfirmOverlayActive.value = false
       },
     })
     return
@@ -2117,6 +2124,8 @@ async function submitPolicy() {
   }
 }
 
+const storageConfirmOverlayActive = ref(false)
+
 const editingOverlayOpen = computed(() =>
   renameOpen.value ||
   resizeBootOpen.value ||
@@ -2136,7 +2145,8 @@ const editingOverlayOpen = computed(() =>
   peCreateOpen.value ||
   deleteOpen.value ||
   detachBootOpen.value ||
-  policyOpen.value,
+  policyOpen.value ||
+  storageConfirmOverlayActive.value,
 )
 
 watch(
