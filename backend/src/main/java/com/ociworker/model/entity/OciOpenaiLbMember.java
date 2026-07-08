@@ -1,5 +1,7 @@
 package com.ociworker.model.entity;
 
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.baomidou.mybatisplus.annotation.TableId;
 import com.baomidou.mybatisplus.annotation.TableName;
 import lombok.Data;
@@ -17,14 +19,23 @@ public class OciOpenaiLbMember {
     private Integer failCount;
     private LocalDateTime cooldownUntil;
     private String lastError;
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private Integer requestLimit5h;
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private Integer requestLimit7d;
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private Integer maxConcurrency;
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private Integer rpmLimit;
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private Long tpmLimit;
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private Integer contextLimit;
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private Integer streamFirstChunkTimeoutSeconds;
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private Integer streamIdleTimeoutSeconds;
+    @TableField(updateStrategy = FieldStrategy.ALWAYS)
     private Integer streamMaxSeconds;
     private String healthStatus;
     private String healthMessage;

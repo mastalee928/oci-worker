@@ -1886,6 +1886,13 @@ async function openLbMemberModal(row?: any) {
   lbMemberModalOpen.value = true
 }
 
+function toNullablePositiveInt(value: unknown) {
+  if (value === null || value === undefined || value === '') return null
+  const numeric = Number(value)
+  if (!Number.isFinite(numeric) || numeric <= 0) return null
+  return Math.trunc(numeric)
+}
+
 async function saveLbMemberRow() {
   const f = lbMemberForm.value
   const selectedPortBindingIds = Array.from(
@@ -1908,15 +1915,15 @@ async function saveLbMemberRow() {
         portBindingId,
         weight: Math.trunc(weight),
         enabled: f.enabled,
-        requestLimit5h: f.requestLimit5h ? Math.trunc(Number(f.requestLimit5h)) : null,
-        requestLimit7d: f.requestLimit7d ? Math.trunc(Number(f.requestLimit7d)) : null,
-        maxConcurrency: f.maxConcurrency ? Math.trunc(Number(f.maxConcurrency)) : null,
-        rpmLimit: f.rpmLimit ? Math.trunc(Number(f.rpmLimit)) : null,
-        tpmLimit: f.tpmLimit ? Math.trunc(Number(f.tpmLimit)) : null,
-        contextLimit: f.contextLimit ? Math.trunc(Number(f.contextLimit)) : null,
-        streamFirstChunkTimeoutSeconds: f.streamFirstChunkTimeoutSeconds ? Math.trunc(Number(f.streamFirstChunkTimeoutSeconds)) : null,
-        streamIdleTimeoutSeconds: f.streamIdleTimeoutSeconds ? Math.trunc(Number(f.streamIdleTimeoutSeconds)) : null,
-        streamMaxSeconds: f.streamMaxSeconds ? Math.trunc(Number(f.streamMaxSeconds)) : null,
+        requestLimit5h: toNullablePositiveInt(f.requestLimit5h),
+        requestLimit7d: toNullablePositiveInt(f.requestLimit7d),
+        maxConcurrency: toNullablePositiveInt(f.maxConcurrency),
+        rpmLimit: toNullablePositiveInt(f.rpmLimit),
+        tpmLimit: toNullablePositiveInt(f.tpmLimit),
+        contextLimit: toNullablePositiveInt(f.contextLimit),
+        streamFirstChunkTimeoutSeconds: toNullablePositiveInt(f.streamFirstChunkTimeoutSeconds),
+        streamIdleTimeoutSeconds: toNullablePositiveInt(f.streamIdleTimeoutSeconds),
+        streamMaxSeconds: toNullablePositiveInt(f.streamMaxSeconds),
       })
     }
     lbMemberModalOpen.value = false

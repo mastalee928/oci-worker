@@ -1,10 +1,13 @@
 package com.ociworker.service;
 
+import com.baomidou.mybatisplus.annotation.FieldStrategy;
+import com.baomidou.mybatisplus.annotation.TableField;
 import com.ociworker.model.entity.OciOpenaiLbMember;
 import com.ociworker.model.entity.OciOpenaiPortBinding;
 import com.ociworker.model.entity.OciUser;
 import org.junit.jupiter.api.Test;
 
+import java.lang.reflect.Field;
 import java.time.LocalDateTime;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -112,6 +115,19 @@ class OciOpenaiLoadBalanceServiceTest {
         assertThat(OciOpenaiLoadBalanceService.isStaleTransientMemberError(noLastUsed, now, 6)).isFalse();
     }
 
+    @Test
+    void loadBalanceMemberOptionalLimitsCanBeClearedWithNullUpdate() throws NoSuchFieldException {
+        assertFieldAllowsNullUpdate("requestLimit5h");
+        assertFieldAllowsNullUpdate("requestLimit7d");
+        assertFieldAllowsNullUpdate("maxConcurrency");
+        assertFieldAllowsNullUpdate("rpmLimit");
+        assertFieldAllowsNullUpdate("tpmLimit");
+        assertFieldAllowsNullUpdate("contextLimit");
+        assertFieldAllowsNullUpdate("streamFirstChunkTimeoutSeconds");
+        assertFieldAllowsNullUpdate("streamIdleTimeoutSeconds");
+        assertFieldAllowsNullUpdate("streamMaxSeconds");
+    }
+
     private static OciOpenaiLbMember failedMember(LocalDateTime lastUsed) {
         OciOpenaiLbMember member = new OciOpenaiLbMember();
         member.setId("member-1");
@@ -119,5 +135,14 @@ class OciOpenaiLoadBalanceServiceTest {
         member.setLastUsed(lastUsed);
         member.setLastError("Gemini 原生 Chat 调用失败");
         return member;
+    }
+
+    private static void assertFieldAllowsNullUpdate(String fieldName) throws NoSuchFieldException {
+        Field field = OciOpenaiLbMember.class.getDeclaredField(fieldName);
+        TableField tableField = field.getAnnotation(TableField.class);
+        assertThat(tableField)
+                .as("%s must allow null update so clearing the LB member form removes the stored limit", fieldName)
+                .isNotNull();
+        assertThat(tableField.updateStrategy()).isEqualTo(FieldStrategy.ALWAYS);
     }
 }
