@@ -77,118 +77,51 @@
       </a-tooltip>
     </div>
 
-    <!-- 批量移动到分组 -->
-    <a-modal :mask-closable="false" :keyboard="false"
+    <TenantBatchMoveModal
       v-model:open="batchMoveVisible"
-      title="批量移动到分组"
-      :confirm-loading="batchMoveLoading"
-      :width="isMobile ? 'calc(100vw - 32px)' : 480"
-      @ok="confirmBatchMove"
-    >
-      <p style="margin: 0 0 12px; color: var(--text-sub)">已选择 {{ selectedRowKeys.length }} 个租户</p>
-      <a-form layout="vertical">
-        <a-form-item label="一级分组" required>
-          <a-select
-            v-model:value="batchMoveG1"
-            placeholder="选择一级分组"
-            show-search
-            :filter-option="filterGroupOption"
-            @change="batchMoveG2 = undefined"
-          >
-            <a-select-option v-for="g in batchMoveLevel1Options" :key="g" :value="g">{{ g }}</a-select-option>
-          </a-select>
-        </a-form-item>
-        <a-form-item v-if="batchMoveG1 && batchMoveG1 !== '未分组'" label="二级分组（可选）">
-          <a-select
-            v-model:value="batchMoveG2"
-            placeholder="不选则仅归入一级分组"
-            allow-clear
-            show-search
-            :filter-option="filterGroupOption"
-          >
-            <a-select-option v-for="g in batchMoveLevel2Options" :key="g" :value="g">{{ g }}</a-select-option>
-          </a-select>
-        </a-form-item>
-      </a-form>
-    </a-modal>
+      v-model:level1="batchMoveG1"
+      v-model:level2="batchMoveG2"
+      :loading="batchMoveLoading"
+      :is-mobile="isMobile"
+      :selected-count="selectedRowKeys.length"
+      :level1-options="batchMoveLevel1Options"
+      :level2-options="batchMoveLevel2Options"
+      :filter-option="filterGroupOption"
+      :on-confirm="confirmBatchMove"
+    />
 
-    <!-- 分组管理器弹窗 -->
-    <a-modal :mask-closable="false" :keyboard="false" v-model:open="groupMgrVisible" title="管理分组" :width="isMobile ? '100%' : 700" :footer="null" centered>
-      <a-button type="primary" block style="margin-bottom: 20px" @click="openCreateGroupForm">
-        <template #icon><PlusOutlined /></template>添加分组
-      </a-button>
+    <TenantGroupManagerModal
+      v-model:open="groupMgrVisible"
+      v-model:create-form-visible="createGroupFormVisible"
+      v-model:create-name="createGroupName"
+      v-model:create-level="createGroupLevel"
+      v-model:create-parent="createGroupParent"
+      :is-mobile="isMobile"
+      :group-tree="groupTree"
+      :group-colors="groupColors"
+      :group-data="groupData"
+      :create-loading="createGroupLoading"
+      :group-total-count="groupTotalCount"
+      @open-create-form="openCreateGroupForm"
+      @create-group="handleCreateGroup"
+      @mgr-add-sub="handleMgrAddSub"
+      @rename-group="openRenameGroup"
+      @delete-group="handleMgrDeleteGroup"
+    />
 
-      <!-- 新增分组表单（内联） -->
-      <div v-if="createGroupFormVisible" style="margin-bottom: 16px; padding: 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-card);">
-        <a-space direction="vertical" style="width: 100%">
-          <a-input v-model:value="createGroupName" placeholder="分组名称" @press-enter="handleCreateGroup" />
-          <a-select v-model:value="createGroupLevel" style="width: 100%">
-            <a-select-option value="1">一级分组</a-select-option>
-            <a-select-option value="2">二级分组（子分组）</a-select-option>
-          </a-select>
-          <a-select v-if="createGroupLevel === '2'" v-model:value="createGroupParent" placeholder="选择父分组" style="width: 100%">
-            <a-select-option v-for="g in groupData.level1" :key="g" :value="g">{{ g }}</a-select-option>
-          </a-select>
-          <a-space>
-            <a-button type="primary" :loading="createGroupLoading" @click="handleCreateGroup">保存</a-button>
-            <a-button @click="createGroupFormVisible = false">取消</a-button>
-          </a-space>
-        </a-space>
-      </div>
+    <TenantRenameGroupModal
+      v-model:open="renameVisible"
+      v-model:name="renameNewName"
+      :loading="renameLoading"
+      :on-confirm="handleRenameGroup"
+    />
 
-      <!-- 分组列表 -->
-      <div v-if="groupTree.length" style="display: flex; flex-direction: column; gap: 8px;">
-        <div v-for="(group, gi) in groupTree" :key="group.key">
-          <div style="background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 14px 16px; display: flex; align-items: center; justify-content: space-between; transition: all 0.2s;">
-            <div style="display: flex; align-items: center; gap: 12px;">
-              <div class="group-dot" :style="{ background: groupColors[gi % groupColors.length] }"></div>
-              <span style="font-weight: 600;">{{ group.label }}</span>
-              <span style="font-size: 13px; color: var(--text-sub);">{{ groupTotalCount(group) }} 个租户</span>
-              <span v-if="group.children?.length" style="font-size: 12px; color: var(--text-sub);">({{ group.children.length }} 个子分组)</span>
-            </div>
-            <div style="display: flex; gap: 8px;">
-              <a-button size="small" @click="handleMgrAddSub(group.label)">
-                <template #icon><PlusOutlined /></template>子分组
-              </a-button>
-              <a-button size="small" @click="openRenameGroup(group.label, '1')">
-                <template #icon><EditOutlined /></template>
-              </a-button>
-              <a-popconfirm title="删除该分组？租户将移至「未分组」" @confirm="handleMgrDeleteGroup(group.label, '1')">
-                <a-button size="small" danger><template #icon><DeleteOutlined /></template></a-button>
-              </a-popconfirm>
-            </div>
-          </div>
-          <!-- 子分组 -->
-          <div v-for="sub in (group.children || [])" :key="sub.key"
-            style="margin-left: 32px; margin-top: 6px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 12px; padding: 12px 16px; display: flex; align-items: center; justify-content: space-between;">
-            <div style="display: flex; align-items: center; gap: 12px;">
-              <span style="font-weight: 500;">{{ sub.label }}</span>
-              <span style="font-size: 13px; color: var(--text-sub);">{{ sub.tenants.length }} 个租户</span>
-            </div>
-            <div style="display: flex; gap: 8px;">
-              <a-button size="small" @click="openRenameGroup(sub.label, '2')">
-                <template #icon><EditOutlined /></template>
-              </a-button>
-              <a-popconfirm title="删除该子分组？" @confirm="handleMgrDeleteGroup(sub.label, '2')">
-                <a-button size="small" danger><template #icon><DeleteOutlined /></template></a-button>
-              </a-popconfirm>
-            </div>
-          </div>
-        </div>
-      </div>
-      <div v-else style="text-align: center; padding: 40px; color: var(--text-sub);">暂无分组</div>
-    </a-modal>
-
-    <!-- 重命名分组弹窗 -->
-    <a-modal :mask-closable="false" :keyboard="false" v-model:open="renameVisible" title="重命名分组" @ok="handleRenameGroup" :confirm-loading="renameLoading" centered>
-      <a-input v-model:value="renameNewName" placeholder="输入新分组名" @press-enter="handleRenameGroup" />
-    </a-modal>
-
-    <!-- 添加子分组弹窗 -->
-    <a-modal :mask-closable="false" :keyboard="false" v-model:open="addSubVisible" title="添加子分组" @ok="handleAddSubGroupConfirm" centered>
-      <p style="color: var(--text-sub); margin-bottom: 8px">父分组: <a-tag color="blue">{{ addSubParent }}</a-tag></p>
-      <a-input v-model:value="addSubName" placeholder="输入子分组名称" @press-enter="handleAddSubGroupConfirm" />
-    </a-modal>
+    <TenantAddSubGroupModal
+      v-model:open="addSubVisible"
+      v-model:name="addSubName"
+      :parent="addSubParent"
+      :on-confirm="handleAddSubGroupConfirm"
+    />
 
     <!-- 新增/编辑弹窗（内嵌快速导入） -->
     <a-modal :keyboard="false"
@@ -1723,7 +1656,7 @@ import { getTenantList, addTenant, updateTenant, removeTenant, batchMoveTenantGr
 import type { BudgetAlertType, BudgetProcessingPeriodType, BudgetTargetType, BudgetThresholdType } from '../api/tenant'
 import { listCompartmentPicker } from '../api/compartment'
 import { sendVerifyCode } from '../api/system'
-import { EditOutlined, DeleteOutlined, EyeOutlined, EyeInvisibleOutlined } from '@ant-design/icons-vue'
+import { EyeOutlined, EyeInvisibleOutlined } from '@ant-design/icons-vue'
 import AuditLogTable from '../components/AuditLogTable.vue'
 import CompartmentManager from '../components/CompartmentManager.vue'
 import {
@@ -1751,6 +1684,10 @@ import utc from 'dayjs/plugin/utc'
 dayjs.extend(utc)
 
 const TenantConfigListPanel = defineAppAsyncComponent(() => import('./tenant-config/components/TenantConfigListPanel.vue'))
+const TenantBatchMoveModal = defineAppAsyncComponent(() => import('./tenant-config/components/TenantBatchMoveModal.vue'))
+const TenantGroupManagerModal = defineAppAsyncComponent(() => import('./tenant-config/components/TenantGroupManagerModal.vue'))
+const TenantRenameGroupModal = defineAppAsyncComponent(() => import('./tenant-config/components/TenantRenameGroupModal.vue'))
+const TenantAddSubGroupModal = defineAppAsyncComponent(() => import('./tenant-config/components/TenantAddSubGroupModal.vue'))
 
 const router = useRouter()
 const catalog = useTenantCatalogStore()
@@ -5432,11 +5369,6 @@ onUnmounted(() => {
   flex-shrink: 0;
 }
 .collapse-btn:hover { border-color: var(--primary, #1677ff); }
-.group-dot {
-  width: 12px; height: 12px;
-  border-radius: 50%;
-  flex-shrink: 0;
-}
 .group-card-header {
   display: flex;
   align-items: center;
