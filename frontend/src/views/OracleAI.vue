@@ -908,8 +908,8 @@ const OracleAiDiagnosticsPanel = defineAppAsyncComponent(
   { loadingText: '日志诊断加载中...' },
 )
 const OracleAiPortBindingsPanel = defineAppAsyncComponent(() => import('../components/oracle-ai/OracleAiPortBindingsPanel.vue'))
-const OracleAiPortBindingModal = defineAppAsyncComponent(() => import('../components/oracle-ai/OracleAiPortBindingModal.vue'))
-const OracleAiModelPickerModal = defineAppAsyncComponent(() => import('../components/oracle-ai/OracleAiModelPickerModal.vue'))
+const OracleAiPortBindingModal = defineAppAsyncComponent(() => import('../components/oracle-ai/OracleAiPortBindingModal.vue'), { loading: 'none' })
+const OracleAiModelPickerModal = defineAppAsyncComponent(() => import('../components/oracle-ai/OracleAiModelPickerModal.vue'), { loading: 'none' })
 const OracleAiModelSummary = defineAppAsyncComponent(() => import('../components/oracle-ai/OracleAiModelSummary.vue'))
 const LbLimitInput = defineAppAsyncComponent(() => import('../components/oracle-ai/LbLimitInput.vue'))
 

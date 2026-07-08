@@ -121,30 +121,38 @@ body.wallpaper-active {
   text-align: center;
 }
 .async-component-loading {
+  min-height: 36px;
+  margin: 4px 0;
+  pointer-events: none;
+}
+.async-component-loading-surface {
   display: grid;
-  gap: 12px;
-  margin: 8px 0 24px;
-}
-.async-component-loading-bar {
-  display: inline-flex;
   gap: 8px;
-  align-items: center;
+  width: min(100%, 520px);
+  opacity: 0.55;
 }
-.async-component-loading-bar span {
-  width: 88px;
-  height: 30px;
+.async-component-loading-surface span {
+  height: 10px;
   border: 1px solid var(--border);
-  border-radius: var(--radius-sm);
-  background: var(--bg-card);
+  border-radius: 999px;
+  background:
+    linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent),
+    var(--bg-card);
+  background-size: 220% 100%, 100% 100%;
+  animation: async-component-loading-pulse 1.2s ease-in-out infinite;
 }
-.async-component-loading-card {
-  min-height: 112px;
-  padding: 18px 20px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-lg);
-  background: var(--bg-card);
-  color: var(--text-sub);
-  font-size: 13px;
+.async-component-loading-surface span:nth-child(1) {
+  width: 42%;
+}
+.async-component-loading-surface span:nth-child(2) {
+  width: 68%;
+}
+.async-component-loading-surface span:nth-child(3) {
+  width: 54%;
+}
+@keyframes async-component-loading-pulse {
+  0% { background-position: 220% 0, 0 0; }
+  100% { background-position: -220% 0, 0 0; }
 }
 
 /* Fixed global background layers */

@@ -1581,11 +1581,11 @@ import utc from 'dayjs/plugin/utc'
 dayjs.extend(utc)
 
 const TenantConfigListPanel = defineAppAsyncComponent(() => import('./tenant-config/components/TenantConfigListPanel.vue'))
-const TenantBatchMoveModal = defineAppAsyncComponent(() => import('./tenant-config/components/TenantBatchMoveModal.vue'))
-const TenantGroupManagerModal = defineAppAsyncComponent(() => import('./tenant-config/components/TenantGroupManagerModal.vue'))
-const TenantRenameGroupModal = defineAppAsyncComponent(() => import('./tenant-config/components/TenantRenameGroupModal.vue'))
-const TenantAddSubGroupModal = defineAppAsyncComponent(() => import('./tenant-config/components/TenantAddSubGroupModal.vue'))
-const TenantConfigFormModal = defineAppAsyncComponent(() => import('./tenant-config/components/TenantConfigFormModal.vue'))
+const TenantBatchMoveModal = defineAppAsyncComponent(() => import('./tenant-config/components/TenantBatchMoveModal.vue'), { loading: 'none' })
+const TenantGroupManagerModal = defineAppAsyncComponent(() => import('./tenant-config/components/TenantGroupManagerModal.vue'), { loading: 'none' })
+const TenantRenameGroupModal = defineAppAsyncComponent(() => import('./tenant-config/components/TenantRenameGroupModal.vue'), { loading: 'none' })
+const TenantAddSubGroupModal = defineAppAsyncComponent(() => import('./tenant-config/components/TenantAddSubGroupModal.vue'), { loading: 'none' })
+const TenantConfigFormModal = defineAppAsyncComponent(() => import('./tenant-config/components/TenantConfigFormModal.vue'), { loading: 'none' })
 
 const router = useRouter()
 const catalog = useTenantCatalogStore()

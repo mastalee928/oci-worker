@@ -275,17 +275,17 @@ import { getTenantGroups } from '../api/tenant'
 import { useTenantCatalogStore } from '../stores/tenantCatalog'
 import { defineAppAsyncComponent } from '../utils/asyncComponent'
 
-const VcnManager = defineAppAsyncComponent(() => import('./VcnManager.vue'))
-const StorageManager = defineAppAsyncComponent(() => import('./StorageManager.vue'))
-const ForceA2ConfirmModal = defineAppAsyncComponent(() => import('../components/instance/ForceA2ConfirmModal.vue'))
-const TerminateVerifyModal = defineAppAsyncComponent(() => import('../components/instance/TerminateVerifyModal.vue'))
-const InstanceDetailDrawerShell = defineAppAsyncComponent(() => import('../components/instance/InstanceDetailDrawerShell.vue'))
-const InstanceEditModal = defineAppAsyncComponent(() => import('../components/instance/InstanceEditModal.vue'))
+const VcnManager = defineAppAsyncComponent(() => import('./VcnManager.vue'), { loading: 'none' })
+const StorageManager = defineAppAsyncComponent(() => import('./StorageManager.vue'), { loading: 'none' })
+const ForceA2ConfirmModal = defineAppAsyncComponent(() => import('../components/instance/ForceA2ConfirmModal.vue'), { loading: 'none' })
+const TerminateVerifyModal = defineAppAsyncComponent(() => import('../components/instance/TerminateVerifyModal.vue'), { loading: 'none' })
+const InstanceDetailDrawerShell = defineAppAsyncComponent(() => import('../components/instance/InstanceDetailDrawerShell.vue'), { loading: 'none' })
+const InstanceEditModal = defineAppAsyncComponent(() => import('../components/instance/InstanceEditModal.vue'), { loading: 'none' })
 const InstanceDrawerListPanel = defineAppAsyncComponent(() => import('../components/instance/InstanceDrawerListPanel.vue'))
 const TenantVcnPanel = defineAppAsyncComponent(() => import('../components/instance/TenantVcnPanel.vue'))
-const QuickTaskModal = defineAppAsyncComponent(() => import('../components/instance/QuickTaskModal.vue'))
+const QuickTaskModal = defineAppAsyncComponent(() => import('../components/instance/QuickTaskModal.vue'), { loading: 'none' })
 const InstanceTenantEntryPanel = defineAppAsyncComponent(() => import('../components/instance/InstanceTenantEntryPanel.vue'))
-const InstanceFloatingTenantCard = defineAppAsyncComponent(() => import('../components/instance/InstanceFloatingTenantCard.vue'))
+const InstanceFloatingTenantCard = defineAppAsyncComponent(() => import('../components/instance/InstanceFloatingTenantCard.vue'), { loading: 'none' })
 import { listStorageRegions } from '../api/storage'
 import { useQuickTask } from '../composables/useQuickTask'
 import { useForceA2ToA1 } from '../composables/useForceA2ToA1'

@@ -19,27 +19,32 @@ export function reloadOnceForUpdatedAssets() {
   return true
 }
 
+type AppAsyncComponentOptions = {
+  loadingText?: string
+  loading?: 'skeleton' | 'none'
+}
+
 export function defineAppAsyncComponent<T extends Component>(
   loader: () => Promise<T | { default: T }>,
-  options: { loadingText?: string } = {},
+  options: AppAsyncComponentOptions = {},
 ) {
+  const showLoading = options.loading !== 'none'
   return defineAsyncComponent({
     loader,
-    delay: 120,
+    delay: showLoading ? 220 : 0,
     timeout: 30_000,
-    loadingComponent: {
+    loadingComponent: showLoading ? {
       setup() {
-        const text = options.loadingText || '组件加载中...'
-        return () => h('div', { class: 'async-component-loading' }, [
-          h('div', { class: 'async-component-loading-bar' }, [
+        const text = options.loadingText || '组件加载中'
+        return () => h('div', { class: 'async-component-loading', role: 'status', 'aria-label': text }, [
+          h('div', { class: 'async-component-loading-surface' }, [
             h('span'),
             h('span'),
             h('span'),
           ]),
-          h('div', { class: 'async-component-loading-card' }, text),
         ])
       },
-    },
+    } : undefined,
     errorComponent: {
       setup() {
         return () => h('div', { class: 'async-component-error' }, '组件资源加载失败，请刷新页面后重试')
