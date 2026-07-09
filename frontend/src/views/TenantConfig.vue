@@ -281,401 +281,75 @@
       :mark-announcement-as-read="markAnnouncementAsRead"
       :format-announcement-body="formatAnnouncementBody"
     />
-    <a-modal
-      :mask-closable="false"
-      :keyboard="false"
-      v-model:open="mfaVerifyVisible"
-      title="安全验证 — MFA 多因素认证"
-      :width="isMobile ? '100%' : 420"
-      :confirm-loading="mfaVerifyLoading"
-      :ok-text="mfaTargetEnabled ? '确认启用' : '确认关闭'"
-      @ok="submitMfaChange"
-      @cancel="cancelMfaVerify"
-    >
-      <a-alert
-        type="warning"
-        show-icon
-        message="验证码已发送至 Telegram"
-        description="MFA 是身份域登录安全策略，改动会影响该域内用户登录控制台。"
-        style="margin-bottom: 12px"
-      />
-      <a-input
-        v-model:value="mfaVerifyCode"
-        placeholder="请输入 6 位验证码"
-        size="large"
-        :maxlength="6"
-        inputmode="numeric"
-        allow-clear
-        @pressEnter="submitMfaChange"
-      />
-      <div class="region-verify-actions">
-        <span>验证码有效期 5 分钟</span>
-        <a-button type="link" size="small" :loading="mfaVerifyCodeSending" @click="resendMfaVerifyCode">重新发送</a-button>
-      </div>
-    </a-modal>
-
-    <!-- 域管理弹窗 -->
-    <a-modal :mask-closable="false" :keyboard="false" v-model:open="domainMgmtVisible" :title="'域管理 — ' + (domainMgmtTenant?.username || '')"
-      :width="isMobile ? '100%' : 840" :footer="null" centered :bodyStyle="{ maxHeight: '75vh', overflow: 'auto' }">
-      <!-- 域选择器（Tab 之外，全局） -->
-      <div class="domain-switcher" v-if="domainList.length > 0 || domainSettingsLoading">
-        <span class="domain-switcher-label">当前域：</span>
-        <a-select
-          v-if="domainList.length > 0"
-          :value="selectedDomainId"
-          style="min-width: 280px"
-          :disabled="domainList.length <= 1"
-          @change="(v: any) => handleDomainChange(String(v))"
-        >
-          <a-select-option v-for="d in domainList" :key="d.domainId" :value="d.domainId" :label="d.displayName">
-            <span class="domain-option">
-              <span class="domain-option-name">{{ d.displayName || '—' }}</span>
-              <span v-if="d.type" class="domain-type-pill">{{ domainTypeCn(d.type) }}</span>
-            </span>
-          </a-select-option>
-        </a-select>
-        <a-spin v-if="domainSettingsLoading && domainList.length === 0" size="small" />
-        <a-tag v-if="selectedDomain?.error || selectedDomain?.mfaError || selectedDomain?.passwordPolicyError" color="error" style="margin-left: 6px">异常</a-tag>
-        <a-tooltip v-if="domainList.length === 1" title="当前租户仅一个域，无需切换">
-          <i class="ri-information-line" style="color: var(--text-sub); font-size: 14px; margin-left: 6px"></i>
-        </a-tooltip>
-      </div>
-      <a-alert v-if="!domainSettingsLoading && domainList.length === 0" type="warning"
-        message="未读取到 Identity Domain 信息" show-icon style="margin-bottom: 12px" />
-
-      <a-tabs v-model:activeKey="domainTab">
-        <a-tab-pane key="security" tab="安全策略">
-          <a-spin :spinning="domainSettingsLoading">
-            <template v-if="selectedDomain">
-              <a-alert v-if="selectedDomain.mfaError" type="warning" show-icon :message="selectedDomain.mfaError" style="margin-bottom: 8px" />
-              <a-descriptions :column="1" bordered size="small">
-                <a-descriptions-item label="MFA 多因素认证（Security Policy for OCI Console）">
-                  <a-space align="center" wrap>
-                    <a-switch :checked="!!selectedDomain.mfaEnabled"
-                      :loading="mfaUpdatingId === selectedDomain.domainId"
-                      :disabled="selectedDomain.mfaEnabled === null || selectedDomain.mfaEnabled === undefined"
-                      checked-children="已启用" un-checked-children="已关闭"
-                      @change="(v: any) => handleMfaChange(selectedDomain, v as boolean)" />
-                    <span style="font-size: 12px; color: var(--text-sub)">
-                      对应 OCI：身份域 → 安全 → 登录策略 → Security Policy for OCI Console 的「激活」状态
-                    </span>
-                    <span v-if="selectedDomain.consolePolicyName" style="font-size: 12px; color: var(--text-sub)">
-                      · 策略：{{ selectedDomain.consolePolicyName }}
-                    </span>
-                  </a-space>
-                </a-descriptions-item>
-                <a-descriptions-item label="密码过期天数（defaultPasswordPolicy）">
-                  <a-space wrap>
-                    <a-input-number :value="selectedDomain.passwordExpiresAfterDays ?? 0"
-                      @update:value="(v: any) => (selectedDomain.passwordExpiresAfterDays = v as number)"
-                      :min="0" :max="999" style="width: 120px" />
-                    <span style="color: var(--text-sub); font-size: 12px">
-                      在 N 天后失效；0 = 永不过期
-                    </span>
-                    <a-button type="primary" size="small"
-                      :loading="pwdExpiryUpdatingId === selectedDomain.domainId"
-                      @click="handlePwdExpiryChange(selectedDomain)">保存</a-button>
-                    <span v-if="selectedDomain.passwordPolicyName" style="font-size: 12px; color: var(--text-sub)">
-                      策略：{{ selectedDomain.passwordPolicyName }}（priority={{ selectedDomain.passwordPolicyPriority ?? '-' }}）
-                    </span>
-                  </a-space>
-                  <div v-if="selectedDomain.passwordPolicyError" style="color: #faad14; font-size: 12px; margin-top: 4px">
-                    {{ selectedDomain.passwordPolicyError }}
-                  </div>
-                </a-descriptions-item>
-              </a-descriptions>
-            </template>
-          </a-spin>
-        </a-tab-pane>
-        <a-tab-pane key="factors" tab="验证因素">
-          <!-- TG 验证门 -->
-          <div v-if="!authFactorToken" class="factor-lock">
-            <i class="ri-shield-keyhole-line factor-lock-icon"></i>
-            <div class="factor-lock-title">修改验证因素需要 Telegram 二次验证</div>
-            <div class="factor-lock-desc">
-              该设置对应「身份域 → 安全 → 验证因素」。改动将影响域内所有用户的 MFA 登录方式，请确认后再操作。
-            </div>
-            <a-space style="margin-top: 14px" wrap>
-              <a-button @click="sendFactorCode" :loading="factorCodeSending">
-                <template #icon><i class="ri-send-plane-line"></i></template>
-                获取验证码
-              </a-button>
-              <a-input v-model:value="factorCodeInput" placeholder="6 位验证码" :maxlength="6" style="width: 140px" />
-              <a-button type="primary" :loading="factorUnlocking" @click="doUnlockFactors">解锁</a-button>
-            </a-space>
-          </div>
-          <div v-else>
-            <a-alert type="success" show-icon style="margin-bottom: 12px"
-              message="已通过 TG 验证，10 分钟内可在本 Tab 自由保存；切换域不需要重新验证。" />
-            <a-spin :spinning="authFactorLoading">
-              <template v-if="selectedFactorDomain">
-                <a-alert v-if="selectedFactorDomain.error" type="warning" show-icon :message="selectedFactorDomain.error" style="margin-bottom: 10px" />
-                <template v-else>
-                  <div class="factor-section-title">因素</div>
-                  <div class="factor-grid">
-                    <a-checkbox v-for="f in FACTOR_OPTIONS" :key="f.key"
-                      :checked="!!selectedFactorDomain.factors?.[f.key]"
-                      @change="(e: any) => (selectedFactorDomain.factors[f.key] = e.target.checked)">
-                      {{ f.label }}
-                    </a-checkbox>
-                  </div>
-
-                  <div class="factor-section-title">参数</div>
-                  <a-space wrap>
-                    <span class="factor-label">最大注册设备数</span>
-                    <a-input-number :value="selectedFactorDomain.limits?.maxEnrolledDevices"
-                      @update:value="(v: any) => (selectedFactorDomain.limits.maxEnrolledDevices = v)"
-                      :min="1" :max="20" style="width: 110px" />
-                    <span class="factor-hint">maxEnrolledDevices</span>
-                  </a-space>
-
-                  <div class="factor-section-title">可信设备</div>
-                  <a-space wrap>
-                    <a-switch :checked="!!selectedFactorDomain.trustedDevice?.enabled"
-                      @change="(v: any) => (selectedFactorDomain.trustedDevice.enabled = v)"
-                      checked-children="启用" un-checked-children="禁用" />
-                    <span class="factor-label">最大可信设备数</span>
-                    <a-input-number :value="selectedFactorDomain.trustedDevice?.maxTrustedEndpoints"
-                      @update:value="(v: any) => (selectedFactorDomain.trustedDevice.maxTrustedEndpoints = v)"
-                      :min="1" :max="50" style="width: 110px" />
-                    <span class="factor-label">信任天数</span>
-                    <a-input-number :value="selectedFactorDomain.trustedDevice?.maxEndpointTrustDurationInDays"
-                      @update:value="(v: any) => (selectedFactorDomain.trustedDevice.maxEndpointTrustDurationInDays = v)"
-                      :min="1" :max="365" style="width: 110px" />
-                  </a-space>
-
-                  <div class="factor-section-title">登录规则</div>
-                  <a-space wrap>
-                    <span class="factor-label">最大 MFA 失败次数</span>
-                    <a-input-number :value="selectedFactorDomain.limits?.maxIncorrectAttempts"
-                      @update:value="(v: any) => (selectedFactorDomain.limits.maxIncorrectAttempts = v)"
-                      :min="1" :max="50" style="width: 110px" />
-                    <span class="factor-hint">endpointRestrictions.maxIncorrectAttempts</span>
-                  </a-space>
-
-                  <div style="margin-top: 12px; display: flex; justify-content: flex-end; gap: 8px">
-                    <a-button size="small" @click="reloadFactors">重置</a-button>
-                    <a-button size="small" type="primary" :loading="factorSavingId === selectedFactorDomain.domainId"
-                      @click="saveFactors(selectedFactorDomain)">保存</a-button>
-                  </div>
-                </template>
-              </template>
-            </a-spin>
-          </div>
-        </a-tab-pane>
-        <a-tab-pane key="notifications" tab="通知">
-          <div v-if="!notificationToken" class="factor-lock notification-lock">
-            <i class="ri-shield-keyhole-line factor-lock-icon"></i>
-            <div class="factor-lock-title">修改域通知需要 Telegram 二次验证</div>
-            <div class="factor-lock-desc">
-              该设置对应「身份域 → 设置 → 通知」。解锁后可查看和保存域通知配置，切换域不需要重新验证。
-            </div>
-            <a-space class="notification-lock-actions" wrap>
-              <a-button @click="sendNotificationCode" :loading="notificationCodeSending">
-                <template #icon><i class="ri-send-plane-line"></i></template>
-                获取验证码
-              </a-button>
-              <a-input v-model:value="notificationCodeInput" placeholder="6 位验证码" :maxlength="6" style="width: 140px" />
-              <a-button type="primary" :loading="notificationUnlocking" @click="doUnlockNotifications">解锁</a-button>
-            </a-space>
-          </div>
-          <div v-else>
-            <a-alert type="success" show-icon style="margin-bottom: 12px"
-              message="已通过 TG 验证，10 分钟内可编辑域通知；切换域不需要重新验证。" />
-            <div class="notification-toolbar">
-              <div class="notification-toolbar-title">当前域通知配置</div>
-              <a-button size="small" :loading="notificationLoading" :disabled="!selectedDomainId" @click="loadDomainNotifications">
-                <template #icon><ReloadOutlined /></template>刷新当前域
-              </a-button>
-            </div>
-            <a-spin :spinning="notificationLoading">
-            <template v-if="notificationData">
-              <div class="domain-notification-layout">
-                <section class="notification-panel">
-                  <div class="notification-panel-header">
-                    <div class="notification-panel-title">一般通知</div>
-                    <div class="notification-inline-control">
-                      <span>为所有的身份域用户启用通知</span>
-                      <a-switch
-                        :checked="!!notificationData.notificationEnabled"
-                        checked-children="已启用"
-                        un-checked-children="已关闭"
-                        @change="(v: any) => (notificationData.notificationEnabled = v)"
-                      />
-                    </div>
-                  </div>
-                  <a-form layout="vertical" size="small" class="notification-form-grid">
-                    <a-form-item label="发件人电子邮件地址">
-                      <a-input v-model:value="notificationData.fromEmailAddress.value" allow-clear />
-                    </a-form-item>
-                    <a-form-item label="发件人显示名">
-                      <a-input v-model:value="notificationData.fromEmailAddress.displayName" allow-clear />
-                    </a-form-item>
-                    <a-form-item label="发件邮箱验证方式">
-                      <a-select v-model:value="notificationData.fromEmailAddress.validate" :options="notificationValidateOptions" />
-                    </a-form-item>
-                    <a-form-item label="发件邮箱验证状态">
-                      <a-tag :color="notificationValidationStatusColor(notificationData.fromEmailAddress.validationStatus)">
-                        {{ formatNotificationValidationStatus(notificationData.fromEmailAddress.validationStatus) }}
-                      </a-tag>
-                    </a-form-item>
-                  </a-form>
-                </section>
-
-                <section class="notification-panel">
-                  <div class="notification-panel-header">
-                    <div>
-                      <div class="notification-panel-title">收件人</div>
-                      <div class="notification-panel-subtitle">通过电子邮件通知发送给选定收件人来测试这些通知。</div>
-                    </div>
-                    <div class="notification-inline-control">
-                      <span>限定的收件人列表</span>
-                      <a-switch
-                        :checked="!!notificationData.testModeEnabled"
-                        checked-children="是"
-                        un-checked-children="否"
-                        @change="(v: any) => (notificationData.testModeEnabled = v)"
-                      />
-                    </div>
-                  </div>
-                  <a-form layout="vertical" size="small">
-                    <a-form-item label="测试收件人电子邮件地址">
-                      <a-textarea
-                        v-model:value="notificationRecipientsText"
-                        :auto-size="{ minRows: 2, maxRows: 5 }"
-                        allow-clear
-                      />
-                    </a-form-item>
-                  </a-form>
-                </section>
-
-                <a-collapse
-                  v-model:activeKey="notificationEventActiveKeys"
-                  class="notification-collapse"
-                  :bordered="false"
-                >
-                  <a-collapse-panel key="admin" class="notification-collapse-panel">
-                    <template #header>
-                      <div class="notification-collapse-title">
-                        <span>管理员通知</span>
-                        <a-tag style="margin:0">{{ notificationAdminEvents.length }} 项</a-tag>
-                      </div>
-                    </template>
-                    <a-empty v-if="notificationAdminEvents.length === 0" description="暂无管理员通知" />
-                    <div v-else class="notification-event-list">
-                      <div v-for="event in notificationAdminEvents" :key="event.eventId" class="notification-event-row">
-                        <div class="notification-event-copy">
-                          <div class="notification-event-name">{{ formatNotificationEventName(event.eventId) }}</div>
-                          <div class="notification-event-id">{{ event.eventId }}</div>
-                        </div>
-                        <a-switch
-                          :checked="!!event.enabled"
-                          checked-children="是"
-                          un-checked-children="否"
-                          @change="(v: any) => (event.enabled = v)"
-                        />
-                      </div>
-                    </div>
-                  </a-collapse-panel>
-
-                  <a-collapse-panel key="endUser" class="notification-collapse-panel">
-                    <template #header>
-                      <div class="notification-collapse-title">
-                        <span>最终用户通知</span>
-                        <a-tag style="margin:0">{{ notificationEndUserEvents.length }} 项</a-tag>
-                      </div>
-                    </template>
-                    <a-empty v-if="notificationEndUserEvents.length === 0" description="暂无最终用户通知" />
-                    <div v-else class="notification-event-list">
-                      <div v-for="event in notificationEndUserEvents" :key="event.eventId" class="notification-event-row">
-                        <div class="notification-event-copy">
-                          <div class="notification-event-name">{{ formatNotificationEventName(event.eventId) }}</div>
-                          <div class="notification-event-id">{{ event.eventId }}</div>
-                        </div>
-                        <a-switch
-                          :checked="!!event.enabled"
-                          checked-children="是"
-                          un-checked-children="否"
-                          @change="(v: any) => (event.enabled = v)"
-                        />
-                      </div>
-                    </div>
-                  </a-collapse-panel>
-                </a-collapse>
-              </div>
-
-              <div class="notification-actions">
-                <a-button size="small" :loading="notificationLoading" @click="loadDomainNotifications">
-                  <template #icon><ReloadOutlined /></template>刷新
-                </a-button>
-                <a-button
-                  size="small"
-                  type="primary"
-                  :loading="notificationSaving"
-                  @click="saveDomainNotifications"
-                >
-                  保存
-                </a-button>
-              </div>
-            </template>
-            <a-empty v-else :description="notificationLoading ? '正在加载通知设置' : '请选择域后加载通知设置'">
-              <template #extra>
-                <a-button type="primary" size="small" :disabled="!selectedDomainId" @click="loadDomainNotifications">
-                  加载通知设置
-                </a-button>
-              </template>
-            </a-empty>
-            </a-spin>
-          </div>
-        </a-tab-pane>
-        <a-tab-pane key="logs" tab="登录日志">
-          <a-space style="margin-bottom: 12px" wrap>
-            <a-button type="primary" @click="loadAuditLogs" :loading="auditLogsLoading" :disabled="!selectedDomainId">
-              <template #icon><ReloadOutlined /></template>加载最近{{ auditDays }}天登录日志
-            </a-button>
-            <a-select v-model:value="auditDays" style="width: 120px" @change="onAuditDaysChange">
-              <a-select-option :value="1">最近 1 天</a-select-option>
-              <a-select-option :value="3">最近 3 天</a-select-option>
-              <a-select-option :value="7">最近 7 天</a-select-option>
-              <a-select-option :value="14">最近 14 天</a-select-option>
-              <a-select-option :value="30">最近 30 天</a-select-option>
-            </a-select>
-          </a-space>
-          <a-spin :spinning="auditLogsLoading">
-            <a-empty v-if="!auditLogsLoading && !auditLogsLoaded" description="请点击「加载」按钮拉取当前域的登录日志" />
-            <a-empty v-else-if="!auditLogsLoading && !selectedAuditDomain" description="未读取到当前域的登录日志结果，请重新加载" />
-            <div v-else-if="selectedAuditDomain">
-              <AuditLogTable :rows="selectedAuditDomain.logs || []"
-                :error="selectedAuditDomain.error || selectedAuditDomain.notice" :is-mobile="isMobile" />
-            </div>
-          </a-spin>
-        </a-tab-pane>
-        <a-tab-pane key="audit" tab="审计日志">
-          <a-space style="margin-bottom: 12px" wrap>
-            <a-button type="primary" @click="loadDomainAuditLogs" :loading="domainAuditLogsLoading" :disabled="!selectedDomainId">
-              <template #icon><ReloadOutlined /></template>加载最近{{ domainAuditDays }}天审计日志
-            </a-button>
-            <a-select v-model:value="domainAuditDays" style="width: 120px" @change="onDomainAuditDaysChange">
-              <a-select-option :value="1">最近 1 天</a-select-option>
-              <a-select-option :value="3">最近 3 天</a-select-option>
-              <a-select-option :value="7">最近 7 天</a-select-option>
-              <a-select-option :value="14">最近 14 天</a-select-option>
-              <a-select-option :value="30">最近 30 天</a-select-option>
-            </a-select>
-          </a-space>
-          <a-spin :spinning="domainAuditLogsLoading">
-            <a-empty v-if="!domainAuditLogsLoading && !domainAuditLogsLoaded" description="请点击「加载」按钮拉取当前域的审计日志" />
-            <a-empty v-else-if="!domainAuditLogsLoading && !selectedDomainAudit" description="未读取到当前域的审计日志结果，请重新加载" />
-            <div v-else-if="selectedDomainAudit">
-              <AuditLogTable :rows="selectedDomainAudit.logs || []"
-                :error="selectedDomainAudit.error || selectedDomainAudit.notice" :is-mobile="isMobile"
-                :event-labels="NOTIFICATION_EVENT_LABELS" />
-            </div>
-          </a-spin>
-        </a-tab-pane>
-        
-      </a-tabs>
-    </a-modal>
+    <TenantDomainManagementModal
+      v-if="domainMgmtVisible || domainMgmtTenant || mfaVerifyVisible"
+      v-model:open="domainMgmtVisible"
+      v-model:active-tab="domainTab"
+      v-model:selected-domain-id="selectedDomainId"
+      v-model:mfa-verify-visible="mfaVerifyVisible"
+      v-model:mfa-verify-code="mfaVerifyCode"
+      v-model:factor-code-input="factorCodeInput"
+      v-model:notification-code-input="notificationCodeInput"
+      v-model:notification-recipients-text="notificationRecipientsText"
+      v-model:notification-event-active-keys="notificationEventActiveKeys"
+      v-model:audit-days="auditDays"
+      v-model:domain-audit-days="domainAuditDays"
+      :tenant="domainMgmtTenant"
+      :is-mobile="isMobile"
+      :domain-settings-loading="domainSettingsLoading"
+      :domain-list="domainList"
+      :selected-domain="selectedDomain"
+      :mfa-updating-id="mfaUpdatingId"
+      :mfa-verify-loading="mfaVerifyLoading"
+      :mfa-verify-code-sending="mfaVerifyCodeSending"
+      :mfa-target-enabled="mfaTargetEnabled"
+      :pwd-expiry-updating-id="pwdExpiryUpdatingId"
+      :auth-factor-token="authFactorToken"
+      :auth-factor-loading="authFactorLoading"
+      :selected-factor-domain="selectedFactorDomain"
+      :factor-code-sending="factorCodeSending"
+      :factor-unlocking="factorUnlocking"
+      :factor-saving-id="factorSavingId"
+      :notification-loading="notificationLoading"
+      :notification-saving="notificationSaving"
+      :notification-data="notificationData"
+      :notification-unlocking="notificationUnlocking"
+      :notification-code-sending="notificationCodeSending"
+      :notification-token="notificationToken"
+      :notification-validate-options="notificationValidateOptions"
+      :notification-admin-events="notificationAdminEvents"
+      :notification-end-user-events="notificationEndUserEvents"
+      :audit-logs-loading="auditLogsLoading"
+      :audit-logs-loaded="auditLogsLoaded"
+      :selected-audit-domain="selectedAuditDomain"
+      :domain-audit-logs-loading="domainAuditLogsLoading"
+      :domain-audit-logs-loaded="domainAuditLogsLoaded"
+      :selected-domain-audit="selectedDomainAudit"
+      :notification-event-labels="NOTIFICATION_EVENT_LABELS"
+      :factor-options="FACTOR_OPTIONS"
+      :handle-domain-change="handleDomainChange"
+      :domain-type-cn="domainTypeCn"
+      :handle-mfa-change="handleMfaChange"
+      :handle-pwd-expiry-change="handlePwdExpiryChange"
+      :send-factor-code="sendFactorCode"
+      :do-unlock-factors="doUnlockFactors"
+      :reload-factors="reloadFactors"
+      :save-factors="saveFactors"
+      :send-notification-code="sendNotificationCode"
+      :do-unlock-notifications="doUnlockNotifications"
+      :load-domain-notifications="loadDomainNotifications"
+      :save-domain-notifications="saveDomainNotifications"
+      :notification-validation-status-color="notificationValidationStatusColor"
+      :format-notification-validation-status="formatNotificationValidationStatus"
+      :format-notification-event-name="formatNotificationEventName"
+      :load-audit-logs="loadAuditLogs"
+      :on-audit-days-change="onAuditDaysChange"
+      :load-domain-audit-logs="loadDomainAuditLogs"
+      :on-domain-audit-days-change="onDomainAuditDaysChange"
+      :submit-mfa-change="submitMfaChange"
+      :cancel-mfa-verify="cancelMfaVerify"
+      :resend-mfa-verify-code="resendMfaVerifyCode"
+    />
   </div>
 </template>
 
@@ -684,7 +358,7 @@ defineOptions({ name: 'TenantConfig' })
 
 import { ref, reactive, computed, h, onMounted, onActivated, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { ReloadOutlined, MenuFoldOutlined, MenuUnfoldOutlined, VerticalAlignTopOutlined } from '@ant-design/icons-vue'
+import { MenuFoldOutlined, MenuUnfoldOutlined, VerticalAlignTopOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
 import type { UploadFile } from 'ant-design-vue'
 import { getTenantList, addTenant, updateTenant, removeTenant, batchMoveTenantGroup, uploadKey, getTenantFullInfo, getTenantBillingSummary, downloadInvoicePdf, listBudgets, createBudget, updateBudget, deleteBudget, listBudgetAlertRules, createBudgetAlertRule, updateBudgetAlertRule, deleteBudgetAlertRule, listTenantRegions, subscribeTenantRegion, getDomainSettings, updateMfa, updatePasswordExpiry, unlockDomainNotifications, getDomainNotifications, updateDomainNotifications, getAuditLogs, getServiceQuotas, listIamPolicies, getIamPolicy, listAnnouncements, getAnnouncementDetail, markAnnouncementRead, getTenantGroups, createGroup, renameGroup, deleteGroup, saveGroupOrder, unlockAuthFactors, getAuthFactors, updateAuthFactors } from '../api/tenant'
@@ -692,7 +366,6 @@ import type { BudgetAlertType, BudgetProcessingPeriodType, BudgetTargetType, Bud
 import { listCompartmentPicker } from '../api/compartment'
 import { sendVerifyCode } from '../api/system'
 import { EyeOutlined, EyeInvisibleOutlined } from '@ant-design/icons-vue'
-import AuditLogTable from '../components/AuditLogTable.vue'
 import {
   loadOciRegionCatalog,
   ociRegionSelectOptions,
@@ -724,6 +397,7 @@ const TenantRenameGroupModal = defineAppAsyncComponent(() => import('./tenant-co
 const TenantAddSubGroupModal = defineAppAsyncComponent(() => import('./tenant-config/components/TenantAddSubGroupModal.vue'), { loading: 'none' })
 const TenantConfigFormModal = defineAppAsyncComponent(() => import('./tenant-config/components/TenantConfigFormModal.vue'), { loading: 'none' })
 const TenantManagementModal = defineAppAsyncComponent(() => import('./tenant-config/components/TenantManagementModal.vue'), { loading: 'none' })
+const TenantDomainManagementModal = defineAppAsyncComponent(() => import('./tenant-config/components/TenantDomainManagementModal.vue'), { loading: 'none' })
 
 const router = useRouter()
 const catalog = useTenantCatalogStore()
@@ -1513,6 +1187,7 @@ const domainMgmtTenant = ref<any>(null)
 const domainTab = ref('security')
 const domainSettingsLoading = ref(false)
 const domainList = ref<any[]>([])
+let domainSettingsRequestSeq = 0
 const selectedDomainId = ref('')
 const mfaUpdatingId = ref('')
 const mfaVerifyVisible = ref(false)
@@ -1521,7 +1196,10 @@ const mfaVerifyCodeSending = ref(false)
 const mfaVerifyCode = ref('')
 const mfaTargetDomain = ref<any | null>(null)
 const mfaTargetEnabled = ref(false)
+let mfaCodeSendSeq = 0
+let mfaSubmitSeq = 0
 const pwdExpiryUpdatingId = ref('')
+let pwdExpiryRequestSeq = 0
 const auditLogsLoading = ref(false)
 const auditLogsLoaded = ref(false)
 const auditLogs = ref<any[]>([])
@@ -1541,6 +1219,10 @@ const notificationCodeSending = ref(false)
 const notificationCodeInput = ref('')
 const notificationUnlocking = ref(false)
 const notificationToken = ref('')
+let notificationRequestSeq = 0
+let notificationSaveSeq = 0
+let notificationUnlockSeq = 0
+let notificationCodeSendSeq = 0
 const quotasLoading = ref(false)
 const quotasList = ref<any[]>([])
 let quotaRequestSeq = 0
@@ -1727,6 +1409,9 @@ const NOTIFICATION_EVENT_LABELS: Record<string, string> = {
 
 function handleDomainChange(domainId: string) {
   if (!domainId || domainId === selectedDomainId.value) return
+  resetMfaState()
+  pwdExpiryRequestSeq++
+  pwdExpiryUpdatingId.value = ''
   selectedDomainId.value = domainId
   auditLogsRequestSeq++
   auditLogs.value = []
@@ -1763,14 +1448,17 @@ function onDomainAuditDaysChange() {
 }
 
 async function sendNotificationCode() {
+  const seq = ++notificationCodeSendSeq
   notificationCodeSending.value = true
   try {
     await sendVerifyCode('domainNotifications')
+    if (seq !== notificationCodeSendSeq) return
     message.success('验证码已发送至 Telegram')
   } catch (e: any) {
+    if (seq !== notificationCodeSendSeq) return
     message.error(e?.message || '发送验证码失败')
   } finally {
-    notificationCodeSending.value = false
+    if (seq === notificationCodeSendSeq) notificationCodeSending.value = false
   }
 }
 
@@ -1778,25 +1466,37 @@ async function doUnlockNotifications() {
   if (!notificationCodeInput.value || notificationCodeInput.value.length !== 6) {
     return message.warning('请输入 6 位验证码')
   }
+  const seq = ++notificationUnlockSeq
   notificationUnlocking.value = true
   try {
     const r = await unlockDomainNotifications({ verifyCode: notificationCodeInput.value })
+    if (seq !== notificationUnlockSeq) return
     notificationToken.value = r.data?.accessToken || ''
     notificationCodeInput.value = ''
     if (!notificationToken.value) throw new Error('未获取到访问令牌')
     await loadDomainNotifications()
+    if (seq !== notificationUnlockSeq) return
     message.success('已解锁')
   } catch (e: any) {
+    if (seq !== notificationUnlockSeq) return
     message.error(e?.message || '解锁失败')
   } finally {
-    notificationUnlocking.value = false
+    if (seq === notificationUnlockSeq) notificationUnlocking.value = false
   }
 }
 
 function resetNotificationState(keepToken = false) {
+  notificationRequestSeq++
+  notificationSaveSeq++
+  notificationUnlockSeq++
+  notificationCodeSendSeq++
   notificationData.value = null
   notificationRecipientsText.value = ''
   notificationEventActiveKeys.value = []
+  notificationLoading.value = false
+  notificationSaving.value = false
+  notificationUnlocking.value = false
+  notificationCodeSending.value = false
   if (!keepToken) {
     notificationCodeInput.value = ''
     notificationToken.value = ''
@@ -1962,22 +1662,37 @@ const authFactorToken = ref('')
 const authFactorLoading = ref(false)
 const authFactorDomains = ref<any[]>([])
 const factorSavingId = ref('')
+let authFactorRequestSeq = 0
+let authFactorUnlockSeq = 0
+let authFactorSaveSeq = 0
+let authFactorCodeSendSeq = 0
 
 function resetAuthFactorState() {
+  authFactorRequestSeq++
+  authFactorUnlockSeq++
+  authFactorSaveSeq++
+  authFactorCodeSendSeq++
   factorCodeInput.value = ''
   authFactorToken.value = ''
   authFactorDomains.value = []
+  authFactorLoading.value = false
+  factorUnlocking.value = false
+  factorCodeSending.value = false
+  factorSavingId.value = ''
 }
 
 async function sendFactorCode() {
+  const seq = ++authFactorCodeSendSeq
   factorCodeSending.value = true
   try {
     await sendVerifyCode('authFactors')
+    if (seq !== authFactorCodeSendSeq) return
     message.success('验证码已发送至 Telegram')
   } catch (e: any) {
+    if (seq !== authFactorCodeSendSeq) return
     message.error(e?.message || '发送验证码失败')
   } finally {
-    factorCodeSending.value = false
+    if (seq === authFactorCodeSendSeq) factorCodeSending.value = false
   }
 }
 
@@ -1985,26 +1700,34 @@ async function doUnlockFactors() {
   if (!factorCodeInput.value || factorCodeInput.value.length !== 6) {
     return message.warning('请输入 6 位验证码')
   }
+  const seq = ++authFactorUnlockSeq
   factorUnlocking.value = true
   try {
     const r = await unlockAuthFactors({ verifyCode: factorCodeInput.value })
+    if (seq !== authFactorUnlockSeq) return
     authFactorToken.value = r.data?.accessToken || ''
     factorCodeInput.value = ''
     if (!authFactorToken.value) throw new Error('未获取到访问令牌')
     await reloadFactors()
+    if (seq !== authFactorUnlockSeq) return
     message.success('已解锁')
   } catch (e: any) {
+    if (seq !== authFactorUnlockSeq) return
     message.error(e?.message || '解锁失败')
   } finally {
-    factorUnlocking.value = false
+    if (seq === authFactorUnlockSeq) factorUnlocking.value = false
   }
 }
 
 async function reloadFactors() {
-  if (!authFactorToken.value) return
+  const tenantId = domainMgmtTenant.value?.id
+  const accessToken = authFactorToken.value
+  if (!tenantId || !accessToken) return
+  const seq = ++authFactorRequestSeq
   authFactorLoading.value = true
   try {
-    const r = await getAuthFactors({ id: domainMgmtTenant.value.id, accessToken: authFactorToken.value })
+    const r = await getAuthFactors({ id: tenantId, accessToken })
+    if (seq !== authFactorRequestSeq || tenantId !== domainMgmtTenant.value?.id || accessToken !== authFactorToken.value) return
     const raw = (r.data && typeof r.data === 'object' && 'domains' in r.data) ? r.data.domains : r.data
     authFactorDomains.value = (Array.isArray(raw) ? raw : []).map((d: any) => ({
       ...d,
@@ -2013,26 +1736,33 @@ async function reloadFactors() {
       trustedDevice: { ...(d.trustedDevice || {}) },
     }))
   } catch (e: any) {
+    if (seq !== authFactorRequestSeq) return
     message.error(e?.message || '读取验证因素失败')
     if (String(e?.message || '').includes('解锁') || String(e?.message || '').includes('失效') || String(e?.message || '').includes('过期')) {
       resetAuthFactorState()
     }
   } finally {
-    authFactorLoading.value = false
+    if (seq === authFactorRequestSeq) authFactorLoading.value = false
   }
 }
 
 async function saveFactors(d: any) {
-  factorSavingId.value = d.domainId
+  const tenantId = domainMgmtTenant.value?.id
+  const accessToken = authFactorToken.value
+  const domainId = d?.domainId
+  if (!tenantId || !accessToken || !domainId) return
+  const seq = ++authFactorSaveSeq
+  factorSavingId.value = domainId
   try {
     const r = await updateAuthFactors({
-      id: domainMgmtTenant.value.id,
-      domainId: d.domainId,
-      accessToken: authFactorToken.value,
+      id: tenantId,
+      domainId,
+      accessToken,
       factors: d.factors,
       limits: d.limits,
       trustedDevice: d.trustedDevice,
     })
+    if (seq !== authFactorSaveSeq || tenantId !== domainMgmtTenant.value?.id || accessToken !== authFactorToken.value) return
     if (r.data?.skipped) {
       message.info('未检测到变更')
     } else {
@@ -2040,12 +1770,13 @@ async function saveFactors(d: any) {
     }
     await reloadFactors()
   } catch (e: any) {
+    if (seq !== authFactorSaveSeq) return
     message.error(e?.message || '保存失败')
     if (String(e?.message || '').includes('解锁') || String(e?.message || '').includes('失效') || String(e?.message || '').includes('过期')) {
       resetAuthFactorState()
     }
   } finally {
-    factorSavingId.value = ''
+    if (seq === authFactorSaveSeq) factorSavingId.value = ''
   }
 }
 
@@ -2054,6 +1785,9 @@ async function openDomainMgmt(record: any) {
   domainTab.value = 'security'
   domainList.value = []
   selectedDomainId.value = ''
+  resetMfaState()
+  pwdExpiryRequestSeq++
+  pwdExpiryUpdatingId.value = ''
   auditLogsRequestSeq++
   auditLogs.value = []
   auditLogsLoaded.value = false
@@ -2070,143 +1804,197 @@ async function openDomainMgmt(record: any) {
 
 watch(() => domainMgmtVisible.value, (v) => {
   if (!v) {
+    domainSettingsRequestSeq++
+    domainSettingsLoading.value = false
+    resetMfaState()
+    pwdExpiryRequestSeq++
+    pwdExpiryUpdatingId.value = ''
     resetAuthFactorState()
     resetNotificationState()
   }
 })
 
 async function loadDomainSettings() {
+  const tenantId = domainMgmtTenant.value?.id
+  if (!tenantId) return
+  const seq = ++domainSettingsRequestSeq
   domainSettingsLoading.value = true
   try {
-    const res = await getDomainSettings({ id: domainMgmtTenant.value.id })
+    const res = await getDomainSettings({ id: tenantId })
+    if (seq !== domainSettingsRequestSeq || tenantId !== domainMgmtTenant.value?.id) return
     const raw = (res.data && typeof res.data === 'object' && 'domains' in res.data) ? res.data.domains : res.data
     domainList.value = Array.isArray(raw) ? raw : []
     if (domainList.value.length > 0 && !selectedDomainId.value) {
       selectedDomainId.value = domainList.value[0].domainId
     }
   } catch (e: any) {
+    if (seq !== domainSettingsRequestSeq) return
     message.error(e?.message || '获取域设置失败')
   } finally {
-    domainSettingsLoading.value = false
+    if (seq === domainSettingsRequestSeq) domainSettingsLoading.value = false
   }
 }
 
 async function handleMfaChange(domain: any, checked: boolean) {
-  if (!domainMgmtTenant.value?.id || !domain?.domainId) return
+  const tenantId = domainMgmtTenant.value?.id
+  const domainId = domain?.domainId
+  if (!tenantId || !domainId) return
+  const seq = ++mfaCodeSendSeq
   mfaTargetDomain.value = domain
   mfaTargetEnabled.value = checked
   mfaVerifyCode.value = ''
-  mfaUpdatingId.value = domain.domainId
+  mfaUpdatingId.value = domainId
   try {
     await sendVerifyCode('domainMfa')
+    if (seq !== mfaCodeSendSeq || tenantId !== domainMgmtTenant.value?.id || domainId !== mfaTargetDomain.value?.domainId) return
     message.success('验证码已发送至 Telegram')
     mfaVerifyVisible.value = true
   } catch (e: any) {
+    if (seq !== mfaCodeSendSeq) return
     message.error(e?.message || '发送验证码失败')
     mfaTargetDomain.value = null
     mfaUpdatingId.value = ''
   }
 }
 
-function cancelMfaVerify() {
+function resetMfaState() {
+  mfaCodeSendSeq++
+  mfaSubmitSeq++
   mfaVerifyVisible.value = false
+  mfaVerifyLoading.value = false
+  mfaVerifyCodeSending.value = false
   mfaVerifyCode.value = ''
   mfaTargetDomain.value = null
+  mfaTargetEnabled.value = false
   mfaUpdatingId.value = ''
 }
 
+function cancelMfaVerify() {
+  resetMfaState()
+}
+
 async function resendMfaVerifyCode() {
-  if (!mfaTargetDomain.value?.domainId) return
+  const tenantId = domainMgmtTenant.value?.id
+  const domainId = mfaTargetDomain.value?.domainId
+  if (!tenantId || !domainId) return
+  const seq = ++mfaCodeSendSeq
   mfaVerifyCodeSending.value = true
   try {
     await sendVerifyCode('domainMfa')
+    if (seq !== mfaCodeSendSeq || tenantId !== domainMgmtTenant.value?.id || domainId !== mfaTargetDomain.value?.domainId) return
     mfaVerifyCode.value = ''
     message.success('验证码已重新发送')
   } catch (e: any) {
+    if (seq !== mfaCodeSendSeq) return
     message.error(e?.message || '发送失败')
   } finally {
-    mfaVerifyCodeSending.value = false
+    if (seq === mfaCodeSendSeq) mfaVerifyCodeSending.value = false
   }
 }
 
 async function submitMfaChange() {
   const tenantId = domainMgmtTenant.value?.id
   const domain = mfaTargetDomain.value
-  if (!tenantId || !domain?.domainId) return
-  if (!mfaVerifyCode.value || mfaVerifyCode.value.length !== 6) {
+  const domainId = domain?.domainId
+  const enabled = mfaTargetEnabled.value
+  const verifyCode = mfaVerifyCode.value
+  if (!tenantId || !domainId) return
+  if (!verifyCode || verifyCode.length !== 6) {
     message.warning('请输入 6 位验证码')
     return
   }
 
+  const seq = ++mfaSubmitSeq
   const prev = domain.mfaEnabled
   mfaVerifyLoading.value = true
-  mfaUpdatingId.value = domain.domainId
+  mfaUpdatingId.value = domainId
   try {
     await updateMfa({
       id: tenantId,
-      domainId: domain.domainId,
-      enabled: mfaTargetEnabled.value,
-      verifyCode: mfaVerifyCode.value,
+      domainId,
+      enabled,
+      verifyCode,
     })
-    domain.mfaEnabled = mfaTargetEnabled.value
-    message.success(mfaTargetEnabled.value ? 'MFA 已启用' : 'MFA 已关闭')
+    if (seq !== mfaSubmitSeq || tenantId !== domainMgmtTenant.value?.id || domainId !== mfaTargetDomain.value?.domainId) return
+    domain.mfaEnabled = enabled
+    message.success(enabled ? 'MFA 已启用' : 'MFA 已关闭')
     mfaVerifyVisible.value = false
     mfaVerifyCode.value = ''
     mfaTargetDomain.value = null
+    mfaTargetEnabled.value = false
   } catch (e: any) {
+    if (seq !== mfaSubmitSeq) return
     domain.mfaEnabled = prev
     message.error(e?.message || '更新 MFA 策略失败')
   } finally {
-    mfaVerifyLoading.value = false
-    mfaUpdatingId.value = ''
+    if (seq === mfaSubmitSeq) {
+      mfaVerifyLoading.value = false
+      mfaUpdatingId.value = ''
+    }
   }
 }
 
 async function handlePwdExpiryChange(domain: any) {
-  pwdExpiryUpdatingId.value = domain.domainId
+  const tenantId = domainMgmtTenant.value?.id
+  const domainId = domain?.domainId
+  if (!tenantId || !domainId) return
+  const days = domain.passwordExpiresAfterDays ?? 0
+  const seq = ++pwdExpiryRequestSeq
+  pwdExpiryUpdatingId.value = domainId
   try {
     await updatePasswordExpiry({
-      id: domainMgmtTenant.value.id,
-      domainId: domain.domainId,
-      days: domain.passwordExpiresAfterDays ?? 0,
+      id: tenantId,
+      domainId,
+      days,
     })
+    if (seq !== pwdExpiryRequestSeq || tenantId !== domainMgmtTenant.value?.id || domainId !== selectedDomainId.value) return
     message.success('密码过期策略已更新')
   } catch (e: any) {
+    if (seq !== pwdExpiryRequestSeq) return
     message.error(e?.message || '更新密码策略失败')
   } finally {
-    pwdExpiryUpdatingId.value = ''
+    if (seq === pwdExpiryRequestSeq) pwdExpiryUpdatingId.value = ''
   }
 }
 
 async function loadDomainNotifications() {
-  if (!domainMgmtTenant.value?.id || !selectedDomainId.value) {
+  const tenantId = domainMgmtTenant.value?.id
+  const domainId = selectedDomainId.value
+  const accessToken = notificationToken.value
+  if (!tenantId || !domainId) {
     message.warning('请先选择域')
     return
   }
-  if (!notificationToken.value) {
+  if (!accessToken) {
     message.warning('请先通过 TG 验证码解锁域通知')
     return
   }
+  const seq = ++notificationRequestSeq
   notificationLoading.value = true
   try {
     const res = await getDomainNotifications({
-      id: domainMgmtTenant.value.id,
-      domainId: selectedDomainId.value,
-      accessToken: notificationToken.value,
+      id: tenantId,
+      domainId,
+      accessToken,
     })
+    if (seq !== notificationRequestSeq || tenantId !== domainMgmtTenant.value?.id || domainId !== selectedDomainId.value || accessToken !== notificationToken.value) return
     notificationData.value = normalizeDomainNotification(res.data || {})
     notificationRecipientsText.value = (notificationData.value.testRecipients || []).join('\n')
   } catch (e: any) {
+    if (seq !== notificationRequestSeq) return
     message.error(e?.message || '读取域通知设置失败')
     if (isUnlockExpiredMessage(e?.message)) resetNotificationState()
   } finally {
-    notificationLoading.value = false
+    if (seq === notificationRequestSeq) notificationLoading.value = false
   }
 }
 
 async function saveDomainNotifications() {
-  if (!domainMgmtTenant.value?.id || !selectedDomainId.value || !notificationData.value) return
-  if (!notificationToken.value) {
+  const tenantId = domainMgmtTenant.value?.id
+  const domainId = selectedDomainId.value
+  const accessToken = notificationToken.value
+  if (!tenantId || !domainId || !notificationData.value) return
+  if (!accessToken) {
     message.warning('请先通过 TG 验证码解锁域通知')
     return
   }
@@ -2215,12 +2003,13 @@ async function saveDomainNotifications() {
     message.warning('请填写发件人电子邮件地址')
     return
   }
+  const seq = ++notificationSaveSeq
   notificationSaving.value = true
   try {
     const res = await updateDomainNotifications({
-      id: domainMgmtTenant.value.id,
-      domainId: selectedDomainId.value,
-      accessToken: notificationToken.value,
+      id: tenantId,
+      domainId,
+      accessToken,
       notificationEnabled: !!notificationData.value.notificationEnabled,
       testModeEnabled: !!notificationData.value.testModeEnabled,
       testRecipients: parseNotificationRecipients(notificationRecipientsText.value),
@@ -2236,6 +2025,7 @@ async function saveDomainNotifications() {
         enabled: !!e.enabled,
       })),
     })
+    if (seq !== notificationSaveSeq || tenantId !== domainMgmtTenant.value?.id || domainId !== selectedDomainId.value || accessToken !== notificationToken.value) return
     if (res.data?.skipped) {
       message.info('未检测到变更')
     } else {
@@ -2245,10 +2035,11 @@ async function saveDomainNotifications() {
     notificationData.value = normalizeDomainNotification(next)
     notificationRecipientsText.value = (notificationData.value.testRecipients || []).join('\n')
   } catch (e: any) {
+    if (seq !== notificationSaveSeq) return
     message.error(e?.message || '保存域通知设置失败')
     if (isUnlockExpiredMessage(e?.message)) resetNotificationState()
   } finally {
-    notificationSaving.value = false
+    if (seq === notificationSaveSeq) notificationSaving.value = false
   }
 }
 
@@ -4068,10 +3859,13 @@ onMounted(async () => {
   void loadData()
   window.addEventListener('resize', checkMobile)
 })
+function ignoreCatalogWarmupError() {
+  // 页面重新激活时的 catalog 预热是 best-effort，失败不打断当前页面操作。
+}
 onActivated(() => {
   if (!normalizedSearchText.value) {
-    void catalog.ensureTenants({ silent: true }).catch(() => {})
-    void catalog.ensureGroups({ silent: true }).catch(() => {})
+    void catalog.ensureTenants({ silent: true }).catch(ignoreCatalogWarmupError)
+    void catalog.ensureGroups({ silent: true }).catch(ignoreCatalogWarmupError)
   }
 })
 onUnmounted(() => {
@@ -4090,17 +3884,6 @@ onUnmounted(() => {
   contain-intrinsic-size: 180px;
 }
 
-.domain-switcher {
-  display: flex;
-  align-items: center;
-  flex-wrap: wrap;
-  gap: 8px;
-  padding: 10px 12px;
-  margin-bottom: 12px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm, 8px);
-}
 .tenant-name-title {
   display: inline-flex;
   align-items: center;
@@ -4140,203 +3923,6 @@ onUnmounted(() => {
   color: var(--primary);
   background: rgba(148, 163, 184, 0.16) !important;
   opacity: 1;
-}
-.domain-switcher-label {
-  font-size: 13px;
-  color: var(--text-sub);
-  white-space: nowrap;
-}
-.domain-option {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-}
-.domain-option-name { font-weight: 500; }
-.domain-type-pill {
-  display: inline-block;
-  font-size: 11px;
-  line-height: 1.5;
-  padding: 0 6px;
-  border-radius: 10px;
-  background: rgba(22, 119, 255, 0.12);
-  color: var(--primary, #1677ff);
-}
-.domain-card {
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm, 8px);
-  padding: 12px 14px;
-  margin-bottom: 12px;
-}
-.domain-card-header {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-bottom: 10px;
-  flex-wrap: wrap;
-}
-.factor-lock {
-  padding: 36px 20px;
-  border: 1px dashed var(--border);
-  border-radius: var(--radius-sm, 8px);
-  text-align: center;
-  background: var(--bg-card);
-}
-.factor-lock-icon {
-  font-size: 36px;
-  color: var(--primary, #1677ff);
-  display: block;
-  margin-bottom: 8px;
-}
-.factor-lock-title { font-size: 15px; font-weight: 600; margin-bottom: 6px; }
-.factor-lock-desc { font-size: 12px; color: var(--text-sub); max-width: 520px; margin: 0 auto; line-height: 1.6; }
-.notification-lock-actions {
-  justify-content: center;
-  margin-top: 14px;
-}
-.factor-section-title {
-  font-weight: 600;
-  font-size: 13px;
-  margin: 12px 0 8px;
-  color: var(--text-main);
-}
-.factor-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 8px 12px;
-}
-.factor-label { font-size: 12px; color: var(--text-sub); }
-.factor-hint { font-size: 11px; color: var(--text-sub); opacity: 0.7; font-family: monospace; }
-.domain-notification-layout {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-.notification-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 10px;
-  margin-bottom: 12px;
-  padding: 10px 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm, 8px);
-  background: var(--bg-card);
-}
-.notification-toolbar-title {
-  min-width: 0;
-  color: var(--text-main);
-  font-size: 13px;
-  font-weight: 600;
-}
-.notification-panel {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm, 8px);
-  background: var(--bg-card);
-  padding: 12px;
-}
-.notification-panel-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 10px;
-}
-.notification-panel-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-main);
-}
-.notification-panel-subtitle {
-  margin-top: 2px;
-  font-size: 12px;
-  color: var(--text-sub);
-  line-height: 1.5;
-}
-.notification-inline-control {
-  display: inline-flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  color: var(--text-sub);
-  font-size: 12px;
-  text-align: right;
-}
-.notification-form-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  column-gap: 12px;
-}
-.notification-form-grid :deep(.ant-form-item) {
-  margin-bottom: 8px;
-}
-.notification-collapse {
-  display: grid;
-  gap: 12px;
-  background: transparent;
-}
-.notification-collapse :deep(.ant-collapse-item) {
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm, 8px);
-  background: var(--bg-card);
-}
-.notification-collapse :deep(.ant-collapse-header) {
-  align-items: center !important;
-  padding: 12px !important;
-  color: var(--text-main) !important;
-}
-.notification-collapse :deep(.ant-collapse-content) {
-  border-top: 1px solid var(--border);
-  background: transparent;
-}
-.notification-collapse :deep(.ant-collapse-content-box) {
-  padding: 12px !important;
-}
-.notification-collapse-title {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  width: 100%;
-  font-size: 14px;
-  font-weight: 600;
-}
-.notification-event-list {
-  display: grid;
-  gap: 8px;
-}
-.notification-event-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-  padding: 9px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-sm, 8px);
-  background: var(--bg-main, transparent);
-}
-.notification-event-copy {
-  min-width: 0;
-}
-.notification-event-name {
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-main);
-}
-.notification-event-id {
-  margin-top: 2px;
-  font-size: 11px;
-  color: var(--text-sub);
-  word-break: break-all;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-}
-.notification-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 12px;
-  flex-wrap: wrap;
 }
 .table-toolbar {
   margin-bottom: 16px;
@@ -4990,57 +4576,6 @@ onUnmounted(() => {
   .region-verify-actions {
     align-items: flex-start;
     flex-direction: column;
-  }
-  .domain-switcher {
-    align-items: stretch;
-    flex-direction: column;
-  }
-  .domain-switcher :deep(.ant-select) {
-    width: 100% !important;
-    min-width: 0 !important;
-  }
-  .notification-panel-header {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-  .notification-inline-control {
-    justify-content: space-between;
-    width: 100%;
-    text-align: left;
-  }
-  .notification-form-grid {
-    grid-template-columns: 1fr;
-  }
-  .notification-toolbar {
-    align-items: stretch;
-    flex-direction: column;
-  }
-  .notification-toolbar :deep(.ant-btn) {
-    width: 100%;
-  }
-  .notification-event-row {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-  .notification-event-row :deep(.ant-switch) {
-    align-self: flex-end;
-  }
-  .notification-actions {
-    justify-content: stretch;
-  }
-  .notification-actions :deep(.ant-btn) {
-    flex: 1 1 120px;
-  }
-  .notification-lock-actions {
-    width: 100%;
-    justify-content: stretch;
-  }
-  .notification-lock-actions :deep(.ant-space-item) {
-    flex: 1 1 100%;
-  }
-  .notification-lock-actions :deep(.ant-input),
-  .notification-lock-actions :deep(.ant-btn) {
-    width: 100% !important;
   }
 }
 
