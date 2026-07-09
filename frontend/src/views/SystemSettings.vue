@@ -243,121 +243,11 @@
               <a-button type="primary" @click="saveTgConfig" :loading="saveLoading">保存</a-button>
             </a-form>
 
-            <div v-else-if="notifySection === 'announcement'" class="notify-section-panel announcement-push-panel">
-              <a-tabs v-model:active-key="announcementTab" size="small" @change="handleAnnouncementTabChange">
-                <a-tab-pane key="config" tab="推送配置">
-                  <a-form layout="vertical" class="announcement-config-form">
-                    <div class="announcement-config-head">
-                      <a-form-item label="推送范围" class="announcement-event-form-item">
-                        <a-select
-                          v-model:value="announcementPushConfig.eventTypes"
-                          mode="multiple"
-                          :show-search="false"
-                          :options="announcementEventTypeOptions"
-                          placeholder="选择需要推送的事件"
-                        />
-                      </a-form-item>
-                      <a-form-item label="启用推送" class="announcement-enable-form-item">
-                        <a-switch v-model:checked="announcementPushConfig.enabled" checked-children="开" un-checked-children="关" />
-                      </a-form-item>
-                    </div>
-                    <a-row :gutter="16">
-                      <a-col :xs="24" :md="12">
-                        <a-form-item label="扫描频率">
-                          <a-select v-model:value="announcementPushConfig.frequencyMinutes" :options="announcementFrequencyOptions" />
-                        </a-form-item>
-                      </a-col>
-                      <a-col :xs="24" :md="12">
-                        <a-form-item label="公告保留">
-                          <a-select v-model:value="announcementPushConfig.recordRetentionDays" :options="announcementRecordRetentionOptions" />
-                        </a-form-item>
-                      </a-col>
-                      <a-col :xs="24" :md="12">
-                        <a-form-item label="历史保留">
-                          <a-select v-model:value="announcementPushConfig.batchRetentionDays" :options="announcementBatchRetentionOptions" />
-                        </a-form-item>
-                      </a-col>
-                    </a-row>
-
-                    <div class="tenant-picker-shell">
-                      <div class="tenant-picker-head">
-                        <div>
-                          <div class="tenant-picker-title">接收租户</div>
-                          <div class="tenant-picker-sub">已选择 {{ announcementSelectedTenantCount }} / {{ announcementTenants.length }} 个租户</div>
-                        </div>
-                        <a-button size="small" @click="tenantPickerVisible = true">选择租户</a-button>
-                      </div>
-                      <div class="tenant-chip-row">
-                        <a-tag v-if="!announcementPushConfig.selectedTenantIds.length">尚未选择</a-tag>
-                        <a-tag v-for="tenant in announcementSelectedTenantPreview" :key="tenant.id">
-                          {{ tenant.tenantName || tenant.username || tenant.id }}
-                        </a-tag>
-                        <a-tag v-if="announcementPushConfig.selectedTenantIds.length > announcementSelectedTenantPreview.length">
-                          等 {{ announcementPushConfig.selectedTenantIds.length }} 个
-                        </a-tag>
-                      </div>
-                    </div>
-
-                    <a-space wrap>
-                      <a-button type="primary" :loading="announcementSaveLoading" @click="saveAnnouncementPushConfig">保存云公告推送</a-button>
-                      <a-button :loading="announcementScanLoading" @click="triggerAnnouncementScan">立即扫描</a-button>
-                    </a-space>
-                  </a-form>
-                </a-tab-pane>
-
-                <a-tab-pane key="inbox" tab="公告收件箱">
-                  <AnnouncementInboxPanel
-                    v-model:range="announcementInboxRange"
-                    v-model:dates="announcementInboxDates"
-                    v-model:event-types="announcementInboxEventTypes"
-                    v-model:keyword="announcementInboxKeyword"
-                    :inbox="announcementInbox"
-                    :loading="announcementInboxLoading"
-                    :time-range-options="announcementTimeRangeOptions"
-                    :event-filter-options="announcementEventFilterOptions"
-                    :format-date-time="formatDateTime"
-                    @range-change="handleAnnouncementRangeChange"
-                    @filters-change="loadAnnouncementInbox(1)"
-                    @search="loadAnnouncementInbox(1)"
-                    @refresh="loadAnnouncementInbox(announcementInbox.current, true)"
-                    @page-change="loadAnnouncementInbox"
-                    @open-detail="openAnnouncementDetail"
-                    @mark="markAnnouncement"
-                  />
-                </a-tab-pane>
-
-                <a-tab-pane key="history" tab="推送历史">
-                  <a-spin :spinning="announcementBatchLoading">
-                    <a-empty v-if="!announcementBatches.records.length" description="暂无推送历史" />
-                    <div v-else class="announcement-list">
-                      <div v-for="batch in announcementBatches.records" :key="batch.id || batch.batchId" class="announcement-item">
-                        <div class="announcement-item-main">
-                          <div class="announcement-summary">{{ batch.batchId || '-' }}</div>
-                          <div class="announcement-meta">
-                            {{ formatDateTime(batch.pushedAt || batch.createTime) }} · {{ batch.status || '-' }} · {{ batch.announcementCount || 0 }} 条公告 · {{ batch.tenantCount || 0 }} 个租户
-                          </div>
-                          <div v-if="batch.errorMessage" class="announcement-window">{{ batch.errorMessage }}</div>
-                        </div>
-                      </div>
-                    </div>
-                  </a-spin>
-                </a-tab-pane>
-
-                <a-tab-pane key="status" tab="扫描状态">
-                  <a-descriptions :column="isMobile ? 1 : 2" bordered size="small">
-                    <a-descriptions-item label="当前状态">{{ announcementStatus.scanning ? '扫描中' : announcementStatus.status || '空闲' }}</a-descriptions-item>
-                    <a-descriptions-item label="最近扫描">{{ formatDateTime(announcementStatus.lastScanAt) }}</a-descriptions-item>
-                    <a-descriptions-item label="下次扫描">{{ formatDateTime(announcementStatus.nextScanAt) }}</a-descriptions-item>
-                    <a-descriptions-item label="成功租户">{{ announcementStatus.successTenants ?? 0 }}</a-descriptions-item>
-                    <a-descriptions-item label="失败租户">{{ announcementStatus.failedTenants ?? 0 }}</a-descriptions-item>
-                    <a-descriptions-item label="最近错误">{{ announcementStatus.lastError || '-' }}</a-descriptions-item>
-                  </a-descriptions>
-                  <div style="margin-top: 14px">
-                    <a-button :loading="announcementScanLoading" @click="triggerAnnouncementScan">立即扫描</a-button>
-                  </div>
-                </a-tab-pane>
-              </a-tabs>
-            </div>
+            <AnnouncementPushPanel
+              v-else-if="notifySection === 'announcement'"
+              :is-mobile="isMobile"
+              @announcement-enabled="ensureAnnouncementNotifyType"
+            />
 
             <a-descriptions v-else :column="1" bordered size="small" class="notify-section-panel settings-no-select">
               <a-descriptions-item label="登录通知">登录成功/失败时发送，包含IP地址、账号、时间</a-descriptions-item>
@@ -368,161 +258,6 @@
             </a-descriptions>
           </div>
         </a-card>
-
-        <a-modal
-          v-model:open="tenantPickerVisible"
-          title="选择接收云公告的租户"
-          :width="isMobile ? '100%' : 980"
-          :footer="null"
-          :keyboard="false"
-          centered
-          class="tenant-picker-modal"
-        >
-          <div class="tenant-picker-modal-body">
-            <div class="tenant-picker-toolbar">
-              <a-input-search
-                v-model:value="announcementTenantSearch"
-                class="tenant-picker-search"
-                placeholder="搜索租户名、用户名、区域"
-                allow-clear
-              />
-              <div class="tenant-picker-actions">
-                <a-popconfirm
-                  :title="`确认添加当前筛选出的 ${filteredAnnouncementTenants.length} 个租户？`"
-                  ok-text="确认"
-                  cancel-text="取消"
-                  :disabled="filteredAnnouncementTenants.length === 0"
-                  @confirm="addFilteredAnnouncementTenants"
-                >
-                  <a-button size="small" :disabled="filteredAnnouncementTenants.length === 0">全部添加</a-button>
-                </a-popconfirm>
-                <a-popconfirm
-                  :title="`确认移除已选择的 ${announcementSelectedTenants.length} 个租户？`"
-                  ok-text="确认"
-                  cancel-text="取消"
-                  :disabled="announcementSelectedTenants.length === 0"
-                  @confirm="clearAnnouncementTenants"
-                >
-                  <a-button size="small" danger :disabled="announcementSelectedTenants.length === 0">全部移除</a-button>
-                </a-popconfirm>
-              </div>
-            </div>
-            <a-select
-              v-if="isMobile"
-              v-model:value="activeAnnouncementGroupKey"
-              class="tenant-mobile-group-select"
-              :show-search="false"
-            >
-              <a-select-option
-                v-for="group in announcementGroupOptions"
-                :key="group.key"
-                :value="group.key"
-              >
-                <span class="tenant-mobile-group-option" :class="{ 'tenant-mobile-group-option--child': group.level === '2' }">
-                  <span>{{ group.label }}</span>
-                  <small>{{ group.count }}</small>
-                </span>
-              </a-select-option>
-            </a-select>
-            <div class="tenant-picker-grid">
-              <div v-if="!isMobile" class="tenant-picker-block tenant-picker-group-block">
-                <div class="tenant-picker-title">分组</div>
-                <a-empty v-if="!announcementGroupOptions.length" description="暂无分组" />
-                <div v-else class="tenant-group-list">
-                  <button
-                    v-for="group in announcementGroupOptions"
-                    :key="group.key"
-                    type="button"
-                    class="tenant-group-row tenant-group-button"
-                    :class="{ 'tenant-group-button--active': activeAnnouncementGroupKey === group.key, 'tenant-group-button--child': group.level === '2' }"
-                    @click="activeAnnouncementGroupKey = group.key"
-                  >
-                    <span>{{ group.label }}</span>
-                    <small>{{ group.count }}</small>
-                  </button>
-                </div>
-              </div>
-              <div class="tenant-picker-block">
-                <div class="tenant-picker-title">当前分组租户</div>
-                <div class="tenant-list">
-                  <div v-for="tenant in pagedFilteredAnnouncementTenants" :key="tenant.id" class="tenant-row">
-                    <div class="tenant-name">
-                      <strong>{{ tenant.tenantName || tenant.username || tenant.id }}</strong>
-                      <small>{{ tenant.username }} · {{ tenant.region || '-' }} · {{ tenant.groupLevel1 || '未分组' }}{{ tenant.groupLevel2 ? ' / ' + tenant.groupLevel2 : '' }}</small>
-                    </div>
-                    <a-checkbox
-                      :checked="announcementPushConfig.selectedTenantIds.includes(tenant.id)"
-                      @change="toggleAnnouncementTenant(tenant.id, $event.target.checked)"
-                    />
-                  </div>
-                </div>
-                <a-pagination
-                  v-if="filteredAnnouncementTenants.length > tenantPickerPageSize"
-                  v-model:current="tenantPickerPage"
-                  size="small"
-                  class="tenant-picker-pagination"
-                  :page-size="tenantPickerPageSize"
-                  :total="filteredAnnouncementTenants.length"
-                  :show-size-changer="false"
-                />
-              </div>
-              <div class="tenant-picker-block">
-                <div class="tenant-picker-title">已选择接收</div>
-                <a-empty v-if="!announcementSelectedTenants.length" description="尚未选择租户" />
-                <div v-else class="tenant-selected-list">
-                  <div v-for="tenant in pagedAnnouncementSelectedTenants" :key="tenant.id" class="tenant-selected-row">
-                    <div class="tenant-name">
-                      <strong>{{ tenant.tenantName || tenant.username || tenant.id }}</strong>
-                      <small>{{ tenant.username }} · {{ tenant.region || '-' }}</small>
-                    </div>
-                    <a-button size="small" type="link" @click="toggleAnnouncementTenant(tenant.id, false)">移除</a-button>
-                  </div>
-                </div>
-                <a-pagination
-                  v-if="announcementSelectedTenants.length > tenantPickerPageSize"
-                  v-model:current="tenantSelectedPage"
-                  size="small"
-                  class="tenant-picker-pagination"
-                  :page-size="tenantPickerPageSize"
-                  :total="announcementSelectedTenants.length"
-                  :show-size-changer="false"
-                />
-              </div>
-            </div>
-          </div>
-        </a-modal>
-
-        <a-modal
-          v-model:open="announcementDetailVisible"
-          title="公告详情"
-          :width="isMobile ? '100%' : 760"
-          :footer="null"
-          :keyboard="false"
-        >
-          <a-spin :spinning="announcementDetailLoading">
-            <a-empty v-if="!announcementDetail.aggregateKey" description="暂无详情" />
-            <div v-else class="announcement-detail">
-              <h3>{{ announcementDetail.summary || '-' }}</h3>
-              <p class="announcement-meta">{{ announcementDetail.timeWindowText || '无维护时间窗口' }}</p>
-              <a-descriptions :column="1" bordered size="small">
-                <a-descriptions-item label="公告类型">{{ announcementDetail.announcementType || '-' }}</a-descriptions-item>
-                <a-descriptions-item label="影响服务">{{ (announcementDetail.services || []).join('、') || '-' }}</a-descriptions-item>
-                <a-descriptions-item label="影响区域">{{ (announcementDetail.affectedRegions || []).join('、') || '-' }}</a-descriptions-item>
-                <a-descriptions-item label="影响租户">{{ announcementDetail.tenantCount || 0 }}</a-descriptions-item>
-              </a-descriptions>
-              <div v-if="announcementDetail.liveDetail?.detail?.description" class="announcement-live-detail">
-                {{ announcementDetail.liveDetail.detail.description }}
-              </div>
-              <div class="tenant-impact-list">
-                <div v-for="tenant in announcementDetail.tenants || []" :key="tenant.tenantId + tenant.announcementId" class="tenant-impact-row">
-                  <span>{{ tenant.tenantName || tenant.tenantId }}</span>
-                  <a-tag v-if="tenant.read" color="green">已读</a-tag>
-                  <a-tag v-if="tenant.ignored">已忽略</a-tag>
-                </div>
-              </div>
-            </div>
-          </a-spin>
-        </a-modal>
 
         <a-modal :keyboard="false"
           v-model:open="notifySaveVerifyVisible"
@@ -963,15 +698,16 @@ import { useUserStore } from '../stores/user'
 import { useThemeStore } from '../stores/theme'
 import { getTaskCredential, saveTaskCredential, sendSecuritySettingsVerifyCode, sendVerifyCode, unlockSecuritySettings } from '../api/system'
 import UpgradeLoader from '../components/UpgradeLoader.vue'
-import AnnouncementInboxPanel from '../components/settings/AnnouncementInboxPanel.vue'
 import SystemSettingsTabsFrame from '../components/settings/SystemSettingsTabsFrame.vue'
 import request from '../utils/request'
-import { appQueryCache } from '../utils/queryCache'
+import { defineAppAsyncComponent } from '../utils/asyncComponent'
 import { getCfAccountConfig, saveCfAccountConfig, testCfAccountConfig } from '../api/cloudflare'
 import { getAliDNSAccountConfig, saveAliDNSAccountConfig, testAliDNSAccountConfig } from '../api/alidns'
 
 const userStore = useUserStore()
 const themeStore = useThemeStore()
+
+const AnnouncementPushPanel = defineAppAsyncComponent(() => import('../components/settings/AnnouncementPushPanel.vue'), { loading: 'none' })
 
 const router = useRouter()
 const activeTab = ref('security')
@@ -1053,7 +789,6 @@ const securityUnlocking = ref(false)
 const securityCodeCountdown = ref(0)
 const securitySession = ref('')
 let securityCountdownTimer: ReturnType<typeof setInterval> | null = null
-const ANNOUNCEMENT_INBOX_STALE_MS = 30_000
 const pwdLoading = ref(false)
 const saveLoading = ref(false)
 const testLoading = ref(false)
@@ -1208,161 +943,6 @@ const taskCredentialConfiguredCount = computed(() =>
 
 const maskedTaskPublicKey = computed(() => maskOpenSshPublicKey(taskCredentialForm.sshPublicKey))
 
-type AnnouncementTenant = {
-  id: string
-  username?: string
-  tenantName?: string
-  region?: string
-  tenancyTail?: string
-  groupLevel1?: string
-  groupLevel2?: string
-}
-type AnnouncementGroupOption = { key: string; label: string; count: number; level: '1' | '2'; groupLevel1: string; groupLevel2?: string }
-type AnnouncementItem = Record<string, any> & { aggregateKey: string }
-
-const announcementTab = ref<'config' | 'inbox' | 'history' | 'status'>('config')
-const announcementSaveLoading = ref(false)
-const announcementScanLoading = ref(false)
-const announcementInboxLoading = ref(false)
-let announcementInboxRequestSeq = 0
-const announcementBatchLoading = ref(false)
-const announcementDetailLoading = ref(false)
-const tenantPickerVisible = ref(false)
-const announcementDetailVisible = ref(false)
-const announcementTenantSearch = ref('')
-const announcementInboxKeyword = ref('')
-const announcementInboxRange = ref<'24h' | '7d' | '30d' | 'all' | 'custom'>('30d')
-const announcementInboxDates = ref<string[]>([])
-const announcementInboxEventTypes = ref<string[]>([])
-const announcementTenants = ref<AnnouncementTenant[]>([])
-const activeAnnouncementGroupKey = ref('ALL')
-const tenantPickerPage = ref(1)
-const tenantSelectedPage = ref(1)
-const tenantPickerPageSize = computed(() => (isMobile.value ? 6 : 8))
-const announcementStatus = reactive<Record<string, any>>({})
-const announcementDetail = reactive<Record<string, any>>({})
-const announcementInbox = reactive({ records: [] as AnnouncementItem[], total: 0, current: 1, size: 50 })
-const announcementBatches = reactive({ records: [] as Record<string, any>[], total: 0, current: 1, size: 10 })
-const announcementPushConfig = reactive({
-  enabled: false,
-  eventTypes: [] as string[],
-  frequencyMinutes: 30,
-  selectedTenantIds: [] as string[],
-  recordRetentionDays: 90,
-  batchRetentionDays: 30,
-})
-const announcementEventTypeOptions = [
-  { label: '需要采取行动', value: 'ACTION_REQUIRED' },
-  { label: 'OIC 维护通知', value: 'OIC_MAINTENANCE' },
-  { label: '维护通知', value: 'MAINTENANCE' },
-  { label: '信息通知', value: 'INFORMATION' },
-  { label: '安全通知', value: 'SECURITY' },
-  { label: '紧急通知', value: 'EMERGENCY' },
-]
-const announcementEventFilterOptions = [
-  ...announcementEventTypeOptions,
-  { label: '未识别', value: 'UNKNOWN' },
-]
-const announcementTimeRangeOptions = [
-  { label: '近 24 小时', value: '24h' },
-  { label: '近 7 天', value: '7d' },
-  { label: '近 30 天', value: '30d' },
-  { label: '全部', value: 'all' },
-  { label: '自定义', value: 'custom' },
-]
-const announcementFrequencyOptions = [
-  { label: '15 分钟', value: 15 },
-  { label: '30 分钟', value: 30 },
-  { label: '60 分钟', value: 60 },
-  { label: '180 分钟', value: 180 },
-  { label: '360 分钟', value: 360 },
-  { label: '720 分钟', value: 720 },
-]
-const announcementRecordRetentionOptions = [
-  { label: '30 天', value: 30 },
-  { label: '90 天', value: 90 },
-  { label: '180 天', value: 180 },
-]
-const announcementBatchRetentionOptions = [
-  { label: '7 天', value: 7 },
-  { label: '30 天', value: 30 },
-  { label: '60 天', value: 60 },
-]
-
-const announcementGroupOptions = computed<AnnouncementGroupOption[]>(() => {
-  const level1 = new Map<string, number>()
-  const level2 = new Map<string, Map<string, number>>()
-  for (const tenant of announcementTenants.value) {
-    const g1 = tenant.groupLevel1 || '未分组'
-    const g2 = tenant.groupLevel2 || ''
-    level1.set(g1, (level1.get(g1) || 0) + 1)
-    if (g2) {
-      const children = level2.get(g1) || new Map<string, number>()
-      children.set(g2, (children.get(g2) || 0) + 1)
-      level2.set(g1, children)
-    }
-  }
-  const out: AnnouncementGroupOption[] = []
-  out.push({ key: 'ALL', label: '全部租户', count: announcementTenants.value.length, level: '1', groupLevel1: 'ALL' })
-  for (const [g1, count] of level1.entries()) {
-    out.push({ key: `1|${g1}`, label: g1, count, level: '1', groupLevel1: g1 })
-    const children = level2.get(g1)
-    if (children) {
-      for (const [g2, childCount] of children.entries()) {
-        out.push({ key: `2|${g1}|${g2}`, label: g2, count: childCount, level: '2', groupLevel1: g1, groupLevel2: g2 })
-      }
-    }
-  }
-  return out
-})
-
-const filteredAnnouncementTenants = computed(() => {
-  const kw = announcementTenantSearch.value.trim().toLowerCase()
-  return announcementTenants.value.filter((t) => {
-    const groupMatched = activeAnnouncementGroupKey.value === 'ALL' || tenantMatchesGroupKey(t, activeAnnouncementGroupKey.value)
-    if (!groupMatched) return false
-    if (!kw) return true
-    return [
-      t.tenantName,
-      t.username,
-      t.region,
-      t.groupLevel1,
-      t.groupLevel2,
-      t.tenancyTail,
-    ].some((v) => String(v || '').toLowerCase().includes(kw))
-  })
-})
-
-const announcementSelectedTenantCount = computed(() => {
-  return announcementPushConfig.selectedTenantIds.length
-})
-
-const announcementSelectedTenants = computed(() => {
-  const selected = new Set(announcementPushConfig.selectedTenantIds)
-  return announcementTenants.value.filter((t) => selected.has(t.id))
-})
-
-const announcementSelectedTenantPreview = computed(() => announcementSelectedTenants.value.slice(0, 5))
-
-const pagedFilteredAnnouncementTenants = computed(() => {
-  const start = (tenantPickerPage.value - 1) * tenantPickerPageSize.value
-  return filteredAnnouncementTenants.value.slice(start, start + tenantPickerPageSize.value)
-})
-
-const pagedAnnouncementSelectedTenants = computed(() => {
-  const start = (tenantSelectedPage.value - 1) * tenantPickerPageSize.value
-  return announcementSelectedTenants.value.slice(start, start + tenantPickerPageSize.value)
-})
-
-watch([announcementTenantSearch, activeAnnouncementGroupKey], () => {
-  tenantPickerPage.value = 1
-})
-
-watch(announcementSelectedTenantCount, () => {
-  const maxPage = Math.max(1, Math.ceil(announcementSelectedTenantCount.value / tenantPickerPageSize.value))
-  if (tenantSelectedPage.value > maxPage) tenantSelectedPage.value = maxPage
-})
-
 watch(activeTab, (k) => {
   if (k === 'audit' && securityTgVerified.value) {
     loadAudit()
@@ -1376,11 +956,6 @@ watch(activeTab, (k) => {
   if (k === 'alidns') {
     loadAlidnsConfig()
   }
-  if (k === 'notify') {
-    loadAnnouncementPushConfig()
-    loadAnnouncementTenants()
-    loadAnnouncementStatus()
-  }
 })
 
 onMounted(async () => {
@@ -1389,16 +964,15 @@ onMounted(async () => {
   }
   loadNotifyConfig()
   reloadTaskCredentialConfig()
-  loadAnnouncementPushConfig()
-  loadAnnouncementTenants()
-  loadAnnouncementStatus()
   loadOciProxy()
   loadCfConfig()
   loadAlidnsConfig()
   try {
     const res = await request.get('/sys/tgStatus')
     tgConfigured.value = res.data?.configured === true
-  } catch {}
+  } catch {
+    /* 状态读取失败不阻断设置页渲染 */
+  }
 })
 
 
@@ -1574,7 +1148,9 @@ async function loadNotifyConfig() {
     tgConfig.notifyTypes = types ? types.split(',') : ['login', 'task_create', 'task_result', 'instance', 'daily_report']
     tgConfig.dailyReportTime = res.data?.dailyReportTime || '09:00'
     dailyReportTimePicked.value = tgConfig.dailyReportTime
-  } catch {}
+  } catch {
+    /* 通知配置读取失败时沿用默认表单值 */
+  }
 }
 
 function toggleNotifyType(type: string, checked: boolean) {
@@ -1584,236 +1160,9 @@ function toggleNotifyType(type: string, checked: boolean) {
   tgConfig.notifyTypes = Array.from(set)
 }
 
-async function loadAnnouncementPushConfig() {
-  try {
-    const res = await request.get('/sys/announcementPush/config')
-    const d = res.data || {}
-    announcementPushConfig.enabled = d.enabled === true
-    announcementPushConfig.eventTypes = Array.isArray(d.eventTypes) ? d.eventTypes : ['ACTION_REQUIRED', 'OIC_MAINTENANCE', 'MAINTENANCE', 'SECURITY', 'EMERGENCY']
-    announcementPushConfig.frequencyMinutes = Number(d.frequencyMinutes || 30)
-    announcementPushConfig.selectedTenantIds = Array.isArray(d.selectedTenantIds) ? d.selectedTenantIds : []
-    announcementPushConfig.recordRetentionDays = Number(d.recordRetentionDays || 90)
-    announcementPushConfig.batchRetentionDays = Number(d.batchRetentionDays || 30)
-    Object.assign(announcementStatus, d.status || {})
-  } catch {
-    /* 忽略 */
-  }
-}
-
-async function loadAnnouncementTenants() {
-  try {
-    const res = await request.get('/sys/announcementPush/tenants')
-    announcementTenants.value = Array.isArray(res.data?.items) ? res.data.items : []
-  } catch {
-    announcementTenants.value = []
-  }
-}
-
-async function saveAnnouncementPushConfig() {
-  announcementSaveLoading.value = true
-  try {
-    await request.post('/sys/announcementPush/config', {
-      enabled: announcementPushConfig.enabled,
-      eventTypes: announcementPushConfig.eventTypes,
-      frequencyMinutes: announcementPushConfig.frequencyMinutes,
-      selectedTenantIds: announcementPushConfig.selectedTenantIds,
-      recordRetentionDays: announcementPushConfig.recordRetentionDays,
-      batchRetentionDays: announcementPushConfig.batchRetentionDays,
-    })
-    message.success('已保存')
-    if (announcementPushConfig.enabled && !tgConfig.notifyTypes.includes('announcement')) {
-      tgConfig.notifyTypes.push('announcement')
-    }
-    await loadAnnouncementPushConfig()
-  } catch (e: any) {
-    message.error(e?.message || '保存失败')
-  } finally {
-    announcementSaveLoading.value = false
-  }
-}
-
-async function loadAnnouncementStatus() {
-  try {
-    const res = await request.get('/sys/announcementPush/status')
-    Object.assign(announcementStatus, res.data || {})
-  } catch {
-    /* 忽略 */
-  }
-}
-
-async function triggerAnnouncementScan() {
-  announcementScanLoading.value = true
-  try {
-    await request.post('/sys/announcementPush/scan')
-    message.success('已开始扫描')
-    appQueryCache.invalidate(['systemSettings', 'announcementInbox'])
-    await loadAnnouncementStatus()
-  } catch (e: any) {
-    message.error(e?.message || '启动扫描失败')
-  } finally {
-    announcementScanLoading.value = false
-  }
-}
-
-async function loadAnnouncementInbox(page = announcementInbox.current, force = false) {
-  const requestSeq = ++announcementInboxRequestSeq
-  announcementInboxLoading.value = true
-  try {
-    const range = resolveAnnouncementInboxRange()
-    const params = {
-      page,
-      size: announcementInbox.size,
-      keyword: announcementInboxKeyword.value || undefined,
-      startAt: range.startAt,
-      endAt: range.endAt,
-      eventTypes: announcementInboxEventTypes.value.length ? announcementInboxEventTypes.value.join(',') : undefined,
-    }
-    const d = await appQueryCache.fetch(
-      ['systemSettings', 'announcementInbox', params],
-      async () => {
-        const res = await request.get('/sys/announcementPush/inbox', { params })
-        return res.data || {}
-      },
-      { staleMs: ANNOUNCEMENT_INBOX_STALE_MS, force },
-    )
-    if (requestSeq !== announcementInboxRequestSeq) return
-    announcementInbox.records = Array.isArray(d.records) ? d.records : []
-    announcementInbox.total = Number(d.total || 0)
-    announcementInbox.current = Number(d.current || page)
-    announcementInbox.size = Number(d.size || announcementInbox.size)
-  } catch (e: any) {
-    if (requestSeq === announcementInboxRequestSeq) {
-      message.error(e?.message || '加载失败')
-    }
-  } finally {
-    if (requestSeq === announcementInboxRequestSeq) {
-      announcementInboxLoading.value = false
-    }
-  }
-}
-
-async function loadAnnouncementBatches(page = announcementBatches.current) {
-  announcementBatchLoading.value = true
-  try {
-    const res = await request.get('/sys/announcementPush/batches', { params: { page, size: announcementBatches.size } })
-    const d = res.data || {}
-    announcementBatches.records = Array.isArray(d.records) ? d.records : []
-    announcementBatches.total = Number(d.total || 0)
-    announcementBatches.current = Number(d.current || page)
-    announcementBatches.size = Number(d.size || announcementBatches.size)
-  } catch (e: any) {
-    message.error(e?.message || '加载失败')
-  } finally {
-    announcementBatchLoading.value = false
-  }
-}
-
-function handleAnnouncementTabChange(key: string) {
-  if (key === 'inbox') loadAnnouncementInbox(1)
-  if (key === 'history') loadAnnouncementBatches(1)
-  if (key === 'status') loadAnnouncementStatus()
-}
-
-async function openAnnouncementDetail(item: AnnouncementItem) {
-  announcementDetailVisible.value = true
-  announcementDetailLoading.value = true
-  Object.keys(announcementDetail).forEach((k) => delete announcementDetail[k])
-  try {
-    const res = await request.post('/sys/announcementPush/inbox/detail', { aggregateKey: item.aggregateKey })
-    Object.assign(announcementDetail, res.data || {})
-  } catch (e: any) {
-    message.error(e?.message || '加载详情失败')
-  } finally {
-    announcementDetailLoading.value = false
-  }
-}
-
-async function markAnnouncement(item: AnnouncementItem, action: 'read' | 'ignore' | 'unignore') {
-  try {
-    await request.post('/sys/announcementPush/inbox/mark', { aggregateKey: item.aggregateKey, action })
-    message.success('已更新')
-    appQueryCache.invalidate(['systemSettings', 'announcementInbox'])
-    await loadAnnouncementInbox(announcementInbox.current, true)
-  } catch (e: any) {
-    message.error(e?.message || '操作失败')
-  }
-}
-
-function toggleAnnouncementTenant(id: string, checked: boolean) {
-  const list = announcementPushConfig.selectedTenantIds
-  const idx = list.indexOf(id)
-  if (checked && idx < 0) list.push(id)
-  if (!checked && idx >= 0) list.splice(idx, 1)
-}
-
-function addFilteredAnnouncementTenants() {
-  const selected = new Set(announcementPushConfig.selectedTenantIds)
-  for (const tenant of filteredAnnouncementTenants.value) {
-    selected.add(tenant.id)
-  }
-  announcementPushConfig.selectedTenantIds = Array.from(selected)
-}
-
-function clearAnnouncementTenants() {
-  announcementPushConfig.selectedTenantIds = []
-  tenantSelectedPage.value = 1
-}
-
-function tenantMatchesGroupKey(tenant: AnnouncementTenant, key: string) {
-  const g1 = tenant.groupLevel1 || '未分组'
-  const g2 = tenant.groupLevel2 || ''
-  return key === `1|${g1}` || (g2 && key === `2|${g1}|${g2}`)
-}
-
-function handleAnnouncementRangeChange(value?: '24h' | '7d' | '30d' | 'all' | 'custom') {
-  const range = value || announcementInboxRange.value
-  if (range !== 'custom') {
-    announcementInboxDates.value = []
-  }
-  loadAnnouncementInbox(1)
-}
-
-function resolveAnnouncementInboxRange() {
-  if (announcementInboxRange.value === 'custom') {
-    return {
-      startAt: announcementInboxDates.value?.[0] || undefined,
-      endAt: announcementInboxDates.value?.[1] || undefined,
-    }
-  }
-  if (announcementInboxRange.value === 'all') {
-    return { startAt: undefined, endAt: undefined }
-  }
-  const now = new Date()
-  const start = new Date(now)
-  if (announcementInboxRange.value === '24h') start.setHours(start.getHours() - 24)
-  if (announcementInboxRange.value === '7d') start.setDate(start.getDate() - 7)
-  if (announcementInboxRange.value === '30d') start.setDate(start.getDate() - 30)
-  return {
-    startAt: formatDateTimeForApi(start),
-    endAt: formatDateTimeForApi(now),
-  }
-}
-
-function formatDateTimeForApi(d: Date) {
-  const pad = (n: number) => String(n).padStart(2, '0')
-  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`
-}
-
-function formatDateTime(value: any) {
-  if (!value) return '-'
-  try {
-    const d = new Date(value)
-    if (Number.isNaN(d.getTime())) return String(value)
-    return new Intl.DateTimeFormat('zh-CN', {
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    }).format(d)
-  } catch {
-    return String(value)
+function ensureAnnouncementNotifyType() {
+  if (!tgConfig.notifyTypes.includes('announcement')) {
+    tgConfig.notifyTypes.push('announcement')
   }
 }
 
@@ -2111,7 +1460,9 @@ async function executeSaveTgConfig(verifyCode?: string) {
     try {
       const res = await request.get('/sys/tgStatus')
       tgConfigured.value = res.data?.configured === true
-    } catch {}
+    } catch {
+      /* 保存已成功，状态回读失败不影响用户操作 */
+    }
     await loadNotifyConfig()
   } catch (e: any) {
     message.error(e?.message || '保存失败')
@@ -2694,19 +2045,6 @@ async function handleRestore() {
 </script>
 
 <style scoped>
-.announcement-item {
-  content-visibility: auto;
-  contain-intrinsic-size: 104px;
-}
-.tenant-row {
-  content-visibility: auto;
-  contain-intrinsic-size: 64px;
-}
-.tenant-selected-row {
-  content-visibility: auto;
-  contain-intrinsic-size: 44px;
-}
-
 .security-gate-card {
   max-width: 520px;
 }
@@ -2830,312 +2168,6 @@ async function handleRestore() {
 }
 .notify-section-panel {
   max-width: 100%;
-}
-.announcement-push-panel {
-  width: 100%;
-}
-.announcement-config-form {
-  max-width: 860px;
-}
-.announcement-config-head {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 16px;
-  align-items: start;
-}
-.announcement-event-form-item {
-  min-width: 0;
-}
-.announcement-enable-form-item {
-  min-width: 104px;
-}
-.announcement-enable-form-item :deep(.ant-form-item-control-input-content) {
-  display: flex;
-  justify-content: flex-end;
-}
-.tenant-picker-shell {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md, 8px);
-  padding: 14px;
-  margin-bottom: 16px;
-  background: var(--input-bg, rgba(255, 255, 255, 0.03));
-}
-.tenant-picker-head {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-.tenant-picker-title {
-  font-weight: 600;
-  color: var(--text-main);
-}
-.tenant-picker-sub,
-.announcement-meta {
-  font-size: 12px;
-  color: var(--text-sub);
-}
-.tenant-chip-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 10px;
-}
-.announcement-toolbar {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
-  align-items: center;
-  margin-bottom: 12px;
-}
-.announcement-filter-select {
-  width: 132px;
-}
-.announcement-date-range {
-  width: 300px;
-}
-.announcement-event-filter {
-  min-width: 260px;
-}
-.announcement-toolbar :deep(.ant-input-search) {
-  max-width: 360px;
-  min-width: 220px;
-}
-.announcement-list {
-  display: flex;
-  flex-direction: column;
-  gap: 10px;
-}
-.announcement-item {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md, 8px);
-  background: var(--input-bg, rgba(255, 255, 255, 0.03));
-}
-.announcement-item-main {
-  min-width: 0;
-  flex: 1;
-}
-.announcement-summary {
-  margin-top: 7px;
-  color: var(--text-main);
-  font-weight: 600;
-  line-height: 1.45;
-  word-break: break-word;
-}
-.announcement-window {
-  margin-top: 6px;
-  font-size: 12px;
-  color: var(--text-sub);
-  white-space: pre-line;
-}
-.announcement-type-origin {
-  align-self: center;
-  color: var(--text-sub);
-  font-size: 12px;
-}
-.announcement-pagination {
-  margin-top: 14px;
-  text-align: right;
-}
-.tenant-picker-modal :deep(.ant-modal-body) {
-  max-height: calc(100vh - 132px);
-  overflow: hidden;
-}
-.tenant-picker-modal :deep(.ant-modal-content) {
-  max-height: calc(100vh - 48px);
-  display: flex;
-  flex-direction: column;
-}
-.tenant-picker-modal :deep(.ant-modal-header) {
-  flex: 0 0 auto;
-}
-.tenant-picker-modal-body {
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
-.tenant-picker-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 12px;
-}
-.tenant-picker-search {
-  width: min(420px, 100%);
-  flex: 0 1 420px;
-}
-.tenant-picker-actions {
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-  gap: 8px;
-  flex: 1 0 auto;
-}
-.tenant-mobile-group-select {
-  width: 100%;
-  margin-top: 10px;
-}
-.tenant-mobile-group-option {
-  display: inline-flex;
-  align-items: baseline;
-  gap: 8px;
-  max-width: 100%;
-}
-.tenant-mobile-group-option--child {
-  padding-left: 1.5em;
-}
-.tenant-mobile-group-option small {
-  font-size: 11px;
-  line-height: 1;
-  color: var(--text-sub);
-}
-.tenant-picker-grid {
-  display: grid;
-  grid-template-columns: minmax(210px, 260px) minmax(0, 1fr) minmax(240px, 300px);
-  gap: 14px;
-  margin-top: 12px;
-  min-height: 0;
-  height: min(62vh, 600px);
-}
-.tenant-picker-block {
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md, 8px);
-  padding: 12px;
-  min-width: 0;
-  min-height: 0;
-  background: var(--bg-card);
-  display: flex;
-  flex-direction: column;
-}
-.tenant-group-list,
-.tenant-list,
-.tenant-selected-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin-top: 10px;
-  min-height: 0;
-}
-.tenant-group-list {
-  overflow: auto;
-  padding-right: 2px;
-}
-.tenant-list,
-.tenant-selected-list {
-  overflow: visible;
-}
-.tenant-group-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 8px;
-  align-items: center;
-  font-size: 13px;
-  color: var(--text-main);
-}
-.tenant-group-button {
-  width: 100%;
-  padding: 8px 10px;
-  border: 1px solid transparent;
-  border-radius: var(--radius-md, 8px);
-  background: transparent;
-  text-align: left;
-  cursor: pointer;
-}
-.tenant-group-button:hover,
-.tenant-group-button--active {
-  border-color: rgba(129, 140, 248, 0.45);
-  background: rgba(129, 140, 248, 0.12);
-}
-.tenant-group-button--child {
-  padding-left: 22px;
-}
-.tenant-group-row span {
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.tenant-group-row small,
-.tenant-name small {
-  color: var(--text-sub);
-}
-.tenant-row {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 48px;
-  gap: 8px;
-  align-items: center;
-  min-height: 56px;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--border);
-}
-.tenant-row:last-child {
-  border-bottom: 0;
-}
-.tenant-row-head {
-  color: var(--text-sub);
-  font-size: 12px;
-  padding-top: 0;
-}
-.tenant-name {
-  min-width: 0;
-}
-.tenant-name strong,
-.tenant-name small {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.tenant-selected-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  min-height: 56px;
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md, 8px);
-  background: var(--input-bg, rgba(255, 255, 255, 0.03));
-}
-.tenant-picker-pagination {
-  margin-top: auto;
-  padding-top: 10px;
-  text-align: right;
-}
-.announcement-detail h3 {
-  margin-top: 0;
-  color: var(--text-main);
-}
-.announcement-live-detail {
-  margin-top: 14px;
-  padding: 12px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md, 8px);
-  color: var(--text-main);
-  background: var(--input-bg, rgba(255, 255, 255, 0.03));
-  white-space: pre-wrap;
-  word-break: break-word;
-  max-height: 280px;
-  overflow: auto;
-}
-.tenant-impact-list {
-  margin-top: 14px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.tenant-impact-row {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  padding: 8px 10px;
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md, 8px);
 }
 .settings-card-wide--cf {
   max-width: min(960px, 100%);
@@ -3555,86 +2587,6 @@ async function handleRestore() {
   .task-public-key-summary-text span {
     white-space: normal;
     word-break: break-word;
-  }
-  .announcement-toolbar,
-  .announcement-item,
-  .tenant-picker-head {
-    flex-direction: column;
-    align-items: stretch;
-  }
-  .announcement-config-head {
-    grid-template-columns: 1fr;
-    gap: 0;
-  }
-  .announcement-enable-form-item :deep(.ant-form-item-control-input-content) {
-    justify-content: flex-start;
-  }
-  .announcement-filter-select,
-  .announcement-date-range,
-  .announcement-event-filter {
-    width: 100%;
-    min-width: 0;
-  }
-  .announcement-toolbar :deep(.ant-input-search) {
-    max-width: 100%;
-    min-width: 0;
-  }
-  .tenant-picker-grid {
-    grid-template-columns: 1fr;
-    height: auto;
-    max-height: none;
-    overflow: visible;
-  }
-  .tenant-picker-toolbar {
-    display: contents;
-  }
-  .tenant-picker-search {
-    order: 1;
-    width: 100%;
-    flex-basis: auto;
-    margin-bottom: 8px;
-  }
-  .tenant-mobile-group-select {
-    order: 2;
-    margin-top: 0;
-    margin-bottom: 8px;
-  }
-  .tenant-picker-actions {
-    order: 3;
-    justify-content: flex-start;
-    flex: 0 0 auto;
-    margin-bottom: 10px;
-  }
-  .tenant-picker-grid {
-    order: 4;
-  }
-  .tenant-picker-modal :deep(.ant-modal) {
-    max-width: 100%;
-    margin: 8px auto;
-  }
-  .tenant-picker-modal :deep(.ant-modal-content) {
-    max-height: calc(100vh - 16px);
-  }
-  .tenant-picker-modal :deep(.ant-modal-body) {
-    max-height: calc(100vh - 98px);
-    overflow: auto;
-  }
-  .tenant-picker-block {
-    min-height: auto;
-  }
-  .tenant-group-list {
-    max-height: 176px;
-  }
-  .tenant-list,
-  .tenant-selected-list {
-    overflow: visible;
-  }
-  .tenant-row,
-  .tenant-selected-row {
-    min-height: 58px;
-  }
-  .tenant-picker-pagination {
-    margin-top: 8px;
   }
   .cf-settings-layout {
     grid-template-columns: 1fr;
