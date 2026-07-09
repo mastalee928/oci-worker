@@ -130,13 +130,13 @@ import { defineAppAsyncComponent } from '../../utils/asyncComponent'
 
 defineOptions({ name: 'InstanceDetailDrawerShell' })
 
-const BootVolumePanel = defineAppAsyncComponent(() => import('./BootVolumePanel.vue'))
-const BlockStoragePanel = defineAppAsyncComponent(() => import('./BlockStoragePanel.vue'))
-const InstanceTrafficPanel = defineAppAsyncComponent(() => import('./InstanceTrafficPanel.vue'))
-const InstanceSecurityPanel = defineAppAsyncComponent(() => import('./InstanceSecurityPanel.vue'))
-const InstanceNetworkPanel = defineAppAsyncComponent(() => import('./InstanceNetworkPanel.vue'))
-const InstanceDetailInfoPanel = defineAppAsyncComponent(() => import('./InstanceDetailInfoPanel.vue'))
-const InstanceShapeEditPanel = defineAppAsyncComponent(() => import('./InstanceShapeEditPanel.vue'))
+const BootVolumePanel = defineAppAsyncComponent(() => import('./BootVolumePanel.vue'), { loadingVariant: 'detail' })
+const BlockStoragePanel = defineAppAsyncComponent(() => import('./BlockStoragePanel.vue'), { loadingVariant: 'detail' })
+const InstanceTrafficPanel = defineAppAsyncComponent(() => import('./InstanceTrafficPanel.vue'), { loadingVariant: 'detail' })
+const InstanceSecurityPanel = defineAppAsyncComponent(() => import('./InstanceSecurityPanel.vue'), { loadingVariant: 'detail' })
+const InstanceNetworkPanel = defineAppAsyncComponent(() => import('./InstanceNetworkPanel.vue'), { loadingVariant: 'detail' })
+const InstanceDetailInfoPanel = defineAppAsyncComponent(() => import('./InstanceDetailInfoPanel.vue'), { loadingVariant: 'detail' })
+const InstanceShapeEditPanel = defineAppAsyncComponent(() => import('./InstanceShapeEditPanel.vue'), { loadingVariant: 'detail' })
 
 const props = defineProps<{
   open: boolean

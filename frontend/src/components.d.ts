@@ -49,6 +49,7 @@ declare module 'vue' {
     AnnouncementTenantPickerModal: typeof import('./components/settings/AnnouncementTenantPickerModal.vue')['default']
     APagination: typeof import('ant-design-vue/es')['Pagination']
     APopconfirm: typeof import('ant-design-vue/es')['Popconfirm']
+    AppPanelSkeleton: typeof import('./components/common/AppPanelSkeleton.vue')['default']
     AProgress: typeof import('ant-design-vue/es')['Progress']
     ARadio: typeof import('ant-design-vue/es')['Radio']
     ARadioButton: typeof import('ant-design-vue/es')['RadioButton']

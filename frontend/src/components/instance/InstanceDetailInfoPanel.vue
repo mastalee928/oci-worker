@@ -106,7 +106,7 @@ dayjs.extend(utc)
 
 defineOptions({ name: 'InstanceDetailInfoPanel' })
 
-const InstanceNetworkDetailPanel = defineAppAsyncComponent(() => import('./InstanceNetworkDetailPanel.vue'))
+const InstanceNetworkDetailPanel = defineAppAsyncComponent(() => import('./InstanceNetworkDetailPanel.vue'), { loadingVariant: 'detail' })
 
 withDefaults(defineProps<{
   mode: 'info' | 'console'

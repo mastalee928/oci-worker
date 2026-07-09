@@ -1,4 +1,5 @@
 import { defineAsyncComponent, h, type Component } from 'vue'
+import AppPanelSkeleton from '../components/common/AppPanelSkeleton.vue'
 
 const ASYNC_COMPONENT_RELOAD_KEY = 'ociworker:async-component-reload-at'
 const ASYNC_COMPONENT_RELOAD_COOLDOWN_MS = 60_000
@@ -22,6 +23,8 @@ export function reloadOnceForUpdatedAssets() {
 type AppAsyncComponentOptions = {
   loadingText?: string
   loading?: 'skeleton' | 'none'
+  loadingVariant?: 'panel' | 'cards' | 'table' | 'detail' | 'list' | 'compact'
+  loadingRows?: number
 }
 
 export function defineAppAsyncComponent<T extends Component>(
@@ -36,13 +39,13 @@ export function defineAppAsyncComponent<T extends Component>(
     loadingComponent: showLoading ? {
       setup() {
         const text = options.loadingText || '组件加载中'
-        return () => h('div', { class: 'async-component-loading', role: 'status', 'aria-label': text }, [
-          h('div', { class: 'async-component-loading-surface' }, [
-            h('span'),
-            h('span'),
-            h('span'),
-          ]),
-        ])
+        return () => h(AppPanelSkeleton, {
+          class: 'async-component-loading',
+          role: 'status',
+          'aria-label': text,
+          variant: options.loadingVariant || 'panel',
+          rows: options.loadingRows,
+        })
       },
     } : undefined,
     errorComponent: {
