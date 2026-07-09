@@ -541,8 +541,8 @@ const {
   invalidateCatalogAndReload,
   clearTenantSearchTimer,
   clearTenantInfoPollTimers,
-  showAddModal,
-  showEditModal,
+  showAddModal: showAddConfigModal,
+  showEditModal: showEditConfigModal,
   onKeyInputModeChange,
   normalizeRegionInput,
   handleUpload,
@@ -706,7 +706,8 @@ const {
   announcementHistory,
   announcementDrawerTitle,
   announcementReadUpdatingId,
-  openTenantMgmt,
+  openTenantMgmt: openTenantManagementWorkspace,
+  closeTenantMgmt,
   onTenantTabChange,
   handleRefreshTenantAccountInfo,
   loadIamPolicies,
@@ -765,6 +766,35 @@ const {
   formatUtcCnDate,
   formatCountryCn,
 } = tenantManagement
+
+type TenantConfigOverlayTarget = 'form' | 'tenant' | 'domain'
+
+function closeTenantConfigOverlays(except?: TenantConfigOverlayTarget) {
+  if (except !== 'form') {
+    modalVisible.value = false
+  }
+  if (except !== 'tenant') {
+    closeTenantMgmt()
+  }
+  if (except !== 'domain') {
+    closeDomainMgmt()
+  }
+}
+
+function showAddModal() {
+  closeTenantConfigOverlays('form')
+  showAddConfigModal()
+}
+
+function showEditModal(record: any) {
+  closeTenantConfigOverlays('form')
+  showEditConfigModal(record)
+}
+
+async function openTenantMgmt(record: any) {
+  closeTenantConfigOverlays('tenant')
+  await openTenantManagementWorkspace(record)
+}
 
 function checkMobile() {
   viewportHeight.value = window.innerHeight
@@ -1348,8 +1378,10 @@ async function saveFactors(d: any) {
   }
 }
 
-async function openDomainMgmt(record: any) {
-  domainMgmtTenant.value = record
+function resetDomainManagementState() {
+  domainSettingsRequestSeq++
+  domainSettingsLoading.value = false
+  domainMgmtTenant.value = null
   domainTab.value = 'security'
   domainList.value = []
   selectedDomainId.value = ''
@@ -1366,21 +1398,28 @@ async function openDomainMgmt(record: any) {
   domainAuditLogsLoading.value = false
   resetNotificationState()
   resetAuthFactorState()
+}
+
+function closeDomainMgmt() {
+  if (domainMgmtVisible.value) {
+    domainMgmtVisible.value = false
+  } else {
+    resetDomainManagementState()
+  }
+}
+
+async function openDomainMgmt(record: any) {
+  closeTenantConfigOverlays('domain')
+  resetDomainManagementState()
+  domainMgmtTenant.value = record
+  domainTab.value = 'security'
   domainMgmtVisible.value = true
   await loadDomainSettings()
 }
 
 watch(() => domainMgmtVisible.value, (v) => {
-  if (!v) {
-    domainSettingsRequestSeq++
-    domainSettingsLoading.value = false
-    resetMfaState()
-    pwdExpiryRequestSeq++
-    pwdExpiryUpdatingId.value = ''
-    resetAuthFactorState()
-    resetNotificationState()
-  }
-})
+  if (!v) resetDomainManagementState()
+}, { flush: 'sync' })
 
 async function loadDomainSettings() {
   const tenantId = domainMgmtTenant.value?.id
@@ -1690,6 +1729,7 @@ function scrollTenantPageTop() {
 }
 
 function goUserManagement(record: any) {
+  closeTenantConfigOverlays()
   router.push(`/tenant/${record.id}/users`)
 }
 

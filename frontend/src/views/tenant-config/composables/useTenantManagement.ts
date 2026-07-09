@@ -703,9 +703,17 @@ export function useTenantManagement(options: UseTenantManagementOptions) {
     announcementDrawerTitle.value = '云公告详情'
   }
 
+  function closeTenantMgmt() {
+    if (tenantMgmtVisible.value) {
+      tenantMgmtVisible.value = false
+    } else {
+      clearTenantManagementState()
+    }
+  }
+
   watch(tenantMgmtVisible, (visible) => {
     if (!visible) clearTenantManagementState()
-  })
+  }, { flush: 'sync' })
 
   function tenantRootCompartmentId(): string {
     return tenantInfoData.value?.tenantId
@@ -1717,6 +1725,7 @@ export function useTenantManagement(options: UseTenantManagementOptions) {
     announcementDrawerTitle,
     announcementReadUpdatingId,
     openTenantMgmt,
+    closeTenantMgmt,
     onTenantTabChange,
     handleRefreshTenantAccountInfo,
     loadIamPolicies,
