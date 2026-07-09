@@ -149,721 +149,138 @@
       @clear-group-level2="formState.groupLevel2 = ''"
     />
 
-    <!-- 租户级管理 -->
-    <a-modal v-model:open="tenantMgmtVisible" :title="'租户 — ' + (tenantMgmtTenant?.username || '')"
-      :width="isMobile ? '100%' : 840" :footer="null" centered :bodyStyle="{ maxHeight: '75vh', overflow: 'auto' }"
-      :mask-closable="false" :keyboard="false">
-      <a-tabs v-model:activeKey="tenantTab" @change="onTenantTabChange">
-        <a-tab-pane key="account" tab="租户信息">
-          <div class="tenant-account-pane">
-            <a-tooltip title="刷新租户信息">
-              <button
-                class="tenant-account-refresh"
-                :class="{ spinning: tenantInfoLoading }"
-                type="button"
-                aria-label="刷新租户信息"
-                :disabled="tenantInfoLoading"
-                @click="handleRefreshTenantAccountInfo"
-              >↻</button>
-            </a-tooltip>
-            <a-spin :spinning="tenantInfoLoading">
-              <a-descriptions :column="1" bordered size="small" style="margin-top: 8px">
-                <a-descriptions-item label="租户名称">{{ tenantInfoData.tenantName || '—' }}</a-descriptions-item>
-                <a-descriptions-item label="homeRegionKey">{{ tenantInfoData.homeRegionKey || '—' }}</a-descriptions-item>
-                <a-descriptions-item label="租户 ID">
-                  <span style="word-break: break-all; font-size: 12px">{{ tenantInfoData.tenantId || '—' }}</span>
-                </a-descriptions-item>
-                <a-descriptions-item label="描述">{{ tenantInfoData.description || '—' }}</a-descriptions-item>
-                <a-descriptions-item label="已订阅的区域">
-                  <template v-if="tenantInfoData.subscribedRegions?.length">
-                    <a-tag v-for="r in tenantInfoData.subscribedRegions" :key="r" color="blue" style="margin: 2px">{{ r }}</a-tag>
-                  </template>
-                  <span v-else>—</span>
-                </a-descriptions-item>
-                <a-descriptions-item label="订阅套餐">
-                  <a-tag v-if="tenantInfoData.planType" :color="planTypeTagColor(tenantInfoData.planType)">
-                    {{ tenantInfoData.planTypeLabel || formatPlanType(tenantInfoData.planType) }}
-                  </a-tag>
-                  <span v-else>—</span>
-                </a-descriptions-item>
-                <a-descriptions-item label="支付方式">
-                  {{ tenantInfoData.paymentMethodLabel || formatPaymentMethod(tenantInfoData.paymentMethod) || '—' }}
-                </a-descriptions-item>
-                <a-descriptions-item label="账户类型">
-                  <a-tag v-if="tenantInfoData.accountType" color="orange">{{ formatAccountType(tenantInfoData.accountType) }}</a-tag>
-                  <span v-else>—</span>
-                </a-descriptions-item>
-                <a-descriptions-item label="升级状态">
-                  <a-tag v-if="tenantInfoData.upgradeState" color="purple">
-                    {{ tenantInfoData.upgradeStateLabel || formatUpgradeState(tenantInfoData.upgradeState) }}
-                  </a-tag>
-                  <span v-else>—</span>
-                </a-descriptions-item>
-                <a-descriptions-item label="订阅状态">
-                  <a-tag v-if="tenantInfoData.subscriptionStatus || tenantInfoData.subscriptionStatusLabel"
-                    :color="subscriptionStatusTagColor(tenantInfoData.subscriptionStatus)">
-                    {{ tenantInfoData.subscriptionStatusLabel || formatSubscriptionStatus(tenantInfoData.subscriptionStatus) }}
-                    <span v-if="tenantInfoData.subscriptionStatus && tenantInfoData.subscriptionStatusLabel"
-                      style="opacity: 0.75; font-size: 11px"> ({{ tenantInfoData.subscriptionStatus }})</span>
-                  </a-tag>
-                  <span v-else>—</span>
-                </a-descriptions-item>
-                <a-descriptions-item label="货币">{{ tenantInfoData.currencyCode || '—' }}</a-descriptions-item>
-                <a-descriptions-item label="已完成付款意向">
-                  <a-tag v-if="tenantInfoData.isIntentToPay !== undefined && tenantInfoData.isIntentToPay !== null"
-                    :color="tenantInfoData.isIntentToPay ? 'green' : 'red'">
-                    {{ tenantInfoData.isIntentToPay ? '是' : '否' }}
-                  </a-tag>
-                  <span v-else>—</span>
-                </a-descriptions-item>
-                <a-descriptions-item label="开始日期">{{ formatUtcCnDate(tenantInfoData.subscriptionStartTime) }}</a-descriptions-item>
-                <a-descriptions-item label="注册地">{{ formatCountryCn(tenantInfoData.registrationLocation) }}</a-descriptions-item>
-                <a-descriptions-item label="订阅编号">
-                  <span style="word-break: break-all; font-size: 12px">{{ tenantInfoData.subscriptionPlanNumber || '—' }}</span>
-                </a-descriptions-item>
-                <a-descriptions-item label="组织订阅 OCID">
-                  <span style="word-break: break-all; font-size: 12px">{{ tenantInfoData.subscriptionOrgOcid || '—' }}</span>
-                </a-descriptions-item>
-              </a-descriptions>
-            </a-spin>
-          </div>
-        </a-tab-pane>
-        <a-tab-pane key="compartments" tab="区间">
-          <CompartmentManager
-            v-if="tenantTab === 'compartments' && tenantMgmtTenant?.id"
-            :tenant-id="tenantMgmtTenant.id"
-          />
-        </a-tab-pane>
-        <a-tab-pane key="iam" tab="IAM策略">
-          <a-alert type="info" show-icon style="margin-bottom: 10px"
-            message="对应 OCI 控制台「身份与安全性 → 身份 → 策略」（经典 IAM Policy API），与身份域内的安全策略无关。只读列表。" />
-          <a-space style="margin-bottom: 12px" wrap>
-            <a-button type="primary" @click="loadIamPolicies" :loading="iamPoliciesLoading">
-              <template #icon><ReloadOutlined /></template>加载策略
-            </a-button>
-            <a-input-search v-model:value="iamPolicySearch" placeholder="搜索名称/描述" allow-clear style="width: 220px" />
-          </a-space>
-          <a-table v-if="!isMobile" :data-source="filteredIamPolicies" :loading="iamPoliciesLoading" size="small"
-            :pagination="{ pageSize: 15 }" row-key="id"
-            v-model:expanded-row-keys="iamExpandedRowKeys"
-            @expand="onIamExpand">
-            <template #expandedRowRender="{ record }">
-              <a-spin :spinning="iamPolicyDetailLoading === record.id">
-                <div v-if="(iamPolicyStatements[record.id] || []).length" class="iam-statements">
-                  <div v-for="(st, si) in iamPolicyStatements[record.id]" :key="si" class="iam-statement-line">{{ si + 1 }}. {{ st }}</div>
-                </div>
-                <a-empty v-else description="展开后加载策略语句" />
-              </a-spin>
-            </template>
-            <a-table-column title="名称" data-index="name" key="name" :width="160" :ellipsis="true" />
-            <a-table-column title="描述" data-index="description" key="description" :ellipsis="true" />
-            <a-table-column title="语句数" data-index="statementCount" key="statementCount" :width="72" />
-            <a-table-column title="状态" data-index="lifecycleState" key="lifecycleState" :width="88" />
-            <a-table-column title="Compartment" data-index="compartmentId" key="compartmentId" :width="120" :ellipsis="true">
-              <template #default="{ text }">
-                <span style="font-size: 11px">{{ shortOcId(text) }}</span>
-              </template>
-            </a-table-column>
-            <a-table-column title="创建时间" data-index="timeCreated" key="timeCreated" :width="168">
-              <template #default="{ text }">{{ formatUtcCnDate(text) }}</template>
-            </a-table-column>
-          </a-table>
-          <a-spin v-else :spinning="iamPoliciesLoading">
-            <a-empty v-if="!iamPoliciesLoading && filteredIamPolicies.length === 0" description="请点击「加载策略」" />
-            <div v-for="p in filteredIamPolicies" :key="p.id" class="mobile-card">
-              <div class="mobile-card-header">
-                <span class="mobile-card-title">{{ p.name }}</span>
-                <a-tag style="margin:0">{{ p.statementCount ?? 0 }} 条</a-tag>
-              </div>
-              <div class="mobile-card-body">
-                <div class="mobile-card-row"><span class="label">描述</span><span class="value">{{ p.description || '—' }}</span></div>
-                <div class="mobile-card-row"><span class="label">状态</span><span class="value">{{ p.lifecycleState || '—' }}</span></div>
-              </div>
-            </div>
-          </a-spin>
-        </a-tab-pane>
-        <a-tab-pane key="quotas" tab="账户配额">
-          <div class="quota-toolbar">
-            <div class="quota-region-field">
-              <span class="quota-region-label">区域</span>
-              <select
-                v-if="isMobile"
-                v-model="quotaRegion"
-                class="quota-region-native-select"
-                :disabled="quotasLoading || regionsLoading || !quotaRegionOptions.length"
-                @change="onQuotaRegionChange"
-              >
-                <option v-for="opt in quotaRegionOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-              </select>
-              <a-select
-                v-else
-                v-model:value="quotaRegion"
-                class="quota-region-select"
-                :options="quotaRegionOptions"
-                :loading="regionsLoading"
-                :disabled="quotasLoading || !quotaRegionOptions.length"
-                :show-search="false"
-                @change="onQuotaRegionChange"
-              >
-                <template #option="{ label, isHomeRegion }">
-                  <span class="quota-region-option">
-                    <span class="quota-region-option-code">{{ label }}</span>
-                    <span v-if="isHomeRegion" class="quota-region-home-mark">主区域</span>
-                  </span>
-                </template>
-              </a-select>
-            </div>
-            <div class="quota-service-field">
-              <span class="quota-region-label">服务</span>
-              <select
-                v-if="isMobile"
-                v-model="quotaService"
-                class="quota-region-native-select"
-                :disabled="quotasLoading || !quotasList.length"
-              >
-                <option v-for="opt in quotaServiceOptions" :key="opt.value" :value="opt.value">{{ opt.label }}</option>
-              </select>
-              <a-select
-                v-else
-                v-model:value="quotaService"
-                class="quota-service-select"
-                :options="quotaServiceOptions"
-                :disabled="quotasLoading || !quotasList.length"
-                :show-search="false"
-              />
-            </div>
-            <a-input-search v-model:value="quotaSearch" placeholder="搜索服务/配额名" allow-clear class="quota-search" />
-            <a-button type="primary" @click="loadQuotas(true)" :loading="quotasLoading">
-              <template #icon><ReloadOutlined /></template>查询配额
-            </a-button>
-          </div>
-          <a-table v-if="!isMobile" :data-source="filteredQuotas" :loading="quotasLoading" size="small"
-            :pagination="{ pageSize: 20 }" :row-key="(r: any) => `${r.region || ''}:${r.serviceName}:${r.limitName}:${r.availabilityDomain || ''}`">
-            <a-table-column title="服务" data-index="serviceName" key="serviceName" :width="140">
-              <template #default="{ text }">
-                <a-tag>{{ text }}</a-tag>
-              </template>
-            </a-table-column>
-            <a-table-column title="配额名称" data-index="limitName" key="limitName" :ellipsis="true" />
-            <a-table-column title="AD" data-index="availabilityDomain" key="ad" :width="120" :ellipsis="true">
-              <template #default="{ text }">
-                <span style="font-size: 12px">{{ text || '全局' }}</span>
-              </template>
-            </a-table-column>
-            <a-table-column title="上限" data-index="limit" key="limit" :width="80" />
-            <a-table-column title="已用" data-index="used" key="used" :width="80">
-              <template #default="{ text }">
-                <span>{{ text ?? '—' }}</span>
-              </template>
-            </a-table-column>
-            <a-table-column title="可用" data-index="available" key="available" :width="80">
-              <template #default="{ text }">
-                <a-tag v-if="text !== null && text !== undefined" :color="text === 0 ? 'red' : 'green'">{{ text }}</a-tag>
-                <span v-else>—</span>
-              </template>
-            </a-table-column>
-          </a-table>
-          <a-spin v-else :spinning="quotasLoading">
-            <a-empty v-if="!quotasLoading && filteredQuotas.length === 0" description="无配额数据" />
-            <div v-for="(q, qi) in filteredQuotas" :key="qi" class="mobile-card">
-              <div class="mobile-card-header">
-                <a-tag style="margin:0">{{ q.serviceName }}</a-tag>
-                <a-tag v-if="q.available !== null && q.available !== undefined" :color="q.available === 0 ? 'red' : 'green'" style="margin:0">可用: {{ q.available }}</a-tag>
-              </div>
-              <div class="mobile-card-body">
-                <div class="mobile-card-row"><span class="label">配额</span><span class="value">{{ q.limitName }}</span></div>
-                <div class="mobile-card-row"><span class="label">AD</span><span class="value">{{ q.availabilityDomain || '全局' }}</span></div>
-                <div class="mobile-card-row"><span class="label">上限</span><span class="value">{{ q.limit }}</span></div>
-                <div class="mobile-card-row"><span class="label">已用</span><span class="value">{{ q.used ?? '—' }}</span></div>
-              </div>
-            </div>
-          </a-spin>
-        </a-tab-pane>
-        <a-tab-pane key="billing" tab="账务信息">
-        <a-spin :spinning="billingLoading">
-          <a-space v-if="!billingData && !billingLoading" style="margin-bottom: 12px">
-            <a-button type="primary" @click="loadTenantBilling">加载账务信息</a-button>
-          </a-space>
-          <template v-if="billingData">
-            <a-row :gutter="12">
-              <a-col :xs="24" :sm="12">
-                <a-card size="small" :bordered="true">
-                  <div style="font-size: 12px; color: var(--text-sub)">最近发票</div>
-                  <div style="font-weight: 700; font-size: 16px; margin-top: 4px">
-                    <span v-if="billingData.summary?.latestInvoice?.totalAmount !== undefined && billingData.summary?.latestInvoice?.totalAmount !== null">
-                      {{ billingData.summary.latestInvoice.totalAmount }} {{ billingData.summary.latestInvoice.currencyCode || '' }}
-                    </span>
-                    <span v-else>—</span>
-                  </div>
-                  <div style="margin-top: 6px; font-size: 12px; color: var(--text-sub)">
-                    <span v-if="billingData.summary?.latestInvoice?.invoiceNo">No: {{ billingData.summary.latestInvoice.invoiceNo }}</span>
-                    <span v-else>暂无发票数据</span>
-                  </div>
-                </a-card>
-              </a-col>
-              <a-col :xs="24" :sm="12">
-                <a-card size="small" :bordered="true">
-                  <div style="font-size: 12px; color: var(--text-sub)">期间成本（Usage API）</div>
-                  <div style="font-weight: 700; font-size: 16px; margin-top: 4px">
-                    <template v-if="billingData.usage?.available && billingData.usage?.summary">
-                      {{ billingData.usage.summary.totalCost ?? '—' }} {{ billingData.usage.summary.currency || '' }}
-                    </template>
-                    <span v-else>—</span>
-                  </div>
-                  <div style="margin-top: 6px; font-size: 12px; color: var(--text-sub)">
-                    <span v-if="billingData.usage?.available">近 {{ billingData.usage.periodDays || billingCostDays }} 天</span>
-                    <span v-else>成本数据未加载</span>
-                  </div>
-                </a-card>
-              </a-col>
-            </a-row>
-
-            <div style="margin-top: 12px">
-              <a-space wrap style="margin-bottom: 8px">
-                <a-button size="small" :loading="billingLoading" @click="loadTenantBilling">
-                  <template #icon><ReloadOutlined /></template>刷新账务
-                </a-button>
-                <span style="font-weight: 600">成本分析</span>
-                <a-select v-model:value="billingCostDays" style="width: 110px" :options="billingCostDayOptions" />
-                <a-button size="small" type="primary" :loading="billingLoading" @click="reloadBillingCost">查询成本</a-button>
-                <a v-if="billingData.links?.costAnalysis" :href="billingData.links.costAnalysis" target="_blank" rel="noopener noreferrer" style="font-size: 12px">控制台</a>
-              </a-space>
-              <a-alert v-if="billingData.usage && !billingData.usage.available" type="warning" show-icon
-                :message="billingData.usage.reason || '成本分析不可用'" style="margin-bottom: 8px" />
-              <template v-else-if="billingData.usage?.available">
-                <div style="font-size: 12px; color: var(--text-sub); margin-bottom: 8px">
-                  {{ formatBillingPeriod(billingData.usage.timeUsageStarted, billingData.usage.timeUsageEnded) }}
-                </div>
-                <div style="font-weight: 600; margin-bottom: 6px">按服务</div>
-                <a-table
-                  v-if="!isMobile"
-                  size="small"
-                  :data-source="billingData.usage.byService || []"
-                  :pagination="{ pageSize: 10 }"
-                  row-key="service"
-                >
-                  <a-table-column title="服务" data-index="service" key="service" :ellipsis="true" />
-                  <a-table-column title="成本" key="cost" :width="140">
-                    <template #default="{ record }">
-                      {{ record.cost ?? '—' }} {{ record.currency || '' }}
-                    </template>
-                  </a-table-column>
-                </a-table>
-                <a-spin v-else :spinning="false">
-                  <a-empty v-if="!(billingData.usage.byService || []).length" description="无服务分项" />
-                  <div v-for="(row, i) in (billingData.usage.byService || [])" :key="row.service || i" class="mobile-card">
-                    <div class="mobile-card-body">
-                      <div class="mobile-card-row"><span class="label">服务</span><span class="value">{{ row.service }}</span></div>
-                      <div class="mobile-card-row"><span class="label">成本</span><span class="value">{{ row.cost }} {{ row.currency || '' }}</span></div>
-                    </div>
-                  </div>
-                </a-spin>
-                <div style="font-weight: 600; margin: 12px 0 6px">按日趋势</div>
-                <a-table
-                  v-if="!isMobile"
-                  size="small"
-                  :data-source="billingData.usage.byDay || []"
-                  :pagination="{ pageSize: 10 }"
-                  row-key="date"
-                >
-                  <a-table-column title="日期" data-index="date" key="date" :width="120" />
-                  <a-table-column title="成本" key="cost" :width="140">
-                    <template #default="{ record }">
-                      {{ record.cost ?? '—' }} {{ record.currency || '' }}
-                    </template>
-                  </a-table-column>
-                </a-table>
-                <a-spin v-else :spinning="false">
-                  <a-empty v-if="!(billingData.usage.byDay || []).length" description="无按日数据" />
-                  <div v-for="(row, i) in (billingData.usage.byDay || [])" :key="row.date || i" class="mobile-card">
-                    <div class="mobile-card-body">
-                      <div class="mobile-card-row"><span class="label">日期</span><span class="value">{{ row.date }}</span></div>
-                      <div class="mobile-card-row"><span class="label">成本</span><span class="value">{{ row.cost }} {{ row.currency || '' }}</span></div>
-                    </div>
-                  </div>
-                </a-spin>
-              </template>
-            </div>
-
-            <a-alert v-if="billingData.invoices && billingData.invoices.available === false"
-              type="warning" show-icon style="margin-top: 10px"
-              :message="billingData.invoices.reason || '发票接口不可用'" />
-
-            <div style="margin-top: 10px">
-              <div style="font-weight: 600; margin-bottom: 6px">最近发票</div>
-              <a-table
-                v-if="!isMobile"
-                size="small"
-                :data-source="billingData.invoices?.items || []"
-                :pagination="false"
-                row-key="invoiceId"
-              >
-                <a-table-column title="发票号" data-index="invoiceNo" key="invoiceNo" :width="140" />
-                <a-table-column title="状态" data-index="status" key="status" :width="120" />
-                <a-table-column title="开票日期" data-index="invoiceDate" key="invoiceDate" :width="180" />
-                <a-table-column title="到期日" data-index="dueDate" key="dueDate" :width="180" />
-                <a-table-column title="金额" key="amount" :width="140">
-                  <template #default="{ record }">
-                    <span>{{ record.totalAmount ?? '—' }} {{ record.currencyCode || '' }}</span>
-                  </template>
-                </a-table-column>
-                <a-table-column title="操作" key="action" :width="120">
-                  <template #default="{ record }">
-                    <a-button type="link" size="small" @click="handleDownloadInvoice(record)" :disabled="!record.invoiceId">下载PDF</a-button>
-                  </template>
-                </a-table-column>
-              </a-table>
-              <a-spin v-else :spinning="false">
-                <a-empty v-if="(billingData.invoices?.items || []).length === 0" description="暂无发票" />
-                <div v-for="(inv, ii) in (billingData.invoices?.items || [])" :key="inv.invoiceId || ii" class="mobile-card">
-                  <div class="mobile-card-header">
-                    <span class="mobile-card-title">{{ inv.invoiceNo || '—' }}</span>
-                    <a-tag style="margin:0">{{ inv.status || '—' }}</a-tag>
-                  </div>
-                  <div class="mobile-card-body">
-                    <div class="mobile-card-row"><span class="label">金额</span><span class="value">{{ inv.totalAmount ?? '—' }} {{ inv.currencyCode || '' }}</span></div>
-                    <div class="mobile-card-row"><span class="label">开票</span><span class="value">{{ inv.invoiceDate || '—' }}</span></div>
-                    <div class="mobile-card-row"><span class="label">到期</span><span class="value">{{ inv.dueDate || '—' }}</span></div>
-                  </div>
-                  <div class="mobile-card-actions">
-                    <a-button type="link" size="small" @click="handleDownloadInvoice(inv)" :disabled="!inv.invoiceId">下载PDF</a-button>
-                  </div>
-                </div>
-              </a-spin>
-            </div>
-          </template>
-          <a-empty v-else :description="billingLoading ? '正在加载账务数据' : '暂无账务数据'" />
-        </a-spin>
-        </a-tab-pane>
-        <a-tab-pane key="budgets" tab="成本预算">
-          <a-spin :spinning="budgetsLoading">
-            <div class="budget-toolbar">
-              <a-space wrap>
-                <a-button type="primary" size="small" @click="openCreateBudget">
-                  <template #icon><PlusOutlined /></template>新建预算
-                </a-button>
-                <a-button size="small" :loading="budgetsLoading" @click="loadBudgets">
-                  <template #icon><ReloadOutlined /></template>刷新
-                </a-button>
-                <a v-if="budgetsData?.links?.budgets" :href="budgetsData.links.budgets" target="_blank" rel="noopener noreferrer" style="font-size: 12px">控制台</a>
-              </a-space>
-            </div>
-
-            <template v-if="budgetsList.length">
-              <a-table
-                v-if="!isMobile"
-                class="budget-table"
-                size="small"
-                :data-source="budgetsList"
-                :pagination="{ pageSize: 8 }"
-                row-key="id"
-                :row-class-name="budgetRowClassName"
-                @row="budgetTableRow"
-              >
-                <a-table-column title="名称" data-index="displayName" key="displayName" :ellipsis="true" />
-                <a-table-column title="目标" key="target" :ellipsis="true">
-                  <template #default="{ record }">
-                    <a-tooltip :title="formatBudgetTargetTooltip(record)">
-                      <div class="budget-target-cell">{{ formatBudgetTarget(record) }}</div>
-                    </a-tooltip>
-                  </template>
-                </a-table-column>
-                <a-table-column title="预算" key="amount" :width="110">
-                  <template #default="{ record }">{{ formatBudgetAmount(record) }}</template>
-                </a-table-column>
-                <a-table-column title="已用" key="actual" :width="170">
-                  <template #default="{ record }">
-                    <a-progress
-                      :percent="budgetProgressPercent(record)"
-                      :status="budgetProgressStatus(record)"
-                      size="small"
-                    />
-                    <div class="budget-spend-line">{{ formatBudgetSpend(record.actualSpend, record.amount) }}</div>
-                  </template>
-                </a-table-column>
-                <a-table-column title="周期" key="period" :width="100">
-                  <template #default="{ record }">{{ formatBudgetProcessingPeriod(record.processingPeriodType) }}</template>
-                </a-table-column>
-                <a-table-column title="状态" key="state" :width="90">
-                  <template #default="{ record }">
-                    <a-tag :color="record.lifecycleState === 'ACTIVE' ? 'green' : 'default'">{{ record.lifecycleState || '—' }}</a-tag>
-                  </template>
-                </a-table-column>
-                <a-table-column title="操作" key="action" :width="150">
-                  <template #default="{ record }">
-                    <a-space size="small">
-                      <a-button type="link" size="small" @click.stop="openEditBudget(record)">编辑</a-button>
-                      <a-popconfirm title="确定删除该成本预算？" @confirm="handleDeleteBudget(record)">
-                        <a-button type="link" danger size="small" @click.stop>删除</a-button>
-                      </a-popconfirm>
-                    </a-space>
-                  </template>
-                </a-table-column>
-              </a-table>
-
-              <div v-else>
-                <div v-for="b in budgetsList" :key="b.id" class="mobile-card budget-mobile-card" :class="{ 'budget-mobile-card-active': b.id === selectedBudgetId }" @click="selectBudget(b)">
-                  <div class="mobile-card-header">
-                    <span class="mobile-card-title">{{ b.displayName || '—' }}</span>
-                    <a-tag style="margin:0" :color="b.lifecycleState === 'ACTIVE' ? 'green' : 'default'">{{ b.lifecycleState || '—' }}</a-tag>
-                  </div>
-                  <div class="mobile-card-body">
-                    <div class="mobile-card-row"><span class="label">预算</span><span class="value">{{ formatBudgetAmount(b) }}</span></div>
-                    <div class="mobile-card-row"><span class="label">已用</span><span class="value">{{ formatBudgetSpend(b.actualSpend, b.amount) }}</span></div>
-                    <div class="mobile-card-row"><span class="label">预测</span><span class="value">{{ formatBudgetSpend(b.forecastedSpend, b.amount) }}</span></div>
-                    <div class="mobile-card-row"><span class="label">周期</span><span class="value">{{ formatBudgetProcessingPeriod(b.processingPeriodType) }}</span></div>
-                    <div class="mobile-card-row"><span class="label">目标</span><span class="value">{{ formatBudgetTarget(b) }}</span></div>
-                    <a-progress :percent="budgetProgressPercent(b)" :status="budgetProgressStatus(b)" size="small" />
-                  </div>
-                  <div class="mobile-card-actions">
-                    <a-button type="link" size="small" @click.stop="openEditBudget(b)">编辑</a-button>
-                    <a-popconfirm title="确定删除该成本预算？" @confirm="handleDeleteBudget(b)">
-                      <a-button type="link" danger size="small" @click.stop>删除</a-button>
-                    </a-popconfirm>
-                  </div>
-                </div>
-              </div>
-
-              <div class="budget-alert-section" v-if="selectedBudget">
-                <div class="budget-alert-header">
-                  <div>
-                    <div class="budget-alert-title">预算告警规则</div>
-                    <div class="budget-alert-subtitle">{{ selectedBudget.displayName || '—' }} · {{ selectedBudget.alertRules?.length || 0 }} 条规则</div>
-                  </div>
-                  <a-space size="small" wrap>
-                    <a-button size="small" :loading="budgetAlertRulesLoading" @click="reloadSelectedBudgetAlertRules">
-                      <template #icon><ReloadOutlined /></template>刷新告警
-                    </a-button>
-                    <a-button size="small" type="primary" @click="openCreateBudgetAlertRule(selectedBudget)">
-                      <template #icon><PlusOutlined /></template>新建告警
-                    </a-button>
-                  </a-space>
-                </div>
-
-                <a-table
-                  v-if="!isMobile"
-                  size="small"
-                  :data-source="selectedBudgetAlertRules"
-                  :pagination="false"
-                  row-key="id"
-                >
-                  <a-table-column title="名称" data-index="displayName" key="displayName" :ellipsis="true" />
-                  <a-table-column title="类型" key="type" :width="90">
-                    <template #default="{ record }">{{ formatBudgetAlertType(record.type) }}</template>
-                  </a-table-column>
-                  <a-table-column title="阈值" key="threshold" :width="120">
-                    <template #default="{ record }">{{ formatBudgetAlertThreshold(record) }}</template>
-                  </a-table-column>
-                  <a-table-column title="电子邮件收件人" data-index="recipients" key="recipients" :ellipsis="true" />
-                  <a-table-column title="状态" key="state" :width="90">
-                    <template #default="{ record }">
-                      <a-tag :color="record.lifecycleState === 'ACTIVE' ? 'green' : 'default'">{{ record.lifecycleState || '—' }}</a-tag>
-                    </template>
-                  </a-table-column>
-                  <a-table-column title="操作" key="action" :width="140">
-                    <template #default="{ record }">
-                      <a-space size="small">
-                        <a-button type="link" size="small" @click="openEditBudgetAlertRule(record)">编辑</a-button>
-                        <a-popconfirm title="确定删除该告警规则？" @confirm="handleDeleteBudgetAlertRule(record)">
-                          <a-button type="link" danger size="small">删除</a-button>
-                        </a-popconfirm>
-                      </a-space>
-                    </template>
-                  </a-table-column>
-                </a-table>
-
-                <div v-else>
-                  <a-empty v-if="selectedBudgetAlertRules.length === 0" description="暂无告警规则" />
-                  <div v-for="r in selectedBudgetAlertRules" :key="r.id" class="mobile-card">
-                    <div class="mobile-card-header">
-                      <span class="mobile-card-title">{{ r.displayName || '—' }}</span>
-                      <a-tag style="margin:0" :color="r.lifecycleState === 'ACTIVE' ? 'green' : 'default'">{{ r.lifecycleState || '—' }}</a-tag>
-                    </div>
-                    <div class="mobile-card-body">
-                      <div class="mobile-card-row"><span class="label">类型</span><span class="value">{{ formatBudgetAlertType(r.type) }}</span></div>
-                      <div class="mobile-card-row"><span class="label">阈值</span><span class="value">{{ formatBudgetAlertThreshold(r) }}</span></div>
-                      <div class="mobile-card-row"><span class="label">电子邮件收件人</span><span class="value">{{ r.recipients || '—' }}</span></div>
-                      <div class="mobile-card-row"><span class="label">电子邮件</span><span class="value">{{ r.message || '—' }}</span></div>
-                    </div>
-                    <div class="mobile-card-actions">
-                      <a-button type="link" size="small" @click="openEditBudgetAlertRule(r)">编辑</a-button>
-                      <a-popconfirm title="确定删除该告警规则？" @confirm="handleDeleteBudgetAlertRule(r)">
-                        <a-button type="link" danger size="small">删除</a-button>
-                      </a-popconfirm>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </template>
-
-            <a-empty v-else :description="budgetsLoading ? '正在加载成本预算' : '暂无成本预算'" />
-          </a-spin>
-        </a-tab-pane>
-        <a-tab-pane key="regions" tab="区域管理">
-          <a-spin :spinning="regionsLoading">
-            <div class="region-toolbar">
-              <a-space wrap>
-                <a-button type="primary" size="small" :loading="regionsLoading" @click="loadRegions(false, true)">
-                  <template #icon><ReloadOutlined /></template>刷新
-                </a-button>
-                <a-input-search
-                  v-model:value="regionSearch"
-                  placeholder="搜索区域/标识符"
-                  allow-clear
-                  class="region-search"
-                />
-                <a v-if="regionsData?.links?.regions" :href="regionsData.links.regions" target="_blank" rel="noopener noreferrer" style="font-size: 12px">控制台</a>
-              </a-space>
-            </div>
-
-            <a-table
-              v-if="!isMobile"
-              class="region-table"
-              :data-source="filteredRegions"
-              :loading="regionsLoading"
-              size="small"
-              :pagination="{ pageSize: 10 }"
-              row-key="regionKey"
-            >
-              <a-table-column title="区域" key="region" :ellipsis="true">
-                <template #default="{ record }">
-                  <div class="region-name-cell">
-                    <span class="region-name-main">{{ formatRegionDisplay(record) }}</span>
-                    <a-tag v-if="record.isHomeRegion" color="blue" style="margin:0">主区域</a-tag>
-                  </div>
-                  <div class="region-key-line">{{ record.regionKey || '—' }}</div>
-                </template>
-              </a-table-column>
-              <a-table-column title="区域标识符" data-index="regionName" key="regionName" :width="190" :ellipsis="true" />
-              <a-table-column title="订阅状态" key="status" :width="120">
-                <template #default="{ record }">
-                  <a-tag :color="regionStatusColor(record.status)">{{ formatRegionStatus(record.status) }}</a-tag>
-                </template>
-              </a-table-column>
-              <a-table-column title="操作" key="action" :width="100">
-                <template #default="{ record }">
-                  <a-button
-                    v-if="record.canSubscribe"
-                    type="primary"
-                    size="small"
-                    :loading="regionSubscribeSendingKey === record.regionKey"
-                    @click="confirmSubscribeRegion(record)"
-                  >
-                    订阅
-                  </a-button>
-                  <span v-else class="region-action-empty">—</span>
-                </template>
-              </a-table-column>
-            </a-table>
-
-            <div v-else>
-              <a-empty v-if="!regionsLoading && filteredRegions.length === 0" description="暂无区域数据" />
-              <div v-for="r in filteredRegions" :key="r.regionKey || r.regionName" class="mobile-card region-mobile-card">
-                <div class="mobile-card-header">
-                  <span class="mobile-card-title">{{ formatRegionDisplay(r) }}</span>
-                  <a-tag :color="regionStatusColor(r.status)" style="margin:0">{{ formatRegionStatus(r.status) }}</a-tag>
-                </div>
-                <div class="mobile-card-body">
-                  <div class="mobile-card-row"><span class="label">标识符</span><span class="value">{{ r.regionName || '—' }}</span></div>
-                  <div class="mobile-card-row"><span class="label">区域 Key</span><span class="value">{{ r.regionKey || '—' }}</span></div>
-                  <div class="mobile-card-row"><span class="label">主区域</span><span class="value">{{ r.isHomeRegion ? '是' : '否' }}</span></div>
-                </div>
-                <div v-if="r.canSubscribe" class="mobile-card-actions">
-                  <a-button
-                    type="primary"
-                    size="small"
-                    :loading="regionSubscribeSendingKey === r.regionKey"
-                    @click="confirmSubscribeRegion(r)"
-                  >
-                    订阅
-                  </a-button>
-                </div>
-              </div>
-            </div>
-          </a-spin>
-        </a-tab-pane>
-        <a-tab-pane key="announcements" tab="云公告">
-          <a-space style="margin-bottom: 12px" wrap>
-            <a-button type="primary" @click="loadAnnouncements" :loading="announcementsLoading">
-              <template #icon><ReloadOutlined /></template>加载公告
-            </a-button>
-            <a-input-search v-model:value="announcementSearch" placeholder="搜索摘要/工单号/类型" allow-clear style="width: 240px" />
-          </a-space>
-          <div v-if="announcementsRetentionNote" style="font-size: 12px; color: var(--text-sub); margin-bottom: 8px">
-            {{ announcementsRetentionNote }}
-          </div>
-          <a-table v-if="!isMobile" :data-source="filteredAnnouncements" :loading="announcementsLoading" size="small"
-            :pagination="{ pageSize: 15 }" row-key="id"
-            :custom-row="announcementCustomRow">
-            <a-table-column title="摘要" data-index="summary" key="summary" :ellipsis="true" />
-            <a-table-column title="类型" data-index="announcementType" key="announcementType" :width="120" />
-            <a-table-column title="发布时间" data-index="timeCreated" key="timeCreated" :width="168">
-              <template #default="{ text }">{{ formatUtcCnDate(text) }}</template>
-            </a-table-column>
-            <a-table-column title="阅读状态" data-index="userStatus" key="userStatus" :width="88">
-              <template #default="{ text }">
-                <a-tag :color="announcementStatusColor(text)">{{ formatAnnouncementUserStatus(text) }}</a-tag>
-              </template>
-            </a-table-column>
-            <a-table-column title="工单号" data-index="referenceTicketNumber" key="referenceTicketNumber" :width="120" :ellipsis="true" />
-            <a-table-column title="操作" key="action" :width="150">
-              <template #default="{ record }">
-                <a-space size="small">
-                  <a-button type="link" size="small" @click.stop="openAnnouncementDetail(record)">详情</a-button>
-                  <a-popconfirm
-                    v-if="isAnnouncementUnread(record)"
-                    title="确认标记为已读？"
-                    ok-text="确定"
-                    cancel-text="取消"
-                    @confirm="markAnnouncementAsRead(record)"
-                  >
-                    <a-button
-                      type="link"
-                      size="small"
-                      :loading="announcementReadUpdatingId === record.id"
-                      @click.stop
-                    >
-                      标记已读
-                    </a-button>
-                  </a-popconfirm>
-                </a-space>
-              </template>
-            </a-table-column>
-          </a-table>
-          <a-spin v-else :spinning="announcementsLoading">
-            <a-empty v-if="!announcementsLoading && filteredAnnouncements.length === 0" description="请点击「加载公告」" />
-            <div v-for="a in filteredAnnouncements" :key="a.id" class="mobile-card" @click="openAnnouncementDetail(a)">
-              <div class="mobile-card-header">
-                <span class="mobile-card-title">{{ a.summary || '—' }}</span>
-                <a-tag :color="announcementStatusColor(a.userStatus)" style="margin:0">{{ formatAnnouncementUserStatus(a.userStatus) }}</a-tag>
-              </div>
-              <div class="mobile-card-body">
-                <div class="mobile-card-row"><span class="label">类型</span><span class="value">{{ a.announcementType || '—' }}</span></div>
-                <div class="mobile-card-row"><span class="label">时间</span><span class="value">{{ formatUtcCnDate(a.timeCreated) }}</span></div>
-              </div>
-              <div v-if="isAnnouncementUnread(a)" class="mobile-card-actions" @click.stop>
-                <a-popconfirm
-                  title="确认标记为已读？"
-                  ok-text="确定"
-                  cancel-text="取消"
-                  @confirm="markAnnouncementAsRead(a)"
-                >
-                  <a-button
-                    type="link"
-                    size="small"
-                    :loading="announcementReadUpdatingId === a.id"
-                    @click.stop
-                  >
-                    标记已读
-                  </a-button>
-                </a-popconfirm>
-              </div>
-            </div>
-          </a-spin>
-        </a-tab-pane>
-      </a-tabs>
-    </a-modal>
-
+    <TenantManagementModal
+      v-if="tenantMgmtVisible || tenantMgmtTenant"
+      v-model:open="tenantMgmtVisible"
+      v-model:active-tab="tenantTab"
+      v-model:iam-policy-search="iamPolicySearch"
+      v-model:iam-expanded-row-keys="iamExpandedRowKeys"
+      v-model:quota-region="quotaRegion"
+      v-model:quota-service="quotaService"
+      v-model:quota-search="quotaSearch"
+      v-model:billing-cost-days="billingCostDays"
+      v-model:region-search="regionSearch"
+      v-model:region-subscribe-verify-visible="regionSubscribeVerifyVisible"
+      v-model:region-subscribe-code="regionSubscribeCode"
+      v-model:budget-form-visible="budgetFormVisible"
+      v-model:budget-alert-form-visible="budgetAlertFormVisible"
+      v-model:announcement-search="announcementSearch"
+      v-model:announcement-drawer-visible="announcementDrawerVisible"
+      v-model:announcement-detail-tab="announcementDetailTab"
+      :tenant="tenantMgmtTenant"
+      :is-mobile="isMobile"
+      :tenant-info-loading="tenantInfoLoading"
+      :tenant-info-data="tenantInfoData"
+      :billing-loading="billingLoading"
+      :billing-data="billingData"
+      :billing-cost-day-options="billingCostDayOptions"
+      :budgets-loading="budgetsLoading"
+      :budgets-data="budgetsData"
+      :budgets-list="budgetsList"
+      :selected-budget-id="selectedBudgetId"
+      :selected-budget="selectedBudget"
+      :selected-budget-alert-rules="selectedBudgetAlertRules"
+      :budget-alert-rules-loading="budgetAlertRulesLoading"
+      :budget-compartments-loading="budgetCompartmentsLoading"
+      :budget-form-loading="budgetFormLoading"
+      :budget-form-mode="budgetFormMode"
+      :budget-form="budgetForm"
+      :budget-target-type-options="budgetTargetTypeOptions"
+      :budget-processing-period-options="budgetProcessingPeriodOptions"
+      :budget-reset-period-options="budgetResetPeriodOptions"
+      :budget-compartment-options="budgetCompartmentOptions"
+      :budget-target-compartment-options="budgetTargetCompartmentOptions"
+      :budget-alert-form-loading="budgetAlertFormLoading"
+      :budget-alert-form-mode="budgetAlertFormMode"
+      :budget-alert-form="budgetAlertForm"
+      :budget-alert-type-options="budgetAlertTypeOptions"
+      :budget-threshold-type-options="budgetThresholdTypeOptions"
+      :regions-loading="regionsLoading"
+      :regions-data="regionsData"
+      :filtered-regions="filteredRegions"
+      :region-subscribe-sending-key="regionSubscribeSendingKey"
+      :region-subscribe-loading="regionSubscribeLoading"
+      :region-subscribe-code-sending="regionSubscribeCodeSending"
+      :region-subscribe-target="regionSubscribeTarget"
+      :region-subscribe-target-display="regionSubscribeTargetDisplay"
+      :iam-policies-loading="iamPoliciesLoading"
+      :filtered-iam-policies="filteredIamPolicies"
+      :iam-policy-statements="iamPolicyStatements"
+      :iam-policy-detail-loading="iamPolicyDetailLoading"
+      :quotas-loading="quotasLoading"
+      :quotas-list="quotasList"
+      :quota-region-options="quotaRegionOptions"
+      :quota-service-options="quotaServiceOptions"
+      :filtered-quotas="filteredQuotas"
+      :announcements-loading="announcementsLoading"
+      :filtered-announcements="filteredAnnouncements"
+      :announcements-retention-note="announcementsRetentionNote"
+      :announcement-read-updating-id="announcementReadUpdatingId"
+      :announcement-drawer-title="announcementDrawerTitle"
+      :announcement-detail-loading="announcementDetailLoading"
+      :announcement-detail="announcementDetail"
+      :announcement-impacted="announcementImpacted"
+      :announcement-history="announcementHistory"
+      :on-tenant-tab-change="onTenantTabChange"
+      :handle-refresh-tenant-account-info="handleRefreshTenantAccountInfo"
+      :plan-type-tag-color="planTypeTagColor"
+      :format-plan-type="formatPlanType"
+      :format-payment-method="formatPaymentMethod"
+      :format-account-type="formatAccountType"
+      :format-upgrade-state="formatUpgradeState"
+      :format-subscription-status="formatSubscriptionStatus"
+      :subscription-status-tag-color="subscriptionStatusTagColor"
+      :format-utc-cn-date="formatUtcCnDate"
+      :format-country-cn="formatCountryCn"
+      :load-iam-policies="loadIamPolicies"
+      :on-iam-expand="onIamExpand"
+      :short-oc-id="shortOcId"
+      :on-quota-region-change="onQuotaRegionChange"
+      :load-quotas="loadQuotas"
+      :load-tenant-billing="loadTenantBilling"
+      :reload-billing-cost="reloadBillingCost"
+      :format-billing-period="formatBillingPeriod"
+      :handle-download-invoice="handleDownloadInvoice"
+      :open-create-budget="openCreateBudget"
+      :load-budgets="loadBudgets"
+      :budget-row-class-name="budgetRowClassName"
+      :budget-table-row="budgetTableRow"
+      :format-budget-target-tooltip="formatBudgetTargetTooltip"
+      :format-budget-target="formatBudgetTarget"
+      :format-budget-amount="formatBudgetAmount"
+      :budget-progress-percent="budgetProgressPercent"
+      :budget-progress-status="budgetProgressStatus"
+      :format-budget-spend="formatBudgetSpend"
+      :format-budget-processing-period="formatBudgetProcessingPeriod"
+      :open-edit-budget="openEditBudget"
+      :handle-delete-budget="handleDeleteBudget"
+      :select-budget="selectBudget"
+      :reload-selected-budget-alert-rules="reloadSelectedBudgetAlertRules"
+      :open-create-budget-alert-rule="openCreateBudgetAlertRule"
+      :format-budget-alert-type="formatBudgetAlertType"
+      :format-budget-alert-threshold="formatBudgetAlertThreshold"
+      :open-edit-budget-alert-rule="openEditBudgetAlertRule"
+      :handle-delete-budget-alert-rule="handleDeleteBudgetAlertRule"
+      :submit-budget-form="submitBudgetForm"
+      :filter-budget-compartment-option="filterBudgetCompartmentOption"
+      :on-budget-target-type-change="onBudgetTargetTypeChange"
+      :submit-budget-alert-form="submitBudgetAlertForm"
+      :load-regions="loadRegions"
+      :format-region-display="formatRegionDisplay"
+      :region-status-color="regionStatusColor"
+      :format-region-status="formatRegionStatus"
+      :confirm-subscribe-region="confirmSubscribeRegion"
+      :submit-region-subscribe="submitRegionSubscribe"
+      :resend-region-subscribe-code="resendRegionSubscribeCode"
+      :load-announcements="loadAnnouncements"
+      :announcement-custom-row="announcementCustomRow"
+      :announcement-status-color="announcementStatusColor"
+      :format-announcement-user-status="formatAnnouncementUserStatus"
+      :is-announcement-unread="isAnnouncementUnread"
+      :open-announcement-detail="openAnnouncementDetail"
+      :mark-announcement-as-read="markAnnouncementAsRead"
+      :format-announcement-body="formatAnnouncementBody"
+    />
     <a-modal
       :mask-closable="false"
       :keyboard="false"
@@ -896,285 +313,6 @@
         <a-button type="link" size="small" :loading="mfaVerifyCodeSending" @click="resendMfaVerifyCode">重新发送</a-button>
       </div>
     </a-modal>
-
-    <a-modal
-      :mask-closable="false"
-      :keyboard="false"
-      v-model:open="regionSubscribeVerifyVisible"
-      title="安全验证 — 订阅区域"
-      :width="isMobile ? '100%' : 420"
-      :confirm-loading="regionSubscribeLoading"
-      ok-text="确认订阅"
-      @ok="submitRegionSubscribe"
-    >
-      <a-alert type="info" show-icon message="验证码已发送至 Telegram" style="margin-bottom: 12px" />
-      <div class="region-verify-target">
-        <div class="region-verify-name">{{ regionSubscribeTargetDisplay }}</div>
-        <div class="region-verify-meta">{{ regionSubscribeTarget?.regionName || '—' }} · {{ regionSubscribeTarget?.regionKey || '—' }}</div>
-      </div>
-      <a-input
-        v-model:value="regionSubscribeCode"
-        placeholder="请输入 6 位验证码"
-        size="large"
-        :maxlength="6"
-        inputmode="numeric"
-        allow-clear
-        @pressEnter="submitRegionSubscribe"
-      />
-      <div class="region-verify-actions">
-        <span>验证码有效期 5 分钟</span>
-        <a-button type="link" size="small" :loading="regionSubscribeCodeSending" @click="resendRegionSubscribeCode">重新发送</a-button>
-      </div>
-    </a-modal>
-
-    <a-modal
-      :mask-closable="false"
-      :keyboard="false"
-      v-model:open="budgetFormVisible"
-      :title="budgetFormMode === 'create' ? '新建成本预算' : '编辑成本预算'"
-      :width="isMobile ? '100%' : 620"
-      :confirm-loading="budgetFormLoading"
-      @ok="submitBudgetForm"
-    >
-      <a-form layout="vertical" class="budget-form">
-        <a-form-item label="名称" required>
-          <a-input v-model:value="budgetForm.displayName" allow-clear />
-        </a-form-item>
-        <a-form-item label="金额" required>
-          <a-input-number v-model:value="budgetForm.amount" :min="1" style="width: 100%" />
-        </a-form-item>
-        <a-form-item label="描述">
-          <a-textarea v-model:value="budgetForm.description" :rows="2" allow-clear />
-        </a-form-item>
-        <a-row :gutter="12">
-          <a-col :xs="24" :sm="12">
-            <a-form-item label="处理周期">
-              <a-select v-model:value="budgetForm.processingPeriodType" :options="budgetProcessingPeriodOptions" />
-            </a-form-item>
-          </a-col>
-          <a-col :xs="24" :sm="12">
-            <a-form-item label="重置周期">
-              <a-select v-model:value="budgetForm.resetPeriod" :options="budgetResetPeriodOptions" />
-            </a-form-item>
-          </a-col>
-        </a-row>
-        <a-form-item label="每月中的第几天开始处理预算">
-          <a-input-number v-model:value="budgetForm.budgetProcessingPeriodStartOffset" :min="1" :max="31" style="width: 100%" allow-clear />
-        </a-form-item>
-        <a-row v-if="budgetForm.processingPeriodType === 'SINGLE_USE'" :gutter="12">
-          <a-col :xs="24" :sm="12">
-            <a-form-item label="开始日期">
-              <a-input v-model:value="budgetForm.startDate" placeholder="2026-06-01" allow-clear />
-            </a-form-item>
-          </a-col>
-          <a-col :xs="24" :sm="12">
-            <a-form-item label="结束日期">
-              <a-input v-model:value="budgetForm.endDate" placeholder="2026-06-30" allow-clear />
-            </a-form-item>
-          </a-col>
-        </a-row>
-        <a-form-item label="预算所在区间" required>
-          <a-select
-            v-model:value="budgetForm.compartmentId"
-            :options="budgetCompartmentOptions"
-            :loading="budgetCompartmentsLoading"
-            :disabled="budgetFormMode === 'edit'"
-            show-search
-            option-filter-prop="label"
-            :filter-option="filterBudgetCompartmentOption"
-          />
-        </a-form-item>
-        <a-row :gutter="12">
-          <a-col :xs="24" :sm="8">
-            <a-form-item label="目标类型" required>
-              <a-select
-                v-model:value="budgetForm.targetType"
-                :options="budgetTargetTypeOptions"
-                :disabled="budgetFormMode === 'edit'"
-                @change="onBudgetTargetTypeChange"
-              />
-            </a-form-item>
-          </a-col>
-          <a-col :xs="24" :sm="16">
-            <a-form-item :label="budgetForm.targetType === 'TAG' ? '目标标签' : '目标区间'" required>
-              <a-select
-                v-if="budgetForm.targetType === 'COMPARTMENT'"
-                v-model:value="budgetForm.target"
-                :options="budgetTargetCompartmentOptions"
-                :loading="budgetCompartmentsLoading"
-                :disabled="budgetFormMode === 'edit'"
-                show-search
-                option-filter-prop="label"
-                :filter-option="filterBudgetCompartmentOption"
-              />
-              <a-input v-else v-model:value="budgetForm.target" :disabled="budgetFormMode === 'edit'" allow-clear />
-            </a-form-item>
-          </a-col>
-        </a-row>
-      </a-form>
-    </a-modal>
-
-    <a-modal
-      :mask-closable="false"
-      :keyboard="false"
-      v-model:open="budgetAlertFormVisible"
-      :title="budgetAlertFormMode === 'create' ? '新建预算告警' : '编辑预算告警'"
-      :width="isMobile ? '100%' : 560"
-      :confirm-loading="budgetAlertFormLoading"
-      @ok="submitBudgetAlertForm"
-    >
-      <a-form layout="vertical" class="budget-form">
-        <a-form-item label="名称" required>
-          <a-input v-model:value="budgetAlertForm.displayName" allow-clear />
-        </a-form-item>
-        <a-row :gutter="12">
-          <a-col :xs="24" :sm="12">
-            <a-form-item label="告警类型">
-              <a-select v-model:value="budgetAlertForm.type" :options="budgetAlertTypeOptions" />
-            </a-form-item>
-          </a-col>
-          <a-col :xs="24" :sm="12">
-            <a-form-item label="阈值类型">
-              <a-select v-model:value="budgetAlertForm.thresholdType" :options="budgetThresholdTypeOptions" />
-            </a-form-item>
-          </a-col>
-        </a-row>
-        <a-form-item label="阈值" required>
-          <a-input-number v-model:value="budgetAlertForm.threshold" :min="1" style="width: 100%" />
-        </a-form-item>
-        <a-form-item label="电子邮件收件人" required>
-          <a-input v-model:value="budgetAlertForm.recipients" placeholder="name@example.com, team@example.com" allow-clear />
-        </a-form-item>
-        <a-form-item label="电子邮件">
-          <a-textarea v-model:value="budgetAlertForm.message" :rows="2" allow-clear />
-        </a-form-item>
-        <a-form-item label="描述（可选）">
-          <a-textarea v-model:value="budgetAlertForm.description" :rows="2" allow-clear />
-        </a-form-item>
-      </a-form>
-    </a-modal>
-
-    <a-drawer :mask-closable="false" :keyboard="false"
-      v-model:open="announcementDrawerVisible"
-      :title="announcementDrawerTitle"
-      :width="isMobile ? '100%' : 720"
-      placement="right"
-      :destroy-on-close="true"
-    >
-      <a-spin :spinning="announcementDetailLoading">
-        <a-tabs v-model:activeKey="announcementDetailTab">
-          <a-tab-pane key="detail" tab="详情">
-            <template v-if="announcementDetail">
-              <a-descriptions :column="1" bordered size="small">
-                <a-descriptions-item label="摘要">{{ announcementDetail.summary || '—' }}</a-descriptions-item>
-                <a-descriptions-item label="公告 ID">
-                  <span style="word-break: break-all; font-size: 12px">{{ announcementDetail.id || '—' }}</span>
-                </a-descriptions-item>
-                <a-descriptions-item label="工单号">{{ announcementDetail.referenceTicketNumber || '—' }}</a-descriptions-item>
-                <a-descriptions-item label="类型">{{ announcementDetail.announcementType || '—' }}</a-descriptions-item>
-                <a-descriptions-item label="平台">{{ announcementDetail.platformType || '—' }}</a-descriptions-item>
-                <a-descriptions-item label="状态">{{ announcementDetail.lifecycleState || '—' }}</a-descriptions-item>
-                <a-descriptions-item label="阅读状态">
-                  <a-space size="small">
-                    <a-tag :color="announcementStatusColor(announcementDetail.userStatus)">
-                      {{ formatAnnouncementUserStatus(announcementDetail.userStatus) }}
-                    </a-tag>
-                    <a-popconfirm
-                      v-if="isAnnouncementUnread(announcementDetail)"
-                      title="确认标记为已读？"
-                      ok-text="确定"
-                      cancel-text="取消"
-                      @confirm="markAnnouncementAsRead(announcementDetail)"
-                    >
-                      <a-button
-                        type="link"
-                        size="small"
-                        :loading="announcementReadUpdatingId === announcementDetail.id"
-                      >
-                        标记已读
-                      </a-button>
-                    </a-popconfirm>
-                  </a-space>
-                </a-descriptions-item>
-                <a-descriptions-item label="涉及服务">
-                  <template v-if="announcementDetail.services?.length">
-                    <a-tag v-for="s in announcementDetail.services" :key="s" style="margin: 2px">{{ s }}</a-tag>
-                  </template>
-                  <span v-else>—</span>
-                </a-descriptions-item>
-                <a-descriptions-item label="受影响区域">
-                  <template v-if="announcementDetail.affectedRegions?.length">
-                    <a-tag v-for="r in announcementDetail.affectedRegions" :key="r" color="blue" style="margin: 2px">{{ r }}</a-tag>
-                  </template>
-                  <span v-else>—</span>
-                </a-descriptions-item>
-                <a-descriptions-item label="环境">{{ announcementDetail.environmentName || '—' }}</a-descriptions-item>
-                <a-descriptions-item label="创建时间">{{ formatUtcCnDate(announcementDetail.timeCreated) }}</a-descriptions-item>
-                <a-descriptions-item label="更新时间">{{ formatUtcCnDate(announcementDetail.timeUpdated) }}</a-descriptions-item>
-                <a-descriptions-item v-if="announcementDetail.chainId" label="链 ID">
-                  <span style="word-break: break-all; font-size: 12px">{{ announcementDetail.chainId }}</span>
-                </a-descriptions-item>
-              </a-descriptions>
-              <div v-if="announcementDetail.description" class="announcement-block">
-                <div class="announcement-block-title">描述</div>
-                <div
-                  class="announcement-description"
-                  v-html="formatAnnouncementBody(announcementDetail.description)"
-                />
-              </div>
-              <div v-if="announcementDetail.additionalInformation" class="announcement-block">
-                <div class="announcement-block-title">附加信息</div>
-                <div
-                  class="announcement-description"
-                  v-html="formatAnnouncementBody(announcementDetail.additionalInformation)"
-                />
-              </div>
-            </template>
-            <a-empty v-else description="暂无详情" />
-          </a-tab-pane>
-          <a-tab-pane key="impacted" tab="受影响资源">
-            <a-table
-              v-if="announcementImpacted.length"
-              size="small"
-              :data-source="announcementImpacted"
-              :pagination="false"
-              row-key="resourceId"
-            >
-              <a-table-column title="资源名称" data-index="resourceName" key="resourceName" :ellipsis="true" />
-              <a-table-column title="资源 ID" data-index="resourceId" key="resourceId" :ellipsis="true">
-                <template #default="{ text }">
-                  <span style="font-size: 11px; word-break: break-all">{{ text || '—' }}</span>
-                </template>
-              </a-table-column>
-              <a-table-column title="区域" data-index="region" key="region" :width="140" />
-            </a-table>
-            <a-empty v-else description="无受影响资源" />
-          </a-tab-pane>
-          <a-tab-pane key="history" tab="公告历史">
-            <a-alert v-if="!announcementDetail?.chainId" type="info" show-icon message="该公告无 chainId，无关联历史条目。" />
-            <a-table
-              v-else-if="announcementHistory.length"
-              size="small"
-              :data-source="announcementHistory"
-              :pagination="{ pageSize: 10 }"
-              row-key="id"
-            >
-              <a-table-column title="摘要" data-index="summary" key="summary" :ellipsis="true" />
-              <a-table-column title="类型" data-index="announcementType" key="announcementType" :width="110" />
-              <a-table-column title="时间" data-index="timeCreated" key="timeCreated" :width="168">
-                <template #default="{ text }">{{ formatUtcCnDate(text) }}</template>
-              </a-table-column>
-              <a-table-column title="操作" key="action" :width="72">
-                <template #default="{ record }">
-                  <a-button type="link" size="small" @click="openAnnouncementDetail(record)">查看</a-button>
-                </template>
-              </a-table-column>
-            </a-table>
-            <a-empty v-else-if="announcementDetail?.chainId" description="同链无其它历史公告" />
-          </a-tab-pane>
-        </a-tabs>
-      </a-spin>
-    </a-drawer>
 
     <!-- 域管理弹窗 -->
     <a-modal :mask-closable="false" :keyboard="false" v-model:open="domainMgmtVisible" :title="'域管理 — ' + (domainMgmtTenant?.username || '')"
@@ -1546,7 +684,7 @@ defineOptions({ name: 'TenantConfig' })
 
 import { ref, reactive, computed, h, onMounted, onActivated, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { PlusOutlined, ReloadOutlined, MenuFoldOutlined, MenuUnfoldOutlined, VerticalAlignTopOutlined } from '@ant-design/icons-vue'
+import { ReloadOutlined, MenuFoldOutlined, MenuUnfoldOutlined, VerticalAlignTopOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
 import type { UploadFile } from 'ant-design-vue'
 import { getTenantList, addTenant, updateTenant, removeTenant, batchMoveTenantGroup, uploadKey, getTenantFullInfo, getTenantBillingSummary, downloadInvoicePdf, listBudgets, createBudget, updateBudget, deleteBudget, listBudgetAlertRules, createBudgetAlertRule, updateBudgetAlertRule, deleteBudgetAlertRule, listTenantRegions, subscribeTenantRegion, getDomainSettings, updateMfa, updatePasswordExpiry, unlockDomainNotifications, getDomainNotifications, updateDomainNotifications, getAuditLogs, getServiceQuotas, listIamPolicies, getIamPolicy, listAnnouncements, getAnnouncementDetail, markAnnouncementRead, getTenantGroups, createGroup, renameGroup, deleteGroup, saveGroupOrder, unlockAuthFactors, getAuthFactors, updateAuthFactors } from '../api/tenant'
@@ -1555,7 +693,6 @@ import { listCompartmentPicker } from '../api/compartment'
 import { sendVerifyCode } from '../api/system'
 import { EyeOutlined, EyeInvisibleOutlined } from '@ant-design/icons-vue'
 import AuditLogTable from '../components/AuditLogTable.vue'
-import CompartmentManager from '../components/CompartmentManager.vue'
 import {
   loadOciRegionCatalog,
   ociRegionSelectOptions,
@@ -1586,6 +723,7 @@ const TenantGroupManagerModal = defineAppAsyncComponent(() => import('./tenant-c
 const TenantRenameGroupModal = defineAppAsyncComponent(() => import('./tenant-config/components/TenantRenameGroupModal.vue'), { loading: 'none' })
 const TenantAddSubGroupModal = defineAppAsyncComponent(() => import('./tenant-config/components/TenantAddSubGroupModal.vue'), { loading: 'none' })
 const TenantConfigFormModal = defineAppAsyncComponent(() => import('./tenant-config/components/TenantConfigFormModal.vue'), { loading: 'none' })
+const TenantManagementModal = defineAppAsyncComponent(() => import('./tenant-config/components/TenantManagementModal.vue'), { loading: 'none' })
 
 const router = useRouter()
 const catalog = useTenantCatalogStore()
@@ -1913,6 +1051,7 @@ const tenantInfoData = ref<any>({})
 let tenantInfoRequestSeq = 0
 const billingLoading = ref(false)
 const billingData = ref<any | null>(null)
+let billingRequestSeq = 0
 const billingCostDays = ref(30)
 const billingCostDayOptions = [
   { value: 7, label: '近 7 天' },
@@ -1921,11 +1060,14 @@ const billingCostDayOptions = [
 ]
 const budgetsLoading = ref(false)
 const budgetsData = ref<any | null>(null)
+let budgetsRequestSeq = 0
 const selectedBudgetId = ref('')
 const budgetAlertRulesLoading = ref(false)
+let budgetAlertRulesRequestSeq = 0
 const budgetCompartmentsLoading = ref(false)
 const budgetCompartmentsData = ref<any | null>(null)
 const budgetCompartmentsLoadedTenantId = ref('')
+let budgetCompartmentsRequestSeq = 0
 const budgetFormVisible = ref(false)
 const budgetFormLoading = ref(false)
 const budgetFormMode = ref<'create' | 'edit'>('create')
@@ -2031,6 +1173,7 @@ const regionSubscribeTargetDisplay = computed(() =>
   regionSubscribeTarget.value ? formatRegionDisplay(regionSubscribeTarget.value) : '—')
 
 const iamPoliciesLoading = ref(false)
+let iamPoliciesRequestSeq = 0
 const iamPoliciesList = ref<any[]>([])
 const iamPoliciesCompartmentId = ref('')
 const iamPolicySearch = ref('')
@@ -2038,11 +1181,13 @@ const iamExpandedRowKeys = ref<string[]>([])
 const iamPolicyStatements = ref<Record<string, string[]>>({})
 const iamPolicyDetailLoading = ref('')
 const announcementsLoading = ref(false)
+let announcementsRequestSeq = 0
 const announcementsList = ref<any[]>([])
 const announcementsRetentionNote = ref('')
 const announcementSearch = ref('')
 const announcementDrawerVisible = ref(false)
 const announcementDetailLoading = ref(false)
+let announcementDetailRequestSeq = 0
 const announcementDetailTab = ref('detail')
 const announcementDetail = ref<any | null>(null)
 const announcementImpacted = ref<any[]>([])
@@ -3567,7 +2712,9 @@ function onSubDrop(e: DragEvent, parent: string, toIdx: number) {
   localSubOrders.value = { ...localSubOrders.value, [parent]: names }
 
   resetSubDrag()
-  saveGroupOrder({ parent, order: names }).then(() => invalidateCatalogAndReload()).catch(() => {})
+  saveGroupOrder({ parent, order: names })
+    .then(() => invalidateCatalogAndReload())
+    .catch((e: any) => message.error(e?.message || '保存子分组排序失败'))
 }
 
 function onSubDragEnd() {
@@ -3613,7 +2760,9 @@ function onDrop(_e: DragEvent, toIdx: number) {
   localOrder.value = names
 
   resetDrag()
-  saveGroupOrder({ order: names }).then(() => invalidateCatalogAndReload()).catch(() => {})
+  saveGroupOrder({ order: names })
+    .then(() => invalidateCatalogAndReload())
+    .catch((e: any) => message.error(e?.message || '保存分组排序失败'))
 }
 
 function onDragEnd() {
@@ -3717,29 +2866,37 @@ async function handleRefreshTenantAccountInfo() {
 async function loadTenantBilling() {
   const tenantId = tenantInfoData.value?.id || tenantMgmtTenant.value?.id
   if (!tenantId) return
+  const requestSeq = ++billingRequestSeq
   billingLoading.value = true
   try {
     const bill = await getTenantBillingSummary({
       id: tenantId,
       limits: { invoices: 5, payments: 5, usageStatements: 3, costDays: billingCostDays.value },
     })
+    if (requestSeq !== billingRequestSeq || currentTenantMgmtId() !== tenantId) return
     billingData.value = bill.data || null
   } catch (e: any) {
-    message.error(e?.message || '获取账务信息失败')
+    if (requestSeq === billingRequestSeq && currentTenantMgmtId() === tenantId) {
+      message.error(e?.message || '获取账务信息失败')
+    }
   } finally {
-    billingLoading.value = false
+    if (requestSeq === billingRequestSeq) {
+      billingLoading.value = false
+    }
   }
 }
 
 async function reloadBillingCost() {
   const tenantId = tenantInfoData.value?.id || tenantMgmtTenant.value?.id
   if (!tenantId) return
+  const requestSeq = ++billingRequestSeq
   billingLoading.value = true
   try {
     const bill = await getTenantBillingSummary({
       id: tenantId,
       limits: { invoices: 5, costDays: billingCostDays.value },
     })
+    if (requestSeq !== billingRequestSeq || currentTenantMgmtId() !== tenantId) return
     const data = bill.data || {}
     if (billingData.value) {
       billingData.value = {
@@ -3751,9 +2908,13 @@ async function reloadBillingCost() {
       billingData.value = data
     }
   } catch (e: any) {
-    message.error(e?.message || '查询成本失败')
+    if (requestSeq === billingRequestSeq && currentTenantMgmtId() === tenantId) {
+      message.error(e?.message || '查询成本失败')
+    }
   } finally {
-    billingLoading.value = false
+    if (requestSeq === billingRequestSeq) {
+      billingLoading.value = false
+    }
   }
 }
 
@@ -4024,28 +3185,36 @@ async function loadBudgetCompartments(force = false) {
   const tenantId = currentTenantMgmtId()
   if (!tenantId) return
   if (!force && budgetCompartmentsLoadedTenantId.value === tenantId && budgetCompartmentsData.value) return
+  const requestSeq = ++budgetCompartmentsRequestSeq
   budgetCompartmentsLoading.value = true
   try {
     const res = await listCompartmentPicker({ id: tenantId })
+    if (requestSeq !== budgetCompartmentsRequestSeq || currentTenantMgmtId() !== tenantId) return
     const data = res.data || {}
     const items = Array.isArray(data.items) ? data.items : []
     budgetCompartmentsData.value = { ...data, items }
     budgetCompartmentsLoadedTenantId.value = tenantId
   } catch (e: any) {
-    budgetCompartmentsData.value = null
-    budgetCompartmentsLoadedTenantId.value = ''
-    message.error(e?.message || '获取区间列表失败')
+    if (requestSeq === budgetCompartmentsRequestSeq && currentTenantMgmtId() === tenantId) {
+      budgetCompartmentsData.value = null
+      budgetCompartmentsLoadedTenantId.value = ''
+      message.error(e?.message || '获取区间列表失败')
+    }
   } finally {
-    budgetCompartmentsLoading.value = false
+    if (requestSeq === budgetCompartmentsRequestSeq) {
+      budgetCompartmentsLoading.value = false
+    }
   }
 }
 
 async function loadBudgets() {
   const tenantId = currentTenantMgmtId()
   if (!tenantId) return
+  const requestSeq = ++budgetsRequestSeq
   budgetsLoading.value = true
   try {
     const res = await listBudgets({ id: tenantId })
+    if (requestSeq !== budgetsRequestSeq || currentTenantMgmtId() !== tenantId) return
     const data = res.data || {}
     const items = Array.isArray(data.items) ? data.items : []
     budgetsData.value = { ...data, items }
@@ -4056,9 +3225,13 @@ async function loadBudgets() {
       selectedBudgetId.value = ''
     }
   } catch (e: any) {
-    message.error(e?.message || '获取成本预算失败')
+    if (requestSeq === budgetsRequestSeq && currentTenantMgmtId() === tenantId) {
+      message.error(e?.message || '获取成本预算失败')
+    }
   } finally {
-    budgetsLoading.value = false
+    if (requestSeq === budgetsRequestSeq) {
+      budgetsLoading.value = false
+    }
   }
 }
 
@@ -4082,17 +3255,23 @@ async function reloadSelectedBudgetAlertRules() {
   const tenantId = currentTenantMgmtId()
   const budgetId = selectedBudget.value?.id || selectedBudgetId.value
   if (!tenantId || !budgetId) return
+  const requestSeq = ++budgetAlertRulesRequestSeq
   selectedBudgetId.value = budgetId
   budgetAlertRulesLoading.value = true
   try {
     const res = await listBudgetAlertRules({ id: tenantId, budgetId })
+    if (requestSeq !== budgetAlertRulesRequestSeq || currentTenantMgmtId() !== tenantId) return
     const data = res.data
     const rules = Array.isArray(data) ? data : Array.isArray(data?.items) ? data.items : []
     setBudgetAlertRules(budgetId, rules)
   } catch (e: any) {
-    message.error(e?.message || '获取预算告警规则失败')
+    if (requestSeq === budgetAlertRulesRequestSeq && currentTenantMgmtId() === tenantId) {
+      message.error(e?.message || '获取预算告警规则失败')
+    }
   } finally {
-    budgetAlertRulesLoading.value = false
+    if (requestSeq === budgetAlertRulesRequestSeq) {
+      budgetAlertRulesLoading.value = false
+    }
   }
 }
 
@@ -4144,6 +3323,7 @@ function openEditBudget(record: any) {
 async function submitBudgetForm() {
   const tenantId = currentTenantMgmtId()
   if (!tenantId) return
+  const mode = budgetFormMode.value
   const displayName = budgetForm.displayName.trim()
   const amount = toBudgetNumber(budgetForm.amount)
   const targetType = normalizeBudgetTargetType(budgetForm.targetType)
@@ -4152,8 +3332,8 @@ async function submitBudgetForm() {
   const compartmentId = budgetForm.compartmentId.trim() || tenantRootCompartmentId()
   if (!displayName) { message.warning('请填写预算名称'); return }
   if (!amount || amount <= 0) { message.warning('预算金额必须大于 0'); return }
-  if (budgetFormMode.value === 'create' && !compartmentId) { message.warning('请填写预算所在区间 OCID'); return }
-  if (budgetFormMode.value === 'create' && targetType === 'TAG' && !target) { message.warning('请填写预算标签目标'); return }
+  if (mode === 'create' && !compartmentId) { message.warning('请填写预算所在区间 OCID'); return }
+  if (mode === 'create' && targetType === 'TAG' && !target) { message.warning('请填写预算标签目标'); return }
   if (processingPeriodType === 'SINGLE_USE' && (!budgetForm.startDate || !budgetForm.endDate)) {
     message.warning('一次性预算需要填写开始和结束日期')
     return
@@ -4172,7 +3352,7 @@ async function submitBudgetForm() {
     payload.startDate = budgetForm.startDate
     payload.endDate = budgetForm.endDate
   }
-  if (budgetFormMode.value === 'create') {
+  if (mode === 'create') {
     payload.compartmentId = compartmentId
     payload.targetType = targetType
     payload.target = target || (targetType === 'COMPARTMENT' ? tenantRootCompartmentId() : '')
@@ -4182,9 +3362,10 @@ async function submitBudgetForm() {
 
   budgetFormLoading.value = true
   try {
-    const res = budgetFormMode.value === 'create'
+    const res = mode === 'create'
       ? await createBudget(payload)
       : await updateBudget(payload)
+    if (currentTenantMgmtId() !== tenantId) return
     const row = res.data
     if (row?.id) {
       upsertBudgetRow(row)
@@ -4193,9 +3374,11 @@ async function submitBudgetForm() {
       await loadBudgets()
     }
     budgetFormVisible.value = false
-    message.success(budgetFormMode.value === 'create' ? '成本预算已创建' : '成本预算已更新')
+    message.success(mode === 'create' ? '成本预算已创建' : '成本预算已更新')
   } catch (e: any) {
-    message.error(e?.message || '保存成本预算失败')
+    if (currentTenantMgmtId() === tenantId) {
+      message.error(e?.message || '保存成本预算失败')
+    }
   } finally {
     budgetFormLoading.value = false
   }
@@ -4207,10 +3390,13 @@ async function handleDeleteBudget(record: any) {
   if (!tenantId || !budgetId) return
   try {
     await deleteBudget({ id: tenantId, budgetId })
+    if (currentTenantMgmtId() !== tenantId) return
     removeBudgetRow(budgetId)
     message.success('成本预算已删除')
   } catch (e: any) {
-    message.error(e?.message || '删除成本预算失败')
+    if (currentTenantMgmtId() === tenantId) {
+      message.error(e?.message || '删除成本预算失败')
+    }
   }
 }
 
@@ -4249,6 +3435,7 @@ function openEditBudgetAlertRule(record: any) {
 
 async function submitBudgetAlertForm() {
   const tenantId = currentTenantMgmtId()
+  const mode = budgetAlertFormMode.value
   const displayName = budgetAlertForm.displayName.trim()
   const threshold = toBudgetNumber(budgetAlertForm.threshold)
   const recipients = budgetAlertForm.recipients.trim()
@@ -4268,20 +3455,23 @@ async function submitBudgetAlertForm() {
     recipients,
     message: budgetAlertForm.message.trim(),
   }
-  if (budgetAlertFormMode.value === 'edit') payload.alertRuleId = budgetAlertForm.alertRuleId
+  if (mode === 'edit') payload.alertRuleId = budgetAlertForm.alertRuleId
 
   budgetAlertFormLoading.value = true
   try {
-    const res = budgetAlertFormMode.value === 'create'
+    const res = mode === 'create'
       ? await createBudgetAlertRule(payload)
       : await updateBudgetAlertRule(payload)
+    if (currentTenantMgmtId() !== tenantId) return
     const rule = res.data
     if (rule?.id) upsertBudgetAlertRuleRow(rule)
     else await reloadSelectedBudgetAlertRules()
     budgetAlertFormVisible.value = false
-    message.success(budgetAlertFormMode.value === 'create' ? '预算告警已创建' : '预算告警已更新')
+    message.success(mode === 'create' ? '预算告警已创建' : '预算告警已更新')
   } catch (e: any) {
-    message.error(e?.message || '保存预算告警失败')
+    if (currentTenantMgmtId() === tenantId) {
+      message.error(e?.message || '保存预算告警失败')
+    }
   } finally {
     budgetAlertFormLoading.value = false
   }
@@ -4294,13 +3484,16 @@ async function handleDeleteBudgetAlertRule(record: any) {
   if (!tenantId || !budgetId || !alertRuleId) return
   try {
     await deleteBudgetAlertRule({ id: tenantId, budgetId, alertRuleId })
+    if (currentTenantMgmtId() !== tenantId) return
     const budget = budgetsList.value.find((b: any) => b.id === budgetId)
     const rules = (Array.isArray(budget?.alertRules) ? budget.alertRules : [])
       .filter((r: any) => r.id !== alertRuleId)
     setBudgetAlertRules(budgetId, rules)
     message.success('预算告警已删除')
   } catch (e: any) {
-    message.error(e?.message || '删除预算告警失败')
+    if (currentTenantMgmtId() === tenantId) {
+      message.error(e?.message || '删除预算告警失败')
+    }
   }
 }
 
@@ -4436,16 +3629,19 @@ async function submitRegionSubscribe() {
       regionKey,
       verifyCode: regionSubscribeCode.value,
     })
+    if (currentTenantMgmtId() !== tenantId) return
     message.success('区域订阅已提交，激活可能需要几分钟')
     regionSubscribeVerifyVisible.value = false
     regionSubscribeCode.value = ''
     appQueryCache.invalidate(['tenantConfig', 'regions', tenantId])
     await loadRegions(false, true)
-    if (tenantMgmtTenant.value) {
+    if (currentTenantMgmtId() === tenantId && tenantMgmtTenant.value) {
       await loadTenantAccountInfo(tenantMgmtTenant.value, { force: true })
     }
   } catch (e: any) {
-    message.error(e?.message || '订阅区域失败')
+    if (currentTenantMgmtId() === tenantId) {
+      message.error(e?.message || '订阅区域失败')
+    }
   } finally {
     regionSubscribeLoading.value = false
   }
@@ -4453,11 +3649,14 @@ async function submitRegionSubscribe() {
 
 async function loadIamPolicies() {
   if (!tenantMgmtTenant.value?.id) return
+  const tenantId = tenantMgmtTenant.value.id
+  const requestSeq = ++iamPoliciesRequestSeq
   iamPoliciesLoading.value = true
   iamPolicyStatements.value = {}
   iamExpandedRowKeys.value = []
   try {
-    const res = await listIamPolicies({ id: tenantMgmtTenant.value.id })
+    const res = await listIamPolicies({ id: tenantId })
+    if (requestSeq !== iamPoliciesRequestSeq || tenantMgmtTenant.value?.id !== tenantId) return
     const data = res.data || {}
     iamPoliciesList.value = data.items || []
     iamPoliciesCompartmentId.value = data.compartmentId || ''
@@ -4465,32 +3664,46 @@ async function loadIamPolicies() {
       message.info('未找到 IAM 策略（或当前 API 用户无 inspect policies 权限）')
     }
   } catch (e: any) {
-    message.error(e?.message || '获取 IAM 策略失败')
+    if (requestSeq === iamPoliciesRequestSeq && tenantMgmtTenant.value?.id === tenantId) {
+      message.error(e?.message || '获取 IAM 策略失败')
+    }
   } finally {
-    iamPoliciesLoading.value = false
+    if (requestSeq === iamPoliciesRequestSeq) {
+      iamPoliciesLoading.value = false
+    }
   }
 }
 
 async function onIamExpand(expanded: boolean, record: any) {
   if (!expanded || !record?.id || !tenantMgmtTenant.value?.id) return
   if (iamPolicyStatements.value[record.id]?.length) return
-  iamPolicyDetailLoading.value = record.id
+  const tenantId = tenantMgmtTenant.value.id
+  const policyId = record.id
+  iamPolicyDetailLoading.value = policyId
   try {
-    const res = await getIamPolicy({ id: tenantMgmtTenant.value.id, policyId: record.id })
+    const res = await getIamPolicy({ id: tenantId, policyId })
+    if (tenantMgmtTenant.value?.id !== tenantId) return
     const stmts = res.data?.statements || []
-    iamPolicyStatements.value = { ...iamPolicyStatements.value, [record.id]: stmts }
+    iamPolicyStatements.value = { ...iamPolicyStatements.value, [policyId]: stmts }
   } catch (e: any) {
-    message.error(e?.message || '加载策略语句失败')
+    if (tenantMgmtTenant.value?.id === tenantId) {
+      message.error(e?.message || '加载策略语句失败')
+    }
   } finally {
-    iamPolicyDetailLoading.value = ''
+    if (iamPolicyDetailLoading.value === policyId) {
+      iamPolicyDetailLoading.value = ''
+    }
   }
 }
 
 async function loadAnnouncements() {
   if (!tenantMgmtTenant.value?.id) return
+  const tenantId = tenantMgmtTenant.value.id
+  const requestSeq = ++announcementsRequestSeq
   announcementsLoading.value = true
   try {
-    const res = await listAnnouncements({ id: tenantMgmtTenant.value.id })
+    const res = await listAnnouncements({ id: tenantId })
+    if (requestSeq !== announcementsRequestSeq || tenantMgmtTenant.value?.id !== tenantId) return
     const data = res.data || {}
     announcementsList.value = data.items || []
     announcementsRetentionNote.value = data.retentionNote || ''
@@ -4498,9 +3711,13 @@ async function loadAnnouncements() {
       message.info('未找到云公告（或当前 API 用户无 announcement 读权限）')
     }
   } catch (e: any) {
-    message.error(e?.message || '获取云公告失败')
+    if (requestSeq === announcementsRequestSeq && tenantMgmtTenant.value?.id === tenantId) {
+      message.error(e?.message || '获取云公告失败')
+    }
   } finally {
-    announcementsLoading.value = false
+    if (requestSeq === announcementsRequestSeq) {
+      announcementsLoading.value = false
+    }
   }
 }
 
@@ -4520,10 +3737,13 @@ async function markAnnouncementAsRead(record: any) {
   announcementReadUpdatingId.value = announcementId
   try {
     await markAnnouncementRead({ id: tenantId, announcementId })
+    if (tenantMgmtTenant.value?.id !== tenantId) return
     syncAnnouncementReadStatus(announcementId)
     message.success('已标记为已读')
   } catch (e: any) {
-    message.error(e?.message || '设置公告已读失败')
+    if (tenantMgmtTenant.value?.id === tenantId) {
+      message.error(e?.message || '设置公告已读失败')
+    }
   } finally {
     announcementReadUpdatingId.value = ''
   }
@@ -4531,7 +3751,9 @@ async function markAnnouncementAsRead(record: any) {
 
 async function openAnnouncementDetail(record: any) {
   const announcementId = record?.id
-  if (!announcementId || !tenantMgmtTenant.value?.id) return
+  const tenantId = tenantMgmtTenant.value?.id
+  if (!announcementId || !tenantId) return
+  const requestSeq = ++announcementDetailRequestSeq
   announcementDrawerVisible.value = true
   announcementDetailTab.value = 'detail'
   announcementDrawerTitle.value = record.summary || '云公告详情'
@@ -4541,9 +3763,10 @@ async function openAnnouncementDetail(record: any) {
   announcementHistory.value = []
   try {
     const res = await getAnnouncementDetail({
-      id: tenantMgmtTenant.value.id,
+      id: tenantId,
       announcementId,
     })
+    if (requestSeq !== announcementDetailRequestSeq || tenantMgmtTenant.value?.id !== tenantId) return
     const data = res.data || {}
     announcementDetail.value = data.detail || null
     announcementImpacted.value = data.impactedResources || []
@@ -4552,10 +3775,14 @@ async function openAnnouncementDetail(record: any) {
       announcementDrawerTitle.value = announcementDetail.value.summary
     }
   } catch (e: any) {
-    message.error(e?.message || '获取公告详情失败')
-    announcementDrawerVisible.value = false
+    if (requestSeq === announcementDetailRequestSeq && tenantMgmtTenant.value?.id === tenantId) {
+      message.error(e?.message || '获取公告详情失败')
+      announcementDrawerVisible.value = false
+    }
   } finally {
-    announcementDetailLoading.value = false
+    if (requestSeq === announcementDetailRequestSeq) {
+      announcementDetailLoading.value = false
+    }
   }
 }
 
