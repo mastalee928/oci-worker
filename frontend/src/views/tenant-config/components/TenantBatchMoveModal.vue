@@ -7,7 +7,7 @@
     :confirm-loading="loading"
     :width="isMobile ? 'calc(100vw - 32px)' : 480"
     @update:open="emit('update:open', $event)"
-    @ok="onConfirm"
+    @ok="handleOk"
   >
     <p style="margin: 0 0 12px; color: var(--text-sub)">已选择 {{ selectedCount }} 个租户</p>
     <a-form layout="vertical">
@@ -43,7 +43,7 @@ defineOptions({ name: 'TenantBatchMoveModal' })
 
 type FilterOption = (input: string, option: any) => boolean
 
-defineProps<{
+const props = defineProps<{
   open: boolean
   loading: boolean
   isMobile: boolean
@@ -61,6 +61,14 @@ const emit = defineEmits<{
   (e: 'update:level1', value: string | undefined): void
   (e: 'update:level2', value: string | undefined): void
 }>()
+
+async function handleOk() {
+  try {
+    await props.onConfirm()
+  } catch {
+    // 父级已给出业务提示；这里仅阻止 rejected promise 冒到控制台。
+  }
+}
 
 function handleLevel1Change(value: string | undefined) {
   emit('update:level1', value)
