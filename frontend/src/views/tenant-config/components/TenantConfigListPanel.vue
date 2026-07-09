@@ -225,8 +225,8 @@
                 <button class="group-action-btn" title="编辑分组"><SettingOutlined /></button>
                 <template #overlay>
                   <a-menu>
-                    <a-menu-item @click="openRenameGroup(sub.label, '2')">重命名</a-menu-item>
-                    <a-menu-item danger @click="handleDeleteGroup(sub.label, '2')">删除分组</a-menu-item>
+                    <a-menu-item @click="openRenameGroup(sub.label, '2', group.label)">重命名</a-menu-item>
+                    <a-menu-item danger @click="handleDeleteGroup(sub.label, '2', group.label)">删除分组</a-menu-item>
                   </a-menu>
                 </template>
               </a-dropdown>
@@ -550,8 +550,8 @@ const emit = defineEmits<{
   (e: 'delete-tenant', id: string): void
   (e: 'toggle-group', key: string): void
   (e: 'add-sub-group', label: string): void
-  (e: 'rename-group', label: string, level: string): void
-  (e: 'delete-group', label: string, level: string): void
+  (e: 'rename-group', label: string, level: string, parent?: string): void
+  (e: 'delete-group', label: string, level: string, parent?: string): void
   (e: 'drag-over', event: DragEvent, index: number): void
   (e: 'drop', event: DragEvent, index: number): void
   (e: 'drag-start', event: DragEvent, index: number): void
@@ -603,8 +603,8 @@ function goUserManagement(record: any) { emit('go-user-management', record) }
 function handleDelete(id: string) { emit('delete-tenant', id) }
 function toggleGroup(key: string) { emit('toggle-group', key) }
 function handleAddSubGroup(label: string) { emit('add-sub-group', label) }
-function openRenameGroup(label: string, level: string) { emit('rename-group', label, level) }
-function handleDeleteGroup(label: string, level: string) { emit('delete-group', label, level) }
+function openRenameGroup(label: string, level: string, parent?: string) { emit('rename-group', label, level, parent) }
+function handleDeleteGroup(label: string, level: string, parent?: string) { emit('delete-group', label, level, parent) }
 function onDragOver(event: DragEvent, index: number) { emit('drag-over', event, index) }
 function onDrop(event: DragEvent, index: number) { emit('drop', event, index) }
 function onDragStart(event: DragEvent, index: number) { emit('drag-start', event, index) }

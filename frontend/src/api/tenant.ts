@@ -225,10 +225,10 @@ export function saveGroupOrder(data: { order: string[]; parent?: string }) {
   return request.post('/oci/user/saveGroupOrder', data)
 }
 
-export function renameGroup(data: { oldName: string; newName: string; level: string }) {
+export function renameGroup(data: { oldName: string; newName: string; level: string; parent?: string }) {
   return request.post('/oci/user/renameGroup', data)
 }
 
-export function deleteGroup(data: { name: string; level: string }) {
+export function deleteGroup(data: { name: string; level: string; parent?: string }) {
   return request.post('/oci/user/deleteGroup', data)
 }

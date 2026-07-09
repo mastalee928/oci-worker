@@ -61,10 +61,10 @@
             <span style="font-size: 13px; color: var(--text-sub);">{{ sub.tenants.length }} 个租户</span>
           </div>
           <div style="display: flex; gap: 8px;">
-            <a-button size="small" @click="emit('rename-group', sub.label, '2')">
+            <a-button size="small" @click="emit('rename-group', sub.label, '2', group.label)">
               <template #icon><EditOutlined /></template>
             </a-button>
-            <a-popconfirm title="删除该子分组？" @confirm="emit('delete-group', sub.label, '2')">
+            <a-popconfirm title="删除该子分组？" @confirm="emit('delete-group', sub.label, '2', group.label)">
               <a-button size="small" danger><template #icon><DeleteOutlined /></template></a-button>
             </a-popconfirm>
           </div>
@@ -110,8 +110,8 @@ const emit = defineEmits<{
   (e: 'open-create-form'): void
   (e: 'create-group'): void
   (e: 'mgr-add-sub', parentName: string): void
-  (e: 'rename-group', name: string, level: string): void
-  (e: 'delete-group', name: string, level: string): void
+  (e: 'rename-group', name: string, level: string, parent?: string): void
+  (e: 'delete-group', name: string, level: string, parent?: string): void
 }>()
 </script>
 

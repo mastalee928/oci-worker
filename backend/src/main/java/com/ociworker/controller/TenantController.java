@@ -238,7 +238,9 @@ public class TenantController {
         Object raw = params == null ? null : params.get("days");
         if (raw instanceof Number n) days = n.intValue();
         else if (raw != null) {
-            try { days = Integer.parseInt(String.valueOf(raw)); } catch (Exception ignored) {}
+            try { days = Integer.parseInt(String.valueOf(raw)); } catch (Exception ignored) {
+                // Keep the default audit log window when the client sends an invalid value.
+            }
         }
         String id = str(params, "id");
         String domainId = str(params, "domainId");
@@ -321,7 +323,9 @@ public class TenantController {
         Object lim = params == null ? null : params.get("limit");
         if (lim instanceof Number n) limit = n.intValue();
         else if (lim != null) {
-            try { limit = Integer.parseInt(String.valueOf(lim)); } catch (Exception ignored) {}
+            try { limit = Integer.parseInt(String.valueOf(lim)); } catch (Exception ignored) {
+                // Leave limit unset when the client sends an invalid value.
+            }
         }
         return ResponseData.ok(compartmentService.listResources(id, compartmentId, pageToken, limit));
     }
@@ -407,13 +411,13 @@ public class TenantController {
 
     @PostMapping("/renameGroup")
     public ResponseData<?> renameGroup(@RequestBody java.util.Map<String, String> params) {
-        tenantService.renameGroup(params.get("oldName"), params.get("newName"), params.get("level"));
+        tenantService.renameGroup(params.get("oldName"), params.get("newName"), params.get("level"), params.get("parent"));
         return ResponseData.ok();
     }
 
     @PostMapping("/deleteGroup")
     public ResponseData<?> deleteGroup(@RequestBody java.util.Map<String, String> params) {
-        tenantService.deleteGroup(params.get("name"), params.get("level"));
+        tenantService.deleteGroup(params.get("name"), params.get("level"), params.get("parent"));
         return ResponseData.ok();
     }
 }

@@ -1011,7 +1011,9 @@ public class TenantService {
                     }
                 }
             }
-        } catch (Exception ignored) {}
+        } catch (Exception ignored) {
+            // Keep the configured fallback region when home-region lookup is unavailable.
+        }
         return fallbackRegionName;
     }
 
@@ -1144,95 +1146,154 @@ public class TenantService {
         return ordered;
     }
 
+    private String normalizeGroupNameForWrite(String name) {
+        String groupName = StrUtil.blankToDefault(name, "").trim();
+        if (StrUtil.isBlank(groupName)) throw new OciException("分组名不能为空");
+        if ("未分组".equals(groupName)) throw new OciException("未分组为系统保留名称");
+        if (groupName.contains(",")) throw new OciException("分组名不能包含英文逗号");
+        return groupName;
+    }
+
+    private boolean level1GroupExists(List<OciUser> users, String name) {
+        boolean existsInUsers = users.stream().anyMatch(u -> name.equals(u.getGroupLevel1()));
+        if (existsInUsers) return true;
+        return kvMapper.selectCount(new LambdaQueryWrapper<OciKv>()
+                .eq(OciKv::getType, GROUP_TYPE)
+                .eq(OciKv::getCode, GROUP_L1_PREFIX + name)) > 0;
+    }
+
+    private boolean level2GroupExists(List<OciUser> users, String parent, String name) {
+        boolean existsInUsers = users.stream().anyMatch(u ->
+                parent.equals(u.getGroupLevel1()) && name.equals(u.getGroupLevel2()));
+        if (existsInUsers) return true;
+        return kvMapper.selectCount(new LambdaQueryWrapper<OciKv>()
+                .eq(OciKv::getType, GROUP_TYPE)
+                .eq(OciKv::getCode, GROUP_L2_PREFIX + parent)
+                .eq(OciKv::getValue, name)) > 0;
+    }
+
     public void createGroup(String name, String level, String parent) {
-        if (StrUtil.isBlank(name)) throw new OciException("分组名不能为空");
+        String groupName = normalizeGroupNameForWrite(name);
         if ("1".equals(level)) {
-            String code = GROUP_L1_PREFIX + name;
+            String code = GROUP_L1_PREFIX + groupName;
             OciKv exist = kvMapper.selectOne(
                     new LambdaQueryWrapper<OciKv>().eq(OciKv::getType, GROUP_TYPE).eq(OciKv::getCode, code));
             if (exist == null) {
                 OciKv kv = new OciKv();
                 kv.setId(CommonUtils.generateId());
                 kv.setCode(code);
-                kv.setValue(name);
+                kv.setValue(groupName);
                 kv.setType(GROUP_TYPE);
                 kv.setCreateTime(LocalDateTime.now());
                 kvMapper.insert(kv);
             }
         } else if ("2".equals(level)) {
-            if (StrUtil.isBlank(parent)) throw new OciException("子分组必须指定父分组");
-            String code = GROUP_L2_PREFIX + parent;
+            String parentName = StrUtil.blankToDefault(parent, "").trim();
+            if (StrUtil.isBlank(parentName)) throw new OciException("子分组必须指定父分组");
+            if ("未分组".equals(parentName)) throw new OciException("未分组不能作为子分组父级");
+            String code = GROUP_L2_PREFIX + parentName;
             OciKv exist = kvMapper.selectOne(
                     new LambdaQueryWrapper<OciKv>().eq(OciKv::getType, GROUP_TYPE)
-                            .eq(OciKv::getCode, code).eq(OciKv::getValue, name));
+                            .eq(OciKv::getCode, code).eq(OciKv::getValue, groupName));
             if (exist == null) {
                 OciKv kv = new OciKv();
                 kv.setId(CommonUtils.generateId());
                 kv.setCode(code);
-                kv.setValue(name);
+                kv.setValue(groupName);
                 kv.setType(GROUP_TYPE);
                 kv.setCreateTime(LocalDateTime.now());
                 kvMapper.insert(kv);
             }
         }
-        log.info("Created group [{}] {} parent={}", level, name, parent);
+        log.info("Created group [{}] {} parent={}", level, groupName, parent);
     }
 
     public void renameGroup(String oldName, String newName, String level) {
-        if (StrUtil.isBlank(oldName) || StrUtil.isBlank(newName)) throw new OciException("分组名不能为空");
-        if (oldName.equals(newName)) return;
+        renameGroup(oldName, newName, level, null);
+    }
+
+    public void renameGroup(String oldName, String newName, String level, String parent) {
+        if (StrUtil.isBlank(oldName)) throw new OciException("分组名不能为空");
+        String currentName = oldName.trim();
+        String targetName = normalizeGroupNameForWrite(newName);
+        if (currentName.equals(targetName)) return;
+        String parentName = StrUtil.blankToDefault(parent, "").trim();
+        boolean hasParent = StrUtil.isNotBlank(parentName);
 
         List<OciUser> users = userMapper.selectList(null);
+        if ("1".equals(level) && level1GroupExists(users, targetName)) {
+            throw new OciException("一级分组已存在");
+        }
+        if ("2".equals(level) && hasParent && level2GroupExists(users, parentName, targetName)) {
+            throw new OciException("该一级分组下已存在同名子分组");
+        }
         for (OciUser u : users) {
             boolean changed = false;
-            if ("1".equals(level) && oldName.equals(u.getGroupLevel1())) {
-                u.setGroupLevel1(newName);
+            if ("1".equals(level) && currentName.equals(u.getGroupLevel1())) {
+                u.setGroupLevel1(targetName);
                 changed = true;
             }
-            if ("2".equals(level) && oldName.equals(u.getGroupLevel2())) {
-                u.setGroupLevel2(newName);
+            if ("2".equals(level) && currentName.equals(u.getGroupLevel2())
+                    && (!hasParent || parentName.equals(u.getGroupLevel1()))) {
+                u.setGroupLevel2(targetName);
                 changed = true;
             }
             if (changed) userMapper.updateById(u);
         }
         // update oci_kv records
         if ("1".equals(level)) {
-            updateGroupOrderValue(GROUP_ORDER_CODE, oldName, newName);
+            updateGroupOrderValue(GROUP_ORDER_CODE, currentName, targetName);
             OciKv kv = kvMapper.selectOne(new LambdaQueryWrapper<OciKv>()
-                    .eq(OciKv::getType, GROUP_TYPE).eq(OciKv::getCode, GROUP_L1_PREFIX + oldName));
+                    .eq(OciKv::getType, GROUP_TYPE).eq(OciKv::getCode, GROUP_L1_PREFIX + currentName));
             if (kv != null) {
-                kv.setCode(GROUP_L1_PREFIX + newName);
-                kv.setValue(newName);
+                kv.setCode(GROUP_L1_PREFIX + targetName);
+                kv.setValue(targetName);
                 kvMapper.updateById(kv);
             }
             // rename parent references in level2 records
             List<OciKv> l2Kvs = kvMapper.selectList(new LambdaQueryWrapper<OciKv>()
-                    .eq(OciKv::getType, GROUP_TYPE).eq(OciKv::getCode, GROUP_L2_PREFIX + oldName));
+                    .eq(OciKv::getType, GROUP_TYPE).eq(OciKv::getCode, GROUP_L2_PREFIX + currentName));
             for (OciKv l2 : l2Kvs) {
-                l2.setCode(GROUP_L2_PREFIX + newName);
+                l2.setCode(GROUP_L2_PREFIX + targetName);
                 kvMapper.updateById(l2);
             }
             OciKv l2OrderKv = kvMapper.selectOne(new LambdaQueryWrapper<OciKv>()
-                    .eq(OciKv::getType, GROUP_TYPE).eq(OciKv::getCode, GROUP_ORDER_L2_PREFIX + oldName));
+                    .eq(OciKv::getType, GROUP_TYPE).eq(OciKv::getCode, GROUP_ORDER_L2_PREFIX + currentName));
             if (l2OrderKv != null) {
-                l2OrderKv.setCode(GROUP_ORDER_L2_PREFIX + newName);
+                l2OrderKv.setCode(GROUP_ORDER_L2_PREFIX + targetName);
                 kvMapper.updateById(l2OrderKv);
             }
         } else if ("2".equals(level)) {
-            List<OciKv> kvs = kvMapper.selectList(new LambdaQueryWrapper<OciKv>()
-                    .eq(OciKv::getType, GROUP_TYPE).likeRight(OciKv::getCode, GROUP_L2_PREFIX)
-                    .eq(OciKv::getValue, oldName));
+            LambdaQueryWrapper<OciKv> wrapper = new LambdaQueryWrapper<OciKv>()
+                    .eq(OciKv::getType, GROUP_TYPE)
+                    .eq(OciKv::getValue, currentName);
+            if (hasParent) {
+                wrapper.eq(OciKv::getCode, GROUP_L2_PREFIX + parentName);
+            } else {
+                wrapper.likeRight(OciKv::getCode, GROUP_L2_PREFIX);
+            }
+            List<OciKv> kvs = kvMapper.selectList(wrapper);
             for (OciKv kv : kvs) {
-                kv.setValue(newName);
+                kv.setValue(targetName);
                 kvMapper.updateById(kv);
             }
-            updateAllSubGroupOrderValues(oldName, newName);
+            if (hasParent) {
+                updateGroupOrderValue(GROUP_ORDER_L2_PREFIX + parentName, currentName, targetName);
+            } else {
+                updateAllSubGroupOrderValues(currentName, targetName);
+            }
         }
-        log.info("Renamed group [{}] {} -> {}", level, oldName, newName);
+        log.info("Renamed group [{}] {} -> {} parent={}", level, currentName, targetName, parentName);
     }
 
     public void deleteGroup(String name, String level) {
+        deleteGroup(name, level, null);
+    }
+
+    public void deleteGroup(String name, String level, String parent) {
         if (StrUtil.isBlank(name)) return;
+        String parentName = StrUtil.blankToDefault(parent, "").trim();
+        boolean hasParent = StrUtil.isNotBlank(parentName);
         List<OciUser> users = userMapper.selectList(null);
         for (OciUser u : users) {
             boolean changed = false;
@@ -1241,7 +1302,8 @@ public class TenantService {
                 u.setGroupLevel2(null);
                 changed = true;
             }
-            if ("2".equals(level) && name.equals(u.getGroupLevel2())) {
+            if ("2".equals(level) && name.equals(u.getGroupLevel2())
+                    && (!hasParent || parentName.equals(u.getGroupLevel1()))) {
                 u.setGroupLevel2(null);
                 changed = true;
             }
@@ -1257,12 +1319,22 @@ public class TenantService {
             kvMapper.delete(new LambdaQueryWrapper<OciKv>()
                     .eq(OciKv::getType, GROUP_TYPE).eq(OciKv::getCode, GROUP_ORDER_L2_PREFIX + name));
         } else if ("2".equals(level)) {
-            kvMapper.delete(new LambdaQueryWrapper<OciKv>()
-                    .eq(OciKv::getType, GROUP_TYPE).likeRight(OciKv::getCode, GROUP_L2_PREFIX)
-                    .eq(OciKv::getValue, name));
-            removeAllSubGroupOrderValues(name);
+            LambdaQueryWrapper<OciKv> wrapper = new LambdaQueryWrapper<OciKv>()
+                    .eq(OciKv::getType, GROUP_TYPE)
+                    .eq(OciKv::getValue, name);
+            if (hasParent) {
+                wrapper.eq(OciKv::getCode, GROUP_L2_PREFIX + parentName);
+            } else {
+                wrapper.likeRight(OciKv::getCode, GROUP_L2_PREFIX);
+            }
+            kvMapper.delete(wrapper);
+            if (hasParent) {
+                removeGroupOrderValue(GROUP_ORDER_L2_PREFIX + parentName, name);
+            } else {
+                removeAllSubGroupOrderValues(name);
+            }
         }
-        log.info("Deleted group [{}] {}", level, name);
+        log.info("Deleted group [{}] {} parent={}", level, name, parentName);
     }
 
     private void updateAllSubGroupOrderValues(String oldName, String newName) {
