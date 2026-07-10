@@ -1,5 +1,6 @@
 <template>
   <a-drawer
+    root-class-name="instance-detail-drawer"
     :keyboard="false"
     v-model:open="openModel"
     :title="instance?.name || '实例详情'"
@@ -130,13 +131,13 @@ import { defineAppAsyncComponent } from '../../utils/asyncComponent'
 
 defineOptions({ name: 'InstanceDetailDrawerShell' })
 
-const BootVolumePanel = defineAppAsyncComponent(() => import('./BootVolumePanel.vue'), { loadingVariant: 'detail' })
-const BlockStoragePanel = defineAppAsyncComponent(() => import('./BlockStoragePanel.vue'), { loadingVariant: 'detail' })
-const InstanceTrafficPanel = defineAppAsyncComponent(() => import('./InstanceTrafficPanel.vue'), { loadingVariant: 'detail' })
-const InstanceSecurityPanel = defineAppAsyncComponent(() => import('./InstanceSecurityPanel.vue'), { loadingVariant: 'detail' })
-const InstanceNetworkPanel = defineAppAsyncComponent(() => import('./InstanceNetworkPanel.vue'), { loadingVariant: 'detail' })
-const InstanceDetailInfoPanel = defineAppAsyncComponent(() => import('./InstanceDetailInfoPanel.vue'), { loadingVariant: 'detail' })
-const InstanceShapeEditPanel = defineAppAsyncComponent(() => import('./InstanceShapeEditPanel.vue'), { loadingVariant: 'detail' })
+const BootVolumePanel = defineAppAsyncComponent(() => import('./BootVolumePanel.vue'), { loadingVariant: 'detail', loadingText: '正在载入引导卷', loadingDescription: '准备卷信息与操作面板' })
+const BlockStoragePanel = defineAppAsyncComponent(() => import('./BlockStoragePanel.vue'), { loadingVariant: 'detail', loadingText: '正在载入块存储', loadingDescription: '准备存储卷与挂载信息' })
+const InstanceTrafficPanel = defineAppAsyncComponent(() => import('./InstanceTrafficPanel.vue'), { loadingVariant: 'detail', loadingText: '正在载入流量统计', loadingDescription: '读取实例网络流量数据' })
+const InstanceSecurityPanel = defineAppAsyncComponent(() => import('./InstanceSecurityPanel.vue'), { loadingVariant: 'detail', loadingText: '正在载入安全列表', loadingDescription: '准备安全规则与操作面板' })
+const InstanceNetworkPanel = defineAppAsyncComponent(() => import('./InstanceNetworkPanel.vue'), { loadingVariant: 'detail', loadingText: '正在载入云网络', loadingDescription: '准备 VCN、子网与网络操作' })
+const InstanceDetailInfoPanel = defineAppAsyncComponent(() => import('./InstanceDetailInfoPanel.vue'), { loadingVariant: 'detail', loadingText: '正在载入实例详情', loadingDescription: '准备操作面板' })
+const InstanceShapeEditPanel = defineAppAsyncComponent(() => import('./InstanceShapeEditPanel.vue'), { loadingVariant: 'detail', loadingText: '正在载入形状配置', loadingDescription: '读取实例规格与可用选项' })
 
 const props = defineProps<{
   open: boolean
@@ -243,6 +244,25 @@ defineExpose({
 </script>
 
 <style scoped>
+:global(.instance-detail-drawer .ant-drawer-body) {
+  display: flex;
+  min-height: 0;
+  flex-direction: column;
+}
+
+:global(.instance-detail-drawer .ant-tabs) {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+
+:global(.instance-detail-drawer .ant-tabs-content-holder),
+:global(.instance-detail-drawer .ant-tabs-content),
+:global(.instance-detail-drawer .ant-tabs-tabpane-active) {
+  min-height: 100%;
+}
+
 .instance-drawer-shape-footer {
   display: flex;
   justify-content: flex-end;

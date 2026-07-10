@@ -281,10 +281,22 @@ const ForceA2ConfirmModal = defineAppAsyncComponent(() => import('../components/
 const TerminateVerifyModal = defineAppAsyncComponent(() => import('../components/instance/TerminateVerifyModal.vue'), { loading: 'none' })
 const InstanceDetailDrawerShell = defineAppAsyncComponent(() => import('../components/instance/InstanceDetailDrawerShell.vue'), { loading: 'none' })
 const InstanceEditModal = defineAppAsyncComponent(() => import('../components/instance/InstanceEditModal.vue'), { loading: 'none' })
-const InstanceDrawerListPanel = defineAppAsyncComponent(() => import('../components/instance/InstanceDrawerListPanel.vue'), { loadingVariant: 'table', loadingRows: 4 })
-const TenantVcnPanel = defineAppAsyncComponent(() => import('../components/instance/TenantVcnPanel.vue'), { loadingVariant: 'detail' })
+const InstanceDrawerListPanel = defineAppAsyncComponent(() => import('../components/instance/InstanceDrawerListPanel.vue'), {
+  loadingVariant: 'table',
+  loadingText: '正在载入实例列表',
+  loadingDescription: '整理实例状态与操作入口',
+})
+const TenantVcnPanel = defineAppAsyncComponent(() => import('../components/instance/TenantVcnPanel.vue'), {
+  loadingVariant: 'detail',
+  loadingText: '正在载入云网络',
+  loadingDescription: '准备 VCN、子网与网络操作',
+})
 const QuickTaskModal = defineAppAsyncComponent(() => import('../components/instance/QuickTaskModal.vue'), { loading: 'none' })
-const InstanceTenantEntryPanel = defineAppAsyncComponent(() => import('../components/instance/InstanceTenantEntryPanel.vue'), { loadingVariant: 'cards', loadingRows: 4 })
+const InstanceTenantEntryPanel = defineAppAsyncComponent(() => import('../components/instance/InstanceTenantEntryPanel.vue'), {
+  loadingVariant: 'cards',
+  loadingText: '正在载入实例工作区',
+  loadingDescription: '连接本地数据并准备操作面板',
+})
 const InstanceFloatingTenantCard = defineAppAsyncComponent(() => import('../components/instance/InstanceFloatingTenantCard.vue'), { loading: 'none' })
 import { listStorageRegions } from '../api/storage'
 import { useQuickTask } from '../composables/useQuickTask'

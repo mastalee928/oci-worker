@@ -121,7 +121,11 @@ body.wallpaper-active {
   text-align: center;
 }
 .async-component-loading {
-  margin: 4px 0;
+  width: 100%;
+  min-width: 0;
+  margin: 0;
+  align-self: stretch;
+  justify-self: stretch;
 }
 
 /* Fixed global background layers */

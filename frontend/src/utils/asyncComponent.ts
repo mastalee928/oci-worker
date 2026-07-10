@@ -22,9 +22,9 @@ export function reloadOnceForUpdatedAssets() {
 
 type AppAsyncComponentOptions = {
   loadingText?: string
+  loadingDescription?: string
   loading?: 'skeleton' | 'none'
   loadingVariant?: 'panel' | 'cards' | 'table' | 'detail' | 'list' | 'compact'
-  loadingRows?: number
 }
 
 export function defineAppAsyncComponent<T extends Component>(
@@ -44,7 +44,8 @@ export function defineAppAsyncComponent<T extends Component>(
           role: 'status',
           'aria-label': text,
           variant: options.loadingVariant || 'panel',
-          rows: options.loadingRows,
+          title: text,
+          description: options.loadingDescription || '连接本地数据并准备操作面板',
         })
       },
     } : undefined,

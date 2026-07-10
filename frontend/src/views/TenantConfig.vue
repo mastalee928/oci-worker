@@ -383,7 +383,10 @@ import {
   tenantPlanTagColor as planTypeTagColor,
 } from '../utils/tenantPlan'
 
-const TenantConfigListPanel = defineAppAsyncComponent(() => import('./tenant-config/components/TenantConfigListPanel.vue'))
+const TenantConfigListPanel = defineAppAsyncComponent(() => import('./tenant-config/components/TenantConfigListPanel.vue'), {
+  loadingText: '正在载入租户配置',
+  loadingDescription: '整理租户分组与账户信息',
+})
 const TenantBatchMoveModal = defineAppAsyncComponent(() => import('./tenant-config/components/TenantBatchMoveModal.vue'), { loading: 'none' })
 const TenantGroupManagerModal = defineAppAsyncComponent(() => import('./tenant-config/components/TenantGroupManagerModal.vue'), { loading: 'none' })
 const TenantRenameGroupModal = defineAppAsyncComponent(() => import('./tenant-config/components/TenantRenameGroupModal.vue'), { loading: 'none' })

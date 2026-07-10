@@ -25,8 +25,14 @@ defineOptions({ name: 'Cloudflare' })
 import { ref, onMounted, nextTick } from 'vue'
 import type { ComponentPublicInstance } from 'vue'
 import { defineAppAsyncComponent } from '../utils/asyncComponent'
-const CfZoneWorkspace = defineAppAsyncComponent(() => import('./cloudflare/CfZoneWorkspace.vue'))
-const CfAccountPanel = defineAppAsyncComponent(() => import('./cloudflare/CfAccountPanel.vue'))
+const CfZoneWorkspace = defineAppAsyncComponent(() => import('./cloudflare/CfZoneWorkspace.vue'), {
+  loadingText: '正在载入域名工作区',
+  loadingDescription: '读取账户配置并准备域名列表',
+})
+const CfAccountPanel = defineAppAsyncComponent(() => import('./cloudflare/CfAccountPanel.vue'), {
+  loadingText: '正在载入账户服务',
+  loadingDescription: '读取 Cloudflare 账户与服务信息',
+})
 import { getCfAccountConfig } from '../api/cloudflare'
 
 const topTab = ref('zones')
