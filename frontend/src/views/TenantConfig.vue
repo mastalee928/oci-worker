@@ -359,9 +359,7 @@ defineOptions({ name: 'TenantConfig' })
 import { ref, reactive, computed, h, onMounted, onActivated, onUnmounted, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { MenuFoldOutlined, MenuUnfoldOutlined, VerticalAlignTopOutlined } from '@ant-design/icons-vue'
-import { message, Modal } from 'ant-design-vue'
-import { getDomainSettings, updateMfa, updatePasswordExpiry, unlockDomainNotifications, getDomainNotifications, updateDomainNotifications, getAuditLogs, unlockAuthFactors, getAuthFactors, updateAuthFactors } from '../api/tenant'
-import { sendVerifyCode } from '../api/system'
+import { Modal } from 'ant-design-vue'
 import { EyeOutlined, EyeInvisibleOutlined } from '@ant-design/icons-vue'
 import {
   ociRegionSelectOptions,
@@ -375,6 +373,7 @@ import { defineAppAsyncComponent } from '../utils/asyncComponent'
 import { useTenantConfigActions } from './tenant-config/composables/useTenantConfigActions'
 import { useTenantManagement } from './tenant-config/composables/useTenantManagement'
 import { useTenantGroups } from './tenant-config/composables/useTenantGroups'
+import { useTenantDomainManagement } from './tenant-config/composables/useTenantDomainManagement'
 import {
   formatTenantPlanLabel as formatPlanType,
   formatTenantPlanType as formatPlanBadgeValue,
@@ -767,6 +766,76 @@ const {
   formatCountryCn,
 } = tenantManagement
 
+const {
+  domainMgmtVisible,
+  domainMgmtTenant,
+  domainTab,
+  domainSettingsLoading,
+  domainList,
+  selectedDomainId,
+  selectedDomain,
+  domainTypeCn,
+  handleDomainChange,
+  openDomainManagementWorkspace,
+  closeDomainMgmt,
+  mfaUpdatingId,
+  mfaVerifyVisible,
+  mfaVerifyLoading,
+  mfaVerifyCodeSending,
+  mfaVerifyCode,
+  mfaTargetEnabled,
+  handleMfaChange,
+  cancelMfaVerify,
+  resendMfaVerifyCode,
+  submitMfaChange,
+  pwdExpiryUpdatingId,
+  handlePwdExpiryChange,
+  notificationLoading,
+  notificationSaving,
+  notificationData,
+  notificationRecipientsText,
+  notificationEventActiveKeys,
+  notificationCodeSending,
+  notificationCodeInput,
+  notificationUnlocking,
+  notificationToken,
+  notificationValidateOptions,
+  notificationAdminEvents,
+  notificationEndUserEvents,
+  NOTIFICATION_EVENT_LABELS,
+  sendNotificationCode,
+  doUnlockNotifications,
+  loadDomainNotifications,
+  saveDomainNotifications,
+  formatNotificationValidationStatus,
+  notificationValidationStatusColor,
+  formatNotificationEventName,
+  factorCodeSending,
+  factorCodeInput,
+  factorUnlocking,
+  authFactorToken,
+  authFactorLoading,
+  selectedFactorDomain,
+  factorSavingId,
+  FACTOR_OPTIONS,
+  sendFactorCode,
+  doUnlockFactors,
+  reloadFactors,
+  saveFactors,
+  auditLogsLoading,
+  auditLogsLoaded,
+  auditDays,
+  selectedAuditDomain,
+  domainAuditLogsLoading,
+  domainAuditLogsLoaded,
+  domainAuditDays,
+  selectedDomainAudit,
+  onAuditDaysChange,
+  onDomainAuditDaysChange,
+  loadAuditLogs,
+  loadDomainAuditLogs,
+} = useTenantDomainManagement()
+
 type TenantConfigOverlayTarget = 'form' | 'tenant' | 'domain'
 
 function closeTenantConfigOverlays(except?: TenantConfigOverlayTarget) {
@@ -796,932 +865,14 @@ async function openTenantMgmt(record: any) {
   await openTenantManagementWorkspace(record)
 }
 
+async function openDomainMgmt(record: any) {
+  closeTenantConfigOverlays('domain')
+  await openDomainManagementWorkspace(record)
+}
+
 function checkMobile() {
   viewportHeight.value = window.innerHeight
   isMobile.value = window.innerWidth < 768
-}
-
-const domainMgmtVisible = ref(false)
-const domainMgmtTenant = ref<any>(null)
-const domainTab = ref('security')
-const domainSettingsLoading = ref(false)
-const domainList = ref<any[]>([])
-let domainSettingsRequestSeq = 0
-const selectedDomainId = ref('')
-const mfaUpdatingId = ref('')
-const mfaVerifyVisible = ref(false)
-const mfaVerifyLoading = ref(false)
-const mfaVerifyCodeSending = ref(false)
-const mfaVerifyCode = ref('')
-const mfaTargetDomain = ref<any | null>(null)
-const mfaTargetEnabled = ref(false)
-let mfaCodeSendSeq = 0
-let mfaSubmitSeq = 0
-const pwdExpiryUpdatingId = ref('')
-let pwdExpiryRequestSeq = 0
-const auditLogsLoading = ref(false)
-const auditLogsLoaded = ref(false)
-const auditLogs = ref<any[]>([])
-const auditDays = ref(7)
-let auditLogsRequestSeq = 0
-const domainAuditLogsLoading = ref(false)
-const domainAuditLogsLoaded = ref(false)
-const domainAuditLogs = ref<any[]>([])
-const domainAuditDays = ref(7)
-let domainAuditLogsRequestSeq = 0
-const notificationLoading = ref(false)
-const notificationSaving = ref(false)
-const notificationData = ref<any | null>(null)
-const notificationRecipientsText = ref('')
-const notificationEventActiveKeys = ref<string[]>([])
-const notificationCodeSending = ref(false)
-const notificationCodeInput = ref('')
-const notificationUnlocking = ref(false)
-const notificationToken = ref('')
-let notificationRequestSeq = 0
-let notificationSaveSeq = 0
-let notificationUnlockSeq = 0
-let notificationCodeSendSeq = 0
-const DOMAIN_TYPE_CN: Record<string, string> = {
-  DEFAULT: '默认域',
-  PRIMARY: '主域',
-  SECONDARY: '辅助域',
-  EXTERNAL: '外部域',
-}
-function domainTypeCn(t: string | null | undefined): string {
-  if (!t) return ''
-  const key = String(t).toUpperCase()
-  return DOMAIN_TYPE_CN[key] || t
-}
-
-const selectedDomain = computed<any | null>(() =>
-  domainList.value.find((d: any) => d.domainId === selectedDomainId.value) || null,
-)
-const selectedFactorDomain = computed<any | null>(() =>
-  authFactorDomains.value.find((d: any) => d.domainId === selectedDomainId.value) || null,
-)
-const selectedAuditDomain = computed<any | null>(() =>
-  auditLogs.value.find((d: any) => d.domainId === selectedDomainId.value) || null,
-)
-const selectedDomainAudit = computed<any | null>(() =>
-  domainAuditLogs.value.find((d: any) => d.domainId === selectedDomainId.value) || null,
-)
-const notificationEvents = computed<any[]>(() =>
-  Array.isArray(notificationData.value?.eventSettings) ? notificationData.value.eventSettings : [],
-)
-const notificationAdminEvents = computed<any[]>(() =>
-  notificationEvents.value.filter((event: any) => isAdminNotificationEvent(event.eventId)),
-)
-const notificationEndUserEvents = computed<any[]>(() =>
-  notificationEvents.value.filter((event: any) => !isAdminNotificationEvent(event.eventId)),
-)
-const notificationValidateOptions = [
-  { label: '电子邮件地址', value: 'email' },
-  { label: '域', value: 'domain' },
-]
-
-const NOTIFICATION_ADMIN_LABELS = new Set([
-  '作业已启动',
-  '作业已取消',
-  '作业已完成',
-  '作业失败',
-  '已超出限额限制',
-  '已启动发件人电子邮件域验证',
-  '为发件人电子邮件地址启动了电子邮件地址验证',
-  '同步作业概要',
-  'AD 桥与 OCI IAM 之间的连接中断时通知管理员',
-  'AD 桥与 OCI IAM 之间的连接恢复时通知管理员',
-  '有桥更新可用',
-  'AD 桥与 OCI IAM 之间的同步成功时通知管理员',
-  'AD 桥与 OCI IAM 之间的同步失败时通知管理员',
-  '辅助域创建',
-  'SAML SP 签名证书即将到期',
-  'SAML IdP 签名证书即将到期',
-  '已更新控制台登录策略同意书',
-  '已还原控制台登录策略同意书',
-  '已自动记录控制台登录策略同意书',
-  '在 SSO 会话 Cookie 中检测到可疑活动',
-  'job_drsync_conflicts_report',
-])
-
-const NOTIFICATION_EVENT_LABELS: Record<string, string> = {
-  // 管理员通知
-  'job.started': '作业已启动',
-  'job.start': '作业已启动',
-  'job.cancelled': '作业已取消',
-  'job.canceled': '作业已取消',
-  'job.cancel': '作业已取消',
-  'job.completed': '作业已完成',
-  'job.complete': '作业已完成',
-  'job.failed': '作业失败',
-  'job.failure': '作业失败',
-  'job.error': '作业失败',
-  'limit.exceeded': '已超出限额限制',
-  'quota.limit.exceeded': '已超出限额限制',
-  'sender.email.domain.verification.started': '已启动发件人电子邮件域验证',
-  'sender.email.domain.verification.start': '已启动发件人电子邮件域验证',
-  'sender.email.address.verification.started': '为发件人电子邮件地址启动了电子邮件地址验证',
-  'sender.email.address.verification.start': '为发件人电子邮件地址启动了电子邮件地址验证',
-  'sender.email.verification.started': '为发件人电子邮件地址启动了电子邮件地址验证',
-  'sync.job.summary': '同步作业概要',
-  'job.sync.summary': '同步作业概要',
-  'job.synchronization.summary': '同步作业概要',
-  'ad.bridge.connection.interrupted': 'AD 桥与 OCI IAM 之间的连接中断时通知管理员',
-  'ad.bridge.connection.down': 'AD 桥与 OCI IAM 之间的连接中断时通知管理员',
-  'ad.bridge.connection.restored': 'AD 桥与 OCI IAM 之间的连接恢复时通知管理员',
-  'ad.bridge.connection.up': 'AD 桥与 OCI IAM 之间的连接恢复时通知管理员',
-  'ad.bridge.update.available': '有桥更新可用',
-  'ad.bridge.sync.success': 'AD 桥与 OCI IAM 之间的同步成功时通知管理员',
-  'ad.bridge.sync.failure': 'AD 桥与 OCI IAM 之间的同步失败时通知管理员',
-  'secondary.domain.create.success': '辅助域创建',
-  'secondary.domain.created': '辅助域创建',
-  'saml.sp.signing.certificate.expiring': 'SAML SP 签名证书即将到期',
-  'saml.idp.signing.certificate.expiring': 'SAML IdP 签名证书即将到期',
-  'console.signon.policy.consent.updated': '已更新控制台登录策略同意书',
-  'console.signon.policy.consent.restored': '已还原控制台登录策略同意书',
-  'console.signon.policy.consent.auto.recorded': '已自动记录控制台登录策略同意书',
-  'sso.session.cookie.suspicious.activity': '在 SSO 会话 Cookie 中检测到可疑活动',
-  'job_drsync_conflicts_report': 'job_drsync_conflicts_report',
-
-  // 最终用户通知
-  'admin.user.create.success': '欢迎使用',
-  'admin.approval.create.success': '已创建审批请求',
-  'admin.workflow.request.expiry': '工作流请求已过期',
-  'admin.workflow.request.rejected': '工作流请求已被拒绝',
-  'admin.me.register.activation.required': '自行注册电子邮件验证',
-  'admin.me.register.success': '欢迎自行注册用户',
-  'admin.user.federated.create.success': '欢迎联合 SSO 用户',
-  'admin.user.authentication.delegated.create.success': '欢迎委派验证用户',
-  'admin.user.initiate.activation.success': '欢迎（重新发送）',
-  'admin.user.authentication.delegated.initiate.activation.success': '欢迎委派验证用户（重新发送）',
-  'admin.me.password.reset.request.success': '密码恢复',
-  'admin.me.recovery.email.verification.required': '恢复电子邮件验证',
-  'admin.me.recovery.email.verify.request.success': '恢复电子邮件验证',
-  'admin.me.primary.email.verification.required': '主电子邮件验证',
-  'admin.me.primary.email.verify.request.success': '主电子邮件验证',
-  'admin.me.secondary.email.verification.required': '辅助电子邮件验证',
-  'admin.me.secondary.email.verify.request.success': '辅助电子邮件验证',
-  'admin.me.recovery.email.update.success': '恢复电子邮件更新',
-  'admin.me.primary.email.update.success': '主电子邮件更新',
-  'admin.me.secondary.email.update.success': '辅助电子邮件更新',
-  'admin.me.password.change.success': '密码更改',
-  'admin.user.password.change.success': '管理员已将密码更改为已知值',
-  'admin.user.password.reset.success': '密码重置',
-  'admin.user.password.reset.request.success': '管理员代表用户请求密码重置',
-  'admin.user.activate.success': '用户激活',
-  'admin.user.activation.success': '用户激活',
-  'admin.user.deactivate.success': '用户停用',
-  'admin.user.deactivation.success': '用户停用',
-  'admin.user.lock.success': '已锁定用户账户',
-  'admin.user.account.locked': '已锁定用户账户',
-  'admin.me.account.recovery.max.attempts.exceeded': '用户已超过账户恢复最大尝试次数',
-  'admin.user.account.recovery.max.attempts.exceeded': '用户已超过账户恢复最大尝试次数',
-  'admin.user.unlock.success': '已取消锁定用户账户',
-  'admin.user.account.unlocked': '已取消锁定用户账户',
-  'admin.user.update.success': '管理员已更新用户概要信息',
-  'admin.user.replace.success': '管理员已替换用户概要信息',
-  'admin.me.mfa.enrollment.request': '用于启用两步验证的设备注册请求',
-  'admin.me.device.registration.request': '用于启用两步验证的设备注册请求',
-  'admin.me.mfa.locked': '两步验证用户账户已锁定',
-  'admin.me.mfa.account.locked': '两步验证用户账户已锁定',
-  'admin.user.federated.mfa.locked': '两步验证联合 SSO 用户账户已锁定',
-  'admin.me.bypasscode.verify': '两步绕过码验证',
-  'admin.me.bypasscode.verification': '两步绕过码验证',
-  'admin.me.kerberos.enable.request': '启用 Kerberos 验证请求',
-  'admin.access.request.create.success': '已提交新的访问请求',
-  'admin.access.request.complete.success': '已完成访问请求',
-  'admin.access.request.complete.failure': '无法完成访问请求',
-  'admin.me.email.otp.verify': '两步电子邮件一次性验证码验证',
-  'admin.me.email.otp.verification': '两步电子邮件一次性验证码验证',
-  'admin.me.new.device.login': '检测到使用您的账户的新设备登录',
-  'admin.user.primary.email.verify.complete': '主电子邮件验证完成时通知用户',
-  'admin.user.recovery.email.verify.complete': '恢复电子邮件验证完成时通知用户',
-  'admin.user.secondary.email.verify.complete': '辅助恢复电子邮件验证完成时通知用户',
-  'admin.verify.email.link': '验证电子邮件链接',
-  'admin.user.password.propagation.failure': '用户密码传播失败',
-  'admin_user_mfa_reset_success': 'admin_user_mfa_reset_success',
-  'admin_user_bypasscode_create_success': 'admin_user_bypasscode_create_success',
-  'admin_requester_approval_create_success': 'admin_requester_approval_create_success',
-  'admin_approval_update_success': 'admin_approval_update_success',
-}
-
-function handleDomainChange(domainId: string) {
-  if (!domainId || domainId === selectedDomainId.value) return
-  resetMfaState()
-  pwdExpiryRequestSeq++
-  pwdExpiryUpdatingId.value = ''
-  selectedDomainId.value = domainId
-  auditLogsRequestSeq++
-  auditLogs.value = []
-  auditLogsLoaded.value = false
-  auditLogsLoading.value = false
-  domainAuditLogsRequestSeq++
-  domainAuditLogs.value = []
-  domainAuditLogsLoaded.value = false
-  domainAuditLogsLoading.value = false
-  resetNotificationState(true)
-  if (domainTab.value === 'notifications' && notificationToken.value) void loadDomainNotifications()
-  if (domainTab.value === 'logs') void loadAuditLogs()
-  if (domainTab.value === 'audit') void loadDomainAuditLogs()
-}
-
-watch(() => domainTab.value, (tab) => {
-  if (tab === 'notifications' && selectedDomainId.value && notificationToken.value && !notificationData.value) {
-    void loadDomainNotifications()
-  }
-})
-
-function onAuditDaysChange() {
-  auditLogsRequestSeq++
-  auditLogs.value = []
-  auditLogsLoaded.value = false
-  auditLogsLoading.value = false
-}
-
-function onDomainAuditDaysChange() {
-  domainAuditLogsRequestSeq++
-  domainAuditLogs.value = []
-  domainAuditLogsLoaded.value = false
-  domainAuditLogsLoading.value = false
-}
-
-async function sendNotificationCode() {
-  const seq = ++notificationCodeSendSeq
-  notificationCodeSending.value = true
-  try {
-    await sendVerifyCode('domainNotifications')
-    if (seq !== notificationCodeSendSeq) return
-    message.success('验证码已发送至 Telegram')
-  } catch (e: any) {
-    if (seq !== notificationCodeSendSeq) return
-    message.error(e?.message || '发送验证码失败')
-  } finally {
-    if (seq === notificationCodeSendSeq) notificationCodeSending.value = false
-  }
-}
-
-async function doUnlockNotifications() {
-  if (!notificationCodeInput.value || notificationCodeInput.value.length !== 6) {
-    return message.warning('请输入 6 位验证码')
-  }
-  const seq = ++notificationUnlockSeq
-  notificationUnlocking.value = true
-  try {
-    const r = await unlockDomainNotifications({ verifyCode: notificationCodeInput.value })
-    if (seq !== notificationUnlockSeq) return
-    notificationToken.value = r.data?.accessToken || ''
-    notificationCodeInput.value = ''
-    if (!notificationToken.value) throw new Error('未获取到访问令牌')
-    await loadDomainNotifications()
-    if (seq !== notificationUnlockSeq) return
-    message.success('已解锁')
-  } catch (e: any) {
-    if (seq !== notificationUnlockSeq) return
-    message.error(e?.message || '解锁失败')
-  } finally {
-    if (seq === notificationUnlockSeq) notificationUnlocking.value = false
-  }
-}
-
-function resetNotificationState(keepToken = false) {
-  notificationRequestSeq++
-  notificationSaveSeq++
-  notificationUnlockSeq++
-  notificationCodeSendSeq++
-  notificationData.value = null
-  notificationRecipientsText.value = ''
-  notificationEventActiveKeys.value = []
-  notificationLoading.value = false
-  notificationSaving.value = false
-  notificationUnlocking.value = false
-  notificationCodeSending.value = false
-  if (!keepToken) {
-    notificationCodeInput.value = ''
-    notificationToken.value = ''
-  }
-}
-
-function isUnlockExpiredMessage(msg: any): boolean {
-  const text = String(msg || '')
-  return text.includes('解锁') || text.includes('失效') || text.includes('过期')
-}
-
-function normalizeDomainNotification(raw: any) {
-  const from = raw?.fromEmailAddress || {}
-  const validate = String(from.validate || 'email').toLowerCase()
-  return {
-    ...(raw || {}),
-    notificationEnabled: !!raw?.notificationEnabled,
-    testModeEnabled: !!raw?.testModeEnabled,
-    testRecipients: Array.isArray(raw?.testRecipients) ? raw.testRecipients : [],
-    sendNotificationToOldAndNewPrimaryEmailsWhenAdminChangesPrimaryEmail:
-      !!raw?.sendNotificationToOldAndNewPrimaryEmailsWhenAdminChangesPrimaryEmail,
-    fromEmailAddress: {
-      value: from.value || '',
-      displayName: from.displayName || '',
-      validate: validate === 'domain' ? 'domain' : 'email',
-      validationStatus: from.validationStatus || '',
-    },
-    eventSettings: Array.isArray(raw?.eventSettings)
-      ? raw.eventSettings.map((e: any) => ({ eventId: e.eventId || '', enabled: !!e.enabled })).filter((e: any) => e.eventId)
-      : [],
-  }
-}
-
-function parseNotificationRecipients(text: string): string[] {
-  return Array.from(new Set(
-    String(text || '')
-      .split(/[,，;；\n\r]+/)
-      .map((s) => s.trim())
-      .filter(Boolean),
-  ))
-}
-
-function formatNotificationValidationStatus(status: string | null | undefined): string {
-  const s = String(status || '').toUpperCase()
-  if (s === 'VERIFIED') return '已验证'
-  if (s === 'PENDING') return '待验证'
-  return '—'
-}
-
-function notificationValidationStatusColor(status: string | null | undefined): string {
-  const s = String(status || '').toUpperCase()
-  if (s === 'VERIFIED') return 'green'
-  if (s === 'PENDING') return 'orange'
-  return 'default'
-}
-
-function normalizeNotificationEventId(eventId: string | null | undefined): string {
-  return String(eventId || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[-_]+/g, '.')
-    .replace(/\.+/g, '.')
-}
-
-function isAdminNotificationEvent(eventId: string | null | undefined): boolean {
-  const label = formatNotificationEventName(eventId)
-  if (NOTIFICATION_ADMIN_LABELS.has(label)) return true
-  const normalized = normalizeNotificationEventId(eventId)
-  return (
-    normalized.startsWith('job.') ||
-    normalized.includes('.job.') ||
-    normalized.includes('bridge') ||
-    normalized.includes('drsync') ||
-    normalized.includes('saml') ||
-    normalized.includes('signing.certificate') ||
-    normalized.includes('console.signon.policy.consent') ||
-    normalized.includes('sso.session.cookie') ||
-    normalized.includes('secondary.domain') ||
-    normalized.includes('limit.exceeded') ||
-    normalized.includes('sender.email')
-  )
-}
-
-function formatNotificationEventName(eventId: string | null | undefined): string {
-  const id = String(eventId || '').trim()
-  if (!id) return '未知事件'
-  const exact = NOTIFICATION_EVENT_LABELS[id] || NOTIFICATION_EVENT_LABELS[id.toLowerCase()]
-  if (exact) return exact
-  const normalized = normalizeNotificationEventId(id)
-  const mapped = NOTIFICATION_EVENT_LABELS[normalized]
-  if (mapped) return mapped
-  if (normalized.includes('job') && normalized.includes('start')) return '作业已启动'
-  if (normalized.includes('job') && (normalized.includes('cancel') || normalized.includes('canceled') || normalized.includes('cancelled'))) return '作业已取消'
-  if (normalized.includes('job') && (normalized.includes('complete') || normalized.includes('completed'))) return '作业已完成'
-  if (normalized.includes('job') && (normalized.includes('fail') || normalized.includes('failed') || normalized.includes('error'))) return '作业失败'
-  if (normalized.includes('limit')) return '已超出限额限制'
-  if (normalized.includes('sender.email.domain') && normalized.includes('verification')) return '已启动发件人电子邮件域验证'
-  if (normalized.includes('sender.email') && normalized.includes('verification')) return '为发件人电子邮件地址启动了电子邮件地址验证'
-  if (normalized.includes('sync') && normalized.includes('summary')) return '同步作业概要'
-  if (normalized.includes('bridge') && normalized.includes('connection') && (normalized.includes('interrupt') || normalized.includes('down') || normalized.includes('broken'))) return 'AD 桥与 OCI IAM 之间的连接中断时通知管理员'
-  if (normalized.includes('bridge') && normalized.includes('connection') && (normalized.includes('restore') || normalized.includes('up') || normalized.includes('recover'))) return 'AD 桥与 OCI IAM 之间的连接恢复时通知管理员'
-  if (normalized.includes('bridge') && normalized.includes('update')) return '有桥更新可用'
-  if (normalized.includes('bridge') && normalized.includes('sync') && normalized.includes('success')) return 'AD 桥与 OCI IAM 之间的同步成功时通知管理员'
-  if (normalized.includes('bridge') && normalized.includes('sync') && (normalized.includes('fail') || normalized.includes('error'))) return 'AD 桥与 OCI IAM 之间的同步失败时通知管理员'
-  if (normalized.includes('secondary.domain')) return '辅助域创建'
-  if (normalized.includes('saml') && normalized.includes('sp') && (normalized.includes('cert') || normalized.includes('certificate'))) return 'SAML SP 签名证书即将到期'
-  if (normalized.includes('saml') && normalized.includes('idp') && (normalized.includes('cert') || normalized.includes('certificate'))) return 'SAML IdP 签名证书即将到期'
-  if (normalized.includes('console') && normalized.includes('signon') && normalized.includes('consent') && normalized.includes('update')) return '已更新控制台登录策略同意书'
-  if (normalized.includes('console') && normalized.includes('signon') && normalized.includes('consent') && normalized.includes('restore')) return '已还原控制台登录策略同意书'
-  if (normalized.includes('console') && normalized.includes('signon') && normalized.includes('consent')) return '已自动记录控制台登录策略同意书'
-  if (normalized.includes('sso') && normalized.includes('cookie') && normalized.includes('suspicious')) return '在 SSO 会话 Cookie 中检测到可疑活动'
-  if (normalized.includes('password.propagation') && normalized.includes('fail')) return '用户密码传播失败'
-  if (normalized.includes('new.device') && normalized.includes('login')) return '检测到使用您的账户的新设备登录'
-  if (normalized.includes('email.otp')) return '两步电子邮件一次性验证码验证'
-  if (normalized.includes('kerberos')) return '启用 Kerberos 验证请求'
-  if (normalized.includes('bypasscode')) return '两步绕过码验证'
-  if (normalized.includes('mfa') && normalized.includes('lock')) return '两步验证用户账户已锁定'
-  if (normalized.includes('access.request') && normalized.includes('create')) return '已提交新的访问请求'
-  if (normalized.includes('access.request') && normalized.includes('complete') && (normalized.includes('fail') || normalized.includes('error'))) return '无法完成访问请求'
-  if (normalized.includes('access.request') && normalized.includes('complete')) return '已完成访问请求'
-  if (normalized.includes('password.reset.request') && normalized.includes('user')) return '管理员代表用户请求密码重置'
-  if (normalized.includes('password.reset.request')) return '密码恢复'
-  if (normalized.includes('password.reset')) return '密码重置'
-  if (normalized.includes('password.change')) return '密码更改'
-  if (normalized.includes('user.federated') && normalized.includes('create')) return '欢迎联合 SSO 用户'
-  if (normalized.includes('authentication.delegated') && normalized.includes('initiate.activation')) return '欢迎委派验证用户（重新发送）'
-  if (normalized.includes('authentication.delegated') && normalized.includes('create')) return '欢迎委派验证用户'
-  if (normalized.includes('initiate.activation')) return '欢迎（重新发送）'
-  if (normalized.includes('register.activation')) return '自行注册电子邮件验证'
-  if (normalized.includes('register.success')) return '欢迎自行注册用户'
-  if (normalized.includes('primary.email') && normalized.includes('complete')) return '主电子邮件验证完成时通知用户'
-  if (normalized.includes('recovery.email') && normalized.includes('complete')) return '恢复电子邮件验证完成时通知用户'
-  if (normalized.includes('secondary.email') && normalized.includes('complete')) return '辅助恢复电子邮件验证完成时通知用户'
-  if (normalized.includes('primary.email') && normalized.includes('update')) return '主电子邮件更新'
-  if (normalized.includes('recovery.email') && normalized.includes('update')) return '恢复电子邮件更新'
-  if (normalized.includes('secondary.email') && normalized.includes('update')) return '辅助电子邮件更新'
-  if (normalized.includes('primary.email') && normalized.includes('verif')) return '主电子邮件验证'
-  if (normalized.includes('recovery.email') && normalized.includes('verif')) return '恢复电子邮件验证'
-  if (normalized.includes('secondary.email') && normalized.includes('verif')) return '辅助电子邮件验证'
-  if (normalized.includes('workflow.request.expiry')) return '工作流请求已过期'
-  if (normalized.includes('workflow.request.rejected')) return '工作流请求已被拒绝'
-  if (normalized.includes('approval.create')) return '已创建审批请求'
-  return id
-}
-
-// ------- 验证因素 -------
-const FACTOR_OPTIONS: { key: string; label: string }[] = [
-  { key: 'totp', label: '移动应用程序验证码 (TOTP)' },
-  { key: 'push', label: '移动应用程序通知 (Push)' },
-  { key: 'phoneCall', label: '电话' },
-  { key: 'sms', label: '短信 (SMS)' },
-  { key: 'email', label: '电子邮件' },
-  { key: 'securityQuestions', label: '安全问题' },
-  { key: 'fido', label: 'FIDO 通行密钥' },
-  { key: 'yubico', label: 'Yubico OTP' },
-  { key: 'bypassCode', label: '绕过码' },
-  { key: 'duoSecurity', label: 'Duo Security' },
-]
-const factorCodeSending = ref(false)
-const factorCodeInput = ref('')
-const factorUnlocking = ref(false)
-const authFactorToken = ref('')
-const authFactorLoading = ref(false)
-const authFactorDomains = ref<any[]>([])
-const factorSavingId = ref('')
-let authFactorRequestSeq = 0
-let authFactorUnlockSeq = 0
-let authFactorSaveSeq = 0
-let authFactorCodeSendSeq = 0
-
-function resetAuthFactorState() {
-  authFactorRequestSeq++
-  authFactorUnlockSeq++
-  authFactorSaveSeq++
-  authFactorCodeSendSeq++
-  factorCodeInput.value = ''
-  authFactorToken.value = ''
-  authFactorDomains.value = []
-  authFactorLoading.value = false
-  factorUnlocking.value = false
-  factorCodeSending.value = false
-  factorSavingId.value = ''
-}
-
-async function sendFactorCode() {
-  const seq = ++authFactorCodeSendSeq
-  factorCodeSending.value = true
-  try {
-    await sendVerifyCode('authFactors')
-    if (seq !== authFactorCodeSendSeq) return
-    message.success('验证码已发送至 Telegram')
-  } catch (e: any) {
-    if (seq !== authFactorCodeSendSeq) return
-    message.error(e?.message || '发送验证码失败')
-  } finally {
-    if (seq === authFactorCodeSendSeq) factorCodeSending.value = false
-  }
-}
-
-async function doUnlockFactors() {
-  if (!factorCodeInput.value || factorCodeInput.value.length !== 6) {
-    return message.warning('请输入 6 位验证码')
-  }
-  const seq = ++authFactorUnlockSeq
-  factorUnlocking.value = true
-  try {
-    const r = await unlockAuthFactors({ verifyCode: factorCodeInput.value })
-    if (seq !== authFactorUnlockSeq) return
-    authFactorToken.value = r.data?.accessToken || ''
-    factorCodeInput.value = ''
-    if (!authFactorToken.value) throw new Error('未获取到访问令牌')
-    await reloadFactors()
-    if (seq !== authFactorUnlockSeq) return
-    message.success('已解锁')
-  } catch (e: any) {
-    if (seq !== authFactorUnlockSeq) return
-    message.error(e?.message || '解锁失败')
-  } finally {
-    if (seq === authFactorUnlockSeq) factorUnlocking.value = false
-  }
-}
-
-async function reloadFactors() {
-  const tenantId = domainMgmtTenant.value?.id
-  const accessToken = authFactorToken.value
-  if (!tenantId || !accessToken) return
-  const seq = ++authFactorRequestSeq
-  authFactorLoading.value = true
-  try {
-    const r = await getAuthFactors({ id: tenantId, accessToken })
-    if (seq !== authFactorRequestSeq || tenantId !== domainMgmtTenant.value?.id || accessToken !== authFactorToken.value) return
-    const raw = (r.data && typeof r.data === 'object' && 'domains' in r.data) ? r.data.domains : r.data
-    authFactorDomains.value = (Array.isArray(raw) ? raw : []).map((d: any) => ({
-      ...d,
-      factors: { ...(d.factors || {}) },
-      limits: { ...(d.limits || {}) },
-      trustedDevice: { ...(d.trustedDevice || {}) },
-    }))
-  } catch (e: any) {
-    if (seq !== authFactorRequestSeq) return
-    message.error(e?.message || '读取验证因素失败')
-    if (String(e?.message || '').includes('解锁') || String(e?.message || '').includes('失效') || String(e?.message || '').includes('过期')) {
-      resetAuthFactorState()
-    }
-  } finally {
-    if (seq === authFactorRequestSeq) authFactorLoading.value = false
-  }
-}
-
-async function saveFactors(d: any) {
-  const tenantId = domainMgmtTenant.value?.id
-  const accessToken = authFactorToken.value
-  const domainId = d?.domainId
-  if (!tenantId || !accessToken || !domainId) return
-  const seq = ++authFactorSaveSeq
-  factorSavingId.value = domainId
-  try {
-    const r = await updateAuthFactors({
-      id: tenantId,
-      domainId,
-      accessToken,
-      factors: d.factors,
-      limits: d.limits,
-      trustedDevice: d.trustedDevice,
-    })
-    if (seq !== authFactorSaveSeq || tenantId !== domainMgmtTenant.value?.id || accessToken !== authFactorToken.value) return
-    if (r.data?.skipped) {
-      message.info('未检测到变更')
-    } else {
-      message.success(`已保存 ${r.data?.changedOps || 0} 项变更`)
-    }
-    await reloadFactors()
-  } catch (e: any) {
-    if (seq !== authFactorSaveSeq) return
-    message.error(e?.message || '保存失败')
-    if (String(e?.message || '').includes('解锁') || String(e?.message || '').includes('失效') || String(e?.message || '').includes('过期')) {
-      resetAuthFactorState()
-    }
-  } finally {
-    if (seq === authFactorSaveSeq) factorSavingId.value = ''
-  }
-}
-
-function resetDomainManagementState() {
-  domainSettingsRequestSeq++
-  domainSettingsLoading.value = false
-  domainMgmtTenant.value = null
-  domainTab.value = 'security'
-  domainList.value = []
-  selectedDomainId.value = ''
-  resetMfaState()
-  pwdExpiryRequestSeq++
-  pwdExpiryUpdatingId.value = ''
-  auditLogsRequestSeq++
-  auditLogs.value = []
-  auditLogsLoaded.value = false
-  auditLogsLoading.value = false
-  domainAuditLogsRequestSeq++
-  domainAuditLogs.value = []
-  domainAuditLogsLoaded.value = false
-  domainAuditLogsLoading.value = false
-  resetNotificationState()
-  resetAuthFactorState()
-}
-
-function closeDomainMgmt() {
-  if (domainMgmtVisible.value) {
-    domainMgmtVisible.value = false
-  } else {
-    resetDomainManagementState()
-  }
-}
-
-async function openDomainMgmt(record: any) {
-  closeTenantConfigOverlays('domain')
-  resetDomainManagementState()
-  domainMgmtTenant.value = record
-  domainTab.value = 'security'
-  domainMgmtVisible.value = true
-  await loadDomainSettings()
-}
-
-watch(() => domainMgmtVisible.value, (v) => {
-  if (!v) resetDomainManagementState()
-}, { flush: 'sync' })
-
-async function loadDomainSettings() {
-  const tenantId = domainMgmtTenant.value?.id
-  if (!tenantId) return
-  const seq = ++domainSettingsRequestSeq
-  domainSettingsLoading.value = true
-  try {
-    const res = await getDomainSettings({ id: tenantId })
-    if (seq !== domainSettingsRequestSeq || tenantId !== domainMgmtTenant.value?.id) return
-    const raw = (res.data && typeof res.data === 'object' && 'domains' in res.data) ? res.data.domains : res.data
-    domainList.value = Array.isArray(raw) ? raw : []
-    if (domainList.value.length > 0 && !selectedDomainId.value) {
-      selectedDomainId.value = domainList.value[0].domainId
-    }
-  } catch (e: any) {
-    if (seq !== domainSettingsRequestSeq) return
-    message.error(e?.message || '获取域设置失败')
-  } finally {
-    if (seq === domainSettingsRequestSeq) domainSettingsLoading.value = false
-  }
-}
-
-async function handleMfaChange(domain: any, checked: boolean) {
-  const tenantId = domainMgmtTenant.value?.id
-  const domainId = domain?.domainId
-  if (!tenantId || !domainId) return
-  const seq = ++mfaCodeSendSeq
-  mfaTargetDomain.value = domain
-  mfaTargetEnabled.value = checked
-  mfaVerifyCode.value = ''
-  mfaUpdatingId.value = domainId
-  try {
-    await sendVerifyCode('domainMfa')
-    if (seq !== mfaCodeSendSeq || tenantId !== domainMgmtTenant.value?.id || domainId !== mfaTargetDomain.value?.domainId) return
-    message.success('验证码已发送至 Telegram')
-    mfaVerifyVisible.value = true
-  } catch (e: any) {
-    if (seq !== mfaCodeSendSeq) return
-    message.error(e?.message || '发送验证码失败')
-    mfaTargetDomain.value = null
-    mfaUpdatingId.value = ''
-  }
-}
-
-function resetMfaState() {
-  mfaCodeSendSeq++
-  mfaSubmitSeq++
-  mfaVerifyVisible.value = false
-  mfaVerifyLoading.value = false
-  mfaVerifyCodeSending.value = false
-  mfaVerifyCode.value = ''
-  mfaTargetDomain.value = null
-  mfaTargetEnabled.value = false
-  mfaUpdatingId.value = ''
-}
-
-function cancelMfaVerify() {
-  resetMfaState()
-}
-
-async function resendMfaVerifyCode() {
-  const tenantId = domainMgmtTenant.value?.id
-  const domainId = mfaTargetDomain.value?.domainId
-  if (!tenantId || !domainId) return
-  const seq = ++mfaCodeSendSeq
-  mfaVerifyCodeSending.value = true
-  try {
-    await sendVerifyCode('domainMfa')
-    if (seq !== mfaCodeSendSeq || tenantId !== domainMgmtTenant.value?.id || domainId !== mfaTargetDomain.value?.domainId) return
-    mfaVerifyCode.value = ''
-    message.success('验证码已重新发送')
-  } catch (e: any) {
-    if (seq !== mfaCodeSendSeq) return
-    message.error(e?.message || '发送失败')
-  } finally {
-    if (seq === mfaCodeSendSeq) mfaVerifyCodeSending.value = false
-  }
-}
-
-async function submitMfaChange() {
-  const tenantId = domainMgmtTenant.value?.id
-  const domain = mfaTargetDomain.value
-  const domainId = domain?.domainId
-  const enabled = mfaTargetEnabled.value
-  const verifyCode = mfaVerifyCode.value
-  if (!tenantId || !domainId) return
-  if (!verifyCode || verifyCode.length !== 6) {
-    message.warning('请输入 6 位验证码')
-    return
-  }
-
-  const seq = ++mfaSubmitSeq
-  const prev = domain.mfaEnabled
-  mfaVerifyLoading.value = true
-  mfaUpdatingId.value = domainId
-  try {
-    await updateMfa({
-      id: tenantId,
-      domainId,
-      enabled,
-      verifyCode,
-    })
-    if (seq !== mfaSubmitSeq || tenantId !== domainMgmtTenant.value?.id || domainId !== mfaTargetDomain.value?.domainId) return
-    domain.mfaEnabled = enabled
-    message.success(enabled ? 'MFA 已启用' : 'MFA 已关闭')
-    mfaVerifyVisible.value = false
-    mfaVerifyCode.value = ''
-    mfaTargetDomain.value = null
-    mfaTargetEnabled.value = false
-  } catch (e: any) {
-    if (seq !== mfaSubmitSeq) return
-    domain.mfaEnabled = prev
-    message.error(e?.message || '更新 MFA 策略失败')
-  } finally {
-    if (seq === mfaSubmitSeq) {
-      mfaVerifyLoading.value = false
-      mfaUpdatingId.value = ''
-    }
-  }
-}
-
-async function handlePwdExpiryChange(domain: any) {
-  const tenantId = domainMgmtTenant.value?.id
-  const domainId = domain?.domainId
-  if (!tenantId || !domainId) return
-  const days = domain.passwordExpiresAfterDays ?? 0
-  const seq = ++pwdExpiryRequestSeq
-  pwdExpiryUpdatingId.value = domainId
-  try {
-    await updatePasswordExpiry({
-      id: tenantId,
-      domainId,
-      days,
-    })
-    if (seq !== pwdExpiryRequestSeq || tenantId !== domainMgmtTenant.value?.id || domainId !== selectedDomainId.value) return
-    message.success('密码过期策略已更新')
-  } catch (e: any) {
-    if (seq !== pwdExpiryRequestSeq) return
-    message.error(e?.message || '更新密码策略失败')
-  } finally {
-    if (seq === pwdExpiryRequestSeq) pwdExpiryUpdatingId.value = ''
-  }
-}
-
-async function loadDomainNotifications() {
-  const tenantId = domainMgmtTenant.value?.id
-  const domainId = selectedDomainId.value
-  const accessToken = notificationToken.value
-  if (!tenantId || !domainId) {
-    message.warning('请先选择域')
-    return
-  }
-  if (!accessToken) {
-    message.warning('请先通过 TG 验证码解锁域通知')
-    return
-  }
-  const seq = ++notificationRequestSeq
-  notificationLoading.value = true
-  try {
-    const res = await getDomainNotifications({
-      id: tenantId,
-      domainId,
-      accessToken,
-    })
-    if (seq !== notificationRequestSeq || tenantId !== domainMgmtTenant.value?.id || domainId !== selectedDomainId.value || accessToken !== notificationToken.value) return
-    notificationData.value = normalizeDomainNotification(res.data || {})
-    notificationRecipientsText.value = (notificationData.value.testRecipients || []).join('\n')
-  } catch (e: any) {
-    if (seq !== notificationRequestSeq) return
-    message.error(e?.message || '读取域通知设置失败')
-    if (isUnlockExpiredMessage(e?.message)) resetNotificationState()
-  } finally {
-    if (seq === notificationRequestSeq) notificationLoading.value = false
-  }
-}
-
-async function saveDomainNotifications() {
-  const tenantId = domainMgmtTenant.value?.id
-  const domainId = selectedDomainId.value
-  const accessToken = notificationToken.value
-  if (!tenantId || !domainId || !notificationData.value) return
-  if (!accessToken) {
-    message.warning('请先通过 TG 验证码解锁域通知')
-    return
-  }
-  const fromEmail = notificationData.value.fromEmailAddress || {}
-  if (!String(fromEmail.value || '').trim()) {
-    message.warning('请填写发件人电子邮件地址')
-    return
-  }
-  const seq = ++notificationSaveSeq
-  notificationSaving.value = true
-  try {
-    const res = await updateDomainNotifications({
-      id: tenantId,
-      domainId,
-      accessToken,
-      notificationEnabled: !!notificationData.value.notificationEnabled,
-      testModeEnabled: !!notificationData.value.testModeEnabled,
-      testRecipients: parseNotificationRecipients(notificationRecipientsText.value),
-      sendNotificationToOldAndNewPrimaryEmailsWhenAdminChangesPrimaryEmail:
-        !!notificationData.value.sendNotificationToOldAndNewPrimaryEmailsWhenAdminChangesPrimaryEmail,
-      fromEmailAddress: {
-        value: String(fromEmail.value || '').trim(),
-        displayName: String(fromEmail.displayName || '').trim(),
-        validate: fromEmail.validate || 'email',
-      },
-      eventSettings: notificationEvents.value.map((e: any) => ({
-        eventId: e.eventId,
-        enabled: !!e.enabled,
-      })),
-    })
-    if (seq !== notificationSaveSeq || tenantId !== domainMgmtTenant.value?.id || domainId !== selectedDomainId.value || accessToken !== notificationToken.value) return
-    if (res.data?.skipped) {
-      message.info('未检测到变更')
-    } else {
-      message.success('域通知设置已保存')
-    }
-    const next = res.data?.notification || notificationData.value
-    notificationData.value = normalizeDomainNotification(next)
-    notificationRecipientsText.value = (notificationData.value.testRecipients || []).join('\n')
-  } catch (e: any) {
-    if (seq !== notificationSaveSeq) return
-    message.error(e?.message || '保存域通知设置失败')
-    if (isUnlockExpiredMessage(e?.message)) resetNotificationState()
-  } finally {
-    if (seq === notificationSaveSeq) notificationSaving.value = false
-  }
-}
-
-async function loadAuditLogs() {
-  if (!selectedDomainId.value) {
-    message.warning('请先选择域')
-    return
-  }
-  const seq = ++auditLogsRequestSeq
-  const tenantId = domainMgmtTenant.value?.id
-  const domainId = selectedDomainId.value
-  if (!tenantId) {
-    message.warning('请先选择租户')
-    return
-  }
-  auditLogsLoading.value = true
-  auditLogsLoaded.value = false
-  auditLogs.value = []
-  try {
-    const res = await getAuditLogs({
-      id: tenantId,
-      days: auditDays.value,
-      domainId,
-      mode: 'login',
-    })
-    if (seq !== auditLogsRequestSeq || domainId !== selectedDomainId.value) return
-    auditLogs.value = Array.isArray(res.data) ? res.data : []
-    auditLogsLoaded.value = true
-  } catch (e: any) {
-    if (seq !== auditLogsRequestSeq) return
-    auditLogs.value = []
-    auditLogsLoaded.value = true
-    message.error(e?.message || '获取登录日志失败')
-  } finally {
-    if (seq === auditLogsRequestSeq) {
-      auditLogsLoading.value = false
-    }
-  }
-}
-
-async function loadDomainAuditLogs() {
-  if (!selectedDomainId.value) {
-    message.warning('请先选择域')
-    return
-  }
-  const seq = ++domainAuditLogsRequestSeq
-  const tenantId = domainMgmtTenant.value?.id
-  const domainId = selectedDomainId.value
-  if (!tenantId) {
-    message.warning('请先选择租户')
-    return
-  }
-  domainAuditLogsLoading.value = true
-  domainAuditLogsLoaded.value = false
-  domainAuditLogs.value = []
-  try {
-    const res = await getAuditLogs({
-      id: tenantId,
-      days: domainAuditDays.value,
-      domainId,
-      mode: 'audit',
-    })
-    if (seq !== domainAuditLogsRequestSeq || domainId !== selectedDomainId.value) return
-    domainAuditLogs.value = Array.isArray(res.data) ? res.data : []
-    domainAuditLogsLoaded.value = true
-  } catch (e: any) {
-    if (seq !== domainAuditLogsRequestSeq) return
-    domainAuditLogs.value = []
-    domainAuditLogsLoaded.value = true
-    message.error(e?.message || '获取审计日志失败')
-  } finally {
-    if (seq === domainAuditLogsRequestSeq) {
-      domainAuditLogsLoading.value = false
-    }
-  }
 }
 
 function scrollTenantPageTop() {
