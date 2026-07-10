@@ -37,7 +37,11 @@ import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
+import java.nio.file.StandardOpenOption;
+import java.nio.file.attribute.PosixFilePermission;
 import java.time.LocalDateTime;
 import java.util.*;
 import java.util.concurrent.CompletableFuture;
@@ -46,10 +50,16 @@ import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Slf4j
 @Service
 public class TenantService {
+
+    private static final long TENANT_PRIVATE_KEY_MAX_BYTES = 64 * 1024;
+    private static final Pattern PEM_PRIVATE_KEY_PATTERN = Pattern.compile(
+            "\\A\\s*-----BEGIN (PRIVATE KEY|RSA PRIVATE KEY|EC PRIVATE KEY)-----([A-Za-z0-9+/=\\r\\n\\s]+)-----END \\1-----\\s*\\z");
 
     @Resource
     private OciUserMapper userMapper;
@@ -1404,15 +1414,46 @@ public class TenantService {
     }
 
     public String uploadKey(MultipartFile file) throws IOException {
-        Path dirPath = Path.of(System.getProperty("user.dir"), keyDirPath).normalize();
-        File dir = dirPath.toFile();
-        if (!dir.exists()) {
-            dir.mkdirs();
+        if (file == null || file.isEmpty()) {
+            throw new OciException("私钥文件为空");
         }
+        if (file.getSize() > TENANT_PRIVATE_KEY_MAX_BYTES) {
+            throw new OciException("私钥文件不能超过 64 KB");
+        }
+
+        byte[] content = file.getBytes();
+        String pem = new String(content, StandardCharsets.UTF_8);
+        Matcher matcher = PEM_PRIVATE_KEY_PATTERN.matcher(pem);
+        if (!matcher.matches()) {
+            throw new OciException("私钥文件不是完整、受支持的 PEM 私钥");
+        }
+        try {
+            byte[] decoded = Base64.getMimeDecoder().decode(matcher.group(2));
+            if (decoded.length == 0) {
+                throw new OciException("私钥文件内容为空");
+            }
+        } catch (IllegalArgumentException e) {
+            throw new OciException("私钥文件包含无效的 PEM 内容");
+        }
+
+        Path dirPath = Path.of(System.getProperty("user.dir"), keyDirPath).normalize();
+        Files.createDirectories(dirPath);
         String fileName = CommonUtils.generateId() + ".pem";
-        File target = new File(dir, fileName);
-        file.transferTo(target);
-        log.info("Uploaded key file: {}", target.getAbsolutePath());
-        return target.getAbsolutePath();
+        Path target = dirPath.resolve(fileName);
+        try {
+            Files.write(target, content, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+            try {
+                Files.setPosixFilePermissions(target, EnumSet.of(
+                        PosixFilePermission.OWNER_READ,
+                        PosixFilePermission.OWNER_WRITE));
+            } catch (UnsupportedOperationException ignored) {
+                // Windows and non-POSIX file systems do not expose POSIX permissions.
+            }
+        } catch (IOException e) {
+            Files.deleteIfExists(target);
+            throw e;
+        }
+        log.info("Uploaded key file: {}", target.toAbsolutePath());
+        return target.toAbsolutePath().toString();
     }
 }

@@ -31,7 +31,9 @@ interface UseTenantConfigActionsOptions {
 }
 
 const TENANT_SEARCH_STALE_MS = 15_000
+const TENANT_PRIVATE_KEY_MAX_BYTES = 64 * 1024
 const OCI_REGION_ID_PATTERN = /^[a-z]{2}-[a-z0-9]+(?:-[a-z0-9]+)*-\d+$/
+const PEM_PRIVATE_KEY_PATTERN = /^\s*-----BEGIN (PRIVATE KEY|RSA PRIVATE KEY|EC PRIVATE KEY)-----([A-Za-z0-9+/=\r\n\s]+)-----END \1-----\s*$/
 
 export function useTenantConfigActions(options: UseTenantConfigActionsOptions) {
   const { catalog, isMobile, getGroupLoadController } = options
@@ -143,7 +145,9 @@ export function useTenantConfigActions(options: UseTenantConfigActionsOptions) {
           scheduleTenantInfoPollingIfNeeded(searchTableData.value)
         }
       } catch (e: any) {
-        message.error(e?.message || '加载租户列表失败')
+        if (requestSeq === tenantSearchRequestSeq && normalizedSearchText.value === keyword) {
+          message.error(e?.message || '加载租户列表失败')
+        }
       } finally {
         if (requestSeq === tenantSearchRequestSeq) {
           searchLoading.value = false
@@ -170,6 +174,7 @@ export function useTenantConfigActions(options: UseTenantConfigActionsOptions) {
     groupController()?.clearPendingExpandTarget()
     pagination.current = 1
     clearTenantSearchTimer()
+    clearTenantInfoPollTimers()
     void loadData()
   }
 
@@ -177,6 +182,7 @@ export function useTenantConfigActions(options: UseTenantConfigActionsOptions) {
     groupController()?.clearPendingExpandTarget()
     pagination.current = 1
     clearTenantSearchTimer()
+    clearTenantInfoPollTimers()
     if (!normalizedSearchText.value) {
       tenantSearchRequestSeq += 1
       searchLoading.value = false
@@ -222,6 +228,7 @@ export function useTenantConfigActions(options: UseTenantConfigActionsOptions) {
         if (requestSeq === tenantSearchRequestSeq && normalizedSearchText.value === keyword) {
           searchTableData.value = res.data.records || []
           pagination.total = res.data.total || 0
+          clearTenantInfoPollingIfComplete(searchTableData.value)
         }
         return
       }
@@ -230,6 +237,7 @@ export function useTenantConfigActions(options: UseTenantConfigActionsOptions) {
         catalog.ensureTenants({ force: true, silent: true }),
         catalog.ensureGroups({ force: false, silent: true }),
       ])
+      clearTenantInfoPollingIfComplete(catalog.tenants as any[])
     } catch {
       // 静默轮询只负责把后台刷新结果带回页面，失败时保留当前显示。
     }
@@ -245,10 +253,25 @@ export function useTenantConfigActions(options: UseTenantConfigActionsOptions) {
   }
 
   function scheduleTenantInfoPollingIfNeeded(rows: any[]) {
-    if (!Array.isArray(rows) || rows.length === 0) return
+    if (!Array.isArray(rows) || rows.length === 0) {
+      clearTenantInfoPollTimers()
+      return
+    }
     const hasPending = rows.some((r: any) => !r?.tenantName || !r?.planType)
     if (hasPending) {
       scheduleTenantInfoPolling()
+    } else {
+      clearTenantInfoPollTimers()
+    }
+  }
+
+  function clearTenantInfoPollingIfComplete(rows: any[]) {
+    if (!Array.isArray(rows) || rows.length === 0) {
+      clearTenantInfoPollTimers()
+      return
+    }
+    if (!rows.some((r: any) => !r?.tenantName || !r?.planType)) {
+      clearTenantInfoPollTimers()
     }
   }
 
@@ -281,8 +304,25 @@ export function useTenantConfigActions(options: UseTenantConfigActionsOptions) {
   }
 
   function validatePemPasteText(text: string): boolean {
-    const t = text.trim()
-    return t.includes('BEGIN') && t.includes('PRIVATE KEY')
+    if (new Blob([text]).size > TENANT_PRIVATE_KEY_MAX_BYTES) return false
+    const match = PEM_PRIVATE_KEY_PATTERN.exec(text)
+    if (!match) return false
+    try {
+      return atob(match[2].replace(/\s/g, '')).length > 0
+    } catch {
+      return false
+    }
+  }
+
+  async function validatePrivateKeyFile(file: File): Promise<string | null> {
+    if (file.size <= 0) return '私钥文件为空'
+    if (file.size > TENANT_PRIVATE_KEY_MAX_BYTES) return '私钥文件不能超过 64 KB'
+    try {
+      const text = await file.text()
+      return validatePemPasteText(text) ? null : '私钥文件不是完整、受支持的 PEM 私钥'
+    } catch {
+      return '无法读取私钥文件，请重新选择'
+    }
   }
 
   function pemPasteTextToFile(text: string): File {
@@ -381,14 +421,22 @@ export function useTenantConfigActions(options: UseTenantConfigActionsOptions) {
       let keyPath = formState.ociKeyPath
       let fileToUpload: File | null = pendingFile
       if (!fileToUpload && keyInputMode.value === 'paste' && pemPasteText.value.trim()) {
+        if (new Blob([pemPasteText.value]).size > TENANT_PRIVATE_KEY_MAX_BYTES) {
+          message.warning('私钥内容不能超过 64 KB')
+          return
+        }
         if (!validatePemPasteText(pemPasteText.value)) {
           message.warning('请粘贴完整的 PEM 私钥（须包含 BEGIN … PRIVATE KEY … END）')
-          submitLoading.value = false
           return
         }
         fileToUpload = pemPasteTextToFile(pemPasteText.value)
       }
       if (fileToUpload) {
+        const fileValidationError = await validatePrivateKeyFile(fileToUpload)
+        if (fileValidationError) {
+          message.warning(fileValidationError)
+          return
+        }
         const fd = new FormData()
         fd.append('file', fileToUpload)
         const uploadRes = await uploadKey(fd)
@@ -397,7 +445,6 @@ export function useTenantConfigActions(options: UseTenantConfigActionsOptions) {
 
       if (!keyPath && !editingId.value) {
         message.warning(keyInputMode.value === 'paste' ? '请粘贴 PEM 私钥' : '请上传私钥文件')
-        submitLoading.value = false
         return
       }
 
