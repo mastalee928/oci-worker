@@ -39,14 +39,35 @@
             <a-select v-model:value="form.licenseType" :options="licenseOptions" />
           </a-form-item>
           <a-form-item label="主区域"><a-input v-model:value="form.homeRegion" placeholder="留空时由 OCI 按租户配置处理" /></a-form-item>
-          <a-divider orientation="left">域管理员（可选）</a-divider>
-          <a-form-item label="名字"><a-input v-model:value="form.adminFirstName" /></a-form-item>
-          <a-form-item label="姓氏"><a-input v-model:value="form.adminLastName" /></a-form-item>
-          <a-form-item label="用户名 / 电子邮件"><a-input v-model:value="form.adminUserName" /></a-form-item>
-          <a-form-item label="TG 验证码" required><a-input v-model:value="form.verifyCode" maxlength="6" /></a-form-item>
+          <a-divider orientation="left">域管理员</a-divider>
+          <a-form-item label="创建此域的管理用户">
+            <a-switch v-model:checked="form.createAdmin" />
+          </a-form-item>
+          <template v-if="form.createAdmin">
+            <a-form-item label="管理员的名字"><a-input v-model:value="form.adminFirstName" /></a-form-item>
+            <a-form-item label="管理员的姓氏" required><a-input v-model:value="form.adminLastName" /></a-form-item>
+            <a-form-item :label="form.useEmailAsUserName ? '管理员的用户名 / 电子邮件' : '管理员的用户名'" required>
+              <a-input v-model:value="form.adminUserName" />
+            </a-form-item>
+            <a-form-item v-if="!form.useEmailAsUserName" label="管理员的电子邮件" required>
+              <a-input v-model:value="form.adminEmail" type="email" />
+            </a-form-item>
+            <a-form-item label="将电子邮件地址用作用户名">
+              <a-switch v-model:checked="form.useEmailAsUserName" @change="syncAdminEmail" />
+            </a-form-item>
+          </template>
         </template>
         <a-form-item label="在登录页隐藏"><a-switch v-model:checked="form.isHiddenOnLogin" /></a-form-item>
       </a-form>
+    </a-modal>
+
+    <a-modal v-model:open="createVerifyVisible" title="安全验证 — 创建 Identity Domain" ok-text="确认创建" :confirm-loading="submitting" @ok="submitCreateVerified">
+      <a-alert type="warning" show-icon message="验证码已发送至 Telegram" description="创建域是异步管理操作，验证通过后才会提交到 Oracle。" style="margin-bottom: 12px" />
+      <a-input v-model:value="createVerifyCode" maxlength="6" inputmode="numeric" placeholder="请输入 6 位 TG 验证码" size="large" @pressEnter="submitCreateVerified" />
+      <div class="verify-actions">
+        <span>验证码有效期 5 分钟</span>
+        <a-button type="link" size="small" :loading="verifyCodeSending" @click="sendCreateVerifyCode">重新发送</a-button>
+      </div>
     </a-modal>
 
     <a-modal v-model:open="deleteVisible" title="删除 Identity Domain" ok-text="确认删除" ok-type="danger" :confirm-loading="submitting" @ok="submitDelete">
@@ -61,6 +82,7 @@
 import { reactive, ref } from 'vue'
 import { message } from 'ant-design-vue'
 import { createIdentityDomain, deleteIdentityDomain, updateIdentityDomain } from '../../../api/tenant'
+import { sendVerifyCode } from '../../../api/system'
 
 const props = defineProps<{ tenantId: string; domains: any[] }>()
 const emit = defineEmits<{ (e: 'refresh'): void }>()
@@ -80,29 +102,88 @@ const licenseOptions = [
 ]
 const formVisible = ref(false)
 const deleteVisible = ref(false)
+const createVerifyVisible = ref(false)
+const createVerifyCode = ref('')
+const verifyCodeSending = ref(false)
 const submitting = ref(false)
 const formMode = ref<'create' | 'edit'>('create')
 const editDomainId = ref('')
 const deleteTarget = ref<any>(null)
 const deleteVerifyCode = ref('')
 const lastWorkRequestId = ref('')
-const form = reactive<any>({ displayName: '', description: '', licenseType: 'FREE', homeRegion: '', adminFirstName: '', adminLastName: '', adminUserName: '', verifyCode: '', isHiddenOnLogin: false })
+const form = reactive<any>({ displayName: '', description: '', licenseType: 'FREE', homeRegion: '', createAdmin: true, useEmailAsUserName: true, adminFirstName: '', adminLastName: '', adminUserName: '', adminEmail: '', isHiddenOnLogin: false })
 
 function isDefault(domain: any) { return String(domain?.displayName || '').toLowerCase() === 'default' }
-function resetForm() { Object.assign(form, { displayName: '', description: '', licenseType: 'FREE', homeRegion: '', adminFirstName: '', adminLastName: '', adminUserName: '', verifyCode: '', isHiddenOnLogin: false }) }
+function resetForm() { Object.assign(form, { displayName: '', description: '', licenseType: 'FREE', homeRegion: '', createAdmin: true, useEmailAsUserName: true, adminFirstName: '', adminLastName: '', adminUserName: '', adminEmail: '', isHiddenOnLogin: false }) }
 function openCreate() { formMode.value = 'create'; editDomainId.value = ''; resetForm(); formVisible.value = true }
 function openEdit(domain: any) { formMode.value = 'edit'; editDomainId.value = domain.domainId; resetForm(); Object.assign(form, { displayName: domain.displayName || '', description: domain.description || '', isHiddenOnLogin: !!domain.isHiddenOnLogin }); formVisible.value = true }
 function openDelete(domain: any) { deleteTarget.value = domain; deleteVerifyCode.value = ''; deleteVisible.value = true }
 
+function syncAdminEmail() {
+  if (form.useEmailAsUserName) form.adminEmail = form.adminUserName
+}
+
+function validateCreateForm() {
+  if (!form.displayName?.trim() || !form.description?.trim()) { message.warning('请填写显示名称和说明'); return false }
+  if (form.createAdmin && (!form.adminLastName?.trim() || !form.adminUserName?.trim() || (!form.useEmailAsUserName && !form.adminEmail?.trim()))) {
+    message.warning('请填写管理员的姓氏、用户名和电子邮件')
+    return false
+  }
+  return true
+}
+
+async function sendCreateVerifyCode() {
+  verifyCodeSending.value = true
+  try { await sendVerifyCode('identityDomainCreate'); message.success('验证码已发送') }
+  catch (error: any) { message.error(error?.message || '发送验证码失败') }
+  finally { verifyCodeSending.value = false }
+}
+
 async function submitForm() {
-  if (!form.displayName?.trim() || (formMode.value === 'create' && (!form.description?.trim() || !form.verifyCode?.trim()))) { message.warning('请填写必填项'); return }
+  if (!form.displayName?.trim()) { message.warning('请填写显示名称'); return }
+  if (formMode.value === 'create') {
+    if (!validateCreateForm()) return
+    if (form.useEmailAsUserName) form.adminEmail = form.adminUserName
+    createVerifyCode.value = ''
+    formVisible.value = false
+    createVerifyVisible.value = true
+    await sendCreateVerifyCode()
+    return
+  }
   submitting.value = true
   try {
-    const payload = { id: props.tenantId, ...form }
-    const res = formMode.value === 'create' ? await createIdentityDomain(payload) : await updateIdentityDomain({ ...payload, domainId: editDomainId.value })
+    const res = await updateIdentityDomain({ id: props.tenantId, displayName: form.displayName, description: form.description, isHiddenOnLogin: form.isHiddenOnLogin, domainId: editDomainId.value })
     lastWorkRequestId.value = res.data?.workRequestId || ''
     message.success('操作已提交')
     formVisible.value = false
+    emit('refresh')
+  } finally { submitting.value = false }
+}
+
+async function submitCreateVerified() {
+  if (!/^\d{6}$/.test(createVerifyCode.value.trim())) { message.warning('请输入 6 位 TG 验证码'); return }
+  submitting.value = true
+  try {
+    const payload: Record<string, any> = {
+      id: props.tenantId,
+      displayName: form.displayName,
+      description: form.description,
+      licenseType: form.licenseType,
+      homeRegion: form.homeRegion,
+      isHiddenOnLogin: form.isHiddenOnLogin,
+      verifyCode: createVerifyCode.value.trim(),
+    }
+    if (form.createAdmin) Object.assign(payload, {
+      adminFirstName: form.adminFirstName,
+      adminLastName: form.adminLastName,
+      adminUserName: form.adminUserName,
+      adminEmail: form.useEmailAsUserName ? form.adminUserName : form.adminEmail,
+      isPrimaryEmailRequired: true,
+    })
+    const res = await createIdentityDomain(payload)
+    lastWorkRequestId.value = res.data?.workRequestId || ''
+    message.success('创建域任务已提交')
+    createVerifyVisible.value = false
     emit('refresh')
   } finally { submitting.value = false }
 }
@@ -123,5 +204,6 @@ async function submitDelete() {
 <style scoped>
 .panel-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .panel-toolbar :deep(.ant-alert) { flex: 1; }
+.verify-actions { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; color: var(--text-sub); font-size: 12px; }
 @media (max-width: 768px) { .panel-toolbar { align-items: stretch; flex-direction: column; } }
 </style>
