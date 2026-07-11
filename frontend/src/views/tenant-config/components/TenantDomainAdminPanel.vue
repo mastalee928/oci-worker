@@ -36,9 +36,9 @@
         <a-form-item label="说明" :required="formMode === 'create'"><a-textarea v-model:value="form.description" :rows="3" /></a-form-item>
         <template v-if="formMode === 'create'">
           <a-form-item label="域类型" required>
-            <a-select v-model:value="form.licenseType" :options="licenseOptions" />
+            <a-select v-model:value="form.licenseType" :options="licenseOptions" :loading="licenseTypesLoading" />
           </a-form-item>
-          <a-form-item label="主区域"><a-input v-model:value="form.homeRegion" placeholder="留空时由 OCI 按租户配置处理" /></a-form-item>
+          <a-form-item label="主区域" required><a-input v-model:value="form.homeRegion" placeholder="例如：ap-singapore-1" /></a-form-item>
           <a-divider orientation="left">域管理员</a-divider>
           <a-form-item label="创建此域的管理用户">
             <a-switch v-model:checked="form.createAdmin" />
@@ -81,10 +81,10 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue'
 import { message } from 'ant-design-vue'
-import { createIdentityDomain, deleteIdentityDomain, updateIdentityDomain } from '../../../api/tenant'
+import { createIdentityDomain, deleteIdentityDomain, listAllowedIdentityDomainLicenseTypes, unlockIdentityDomainCreate, updateIdentityDomain } from '../../../api/tenant'
 import { sendVerifyCode } from '../../../api/system'
 
-const props = defineProps<{ tenantId: string; domains: any[] }>()
+const props = defineProps<{ tenantId: string; domains: any[]; defaultHomeRegion?: string }>()
 const emit = defineEmits<{ (e: 'refresh'): void }>()
 const columns = [
   { title: '显示名称', key: 'name', width: 220 },
@@ -93,17 +93,13 @@ const columns = [
   { title: '域 OCID', dataIndex: 'domainId', key: 'domainId', ellipsis: true },
   { title: '操作', key: 'actions', width: 130, fixed: 'right' },
 ]
-const licenseOptions = [
-  { label: '免费', value: 'FREE' },
-  { label: 'Oracle 应用程序高级版', value: 'APP_SILO' },
-  { label: '高级版', value: 'PREMIUM' },
-  { label: '外部用户', value: 'EXTERNAL_USER' },
-  { label: 'External Active User', value: 'EXTERNAL_ACTIVE_USER' },
-]
+const licenseOptions = ref<any[]>([])
+const licenseTypesLoading = ref(false)
 const formVisible = ref(false)
 const deleteVisible = ref(false)
 const createVerifyVisible = ref(false)
 const createVerifyCode = ref('')
+const createAccessToken = ref('')
 const verifyCodeSending = ref(false)
 const submitting = ref(false)
 const formMode = ref<'create' | 'edit'>('create')
@@ -114,8 +110,29 @@ const lastWorkRequestId = ref('')
 const form = reactive<any>({ displayName: '', description: '', licenseType: 'FREE', homeRegion: '', createAdmin: true, useEmailAsUserName: true, adminFirstName: '', adminLastName: '', adminUserName: '', adminEmail: '', isHiddenOnLogin: false })
 
 function isDefault(domain: any) { return String(domain?.displayName || '').toLowerCase() === 'default' }
-function resetForm() { Object.assign(form, { displayName: '', description: '', licenseType: 'FREE', homeRegion: '', createAdmin: true, useEmailAsUserName: true, adminFirstName: '', adminLastName: '', adminUserName: '', adminEmail: '', isHiddenOnLogin: false }) }
-function openCreate() { formMode.value = 'create'; editDomainId.value = ''; resetForm(); formVisible.value = true }
+function resetForm() { Object.assign(form, { displayName: '', description: '', licenseType: '', homeRegion: props.defaultHomeRegion || '', createAdmin: true, useEmailAsUserName: true, adminFirstName: '', adminLastName: '', adminUserName: '', adminEmail: '', isHiddenOnLogin: false }) }
+async function loadAllowedLicenseTypes() {
+  licenseTypesLoading.value = true
+  try {
+    const res = await listAllowedIdentityDomainLicenseTypes({ id: props.tenantId })
+    const rows = res.data || []
+    licenseOptions.value = rows.map((item: any) => ({ label: item.name || item.licenseType, value: item.licenseType, title: item.description }))
+    if (!licenseOptions.value.length) throw new Error('Oracle 未返回当前租户允许的域类型')
+    if (!licenseOptions.value.some(item => item.value === form.licenseType)) form.licenseType = licenseOptions.value[0]?.value || ''
+  } catch (error: any) {
+    licenseOptions.value = []
+    form.licenseType = ''
+    message.error(error?.message || '读取租户允许的域类型失败，暂时无法创建域')
+  } finally { licenseTypesLoading.value = false }
+}
+async function openCreate() {
+  formMode.value = 'create'
+  editDomainId.value = ''
+  createVerifyCode.value = ''
+  createAccessToken.value = ''
+  createVerifyVisible.value = true
+  await sendCreateVerifyCode()
+}
 function openEdit(domain: any) { formMode.value = 'edit'; editDomainId.value = domain.domainId; resetForm(); Object.assign(form, { displayName: domain.displayName || '', description: domain.description || '', isHiddenOnLogin: !!domain.isHiddenOnLogin }); formVisible.value = true }
 function openDelete(domain: any) { deleteTarget.value = domain; deleteVerifyCode.value = ''; deleteVisible.value = true }
 
@@ -124,7 +141,7 @@ function syncAdminEmail() {
 }
 
 function validateCreateForm() {
-  if (!form.displayName?.trim() || !form.description?.trim()) { message.warning('请填写显示名称和说明'); return false }
+  if (!form.displayName?.trim() || !form.homeRegion?.trim() || !form.licenseType) { message.warning('请填写显示名称、主区域并选择域类型'); return false }
   if (form.createAdmin && (!form.adminLastName?.trim() || !form.adminUserName?.trim() || (!form.useEmailAsUserName && !form.adminEmail?.trim()))) {
     message.warning('请填写管理员的姓氏、用户名和电子邮件')
     return false
@@ -143,11 +160,7 @@ async function submitForm() {
   if (!form.displayName?.trim()) { message.warning('请填写显示名称'); return }
   if (formMode.value === 'create') {
     if (!validateCreateForm()) return
-    if (form.useEmailAsUserName) form.adminEmail = form.adminUserName
-    createVerifyCode.value = ''
-    formVisible.value = false
-    createVerifyVisible.value = true
-    await sendCreateVerifyCode()
+    await submitCreate()
     return
   }
   submitting.value = true
@@ -164,14 +177,29 @@ async function submitCreateVerified() {
   if (!/^\d{6}$/.test(createVerifyCode.value.trim())) { message.warning('请输入 6 位 TG 验证码'); return }
   submitting.value = true
   try {
+    const res = await unlockIdentityDomainCreate({ verifyCode: createVerifyCode.value.trim() })
+    createAccessToken.value = res.data?.accessToken || ''
+    if (!createAccessToken.value) throw new Error('未获得创建域授权')
+    createVerifyVisible.value = false
+    resetForm()
+    formVisible.value = true
+    await loadAllowedLicenseTypes()
+    message.success('验证通过，请填写创建域信息')
+  } finally { submitting.value = false }
+}
+
+async function submitCreate() {
+  if (!createAccessToken.value) { message.warning('创建授权已失效，请重新点击创建域完成验证'); formVisible.value = false; return }
+  submitting.value = true
+  try {
     const payload: Record<string, any> = {
       id: props.tenantId,
+      accessToken: createAccessToken.value,
       displayName: form.displayName,
       description: form.description,
       licenseType: form.licenseType,
       homeRegion: form.homeRegion,
       isHiddenOnLogin: form.isHiddenOnLogin,
-      verifyCode: createVerifyCode.value.trim(),
     }
     if (form.createAdmin) Object.assign(payload, {
       adminFirstName: form.adminFirstName,
@@ -183,7 +211,8 @@ async function submitCreateVerified() {
     const res = await createIdentityDomain(payload)
     lastWorkRequestId.value = res.data?.workRequestId || ''
     message.success('创建域任务已提交')
-    createVerifyVisible.value = false
+    formVisible.value = false
+    createAccessToken.value = ''
     emit('refresh')
   } finally { submitting.value = false }
 }

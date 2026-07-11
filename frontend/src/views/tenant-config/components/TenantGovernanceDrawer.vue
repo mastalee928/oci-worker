@@ -12,6 +12,7 @@
         <TenantDomainAdminPanel
           v-if="tenant?.id"
           :tenant-id="String(tenant.id)"
+          :default-home-region="String(tenant.ociRegion || '')"
           :domains="domains"
           @refresh="loadDomains"
         />

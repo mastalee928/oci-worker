@@ -198,8 +198,18 @@ public class TenantController {
 
     @PostMapping("/identityDomains/create")
     public ResponseData<?> createIdentityDomain(@RequestBody java.util.Map<String, Object> params) {
-        verifyCodeService.verifyCode("identityDomainCreate", str(params, "verifyCode"));
         return ResponseData.ok(domainManagementService.createIdentityDomain(str(params, "id"), params));
+    }
+
+    @PostMapping("/identityDomains/createUnlock")
+    public ResponseData<?> unlockIdentityDomainCreate(@RequestBody java.util.Map<String, Object> params) {
+        return ResponseData.ok(java.util.Map.of(
+                "accessToken", domainManagementService.unlockIdentityDomainCreate(str(params, "verifyCode"))));
+    }
+
+    @PostMapping("/identityDomains/allowedLicenseTypes")
+    public ResponseData<?> allowedIdentityDomainLicenseTypes(@RequestBody java.util.Map<String, Object> params) {
+        return ResponseData.ok(domainManagementService.listAllowedIdentityDomainLicenseTypes(str(params, "id")));
     }
 
     @PostMapping("/identityDomains/update")

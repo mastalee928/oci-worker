@@ -78,6 +78,27 @@ public class DomainManagementService {
     /** token -> expireAt（域通知 Tab 解锁后 10 分钟内可读写） */
     private static final java.util.Map<String, Long> DOMAIN_NOTIFICATION_TOKENS = new java.util.concurrent.ConcurrentHashMap<>();
     private static final long DOMAIN_NOTIFICATION_TOKEN_TTL_MS = 10 * 60 * 1000L;
+    private static final java.util.Map<String, Long> DOMAIN_CREATE_TOKENS = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final long DOMAIN_CREATE_TOKEN_TTL_MS = 10 * 60 * 1000L;
+
+    public String unlockIdentityDomainCreate(String inputCode) {
+        if (inputCode == null || inputCode.isBlank()) throw new OciException("请输入验证码");
+        verifyCodeService.verifyCode("identityDomainCreate", inputCode);
+        long now = System.currentTimeMillis();
+        DOMAIN_CREATE_TOKENS.entrySet().removeIf(e -> e.getValue() < now);
+        String token = UUID.randomUUID().toString();
+        DOMAIN_CREATE_TOKENS.put(token, now + DOMAIN_CREATE_TOKEN_TTL_MS);
+        return token;
+    }
+
+    private void requireIdentityDomainCreateToken(String token) {
+        if (token == null || token.isBlank()) throw new OciException("创建域授权不存在，请重新完成 TG 验证");
+        Long expiresAt = DOMAIN_CREATE_TOKENS.get(token);
+        if (expiresAt == null || System.currentTimeMillis() > expiresAt) {
+            DOMAIN_CREATE_TOKENS.remove(token);
+            throw new OciException("创建域授权已失效，请重新完成 TG 验证");
+        }
+    }
 
     /** 以 TG 验证码换取短期 accessToken */
     public String unlockAuthFactors(String inputCode) {
@@ -425,24 +446,43 @@ public class DomainManagementService {
     }
 
     public Map<String, Object> createIdentityDomain(String tenantId, Map<String, Object> input) {
+        String createToken = optional(input, "accessToken");
+        requireIdentityDomainCreateToken(createToken);
         String displayName = required(input, "displayName", "显示名称");
-        String description = required(input, "description", "说明");
+        String description = optional(input, "description");
+        if (description == null) description = "";
+        String homeRegion = required(input, "homeRegion", "主区域");
         String licenseType = required(input, "licenseType", "域类型");
         try (OciClientService client = buildClient(tenantId)) {
+            var allowedResponse = client.getIdentityClient().listAllowedDomainLicenseTypes(
+                    com.oracle.bmc.identity.requests.ListAllowedDomainLicenseTypesRequest.builder().build());
+            boolean licenseAllowed = allowedResponse.getItems().stream().anyMatch(item ->
+                    licenseType.equalsIgnoreCase(String.valueOf(item.getLicenseType()))
+                            || licenseType.equalsIgnoreCase(String.valueOf(item.getName())));
+            if (!licenseAllowed) throw new OciException("当前租户不允许创建该 Identity Domain 类型: " + licenseType);
             String tenancyId = client.getProvider().getTenantId();
-            var details = com.oracle.bmc.identity.model.CreateDomainDetails.builder()
+            var builder = com.oracle.bmc.identity.model.CreateDomainDetails.builder()
                     .compartmentId(tenancyId)
                     .displayName(displayName)
                     .description(description)
-                    .homeRegion(optional(input, "homeRegion"))
+                    .homeRegion(homeRegion)
                     .licenseType(licenseType)
-                    .isHiddenOnLogin(bool(input, "isHiddenOnLogin"))
-                    .adminFirstName(optional(input, "adminFirstName"))
-                    .adminLastName(optional(input, "adminLastName"))
-                    .adminUserName(optional(input, "adminUserName"))
-                    .adminEmail(optional(input, "adminEmail"))
-                    .isPrimaryEmailRequired(bool(input, "isPrimaryEmailRequired"))
-                    .build();
+                    .isHiddenOnLogin(Boolean.TRUE.equals(bool(input, "isHiddenOnLogin")));
+
+            String adminUserName = optional(input, "adminUserName");
+            String adminEmail = optional(input, "adminEmail");
+            if (adminUserName != null || adminEmail != null) {
+                if (adminUserName == null) throw new OciException("管理员用户名不能为空");
+                if (adminEmail == null) throw new OciException("管理员电子邮件不能为空");
+                builder.adminFirstName(optional(input, "adminFirstName"))
+                        .adminLastName(required(input, "adminLastName", "管理员姓氏"))
+                        .adminUserName(adminUserName)
+                        .adminEmail(adminEmail)
+                        .isNotificationBypassed(false)
+                        .isPrimaryEmailRequired(true);
+            }
+            var details = builder.build();
+            DOMAIN_CREATE_TOKENS.remove(createToken);
             var response = client.getIdentityClient().createDomain(
                     com.oracle.bmc.identity.requests.CreateDomainRequest.builder()
                             .createDomainDetails(details)
@@ -453,6 +493,24 @@ public class DomainManagementService {
             throw e;
         } catch (Exception e) {
             throw new OciException("创建 Identity Domain 失败: " + errorMessage(e));
+        }
+    }
+
+    public List<Map<String, Object>> listAllowedIdentityDomainLicenseTypes(String tenantId) {
+        try (OciClientService client = buildClient(tenantId)) {
+            var response = client.getIdentityClient().listAllowedDomainLicenseTypes(
+                    com.oracle.bmc.identity.requests.ListAllowedDomainLicenseTypesRequest.builder().build());
+            List<Map<String, Object>> result = new ArrayList<>();
+            for (var item : response.getItems()) {
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("name", item.getName());
+                row.put("licenseType", item.getLicenseType());
+                row.put("description", item.getDescription());
+                result.add(row);
+            }
+            return result;
+        } catch (Exception e) {
+            throw new OciException("读取可用 Identity Domain 类型失败: " + errorMessage(e));
         }
     }
 

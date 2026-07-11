@@ -136,6 +136,14 @@ export function createIdentityDomain(data: Record<string, any>) {
   return request.post('/oci/user/identityDomains/create', data)
 }
 
+export function unlockIdentityDomainCreate(data: { verifyCode: string }) {
+  return request.post('/oci/user/identityDomains/createUnlock', data)
+}
+
+export function listAllowedIdentityDomainLicenseTypes(data: { id: string }) {
+  return request.post('/oci/user/identityDomains/allowedLicenseTypes', data)
+}
+
 export function updateIdentityDomain(data: Record<string, any>) {
   return request.post('/oci/user/identityDomains/update', data)
 }
