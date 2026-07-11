@@ -144,6 +144,22 @@ export function listAllowedIdentityDomainLicenseTypes(data: { id: string }) {
   return request.post('/oci/user/identityDomains/allowedLicenseTypes', data)
 }
 
+export function getIdentityDomainDetail(data: { id: string; domainId: string }) {
+  return request.post('/oci/user/identityDomains/detail', data)
+}
+
+export function unlockIdentityDomainLicenseChange(data: { id: string; domainId: string; verifyCode: string }) {
+  return request.post('/oci/user/identityDomains/licenseChangeUnlock', data)
+}
+
+export function listAllowedIdentityDomainLicenseChanges(data: { id: string; domainId: string; accessToken: string }) {
+  return request.post('/oci/user/identityDomains/allowedLicenseChanges', data)
+}
+
+export function changeIdentityDomainLicenseType(data: { id: string; domainId: string; licenseType: string; accessToken: string }) {
+  return request.post('/oci/user/identityDomains/changeLicenseType', data)
+}
+
 export function updateIdentityDomain(data: Record<string, any>) {
   return request.post('/oci/user/identityDomains/update', data)
 }

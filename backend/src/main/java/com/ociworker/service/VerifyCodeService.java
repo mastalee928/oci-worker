@@ -67,6 +67,9 @@ public class VerifyCodeService {
             case "deleteVcnDrg" -> "删除 DRG";
             case "authFactors" -> "修改域验证因素设置";
             case "domainNotifications" -> "修改域通知";
+            case "identityDomainCreate" -> "创建身份域";
+            case "identityDomainDelete" -> "删除身份域";
+            case "identityDomainLicenseChange" -> "更改域类型";
             case "banlist" -> "封禁列表管理";
             case "loginAudit" -> "登录统计查看";
             case "securitySettings" -> "系统设置安全区";

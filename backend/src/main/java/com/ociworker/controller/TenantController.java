@@ -212,6 +212,30 @@ public class TenantController {
         return ResponseData.ok(domainManagementService.listAllowedIdentityDomainLicenseTypes(str(params, "id")));
     }
 
+    @PostMapping("/identityDomains/detail")
+    public ResponseData<?> identityDomainDetail(@RequestBody java.util.Map<String, Object> params) {
+        return ResponseData.ok(domainManagementService.getIdentityDomain(
+                str(params, "id"), str(params, "domainId")));
+    }
+
+    @PostMapping("/identityDomains/licenseChangeUnlock")
+    public ResponseData<?> unlockIdentityDomainLicenseChange(@RequestBody java.util.Map<String, Object> params) {
+        return ResponseData.ok(java.util.Map.of("accessToken",
+                domainManagementService.unlockIdentityDomainLicenseChange(
+                        str(params, "id"), str(params, "domainId"), str(params, "verifyCode"))));
+    }
+
+    @PostMapping("/identityDomains/allowedLicenseChanges")
+    public ResponseData<?> allowedIdentityDomainLicenseChanges(@RequestBody java.util.Map<String, Object> params) {
+        return ResponseData.ok(domainManagementService.listAllowedIdentityDomainLicenseChanges(
+                str(params, "id"), str(params, "domainId"), str(params, "accessToken")));
+    }
+
+    @PostMapping("/identityDomains/changeLicenseType")
+    public ResponseData<?> changeIdentityDomainLicenseType(@RequestBody java.util.Map<String, Object> params) {
+        return ResponseData.ok(domainManagementService.changeIdentityDomainLicenseType(str(params, "id"), params));
+    }
+
     @PostMapping("/identityDomains/update")
     public ResponseData<?> updateIdentityDomain(@RequestBody java.util.Map<String, Object> params) {
         return ResponseData.ok(domainManagementService.updateIdentityDomain(str(params, "id"), params));

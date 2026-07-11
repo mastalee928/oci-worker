@@ -80,6 +80,10 @@ public class DomainManagementService {
     private static final long DOMAIN_NOTIFICATION_TOKEN_TTL_MS = 10 * 60 * 1000L;
     private static final java.util.Map<String, Long> DOMAIN_CREATE_TOKENS = new java.util.concurrent.ConcurrentHashMap<>();
     private static final long DOMAIN_CREATE_TOKEN_TTL_MS = 10 * 60 * 1000L;
+    private static final java.util.Map<String, DomainLicenseChangeGrant> DOMAIN_LICENSE_CHANGE_TOKENS = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final long DOMAIN_LICENSE_CHANGE_TOKEN_TTL_MS = 10 * 60 * 1000L;
+
+    private record DomainLicenseChangeGrant(String tenantId, String domainId, long expireAt) {}
 
     public String unlockIdentityDomainCreate(String inputCode) {
         if (inputCode == null || inputCode.isBlank()) throw new OciException("请输入验证码");
@@ -98,6 +102,44 @@ public class DomainManagementService {
             DOMAIN_CREATE_TOKENS.remove(token);
             throw new OciException("创建域授权已失效，请重新完成 TG 验证");
         }
+    }
+
+    public String unlockIdentityDomainLicenseChange(String tenantId, String domainId, String inputCode) {
+        if (tenantId == null || tenantId.isBlank()) throw new OciException("租户不能为空");
+        if (domainId == null || domainId.isBlank()) throw new OciException("域 OCID 不能为空");
+        if (inputCode == null || inputCode.isBlank()) throw new OciException("请输入验证码");
+        verifyCodeService.verifyCode("identityDomainLicenseChange", inputCode,
+                identityDomainLicenseChangeContextKey(tenantId, domainId));
+        long now = System.currentTimeMillis();
+        DOMAIN_LICENSE_CHANGE_TOKENS.entrySet().removeIf(e -> e.getValue().expireAt() < now);
+        String token = UUID.randomUUID().toString();
+        DOMAIN_LICENSE_CHANGE_TOKENS.put(token,
+                new DomainLicenseChangeGrant(tenantId, domainId, now + DOMAIN_LICENSE_CHANGE_TOKEN_TTL_MS));
+        return token;
+    }
+
+    private DomainLicenseChangeGrant requireIdentityDomainLicenseChangeToken(
+            String token, String tenantId, String domainId) {
+        if (token == null || token.isBlank()) throw new OciException("更改域类型授权不存在，请重新完成 TG 验证");
+        DomainLicenseChangeGrant grant = DOMAIN_LICENSE_CHANGE_TOKENS.get(token);
+        if (grant == null || System.currentTimeMillis() > grant.expireAt()) {
+            DOMAIN_LICENSE_CHANGE_TOKENS.remove(token);
+            throw new OciException("更改域类型授权已失效，请重新完成 TG 验证");
+        }
+        if (!Objects.equals(grant.tenantId(), tenantId) || !Objects.equals(grant.domainId(), domainId)) {
+            throw new OciException("更改域类型授权与当前租户或域不匹配");
+        }
+        return grant;
+    }
+
+    private void consumeIdentityDomainLicenseChangeToken(String token, DomainLicenseChangeGrant grant) {
+        if (!DOMAIN_LICENSE_CHANGE_TOKENS.remove(token, grant)) {
+            throw new OciException("更改域类型授权已被使用，请重新完成 TG 验证");
+        }
+    }
+
+    private String identityDomainLicenseChangeContextKey(String tenantId, String domainId) {
+        return tenantId + ":" + domainId;
     }
 
     /** 以 TG 验证码换取短期 accessToken */
@@ -183,7 +225,9 @@ public class DomainManagementService {
                     m.put("id", d.getId());
                     m.put("displayName", d.getDisplayName());
                     m.put("type", d.getType());
+                    m.put("licenseType", d.getLicenseType());
                     m.put("url", d.getUrl());
+                    m.put("timeCreated", d.getTimeCreated());
                     m.put("lifecycleState", state);
                     m.put("isHiddenOnLogin", d.getIsHiddenOnLogin());
                     domains.add(m);
@@ -514,6 +558,97 @@ public class DomainManagementService {
         }
     }
 
+    public Map<String, Object> getIdentityDomain(String tenantId, String domainId) {
+        if (domainId == null || domainId.isBlank()) throw new OciException("域 OCID 不能为空");
+        try (OciClientService client = buildClient(tenantId)) {
+            var response = client.getIdentityClient().getDomain(
+                    com.oracle.bmc.identity.requests.GetDomainRequest.builder().domainId(domainId).build());
+            var domain = response.getDomain();
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("domainId", domain.getId());
+            result.put("displayName", domain.getDisplayName());
+            result.put("licenseType", domain.getLicenseType());
+            result.put("description", domain.getDescription());
+            result.put("timeCreated", domain.getTimeCreated());
+            result.put("isHiddenOnLogin", domain.getIsHiddenOnLogin());
+            result.put("url", domain.getUrl());
+            result.put("homeRegionUrl", domain.getHomeRegionUrl());
+            result.put("lifecycleState", domain.getLifecycleState() == null ? null : domain.getLifecycleState().getValue());
+            return result;
+        } catch (OciException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new OciException("读取 Identity Domain 详细信息失败: " + errorMessage(e));
+        }
+    }
+
+    public List<Map<String, Object>> listAllowedIdentityDomainLicenseChanges(
+            String tenantId, String domainId, String accessToken) {
+        requireIdentityDomainLicenseChangeToken(accessToken, tenantId, domainId);
+        try (OciClientService client = buildClient(tenantId)) {
+            var identity = client.getIdentityClient();
+            var current = identity.getDomain(com.oracle.bmc.identity.requests.GetDomainRequest.builder()
+                    .domainId(domainId).build()).getDomain();
+            var response = identity.listAllowedDomainLicenseTypes(
+                    com.oracle.bmc.identity.requests.ListAllowedDomainLicenseTypesRequest.builder()
+                            .currentLicenseTypeName(current.getLicenseType())
+                            .build());
+            List<Map<String, Object>> result = new ArrayList<>();
+            for (var item : response.getItems()) {
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("name", item.getName());
+                row.put("licenseType", item.getLicenseType());
+                row.put("description", item.getDescription());
+                result.add(row);
+            }
+            return result;
+        } catch (OciException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new OciException("读取允许更改的域类型失败: " + errorMessage(e));
+        }
+    }
+
+    public Map<String, Object> changeIdentityDomainLicenseType(String tenantId, Map<String, Object> input) {
+        String domainId = required(input, "domainId", "域 OCID");
+        String licenseType = required(input, "licenseType", "域类型");
+        String accessToken = required(input, "accessToken", "更改域类型授权");
+        DomainLicenseChangeGrant grant = requireIdentityDomainLicenseChangeToken(accessToken, tenantId, domainId);
+        try (OciClientService client = buildClient(tenantId)) {
+            var identity = client.getIdentityClient();
+            var currentResponse = identity.getDomain(com.oracle.bmc.identity.requests.GetDomainRequest.builder()
+                    .domainId(domainId).build());
+            var current = currentResponse.getDomain();
+            var allowed = identity.listAllowedDomainLicenseTypes(
+                    com.oracle.bmc.identity.requests.ListAllowedDomainLicenseTypesRequest.builder()
+                            .currentLicenseTypeName(current.getLicenseType())
+                            .build());
+            String canonicalLicenseType = allowed.getItems().stream()
+                    .filter(item -> licenseType.equalsIgnoreCase(String.valueOf(item.getLicenseType()))
+                            || licenseType.equalsIgnoreCase(String.valueOf(item.getName())))
+                    .map(item -> item.getLicenseType())
+                    .filter(Objects::nonNull)
+                    .findFirst()
+                    .orElseThrow(() -> new OciException("当前域不允许更改为所选类型"));
+            consumeIdentityDomainLicenseChangeToken(accessToken, grant);
+            var response = identity.changeDomainLicenseType(
+                    com.oracle.bmc.identity.requests.ChangeDomainLicenseTypeRequest.builder()
+                            .domainId(domainId)
+                            .ifMatch(currentResponse.getEtag())
+                            .opcRetryToken(UUID.randomUUID().toString())
+                            .changeDomainLicenseTypeDetails(
+                                    com.oracle.bmc.identity.model.ChangeDomainLicenseTypeDetails.builder()
+                                            .licenseType(canonicalLicenseType)
+                                            .build())
+                            .build());
+            return operationResult(response.getOpcWorkRequestId(), response.getOpcRequestId());
+        } catch (OciException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new OciException("更改 Identity Domain 类型失败: " + errorMessage(e));
+        }
+    }
+
     public Map<String, Object> updateIdentityDomain(String tenantId, Map<String, Object> input) {
         String domainId = required(input, "domainId", "域 OCID");
         try (OciClientService client = buildClient(tenantId)) {
@@ -543,7 +678,8 @@ public class DomainManagementService {
         try (OciClientService client = buildClient(tenantId)) {
             var domains = listDomains(client, false);
             var target = findDomain(domains, domainId);
-            if ("Default".equalsIgnoreCase(String.valueOf(target.get("displayName")))) {
+            if ("DEFAULT".equalsIgnoreCase(String.valueOf(target.get("type")))
+                    || "Default".equalsIgnoreCase(String.valueOf(target.get("displayName")))) {
                 throw new OciException("默认 Identity Domain 不可删除");
             }
             var identity = client.getIdentityClient();
