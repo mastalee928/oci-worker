@@ -30,10 +30,10 @@
       <div class="verify-actions"><span>验证码有效期 5 分钟</span><a-button type="link" size="small" :loading="verifySending" @click="sendActionCode">重新发送</a-button></div>
     </a-modal>
 
-    <a-modal v-model:open="createVisible" title="创建新租户" ok-text="下一步" :confirm-loading="submitting" :mask-closable="false" :closable="!submitting" :cancel-button-props="{ disabled: submitting }" :keyboard="!submitting" :width="560" @cancel="clearAuthorization" @ok="openCreateSummary">
+    <a-modal v-model:open="createVisible" title="创建新租户" ok-text="下一步" :confirm-loading="submitting" :ok-button-props="{ disabled: regionLoading || !createForm.homeRegion }" :mask-closable="false" :closable="!submitting" :cancel-button-props="{ disabled: submitting }" :keyboard="!submitting" :width="560" @cancel="clearAuthorization" @ok="openCreateSummary">
       <a-form layout="vertical">
         <a-form-item label="租户名称" required><a-input v-model:value="createForm.tenancyName" placeholder="小写字母开头，仅包含小写字母和数字" /></a-form-item>
-        <a-form-item label="主区域" required><a-select v-model:value="createForm.homeRegion" :options="regionOptions" /></a-form-item>
+        <a-form-item label="主区域" required><a-select v-model:value="createForm.homeRegion" :options="regionOptions" :loading="regionLoading" :placeholder="regionLoading ? '正在读取可用区域…' : '请选择主区域'" /></a-form-item>
         <a-form-item label="管理员电子邮件" required><a-input v-model:value="createForm.adminEmail" type="email" /></a-form-item>
         <a-form-item label="确认管理员电子邮件" required><a-input v-model:value="createForm.confirmEmail" type="email" /></a-form-item>
       </a-form>
@@ -64,7 +64,7 @@ import { getOciRegionDisplayName } from '../../../utils/ociRegionCatalog'
 
 const props = defineProps<{ tenantId?: string }>()
 const { isMobile } = useIsMobile()
-const loading = ref(false), taskLoading = ref(false), submitting = ref(false), verifySending = ref(false)
+const loading = ref(false), taskLoading = ref(false), submitting = ref(false), verifySending = ref(false), regionLoading = ref(false)
 const tenancies = ref<any[]>([]), tasks = ref<any[]>([])
 const verifyVisible = ref(false), createVisible = ref(false), inviteVisible = ref(false), summaryVisible = ref(false)
 const loadError = ref('')
@@ -93,19 +93,27 @@ function resetForms() { Object.assign(createForm, { tenancyName: '', homeRegion:
 
 async function loadCreateOptions() {
   if (!props.tenantId || !accessToken.value) throw new Error('操作授权已失效，请重新完成 TG 验证')
-  const response = await getOrganizationCreateOptions({ id: props.tenantId, accessToken: accessToken.value })
-  regionOptions.value = (response.data?.regions || []).map((value: string) => ({ label: regionOptionLabel(value), value }))
-  createForm.homeRegion = regionOptions.value.some(option => option.value === response.data?.defaultRegion)
-    ? response.data.defaultRegion
-    : regionOptions.value[0]?.value || ''
-  createVisible.value = true
+  regionLoading.value = true
+  regionOptions.value = []
+  createForm.homeRegion = ''
+  try {
+    const response = await getOrganizationCreateOptions({ id: props.tenantId, accessToken: accessToken.value })
+    regionOptions.value = (response.data?.regions || []).map((value: string) => ({ label: regionOptionLabel(value), value }))
+    createForm.homeRegion = regionOptions.value.some(option => option.value === response.data?.defaultRegion)
+      ? response.data.defaultRegion
+      : regionOptions.value[0]?.value || ''
+  } catch (e: any) {
+    message.error(e?.message || '读取可用区域失败')
+  } finally {
+    regionLoading.value = false
+  }
 }
 
 async function loadOverview() { if (!props.tenantId) return; loading.value = true; loadError.value = ''; try { const r = await getOrganizationOverview({ id: props.tenantId }); tenancies.value = r.data?.tenancies || []; tasks.value = r.data?.tasks || [] } catch (e: any) { loadError.value = e?.message || '读取组织信息失败' } finally { loading.value = false } }
 async function loadTasks() { if (!props.tenantId) return; taskLoading.value = true; try { const r = await refreshOrganizationTasks({ id: props.tenantId }); tasks.value = r.data || []; if (tasks.value.some(t => t.status === 'SUCCEEDED')) await loadOverview() } catch (e: any) { message.error(e?.message || '刷新任务状态失败') } finally { taskLoading.value = false } }
 async function sendActionCode() { if (!props.tenantId) return; verifySending.value = true; try { await sendVerifyCode(activeAction.value, { contextKey: props.tenantId, contextText: activeAction.value === 'createChildTenancy' ? '创建子租户' : '邀请租户' }); message.success('验证码已发送') } catch (e: any) { message.error(e?.message || '发送验证码失败') } finally { verifySending.value = false } }
 async function beginAction(action: typeof activeAction.value) { if (!props.tenantId) return; activeAction.value = action; verifyCode.value = ''; accessToken.value = ''; resetForms(); verifyVisible.value = true; await sendActionCode() }
-async function verifyAction() { if (!props.tenantId || (!accessToken.value && !/^\d{6}$/.test(verifyCode.value))) { message.warning('请输入 6 位 TG 验证码'); return } submitting.value = true; let unlocked = !!accessToken.value; try { if (!accessToken.value) { const r = await unlockOrganizationAction({ id: props.tenantId, action: activeAction.value, verifyCode: verifyCode.value }); accessToken.value = r.data?.accessToken || ''; if (!accessToken.value) throw new Error('未获得操作授权'); unlocked = true } verifyVisible.value = false; if (activeAction.value === 'createChildTenancy') await loadCreateOptions(); else inviteVisible.value = true } catch (e: any) { const authorizationExpired = String(e?.message || '').includes('授权已失效'); if (!unlocked || authorizationExpired) accessToken.value = ''; verifyVisible.value = true; message.error(e?.message || (unlocked ? '读取创建租户选项失败，请点击继续重试' : '安全验证失败')) } finally { submitting.value = false } }
+async function verifyAction() { if (!props.tenantId || (!accessToken.value && !/^\d{6}$/.test(verifyCode.value))) { message.warning('请输入 6 位 TG 验证码'); return } submitting.value = true; let unlocked = !!accessToken.value; try { if (!accessToken.value) { const r = await unlockOrganizationAction({ id: props.tenantId, action: activeAction.value, verifyCode: verifyCode.value }); accessToken.value = r.data?.accessToken || ''; if (!accessToken.value) throw new Error('未获得操作授权'); unlocked = true } verifyVisible.value = false; if (activeAction.value === 'createChildTenancy') { createVisible.value = true; void loadCreateOptions() } else inviteVisible.value = true } catch (e: any) { const authorizationExpired = String(e?.message || '').includes('授权已失效'); if (!unlocked || authorizationExpired) accessToken.value = ''; verifyVisible.value = true; message.error(e?.message || '安全验证失败') } finally { submitting.value = false } }
 function openCreateSummary() { if (!/^[a-z][a-z0-9]{0,29}$/.test(createForm.tenancyName) || !createForm.homeRegion || !emailOk(createForm.adminEmail) || createForm.adminEmail !== createForm.confirmEmail) { message.warning('请检查租户名称、主区域和管理员电子邮件'); return } createVisible.value = false; summaryVisible.value = true }
 async function submitCreate() { if (!props.tenantId) return; submitting.value = true; try { const r = await createOrganizationChild({ id: props.tenantId, accessToken: accessToken.value, tenancyName: createForm.tenancyName, homeRegion: createForm.homeRegion, adminEmail: createForm.adminEmail }); summaryVisible.value = false; accessToken.value = ''; r.data?.trackingSaved === false ? message.warning(`操作已提交，但本地任务记录保存失败。Work Request ID：${r.data?.workRequestId}`) : message.success('创建租户任务已提交'); await loadOverview() } catch (e: any) { summaryVisible.value = false; accessToken.value = ''; message.error(e?.message || '创建子租户失败，请重新验证') } finally { submitting.value = false } }
 async function submitInvite() { if (!props.tenantId) return; if (!inviteForm.displayName.trim() || !inviteForm.recipientTenancyId.startsWith('ocid1.tenancy.') || !emailOk(inviteForm.recipientEmailAddress) || inviteForm.recipientEmailAddress !== inviteForm.confirmEmail) { message.warning('请检查邀请名称、租户 OCID 和电子邮件'); return } submitting.value = true; try { const r = await inviteOrganizationTenancy({ id: props.tenantId, accessToken: accessToken.value, displayName: inviteForm.displayName, recipientTenancyId: inviteForm.recipientTenancyId, recipientEmailAddress: inviteForm.recipientEmailAddress }); inviteVisible.value = false; accessToken.value = ''; r.data?.trackingSaved === false ? message.warning(`邀请已提交，但本地任务记录保存失败。Work Request ID：${r.data?.workRequestId}`) : message.success('租户邀请已提交'); await loadOverview() } catch (e: any) { inviteVisible.value = false; accessToken.value = ''; message.error(e?.message || '邀请租户失败，请重新验证') } finally { submitting.value = false } }

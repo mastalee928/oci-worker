@@ -29,6 +29,7 @@ import java.util.concurrent.ConcurrentHashMap;
 public class OrganizationManagementService {
     private static final long TOKEN_TTL = 10 * 60 * 1000L;
     private record Grant(String tenantConfigId, String action, long expiresAt) {}
+    private record IdentityRegions(String homeRegion, List<String> subscribedRegions) {}
     private static final Map<String, Grant> TOKENS = new ConcurrentHashMap<>();
 
     @Resource private OciUserMapper userMapper;
@@ -84,9 +85,11 @@ public class OrganizationManagementService {
             if (StrUtil.isBlank(subscriptionId)) throw new OciException("当前组织没有默认订阅，无法创建子租户");
             List<String> subscriptionRegions = safeListAvailableRegionNames(sub, subscriptionId, tenantConfigId);
             String configuredRegion = normalizeRegion(oci.getUser().getOciCfg().getRegion());
-            String homeRegion = normalizeRegion(resolveActualHomeRegion(oci, oci.getProvider().getTenantId(), tenantConfigId));
+            IdentityRegions identityRegions = resolveIdentityRegions(oci, oci.getProvider().getTenantId(), tenantConfigId);
+            String homeRegion = normalizeRegion(identityRegions.homeRegion());
             LinkedHashSet<String> regions = new LinkedHashSet<>();
             if (StrUtil.isNotBlank(homeRegion)) regions.add(homeRegion);
+            identityRegions.subscribedRegions().stream().map(this::normalizeRegion).filter(StrUtil::isNotBlank).forEach(regions::add);
             subscriptionRegions.stream().map(this::normalizeRegion).filter(StrUtil::isNotBlank).forEach(regions::add);
             if (regions.isEmpty() && StrUtil.isNotBlank(configuredRegion)) {
                 regions.add(configuredRegion);
@@ -222,7 +225,9 @@ public class OrganizationManagementService {
         return StrUtil.isBlank(region) ? null : region.trim().toLowerCase(Locale.ROOT);
     }
 
-    private String resolveActualHomeRegion(OciClientService oci, String tenancyId, String tenantConfigId) {
+    private IdentityRegions resolveIdentityRegions(OciClientService oci, String tenancyId, String tenantConfigId) {
+        List<String> subscribedRegions = new ArrayList<>();
+        String homeRegion = null;
         try {
             var identity = oci.getIdentityClient();
             var tenancy = identity.getTenancy(com.oracle.bmc.identity.requests.GetTenancyRequest.builder()
@@ -234,18 +239,20 @@ public class OrganizationManagementService {
                             .tenancyId(tenancyId).build()).getItems();
             if (subscriptions != null) {
                 for (var subscription : subscriptions) {
+                    if (StrUtil.isNotBlank(subscription.getRegionName())) subscribedRegions.add(subscription.getRegionName());
                     if (homeRegionKey.equalsIgnoreCase(subscription.getRegionKey())
                             && StrUtil.isNotBlank(subscription.getRegionName())) {
-                        return subscription.getRegionName();
+                        homeRegion = subscription.getRegionName();
                     }
                 }
             }
+            if (StrUtil.isNotBlank(homeRegion)) return new IdentityRegions(homeRegion, List.copyOf(subscribedRegions));
             log.warn("已读取租户 Home Region Key，但未找到对应 Region Name: tenantConfigId={}, homeRegionKey={}",
                     tenantConfigId, homeRegionKey);
         } catch (Exception e) {
             log.warn("读取租户真实 Home Region 失败: tenantConfigId={}", tenantConfigId, e);
         }
-        return null;
+        return new IdentityRegions(homeRegion, List.copyOf(subscribedRegions));
     }
 
     private List<Map<String, Object>> listTasks(String tenantConfigId) {
