@@ -70,6 +70,8 @@ public class VerifyCodeService {
             case "identityDomainCreate" -> "创建身份域";
             case "identityDomainDelete" -> "删除身份域";
             case "identityDomainLicenseChange" -> "更改域类型";
+            case "createChildTenancy" -> "创建子租户";
+            case "inviteOrganizationTenancy" -> "邀请租户";
             case "banlist" -> "封禁列表管理";
             case "loginAudit" -> "登录统计查看";
             case "securitySettings" -> "系统设置安全区";

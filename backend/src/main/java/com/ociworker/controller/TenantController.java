@@ -14,6 +14,7 @@ import com.ociworker.service.IamPolicyService;
 import com.ociworker.service.RegionManagementService;
 import com.ociworker.service.TenantService;
 import com.ociworker.service.VerifyCodeService;
+import com.ociworker.service.OrganizationManagementService;
 import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpHeaders;
@@ -45,6 +46,39 @@ public class TenantController {
     private BudgetService budgetService;
     @Resource
     private RegionManagementService regionManagementService;
+    @Resource
+    private OrganizationManagementService organizationManagementService;
+
+    @PostMapping("/organization/overview")
+    public ResponseData<?> organizationOverview(@RequestBody java.util.Map<String, Object> params) {
+        return ResponseData.ok(organizationManagementService.overview(str(params, "id")));
+    }
+
+    @PostMapping("/organization/unlock")
+    public ResponseData<?> organizationUnlock(@RequestBody java.util.Map<String, Object> params) {
+        return ResponseData.ok(java.util.Map.of("accessToken", organizationManagementService.unlock(
+                str(params, "id"), str(params, "action"), str(params, "verifyCode"))));
+    }
+
+    @PostMapping("/organization/createOptions")
+    public ResponseData<?> organizationCreateOptions(@RequestBody java.util.Map<String, Object> params) {
+        return ResponseData.ok(organizationManagementService.createOptions(str(params, "id"), str(params, "accessToken")));
+    }
+
+    @PostMapping("/organization/createChild")
+    public ResponseData<?> organizationCreateChild(@RequestBody java.util.Map<String, Object> params) {
+        return ResponseData.ok(organizationManagementService.createChild(str(params, "id"), params));
+    }
+
+    @PostMapping("/organization/invite")
+    public ResponseData<?> organizationInvite(@RequestBody java.util.Map<String, Object> params) {
+        return ResponseData.ok(organizationManagementService.invite(str(params, "id"), params));
+    }
+
+    @PostMapping("/organization/tasks")
+    public ResponseData<?> organizationTasks(@RequestBody java.util.Map<String, Object> params) {
+        return ResponseData.ok(organizationManagementService.refreshTasks(str(params, "id")));
+    }
 
     @PostMapping("/list")
     public ResponseData<?> list(@RequestBody PageParams params) {

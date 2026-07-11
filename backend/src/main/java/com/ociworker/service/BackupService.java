@@ -50,6 +50,7 @@ public class BackupService {
     private static final String[] TABLES = {
             "oci_user",
             "oci_create_task",
+            "oci_organization_work_task",
             "oci_kv",
             "cf_cfg",
             "ip_data",

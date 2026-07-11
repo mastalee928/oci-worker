@@ -22,7 +22,7 @@
         @refresh="loadDomains"
       />
       <TenantQuotaPolicyPanel v-else-if="activeSection === 'quotas'" />
-      <TenantOrganizationPanel v-else-if="activeSection === 'organization'" />
+      <TenantOrganizationPanel v-else-if="activeSection === 'organization' && tenant?.id" :tenant-id="String(tenant.id)" />
     </div>
   </section>
 </template>

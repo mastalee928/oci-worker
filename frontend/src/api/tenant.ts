@@ -208,6 +208,13 @@ export function getServiceQuotas(data: { id: string; region?: string; force?: bo
   return request.post('/oci/user/quotas', data)
 }
 
+export function getOrganizationOverview(data: { id: string }) { return request.post('/oci/user/organization/overview', data) }
+export function unlockOrganizationAction(data: { id: string; action: 'createChildTenancy' | 'inviteOrganizationTenancy'; verifyCode: string }) { return request.post('/oci/user/organization/unlock', data) }
+export function getOrganizationCreateOptions(data: { id: string; accessToken: string }) { return request.post('/oci/user/organization/createOptions', data) }
+export function createOrganizationChild(data: Record<string, any>) { return request.post('/oci/user/organization/createChild', data) }
+export function inviteOrganizationTenancy(data: Record<string, any>) { return request.post('/oci/user/organization/invite', data) }
+export function refreshOrganizationTasks(data: { id: string }) { return request.post('/oci/user/organization/tasks', data) }
+
 /** 经典 IAM Policy（Identity API），与身份域策略无关 */
 export function listIamPolicies(data: { id: string }) {
   return request.post('/oci/user/iamPolicies', data)

@@ -86,6 +86,23 @@ CREATE TABLE IF NOT EXISTS oci_login_audit (
     INDEX idx_oci_login_audit_time (create_time DESC)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
+CREATE TABLE IF NOT EXISTS oci_organization_work_task (
+    id VARCHAR(64) PRIMARY KEY,
+    tenant_config_id VARCHAR(64) NOT NULL,
+    operation_type VARCHAR(64) NOT NULL,
+    target_name VARCHAR(255),
+    target_id VARCHAR(255),
+    work_request_id VARCHAR(255) NOT NULL,
+    request_id VARCHAR(255),
+    status VARCHAR(32) DEFAULT 'ACCEPTED',
+    percent_complete FLOAT DEFAULT 0,
+    error_message TEXT,
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_org_task_tenant_time (tenant_config_id, create_time DESC),
+    UNIQUE KEY uk_org_task_work_request (work_request_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
 CREATE TABLE IF NOT EXISTS oci_announcement_record (
     id VARCHAR(64) PRIMARY KEY,
     tenant_id VARCHAR(64) NOT NULL,
