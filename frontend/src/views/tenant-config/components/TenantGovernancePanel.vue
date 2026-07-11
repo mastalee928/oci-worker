@@ -40,9 +40,9 @@ const props = defineProps<{ tenant: any | null }>()
 const activeSection = ref('domains')
 const domains = ref<any[]>([])
 const navItems = [
-  { key: 'domains', label: '域管理', description: '身份域生命周期', icon: 'ri-shield-user-line' },
-  { key: 'quotas', label: '限额策略', description: '资源治理规则', icon: 'ri-speed-up-line' },
-  { key: 'organization', label: '组织管理', description: '父子租户关系', icon: 'ri-node-tree' },
+  { key: 'domains', label: '域管理', description: '创建、编辑与管理身份域', icon: 'ri-shield-user-line' },
+  { key: 'quotas', label: '限额策略', description: '查看与管理租户配额策略', icon: 'ri-speed-up-line' },
+  { key: 'organization', label: '组织管理', description: '创建子租户与邀请租户', icon: 'ri-node-tree' },
 ]
 
 async function loadDomains() {
