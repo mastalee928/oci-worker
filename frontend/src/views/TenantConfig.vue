@@ -134,6 +134,7 @@
       :is-mobile="isMobile"
       :form-state="formState"
       :file-list="fileList"
+      :form-errors="formErrors"
       :region-input-mode-options="regionInputModeOptions"
       :region-options-loading="regionOptionsLoading"
       :region-options="ociRegionSelectOptions"
@@ -533,6 +534,7 @@ const {
   fileList,
   keyInputMode,
   pemPasteText,
+  formErrors,
   regionOptionsLoading,
   regionInputMode,
   regionInputModeOptions,

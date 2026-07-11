@@ -1,4 +1,4 @@
-import { computed, reactive, ref, watch, type Ref } from 'vue'
+import { computed, nextTick, reactive, ref, watch, type Ref } from 'vue'
 import { message } from 'ant-design-vue'
 import type { UploadFile } from 'ant-design-vue'
 import { addTenant, getTenantList, removeTenant, updateTenant, uploadKey } from '../../../api/tenant'
@@ -33,7 +33,7 @@ interface UseTenantConfigActionsOptions {
 const TENANT_SEARCH_STALE_MS = 15_000
 const TENANT_PRIVATE_KEY_MAX_BYTES = 64 * 1024
 const OCI_REGION_ID_PATTERN = /^[a-z]{2}-[a-z0-9]+(?:-[a-z0-9]+)*-\d+$/
-const PEM_PRIVATE_KEY_PATTERN = /^\s*-----BEGIN (PRIVATE KEY|RSA PRIVATE KEY|EC PRIVATE KEY)-----([A-Za-z0-9+/=\r\n\s]+)-----END \1-----\s*$/
+const PEM_PRIVATE_KEY_PATTERN = /-----BEGIN (PRIVATE KEY|RSA PRIVATE KEY|EC PRIVATE KEY)-----([A-Za-z0-9+/=\r\n\s]+)-----END \1-----/
 
 export function useTenantConfigActions(options: UseTenantConfigActionsOptions) {
   const { catalog, isMobile, getGroupLoadController } = options
@@ -62,6 +62,7 @@ export function useTenantConfigActions(options: UseTenantConfigActionsOptions) {
   const fileList = ref<UploadFile[]>([])
   const keyInputMode = ref<KeyInputMode>('upload')
   const pemPasteText = ref('')
+  const formErrors = reactive<Record<string, string>>({})
   const regionOptionsLoading = ref(false)
   const regionInputMode = ref<RegionInputMode>('select')
   const regionInputModeOptions = [
@@ -85,6 +86,14 @@ export function useTenantConfigActions(options: UseTenantConfigActionsOptions) {
   let tenantSearchRequestSeq = 0
   let tenantInfoPollTimers: ReturnType<typeof setTimeout>[] = []
   let regionOptionsRequestSeq = 0
+
+  function focusFirstFormError() {
+    void nextTick(() => {
+      const field = document.querySelector('.tenant-form-compact .ant-form-item-has-error input, .tenant-form-compact .ant-form-item-has-error textarea') as HTMLElement | null
+      field?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+      field?.focus()
+    })
+  }
 
   function groupController() {
     return getGroupLoadController?.()
@@ -295,6 +304,7 @@ export function useTenantConfigActions(options: UseTenantConfigActionsOptions) {
   }
 
   function onKeyInputModeChange(mode: KeyInputMode = keyInputMode.value) {
+    formErrors.privateKey = ''
     if (mode === 'upload') {
       pemPasteText.value = ''
     } else {
@@ -303,15 +313,25 @@ export function useTenantConfigActions(options: UseTenantConfigActionsOptions) {
     }
   }
 
-  function validatePemPasteText(text: string): boolean {
-    if (new Blob([text]).size > TENANT_PRIVATE_KEY_MAX_BYTES) return false
-    const match = PEM_PRIVATE_KEY_PATTERN.exec(text)
-    if (!match) return false
-    try {
-      return atob(match[2].replace(/\s/g, '')).length > 0
-    } catch {
-      return false
+  function extractPrivateKeyPem(text: string): { pem: string; error: string | null } {
+    const normalized = text.replace(/^\uFEFF/, '')
+    const match = PEM_PRIVATE_KEY_PATTERN.exec(normalized)
+    if (!match) {
+      if (/-----BEGIN (?:PUBLIC KEY|RSA PUBLIC KEY)-----/.test(normalized)) {
+        return { pem: '', error: '当前内容是公钥，请使用 OCI API 私钥' }
+      }
+      if (/-----BEGIN ENCRYPTED PRIVATE KEY-----/.test(normalized)) {
+        return { pem: '', error: '暂不支持加密私钥，请使用未加密的 OCI API 私钥' }
+      }
+      return { pem: '', error: '未找到完整的 PEM 私钥内容' }
     }
+    try {
+      if (atob(match[2].replace(/\s/g, '')).length <= 0) throw new Error('empty key')
+    } catch {
+      return { pem: '', error: 'PEM 私钥内容损坏或 Base64 格式无效' }
+    }
+    const pem = `-----BEGIN ${match[1]}-----${match[2]}-----END ${match[1]}-----\n`
+    return { pem, error: null }
   }
 
   async function validatePrivateKeyFile(file: File): Promise<string | null> {
@@ -319,16 +339,14 @@ export function useTenantConfigActions(options: UseTenantConfigActionsOptions) {
     if (file.size > TENANT_PRIVATE_KEY_MAX_BYTES) return '私钥文件不能超过 64 KB'
     try {
       const text = await file.text()
-      return validatePemPasteText(text) ? null : '私钥文件不是完整、受支持的 PEM 私钥'
+      return extractPrivateKeyPem(text).error
     } catch {
       return '无法读取私钥文件，请重新选择'
     }
   }
 
   function pemPasteTextToFile(text: string): File {
-    const trimmed = text.trim()
-    const body = trimmed.endsWith('\n') ? trimmed : `${trimmed}\n`
-    return new File([body], 'pasted.pem', { type: 'application/x-pem-file' })
+    return new File([extractPrivateKeyPem(text).pem], 'pasted.pem', { type: 'application/x-pem-file' })
   }
 
   function normalizeOciRegionValue(value?: string) {
@@ -392,7 +410,16 @@ export function useTenantConfigActions(options: UseTenantConfigActionsOptions) {
     void refreshRegionOptionsForForm(record.id)
   }
 
-  function handleUpload(file: File) {
+  async function handleUpload(file: File) {
+    formErrors.privateKey = ''
+    const validationError = await validatePrivateKeyFile(file)
+    if (validationError) {
+      pendingFile = null
+      fileList.value = []
+      formErrors.privateKey = validationError
+      message.warning(validationError)
+      return false
+    }
     pendingFile = file
     fileList.value = [{ uid: '-1', name: file.name, status: 'done' } as UploadFile]
     return false
@@ -403,11 +430,25 @@ export function useTenantConfigActions(options: UseTenantConfigActionsOptions) {
     fileList.value = []
   }
 
+  watch(() => formState.username, () => { formErrors.username = '' })
+  watch(() => formState.ociTenantId, () => { formErrors.ociTenantId = '' })
+  watch(() => formState.ociUserId, () => { formErrors.ociUserId = '' })
+  watch(() => formState.ociFingerprint, () => { formErrors.ociFingerprint = '' })
+  watch(() => formState.ociRegion, () => { formErrors.ociRegion = '' })
+  watch(pemPasteText, () => { formErrors.privateKey = '' })
+
   async function handleSubmit() {
     if (submitLoading.value) return
     const normalizedRegion = normalizeOciRegionValue(formState.ociRegion)
-    if (!formState.username || !formState.ociTenantId || !formState.ociUserId || !formState.ociFingerprint || !normalizedRegion) {
+    Object.keys(formErrors).forEach((key) => { formErrors[key] = '' })
+    if (!formState.username.trim()) formErrors.username = '请输入自定义名称'
+    if (!formState.ociTenantId.trim()) formErrors.ociTenantId = '请输入 Tenant OCID'
+    if (!formState.ociUserId.trim()) formErrors.ociUserId = '请输入 User OCID'
+    if (!formState.ociFingerprint.trim()) formErrors.ociFingerprint = '请输入 Fingerprint'
+    if (!normalizedRegion) formErrors.ociRegion = '请选择或输入 Region'
+    if (Object.values(formErrors).some(Boolean)) {
       message.warning('请填写所有必填项')
+      focusFirstFormError()
       return
     }
     if (regionInputMode.value === 'manual' && !OCI_REGION_ID_PATTERN.test(normalizedRegion) && !hasOciRegionOption(normalizedRegion)) {
@@ -425,8 +466,11 @@ export function useTenantConfigActions(options: UseTenantConfigActionsOptions) {
           message.warning('私钥内容不能超过 64 KB')
           return
         }
-        if (!validatePemPasteText(pemPasteText.value)) {
-          message.warning('请粘贴完整的 PEM 私钥（须包含 BEGIN … PRIVATE KEY … END）')
+        const extracted = extractPrivateKeyPem(pemPasteText.value)
+        if (extracted.error) {
+          formErrors.privateKey = extracted.error
+          message.warning(extracted.error)
+          focusFirstFormError()
           return
         }
         fileToUpload = pemPasteTextToFile(pemPasteText.value)
@@ -434,7 +478,9 @@ export function useTenantConfigActions(options: UseTenantConfigActionsOptions) {
       if (fileToUpload) {
         const fileValidationError = await validatePrivateKeyFile(fileToUpload)
         if (fileValidationError) {
+          formErrors.privateKey = fileValidationError
           message.warning(fileValidationError)
+          focusFirstFormError()
           return
         }
         const fd = new FormData()
@@ -444,7 +490,9 @@ export function useTenantConfigActions(options: UseTenantConfigActionsOptions) {
       }
 
       if (!keyPath && !editingId.value) {
-        message.warning(keyInputMode.value === 'paste' ? '请粘贴 PEM 私钥' : '请上传私钥文件')
+        formErrors.privateKey = keyInputMode.value === 'paste' ? '请粘贴 PEM 私钥' : '请上传私钥文件'
+        message.warning(formErrors.privateKey)
+        focusFirstFormError()
         return
       }
 
@@ -495,6 +543,7 @@ export function useTenantConfigActions(options: UseTenantConfigActionsOptions) {
     fileList,
     keyInputMode,
     pemPasteText,
+    formErrors,
     regionOptionsLoading,
     regionInputMode,
     regionInputModeOptions,

@@ -59,7 +59,7 @@ public class TenantService {
 
     private static final long TENANT_PRIVATE_KEY_MAX_BYTES = 64 * 1024;
     private static final Pattern PEM_PRIVATE_KEY_PATTERN = Pattern.compile(
-            "\\A\\s*-----BEGIN (PRIVATE KEY|RSA PRIVATE KEY|EC PRIVATE KEY)-----([A-Za-z0-9+/=\\r\\n\\s]+)-----END \\1-----\\s*\\z");
+            "-----BEGIN (PRIVATE KEY|RSA PRIVATE KEY|EC PRIVATE KEY)-----([A-Za-z0-9+/=\\r\\n\\s]+)-----END \\1-----");
 
     @Resource
     private OciUserMapper userMapper;
@@ -1424,7 +1424,7 @@ public class TenantService {
         byte[] content = file.getBytes();
         String pem = new String(content, StandardCharsets.UTF_8);
         Matcher matcher = PEM_PRIVATE_KEY_PATTERN.matcher(pem);
-        if (!matcher.matches()) {
+        if (!matcher.find()) {
             throw new OciException("私钥文件不是完整、受支持的 PEM 私钥");
         }
         try {
@@ -1441,7 +1441,9 @@ public class TenantService {
         String fileName = CommonUtils.generateId() + ".pem";
         Path target = dirPath.resolve(fileName);
         try {
-            Files.write(target, content, StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
+            String normalizedPem = "-----BEGIN " + matcher.group(1) + "-----"
+                    + matcher.group(2) + "-----END " + matcher.group(1) + "-----\n";
+            Files.write(target, normalizedPem.getBytes(StandardCharsets.UTF_8), StandardOpenOption.CREATE_NEW, StandardOpenOption.WRITE);
             try {
                 Files.setPosixFilePermissions(target, EnumSet.of(
                         PosixFilePermission.OWNER_READ,

@@ -32,19 +32,19 @@ region=ap-tokyo-1"
         </div>
       </div>
 
-      <a-form-item label="自定义名称" required>
+      <a-form-item label="自定义名称" required :validate-status="formErrors.username ? 'error' : ''" :help="formErrors.username">
         <a-input v-model:value="formState.username" placeholder="例：我的甲骨文1号" />
       </a-form-item>
-      <a-form-item label="Tenant OCID" required>
+      <a-form-item label="Tenant OCID" required :validate-status="formErrors.ociTenantId ? 'error' : ''" :help="formErrors.ociTenantId">
         <a-input v-model:value="formState.ociTenantId" placeholder="ocid1.tenancy.oc1.." />
       </a-form-item>
-      <a-form-item label="User OCID" required>
+      <a-form-item label="User OCID" required :validate-status="formErrors.ociUserId ? 'error' : ''" :help="formErrors.ociUserId">
         <a-input v-model:value="formState.ociUserId" placeholder="ocid1.user.oc1.." />
       </a-form-item>
-      <a-form-item label="Fingerprint" required>
+      <a-form-item label="Fingerprint" required :validate-status="formErrors.ociFingerprint ? 'error' : ''" :help="formErrors.ociFingerprint">
         <a-input v-model:value="formState.ociFingerprint" placeholder="xx:xx:xx:..." />
       </a-form-item>
-      <a-form-item label="Region" required>
+      <a-form-item label="Region" required :validate-status="formErrors.ociRegion ? 'error' : ''" :help="formErrors.ociRegion">
         <a-segmented
           :value="regionInputMode"
           :options="regionInputModeOptions"
@@ -73,7 +73,7 @@ region=ap-tokyo-1"
           @press-enter="emit('normalize-region')"
         />
       </a-form-item>
-      <a-form-item label="私钥 (.pem)" required>
+      <a-form-item label="私钥 (.pem)" required :validate-status="formErrors.privateKey ? 'error' : ''" :help="formErrors.privateKey">
         <a-segmented
           :value="keyInputMode"
           block
@@ -175,6 +175,7 @@ defineProps<{
   fileList: UploadFile[]
   keyInputMode: KeyInputMode
   pemPasteText: string
+  formErrors: Record<string, string>
   regionInputMode: RegionInputMode
   regionInputModeOptions: SelectOption[]
   regionOptionsLoading: boolean
