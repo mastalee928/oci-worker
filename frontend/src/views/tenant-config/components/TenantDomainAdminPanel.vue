@@ -81,6 +81,10 @@
       v-model:open="formVisible"
       :title="formMode === 'create' ? '创建 Identity Domain' : '编辑 Identity Domain'"
       :confirm-loading="submitting"
+      :mask-closable="false"
+      :closable="!submitting"
+      :keyboard="!submitting"
+      :cancel-button-props="{ disabled: submitting }"
       :width="520"
       :body-style="formModalBodyStyle"
       centered
@@ -117,7 +121,7 @@
       </a-form>
     </a-modal>
 
-    <a-modal v-model:open="createVerifyVisible" title="安全验证 — 创建 Identity Domain" ok-text="确认创建" :confirm-loading="submitting" @ok="submitCreateVerified">
+    <a-modal v-model:open="createVerifyVisible" title="安全验证 — 创建 Identity Domain" ok-text="确认创建" :confirm-loading="submitting" :mask-closable="false" :closable="!submitting" :keyboard="false" :cancel-button-props="{ disabled: submitting }" @ok="submitCreateVerified">
       <a-alert type="warning" show-icon message="验证码已发送至 Telegram" style="margin-bottom: 12px" />
       <a-input v-model:value="createVerifyCode" maxlength="6" inputmode="numeric" placeholder="请输入 6 位 TG 验证码" size="large" @pressEnter="submitCreateVerified" />
       <div class="verify-actions">
@@ -126,7 +130,7 @@
       </div>
     </a-modal>
 
-    <a-modal v-model:open="licenseVerifyVisible" title="安全验证 — 更改域类型" ok-text="继续" :confirm-loading="submitting" @ok="submitLicenseChangeVerified">
+    <a-modal v-model:open="licenseVerifyVisible" title="安全验证 — 更改域类型" ok-text="继续" :confirm-loading="submitting" :mask-closable="false" :closable="!submitting" :keyboard="false" :cancel-button-props="{ disabled: submitting }" @ok="submitLicenseChangeVerified">
       <a-alert type="warning" show-icon message="验证码已发送至 Telegram" style="margin-bottom: 12px" />
       <a-input v-model:value="licenseVerifyCode" maxlength="6" inputmode="numeric" placeholder="请输入 6 位 TG 验证码" size="large" @pressEnter="submitLicenseChangeVerified" />
       <div class="verify-actions">
@@ -135,7 +139,7 @@
       </div>
     </a-modal>
 
-    <a-modal v-model:open="licenseChangeVisible" title="更改域类型" ok-text="确认更改" :confirm-loading="submitting" @ok="submitLicenseChange">
+    <a-modal v-model:open="licenseChangeVisible" title="更改域类型" ok-text="确认更改" :confirm-loading="submitting" :mask-closable="false" :closable="!submitting" :keyboard="false" :cancel-button-props="{ disabled: submitting }" @ok="submitLicenseChange">
       <a-form layout="vertical">
         <a-form-item label="当前域"><a-input :value="licenseChangeTarget?.displayName || '-'" disabled /></a-form-item>
         <a-form-item label="当前类型"><a-input :value="licenseTypeLabel(licenseChangeTarget?.licenseType)" disabled /></a-form-item>
@@ -145,7 +149,7 @@
       </a-form>
     </a-modal>
 
-    <a-modal v-model:open="deleteVisible" title="删除 Identity Domain" ok-text="确认删除" ok-type="danger" :confirm-loading="submitting" @ok="submitDelete">
+    <a-modal v-model:open="deleteVisible" title="删除 Identity Domain" ok-text="确认删除" ok-type="danger" :confirm-loading="submitting" :mask-closable="false" :closable="!submitting" :keyboard="false" :cancel-button-props="{ disabled: submitting }" @ok="submitDelete">
       <a-alert type="error" show-icon message="删除属于危险异步操作，默认域不可删除。" style="margin-bottom: 12px" />
       <p>目标域：{{ deleteTarget?.displayName }}</p>
       <a-input v-model:value="deleteVerifyCode" maxlength="6" placeholder="请输入 TG 验证码" />
