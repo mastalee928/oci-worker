@@ -52,7 +52,7 @@
           <a-space>
             <a-button type="link" size="small" @click="showEditModal(record)">编辑</a-button>
             <a-button type="link" size="small" @click="openTenantMgmt(record)">租户</a-button>
-            <a-button type="link" size="small" @click="openDomainMgmt(record)">管理</a-button>
+            <a-button type="link" size="small" @click="openDomainMgmt(record)">域</a-button>
             <a-button type="link" size="small" @click="goUserManagement(record)">用户</a-button>
             <a-popconfirm title="确定删除?" @confirm="handleDelete(record.id)">
               <a-button type="link" danger size="small">删除</a-button>
@@ -96,7 +96,7 @@
           <div class="mobile-card-actions">
             <a-button type="link" size="small" @click="showEditModal(r)">编辑</a-button>
             <a-button type="link" size="small" @click="openTenantMgmt(r)">租户</a-button>
-            <a-button type="link" size="small" @click="openDomainMgmt(r)">管理</a-button>
+            <a-button type="link" size="small" @click="openDomainMgmt(r)">域</a-button>
             <a-button type="link" size="small" @click="goUserManagement(r)">用户</a-button>
             <a-popconfirm title="确定删除?" @confirm="handleDelete(r.id)">
               <a-button type="link" danger size="small">删除</a-button>
@@ -130,7 +130,7 @@
         <div class="mobile-card-actions">
           <a-button type="link" size="small" @click="showEditModal(r)">编辑</a-button>
           <a-button type="link" size="small" @click="openTenantMgmt(r)">租户</a-button>
-          <a-button type="link" size="small" @click="openDomainMgmt(r)">管理</a-button>
+          <a-button type="link" size="small" @click="openDomainMgmt(r)">域</a-button>
           <a-button type="link" size="small" @click="goUserManagement(r)">用户</a-button>
           <a-popconfirm title="确定删除?" @confirm="handleDelete(r.id)">
             <a-button type="link" danger size="small">删除</a-button>
@@ -267,7 +267,7 @@
                     <a-space>
                       <a-button type="link" size="small" @click="showEditModal(record)">编辑</a-button>
                       <a-button type="link" size="small" @click="openTenantMgmt(record)">租户</a-button>
-                      <a-button type="link" size="small" @click="openDomainMgmt(record)">管理</a-button>
+                      <a-button type="link" size="small" @click="openDomainMgmt(record)">域</a-button>
                       <a-button type="link" size="small" @click="goUserManagement(record)">用户</a-button>
                       <a-popconfirm title="确定删除?" @confirm="handleDelete(record.id)">
                         <a-button type="link" danger size="small">删除</a-button>
@@ -310,7 +310,7 @@
                       <div class="mobile-card-actions">
                         <a-button type="link" size="small" @click="showEditModal(r)">编辑</a-button>
                         <a-button type="link" size="small" @click="openTenantMgmt(r)">租户</a-button>
-                        <a-button type="link" size="small" @click="openDomainMgmt(r)">管理</a-button>
+                        <a-button type="link" size="small" @click="openDomainMgmt(r)">域</a-button>
                         <a-button type="link" size="small" @click="goUserManagement(r)">用户</a-button>
                         <a-popconfirm title="确定删除?" @confirm="handleDelete(r.id)">
                           <a-button type="link" danger size="small">删除</a-button>
@@ -344,7 +344,7 @@
                   <div class="mobile-card-actions">
                     <a-button type="link" size="small" @click="showEditModal(r)">编辑</a-button>
                     <a-button type="link" size="small" @click="openTenantMgmt(r)">租户</a-button>
-                    <a-button type="link" size="small" @click="openDomainMgmt(r)">管理</a-button>
+                    <a-button type="link" size="small" @click="openDomainMgmt(r)">域</a-button>
                     <a-button type="link" size="small" @click="goUserManagement(r)">用户</a-button>
                     <a-popconfirm title="确定删除?" @confirm="handleDelete(r.id)">
                       <a-button type="link" danger size="small">删除</a-button>
@@ -395,7 +395,7 @@
                   <a-space>
                     <a-button type="link" size="small" @click="showEditModal(record)">编辑</a-button>
                     <a-button type="link" size="small" @click="openTenantMgmt(record)">租户</a-button>
-                    <a-button type="link" size="small" @click="openDomainMgmt(record)">管理</a-button>
+                    <a-button type="link" size="small" @click="openDomainMgmt(record)">域</a-button>
                     <a-button type="link" size="small" @click="goUserManagement(record)">用户</a-button>
                     <a-popconfirm title="确定删除?" @confirm="handleDelete(record.id)">
                       <a-button type="link" danger size="small">删除</a-button>
@@ -438,7 +438,7 @@
                     <div class="mobile-card-actions">
                       <a-button type="link" size="small" @click="showEditModal(r)">编辑</a-button>
                       <a-button type="link" size="small" @click="openTenantMgmt(r)">租户</a-button>
-                      <a-button type="link" size="small" @click="openDomainMgmt(r)">管理</a-button>
+                      <a-button type="link" size="small" @click="openDomainMgmt(r)">域</a-button>
                       <a-button type="link" size="small" @click="goUserManagement(r)">用户</a-button>
                       <a-popconfirm title="确定删除?" @confirm="handleDelete(r.id)">
                         <a-button type="link" danger size="small">删除</a-button>
@@ -472,7 +472,7 @@
                 <div class="mobile-card-actions">
                   <a-button type="link" size="small" @click="showEditModal(r)">编辑</a-button>
                   <a-button type="link" size="small" @click="openTenantMgmt(r)">租户</a-button>
-                  <a-button type="link" size="small" @click="openDomainMgmt(r)">管理</a-button>
+                  <a-button type="link" size="small" @click="openDomainMgmt(r)">域</a-button>
                   <a-button type="link" size="small" @click="goUserManagement(r)">用户</a-button>
                   <a-popconfirm title="确定删除?" @confirm="handleDelete(r.id)">
                     <a-button type="link" danger size="small">删除</a-button>

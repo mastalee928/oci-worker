@@ -711,8 +711,15 @@
             </div>
           </a-spin>
         </a-tab-pane>
+        <a-tab-pane key="governance" tab="管理">
+          <a-alert type="info" show-icon message="管理工作区已在右侧打开" description="域管理、限额策略和组织管理使用独立模块，关闭抽屉后可继续查看其它租户信息。" />
+        </a-tab-pane>
       </a-tabs>
-    </a-modal>
+  </a-modal>
+  <TenantGovernanceDrawer
+    v-model:open="governanceDrawerVisible"
+    :tenant="tenant"
+  />
 
     <a-modal
       :mask-closable="false"
@@ -995,13 +1002,14 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { defineAppAsyncComponent } from '../../../utils/asyncComponent'
 
 defineOptions({ name: 'TenantManagementModal' })
 
 const CompartmentManager = defineAppAsyncComponent(() => import('../../../components/CompartmentManager.vue'), { loading: 'none' })
+const TenantGovernanceDrawer = defineAppAsyncComponent(() => import('./TenantGovernanceDrawer.vue'), { loading: 'none' })
 
 type Fn = (...args: any[]) => any
 
@@ -1158,6 +1166,7 @@ const emit = defineEmits<{
 
 const openModel = computed({ get: () => props.open, set: (value) => emit('update:open', value) })
 const activeTabModel = computed({ get: () => props.activeTab, set: (value) => emit('update:activeTab', String(value)) })
+const governanceDrawerVisible = ref(false)
 const iamPolicySearchModel = computed({ get: () => props.iamPolicySearch, set: (value) => emit('update:iamPolicySearch', value) })
 const iamExpandedRowKeysModel = computed({ get: () => props.iamExpandedRowKeys, set: (value) => emit('update:iamExpandedRowKeys', value) })
 const quotaRegionModel = computed({ get: () => props.quotaRegion, set: (value) => emit('update:quotaRegion', value) })
@@ -1174,6 +1183,7 @@ const announcementDrawerVisibleModel = computed({ get: () => props.announcementD
 const announcementDetailTabModel = computed({ get: () => props.announcementDetailTab, set: (value) => emit('update:announcementDetailTab', String(value)) })
 
 function handleTenantTabChange(key: string | number) {
+  if (String(key) === 'governance') governanceDrawerVisible.value = true
   props.onTenantTabChange(String(key))
 }
 </script>
