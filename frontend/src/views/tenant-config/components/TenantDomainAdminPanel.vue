@@ -1,7 +1,6 @@
 <template>
   <div class="domain-admin-panel">
     <div class="panel-toolbar">
-      <a-alert type="info" show-icon message="创建、编辑和删除均由 OCI IAM Identity Domains 控制面异步执行；提交后请保留 Work Request ID。" />
       <a-button type="primary" @click="openCreate">创建域</a-button>
     </div>
 
@@ -50,7 +49,16 @@
       <template #description>Work Request ID：<a-typography-text copyable>{{ lastWorkRequestId }}</a-typography-text></template>
     </a-alert>
 
-    <a-modal v-model:open="formVisible" :title="formMode === 'create' ? '创建 Identity Domain' : '编辑 Identity Domain'" :confirm-loading="submitting" @ok="submitForm">
+    <a-modal
+      v-model:open="formVisible"
+      :title="formMode === 'create' ? '创建 Identity Domain' : '编辑 Identity Domain'"
+      :confirm-loading="submitting"
+      :width="520"
+      :body-style="formModalBodyStyle"
+      centered
+      wrap-class-name="identity-domain-form-modal"
+      @ok="submitForm"
+    >
       <a-form layout="vertical">
         <a-form-item label="显示名称" required><a-input v-model:value="form.displayName" /></a-form-item>
         <a-form-item label="说明" :required="formMode === 'create'"><a-textarea v-model:value="form.description" :rows="3" /></a-form-item>
@@ -82,7 +90,7 @@
     </a-modal>
 
     <a-modal v-model:open="createVerifyVisible" title="安全验证 — 创建 Identity Domain" ok-text="确认创建" :confirm-loading="submitting" @ok="submitCreateVerified">
-      <a-alert type="warning" show-icon message="验证码已发送至 Telegram" description="创建域是异步管理操作，验证通过后才会提交到 Oracle。" style="margin-bottom: 12px" />
+      <a-alert type="warning" show-icon message="验证码已发送至 Telegram" style="margin-bottom: 12px" />
       <a-input v-model:value="createVerifyCode" maxlength="6" inputmode="numeric" placeholder="请输入 6 位 TG 验证码" size="large" @pressEnter="submitCreateVerified" />
       <div class="verify-actions">
         <span>验证码有效期 5 分钟</span>
@@ -130,6 +138,7 @@ const deleteTarget = ref<any>(null)
 const deleteVerifyCode = ref('')
 const lastWorkRequestId = ref('')
 const form = reactive<any>({ displayName: '', description: '', licenseType: 'FREE', homeRegion: '', createAdmin: true, useEmailAsUserName: true, adminFirstName: '', adminLastName: '', adminUserName: '', adminEmail: '', isHiddenOnLogin: false })
+const formModalBodyStyle = { maxHeight: 'calc(100dvh - 180px)', overflowY: 'auto' as const }
 
 function isDefault(domain: any) { return String(domain?.displayName || '').toLowerCase() === 'default' }
 function resetForm() { Object.assign(form, { displayName: '', description: '', licenseType: '', homeRegion: props.defaultHomeRegion || '', createAdmin: true, useEmailAsUserName: true, adminFirstName: '', adminLastName: '', adminUserName: '', adminEmail: '', isHiddenOnLogin: false }) }
@@ -253,8 +262,7 @@ async function submitDelete() {
 </script>
 
 <style scoped>
-.panel-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
-.panel-toolbar :deep(.ant-alert) { flex: 1; }
+.panel-toolbar { display: flex; justify-content: flex-end; margin-bottom: 12px; }
 .verify-actions { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; color: var(--text-sub); font-size: 12px; }
 .domain-mobile-list { display: grid; gap: 9px; }
 .domain-mobile-card { min-width: 0; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--input-bg); }

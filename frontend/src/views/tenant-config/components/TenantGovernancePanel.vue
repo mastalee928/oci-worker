@@ -1,17 +1,5 @@
 <template>
   <section class="governance-shell">
-    <header class="governance-header">
-      <div>
-        <div class="governance-kicker">租户治理</div>
-        <h3>管理身份域、资源边界与组织关系</h3>
-        <p>三个模块保持独立加载，所有写操作均由当前租户凭据提交到 Oracle。</p>
-      </div>
-      <div class="tenant-context">
-        <span>当前租户</span>
-        <strong>{{ tenant?.username || '未选择' }}</strong>
-      </div>
-    </header>
-
     <nav class="governance-nav" aria-label="租户治理模块">
       <button
         v-for="item in navItems"
@@ -73,14 +61,6 @@ watch(() => props.tenant?.id, () => { activeSection.value = 'domains'; void load
 
 <style scoped>
 .governance-shell { min-width: 0; }
-.governance-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 24px; padding: 4px 2px 18px; }
-.governance-kicker { color: var(--primary); font-size: 12px; font-weight: 700; letter-spacing: .08em; }
-.governance-header h3 { margin: 5px 0 6px; color: var(--text-main); font-size: 20px; line-height: 1.35; }
-.governance-header p { margin: 0; color: var(--text-sub); font-size: 13px; }
-.tenant-context { min-width: 180px; padding: 10px 13px; border: 1px solid var(--border); border-radius: 10px; background: var(--input-bg); }
-.tenant-context span, .tenant-context strong { display: block; }
-.tenant-context span { margin-bottom: 3px; color: var(--text-sub); font-size: 11px; }
-.tenant-context strong { overflow: hidden; color: var(--text-main); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
 .governance-nav { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
 .governance-nav-item { display: flex; min-width: 0; align-items: center; gap: 11px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; color: var(--text-sub); background: transparent; cursor: pointer; text-align: left; transition: border-color .16s ease, background .16s ease, color .16s ease, transform .16s ease; }
 .governance-nav-item:hover { border-color: color-mix(in srgb, var(--primary) 45%, var(--border)); color: var(--text-main); }
@@ -93,9 +73,6 @@ watch(() => props.tenant?.id, () => { activeSection.value = 'domains'; void load
 .nav-copy small { margin-top: 2px; color: var(--text-sub); font-size: 11px; }
 .governance-content { min-width: 0; padding: 15px; border: 1px solid var(--border); border-radius: 12px; background: color-mix(in srgb, var(--input-bg) 62%, transparent); }
 @media (max-width: 768px) {
-  .governance-header { gap: 12px; padding-bottom: 14px; flex-direction: column; }
-  .governance-header h3 { font-size: 17px; }
-  .tenant-context { box-sizing: border-box; width: 100%; min-width: 0; }
   .governance-nav { gap: 6px; }
   .governance-nav-item { justify-content: center; padding: 10px 5px; }
   .governance-nav-item i { font-size: 18px; }
