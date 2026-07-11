@@ -83,8 +83,19 @@ public class OrganizationManagementService {
             String subscriptionId = organization.getDefaultUcmSubscriptionId();
             if (StrUtil.isBlank(subscriptionId)) throw new OciException("当前组织没有默认订阅，无法创建子租户");
             List<String> regions = listAvailableRegionNames(sub, subscriptionId);
-            if (regions.isEmpty()) throw new OciException("默认订阅没有可用区域");
-            return Map.of("regions", regions, "defaultRegion", oci.getUser().getOciCfg().getRegion());
+            String defaultRegion = oci.getUser().getOciCfg().getRegion();
+            if (regions.isEmpty()) {
+                regions = OciRegionCatalog.listUiRows().stream()
+                        .map(row -> row.get("regionId"))
+                        .filter(StrUtil::isNotBlank)
+                        .toList();
+                log.warn("Oracle 未返回默认订阅可用区域，已回退 OCI 区域目录: tenantConfigId={}, subscriptionId={}, defaultRegion={}",
+                        tenantConfigId, subscriptionId, defaultRegion);
+            } else {
+                log.info("已读取默认订阅可用区域: tenantConfigId={}, subscriptionId={}, regionCount={}",
+                        tenantConfigId, subscriptionId, regions.size());
+            }
+            return Map.of("regions", regions, "defaultRegion", defaultRegion);
         } catch (OciException e) { throw e; }
         catch (Exception e) { throw failure("读取创建租户选项失败", e); }
     }
@@ -98,14 +109,11 @@ public class OrganizationManagementService {
         String email = required(input, "adminEmail", "管理员电子邮件");
         if (!email.matches("^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$")) throw new OciException("管理员电子邮件格式不正确");
         try (OciClientService oci = buildClient(tenantConfigId);
-             OrganizationClient org = organizationClient(oci);
-             SubscriptionClient sub = subscriptionClient(oci)) {
+             OrganizationClient org = organizationClient(oci)) {
             String tenancyId = oci.getProvider().getTenantId();
             Organization organization = firstOrganization(org, tenancyId);
             if (organization == null || StrUtil.isBlank(organization.getDefaultUcmSubscriptionId())) throw new OciException("当前组织没有可用默认订阅");
             String subscriptionId = organization.getDefaultUcmSubscriptionId();
-            boolean regionAllowed = listAvailableRegionNames(sub, subscriptionId).stream().anyMatch(region::equalsIgnoreCase);
-            if (!regionAllowed) throw new OciException("所选主区域不属于默认订阅的可用区域");
             consume(token, grant);
             var response = org.createChildTenancy(CreateChildTenancyRequest.builder()
                     .opcRetryToken(UUID.randomUUID().toString())
