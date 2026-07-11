@@ -212,7 +212,7 @@ export function getServiceQuotas(data: { id: string; region?: string; force?: bo
 }
 
 export function getOrganizationOverview(data: { id: string }) { return request.post('/oci/user/organization/overview', data) }
-export function unlockOrganizationAction(data: { id: string; action: 'createChildTenancy' | 'inviteOrganizationTenancy'; verifyCode: string }) { return request.post('/oci/user/organization/unlock', data) }
+export function unlockOrganizationAction(data: { id: string; action: 'createChildTenancy' | 'inviteOrganizationTenancy'; verifyCode: string }) { return request.post('/oci/user/organization/unlock', data, organizationHandledErrorConfig) }
 export function getOrganizationCreateOptions(data: { id: string; accessToken: string }) { return request.post('/oci/user/organization/createOptions', data, organizationHandledErrorConfig) }
 export function createOrganizationChild(data: Record<string, any>) { return request.post('/oci/user/organization/createChild', data) }
 export function inviteOrganizationTenancy(data: Record<string, any>) { return request.post('/oci/user/organization/invite', data) }

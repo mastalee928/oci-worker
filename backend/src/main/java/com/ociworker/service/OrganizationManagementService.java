@@ -82,20 +82,23 @@ public class OrganizationManagementService {
             if (organization == null) throw new OciException("当前租户未加入组织，无法创建子租户");
             String subscriptionId = organization.getDefaultUcmSubscriptionId();
             if (StrUtil.isBlank(subscriptionId)) throw new OciException("当前组织没有默认订阅，无法创建子租户");
-            List<String> regions = listAvailableRegionNames(sub, subscriptionId);
-            String defaultRegion = oci.getUser().getOciCfg().getRegion();
-            if (regions.isEmpty()) {
-                regions = OciRegionCatalog.listUiRows().stream()
-                        .map(row -> row.get("regionId"))
-                        .filter(StrUtil::isNotBlank)
-                        .toList();
-                log.warn("Oracle 未返回默认订阅可用区域，已回退 OCI 区域目录: tenantConfigId={}, subscriptionId={}, defaultRegion={}",
-                        tenantConfigId, subscriptionId, defaultRegion);
-            } else {
-                log.info("已读取默认订阅可用区域: tenantConfigId={}, subscriptionId={}, regionCount={}",
-                        tenantConfigId, subscriptionId, regions.size());
+            List<String> subscriptionRegions = safeListAvailableRegionNames(sub, subscriptionId, tenantConfigId);
+            String configuredRegion = normalizeRegion(oci.getUser().getOciCfg().getRegion());
+            String homeRegion = normalizeRegion(resolveActualHomeRegion(oci, oci.getProvider().getTenantId(), tenantConfigId));
+            LinkedHashSet<String> regions = new LinkedHashSet<>();
+            if (StrUtil.isNotBlank(homeRegion)) regions.add(homeRegion);
+            subscriptionRegions.stream().map(this::normalizeRegion).filter(StrUtil::isNotBlank).forEach(regions::add);
+            if (regions.isEmpty() && StrUtil.isNotBlank(configuredRegion)) {
+                regions.add(configuredRegion);
+                log.warn("组织区域接口均未返回数据，已回退租户配置 Region: tenantConfigId={}, configuredRegion={}",
+                        tenantConfigId, configuredRegion);
             }
-            return Map.of("regions", regions, "defaultRegion", defaultRegion);
+            if (regions.isEmpty()) throw new OciException("无法读取当前租户可用于创建子租户的区域");
+            String defaultRegion = StrUtil.blankToDefault(homeRegion,
+                    regions.contains(configuredRegion) ? configuredRegion : regions.iterator().next());
+            log.info("已解析创建子租户区域: tenantConfigId={}, subscriptionRegionCount={}, homeRegion={}, optionCount={}",
+                    tenantConfigId, subscriptionRegions.size(), homeRegion, regions.size());
+            return Map.of("regions", List.copyOf(regions), "defaultRegion", defaultRegion);
         } catch (OciException e) { throw e; }
         catch (Exception e) { throw failure("读取创建租户选项失败", e); }
     }
@@ -203,6 +206,46 @@ public class OrganizationManagementService {
             page=response.getOpcNextPage();
         } while (StrUtil.isNotBlank(page));
         return regions;
+    }
+
+    private List<String> safeListAvailableRegionNames(SubscriptionClient client, String subscriptionId, String tenantConfigId) {
+        try {
+            return listAvailableRegionNames(client, subscriptionId);
+        } catch (Exception e) {
+            log.warn("读取默认订阅可用区域失败，将继续尝试租户 Home Region: tenantConfigId={}, subscriptionId={}",
+                    tenantConfigId, subscriptionId, e);
+            return List.of();
+        }
+    }
+
+    private String normalizeRegion(String region) {
+        return StrUtil.isBlank(region) ? null : region.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private String resolveActualHomeRegion(OciClientService oci, String tenancyId, String tenantConfigId) {
+        try {
+            var identity = oci.getIdentityClient();
+            var tenancy = identity.getTenancy(com.oracle.bmc.identity.requests.GetTenancyRequest.builder()
+                    .tenancyId(tenancyId).build()).getTenancy();
+            String homeRegionKey = tenancy == null ? null : tenancy.getHomeRegionKey();
+            if (StrUtil.isBlank(homeRegionKey)) return null;
+            var subscriptions = identity.listRegionSubscriptions(
+                    com.oracle.bmc.identity.requests.ListRegionSubscriptionsRequest.builder()
+                            .tenancyId(tenancyId).build()).getItems();
+            if (subscriptions != null) {
+                for (var subscription : subscriptions) {
+                    if (homeRegionKey.equalsIgnoreCase(subscription.getRegionKey())
+                            && StrUtil.isNotBlank(subscription.getRegionName())) {
+                        return subscription.getRegionName();
+                    }
+                }
+            }
+            log.warn("已读取租户 Home Region Key，但未找到对应 Region Name: tenantConfigId={}, homeRegionKey={}",
+                    tenantConfigId, homeRegionKey);
+        } catch (Exception e) {
+            log.warn("读取租户真实 Home Region 失败: tenantConfigId={}", tenantConfigId, e);
+        }
+        return null;
     }
 
     private List<Map<String, Object>> listTasks(String tenantConfigId) {
