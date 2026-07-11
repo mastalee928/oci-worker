@@ -1,7 +1,7 @@
 <template>
     <!-- 租户级管理 -->
-    <a-modal v-model:open="openModel" :title="'租户 — ' + (tenant?.username || '')"
-      :width="isMobile ? '100%' : 840" :footer="null" centered :bodyStyle="{ maxHeight: '75vh', overflow: 'auto' }"
+    <a-modal v-model:open="openModel" :title="'租户 — ' + (tenant?.username || '')" wrap-class-name="tenant-management-modal"
+      :width="isMobile ? '100%' : 1120" :footer="null" centered :bodyStyle="{ maxHeight: '78vh', overflowY: 'auto', overflowX: 'hidden' }"
       :mask-closable="false" :keyboard="false">
       <a-tabs v-model:activeKey="activeTabModel" @change="handleTenantTabChange">
         <a-tab-pane key="account" tab="租户信息">
@@ -712,14 +712,10 @@
           </a-spin>
         </a-tab-pane>
         <a-tab-pane key="governance" tab="管理">
-          <a-alert type="info" show-icon message="管理工作区已在右侧打开" description="域管理、限额策略和组织管理使用独立模块，关闭抽屉后可继续查看其它租户信息。" />
+          <TenantGovernancePanel :tenant="tenant" />
         </a-tab-pane>
       </a-tabs>
   </a-modal>
-  <TenantGovernanceDrawer
-    v-model:open="governanceDrawerVisible"
-    :tenant="tenant"
-  />
 
     <a-modal
       :mask-closable="false"
@@ -1002,14 +998,14 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed } from 'vue'
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { defineAppAsyncComponent } from '../../../utils/asyncComponent'
 
 defineOptions({ name: 'TenantManagementModal' })
 
 const CompartmentManager = defineAppAsyncComponent(() => import('../../../components/CompartmentManager.vue'), { loading: 'none' })
-const TenantGovernanceDrawer = defineAppAsyncComponent(() => import('./TenantGovernanceDrawer.vue'), { loading: 'none' })
+const TenantGovernancePanel = defineAppAsyncComponent(() => import('./TenantGovernancePanel.vue'), { loading: 'none' })
 
 type Fn = (...args: any[]) => any
 
@@ -1166,7 +1162,6 @@ const emit = defineEmits<{
 
 const openModel = computed({ get: () => props.open, set: (value) => emit('update:open', value) })
 const activeTabModel = computed({ get: () => props.activeTab, set: (value) => emit('update:activeTab', String(value)) })
-const governanceDrawerVisible = ref(false)
 const iamPolicySearchModel = computed({ get: () => props.iamPolicySearch, set: (value) => emit('update:iamPolicySearch', value) })
 const iamExpandedRowKeysModel = computed({ get: () => props.iamExpandedRowKeys, set: (value) => emit('update:iamExpandedRowKeys', value) })
 const quotaRegionModel = computed({ get: () => props.quotaRegion, set: (value) => emit('update:quotaRegion', value) })
@@ -1183,12 +1178,15 @@ const announcementDrawerVisibleModel = computed({ get: () => props.announcementD
 const announcementDetailTabModel = computed({ get: () => props.announcementDetailTab, set: (value) => emit('update:announcementDetailTab', String(value)) })
 
 function handleTenantTabChange(key: string | number) {
-  if (String(key) === 'governance') governanceDrawerVisible.value = true
   props.onTenantTabChange(String(key))
 }
 </script>
 
 <style scoped>
+:global(.tenant-management-modal .ant-modal-content) { overflow: hidden; }
+:global(.tenant-management-modal .ant-modal-body) { min-width: 0; }
+:global(.tenant-management-modal .ant-tabs-nav) { max-width: 100%; }
+:global(.tenant-management-modal .ant-tabs-content-holder) { min-width: 0; }
 .mobile-card {
   content-visibility: auto;
   contain-intrinsic-size: 180px;
@@ -1485,6 +1483,8 @@ function handleTenantTabChange(key: string | number) {
 }
 
 @media (max-width: 768px) {
+  :global(.tenant-management-modal .ant-modal) { top: 8px; width: calc(100% - 16px) !important; max-width: calc(100% - 16px); margin: 0 8px; padding-bottom: 8px; }
+  :global(.tenant-management-modal .ant-modal-body) { padding: 12px; }
   .budget-toolbar {
     align-items: flex-start;
     margin-top: 6px;

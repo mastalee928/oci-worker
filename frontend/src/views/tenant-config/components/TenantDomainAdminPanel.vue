@@ -5,7 +5,7 @@
       <a-button type="primary" @click="openCreate">创建域</a-button>
     </div>
 
-    <a-table :data-source="domains" :columns="columns" :pagination="false" row-key="domainId" size="small" :scroll="{ x: 760 }">
+    <a-table v-if="!isMobile" :data-source="domains" :columns="columns" :pagination="false" row-key="domainId" size="small">
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'name'">
           <a-space>
@@ -24,6 +24,26 @@
         </template>
       </template>
     </a-table>
+
+    <div v-else class="domain-mobile-list">
+      <article v-for="domain in domains" :key="domain.domainId" class="domain-mobile-card">
+        <header>
+          <div class="domain-mobile-title">
+            <strong>{{ domain.displayName || '未命名域' }}</strong>
+            <a-tag v-if="isDefault(domain)" color="blue">默认域</a-tag>
+          </div>
+          <a-tag :color="domain.lifecycleState === 'ACTIVE' ? 'success' : 'default'">{{ domain.lifecycleState || '未知状态' }}</a-tag>
+        </header>
+        <dl>
+          <div><dt>类型</dt><dd>{{ domain.type || '未返回' }}</dd></div>
+          <div><dt>域 OCID</dt><dd>{{ domain.domainId || '未返回' }}</dd></div>
+        </dl>
+        <footer>
+          <a-button size="small" @click="openEdit(domain)">编辑</a-button>
+          <a-button size="small" danger :disabled="isDefault(domain)" @click="openDelete(domain)">删除</a-button>
+        </footer>
+      </article>
+    </div>
 
     <a-empty v-if="!domains.length" description="暂无 Identity Domain" />
     <a-alert v-if="lastWorkRequestId" type="success" show-icon style="margin-top: 12px" message="操作已提交">
@@ -83,9 +103,11 @@ import { reactive, ref } from 'vue'
 import { message } from 'ant-design-vue'
 import { createIdentityDomain, deleteIdentityDomain, listAllowedIdentityDomainLicenseTypes, unlockIdentityDomainCreate, updateIdentityDomain } from '../../../api/tenant'
 import { sendVerifyCode } from '../../../api/system'
+import { useIsMobile } from '../../../composables/useIsMobile'
 
 const props = defineProps<{ tenantId: string; domains: any[]; defaultHomeRegion?: string }>()
 const emit = defineEmits<{ (e: 'refresh'): void }>()
+const { isMobile } = useIsMobile()
 const columns = [
   { title: '显示名称', key: 'name', width: 220 },
   { title: '类型', dataIndex: 'type', key: 'type', width: 160 },
@@ -234,5 +256,19 @@ async function submitDelete() {
 .panel-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
 .panel-toolbar :deep(.ant-alert) { flex: 1; }
 .verify-actions { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; color: var(--text-sub); font-size: 12px; }
-@media (max-width: 768px) { .panel-toolbar { align-items: stretch; flex-direction: column; } }
+.domain-mobile-list { display: grid; gap: 9px; }
+.domain-mobile-card { min-width: 0; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--input-bg); }
+.domain-mobile-card header, .domain-mobile-card footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+.domain-mobile-title { display: flex; min-width: 0; align-items: center; gap: 6px; }
+.domain-mobile-title strong { overflow: hidden; color: var(--text-main); font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }
+.domain-mobile-card dl { margin: 11px 0; }
+.domain-mobile-card dl div { display: grid; grid-template-columns: 64px minmax(0, 1fr); gap: 8px; padding: 4px 0; }
+.domain-mobile-card dt { color: var(--text-sub); font-size: 12px; }
+.domain-mobile-card dd { min-width: 0; margin: 0; overflow-wrap: anywhere; color: var(--text-main); font-size: 12px; text-align: right; }
+.domain-mobile-card footer { justify-content: flex-end; }
+@media (max-width: 768px) {
+  .panel-toolbar { align-items: stretch; flex-direction: column; }
+  .panel-toolbar :deep(.ant-btn) { width: 100%; }
+  .verify-actions { align-items: flex-start; flex-direction: column; }
+}
 </style>
