@@ -424,6 +424,115 @@ public class DomainManagementService {
         throw new OciException("未找到指定 domain: " + domainId);
     }
 
+    public Map<String, Object> createIdentityDomain(String tenantId, Map<String, Object> input) {
+        String displayName = required(input, "displayName", "显示名称");
+        String description = required(input, "description", "说明");
+        String licenseType = required(input, "licenseType", "域类型");
+        try (OciClientService client = buildClient(tenantId)) {
+            String tenancyId = client.getProvider().getTenantId();
+            var details = com.oracle.bmc.identity.model.CreateDomainDetails.builder()
+                    .compartmentId(tenancyId)
+                    .displayName(displayName)
+                    .description(description)
+                    .homeRegion(optional(input, "homeRegion"))
+                    .licenseType(licenseType)
+                    .isHiddenOnLogin(bool(input, "isHiddenOnLogin"))
+                    .adminFirstName(optional(input, "adminFirstName"))
+                    .adminLastName(optional(input, "adminLastName"))
+                    .adminUserName(optional(input, "adminUserName"))
+                    .adminEmail(optional(input, "adminEmail"))
+                    .isPrimaryEmailRequired(bool(input, "isPrimaryEmailRequired"))
+                    .build();
+            var response = client.getIdentityClient().createDomain(
+                    com.oracle.bmc.identity.requests.CreateDomainRequest.builder()
+                            .createDomainDetails(details)
+                            .opcRetryToken(UUID.randomUUID().toString())
+                            .build());
+            return operationResult(response.getOpcWorkRequestId(), response.getOpcRequestId());
+        } catch (OciException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new OciException("创建 Identity Domain 失败: " + errorMessage(e));
+        }
+    }
+
+    public Map<String, Object> updateIdentityDomain(String tenantId, Map<String, Object> input) {
+        String domainId = required(input, "domainId", "域 OCID");
+        try (OciClientService client = buildClient(tenantId)) {
+            var identity = client.getIdentityClient();
+            var current = identity.getDomain(com.oracle.bmc.identity.requests.GetDomainRequest.builder()
+                    .domainId(domainId).build());
+            var details = com.oracle.bmc.identity.model.UpdateDomainDetails.builder()
+                    .displayName(optional(input, "displayName"))
+                    .description(optional(input, "description"))
+                    .isHiddenOnLogin(bool(input, "isHiddenOnLogin"))
+                    .build();
+            var response = identity.updateDomain(com.oracle.bmc.identity.requests.UpdateDomainRequest.builder()
+                    .domainId(domainId)
+                    .ifMatch(current.getEtag())
+                    .updateDomainDetails(details)
+                    .build());
+            return operationResult(response.getOpcWorkRequestId(), response.getOpcRequestId());
+        } catch (OciException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new OciException("编辑 Identity Domain 失败: " + errorMessage(e));
+        }
+    }
+
+    public Map<String, Object> deleteIdentityDomain(String tenantId, Map<String, Object> input) {
+        String domainId = required(input, "domainId", "域 OCID");
+        try (OciClientService client = buildClient(tenantId)) {
+            var domains = listDomains(client, false);
+            var target = findDomain(domains, domainId);
+            if ("Default".equalsIgnoreCase(String.valueOf(target.get("displayName")))) {
+                throw new OciException("默认 Identity Domain 不可删除");
+            }
+            var identity = client.getIdentityClient();
+            var current = identity.getDomain(com.oracle.bmc.identity.requests.GetDomainRequest.builder()
+                    .domainId(domainId).build());
+            var response = identity.deleteDomain(com.oracle.bmc.identity.requests.DeleteDomainRequest.builder()
+                    .domainId(domainId)
+                    .ifMatch(current.getEtag())
+                    .build());
+            return operationResult(response.getOpcWorkRequestId(), response.getOpcRequestId());
+        } catch (OciException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new OciException("删除 Identity Domain 失败: " + errorMessage(e));
+        }
+    }
+
+    private Map<String, Object> operationResult(String workRequestId, String requestId) {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("workRequestId", workRequestId);
+        result.put("requestId", requestId);
+        result.put("async", workRequestId != null && !workRequestId.isBlank());
+        return result;
+    }
+
+    private String required(Map<String, Object> input, String key, String label) {
+        String value = optional(input, key);
+        if (value == null || value.isBlank()) throw new OciException(label + "不能为空");
+        return value;
+    }
+
+    private String optional(Map<String, Object> input, String key) {
+        Object value = input == null ? null : input.get(key);
+        if (value == null) return null;
+        String text = String.valueOf(value).trim();
+        return text.isEmpty() ? null : text;
+    }
+
+    private Boolean bool(Map<String, Object> input, String key) {
+        Object value = input == null ? null : input.get(key);
+        return value == null ? null : Boolean.valueOf(String.valueOf(value));
+    }
+
+    private String errorMessage(Exception e) {
+        return e.getMessage() == null || e.getMessage().isBlank() ? "未知错误" : e.getMessage();
+    }
+
     // ---------------- Notification Settings ----------------
 
     public Map<String, Object> getNotificationSettings(String tenantId, String domainId, String token) {

@@ -196,6 +196,23 @@ public class TenantController {
         return ResponseData.ok();
     }
 
+    @PostMapping("/identityDomains/create")
+    public ResponseData<?> createIdentityDomain(@RequestBody java.util.Map<String, Object> params) {
+        verifyCodeService.verifyCode("identityDomainCreate", str(params, "verifyCode"));
+        return ResponseData.ok(domainManagementService.createIdentityDomain(str(params, "id"), params));
+    }
+
+    @PostMapping("/identityDomains/update")
+    public ResponseData<?> updateIdentityDomain(@RequestBody java.util.Map<String, Object> params) {
+        return ResponseData.ok(domainManagementService.updateIdentityDomain(str(params, "id"), params));
+    }
+
+    @PostMapping("/identityDomains/delete")
+    public ResponseData<?> deleteIdentityDomain(@RequestBody java.util.Map<String, Object> params) {
+        verifyCodeService.verifyCode("identityDomainDelete", str(params, "verifyCode"));
+        return ResponseData.ok(domainManagementService.deleteIdentityDomain(str(params, "id"), params));
+    }
+
     @PostMapping("/updatePasswordExpiry")
     public ResponseData<?> updatePasswordExpiry(@RequestBody java.util.Map<String, Object> params) {
         Object daysRaw = params == null ? null : params.get("days");

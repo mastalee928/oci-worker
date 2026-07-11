@@ -132,6 +132,18 @@ export function updateMfa(data: { id: string; domainId?: string; enabled: boolea
   return request.post('/oci/user/updateMfa', data)
 }
 
+export function createIdentityDomain(data: Record<string, any>) {
+  return request.post('/oci/user/identityDomains/create', data)
+}
+
+export function updateIdentityDomain(data: Record<string, any>) {
+  return request.post('/oci/user/identityDomains/update', data)
+}
+
+export function deleteIdentityDomain(data: { id: string; domainId: string; verifyCode: string }) {
+  return request.post('/oci/user/identityDomains/delete', data)
+}
+
 export function updatePasswordExpiry(data: { id: string; domainId?: string; days: number }) {
   return request.post('/oci/user/updatePasswordExpiry', data)
 }

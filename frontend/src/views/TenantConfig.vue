@@ -350,6 +350,10 @@
       :cancel-mfa-verify="cancelMfaVerify"
       :resend-mfa-verify-code="resendMfaVerifyCode"
     />
+    <TenantGovernanceDrawer
+      v-model:open="governanceVisible"
+      :tenant="governanceTenant"
+    />
   </div>
 </template>
 
@@ -394,8 +398,11 @@ const TenantAddSubGroupModal = defineAppAsyncComponent(() => import('./tenant-co
 const TenantConfigFormModal = defineAppAsyncComponent(() => import('./tenant-config/components/TenantConfigFormModal.vue'), { loading: 'none' })
 const TenantManagementModal = defineAppAsyncComponent(() => import('./tenant-config/components/TenantManagementModal.vue'), { loading: 'none' })
 const TenantDomainManagementModal = defineAppAsyncComponent(() => import('./tenant-config/components/TenantDomainManagementModal.vue'), { loading: 'none' })
+const TenantGovernanceDrawer = defineAppAsyncComponent(() => import('./tenant-config/components/TenantGovernanceDrawer.vue'), { loading: 'none' })
 
 const router = useRouter()
+const governanceVisible = ref(false)
+const governanceTenant = ref<any>(null)
 const catalog = useTenantCatalogStore()
 const themeStore = useThemeStore()
 const TENANT_MOBILE_VIRTUAL_MIN = 12
@@ -839,7 +846,7 @@ const {
   loadDomainAuditLogs,
 } = useTenantDomainManagement()
 
-type TenantConfigOverlayTarget = 'form' | 'tenant' | 'domain'
+type TenantConfigOverlayTarget = 'form' | 'tenant' | 'domain' | 'governance'
 
 function closeTenantConfigOverlays(except?: TenantConfigOverlayTarget) {
   if (except !== 'form') {
@@ -850,6 +857,10 @@ function closeTenantConfigOverlays(except?: TenantConfigOverlayTarget) {
   }
   if (except !== 'domain') {
     closeDomainMgmt()
+  }
+  if (except !== 'governance') {
+    governanceVisible.value = false
+    governanceTenant.value = null
   }
 }
 
@@ -869,8 +880,9 @@ async function openTenantMgmt(record: any) {
 }
 
 async function openDomainMgmt(record: any) {
-  closeTenantConfigOverlays('domain')
-  await openDomainManagementWorkspace(record)
+  closeTenantConfigOverlays('governance')
+  governanceTenant.value = record
+  governanceVisible.value = true
 }
 
 function checkMobile() {
