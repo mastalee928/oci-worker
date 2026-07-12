@@ -1005,7 +1005,7 @@ import { defineAppAsyncComponent } from '../../../utils/asyncComponent'
 defineOptions({ name: 'TenantManagementModal' })
 
 const CompartmentManager = defineAppAsyncComponent(() => import('../../../components/CompartmentManager.vue'), { loading: 'none' })
-const TenantGovernancePanel = defineAppAsyncComponent(() => import('./TenantGovernancePanel.vue'), { loading: 'none' })
+const TenantGovernancePanel = defineAppAsyncComponent(() => import('./TenantGovernancePanel.vue'), { loadingText: '正在载入管理功能', loadingDescription: '准备租户级管理模块' })
 
 type Fn = (...args: any[]) => any
 

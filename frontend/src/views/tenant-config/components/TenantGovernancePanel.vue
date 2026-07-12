@@ -12,6 +12,12 @@
         <span class="nav-copy"><strong>{{ item.label }}</strong><small>{{ item.description }}</small></span>
       </button>
     </nav>
+    <div class="worker-label">OCIWorker 保护能力</div>
+    <button type="button" :class="['worker-nav-item', { active: activeSection === 'traffic' }]" @click="activeSection = 'traffic'">
+      <i class="ri-exchange-2-line" aria-hidden="true"></i>
+      <span class="nav-copy"><strong>流量保护</strong><small>监控流量并自动处置</small></span>
+      <span class="worker-badge">OCIWorker</span>
+    </button>
 
     <div class="governance-content">
       <TenantDomainAdminPanel
@@ -21,8 +27,9 @@
         :domains="domains"
         @refresh="loadDomains"
       />
-      <TenantQuotaPolicyPanel v-else-if="activeSection === 'quotas'" />
+      <TenantQuotaPolicyPanel v-else-if="activeSection === 'quotas' && tenant?.id" :tenant-id="String(tenant.id)" />
       <TenantOrganizationPanel v-else-if="activeSection === 'organization' && tenant?.id" :tenant-id="String(tenant.id)" />
+      <TenantTrafficProtectionPanel v-else-if="activeSection === 'traffic' && tenant?.id" :tenant-id="String(tenant.id)" />
     </div>
   </section>
 </template>
@@ -33,9 +40,10 @@ import { message } from 'ant-design-vue'
 import { listIdentityDomains } from '../../../api/user'
 import { defineAppAsyncComponent } from '../../../utils/asyncComponent'
 
-const TenantDomainAdminPanel = defineAppAsyncComponent(() => import('./TenantDomainAdminPanel.vue'), { loading: 'none' })
-const TenantQuotaPolicyPanel = defineAppAsyncComponent(() => import('./TenantQuotaPolicyPanel.vue'), { loading: 'none' })
-const TenantOrganizationPanel = defineAppAsyncComponent(() => import('./TenantOrganizationPanel.vue'), { loading: 'none' })
+const TenantDomainAdminPanel = defineAppAsyncComponent(() => import('./TenantDomainAdminPanel.vue'), { loadingText: '正在载入域管理', loadingDescription: '读取当前租户身份域' })
+const TenantQuotaPolicyPanel = defineAppAsyncComponent(() => import('./TenantQuotaPolicyPanel.vue'), { loadingText: '正在载入限额策略', loadingDescription: '读取 Oracle 配额保护状态' })
+const TenantOrganizationPanel = defineAppAsyncComponent(() => import('./TenantOrganizationPanel.vue'), { loadingText: '正在载入组织管理', loadingDescription: '读取当前租户组织信息' })
+const TenantTrafficProtectionPanel = defineAppAsyncComponent(() => import('./TenantTrafficProtectionPanel.vue'), { loadingText: '正在载入流量保护', loadingDescription: '读取月度估算流量与保护状态' })
 const props = defineProps<{ tenant: any | null }>()
 const activeSection = ref('domains')
 const domains = ref<any[]>([])
@@ -67,6 +75,11 @@ watch(() => props.tenant?.id, () => { activeSection.value = 'domains'; void load
 .governance-nav-item:active { transform: translateY(1px); }
 .governance-nav-item.active { border-color: color-mix(in srgb, var(--primary) 58%, var(--border)); color: var(--primary); background: color-mix(in srgb, var(--primary) 9%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary) 14%, transparent); }
 .governance-nav-item i { flex: 0 0 auto; font-size: 20px; }
+.worker-label { margin: 0 0 6px 2px; padding-top: 10px; border-top: 1px solid var(--border); color: var(--text-sub); font-size: 10px; font-weight: 600; }
+.worker-nav-item { display: flex; width: 100%; min-width: 0; align-items: center; gap: 11px; margin-bottom: 14px; padding: 12px 14px; border: 1px solid color-mix(in srgb, #34d399 26%, var(--border)); border-radius: 10px; color: var(--text-sub); background: color-mix(in srgb, #34d399 5%, transparent); cursor: pointer; text-align: left; }
+.worker-nav-item.active { border-color: color-mix(in srgb, var(--primary) 58%, var(--border)); color: var(--primary); background: color-mix(in srgb, var(--primary) 9%, transparent); }
+.worker-nav-item i { color: #34d399; font-size: 20px; }
+.worker-badge { margin-left: auto; padding: 2px 7px; border: 1px solid color-mix(in srgb, #34d399 35%, var(--border)); border-radius: 999px; color: #34d399; font-size: 9px; }
 .nav-copy { min-width: 0; }
 .nav-copy strong, .nav-copy small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nav-copy strong { color: inherit; font-size: 13px; }

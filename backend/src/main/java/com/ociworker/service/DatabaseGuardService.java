@@ -184,6 +184,37 @@ public class DatabaseGuardService {
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """);
 
+        TABLE_DDL.put("oci_tenant_traffic_protection", """
+            CREATE TABLE IF NOT EXISTS oci_tenant_traffic_protection (
+                tenant_config_id VARCHAR(64) PRIMARY KEY, enabled TINYINT(1) NOT NULL DEFAULT 0,
+                monthly_limit_bytes BIGINT NOT NULL DEFAULT 10995116277760, warning_percent INT NOT NULL DEFAULT 80,
+                exceed_action VARCHAR(32) NOT NULL DEFAULT 'ALERT_ONLY', month_key VARCHAR(7),
+                monthly_bytes BIGINT NOT NULL DEFAULT 0, last_collect_time DATETIME, next_collect_time DATETIME,
+                last_warning_level INT NOT NULL DEFAULT 0, stop_executed TINYINT(1) NOT NULL DEFAULT 0,
+                stop_executed_time DATETIME, collection_lock_owner VARCHAR(64), collection_lock_until DATETIME,
+                last_error VARCHAR(1024), create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            """);
+        TABLE_DDL.put("oci_tenant_traffic_instance_usage", """
+            CREATE TABLE IF NOT EXISTS oci_tenant_traffic_instance_usage (
+                id VARCHAR(64) PRIMARY KEY, tenant_config_id VARCHAR(64) NOT NULL, month_key VARCHAR(7) NOT NULL,
+                instance_id VARCHAR(255) NOT NULL, instance_name VARCHAR(255), region VARCHAR(64), lifecycle_state VARCHAR(32),
+                bytes_to_network BIGINT NOT NULL DEFAULT 0, last_seen_time DATETIME,
+                UNIQUE KEY uk_traffic_instance_month (tenant_config_id, month_key, instance_id),
+                INDEX idx_traffic_usage_tenant_month (tenant_config_id, month_key)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            """);
+        TABLE_DDL.put("oci_tenant_traffic_action_log", """
+            CREATE TABLE IF NOT EXISTS oci_tenant_traffic_action_log (
+                id VARCHAR(64) PRIMARY KEY, tenant_config_id VARCHAR(64) NOT NULL, month_key VARCHAR(7) NOT NULL,
+                action VARCHAR(64) NOT NULL, estimated_bytes BIGINT NOT NULL DEFAULT 0, affected_instance_ids TEXT,
+                success_count INT NOT NULL DEFAULT 0, failure_count INT NOT NULL DEFAULT 0,
+                error_summary VARCHAR(1024), create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_traffic_action_tenant_time (tenant_config_id, create_time DESC)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            """);
+
         TABLE_DDL.put("oci_openai_lb_key", """
             CREATE TABLE IF NOT EXISTS oci_openai_lb_key (
                 id VARCHAR(64) PRIMARY KEY,
@@ -560,6 +591,10 @@ public class DatabaseGuardService {
         addColumnIfMissing(conn, "oci_create_task", "success_count", "INT DEFAULT 0 AFTER attempt_count");
         addColumnIfMissing(conn, "oci_create_task", "created_instances", "TEXT DEFAULT NULL AFTER success_count");
         addColumnIfMissing(conn, "oci_create_task", "failure_reason", "TEXT DEFAULT NULL AFTER created_instances");
+        addColumnIfMissing(conn, "oci_tenant_traffic_protection", "collection_lock_owner",
+                "VARCHAR(64) DEFAULT NULL AFTER stop_executed_time");
+        addColumnIfMissing(conn, "oci_tenant_traffic_protection", "collection_lock_until",
+                "DATETIME DEFAULT NULL AFTER collection_lock_owner");
         addColumnIfMissing(conn, "oci_login_audit", "login_detail",
                 "MEDIUMTEXT NULL COMMENT 'JSON: 访问入口、网络与链路、客户端与能力' AFTER user_agent");
         addColumnIfMissing(conn, "oci_openai_key", "key_encrypted",

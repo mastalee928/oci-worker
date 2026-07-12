@@ -15,6 +15,8 @@ import com.ociworker.service.RegionManagementService;
 import com.ociworker.service.TenantService;
 import com.ociworker.service.VerifyCodeService;
 import com.ociworker.service.OrganizationManagementService;
+import com.ociworker.service.TenantTrafficProtectionService;
+import com.ociworker.service.TenantQuotaProtectionService;
 import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
 import org.springframework.http.HttpHeaders;
@@ -48,6 +50,45 @@ public class TenantController {
     private RegionManagementService regionManagementService;
     @Resource
     private OrganizationManagementService organizationManagementService;
+    @Resource
+    private TenantTrafficProtectionService tenantTrafficProtectionService;
+    @Resource
+    private TenantQuotaProtectionService tenantQuotaProtectionService;
+
+    @PostMapping("/quotaProtection/overview")
+    public ResponseData<?> quotaProtectionOverview(@RequestBody java.util.Map<String, Object> params) {
+        return ResponseData.ok(tenantQuotaProtectionService.overview(str(params, "id")));
+    }
+
+    @PostMapping("/quotaProtection/save")
+    public ResponseData<?> quotaProtectionSave(@RequestBody java.util.Map<String, Object> params) {
+        return ResponseData.ok(tenantQuotaProtectionService.save(str(params, "id"), params));
+    }
+
+    @PostMapping("/quotaProtection/disable")
+    public ResponseData<?> quotaProtectionDisable(@RequestBody java.util.Map<String, Object> params) {
+        return ResponseData.ok(tenantQuotaProtectionService.disable(str(params, "id"), str(params, "verifyCode")));
+    }
+
+    @PostMapping("/trafficProtection/overview")
+    public ResponseData<?> trafficProtectionOverview(@RequestBody java.util.Map<String, Object> params) {
+        return ResponseData.ok(tenantTrafficProtectionService.overview(str(params, "id")));
+    }
+
+    @PostMapping("/trafficProtection/save")
+    public ResponseData<?> trafficProtectionSave(@RequestBody java.util.Map<String, Object> params) {
+        return ResponseData.ok(tenantTrafficProtectionService.save(str(params, "id"), params));
+    }
+
+    @PostMapping("/trafficProtection/enabled")
+    public ResponseData<?> trafficProtectionEnabled(@RequestBody java.util.Map<String, Object> params) {
+        return ResponseData.ok(tenantTrafficProtectionService.setEnabled(str(params, "id"), bool(params, "enabled"), str(params, "verifyCode")));
+    }
+
+    @PostMapping("/trafficProtection/refresh")
+    public ResponseData<?> trafficProtectionRefresh(@RequestBody java.util.Map<String, Object> params) {
+        return ResponseData.ok(tenantTrafficProtectionService.refresh(str(params, "id")));
+    }
 
     @PostMapping("/organization/overview")
     public ResponseData<?> organizationOverview(@RequestBody java.util.Map<String, Object> params) {
