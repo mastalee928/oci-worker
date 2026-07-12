@@ -219,12 +219,14 @@ export function createOrganizationChild(data: Record<string, any>) { return requ
 export function inviteOrganizationTenancy(data: Record<string, any>) { return request.post('/oci/user/organization/invite', data) }
 export function refreshOrganizationTasks(data: { id: string }) { return request.post('/oci/user/organization/tasks', data) }
 export function getTrafficProtectionOverview(data: { id: string }) { return request.post('/oci/user/trafficProtection/overview', data, protectionHandledErrorConfig) }
+export function unlockTrafficProtection(data: { id: string; verifyCode: string }) { return request.post('/oci/user/trafficProtection/unlock', data, protectionHandledErrorConfig) }
 export function saveTrafficProtection(data: Record<string, any>) { return request.post('/oci/user/trafficProtection/save', data, protectionHandledErrorConfig) }
 export function setTrafficProtectionEnabled(data: { id: string; enabled: boolean; verifyCode: string }) { return request.post('/oci/user/trafficProtection/enabled', data, protectionHandledErrorConfig) }
 export function refreshTrafficProtection(data: { id: string }) { return request.post('/oci/user/trafficProtection/refresh', data, protectionHandledErrorConfig) }
-export function getQuotaProtectionOverview(data: { id: string }) { return request.post('/oci/user/quotaProtection/overview', data, protectionHandledErrorConfig) }
+export function getQuotaProtectionOverview(data: { id: string; force?: boolean }) { return request.post('/oci/user/quotaProtection/overview', data, protectionHandledErrorConfig) }
+export function unlockQuotaProtection(data: { id: string; verifyCode: string }) { return request.post('/oci/user/quotaProtection/unlock', data, protectionHandledErrorConfig) }
 export function saveQuotaProtection(data: Record<string, any>) { return request.post('/oci/user/quotaProtection/save', data, protectionHandledErrorConfig) }
-export function disableQuotaProtection(data: { id: string; verifyCode: string }) { return request.post('/oci/user/quotaProtection/disable', data, protectionHandledErrorConfig) }
+export function disableQuotaProtection(data: { id: string; accessToken: string }) { return request.post('/oci/user/quotaProtection/disable', data, protectionHandledErrorConfig) }
 
 /** 经典 IAM Policy（Identity API），与身份域策略无关 */
 export function listIamPolicies(data: { id: string }) {

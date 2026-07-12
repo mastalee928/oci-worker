@@ -29,6 +29,7 @@ public class TenantTrafficProtectionService {
     private static final Duration COLLECTION_LEASE = Duration.ofMinutes(15);
     private static final Set<String> ACTIONS = Set.of("ALERT_ONLY", "STOP_ALL_RUNNING_INSTANCES");
     private static final Set<String> RUNNING = Set.of("RUNNING");
+    private static final String ACCESS_SCOPE = "trafficProtectionManage";
     private final Set<String> collecting = ConcurrentHashMap.newKeySet();
 
     @Resource private TenantTrafficProtectionMapper protectionMapper;
@@ -39,7 +40,14 @@ public class TenantTrafficProtectionService {
     @Resource private InstanceService instanceService;
     @Resource private RegionManagementService regionManagementService;
     @Resource private VerifyCodeService verifyCodeService;
+    @Resource private TenantProtectionAccessService protectionAccessService;
     @Resource private NotificationService notificationService;
+
+    public String unlock(String tenantConfigId, String verifyCode) {
+        requireUser(tenantConfigId);
+        verifyCodeService.verifyCode(ACCESS_SCOPE, verifyCode, tenantConfigId);
+        return protectionAccessService.issue(tenantConfigId, ACCESS_SCOPE);
+    }
 
     public Map<String, Object> overview(String tenantConfigId) {
         TenantTrafficProtection config = ensureConfig(tenantConfigId);
@@ -60,12 +68,14 @@ public class TenantTrafficProtectionService {
     }
 
     public Map<String, Object> save(String tenantConfigId, Map<String, Object> input) {
-        verifyCodeService.verifyCode("trafficProtectionSave", required(input, "verifyCode"), tenantConfigId);
-        TenantTrafficProtection config = ensureConfig(tenantConfigId);
+        requireUser(tenantConfigId);
         long limitTb = number(input.get("monthlyLimitTb"), 1, 100, "月度保护额度");
         int warning = (int) number(input.get("warningPercent"), 50, 95, "预警阈值");
         String action = required(input, "exceedAction").toUpperCase(Locale.ROOT);
         if (!ACTIONS.contains(action)) throw new OciException("不支持的超限动作");
+        String accessToken = required(input, "accessToken");
+        protectionAccessService.consume(accessToken, tenantConfigId, ACCESS_SCOPE);
+        TenantTrafficProtection config = ensureConfig(tenantConfigId);
         config.setMonthlyLimitBytes(limitTb * 1024L * 1024 * 1024 * 1024);
         config.setWarningPercent(warning);
         config.setExceedAction(action);

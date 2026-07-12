@@ -16,7 +16,9 @@ import com.oracle.bmc.limits.requests.DeleteQuotaRequest;
 import com.oracle.bmc.limits.requests.GetQuotaRequest;
 import com.oracle.bmc.limits.requests.ListLimitValuesRequest;
 import com.oracle.bmc.limits.requests.ListQuotasRequest;
+import com.oracle.bmc.limits.requests.ListServicesRequest;
 import com.oracle.bmc.limits.requests.UpdateQuotaRequest;
+import com.oracle.bmc.retrier.RetryConfiguration;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -30,37 +32,45 @@ public class TenantQuotaProtectionService {
     private static final String POLICY_NAME = "OCIWorker-Free-Tier-Protection";
     private static final String MANAGED_TAG = "ociworker-managed";
     private static final String PROFILE_TAG = "ociworker-profile";
+    private static final String ACCESS_SCOPE = "quotaProtectionManage";
     private static final Duration ACCOUNT_LIMIT_CACHE_TTL = Duration.ofMinutes(10);
 
     private static final LinkedHashMap<String, ResourceRule> RULES = new LinkedHashMap<>();
     static {
-        add(new ResourceRule("a1Ocpu", "Ampere A1 OCPU", "compute-core", "standard-a1-core-count", "OCPU", 0, 8, 1, 4, 4, true, true));
-        add(new ResourceRule("a1Memory", "Ampere A1 内存", "compute-memory", "standard-a1-memory-count", "GB", 0, 48, 1, 24, 24, true, true));
-        add(new ResourceRule("e2Micro", "E2.1.Micro 实例", "compute", "vm-standard-e2-1-micro-count", "台", 0, 4, 1, 2, 2, true, true));
-        add(new ResourceRule("paidComputeA2", "Standard A2 OCPU", "compute-core", "standard-a2-core-count", "OCPU", 0, 128, 1, 0, 0, true, true));
-        add(new ResourceRule("paidComputeE3", "Standard E3 OCPU", "compute-core", "standard-e3-core-count", "OCPU", 0, 128, 1, 0, 0, true, true));
-        add(new ResourceRule("paidComputeE4", "Standard E4 OCPU", "compute-core", "standard-e4-core-count", "OCPU", 0, 128, 1, 0, 0, true, true));
-        add(new ResourceRule("paidComputeE5", "Standard E5 OCPU", "compute-core", "standard-e5-core-count", "OCPU", 0, 128, 1, 0, 0, true, true));
-        add(new ResourceRule("paidDenseIoE4", "DenseIO E4 OCPU", "compute-core", "dense-io-e4-core-count", "OCPU", 0, 128, 1, 0, 0, true, true));
-        add(new ResourceRule("paidDenseIoE5", "DenseIO E5 OCPU", "compute-core", "dense-io-e5-core-count", "OCPU", 0, 128, 1, 0, 0, true, true));
-        add(new ResourceRule("paidGpuA10", "GPU A10", "compute", "gpu-a10-count", "个", 0, 32, 1, 0, 0, true, true));
-        add(new ResourceRule("blockStorage", "引导卷与块卷总容量", "block-storage", "total-storage-gb", "GB", 0, 400, 25, 200, 200, true, true));
-        add(new ResourceRule("volumeBackup", "卷备份数量", "block-storage", "backup-count", "个", 0, 10, 1, 5, 5, true, true));
-        add(new ResourceRule("vcn", "VCN 数量", "vcn", "vcn-count", "个", 0, 5, 1, 2, 2, true, true));
-        add(new ResourceRule("reservedPublicIp", "保留公网 IP", "vcn", "reserved-public-ip-count", "个", 0, 4, 1, 1, 0, true, true));
-        add(new ResourceRule("microLoadBalancer", "免费微型负载均衡", "load-balancer", "lb-10mbps-micro-count", "个", 0, 2, 1, 1, 1, true, true));
-        add(new ResourceRule("paidLoadBalancer10", "10Mbps 负载均衡", "load-balancer", "lb-10mbps-count", "个", 0, 2, 1, 0, 0, false, true));
-        add(new ResourceRule("paidLoadBalancer100", "100Mbps 负载均衡", "load-balancer", "lb-100mbps-count", "个", 0, 2, 1, 0, 0, false, true));
-        add(new ResourceRule("paidLoadBalancer400", "400Mbps 负载均衡", "load-balancer", "lb-400mbps-count", "个", 0, 2, 1, 0, 0, false, true));
-        add(new ResourceRule("paidLoadBalancer8000", "8000Mbps 负载均衡", "load-balancer", "lb-8000mbps-count", "个", 0, 2, 1, 0, 0, false, true));
+        add(new ResourceRule("a1Ocpu", "Ampere A1 OCPU", "compute-core", "compute", "standard-a1-core-count", "OCPU", 0, 8, 1, 4, 4, true, true));
+        add(new ResourceRule("a1Memory", "Ampere A1 内存", "compute-memory", "compute", "standard-a1-memory-count", "GB", 0, 48, 1, 24, 24, true, true));
+        add(new ResourceRule("e2Micro", "E2.1.Micro 实例", "compute", "compute", "vm-standard-e2-1-micro-count", "台", 0, 4, 1, 2, 2, true, true));
+        add(new ResourceRule("paidComputeA2", "Standard A2 OCPU", "compute-core", "compute", "standard-a2-core-count", "OCPU", 0, 128, 1, 0, 0, true, true));
+        add(new ResourceRule("paidComputeE3", "Standard E3 OCPU", "compute-core", "compute", "standard-e3-core-count", "OCPU", 0, 128, 1, 0, 0, true, true));
+        add(new ResourceRule("paidComputeE4", "Standard E4 OCPU", "compute-core", "compute", "standard-e4-core-count", "OCPU", 0, 128, 1, 0, 0, true, true));
+        add(new ResourceRule("paidComputeE5", "Standard E5 OCPU", "compute-core", "compute", "standard-e5-core-count", "OCPU", 0, 128, 1, 0, 0, true, true));
+        add(new ResourceRule("paidDenseIoE4", "DenseIO E4 OCPU", "compute-core", "compute", "dense-io-e4-core-count", "OCPU", 0, 128, 1, 0, 0, true, true));
+        add(new ResourceRule("paidDenseIoE5", "DenseIO E5 OCPU", "compute-core", "compute", "dense-io-e5-core-count", "OCPU", 0, 128, 1, 0, 0, true, true));
+        add(new ResourceRule("paidGpuA10", "GPU A10", "compute-core", "compute", "gpu-a10-count", "个", 0, 32, 1, 0, 0, true, true));
+        add(new ResourceRule("blockStorage", "引导卷与块卷总容量", "block-storage", "block-storage", "total-storage-gb", "GB", 0, 400, 25, 200, 200, true, true));
+        add(new ResourceRule("volumeBackup", "卷备份数量", "block-storage", "block-storage", "backup-count", "个", 0, 10, 1, 5, 5, true, true));
+        add(new ResourceRule("vcn", "VCN 数量", "vcn", "vcn", "vcn-count", "个", 0, 5, 1, 2, 2, true, true));
+        add(new ResourceRule("reservedPublicIp", "保留公网 IP", "vcn", "vcn", "reserved-public-ip-count", "个", 0, 4, 1, 1, 0, true, true));
+        add(new ResourceRule("microLoadBalancer", "免费微型负载均衡", "load-balancer", "load-balancer", "lb-10mbps-micro-count", "个", 0, 2, 1, 1, 1, true, true));
+        add(new ResourceRule("paidLoadBalancer10", "10Mbps 负载均衡", "load-balancer", "load-balancer", "lb-10mbps-count", "个", 0, 2, 1, 0, 0, false, true));
+        add(new ResourceRule("paidLoadBalancer100", "100Mbps 负载均衡", "load-balancer", "load-balancer", "lb-100mbps-count", "个", 0, 2, 1, 0, 0, false, true));
+        add(new ResourceRule("paidLoadBalancer400", "400Mbps 负载均衡", "load-balancer", "load-balancer", "lb-400mbps-count", "个", 0, 2, 1, 0, 0, false, true));
+        add(new ResourceRule("paidLoadBalancer8000", "8000Mbps 负载均衡", "load-balancer", "load-balancer", "lb-8000mbps-count", "个", 0, 2, 1, 0, 0, false, true));
     }
 
     @Resource private OciUserMapper userMapper;
     @Resource private VerifyCodeService verifyCodeService;
     @Resource private RegionManagementService regionManagementService;
     @Resource private OciReadCacheService ociReadCacheService;
+    @Resource private TenantProtectionAccessService protectionAccessService;
 
-    public Map<String, Object> overview(String tenantConfigId) {
+    public String unlock(String tenantConfigId, String verifyCode) {
+        requireUser(tenantConfigId);
+        verifyCodeService.verifyCode(ACCESS_SCOPE, verifyCode, tenantConfigId);
+        return protectionAccessService.issue(tenantConfigId, ACCESS_SCOPE);
+    }
+
+    public Map<String, Object> overview(String tenantConfigId, boolean forceLimits) {
         OciUser user = requireUser(tenantConfigId);
         String region = resolveHomeRegion(tenantConfigId, user);
         try (QuotaClients clients = clients(user, region)) {
@@ -69,7 +79,7 @@ public class TenantQuotaProtectionService {
             QuotaSummary nameConflict = findNameConflict(policies);
             Quota managedDetail = managed == null ? null : clients.quotas().getQuota(
                     GetQuotaRequest.builder().quotaId(managed.getId()).build()).getQuota();
-            AccountLimits limits = readAccountLimitsCached(user, region, clients.limits());
+            AccountLimits limits = readAccountLimitsCached(user, region, clients.limits(), forceLimits);
             ParsedPolicy parsed = managedDetail == null
                     ? new ParsedPolicy(presetValues("BASIC"), true)
                     : parseManagedValues(managedDetail);
@@ -87,6 +97,7 @@ public class TenantQuotaProtectionService {
             out.put("nameConflict", nameConflict != null);
             out.put("resources", resourceViews(limits.values()));
             out.put("accountLimitsComplete", limits.complete());
+            out.put("limitsRegion", region);
             return out;
         } catch (Exception e) {
             throw quotaError("读取 Oracle 配额保护失败", e);
@@ -94,23 +105,31 @@ public class TenantQuotaProtectionService {
     }
 
     public Map<String, Object> save(String tenantConfigId, Map<String, Object> input) {
-        verifyCodeService.verifyCode("quotaProtectionSave", required(input, "verifyCode"), tenantConfigId);
         OciUser user = requireUser(tenantConfigId);
         String profile = normalizeProfile(input == null ? null : input.get("profile"));
         Map<String, Long> values = resolveValues(profile, input == null ? null : input.get("values"));
         List<String> statements = buildStatements(values);
         if (statements.isEmpty()) throw new OciException("请至少选择一项需要保护的资源");
+        String accessToken = required(input, "accessToken", "操作授权");
+        protectionAccessService.consume(accessToken, tenantConfigId, ACCESS_SCOPE);
 
         String region = resolveHomeRegion(tenantConfigId, user);
+        long startedAt = System.nanoTime();
+        log.info("Oracle 配额保护操作开始: tenantConfigId={}, region={}", tenantConfigId, region);
         try (QuotaClients clients = clients(user, region)) {
+            log.info("Oracle 配额保护操作阶段开始: tenantConfigId={}, stage=listQuotas", tenantConfigId);
             List<QuotaSummary> policies = listPolicies(clients.quotas(), user.getOciTenantId());
+            logStage("listQuotas", tenantConfigId, startedAt);
             QuotaSummary managed = findManaged(policies);
             if (managed == null && findNameConflict(policies) != null) {
                 throw new OciException("已存在同名的非 OCIWorker 配额策略，请先在 Oracle 控制台重命名该策略");
             }
             Map<String, String> tags = Map.of(MANAGED_TAG, "true", PROFILE_TAG, profile);
+            Quota saved;
+            String requestId;
             if (managed == null) {
-                clients.quotas().createQuota(CreateQuotaRequest.builder()
+                log.info("Oracle 配额保护操作阶段开始: tenantConfigId={}, stage=createQuota", tenantConfigId);
+                var response = clients.quotas().createQuota(CreateQuotaRequest.builder()
                         .opcRetryToken(UUID.randomUUID().toString())
                         .createQuotaDetails(CreateQuotaDetails.builder()
                                 .compartmentId(user.getOciTenantId())
@@ -120,29 +139,46 @@ public class TenantQuotaProtectionService {
                                 .freeformTags(tags)
                                 .build())
                         .build());
+                saved = response.getQuota();
+                requestId = response.getOpcRequestId();
+                logStage("createQuota", tenantConfigId, startedAt);
             } else {
-                Quota current = clients.quotas().getQuota(GetQuotaRequest.builder().quotaId(managed.getId()).build()).getQuota();
+                log.info("Oracle 配额保护操作阶段开始: tenantConfigId={}, stage=getQuota", tenantConfigId);
+                var getResponse = clients.quotas().getQuota(GetQuotaRequest.builder().quotaId(managed.getId()).build());
+                Quota current = getResponse.getQuota();
+                logStage("getQuota", tenantConfigId, startedAt);
                 if (!parseManagedValues(current).compatible()) {
                     throw new OciException("当前配额策略包含无法识别的规则，为避免覆盖，请先在 Oracle 控制台处理后再修改");
                 }
-                clients.quotas().updateQuota(UpdateQuotaRequest.builder()
+                log.info("Oracle 配额保护操作阶段开始: tenantConfigId={}, stage=updateQuota", tenantConfigId);
+                var response = clients.quotas().updateQuota(UpdateQuotaRequest.builder()
                         .quotaId(managed.getId())
+                        .ifMatch(getResponse.getEtag())
                         .updateQuotaDetails(UpdateQuotaDetails.builder()
                                 .description("OCIWorker 免费资源配额保护")
                                 .statements(statements)
                                 .freeformTags(tags)
                                 .build())
                         .build());
+                saved = response.getQuota();
+                requestId = response.getOpcRequestId();
+                logStage("updateQuota", tenantConfigId, startedAt);
             }
+            Map<String, Object> out = new LinkedHashMap<>();
+            out.put("accepted", true);
+            out.put("profile", profile);
+            out.put("values", values);
+            out.put("policy", saved == null ? null : policyView(saved));
+            out.put("requestId", requestId);
+            return out;
         } catch (Exception e) {
             throw quotaError("保存 Oracle 配额保护失败", e);
         }
-        return overview(tenantConfigId);
     }
 
-    public Map<String, Object> disable(String tenantConfigId, String verifyCode) {
-        verifyCodeService.verifyCode("quotaProtectionDisable", verifyCode, tenantConfigId);
+    public Map<String, Object> disable(String tenantConfigId, String accessToken) {
         OciUser user = requireUser(tenantConfigId);
+        protectionAccessService.consume(accessToken, tenantConfigId, ACCESS_SCOPE);
         String region = resolveHomeRegion(tenantConfigId, user);
         try (QuotaClients clients = clients(user, region)) {
             QuotaSummary managed = findManaged(listPolicies(clients.quotas(), user.getOciTenantId()));
@@ -152,18 +188,41 @@ public class TenantQuotaProtectionService {
         } catch (Exception e) {
             throw quotaError("关闭 Oracle 配额保护失败", e);
         }
-        return overview(tenantConfigId);
+        return Map.of("accepted", true);
     }
 
     private AccountLimits readAccountLimits(LimitsClient client, String tenancyId) {
         Map<String, Long> found = new HashMap<>();
         boolean complete = true;
-        for (String service : RULES.values().stream().map(ResourceRule::service).distinct().toList()) {
+        Set<String> availableServices = new HashSet<>();
+        try {
+            String page = null;
+            do {
+                var response = client.listServices(ListServicesRequest.builder()
+                        .compartmentId(tenancyId).page(page).limit(1000)
+                        .retryConfiguration(RetryConfiguration.NO_RETRY_CONFIGURATION).build());
+                if (response.getItems() != null) {
+                    response.getItems().stream().map(item -> item.getName())
+                            .filter(Objects::nonNull).forEach(availableServices::add);
+                }
+                page = response.getOpcNextPage();
+            } while (page != null && !page.isBlank());
+        } catch (Exception e) {
+            log.warn("读取 Oracle Limits 服务列表失败: tenancyId={}", tenancyId, e);
+            return new AccountLimits(found, false);
+        }
+        for (String service : RULES.values().stream().map(ResourceRule::limitsService).distinct().toList()) {
+            if (!availableServices.contains(service)) {
+                complete = false;
+                log.warn("Oracle Limits 服务列表未包含目标服务: tenancyId={}, service={}", tenancyId, service);
+                continue;
+            }
             try {
                 String page = null;
                 do {
                     var response = client.listLimitValues(ListLimitValuesRequest.builder()
-                            .compartmentId(tenancyId).serviceName(service).page(page).limit(1000).build());
+                            .compartmentId(tenancyId).serviceName(service).page(page).limit(1000)
+                            .retryConfiguration(RetryConfiguration.NO_RETRY_CONFIGURATION).build());
                     if (response.getItems() != null) {
                         for (var item : response.getItems()) {
                             if (item.getName() == null || item.getValue() == null) continue;
@@ -181,9 +240,9 @@ public class TenantQuotaProtectionService {
         return new AccountLimits(found, complete);
     }
 
-    private AccountLimits readAccountLimitsCached(OciUser user, String region, LimitsClient client) {
-        String key = OciReadCacheService.key("oci:quotaProtection:limits", user.getId(), user.getOciTenantId(), region);
-        return ociReadCacheService.get(key, ACCOUNT_LIMIT_CACHE_TTL, false,
+    private AccountLimits readAccountLimitsCached(OciUser user, String region, LimitsClient client, boolean force) {
+        String key = OciReadCacheService.key("oci:quotaProtection:limits:v2", user.getId(), user.getOciTenantId(), region);
+        return ociReadCacheService.get(key, ACCOUNT_LIMIT_CACHE_TTL, force,
                 () -> readAccountLimits(client, user.getOciTenantId()));
     }
 
@@ -195,7 +254,7 @@ public class TenantQuotaProtectionService {
             row.put("min", rule.min()); row.put("max", rule.max()); row.put("step", rule.step());
             row.put("basic", rule.basic()); row.put("strict", rule.strict());
             row.put("basicEnabled", rule.basicEnabled()); row.put("strictEnabled", rule.strictEnabled());
-            row.put("accountLimit", accountLimits.get(rule.service() + "/" + rule.limitName()));
+            row.put("accountLimit", accountLimits.get(rule.limitsService() + "/" + rule.limitName()));
             rows.add(row);
         }
         return rows;
@@ -238,10 +297,11 @@ public class TenantQuotaProtectionService {
             for (String statement : policy.getStatements()) {
                 if (statement == null || statement.isBlank()) continue;
                 String normalized = statement.trim().replaceAll("\\s+", " ");
-                boolean matched = false;
+                boolean matched = parseLegacyManagedStatement(normalized, values);
                 for (ResourceRule rule : RULES.values()) {
-                    String zero = "zero " + rule.service() + " quota " + rule.limitName() + " in tenancy";
-                    String prefix = "set " + rule.service() + " quota " + rule.limitName() + " to ";
+                    if (matched) break;
+                    String zero = "zero " + rule.quotaFamily() + " quota " + rule.limitName() + " in tenancy";
+                    String prefix = "set " + rule.quotaFamily() + " quota " + rule.limitName() + " to ";
                     if (normalized.equalsIgnoreCase(zero)) {
                         values.put(rule.key(), 0L);
                         matched = true;
@@ -261,6 +321,24 @@ public class TenantQuotaProtectionService {
         return new ParsedPolicy(values, compatible);
     }
 
+    private boolean parseLegacyManagedStatement(String normalized, Map<String, Long> values) {
+        String legacyZero = "zero compute quota gpu-a10-count in tenancy";
+        String legacyPrefix = "set compute quota gpu-a10-count to ";
+        if (normalized.equalsIgnoreCase(legacyZero)) {
+            values.put("paidGpuA10", 0L);
+            return true;
+        }
+        if (!normalized.regionMatches(true, 0, legacyPrefix, 0, legacyPrefix.length())) return false;
+        String tail = normalized.substring(legacyPrefix.length())
+                .replaceFirst("(?i)\\s+in tenancy\\s*$", "").trim();
+        try {
+            values.put("paidGpuA10", Long.parseLong(tail));
+            return true;
+        } catch (NumberFormatException ignored) {
+            return false;
+        }
+    }
+
     private List<String> buildStatements(Map<String, Long> values) {
         List<String> statements = new ArrayList<>();
         for (Map.Entry<String, Long> entry : values.entrySet()) {
@@ -268,8 +346,8 @@ public class TenantQuotaProtectionService {
             if (rule == null) throw new OciException("包含不支持的配额项目");
             long value = entry.getValue();
             statements.add(value == 0
-                    ? "zero " + rule.service() + " quota " + rule.limitName() + " in tenancy"
-                    : "set " + rule.service() + " quota " + rule.limitName() + " to " + value + " in tenancy");
+                    ? "zero " + rule.quotaFamily() + " quota " + rule.limitName() + " in tenancy"
+                    : "set " + rule.quotaFamily() + " quota " + rule.limitName() + " to " + value + " in tenancy");
         }
         return statements;
     }
@@ -311,6 +389,20 @@ public class TenantQuotaProtectionService {
         row.put("status", policy.getLifecycleState() == null ? null : policy.getLifecycleState().getValue());
         row.put("timeCreated", policy.getTimeCreated());
         return row;
+    }
+
+    private Map<String, Object> policyView(Quota policy) {
+        Map<String, Object> row = new LinkedHashMap<>();
+        row.put("id", policy.getId()); row.put("name", policy.getName());
+        row.put("status", policy.getLifecycleState() == null ? null : policy.getLifecycleState().getValue());
+        row.put("timeCreated", policy.getTimeCreated());
+        return row;
+    }
+
+    private void logStage(String stage, String tenantConfigId, long startedAt) {
+        long elapsedMs = (System.nanoTime() - startedAt) / 1_000_000L;
+        log.info("Oracle 配额保护操作阶段完成: tenantConfigId={}, stage={}, elapsedMs={}",
+                tenantConfigId, stage, elapsedMs);
     }
 
     private String resolveHomeRegion(String tenantConfigId, OciUser user) {
@@ -363,10 +455,10 @@ public class TenantQuotaProtectionService {
         return profile;
     }
 
-    private String required(Map<String, Object> input, String key) {
+    private String required(Map<String, Object> input, String key, String label) {
         Object raw = input == null ? null : input.get(key);
         String value = raw == null ? null : String.valueOf(raw).trim();
-        if (value == null || value.isBlank()) throw new OciException("请输入 Telegram 验证码");
+        if (value == null || value.isBlank()) throw new OciException("缺少" + label);
         return value;
     }
 
@@ -381,7 +473,7 @@ public class TenantQuotaProtectionService {
     }
 
     private static void add(ResourceRule rule) { RULES.put(rule.key(), rule); }
-    private record ResourceRule(String key, String label, String service, String limitName, String unit,
+    private record ResourceRule(String key, String label, String quotaFamily, String limitsService, String limitName, String unit,
                                 long min, long max, long step, long basic, long strict,
                                 boolean basicEnabled, boolean strictEnabled) {}
     private record AccountLimits(Map<String, Long> values, boolean complete) {}

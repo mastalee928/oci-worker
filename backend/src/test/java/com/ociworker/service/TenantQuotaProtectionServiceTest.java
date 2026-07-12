@@ -67,4 +67,40 @@ class TenantQuotaProtectionServiceTest {
         assertNull(managed);
         assertSame(summary, conflict);
     }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void gpuA10UsesComputeCoreQuotaFamily() {
+        List<String> statements = ReflectionTestUtils.invokeMethod(
+                service, "buildStatements", Map.of("paidGpuA10", 0L));
+        assertEquals(List.of("zero compute-core quota gpu-a10-count in tenancy"), statements);
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void accountLimitsUseLimitsApiServiceNames() {
+        List<Map<String, Object>> resources = ReflectionTestUtils.invokeMethod(service, "resourceViews", Map.of(
+                "compute/standard-a1-core-count", 6L,
+                "block-storage/total-storage-gb", 300L));
+        assertNotNull(resources);
+        Map<String, Object> a1 = resources.stream().filter(row -> "a1Ocpu".equals(row.get("key"))).findFirst().orElseThrow();
+        Map<String, Object> storage = resources.stream().filter(row -> "blockStorage".equals(row.get("key"))).findFirst().orElseThrow();
+        assertEquals(6L, a1.get("accountLimit"));
+        assertEquals(300L, storage.get("accountLimit"));
+    }
+
+    @Test
+    void legacyGpuA10StatementCanBeMigrated() throws Exception {
+        Quota quota = Quota.builder()
+                .statements(List.of("zero compute quota gpu-a10-count in tenancy"))
+                .build();
+        Object parsed = ReflectionTestUtils.invokeMethod(service, "parseManagedValues", quota);
+        assertNotNull(parsed);
+        Method compatible = parsed.getClass().getDeclaredMethod("compatible");
+        Method values = parsed.getClass().getDeclaredMethod("values");
+        compatible.setAccessible(true);
+        values.setAccessible(true);
+        assertEquals(true, compatible.invoke(parsed));
+        assertEquals(Map.of("paidGpuA10", 0L), values.invoke(parsed));
+    }
 }

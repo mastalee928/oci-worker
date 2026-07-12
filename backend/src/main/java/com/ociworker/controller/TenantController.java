@@ -57,7 +57,13 @@ public class TenantController {
 
     @PostMapping("/quotaProtection/overview")
     public ResponseData<?> quotaProtectionOverview(@RequestBody java.util.Map<String, Object> params) {
-        return ResponseData.ok(tenantQuotaProtectionService.overview(str(params, "id")));
+        return ResponseData.ok(tenantQuotaProtectionService.overview(str(params, "id"), bool(params, "force")));
+    }
+
+    @PostMapping("/quotaProtection/unlock")
+    public ResponseData<?> quotaProtectionUnlock(@RequestBody java.util.Map<String, Object> params) {
+        return ResponseData.ok(java.util.Map.of("accessToken", tenantQuotaProtectionService.unlock(
+                str(params, "id"), str(params, "verifyCode"))));
     }
 
     @PostMapping("/quotaProtection/save")
@@ -67,12 +73,18 @@ public class TenantController {
 
     @PostMapping("/quotaProtection/disable")
     public ResponseData<?> quotaProtectionDisable(@RequestBody java.util.Map<String, Object> params) {
-        return ResponseData.ok(tenantQuotaProtectionService.disable(str(params, "id"), str(params, "verifyCode")));
+        return ResponseData.ok(tenantQuotaProtectionService.disable(str(params, "id"), str(params, "accessToken")));
     }
 
     @PostMapping("/trafficProtection/overview")
     public ResponseData<?> trafficProtectionOverview(@RequestBody java.util.Map<String, Object> params) {
         return ResponseData.ok(tenantTrafficProtectionService.overview(str(params, "id")));
+    }
+
+    @PostMapping("/trafficProtection/unlock")
+    public ResponseData<?> trafficProtectionUnlock(@RequestBody java.util.Map<String, Object> params) {
+        return ResponseData.ok(java.util.Map.of("accessToken", tenantTrafficProtectionService.unlock(
+                str(params, "id"), str(params, "verifyCode"))));
     }
 
     @PostMapping("/trafficProtection/save")
