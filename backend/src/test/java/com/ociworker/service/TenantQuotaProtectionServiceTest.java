@@ -20,6 +20,9 @@ class TenantQuotaProtectionServiceTest {
         Map<String, Long> values = ReflectionTestUtils.invokeMethod(service, "resolveValues", "BASIC", Map.of());
         assertNotNull(values);
         assertEquals(4L, values.get("a1Ocpu"));
+        assertEquals(0L, values.get("paidComputeA2"));
+        assertEquals(0L, values.get("paidComputeE4"));
+        assertEquals(0L, values.get("paidGpuA10"));
         assertFalse(values.containsKey("paidLoadBalancer10"));
     }
 

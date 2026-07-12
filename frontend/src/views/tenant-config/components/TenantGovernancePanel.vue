@@ -8,13 +8,14 @@
         :class="['governance-nav-item', { active: activeSection === item.key }]"
         @click="activeSection = item.key"
       >
-        <i :class="item.icon" aria-hidden="true"></i>
+        <i class="module-icon" aria-hidden="true">{{ item.icon }}</i>
         <span class="nav-copy"><strong>{{ item.label }}</strong><small>{{ item.description }}</small></span>
+        <span class="origin">Oracle 官方</span>
       </button>
     </nav>
     <div class="worker-label">OCIWorker 保护能力</div>
     <button type="button" :class="['worker-nav-item', { active: activeSection === 'traffic' }]" @click="activeSection = 'traffic'">
-      <i class="ri-exchange-2-line" aria-hidden="true"></i>
+      <i class="module-icon worker-icon" aria-hidden="true">TX</i>
       <span class="nav-copy"><strong>流量保护</strong><small>监控流量并自动处置</small></span>
       <span class="worker-badge">OCIWorker</span>
     </button>
@@ -48,9 +49,9 @@ const props = defineProps<{ tenant: any | null }>()
 const activeSection = ref('domains')
 const domains = ref<any[]>([])
 const navItems = [
-  { key: 'domains', label: '域管理', description: '创建、编辑与管理身份域', icon: 'ri-shield-user-line' },
-  { key: 'quotas', label: '限额策略', description: '查看与管理租户配额策略', icon: 'ri-speed-up-line' },
-  { key: 'organization', label: '组织管理', description: '创建子租户与邀请租户', icon: 'ri-node-tree' },
+  { key: 'domains', label: '域管理', description: '创建、编辑与管理身份域', icon: 'ID' },
+  { key: 'quotas', label: '限额策略', description: 'Oracle官方资源配额', icon: 'QT' },
+  { key: 'organization', label: '组织管理', description: '创建子租户与邀请租户', icon: 'ORG' },
 ]
 
 async function loadDomains() {
@@ -69,28 +70,28 @@ watch(() => props.tenant?.id, () => { activeSection.value = 'domains'; void load
 
 <style scoped>
 .governance-shell { min-width: 0; }
-.governance-nav { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; margin-bottom: 14px; }
-.governance-nav-item { display: flex; min-width: 0; align-items: center; gap: 11px; padding: 12px 14px; border: 1px solid var(--border); border-radius: 10px; color: var(--text-sub); background: transparent; cursor: pointer; text-align: left; transition: border-color .16s ease, background .16s ease, color .16s ease, transform .16s ease; }
+.governance-nav { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px; margin: 16px 0 14px; }
+.governance-nav-item { display: flex; min-width: 0; align-items: center; gap: 11px; padding: 14px; border: 1px solid #263550; border-radius: 11px; color: #edf2ff; background: #0c1527; cursor: pointer; text-align: left; transition: border-color .16s ease, background .16s ease, transform .16s ease; }
 .governance-nav-item:hover { border-color: color-mix(in srgb, var(--primary) 45%, var(--border)); color: var(--text-main); }
 .governance-nav-item:active { transform: translateY(1px); }
-.governance-nav-item.active { border-color: color-mix(in srgb, var(--primary) 58%, var(--border)); color: var(--primary); background: color-mix(in srgb, var(--primary) 9%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--primary) 14%, transparent); }
-.governance-nav-item i { flex: 0 0 auto; font-size: 20px; }
-.worker-label { margin: 0 0 6px 2px; padding-top: 10px; border-top: 1px solid var(--border); color: var(--text-sub); font-size: 10px; font-weight: 600; }
-.worker-nav-item { display: flex; width: 100%; min-width: 0; align-items: center; gap: 11px; margin-bottom: 14px; padding: 12px 14px; border: 1px solid color-mix(in srgb, #34d399 26%, var(--border)); border-radius: 10px; color: var(--text-sub); background: color-mix(in srgb, #34d399 5%, transparent); cursor: pointer; text-align: left; }
-.worker-nav-item.active { border-color: color-mix(in srgb, var(--primary) 58%, var(--border)); color: var(--primary); background: color-mix(in srgb, var(--primary) 9%, transparent); }
-.worker-nav-item i { color: #34d399; font-size: 20px; }
-.worker-badge { margin-left: auto; padding: 2px 7px; border: 1px solid color-mix(in srgb, #34d399 35%, var(--border)); border-radius: 999px; color: #34d399; font-size: 9px; }
+.governance-nav-item.active { border-color: #756dff; color: #edf2ff; background: rgba(117,109,255,.1); box-shadow: none; }
+.module-icon { display: grid; width: 29px; height: 29px; flex: 0 0 29px; place-items: center; border-radius: 8px; background: #182540; color: #aeb9d0; font-size: 10px; font-style: normal; font-weight: 800; }
+.origin { margin-left: auto; padding: 3px 6px; border: 1px solid rgba(117,109,255,.2); border-radius: 999px; color: #687995; font-size: 8px; white-space: nowrap; }
+.worker-label { margin: -2px 0 7px 2px; padding-top: 12px; border-top: 1px solid #1d2a42; color: #687995; font-size: 10px; font-weight: 700; }
+.worker-nav-item { display: flex; width: 100%; min-width: 0; align-items: center; gap: 11px; margin-bottom: 14px; padding: 14px; border: 1px solid rgba(71,211,155,.22); border-radius: 11px; color: #edf2ff; background: linear-gradient(90deg,rgba(71,211,155,.055),rgba(12,21,39,.55)); cursor: pointer; text-align: left; }
+.worker-nav-item.active { border-color: #756dff; color: #edf2ff; background: rgba(117,109,255,.1); }
+.worker-icon { background: rgba(71,211,155,.1); color: #47d39b; }
+.worker-badge { margin-left: auto; padding: 3px 6px; border: 1px solid rgba(71,211,155,.22); border-radius: 999px; color: #47d39b; font-size: 8px; }
 .nav-copy { min-width: 0; }
 .nav-copy strong, .nav-copy small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nav-copy strong { color: inherit; font-size: 13px; }
-.nav-copy small { margin-top: 2px; color: var(--text-sub); font-size: 11px; }
-.governance-content { min-width: 0; padding: 15px; border: 1px solid var(--border); border-radius: 12px; background: color-mix(in srgb, var(--input-bg) 62%, transparent); }
+.nav-copy small { margin-top: 3px; color: #97a5bf; font-size: 10px; }
+.governance-content { min-width: 0; min-height: 260px; padding: 17px; border: 1px solid #263550; border-radius: 13px; background: rgba(12,21,39,.55); }
 @media (max-width: 768px) {
-  .governance-nav { gap: 6px; }
-  .governance-nav-item { justify-content: center; padding: 10px 5px; }
-  .governance-nav-item i { font-size: 18px; }
-  .nav-copy strong { font-size: 12px; text-align: center; }
-  .nav-copy small { display: none; }
-  .governance-content { padding: 10px; overflow: hidden; }
+  .governance-nav { grid-template-columns: 1fr; }
+  .governance-nav-item { padding: 14px; }
+  .nav-copy strong { text-align: left; }
+  .nav-copy small { display: block; }
+  .governance-content { padding: 17px; overflow: hidden; }
 }
 </style>

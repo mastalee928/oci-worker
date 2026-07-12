@@ -37,6 +37,13 @@ public class TenantQuotaProtectionService {
         add(new ResourceRule("a1Ocpu", "Ampere A1 OCPU", "compute-core", "standard-a1-core-count", "OCPU", 0, 8, 1, 4, 4, true, true));
         add(new ResourceRule("a1Memory", "Ampere A1 内存", "compute-memory", "standard-a1-memory-count", "GB", 0, 48, 1, 24, 24, true, true));
         add(new ResourceRule("e2Micro", "E2.1.Micro 实例", "compute", "vm-standard-e2-1-micro-count", "台", 0, 4, 1, 2, 2, true, true));
+        add(new ResourceRule("paidComputeA2", "Standard A2 OCPU", "compute-core", "standard-a2-core-count", "OCPU", 0, 128, 1, 0, 0, true, true));
+        add(new ResourceRule("paidComputeE3", "Standard E3 OCPU", "compute-core", "standard-e3-core-count", "OCPU", 0, 128, 1, 0, 0, true, true));
+        add(new ResourceRule("paidComputeE4", "Standard E4 OCPU", "compute-core", "standard-e4-core-count", "OCPU", 0, 128, 1, 0, 0, true, true));
+        add(new ResourceRule("paidComputeE5", "Standard E5 OCPU", "compute-core", "standard-e5-core-count", "OCPU", 0, 128, 1, 0, 0, true, true));
+        add(new ResourceRule("paidDenseIoE4", "DenseIO E4 OCPU", "compute-core", "dense-io-e4-core-count", "OCPU", 0, 128, 1, 0, 0, true, true));
+        add(new ResourceRule("paidDenseIoE5", "DenseIO E5 OCPU", "compute-core", "dense-io-e5-core-count", "OCPU", 0, 128, 1, 0, 0, true, true));
+        add(new ResourceRule("paidGpuA10", "GPU A10", "compute", "gpu-a10-count", "个", 0, 32, 1, 0, 0, true, true));
         add(new ResourceRule("blockStorage", "引导卷与块卷总容量", "block-storage", "total-storage-gb", "GB", 0, 400, 25, 200, 200, true, true));
         add(new ResourceRule("volumeBackup", "卷备份数量", "block-storage", "backup-count", "个", 0, 10, 1, 5, 5, true, true));
         add(new ResourceRule("vcn", "VCN 数量", "vcn", "vcn-count", "个", 0, 5, 1, 2, 2, true, true));

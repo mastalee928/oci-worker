@@ -69,8 +69,19 @@ public class TenantTrafficProtectionService {
         config.setMonthlyLimitBytes(limitTb * 1024L * 1024 * 1024 * 1024);
         config.setWarningPercent(warning);
         config.setExceedAction(action);
+        if (input.containsKey("enabled")) {
+            boolean enabled = Boolean.parseBoolean(String.valueOf(input.get("enabled")));
+            boolean changed = !Objects.equals(config.getEnabled(), enabled);
+            config.setEnabled(enabled);
+            if (changed) {
+                config.setNextCollectTime(enabled ? new Date() : null);
+                config.setLastError(null);
+                if (enabled) config.setLastWarningLevel(0);
+            }
+        }
         config.setUpdateTime(new Date());
         protectionMapper.updateById(config);
+        if (Boolean.TRUE.equals(config.getEnabled())) collectAsync(tenantConfigId, false, false);
         return overview(tenantConfigId);
     }
 
