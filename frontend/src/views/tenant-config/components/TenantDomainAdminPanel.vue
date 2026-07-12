@@ -24,10 +24,11 @@
 
     <template v-else>
     <div class="panel-toolbar">
+      <a-button :loading="loading" @click="emit('refresh')">刷新</a-button>
       <a-button type="primary" @click="openCreate">创建域</a-button>
     </div>
 
-    <a-table v-if="!isMobile" :data-source="domains" :columns="columns" :pagination="false" row-key="domainId" size="small">
+    <a-table v-if="!isMobile" :data-source="domains" :columns="columns" :pagination="false" :loading="loading" :locale="{ emptyText: ready ? '暂无 Identity Domain' : '' }" row-key="domainId" size="small">
       <template #bodyCell="{ column, record }">
         <template v-if="column.key === 'name'">
           <a-space>
@@ -49,8 +50,9 @@
       </template>
     </a-table>
 
-    <div v-else class="domain-mobile-list">
-      <article v-for="domain in domains" :key="domain.domainId" class="domain-mobile-card">
+    <a-spin v-else :spinning="loading">
+      <div class="domain-mobile-list">
+        <article v-for="domain in domains" :key="domain.domainId" class="domain-mobile-card">
         <header>
           <div class="domain-mobile-title">
             <strong>{{ domain.displayName || '未命名域' }}</strong>
@@ -68,10 +70,11 @@
           <a-button size="small" @click="openLicenseChange(domain)">更改类型</a-button>
           <a-button size="small" danger :disabled="isDefault(domain)" @click="openDelete(domain)">删除</a-button>
         </footer>
-      </article>
-    </div>
+        </article>
+        <a-empty v-if="ready && !loading && !domains.length" description="暂无 Identity Domain" />
+      </div>
+    </a-spin>
 
-    <a-empty v-if="!domains.length" description="暂无 Identity Domain" />
     <a-alert v-if="lastWorkRequestId" type="success" show-icon style="margin-top: 12px" message="操作已提交">
       <template #description>Work Request ID：<a-typography-text copyable>{{ lastWorkRequestId }}</a-typography-text></template>
     </a-alert>
@@ -164,7 +167,7 @@ import { changeIdentityDomainLicenseType, createIdentityDomain, deleteIdentityDo
 import { sendVerifyCode } from '../../../api/system'
 import { useIsMobile } from '../../../composables/useIsMobile'
 
-const props = defineProps<{ tenantId: string; domains: any[]; defaultHomeRegion?: string }>()
+const props = defineProps<{ tenantId: string; domains: any[]; defaultHomeRegion?: string; loading?: boolean; ready?: boolean }>()
 const emit = defineEmits<{ (e: 'refresh'): void }>()
 const { isMobile } = useIsMobile()
 const columns = [
@@ -426,7 +429,7 @@ async function submitDelete() {
 </script>
 
 <style scoped>
-.panel-toolbar { display: flex; justify-content: flex-end; margin-bottom: 12px; }
+.panel-toolbar { display: flex; justify-content: flex-end; gap: 8px; margin-bottom: 12px; }
 .detail-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
 .detail-heading > div { display: flex; min-width: 0; align-items: center; gap: 8px; }
 .detail-heading strong { overflow: hidden; color: var(--text-main); font-size: 17px; text-overflow: ellipsis; white-space: nowrap; }
@@ -438,7 +441,7 @@ async function submitDelete() {
 .domain-detail-list dd { overflow-wrap: anywhere; color: var(--text-main); font-size: 13px; }
 .domain-detail-list :deep(.ant-typography) { color: inherit; overflow-wrap: anywhere; }
 .verify-actions { display: flex; align-items: center; justify-content: space-between; margin-top: 8px; color: var(--text-sub); font-size: 12px; }
-.domain-mobile-list { display: grid; gap: 9px; }
+.domain-mobile-list { display: grid; min-height: 180px; gap: 9px; }
 .domain-mobile-card { min-width: 0; padding: 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--input-bg); }
 .domain-mobile-card header, .domain-mobile-card footer { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .domain-mobile-title { display: flex; min-width: 0; align-items: center; gap: 6px; }

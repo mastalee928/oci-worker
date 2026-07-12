@@ -15,12 +15,20 @@
     </nav>
 
     <div class="governance-content">
+      <AppPanelSkeleton
+        v-if="activeSection === 'domains' && tenant?.id && domainsLoading && !domainsReady"
+        variant="table"
+        title="正在载入域管理"
+        description="读取当前租户身份域"
+      />
       <TenantDomainAdminPanel
-        v-if="activeSection === 'domains' && tenant?.id"
+        v-else-if="activeSection === 'domains' && tenant?.id"
         :tenant-id="String(tenant.id)"
         :default-home-region="String(tenant.ociRegion || '')"
         :domains="domains"
-        @refresh="loadDomains"
+        :loading="domainsLoading"
+        :ready="domainsReady"
+        @refresh="refreshDomains"
       />
       <TenantQuotaPolicyPanel v-else-if="activeSection === 'quotas' && tenant?.id" :tenant-id="String(tenant.id)" />
       <TenantOrganizationPanel v-else-if="activeSection === 'organization' && tenant?.id" :tenant-id="String(tenant.id)" />
@@ -33,7 +41,9 @@
 import { ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
 import { listIdentityDomains } from '../../../api/user'
+import AppPanelSkeleton from '../../../components/common/AppPanelSkeleton.vue'
 import { defineAppAsyncComponent } from '../../../utils/asyncComponent'
+import { appQueryCache } from '../../../utils/queryCache'
 
 const TenantDomainAdminPanel = defineAppAsyncComponent(() => import('./TenantDomainAdminPanel.vue'), { loadingText: '正在载入域管理', loadingDescription: '读取当前租户身份域' })
 const TenantQuotaPolicyPanel = defineAppAsyncComponent(() => import('./TenantQuotaPolicyPanel.vue'), { loadingText: '正在载入限额策略', loadingDescription: '读取 Oracle 配额保护状态' })
@@ -42,6 +52,9 @@ const TenantTrafficProtectionPanel = defineAppAsyncComponent(() => import('./Ten
 const props = defineProps<{ tenant: any | null }>()
 const activeSection = ref('domains')
 const domains = ref<any[]>([])
+const domainsLoading = ref(false)
+const domainsReady = ref(false)
+let domainsRequestVersion = 0
 const navItems = [
   { key: 'domains', label: '域管理', description: '创建、编辑与管理身份域', icon: 'ID', origin: 'Oracle 官方', worker: false },
   { key: 'quotas', label: '限额策略', description: 'Oracle官方资源配额', icon: 'QT', origin: 'Oracle 官方', worker: false },
@@ -49,18 +62,52 @@ const navItems = [
   { key: 'traffic', label: '流量保护', description: '监控流量并自动处置', icon: 'TX', origin: 'OCIWorker', worker: true },
 ]
 
-async function loadDomains() {
-  if (!props.tenant?.id) return
-  try {
-    const res = await listIdentityDomains({ tenantId: String(props.tenant.id) })
-    domains.value = (res.data || []).map((item: any) => ({ ...item, domainId: item.domainId || item.id }))
-  } catch (error: any) {
+function normalizeDomains(rows: any[]) {
+  return (rows || []).map((item: any) => ({ ...item, domainId: item.domainId || item.id }))
+}
+
+async function loadDomains(force = false) {
+  const tenantId = String(props.tenant?.id || '')
+  const requestVersion = ++domainsRequestVersion
+  if (!tenantId) {
     domains.value = []
+    domainsLoading.value = false
+    domainsReady.value = false
+    return
+  }
+  const cacheKey = ['identityDomains', tenantId] as const
+  const cached = appQueryCache.get<any[]>(cacheKey)
+  if (cached) {
+    domains.value = normalizeDomains(cached)
+    domainsReady.value = true
+  } else {
+    domainsReady.value = false
+  }
+  domainsLoading.value = true
+  try {
+    const rows = await appQueryCache.fetch<any[]>(cacheKey, async () => {
+      const res = await listIdentityDomains({ tenantId })
+      return res.data || []
+    }, { staleMs: 30_000, force })
+    if (requestVersion !== domainsRequestVersion || tenantId !== String(props.tenant?.id || '')) return
+    domains.value = normalizeDomains(rows)
+    domainsReady.value = true
+  } catch (error: any) {
+    if (requestVersion !== domainsRequestVersion || tenantId !== String(props.tenant?.id || '')) return
+    if (!domainsReady.value) domains.value = []
+    domainsReady.value = true
     message.error(error?.message || '读取 Identity Domain 失败')
+  } finally {
+    if (requestVersion === domainsRequestVersion) domainsLoading.value = false
   }
 }
 
-watch(() => props.tenant?.id, () => { activeSection.value = 'domains'; void loadDomains() }, { immediate: true })
+function refreshDomains() { void loadDomains(true) }
+
+watch(() => props.tenant?.id, () => {
+  activeSection.value = 'domains'
+  void loadDomains(false)
+}, { immediate: true })
 </script>
 
 <style scoped>
