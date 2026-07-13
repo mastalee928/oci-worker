@@ -2,6 +2,7 @@ package com.ociworker.service;
 
 import com.oracle.bmc.limits.model.Quota;
 import com.oracle.bmc.limits.model.QuotaSummary;
+import com.oracle.bmc.model.BmcException;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -102,5 +103,43 @@ class TenantQuotaProtectionServiceTest {
         values.setAccessible(true);
         assertEquals(true, compatible.invoke(parsed));
         assertEquals(Map.of("paidGpuA10", 0L), values.invoke(parsed));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void completeAccountLimitsFilterUnsupportedStaticRules() {
+        Map<String, Long> requested = Map.of("a1Ocpu", 4L, "paidComputeE3", 0L);
+        Object limits = newAccountLimits(Map.of("compute/standard-a1-core-count", 4L), true);
+
+        Map<String, Long> filtered = ReflectionTestUtils.invokeMethod(
+                service, "filterSupportedValues", requested, limits);
+
+        assertEquals(Map.of("a1Ocpu", 4L), filtered);
+    }
+
+    @Test
+    void oracleInvalidQuotaResponseRemovesOnlyRejectedStatement() {
+        List<String> statements = new java.util.ArrayList<>(List.of(
+                "set compute-core quota standard-a1-core-count to 4 in tenancy",
+                "zero compute-core quota standard-e3-core-count in tenancy"));
+        BmcException error = new BmcException(400, "InvalidParameter",
+                "The specified quota `standard-e3-core-count` is not a valid quota name for service `compute-core`",
+                "request-id");
+
+        String removed = ReflectionTestUtils.invokeMethod(service, "removeUnsupportedStatement", statements, error);
+
+        assertEquals("standard-e3-core-count", removed);
+        assertEquals(List.of("set compute-core quota standard-a1-core-count to 4 in tenancy"), statements);
+    }
+
+    private Object newAccountLimits(Map<String, Long> values, boolean complete) {
+        try {
+            Class<?> type = Class.forName("com.ociworker.service.TenantQuotaProtectionService$AccountLimits");
+            var constructor = type.getDeclaredConstructor(Map.class, boolean.class);
+            constructor.setAccessible(true);
+            return constructor.newInstance(values, complete);
+        } catch (Exception e) {
+            throw new AssertionError(e);
+        }
     }
 }

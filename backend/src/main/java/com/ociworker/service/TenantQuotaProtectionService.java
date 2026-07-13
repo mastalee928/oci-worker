@@ -19,6 +19,8 @@ import com.oracle.bmc.limits.requests.ListLimitValuesRequest;
 import com.oracle.bmc.limits.requests.ListQuotasRequest;
 import com.oracle.bmc.limits.requests.ListServicesRequest;
 import com.oracle.bmc.limits.requests.UpdateQuotaRequest;
+import com.oracle.bmc.limits.responses.CreateQuotaResponse;
+import com.oracle.bmc.limits.responses.UpdateQuotaResponse;
 import com.oracle.bmc.retrier.RetryConfiguration;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
@@ -26,6 +28,8 @@ import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.util.*;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Service
 @Slf4j
@@ -35,6 +39,9 @@ public class TenantQuotaProtectionService {
     private static final String PROFILE_TAG = "ociworker-profile";
     private static final String ACCESS_SCOPE = "quotaProtectionManage";
     private static final Duration ACCOUNT_LIMIT_CACHE_TTL = Duration.ofMinutes(10);
+    private static final Pattern INVALID_QUOTA_NAME = Pattern.compile(
+            "specified quota [`']([^`']+)[`'] is not a valid quota name for service [`']([^`']+)[`']",
+            Pattern.CASE_INSENSITIVE);
 
     private static final LinkedHashMap<String, ResourceRule> RULES = new LinkedHashMap<>();
     static {
@@ -109,8 +116,7 @@ public class TenantQuotaProtectionService {
         OciUser user = requireUser(tenantConfigId);
         String profile = normalizeProfile(input == null ? null : input.get("profile"));
         Map<String, Long> values = resolveValues(profile, input == null ? null : input.get("values"));
-        List<String> statements = buildStatements(values);
-        if (statements.isEmpty()) throw new OciException("请至少选择一项需要保护的资源");
+        List<String> statements = new ArrayList<>();
         String accessToken = required(input, "accessToken", "操作授权");
         protectionAccessService.claim(accessToken, tenantConfigId, ACCESS_SCOPE);
 
@@ -120,6 +126,12 @@ public class TenantQuotaProtectionService {
         log.info("Oracle 配额保护操作开始: tenantConfigId={}, region={}", tenantConfigId, region);
         Map<String, Object> result;
         try (QuotaClients clients = clients(user, region)) {
+            AccountLimits accountLimits = readAccountLimitsCached(user, region, clients.limits(), false);
+            Map<String, Long> effectiveValues = filterSupportedValues(values, accountLimits);
+            statements.addAll(buildStatements(effectiveValues));
+            if (statements.isEmpty()) {
+                throw new OciException("当前账户没有可应用的配额保护项目，请重新读取账户限额后重试");
+            }
             stage = "listQuotas";
             log.info("Oracle 配额保护操作阶段开始: tenantConfigId={}, stage=listQuotas", tenantConfigId);
             List<QuotaSummary> policies = listPolicies(clients.quotas(), user.getOciTenantId());
@@ -134,16 +146,8 @@ public class TenantQuotaProtectionService {
             if (managed == null) {
                 stage = "createQuota";
                 log.info("Oracle 配额保护操作阶段开始: tenantConfigId={}, stage=createQuota", tenantConfigId);
-                var response = clients.quotas().createQuota(CreateQuotaRequest.builder()
-                        .opcRetryToken(UUID.randomUUID().toString())
-                        .createQuotaDetails(CreateQuotaDetails.builder()
-                                .compartmentId(user.getOciTenantId())
-                                .name(POLICY_NAME)
-                                .description("OCIWorker 免费资源配额保护")
-                                .statements(statements)
-                                .freeformTags(tags)
-                                .build())
-                        .build());
+                CreateQuotaResponse response = createQuota(clients.quotas(), user.getOciTenantId(),
+                        profile, tags, statements, tenantConfigId);
                 saved = response.getQuota();
                 requestId = response.getOpcRequestId();
                 logStage("createQuota", tenantConfigId, startedAt);
@@ -158,15 +162,8 @@ public class TenantQuotaProtectionService {
                 }
                 stage = "updateQuota";
                 log.info("Oracle 配额保护操作阶段开始: tenantConfigId={}, stage=updateQuota", tenantConfigId);
-                var response = clients.quotas().updateQuota(UpdateQuotaRequest.builder()
-                        .quotaId(managed.getId())
-                        .ifMatch(getResponse.getEtag())
-                        .updateQuotaDetails(UpdateQuotaDetails.builder()
-                                .description("OCIWorker 免费资源配额保护")
-                                .statements(statements)
-                                .freeformTags(tags)
-                                .build())
-                        .build());
+                UpdateQuotaResponse response = updateQuota(clients.quotas(), managed.getId(), getResponse.getEtag(),
+                        tags, statements, tenantConfigId);
                 saved = response.getQuota();
                 requestId = response.getOpcRequestId();
                 logStage("updateQuota", tenantConfigId, startedAt);
@@ -174,7 +171,7 @@ public class TenantQuotaProtectionService {
             result = new LinkedHashMap<>();
             result.put("accepted", true);
             result.put("profile", profile);
-            result.put("values", values);
+            result.put("values", valuesForStatements(statements));
             result.put("policy", saved == null ? null : policyView(saved));
             result.put("requestId", requestId);
         } catch (Exception e) {
@@ -372,6 +369,81 @@ public class TenantQuotaProtectionService {
                     : "set " + rule.quotaFamily() + " quota " + rule.limitName() + " to " + value + " in tenancy");
         }
         return statements;
+    }
+
+    private Map<String, Long> filterSupportedValues(Map<String, Long> values, AccountLimits limits) {
+        if (!limits.complete()) return new LinkedHashMap<>(values);
+        Map<String, Long> supported = new LinkedHashMap<>();
+        List<String> skipped = new ArrayList<>();
+        for (Map.Entry<String, Long> entry : values.entrySet()) {
+            ResourceRule rule = RULES.get(entry.getKey());
+            if (rule != null && limits.values().containsKey(rule.limitsService() + "/" + rule.limitName())) {
+                supported.put(entry.getKey(), entry.getValue());
+            } else if (rule != null) {
+                skipped.add(rule.limitName());
+            }
+        }
+        if (!skipped.isEmpty()) {
+            log.info("Oracle 配额保护跳过当前账户不支持的规则: quotaNames={}", skipped);
+        }
+        return supported;
+    }
+
+    private CreateQuotaResponse createQuota(QuotasClient client, String tenancyId, String profile,
+                                            Map<String, String> tags, List<String> statements,
+                                            String tenantConfigId) {
+        while (true) {
+            try {
+                return client.createQuota(CreateQuotaRequest.builder()
+                        .opcRetryToken(UUID.randomUUID().toString())
+                        .createQuotaDetails(CreateQuotaDetails.builder()
+                                .compartmentId(tenancyId).name(POLICY_NAME)
+                                .description("OCIWorker 免费资源配额保护")
+                                .statements(List.copyOf(statements)).freeformTags(tags).build())
+                        .build());
+            } catch (BmcException e) {
+                String removed = removeUnsupportedStatement(statements, e);
+                if (removed == null) throw e;
+                log.warn("Oracle 配额保护跳过 Oracle 拒绝的规则并重试: tenantConfigId={}, profile={}, quotaName={}",
+                        tenantConfigId, profile, removed);
+            }
+        }
+    }
+
+    private UpdateQuotaResponse updateQuota(QuotasClient client, String quotaId, String etag,
+                                            Map<String, String> tags, List<String> statements,
+                                            String tenantConfigId) {
+        while (true) {
+            try {
+                return client.updateQuota(UpdateQuotaRequest.builder()
+                        .quotaId(quotaId).ifMatch(etag)
+                        .updateQuotaDetails(UpdateQuotaDetails.builder()
+                                .description("OCIWorker 免费资源配额保护")
+                                .statements(List.copyOf(statements)).freeformTags(tags).build())
+                        .build());
+            } catch (BmcException e) {
+                String removed = removeUnsupportedStatement(statements, e);
+                if (removed == null) throw e;
+                log.warn("Oracle 配额保护跳过 Oracle 拒绝的规则并重试: tenantConfigId={}, quotaName={}",
+                        tenantConfigId, removed);
+            }
+        }
+    }
+
+    private String removeUnsupportedStatement(List<String> statements, BmcException error) {
+        if (!"InvalidParameter".equalsIgnoreCase(error.getServiceCode())) return null;
+        Matcher matcher = INVALID_QUOTA_NAME.matcher(error.getMessage() == null ? "" : error.getMessage());
+        if (!matcher.find()) return null;
+        String quotaName = matcher.group(1);
+        String marker = " quota " + quotaName.toLowerCase(Locale.ROOT) + " ";
+        boolean removed = statements.removeIf(statement -> statement.toLowerCase(Locale.ROOT).contains(marker));
+        if (!removed) return null;
+        if (statements.isEmpty()) throw new OciException("当前账户不支持所选配额保护规则");
+        return quotaName;
+    }
+
+    private Map<String, Long> valuesForStatements(List<String> statements) {
+        return parseManagedValues(Quota.builder().statements(List.copyOf(statements)).build()).values();
     }
 
     private List<QuotaSummary> listPolicies(QuotasClient client, String tenancyId) {
