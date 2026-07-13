@@ -72,4 +72,21 @@ class OciBmcErrorTranslatorTest {
 
         assertThat(message).isEqualTo("OCI 接口读取超时，请稍后自动重试。");
     }
+
+    @Test
+    void preservesSanitizedOracleDetailForInvalidQuotaStatement() {
+        BmcException error = new BmcException(
+                400,
+                "InvalidParameter",
+                "Quota statement has an invalid service name. Timestamp: 2026-07-13T00:00:00Z "
+                        + "Client version: Oracle-JavaSDK/3.83.0",
+                "opc-request-id");
+
+        String message = OciBmcErrorTranslator.translateWithServiceDetail(error);
+
+        assertThat(message).contains("请求参数无效");
+        assertThat(message).contains("Quota statement has an invalid service name.");
+        assertThat(message).doesNotContain("Timestamp");
+        assertThat(message).doesNotContain("Client version");
+    }
 }

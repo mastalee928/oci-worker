@@ -8,6 +8,7 @@ import com.ociworker.util.OciBmcErrorTranslator;
 import com.oracle.bmc.limits.LimitsClient;
 import com.oracle.bmc.limits.QuotasClient;
 import com.oracle.bmc.limits.model.CreateQuotaDetails;
+import com.oracle.bmc.model.BmcException;
 import com.oracle.bmc.limits.model.Quota;
 import com.oracle.bmc.limits.model.QuotaSummary;
 import com.oracle.bmc.limits.model.UpdateQuotaDetails;
@@ -179,8 +180,14 @@ public class TenantQuotaProtectionService {
         } catch (Exception e) {
             protectionAccessService.release(accessToken, tenantConfigId, ACCESS_SCOPE);
             long elapsedMs = (System.nanoTime() - startedAt) / 1_000_000L;
-            log.error("Oracle 配额保护操作失败: tenantConfigId={}, region={}, stage={}, elapsedMs={}, error={}",
-                    tenantConfigId, region, stage, elapsedMs, OciBmcErrorTranslator.translate(e), e);
+            BmcException bmc = findBmcException(e);
+            log.error("Oracle 配额保护操作失败: tenantConfigId={}, region={}, stage={}, elapsedMs={}, "
+                            + "httpStatus={}, serviceCode={}, opcRequestId={}, statements={}, error={}",
+                    tenantConfigId, region, stage, elapsedMs,
+                    bmc == null ? null : bmc.getStatusCode(),
+                    bmc == null ? null : bmc.getServiceCode(),
+                    bmc == null ? null : bmc.getOpcRequestId(),
+                    statements, OciBmcErrorTranslator.translateWithServiceDetail(e), e);
             throw quotaError("保存 Oracle 配额保护失败", e);
         }
         protectionAccessService.complete(accessToken, tenantConfigId, ACCESS_SCOPE);
@@ -484,7 +491,16 @@ public class TenantQuotaProtectionService {
 
     private OciException quotaError(String prefix, Exception e) {
         if (e instanceof OciException oe) return oe;
-        return new OciException(prefix + "：" + OciBmcErrorTranslator.translate(e));
+        return new OciException(prefix + "：" + OciBmcErrorTranslator.translateWithServiceDetail(e));
+    }
+
+    private BmcException findBmcException(Throwable error) {
+        Throwable current = error;
+        while (current != null) {
+            if (current instanceof BmcException bmc) return bmc;
+            current = current.getCause();
+        }
+        return null;
     }
 
     private static void add(ResourceRule rule) { RULES.put(rule.key(), rule); }

@@ -126,6 +126,28 @@ public final class OciBmcErrorTranslator {
         return e.getClass().getSimpleName();
     }
 
+    /**
+     * Returns the normal Chinese translation plus OCI's sanitized service detail.
+     * Intended for operations where OCI commonly reports the exact invalid rule in
+     * the response message. SDK diagnostics, endpoints and request metadata are removed.
+     */
+    public static String translateWithServiceDetail(Throwable e) {
+        BmcException bmc = findBmcException(e);
+        if (bmc == null) {
+            return translate(e);
+        }
+        String translated = translate(bmc);
+        String detail = cleanSdkMessage(bmc.getMessage()).replaceAll("\\s+", " ").trim();
+        if (detail.isEmpty() || detail.equalsIgnoreCase(bmc.getServiceCode())
+                || translated.toLowerCase(Locale.ROOT).contains(detail.toLowerCase(Locale.ROOT))) {
+            return translated;
+        }
+        if (detail.length() > 500) {
+            detail = detail.substring(0, 500) + "...";
+        }
+        return translated + " Oracle 返回：" + detail;
+    }
+
     private static String translateKnownMessage(String raw) {
         String text = raw == null ? "" : raw.toLowerCase(Locale.ROOT);
         if (text.contains("read timed out") || text.contains("sockettimeoutexception")) {
