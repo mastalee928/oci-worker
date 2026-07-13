@@ -16,7 +16,7 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(OciException.class)
     public ResponseData<?> handleOciException(OciException e) {
         log.error("Business error: {}", e.getMessage());
-        return ResponseData.error(e.getCode(), e.getMessage());
+        return ResponseData.error(e.getCode(), OciBmcErrorTranslator.sanitizeClientMessage(e.getMessage()));
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
@@ -49,19 +49,9 @@ public class GlobalExceptionHandler {
         }
         String translated = OciBmcErrorTranslator.translate(e);
         if (StringUtils.hasText(translated)) {
-            if (StringUtils.hasText(opc) && !translated.contains("opc-request-id")) {
-                translated += " (opc-request-id: " + opc + ")";
-            }
             return ResponseData.error(translated);
         }
-        StringBuilder sb = new StringBuilder("OCI 错误 [").append(e.getStatusCode()).append("]");
-        if (StringUtils.hasText(e.getMessage())) {
-            sb.append(": ").append(e.getMessage());
-        }
-        if (StringUtils.hasText(opc)) {
-            sb.append(" (opc-request-id: ").append(opc).append(")");
-        }
-        return ResponseData.error(sb.toString());
+        return ResponseData.error("OCI 调用失败（HTTP " + e.getStatusCode() + "）");
     }
 
     private static String friendlyBmcMessage(com.oracle.bmc.model.BmcException e) {

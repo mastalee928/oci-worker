@@ -5,6 +5,8 @@ import com.oracle.bmc.model.BmcException;
 import java.util.Comparator;
 import java.util.Locale;
 import java.util.Map;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 /**
  * OCI 官方 API 错误码的中文兜底翻译。
@@ -13,6 +15,10 @@ import java.util.Map;
  * BYOIP、审计、区域订阅等更精确的提示覆盖掉。</p>
  */
 public final class OciBmcErrorTranslator {
+
+    private static final String SDK_ERROR_MARKER = "Error returned by ";
+    private static final Pattern SDK_SERVICE_CODE = Pattern.compile(
+            "\\(-?\\d+,\\s*([^,()]+),\\s*(?:true|false)\\)", Pattern.CASE_INSENSITIVE);
 
     private static final Map<String, String> SERVICE_CODE_MESSAGES = Map.ofEntries(
             Map.entry("cannotparserequest", "请求内容无法解析，请检查参数格式。"),
@@ -146,6 +152,34 @@ public final class OciBmcErrorTranslator {
             detail = detail.substring(0, 500) + "...";
         }
         return translated + " Oracle 返回：" + detail;
+    }
+
+    /**
+     * Sanitizes an OCI SDK exception that has already been embedded into a business
+     * exception message. Non-OCI messages and the quota module's deliberate detailed
+     * response remain unchanged.
+     */
+    public static String sanitizeClientMessage(String raw) {
+        if (raw == null || raw.isBlank() || raw.contains("Oracle 返回：")) return raw;
+        int marker = raw.indexOf(SDK_ERROR_MARKER);
+        if (marker < 0) return raw;
+
+        String sdkPart = raw.substring(marker);
+        String friendly = translateKnownMessage(sdkPart);
+        Matcher codeMatcher = SDK_SERVICE_CODE.matcher(sdkPart);
+        String serviceCode = codeMatcher.find() ? codeMatcher.group(1).trim() : "";
+        if (friendly.isEmpty()) friendly = translateServiceCode(serviceCode);
+        if (friendly.isEmpty()) {
+            String cleaned = cleanSdkMessage(sdkPart).replaceAll("\\s+", " ").trim();
+            friendly = cleaned.length() > 180 ? cleaned.substring(0, 180) + "..." : cleaned;
+        }
+        if (friendly.isEmpty()) friendly = "OCI 调用失败";
+        if (!serviceCode.isEmpty() && !friendly.contains("（" + serviceCode + "）")) {
+            friendly = appendServiceCode(friendly, serviceCode);
+        }
+
+        String prefix = raw.substring(0, marker).trim();
+        return prefix.isEmpty() ? friendly : prefix + " " + friendly;
     }
 
     private static String translateKnownMessage(String raw) {

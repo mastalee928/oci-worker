@@ -89,4 +89,27 @@ class OciBmcErrorTranslatorTest {
         assertThat(message).doesNotContain("Timestamp");
         assertThat(message).doesNotContain("Client version");
     }
+
+    @Test
+    void sanitizesSdkErrorEmbeddedInBusinessMessage() {
+        String raw = "列出 Identity Domain 失败: Error returned by ListDomains operation in Identity service."
+                + "(401, NotAuthenticated, false) The required information to complete authentication was not provided or was incorrect. "
+                + "(opc-request-id: secret) Timestamp: 2026-07-13T14:10:11Z Client version: Oracle-JavaSDK/3.83.0 "
+                + "Request Endpoint: https://identity.example.com/domains Troubleshooting Tips: secret";
+
+        String message = OciBmcErrorTranslator.sanitizeClientMessage(raw);
+
+        assertThat(message).isEqualTo("列出 Identity Domain 失败: OCI 认证失败，请检查 API Key、指纹、租户/用户 OCID 与服务器时间。（NotAuthenticated）");
+        assertThat(message).doesNotContain("Request Endpoint");
+        assertThat(message).doesNotContain("opc-request-id");
+    }
+
+    @Test
+    void leavesNonOciAndDeliberateQuotaDetailMessagesUntouched() {
+        String ordinary = "业务参数不能为空";
+        String quota = "保存 Oracle 配额保护失败：请求参数无效 Oracle 返回：Error returned by CreateQuota operation";
+
+        assertThat(OciBmcErrorTranslator.sanitizeClientMessage(ordinary)).isEqualTo(ordinary);
+        assertThat(OciBmcErrorTranslator.sanitizeClientMessage(quota)).isEqualTo(quota);
+    }
 }
