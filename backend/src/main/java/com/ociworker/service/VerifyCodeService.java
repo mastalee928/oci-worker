@@ -94,11 +94,17 @@ public class VerifyCodeService {
             case "cfEmailDnsUnlock" -> "Cloudflare 解锁 Email DNS MX";
             default -> action;
         };
-        String targetLine = StrUtil.isBlank(contextText) ? "" : "\n目标：" + contextText.trim();
+        String targetLine = formatTargetLine(actionName, contextText);
         String msg = String.format("【OCI Worker 安全验证】\n操作：%s%s\n验证码：%s\n有效期：5分钟\n\n如非本人操作，请检查账户安全。",
                 actionName, targetLine, code);
         notificationService.sendMessage(msg);
         log.info("Verification code sent for action: {}", action);
+    }
+
+    static String formatTargetLine(String actionName, String contextText) {
+        String target = StrUtil.trimToNull(contextText);
+        if (target == null || target.equals(StrUtil.trim(actionName))) return "";
+        return "\n目标：" + target;
     }
 
     public void verifyCode(String action, String inputCode) {

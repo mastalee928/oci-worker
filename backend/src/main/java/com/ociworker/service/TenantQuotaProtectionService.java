@@ -111,12 +111,15 @@ public class TenantQuotaProtectionService {
         List<String> statements = buildStatements(values);
         if (statements.isEmpty()) throw new OciException("请至少选择一项需要保护的资源");
         String accessToken = required(input, "accessToken", "操作授权");
-        protectionAccessService.consume(accessToken, tenantConfigId, ACCESS_SCOPE);
+        protectionAccessService.claim(accessToken, tenantConfigId, ACCESS_SCOPE);
 
         String region = resolveHomeRegion(tenantConfigId, user);
         long startedAt = System.nanoTime();
+        String stage = "createClients";
         log.info("Oracle 配额保护操作开始: tenantConfigId={}, region={}", tenantConfigId, region);
+        Map<String, Object> result;
         try (QuotaClients clients = clients(user, region)) {
+            stage = "listQuotas";
             log.info("Oracle 配额保护操作阶段开始: tenantConfigId={}, stage=listQuotas", tenantConfigId);
             List<QuotaSummary> policies = listPolicies(clients.quotas(), user.getOciTenantId());
             logStage("listQuotas", tenantConfigId, startedAt);
@@ -128,6 +131,7 @@ public class TenantQuotaProtectionService {
             Quota saved;
             String requestId;
             if (managed == null) {
+                stage = "createQuota";
                 log.info("Oracle 配额保护操作阶段开始: tenantConfigId={}, stage=createQuota", tenantConfigId);
                 var response = clients.quotas().createQuota(CreateQuotaRequest.builder()
                         .opcRetryToken(UUID.randomUUID().toString())
@@ -143,6 +147,7 @@ public class TenantQuotaProtectionService {
                 requestId = response.getOpcRequestId();
                 logStage("createQuota", tenantConfigId, startedAt);
             } else {
+                stage = "getQuota";
                 log.info("Oracle 配额保护操作阶段开始: tenantConfigId={}, stage=getQuota", tenantConfigId);
                 var getResponse = clients.quotas().getQuota(GetQuotaRequest.builder().quotaId(managed.getId()).build());
                 Quota current = getResponse.getQuota();
@@ -150,6 +155,7 @@ public class TenantQuotaProtectionService {
                 if (!parseManagedValues(current).compatible()) {
                     throw new OciException("当前配额策略包含无法识别的规则，为避免覆盖，请先在 Oracle 控制台处理后再修改");
                 }
+                stage = "updateQuota";
                 log.info("Oracle 配额保护操作阶段开始: tenantConfigId={}, stage=updateQuota", tenantConfigId);
                 var response = clients.quotas().updateQuota(UpdateQuotaRequest.builder()
                         .quotaId(managed.getId())
@@ -164,21 +170,26 @@ public class TenantQuotaProtectionService {
                 requestId = response.getOpcRequestId();
                 logStage("updateQuota", tenantConfigId, startedAt);
             }
-            Map<String, Object> out = new LinkedHashMap<>();
-            out.put("accepted", true);
-            out.put("profile", profile);
-            out.put("values", values);
-            out.put("policy", saved == null ? null : policyView(saved));
-            out.put("requestId", requestId);
-            return out;
+            result = new LinkedHashMap<>();
+            result.put("accepted", true);
+            result.put("profile", profile);
+            result.put("values", values);
+            result.put("policy", saved == null ? null : policyView(saved));
+            result.put("requestId", requestId);
         } catch (Exception e) {
+            protectionAccessService.release(accessToken, tenantConfigId, ACCESS_SCOPE);
+            long elapsedMs = (System.nanoTime() - startedAt) / 1_000_000L;
+            log.error("Oracle 配额保护操作失败: tenantConfigId={}, region={}, stage={}, elapsedMs={}, error={}",
+                    tenantConfigId, region, stage, elapsedMs, OciBmcErrorTranslator.translate(e), e);
             throw quotaError("保存 Oracle 配额保护失败", e);
         }
+        protectionAccessService.complete(accessToken, tenantConfigId, ACCESS_SCOPE);
+        return result;
     }
 
     public Map<String, Object> disable(String tenantConfigId, String accessToken) {
         OciUser user = requireUser(tenantConfigId);
-        protectionAccessService.consume(accessToken, tenantConfigId, ACCESS_SCOPE);
+        protectionAccessService.claim(accessToken, tenantConfigId, ACCESS_SCOPE);
         String region = resolveHomeRegion(tenantConfigId, user);
         try (QuotaClients clients = clients(user, region)) {
             QuotaSummary managed = findManaged(listPolicies(clients.quotas(), user.getOciTenantId()));
@@ -186,8 +197,12 @@ public class TenantQuotaProtectionService {
                 clients.quotas().deleteQuota(DeleteQuotaRequest.builder().quotaId(managed.getId()).build());
             }
         } catch (Exception e) {
+            protectionAccessService.release(accessToken, tenantConfigId, ACCESS_SCOPE);
+            log.error("关闭 Oracle 配额保护失败: tenantConfigId={}, region={}, error={}",
+                    tenantConfigId, region, OciBmcErrorTranslator.translate(e), e);
             throw quotaError("关闭 Oracle 配额保护失败", e);
         }
+        protectionAccessService.complete(accessToken, tenantConfigId, ACCESS_SCOPE);
         return Map.of("accepted", true);
     }
 

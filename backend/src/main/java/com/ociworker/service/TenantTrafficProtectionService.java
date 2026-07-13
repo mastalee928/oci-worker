@@ -74,25 +74,36 @@ public class TenantTrafficProtectionService {
         String action = required(input, "exceedAction").toUpperCase(Locale.ROOT);
         if (!ACTIONS.contains(action)) throw new OciException("不支持的超限动作");
         String accessToken = required(input, "accessToken");
-        protectionAccessService.consume(accessToken, tenantConfigId, ACCESS_SCOPE);
-        TenantTrafficProtection config = ensureConfig(tenantConfigId);
-        config.setMonthlyLimitBytes(limitTb * 1024L * 1024 * 1024 * 1024);
-        config.setWarningPercent(warning);
-        config.setExceedAction(action);
-        if (input.containsKey("enabled")) {
-            boolean enabled = Boolean.parseBoolean(String.valueOf(input.get("enabled")));
-            boolean changed = !Objects.equals(config.getEnabled(), enabled);
-            config.setEnabled(enabled);
-            if (changed) {
-                config.setNextCollectTime(enabled ? new Date() : null);
-                config.setLastError(null);
-                if (enabled) config.setLastWarningLevel(0);
+        protectionAccessService.claim(accessToken, tenantConfigId, ACCESS_SCOPE);
+        TenantTrafficProtection config;
+        Map<String, Object> result;
+        try {
+            config = ensureConfig(tenantConfigId);
+            config.setMonthlyLimitBytes(limitTb * 1024L * 1024 * 1024 * 1024);
+            config.setWarningPercent(warning);
+            config.setExceedAction(action);
+            if (input.containsKey("enabled")) {
+                boolean enabled = Boolean.parseBoolean(String.valueOf(input.get("enabled")));
+                boolean changed = !Objects.equals(config.getEnabled(), enabled);
+                config.setEnabled(enabled);
+                if (changed) {
+                    config.setNextCollectTime(enabled ? new Date() : null);
+                    config.setLastError(null);
+                    if (enabled) config.setLastWarningLevel(0);
+                }
             }
+            config.setUpdateTime(new Date());
+            protectionMapper.updateById(config);
+            result = overview(tenantConfigId);
+        } catch (Exception e) {
+            protectionAccessService.release(accessToken, tenantConfigId, ACCESS_SCOPE);
+            log.error("保存流量保护失败: tenantConfigId={}, error={}",
+                    tenantConfigId, OciBmcErrorTranslator.translate(e), e);
+            throw e;
         }
-        config.setUpdateTime(new Date());
-        protectionMapper.updateById(config);
+        protectionAccessService.complete(accessToken, tenantConfigId, ACCESS_SCOPE);
         if (Boolean.TRUE.equals(config.getEnabled())) collectAsync(tenantConfigId, false, false);
-        return overview(tenantConfigId);
+        return result;
     }
 
     public Map<String, Object> setEnabled(String tenantConfigId, boolean enabled, String verifyCode) {
