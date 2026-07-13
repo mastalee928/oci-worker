@@ -106,8 +106,7 @@ public class TenantTrafficProtectionService {
         return result;
     }
 
-    public Map<String, Object> setEnabled(String tenantConfigId, boolean enabled, String verifyCode) {
-        verifyCodeService.verifyCode(enabled ? "trafficProtectionEnable" : "trafficProtectionDisable", verifyCode, tenantConfigId);
+    public Map<String, Object> setEnabled(String tenantConfigId, boolean enabled) {
         TenantTrafficProtection config = ensureConfig(tenantConfigId);
         config.setEnabled(enabled);
         config.setNextCollectTime(enabled ? new Date() : null);

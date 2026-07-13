@@ -72,8 +72,6 @@ public class VerifyCodeService {
             case "identityDomainLicenseChange" -> "更改域类型";
             case "createChildTenancy" -> "创建子租户";
             case "inviteOrganizationTenancy" -> "邀请租户";
-            case "trafficProtectionEnable" -> "开启流量保护";
-            case "trafficProtectionDisable" -> "关闭流量保护";
             case "trafficProtectionManage" -> "配置流量保护";
             case "quotaProtectionManage" -> "配置 Oracle 配额保护";
             case "banlist" -> "封禁列表管理";

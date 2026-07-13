@@ -94,7 +94,7 @@ public class TenantController {
 
     @PostMapping("/trafficProtection/enabled")
     public ResponseData<?> trafficProtectionEnabled(@RequestBody java.util.Map<String, Object> params) {
-        return ResponseData.ok(tenantTrafficProtectionService.setEnabled(str(params, "id"), bool(params, "enabled"), str(params, "verifyCode")));
+        return ResponseData.ok(tenantTrafficProtectionService.setEnabled(str(params, "id"), bool(params, "enabled")));
     }
 
     @PostMapping("/trafficProtection/refresh")

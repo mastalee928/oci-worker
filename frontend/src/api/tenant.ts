@@ -221,7 +221,7 @@ export function refreshOrganizationTasks(data: { id: string }) { return request.
 export function getTrafficProtectionOverview(data: { id: string }) { return request.post('/oci/user/trafficProtection/overview', data, protectionHandledErrorConfig) }
 export function unlockTrafficProtection(data: { id: string; verifyCode: string }) { return request.post('/oci/user/trafficProtection/unlock', data, protectionHandledErrorConfig) }
 export function saveTrafficProtection(data: Record<string, any>) { return request.post('/oci/user/trafficProtection/save', data, protectionHandledErrorConfig) }
-export function setTrafficProtectionEnabled(data: { id: string; enabled: boolean; verifyCode: string }) { return request.post('/oci/user/trafficProtection/enabled', data, protectionHandledErrorConfig) }
+export function setTrafficProtectionEnabled(data: { id: string; enabled: boolean }) { return request.post('/oci/user/trafficProtection/enabled', data, protectionHandledErrorConfig) }
 export function refreshTrafficProtection(data: { id: string }) { return request.post('/oci/user/trafficProtection/refresh', data, protectionHandledErrorConfig) }
 export function getQuotaProtectionOverview(data: { id: string; force?: boolean }) { return request.post('/oci/user/quotaProtection/overview', data, protectionHandledErrorConfig) }
 export function unlockQuotaProtection(data: { id: string; verifyCode: string }) { return request.post('/oci/user/quotaProtection/unlock', data, protectionHandledErrorConfig) }
