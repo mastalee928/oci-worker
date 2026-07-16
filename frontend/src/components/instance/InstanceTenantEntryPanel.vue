@@ -3,6 +3,23 @@
     <a-empty description="无租户数据" />
   </div>
 
+  <InstanceTenantGroupedList
+    v-else-if="hasGroups && tenantViewMode === 'table'"
+    :groups="groupedTenants"
+    :active-group-keys="activeGroupKeys"
+    :active-l2-keys="activeL2Keys"
+    :active-tenant-id="activeTenantId"
+    :is-mobile="isMobile"
+    :group-tenant-count="groupTenantCount"
+    :is-tenant-loading="isTenantLoading"
+    @select-tenant="$emit('select-tenant', $event)"
+    @open-vcn="$emit('open-vcn', $event)"
+    @open-storage="$emit('open-storage', $event)"
+    @open-quick-task="$emit('open-quick-task', $event)"
+    @collapse-change="$emit('collapse-change', $event)"
+    @l2-collapse-change="$emit('l2-collapse-change', $event)"
+  />
+
   <template v-else-if="hasGroups">
     <a-collapse
       :active-key="activeGroupKeys"
@@ -284,6 +301,7 @@
 <script setup lang="ts">
 import { DownOutlined } from '@ant-design/icons-vue'
 import VirtualTenantGridList from '../tenant/VirtualTenantGridList.vue'
+import InstanceTenantGroupedList from './InstanceTenantGroupedList.vue'
 
 defineOptions({ name: 'InstanceTenantEntryPanel' })
 
