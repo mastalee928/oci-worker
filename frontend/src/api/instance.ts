@@ -1,4 +1,5 @@
 import request from '../utils/request'
+import type { OciRequestConfig } from '../utils/request'
 
 type R = { region?: string; compartmentId?: string; force?: boolean }
 
@@ -21,8 +22,8 @@ export interface ShapeEditTaskStatus {
   result?: Record<string, any>
 }
 
-export function getInstanceList(data: { id: string } & R) {
-  return request.post('/oci/instance/list', data)
+export function getInstanceList(data: { id: string } & R, config?: OciRequestConfig) {
+  return request.post('/oci/instance/list', data, config)
 }
 
 export function updateInstanceState(data: { id: string; instanceId: string; action: string } & R) {

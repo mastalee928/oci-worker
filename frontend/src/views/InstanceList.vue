@@ -323,7 +323,12 @@ const VIRTUAL_CARD_MIN = 12
 const INSTANCE_LIST_CACHE_TTL_MS = 15_000
 let instanceListActivatedOnce = false
 let instanceListLoadSeq = 0
-const instanceListActiveRequests = new Map<string, number>()
+interface ActiveInstanceListRequest {
+  seq: number
+  tenantId: string
+  controller: AbortController
+}
+const instanceListActiveRequests = new Map<string, ActiveInstanceListRequest>()
 
 interface LoadTenantInstancesOptions {
   force?: boolean
@@ -612,7 +617,31 @@ function resolveFloatingTenantFromWorkspace() {
 }
 
 function findTenantDataById(tenantId: string) {
-  return tenantDataList.value.find((td) => td.tenant?.id === tenantId) || null
+  const normalized = String(tenantId || '')
+  return tenantDataList.value.find((td) => String(td.tenant?.id || '') === normalized) || null
+}
+
+function setTenantInstanceLoading(tenantId: string, loading: boolean, fallback?: TenantData) {
+  const current = findTenantDataById(tenantId)
+  if (current) current.loading = loading
+  if (fallback && fallback !== current) fallback.loading = loading
+}
+
+function cancelTenantInstanceRequests(tenantId: string) {
+  const normalizedTenantId = String(tenantId || '')
+  if (!normalizedTenantId) return
+  for (const [key, request] of Array.from(instanceListActiveRequests.entries())) {
+    if (request.tenantId !== normalizedTenantId) continue
+    instanceListActiveRequests.delete(key)
+    request.controller.abort()
+  }
+  setTenantInstanceLoading(normalizedTenantId, false)
+}
+
+function cancelAllInstanceListRequests() {
+  for (const request of instanceListActiveRequests.values()) request.controller.abort()
+  instanceListActiveRequests.clear()
+  for (const td of tenantDataList.value) td.loading = false
 }
 
 const instancePanelRegion = ref('')
@@ -983,6 +1012,10 @@ const {
   beginTenantWorkspace,
   scheduleTenantWorkspaceOpen,
   clearFloatingTenantCard,
+  onInstanceWorkspaceClosed: (tenantId) => {
+    cancelTenantInstanceRequests(tenantId)
+    instanceSubscribedRegionsLoading.value = false
+  },
   onVcnBeforeOpen: () => {
     void nextTick(() => tenantVcnPanelRef.value?.loadPanel?.())
   },
@@ -1115,64 +1148,73 @@ async function loadTenantInstances(td: TenantData, options: LoadTenantInstancesO
   const notify = opts.notify === true
   const reg = (opts.region?.trim() || instanceListRegion(td)).trim()
   const tenantId = String(td.tenant?.id || '')
-  const isSameVisibleRegion = () =>
-    String(activeTenantId.value || '') !== tenantId || instanceListRegion(td) === reg
+  const requestKey = tenantId ? `${tenantId}|${reg}` : ''
+  const isCurrentPanelScope = () =>
+    String(activeTenantId.value || '') === tenantId && instanceListRegion(td) === reg
   const cached = getInstanceListCache(td, reg)
   const hadVisibleRows = td.instancesRegion === reg && Array.isArray(td.instances) && td.instances.length > 0
 
+  // A tenant can only have one active list request at a time. Abort the old
+  // region/request before starting a new one so a stale promise cannot own UI loading.
+  cancelTenantInstanceRequests(tenantId)
+
   if (cached) {
-    if (isSameVisibleRegion()) {
+    if (isCurrentPanelScope()) {
       td.instances = cached.rows
       td.instancesRegion = reg
     }
     if (!force && Date.now() - cached.fetchedAt < INSTANCE_LIST_CACHE_TTL_MS) {
-      if (isSameVisibleRegion()) td.loading = false
+      setTenantInstanceLoading(tenantId, false, td)
       return
     }
   }
-  if (!cached && isSameVisibleRegion() && td.instancesRegion !== reg) {
+  if (!cached && isCurrentPanelScope() && td.instancesRegion !== reg) {
     td.instances = []
     td.instancesRegion = reg
   }
 
   const requestSeq = ++instanceListLoadSeq
-  const requestKey = tenantId ? `${tenantId}|${reg}` : ''
-  if (requestKey) instanceListActiveRequests.set(requestKey, requestSeq)
-  const isLatestRequest = () => !requestKey || instanceListActiveRequests.get(requestKey) === requestSeq
-  const canApplyResult = () => isLatestRequest() && isSameVisibleRegion()
+  const controller = new AbortController()
+  const activeRequest: ActiveInstanceListRequest = { seq: requestSeq, tenantId, controller }
+  if (requestKey) instanceListActiveRequests.set(requestKey, activeRequest)
+  const isLatestRequest = () => !requestKey || instanceListActiveRequests.get(requestKey)?.seq === requestSeq
+  const canApplyCache = () => isLatestRequest()
+  const canApplyPanel = () => isLatestRequest() && isCurrentPanelScope()
 
-  if (isSameVisibleRegion()) td.loading = true
+  if (isCurrentPanelScope()) setTenantInstanceLoading(tenantId, true, td)
   try {
-    const rows = await appQueryCache.fetch(
-      instanceListCacheKey(td, reg),
-      async () => {
-        const res = await getInstanceList({ id: td.tenant.id, region: reg, force })
-        return res.data || []
-      },
-      { staleMs: INSTANCE_LIST_CACHE_TTL_MS, force },
+    const res = await getInstanceList(
+      { id: td.tenant.id, region: reg, force },
+      { signal: controller.signal },
     )
+    const rows = res.data || []
 
-    if (!canApplyResult()) return
+    if (!canApplyCache()) return
 
     setInstanceListCache(td, reg, rows)
-    td.instances = rows
-    td.instancesRegion = reg
+    if (!canApplyPanel()) return
+
+    const current = findTenantDataById(tenantId) || td
+    current.instances = rows
+    current.instancesRegion = reg
     if (currentTenant.value?.id === td.tenant.id && currentInstance.value?.instanceId) {
       const fresh = rows.find((i: any) => i.instanceId === currentInstance.value.instanceId)
       if (fresh) currentInstance.value = { ...currentInstance.value, ...fresh }
     }
     if (notify) message.success('实例列表已刷新')
   } catch (e: any) {
-    if (!canApplyResult()) return
+    if (!canApplyPanel()) return
+    if (e?.code === 'ERR_CANCELED' || e?.name === 'CanceledError') return
     if (notify) {
       message.error(e?.message || '刷新实例列表失败')
     } else if (!cached && !hadVisibleRows) {
-      td.instances = []
-      td.instancesRegion = reg
+      const current = findTenantDataById(tenantId) || td
+      current.instances = []
+      current.instancesRegion = reg
     }
   } finally {
     if (isLatestRequest()) {
-      if (isSameVisibleRegion()) td.loading = false
+      setTenantInstanceLoading(tenantId, false, td)
       if (requestKey) instanceListActiveRequests.delete(requestKey)
     }
   }
@@ -1338,6 +1380,7 @@ onActivated(() => {
 })
 onUnmounted(() => {
   window.removeEventListener('resize', checkMobile)
+  cancelAllInstanceListRequests()
   cleanupTenantWorkspaceDock()
   void callDetailDrawerShell('stopShapeSilently', [], 0)
   pendingTimers.forEach((t: any) => clearTimeout(t))

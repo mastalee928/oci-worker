@@ -18,6 +18,7 @@ interface UseTenantWorkspacePanelsOptions {
   scheduleTenantWorkspaceOpen: (openPanel: () => void) => void
   clearFloatingTenantCard: () => void
   onVcnBeforeOpen?: (tenant: TenantWorkspaceTenant) => void
+  onInstanceWorkspaceClosed?: (tenantId: string) => void
 }
 
 export function useTenantWorkspacePanels(options: UseTenantWorkspacePanelsOptions) {
@@ -30,12 +31,18 @@ export function useTenantWorkspacePanels(options: UseTenantWorkspacePanelsOption
   const storageManagerTenantName = ref('')
   const storageManagerDefaultRegion = ref('')
 
+  function closeInstanceWorkspace() {
+    const tenantId = activeTenantId.value
+    instancePanelOpen.value = false
+    activeTenantId.value = ''
+    if (tenantId) options.onInstanceWorkspaceClosed?.(tenantId)
+  }
+
   const instancePanelVisible = computed({
     get: () => instancePanelOpen.value && options.hasActiveTenant(),
     set: (val: boolean) => {
       if (!val) {
-        instancePanelOpen.value = false
-        activeTenantId.value = ''
+        closeInstanceWorkspace()
         clearWorkspaceIfIdle('instance')
       }
     },
@@ -51,8 +58,7 @@ export function useTenantWorkspacePanels(options: UseTenantWorkspacePanelsOption
 
   function closeTenantWorkspacePanels(except: TenantWorkspaceKind) {
     if (except !== 'instance') {
-      instancePanelOpen.value = false
-      activeTenantId.value = ''
+      closeInstanceWorkspace()
     }
     if (except !== 'vcn') vcnVisible.value = false
     if (except !== 'storage') storageManagerOpen.value = false
@@ -60,6 +66,10 @@ export function useTenantWorkspacePanels(options: UseTenantWorkspacePanelsOption
 
   function openInstanceWorkspace(tenant: TenantWorkspaceTenant, openOptions: TenantWorkspaceOpenOptions = {}) {
     const tenantId = String(tenant?.id || '')
+    const previousTenantId = activeTenantId.value
+    if (previousTenantId && previousTenantId !== tenantId) {
+      options.onInstanceWorkspaceClosed?.(previousTenantId)
+    }
     options.beginTenantWorkspace('instance', tenant, openOptions)
     closeTenantWorkspacePanels('instance')
     activeTenantId.value = tenantId

@@ -64,6 +64,9 @@ request.interceptors.response.use(
     return res
   },
   (error) => {
+    if (axios.isCancel(error) || error?.code === 'ERR_CANCELED') {
+      return Promise.reject(error)
+    }
     if (error.config?.skipErrorMessage) {
       return Promise.reject(error)
     }
