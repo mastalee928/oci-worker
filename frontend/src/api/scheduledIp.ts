@@ -62,7 +62,6 @@ export interface ScheduledIpOverview {
 export interface ScheduledIpTaskPayload {
   id?: string
   tenantConfigId: string
-  tenantName?: string
   region: string
   instanceId: string
   instanceName: string

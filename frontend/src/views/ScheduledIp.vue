@@ -1,4 +1,5 @@
 <template>
+  <div class="scheduled-ip-root">
   <AppPanelSkeleton
     v-if="initialLoading"
     variant="table"
@@ -302,10 +303,11 @@
       </div>
     </aside>
   </Teleport>
+  </div>
 </template>
 
 <script setup lang="ts">
-import { computed, defineComponent, h, onMounted, onUnmounted, reactive, ref } from 'vue'
+import { computed, defineComponent, h, onActivated, onDeactivated, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { message, Modal } from 'ant-design-vue'
 import AppPanelSkeleton from '../components/common/AppPanelSkeleton.vue'
 import { useTenantCatalogStore, type TenantRecord } from '../stores/tenantCatalog'
@@ -395,6 +397,7 @@ const providerFilter = ref('')
 const regionFilter = ref('')
 const busyIds = reactive(new Set<string>())
 let pollTimer: number | undefined
+let pageActive = false
 let overviewLoadSeq = 0
 let editorSessionSeq = 0
 let regionLoadSeq = 0
@@ -409,7 +412,7 @@ const instancesLoading = ref(false)
 const editorRegions = ref<string[]>([])
 const editorInstances = ref<InstanceOption[]>([])
 const editor = reactive({
-  tenantConfigId: '', tenantName: '', region: '', instanceId: '', instanceName: '', shape: '', compartmentId: '', currentPublicIp: '',
+  tenantConfigId: '', region: '', instanceId: '', instanceName: '', shape: '', compartmentId: '', currentPublicIp: '',
   intervalMinutes: 60, firstRunNow: false, dnsEnabled: true, dnsProvider: 'CF' as 'CF' | 'ALI', fqdn: '',
   notifySuccess: false, notifyIpFailure: true, notifyDnsFailure: true, notifyAutoPaused: true,
 })
@@ -471,13 +474,41 @@ onMounted(async () => {
     await Promise.allSettled([loadOverview(false), tenantCatalog.ensureTenants()])
   } finally {
     initialLoading.value = false
+    if (pageActive) startPolling()
   }
-  pollTimer = window.setInterval(() => void loadOverview(false, true), 10_000)
+})
+
+onActivated(() => {
+  pageActive = true
+  if (!initialLoading.value) {
+    void loadOverview(false, true)
+    startPolling()
+  }
+})
+
+onDeactivated(() => {
+  pageActive = false
+  overviewLoadSeq++
+  refreshing.value = false
+  stopPolling()
 })
 
 onUnmounted(() => {
-  if (pollTimer) window.clearInterval(pollTimer)
+  pageActive = false
+  overviewLoadSeq++
+  stopPolling()
 })
+
+function startPolling() {
+  if (pollTimer !== undefined) return
+  pollTimer = window.setInterval(() => void loadOverview(false, true), 10_000)
+}
+
+function stopPolling() {
+  if (pollTimer === undefined) return
+  window.clearInterval(pollTimer)
+  pollTimer = undefined
+}
 
 async function loadOverview(showMessage = false, silent = false) {
   const requestSeq = ++overviewLoadSeq
@@ -499,7 +530,7 @@ async function loadOverview(showMessage = false, silent = false) {
 
 function resetEditor() {
   Object.assign(editor, {
-    tenantConfigId: '', tenantName: '', region: '', instanceId: '', instanceName: '', shape: '', compartmentId: '', currentPublicIp: '',
+    tenantConfigId: '', region: '', instanceId: '', instanceName: '', shape: '', compartmentId: '', currentPublicIp: '',
     intervalMinutes: 60, firstRunNow: false, dnsEnabled: true, dnsProvider: 'CF', fqdn: '',
     notifySuccess: false, notifyIpFailure: true, notifyDnsFailure: true, notifyAutoPaused: true,
   })
@@ -523,7 +554,7 @@ async function openEditor(task?: ScheduledIpTask) {
   if (sessionSeq !== editorSessionSeq || !editorVisible.value) return
   if (!task) return
   Object.assign(editor, {
-    tenantConfigId: task.tenantConfigId, tenantName: task.tenantName || '', region: task.region,
+    tenantConfigId: task.tenantConfigId, region: task.region,
     instanceId: task.instanceId, instanceName: task.instanceName || '', shape: task.shape || '',
     compartmentId: task.compartmentId || '', currentPublicIp: task.currentPublicIp || '',
     intervalMinutes: task.intervalMinutes || 60, firstRunNow: false, dnsEnabled: task.dnsEnabled,
@@ -545,8 +576,6 @@ function closeEditor() {
 
 async function onTenantChange(value: string) {
   instanceLoadSeq++
-  const tenant = tenantCatalog.tenantById.get(value)
-  editor.tenantName = tenant ? tenantLabel(tenant) : ''
   editor.instanceId = ''
   editor.instanceName = ''
   editorInstances.value = []
@@ -662,7 +691,7 @@ async function saveEditor() {
   }
   if (editor.dnsEnabled && !editor.fqdn.trim()) { message.warning('请填写完整域名'); return }
   const payload: ScheduledIpTaskPayload = {
-    tenantConfigId: editor.tenantConfigId, tenantName: editor.tenantName, region: editor.region,
+    tenantConfigId: editor.tenantConfigId, region: editor.region,
     instanceId: editor.instanceId, instanceName: editor.instanceName, shape: editor.shape,
     compartmentId: editor.compartmentId, currentPublicIp: editor.currentPublicIp,
     intervalMinutes: editor.intervalMinutes, firstRunNow: editor.firstRunNow,
@@ -793,7 +822,7 @@ function taskFilterStatus(task: ScheduledIpTask) {
 }
 
 function tenantLabel(tenant: TenantRecord) {
-  return tenant.tenantName || tenant.username || tenant.id
+  return tenant.username
 }
 
 function shortShape(shape?: string) {
@@ -866,6 +895,7 @@ function logBadgeText(row: ScheduledIpRunLog) {
 </script>
 
 <style scoped>
+.scheduled-ip-root { width: 100%; min-width: 0; }
 .scheduled-page { min-width: 0; }
 .page-toolbar { display: flex; align-items: center; justify-content: flex-end; gap: 10px; margin-bottom: 16px; }
 .btn { min-height: 34px; padding: 7px 16px; border: 1px solid transparent; border-radius: 12px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; color: var(--text-main); font: 500 14px/1.4 inherit; white-space: nowrap; cursor: pointer; transition: var(--trans); }
@@ -949,6 +979,23 @@ tbody tr:hover { background: var(--primary-light); }
 .field input { padding: 0 12px; font-size: 14px; cursor: text; }
 .field input:focus, .field select:focus { border-color: var(--primary); box-shadow: 0 0 0 3px var(--primary-light); }
 .tenant-select { width: 100%; }
+.tenant-select :deep(.ant-select-selector) {
+  height: 38px !important;
+  padding: 0 12px !important;
+  align-items: center;
+}
+.tenant-select :deep(.ant-select-selection-search) {
+  inset-inline-start: 12px;
+  inset-inline-end: 34px;
+}
+.tenant-select :deep(.ant-select-selection-search-input) {
+  height: 36px !important;
+  line-height: 36px !important;
+}
+.tenant-select :deep(.ant-select-selection-placeholder),
+.tenant-select :deep(.ant-select-selection-item) {
+  line-height: 36px !important;
+}
 .hint { margin-top: 6px; color: var(--text-sub); font-size: 12px; line-height: 1.5; }
 .hint.ok { color: var(--success-text); }
 .two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }

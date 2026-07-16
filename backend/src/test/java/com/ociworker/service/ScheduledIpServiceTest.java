@@ -96,7 +96,6 @@ class ScheduledIpServiceTest {
     private static ScheduledIpTaskRequest validRequest() {
         ScheduledIpTaskRequest request = new ScheduledIpTaskRequest();
         request.setTenantConfigId("tenant-1");
-        request.setTenantName("测试租户");
         request.setRegion("us-ashburn-1");
         request.setInstanceId("ocid1.instance.oc1.iad.test");
         request.setInstanceName("test-instance");

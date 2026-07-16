@@ -48,6 +48,8 @@ public class ScheduledIpService {
     public Map<String, Object> overview() {
         List<ScheduledIpTask> tasks = taskMapper.selectList(
                 new LambdaQueryWrapper<ScheduledIpTask>().orderByDesc(ScheduledIpTask::getCreateTime));
+        Map<String, String> tenantCustomNames = loadTenantCustomNames(tasks);
+        tasks.forEach(task -> applyTenantCustomName(task, tenantCustomNames));
         ScheduledIpRunLog latestLog = runLogMapper.selectOne(
                 new LambdaQueryWrapper<ScheduledIpRunLog>()
                         .orderByDesc(ScheduledIpRunLog::getStartedAt)
@@ -58,6 +60,7 @@ public class ScheduledIpService {
                         .isNotNull(ScheduledIpTask::getNextRunTime)
                         .orderByAsc(ScheduledIpTask::getNextRunTime)
                         .last("LIMIT 1"));
+        applyTenantCustomName(nextTask, tenantCustomNames);
 
         long enabled = tasks.stream().filter(task -> Boolean.TRUE.equals(task.getEnabled())).count();
         long errors = tasks.stream().filter(task -> isErrorStatus(task.getLastStatus())).count();
@@ -146,7 +149,9 @@ public class ScheduledIpService {
         copy.setId(UUID.randomUUID().toString());
         copy.setName(limit(source.getName() + " (副本)", 255));
         copy.setTenantConfigId(source.getTenantConfigId());
-        copy.setTenantName(source.getTenantName());
+        OciUser sourceUser = userMapper.selectById(source.getTenantConfigId());
+        if (sourceUser == null) throw new OciException("租户配置不存在");
+        copy.setTenantName(required(sourceUser.getUsername(), "租户自定义名称"));
         copy.setRegion(source.getRegion());
         copy.setInstanceId(source.getInstanceId());
         copy.setInstanceName(source.getInstanceName());
@@ -272,8 +277,7 @@ public class ScheduledIpService {
             }
             fqdn = ScheduledIpDnsService.normalizeFqdn(request.getFqdn());
         }
-        String tenantName = request.getTenantName() == null || request.getTenantName().isBlank()
-                ? user.getUsername() : request.getTenantName().trim();
+        String tenantName = required(user.getUsername(), "租户自定义名称");
         return new ValidatedTask(
                 tenantConfigId, tenantName, region, instanceId, instanceName.trim(),
                 trim(request.getShape()), trim(request.getCompartmentId()), trim(request.getCurrentPublicIp()),
@@ -330,6 +334,28 @@ public class ScheduledIpService {
         ScheduledIpTask task = taskMapper.selectById(required(id, "任务 ID"));
         if (task == null) throw new OciException("定时换 IP 任务不存在");
         return task;
+    }
+
+    private Map<String, String> loadTenantCustomNames(List<ScheduledIpTask> tasks) {
+        List<String> tenantIds = tasks.stream()
+                .map(ScheduledIpTask::getTenantConfigId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList();
+        Map<String, String> names = new LinkedHashMap<>();
+        if (tenantIds.isEmpty()) return names;
+        for (OciUser user : userMapper.selectByIds(tenantIds)) {
+            if (user.getId() != null && user.getUsername() != null) {
+                names.put(user.getId(), user.getUsername());
+            }
+        }
+        return names;
+    }
+
+    private static void applyTenantCustomName(ScheduledIpTask task, Map<String, String> names) {
+        if (task == null) return;
+        String customName = names.get(task.getTenantConfigId());
+        if (customName != null) task.setTenantName(customName);
     }
 
     private void ensureNotRunning(ScheduledIpTask task) {

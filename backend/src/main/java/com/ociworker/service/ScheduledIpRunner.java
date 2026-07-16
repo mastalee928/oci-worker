@@ -116,6 +116,7 @@ public class ScheduledIpRunner {
                 if (Boolean.TRUE.equals(task.getEnabled())) reserveEnabledInstance(task);
                 OciUser user = userMapper.selectById(task.getTenantConfigId());
                 if (user == null) throw new AutoPauseException("租户配置已不存在");
+                task.setTenantName(user.getUsername());
                 result = networkService.changePublicIpForScheduledTask(
                         task.getTenantConfigId(), task.getInstanceId(), task.getRegion(), task.getCompartmentId());
             } catch (Exception error) {
@@ -216,6 +217,8 @@ public class ScheduledIpRunner {
         try {
             ScheduledIpTask task = taskMapper.selectById(taskId);
             if (task == null) return;
+            OciUser user = userMapper.selectById(task.getTenantConfigId());
+            if (user != null) task.setTenantName(user.getUsername());
             Date now = new Date();
             Date lockUntil = Date.from(now.toInstant().plus(EXECUTION_LEASE));
             taskClaimed = taskMapper.claimExecution(taskId, owner, now, lockUntil) == 1;

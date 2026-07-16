@@ -6,7 +6,6 @@ import lombok.Data;
 public class ScheduledIpTaskRequest {
     private String id;
     private String tenantConfigId;
-    private String tenantName;
     private String region;
     private String instanceId;
     private String instanceName;
