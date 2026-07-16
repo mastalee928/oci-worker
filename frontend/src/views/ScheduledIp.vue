@@ -923,7 +923,7 @@ function logBadgeText(row: ScheduledIpRunLog) {
 .sel { position: relative; }
 .sel select, .field select, .field input { width: 100%; height: 38px; padding: 0 34px 0 14px; border: 1px solid var(--border); border-radius: 12px; outline: none; appearance: none; background: var(--input-bg); color: var(--text-main); font: 13px inherit; cursor: pointer; transition: .15s; }
 .sel select { width: auto; min-width: 120px; }
-.sel::after, .field:has(> select)::after { content: ''; position: absolute; right: 14px; bottom: 16px; width: 6px; height: 6px; border-right: 1.5px solid var(--text-sub); border-bottom: 1.5px solid var(--text-sub); transform: rotate(45deg); pointer-events: none; }
+.filters > .sel::after, .field:has(> select)::after { content: ''; position: absolute; right: 14px; bottom: 16px; width: 6px; height: 6px; border-right: 1.5px solid var(--text-sub); border-bottom: 1.5px solid var(--text-sub); transform: rotate(45deg); pointer-events: none; }
 .field:has(> select) { position: relative; }
 .field select:disabled { opacity: .6; cursor: not-allowed; }
 .card { overflow: hidden; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-card); box-shadow: var(--shadow-card); backdrop-filter: blur(12px); }
