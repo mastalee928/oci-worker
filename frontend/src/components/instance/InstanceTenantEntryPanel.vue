@@ -24,7 +24,7 @@
     <a-collapse
       :active-key="activeGroupKeys"
       class="group-collapse"
-      :class="{ 'group-collapse-list': tenantViewMode === 'table' }"
+      :class="{ 'group-collapse-list': tenantViewMode === 'card' }"
       @change="$emit('collapse-change', $event)"
     >
       <a-collapse-panel v-for="g1 in groupedTenants" :key="g1.key" :collapsible="groupTenantCount(g1) === 0 ? 'disabled' : undefined">
@@ -37,7 +37,7 @@
             <a-collapse
               :active-key="activeL2Keys"
               class="group-collapse-l2"
-              :class="{ 'group-collapse-l2-list': tenantViewMode === 'table' }"
+              :class="{ 'group-collapse-l2-list': tenantViewMode === 'card' }"
               @change="$emit('l2-collapse-change', $event)"
             >
               <a-collapse-panel v-for="l2 in g1.children" :key="l2.key" :collapsible="l2.tenants.length === 0 ? 'disabled' : undefined">
