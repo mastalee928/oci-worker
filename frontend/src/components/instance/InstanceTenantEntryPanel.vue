@@ -4,14 +4,19 @@
   </div>
 
   <InstanceTenantGroupedList
-    v-else-if="hasGroups && tenantViewMode === 'table'"
+    v-else-if="hasGroups"
     :groups="groupedTenants"
+    :tenant-view-mode="tenantViewMode"
     :active-group-keys="activeGroupKeys"
     :active-l2-keys="activeL2Keys"
     :active-tenant-id="activeTenantId"
     :is-mobile="isMobile"
     :group-tenant-count="groupTenantCount"
     :is-tenant-loading="isTenantLoading"
+    :is-floating-tenant-source="isFloatingTenantSource"
+    :tenant-plan-tag-style="tenantPlanTagStyle"
+    :tenant-plan-tag-color="tenantPlanTagColor"
+    :format-tenant-plan-type="formatTenantPlanType"
     @select-tenant="$emit('select-tenant', $event)"
     @open-vcn="$emit('open-vcn', $event)"
     @open-storage="$emit('open-storage', $event)"

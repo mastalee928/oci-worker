@@ -29,14 +29,19 @@
             <span class="group-label">{{ child.label }}</span>
             <a-badge :count="child.tenants.length" :show-zero="true" class="oci-group-count-badge" />
           </button>
-          <div v-if="isL2Open(child.key)" class="tenant-rows">
-            <TenantRow
+          <div v-if="isL2Open(child.key)" :class="tenantViewMode === 'card' ? 'tenant-card-grid' : 'tenant-rows'">
+            <TenantItem
               v-for="td in child.tenants"
               :key="td.tenant.id"
               :tenant-data="td"
+              :view-mode="tenantViewMode"
               :active="td.tenant.id === activeTenantId"
               :loading="isTenantLoading(td)"
               :is-mobile="isMobile"
+              :floating-source="isFloatingTenantSource(td.tenant)"
+              :plan-tag-style="tenantPlanTagStyle(td.tenant.planType)"
+              :plan-tag-color="tenantPlanTagColor(td.tenant.planType)"
+              :plan-label="formatTenantPlanType(td.tenant.planType)"
               @select="$emit('select-tenant', td)"
               @open-vcn="$emit('open-vcn', td.tenant)"
               @open-storage="$emit('open-storage', td.tenant)"
@@ -46,14 +51,19 @@
         </section>
 
         <section v-if="group.tenants.length" class="instance-subgroup direct-tenants">
-          <div class="tenant-rows">
-            <TenantRow
+          <div :class="tenantViewMode === 'card' ? 'tenant-card-grid' : 'tenant-rows'">
+            <TenantItem
               v-for="td in group.tenants"
               :key="td.tenant.id"
               :tenant-data="td"
+              :view-mode="tenantViewMode"
               :active="td.tenant.id === activeTenantId"
               :loading="isTenantLoading(td)"
               :is-mobile="isMobile"
+              :floating-source="isFloatingTenantSource(td.tenant)"
+              :plan-tag-style="tenantPlanTagStyle(td.tenant.planType)"
+              :plan-tag-color="tenantPlanTagColor(td.tenant.planType)"
+              :plan-label="formatTenantPlanType(td.tenant.planType)"
               @select="$emit('select-tenant', td)"
               @open-vcn="$emit('open-vcn', td.tenant)"
               @open-storage="$emit('open-storage', td.tenant)"
@@ -86,12 +96,17 @@ interface GroupNode {
 
 const props = defineProps<{
   groups: GroupNode[]
+  tenantViewMode: 'card' | 'table'
   activeGroupKeys: string[]
   activeL2Keys: string[]
   activeTenantId: string
   isMobile: boolean
   groupTenantCount: (group: GroupNode) => number
   isTenantLoading: (tenantData: TenantData) => boolean
+  isFloatingTenantSource: (tenant: any) => boolean
+  tenantPlanTagStyle: (plan: unknown) => Record<string, string> | undefined
+  tenantPlanTagColor: (plan: unknown) => string
+  formatTenantPlanType: (plan: unknown) => string
 }>()
 
 const emit = defineEmits<{
@@ -127,13 +142,18 @@ function toggleL2(key: string) {
   emit('l2-collapse-change', [...keys])
 }
 
-const TenantRow = defineComponent({
-  name: 'InstanceTenantGroupedListRow',
+const TenantItem = defineComponent({
+  name: 'InstanceTenantGroupedListItem',
   props: {
     tenantData: { type: Object as PropType<TenantData>, required: true },
+    viewMode: { type: String as PropType<'card' | 'table'>, required: true },
     active: { type: Boolean, default: false },
     loading: { type: Boolean, default: false },
     isMobile: { type: Boolean, default: false },
+    floatingSource: { type: Boolean, default: false },
+    planTagStyle: { type: Object as PropType<Record<string, string> | undefined>, default: undefined },
+    planTagColor: { type: String, default: '' },
+    planLabel: { type: String, default: '' },
   },
   emits: ['select', 'open-vcn', 'open-storage', 'open-quick-task'],
   setup(rowProps, { emit: rowEmit }) {
@@ -149,7 +169,36 @@ const TenantRow = defineComponent({
       onClick: () => rowEmit(event),
     }, { default: () => [h('i', { class: icon, 'aria-hidden': 'true' }), label] })
 
-    return () => h('div', { class: ['tenant-list-row', { active: rowProps.active }] }, [
+    return () => {
+      if (rowProps.viewMode === 'card') {
+        const tenant = rowProps.tenantData.tenant || {}
+        return h('div', {
+          class: ['tenant-card', {
+            'tenant-card-active': rowProps.active,
+            'tenant-card-floating-source': rowProps.floatingSource,
+          }],
+          'data-tenant-id': tenant.id,
+        }, [
+          h('div', { class: 'tc-header' }, [
+            h('i', { class: 'ri-cloud-line tc-icon', 'aria-hidden': 'true' }),
+            h('div', { class: 'tc-info' }, [
+              h('div', { class: 'tc-name' }, String(tenant.username || '未命名租户')),
+              h('div', { class: 'tc-region' }, String(tenant.ociRegion || '—')),
+            ]),
+          ]),
+          h('div', { class: 'tc-tags' }, [
+            tenant.planType ? h(ATag, { color: rowProps.planTagColor, style: rowProps.planTagStyle }, { default: () => rowProps.planLabel }) : null,
+            tenant.tenantName ? h(ATag, { color: 'blue' }, { default: () => String(tenant.tenantName) }) : null,
+          ]),
+          h('div', { class: 'tc-actions' }, [
+            action('实例管理', 'ri-server-line', 'select', true),
+            action('虚拟云网络', 'ri-share-line', 'open-vcn'),
+            action('存储', 'ri-database-2-line', 'open-storage'),
+            action('快捷开机', 'ri-play-circle-line', 'open-quick-task'),
+          ]),
+        ])
+      }
+      return h('div', { class: ['tenant-list-row', { active: rowProps.active }] }, [
       h('div', { class: 'tenant-identity' }, [
         h('div', { class: 'tenant-primary-name' }, String(rowProps.tenantData.tenant?.username || '未命名租户')),
         rowProps.tenantData.tenant?.tenantName
@@ -163,7 +212,8 @@ const TenantRow = defineComponent({
         action('存储', 'ri-database-2-line', 'open-storage'),
         action('快捷开机', 'ri-play-circle-line', 'open-quick-task'),
       ]),
-    ])
+      ])
+    }
   },
 })
 </script>
@@ -186,6 +236,24 @@ const TenantRow = defineComponent({
 .direct-tenants { padding: 4px 12px; }
 .tenant-rows { border-top: 1px solid color-mix(in srgb, var(--border) 72%, transparent); }
 .direct-tenants .tenant-rows { border-top: 0; }
+.tenant-card-grid { padding: 14px; border-top: 1px solid color-mix(in srgb, var(--border) 72%, transparent); display: grid; grid-template-columns: repeat(auto-fill, minmax(260px, 1fr)); gap: 16px; }
+.direct-tenants .tenant-card-grid { border-top: 0; }
+:deep(.tenant-card) { position: relative; overflow: hidden; min-width: 0; height: 100%; padding: 20px; border: 1px solid var(--border); border-radius: 16px; display: flex; flex-direction: column; background: var(--bg-card); box-shadow: var(--shadow-card); backdrop-filter: blur(12px); transition: all .3s cubic-bezier(.34, 1.56, .64, 1); }
+:deep(.tenant-card)::before { content: ''; position: absolute; top: 0; right: 0; left: 0; height: 3px; background: linear-gradient(90deg, var(--primary), #8b5cf6); transform: scaleX(0); transform-origin: left; transition: transform .3s; }
+:deep(.tenant-card:hover)::before, :deep(.tenant-card-active)::before { transform: scaleX(1); }
+:deep(.tenant-card:hover) { border-color: rgba(129, 140, 248, .5); transform: translateY(-3px); box-shadow: 0 8px 24px -6px rgba(99, 102, 241, .25); }
+:deep(.tenant-card-active) { border-color: var(--primary) !important; box-shadow: 0 0 0 2px rgba(99, 102, 241, .2), var(--shadow-card); }
+:deep(.tenant-card-floating-source) { pointer-events: none; background: var(--tenant-floating-placeholder-bg) !important; border-color: var(--tenant-floating-placeholder-border) !important; box-shadow: inset 0 0 0 1px var(--tenant-floating-placeholder-border) !important; transform: none !important; }
+:deep(.tenant-card-floating-source)::before { opacity: 0; transform: scaleX(0) !important; }
+:deep(.tenant-card-floating-source > *) { opacity: 0; }
+:deep(.tc-header) { margin-bottom: 12px; display: flex; align-items: center; gap: 12px; }
+:deep(.tc-icon) { flex-shrink: 0; color: var(--primary); font-size: 28px; }
+:deep(.tc-info) { min-width: 0; flex: 1; }
+:deep(.tc-name) { overflow: hidden; color: var(--text-main); font-size: 15px; font-weight: 700; text-overflow: ellipsis; white-space: nowrap; }
+:deep(.tc-region) { margin-top: 2px; color: var(--text-sub); font-size: 12px; }
+:deep(.tc-tags) { min-height: 22px; margin-bottom: 14px; display: flex; flex-wrap: wrap; gap: 6px; }
+:deep(.tc-actions) { margin-top: auto; display: flex; flex-direction: column; gap: 8px; }
+:deep(.tc-actions .ant-btn i) { margin-right: 6px; }
 :deep(.tenant-list-row) { min-height: 62px; padding: 10px 8px; border-bottom: 1px solid var(--border); display: grid; grid-template-columns: minmax(220px, 1fr) auto auto; align-items: center; gap: 14px; transition: background-color .16s ease, box-shadow .16s ease; }
 :deep(.tenant-list-row:last-child) { border-bottom: 0; }
 :deep(.tenant-list-row:hover) { background: color-mix(in srgb, var(--primary-light) 58%, transparent); box-shadow: inset 3px 0 0 color-mix(in srgb, var(--primary) 70%, transparent); }
@@ -201,8 +269,13 @@ const TenantRow = defineComponent({
 :deep(.tenant-actions .ant-btn:not(.ant-btn-primary):hover) { border-color: color-mix(in srgb, var(--primary) 45%, var(--border)); background: var(--primary-light); color: var(--primary); }
 @media (max-width: 768px) {
   .instance-group-body { padding: 10px; }
+  .tenant-card-grid { grid-template-columns: 1fr 1fr; gap: 10px; padding: 10px; }
+  :deep(.tenant-card) { padding: 14px; border-radius: 12px; }
+  :deep(.tc-icon) { font-size: 22px; }
+  :deep(.tc-name) { font-size: 13px; }
   :deep(.tenant-list-row) { grid-template-columns: 1fr; gap: 9px; padding: 12px 8px; }
   :deep(.tenant-region) { justify-self: start; }
   :deep(.tenant-actions) { justify-content: flex-start; }
 }
+@media (max-width: 520px) { .tenant-card-grid { grid-template-columns: 1fr; } }
 </style>
