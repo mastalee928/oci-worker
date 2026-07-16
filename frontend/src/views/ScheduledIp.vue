@@ -1,15 +1,8 @@
 <template>
   <div class="scheduled-ip-root">
-  <AppPanelSkeleton
-    v-if="initialLoading"
-    variant="table"
-    title="正在加载定时换 IP"
-    description="读取任务、实例与执行状态"
-  />
-
-  <div v-else class="scheduled-page">
+  <div class="scheduled-page">
     <div class="page-toolbar">
-      <button class="btn btn-ghost" :disabled="refreshing" @click="loadOverview(true)">
+      <button class="btn btn-ghost" :disabled="initialLoading || refreshing" @click="loadOverview(true)">
         <i class="ri-refresh-line" :class="{ spinning: refreshing }"></i>刷新
       </button>
       <button class="btn btn-primary" @click="openEditor()">
@@ -20,23 +13,23 @@
     <div class="stats">
       <div class="stat">
         <div class="k">启用中任务</div>
-        <div class="v">{{ stats.enabled }} <small>/ 共 {{ stats.total }}</small></div>
-        <div class="sub">{{ stats.paused }} 个已暂停</div>
+        <template v-if="initialLoading"><div class="stat-loading"></div><div class="stat-loading sub-loading"></div></template>
+        <template v-else><div class="v">{{ stats.enabled }} <small>/ 共 {{ stats.total }}</small></div><div class="sub">{{ stats.paused }} 个已暂停</div></template>
       </div>
       <div class="stat warn">
         <div class="k">异常 / DNS 失败</div>
-        <div class="v">{{ stats.errors }}</div>
-        <div class="sub">{{ latestErrorText }}</div>
+        <template v-if="initialLoading"><div class="stat-loading"></div><div class="stat-loading sub-loading"></div></template>
+        <template v-else><div class="v">{{ stats.errors }}</div><div class="sub">{{ latestErrorText }}</div></template>
       </div>
       <div class="stat ok">
         <div class="k">最近一次执行</div>
-        <div class="v stat-text">{{ latestResultText }}</div>
-        <div class="sub">{{ latestResultSub }}</div>
+        <template v-if="initialLoading"><div class="stat-loading"></div><div class="stat-loading sub-loading"></div></template>
+        <template v-else><div class="v stat-text">{{ latestResultText }}</div><div class="sub">{{ latestResultSub }}</div></template>
       </div>
       <div class="stat">
         <div class="k">下一次执行</div>
-        <div class="v stat-text">{{ nextRunText }}</div>
-        <div class="sub">{{ nextRunSub }}</div>
+        <template v-if="initialLoading"><div class="stat-loading"></div><div class="stat-loading sub-loading"></div></template>
+        <template v-else><div class="v stat-text">{{ nextRunText }}</div><div class="sub">{{ nextRunSub }}</div></template>
       </div>
     </div>
 
@@ -85,7 +78,10 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-if="!filteredTasks.length" class="empty-row">
+          <tr v-if="initialLoading" class="empty-row loading-row">
+            <td colspan="9"><div class="table-loading"><i class="ri-loader-4-line spinning"></i> 正在读取任务与执行状态</div></td>
+          </tr>
+          <tr v-else-if="!filteredTasks.length" class="empty-row">
             <td colspan="9"><div class="empty">{{ loadError || '没有匹配的任务' }}</div></td>
           </tr>
           <tr v-for="task in filteredTasks" :key="task.id">
@@ -321,7 +317,6 @@
 import { computed, defineComponent, h, onActivated, onDeactivated, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { message, Modal } from 'ant-design-vue'
 import { useRouter } from 'vue-router'
-import AppPanelSkeleton from '../components/common/AppPanelSkeleton.vue'
 import { useTenantCatalogStore, type TenantRecord } from '../stores/tenantCatalog'
 import { listTenantRegions } from '../api/tenant'
 import { getInstanceList, getInstancePublicIps } from '../api/instance'
@@ -497,7 +492,7 @@ const dnsPreview = computed(() => {
 onMounted(async () => {
   void loadDnsProviderAvailability()
   try {
-    await Promise.allSettled([loadOverview(false), tenantCatalog.ensureTenants()])
+    await loadOverview(false)
   } finally {
     initialLoading.value = false
     if (pageActive) startPolling()
@@ -1004,6 +999,8 @@ function logBadgeText(row: ScheduledIpRunLog) {
 .stat .v { min-width: 0; margin-top: 10px; display: flex; align-items: baseline; gap: 8px; color: var(--text-main); font-size: 28px; font-weight: 800; font-variant-numeric: tabular-nums; letter-spacing: -.03em; line-height: 1.1; }
 .stat .v small { color: var(--text-sub); font-size: 13px; font-weight: 500; }
 .stat .sub { margin-top: 8px; overflow: hidden; color: var(--text-sub); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.stat-loading { width: 42%; height: 28px; margin-top: 10px; border-radius: 8px; background: linear-gradient(90deg, var(--input-bg) 25%, var(--primary-light) 50%, var(--input-bg) 75%); background-size: 200% 100%; animation: scheduled-shimmer 1.4s ease-in-out infinite; }
+.stat-loading.sub-loading { width: 68%; height: 12px; margin-top: 8px; border-radius: 6px; }
 .stat.warn .v { color: var(--warning-text); }
 .stat.ok .v { color: var(--success-text); }
 .stat .stat-text { overflow: hidden; font-size: 19px; text-overflow: ellipsis; white-space: nowrap; }
@@ -1025,6 +1022,8 @@ thead th { padding: 13px 16px; border-bottom: 1px solid var(--border); backgroun
 tbody td { padding: 14px 16px; border-bottom: 1px solid var(--border); color: var(--text-main); vertical-align: middle; }
 tbody tr:last-child td { border-bottom: 0; }
 tbody tr:hover { background: var(--primary-light); }
+.loading-row:hover { background: transparent; }
+.table-loading { padding: 34px 0; color: var(--text-sub); text-align: center; }
 .cell-main { color: var(--text-main); font-weight: 500; }
 .cell-sub { min-width: 0; margin-top: 2px; color: var(--text-sub); font-size: 12px; }
 .mono, .ip { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
@@ -1140,6 +1139,7 @@ tbody tr:hover { background: var(--primary-light); }
 .arrow { margin: 0 6px; color: var(--text-sub); }
 .spinning { display: inline-block; animation: scheduled-spin .85s linear infinite; }
 @keyframes scheduled-spin { to { transform: rotate(360deg); } }
+@keyframes scheduled-shimmer { to { background-position: -200% 0; } }
 
 @media (max-width: 900px) {
   .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -1178,5 +1178,5 @@ tbody tr:hover { background: var(--primary-light); }
   .seg { width: 100%; }
   .seg button { flex: 1; padding-right: 8px; padding-left: 8px; }
 }
-@media (prefers-reduced-motion: reduce) { .spinning { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .spinning, .stat-loading { animation: none; } }
 </style>

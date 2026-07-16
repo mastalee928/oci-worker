@@ -85,7 +85,8 @@ public class DatabaseGuardService {
                 success_count INT DEFAULT 0,
                 created_instances TEXT DEFAULT NULL,
                 create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-                INDEX idx_oci_create_task_create_time (create_time DESC)
+                INDEX idx_oci_create_task_create_time (create_time DESC),
+                INDEX idx_oci_create_task_user_status (user_id, status)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """);
 
@@ -634,6 +635,7 @@ public class DatabaseGuardService {
         addColumnIfMissing(conn, "oci_create_task", "success_count", "INT DEFAULT 0 AFTER attempt_count");
         addColumnIfMissing(conn, "oci_create_task", "created_instances", "TEXT DEFAULT NULL AFTER success_count");
         addColumnIfMissing(conn, "oci_create_task", "failure_reason", "TEXT DEFAULT NULL AFTER created_instances");
+        addIndexIfMissing(conn, "oci_create_task", "idx_oci_create_task_user_status", "user_id", "status");
         addColumnIfMissing(conn, "oci_tenant_traffic_protection", "collection_lock_owner",
                 "VARCHAR(64) DEFAULT NULL AFTER stop_executed_time");
         addColumnIfMissing(conn, "oci_tenant_traffic_protection", "collection_lock_until",
@@ -752,6 +754,23 @@ public class DatabaseGuardService {
             }
         } catch (SQLException e) {
             log.warn("【数据库守护】检查/添加唯一索引 {}.{} 失败: {}", table, indexName, e.getMessage());
+        }
+    }
+
+    private void addIndexIfMissing(Connection conn, String table, String indexName, String... columns) {
+        try {
+            if (indexExists(conn, table, indexName)) {
+                return;
+            }
+            String columnSql = Arrays.stream(columns)
+                    .map(column -> "`" + column + "`")
+                    .collect(java.util.stream.Collectors.joining(", "));
+            try (Statement stmt = conn.createStatement()) {
+                stmt.execute("ALTER TABLE `" + table + "` ADD INDEX `" + indexName + "` (" + columnSql + ")");
+                log.info("【数据库守护】自动添加索引 {}.{}", table, indexName);
+            }
+        } catch (SQLException e) {
+            log.warn("【数据库守护】检查/添加索引 {}.{} 失败: {}", table, indexName, e.getMessage());
         }
     }
 

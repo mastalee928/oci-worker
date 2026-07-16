@@ -16,7 +16,6 @@ import com.oracle.bmc.ospgateway.requests.ListSubscriptionsRequest;
 import com.oracle.bmc.retrier.RetryConfiguration;
 import com.ociworker.mapper.OciKvMapper;
 import com.ociworker.mapper.OciUserMapper;
-import com.ociworker.model.entity.OciCreateTask;
 import com.ociworker.model.entity.OciKv;
 import com.ociworker.model.entity.OciUser;
 import com.ociworker.model.params.IdListParams;
@@ -125,6 +124,21 @@ public class TenantService {
         Page<OciUser> result = userMapper.selectPage(page, wrapper);
         result.getRecords().forEach(this::scheduleTenantInfoFetchIfNeeded);
 
+        List<String> tenantIds = result.getRecords().stream()
+                .map(OciUser::getId)
+                .filter(Objects::nonNull)
+                .toList();
+        Map<String, Long> runningTaskCounts = new HashMap<>();
+        if (!tenantIds.isEmpty()) {
+            taskMapper.countByUserIdsAndStatus(tenantIds, TaskStatusEnum.RUNNING.getStatus()).forEach(row -> {
+                Object userId = row.get("user_id");
+                Object count = row.get("running_count");
+                if (userId != null && count instanceof Number number) {
+                    runningTaskCounts.put(String.valueOf(userId), number.longValue());
+                }
+            });
+        }
+
         Page<Map<String, Object>> enriched = new Page<>(result.getCurrent(), result.getSize(), result.getTotal());
         enriched.setRecords(result.getRecords().stream().map(u -> {
             Map<String, Object> map = new LinkedHashMap<>();
@@ -141,10 +155,7 @@ public class TenantService {
             map.put("groupLevel2", u.getGroupLevel2());
             map.put("createTime", u.getCreateTime());
 
-            long running = taskMapper.selectCount(
-                    new LambdaQueryWrapper<OciCreateTask>()
-                            .eq(OciCreateTask::getUserId, u.getId())
-                            .eq(OciCreateTask::getStatus, TaskStatusEnum.RUNNING.getStatus()));
+            long running = runningTaskCounts.getOrDefault(u.getId(), 0L);
             map.put("taskStatus", running > 0 ? "执行开机任务中" : "无开机任务");
             map.put("hasRunningTask", running > 0);
             return map;
