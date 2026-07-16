@@ -1,21 +1,24 @@
 <template>
   <div class="instance-group-list">
-    <section v-for="(group, index) in groups" :key="group.key" class="instance-group-card">
-      <button
-        type="button"
-        class="instance-group-header"
-        :class="{ disabled: groupTenantCount(group) === 0 }"
-        :disabled="groupTenantCount(group) === 0"
-        :aria-expanded="isGroupOpen(group.key)"
-        @click="toggleGroup(group.key)"
-      >
-        <i :class="isGroupOpen(group.key) ? 'ri-arrow-down-s-line' : 'ri-arrow-right-s-line'" aria-hidden="true"></i>
-        <span class="group-dot" :style="{ '--group-color': groupColors[index % groupColors.length] }"></span>
-        <span class="group-label">{{ group.label }}</span>
-        <a-badge :count="groupTenantCount(group)" :show-zero="true" class="oci-group-count-badge" />
-      </button>
+    <section v-for="(group, index) in groups" :key="group.key" class="instance-group-section">
+      <div class="instance-group-card">
+        <button
+          type="button"
+          class="instance-group-header"
+          :class="{ disabled: groupTenantCount(group) === 0 }"
+          :disabled="groupTenantCount(group) === 0"
+          :aria-expanded="isGroupOpen(group.key)"
+          @click="toggleGroup(group.key)"
+        >
+          <DownOutlined v-if="isGroupOpen(group.key)" />
+          <RightOutlined v-else />
+          <span class="group-dot" :style="{ '--group-color': groupColors[index % groupColors.length] }"></span>
+          <span class="group-label">{{ group.label }}</span>
+          <a-badge :count="groupTenantCount(group)" :show-zero="true" class="oci-group-count-badge" />
+        </button>
+      </div>
 
-      <div v-if="isGroupOpen(group.key)" class="instance-group-body">
+      <template v-if="isGroupOpen(group.key)">
         <section v-for="child in group.children || []" :key="child.key" class="instance-subgroup">
           <button
             type="button"
@@ -25,11 +28,13 @@
             :aria-expanded="isL2Open(child.key)"
             @click="toggleL2(child.key)"
           >
-            <i :class="isL2Open(child.key) ? 'ri-arrow-down-s-line' : 'ri-arrow-right-s-line'" aria-hidden="true"></i>
+            <DownOutlined v-if="isL2Open(child.key)" />
+            <RightOutlined v-else />
             <span class="group-label">{{ child.label }}</span>
             <a-badge :count="child.tenants.length" :show-zero="true" class="oci-group-count-badge" />
           </button>
-          <div v-if="isL2Open(child.key)" class="tenant-rows">
+          <slot v-if="isL2Open(child.key) && viewMode === 'card'" name="card-list" :tenants="child.tenants" />
+          <div v-else-if="isL2Open(child.key)" class="tenant-rows">
             <TenantRow
               v-for="td in child.tenants"
               :key="td.tenant.id"
@@ -46,7 +51,8 @@
         </section>
 
         <section v-if="group.tenants.length" class="instance-subgroup direct-tenants">
-          <div class="tenant-rows">
+          <slot v-if="viewMode === 'card'" name="card-list" :tenants="group.tenants" />
+          <div v-else class="tenant-rows">
             <TenantRow
               v-for="td in group.tenants"
               :key="td.tenant.id"
@@ -61,7 +67,7 @@
             />
           </div>
         </section>
-      </div>
+      </template>
     </section>
   </div>
 </template>
@@ -69,6 +75,8 @@
 <script setup lang="ts">
 import { defineComponent, h, type PropType } from 'vue'
 import { Button as AButton, Tag as ATag } from 'ant-design-vue'
+import { DownOutlined, RightOutlined } from '@ant-design/icons-vue'
+import { TENANT_GROUP_COLORS } from '../../constants/tenantGroupStyle'
 
 interface TenantData {
   tenant: any
@@ -86,6 +94,7 @@ interface GroupNode {
 
 const props = defineProps<{
   groups: GroupNode[]
+  viewMode: 'card' | 'table'
   activeGroupKeys: string[]
   activeL2Keys: string[]
   activeTenantId: string
@@ -103,7 +112,7 @@ const emit = defineEmits<{
   (e: 'l2-collapse-change', keys: string[]): void
 }>()
 
-const groupColors = ['#6366f1', '#22c55e', '#f97316', '#8b5cf6', '#ec4899', '#f59e0b', '#14b8a6', '#3b82f6']
+const groupColors = TENANT_GROUP_COLORS
 
 function isGroupOpen(key: string) {
   return props.activeGroupKeys.includes(key)
@@ -170,19 +179,23 @@ const TenantRow = defineComponent({
 
 <style scoped>
 .instance-group-list { display: grid; gap: 12px; margin-bottom: 18px; }
-.instance-group-card { overflow: hidden; border: 1px solid var(--border); border-radius: 14px; background: color-mix(in srgb, var(--bg-card) 90%, transparent); box-shadow: 0 8px 24px -22px color-mix(in srgb, var(--text-main) 34%, transparent); transition: border-color .18s ease, box-shadow .18s ease; }
-.instance-group-card:hover { border-color: color-mix(in srgb, var(--primary) 32%, var(--border)); box-shadow: 0 12px 28px -22px color-mix(in srgb, var(--primary) 44%, transparent); }
+.instance-group-section { min-width: 0; }
+.instance-group-card { position: relative; overflow: hidden; padding: 14px 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-card); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); transition: all .3s cubic-bezier(.34, 1.56, .64, 1); }
+.instance-group-card::before { content: ''; position: absolute; z-index: 1; top: 0; right: 0; left: 0; height: 3px; background: linear-gradient(90deg, var(--primary), #8b5cf6); transform: scaleX(0); transform-origin: left; transition: transform .3s cubic-bezier(.34, 1.56, .64, 1); }
+.instance-group-card:hover::before { transform: scaleX(1); }
+.instance-group-card:hover { border-color: rgba(129, 140, 248, .5); box-shadow: 0 8px 24px -4px rgba(99, 102, 241, .15); }
 .instance-group-header, .instance-subgroup-header { width: 100%; border: 0; display: flex; align-items: center; color: var(--text-main); text-align: left; cursor: pointer; }
-.instance-group-header { min-height: 56px; gap: 9px; padding: 14px 16px; background: transparent; font: 600 14px/1.4 inherit; }
-.instance-group-header:hover, .instance-subgroup-header:hover { background: color-mix(in srgb, var(--primary-light) 58%, transparent); }
+.instance-group-header { min-height: 28px; gap: 10px; padding: 0; background: transparent; font-family: inherit; font-size: 16px; font-weight: 600; line-height: 1.4; }
 .instance-group-header.disabled, .instance-subgroup-header.disabled { cursor: default; opacity: .58; }
-.instance-group-header > i, .instance-subgroup-header > i { color: var(--text-sub); font-size: 17px; }
-.group-dot { --group-color: var(--primary); width: 9px; height: 9px; border-radius: 50%; background: var(--group-color); box-shadow: 0 0 0 4px color-mix(in srgb, var(--group-color) 13%, transparent); }
+.instance-group-header > :deep(.anticon) { width: 28px; height: 28px; border: 1px solid var(--border); border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; background: rgba(255, 255, 255, .03); color: var(--text-sub); font-size: 12px; }
+.instance-group-header:hover > :deep(.anticon) { border-color: var(--primary); }
+.instance-subgroup-header > :deep(.anticon) { color: var(--text-sub); font-size: 12px; }
+.group-dot { --group-color: var(--primary); width: 12px; height: 12px; flex-shrink: 0; border-radius: 50%; background: var(--group-color); box-shadow: 0 0 8px color-mix(in srgb, var(--group-color) 50%, transparent); }
 .group-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.instance-group-body { padding: 12px 14px 14px 38px; border-top: 1px solid color-mix(in srgb, var(--border) 76%, transparent); }
-.instance-subgroup { overflow: hidden; border: 1px solid var(--border); border-radius: 12px; background: color-mix(in srgb, var(--panel-bg) 82%, transparent); }
-.instance-subgroup + .instance-subgroup { margin-top: 9px; }
-.instance-subgroup-header { min-height: 48px; gap: 8px; padding: 12px 14px; background: transparent; font: 500 13px/1.4 inherit; }
+.instance-group-header :deep(.oci-group-count-badge), .instance-subgroup-header :deep(.oci-group-count-badge) { flex-shrink: 0; }
+.instance-subgroup { margin-top: 10px; margin-left: 32px; overflow: hidden; padding: 14px 16px; border: 1px solid rgba(148, 163, 184, .18); border-radius: 12px; background: transparent; transition: border-color .3s ease; }
+.instance-subgroup:hover { border-color: rgba(129, 140, 248, .28); }
+.instance-subgroup-header { min-height: 48px; gap: 8px; padding: 12px 14px; background: transparent; font-family: inherit; font-size: 13px; font-weight: 500; line-height: 1.4; }
 .direct-tenants { padding: 4px 12px; }
 .tenant-rows { border-top: 1px solid color-mix(in srgb, var(--border) 72%, transparent); }
 .direct-tenants .tenant-rows { border-top: 0; }
@@ -200,7 +213,11 @@ const TenantRow = defineComponent({
 :deep(.tenant-actions .ant-btn:not(.ant-btn-primary)) { border-color: color-mix(in srgb, var(--border) 88%, transparent); background: color-mix(in srgb, var(--bg-card) 70%, transparent); color: var(--text-main); }
 :deep(.tenant-actions .ant-btn:not(.ant-btn-primary):hover) { border-color: color-mix(in srgb, var(--primary) 45%, var(--border)); background: var(--primary-light); color: var(--primary); }
 @media (max-width: 768px) {
-  .instance-group-body { padding: 10px; }
+  .instance-group-card { padding: 10px 12px; border-radius: 10px; }
+  .instance-group-header { font-size: 14px; }
+  .instance-group-header > :deep(.anticon) { width: 32px; height: 32px; }
+  .instance-subgroup { margin-left: 16px; padding: 10px 12px; border-radius: 10px; }
+  .instance-subgroup-header { min-height: 40px; padding: 8px 4px; }
   :deep(.tenant-list-row) { grid-template-columns: 1fr; gap: 9px; padding: 12px 8px; }
   :deep(.tenant-region) { justify-self: start; }
   :deep(.tenant-actions) { justify-content: flex-start; }

@@ -37,8 +37,6 @@
       :tenant-plan-tag-color="tenantPlanTagColor"
       :format-tenant-plan-type="formatTenantPlanType"
       :group-tenant-count="groupTenantCount"
-      :is-group-panel-open="isGroupPanelOpen"
-      :is-l2-panel-open="isL2PanelOpen"
       @select-tenant="selectTenant"
       @open-vcn="openVcnPanel"
       @open-storage="openStoragePanel"
@@ -349,14 +347,6 @@ interface LoadTenantInstancesOptions {
   force?: boolean
   notify?: boolean
   region?: string
-}
-
-function isGroupPanelOpen(key: string) {
-  return activeGroupKeys.value.includes(key)
-}
-
-function isL2PanelOpen(key: string) {
-  return activeL2Keys.value.includes(key)
 }
 
 function tenantPlanTagStyle(plan: unknown): Record<string, string> | undefined {

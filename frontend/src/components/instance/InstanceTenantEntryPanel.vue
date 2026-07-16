@@ -4,8 +4,9 @@
   </div>
 
   <InstanceTenantGroupedList
-    v-else-if="hasGroups && tenantViewMode === 'table'"
+    v-else-if="hasGroups"
     :groups="groupedTenants"
+    :view-mode="tenantViewMode"
     :active-group-keys="activeGroupKeys"
     :active-l2-keys="activeL2Keys"
     :active-tenant-id="activeTenantId"
@@ -18,165 +19,26 @@
     @open-quick-task="$emit('open-quick-task', $event)"
     @collapse-change="$emit('collapse-change', $event)"
     @l2-collapse-change="$emit('l2-collapse-change', $event)"
-  />
-
-  <template v-else-if="hasGroups">
-    <a-collapse
-      :active-key="activeGroupKeys"
-      class="group-collapse"
-      :class="{ 'group-collapse-list': tenantViewMode === 'card' }"
-      @change="$emit('collapse-change', $event)"
-    >
-      <a-collapse-panel v-for="g1 in groupedTenants" :key="g1.key" :collapsible="groupTenantCount(g1) === 0 ? 'disabled' : undefined">
-        <template #header>
-          <span class="group-header-label">{{ g1.label }}</span>
-          <a-badge :count="groupTenantCount(g1)" :show-zero="true" class="oci-group-count-badge" style="margin-left: 8px" />
-        </template>
-        <template v-if="isGroupPanelOpen(g1.key)">
-          <template v-if="g1.children && g1.children.length > 0">
-            <a-collapse
-              :active-key="activeL2Keys"
-              class="group-collapse-l2"
-              :class="{ 'group-collapse-l2-list': tenantViewMode === 'card' }"
-              @change="$emit('l2-collapse-change', $event)"
-            >
-              <a-collapse-panel v-for="l2 in g1.children" :key="l2.key" :collapsible="l2.tenants.length === 0 ? 'disabled' : undefined">
-                <template #header>
-                  <span class="group-header-label">{{ l2.label }}</span>
-                  <a-badge :count="l2.tenants.length" :show-zero="true" class="oci-group-count-badge" style="margin-left: 8px" />
-                </template>
-                <template v-if="isL2PanelOpen(l2.key)">
-                  <div v-if="tenantViewMode === 'card'" class="tenant-grid">
-                    <template v-for="td in l2.tenants" :key="td.tenant.id">
-                      <div class="tenant-card" :data-tenant-id="td.tenant.id" :class="{ 'tenant-card-active': activeTenantId === td.tenant.id, 'tenant-card-floating-source': isFloatingTenantSource(td.tenant) }">
-                        <div class="tc-header"><i class="ri-cloud-line tc-icon"></i><div class="tc-info"><div class="tc-name">{{ td.tenant.username }}</div><div class="tc-region">{{ td.tenant.ociRegion }}</div></div></div>
-                        <div class="tc-tags"><a-tag v-if="td.tenant.planType" :color="tenantPlanTagColor(td.tenant.planType)" :style="tenantPlanTagStyle(td.tenant.planType)" size="small">{{ formatTenantPlanType(td.tenant.planType) }}</a-tag><a-tag v-if="td.tenant.tenantName" size="small" color="blue">{{ td.tenant.tenantName }}</a-tag></div>
-                        <div class="tc-actions"><a-button type="primary" block @click="$emit('select-tenant', td)" :loading="isTenantLoading(td)"><i class="ri-server-line" style="margin-right:6px"></i>实例管理</a-button><a-button block @click="$emit('open-vcn', td.tenant)"><i class="ri-share-line" style="margin-right:6px"></i>虚拟云网络</a-button><a-button block @click="$emit('open-storage', td.tenant)"><i class="ri-database-2-line" style="margin-right:6px"></i>存储</a-button><a-button block @click="$emit('open-quick-task', td.tenant)"><i class="ri-play-circle-line" style="margin-right:6px"></i>快捷开机</a-button></div>
-                      </div>
-                    </template>
-                  </div>
-                  <div v-else>
-                    <div v-for="td in l2.tenants" :key="td.tenant.id" class="group-table-row" :class="{ 'tenant-row-active': td.tenant.id === activeTenantId }">
-                      <div class="gtr-main">
-                        <div class="gtr-ident">
-                          <span class="gtr-name">{{ td.tenant.username }}</span>
-                          <span v-if="td.tenant.tenantName" class="gtr-tenantnm">{{ td.tenant.tenantName }}</span>
-                        </div>
-                        <span class="gtr-region"><a-tag>{{ td.tenant.ociRegion }}</a-tag></span>
-                      </div>
-                      <a-space v-if="!isMobile" class="gtr-actions" size="small" wrap>
-                        <a-button type="primary" size="small" @click="$emit('select-tenant', td)" :loading="isTenantLoading(td)">实例管理</a-button>
-                        <a-button size="small" @click="$emit('open-vcn', td.tenant)">VCN</a-button>
-                        <a-button size="small" @click="$emit('open-storage', td.tenant)">存储</a-button>
-                        <a-button size="small" @click="$emit('open-quick-task', td.tenant)">快捷开机</a-button>
-                      </a-space>
-                      <div v-else class="gtr-actions gtr-actions-mobile">
-                        <a-button type="primary" size="small" @click="$emit('select-tenant', td)" :loading="isTenantLoading(td)">实例管理</a-button>
-                        <a-dropdown placement="bottomRight" :trigger="['click']">
-                          <a-button size="small">更多 <DownOutlined /></a-button>
-                          <template #overlay>
-                            <a-menu>
-                              <a-menu-item key="vcn" @click="$emit('open-vcn', td.tenant)">VCN</a-menu-item>
-                              <a-menu-item key="storage" @click="$emit('open-storage', td.tenant)">存储</a-menu-item>
-                              <a-menu-item key="quick" @click="$emit('open-quick-task', td.tenant)">快捷开机</a-menu-item>
-                            </a-menu>
-                          </template>
-                        </a-dropdown>
-                      </div>
-                    </div>
-                  </div>
-                </template>
-              </a-collapse-panel>
-            </a-collapse>
-            <div v-if="g1.tenants.length > 0" class="group-section">
-              <div>
-                <div v-if="tenantViewMode === 'card'" class="tenant-grid">
-                  <template v-for="td in g1.tenants" :key="td.tenant.id">
-                    <div class="tenant-card" :data-tenant-id="td.tenant.id" :class="{ 'tenant-card-active': activeTenantId === td.tenant.id, 'tenant-card-floating-source': isFloatingTenantSource(td.tenant) }">
-                      <div class="tc-header"><i class="ri-cloud-line tc-icon"></i><div class="tc-info"><div class="tc-name">{{ td.tenant.username }}</div><div class="tc-region">{{ td.tenant.ociRegion }}</div></div></div>
-                      <div class="tc-tags"><a-tag v-if="td.tenant.planType" :color="tenantPlanTagColor(td.tenant.planType)" :style="tenantPlanTagStyle(td.tenant.planType)" size="small">{{ formatTenantPlanType(td.tenant.planType) }}</a-tag><a-tag v-if="td.tenant.tenantName" size="small" color="blue">{{ td.tenant.tenantName }}</a-tag></div>
-                      <div class="tc-actions"><a-button type="primary" block @click="$emit('select-tenant', td)" :loading="isTenantLoading(td)"><i class="ri-server-line" style="margin-right:6px"></i>实例管理</a-button><a-button block @click="$emit('open-vcn', td.tenant)"><i class="ri-share-line" style="margin-right:6px"></i>虚拟云网络</a-button><a-button block @click="$emit('open-storage', td.tenant)"><i class="ri-database-2-line" style="margin-right:6px"></i>存储</a-button><a-button block @click="$emit('open-quick-task', td.tenant)"><i class="ri-play-circle-line" style="margin-right:6px"></i>快捷开机</a-button></div>
-                    </div>
-                  </template>
-                </div>
-                <div v-else>
-                  <div v-for="td in g1.tenants" :key="td.tenant.id" class="group-table-row" :class="{ 'tenant-row-active': td.tenant.id === activeTenantId }">
-                    <div class="gtr-main">
-                      <div class="gtr-ident">
-                        <span class="gtr-name">{{ td.tenant.username }}</span>
-                        <span v-if="td.tenant.tenantName" class="gtr-tenantnm">{{ td.tenant.tenantName }}</span>
-                      </div>
-                      <span class="gtr-region"><a-tag>{{ td.tenant.ociRegion }}</a-tag></span>
-                    </div>
-                    <a-space v-if="!isMobile" class="gtr-actions" size="small" wrap>
-                      <a-button type="primary" size="small" @click="$emit('select-tenant', td)" :loading="isTenantLoading(td)">实例管理</a-button>
-                      <a-button size="small" @click="$emit('open-vcn', td.tenant)">VCN</a-button>
-                      <a-button size="small" @click="$emit('open-storage', td.tenant)">存储</a-button>
-                      <a-button size="small" @click="$emit('open-quick-task', td.tenant)">快捷开机</a-button>
-                    </a-space>
-                    <div v-else class="gtr-actions gtr-actions-mobile">
-                      <a-button type="primary" size="small" @click="$emit('select-tenant', td)" :loading="isTenantLoading(td)">实例管理</a-button>
-                      <a-dropdown placement="bottomRight" :trigger="['click']">
-                        <a-button size="small">更多 <DownOutlined /></a-button>
-                        <template #overlay>
-                          <a-menu>
-                            <a-menu-item key="vcn" @click="$emit('open-vcn', td.tenant)">VCN</a-menu-item>
-                            <a-menu-item key="storage" @click="$emit('open-storage', td.tenant)">存储</a-menu-item>
-                            <a-menu-item key="quick" @click="$emit('open-quick-task', td.tenant)">快捷开机</a-menu-item>
-                          </a-menu>
-                        </template>
-                      </a-dropdown>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </template>
-          <template v-else>
-            <div v-if="tenantViewMode === 'card'" class="tenant-grid">
-              <template v-for="td in g1.tenants" :key="td.tenant.id">
-                <div class="tenant-card" :data-tenant-id="td.tenant.id" :class="{ 'tenant-card-active': activeTenantId === td.tenant.id, 'tenant-card-floating-source': isFloatingTenantSource(td.tenant) }">
-                  <div class="tc-header"><i class="ri-cloud-line tc-icon"></i><div class="tc-info"><div class="tc-name">{{ td.tenant.username }}</div><div class="tc-region">{{ td.tenant.ociRegion }}</div></div></div>
-                  <div class="tc-tags"><a-tag v-if="td.tenant.planType" :color="tenantPlanTagColor(td.tenant.planType)" :style="tenantPlanTagStyle(td.tenant.planType)" size="small">{{ formatTenantPlanType(td.tenant.planType) }}</a-tag><a-tag v-if="td.tenant.tenantName" size="small" color="blue">{{ td.tenant.tenantName }}</a-tag></div>
-                  <div class="tc-actions"><a-button type="primary" block @click="$emit('select-tenant', td)" :loading="isTenantLoading(td)"><i class="ri-server-line" style="margin-right:6px"></i>实例管理</a-button><a-button block @click="$emit('open-vcn', td.tenant)"><i class="ri-share-line" style="margin-right:6px"></i>虚拟云网络</a-button><a-button block @click="$emit('open-storage', td.tenant)"><i class="ri-database-2-line" style="margin-right:6px"></i>存储</a-button><a-button block @click="$emit('open-quick-task', td.tenant)"><i class="ri-play-circle-line" style="margin-right:6px"></i>快捷开机</a-button></div>
-                </div>
-              </template>
-            </div>
-            <div v-else>
-              <div v-for="td in g1.tenants" :key="td.tenant.id" class="group-table-row" :class="{ 'tenant-row-active': td.tenant.id === activeTenantId }">
-                <div class="gtr-main">
-                  <div class="gtr-ident">
-                    <span class="gtr-name">{{ td.tenant.username }}</span>
-                    <span v-if="td.tenant.tenantName" class="gtr-tenantnm">{{ td.tenant.tenantName }}</span>
-                  </div>
-                  <span class="gtr-region"><a-tag>{{ td.tenant.ociRegion }}</a-tag></span>
-                </div>
-                <a-space v-if="!isMobile" class="gtr-actions" size="small" wrap>
-                  <a-button type="primary" size="small" @click="$emit('select-tenant', td)" :loading="isTenantLoading(td)">实例管理</a-button>
-                  <a-button size="small" @click="$emit('open-vcn', td.tenant)">VCN</a-button>
-                  <a-button size="small" @click="$emit('open-storage', td.tenant)">存储</a-button>
-                  <a-button size="small" @click="$emit('open-quick-task', td.tenant)">快捷开机</a-button>
-                </a-space>
-                <div v-else class="gtr-actions gtr-actions-mobile">
-                  <a-button type="primary" size="small" @click="$emit('select-tenant', td)" :loading="isTenantLoading(td)">实例管理</a-button>
-                  <a-dropdown placement="bottomRight" :trigger="['click']">
-                    <a-button size="small">更多 <DownOutlined /></a-button>
-                    <template #overlay>
-                      <a-menu>
-                        <a-menu-item key="vcn" @click="$emit('open-vcn', td.tenant)">VCN</a-menu-item>
-                        <a-menu-item key="storage" @click="$emit('open-storage', td.tenant)">存储</a-menu-item>
-                        <a-menu-item key="quick" @click="$emit('open-quick-task', td.tenant)">快捷开机</a-menu-item>
-                      </a-menu>
-                    </template>
-                  </a-dropdown>
-                </div>
-              </div>
-            </div>
-          </template>
-        </template>
-      </a-collapse-panel>
-    </a-collapse>
-  </template>
+  >
+    <template #card-list="{ tenants }">
+      <div class="tenant-grid">
+        <div
+          v-for="td in tenants"
+          :key="td.tenant.id"
+          class="tenant-card"
+          :data-tenant-id="td.tenant.id"
+          :class="{
+            'tenant-card-active': activeTenantId === td.tenant.id,
+            'tenant-card-floating-source': isFloatingTenantSource(td.tenant),
+          }"
+        >
+          <div class="tc-header"><i class="ri-cloud-line tc-icon"></i><div class="tc-info"><div class="tc-name">{{ td.tenant.username }}</div><div class="tc-region">{{ td.tenant.ociRegion }}</div></div></div>
+          <div class="tc-tags"><a-tag v-if="td.tenant.planType" :color="tenantPlanTagColor(td.tenant.planType)" :style="tenantPlanTagStyle(td.tenant.planType)" size="small">{{ formatTenantPlanType(td.tenant.planType) }}</a-tag><a-tag v-if="td.tenant.tenantName" size="small" color="blue">{{ td.tenant.tenantName }}</a-tag></div>
+          <div class="tc-actions"><a-button type="primary" block @click="$emit('select-tenant', td)" :loading="isTenantLoading(td)"><i class="ri-server-line" style="margin-right:6px"></i>实例管理</a-button><a-button block @click="$emit('open-vcn', td.tenant)"><i class="ri-share-line" style="margin-right:6px"></i>虚拟云网络</a-button><a-button block @click="$emit('open-storage', td.tenant)"><i class="ri-database-2-line" style="margin-right:6px"></i>存储</a-button><a-button block @click="$emit('open-quick-task', td.tenant)"><i class="ri-play-circle-line" style="margin-right:6px"></i>快捷开机</a-button></div>
+        </div>
+      </div>
+    </template>
+  </InstanceTenantGroupedList>
 
   <template v-else>
     <div v-if="tenantViewMode === 'card'">
@@ -338,8 +200,6 @@ const props = defineProps<{
   tenantPlanTagColor: (plan: unknown) => string
   formatTenantPlanType: (plan: unknown) => string
   groupTenantCount: (group: GroupNode) => number
-  isGroupPanelOpen: (key: string) => boolean
-  isL2PanelOpen: (key: string) => boolean
 }>()
 
 function isTenantLoading(td: TenantData) {
@@ -357,221 +217,6 @@ defineEmits<{
 </script>
 
 <style scoped>
-.group-collapse { margin-bottom: 16px; }
-.group-collapse :deep(.ant-collapse-header) { font-weight: 600; font-size: 14px; }
-.group-collapse-list {
-  border: 0;
-  background: transparent;
-}
-.group-collapse-list :deep(> .ant-collapse-item) {
-  margin-bottom: 12px;
-  overflow: hidden;
-  border: 1px solid var(--border);
-  border-radius: 14px;
-  background: color-mix(in srgb, var(--bg-card) 90%, transparent);
-  box-shadow: 0 8px 24px -22px color-mix(in srgb, var(--text-main) 34%, transparent);
-  transition: border-color .18s ease, box-shadow .18s ease;
-}
-.group-collapse-list :deep(> .ant-collapse-item:hover) {
-  border-color: color-mix(in srgb, var(--primary) 32%, var(--border));
-  box-shadow: 0 12px 28px -22px color-mix(in srgb, var(--primary) 44%, transparent);
-}
-.group-collapse-list :deep(> .ant-collapse-item > .ant-collapse-header) {
-  min-height: 56px;
-  padding: 14px 16px !important;
-  align-items: center !important;
-  line-height: 1.4;
-}
-.group-collapse-list :deep(> .ant-collapse-item > .ant-collapse-header .ant-collapse-expand-icon) {
-  width: 17px;
-  height: 17px;
-  margin-right: 9px;
-  padding-inline-end: 0 !important;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  color: var(--text-sub);
-}
-.group-collapse-list :deep(> .ant-collapse-item > .ant-collapse-header .ant-collapse-header-text) {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 9px;
-}
-.group-collapse-list :deep(> .ant-collapse-item > .ant-collapse-content) {
-  border-top: 1px solid color-mix(in srgb, var(--border) 76%, transparent);
-  background: transparent;
-}
-.group-collapse-list :deep(> .ant-collapse-item > .ant-collapse-content > .ant-collapse-content-box) {
-  padding: 14px 16px 16px !important;
-}
-.group-collapse-list > :deep(.ant-collapse-item > .ant-collapse-header .group-header-label)::before {
-  content: '';
-  width: 9px;
-  height: 9px;
-  margin-right: 0;
-  border-radius: 50%;
-  display: inline-block;
-  background: var(--instance-group-color, var(--primary));
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--instance-group-color, var(--primary)) 13%, transparent);
-  vertical-align: 1px;
-}
-.group-collapse-list > :deep(.ant-collapse-item > .ant-collapse-header .group-header-label) {
-  min-width: 0;
-  display: inline-flex;
-  align-items: center;
-  gap: 9px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.group-collapse-list :deep(> .ant-collapse-item:nth-child(8n + 1)) { --instance-group-color: #6366f1; }
-.group-collapse-list :deep(> .ant-collapse-item:nth-child(8n + 2)) { --instance-group-color: #22c55e; }
-.group-collapse-list :deep(> .ant-collapse-item:nth-child(8n + 3)) { --instance-group-color: #f97316; }
-.group-collapse-list :deep(> .ant-collapse-item:nth-child(8n + 4)) { --instance-group-color: #8b5cf6; }
-.group-collapse-list :deep(> .ant-collapse-item:nth-child(8n + 5)) { --instance-group-color: #ec4899; }
-.group-collapse-list :deep(> .ant-collapse-item:nth-child(8n + 6)) { --instance-group-color: #f59e0b; }
-.group-collapse-list :deep(> .ant-collapse-item:nth-child(8n + 7)) { --instance-group-color: #14b8a6; }
-.group-collapse-list :deep(> .ant-collapse-item:nth-child(8n)) { --instance-group-color: #3b82f6; }
-.group-collapse-l2 {
-  margin-top: 10px;
-  background: transparent;
-}
-.group-collapse-l2 :deep(.ant-collapse-item) {
-  background: color-mix(in srgb, var(--panel-bg) 78%, transparent);
-  border: 1px solid var(--border);
-  border-radius: 12px;
-  overflow: hidden;
-}
-.group-collapse-l2 :deep(.ant-collapse-item + .ant-collapse-item) { margin-top: 8px; }
-.group-collapse-l2 :deep(.ant-collapse-header) { font-weight: 500; font-size: 13px; padding-left: 12px !important; }
-.group-collapse-l2 :deep(.ant-collapse-content-box) { padding-top: 12px !important; }
-.group-collapse-l2-list {
-  margin-top: 0;
-  border: 0;
-}
-.group-collapse-l2-list :deep(.ant-collapse-item) {
-  border-radius: 12px;
-  background: color-mix(in srgb, var(--panel-bg) 80%, transparent);
-}
-.group-collapse-l2-list :deep(.ant-collapse-header) {
-  min-height: 48px;
-  padding: 12px 14px !important;
-  align-items: center !important;
-  line-height: 1.4;
-}
-.group-collapse-l2-list :deep(.ant-collapse-header .ant-collapse-expand-icon) {
-  width: 17px;
-  height: 17px;
-  margin-right: 8px;
-  padding-inline-end: 0 !important;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-.group-collapse-l2-list :deep(.ant-collapse-header .ant-collapse-header-text) {
-  min-width: 0;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.group-collapse-l2-list :deep(.ant-collapse-content) {
-  border-top: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
-  background: transparent;
-}
-.group-collapse-l2-list :deep(.ant-collapse-content-box) {
-  padding: 4px 12px 8px !important;
-}
-.group-header-label { vertical-align: middle; }
-.group-collapse-l2 .tenant-grid { margin-bottom: 18px; }
-.group-collapse-l2 + .group-section { margin-top: 12px; }
-.group-section { margin-bottom: 8px; }
-.group-table-row {
-  min-height: 62px;
-  padding: 10px 12px;
-  border-bottom: 1px solid var(--border);
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  column-gap: 12px;
-  align-items: center;
-  content-visibility: auto;
-  contain-intrinsic-size: 64px;
-  transition: background-color .16s ease, box-shadow .16s ease;
-}
-.group-table-row:hover {
-  background: color-mix(in srgb, var(--primary-light) 58%, transparent);
-  box-shadow: inset 3px 0 0 color-mix(in srgb, var(--primary) 72%, transparent);
-}
-.group-table-row.tenant-row-active {
-  background: color-mix(in srgb, var(--primary-light) 82%, transparent);
-  box-shadow: inset 3px 0 0 var(--primary);
-}
-.group-table-row:last-child { border-bottom: none; }
-.gtr-main {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 10px;
-  min-width: 0;
-}
-.gtr-ident {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-  flex: 1;
-}
-.gtr-name {
-  font-weight: 600;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  min-width: 0;
-}
-.gtr-tenantnm {
-  font-size: 12px;
-  color: var(--text-sub);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.gtr-region {
-  flex-shrink: 0;
-}
-.gtr-region :deep(.ant-tag) {
-  margin-inline-end: 0;
-  border-color: color-mix(in srgb, var(--border) 82%, transparent);
-  border-radius: 999px;
-  background: color-mix(in srgb, var(--input-bg) 82%, transparent);
-  color: var(--text-sub);
-  font-size: 11px;
-}
-.gtr-actions {
-  justify-self: end;
-}
-.gtr-actions :deep(.ant-btn) {
-  min-height: 30px;
-  border-radius: 9px;
-  font-weight: 500;
-  box-shadow: none;
-  transition: border-color .16s ease, background-color .16s ease, color .16s ease, transform .12s ease;
-}
-.gtr-actions :deep(.ant-btn:not(.ant-btn-primary)) {
-  border-color: color-mix(in srgb, var(--border) 88%, transparent);
-  background: color-mix(in srgb, var(--bg-card) 68%, transparent);
-  color: var(--text-main);
-}
-.gtr-actions :deep(.ant-btn:not(.ant-btn-primary):hover) {
-  border-color: color-mix(in srgb, var(--primary) 45%, var(--border));
-  background: var(--primary-light);
-  color: var(--primary);
-}
-.gtr-actions :deep(.ant-btn-primary) {
-  box-shadow: 0 5px 12px -8px color-mix(in srgb, var(--primary) 68%, transparent);
-}
-.gtr-actions :deep(.ant-btn:active) {
-  transform: translateY(1px);
-}
 .tenant-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
@@ -688,32 +333,5 @@ defineEmits<{
   .tenant-card { padding: 14px; border-radius: 12px; }
   .tc-icon { font-size: 22px; }
   .tc-name { font-size: 13px; }
-  .group-table-row {
-    grid-template-columns: 1fr;
-    align-items: stretch;
-    row-gap: 10px;
-    padding: 12px;
-  }
-  .gtr-main {
-    flex-wrap: wrap;
-  }
-  .gtr-name {
-    white-space: normal;
-    word-break: break-word;
-  }
-  .gtr-tenantnm {
-    white-space: normal;
-    word-break: break-word;
-  }
-  .gtr-actions-mobile {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    width: 100%;
-  }
-  .gtr-actions-mobile .ant-btn-primary {
-    flex: 1;
-    min-width: 0;
-  }
 }
 </style>

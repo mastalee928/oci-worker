@@ -370,6 +370,7 @@ import {
 import { useTenantCatalogStore } from '../stores/tenantCatalog'
 import { useThemeStore } from '../stores/theme'
 import { createListSignature } from '../utils/queryCache'
+import { TENANT_GROUP_COLORS } from '../constants/tenantGroupStyle'
 import { defineAppAsyncComponent } from '../utils/asyncComponent'
 import { useTenantConfigActions } from './tenant-config/composables/useTenantConfigActions'
 import { useTenantManagement } from './tenant-config/composables/useTenantManagement'
@@ -517,7 +518,7 @@ function tenantGroupVirtualResetKey(groupKey: string, tenants: any[]) {
 const isMobile = ref(window.innerWidth < 768)
 const viewportHeight = ref(window.innerHeight)
 const tenantMobileVirtualMaxHeight = computed(() => Math.max(360, Math.min(680, viewportHeight.value - 180)))
-const groupColors = ['#1677ff', '#52c41a', '#fa541c', '#722ed1', '#eb2f96', '#faad14', '#13c2c2']
+const groupColors = TENANT_GROUP_COLORS
 
 let tenantGroupsController: ReturnType<typeof useTenantGroups> | null = null
 
