@@ -167,6 +167,7 @@
               placeholder="请选择租户..."
               :options="tenantOptions"
               :loading="tenantCatalog.tenantsLoading"
+              :dropdown-style="{ zIndex: 1380 }"
               @change="onTenantChange"
             />
             <div class="hint">仅可选择已在「租户配置」中添加的租户，此处不新增租户。</div>
