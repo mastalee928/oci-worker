@@ -58,6 +58,11 @@ public class CloudflareService {
     // Global account config (oci_kv)
     // -------------------------------------------------------------------------
 
+    public boolean isConfigured() {
+        return StrUtil.isNotBlank(notificationService.getKvValue(SysCfgEnum.CF_ACCOUNT_ID))
+                && StrUtil.isNotBlank(notificationService.getKvValue(SysCfgEnum.CF_API_TOKEN));
+    }
+
     public Map<String, Object> getAccountConfigForDisplay() {
         String accountId = notificationService.getKvValue(SysCfgEnum.CF_ACCOUNT_ID);
         String token = notificationService.getKvValue(SysCfgEnum.CF_API_TOKEN);

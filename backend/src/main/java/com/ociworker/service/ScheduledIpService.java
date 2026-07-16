@@ -41,6 +41,10 @@ public class ScheduledIpService {
     private ScheduledIpExecutionLockMapper executionLockMapper;
     @Resource
     private OciUserMapper userMapper;
+    @Resource
+    private CloudflareService cloudflareService;
+    @Resource
+    private AliDNSService aliDNSService;
     @Lazy
     @Resource
     private ScheduledIpRunner runner;
@@ -274,6 +278,14 @@ public class ScheduledIpService {
             if (!List.of(ScheduledIpDnsService.PROVIDER_CLOUDFLARE,
                     ScheduledIpDnsService.PROVIDER_ALIDNS).contains(provider)) {
                 throw new OciException("不支持的 DNS 服务商");
+            }
+            if (ScheduledIpDnsService.PROVIDER_CLOUDFLARE.equals(provider)
+                    && !cloudflareService.isConfigured()) {
+                throw new OciException("Cloudflare 未配置，请先前往系统设置完成配置");
+            }
+            if (ScheduledIpDnsService.PROVIDER_ALIDNS.equals(provider)
+                    && !aliDNSService.isConfigured()) {
+                throw new OciException("阿里云 DNS 未配置，请先前往系统设置完成配置");
             }
             fqdn = ScheduledIpDnsService.normalizeFqdn(request.getFqdn());
         }

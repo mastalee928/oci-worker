@@ -35,6 +35,8 @@ class ScheduledIpServiceTest {
     @Mock private ScheduledIpRunLogMapper runLogMapper;
     @Mock private ScheduledIpExecutionLockMapper executionLockMapper;
     @Mock private OciUserMapper userMapper;
+    @Mock private CloudflareService cloudflareService;
+    @Mock private AliDNSService aliDNSService;
     @Mock private ScheduledIpRunner runner;
 
     private ScheduledIpService service;
@@ -46,11 +48,15 @@ class ScheduledIpServiceTest {
         ReflectionTestUtils.setField(service, "runLogMapper", runLogMapper);
         ReflectionTestUtils.setField(service, "executionLockMapper", executionLockMapper);
         ReflectionTestUtils.setField(service, "userMapper", userMapper);
+        ReflectionTestUtils.setField(service, "cloudflareService", cloudflareService);
+        ReflectionTestUtils.setField(service, "aliDNSService", aliDNSService);
         ReflectionTestUtils.setField(service, "runner", runner);
         OciUser user = new OciUser();
         user.setId("tenant-1");
         user.setUsername("测试租户");
         lenient().when(userMapper.selectById("tenant-1")).thenReturn(user);
+        lenient().when(cloudflareService.isConfigured()).thenReturn(true);
+        lenient().when(aliDNSService.isConfigured()).thenReturn(true);
     }
 
     @AfterEach
@@ -91,6 +97,18 @@ class ScheduledIpServiceTest {
             synchronization.afterCommit();
         }
         assertTrue(executed.get());
+    }
+
+    @Test
+    void rejectsUnconfiguredDnsProvider() {
+        ScheduledIpTaskRequest request = validRequest();
+        request.setDnsEnabled(true);
+        request.setDnsProvider("CF");
+        request.setFqdn("api.example.com");
+        when(cloudflareService.isConfigured()).thenReturn(false);
+
+        assertThrows(OciException.class, () -> service.create(request));
+        verify(taskMapper, never()).insert(any(ScheduledIpTask.class));
     }
 
     private static ScheduledIpTaskRequest validRequest() {

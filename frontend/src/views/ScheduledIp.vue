@@ -235,14 +235,24 @@
           <div class="panel">
             <div class="trow">
               <div><div class="tt">启用 DNS 同步</div><div class="td">仅填完整域名，系统自动匹配 Zone / 主域并更新 A 记录</div></div>
-              <button class="sw" :class="{ on: editor.dnsEnabled }" role="switch" :aria-checked="editor.dnsEnabled" @click="editor.dnsEnabled = !editor.dnsEnabled"></button>
+              <button
+                class="sw"
+                :class="{ on: editor.dnsEnabled }"
+                role="switch"
+                :aria-checked="editor.dnsEnabled"
+                :disabled="dnsConfigLoading"
+                @click="toggleDnsEnabled"
+              ></button>
             </div>
           </div>
           <div v-if="editor.dnsEnabled" class="dns-box">
             <div class="two">
               <div class="field">
                 <label>DNS 服务商</label>
-                <select v-model="editor.dnsProvider"><option value="CF">Cloudflare</option><option value="ALI">阿里云 DNS</option></select>
+                <select v-model="editor.dnsProvider" :disabled="dnsConfigLoading || !hasConfiguredDnsProvider">
+                  <option value="CF" :disabled="!cfDnsConfigured">Cloudflare{{ cfDnsConfigured ? '' : '（未配置）' }}</option>
+                  <option value="ALI" :disabled="!aliDnsConfigured">阿里云 DNS{{ aliDnsConfigured ? '' : '（未配置）' }}</option>
+                </select>
               </div>
               <div class="field">
                 <label>记录类型</label>
@@ -252,6 +262,7 @@
             <div class="field">
               <label>完整域名 <span class="req">*</span></label>
               <input v-model.trim="editor.fqdn" type="text" placeholder="api.example.com">
+              <div v-if="!selectedDnsProviderConfigured" class="hint warn">当前 DNS 服务商未配置，请切换服务商或关闭 DNS 同步。</div>
               <div v-if="dnsPreview" class="hint ok">{{ dnsPreview }}</div>
             </div>
           </div>
@@ -309,10 +320,13 @@
 <script setup lang="ts">
 import { computed, defineComponent, h, onActivated, onDeactivated, onMounted, onUnmounted, reactive, ref } from 'vue'
 import { message, Modal } from 'ant-design-vue'
+import { useRouter } from 'vue-router'
 import AppPanelSkeleton from '../components/common/AppPanelSkeleton.vue'
 import { useTenantCatalogStore, type TenantRecord } from '../stores/tenantCatalog'
 import { listTenantRegions } from '../api/tenant'
 import { getInstanceList, getInstancePublicIps } from '../api/instance'
+import { getCfAccountConfig } from '../api/cloudflare'
+import { getAliDNSAccountConfig } from '../api/alidns'
 import {
   copyScheduledIpTask,
   createScheduledIpTask,
@@ -387,6 +401,7 @@ type InstanceOption = {
 }
 
 const tenantCatalog = useTenantCatalogStore()
+const router = useRouter()
 const initialLoading = ref(true)
 const refreshing = ref(false)
 const loadError = ref('')
@@ -403,17 +418,23 @@ let editorSessionSeq = 0
 let regionLoadSeq = 0
 let instanceLoadSeq = 0
 let logLoadSeq = 0
+let dnsConfigPromise: Promise<void> | null = null
 
 const editorVisible = ref(false)
 const editingId = ref('')
 const saving = ref(false)
 const regionsLoading = ref(false)
 const instancesLoading = ref(false)
+const dnsConfigLoading = ref(false)
+const dnsConfigLoaded = ref(false)
+const dnsConfigLoadError = ref(false)
+const cfDnsConfigured = ref(false)
+const aliDnsConfigured = ref(false)
 const editorRegions = ref<string[]>([])
 const editorInstances = ref<InstanceOption[]>([])
 const editor = reactive({
   tenantConfigId: '', region: '', instanceId: '', instanceName: '', shape: '', compartmentId: '', currentPublicIp: '',
-  intervalMinutes: 60, firstRunNow: false, dnsEnabled: true, dnsProvider: 'CF' as 'CF' | 'ALI', fqdn: '',
+  intervalMinutes: 60, firstRunNow: false, dnsEnabled: false, dnsProvider: 'CF' as 'CF' | 'ALI', fqdn: '',
   notifySuccess: false, notifyIpFailure: true, notifyDnsFailure: true, notifyAutoPaused: true,
 })
 
@@ -431,6 +452,10 @@ const intervalOptions = [
 const stats = computed(() => overview.value.stats || { total: 0, enabled: 0, paused: 0, errors: 0 })
 const tasks = computed(() => overview.value.tasks || [])
 const taskRegions = computed(() => [...new Set(tasks.value.map(task => task.region).filter(Boolean))].sort())
+const hasConfiguredDnsProvider = computed(() => cfDnsConfigured.value || aliDnsConfigured.value)
+const selectedDnsProviderConfigured = computed(() => (
+  editor.dnsProvider === 'CF' ? cfDnsConfigured.value : aliDnsConfigured.value
+))
 const filteredTasks = computed(() => {
   const q = query.value.trim().toLowerCase()
   return tasks.value.filter(task => {
@@ -470,6 +495,7 @@ const dnsPreview = computed(() => {
 })
 
 onMounted(async () => {
+  void loadDnsProviderAvailability()
   try {
     await Promise.allSettled([loadOverview(false), tenantCatalog.ensureTenants()])
   } finally {
@@ -480,6 +506,7 @@ onMounted(async () => {
 
 onActivated(() => {
   pageActive = true
+  void loadDnsProviderAvailability(true)
   if (!initialLoading.value) {
     void loadOverview(false, true)
     startPolling()
@@ -510,6 +537,65 @@ function stopPolling() {
   pollTimer = undefined
 }
 
+async function loadDnsProviderAvailability(force = false) {
+  if (dnsConfigPromise) return await dnsConfigPromise
+  if (dnsConfigLoaded.value && !force) return
+  dnsConfigLoading.value = true
+  dnsConfigPromise = (async () => {
+    const [cfResult, aliResult] = await Promise.allSettled([
+      getCfAccountConfig(),
+      getAliDNSAccountConfig(),
+    ])
+    cfDnsConfigured.value = cfResult.status === 'fulfilled' && cfResult.value.data?.configured === true
+    aliDnsConfigured.value = aliResult.status === 'fulfilled' && aliResult.value.data?.configured === true
+    dnsConfigLoadError.value = cfResult.status === 'rejected' || aliResult.status === 'rejected'
+    dnsConfigLoaded.value = true
+  })().finally(() => {
+    dnsConfigLoading.value = false
+    dnsConfigPromise = null
+  })
+  await dnsConfigPromise
+}
+
+function preferredDnsProvider(): 'CF' | 'ALI' {
+  if (cfDnsConfigured.value) return 'CF'
+  if (aliDnsConfigured.value) return 'ALI'
+  return 'CF'
+}
+
+function applyNewTaskDnsDefaults() {
+  editor.dnsEnabled = hasConfiguredDnsProvider.value
+  editor.dnsProvider = preferredDnsProvider()
+}
+
+function toggleDnsEnabled() {
+  if (editor.dnsEnabled) {
+    editor.dnsEnabled = false
+    return
+  }
+  if (dnsConfigLoading.value) {
+    message.info('正在读取 DNS 配置状态，请稍候')
+    return
+  }
+  if (dnsConfigLoadError.value) {
+    message.error('DNS 配置状态读取失败，请刷新后重试')
+    return
+  }
+  if (!hasConfiguredDnsProvider.value) {
+    Modal.warning({
+      title: '尚未配置 DNS 服务商',
+      content: '请先前往「系统设置」中的 Cloudflare 或阿里云DNS完成凭据配置。',
+      okText: '前往系统设置',
+      maskClosable: false,
+      keyboard: false,
+      onOk: () => router.push('/settings'),
+    })
+    return
+  }
+  if (!selectedDnsProviderConfigured.value) editor.dnsProvider = preferredDnsProvider()
+  editor.dnsEnabled = true
+}
+
 async function loadOverview(showMessage = false, silent = false) {
   const requestSeq = ++overviewLoadSeq
   if (!silent) refreshing.value = true
@@ -531,7 +617,7 @@ async function loadOverview(showMessage = false, silent = false) {
 function resetEditor() {
   Object.assign(editor, {
     tenantConfigId: '', region: '', instanceId: '', instanceName: '', shape: '', compartmentId: '', currentPublicIp: '',
-    intervalMinutes: 60, firstRunNow: false, dnsEnabled: true, dnsProvider: 'CF', fqdn: '',
+    intervalMinutes: 60, firstRunNow: false, dnsEnabled: false, dnsProvider: 'CF', fqdn: '',
     notifySuccess: false, notifyIpFailure: true, notifyDnsFailure: true, notifyAutoPaused: true,
   })
   editorRegions.value = []
@@ -546,13 +632,16 @@ async function openEditor(task?: ScheduledIpTask) {
   editingId.value = task?.id || ''
   editorVisible.value = true
   try {
-    await tenantCatalog.ensureTenants()
+    await Promise.all([tenantCatalog.ensureTenants(), loadDnsProviderAvailability()])
   } catch (e: any) {
     if (sessionSeq === editorSessionSeq) message.error(e?.message || '读取租户配置失败')
     return
   }
   if (sessionSeq !== editorSessionSeq || !editorVisible.value) return
-  if (!task) return
+  if (!task) {
+    applyNewTaskDnsDefaults()
+    return
+  }
   Object.assign(editor, {
     tenantConfigId: task.tenantConfigId, region: task.region,
     instanceId: task.instanceId, instanceName: task.instanceName || '', shape: task.shape || '',
@@ -687,6 +776,10 @@ async function saveEditor() {
   if (!editor.instanceId) { message.warning('请选择实例'); return }
   if (!Number.isInteger(editor.intervalMinutes) || editor.intervalMinutes < 10 || editor.intervalMinutes > 525600) {
     message.warning('执行间隔必须是 10 到 525600 之间的整数分钟')
+    return
+  }
+  if (editor.dnsEnabled && !selectedDnsProviderConfigured.value) {
+    message.warning(`${editor.dnsProvider === 'CF' ? 'Cloudflare' : '阿里云 DNS'}尚未配置，请切换服务商或关闭 DNS 同步`)
     return
   }
   if (editor.dnsEnabled && !editor.fqdn.trim()) { message.warning('请填写完整域名'); return }
@@ -998,6 +1091,7 @@ tbody tr:hover { background: var(--primary-light); }
 }
 .hint { margin-top: 6px; color: var(--text-sub); font-size: 12px; line-height: 1.5; }
 .hint.ok { color: var(--success-text); }
+.hint.warn { color: var(--warning-text); }
 .two { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
 .region-tabs, .chips { display: flex; gap: 8px; flex-wrap: wrap; }
 .chip { padding: 6px 14px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-card); color: var(--text-main); font: 13px inherit; cursor: pointer; }
