@@ -47,6 +47,10 @@
                 <div class="imc-row">
                   <span class="imc-label">公网 IP</span>
                   <a-typography-text v-if="record.publicIp" copyable class="ip-copy imc-value-main">{{ record.publicIp }}</a-typography-text>
+                  <span v-else-if="record.publicIp === null" class="instance-no-public-ip">
+                    <span class="imc-value-sub">无公网IP</span>
+                    <a-button type="link" size="small" :loading="publicIpActionLoading[record.instanceId]" @click="emit('add-public-ip', record)">添加</a-button>
+                  </span>
                   <span v-else class="imc-value-sub">—</span>
                 </div>
               </div>
@@ -106,6 +110,10 @@
               <div class="imc-row">
                 <span class="imc-label">公网 IP</span>
                 <a-typography-text v-if="record.publicIp" copyable class="ip-copy imc-value-main">{{ record.publicIp }}</a-typography-text>
+                <span v-else-if="record.publicIp === null" class="instance-no-public-ip">
+                  <span class="imc-value-sub">无公网IP</span>
+                  <a-button type="link" size="small" :loading="publicIpActionLoading[record.instanceId]" @click="emit('add-public-ip', record)">添加</a-button>
+                </span>
                 <span v-else class="imc-value-sub">—</span>
               </div>
             </div>
@@ -170,6 +178,10 @@
           </template>
           <template v-if="column.key === 'publicIp'">
             <a-typography-text v-if="record.publicIp" copyable class="ip-copy">{{ record.publicIp }}</a-typography-text>
+            <span v-else-if="record.publicIp === null" class="instance-no-public-ip">
+              <span style="color: var(--text-sub)">无公网IP</span>
+              <a-button type="link" size="small" :loading="publicIpActionLoading[record.instanceId]" @click="emit('add-public-ip', record)">添加</a-button>
+            </span>
             <span v-else style="color: var(--text-sub)">—</span>
           </template>
           <template v-if="column.key === 'action'">
@@ -228,6 +240,7 @@ const props = defineProps<{
   isMobile: boolean
   stateColorMap: Record<string, string>
   actionLoading: Record<string, boolean>
+  publicIpActionLoading: Record<string, boolean>
   virtualCardMin: number
   mobileVirtualMaxHeight: number
   virtualResetKey: string
@@ -239,6 +252,7 @@ const emit = defineEmits<{
   (e: 'region-change'): void
   (e: 'refresh'): void
   (e: 'open-detail', record: any): void
+  (e: 'add-public-ip', record: any): void
   (e: 'menu-click', payload: { record: any; key: string }): void
 }>()
 
@@ -327,6 +341,16 @@ function emitMenuClick(record: any, key: unknown) {
 }
 .ip-copy :deep(.ant-typography-copy) {
   margin-inline-start: 4px;
+}
+.instance-no-public-ip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  white-space: nowrap;
+}
+.instance-no-public-ip :deep(.ant-btn-link) {
+  height: auto;
+  padding: 0 2px;
 }
 .instance-action-trigger {
   padding-inline: 4px;

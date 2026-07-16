@@ -42,7 +42,7 @@ export function getInstancePublicIps(
   data: { id: string; instances: InstancePublicIpTarget[] } & R,
   config?: OciRequestConfig,
 ) {
-  return request.post<InstancePublicIpResponse>('/oci/instance/publicIps', data, { timeout: 30_000, ...config })
+  return request.post<InstancePublicIpResponse>('/oci/instance/publicIps', data, { timeout: 35_000, ...config })
 }
 
 export function updateInstanceState(data: { id: string; instanceId: string; action: string } & R) {

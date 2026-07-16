@@ -73,6 +73,7 @@
         :is-mobile="isMobile"
         :state-color-map="stateColorMap"
         :action-loading="actionLoading"
+        :public-ip-action-loading="addPublicIpLoading"
         :virtual-card-min="VIRTUAL_CARD_MIN"
         :mobile-virtual-max-height="instanceMobileVirtualMaxHeight"
         :virtual-reset-key="instanceVirtualResetKey"
@@ -80,6 +81,7 @@
         @refresh="refreshActiveTenantInstances"
         @region-change="onInstancePanelRegionUserChange"
         @open-detail="handleInstanceListOpenDetail"
+        @add-public-ip="handleAddInstancePublicIp"
         @menu-click="handleInstanceListMenuClick"
       />
     </a-drawer>
@@ -268,7 +270,9 @@ import {
 } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
 import {
+  assignEphemeralIp,
   getInstanceList,
+  getInstanceNetworkDetail,
   getInstancePublicIps,
   updateInstance,
 } from '../api/instance'
@@ -333,6 +337,7 @@ interface ActiveInstanceListRequest {
 }
 const instanceListActiveRequests = new Map<string, ActiveInstanceListRequest>()
 const instancePublicIpActiveRequests = new Map<string, ActiveInstanceListRequest>()
+const addPublicIpLoading = ref<Record<string, boolean>>({})
 interface InstancePublicIpCacheEntry {
   compartmentId: string
   publicIp: string | null
@@ -726,33 +731,6 @@ function instancePublicIpTargets(rows: any[]) {
       compartmentId: String(row?.compartmentId || '').trim(),
     }))
     .filter((target) => !!target.instanceId)
-}
-
-function freshCachedInstancePublicIps(tenantId: string, region: string, rows: any[]) {
-  const requestKey = instancePublicIpRequestKey(tenantId, region)
-  const state = instancePublicIpCacheState.get(requestKey)
-  if (!state) return {} as Record<string, string | null>
-  const now = Date.now()
-  const validIds = new Set<string>()
-  const publicIps: Record<string, string | null> = {}
-  for (const target of instancePublicIpTargets(rows)) {
-    validIds.add(target.instanceId)
-    const entry = state.get(target.instanceId)
-    if (
-      entry &&
-      entry.compartmentId === target.compartmentId &&
-      now - entry.fetchedAt < INSTANCE_PUBLIC_IP_CACHE_TTL_MS
-    ) {
-      publicIps[target.instanceId] = entry.publicIp
-    } else if (entry) {
-      state.delete(target.instanceId)
-    }
-  }
-  for (const instanceId of Array.from(state.keys())) {
-    if (!validIds.has(instanceId)) state.delete(instanceId)
-  }
-  if (state.size === 0) instancePublicIpCacheState.delete(requestKey)
-  return publicIps
 }
 
 function patchInstancePublicIpsInCache(td: TenantData, region: string, publicIps: Record<string, string | null>) {
@@ -1251,13 +1229,15 @@ async function loadTenantInstancePublicIps(
   reg: string,
   rows: any[],
   force = false,
-) {
+  applyToVisibleList = true,
+): Promise<Record<string, string | null>> {
   const targets = instancePublicIpTargets(rows)
-  if (!tenantId || targets.length === 0) return
+  if (!tenantId || targets.length === 0) return {}
 
   const requestKey = instancePublicIpRequestKey(tenantId, reg)
   const cacheState = instancePublicIpCacheState.get(requestKey) || new Map<string, InstancePublicIpCacheEntry>()
   const now = Date.now()
+  const resolvedPublicIps: Record<string, string | null> = {}
   const validIds = new Set(targets.map((target) => target.instanceId))
   for (const instanceId of Array.from(cacheState.keys())) {
     if (!validIds.has(instanceId)) cacheState.delete(instanceId)
@@ -1271,18 +1251,23 @@ async function loadTenantInstancePublicIps(
       cached &&
       cached.compartmentId === target.compartmentId &&
       now - cached.fetchedAt < INSTANCE_PUBLIC_IP_CACHE_TTL_MS
-    ) return false
+    ) {
+      resolvedPublicIps[target.instanceId] = cached.publicIp
+      return false
+    }
     if (cached) cacheState.delete(target.instanceId)
     return true
   })
   if (cacheState.size > 0) instancePublicIpCacheState.set(requestKey, cacheState)
   else instancePublicIpCacheState.delete(requestKey)
-  if (pendingTargets.length === 0) return
+  if (pendingTargets.length === 0) return resolvedPublicIps
 
-  const pendingPublicIps = Object.fromEntries(
-    pendingTargets.map((target) => [target.instanceId, null]),
-  ) as Record<string, string | null>
-  applyInstancePublicIps(td, tenantId, reg, pendingPublicIps)
+  if (applyToVisibleList) {
+    const pendingPublicIps = Object.fromEntries(
+      pendingTargets.map((target) => [target.instanceId, null]),
+    ) as Record<string, string | null>
+    applyInstancePublicIps(td, tenantId, reg, pendingPublicIps)
+  }
 
   for (const [key, request] of Array.from(instancePublicIpActiveRequests.entries())) {
     if (request.tenantId !== tenantId) continue
@@ -1297,7 +1282,7 @@ async function loadTenantInstancePublicIps(
 
   try {
     for (let offset = 0; offset < pendingTargets.length; offset += INSTANCE_PUBLIC_IP_BATCH_SIZE) {
-      if (!isLatestRequest()) return
+      if (!isLatestRequest()) return resolvedPublicIps
       const batch = pendingTargets.slice(offset, offset + INSTANCE_PUBLIC_IP_BATCH_SIZE)
       let res
       try {
@@ -1310,11 +1295,12 @@ async function loadTenantInstancePublicIps(
           },
         )
       } catch (error: any) {
-        if (error?.code === 'ERR_CANCELED' || error?.name === 'CanceledError') return
+        if (error?.code === 'ERR_CANCELED' || error?.name === 'CanceledError') return resolvedPublicIps
         break
       }
-      if (!isLatestRequest()) return
+      if (!isLatestRequest()) return resolvedPublicIps
       const publicIps = res.data?.publicIps || {}
+      Object.assign(resolvedPublicIps, publicIps)
       const fetchedAt = Date.now()
       for (const target of batch) {
         if (!Object.prototype.hasOwnProperty.call(publicIps, target.instanceId)) continue
@@ -1325,13 +1311,14 @@ async function loadTenantInstancePublicIps(
         })
       }
       if (cacheState.size > 0) instancePublicIpCacheState.set(requestKey, cacheState)
-      applyInstancePublicIps(td, tenantId, reg, publicIps)
+      if (applyToVisibleList) applyInstancePublicIps(td, tenantId, reg, publicIps)
     }
   } catch {
     // 公网 IP 是补充字段，失败或取消时保留已经展示的基础实例列表。
   } finally {
     if (isLatestRequest()) instancePublicIpActiveRequests.delete(requestKey)
   }
+  return resolvedPublicIps
 }
 
 async function loadTenantInstances(td: TenantData, options: LoadTenantInstancesOptions | boolean = {}) {
@@ -1353,14 +1340,49 @@ async function loadTenantInstances(td: TenantData, options: LoadTenantInstancesO
   cancelTenantInstanceRequests(tenantId)
 
   if (cached) {
+    if (!force && Date.now() - cached.fetchedAt < INSTANCE_LIST_CACHE_TTL_MS) {
+      const publicIpsResolved = cached.rows.every((row: any) =>
+        Object.prototype.hasOwnProperty.call(row, 'publicIp'),
+      )
+      if (publicIpsResolved) {
+        if (isCurrentPanelScope()) {
+          td.instances = cached.rows
+          td.instancesRegion = reg
+        }
+        setTenantInstanceLoading(tenantId, false, td)
+        return
+      }
+
+      const cachedRequestSeq = ++instanceListLoadSeq
+      const cachedController = new AbortController()
+      if (requestKey) {
+        instanceListActiveRequests.set(requestKey, {
+          seq: cachedRequestSeq,
+          tenantId,
+          controller: cachedController,
+        })
+      }
+      const isLatestCachedRequest = () =>
+        !requestKey || instanceListActiveRequests.get(requestKey)?.seq === cachedRequestSeq
+      if (isCurrentPanelScope()) setTenantInstanceLoading(tenantId, true, td)
+      try {
+        const publicIps = await loadTenantInstancePublicIps(td, tenantId, reg, cached.rows, false, false)
+        if (!isLatestCachedRequest() || !isCurrentPanelScope()) return
+        const rows = patchInstancePublicIps(cached.rows, publicIps)
+        appQueryCache.update<any[]>(instanceListCacheKey(td, reg), () => rows)
+        td.instances = rows
+        td.instancesRegion = reg
+      } finally {
+        if (isLatestCachedRequest()) {
+          setTenantInstanceLoading(tenantId, false, td)
+          if (requestKey) instanceListActiveRequests.delete(requestKey)
+        }
+      }
+      return
+    }
     if (isCurrentPanelScope()) {
       td.instances = cached.rows
       td.instancesRegion = reg
-    }
-    if (!force && Date.now() - cached.fetchedAt < INSTANCE_LIST_CACHE_TTL_MS) {
-      setTenantInstanceLoading(tenantId, false, td)
-      if (isCurrentPanelScope()) void loadTenantInstancePublicIps(td, tenantId, reg, cached.rows)
-      return
     }
   }
   if (!cached && isCurrentPanelScope() && td.instancesRegion !== reg) {
@@ -1382,9 +1404,18 @@ async function loadTenantInstances(td: TenantData, options: LoadTenantInstancesO
       { id: td.tenant.id, region: reg, force },
       { signal: controller.signal },
     )
+    const baseRows = res.data || []
+    const publicIps = await loadTenantInstancePublicIps(
+      td,
+      tenantId,
+      reg,
+      baseRows,
+      force,
+      false,
+    )
     const rows = patchInstancePublicIps(
-      res.data || [],
-      force ? {} : freshCachedInstancePublicIps(tenantId, reg, res.data || []),
+      baseRows,
+      publicIps,
     )
 
     if (!canApplyCache()) return
@@ -1395,7 +1426,6 @@ async function loadTenantInstances(td: TenantData, options: LoadTenantInstancesO
     const current = findTenantDataById(tenantId) || td
     current.instances = rows
     current.instancesRegion = reg
-    void loadTenantInstancePublicIps(current, tenantId, reg, rows, force)
     if (currentTenant.value?.id === td.tenant.id && currentInstance.value?.instanceId) {
       const fresh = rows.find((i: any) => i.instanceId === currentInstance.value.instanceId)
       if (fresh) currentInstance.value = { ...currentInstance.value, ...fresh }
@@ -1416,6 +1446,59 @@ async function loadTenantInstances(td: TenantData, options: LoadTenantInstancesO
       setTenantInstanceLoading(tenantId, false, td)
       if (requestKey) instanceListActiveRequests.delete(requestKey)
     }
+  }
+}
+
+function primaryPrivateIpDetail(networkDetail: any) {
+  const vnics = Array.isArray(networkDetail?.vnics) ? networkDetail.vnics : []
+  const primaryVnic = vnics.find((vnic: any) => vnic?.isPrimary === true) || vnics[0]
+  const ipDetails = Array.isArray(primaryVnic?.ipDetails) ? primaryVnic.ipDetails : []
+  return ipDetails.find((ip: any) => ip?.isPrimary === true) || ipDetails[0] || null
+}
+
+async function handleAddInstancePublicIp(record: any) {
+  const td = activeTenantData.value
+  const tenantId = String(td?.tenant?.id || '')
+  const instanceId = String(record?.instanceId || '')
+  if (!td || !tenantId || !instanceId || addPublicIpLoading.value[instanceId]) return
+  const region = instanceListRegion(td)
+  const compartmentId = String(record?.compartmentId || '').trim()
+  addPublicIpLoading.value[instanceId] = true
+  try {
+    const detailRes = await getInstanceNetworkDetail({
+      id: tenantId,
+      instanceId,
+      region,
+      compartmentId: compartmentId || undefined,
+      force: true,
+    })
+    const primaryIp = primaryPrivateIpDetail(detailRes.data)
+    const existingPublicIp = String(primaryIp?.publicIpAddress || '').trim()
+    let publicIp = existingPublicIp
+    if (!publicIp) {
+      const privateIpId = String(primaryIp?.privateIpId || '').trim()
+      if (!privateIpId) throw new Error('未找到实例主私有 IP，无法分配公网 IP')
+      const assignRes = await assignEphemeralIp({
+        id: tenantId,
+        instanceId,
+        privateIpId,
+        region,
+        compartmentId: compartmentId || undefined,
+      })
+      publicIp = String(assignRes.data?.publicIp || '').trim()
+      if (!publicIp) throw new Error('公网 IP 已提交分配，但接口未返回地址')
+    }
+
+    const requestKey = instancePublicIpRequestKey(tenantId, region)
+    const cacheState = instancePublicIpCacheState.get(requestKey) || new Map<string, InstancePublicIpCacheEntry>()
+    cacheState.set(instanceId, { compartmentId, publicIp, fetchedAt: Date.now() })
+    instancePublicIpCacheState.set(requestKey, cacheState)
+    applyInstancePublicIps(td, tenantId, region, { [instanceId]: publicIp })
+    message.success(existingPublicIp ? '公网 IP 已刷新' : '公网 IP 已添加')
+  } catch (e: any) {
+    message.error(e?.message || '添加公网 IP 失败')
+  } finally {
+    addPublicIpLoading.value[instanceId] = false
   }
 }
 

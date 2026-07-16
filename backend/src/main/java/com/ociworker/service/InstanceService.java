@@ -36,7 +36,7 @@ public class InstanceService {
     private static final Duration INSTANCE_LIST_CACHE_TTL = Duration.ofSeconds(20);
     private static final Duration INSTANCE_DETAIL_CACHE_TTL = Duration.ofSeconds(45);
     private static final Duration INSTANCE_LIST_BUDGET = Duration.ofSeconds(25);
-    private static final Duration INSTANCE_PUBLIC_IP_BUDGET = Duration.ofSeconds(10);
+    private static final Duration INSTANCE_PUBLIC_IP_BUDGET = Duration.ofSeconds(25);
     private static final int INSTANCE_LIST_CONNECT_TIMEOUT_MS = 5_000;
     private static final int INSTANCE_LIST_READ_TIMEOUT_MS = 10_000;
     private static final int MAX_PUBLIC_IP_TARGETS = 500;

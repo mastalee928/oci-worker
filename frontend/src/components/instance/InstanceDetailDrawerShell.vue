@@ -15,7 +15,7 @@
           mode="info"
           :tenant="tenant"
           :instance="instance"
-          :active="activeTab === 'info'"
+          :active="open && activeTab === 'info'"
           :region="currentDetailRegion"
           :state-color-map="stateColorMap"
           :action-loading="actionLoading"
