@@ -37,6 +37,7 @@ import com.oracle.bmc.http.ClientConfigurator;
 import com.oracle.bmc.http.client.ProxyConfiguration;
 import com.oracle.bmc.http.client.StandardClientProperties;
 import com.oracle.bmc.http.client.jersey3.ApacheClientProperties;
+import com.oracle.bmc.retrier.RetryConfiguration;
 import lombok.Data;
 import lombok.extern.slf4j.Slf4j;
 
@@ -45,6 +46,7 @@ import org.apache.http.conn.HttpClientConnectionManager;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
+import java.util.concurrent.CancellationException;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -69,22 +71,35 @@ public class OciClientService implements Closeable {
 
     private static final String CIDR_BLOCK = "10.0.0.0/16";
     private static final String SUBNET_CIDR = "10.0.0.0/24";
+    private static final Set<Instance.LifecycleState> VISIBLE_INSTANCE_STATES = Collections.unmodifiableSet(EnumSet.of(
+            Instance.LifecycleState.Running,
+            Instance.LifecycleState.Stopped,
+            Instance.LifecycleState.Starting,
+            Instance.LifecycleState.Stopping));
 
     @Override
     public void close() {
-        computeClient.close();
-        identityClient.close();
-        workRequestClient.close();
-        virtualNetworkClient.close();
-        blockstorageClient.close();
-        objectStorageClient.close();
-        monitoringClient.close();
-        networkLoadBalancerClient.close();
+        closeQuietly(computeClient);
+        closeQuietly(identityClient);
+        closeQuietly(workRequestClient);
+        closeQuietly(virtualNetworkClient);
+        closeQuietly(blockstorageClient);
+        closeQuietly(objectStorageClient);
+        closeQuietly(monitoringClient);
+        closeQuietly(networkLoadBalancerClient);
         if (ociSocksPoolingManager != null) {
             try {
                 ociSocksPoolingManager.shutdown();
             } catch (Exception ignored) {
             }
+        }
+    }
+
+    private static void closeQuietly(AutoCloseable client) {
+        if (client == null) return;
+        try {
+            client.close();
+        } catch (Exception ignored) {
         }
     }
 
@@ -96,6 +111,28 @@ public class OciClientService implements Closeable {
      * 使用指定 Region 的端点创建客户端（用于「存储」等跨区查看）。
      */
     public OciClientService(SysUserDTO user, String regionId) {
+        this(user, regionId, null);
+    }
+
+    /**
+     * 使用指定 Region 和客户端超时配置创建客户端。
+     */
+    public OciClientService(SysUserDTO user, String regionId, ClientConfiguration customClientConfiguration) {
+        this(user, regionId, customClientConfiguration, false);
+    }
+
+    public static OciClientService forInstancePublicIp(
+            SysUserDTO user,
+            String regionId,
+            ClientConfiguration customClientConfiguration) {
+        return new OciClientService(user, regionId, customClientConfiguration, true);
+    }
+
+    private OciClientService(
+            SysUserDTO user,
+            String regionId,
+            ClientConfiguration customClientConfiguration,
+            boolean instancePublicIpOnly) {
         this.user = user;
         SysUserDTO.OciCfg ociCfg = user.getOciCfg();
         Region region = resolveRegion(StrUtil.isNotBlank(regionId) ? regionId : ociCfg.getRegion());
@@ -119,10 +156,12 @@ public class OciClientService implements Closeable {
                 .region(region)
                 .build();
 
-        ClientConfiguration clientConfig = ClientConfiguration.builder()
-                .connectionTimeoutMillis(10_000)
-                .readTimeoutMillis(30_000)
-                .build();
+        ClientConfiguration clientConfig = customClientConfiguration != null
+                ? customClientConfiguration
+                : ClientConfiguration.builder()
+                    .connectionTimeoutMillis(10_000)
+                    .readTimeoutMillis(30_000)
+                    .build();
         this.clientConfiguration = clientConfig;
         OciProxyConfigService ps = OciProxyConfigService.instance();
         OciProxySnapshot snap = ps == null ? null : ps.snapshot();
@@ -157,6 +196,28 @@ public class OciClientService implements Closeable {
 
         if (snap != null && snap.usesSocksForOci()) {
             log.debug("OCI 客户端经应用内 SOCKS5 代理出站: {}:{}", snap.host(), snap.port());
+        }
+
+        if (instancePublicIpOnly) {
+            identityClient = null;
+            workRequestClient = null;
+            blockstorageClient = null;
+            objectStorageClient = null;
+            monitoringClient = null;
+            networkLoadBalancerClient = null;
+
+            var computeBuilder = ComputeClient.builder().configuration(clientConfig);
+            computeBuilder.additionalClientConfigurator(ociApacheCfg);
+            computeClient = computeBuilder.build(provider);
+
+            var networkBuilder = VirtualNetworkClient.builder().configuration(clientConfig);
+            networkBuilder.additionalClientConfigurator(ociApacheCfg);
+            virtualNetworkClient = networkBuilder.build(provider);
+
+            this.provider = provider;
+            compartmentId = StrUtil.isBlank(ociCfg.getCompartmentId())
+                    ? provider.getTenantId() : ociCfg.getCompartmentId();
+            return;
         }
 
         var idb = IdentityClient.builder().configuration(clientConfig);
@@ -222,29 +283,35 @@ public class OciClientService implements Closeable {
     }
 
     public List<Compartment> listAllCompartments() {
+        return listAllCompartments(false);
+    }
+
+    public List<Compartment> listAllCompartmentsStrict() {
+        return listAllCompartments(true, Long.MAX_VALUE);
+    }
+
+    public List<Compartment> listAllCompartmentsStrict(long deadlineNanos) {
+        return listAllCompartments(true, deadlineNanos);
+    }
+
+    private List<Compartment> listAllCompartments(boolean failOnListError) {
+        return listAllCompartments(failOnListError, Long.MAX_VALUE);
+    }
+
+    private List<Compartment> listAllCompartments(boolean failOnListError, long deadlineNanos) {
         String tenantId = provider.getTenantId();
         List<Compartment> all = new ArrayList<>();
         // Root compartment (tenancy itself)
-        try {
-            var tenancy = identityClient.getTenancy(
-                    com.oracle.bmc.identity.requests.GetTenancyRequest.builder()
-                            .tenancyId(tenantId).build()).getTenancy();
-            Compartment root = Compartment.builder()
-                    .id(tenantId)
-                    .name("root")
-                    .compartmentId(tenantId)
-                    .lifecycleState(Compartment.LifecycleState.Active)
-                    .build();
-            all.add(root);
-        } catch (Exception e) {
-            Compartment root = Compartment.builder()
-                    .id(tenantId).name("root").compartmentId(tenantId)
-                    .lifecycleState(Compartment.LifecycleState.Active).build();
-            all.add(root);
-        }
+        all.add(Compartment.builder()
+                .id(tenantId)
+                .name("root")
+                .compartmentId(tenantId)
+                .lifecycleState(Compartment.LifecycleState.Active)
+                .build());
         try {
             String page = null;
             do {
+                ensureReadDeadline(deadlineNanos);
                 var resp = identityClient.listCompartments(
                         ListCompartmentsRequest.builder()
                                 .compartmentId(tenantId)
@@ -253,29 +320,56 @@ public class OciClientService implements Closeable {
                                 .lifecycleState(Compartment.LifecycleState.Active)
                                 .limit(1000)
                                 .page(page)
+                                .retryConfiguration(RetryConfiguration.NO_RETRY_CONFIGURATION)
                                 .build()
                 );
                 all.addAll(resp.getItems());
                 page = resp.getOpcNextPage();
-            } while (page != null);
+                ensureReadDeadline(deadlineNanos);
+            } while (StrUtil.isNotBlank(page));
         } catch (Exception e) {
+            if (failOnListError) throw e;
             log.warn("Failed to list compartments: {}", e.getMessage());
         }
         return all;
     }
 
     public List<Instance> listAllInstancesInCompartment(String cid) {
+        return listAllInstancesInCompartment(cid, Long.MAX_VALUE);
+    }
+
+    public List<Instance> listAllInstancesInCompartment(String cid, long deadlineNanos) {
         List<Instance> all = new ArrayList<>();
-        for (Instance.LifecycleState state : List.of(
-                Instance.LifecycleState.Running, Instance.LifecycleState.Stopped,
-                Instance.LifecycleState.Starting, Instance.LifecycleState.Stopping)) {
-            try {
-                all.addAll(computeClient.listInstances(
-                        ListInstancesRequest.builder().compartmentId(cid).lifecycleState(state).build()
-                ).getItems());
-            } catch (Exception ignored) {}
-        }
+        String page = null;
+        do {
+            ensureReadDeadline(deadlineNanos);
+            ListInstancesResponse response = computeClient.listInstances(instanceListRequest(cid, page));
+            for (Instance instance : response.getItems()) {
+                if (isVisibleInstanceLifecycle(instance.getLifecycleState())) all.add(instance);
+            }
+            page = response.getOpcNextPage();
+            ensureReadDeadline(deadlineNanos);
+        } while (StrUtil.isNotBlank(page));
         return all;
+    }
+
+    private static void ensureReadDeadline(long deadlineNanos) {
+        if (Thread.currentThread().isInterrupted() || System.nanoTime() >= deadlineNanos) {
+            throw new CancellationException("OCI read deadline exceeded");
+        }
+    }
+
+    static ListInstancesRequest instanceListRequest(String compartmentId, String page) {
+        return ListInstancesRequest.builder()
+                .compartmentId(compartmentId)
+                .limit(1000)
+                .page(page)
+                .retryConfiguration(RetryConfiguration.NO_RETRY_CONFIGURATION)
+                .build();
+    }
+
+    static boolean isVisibleInstanceLifecycle(Instance.LifecycleState state) {
+        return state != null && VISIBLE_INSTANCE_STATES.contains(state);
     }
 
     public List<Vcn> listVcnInCompartment(String cid) {
@@ -1313,26 +1407,52 @@ public class OciClientService implements Closeable {
     }
 
     public String getInstancePublicIp(Instance instance) {
-        try {
-            List<VnicAttachment> vnicAttachments = computeClient.listVnicAttachments(
-                    ListVnicAttachmentsRequest.builder()
-                            .compartmentId(resolveInstanceCompartmentId(instance))
-                            .instanceId(instance.getId())
-                            .build()
-            ).getItems();
+        return getInstancePublicIp(
+                instance == null ? null : instance.getId(),
+                instance == null ? null : resolveInstanceCompartmentId(instance));
+    }
 
-            for (VnicAttachment attachment : vnicAttachments) {
-                Vnic vnic = virtualNetworkClient.getVnic(
-                        GetVnicRequest.builder()
-                                .vnicId(attachment.getVnicId())
-                                .build()
-                ).getVnic();
-                if (vnic.getPublicIp() != null) {
-                    return vnic.getPublicIp();
-                }
-            }
+    public String getInstancePublicIp(String instanceId, String instanceCompartmentId) {
+        if (StrUtil.isBlank(instanceId)) return null;
+        try {
+            return getInstancePublicIpStrict(instanceId, instanceCompartmentId);
         } catch (Exception e) {
             log.warn("Failed to get public IP: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    public String getInstancePublicIpStrict(String instanceId, String instanceCompartmentId) {
+        if (StrUtil.isBlank(instanceId)) return null;
+        if (Thread.currentThread().isInterrupted()) throw new CancellationException("public IP lookup cancelled");
+        List<VnicAttachment> vnicAttachments = new ArrayList<>();
+        String page = null;
+        do {
+            var response = computeClient.listVnicAttachments(
+                    ListVnicAttachmentsRequest.builder()
+                            .compartmentId(StrUtil.isNotBlank(instanceCompartmentId)
+                                    ? instanceCompartmentId : compartmentId)
+                            .instanceId(instanceId)
+                            .limit(1000)
+                            .page(page)
+                            .retryConfiguration(RetryConfiguration.NO_RETRY_CONFIGURATION)
+                            .build());
+            vnicAttachments.addAll(response.getItems());
+            page = response.getOpcNextPage();
+            if (Thread.currentThread().isInterrupted()) throw new CancellationException("public IP lookup cancelled");
+        } while (StrUtil.isNotBlank(page));
+
+        for (VnicAttachment attachment : vnicAttachments) {
+            if (Thread.currentThread().isInterrupted()) throw new CancellationException("public IP lookup cancelled");
+            Vnic vnic = virtualNetworkClient.getVnic(
+                    GetVnicRequest.builder()
+                            .vnicId(attachment.getVnicId())
+                            .retryConfiguration(RetryConfiguration.NO_RETRY_CONFIGURATION)
+                            .build()
+            ).getVnic();
+            if (vnic.getPublicIp() != null) {
+                return vnic.getPublicIp();
+            }
         }
         return null;
     }

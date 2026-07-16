@@ -22,8 +22,27 @@ export interface ShapeEditTaskStatus {
   result?: Record<string, any>
 }
 
+export interface InstancePublicIpTarget {
+  instanceId: string
+  compartmentId?: string
+}
+
+export interface InstancePublicIpResponse {
+  publicIps: Record<string, string | null>
+  complete: boolean
+  requested: number
+  resolved: number
+}
+
 export function getInstanceList(data: { id: string } & R, config?: OciRequestConfig) {
-  return request.post('/oci/instance/list', data, config)
+  return request.post('/oci/instance/list', data, { timeout: 40_000, ...config })
+}
+
+export function getInstancePublicIps(
+  data: { id: string; instances: InstancePublicIpTarget[] } & R,
+  config?: OciRequestConfig,
+) {
+  return request.post<InstancePublicIpResponse>('/oci/instance/publicIps', data, { timeout: 30_000, ...config })
 }
 
 export function updateInstanceState(data: { id: string; instanceId: string; action: string } & R) {

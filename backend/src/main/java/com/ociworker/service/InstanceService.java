@@ -1,5 +1,6 @@
 package com.ociworker.service;
 
+import com.oracle.bmc.ClientConfiguration;
 import com.oracle.bmc.core.model.*;
 import com.oracle.bmc.core.requests.*;
 import com.oracle.bmc.identity.model.Compartment;
@@ -7,16 +8,21 @@ import com.ociworker.exception.OciException;
 import com.ociworker.util.OciBmcErrorTranslator;
 import com.ociworker.util.ShapeFlexLimitsUtil;
 import com.ociworker.mapper.OciUserMapper;
+import com.ociworker.model.dto.InstancePublicIpRequest;
+import com.ociworker.model.dto.InstancePublicIpResponse;
 import com.ociworker.model.dto.ShapeEditTaskStatus;
 import com.ociworker.model.dto.SysUserDTO;
 import com.ociworker.model.entity.OciUser;
 import jakarta.annotation.Resource;
+import jakarta.annotation.PreDestroy;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.stream.Collectors;
 import java.util.LinkedHashSet;
 
@@ -29,6 +35,41 @@ public class InstanceService {
     private static final Duration SHAPE_LIST_CACHE_TTL = Duration.ofMinutes(15);
     private static final Duration INSTANCE_LIST_CACHE_TTL = Duration.ofSeconds(20);
     private static final Duration INSTANCE_DETAIL_CACHE_TTL = Duration.ofSeconds(45);
+    private static final Duration INSTANCE_LIST_BUDGET = Duration.ofSeconds(25);
+    private static final Duration INSTANCE_PUBLIC_IP_BUDGET = Duration.ofSeconds(10);
+    private static final int INSTANCE_LIST_CONNECT_TIMEOUT_MS = 5_000;
+    private static final int INSTANCE_LIST_READ_TIMEOUT_MS = 10_000;
+    private static final int MAX_PUBLIC_IP_TARGETS = 500;
+    private static final int INSTANCE_PUBLIC_IP_CONCURRENCY = 8;
+
+    private final AtomicInteger instanceListThreadSeq = new AtomicInteger();
+    private final ThreadPoolExecutor instanceListExecutor = new ThreadPoolExecutor(
+            4,
+            4,
+            0L,
+            TimeUnit.MILLISECONDS,
+            new ArrayBlockingQueue<>(24),
+            runnable -> {
+                Thread thread = new Thread(runnable, "oci-instance-list-" + instanceListThreadSeq.incrementAndGet());
+                thread.setDaemon(true);
+                return thread;
+            },
+            new ThreadPoolExecutor.AbortPolicy());
+    private final AtomicInteger instancePublicIpThreadSeq = new AtomicInteger();
+    private final AtomicInteger instancePublicIpCursor = new AtomicInteger();
+    private final ThreadPoolExecutor instancePublicIpExecutor = new ThreadPoolExecutor(
+            INSTANCE_PUBLIC_IP_CONCURRENCY,
+            INSTANCE_PUBLIC_IP_CONCURRENCY,
+            0L,
+            TimeUnit.MILLISECONDS,
+            new ArrayBlockingQueue<>(64),
+            runnable -> {
+                Thread thread = new Thread(runnable,
+                        "oci-instance-public-ip-" + instancePublicIpThreadSeq.incrementAndGet());
+                thread.setDaemon(true);
+                return thread;
+            },
+            new ThreadPoolExecutor.AbortPolicy());
 
     @Resource
     private OciUserMapper userMapper;
@@ -44,6 +85,30 @@ public class InstanceService {
     private OciClientService oci(OciUser ociUser, String region) {
         String r = (region == null || region.isBlank()) ? null : region.trim();
         return new OciClientService(buildBasicDTO(ociUser), r);
+    }
+
+    private OciClientService ociForInstanceRead(OciUser ociUser, String region) {
+        String r = (region == null || region.isBlank()) ? null : region.trim();
+        ClientConfiguration config = ClientConfiguration.builder()
+                .connectionTimeoutMillis(INSTANCE_LIST_CONNECT_TIMEOUT_MS)
+                .readTimeoutMillis(INSTANCE_LIST_READ_TIMEOUT_MS)
+                .build();
+        return new OciClientService(buildBasicDTO(ociUser), r, config);
+    }
+
+    private OciClientService ociForInstancePublicIp(OciUser ociUser, String region) {
+        String r = (region == null || region.isBlank()) ? null : region.trim();
+        ClientConfiguration config = ClientConfiguration.builder()
+                .connectionTimeoutMillis(INSTANCE_LIST_CONNECT_TIMEOUT_MS)
+                .readTimeoutMillis(INSTANCE_LIST_READ_TIMEOUT_MS)
+                .build();
+        return OciClientService.forInstancePublicIp(buildBasicDTO(ociUser), r, config);
+    }
+
+    @PreDestroy
+    void shutdownInstanceReadExecutors() {
+        instanceListExecutor.shutdownNow();
+        instancePublicIpExecutor.shutdownNow();
     }
 
     private String resolveInstanceCompartmentId(OciClientService client, String instanceId, String providedCompartmentId) {
@@ -82,14 +147,34 @@ public class InstanceService {
     public List<Map<String, Object>> listInstances(String userId, String region, boolean force) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
-
-        return ociReadCacheService.get(instanceCacheKey("list", ociUser, region), INSTANCE_LIST_CACHE_TTL, force,
-                () -> fetchInstances(ociUser, region));
+        long deadlineNanos = System.nanoTime() + INSTANCE_LIST_BUDGET.toNanos();
+        try {
+            return ociReadCacheService.getSingleFlight(
+                    instanceCacheKey("list", ociUser, region),
+                    INSTANCE_LIST_CACHE_TTL,
+                    force,
+                    deadlineNanos,
+                    instanceListExecutor,
+                    () -> fetchInstances(ociUser, region, deadlineNanos));
+        } catch (RejectedExecutionException e) {
+            throw new OciException(tag(ociUser) + "实例列表查询繁忙，请稍后重试");
+        } catch (TimeoutException e) {
+            throw new OciException(tag(ociUser) + "获取实例列表超时，请检查 OCI 网络或代理配置");
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new OciException(tag(ociUser) + "获取实例列表已中断");
+        } catch (ExecutionException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof RuntimeException runtimeException) throw runtimeException;
+            throw new OciException(tag(ociUser) + "获取实例列表失败");
+        }
     }
 
-    private List<Map<String, Object>> fetchInstances(OciUser ociUser, String region) {
-        try (OciClientService client = oci(ociUser, region)) {
-            var compartments = client.listAllCompartments();
+    private List<Map<String, Object>> fetchInstances(OciUser ociUser, String region, long deadlineNanos) {
+        long startedAt = System.nanoTime();
+        try (OciClientService client = ociForInstanceRead(ociUser, region)) {
+            ensureInstanceListDeadline(deadlineNanos, ociUser);
+            var compartments = client.listAllCompartmentsStrict(deadlineNanos);
             Map<String, String> compartmentNameMap = new LinkedHashMap<>();
             for (var c : compartments) {
                 compartmentNameMap.put(c.getId(), c.getName());
@@ -97,59 +182,181 @@ public class InstanceService {
 
             List<Instance> allInstances = new ArrayList<>();
             for (var compartment : compartments) {
-                allInstances.addAll(client.listAllInstancesInCompartment(compartment.getId()));
+                ensureInstanceListDeadline(deadlineNanos, ociUser);
+                allInstances.addAll(client.listAllInstancesInCompartment(compartment.getId(), deadlineNanos));
             }
-
-            if (allInstances.isEmpty()) {
-                return new ArrayList<>();
-            }
-
-            // Fetch public IPs in parallel; OCI SDK clients are not thread-safe, so use separate clients per thread is ideal.
-            // Here we reuse the read-only VirtualNetworkClient via getInstancePublicIp which is usually safe for list ops;
-            // guarded by a bounded pool and always shut down in finally.
-            ExecutorService executor = Executors.newFixedThreadPool(Math.min(Math.max(allInstances.size(), 1), 8));
-            Map<String, Future<String>> ipFutures = new LinkedHashMap<>();
             List<Map<String, Object>> result = new ArrayList<>();
-            try {
-                for (Instance inst : allInstances) {
-                    ipFutures.put(inst.getId(), executor.submit(() -> {
-                        try { return client.getInstancePublicIp(inst); }
-                        catch (Exception e) { return null; }
-                    }));
+            for (Instance inst : allInstances) {
+                Map<String, Object> map = new LinkedHashMap<>();
+                map.put("instanceId", inst.getId());
+                map.put("name", inst.getDisplayName());
+                map.put("region", inst.getRegion());
+                map.put("shape", inst.getShape());
+                map.put("state", inst.getLifecycleState().getValue());
+                map.put("timeCreated", inst.getTimeCreated() != null ? inst.getTimeCreated().toString() : null);
+                map.put("availabilityDomain", inst.getAvailabilityDomain());
+                map.put("compartmentId", inst.getCompartmentId());
+                map.put("compartmentName", compartmentNameMap.getOrDefault(inst.getCompartmentId(), "unknown"));
+                if (inst.getShapeConfig() != null) {
+                    map.put("ocpus", inst.getShapeConfig().getOcpus());
+                    map.put("memoryInGBs", inst.getShapeConfig().getMemoryInGBs());
                 }
-
-                for (Instance inst : allInstances) {
-                    Map<String, Object> map = new LinkedHashMap<>();
-                    map.put("instanceId", inst.getId());
-                    map.put("name", inst.getDisplayName());
-                    map.put("region", inst.getRegion());
-                    map.put("shape", inst.getShape());
-                    map.put("state", inst.getLifecycleState().getValue());
-                    map.put("timeCreated", inst.getTimeCreated() != null ? inst.getTimeCreated().toString() : null);
-                    map.put("availabilityDomain", inst.getAvailabilityDomain());
-                    map.put("compartmentId", inst.getCompartmentId());
-                    map.put("compartmentName", compartmentNameMap.getOrDefault(inst.getCompartmentId(), "unknown"));
-
-                    if (inst.getShapeConfig() != null) {
-                        map.put("ocpus", inst.getShapeConfig().getOcpus());
-                        map.put("memoryInGBs", inst.getShapeConfig().getMemoryInGBs());
-                    }
-
-                    try {
-                        map.put("publicIp", ipFutures.get(inst.getId()).get(15, TimeUnit.SECONDS));
-                    } catch (Exception e) {
-                        map.put("publicIp", null);
-                    }
-                    result.add(map);
-                }
-            } finally {
-                executor.shutdownNow();
+                result.add(map);
             }
+            log.info("Listed instances: tenant={}, region={}, compartments={}, instances={}, elapsedMs={}",
+                    ociUser.getUsername(), region, compartments.size(), result.size(),
+                    TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt));
             return result;
+        } catch (CancellationException e) {
+            throw new OciException(tag(ociUser) + "获取实例列表超时，请检查 OCI 网络或代理配置");
+        } catch (OciException e) {
+            throw e;
         } catch (Exception e) {
             log.error("Failed to list instances: {}", e.getMessage());
             throw new OciException(tag(ociUser) + "获取实例列表失败: " + e.getMessage());
         }
+    }
+
+    private void ensureInstanceListDeadline(long deadlineNanos, OciUser ociUser) {
+        if (Thread.currentThread().isInterrupted() || System.nanoTime() >= deadlineNanos) {
+            throw new OciException(tag(ociUser) + "获取实例列表超时，请检查 OCI 网络或代理配置");
+        }
+    }
+
+    public InstancePublicIpResponse listInstancePublicIps(
+            String userId,
+            String region,
+            List<InstancePublicIpRequest.Target> targets) {
+        OciUser ociUser = userMapper.selectById(userId);
+        if (ociUser == null) throw new OciException("租户配置不存在");
+        if (targets == null || targets.isEmpty()) {
+            return new InstancePublicIpResponse(new LinkedHashMap<>(), true, 0, 0);
+        }
+
+        LinkedHashMap<String, InstancePublicIpRequest.Target> uniqueTargets = new LinkedHashMap<>();
+        for (InstancePublicIpRequest.Target target : targets) {
+            if (target == null || target.getInstanceId() == null || target.getInstanceId().isBlank()) continue;
+            String instanceId = target.getInstanceId().trim();
+            if (!uniqueTargets.containsKey(instanceId) && uniqueTargets.size() >= MAX_PUBLIC_IP_TARGETS) {
+                throw new OciException("单次最多查询 " + MAX_PUBLIC_IP_TARGETS + " 台实例的公网 IP");
+            }
+            uniqueTargets.putIfAbsent(instanceId, target);
+        }
+        if (uniqueTargets.isEmpty()) {
+            return new InstancePublicIpResponse(new LinkedHashMap<>(), true, 0, 0);
+        }
+
+        List<InstancePublicIpRequest.Target> orderedTargets = new ArrayList<>(uniqueTargets.values());
+        int startIndex = Math.floorMod(
+                instancePublicIpCursor.getAndAdd(Math.min(INSTANCE_PUBLIC_IP_CONCURRENCY, orderedTargets.size())),
+                orderedTargets.size());
+        Collections.rotate(orderedTargets, -startIndex);
+
+        long deadlineNanos = System.nanoTime() + INSTANCE_PUBLIC_IP_BUDGET.toNanos();
+        Map<String, String> result = new LinkedHashMap<>();
+        Object resultLock = new Object();
+        InstancePublicIpLookupStats stats = new InstancePublicIpLookupStats();
+        AtomicBoolean acceptingResults = new AtomicBoolean(true);
+        AtomicInteger nextTarget = new AtomicInteger();
+        int workers = Math.min(INSTANCE_PUBLIC_IP_CONCURRENCY, orderedTargets.size());
+        CountDownLatch workersDone = new CountDownLatch(workers);
+        List<Future<?>> workerFutures = new ArrayList<>(workers);
+        boolean interrupted = false;
+
+        for (int worker = 0; worker < workers; worker++) {
+            try {
+                workerFutures.add(instancePublicIpExecutor.submit(() -> {
+                    try {
+                        resolveInstancePublicIpsWorker(
+                                ociUser, region, orderedTargets, nextTarget, deadlineNanos,
+                                acceptingResults, resultLock, result, stats);
+                    } finally {
+                        workersDone.countDown();
+                    }
+                }));
+            } catch (RejectedExecutionException e) {
+                workersDone.countDown();
+                log.debug("Public IP lookup worker rejected: tenant={}, region={}", ociUser.getUsername(), region);
+            }
+        }
+
+        try {
+            long remainingNanos = deadlineNanos - System.nanoTime();
+            if (remainingNanos > 0) workersDone.await(remainingNanos, TimeUnit.NANOSECONDS);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            interrupted = true;
+        }
+
+        Map<String, String> snapshot;
+        int attempted;
+        int failed;
+        synchronized (resultLock) {
+            acceptingResults.set(false);
+            snapshot = new LinkedHashMap<>(result);
+            attempted = stats.attempted;
+            failed = stats.failed;
+        }
+        for (Future<?> workerFuture : workerFutures) workerFuture.cancel(true);
+        instancePublicIpExecutor.purge();
+
+        boolean complete = !interrupted && attempted == orderedTargets.size() && failed == 0;
+        return new InstancePublicIpResponse(snapshot, complete, orderedTargets.size(), snapshot.size());
+    }
+
+    private void resolveInstancePublicIpsWorker(
+            OciUser ociUser,
+            String region,
+            List<InstancePublicIpRequest.Target> targets,
+            AtomicInteger nextTarget,
+            long deadlineNanos,
+            AtomicBoolean acceptingResults,
+            Object resultLock,
+            Map<String, String> result,
+            InstancePublicIpLookupStats stats) {
+        if (Thread.currentThread().isInterrupted() || System.nanoTime() >= deadlineNanos) return;
+        try (OciClientService client = ociForInstancePublicIp(ociUser, region)) {
+            while (!Thread.currentThread().isInterrupted() && System.nanoTime() < deadlineNanos) {
+                int index = nextTarget.getAndIncrement();
+                if (index >= targets.size()) return;
+                InstancePublicIpLookup lookup = resolveInstancePublicIp(client, targets.get(index));
+                synchronized (resultLock) {
+                    if (!acceptingResults.get() || Thread.currentThread().isInterrupted()
+                            || System.nanoTime() >= deadlineNanos) return;
+                    stats.attempted++;
+                    if (lookup.success()) {
+                        result.put(lookup.instanceId(), lookup.publicIp());
+                    } else {
+                        stats.failed++;
+                    }
+                }
+            }
+        } catch (Exception e) {
+            log.debug("Public IP worker stopped: tenant={}, region={}, error={}",
+                    ociUser.getUsername(), region, e.getMessage());
+        }
+    }
+
+    private InstancePublicIpLookup resolveInstancePublicIp(OciClientService client, InstancePublicIpRequest.Target target) {
+        String instanceId = target.getInstanceId().trim();
+        try {
+            String publicIp = client.getInstancePublicIpStrict(instanceId, target.getCompartmentId());
+            return new InstancePublicIpLookup(
+                    instanceId,
+                    publicIp == null || publicIp.isBlank() ? null : publicIp,
+                    true);
+        } catch (Exception e) {
+            log.debug("Failed to resolve public IP for instance {}: {}", instanceId, e.getMessage());
+            return new InstancePublicIpLookup(instanceId, null, false);
+        }
+    }
+
+    private record InstancePublicIpLookup(String instanceId, String publicIp, boolean success) {
+    }
+
+    private static final class InstancePublicIpLookupStats {
+        private int attempted;
+        private int failed;
     }
 
     public void updateInstanceState(String userId, String instanceId, String action, String region) {

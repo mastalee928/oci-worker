@@ -2,6 +2,7 @@ package com.ociworker.controller;
 
 import com.ociworker.model.vo.ResponseData;
 import com.ociworker.exception.OciException;
+import com.ociworker.model.dto.InstancePublicIpRequest;
 import com.ociworker.service.ConsoleService;
 import com.ociworker.service.InstanceService;
 import com.ociworker.service.ShapeEditTaskManager;
@@ -27,6 +28,15 @@ public class InstanceController {
     @PostMapping("/list")
     public ResponseData<?> list(@RequestBody Map<String, String> params) {
         return ResponseData.ok(instanceService.listInstances(params.get("id"), regStr(params), bool(params.get("force"))));
+    }
+
+    @PostMapping("/publicIps")
+    public ResponseData<?> publicIps(@RequestBody InstancePublicIpRequest params) {
+        if (params == null || params.getId() == null || params.getId().isBlank()) {
+            throw new OciException("缺少租户实例公网 IP 查询信息");
+        }
+        return ResponseData.ok(instanceService.listInstancePublicIps(
+                params.getId(), params.getRegion(), params.getInstances()));
     }
 
     @PostMapping("/updateState")

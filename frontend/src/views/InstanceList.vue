@@ -269,6 +269,7 @@ import {
 import { message } from 'ant-design-vue'
 import {
   getInstanceList,
+  getInstancePublicIps,
   updateInstance,
 } from '../api/instance'
 import { getTenantGroups } from '../api/tenant'
@@ -321,6 +322,8 @@ import { appQueryCache, createListSignature } from '../utils/queryCache'
 const catalog = useTenantCatalogStore()
 const VIRTUAL_CARD_MIN = 12
 const INSTANCE_LIST_CACHE_TTL_MS = 15_000
+const INSTANCE_PUBLIC_IP_CACHE_TTL_MS = 60_000
+const INSTANCE_PUBLIC_IP_BATCH_SIZE = 500
 let instanceListActivatedOnce = false
 let instanceListLoadSeq = 0
 interface ActiveInstanceListRequest {
@@ -329,6 +332,13 @@ interface ActiveInstanceListRequest {
   controller: AbortController
 }
 const instanceListActiveRequests = new Map<string, ActiveInstanceListRequest>()
+const instancePublicIpActiveRequests = new Map<string, ActiveInstanceListRequest>()
+interface InstancePublicIpCacheEntry {
+  compartmentId: string
+  publicIp: string | null
+  fetchedAt: number
+}
+const instancePublicIpCacheState = new Map<string, Map<string, InstancePublicIpCacheEntry>>()
 
 interface LoadTenantInstancesOptions {
   force?: boolean
@@ -630,17 +640,21 @@ function setTenantInstanceLoading(tenantId: string, loading: boolean, fallback?:
 function cancelTenantInstanceRequests(tenantId: string) {
   const normalizedTenantId = String(tenantId || '')
   if (!normalizedTenantId) return
-  for (const [key, request] of Array.from(instanceListActiveRequests.entries())) {
-    if (request.tenantId !== normalizedTenantId) continue
-    instanceListActiveRequests.delete(key)
-    request.controller.abort()
+  for (const requests of [instanceListActiveRequests, instancePublicIpActiveRequests]) {
+    for (const [key, request] of Array.from(requests.entries())) {
+      if (request.tenantId !== normalizedTenantId) continue
+      requests.delete(key)
+      request.controller.abort()
+    }
   }
   setTenantInstanceLoading(normalizedTenantId, false)
 }
 
 function cancelAllInstanceListRequests() {
-  for (const request of instanceListActiveRequests.values()) request.controller.abort()
-  instanceListActiveRequests.clear()
+  for (const requests of [instanceListActiveRequests, instancePublicIpActiveRequests]) {
+    for (const request of requests.values()) request.controller.abort()
+    requests.clear()
+  }
   for (const td of tenantDataList.value) td.loading = false
 }
 
@@ -693,14 +707,105 @@ function setInstanceListCache(td: TenantData, region: string, rows: any[]) {
   appQueryCache.set(instanceListCacheKey(td, region), rows, INSTANCE_LIST_CACHE_TTL_MS)
 }
 
+function patchInstancePublicIps(rows: any[], publicIps: Record<string, string | null>) {
+  return rows.map((row: any) => {
+    const instanceId = String(row?.instanceId || '')
+    if (!Object.prototype.hasOwnProperty.call(publicIps, instanceId)) return row
+    return { ...row, publicIp: publicIps[instanceId] ?? null }
+  })
+}
+
+function instancePublicIpRequestKey(tenantId: string, region: string) {
+  return `${tenantId}|${region}`
+}
+
+function instancePublicIpTargets(rows: any[]) {
+  return rows
+    .map((row: any) => ({
+      instanceId: String(row?.instanceId || '').trim(),
+      compartmentId: String(row?.compartmentId || '').trim(),
+    }))
+    .filter((target) => !!target.instanceId)
+}
+
+function freshCachedInstancePublicIps(tenantId: string, region: string, rows: any[]) {
+  const requestKey = instancePublicIpRequestKey(tenantId, region)
+  const state = instancePublicIpCacheState.get(requestKey)
+  if (!state) return {} as Record<string, string | null>
+  const now = Date.now()
+  const validIds = new Set<string>()
+  const publicIps: Record<string, string | null> = {}
+  for (const target of instancePublicIpTargets(rows)) {
+    validIds.add(target.instanceId)
+    const entry = state.get(target.instanceId)
+    if (
+      entry &&
+      entry.compartmentId === target.compartmentId &&
+      now - entry.fetchedAt < INSTANCE_PUBLIC_IP_CACHE_TTL_MS
+    ) {
+      publicIps[target.instanceId] = entry.publicIp
+    } else if (entry) {
+      state.delete(target.instanceId)
+    }
+  }
+  for (const instanceId of Array.from(state.keys())) {
+    if (!validIds.has(instanceId)) state.delete(instanceId)
+  }
+  if (state.size === 0) instancePublicIpCacheState.delete(requestKey)
+  return publicIps
+}
+
+function patchInstancePublicIpsInCache(td: TenantData, region: string, publicIps: Record<string, string | null>) {
+  appQueryCache.update<any[]>(instanceListCacheKey(td, region), (rows) => patchInstancePublicIps(rows, publicIps))
+}
+
+function applyInstancePublicIps(
+  td: TenantData,
+  tenantId: string,
+  region: string,
+  publicIps: Record<string, string | null>,
+) {
+  patchInstancePublicIpsInCache(td, region, publicIps)
+  const current = findTenantDataById(tenantId)
+  const isCurrentPanelScope =
+    String(activeTenantId.value || '') === tenantId &&
+    !!current &&
+    instanceListRegion(current) === region
+  if (!isCurrentPanelScope || !current) return
+  current.instances = patchInstancePublicIps(current.instances || [], publicIps)
+  const currentInstanceId = String(currentInstance.value?.instanceId || '')
+  if (
+    String(currentTenant.value?.id || '') === tenantId &&
+    currentInstanceId &&
+    Object.prototype.hasOwnProperty.call(publicIps, currentInstanceId)
+  ) {
+    currentInstance.value = { ...currentInstance.value, publicIp: publicIps[currentInstanceId] ?? null }
+  }
+}
+
 function invalidateInstanceListCache(td: TenantData, region?: string) {
   const tenantId = String(td.tenant?.id || '')
   if (!tenantId) return
   if (region != null) {
+    const requestKey = instancePublicIpRequestKey(tenantId, region)
+    const activeRequest = instancePublicIpActiveRequests.get(requestKey)
+    if (activeRequest) {
+      instancePublicIpActiveRequests.delete(requestKey)
+      activeRequest.controller.abort()
+    }
     appQueryCache.invalidate(instanceListCacheKey(td, region))
+    instancePublicIpCacheState.delete(requestKey)
     return
   }
   appQueryCache.invalidate(['instanceList', 'instances', tenantId])
+  for (const [key, activeRequest] of Array.from(instancePublicIpActiveRequests.entries())) {
+    if (activeRequest.tenantId !== tenantId) continue
+    instancePublicIpActiveRequests.delete(key)
+    activeRequest.controller.abort()
+  }
+  for (const key of Array.from(instancePublicIpCacheState.keys())) {
+    if (key.startsWith(`${tenantId}|`)) instancePublicIpCacheState.delete(key)
+  }
 }
 
 function invalidateTenantInstanceCache(tenantId: string, region?: string) {
@@ -1140,6 +1245,95 @@ async function loadAllTenants(force = false) {
   }
 }
 
+async function loadTenantInstancePublicIps(
+  td: TenantData,
+  tenantId: string,
+  reg: string,
+  rows: any[],
+  force = false,
+) {
+  const targets = instancePublicIpTargets(rows)
+  if (!tenantId || targets.length === 0) return
+
+  const requestKey = instancePublicIpRequestKey(tenantId, reg)
+  const cacheState = instancePublicIpCacheState.get(requestKey) || new Map<string, InstancePublicIpCacheEntry>()
+  const now = Date.now()
+  const validIds = new Set(targets.map((target) => target.instanceId))
+  for (const instanceId of Array.from(cacheState.keys())) {
+    if (!validIds.has(instanceId)) cacheState.delete(instanceId)
+  }
+  if (force) {
+    for (const target of targets) cacheState.delete(target.instanceId)
+  }
+  const pendingTargets = targets.filter((target) => {
+    const cached = cacheState.get(target.instanceId)
+    if (
+      cached &&
+      cached.compartmentId === target.compartmentId &&
+      now - cached.fetchedAt < INSTANCE_PUBLIC_IP_CACHE_TTL_MS
+    ) return false
+    if (cached) cacheState.delete(target.instanceId)
+    return true
+  })
+  if (cacheState.size > 0) instancePublicIpCacheState.set(requestKey, cacheState)
+  else instancePublicIpCacheState.delete(requestKey)
+  if (pendingTargets.length === 0) return
+
+  const pendingPublicIps = Object.fromEntries(
+    pendingTargets.map((target) => [target.instanceId, null]),
+  ) as Record<string, string | null>
+  applyInstancePublicIps(td, tenantId, reg, pendingPublicIps)
+
+  for (const [key, request] of Array.from(instancePublicIpActiveRequests.entries())) {
+    if (request.tenantId !== tenantId) continue
+    instancePublicIpActiveRequests.delete(key)
+    request.controller.abort()
+  }
+
+  const requestSeq = ++instanceListLoadSeq
+  const controller = new AbortController()
+  instancePublicIpActiveRequests.set(requestKey, { seq: requestSeq, tenantId, controller })
+  const isLatestRequest = () => instancePublicIpActiveRequests.get(requestKey)?.seq === requestSeq
+
+  try {
+    for (let offset = 0; offset < pendingTargets.length; offset += INSTANCE_PUBLIC_IP_BATCH_SIZE) {
+      if (!isLatestRequest()) return
+      const batch = pendingTargets.slice(offset, offset + INSTANCE_PUBLIC_IP_BATCH_SIZE)
+      let res
+      try {
+        res = await getInstancePublicIps(
+          { id: tenantId, region: reg, instances: batch },
+          {
+            signal: controller.signal,
+            skipBusinessMessage: true,
+            skipErrorMessage: true,
+          },
+        )
+      } catch (error: any) {
+        if (error?.code === 'ERR_CANCELED' || error?.name === 'CanceledError') return
+        break
+      }
+      if (!isLatestRequest()) return
+      const publicIps = res.data?.publicIps || {}
+      const fetchedAt = Date.now()
+      for (const target of batch) {
+        if (!Object.prototype.hasOwnProperty.call(publicIps, target.instanceId)) continue
+        cacheState.set(target.instanceId, {
+          compartmentId: target.compartmentId,
+          publicIp: publicIps[target.instanceId] ?? null,
+          fetchedAt,
+        })
+      }
+      if (cacheState.size > 0) instancePublicIpCacheState.set(requestKey, cacheState)
+      applyInstancePublicIps(td, tenantId, reg, publicIps)
+    }
+  } catch {
+    // 公网 IP 是补充字段，失败或取消时保留已经展示的基础实例列表。
+  } finally {
+    if (isLatestRequest()) instancePublicIpActiveRequests.delete(requestKey)
+  }
+}
+
 async function loadTenantInstances(td: TenantData, options: LoadTenantInstancesOptions | boolean = {}) {
   const opts = typeof options === 'boolean'
     ? { force: options, notify: options }
@@ -1165,6 +1359,7 @@ async function loadTenantInstances(td: TenantData, options: LoadTenantInstancesO
     }
     if (!force && Date.now() - cached.fetchedAt < INSTANCE_LIST_CACHE_TTL_MS) {
       setTenantInstanceLoading(tenantId, false, td)
+      if (isCurrentPanelScope()) void loadTenantInstancePublicIps(td, tenantId, reg, cached.rows)
       return
     }
   }
@@ -1187,7 +1382,10 @@ async function loadTenantInstances(td: TenantData, options: LoadTenantInstancesO
       { id: td.tenant.id, region: reg, force },
       { signal: controller.signal },
     )
-    const rows = res.data || []
+    const rows = patchInstancePublicIps(
+      res.data || [],
+      force ? {} : freshCachedInstancePublicIps(tenantId, reg, res.data || []),
+    )
 
     if (!canApplyCache()) return
 
@@ -1197,6 +1395,7 @@ async function loadTenantInstances(td: TenantData, options: LoadTenantInstancesO
     const current = findTenantDataById(tenantId) || td
     current.instances = rows
     current.instancesRegion = reg
+    void loadTenantInstancePublicIps(current, tenantId, reg, rows, force)
     if (currentTenant.value?.id === td.tenant.id && currentInstance.value?.instanceId) {
       const fresh = rows.find((i: any) => i.instanceId === currentInstance.value.instanceId)
       if (fresh) currentInstance.value = { ...currentInstance.value, ...fresh }

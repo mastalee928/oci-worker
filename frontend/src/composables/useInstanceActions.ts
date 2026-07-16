@@ -181,14 +181,21 @@ export function useInstanceActions(options: UseInstanceActionsOptions) {
         return
       }
       const current = options.getCurrentInstance()
-      options.setCurrentInstance({ ...current, ...fresh })
+      const freshWithoutPublicIp = { ...fresh }
+      delete freshWithoutPublicIp.publicIp
+      options.setCurrentInstance({ ...current, ...freshWithoutPublicIp })
       if (options.patchInstanceInListAndCache) {
-        options.patchInstanceInListAndCache(tenantId, regionParam.region || fresh.region, instanceId, fresh)
+        options.patchInstanceInListAndCache(
+          tenantId,
+          regionParam.region || fresh.region,
+          instanceId,
+          freshWithoutPublicIp,
+        )
       } else {
         const td = options.findTenantDataById(tenantId)
         if (td) {
           const idx = td.instances.findIndex((i: any) => i.instanceId === instanceId)
-          if (idx >= 0) td.instances[idx] = { ...td.instances[idx], ...fresh }
+          if (idx >= 0) td.instances[idx] = { ...td.instances[idx], ...freshWithoutPublicIp }
         }
       }
       message.success('实例信息已刷新')

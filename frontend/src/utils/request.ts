@@ -67,6 +67,11 @@ request.interceptors.response.use(
     if (axios.isCancel(error) || error?.code === 'ERR_CANCELED') {
       return Promise.reject(error)
     }
+    if (error.response?.status === 401) {
+      clearSession()
+      redirectTo('/login')
+      return Promise.reject(error)
+    }
     if (error.config?.skipErrorMessage) {
       return Promise.reject(error)
     }
@@ -81,12 +86,7 @@ request.interceptors.response.use(
       if (msg) message.error(msg)
       return Promise.reject(error)
     }
-    if (error.response?.status === 401) {
-      clearSession()
-      redirectTo('/login')
-    } else {
-      message.error(error.message || '网络错误')
-    }
+    message.error(error.message || '网络错误')
     return Promise.reject(error)
   }
 )

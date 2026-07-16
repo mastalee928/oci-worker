@@ -103,6 +103,16 @@ export class QueryCache {
     return data
   }
 
+  update<T>(key: QueryKey, updater: (current: T) => T): T | undefined {
+    const normalized = queryKey(key)
+    const entry = this.entries.get(normalized)
+    if (!entry) return undefined
+    const updated = updater(entry.data as T)
+    this.entries.delete(normalized)
+    this.entries.set(normalized, { ...entry, data: updated })
+    return updated
+  }
+
   async fetch<T>(key: QueryKey, fetcher: () => Promise<T>, options: QueryFetchOptions = {}): Promise<T> {
     const normalized = queryKey(key)
     const staleMs = options.staleMs ?? DEFAULT_STALE_MS

@@ -7,7 +7,12 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Objects;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Executor;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Supplier;
 
@@ -24,6 +29,7 @@ public class OciReadCacheService {
 
     private final ConcurrentHashMap<String, CacheEntry> entries = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Object> locks = new ConcurrentHashMap<>();
+    private final ConcurrentHashMap<String, CompletableFuture<Object>> singleFlightLoads = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, Long> generations = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, AtomicInteger> activeLoads = new ConcurrentHashMap<>();
 
@@ -77,11 +83,88 @@ public class OciReadCacheService {
         }
     }
 
+    public <T> T getSingleFlight(
+            String key,
+            Duration ttl,
+            boolean force,
+            long deadlineNanos,
+            Executor executor,
+            Supplier<T> loader) throws InterruptedException, ExecutionException, TimeoutException {
+        Objects.requireNonNull(key, "cache key must not be null");
+        Objects.requireNonNull(ttl, "cache ttl must not be null");
+        Objects.requireNonNull(executor, "cache executor must not be null");
+        Objects.requireNonNull(loader, "cache loader must not be null");
+
+        long now = System.nanoTime();
+        if (deadlineNanos <= now) throw new TimeoutException("cache single-flight deadline exceeded");
+        if (!force) {
+            CacheEntry hit = entries.get(key);
+            if (hit != null && hit.isFresh(now)) {
+                hit.touch(now);
+                return value(hit);
+            }
+        }
+
+        long generationAtStart = generationOf(key);
+        incrementActiveLoad(key);
+        CompletableFuture<Object> created = new CompletableFuture<>();
+        CompletableFuture<Object> future = singleFlightLoads.putIfAbsent(key, created);
+        if (future == null) {
+            future = created;
+            try {
+                executor.execute(() -> {
+                    try {
+                        if (!force) {
+                            long taskNow = System.nanoTime();
+                            CacheEntry hit = entries.get(key);
+                            if (hit != null && hit.isFresh(taskNow)) {
+                                hit.touch(taskNow);
+                                created.complete(hit.value);
+                                return;
+                            }
+                        }
+
+                        T loaded = loader.get();
+                        Object storedValue = loaded == null ? NULL_VALUE : loaded;
+                        long loadedAt = System.nanoTime();
+                        if (generationOf(key) == generationAtStart) {
+                            long expiresAt = loadedAt + Math.max(1L, ttl.toNanos());
+                            entries.put(key, new CacheEntry(storedValue, expiresAt, loadedAt));
+                            pruneIfNeeded();
+                        }
+                        created.complete(storedValue);
+                    } catch (Throwable error) {
+                        created.completeExceptionally(error);
+                    } finally {
+                        singleFlightLoads.remove(key, created);
+                        decrementActiveLoad(key);
+                        pruneGenerationsIfNeeded();
+                    }
+                });
+            } catch (RuntimeException | Error error) {
+                singleFlightLoads.remove(key, created);
+                decrementActiveLoad(key);
+                pruneGenerationsIfNeeded();
+                created.completeExceptionally(error);
+                throw error;
+            }
+        } else {
+            decrementActiveLoad(key);
+            pruneGenerationsIfNeeded();
+        }
+
+        long remainingNanos = deadlineNanos - System.nanoTime();
+        if (remainingNanos <= 0) throw new TimeoutException("cache single-flight deadline exceeded");
+        Object loaded = future.get(remainingNanos, TimeUnit.NANOSECONDS);
+        return loaded == NULL_VALUE ? null : castValue(loaded);
+    }
+
     public void evict(String key) {
         if (key != null) {
             bumpGeneration(key);
             entries.remove(key);
             locks.remove(key);
+            singleFlightLoads.remove(key);
         }
     }
 
@@ -95,11 +178,17 @@ public class OciReadCacheService {
                 keys.add(key);
             }
         }
+        for (String key : singleFlightLoads.keySet()) {
+            if (!keys.contains(key)) {
+                keys.add(key);
+            }
+        }
         for (String key : keys) {
             if (key.startsWith(prefix)) {
                 bumpGeneration(key);
                 entries.remove(key);
                 locks.remove(key);
+                singleFlightLoads.remove(key);
             }
         }
     }
@@ -133,6 +222,11 @@ public class OciReadCacheService {
     private static <T> T value(CacheEntry entry) {
         Object value = entry.value;
         return value == NULL_VALUE ? null : (T) value;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static <T> T castValue(Object value) {
+        return (T) value;
     }
 
     private void pruneIfNeeded() {
