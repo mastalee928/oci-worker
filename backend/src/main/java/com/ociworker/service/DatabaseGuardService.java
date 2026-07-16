@@ -184,6 +184,49 @@ public class DatabaseGuardService {
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """);
 
+        TABLE_DDL.put("oci_scheduled_ip_task", """
+            CREATE TABLE IF NOT EXISTS oci_scheduled_ip_task (
+                id VARCHAR(64) PRIMARY KEY, name VARCHAR(255) NOT NULL,
+                tenant_config_id VARCHAR(64) NOT NULL, tenant_name VARCHAR(255), region VARCHAR(64) NOT NULL,
+                instance_id VARCHAR(255) NOT NULL, instance_name VARCHAR(255), shape VARCHAR(128),
+                compartment_id VARCHAR(255), current_public_ip VARCHAR(64), enabled TINYINT(1) NOT NULL DEFAULT 1,
+                interval_minutes INT NOT NULL DEFAULT 60, next_run_time DATETIME, last_run_time DATETIME,
+                last_status VARCHAR(32) DEFAULT 'PENDING', last_message VARCHAR(1024),
+                dns_enabled TINYINT(1) NOT NULL DEFAULT 0, dns_provider VARCHAR(16), fqdn VARCHAR(255),
+                dns_zone_id VARCHAR(255), dns_domain_name VARCHAR(255), dns_record_id VARCHAR(255),
+                dns_record_name VARCHAR(255), notify_success TINYINT(1) NOT NULL DEFAULT 0,
+                notify_ip_failure TINYINT(1) NOT NULL DEFAULT 1, notify_dns_failure TINYINT(1) NOT NULL DEFAULT 1,
+                notify_auto_paused TINYINT(1) NOT NULL DEFAULT 1, consecutive_failures INT NOT NULL DEFAULT 0,
+                last_notify_key VARCHAR(255), last_notify_time DATETIME, lock_owner VARCHAR(64), lock_until DATETIME,
+                create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_scheduled_ip_due (enabled, next_run_time),
+                INDEX idx_scheduled_ip_instance (tenant_config_id, region, instance_id),
+                INDEX idx_scheduled_ip_tenant_time (tenant_config_id, create_time DESC)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            """);
+        TABLE_DDL.put("oci_scheduled_ip_instance_lock", """
+            CREATE TABLE IF NOT EXISTS oci_scheduled_ip_instance_lock (
+                instance_key VARCHAR(512) PRIMARY KEY, enabled_task_id VARCHAR(64),
+                lock_owner VARCHAR(64), lock_until DATETIME,
+                update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_scheduled_ip_instance_lock_until (lock_until),
+                INDEX idx_scheduled_ip_instance_enabled_task (enabled_task_id)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            """);
+        TABLE_DDL.put("oci_scheduled_ip_run_log", """
+            CREATE TABLE IF NOT EXISTS oci_scheduled_ip_run_log (
+                id VARCHAR(64) PRIMARY KEY, task_id VARCHAR(64) NOT NULL, run_id VARCHAR(64) NOT NULL,
+                trigger_type VARCHAR(32) NOT NULL, status VARCHAR(32) NOT NULL,
+                old_ip VARCHAR(64), new_ip VARCHAR(64), dns_status VARCHAR(32),
+                message VARCHAR(1024), dns_message VARCHAR(1024),
+                started_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP, finished_at DATETIME,
+                UNIQUE KEY uk_scheduled_ip_run_id (run_id),
+                INDEX idx_scheduled_ip_log_task_time (task_id, started_at DESC),
+                INDEX idx_scheduled_ip_log_started_at (started_at)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            """);
+
         TABLE_DDL.put("oci_tenant_traffic_protection", """
             CREATE TABLE IF NOT EXISTS oci_tenant_traffic_protection (
                 tenant_config_id VARCHAR(64) PRIMARY KEY, enabled TINYINT(1) NOT NULL DEFAULT 0,

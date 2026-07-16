@@ -51,6 +51,8 @@ public class BackupService {
             "oci_user",
             "oci_create_task",
             "oci_organization_work_task",
+            "oci_scheduled_ip_task",
+            "oci_scheduled_ip_run_log",
             "oci_kv",
             "cf_cfg",
             "ip_data",

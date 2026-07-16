@@ -497,6 +497,114 @@ public class NetworkService {
         }
     }
 
+    /**
+     * 定时换 IP 专用执行入口。保留现有手动换 IP 行为不变，并返回任务日志需要的网络详情。
+     */
+    public ChangePublicIpResult changePublicIpForScheduledTask(
+            String userId, String instanceId, String region, String compartmentId) {
+        OciUser ociUser = userMapper.selectById(userId);
+        if (ociUser == null) throw new OciException("租户配置不存在");
+
+        try (OciClientService client = oci(ociUser, region)) {
+            String resolvedCompartmentId = resolveInstanceCompartmentId(client, instanceId, compartmentId);
+            List<VnicAttachment> attachments = listVnicAttachmentsForInstance(client, instanceId, resolvedCompartmentId);
+            if (attachments.isEmpty()) throw new OciException("未找到实例的主 VNIC");
+
+            VnicAttachment attachment = selectPrimaryVnicAttachment(attachments);
+            Vnic vnic = client.getVirtualNetworkClient().getVnic(
+                    GetVnicRequest.builder().vnicId(attachment.getVnicId()).build()).getVnic();
+            List<PrivateIp> privateIps = client.getVirtualNetworkClient().listPrivateIps(
+                    ListPrivateIpsRequest.builder().vnicId(vnic.getId()).build()).getItems();
+            PrivateIp primaryPrivateIp = privateIps.stream()
+                    .filter(ip -> Boolean.TRUE.equals(ip.getIsPrimary()))
+                    .findFirst()
+                    .orElseThrow(() -> new OciException("未找到主私有 IP"));
+
+            PublicIp oldPublicIp = null;
+            try {
+                oldPublicIp = client.getVirtualNetworkClient().getPublicIpByPrivateIpId(
+                        GetPublicIpByPrivateIpIdRequest.builder()
+                                .getPublicIpByPrivateIpIdDetails(GetPublicIpByPrivateIpIdDetails.builder()
+                                        .privateIpId(primaryPrivateIp.getId()).build())
+                                .build()).getPublicIp();
+            } catch (BmcException e) {
+                if (e.getStatusCode() != 404) throw e;
+            }
+
+            String oldIp = oldPublicIp != null ? oldPublicIp.getIpAddress() : null;
+            if (isReservedPublicIp(oldPublicIp)) {
+                throw new OciException("当前实例使用预留公网 IP，不能执行定时换 IP");
+            }
+
+            boolean oldDeleted = false;
+            if (oldPublicIp != null) {
+                client.getVirtualNetworkClient().deletePublicIp(
+                        DeletePublicIpRequest.builder().publicIpId(oldPublicIp.getId()).build());
+                oldDeleted = true;
+            }
+
+            PublicIp newPublicIp;
+            try {
+                newPublicIp = client.getVirtualNetworkClient().createPublicIp(
+                        CreatePublicIpRequest.builder()
+                                .createPublicIpDetails(CreatePublicIpDetails.builder()
+                                        .compartmentId(resolvedCompartmentId)
+                                        .lifetime(CreatePublicIpDetails.Lifetime.Ephemeral)
+                                        .privateIpId(primaryPrivateIp.getId())
+                                        .build())
+                                .build()).getPublicIp();
+            } catch (Exception e) {
+                String detail = OciBmcErrorTranslator.translate(e);
+                if (oldDeleted) {
+                    throw new OciException("旧临时公网 IP 已删除，但新 IP 创建失败，实例当前可能没有公网 IP：" + detail);
+                }
+                throw e;
+            }
+            if (newPublicIp == null || newPublicIp.getIpAddress() == null || newPublicIp.getIpAddress().isBlank()) {
+                throw new OciException("Oracle 未返回新的公网 IP");
+            }
+
+            evictInstanceReadCaches(ociUser, region);
+            log.info("Scheduled public IP changed: tenant={}, region={}, instance={}, oldIp={}, newIp={}",
+                    ociUser.getUsername(), region, instanceId, oldIp, newPublicIp.getIpAddress());
+            return new ChangePublicIpResult(
+                    oldIp,
+                    newPublicIp.getIpAddress(),
+                    vnic.getId(),
+                    primaryPrivateIp.getId(),
+                    resolvedCompartmentId);
+        } catch (OciException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new OciException(tag(ociUser) + "定时更换公网 IP 失败：" + OciBmcErrorTranslator.translate(e));
+        }
+    }
+
+    public record ChangePublicIpResult(
+            String oldIp,
+            String newIp,
+            String vnicId,
+            String privateIpId,
+            String compartmentId) {
+    }
+
+    static VnicAttachment selectPrimaryVnicAttachment(List<VnicAttachment> attachments) {
+        if (attachments == null || attachments.isEmpty()) throw new OciException("未找到实例的主 VNIC");
+        return attachments.stream()
+                .filter(item -> item.getNicIndex() != null && item.getNicIndex() == 0)
+                .findFirst()
+                .orElseGet(() -> {
+                    if (attachments.size() == 1) return attachments.get(0);
+                    throw new OciException("未找到实例的主 VNIC");
+                });
+    }
+
+    static boolean isReservedPublicIp(PublicIp publicIp) {
+        return publicIp != null
+                && publicIp.getLifetime() != null
+                && "RESERVED".equalsIgnoreCase(publicIp.getLifetime().getValue());
+    }
+
     public void deletePublicIpByPrivateIpId(String userId, String privateIpId, String region) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");

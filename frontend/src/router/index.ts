@@ -45,6 +45,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '实例管理', icon: 'CloudServerOutlined' },
       },
       {
+        path: 'scheduled-ip',
+        name: 'ScheduledIp',
+        component: () => import('../views/ScheduledIp.vue'),
+        meta: { title: '定时换 IP', icon: 'ClockCircleOutlined' },
+      },
+      {
         path: 'task',
         name: 'TaskManager',
         component: () => import('../views/TaskManager.vue'),

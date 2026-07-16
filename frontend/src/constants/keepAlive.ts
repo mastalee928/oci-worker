@@ -3,6 +3,7 @@ export const MAIN_KEEP_ALIVE = [
   'Dashboard',
   'TenantConfig',
   'InstanceList',
+  'ScheduledIp',
   'TaskManager',
   'LogViewer',
   'OracleAI',
