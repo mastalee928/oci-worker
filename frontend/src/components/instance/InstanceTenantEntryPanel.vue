@@ -368,22 +368,35 @@ defineEmits<{
   overflow: hidden;
   border: 1px solid var(--border);
   border-radius: 14px;
-  background: color-mix(in srgb, var(--bg-card) 88%, transparent);
-  box-shadow: 0 8px 24px -22px color-mix(in srgb, var(--text-main) 35%, transparent);
-  transition: border-color .18s ease, box-shadow .18s ease, background-color .18s ease;
+  background: color-mix(in srgb, var(--bg-card) 90%, transparent);
+  box-shadow: 0 8px 24px -22px color-mix(in srgb, var(--text-main) 34%, transparent);
+  transition: border-color .18s ease, box-shadow .18s ease;
 }
 .group-collapse-list :deep(> .ant-collapse-item:hover) {
-  border-color: color-mix(in srgb, var(--primary) 34%, var(--border));
-  box-shadow: 0 12px 28px -22px color-mix(in srgb, var(--primary) 42%, transparent);
+  border-color: color-mix(in srgb, var(--primary) 32%, var(--border));
+  box-shadow: 0 12px 28px -22px color-mix(in srgb, var(--primary) 44%, transparent);
 }
 .group-collapse-list :deep(> .ant-collapse-item > .ant-collapse-header) {
   min-height: 56px;
   padding: 14px 16px !important;
   align-items: center !important;
+  line-height: 1.4;
 }
 .group-collapse-list :deep(> .ant-collapse-item > .ant-collapse-header .ant-collapse-expand-icon) {
-  padding-inline-end: 8px !important;
+  width: 17px;
+  height: 17px;
+  margin-right: 9px;
+  padding-inline-end: 0 !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   color: var(--text-sub);
+}
+.group-collapse-list :deep(> .ant-collapse-item > .ant-collapse-header .ant-collapse-header-text) {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 9px;
 }
 .group-collapse-list :deep(> .ant-collapse-item > .ant-collapse-content) {
   border-top: 1px solid color-mix(in srgb, var(--border) 76%, transparent);
@@ -396,13 +409,30 @@ defineEmits<{
   content: '';
   width: 9px;
   height: 9px;
-  margin-right: 9px;
+  margin-right: 0;
   border-radius: 50%;
   display: inline-block;
-  background: var(--primary);
-  box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary) 12%, transparent);
+  background: var(--instance-group-color, var(--primary));
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--instance-group-color, var(--primary)) 13%, transparent);
   vertical-align: 1px;
 }
+.group-collapse-list > :deep(.ant-collapse-item > .ant-collapse-header .group-header-label) {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.group-collapse-list :deep(> .ant-collapse-item:nth-child(8n + 1)) { --instance-group-color: #6366f1; }
+.group-collapse-list :deep(> .ant-collapse-item:nth-child(8n + 2)) { --instance-group-color: #22c55e; }
+.group-collapse-list :deep(> .ant-collapse-item:nth-child(8n + 3)) { --instance-group-color: #f97316; }
+.group-collapse-list :deep(> .ant-collapse-item:nth-child(8n + 4)) { --instance-group-color: #8b5cf6; }
+.group-collapse-list :deep(> .ant-collapse-item:nth-child(8n + 5)) { --instance-group-color: #ec4899; }
+.group-collapse-list :deep(> .ant-collapse-item:nth-child(8n + 6)) { --instance-group-color: #f59e0b; }
+.group-collapse-list :deep(> .ant-collapse-item:nth-child(8n + 7)) { --instance-group-color: #14b8a6; }
+.group-collapse-list :deep(> .ant-collapse-item:nth-child(8n)) { --instance-group-color: #3b82f6; }
 .group-collapse-l2 {
   margin-top: 10px;
   background: transparent;
@@ -428,6 +458,22 @@ defineEmits<{
   min-height: 48px;
   padding: 12px 14px !important;
   align-items: center !important;
+  line-height: 1.4;
+}
+.group-collapse-l2-list :deep(.ant-collapse-header .ant-collapse-expand-icon) {
+  width: 17px;
+  height: 17px;
+  margin-right: 8px;
+  padding-inline-end: 0 !important;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.group-collapse-l2-list :deep(.ant-collapse-header .ant-collapse-header-text) {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
 }
 .group-collapse-l2-list :deep(.ant-collapse-content) {
   border-top: 1px solid color-mix(in srgb, var(--border) 72%, transparent);
