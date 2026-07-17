@@ -4,7 +4,6 @@
       v-for="(group, index) in groups"
       :key="group.key"
       class="group-section"
-      :style="{ '--group-color': groupColors[index % groupColors.length] }"
     >
       <div class="group-card">
         <div class="group-card-header">
@@ -222,8 +221,7 @@ const TenantRow = defineComponent({
 
 <style scoped>
 .instance-group-list { margin-bottom: 18px; }
-.group-section { position: relative; min-width: 0; margin-bottom: 12px; border-radius: 14px; background: linear-gradient(180deg, color-mix(in srgb, var(--group-color, var(--primary)) 7%, transparent), transparent 150px), color-mix(in srgb, var(--bg-card, #fff) 46%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--group-color, var(--primary)) 16%, var(--border)); }
-.group-section::after { content: ''; position: absolute; top: 14px; bottom: 14px; left: 0; width: 3px; border-radius: 0 3px 3px 0; background: var(--group-color, var(--primary)); box-shadow: 0 0 10px color-mix(in srgb, var(--group-color, var(--primary)) 42%, transparent); opacity: .72; pointer-events: none; }
+.group-section { position: relative; min-width: 0; margin-bottom: 12px; border-radius: 14px; background: color-mix(in srgb, var(--bg-card, #fff) 48%, transparent); box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--border) 88%, transparent); }
 .group-card { position: relative; overflow: hidden; padding: 14px 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-card, #fff); transition: border-color .2s ease, box-shadow .2s ease; }
 .group-card::before { content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 3px; background: linear-gradient(90deg, var(--primary, #1677ff), #8b5cf6); transform: scaleX(0); transform-origin: left; transition: transform .3s cubic-bezier(.34, 1.56, .64, 1); }
 .group-card:hover::before { transform: scaleX(1); }
