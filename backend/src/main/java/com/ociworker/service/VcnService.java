@@ -14,17 +14,32 @@ import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.util.*;
+import java.util.concurrent.*;
 
 @Slf4j
 @Service
 public class VcnService {
 
     private static final Duration VCN_READ_CACHE_TTL = Duration.ofMinutes(2);
+    private static final int VCN_COMPARTMENT_CONCURRENCY = 6;
+
+    private final ExecutorService compartmentExecutor = Executors.newFixedThreadPool(
+            VCN_COMPARTMENT_CONCURRENCY,
+            runnable -> {
+                Thread thread = new Thread(runnable, "oci-vcn-compartment");
+                thread.setDaemon(true);
+                return thread;
+            });
 
     @Resource
     private OciUserMapper userMapper;
     @Resource
     private OciReadCacheService ociReadCacheService;
+
+    @jakarta.annotation.PreDestroy
+    void shutdownCompartmentExecutor() {
+        compartmentExecutor.shutdownNow();
+    }
 
     private OciClientService oci(OciUser ociUser, String region) {
         String r = (region == null || region.isBlank()) ? null : region.trim();
@@ -48,13 +63,14 @@ public class VcnService {
         String r = effectiveRegion(ociUser, region);
         try (OciClientService client = oci(ociUser, region)) {
             var compartments = client.listAllCompartments();
-            List<Map<String, Object>> result = new ArrayList<>();
-            for (var c : compartments) {
-                try {
-                    var vcns = client.getVirtualNetworkClient().listVcns(
-                            ListVcnsRequest.builder().compartmentId(c.getId()).build()
-                    ).getItems();
-                    for (var v : vcns) {
+            List<CompletableFuture<List<Map<String, Object>>>> futures = compartments.stream().map(c ->
+                    CompletableFuture.supplyAsync(() -> {
+                        List<Map<String, Object>> rows = new ArrayList<>();
+                        try {
+                            var vcns = client.getVirtualNetworkClient().listVcns(
+                                    ListVcnsRequest.builder().compartmentId(c.getId()).build()
+                            ).getItems();
+                            for (var v : vcns) {
                         if (v.getLifecycleState() == Vcn.LifecycleState.Terminated) continue;
                         Map<String, Object> map = new LinkedHashMap<>();
                         map.put("id", v.getId());
@@ -69,10 +85,21 @@ public class VcnService {
                         map.put("compartmentName", c.getName());
                         map.put("timeCreated", v.getTimeCreated() != null ? v.getTimeCreated().toString() : null);
                         map.put("region", r);
-                        result.add(map);
-                    }
+                                rows.add(map);
+                            }
+                        } catch (Exception e) {
+                            log.debug("listVcns in {} failed: {}", c.getId(), e.getMessage());
+                        }
+                        return rows;
+                    }, compartmentExecutor)
+            ).toList();
+            List<Map<String, Object>> result = new ArrayList<>();
+            for (CompletableFuture<List<Map<String, Object>>> future : futures) {
+                try {
+                    result.addAll(future.get(20, TimeUnit.SECONDS));
                 } catch (Exception e) {
-                    log.debug("listVcns in {} failed: {}", c.getId(), e.getMessage());
+                    future.cancel(true);
+                    log.debug("listVcns compartment request failed: {}", e.getMessage());
                 }
             }
             return result;
