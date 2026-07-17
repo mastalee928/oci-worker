@@ -63,9 +63,7 @@
             </div>
           </div>
           <div v-if="isL2Open(child.key)" class="group-body">
-            <div v-if="viewMode === 'card'" class="card-grid-breakout">
-              <slot name="card-list" :tenants="child.tenants" />
-            </div>
+            <slot v-if="viewMode === 'card'" name="card-list" :tenants="child.tenants" />
             <div v-else class="tenant-rows">
               <TenantRow
                 v-for="td in child.tenants"
@@ -85,9 +83,7 @@
 
         <section v-if="group.tenants.length" class="group-card subgroup-card">
           <div class="group-body">
-            <div v-if="viewMode === 'card'" class="card-grid-breakout">
-              <slot name="card-list" :tenants="group.tenants" />
-            </div>
+            <slot v-if="viewMode === 'card'" name="card-list" :tenants="group.tenants" />
             <div v-else class="tenant-rows">
               <TenantRow
                 v-for="td in group.tenants"
@@ -240,7 +236,6 @@ const TenantRow = defineComponent({
 .group-stats { display: flex; align-items: center; gap: 10px; flex-shrink: 0; color: var(--text-sub, #999); font-size: 12px; }
 .group-tenant-count-badge { flex-shrink: 0; }
 .group-body { overflow: hidden; margin-top: 12px; transition: all .4s cubic-bezier(.34, 1.56, .64, 1); }
-.card-grid-breakout { margin: 0 -16px; }
 .tenant-rows { border-top: 1px solid color-mix(in srgb, var(--border) 72%, transparent); }
 .group-body > .tenant-rows { border-top: 0; }
 :deep(.tenant-list-row) { min-height: 62px; padding: 10px 8px; border-bottom: 1px solid var(--border); display: grid; grid-template-columns: minmax(220px, 1fr) auto auto; align-items: center; gap: 14px; transition: background-color .16s ease, box-shadow .16s ease; }
@@ -264,7 +259,6 @@ const TenantRow = defineComponent({
   .group-card-header { gap: 8px; }
   .group-card-header-main { flex: 1 1 100%; min-width: 0; }
   .group-stats { gap: 6px; }
-  .card-grid-breakout { margin-inline: -12px; }
   :deep(.tenant-list-row) { grid-template-columns: 1fr; gap: 9px; padding: 12px 8px; }
   :deep(.tenant-region) { justify-self: start; }
   :deep(.tenant-actions) { justify-content: flex-start; }
