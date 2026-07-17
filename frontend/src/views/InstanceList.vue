@@ -86,6 +86,7 @@
 
     <!-- 快捷开机任务弹窗 -->
     <QuickTaskModal
+      v-if="quickTaskMounted"
       v-model:open="quickTaskVisible"
       v-model:dense-io-tier-key="quickDenseIoTierKey"
       :loading="quickTaskLoading"
@@ -114,6 +115,7 @@
     />
 
     <InstanceDetailDrawerShell
+      v-if="detailDrawerMounted"
       ref="detailDrawerShellRef"
       v-model:open="drawerVisible"
       v-model:active-tab="activeTab"
@@ -186,6 +188,7 @@
     />
 
     <TenantVcnPanel
+      v-if="tenantVcnPanelMounted"
       ref="tenantVcnPanelRef"
       v-model:open="vcnVisible"
       :tenant="vcnTenant"
@@ -198,6 +201,7 @@
     />
 
     <VcnManager
+      v-if="vcnManagerMounted"
       v-model:open="vcnManagerOpen"
       :user-id="vcnManagerUserId"
       :vcn="vcnManagerVcn"
@@ -209,6 +213,7 @@
     />
 
     <StorageManager
+      v-if="storageManagerMounted"
       v-model:open="storageManagerOpen"
       :user-id="storageManagerUserId"
       :tenant-name="storageManagerTenantName"
@@ -217,7 +222,7 @@
     />
 
     <Teleport to="body">
-      <div v-show="floatingTenantCardVisible">
+      <div v-if="floatingTenantCardMounted" v-show="floatingTenantCardVisible">
         <InstanceFloatingTenantCard
           :visible="floatingTenantCardVisible"
           :card="floatingTenantCard"
@@ -320,6 +325,42 @@ import {
   tenantPlanTagColor,
 } from '../utils/tenantPlan'
 import { appQueryCache, createListSignature } from '../utils/queryCache'
+
+const OVERLAY_UNMOUNT_DELAY_MS = 350
+
+/**
+ * 重型异步浮层按需挂载，并在关闭动画结束后再卸载。
+ * flush: 'sync' 保证工作区切换设置状态后，同一轮 nextTick 即可取得组件 ref。
+ */
+function useLazyOverlayMount(source: { value: boolean }) {
+  const mounted = ref(source.value)
+  let unmountTimer: number | null = null
+
+  const cancelUnmount = () => {
+    if (unmountTimer === null) return
+    window.clearTimeout(unmountTimer)
+    unmountTimer = null
+  }
+
+  watch(
+    () => source.value,
+    (open) => {
+      cancelUnmount()
+      if (open) {
+        mounted.value = true
+        return
+      }
+      unmountTimer = window.setTimeout(() => {
+        mounted.value = false
+        unmountTimer = null
+      }, OVERLAY_UNMOUNT_DELAY_MS)
+    },
+    { immediate: true, flush: 'sync' },
+  )
+
+  onUnmounted(cancelUnmount)
+  return mounted
+}
 
 const catalog = useTenantCatalogStore()
 const VIRTUAL_CARD_MIN = 12
@@ -1115,6 +1156,15 @@ const vcnManagerVcn = ref<any>(null)
 const vcnManagerOciRegion = ref('')
 const vcnManagerInitialTab = ref<'subnet' | 'rt' | ''>('')
 const vcnManagerTargetResourceId = ref('')
+
+// 仅在浮层进入打开流程后加载对应异步代码块；组件自身的 open watcher 会负责首次打开时初始化。
+const detailDrawerMounted = useLazyOverlayMount(drawerVisible)
+const quickTaskMounted = useLazyOverlayMount(quickTaskVisible)
+const tenantVcnPanelMounted = useLazyOverlayMount(vcnVisible)
+const vcnManagerMounted = useLazyOverlayMount(vcnManagerOpen)
+const storageManagerMounted = useLazyOverlayMount(storageManagerOpen)
+const floatingTenantCardMounted = useLazyOverlayMount(floatingTenantCardVisible)
+
 function handleVcnManagerEditingOverlayChange(active: boolean) {
   vcnManagerEditingOverlayActive.value = active
 }
