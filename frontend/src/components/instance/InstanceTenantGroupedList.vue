@@ -1,70 +1,104 @@
 <template>
   <div class="instance-group-list">
-    <section v-for="(group, index) in groups" :key="group.key" class="instance-group-section">
-      <div class="instance-group-card">
-        <button
-          type="button"
-          class="instance-group-header"
-          :class="{ disabled: groupTenantCount(group) === 0 }"
-          :disabled="groupTenantCount(group) === 0"
-          :aria-expanded="isGroupOpen(group.key)"
-          @click="toggleGroup(group.key)"
-        >
-          <DownOutlined v-if="isGroupOpen(group.key)" />
-          <RightOutlined v-else />
-          <span class="group-dot" :style="{ '--group-color': groupColors[index % groupColors.length] }"></span>
-          <span class="group-label">{{ group.label }}</span>
-          <a-badge :count="groupTenantCount(group)" :show-zero="true" class="oci-group-count-badge" />
-        </button>
+    <section v-for="(group, index) in groups" :key="group.key" class="group-section">
+      <div class="group-card">
+        <div class="group-card-header">
+          <div class="group-card-header-main">
+            <div
+              class="collapse-btn"
+              :class="{ disabled: groupTenantCount(group) === 0 }"
+              role="button"
+              :tabindex="groupTenantCount(group) === 0 ? -1 : 0"
+              :aria-disabled="groupTenantCount(group) === 0"
+              :aria-expanded="isGroupOpen(group.key)"
+              @click="toggleGroup(group.key)"
+              @keydown.enter.prevent="toggleGroup(group.key)"
+              @keydown.space.prevent="toggleGroup(group.key)"
+            >
+              <DownOutlined v-if="isGroupOpen(group.key)" />
+              <RightOutlined v-else />
+            </div>
+            <span
+              class="group-dot"
+              :style="{
+                background: groupColors[index % groupColors.length],
+                boxShadow: `0 0 8px ${groupColors[index % groupColors.length]}80`,
+              }"
+            ></span>
+            <span class="group-name" @click="toggleGroup(group.key)">{{ group.label }}</span>
+            <div class="group-stats">
+              <a-badge
+                :count="groupTenantCount(group)"
+                :show-zero="true"
+                class="group-tenant-count-badge oci-group-count-badge"
+              />
+            </div>
+          </div>
+        </div>
       </div>
 
       <template v-if="isGroupOpen(group.key)">
-        <section v-for="child in group.children || []" :key="child.key" class="instance-subgroup">
-          <button
-            type="button"
-            class="instance-subgroup-header"
-            :class="{ disabled: child.tenants.length === 0 }"
-            :disabled="child.tenants.length === 0"
-            :aria-expanded="isL2Open(child.key)"
-            @click="toggleL2(child.key)"
-          >
-            <DownOutlined v-if="isL2Open(child.key)" />
-            <RightOutlined v-else />
-            <span class="group-label">{{ child.label }}</span>
-            <a-badge :count="child.tenants.length" :show-zero="true" class="oci-group-count-badge" />
-          </button>
-          <slot v-if="isL2Open(child.key) && viewMode === 'card'" name="card-list" :tenants="child.tenants" />
-          <div v-else-if="isL2Open(child.key)" class="tenant-rows">
-            <TenantRow
-              v-for="td in child.tenants"
-              :key="td.tenant.id"
-              :tenant-data="td"
-              :active="td.tenant.id === activeTenantId"
-              :loading="isTenantLoading(td)"
-              :is-mobile="isMobile"
-              @select="$emit('select-tenant', td)"
-              @open-vcn="$emit('open-vcn', td.tenant)"
-              @open-storage="$emit('open-storage', td.tenant)"
-              @open-quick-task="$emit('open-quick-task', td.tenant)"
-            />
+        <section v-for="child in group.children || []" :key="child.key" class="group-card subgroup-card">
+          <div class="group-card-header subgroup-header">
+            <div class="group-card-header-main">
+              <div
+                class="collapse-btn"
+                :class="{ disabled: child.tenants.length === 0 }"
+                role="button"
+                :tabindex="child.tenants.length === 0 ? -1 : 0"
+                :aria-disabled="child.tenants.length === 0"
+                :aria-expanded="isL2Open(child.key)"
+                @click="toggleL2(child.key)"
+                @keydown.enter.prevent="toggleL2(child.key)"
+                @keydown.space.prevent="toggleL2(child.key)"
+              >
+                <DownOutlined v-if="isL2Open(child.key)" />
+                <RightOutlined v-else />
+              </div>
+              <span class="subgroup-name" @click="toggleL2(child.key)">{{ child.label }}</span>
+              <a-badge
+                :count="child.tenants.length"
+                :show-zero="true"
+                class="group-tenant-count-badge oci-group-count-badge"
+              />
+            </div>
+          </div>
+          <div v-if="isL2Open(child.key)" class="group-body">
+            <slot v-if="viewMode === 'card'" name="card-list" :tenants="child.tenants" />
+            <div v-else class="tenant-rows">
+              <TenantRow
+                v-for="td in child.tenants"
+                :key="td.tenant.id"
+                :tenant-data="td"
+                :active="td.tenant.id === activeTenantId"
+                :loading="isTenantLoading(td)"
+                :is-mobile="isMobile"
+                @select="$emit('select-tenant', td)"
+                @open-vcn="$emit('open-vcn', td.tenant)"
+                @open-storage="$emit('open-storage', td.tenant)"
+                @open-quick-task="$emit('open-quick-task', td.tenant)"
+              />
+            </div>
           </div>
         </section>
 
-        <section v-if="group.tenants.length" class="instance-subgroup direct-tenants">
-          <slot v-if="viewMode === 'card'" name="card-list" :tenants="group.tenants" />
-          <div v-else class="tenant-rows">
-            <TenantRow
-              v-for="td in group.tenants"
-              :key="td.tenant.id"
-              :tenant-data="td"
-              :active="td.tenant.id === activeTenantId"
-              :loading="isTenantLoading(td)"
-              :is-mobile="isMobile"
-              @select="$emit('select-tenant', td)"
-              @open-vcn="$emit('open-vcn', td.tenant)"
-              @open-storage="$emit('open-storage', td.tenant)"
-              @open-quick-task="$emit('open-quick-task', td.tenant)"
-            />
+        <section v-if="group.tenants.length" class="group-card subgroup-card">
+          <div class="group-body">
+            <slot v-if="viewMode === 'card'" name="card-list" :tenants="group.tenants" />
+            <div v-else class="tenant-rows">
+              <TenantRow
+                v-for="td in group.tenants"
+                :key="td.tenant.id"
+                :tenant-data="td"
+                :active="td.tenant.id === activeTenantId"
+                :loading="isTenantLoading(td)"
+                :is-mobile="isMobile"
+                @select="$emit('select-tenant', td)"
+                @open-vcn="$emit('open-vcn', td.tenant)"
+                @open-storage="$emit('open-storage', td.tenant)"
+                @open-quick-task="$emit('open-quick-task', td.tenant)"
+              />
+            </div>
           </div>
         </section>
       </template>
@@ -123,6 +157,8 @@ function isL2Open(key: string) {
 }
 
 function toggleGroup(key: string) {
+  const group = props.groups.find(item => item.key === key)
+  if (group && props.groupTenantCount(group) === 0) return
   const keys = new Set(props.activeGroupKeys)
   if (keys.has(key)) keys.delete(key)
   else keys.add(key)
@@ -130,6 +166,8 @@ function toggleGroup(key: string) {
 }
 
 function toggleL2(key: string) {
+  const child = props.groups.flatMap(group => group.children || []).find(item => item.key === key)
+  if (child && child.tenants.length === 0) return
   const keys = new Set(props.activeL2Keys)
   if (keys.has(key)) keys.delete(key)
   else keys.add(key)
@@ -178,27 +216,28 @@ const TenantRow = defineComponent({
 </script>
 
 <style scoped>
-.instance-group-list { display: grid; gap: 12px; margin-bottom: 18px; }
-.instance-group-section { min-width: 0; }
-.instance-group-card { position: relative; overflow: hidden; padding: 14px 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-card); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); transition: all .3s cubic-bezier(.34, 1.56, .64, 1); }
-.instance-group-card::before { content: ''; position: absolute; z-index: 1; top: 0; right: 0; left: 0; height: 3px; background: linear-gradient(90deg, var(--primary), #8b5cf6); transform: scaleX(0); transform-origin: left; transition: transform .3s cubic-bezier(.34, 1.56, .64, 1); }
-.instance-group-card:hover::before { transform: scaleX(1); }
-.instance-group-card:hover { border-color: rgba(129, 140, 248, .5); box-shadow: 0 8px 24px -4px rgba(99, 102, 241, .15); }
-.instance-group-header, .instance-subgroup-header { width: 100%; border: 0; display: flex; align-items: center; color: var(--text-main); text-align: left; cursor: pointer; }
-.instance-group-header { min-height: 28px; gap: 10px; padding: 0; background: transparent; font-family: inherit; font-size: 16px; font-weight: 600; line-height: 1.4; }
-.instance-group-header.disabled, .instance-subgroup-header.disabled { cursor: default; opacity: .58; }
-.instance-group-header > :deep(.anticon) { width: 28px; height: 28px; border: 1px solid var(--border); border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; flex-shrink: 0; background: rgba(255, 255, 255, .03); color: var(--text-sub); font-size: 12px; }
-.instance-group-header:hover > :deep(.anticon) { border-color: var(--primary); }
-.instance-subgroup-header > :deep(.anticon) { color: var(--text-sub); font-size: 12px; }
-.group-dot { --group-color: var(--primary); width: 12px; height: 12px; flex-shrink: 0; border-radius: 50%; background: var(--group-color); box-shadow: 0 0 8px color-mix(in srgb, var(--group-color) 50%, transparent); }
-.group-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.instance-group-header :deep(.oci-group-count-badge), .instance-subgroup-header :deep(.oci-group-count-badge) { flex-shrink: 0; }
-.instance-subgroup { margin-top: 10px; margin-left: 32px; overflow: hidden; padding: 14px 16px; border: 1px solid rgba(148, 163, 184, .18); border-radius: 12px; background: transparent; transition: border-color .3s ease; }
-.instance-subgroup:hover { border-color: rgba(129, 140, 248, .28); }
-.instance-subgroup-header { min-height: 48px; gap: 8px; padding: 12px 14px; background: transparent; font-family: inherit; font-size: 13px; font-weight: 500; line-height: 1.4; }
-.direct-tenants { padding: 4px 12px; }
+.instance-group-list { margin-bottom: 18px; }
+.group-section { position: relative; min-width: 0; margin-bottom: 12px; }
+.group-card { position: relative; overflow: hidden; padding: 14px 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-card, #fff); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); transition: all .3s cubic-bezier(.34, 1.56, .64, 1); }
+.group-card::before { content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 3px; background: linear-gradient(90deg, var(--primary, #1677ff), #8b5cf6); transform: scaleX(0); transform-origin: left; transition: transform .3s cubic-bezier(.34, 1.56, .64, 1); }
+.group-card:hover::before { transform: scaleX(1); }
+.group-card:hover { border-color: rgba(129, 140, 248, .5); box-shadow: 0 8px 24px -4px rgba(99, 102, 241, .15); }
+.subgroup-card { margin-top: 10px; margin-left: 32px; background: transparent; border-color: rgba(148, 163, 184, .18); box-shadow: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
+.subgroup-card::before { display: none; }
+.subgroup-card:hover { border-color: rgba(129, 140, 248, .28); box-shadow: none; }
+.group-card-header { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.group-card-header-main { display: flex; align-items: center; gap: 10px; flex: 1 1 auto; min-width: 0; }
+.collapse-btn { width: 28px; height: 28px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; border: 1px solid var(--border); border-radius: 6px; background: rgba(255, 255, 255, .03); cursor: pointer; font-size: 12px; transition: all .2s; }
+.collapse-btn:hover { border-color: var(--primary, #1677ff); }
+.collapse-btn.disabled { cursor: default; opacity: .58; }
+.group-dot { width: 12px; height: 12px; flex-shrink: 0; border-radius: 50%; }
+.group-name { min-width: 0; margin: 0; overflow: hidden; flex: 0 1 auto; cursor: pointer; font-size: 16px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.subgroup-name { min-width: 0; overflow: hidden; flex: 0 1 auto; cursor: pointer; font-size: 15px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.group-stats { display: flex; align-items: center; gap: 10px; flex-shrink: 0; color: var(--text-sub, #999); font-size: 12px; }
+.group-tenant-count-badge { flex-shrink: 0; }
+.group-body { overflow: hidden; margin-top: 12px; transition: all .4s cubic-bezier(.34, 1.56, .64, 1); }
 .tenant-rows { border-top: 1px solid color-mix(in srgb, var(--border) 72%, transparent); }
-.direct-tenants .tenant-rows { border-top: 0; }
+.group-body > .tenant-rows { border-top: 0; }
 :deep(.tenant-list-row) { min-height: 62px; padding: 10px 8px; border-bottom: 1px solid var(--border); display: grid; grid-template-columns: minmax(220px, 1fr) auto auto; align-items: center; gap: 14px; transition: background-color .16s ease, box-shadow .16s ease; }
 :deep(.tenant-list-row:last-child) { border-bottom: 0; }
 :deep(.tenant-list-row:hover) { background: color-mix(in srgb, var(--primary-light) 58%, transparent); box-shadow: inset 3px 0 0 color-mix(in srgb, var(--primary) 70%, transparent); }
@@ -213,11 +252,13 @@ const TenantRow = defineComponent({
 :deep(.tenant-actions .ant-btn:not(.ant-btn-primary)) { border-color: color-mix(in srgb, var(--border) 88%, transparent); background: color-mix(in srgb, var(--bg-card) 70%, transparent); color: var(--text-main); }
 :deep(.tenant-actions .ant-btn:not(.ant-btn-primary):hover) { border-color: color-mix(in srgb, var(--primary) 45%, var(--border)); background: var(--primary-light); color: var(--primary); }
 @media (max-width: 768px) {
-  .instance-group-card { padding: 10px 12px; border-radius: 10px; }
-  .instance-group-header { font-size: 14px; }
-  .instance-group-header > :deep(.anticon) { width: 32px; height: 32px; }
-  .instance-subgroup { margin-left: 16px; padding: 10px 12px; border-radius: 10px; }
-  .instance-subgroup-header { min-height: 40px; padding: 8px 4px; }
+  .group-card { padding: 10px 12px; border-radius: 10px; }
+  .group-name, .subgroup-name { max-width: calc(100% - 86px); min-width: 48px; font-size: 14px; }
+  .subgroup-card { margin-left: 16px; }
+  .collapse-btn { width: 32px; height: 32px; }
+  .group-card-header { gap: 8px; }
+  .group-card-header-main { flex: 1 1 100%; min-width: 0; }
+  .group-stats { gap: 6px; }
   :deep(.tenant-list-row) { grid-template-columns: 1fr; gap: 9px; padding: 12px 8px; }
   :deep(.tenant-region) { justify-self: start; }
   :deep(.tenant-actions) { justify-content: flex-start; }
