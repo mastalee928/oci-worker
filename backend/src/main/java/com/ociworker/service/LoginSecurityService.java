@@ -32,6 +32,7 @@ public class LoginSecurityService {
     /** 禁止名单管理内联按钮有效期（可慢慢点，略长于登录失败按钮） */
     private static final long DENYLIST_UI_TTL_MS = 30 * 60 * 1000L;
     private static final long FAIL_WINDOW_MS = 15 * 60 * 1000L;
+    private static final long SECURITY_SNAPSHOT_TTL_MS = 30_000L;
     private static final int PAUSE_OFFER_THRESHOLD = 5;
 
     private enum PendingKind {
@@ -48,6 +49,10 @@ public class LoginSecurityService {
 
     private final ConcurrentHashMap<String, Pending> pendingByToken = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, IpFailWindow> ipFailWindows = new ConcurrentHashMap<>();
+    private volatile SecuritySnapshot securitySnapshot;
+    private volatile long securitySnapshotAt;
+
+    private record SecuritySnapshot(boolean sitePaused, Set<String> ipDenylist, Set<String> deviceDenylist) {}
 
     @Resource
     private NotificationService notificationService;
@@ -55,8 +60,7 @@ public class LoginSecurityService {
     private VerifyCodeService verifyCodeService;
 
     public boolean isSitePaused() {
-        String v = notificationService.getKvValue(SysCfgEnum.SITE_ACCESS_PAUSED);
-        return "true".equalsIgnoreCase(StrUtil.trim(v));
+        return getSecuritySnapshot().sitePaused();
     }
 
     /** TG / 管理用：设置全站 API 暂停（true=503 除白名单外）。 */
@@ -69,9 +73,28 @@ public class LoginSecurityService {
      * 当前 IP 或设备是否在禁止名单（登录接口与已通过 Bearer 鉴权后的 /api/** 请求均会校验）。
      */
     public boolean isDeniedForLogin(String ip, String deviceId) {
-        if (containsIp(readIpDenylist(), normalizeIp(ip))) return true;
-        if (StrUtil.isNotBlank(deviceId) && containsToken(readDeviceDenylist(), deviceId.trim())) return true;
+        SecuritySnapshot snapshot = getSecuritySnapshot();
+        if (containsIp(snapshot.ipDenylist(), normalizeIp(ip))) return true;
+        if (StrUtil.isNotBlank(deviceId) && containsToken(snapshot.deviceDenylist(), deviceId.trim())) return true;
         return false;
+    }
+
+    private SecuritySnapshot getSecuritySnapshot() {
+        long now = System.currentTimeMillis();
+        SecuritySnapshot current = securitySnapshot;
+        if (current != null && now - securitySnapshotAt < SECURITY_SNAPSHOT_TTL_MS) return current;
+        synchronized (this) {
+            now = System.currentTimeMillis();
+            current = securitySnapshot;
+            if (current != null && now - securitySnapshotAt < SECURITY_SNAPSHOT_TTL_MS) return current;
+            SecuritySnapshot loaded = new SecuritySnapshot(
+                    "true".equalsIgnoreCase(StrUtil.trim(notificationService.getKvValue(SysCfgEnum.SITE_ACCESS_PAUSED))),
+                    Set.copyOf(readIpDenylist()),
+                    Set.copyOf(readDeviceDenylist()));
+            securitySnapshot = loaded;
+            securitySnapshotAt = now;
+            return loaded;
+        }
     }
 
     public boolean isLoginHardenedPath(String uri) {

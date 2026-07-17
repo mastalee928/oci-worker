@@ -20,6 +20,7 @@ import java.nio.charset.StandardCharsets;
 public class PanelAuthService {
 
     public static final String PANEL_TOKEN_COOKIE = "ow_panel_token";
+    private static final long CREDENTIAL_SNAPSHOT_TTL_MS = 30_000L;
 
     @Value("${web.account}")
     private String defaultAccount;
@@ -28,6 +29,10 @@ public class PanelAuthService {
 
     @Resource
     private OciKvMapper kvMapper;
+    private volatile CredentialSnapshot credentialSnapshot;
+    private volatile long credentialSnapshotAt;
+
+    private record CredentialSnapshot(String account, String passwordHash) {}
 
     public boolean validateRequestToken(HttpServletRequest request) {
         return validateRequestToken(request, true, false);
@@ -42,7 +47,8 @@ public class PanelAuthService {
         if (StrUtil.isBlank(normalized)) {
             return false;
         }
-        return CommonUtils.validateToken(normalized, getEffectiveAccount(), getEffectivePasswordHash());
+        CredentialSnapshot snapshot = getCredentialSnapshot();
+        return CommonUtils.validateToken(normalized, snapshot.account(), snapshot.passwordHash());
     }
 
     public String readToken(HttpServletRequest request) {
@@ -84,6 +90,21 @@ public class PanelAuthService {
     private String getEffectiveAccount() {
         String stored = getKv("web_account");
         return stored != null ? stored : defaultAccount;
+    }
+
+    private CredentialSnapshot getCredentialSnapshot() {
+        long now = System.currentTimeMillis();
+        CredentialSnapshot current = credentialSnapshot;
+        if (current != null && now - credentialSnapshotAt < CREDENTIAL_SNAPSHOT_TTL_MS) return current;
+        synchronized (this) {
+            now = System.currentTimeMillis();
+            current = credentialSnapshot;
+            if (current != null && now - credentialSnapshotAt < CREDENTIAL_SNAPSHOT_TTL_MS) return current;
+            CredentialSnapshot loaded = new CredentialSnapshot(getEffectiveAccount(), getEffectivePasswordHash());
+            credentialSnapshot = loaded;
+            credentialSnapshotAt = now;
+            return loaded;
+        }
     }
 
     private String getEffectivePasswordHash() {
