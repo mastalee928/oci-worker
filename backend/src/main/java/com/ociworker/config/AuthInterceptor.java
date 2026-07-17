@@ -31,6 +31,12 @@ public class AuthInterceptor implements HandlerInterceptor {
             return true;
         }
 
+        // WebSSH 自身的固定静态资源不需要为每个 CSS/JS 文件查询数据库；
+        // 入口 HTML、WebSSH API 和终端 WebSocket 仍继续走后续完整鉴权。
+        if (uri.startsWith("/webssh/static/")) {
+            return true;
+        }
+
         if (loginSecurityService.isSitePaused() && !loginSecurityService.isExemptFromSitePause(uri)) {
             response.setContentType("application/json;charset=UTF-8");
             response.setStatus(503);
