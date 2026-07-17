@@ -11,6 +11,8 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -28,6 +30,65 @@ class AdaptiveLaunchConcurrencyTest {
 
             AdaptiveLaunchConcurrency bean = context.getBean(AdaptiveLaunchConcurrency.class);
             assertTrue(bean != null);
+        }
+    }
+
+    @Test
+    void fourCoreMachineStartsAtEightAndBurstsToTwelve() {
+        AdaptiveLaunchConcurrency.LaunchLimits limits =
+                AdaptiveLaunchConcurrency.calculateLimits(4, 20);
+
+        assertEquals(8, limits.base());
+        assertEquals(12, limits.burst());
+    }
+
+    @Test
+    void databaseSafetyLimitCapsBothConcurrencyLevels() {
+        AdaptiveLaunchConcurrency.LaunchLimits limits =
+                AdaptiveLaunchConcurrency.calculateLimits(16, 6);
+
+        assertEquals(6, limits.base());
+        assertEquals(6, limits.burst());
+    }
+
+    @Test
+    void attemptGateCapsDatabasePreflightConcurrency() throws Exception {
+        AdaptiveLaunchConcurrency gate = new AdaptiveLaunchConcurrency(mock(DataSource.class), 8, 8);
+        ExecutorService executor = Executors.newVirtualThreadPerTaskExecutor();
+        CountDownLatch firstWaveEntered = new CountDownLatch(8);
+        CountDownLatch release = new CountDownLatch(1);
+        AtomicInteger active = new AtomicInteger();
+        AtomicInteger maximum = new AtomicInteger();
+        List<Future<?>> futures = new ArrayList<>();
+
+        try {
+            for (int i = 0; i < 30; i++) {
+                final String lane = "tenant-" + i + "|region";
+                futures.add(executor.submit(() -> {
+                    try (AdaptiveLaunchConcurrency.Permit ignored = gate.acquire(lane)) {
+                        int current = active.incrementAndGet();
+                        try {
+                            maximum.accumulateAndGet(current, Math::max);
+                            firstWaveEntered.countDown();
+                            release.await();
+                        } finally {
+                            active.decrementAndGet();
+                        }
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                }));
+            }
+
+            assertTrue(firstWaveEntered.await(2, TimeUnit.SECONDS), "首批任务未取得执行许可");
+            awaitWaiting(gate, 22);
+            assertEquals(8, maximum.get());
+        } finally {
+            release.countDown();
+            for (Future<?> future : futures) {
+                future.get(2, TimeUnit.SECONDS);
+            }
+            executor.shutdownNow();
         }
     }
 

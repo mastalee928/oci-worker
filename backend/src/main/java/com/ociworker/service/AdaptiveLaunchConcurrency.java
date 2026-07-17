@@ -29,20 +29,25 @@ public class AdaptiveLaunchConcurrency {
 
     private static final long SCALE_UP_QUEUE_MILLIS = 1_000L;
     private static final long SCALE_DOWN_IDLE_MILLIS = 30_000L;
+    private static final long RESOURCE_PRESSURE_COOLDOWN_MILLIS = 60_000L;
     private static final double CPU_HIGH = 0.90d;
     private static final double CPU_SCALE_UP_MAX = 0.75d;
     private static final double HEAP_HIGH = 0.90d;
     private static final double HEAP_SCALE_UP_MAX = 0.80d;
+    private static final int MIN_DATABASE_CONNECTION_RESERVE = 6;
 
     private final DataSource dataSource;
     private final int baseLimit;
     private final int burstLimit;
+    private final int databaseReserve;
+    private final int databaseSafeLimit;
     private final ReentrantLock lock = new ReentrantLock(true);
     private final Condition capacityChanged = lock.newCondition();
     private final Map<String, ArrayDeque<Waiter>> laneQueues = new LinkedHashMap<>();
     private final ArrayDeque<String> laneRotation = new ArrayDeque<>();
     private final AtomicLong lastQueueActivity = new AtomicLong(System.currentTimeMillis());
     private final AtomicLong lastDatabasePressureWarning = new AtomicLong();
+    private final AtomicLong lastResourcePressure = new AtomicLong(Long.MIN_VALUE);
     private final MemoryMXBean memoryMXBean = ManagementFactory.getMemoryMXBean();
 
     private int currentLimit;
@@ -51,31 +56,36 @@ public class AdaptiveLaunchConcurrency {
     @Autowired
     public AdaptiveLaunchConcurrency(DataSource dataSource) {
         int processors = Math.max(1, Runtime.getRuntime().availableProcessors());
-        int base;
-        int burst;
-        if (processors <= 2) {
-            base = 8;
-            burst = 16;
-        } else if (processors <= 4) {
-            base = 16;
-            burst = 32;
-        } else {
-            base = 32;
-            burst = 64;
-        }
+        DatabaseCapacity databaseCapacity = databaseCapacity(dataSource);
+        LaunchLimits limits = calculateLimits(processors, databaseCapacity.safeConcurrency);
         this.dataSource = dataSource;
-        baseLimit = base;
-        burstLimit = burst;
+        databaseReserve = databaseCapacity.reserve;
+        databaseSafeLimit = databaseCapacity.safeConcurrency;
+        baseLimit = limits.base;
+        burstLimit = limits.burst;
         currentLimit = baseLimit;
-        log.info("OCI launch concurrency initialized: processors={} base={} burst={}",
-                processors, baseLimit, burstLimit);
+        log.info("OCI launch concurrency initialized: processors={} base={} burst={} dbMax={} dbReserve={}",
+                processors, baseLimit, burstLimit, databaseCapacity.maximumPoolSize, databaseReserve);
     }
 
     AdaptiveLaunchConcurrency(DataSource dataSource, int baseLimit, int burstLimit) {
         this.dataSource = dataSource;
         this.baseLimit = Math.max(1, baseLimit);
         this.burstLimit = Math.max(this.baseLimit, burstLimit);
+        this.databaseReserve = 0;
+        this.databaseSafeLimit = this.burstLimit;
         this.currentLimit = this.baseLimit;
+    }
+
+    static LaunchLimits calculateLimits(int processors, int databaseSafeLimit) {
+        int normalizedProcessors = Math.max(1, processors);
+        int normalizedDatabaseLimit = Math.max(1, databaseSafeLimit);
+        int cpuBase = Math.max(4, Math.min(16, normalizedProcessors * 2));
+        int cpuBurst = Math.max(cpuBase,
+                Math.min(24, cpuBase + Math.max(2, normalizedProcessors)));
+        int base = Math.max(1, Math.min(cpuBase, normalizedDatabaseLimit));
+        int burst = Math.max(base, Math.min(cpuBurst, normalizedDatabaseLimit));
+        return new LaunchLimits(base, burst);
     }
 
     public Permit acquire(String lane) throws InterruptedException {
@@ -154,32 +164,45 @@ public class AdaptiveLaunchConcurrency {
     @Scheduled(fixedDelay = 2_000, initialDelay = 10_000)
     public void tune() {
         QueueSnapshot queue = queueSnapshot();
+        long now = System.currentTimeMillis();
         double cpu = systemCpuLoad();
         double heap = heapUsage();
-        int databaseWaiting = databaseWaitingThreads();
-        boolean resourcePressure = cpu >= CPU_HIGH || heap >= HEAP_HIGH || databaseWaiting > 0;
+        DatabaseSnapshot database = databaseSnapshot();
+        boolean databasePressure = database.waiting > 0
+                || (database.maximumPoolSize > 0
+                && database.active > databaseSafeLimit
+                && database.idle < databaseReserve);
+        boolean resourcePressure = cpu >= CPU_HIGH || heap >= HEAP_HIGH || databasePressure;
+        if (resourcePressure) {
+            lastResourcePressure.set(now);
+        }
+        boolean pressureCooldownElapsed = elapsedSince(now, lastResourcePressure.get())
+                >= RESOURCE_PRESSURE_COOLDOWN_MILLIS;
         boolean canGrow = queue.waiting > 0 && queue.oldestWaitMillis >= SCALE_UP_QUEUE_MILLIS
-                && cpu < CPU_SCALE_UP_MAX && heap < HEAP_SCALE_UP_MAX && databaseWaiting == 0;
+                && cpu < CPU_SCALE_UP_MAX && heap < HEAP_SCALE_UP_MAX
+                && !databasePressure && pressureCooldownElapsed;
 
-        if (canGrow && queue.limit < burstLimit) {
-            resize(Math.min(burstLimit, queue.limit + Math.max(2, queue.limit / 4)),
+        if (resourcePressure && queue.limit > baseLimit) {
+            resize(baseLimit, databasePressure ? "database pressure" : "resource pressure");
+        } else if (canGrow && queue.limit < burstLimit) {
+            resize(Math.min(burstLimit, queue.limit + 2),
                     "queue waiting " + queue.oldestWaitMillis + "ms");
         } else {
             boolean idleLongEnough = queue.waiting == 0
-                    && System.currentTimeMillis() - lastQueueActivity.get() >= SCALE_DOWN_IDLE_MILLIS
+                    && now - lastQueueActivity.get() >= SCALE_DOWN_IDLE_MILLIS
                     && queue.active <= Math.max(1, baseLimit / 2);
-            if (queue.limit > baseLimit && (resourcePressure || idleLongEnough)) {
-                resize(Math.max(baseLimit, queue.limit - Math.max(2, queue.limit / 4)),
-                        resourcePressure ? "resource pressure" : "queue idle");
+            if (queue.limit > baseLimit && idleLongEnough) {
+                resize(baseLimit, "queue idle");
             }
         }
 
-        long now = System.currentTimeMillis();
         long previousWarning = lastDatabasePressureWarning.get();
-        if (databaseWaiting > 0 && now - previousWarning >= 30_000L
+        if (databasePressure && now - previousWarning >= 30_000L
                 && lastDatabasePressureWarning.compareAndSet(previousWarning, now)) {
-            log.warn("Database pool pressure while OCI tasks run: dbWaiting={} launchActive={} launchWaiting={} limit={}",
-                    databaseWaiting, queue.active, queue.waiting, queue.limit);
+            log.warn("Database pool pressure while OCI tasks run: dbActive={} dbIdle={} dbTotal={} dbMax={} "
+                            + "dbWaiting={} launchActive={} launchWaiting={} limit={}",
+                    database.active, database.idle, database.total, database.maximumPoolSize, database.waiting,
+                    queue.active, queue.waiting, queue.limit);
         }
     }
 
@@ -218,15 +241,42 @@ public class AdaptiveLaunchConcurrency {
         }
     }
 
-    private int databaseWaitingThreads() {
+    private DatabaseSnapshot databaseSnapshot() {
         try {
-            HikariDataSource hikari = dataSource instanceof HikariDataSource h
-                    ? h : dataSource.unwrap(HikariDataSource.class);
+            HikariDataSource hikari = unwrapHikari(dataSource);
             HikariPoolMXBean pool = hikari.getHikariPoolMXBean();
-            return pool != null ? pool.getThreadsAwaitingConnection() : 0;
+            if (pool == null) return DatabaseSnapshot.unavailable();
+            return new DatabaseSnapshot(
+                    pool.getActiveConnections(),
+                    pool.getIdleConnections(),
+                    pool.getTotalConnections(),
+                    pool.getThreadsAwaitingConnection(),
+                    hikari.getMaximumPoolSize());
         } catch (Exception ignored) {
-            return 0;
+            return DatabaseSnapshot.unavailable();
         }
+    }
+
+    private static DatabaseCapacity databaseCapacity(DataSource dataSource) {
+        try {
+            int maximumPoolSize = Math.max(1, unwrapHikari(dataSource).getMaximumPoolSize());
+            int reserve = Math.min(maximumPoolSize - 1,
+                    Math.max(MIN_DATABASE_CONNECTION_RESERVE, (maximumPoolSize + 2) / 3));
+            int safeConcurrency = Math.max(1, maximumPoolSize - Math.max(0, reserve));
+            return new DatabaseCapacity(maximumPoolSize, Math.max(0, reserve), safeConcurrency);
+        } catch (Exception ignored) {
+            return new DatabaseCapacity(0, 0, Integer.MAX_VALUE);
+        }
+    }
+
+    private static HikariDataSource unwrapHikari(DataSource dataSource) throws Exception {
+        return dataSource instanceof HikariDataSource hikari
+                ? hikari : dataSource.unwrap(HikariDataSource.class);
+    }
+
+    private static long elapsedSince(long now, long timestamp) {
+        if (timestamp == Long.MIN_VALUE) return Long.MAX_VALUE;
+        return Math.max(0L, now - timestamp);
     }
 
     private double heapUsage() {
@@ -270,5 +320,17 @@ public class AdaptiveLaunchConcurrency {
     }
 
     private record QueueSnapshot(int active, int waiting, long oldestWaitMillis, int limit) {
+    }
+
+    private record DatabaseCapacity(int maximumPoolSize, int reserve, int safeConcurrency) {
+    }
+
+    record LaunchLimits(int base, int burst) {
+    }
+
+    private record DatabaseSnapshot(int active, int idle, int total, int waiting, int maximumPoolSize) {
+        private static DatabaseSnapshot unavailable() {
+            return new DatabaseSnapshot(0, 0, 0, 0, 0);
+        }
     }
 }
