@@ -132,6 +132,25 @@ public final class OciBmcErrorTranslator {
         return e.getClass().getSimpleName();
     }
 
+    public static boolean isAuthenticationFailure(Throwable error) {
+        Throwable current = error;
+        while (current != null) {
+            if (current instanceof BmcException bmc && bmc.getStatusCode() == 401) {
+                return true;
+            }
+            String message = current.getMessage();
+            if (message != null) {
+                String lower = message.toLowerCase(Locale.ROOT);
+                if (lower.contains("notauthenticated")
+                        || lower.contains("required information to complete authentication")) {
+                    return true;
+                }
+            }
+            current = current.getCause();
+        }
+        return false;
+    }
+
     /**
      * Returns the normal Chinese translation plus OCI's sanitized service detail.
      * Intended for operations where OCI commonly reports the exact invalid rule in

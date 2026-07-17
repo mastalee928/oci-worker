@@ -32,6 +32,8 @@ public class InstanceDetailDTO {
     private boolean noShape;
     private boolean noPubVcn;
     private boolean outOfCapacity;
+    /** OCI 返回 429；需按租户/区域退避，不能当作容量不足继续轮询其他 AD。 */
+    private boolean rateLimited;
     /** OCI 返回服务限制/LimitExceeded，但任务仍可继续按间隔重试 */
     private boolean ociServiceLimitExceeded;
     /** 引导卷（启动盘）块存储配额已达 OCI 上限 */

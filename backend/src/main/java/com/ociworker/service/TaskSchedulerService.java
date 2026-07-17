@@ -21,6 +21,7 @@ import com.ociworker.model.params.PageParams;
 import cn.hutool.core.util.StrUtil;
 import com.ociworker.util.BootVolumeVpusUtil;
 import com.ociworker.util.CommonUtils;
+import com.ociworker.util.OciBmcErrorTranslator;
 import com.ociworker.util.OciRegionUtil;
 import com.ociworker.util.ShapeFlexLimitsUtil;
 import com.ociworker.util.ShapeSeriesUtil;
@@ -31,7 +32,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.web.context.WebServerGracefulShutdownLifecycle;
 import org.springframework.context.SmartLifecycle;
 import org.springframework.context.annotation.DependsOn;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.scheduling.annotation.Scheduled;
 
@@ -63,6 +63,8 @@ public class TaskSchedulerService implements SmartLifecycle {
     private NotificationService notificationService;
     @Resource
     private OciKvMapper kvMapper;
+    @Resource
+    private AdaptiveLaunchConcurrency adaptiveLaunchConcurrency;
 
     private final Map<String, Future<?>> taskMap = new ConcurrentHashMap<>();
     private final Set<String> runningTasks = ConcurrentHashMap.newKeySet();
@@ -72,8 +74,7 @@ public class TaskSchedulerService implements SmartLifecycle {
     private final ConcurrentHashMap<String, LocalDateTime> serviceLimitNotifyTimes = new ConcurrentHashMap<>();
     private final Set<String> serviceLimitNotifyMutedTasks = ConcurrentHashMap.newKeySet();
     private final AtomicBoolean maintenanceRunning = new AtomicBoolean();
-    /** OCI 开机任务是长耗时外部调用，限制同时执行数，避免任务线程占满数据库连接和 CPU。 */
-    private final Semaphore executionSlots;
+    private final ConcurrentHashMap<String, RateLimitState> rateLimitStates = new ConcurrentHashMap<>();
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final int CREATE_TASK_DEDUP_SECONDS = 5;
     private static final int SERVICE_LIMIT_NOTIFY_COOLDOWN_MINUTES = 60;
@@ -85,11 +86,6 @@ public class TaskSchedulerService implements SmartLifecycle {
 
     /** 为 SmartLifecycle：仅在上下文 refresh 完成后置 true，关闭时先于 Web 优雅停机取消开机调度 */
     private volatile boolean lifecycleRunning = false;
-
-    public TaskSchedulerService(
-            @Value("${ociworker.task.max-concurrent-executions:4}") int maxConcurrentExecutions) {
-        this.executionSlots = new Semaphore(Math.max(1, maxConcurrentExecutions));
-    }
 
     @PostConstruct
     public void init() {
@@ -245,6 +241,8 @@ public class TaskSchedulerService implements SmartLifecycle {
         try {
             repairInconsistentRunningTasks();
             cleanExpiredTasks();
+            long staleBefore = System.currentTimeMillis() - TimeUnit.MINUTES.toMillis(10);
+            rateLimitStates.entrySet().removeIf(entry -> entry.getValue().untilEpochMillis() < staleBefore);
         } catch (Exception e) {
             log.warn("开机任务后台维护失败: {}", e.getMessage());
         } finally {
@@ -715,56 +713,45 @@ public class TaskSchedulerService implements SmartLifecycle {
     }
 
     private void runTaskLoop(String taskId, SysUserDTO dto, int delaySec) {
+        String rateLimitLane = rateLimitLane(dto);
         try {
             while (!Thread.currentThread().isInterrupted()) {
-                OciCreateTask t = taskMapper.selectById(taskId);
-                if (t == null) {
+                RateLimitState observedRateLimitWindow = waitForRateLimitWindow(rateLimitLane);
+                OciCreateTask task = taskMapper.selectById(taskId);
+                if (task == null || !TaskStatusEnum.RUNNING.getStatus().equals(task.getStatus())) {
                     break;
                 }
-                if (!TaskStatusEnum.RUNNING.getStatus().equals(t.getStatus())) {
+                AttemptOutcome outcome = executeCreate(taskId, dto, delaySec, task, rateLimitLane);
+                if (outcome == AttemptOutcome.TERMINAL) {
                     break;
                 }
-                if (executionSlots.tryAcquire()) {
-                    try {
-                        executeCreate(taskId, dto, delaySec);
-                    } finally {
-                        executionSlots.release();
-                    }
-                } else {
-                    log.debug("Skip boot task {} cycle because execution slots are busy", taskId);
-                }
-                t = taskMapper.selectById(taskId);
-                if (t == null) {
-                    break;
-                }
-                if (!TaskStatusEnum.RUNNING.getStatus().equals(t.getStatus())) {
-                    break;
+                int sleepSeconds = outcome == AttemptOutcome.RATE_LIMITED
+                        ? registerRateLimit(rateLimitLane)
+                        : delaySec;
+                if (outcome != AttemptOutcome.RATE_LIMITED && observedRateLimitWindow != null) {
+                    clearRateLimit(rateLimitLane, observedRateLimitWindow);
                 }
                 try {
-                    Thread.sleep(delaySec * 1000L);
+                    Thread.sleep(sleepSeconds * 1000L);
                 } catch (InterruptedException e) {
                     Thread.currentThread().interrupt();
                     break;
                 }
             }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
         } finally {
             taskMap.remove(taskId);
         }
     }
 
-    private void executeCreate(String taskId, SysUserDTO dto, int intervalSeconds) {
-        if (!runningTasks.add(taskId)) return;
+    private AttemptOutcome executeCreate(String taskId, SysUserDTO dto, int intervalSeconds,
+                                         OciCreateTask head, String rateLimitLane) {
+        if (!runningTasks.add(taskId)) return AttemptOutcome.NORMAL;
         String user = "";
         String region = "";
         String arch = "";
         try {
-            OciCreateTask head = taskMapper.selectById(taskId);
-            if (head == null) {
-                return;
-            }
-            if (!TaskStatusEnum.RUNNING.getStatus().equals(head.getStatus())) {
-                return;
-            }
             // 多进程/多实例、或本机并发时，以库里的 success_count 为准，达目标则不再开新实例
             int headTarget = head.getCreateNumbers() != null && head.getCreateNumbers() > 0
                     ? head.getCreateNumbers() : 1;
@@ -773,7 +760,7 @@ public class TaskSchedulerService implements SmartLifecycle {
                 if (TaskStatusEnum.RUNNING.getStatus().equals(head.getStatus())) {
                     completeTask(taskId, TaskStatusEnum.COMPLETED);
                 }
-                return;
+                return AttemptOutcome.TERMINAL;
             }
             double[] launchNorm = ShapeFlexLimitsUtil.normalizeAndLogIfAdjusted(
                     head.getArchitecture(), head.getOcpus(), head.getMemory(), "执行开机任务");
@@ -798,9 +785,16 @@ public class TaskSchedulerService implements SmartLifecycle {
             dto.setInstanceDisplayOrdinal(headSc + 1);
             Set<String> excludedAds = taskExcludedAds.computeIfAbsent(taskId, k -> ConcurrentHashMap.newKeySet());
             dto.setExcludedAvailabilityDomains(new HashSet<>(excludedAds));
-            try (OciClientService client = new OciClientService(dto)) {
-                InstanceDetailDTO result = client.createInstanceData();
+            InstanceDetailDTO result;
+            try (AdaptiveLaunchConcurrency.Permit ignored = adaptiveLaunchConcurrency.acquire(rateLimitLane);
+                 OciClientService client = new OciClientService(dto)) {
+                if (Thread.currentThread().isInterrupted()) {
+                    return AttemptOutcome.TERMINAL;
+                }
+                result = client.createInstanceData();
+            }
 
+            try {
                 applyAdExcludedNoShapeBroadcast(taskId, user, region, arch, result, excludedAds);
 
                 if (result.isDie()) {
@@ -813,8 +807,14 @@ public class TaskSchedulerService implements SmartLifecycle {
                             + "⚙️ <b>架构：</b>" + series + "\n"
                             + targetShapeLineForNotify(arch)
                             + "📛 <b>原因：</b>认证失败 (401)，任务已停止";
-                    notificationService.sendHtmlWithType(NotificationService.TYPE_TASK_RESULT, html);
-                    return;
+                    sendTaskNotificationAsync(NotificationService.TYPE_TASK_RESULT, html);
+                    return AttemptOutcome.TERMINAL;
+                }
+
+                if (result.isRateLimited()) {
+                    broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],架构:[%s] - OCI 请求被限流(429)，将按租户/区域独立退避",
+                            user, region, series));
+                    return AttemptOutcome.RATE_LIMITED;
                 }
 
                 if (result.isNoShape()) {
@@ -824,7 +824,7 @@ public class TaskSchedulerService implements SmartLifecycle {
                             + "；请切换区域、Shape 或稍后重试。";
                     completeTask(taskId, TaskStatusEnum.FAILED, failureReason);
                     broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s] - %s", user, region, arch, failureReason));
-                    return;
+                    return AttemptOutcome.TERMINAL;
                 }
 
                 if (result.isBootVolumeQuotaExceeded()) {
@@ -835,7 +835,7 @@ public class TaskSchedulerService implements SmartLifecycle {
                     completeTask(taskId, TaskStatusEnum.FAILED, failureReason);
                     broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s] - %s",
                             user, region, arch, failureReason));
-                    return;
+                    return AttemptOutcome.TERMINAL;
                 }
 
                 if (result.isUnrecoverableLaunchFailure()) {
@@ -855,29 +855,30 @@ public class TaskSchedulerService implements SmartLifecycle {
                             + "⚙️ <b>架构：</b>" + series + "\n"
                             + targetShapeLineForNotify(shapeForNotify)
                             + "📛 <b>原因：</b>" + stopReason;
-                    notificationService.sendHtmlWithType(NotificationService.TYPE_TASK_RESULT, html);
-                    return;
+                    sendTaskNotificationAsync(NotificationService.TYPE_TASK_RESULT, html);
+                    return AttemptOutcome.TERMINAL;
                 }
 
                 if (result.isOutOfCapacity()) {
                     if (result.isOciServiceLimitExceeded()) {
-                        notifyOciServiceLimitIfNeeded(taskId, head, user, region, series, arch, result, intervalSeconds);
+                        scheduleOciServiceLimitNotification(
+                                taskId, head, user, region, series, arch, result, intervalSeconds);
                     }
                     broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s] - 各可用域容量不足，[%d]秒后将重试...",
                             user, region, arch, intervalSeconds));
-                    return;
+                    return AttemptOutcome.NORMAL;
                 }
 
                 if (result.isAllAdsExcludedNoShape()) {
                     broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s] - 各可用域均无此 Shape，[%d]秒后将重试...",
                             user, region, arch, intervalSeconds));
-                    return;
+                    return AttemptOutcome.NORMAL;
                 }
 
                 if (result.isNoPubVcn()) {
                     broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s] - 未找到可用公有子网，正在尝试创建...",
                             user, region, arch));
-                    return;
+                    return AttemptOutcome.NORMAL;
                 }
 
                 if (result.isSuccess()) {
@@ -907,7 +908,7 @@ public class TaskSchedulerService implements SmartLifecycle {
                                 + (StrUtil.isNotBlank(result.getIpv6Address())
                                 ? "🌐 <b>IPv6：</b><code>" + result.getIpv6Address() + "</code>\n" : "")
                                 + buildNotifyLoginLine(t != null ? t : head);
-                        notificationService.sendHtmlWithType(NotificationService.TYPE_TASK_RESULT, html);
+                        sendTaskNotificationAsync(NotificationService.TYPE_TASK_RESULT, html);
                     } else {
                         // OCI 已建出实例，但行级更新因已达目标/并发被跳过
                         broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],架构:[%s] - 实例已创建(计次未增加) IP:%s（已达目标或并发争用，请在控制台核对实例）",
@@ -922,6 +923,7 @@ public class TaskSchedulerService implements SmartLifecycle {
                             broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],架构:[%s] - 已达到目标数量(%d台)，任务完成！",
                                     user, region, arch, targetCount));
                         }
+                        return AttemptOutcome.TERMINAL;
                     } else {
                         int need = Math.max(0, targetCount - successCount);
                         broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],架构:[%s] - 还需创建 %d 台，[%d]秒后继续...",
@@ -934,14 +936,85 @@ public class TaskSchedulerService implements SmartLifecycle {
                     broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s] - %s，[%d]秒后将重试...",
                             user, region, arch, hint, intervalSeconds));
                 }
+                return AttemptOutcome.NORMAL;
             } catch (Exception e) {
                 String hint = OciClientService.describeThrowableFailure(e);
                 broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s] - %s，[%d]秒后将重试...",
                         user, region, arch, hint, intervalSeconds));
+                return OciClientService.isRateLimited(e)
+                        ? AttemptOutcome.RATE_LIMITED : AttemptOutcome.NORMAL;
             }
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return AttemptOutcome.TERMINAL;
+        } catch (Exception e) {
+            if (OciBmcErrorTranslator.isAuthenticationFailure(e)) {
+                String series = ShapeSeriesUtil.resolveSeries(arch);
+                String failureReason = "❌ 认证失败 (401)，任务已停止。请检查该租户 API Key、Fingerprint、私钥和权限是否仍有效。";
+                completeTask(taskId, TaskStatusEnum.FAILED, failureReason);
+                broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],架构:[%s] - 认证失败(401)，任务已停止",
+                        user, region, series));
+                String html = "❌ <b>开机任务失败</b>\n\n"
+                        + "👤 <b>租户：</b>" + user + "\n"
+                        + "🌍 <b>区域：</b>" + region + "\n"
+                        + "⚙️ <b>架构：</b>" + series + "\n"
+                        + targetShapeLineForNotify(arch)
+                        + "📛 <b>原因：</b>认证失败 (401)，任务已停止";
+                sendTaskNotificationAsync(NotificationService.TYPE_TASK_RESULT, html);
+                return AttemptOutcome.TERMINAL;
+            }
+            String hint = OciClientService.describeThrowableFailure(e);
+            broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s] - %s，[%d]秒后将重试...",
+                    user, region, arch, hint, intervalSeconds));
+            return OciClientService.isRateLimited(e)
+                    ? AttemptOutcome.RATE_LIMITED : AttemptOutcome.NORMAL;
         } finally {
             runningTasks.remove(taskId);
         }
+    }
+
+    private static String rateLimitLane(SysUserDTO dto) {
+        String tenantId = dto != null && dto.getOciCfg() != null && dto.getOciCfg().getTenantId() != null
+                ? dto.getOciCfg().getTenantId() : "unknown";
+        String region = dto != null && dto.getOciCfg() != null && dto.getOciCfg().getRegion() != null
+                ? dto.getOciCfg().getRegion() : "unknown";
+        return tenantId + "|" + region;
+    }
+
+    private RateLimitState waitForRateLimitWindow(String lane) throws InterruptedException {
+        RateLimitState state = rateLimitStates.get(lane);
+        if (state == null) return null;
+        long waitMillis = state.untilEpochMillis() - System.currentTimeMillis();
+        if (waitMillis > 0) {
+            Thread.sleep(waitMillis);
+        }
+        return state;
+    }
+
+    private int registerRateLimit(String lane) {
+        RateLimitState state = rateLimitStates.compute(lane, (key, current) -> {
+            long now = System.currentTimeMillis();
+            if (current != null && current.untilEpochMillis() > now) {
+                return current;
+            }
+            int failures = current == null ? 1 : Math.min(6, current.consecutiveFailures() + 1);
+            int delaySeconds = Math.min(60, 3 * (1 << Math.min(5, failures - 1)));
+            return new RateLimitState(failures, now + delaySeconds * 1000L, delaySeconds);
+        });
+        return state.delaySeconds();
+    }
+
+    private void clearRateLimit(String lane, RateLimitState observed) {
+        rateLimitStates.remove(lane, observed);
+    }
+
+    private enum AttemptOutcome {
+        NORMAL,
+        RATE_LIMITED,
+        TERMINAL
+    }
+
+    private record RateLimitState(int consecutiveFailures, long untilEpochMillis, int delaySeconds) {
     }
 
     private int incrementAttempt(String taskId) {
@@ -1059,6 +1132,31 @@ public class TaskSchedulerService implements SmartLifecycle {
             taskMapper.updateById(task);
         }
         clearServiceLimitNotifyState(taskId);
+    }
+
+    private void sendTaskNotificationAsync(String type, String html) {
+        submitTaskNotification(() -> notificationService.sendHtmlWithType(type, html));
+    }
+
+    private void scheduleOciServiceLimitNotification(
+            String taskId, OciCreateTask task, String username, String region,
+            String series, String architecture, InstanceDetailDTO result, int intervalSeconds) {
+        submitTaskNotification(() -> notifyOciServiceLimitIfNeeded(
+                taskId, task, username, region, series, architecture, result, intervalSeconds));
+    }
+
+    private void submitTaskNotification(Runnable action) {
+        try {
+            VIRTUAL_EXECUTOR.submit(() -> {
+                try {
+                    action.run();
+                } catch (Exception e) {
+                    log.warn("Task notification failed: {}", e.getMessage());
+                }
+            });
+        } catch (RejectedExecutionException e) {
+            log.debug("Task notification skipped during shutdown");
+        }
     }
 
     private void notifyOciServiceLimitIfNeeded(String taskId, OciCreateTask task, String username, String region,

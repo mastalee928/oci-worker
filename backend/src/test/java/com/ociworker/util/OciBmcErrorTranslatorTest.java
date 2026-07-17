@@ -112,4 +112,14 @@ class OciBmcErrorTranslatorTest {
         assertThat(OciBmcErrorTranslator.sanitizeClientMessage(ordinary)).isEqualTo(ordinary);
         assertThat(OciBmcErrorTranslator.sanitizeClientMessage(quota)).isEqualTo(quota);
     }
+
+    @Test
+    void detectsNestedAuthenticationFailure() {
+        RuntimeException error = new RuntimeException("wrapped",
+                new BmcException(401, "NotAuthenticated", "credentials invalid", "opc-request-id"));
+
+        assertThat(OciBmcErrorTranslator.isAuthenticationFailure(error)).isTrue();
+        assertThat(OciBmcErrorTranslator.isAuthenticationFailure(
+                new IllegalStateException("ordinary failure"))).isFalse();
+    }
 }

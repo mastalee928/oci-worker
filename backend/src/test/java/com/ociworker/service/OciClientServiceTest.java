@@ -35,4 +35,16 @@ class OciClientServiceTest {
         assertThat(OciClientService.isVisibleInstanceLifecycle(Instance.LifecycleState.Stopped)).isTrue();
         assertThat(OciClientService.isVisibleInstanceLifecycle(Instance.LifecycleState.Terminated)).isFalse();
     }
+
+    @Test
+    void separatesRateLimitAndGenericServerErrorFromHostCapacity() {
+        BmcException rateLimited = new BmcException(429, "TooManyRequests", "slow down", "opc");
+        BmcException genericServerError = new BmcException(500, "InternalError", "unexpected failure", "opc");
+        BmcException capacity = new BmcException(500, "InternalError", "Out of host capacity.", "opc");
+
+        assertThat(OciClientService.isRateLimited(new RuntimeException(rateLimited))).isTrue();
+        assertThat(OciClientService.isOutOfHostCapacityError(rateLimited)).isFalse();
+        assertThat(OciClientService.isOutOfHostCapacityError(genericServerError)).isFalse();
+        assertThat(OciClientService.isOutOfHostCapacityError(capacity)).isTrue();
+    }
 }

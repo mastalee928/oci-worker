@@ -4,10 +4,14 @@ import com.ociworker.model.vo.ResponseData;
 import com.ociworker.util.OciBmcErrorTranslator;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.catalina.connector.ClientAbortException;
+import org.springframework.jdbc.CannotGetJdbcConnectionException;
 import org.springframework.util.StringUtils;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+
+import jakarta.servlet.http.HttpServletResponse;
+import java.sql.SQLTransientConnectionException;
 
 @Slf4j
 @RestControllerAdvice
@@ -36,6 +40,13 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(ClientAbortException.class)
     public void handleClientAbortException(ClientAbortException e) {
         log.debug("Client aborted request: {}", e.getMessage());
+    }
+
+    @ExceptionHandler({CannotGetJdbcConnectionException.class, SQLTransientConnectionException.class})
+    public ResponseData<?> handleDatabaseBusy(Exception e, HttpServletResponse response) {
+        response.setStatus(HttpServletResponse.SC_SERVICE_UNAVAILABLE);
+        log.warn("Database connection pool busy: {}", e.getMessage());
+        return ResponseData.error(503, "系统当前繁忙，请稍后重试");
     }
 
     @ExceptionHandler(com.oracle.bmc.model.BmcException.class)
@@ -74,10 +85,27 @@ public class GlobalExceptionHandler {
     }
 
     @ExceptionHandler(Exception.class)
-    public ResponseData<?> handleException(Exception e) {
+    public ResponseData<?> handleException(Exception e, HttpServletResponse response) {
+        if (isDatabaseConnectionTimeout(e)) {
+            response.setStatus(HttpServletResponse.SC_SERVICE_UNAVAILABLE);
+            log.warn("Database connection pool busy: {}", e.getMessage());
+            return ResponseData.error(503, "系统当前繁忙，请稍后重试");
+        }
         String type = e.getClass().getName();
         String detail = e.getMessage() != null ? e.getMessage() : "(无消息)";
         log.error("Unexpected error: {} | {}", type, detail, e);
         return ResponseData.error("服务器内部错误，请查看日志");
+    }
+
+    private static boolean isDatabaseConnectionTimeout(Throwable error) {
+        Throwable current = error;
+        while (current != null) {
+            if (current instanceof CannotGetJdbcConnectionException
+                    || current instanceof SQLTransientConnectionException) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 }

@@ -79,6 +79,16 @@ else
 fi
 
 # 创建 systemd 服务
+TOTAL_MEM_KB=$(awk '/MemTotal:/ {print $2; exit}' /proc/meminfo 2>/dev/null || echo 0)
+if [ "${TOTAL_MEM_KB:-0}" -le 1048576 ]; then
+    JAVA_HEAP_MB=256
+elif [ "${TOTAL_MEM_KB}" -le 2097152 ]; then
+    JAVA_HEAP_MB=384
+elif [ "${TOTAL_MEM_KB}" -le 4194304 ]; then
+    JAVA_HEAP_MB=512
+else
+    JAVA_HEAP_MB=1024
+fi
 cat > /etc/systemd/system/oci-worker.service << 'EOF'
 [Unit]
 Description=OCI Worker
@@ -87,7 +97,7 @@ After=network.target docker.service
 [Service]
 Type=simple
 WorkingDirectory=/opt/oci-worker
-ExecStart=/usr/local/bin/java -Xmx256m -Duser.timezone=Asia/Shanghai -Duser.dir=/opt/oci-worker -jar oci-worker.jar --spring.config.additional-location=file:/opt/oci-worker/application.yml
+ExecStart=/usr/local/bin/java -Xmx__JAVA_HEAP_MB__m -Duser.timezone=Asia/Shanghai -Duser.dir=/opt/oci-worker -jar oci-worker.jar --spring.config.additional-location=file:/opt/oci-worker/application.yml
 Restart=on-failure
 RestartSec=10
 TimeoutStopSec=45
@@ -95,6 +105,7 @@ TimeoutStopSec=45
 [Install]
 WantedBy=multi-user.target
 EOF
+sed -i "s/__JAVA_HEAP_MB__/${JAVA_HEAP_MB}/g" /etc/systemd/system/oci-worker.service
 
 systemctl daemon-reload
 systemctl enable oci-worker

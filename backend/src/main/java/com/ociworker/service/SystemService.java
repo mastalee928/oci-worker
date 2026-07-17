@@ -18,6 +18,7 @@ import oshi.hardware.GlobalMemory;
 
 import java.io.File;
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.lang.management.ManagementFactory;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -30,9 +31,11 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -213,43 +216,85 @@ public class SystemService {
                     #!/bin/bash
                     set -e
                     REPO="%s"
-                    TAG="%s"
-                    ASSET="%s"
-                    JAR="%s"
-                    # 直连 latest 资源，避免先调 api.github.com + grep（省一次 RTT，也降低限流概率）
-                    JAR_URL="https://github.com/${REPO}/releases/download/${TAG}/${ASSET}"
-                    curl -fSL --retry 2 --retry-delay 2 --connect-timeout 15 --max-time 600 -o "${JAR}.tmp" "$JAR_URL"
-                    NEW_SIZE=$(stat -c%%s "${JAR}.tmp" 2>/dev/null || echo 0)
-                    if [ "$NEW_SIZE" -lt 1000 ]; then
-                      rm -f "${JAR}.tmp"
-                      echo "Download failed: file too small (${NEW_SIZE} bytes)"
-                      exit 1
+                    INSTALLER="${0}.installer"
+                    trap 'rm -f "$0" "$INSTALLER"' EXIT
+                    RAW_URL="https://raw.githubusercontent.com/${REPO}/master/install.sh"
+                    RELEASE_URL="https://github.com/${REPO}/releases/download/installer-latest/install.sh"
+                    if ! curl -fSL --retry 2 --retry-delay 2 --connect-timeout 15 --max-time 120 -o "$INSTALLER" "$RAW_URL"; then
+                      curl -fSL --retry 2 --retry-delay 2 --connect-timeout 15 --max-time 120 -o "$INSTALLER" "$RELEASE_URL"
                     fi
-                    mv "${JAR}.tmp" "$JAR"
-                    systemctl stop oci-webssh 2>/dev/null || true
-                    systemctl disable oci-webssh 2>/dev/null || true
-                    rm -f /opt/oci-worker/oci-webssh
-                    rm -f /etc/systemd/system/oci-webssh.service
-                    # 兼容旧安装：为主服务补上停止超时，避免 systemctl restart 长时间卡在旧进程退出。
-                    mkdir -p /etc/systemd/system/oci-worker.service.d
-                    printf '[Service]\nTimeoutStopSec=45\n' > /etc/systemd/system/oci-worker.service.d/10-stop-timeout.conf
-                    systemctl daemon-reload 2>/dev/null || true
-                    systemctl restart oci-worker
-                    """.formatted(UPDATE_REPO, UPDATE_TAG, UPDATE_ASSET_NAME, JAR_PATH);
+                    chmod 700 "$INSTALLER"
+                    bash "$INSTALLER"
+                    rm -f "$INSTALLER"
+                    """.formatted(UPDATE_REPO);
 
-            Path scriptFile = Path.of("/tmp/oci-worker-update.sh");
+            Path scriptFile = Files.createTempFile(Path.of("/tmp"), "oci-worker-update-", ".sh");
             Files.writeString(scriptFile, script);
             try {
                 Files.setPosixFilePermissions(scriptFile, PosixFilePermissions.fromString("rwxr-xr-x"));
             } catch (UnsupportedOperationException ignored) {}
 
-            new ProcessBuilder("bash", "-c",
-                    "nohup bash /tmp/oci-worker-update.sh > /tmp/oci-worker-update.log 2>&1 &")
-                    .redirectErrorStream(true).start();
-            log.info("Update process started in background");
+            String scriptPath = scriptFile.toString();
+            String unitName = "oci-worker-update-" + ProcessHandle.current().pid()
+                    + "-" + System.currentTimeMillis();
+            if (startUpdateUnit(scriptPath, unitName, true)
+                    || startUpdateUnit(scriptPath, unitName, false)) {
+                log.info("Update process started in transient systemd unit {}", unitName);
+                return;
+            }
+
+            Files.deleteIfExists(scriptFile);
+            throw new OciException("无法启动独立更新单元，请在服务器执行 ociworker update");
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new OciException("启动更新被中断，请在服务器执行 ociworker update");
         } catch (IOException e) {
             throw new OciException("启动更新失败: " + e.getMessage());
         }
+    }
+
+    private boolean startUpdateUnit(String scriptPath, String unitName, boolean collect)
+            throws InterruptedException {
+        List<String> command = new ArrayList<>();
+        command.add("systemd-run");
+        command.add("--quiet");
+        command.add("--no-block");
+        if (collect) {
+            command.add("--collect");
+        }
+        command.add("--unit=" + unitName + (collect ? "-collect" : "-basic"));
+        command.add("--property=Type=oneshot");
+        command.add("bash");
+        command.add(scriptPath);
+
+        Process process;
+        try {
+            process = new ProcessBuilder(command)
+                    .redirectErrorStream(true)
+                    .start();
+        } catch (IOException e) {
+            log.warn("Unable to execute systemd-run{}: {}", collect ? " --collect" : "", e.getMessage());
+            return false;
+        }
+
+        if (!process.waitFor(5, TimeUnit.SECONDS)) {
+            process.destroyForcibly();
+            log.warn("systemd-run{} did not return within 5 seconds", collect ? " --collect" : "");
+            return false;
+        }
+
+        String output = "";
+        try {
+            output = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8).trim();
+        } catch (IOException e) {
+            log.debug("Unable to read systemd-run output: {}", e.getMessage());
+        }
+        if (process.exitValue() == 0) {
+            return true;
+        }
+        log.warn("systemd-run{} failed with exit code {}: {}",
+                collect ? " --collect" : "", process.exitValue(), output);
+        return false;
     }
 
     private void fillUpdateSource(Map<String, Object> result) {

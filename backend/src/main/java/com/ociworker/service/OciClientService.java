@@ -29,6 +29,7 @@ import com.ociworker.model.dto.OciProxySnapshot;
 import com.ociworker.model.dto.SysUserDTO;
 import com.ociworker.util.BootVolumeVpusUtil;
 import com.ociworker.util.CommonUtils;
+import com.ociworker.util.OciBmcErrorTranslator;
 import com.ociworker.util.OciRegionCatalog;
 import com.ociworker.util.ShapeSeriesUtil;
 import com.ociworker.util.VcnIpv6Util;
@@ -582,7 +583,32 @@ public class OciClientService implements Closeable {
                 shapes = getShapes(ad.getName()).stream()
                         .filter(s -> s.getShape().equals(targetShape))
                         .collect(Collectors.toList());
+            } catch (com.oracle.bmc.model.BmcException e) {
+                if (e.getStatusCode() == 401) {
+                    result.setDie(true);
+                    result.setFailureHint(describeBmcFailure(e, targetShape));
+                    return result;
+                }
+                if (e.getStatusCode() == 429) {
+                    result.setRateLimited(true);
+                    result.setFailureHint(describeBmcFailure(e, targetShape));
+                    return result;
+                }
+                markAdExcludedNoShape(result, ad.getName());
+                log.warn("【开机任务】用户:[{}], AD:[{}] - 当前可用域无此 Shape [{}]（ListShapes 失败）",
+                        user.getUsername(), ad.getName(), targetShape);
+                continue;
             } catch (Exception e) {
+                if (OciBmcErrorTranslator.isAuthenticationFailure(e)) {
+                    result.setDie(true);
+                    result.setFailureHint(describeThrowableFailure(e));
+                    return result;
+                }
+                if (isRateLimited(e)) {
+                    result.setRateLimited(true);
+                    result.setFailureHint(describeThrowableFailure(e));
+                    return result;
+                }
                 markAdExcludedNoShape(result, ad.getName());
                 log.warn("【开机任务】用户:[{}], AD:[{}] - 当前可用域无此 Shape [{}]（ListShapes 失败）",
                         user.getUsername(), ad.getName(), targetShape);
@@ -605,6 +631,14 @@ public class OciClientService implements Closeable {
                 } catch (com.oracle.bmc.model.BmcException e) {
                     String hint = describeBmcFailure(e);
                     result.setFailureHint(hint);
+                    if (e.getStatusCode() == 401) {
+                        result.setDie(true);
+                        return result;
+                    }
+                    if (e.getStatusCode() == 429) {
+                        result.setRateLimited(true);
+                        return result;
+                    }
                     if (isVcnCountLimitError(e)) {
                         log.warn("【开机任务】用户:[{}], AD:[{}] - {}", user.getUsername(), ad.getName(), hint);
                         break;
@@ -615,6 +649,14 @@ public class OciClientService implements Closeable {
                 } catch (Exception e) {
                     String hint = describeThrowableFailure(e);
                     result.setFailureHint(hint);
+                    if (OciBmcErrorTranslator.isAuthenticationFailure(e)) {
+                        result.setDie(true);
+                        return result;
+                    }
+                    if (isRateLimited(e)) {
+                        result.setRateLimited(true);
+                        return result;
+                    }
                     log.warn("【开机任务】用户:[{}], AD:[{}] - 准备网络失败{}。{}",
                             user.getUsername(), ad.getName(), tryNextAdSuffix, hint);
                     break;
@@ -688,6 +730,14 @@ public class OciClientService implements Closeable {
                         result.setDie(true);
                         return result;
                     }
+                    if (e.getStatusCode() == 429) {
+                        String hint = describeBmcFailure(e, shape.getShape());
+                        result.setRateLimited(true);
+                        result.setFailureHint(hint);
+                        log.warn("【开机任务】用户:[{}],区域:[{}] - OCI 请求被限流(429)，停止本轮其他 AD 请求。{}",
+                                user.getUsername(), user.getOciCfg().getRegion(), hint);
+                        return result;
+                    }
                     if (isBootVolumeQuotaError(e)) {
                         String hint = describeBmcFailure(e, shape.getShape());
                         result.setBootVolumeQuotaExceeded(true);
@@ -721,6 +771,14 @@ public class OciClientService implements Closeable {
                 } catch (Exception e) {
                     String hint = describeThrowableFailure(e);
                     result.setFailureHint(hint);
+                    if (OciBmcErrorTranslator.isAuthenticationFailure(e)) {
+                        result.setDie(true);
+                        return result;
+                    }
+                    if (isRateLimited(e)) {
+                        result.setRateLimited(true);
+                        return result;
+                    }
                     log.warn("【开机任务】用户:[{}], AD:[{}] - 创建异常{}。{}",
                             user.getUsername(), ad.getName(), tryNextAdSuffix, hint);
                     break;
@@ -786,14 +844,13 @@ public class OciClientService implements Closeable {
         return false;
     }
 
-    private static boolean isOutOfHostCapacityError(com.oracle.bmc.model.BmcException e) {
+    static boolean isOutOfHostCapacityError(com.oracle.bmc.model.BmcException e) {
         if (isBootVolumeQuotaError(e)) {
             return false;
         }
         String em = e.getMessage() == null ? "" : e.getMessage();
-        return e.getStatusCode() == 500 || em.contains("Out of host capacity")
-                || (e.getStatusCode() == 400 && em.contains("LimitExceeded"))
-                || e.getStatusCode() == 429;
+        return em.contains("Out of host capacity")
+                || (e.getStatusCode() == 400 && em.contains("LimitExceeded"));
     }
 
     private static boolean isOciServiceLimitExceeded(com.oracle.bmc.model.BmcException e) {
@@ -841,6 +898,17 @@ public class OciClientService implements Closeable {
     /** OCI 失败原因（中文，写入日志/任务播报，不含 SDK 长堆栈） */
     static String describeBmcFailure(com.oracle.bmc.model.BmcException e) {
         return describeBmcFailure(e, null);
+    }
+
+    static boolean isRateLimited(Throwable error) {
+        Throwable current = error;
+        while (current != null) {
+            if (current instanceof com.oracle.bmc.model.BmcException bmc && bmc.getStatusCode() == 429) {
+                return true;
+            }
+            current = current.getCause();
+        }
+        return false;
     }
 
     /** OCI 失败原因（中文，写入日志/任务播报，不含 SDK 长堆栈） */

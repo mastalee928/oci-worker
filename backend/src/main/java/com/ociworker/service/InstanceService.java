@@ -41,6 +41,7 @@ public class InstanceService {
     private static final int INSTANCE_LIST_READ_TIMEOUT_MS = 10_000;
     private static final int MAX_PUBLIC_IP_TARGETS = 500;
     private static final int INSTANCE_PUBLIC_IP_CONCURRENCY = 8;
+    private static final int INSTANCE_COMPARTMENT_CONCURRENCY = 6;
 
     private final AtomicInteger instanceListThreadSeq = new AtomicInteger();
     private final ThreadPoolExecutor instanceListExecutor = new ThreadPoolExecutor(
@@ -66,6 +67,20 @@ public class InstanceService {
             runnable -> {
                 Thread thread = new Thread(runnable,
                         "oci-instance-public-ip-" + instancePublicIpThreadSeq.incrementAndGet());
+                thread.setDaemon(true);
+                return thread;
+            },
+            new ThreadPoolExecutor.AbortPolicy());
+    private final AtomicInteger instanceCompartmentThreadSeq = new AtomicInteger();
+    private final ThreadPoolExecutor instanceCompartmentExecutor = new ThreadPoolExecutor(
+            INSTANCE_COMPARTMENT_CONCURRENCY,
+            INSTANCE_COMPARTMENT_CONCURRENCY,
+            0L,
+            TimeUnit.MILLISECONDS,
+            new LinkedBlockingQueue<>(512),
+            runnable -> {
+                Thread thread = new Thread(runnable,
+                        "oci-instance-compartment-" + instanceCompartmentThreadSeq.incrementAndGet());
                 thread.setDaemon(true);
                 return thread;
             },
@@ -109,6 +124,7 @@ public class InstanceService {
     void shutdownInstanceReadExecutors() {
         instanceListExecutor.shutdownNow();
         instancePublicIpExecutor.shutdownNow();
+        instanceCompartmentExecutor.shutdownNow();
     }
 
     private String resolveInstanceCompartmentId(OciClientService client, String instanceId, String providedCompartmentId) {
@@ -180,10 +196,28 @@ public class InstanceService {
                 compartmentNameMap.put(c.getId(), c.getName());
             }
 
+            CompletionService<List<Instance>> completion =
+                    new ExecutorCompletionService<>(instanceCompartmentExecutor);
+            List<Future<List<Instance>>> futures = new ArrayList<>();
             List<Instance> allInstances = new ArrayList<>();
-            for (var compartment : compartments) {
-                ensureInstanceListDeadline(deadlineNanos, ociUser);
-                allInstances.addAll(client.listAllInstancesInCompartment(compartment.getId(), deadlineNanos));
+            try {
+                for (var compartment : compartments) {
+                    futures.add(completion.submit(() ->
+                            client.listAllInstancesInCompartment(compartment.getId(), deadlineNanos)));
+                }
+                for (int completed = 0; completed < futures.size(); completed++) {
+                    ensureInstanceListDeadline(deadlineNanos, ociUser);
+                    long remaining = deadlineNanos - System.nanoTime();
+                    Future<List<Instance>> future = completion.poll(remaining, TimeUnit.NANOSECONDS);
+                    if (future == null) {
+                        throw new TimeoutException("instance compartment query timed out");
+                    }
+                    allInstances.addAll(future.get());
+                }
+            } finally {
+                futures.forEach(future -> {
+                    if (!future.isDone()) future.cancel(true);
+                });
             }
             List<Map<String, Object>> result = new ArrayList<>();
             for (Instance inst : allInstances) {
@@ -209,11 +243,18 @@ public class InstanceService {
             return result;
         } catch (CancellationException e) {
             throw new OciException(tag(ociUser) + "获取实例列表超时，请检查 OCI 网络或代理配置");
+        } catch (RejectedExecutionException e) {
+            throw new OciException(tag(ociUser) + "实例列表查询繁忙，请稍后重试");
         } catch (OciException e) {
             throw e;
         } catch (Exception e) {
             log.error("Failed to list instances: {}", e.getMessage());
-            throw new OciException(tag(ociUser) + "获取实例列表失败: " + e.getMessage());
+            if (OciBmcErrorTranslator.isAuthenticationFailure(e)) {
+                String effectiveRegion = region == null || region.isBlank() ? ociUser.getOciRegion() : region.trim();
+                throw new OciException("租户「" + ociUser.getUsername() + "」在区域「" + effectiveRegion
+                        + "」的 OCI 凭据无效，请检查 Tenancy OCID、User OCID、Fingerprint、私钥和 Region。");
+            }
+            throw new OciException(tag(ociUser) + "获取实例列表失败: " + OciBmcErrorTranslator.translate(e));
         }
     }
 

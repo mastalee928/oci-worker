@@ -1118,7 +1118,23 @@ EOF
     ok "配置文件已写入：${CONFIG_FILE}"
 }
 
+recommended_heap_mb() {
+    local total_kb
+    total_kb="$(awk '/MemTotal:/ {print $2; exit}' /proc/meminfo 2>/dev/null || echo 0)"
+    if [ "${total_kb:-0}" -le 1048576 ]; then
+        echo 256
+    elif [ "${total_kb}" -le 2097152 ]; then
+        echo 384
+    elif [ "${total_kb}" -le 4194304 ]; then
+        echo 512
+    else
+        echo 1024
+    fi
+}
+
 write_systemd_unit() {
+    local heap_mb
+    heap_mb="$(recommended_heap_mb)"
     info "写入 systemd 服务：${SERVICE_NAME}..."
     cat > "${SERVICE_FILE}" <<EOF
 [Unit]
@@ -1128,7 +1144,7 @@ After=network.target docker.service
 [Service]
 Type=simple
 WorkingDirectory=${INSTALL_DIR}
-ExecStart=/usr/local/bin/java -Xmx256m -Duser.timezone=Asia/Shanghai -Duser.dir=${INSTALL_DIR} -jar ${JAR_NAME} --spring.config.additional-location=file:${CONFIG_FILE}
+ExecStart=/usr/local/bin/java -Xmx${heap_mb}m -Duser.timezone=Asia/Shanghai -Duser.dir=${INSTALL_DIR} -jar ${JAR_NAME} --spring.config.additional-location=file:${CONFIG_FILE}
 Restart=on-failure
 RestartSec=10
 # 未设置时 systemd 常用默认约 90s，stop 期间脚本长时间无新日志，易被误认为卡死
@@ -1140,6 +1156,61 @@ EOF
     systemctl daemon-reload
     systemctl enable "${SERVICE_NAME}" >/dev/null 2>&1 || true
     ok "systemd 服务已注册"
+}
+
+JVM_DROPIN="/etc/systemd/system/${SERVICE_NAME}.service.d/20-managed-jvm-memory.conf"
+JVM_DROPIN_BACKUP=""
+JVM_DROPIN_CREATED=0
+
+apply_managed_jvm_memory_migration() {
+    local heap_mb unit_exec dropin_tmp
+    heap_mb="$(recommended_heap_mb)"
+    unit_exec="$(systemctl show -p ExecStart --value "${SERVICE_NAME}" 2>/dev/null || true)"
+
+    # 只迁移项目历史安装器生成的 -Xmx256m；用户自定义 JVM 参数一律保留。
+    if [[ "${unit_exec}" != *"/usr/local/bin/java"* ]] \
+        || [[ "${unit_exec}" != *"-Xmx256m"* ]] \
+        || [[ "${unit_exec}" != *"-Duser.timezone=Asia/Shanghai"* ]] \
+        || [[ "${unit_exec}" != *"-Duser.dir=/opt/oci-worker"* ]] \
+        || [[ "${unit_exec}" != *"oci-worker.jar"* ]] \
+        || [[ "${unit_exec}" != *"/opt/oci-worker/application.yml"* ]]; then
+        info "JVM 参数不是项目旧默认 -Xmx256m，保留现有配置"
+        return 0
+    fi
+
+    mkdir -p "$(dirname "${JVM_DROPIN}")" || return 1
+    if [ -f "${JVM_DROPIN}" ]; then
+        JVM_DROPIN_BACKUP="${JVM_DROPIN}.bak.$(date +%Y%m%d%H%M%S)"
+        cp -p "${JVM_DROPIN}" "${JVM_DROPIN_BACKUP}" || return 1
+    else
+        JVM_DROPIN_CREATED=1
+    fi
+    dropin_tmp="${JVM_DROPIN}.tmp.$$"
+    if ! cat > "${dropin_tmp}" <<EOF
+[Service]
+ExecStart=
+ExecStart=/usr/local/bin/java -Xmx${heap_mb}m -Duser.timezone=Asia/Shanghai -Duser.dir=${INSTALL_DIR} -jar ${JAR_NAME} --spring.config.additional-location=file:${CONFIG_FILE}
+EOF
+    then
+        rm -f "${dropin_tmp}"
+        return 1
+    fi
+    if ! mv "${dropin_tmp}" "${JVM_DROPIN}"; then
+        rm -f "${dropin_tmp}"
+        return 1
+    fi
+    systemctl daemon-reload || return 1
+    ok "已将项目旧默认 JVM 堆从 256MB 自动调整为 ${heap_mb}MB"
+}
+
+rollback_managed_jvm_memory_migration() {
+    if [ -n "${JVM_DROPIN_BACKUP}" ] && [ -f "${JVM_DROPIN_BACKUP}" ]; then
+        mv "${JVM_DROPIN_BACKUP}" "${JVM_DROPIN}" \
+            || warn "恢复原 JVM 配置失败：${JVM_DROPIN_BACKUP}"
+    elif [ "${JVM_DROPIN_CREATED}" = "1" ]; then
+        rm -f "${JVM_DROPIN}" || warn "删除新 JVM 配置失败：${JVM_DROPIN}"
+    fi
+    systemctl daemon-reload 2>/dev/null || warn "systemd 重新加载失败，请手动执行 systemctl daemon-reload"
 }
 
 # 已部署环境可能仍为旧版 unit（无 TimeoutStopSec），升级时 stop 会等满 systemd 默认超时（常见 ~90s）
@@ -1171,6 +1242,7 @@ file_size() {
 # Returns 0 on success, non-zero on failure. NEVER calls die() so callers
 # can decide whether to roll back.
 download_jar() {
+    local destination="${1:-${INSTALL_DIR}/${JAR_NAME}}"
     if [ "${JAR_RELEASE_TAG}" = "${JAR_TAG_UI}" ]; then
         info "下载动效/Orbis UI 版 JAR（Release：${JAR_RELEASE_TAG}）…"
     else
@@ -1178,7 +1250,7 @@ download_jar() {
     fi
     local url tmp size attempt max
     url="https://github.com/${REPO}/releases/download/${JAR_RELEASE_TAG}/${JAR_ASSET}"
-    tmp="${INSTALL_DIR}/${JAR_NAME}.tmp"
+    tmp="${destination}.tmp"
     max=3
     attempt=0
     while [ "${attempt}" -lt "${max}" ]; do
@@ -1213,39 +1285,65 @@ download_jar() {
             return 1
         fi
     fi
-    mv "${tmp}" "${INSTALL_DIR}/${JAR_NAME}"
-    ok "JAR 已就绪：$(numfmt --to=iec "${size}" 2>/dev/null || echo "${size} 字节")"
+    if ! mv "${tmp}" "${destination}"; then
+        rm -f "${tmp}"
+        err "JAR 写入目标路径失败：${destination}"
+        return 1
+    fi
+    ok "JAR 已就绪：${destination}（$(numfmt --to=iec "${size}" 2>/dev/null || echo "${size} 字节")）"
     return 0
 }
 
 # -----------------------------------------------------------------------------
 # Install / restart with rollback
 # -----------------------------------------------------------------------------
+configured_web_port() {
+    local port
+    port="$(awk '
+        $0 ~ /^server:/ { in_server=1; next }
+        in_server && $0 ~ /^[[:space:]]*port:[[:space:]]*[0-9]+/ {
+            gsub(/[^0-9]/, "", $0); print $0; exit
+        }
+        in_server && $0 ~ /^[^[:space:]]/ { in_server=0 }
+    ' "${CONFIG_FILE}" 2>/dev/null || true)"
+    echo "${port:-8818}"
+}
+
 restart_with_rollback() {
+    local rollback_config="${1:-yes}"
     info "启动 ${SERVICE_NAME}..."
     if ! systemctl restart "${SERVICE_NAME}"; then
-        warn "服务启动失败，尝试回滚配置..."
-        local last_bak
-        last_bak="$(ls -1t "${CONFIG_FILE}.bak."* 2>/dev/null | head -n 1 || true)"
-        if [ -n "${last_bak}" ]; then
-            cp -p "${last_bak}" "${CONFIG_FILE}"
-            systemctl restart "${SERVICE_NAME}" || true
-            warn "已回滚到上一个配置：${last_bak}"
+        if [ "${rollback_config}" = "yes" ]; then
+            warn "服务启动失败，尝试回滚配置..."
+            local last_bak
+            last_bak="$(ls -1t "${CONFIG_FILE}.bak."* 2>/dev/null | head -n 1 || true)"
+            if [ -n "${last_bak}" ]; then
+                cp -p "${last_bak}" "${CONFIG_FILE}"
+                systemctl restart "${SERVICE_NAME}" || true
+                warn "已回滚到上一个配置：${last_bak}"
+            fi
+        else
+            warn "服务启动失败；本次升级未修改 application.yml，不回退用户配置"
         fi
         err "请查看日志：journalctl -u ${SERVICE_NAME} -n 50 --no-pager"
         return 1
     fi
 
-    # Wait briefly for service to settle.
-    local i
-    for i in 1 2 3 4 5; do
+    # systemd active 不等于应用已就绪；同时验证 Web 端口，避免误判升级成功。
+    local i port
+    port="$(configured_web_port)"
+    for i in $(seq 1 30); do
         sleep 2
-        if systemctl is-active --quiet "${SERVICE_NAME}"; then
-            ok "${SERVICE_NAME} 已运行"
+        if systemctl is-active --quiet "${SERVICE_NAME}" \
+            && curl -sS --connect-timeout 1 --max-time 2 -o /dev/null "http://127.0.0.1:${port}/"; then
+            ok "${SERVICE_NAME} 已运行，端口 ${port} 已就绪"
             return 0
         fi
+        if systemctl is-failed --quiet "${SERVICE_NAME}"; then
+            break
+        fi
     done
-    warn "${SERVICE_NAME} 启动状态未稳定，请用 journalctl 查看"
+    warn "${SERVICE_NAME} 未在 60 秒内通过端口就绪检查"
     return 1
 }
 
@@ -1404,22 +1502,50 @@ do_upgrade() {
     info "检测到已有安装：${INSTALL_DIR}"
     info "升级模式不会修改 application.yml 和数据库"
 
+    if command -v flock >/dev/null 2>&1; then
+        exec 9>"/tmp/oci-worker-upgrade.lock"
+        flock -n 9 || die "已有另一个 OCI Worker 升级正在执行，请等待完成"
+    else
+        mkdir "/tmp/oci-worker-upgrade.lock.d" 2>/dev/null \
+            || die "已有另一个 OCI Worker 升级正在执行，请等待完成"
+        trap 'rmdir /tmp/oci-worker-upgrade.lock.d 2>/dev/null || true; cleanup' EXIT
+    fi
+
     install_jdk21
 
     apply_worker_stop_timeout_dropin
 
-    info "停止 ${SERVICE_NAME}..."
-    systemctl stop "${SERVICE_NAME}" 2>/dev/null || true
-
-    # Backup current JAR before replacing
+    # 先备份并下载校验，旧服务继续运行；仅在新包就绪后短暂停服切换。
     if [ -f "${INSTALL_DIR}/${JAR_NAME}" ]; then
         cp -p "${INSTALL_DIR}/${JAR_NAME}" "${INSTALL_DIR}/${JAR_NAME}.bak"
     fi
 
-    if ! download_jar; then
+    local candidate_jar="${INSTALL_DIR}/${JAR_NAME}.candidate"
+    rm -f "${candidate_jar}" "${candidate_jar}.tmp"
+    if ! download_jar "${candidate_jar}"; then
         warn "JAR 下载失败，恢复旧版本"
+        rm -f "${candidate_jar}" "${candidate_jar}.tmp"
+        rm -f "${INSTALL_DIR}/${JAR_NAME}.bak"
+        die "升级失败"
+    fi
+
+    info "新包已校验，停止 ${SERVICE_NAME} 并切换版本..."
+    systemctl stop "${SERVICE_NAME}" 2>/dev/null || true
+    if ! mv "${candidate_jar}" "${INSTALL_DIR}/${JAR_NAME}"; then
+        warn "新 JAR 切换失败，继续使用旧版本"
+        rm -f "${candidate_jar}" "${candidate_jar}.tmp"
+        if [ ! -f "${INSTALL_DIR}/${JAR_NAME}" ] && [ -f "${INSTALL_DIR}/${JAR_NAME}.bak" ]; then
+            cp -p "${INSTALL_DIR}/${JAR_NAME}.bak" "${INSTALL_DIR}/${JAR_NAME}" || true
+        fi
+        restart_with_rollback no || warn "旧版本服务恢复失败，请立即查看 systemd 日志"
+        die "升级失败"
+    fi
+
+    if ! apply_managed_jvm_memory_migration; then
+        warn "JVM 配置迁移失败，恢复旧版本"
         [ -f "${INSTALL_DIR}/${JAR_NAME}.bak" ] && mv "${INSTALL_DIR}/${JAR_NAME}.bak" "${INSTALL_DIR}/${JAR_NAME}"
-        systemctl start "${SERVICE_NAME}" || true
+        rollback_managed_jvm_memory_migration
+        restart_with_rollback no || warn "旧版本服务恢复失败，请立即查看 systemd 日志"
         die "升级失败"
     fi
 
@@ -1427,9 +1553,10 @@ do_upgrade() {
 
     install_ociworker_cli
 
-    if restart_with_rollback; then
+    if restart_with_rollback no; then
         # On success, drop the JAR backup
-        rm -f "${INSTALL_DIR}/${JAR_NAME}.bak"
+        rm -f "${INSTALL_DIR}/${JAR_NAME}.bak" "${candidate_jar}" "${candidate_jar}.tmp"
+        [ -n "${JVM_DROPIN_BACKUP}" ] && rm -f "${JVM_DROPIN_BACKUP}" || true
         commit_ui_channel_state
         ok "升级完成"
         local cur_port
@@ -1447,8 +1574,12 @@ EOF
         warn "新版本启动失败，回滚到旧 JAR..."
         if [ -f "${INSTALL_DIR}/${JAR_NAME}.bak" ]; then
             mv "${INSTALL_DIR}/${JAR_NAME}.bak" "${INSTALL_DIR}/${JAR_NAME}"
-            systemctl restart "${SERVICE_NAME}" || true
-            warn "已回滚到旧版本"
+        fi
+        rollback_managed_jvm_memory_migration
+        if restart_with_rollback no; then
+            warn "已回滚到旧版本和原 JVM 配置，旧服务已恢复"
+        else
+            err "旧 JAR 和 JVM 配置已恢复，但服务未能重新就绪，请立即查看 systemd 日志"
         fi
         die "升级失败，请查看日志"
     fi

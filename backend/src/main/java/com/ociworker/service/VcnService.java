@@ -63,8 +63,14 @@ public class VcnService {
         String r = effectiveRegion(ociUser, region);
         try (OciClientService client = oci(ociUser, region)) {
             var compartments = client.listAllCompartments();
-            List<CompletableFuture<List<Map<String, Object>>>> futures = compartments.stream().map(c ->
-                    CompletableFuture.supplyAsync(() -> {
+            CompletionService<List<Map<String, Object>>> completion =
+                    new ExecutorCompletionService<>(compartmentExecutor);
+            List<Future<List<Map<String, Object>>>> futures = new ArrayList<>();
+            List<Map<String, Object>> result = new ArrayList<>();
+            long deadlineNanos = System.nanoTime() + TimeUnit.SECONDS.toNanos(20);
+            try {
+                for (var c : compartments) {
+                    futures.add(completion.submit(() -> {
                         List<Map<String, Object>> rows = new ArrayList<>();
                         try {
                             var vcns = client.getVirtualNetworkClient().listVcns(
@@ -88,26 +94,60 @@ public class VcnService {
                                 rows.add(map);
                             }
                         } catch (Exception e) {
+                            if (OciBmcErrorTranslator.isAuthenticationFailure(e)) {
+                                throw new CompletionException(e);
+                            }
                             log.debug("listVcns in {} failed: {}", c.getId(), e.getMessage());
                         }
                         return rows;
-                    }, compartmentExecutor)
-            ).toList();
-            List<Map<String, Object>> result = new ArrayList<>();
-            for (CompletableFuture<List<Map<String, Object>>> future : futures) {
-                try {
-                    result.addAll(future.get(20, TimeUnit.SECONDS));
-                } catch (Exception e) {
-                    future.cancel(true);
-                    log.debug("listVcns compartment request failed: {}", e.getMessage());
+                    }));
                 }
+                for (int completed = 0; completed < futures.size(); completed++) {
+                    try {
+                        long remaining = deadlineNanos - System.nanoTime();
+                        if (remaining <= 0) {
+                            throw new OciException("查询 VCN 列表超时，请检查 OCI 网络、代理或租户配置");
+                        }
+                        Future<List<Map<String, Object>>> future = completion.poll(remaining, TimeUnit.NANOSECONDS);
+                        if (future == null) {
+                            throw new OciException("查询 VCN 列表超时，请检查 OCI 网络、代理或租户配置");
+                        }
+                        result.addAll(future.get());
+                    } catch (ExecutionException e) {
+                        if (OciBmcErrorTranslator.isAuthenticationFailure(e)) {
+                            throw new OciException(authenticationFailureMessage(ociUser, r));
+                        }
+                        log.debug("listVcns compartment request failed: {}", e.getMessage());
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                        throw new OciException("查询 VCN 列表已中断");
+                    } catch (OciException e) {
+                        throw e;
+                    } catch (Exception e) {
+                        log.debug("listVcns compartment request failed: {}", e.getMessage());
+                    }
+                }
+                return result;
+            } finally {
+                futures.forEach(future -> {
+                    if (!future.isDone()) future.cancel(true);
+                });
             }
-            return result;
         } catch (OciException e) {
             throw e;
+        } catch (RejectedExecutionException e) {
+            throw new OciException("VCN 列表查询繁忙，请稍后重试");
         } catch (Exception e) {
-            throw new OciException("查询 VCN 列表失败: " + e.getMessage());
+            if (OciBmcErrorTranslator.isAuthenticationFailure(e)) {
+                throw new OciException(authenticationFailureMessage(ociUser, r));
+            }
+            throw new OciException("查询 VCN 列表失败: " + OciBmcErrorTranslator.translate(e));
         }
+    }
+
+    private static String authenticationFailureMessage(OciUser user, String region) {
+        return "租户「" + user.getUsername() + "」在区域「" + region
+                + "」的 OCI 凭据无效，请检查 Tenancy OCID、User OCID、Fingerprint、私钥和 Region。";
     }
 
     public Map<String, Object> createVcn(String userId, String compartmentId, String displayName, String cidrBlock,

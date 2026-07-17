@@ -7,9 +7,6 @@ webssh:
   timeout-minutes: 120
   max-upload-size: 200MB
 ociworker:
-  task:
-    # 同时执行的 OCI 开机尝试数；低配机器建议 2-4，高配机器可用环境变量调到 6-8。
-    max-concurrent-executions: ${OCI_WORKER_TASK_MAX_CONCURRENT:4}
   openaiApi:
     # 0 = 不启用第二端口；>0 且与 server.port 不同时，Tomcat 额外监听该口供 /v1 等 OpenAI 路由
     port: 8080
@@ -40,11 +37,15 @@ spring:
     username: ociworker
     password: ociworker123
     hikari:
-      # 外部 OCI 调用不能长期占用数据库连接；池耗尽时快速失败并返回服务繁忙，避免页面固定卡 30 秒。
+      # 低负载保留少量连接，突发时按需增长；获取连接快速失败，避免页面固定卡 30 秒。
       connection-timeout: 5000
       validation-timeout: 3000
-      maximum-pool-size: 10
-      minimum-idle: 2
+      maximum-pool-size: 30
+      minimum-idle: 4
+      idle-timeout: 300000
+      # 数据库操作应为短连接；持有超过 15 秒记录借出堆栈，便于定位长事务/连接泄漏。
+      leak-detection-threshold: 15000
+      register-mbeans: true
       # 连接在池里的最长存活（须小于 MySQL 的 wait_timeout，并留 1 分钟以上余量）
       max-lifetime: 1500000
       # 定期对空闲连接发保活，减少「服务端已关、池里还以为能用」
