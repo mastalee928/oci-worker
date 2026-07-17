@@ -34,6 +34,7 @@ readonly JAR_ASSET="oci-worker-1.0.0.jar"
 readonly CONFIG_FILE="${INSTALL_DIR}/application.yml"
 readonly SERVICE_NAME="oci-worker"
 readonly SERVICE_FILE="/etc/systemd/system/${SERVICE_NAME}.service"
+readonly WEB_THREAD_DROPIN="/etc/systemd/system/${SERVICE_NAME}.service.d/30-platform-web-threads.conf"
 readonly LEGACY_TERMINAL_BIN="${INSTALL_DIR}/oci-webssh"
 readonly LEGACY_TERMINAL_SERVICE="oci-webssh"
 readonly LEGACY_TERMINAL_CONTAINER="webssh"
@@ -1091,7 +1092,7 @@ web:
 spring:
   threads:
     virtual:
-      enabled: true
+      enabled: false
   datasource:
     driver-class-name: com.mysql.cj.jdbc.Driver
     url: "$(yaml_escape "${jdbc_url}")"
@@ -1144,6 +1145,7 @@ After=network.target docker.service
 [Service]
 Type=simple
 WorkingDirectory=${INSTALL_DIR}
+Environment=SPRING_THREADS_VIRTUAL_ENABLED=false
 ExecStart=/usr/local/bin/java -Xmx${heap_mb}m -Duser.timezone=Asia/Shanghai -Duser.dir=${INSTALL_DIR} -jar ${JAR_NAME} --spring.config.additional-location=file:${CONFIG_FILE}
 Restart=on-failure
 RestartSec=10
@@ -1221,6 +1223,19 @@ apply_worker_stop_timeout_dropin() {
 TimeoutStopSec=45
 EOF
     systemctl daemon-reload
+}
+
+# JDBC 与 OCI SDK 均包含阻塞调用。Web 请求若使用虚拟线程，会和抢机循环争抢少量载体线程，
+# 可能在数据库空闲时仍出现全站 API 数十秒无响应。使用环境变量覆盖旧 application.yml，
+# 无需改写用户配置文件，且对既有安装立即生效。
+apply_platform_web_thread_isolation() {
+    mkdir -p "$(dirname "${WEB_THREAD_DROPIN}")" || return 1
+    cat > "${WEB_THREAD_DROPIN}" <<'EOF'
+[Service]
+Environment=SPRING_THREADS_VIRTUAL_ENABLED=false
+EOF
+    systemctl daemon-reload || return 1
+    ok "已启用 Web 平台线程隔离，避免 OCI 抢机阻塞面板请求"
 }
 
 # -----------------------------------------------------------------------------
@@ -1329,13 +1344,16 @@ restart_with_rollback() {
         return 1
     fi
 
-    # systemd active 不等于应用已就绪；同时验证 Web 端口，避免误判升级成功。
-    local i port
+    # systemd active 不等于应用已就绪；使用不访问数据库的进程内探针，
+    # 避免首页鉴权或数据库恢复期间的短暂阻塞被误判为升级失败。
+    local port deadline
     port="$(configured_web_port)"
-    for i in $(seq 1 30); do
+    deadline=$((SECONDS + 60))
+    while [ "${SECONDS}" -lt "${deadline}" ]; do
         sleep 2
         if systemctl is-active --quiet "${SERVICE_NAME}" \
-            && curl -sS --connect-timeout 1 --max-time 2 -o /dev/null "http://127.0.0.1:${port}/"; then
+            && curl -fsS --connect-timeout 1 --max-time 2 -o /dev/null \
+                "http://127.0.0.1:${port}/api/sys/ready" 2>/dev/null; then
             ok "${SERVICE_NAME} 已运行，端口 ${port} 已就绪"
             return 0
         fi
@@ -1514,6 +1532,9 @@ do_upgrade() {
     install_jdk21
 
     apply_worker_stop_timeout_dropin
+
+    apply_platform_web_thread_isolation \
+        || die "Web 线程隔离配置失败，未继续升级"
 
     # 先备份并下载校验，旧服务继续运行；仅在新包就绪后短暂停服切换。
     if [ -f "${INSTALL_DIR}/${JAR_NAME}" ]; then

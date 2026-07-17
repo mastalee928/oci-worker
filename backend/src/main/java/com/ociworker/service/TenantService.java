@@ -46,8 +46,11 @@ import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -93,6 +96,15 @@ public class TenantService {
         t.setDaemon(true);
         return t;
     });
+    private static final ExecutorService TENANT_INFO_REFRESH_EXECUTOR = new ThreadPoolExecutor(
+            2, 2, 0L, TimeUnit.MILLISECONDS,
+            new ArrayBlockingQueue<>(256),
+            r -> {
+                Thread t = new Thread(r, "tenant-info-refresh");
+                t.setDaemon(true);
+                return t;
+            },
+            new ThreadPoolExecutor.AbortPolicy());
     private static final long TENANT_NAME_REFRESH_HOURS = 24;
     private final Set<String> tenantInfoInflight = ConcurrentHashMap.newKeySet();
 
@@ -196,7 +208,7 @@ public class TenantService {
             }
             log.info("Added tenant config: {}", params.getUsername());
 
-            Thread.ofVirtual().start(() -> fetchTenantInfo(user));
+            scheduleTenantInfoFetchIfNeeded(user);
         }
     }
 
@@ -207,16 +219,21 @@ public class TenantService {
         if (!tenantInfoInflight.add(user.getId())) {
             return;
         }
-        Thread.ofVirtual().name("tenant-info-" + user.getId()).start(() -> {
-            try {
-                OciUser latest = userMapper.selectById(user.getId());
-                if (latest != null && shouldFetchTenantInfo(latest)) {
-                    fetchTenantInfo(latest);
+        try {
+            TENANT_INFO_REFRESH_EXECUTOR.execute(() -> {
+                try {
+                    OciUser latest = userMapper.selectById(user.getId());
+                    if (latest != null && shouldFetchTenantInfo(latest)) {
+                        fetchTenantInfo(latest);
+                    }
+                } finally {
+                    tenantInfoInflight.remove(user.getId());
                 }
-            } finally {
-                tenantInfoInflight.remove(user.getId());
-            }
-        });
+            });
+        } catch (RejectedExecutionException e) {
+            tenantInfoInflight.remove(user.getId());
+            log.debug("Tenant info refresh queue is full; deferring tenant {}", user.getId());
+        }
     }
 
     private boolean shouldFetchTenantInfo(OciUser user) {
@@ -1095,6 +1112,7 @@ public class TenantService {
         // merge persisted empty groups from oci_kv
         List<OciKv> kvGroups = kvMapper.selectList(
                 new LambdaQueryWrapper<OciKv>().eq(OciKv::getType, GROUP_TYPE));
+        Map<String, String> savedOrderValues = new HashMap<>();
         for (OciKv kv : kvGroups) {
             String code = kv.getCode();
             if (code.startsWith(GROUP_L1_PREFIX)) {
@@ -1106,13 +1124,15 @@ public class TenantService {
                     level2Map.computeIfAbsent(parent, k -> new TreeSet<>()).add(val);
                 }
             }
+            if (GROUP_ORDER_CODE.equals(code) || code.startsWith(GROUP_ORDER_L2_PREFIX)) {
+                savedOrderValues.put(code, kv.getValue());
+            }
         }
         // apply saved order for level1
         List<String> ordered = new ArrayList<>();
-        OciKv orderKv = kvMapper.selectOne(new LambdaQueryWrapper<OciKv>()
-                .eq(OciKv::getType, GROUP_TYPE).eq(OciKv::getCode, GROUP_ORDER_CODE));
-        if (orderKv != null && StrUtil.isNotBlank(orderKv.getValue())) {
-            for (String name : orderKv.getValue().split(",")) {
+        String level1Order = savedOrderValues.get(GROUP_ORDER_CODE);
+        if (StrUtil.isNotBlank(level1Order)) {
+            for (String name : level1Order.split(",")) {
                 String n = name.trim();
                 if (level1.remove(n)) ordered.add(n);
             }
@@ -1122,7 +1142,8 @@ public class TenantService {
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("level1", ordered);
         Map<String, List<String>> l2 = new LinkedHashMap<>();
-        level2Map.forEach((k, v) -> l2.put(k, applySavedGroupOrder(k, v)));
+        level2Map.forEach((k, v) -> l2.put(k,
+                applySavedGroupOrder(v, savedOrderValues.get(GROUP_ORDER_L2_PREFIX + k))));
         result.put("level2", l2);
         return result;
     }
@@ -1152,13 +1173,11 @@ public class TenantService {
         log.info("Saved group order {}: {}", code, value);
     }
 
-    private List<String> applySavedGroupOrder(String parent, Set<String> values) {
+    private List<String> applySavedGroupOrder(Set<String> values, String savedOrder) {
         Set<String> remaining = new TreeSet<>(values);
         List<String> ordered = new ArrayList<>();
-        OciKv orderKv = kvMapper.selectOne(new LambdaQueryWrapper<OciKv>()
-                .eq(OciKv::getType, GROUP_TYPE).eq(OciKv::getCode, GROUP_ORDER_L2_PREFIX + parent));
-        if (orderKv != null && StrUtil.isNotBlank(orderKv.getValue())) {
-            for (String name : orderKv.getValue().split(",")) {
+        if (StrUtil.isNotBlank(savedOrder)) {
+            for (String name : savedOrder.split(",")) {
                 String n = name.trim();
                 if (remaining.remove(n)) ordered.add(n);
             }

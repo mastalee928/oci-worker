@@ -97,6 +97,7 @@ After=network.target docker.service
 [Service]
 Type=simple
 WorkingDirectory=/opt/oci-worker
+Environment=SPRING_THREADS_VIRTUAL_ENABLED=false
 ExecStart=/usr/local/bin/java -Xmx__JAVA_HEAP_MB__m -Duser.timezone=Asia/Shanghai -Duser.dir=/opt/oci-worker -jar oci-worker.jar --spring.config.additional-location=file:/opt/oci-worker/application.yml
 Restart=on-failure
 RestartSec=10

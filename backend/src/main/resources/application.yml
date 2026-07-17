@@ -26,7 +26,8 @@ web:
 spring:
   threads:
     virtual:
-      enabled: true
+      # 面板请求使用平台线程，避免与长耗时 OCI 抢机虚拟线程争抢载体线程而出现全站卡顿。
+      enabled: false
   servlet:
     multipart:
       max-file-size: ${webssh.max-upload-size:200MB}
