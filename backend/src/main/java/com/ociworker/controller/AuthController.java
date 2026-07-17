@@ -31,6 +31,7 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicInteger;
+import static com.ociworker.config.VirtualThreadConfig.VIRTUAL_EXECUTOR;
 
 @RestController
 @RequestMapping("/api/auth")
@@ -189,11 +190,14 @@ public class AuthController {
             return ResponseData.error("账号或密码错误");
         }
 
-        loginAuditService.recordPasswordLogin(effectiveAccount, params.getPassword(), ip, deviceId, true, request);
+        VIRTUAL_EXECUTOR.submit(() -> {
+            try { loginAuditService.recordPasswordLogin(effectiveAccount, params.getPassword(), ip, deviceId, true, null); }
+            catch (Exception ignored) { }
+        });
         String token = CommonUtils.generateToken(effectiveAccount, effectivePwdHash);
-        notificationService.sendMessage(NotificationService.TYPE_LOGIN,
+        VIRTUAL_EXECUTOR.submit(() -> notificationService.sendMessage(NotificationService.TYPE_LOGIN,
                 String.format("【登录通知】✅ 登录成功\n账号: %s\nIP: %s\n时间: %s",
-                        params.getAccount(), ip, nowStr()));
+                        params.getAccount(), ip, nowStr())));
         return ResponseData.ok(Map.of("token", token, "account", effectiveAccount, "expireHours", 24));
     }
 

@@ -79,7 +79,7 @@
       </header>
       <div :class="['app-content', { 'no-padding': isWebSSH }]">
         <router-view v-slot="{ Component, route: r }">
-          <transition name="app-route-fade" mode="out-in">
+          <transition name="app-route-fade">
             <keep-alive :include="keepAliveNames">
               <component :is="Component" :key="r.name || r.path" />
             </keep-alive>
@@ -97,7 +97,7 @@ import { useRouter, useRoute } from 'vue-router'
 import { useUserStore } from '../stores/user'
 import { useThemeStore } from '../stores/theme'
 import { MAIN_KEEP_ALIVE } from '../constants/keepAlive'
-import { prefetchRouteChunk } from '../utils/routePrefetch'
+import { prefetchMainRoutesIdle, prefetchRouteChunk } from '../utils/routePrefetch'
 import { getCurrentAccount } from '../api/auth'
 import OciLogo from '../components/OciLogo.vue'
 
@@ -133,6 +133,7 @@ watch(mobileMenuOpen, open => {
 onMounted(() => {
   checkMobile()
   window.addEventListener('resize', checkMobile)
+  prefetchMainRoutesIdle()
   if (userStore.token && !userStore.account.trim()) {
     void getCurrentAccount()
       .then((res) => {

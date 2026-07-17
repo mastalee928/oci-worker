@@ -32,6 +32,7 @@ import org.springframework.boot.web.context.WebServerGracefulShutdownLifecycle;
 import org.springframework.context.SmartLifecycle;
 import org.springframework.context.annotation.DependsOn;
 import org.springframework.stereotype.Service;
+import org.springframework.scheduling.annotation.Scheduled;
 
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
@@ -44,6 +45,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import static com.ociworker.config.VirtualThreadConfig.VIRTUAL_EXECUTOR;
 
@@ -68,6 +70,7 @@ public class TaskSchedulerService implements SmartLifecycle {
     private final ConcurrentHashMap<String, Set<String>> taskExcludedAds = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, LocalDateTime> serviceLimitNotifyTimes = new ConcurrentHashMap<>();
     private final Set<String> serviceLimitNotifyMutedTasks = ConcurrentHashMap.newKeySet();
+    private final AtomicBoolean maintenanceRunning = new AtomicBoolean();
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final int CREATE_TASK_DEDUP_SECONDS = 5;
     private static final int SERVICE_LIMIT_NOTIFY_COOLDOWN_MINUTES = 60;
@@ -165,9 +168,6 @@ public class TaskSchedulerService implements SmartLifecycle {
     }
 
     public Page<Map<String, Object>> listTasks(PageParams params) {
-        repairInconsistentRunningTasks();
-        cleanExpiredTasks();
-
         Page<OciCreateTask> page = new Page<>(params.getCurrent(), params.getSize());
         LambdaQueryWrapper<OciCreateTask> wrapper = new LambdaQueryWrapper<>();
         if (params.getStatus() != null && !params.getStatus().isEmpty()) {
@@ -190,10 +190,15 @@ public class TaskSchedulerService implements SmartLifecycle {
         wrapper.orderByDesc(OciCreateTask::getCreateTime);
         Page<OciCreateTask> result = taskMapper.selectPage(page, wrapper);
 
+        Map<String, OciUser> usersById = userMapper.selectBatchIds(result.getRecords().stream()
+                .map(OciCreateTask::getUserId)
+                .filter(Objects::nonNull)
+                .distinct()
+                .toList()).stream().collect(java.util.stream.Collectors.toMap(OciUser::getId, u -> u, (a, b) -> a));
         Page<Map<String, Object>> enriched = new Page<>(result.getCurrent(), result.getSize(), result.getTotal());
         enriched.setRecords(result.getRecords().stream().map(task -> {
             Map<String, Object> map = new java.util.LinkedHashMap<>();
-            OciUser user = userMapper.selectById(task.getUserId());
+            OciUser user = usersById.get(task.getUserId());
             map.put("id", task.getId());
             map.put("userId", task.getUserId());
             map.put("username", user != null ? user.getUsername() : "unknown");
@@ -224,6 +229,19 @@ public class TaskSchedulerService implements SmartLifecycle {
             return map;
         }).toList());
         return enriched;
+    }
+
+    @Scheduled(fixedDelay = 300_000, initialDelay = 30_000)
+    public void runTaskMaintenance() {
+        if (!maintenanceRunning.compareAndSet(false, true)) return;
+        try {
+            repairInconsistentRunningTasks();
+            cleanExpiredTasks();
+        } catch (Exception e) {
+            log.warn("开机任务后台维护失败: {}", e.getMessage());
+        } finally {
+            maintenanceRunning.set(false);
+        }
     }
 
     public void createTask(String userId, String architecture, Double ocpus, Double memory,
