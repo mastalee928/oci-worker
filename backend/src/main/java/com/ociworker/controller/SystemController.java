@@ -72,6 +72,11 @@ public class SystemController {
         return ResponseData.ok(systemService.getGlance());
     }
 
+    @GetMapping("/ready")
+    public ResponseData<?> ready() {
+        return ResponseData.ok(systemService.getReadiness());
+    }
+
     /** 区域下拉：传 userId 时仅返回 tenancy 已订阅区；不传则返回 SDK 全集（新增租户配置用）。 */
     @GetMapping("/ociRegionOptions")
     public ResponseData<?> ociRegionOptions(@RequestParam(required = false) String userId) {

@@ -230,6 +230,9 @@ public class SystemService {
                     systemctl disable oci-webssh 2>/dev/null || true
                     rm -f /opt/oci-worker/oci-webssh
                     rm -f /etc/systemd/system/oci-webssh.service
+                    # 兼容旧安装：为主服务补上停止超时，避免 systemctl restart 长时间卡在旧进程退出。
+                    mkdir -p /etc/systemd/system/oci-worker.service.d
+                    printf '[Service]\nTimeoutStopSec=45\n' > /etc/systemd/system/oci-worker.service.d/10-stop-timeout.conf
                     systemctl daemon-reload 2>/dev/null || true
                     systemctl restart oci-worker
                     """.formatted(UPDATE_REPO, UPDATE_TAG, UPDATE_ASSET_NAME, JAR_PATH);
@@ -366,6 +369,21 @@ public class SystemService {
         result.put("uptime", String.format("%dd %dh %dm",
                 uptime.toDays(), uptime.toHoursPart(), uptime.toMinutesPart()));
 
+        return result;
+    }
+
+    /**
+     * 更新流程专用的轻量就绪探针。
+     *
+     * <p>不能复用 {@link #getGlance()}：后者会访问数据库并执行一次 CPU 采样，
+     * 服务刚重启时可能被数据库恢复或系统负载拖慢。这里仅返回进程内信息，
+     * 用于确认新版本已经真正启动。</p>
+     */
+    public Map<String, Object> getReadiness() {
+        Map<String, Object> result = new LinkedHashMap<>();
+        result.put("ready", true);
+        result.put("commit", currentCommit != null ? currentCommit : "dev");
+        result.put("uptimeMs", ManagementFactory.getRuntimeMXBean().getUptime());
         return result;
     }
 

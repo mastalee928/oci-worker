@@ -25,6 +25,12 @@ public class AuthInterceptor implements HandlerInterceptor {
     public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) throws Exception {
         String uri = request.getRequestURI();
 
+        // 更新恢复探针必须完全绕开数据库鉴权和站点状态查询，否则服务刚启动时
+        // 仍可能被数据库连接阻塞，失去“轻量就绪检查”的意义。
+        if (uri.equals("/api/sys/ready")) {
+            return true;
+        }
+
         if (loginSecurityService.isSitePaused() && !loginSecurityService.isExemptFromSitePause(uri)) {
             response.setContentType("application/json;charset=UTF-8");
             response.setStatus(503);

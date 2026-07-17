@@ -89,6 +89,7 @@ public class LoginSecurityService {
         if (uri.startsWith("/api/auth/device")) return true;
         if (uri.startsWith("/api/auth/needSetup")) return true;
         if (uri.startsWith("/api/auth/setup")) return true;
+        if (uri.equals("/api/sys/ready")) return true;
         if (uri.startsWith("/ws/")) return true;
         if (uri.equals("/") || uri.startsWith("/assets/")) return true;
         if (uri.endsWith(".html") || uri.endsWith(".js") || uri.endsWith(".css") || uri.endsWith(".ico")) return true;

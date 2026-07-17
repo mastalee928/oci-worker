@@ -1751,10 +1751,11 @@ const upgradeMaskStyle = computed(() => ({
   backdropFilter: 'blur(12px)',
   WebkitBackdropFilter: 'blur(12px)',
 }))
-let updatePollTimer: any = null
+let updatePollTimer: ReturnType<typeof setTimeout> | null = null
 let updateStartTimer: any = null
 let updateRedirectTimer: any = null
 let updateStageTimer: any = null
+let updatePollGeneration = 0
 
 function setUpdateOverlay(mode: UpdateOverlayMode, title: string, sub: string) {
   updateOverlayMode.value = mode
@@ -1763,7 +1764,8 @@ function setUpdateOverlay(mode: UpdateOverlayMode, title: string, sub: string) {
 }
 
 function clearUpdateTimers() {
-  if (updatePollTimer) { clearInterval(updatePollTimer); updatePollTimer = null }
+  updatePollGeneration++
+  if (updatePollTimer) { clearTimeout(updatePollTimer); updatePollTimer = null }
   if (updateStartTimer) { clearTimeout(updateStartTimer); updateStartTimer = null }
   if (updateRedirectTimer) { clearTimeout(updateRedirectTimer); updateRedirectTimer = null }
   if (updateStageTimer) { clearTimeout(updateStageTimer); updateStageTimer = null }
@@ -1784,7 +1786,7 @@ function delay(ms: number) {
 
 async function isHomePageReady() {
   const controller = new AbortController()
-  const timer = setTimeout(() => controller.abort(), 5000)
+  const timer = setTimeout(() => controller.abort(), 3000)
   try {
     const response = await fetch(`/?_upgradeReady=${Date.now()}`, {
       cache: 'no-store',
@@ -1799,12 +1801,85 @@ async function isHomePageReady() {
   }
 }
 
-async function waitForHomePageReady(maxAttempts = 8, intervalMs = 2000) {
+async function waitForHomePageReady(maxAttempts = 5, intervalMs = 1000) {
   for (let i = 0; i < maxAttempts; i++) {
     if (await isHomePageReady()) return true
     if (i < maxAttempts - 1) await delay(intervalMs)
   }
   return false
+}
+
+function normalizeCommit(value: unknown) {
+  const commit = String(value || '').trim().toLowerCase()
+  return commit.length > 7 ? commit.slice(0, 7) : commit
+}
+
+async function readServiceCommit() {
+  const res = await request.get('/sys/ready', {
+    params: { _: Date.now() },
+    timeout: 3000,
+    skipErrorMessage: true,
+  })
+  if (!res.data?.ready) throw new Error('服务尚未就绪')
+  return normalizeCommit(res.data?.commit)
+}
+
+function startUpdateRecoveryPolling() {
+  const generation = updatePollGeneration
+  const expectedCommit = normalizeCommit(updateInfo.value?.latestCommit)
+  const previousCommit = normalizeCommit(updateInfo.value?.currentCommit)
+  const mustObserveRestart = updateForce.value || !expectedCommit || expectedCommit === previousCommit
+  const startedAt = Date.now()
+  const maxWaitMs = 12 * 60 * 1000
+  let sawServiceUnavailable = false
+
+  const scheduleNext = () => {
+    if (generation !== updatePollGeneration || !updatePerforming.value) return
+    updatePollTimer = setTimeout(poll, 1500)
+  }
+
+  const poll = async () => {
+    updatePollTimer = null
+    if (generation !== updatePollGeneration || !updatePerforming.value) return
+
+    if (Date.now() - startedAt >= maxWaitMs) {
+      setUpdateOverlay('timeout', '升级等待超时', '下载或服务重启超过 12 分钟，请检查服务器更新日志')
+      updatePerforming.value = false
+      return
+    }
+
+    try {
+      const runningCommit = await readServiceCommit()
+      if (generation !== updatePollGeneration || !updatePerforming.value) return
+      const targetIsRunning = expectedCommit
+        ? runningCommit === expectedCommit
+        : sawServiceUnavailable
+
+      if (targetIsRunning && (!mustObserveRestart || sawServiceUnavailable)) {
+        setUpdateOverlay('running', '正在确认页面可用', '新版本服务已启动，正在检查首页资源')
+        const homeReady = await waitForHomePageReady()
+        if (generation !== updatePollGeneration || !updatePerforming.value) return
+        if (!homeReady) {
+          scheduleNext()
+          return
+        }
+        setUpdateOverlay('success', '升级完成', '新版本已恢复，正在返回首页')
+        updatePerforming.value = false
+        updateRedirectTimer = setTimeout(() => { window.location.href = '/' }, 1200)
+        return
+      }
+
+      setUpdateOverlay('running', '正在下载并安装更新', '安装包完成后服务会自动重启，请保持页面打开')
+    } catch {
+      if (generation !== updatePollGeneration || !updatePerforming.value) return
+      sawServiceUnavailable = true
+      setUpdateOverlay('running', '正在等待服务恢复', '旧服务已停止，正在等待新版本启动')
+    }
+
+    scheduleNext()
+  }
+
+  void poll()
 }
 
 async function checkUpdate() {
@@ -1832,51 +1907,12 @@ async function performUpdate() {
     }, 900)
     await request.post('/sys/performUpdate', undefined, { skipErrorMessage: true })
     if (updateStageTimer) { clearTimeout(updateStageTimer); updateStageTimer = null }
-    setUpdateOverlay('running', '正在替换服务', '升级过程中服务可能会短暂不可用')
+    setUpdateOverlay('running', '正在下载并安装更新', '安装包完成后服务会自动重启，请保持页面打开')
     if (updateStartTimer) clearTimeout(updateStartTimer)
     updateStartTimer = setTimeout(() => {
-      setUpdateOverlay('running', '正在等待服务恢复', '连接恢复后将显示结果')
-      let attempts = 0
-      let successAttempts = 0
-      const requiredSuccessAttempts = 3
-      const maxAttempts = 90
-      let pollInFlight = false
-      if (updatePollTimer) clearInterval(updatePollTimer)
-      updatePollTimer = setInterval(async () => {
-        if (pollInFlight) return
-        pollInFlight = true
-        attempts++
-        try {
-          await request.get('/sys/glance', { skipErrorMessage: true })
-          successAttempts++
-          if (successAttempts >= requiredSuccessAttempts) {
-            if (updatePollTimer) { clearInterval(updatePollTimer); updatePollTimer = null }
-            setUpdateOverlay('running', '正在确认页面可用', '服务已响应，正在等待首页资源稳定')
-            if (updateRedirectTimer) clearTimeout(updateRedirectTimer)
-            updateRedirectTimer = setTimeout(async () => {
-              const homeReady = await waitForHomePageReady()
-              if (homeReady) {
-                setUpdateOverlay('success', '升级完成', '页面已恢复，正在返回首页')
-                updatePerforming.value = false
-                updateRedirectTimer = setTimeout(() => { window.location.href = '/' }, 2500)
-              } else {
-                setUpdateOverlay('timeout', '升级可能仍在收尾', '首页暂时不可访问，请稍后手动刷新页面')
-                updatePerforming.value = false
-              }
-            }, 5000)
-          }
-        } catch {
-          successAttempts = 0
-          if (attempts >= maxAttempts) {
-            if (updatePollTimer) { clearInterval(updatePollTimer); updatePollTimer = null }
-            setUpdateOverlay('timeout', '升级可能仍在进行', '请稍后手动刷新页面')
-            updatePerforming.value = false
-          }
-        } finally {
-          pollInFlight = false
-        }
-      }, 2000)
-    }, 4000)
+      updateStartTimer = null
+      startUpdateRecoveryPolling()
+    }, 1000)
   } catch (e: any) {
     clearUpdateTimers()
     setUpdateOverlay('error', '升级启动失败', e?.message || '请稍后重试')
@@ -1908,10 +1944,7 @@ function checkMobile() { isMobile.value = window.innerWidth < 768 }
 onUnmounted(() => {
   window.removeEventListener('resize', checkMobile)
   if (securityCountdownTimer) clearInterval(securityCountdownTimer)
-  if (updatePollTimer) clearInterval(updatePollTimer)
-  if (updateStartTimer) clearTimeout(updateStartTimer)
-  if (updateRedirectTimer) clearTimeout(updateRedirectTimer)
-  if (updateStageTimer) clearTimeout(updateStageTimer)
+  clearUpdateTimers()
 })
 
 const backupPassword = ref('')
