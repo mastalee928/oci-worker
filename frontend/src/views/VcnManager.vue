@@ -262,12 +262,23 @@
       <a-form layout="vertical">
         <a-form-item label="名称"><a-input v-model:value="editSubnet.displayName" /></a-form-item>
         <a-form-item label="路由表">
-          <a-select v-model:value="editSubnet.routeTableId" allow-clear placeholder="保持不变">
+          <a-select
+            v-model:value="editSubnet.routeTableId"
+            allow-clear
+            placeholder="保持不变"
+            :get-popup-container="vcnManagerPopupContainer"
+          >
             <a-select-option v-for="rt in data.rt" :key="rt.id" :value="rt.id">{{ rt.displayName }}</a-select-option>
           </a-select>
         </a-form-item>
         <a-form-item label="安全列表">
-          <a-select v-model:value="editSubnet.securityListIds" mode="multiple" allow-clear placeholder="保持不变">
+          <a-select
+            v-model:value="editSubnet.securityListIds"
+            mode="multiple"
+            allow-clear
+            placeholder="保持不变"
+            :get-popup-container="vcnManagerPopupContainer"
+          >
             <a-select-option v-for="sl in data.sl" :key="sl.id" :value="sl.id">{{ sl.displayName }}</a-select-option>
           </a-select>
         </a-form-item>
@@ -323,7 +334,7 @@
       @ok="doAddSlRule" :confirm-loading="editing">
       <a-form layout="vertical">
         <a-form-item label="协议" required>
-          <a-select v-model:value="addSlForm.protocol">
+          <a-select v-model:value="addSlForm.protocol" :get-popup-container="vcnManagerPopupContainer">
             <a-select-option value="all">全部</a-select-option>
             <a-select-option value="6">TCP (6)</a-select-option>
             <a-select-option value="17">UDP (17)</a-select-option>
@@ -461,6 +472,10 @@ const emit = defineEmits<{
 const vcnManagerModalProps = {
   zIndex: VCN_MANAGER_MODAL_Z_INDEX,
   wrapClassName: VCN_MANAGER_MODAL_WRAP_CLASS,
+}
+
+function vcnManagerPopupContainer(trigger?: HTMLElement) {
+  return (trigger?.closest('.ant-modal-content') as HTMLElement) || document.body
 }
 
 const ociBase = computed((): { id: string; region?: string } => {
