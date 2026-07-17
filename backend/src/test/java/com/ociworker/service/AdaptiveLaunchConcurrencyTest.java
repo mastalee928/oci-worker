@@ -1,6 +1,7 @@
 package com.ociworker.service;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 
 import javax.sql.DataSource;
 import java.util.ArrayList;
@@ -16,6 +17,19 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 
 class AdaptiveLaunchConcurrencyTest {
+
+    @Test
+    void springCreatesBeanUsingDataSourceConstructor() {
+        DataSource dataSource = mock(DataSource.class);
+        try (AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext()) {
+            context.registerBean(DataSource.class, () -> dataSource);
+            context.register(AdaptiveLaunchConcurrency.class);
+            context.refresh();
+
+            AdaptiveLaunchConcurrency bean = context.getBean(AdaptiveLaunchConcurrency.class);
+            assertTrue(bean != null);
+        }
+    }
 
     @Test
     void rotatesWaitingTasksAcrossTenantLanes() throws Exception {

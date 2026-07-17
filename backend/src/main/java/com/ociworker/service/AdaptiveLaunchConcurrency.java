@@ -3,6 +3,7 @@ package com.ociworker.service;
 import com.zaxxer.hikari.HikariDataSource;
 import com.zaxxer.hikari.HikariPoolMXBean;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -47,6 +48,7 @@ public class AdaptiveLaunchConcurrency {
     private int currentLimit;
     private int active;
 
+    @Autowired
     public AdaptiveLaunchConcurrency(DataSource dataSource) {
         int processors = Math.max(1, Runtime.getRuntime().availableProcessors());
         int base;
