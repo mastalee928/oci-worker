@@ -31,6 +31,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.web.context.WebServerGracefulShutdownLifecycle;
 import org.springframework.context.SmartLifecycle;
 import org.springframework.context.annotation.DependsOn;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.scheduling.annotation.Scheduled;
 
@@ -72,7 +73,7 @@ public class TaskSchedulerService implements SmartLifecycle {
     private final Set<String> serviceLimitNotifyMutedTasks = ConcurrentHashMap.newKeySet();
     private final AtomicBoolean maintenanceRunning = new AtomicBoolean();
     /** OCI 开机任务是长耗时外部调用，限制同时执行数，避免任务线程占满数据库连接和 CPU。 */
-    private final Semaphore executionSlots = new Semaphore(4);
+    private final Semaphore executionSlots;
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final int CREATE_TASK_DEDUP_SECONDS = 5;
     private static final int SERVICE_LIMIT_NOTIFY_COOLDOWN_MINUTES = 60;
@@ -84,6 +85,11 @@ public class TaskSchedulerService implements SmartLifecycle {
 
     /** 为 SmartLifecycle：仅在上下文 refresh 完成后置 true，关闭时先于 Web 优雅停机取消开机调度 */
     private volatile boolean lifecycleRunning = false;
+
+    public TaskSchedulerService(
+            @Value("${ociworker.task.max-concurrent-executions:4}") int maxConcurrentExecutions) {
+        this.executionSlots = new Semaphore(Math.max(1, maxConcurrentExecutions));
+    }
 
     @PostConstruct
     public void init() {
