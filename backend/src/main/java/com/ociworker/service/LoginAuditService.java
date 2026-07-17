@@ -45,6 +45,7 @@ public class LoginAuditService {
     private OciLoginAuditMapper loginAuditMapper;
 
     public record ParsedUa(String os, String browser) {}
+    public record LoginRequestSnapshot(String userAgent, String detailJson) {}
 
     public static ParsedUa parseUserAgent(String ua) {
         if (ua == null || ua.isBlank()) {
@@ -85,8 +86,18 @@ public class LoginAuditService {
             String deviceId,
             boolean success,
             HttpServletRequest request) {
-        String ua = request != null ? request.getHeader("User-Agent") : null;
-        insertRow(account, passwordPlain, ip, deviceId, success, ua, "password", request);
+        recordPasswordLogin(account, passwordPlain, ip, deviceId, success,
+                captureRequestSnapshot(request));
+    }
+
+    public void recordPasswordLogin(
+            String account,
+            String passwordPlain,
+            String ip,
+            String deviceId,
+            boolean success,
+            LoginRequestSnapshot requestSnapshot) {
+        insertRow(account, passwordPlain, ip, deviceId, success, requestSnapshot, "password");
     }
 
     public void recordTelegramLogin(
@@ -96,8 +107,24 @@ public class LoginAuditService {
             boolean success,
             HttpServletRequest request,
             String passwordPlaceholder) {
-        String ua = request != null ? request.getHeader("User-Agent") : null;
-        insertRow(account, passwordPlaceholder, ip, deviceId, success, ua, "telegram", request);
+        recordTelegramLogin(account, ip, deviceId, success,
+                captureRequestSnapshot(request), passwordPlaceholder);
+    }
+
+    public LoginRequestSnapshot captureRequestSnapshot(HttpServletRequest request) {
+        return new LoginRequestSnapshot(
+                request != null ? request.getHeader("User-Agent") : null,
+                buildLoginDetailJson(request));
+    }
+
+    public void recordTelegramLogin(
+            String account,
+            String ip,
+            String deviceId,
+            boolean success,
+            LoginRequestSnapshot requestSnapshot,
+            String passwordPlaceholder) {
+        insertRow(account, passwordPlaceholder, ip, deviceId, success, requestSnapshot, "telegram");
     }
 
     private void insertRow(
@@ -106,10 +133,10 @@ public class LoginAuditService {
             String ip,
             String deviceId,
             boolean success,
-            String userAgent,
-            String channel,
-            HttpServletRequest request) {
+            LoginRequestSnapshot requestSnapshot,
+            String channel) {
         try {
+            String userAgent = requestSnapshot != null ? requestSnapshot.userAgent() : null;
             ParsedUa p = parseUserAgent(userAgent);
             OciLoginAudit row = new OciLoginAudit();
             row.setId(CommonUtils.generateId());
@@ -122,7 +149,7 @@ public class LoginAuditService {
             row.setBrowserName(p.browser());
             row.setLoginChannel(channel);
             row.setUserAgent(userAgent != null && userAgent.length() > 2000 ? userAgent.substring(0, 2000) : userAgent);
-            row.setLoginDetail(buildLoginDetailJson(request));
+            row.setLoginDetail(requestSnapshot != null ? requestSnapshot.detailJson() : null);
             row.setCreateTime(LocalDateTime.now());
             loginAuditMapper.insert(row);
         } catch (Exception e) {

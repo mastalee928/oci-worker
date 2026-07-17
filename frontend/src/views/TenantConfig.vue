@@ -544,8 +544,6 @@ const {
   loadData,
   onSearchTenants,
   invalidateCatalogAndReload,
-  clearTenantSearchTimer,
-  clearTenantInfoPollTimers,
   showAddModal: showAddConfigModal,
   showEditModal: showEditConfigModal,
   onKeyInputModeChange,
@@ -894,18 +892,15 @@ onMounted(async () => {
   void loadData()
   window.addEventListener('resize', checkMobile)
 })
-function ignoreCatalogWarmupError() {
-  // 页面重新激活时的 catalog 预热是 best-effort，失败不打断当前页面操作。
-}
+let tenantConfigActivatedOnce = false
 onActivated(() => {
-  if (!normalizedSearchText.value) {
-    void catalog.ensureTenants({ silent: true }).catch(ignoreCatalogWarmupError)
-    void catalog.ensureGroups({ silent: true }).catch(ignoreCatalogWarmupError)
+  if (!tenantConfigActivatedOnce) {
+    tenantConfigActivatedOnce = true
+    return
   }
+  if (!normalizedSearchText.value) void loadData()
 })
 onUnmounted(() => {
-  clearTenantSearchTimer()
-  clearTenantInfoPollTimers()
   window.removeEventListener('resize', checkMobile)
 })
 </script>

@@ -5,6 +5,7 @@ import cn.hutool.core.util.StrUtil;
 import com.ociworker.enums.SysCfgEnum;
 import com.ociworker.util.SecureRandomUtil;
 import com.ociworker.util.HttpRequestUtil;
+import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
@@ -32,7 +33,6 @@ public class LoginSecurityService {
     /** 禁止名单管理内联按钮有效期（可慢慢点，略长于登录失败按钮） */
     private static final long DENYLIST_UI_TTL_MS = 30 * 60 * 1000L;
     private static final long FAIL_WINDOW_MS = 15 * 60 * 1000L;
-    private static final long SECURITY_SNAPSHOT_TTL_MS = 30_000L;
     private static final int PAUSE_OFFER_THRESHOLD = 5;
 
     private enum PendingKind {
@@ -50,7 +50,6 @@ public class LoginSecurityService {
     private final ConcurrentHashMap<String, Pending> pendingByToken = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, IpFailWindow> ipFailWindows = new ConcurrentHashMap<>();
     private volatile SecuritySnapshot securitySnapshot;
-    private volatile long securitySnapshotAt;
 
     private record SecuritySnapshot(boolean sitePaused, Set<String> ipDenylist, Set<String> deviceDenylist) {}
 
@@ -60,12 +59,15 @@ public class LoginSecurityService {
     private VerifyCodeService verifyCodeService;
 
     public boolean isSitePaused() {
-        return getSecuritySnapshot().sitePaused();
+        SecuritySnapshot snapshot = securitySnapshot;
+        return snapshot == null || snapshot.sitePaused();
     }
 
     /** TG / 管理用：设置全站 API 暂停（true=503 除白名单外）。 */
-    public void setSitePaused(boolean paused) {
+    public synchronized void setSitePaused(boolean paused) {
+        SecuritySnapshot current = requireSecuritySnapshot();
         notificationService.saveKvValue(SysCfgEnum.SITE_ACCESS_PAUSED, paused ? "true" : "false");
+        publishSecuritySnapshot(new SecuritySnapshot(paused, current.ipDenylist(), current.deviceDenylist()));
         log.warn("[LoginSecurity] site_access_paused = {}", paused);
     }
 
@@ -73,27 +75,42 @@ public class LoginSecurityService {
      * 当前 IP 或设备是否在禁止名单（登录接口与已通过 Bearer 鉴权后的 /api/** 请求均会校验）。
      */
     public boolean isDeniedForLogin(String ip, String deviceId) {
-        SecuritySnapshot snapshot = getSecuritySnapshot();
+        SecuritySnapshot snapshot = securitySnapshot;
+        if (snapshot == null) return true;
         if (containsIp(snapshot.ipDenylist(), normalizeIp(ip))) return true;
         if (StrUtil.isNotBlank(deviceId) && containsToken(snapshot.deviceDenylist(), deviceId.trim())) return true;
         return false;
     }
 
-    private SecuritySnapshot getSecuritySnapshot() {
-        long now = System.currentTimeMillis();
+    private SecuritySnapshot requireSecuritySnapshot() {
         SecuritySnapshot current = securitySnapshot;
-        if (current != null && now - securitySnapshotAt < SECURITY_SNAPSHOT_TTL_MS) return current;
-        synchronized (this) {
-            now = System.currentTimeMillis();
-            current = securitySnapshot;
-            if (current != null && now - securitySnapshotAt < SECURITY_SNAPSHOT_TTL_MS) return current;
-            SecuritySnapshot loaded = new SecuritySnapshot(
-                    "true".equalsIgnoreCase(StrUtil.trim(notificationService.getKvValue(SysCfgEnum.SITE_ACCESS_PAUSED))),
-                    Set.copyOf(readIpDenylist()),
-                    Set.copyOf(readDeviceDenylist()));
-            securitySnapshot = loaded;
-            securitySnapshotAt = now;
-            return loaded;
+        if (current != null) return current;
+        throw new IllegalStateException("Login security snapshot is not ready");
+    }
+
+    private SecuritySnapshot loadSecuritySnapshot() {
+        return new SecuritySnapshot(
+                "true".equalsIgnoreCase(StrUtil.trim(notificationService.getKvValue(SysCfgEnum.SITE_ACCESS_PAUSED))),
+                Set.copyOf(readIpDenylist()),
+                Set.copyOf(readDeviceDenylist()));
+    }
+
+    private void publishSecuritySnapshot(SecuritySnapshot snapshot) {
+        securitySnapshot = snapshot;
+    }
+
+    @PostConstruct
+    void initializeSecuritySnapshot() {
+        refreshSecuritySnapshot();
+    }
+
+    /** 后台兜底刷新；读取失败时保留最近一次有效安全配置，避免普通请求触碰数据库。 */
+    @Scheduled(fixedDelay = 30_000L, initialDelay = 30_000L)
+    public synchronized void refreshSecuritySnapshot() {
+        try {
+            publishSecuritySnapshot(loadSecuritySnapshot());
+        } catch (Exception e) {
+            log.warn("Failed to refresh login security snapshot; keeping last known settings: {}", e.getMessage());
         }
     }
 
@@ -229,13 +246,13 @@ public class LoginSecurityService {
                     log.warn("[LoginSecurity] Device denylisted via TG: {}", pend.deviceId);
                 }
                 case "p" -> {
-                    notificationService.saveKvValue(SysCfgEnum.SITE_ACCESS_PAUSED, "true");
+                    setSitePaused(true);
                     answerCallback(callbackQueryId, "全站 API 已暂停（静态页与 TG 回调仍可用）", false, answeringBotToken);
                     log.warn("[LoginSecurity] Site access paused via TG, trigger IP: {}", pend.ip);
                     sendResumeOfferAfterPause();
                 }
                 case "u" -> {
-                    notificationService.saveKvValue(SysCfgEnum.SITE_ACCESS_PAUSED, "false");
+                    setSitePaused(false);
                     answerCallback(callbackQueryId, "已恢复全站访问", false, answeringBotToken);
                     log.info("[LoginSecurity] Site access resumed via TG");
                 }
@@ -380,18 +397,22 @@ public class LoginSecurityService {
         return id != null && set.contains(id);
     }
 
-    private void appendIpDenylist(String ip) {
+    private synchronized void appendIpDenylist(String ip) {
         if (StrUtil.isBlank(ip)) return;
-        Set<String> s = readIpDenylist();
+        SecuritySnapshot current = requireSecuritySnapshot();
+        Set<String> s = new LinkedHashSet<>(current.ipDenylist());
         s.add(ip.trim());
         notificationService.saveKvValue(SysCfgEnum.LOGIN_IP_DENYLIST, String.join(",", s));
+        publishSecuritySnapshot(new SecuritySnapshot(current.sitePaused(), Set.copyOf(s), current.deviceDenylist()));
     }
 
-    private void appendDeviceDenylist(String deviceId) {
+    private synchronized void appendDeviceDenylist(String deviceId) {
         if (StrUtil.isBlank(deviceId)) return;
-        Set<String> s = readDeviceDenylist();
+        SecuritySnapshot current = requireSecuritySnapshot();
+        Set<String> s = new LinkedHashSet<>(current.deviceDenylist());
         s.add(deviceId.trim());
         notificationService.saveKvValue(SysCfgEnum.LOGIN_DEVICE_DENYLIST, String.join(",", s));
+        publishSecuritySnapshot(new SecuritySnapshot(current.sitePaused(), current.ipDenylist(), Set.copyOf(s)));
     }
 
     /**
@@ -399,8 +420,9 @@ public class LoginSecurityService {
      */
     public void sendDenylistManagementKeyboard() {
         long exp = System.currentTimeMillis() + DENYLIST_UI_TTL_MS;
-        List<String> ips = new ArrayList<>(readIpDenylist());
-        List<String> devs = new ArrayList<>(readDeviceDenylist());
+        SecuritySnapshot snapshot = requireSecuritySnapshot();
+        List<String> ips = new ArrayList<>(snapshot.ipDenylist());
+        List<String> devs = new ArrayList<>(snapshot.deviceDenylist());
 
         StringBuilder text = new StringBuilder();
         text.append("【禁止名单】点下方按钮解除对应项（30 分钟内有效）。\n");
@@ -458,37 +480,41 @@ public class LoginSecurityService {
     }
 
     /** 从 IP 禁止名单移除；返回是否确实移除了一条。 */
-    public boolean removeIpFromDenylist(String ip) {
+    public synchronized boolean removeIpFromDenylist(String ip) {
         if (StrUtil.isBlank(ip)) {
             return false;
         }
-        Set<String> s = readIpDenylist();
+        SecuritySnapshot current = requireSecuritySnapshot();
+        Set<String> s = new LinkedHashSet<>(current.ipDenylist());
         if (!s.remove(normalizeIp(ip))) {
             return false;
         }
         notificationService.saveKvValue(SysCfgEnum.LOGIN_IP_DENYLIST, s.isEmpty() ? "" : String.join(",", s));
+        publishSecuritySnapshot(new SecuritySnapshot(current.sitePaused(), Set.copyOf(s), current.deviceDenylist()));
         return true;
     }
 
     /** 从设备禁止名单移除；返回是否确实移除了一条。 */
-    public boolean removeDeviceFromDenylist(String deviceId) {
+    public synchronized boolean removeDeviceFromDenylist(String deviceId) {
         if (StrUtil.isBlank(deviceId)) {
             return false;
         }
-        Set<String> s = readDeviceDenylist();
+        SecuritySnapshot current = requireSecuritySnapshot();
+        Set<String> s = new LinkedHashSet<>(current.deviceDenylist());
         if (!s.remove(deviceId.trim())) {
             return false;
         }
         notificationService.saveKvValue(SysCfgEnum.LOGIN_DEVICE_DENYLIST, s.isEmpty() ? "" : String.join(",", s));
+        publishSecuritySnapshot(new SecuritySnapshot(current.sitePaused(), current.ipDenylist(), Set.copyOf(s)));
         return true;
     }
 
     public List<String> listBannedIps() {
-        return new ArrayList<>(readIpDenylist());
+        return new ArrayList<>(requireSecuritySnapshot().ipDenylist());
     }
 
     public List<String> listBannedDevices() {
-        return new ArrayList<>(readDeviceDenylist());
+        return new ArrayList<>(requireSecuritySnapshot().deviceDenylist());
     }
 
     public void addIpToDenylist(String ip) {

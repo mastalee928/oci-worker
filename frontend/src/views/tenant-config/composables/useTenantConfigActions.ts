@@ -1,4 +1,4 @@
-import { computed, nextTick, reactive, ref, watch, type Ref } from 'vue'
+import { computed, nextTick, onActivated, onDeactivated, onUnmounted, reactive, ref, watch, type Ref } from 'vue'
 import { message } from 'ant-design-vue'
 import type { UploadFile } from 'ant-design-vue'
 import { addTenant, getTenantList, removeTenant, updateTenant, uploadKey } from '../../../api/tenant'
@@ -13,6 +13,7 @@ interface TenantCatalogLike {
   tenantsLoading: boolean
   tenantsError?: string | null
   ensureTenants: (options?: { force?: boolean; keyword?: string; silent?: boolean }) => Promise<any>
+  waitForTenantsComplete: () => Promise<void>
   ensureGroups: (options?: { force?: boolean; silent?: boolean }) => Promise<any>
   invalidate: () => void
   removeTenantsFromCache: (ids: string[]) => void
@@ -85,6 +86,29 @@ export function useTenantConfigActions(options: UseTenantConfigActionsOptions) {
   let tenantSearchTimer: ReturnType<typeof setTimeout> | null = null
   let tenantSearchRequestSeq = 0
   let tenantInfoPollTimers: ReturnType<typeof setTimeout>[] = []
+  let lifecycleGeneration = 0
+  let lifecycleActive = true
+
+  onActivated(() => {
+    if (lifecycleActive) return
+    lifecycleActive = true
+    lifecycleGeneration += 1
+    scheduleTenantInfoPollingIfNeeded(catalog.tenants as any[])
+  })
+
+  onDeactivated(() => {
+    lifecycleActive = false
+    lifecycleGeneration += 1
+    clearTenantSearchTimer()
+    clearTenantInfoPollTimers()
+  })
+
+  onUnmounted(() => {
+    lifecycleActive = false
+    lifecycleGeneration += 1
+    clearTenantSearchTimer()
+    clearTenantInfoPollTimers()
+  })
   let regionOptionsRequestSeq = 0
 
   function focusFirstFormError() {
@@ -177,6 +201,14 @@ export function useTenantConfigActions(options: UseTenantConfigActionsOptions) {
     }
     groupController()?.applyDefaultExpandAfterLoad()
     scheduleTenantInfoPollingIfNeeded(catalog.tenants as any[])
+    const completionGeneration = lifecycleGeneration
+    void catalog.waitForTenantsComplete().then(() => {
+      if (lifecycleActive
+          && completionGeneration === lifecycleGeneration
+          && !normalizedSearchText.value) {
+        scheduleTenantInfoPollingIfNeeded(catalog.tenants as any[])
+      }
+    })
   }
 
   function onSearchTenants() {
@@ -246,6 +278,7 @@ export function useTenantConfigActions(options: UseTenantConfigActionsOptions) {
         catalog.ensureTenants({ force: true, silent: true }),
         catalog.ensureGroups({ force: false, silent: true }),
       ])
+      await catalog.waitForTenantsComplete()
       clearTenantInfoPollingIfComplete(catalog.tenants as any[])
     } catch {
       // 静默轮询只负责把后台刷新结果带回页面，失败时保留当前显示。
@@ -254,14 +287,21 @@ export function useTenantConfigActions(options: UseTenantConfigActionsOptions) {
 
   function scheduleTenantInfoPolling() {
     clearTenantInfoPollTimers()
+    if (!lifecycleActive) return
+    const scheduledGeneration = lifecycleGeneration
     for (const delay of [3000, 8000, 15000, 30000]) {
       tenantInfoPollTimers.push(setTimeout(() => {
+        if (!lifecycleActive || scheduledGeneration !== lifecycleGeneration) return
         void refreshTenantListSilently()
       }, delay))
     }
   }
 
   function scheduleTenantInfoPollingIfNeeded(rows: any[]) {
+    if (!lifecycleActive) {
+      clearTenantInfoPollTimers()
+      return
+    }
     if (!Array.isArray(rows) || rows.length === 0) {
       clearTenantInfoPollTimers()
       return
@@ -552,8 +592,6 @@ export function useTenantConfigActions(options: UseTenantConfigActionsOptions) {
     loadData,
     onSearchTenants,
     invalidateCatalogAndReload,
-    clearTenantSearchTimer,
-    clearTenantInfoPollTimers,
     onKeyInputModeChange,
     normalizeRegionInput,
     showAddModal,

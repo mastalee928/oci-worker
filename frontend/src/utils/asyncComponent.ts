@@ -24,6 +24,7 @@ type AppAsyncComponentOptions = {
   loadingText?: string
   loadingDescription?: string
   loading?: 'skeleton' | 'none'
+  loadingDelay?: number
   loadingVariant?: 'panel' | 'cards' | 'table' | 'detail' | 'list' | 'compact'
 }
 
@@ -34,7 +35,7 @@ export function defineAppAsyncComponent<T extends Component>(
   const showLoading = options.loading !== 'none'
   return defineAsyncComponent({
     loader,
-    delay: showLoading ? 220 : 0,
+    delay: showLoading ? (options.loadingDelay ?? 220) : 0,
     timeout: 30_000,
     loadingComponent: showLoading ? {
       setup() {

@@ -13,6 +13,7 @@ import com.ociworker.service.LoginSecurityService;
 import com.ociworker.service.AnnouncementPushService;
 import com.ociworker.service.NotificationService;
 import com.ociworker.service.OciProxyConfigService;
+import com.ociworker.service.PanelAuthService;
 import com.ociworker.service.SecuritySettingsSessionService;
 import com.ociworker.service.SystemService;
 import com.ociworker.service.TgNotifyConfigRollbackService;
@@ -47,7 +48,7 @@ public class SystemController {
     @Resource
     private VerifyCodeService verifyCodeService;
     @Resource
-    private AuthController authController;
+    private PanelAuthService panelAuthService;
     @Resource
     private OciProxyConfigService ociProxyConfigService;
     @Resource
@@ -173,7 +174,7 @@ public class SystemController {
                 return ResponseData.error("请输入登录密码进行验证");
             }
             String inputHash = DigestUtil.sha256Hex(pwd);
-            if (!inputHash.equals(authController.getEffectivePasswordHash())) {
+            if (!panelAuthService.verifyPasswordHash(inputHash)) {
                 return ResponseData.error("密码错误");
             }
         }

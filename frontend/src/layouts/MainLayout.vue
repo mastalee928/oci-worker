@@ -160,7 +160,7 @@ const navItems = [
   { key: 'oracle-ai', label: 'Oracle AI', icon: 'ri-magic-line', prefetch: true },
   { key: 'cloudflare', label: 'Cloudflare', icon: 'ri-cloud-line', prefetch: true },
   { key: 'alidns', label: '阿里云DNS', icon: 'ri-global-line', prefetch: true },
-  { key: 'webssh', label: 'WebSSH', icon: 'ri-terminal-box-line', prefetch: false },
+  { key: 'webssh', label: 'WebSSH', icon: 'ri-terminal-box-line', prefetch: true },
   { key: 'log', label: '日志查看', icon: 'ri-file-list-3-line', prefetch: true },
   { key: 'settings', label: '系统设置', icon: 'ri-settings-4-line', prefetch: true }
 ] as const

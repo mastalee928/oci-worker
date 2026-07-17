@@ -280,7 +280,7 @@ import {
   updateInstance,
 } from '../api/instance'
 import { getTenantGroups } from '../api/tenant'
-import { useTenantCatalogStore } from '../stores/tenantCatalog'
+import { useTenantCatalogStore, type TenantRecord } from '../stores/tenantCatalog'
 import { defineAppAsyncComponent } from '../utils/asyncComponent'
 
 const VcnManager = defineAppAsyncComponent(() => import('./VcnManager.vue'), { loading: 'none' })
@@ -1246,16 +1246,29 @@ function handleTenantVcnReservedIpChanged() {
   void callDetailDrawerShell('loadNetworkDetail')
 }
 
+function syncTenantDataList(records: TenantRecord[]) {
+  const existingMap = new Map(tenantDataList.value.map(td => [String(td.tenant.id), td]))
+  tenantDataList.value = records.map((tenant) => {
+    const existing = existingMap.get(String(tenant.id))
+    if (existing) {
+      // 保持 TenantData 对象身份不变，避免渐进分页刷新期间丢失正在返回的实例/公网 IP 请求结果。
+      existing.tenant = tenant
+      return existing
+    }
+    return { tenant, instances: [], loading: false, collapsed: false }
+  })
+}
+
+watch(
+  () => catalog.tenants,
+  (records) => syncTenantDataList(records),
+)
+
 async function loadAllTenants(force = false) {
-  globalLoading.value = true
+  globalLoading.value = tenantDataList.value.length === 0
   try {
-    await catalog.ensureTenants({ force })
-    const records = catalog.tenants
-    const existingMap = new Map(tenantDataList.value.map(td => [td.tenant.id, td]))
-    tenantDataList.value = records.map((t: any) => {
-      const existing = existingMap.get(t.id)
-      return existing ? { ...existing, tenant: t } : { tenant: t, instances: [], loading: false, collapsed: false }
-    })
+    await catalog.ensureTenants({ force, silent: tenantDataList.value.length > 0 })
+    syncTenantDataList(catalog.tenants)
   } catch (e: any) {
     message.error(e?.message || '加载租户失败')
   } finally {

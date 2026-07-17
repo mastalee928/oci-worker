@@ -10,6 +10,7 @@ import com.ociworker.model.vo.ResponseData;
 import com.ociworker.service.LoginAuditService;
 import com.ociworker.service.LoginSecurityService;
 import com.ociworker.service.NotificationService;
+import com.ociworker.service.PanelAuthService;
 import com.ociworker.service.SecuritySettingsSessionService;
 import com.ociworker.service.VerifyCodeService;
 import com.ociworker.service.WorkerInstanceSecretService;
@@ -20,10 +21,12 @@ import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import jakarta.validation.Valid;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.ResponseCookie;
 import org.springframework.http.ResponseEntity;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.Duration;
@@ -37,15 +40,12 @@ import static com.ociworker.config.VirtualThreadConfig.VIRTUAL_EXECUTOR;
 @RequestMapping("/api/auth")
 public class AuthController {
 
-    @Value("${web.account}")
-    private String defaultAccount;
-    @Value("${web.password}")
-    private String defaultPassword;
-
     @Resource
     private OciKvMapper kvMapper;
     @Resource
     private NotificationService notificationService;
+    @Resource
+    private PanelAuthService panelAuthService;
     @Resource
     private VerifyCodeService verifyCodeService;
     @Resource
@@ -96,39 +96,35 @@ public class AuthController {
         }
     }
 
-    private boolean isSetupDone() {
-        return getKv(CODE_ACCOUNT) != null || getKv(CODE_PASSWORD) != null;
-    }
-
-    public String getEffectiveAccount() {
-        String stored = getKv(CODE_ACCOUNT);
-        return stored != null ? stored : defaultAccount;
-    }
-
-    private boolean isHashedPassword(String pwd) {
-        return pwd != null && pwd.length() == 64 && pwd.matches("[0-9a-f]+");
-    }
-
-    public String getEffectivePasswordHash() {
-        String stored = getKv(CODE_PASSWORD);
-        if (stored != null) {
-            if (isHashedPassword(stored)) {
-                return stored;
-            }
-            String hashed = DigestUtil.sha256Hex(stored);
-            setKv(CODE_PASSWORD, hashed);
-            return hashed;
+    private void publishCredentialSnapshotAfterCommit(String account, String passwordHash) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()
+                && TransactionSynchronizationManager.isActualTransactionActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    panelAuthService.updateCredentialSnapshot(account, passwordHash);
+                }
+            });
+            return;
         }
-        return DigestUtil.sha256Hex(defaultPassword);
+        panelAuthService.updateCredentialSnapshot(account, passwordHash);
+    }
+
+    private boolean isSetupDone() {
+        return StrUtil.isNotBlank(getKv(CODE_ACCOUNT)) && StrUtil.isNotBlank(getKv(CODE_PASSWORD));
     }
 
     @GetMapping("/needSetup")
     public ResponseData<?> needSetup() {
-        return ResponseData.ok(!isSetupDone());
+        if (!panelAuthService.isReady()) {
+            return ResponseData.error(503, "安全配置正在加载，请稍后重试");
+        }
+        return ResponseData.ok(!panelAuthService.isConfigured());
     }
 
     @PostMapping("/setup")
-    public ResponseData<?> setup(@RequestBody Map<String, String> params) {
+    @Transactional(rollbackFor = Exception.class)
+    public synchronized ResponseData<?> setup(@RequestBody Map<String, String> params) {
         if (isSetupDone()) {
             return ResponseData.error("系统已初始化，无法重复设置");
         }
@@ -142,9 +138,11 @@ public class AuthController {
         }
 
         setKv(CODE_ACCOUNT, account);
-        setKv(CODE_PASSWORD, DigestUtil.sha256Hex(password));
+        String passwordHash = DigestUtil.sha256Hex(password);
+        setKv(CODE_PASSWORD, passwordHash);
+        publishCredentialSnapshotAfterCommit(account, passwordHash);
 
-        String token = CommonUtils.generateToken(account, DigestUtil.sha256Hex(password));
+        String token = CommonUtils.generateToken(account, passwordHash);
         return ResponseData.ok(Map.of("token", token, "account", account));
     }
 
@@ -169,7 +167,10 @@ public class AuthController {
 
     @PostMapping("/login")
     public ResponseData<?> login(@RequestBody @Valid LoginParams params, HttpServletRequest request) {
-        if (!isSetupDone()) {
+        if (!panelAuthService.isReady()) {
+            return ResponseData.error(503, "安全配置正在加载，请稍后重试");
+        }
+        if (!panelAuthService.isConfigured()) {
             return ResponseData.error(403, "请先完成初始化设置");
         }
 
@@ -180,25 +181,26 @@ public class AuthController {
             return ResponseData.error(403, "访问被拒绝");
         }
 
-        String effectiveAccount = getEffectiveAccount();
-        String effectivePwdHash = getEffectivePasswordHash();
         String inputPwdHash = DigestUtil.sha256Hex(params.getPassword());
+        PanelAuthService.AuthenticatedSession session = panelAuthService.authenticate(params.getAccount(), inputPwdHash);
 
-        if (!effectiveAccount.equals(params.getAccount()) || !effectivePwdHash.equals(inputPwdHash)) {
+        if (session == null) {
             loginAuditService.recordPasswordLogin(params.getAccount(), params.getPassword(), ip, deviceId, false, request);
             loginSecurityService.onPasswordLoginFailed(params.getAccount(), ip, deviceId);
             return ResponseData.error("账号或密码错误");
         }
 
+        String effectiveAccount = session.account();
         VIRTUAL_EXECUTOR.submit(() -> {
-            try { loginAuditService.recordPasswordLogin(effectiveAccount, params.getPassword(), ip, deviceId, true, null); }
+            try { loginAuditService.recordPasswordLogin(
+                    effectiveAccount, params.getPassword(), ip, deviceId, true,
+                    (LoginAuditService.LoginRequestSnapshot) null); }
             catch (Exception ignored) { }
         });
-        String token = CommonUtils.generateToken(effectiveAccount, effectivePwdHash);
         VIRTUAL_EXECUTOR.submit(() -> notificationService.sendMessage(NotificationService.TYPE_LOGIN,
                 String.format("【登录通知】✅ 登录成功\n账号: %s\nIP: %s\n时间: %s",
                         params.getAccount(), ip, nowStr())));
-        return ResponseData.ok(Map.of("token", token, "account", effectiveAccount, "expireHours", 24));
+        return ResponseData.ok(Map.of("token", session.token(), "account", effectiveAccount, "expireHours", 24));
     }
 
     @PostMapping("/tgLoginSendCode")
@@ -206,7 +208,10 @@ public class AuthController {
         if (!verifyCodeService.isTgConfigured()) {
             return ResponseData.error("未绑定 Telegram Bot，无法使用此登录方式");
         }
-        if (!isSetupDone()) {
+        if (!panelAuthService.isReady()) {
+            return ResponseData.error(503, "安全配置正在加载，请稍后重试");
+        }
+        if (!panelAuthService.isConfigured()) {
             return ResponseData.error(403, "请先完成初始化设置");
         }
 
@@ -258,13 +263,19 @@ public class AuthController {
         if (!verifyCodeService.isTgConfigured()) {
             return ResponseData.error("未绑定 Telegram Bot");
         }
-        if (!isSetupDone()) {
+        if (!panelAuthService.isReady()) {
+            return ResponseData.error(503, "安全配置正在加载，请稍后重试");
+        }
+        if (!panelAuthService.isConfigured()) {
             return ResponseData.error(403, "请先完成初始化设置");
         }
 
         String ip = HttpRequestUtil.getClientIp(request);
         String deviceId = loginSecurityService.readDeviceIdFromRequest(request);
-        String tgAcct = getEffectiveAccount();
+        String tgAcct = panelAuthService.currentAccount();
+        if (tgAcct == null) {
+            return ResponseData.error(503, "安全配置正在加载，请稍后重试");
+        }
         if (loginSecurityService.isDeniedForLogin(ip, deviceId)) {
             loginAuditService.recordTelegramLogin(tgAcct, ip, deviceId, false, request, "(封禁拦截)");
             return ResponseData.error(403, "访问被拒绝");
@@ -314,21 +325,28 @@ public class AuthController {
         tgLoginCode = null;
         tgLoginFailCount.set(0);
 
-        String effectiveAccount = getEffectiveAccount();
-        String effectivePwdHash = getEffectivePasswordHash();
-        String token = CommonUtils.generateToken(effectiveAccount, effectivePwdHash);
+        PanelAuthService.AuthenticatedSession session = panelAuthService.issueCurrentSession();
+        if (session == null) {
+            return ResponseData.error(503, "安全配置正在加载，请稍后重试");
+        }
+        String effectiveAccount = session.account();
 
-        loginAuditService.recordTelegramLogin(effectiveAccount, ip, deviceId, true, request, "(TG验证码)");
-        notificationService.sendMessage(NotificationService.TYPE_LOGIN,
-                String.format("【登录通知】✅ TG验证码登录成功\nIP: %s\n时间: %s", ip, nowStr()));
+        LoginAuditService.LoginRequestSnapshot auditSnapshot = loginAuditService.captureRequestSnapshot(request);
+        VIRTUAL_EXECUTOR.submit(() -> loginAuditService.recordTelegramLogin(
+                effectiveAccount, ip, deviceId, true, auditSnapshot, "(TG验证码)"));
+        VIRTUAL_EXECUTOR.submit(() -> notificationService.sendMessage(NotificationService.TYPE_LOGIN,
+                String.format("【登录通知】✅ TG验证码登录成功\nIP: %s\n时间: %s", ip, nowStr())));
 
-        return ResponseData.ok(Map.of("token", token, "account", effectiveAccount, "expireHours", 24));
+        return ResponseData.ok(Map.of("token", session.token(), "account", effectiveAccount, "expireHours", 24));
     }
 
     /** 当前登录用户名（需有效 token） */
     @GetMapping("/account")
     public ResponseData<?> currentAccount() {
-        return ResponseData.ok(Map.of("account", getEffectiveAccount()));
+        String account = panelAuthService.currentAccount();
+        return account != null
+                ? ResponseData.ok(Map.of("account", account))
+                : ResponseData.error(503, "安全配置正在加载，请稍后重试");
     }
 
     @GetMapping("/tgLoginAvailable")
@@ -342,7 +360,7 @@ public class AuthController {
         if (pwd == null || pwd.isBlank()) {
             return ResponseData.error("请输入密码");
         }
-        if (!getEffectivePasswordHash().equals(DigestUtil.sha256Hex(pwd))) {
+        if (!panelAuthService.verifyPasswordHash(DigestUtil.sha256Hex(pwd))) {
             return ResponseData.error("密码错误");
         }
         return ResponseData.ok();
@@ -370,22 +388,25 @@ public class AuthController {
             return ResponseData.error("新密码不能少于6位");
         }
 
-        String effectivePwdHash = getEffectivePasswordHash();
-        if (!effectivePwdHash.equals(DigestUtil.sha256Hex(oldPwd))) {
+        String account = panelAuthService.currentAccount();
+        if (account == null) {
+            return ResponseData.error(503, "安全配置正在加载，请稍后重试");
+        }
+        if (!panelAuthService.verifyPasswordHash(DigestUtil.sha256Hex(oldPwd))) {
             return ResponseData.error("原密码错误");
         }
 
         String newHash = DigestUtil.sha256Hex(newPwd);
         setKv(CODE_PASSWORD, newHash);
 
-        String account = getEffectiveAccount();
+        panelAuthService.updateCredentialSnapshot(account, newHash);
         String newToken = CommonUtils.generateToken(account, newHash);
 
         if (verifyCodeService.isTgConfigured()) {
             String ip = HttpRequestUtil.getClientIp(request);
-            notificationService.sendMessage(String.format(
+            VIRTUAL_EXECUTOR.submit(() -> notificationService.sendMessage(String.format(
                     "【登录通知】🔐 面板登录密码已成功修改\n账号: %s\nIP: %s\n时间: %s\n\n如非本人操作，请立即检查账户安全。",
-                    account, ip, nowStr()));
+                    account, ip, nowStr())));
         }
 
         return ResponseData.ok(Map.of("token", newToken, "account", account, "message", "密码修改成功"));

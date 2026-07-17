@@ -7,32 +7,35 @@ import com.ociworker.mapper.OciKvMapper;
 import com.ociworker.model.entity.OciKv;
 import com.ociworker.util.CommonUtils;
 import com.ociworker.util.HttpRequestUtil;
+import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
-import org.springframework.beans.factory.annotation.Value;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
 
+@Slf4j
 @Service
 public class PanelAuthService {
 
     public static final String PANEL_TOKEN_COOKIE = "ow_panel_token";
-    private static final long CREDENTIAL_SNAPSHOT_TTL_MS = 30_000L;
-
-    @Value("${web.account}")
-    private String defaultAccount;
-    @Value("${web.password}")
-    private String defaultPassword;
 
     @Resource
     private OciKvMapper kvMapper;
     private volatile CredentialSnapshot credentialSnapshot;
-    private volatile long credentialSnapshotAt;
 
-    private record CredentialSnapshot(String account, String passwordHash) {}
+    private record CredentialSnapshot(boolean configured, String account, String passwordHash) {
+        private static CredentialSnapshot unconfigured() {
+            return new CredentialSnapshot(false, null, null);
+        }
+    }
+
+    public record AuthenticatedSession(String account, String token) {}
 
     public boolean validateRequestToken(HttpServletRequest request) {
         return validateRequestToken(request, true, false);
@@ -47,8 +50,44 @@ public class PanelAuthService {
         if (StrUtil.isBlank(normalized)) {
             return false;
         }
-        CredentialSnapshot snapshot = getCredentialSnapshot();
+        CredentialSnapshot snapshot = credentialSnapshot;
+        if (snapshot == null || !snapshot.configured()) return false;
         return CommonUtils.validateToken(normalized, snapshot.account(), snapshot.passwordHash());
+    }
+
+    public boolean isConfigured() {
+        CredentialSnapshot snapshot = credentialSnapshot;
+        return snapshot != null && snapshot.configured();
+    }
+
+    public boolean isReady() {
+        return credentialSnapshot != null;
+    }
+
+    public AuthenticatedSession authenticate(String account, String passwordHash) {
+        CredentialSnapshot snapshot = credentialSnapshot;
+        if (snapshot == null || !snapshot.configured()) return null;
+        if (!snapshot.account().equals(account) || !secureEquals(snapshot.passwordHash(), passwordHash)) return null;
+        return new AuthenticatedSession(snapshot.account(),
+                CommonUtils.generateToken(snapshot.account(), snapshot.passwordHash()));
+    }
+
+    public AuthenticatedSession issueCurrentSession() {
+        CredentialSnapshot snapshot = credentialSnapshot;
+        if (snapshot == null || !snapshot.configured()) return null;
+        return new AuthenticatedSession(snapshot.account(),
+                CommonUtils.generateToken(snapshot.account(), snapshot.passwordHash()));
+    }
+
+    public String currentAccount() {
+        CredentialSnapshot snapshot = credentialSnapshot;
+        return snapshot != null && snapshot.configured() ? snapshot.account() : null;
+    }
+
+    public boolean verifyPasswordHash(String passwordHash) {
+        CredentialSnapshot snapshot = credentialSnapshot;
+        return snapshot != null && snapshot.configured()
+                && secureEquals(snapshot.passwordHash(), passwordHash);
     }
 
     public String readToken(HttpServletRequest request) {
@@ -78,48 +117,60 @@ public class PanelAuthService {
     }
 
     private String getKv(String code) {
+        OciKv kv = kvMapper.selectOne(new LambdaQueryWrapper<OciKv>()
+                .eq(OciKv::getCode, code).eq(OciKv::getType, "sys_config"));
+        return kv != null ? kv.getValue() : null;
+    }
+
+    private CredentialSnapshot loadCredentialSnapshot() {
+        String storedAccount = getKv("web_account");
+        String storedPassword = getKv("web_password");
+        boolean hasAccount = StrUtil.isNotBlank(storedAccount);
+        boolean hasPassword = StrUtil.isNotBlank(storedPassword);
+        if (hasAccount != hasPassword) {
+            throw new IllegalStateException("Panel credential configuration is incomplete");
+        }
+        if (!hasAccount) {
+            return CredentialSnapshot.unconfigured();
+        }
+        String passwordHash = isHashedPassword(storedPassword)
+                ? storedPassword
+                : DigestUtil.sha256Hex(storedPassword);
+        return new CredentialSnapshot(true, storedAccount, passwordHash);
+    }
+
+    @PostConstruct
+    void initializeCredentialSnapshot() {
+        refreshCredentialSnapshot();
+    }
+
+    /** 后台兜底刷新；失败时继续使用最近一次有效凭据，不能退回公开的默认账号密码。 */
+    @Scheduled(fixedDelay = 30_000L, initialDelay = 30_000L)
+    public synchronized void refreshCredentialSnapshot() {
         try {
-            OciKv kv = kvMapper.selectOne(new LambdaQueryWrapper<OciKv>()
-                    .eq(OciKv::getCode, code).eq(OciKv::getType, "sys_config"));
-            return kv != null ? kv.getValue() : null;
+            credentialSnapshot = loadCredentialSnapshot();
         } catch (Exception e) {
-            return null;
+            log.warn("Failed to refresh panel credential snapshot; keeping last known credentials: {}", e.getMessage());
         }
     }
 
-    private String getEffectiveAccount() {
-        String stored = getKv("web_account");
-        return stored != null ? stored : defaultAccount;
-    }
-
-    private CredentialSnapshot getCredentialSnapshot() {
-        long now = System.currentTimeMillis();
-        CredentialSnapshot current = credentialSnapshot;
-        if (current != null && now - credentialSnapshotAt < CREDENTIAL_SNAPSHOT_TTL_MS) return current;
-        synchronized (this) {
-            now = System.currentTimeMillis();
-            current = credentialSnapshot;
-            if (current != null && now - credentialSnapshotAt < CREDENTIAL_SNAPSHOT_TTL_MS) return current;
-            CredentialSnapshot loaded = new CredentialSnapshot(getEffectiveAccount(), getEffectivePasswordHash());
-            credentialSnapshot = loaded;
-            credentialSnapshotAt = now;
-            return loaded;
+    /** 配置写入成功后立即发布新凭据，避免旧账号或旧密码继续生效到 TTL 结束。 */
+    public synchronized void updateCredentialSnapshot(String account, String passwordHash) {
+        if (StrUtil.isBlank(account) || StrUtil.isBlank(passwordHash)) {
+            throw new IllegalArgumentException("Panel account and password hash are required");
         }
-    }
-
-    private String getEffectivePasswordHash() {
-        String stored = getKv("web_password");
-        if (stored != null) {
-            if (isHashedPassword(stored)) {
-                return stored;
-            }
-            return DigestUtil.sha256Hex(stored);
-        }
-        return DigestUtil.sha256Hex(defaultPassword);
+        credentialSnapshot = new CredentialSnapshot(true, account, passwordHash);
     }
 
     private static boolean isHashedPassword(String pwd) {
         return pwd != null && pwd.length() == 64 && pwd.matches("[0-9a-f]+");
+    }
+
+    private static boolean secureEquals(String expected, String actual) {
+        if (expected == null || actual == null) return false;
+        return MessageDigest.isEqual(
+                expected.getBytes(StandardCharsets.UTF_8),
+                actual.getBytes(StandardCharsets.UTF_8));
     }
 
     private static String normalizeToken(String token) {
