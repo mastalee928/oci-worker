@@ -35,7 +35,6 @@
             </div>
           </div>
         </div>
-      </div>
 
       <template v-if="isGroupOpen(group.key)">
         <section v-for="child in group.children || []" :key="child.key" class="group-card subgroup-card">
@@ -102,6 +101,7 @@
           </div>
         </section>
       </template>
+      </div>
     </section>
   </div>
 </template>
