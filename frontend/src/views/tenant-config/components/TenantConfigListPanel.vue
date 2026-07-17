@@ -723,9 +723,7 @@ function tenantGroupVirtualResetKey(groupKey: string, tenants: any[]) { return p
   border: 1px solid var(--border);
   border-radius: 12px;
   padding: 14px 16px;
-  backdrop-filter: blur(16px);
-  -webkit-backdrop-filter: blur(16px);
-  transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
   position: relative;
   overflow: hidden;
 }
@@ -974,7 +972,6 @@ function tenantGroupVirtualResetKey(groupKey: string, tenants: any[]) { return p
 
 .group-body {
   overflow: hidden;
-  transition: all 0.4s cubic-bezier(0.34, 1.56, 0.64, 1);
   margin-top: 12px;
 }
 

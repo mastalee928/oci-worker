@@ -35,6 +35,7 @@
             </div>
           </div>
         </div>
+      </div>
 
       <template v-if="isGroupOpen(group.key)">
         <section v-for="child in group.children || []" :key="child.key" class="group-card subgroup-card">
@@ -101,7 +102,6 @@
           </div>
         </section>
       </template>
-      </div>
     </section>
   </div>
 </template>
@@ -218,7 +218,7 @@ const TenantRow = defineComponent({
 <style scoped>
 .instance-group-list { margin-bottom: 18px; }
 .group-section { position: relative; min-width: 0; margin-bottom: 12px; }
-.group-card { position: relative; overflow: hidden; padding: 14px 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-card, #fff); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); transition: all .3s cubic-bezier(.34, 1.56, .64, 1); }
+.group-card { position: relative; overflow: hidden; padding: 14px 16px; border: 1px solid var(--border); border-radius: 12px; background: var(--bg-card, #fff); transition: border-color .2s ease, box-shadow .2s ease; }
 .group-card::before { content: ''; position: absolute; top: 0; left: 0; width: 100%; height: 3px; background: linear-gradient(90deg, var(--primary, #1677ff), #8b5cf6); transform: scaleX(0); transform-origin: left; transition: transform .3s cubic-bezier(.34, 1.56, .64, 1); }
 .group-card:hover::before { transform: scaleX(1); }
 .group-card:hover { border-color: rgba(129, 140, 248, .5); box-shadow: 0 8px 24px -4px rgba(99, 102, 241, .15); }
@@ -235,7 +235,7 @@ const TenantRow = defineComponent({
 .subgroup-name { min-width: 0; overflow: hidden; flex: 0 1 auto; cursor: pointer; font-size: 15px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
 .group-stats { display: flex; align-items: center; gap: 10px; flex-shrink: 0; color: var(--text-sub, #999); font-size: 12px; }
 .group-tenant-count-badge { flex-shrink: 0; }
-.group-body { overflow: hidden; margin-top: 12px; transition: all .4s cubic-bezier(.34, 1.56, .64, 1); }
+.group-body { overflow: hidden; margin-top: 12px; }
 .tenant-rows { border-top: 1px solid color-mix(in srgb, var(--border) 72%, transparent); }
 .group-body > .tenant-rows { border-top: 0; }
 :deep(.tenant-list-row) { min-height: 62px; padding: 10px 8px; border-bottom: 1px solid var(--border); display: grid; grid-template-columns: minmax(220px, 1fr) auto auto; align-items: center; gap: 14px; transition: background-color .16s ease, box-shadow .16s ease; }
