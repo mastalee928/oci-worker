@@ -71,6 +71,8 @@ public class TaskSchedulerService implements SmartLifecycle {
     private final ConcurrentHashMap<String, LocalDateTime> serviceLimitNotifyTimes = new ConcurrentHashMap<>();
     private final Set<String> serviceLimitNotifyMutedTasks = ConcurrentHashMap.newKeySet();
     private final AtomicBoolean maintenanceRunning = new AtomicBoolean();
+    /** OCI 开机任务是长耗时外部调用，限制同时执行数，避免任务线程占满数据库连接和 CPU。 */
+    private final Semaphore executionSlots = new Semaphore(4);
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final int CREATE_TASK_DEDUP_SECONDS = 5;
     private static final int SERVICE_LIMIT_NOTIFY_COOLDOWN_MINUTES = 60;
@@ -716,7 +718,15 @@ public class TaskSchedulerService implements SmartLifecycle {
                 if (!TaskStatusEnum.RUNNING.getStatus().equals(t.getStatus())) {
                     break;
                 }
-                executeCreate(taskId, dto, delaySec);
+                if (executionSlots.tryAcquire()) {
+                    try {
+                        executeCreate(taskId, dto, delaySec);
+                    } finally {
+                        executionSlots.release();
+                    }
+                } else {
+                    log.debug("Skip boot task {} cycle because execution slots are busy", taskId);
+                }
                 t = taskMapper.selectById(taskId);
                 if (t == null) {
                     break;

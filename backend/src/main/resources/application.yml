@@ -37,6 +37,11 @@ spring:
     username: ociworker
     password: ociworker123
     hikari:
+      # 外部 OCI 调用不能长期占用数据库连接；池耗尽时快速失败并返回服务繁忙，避免页面固定卡 30 秒。
+      connection-timeout: 5000
+      validation-timeout: 3000
+      maximum-pool-size: 10
+      minimum-idle: 2
       # 连接在池里的最长存活（须小于 MySQL 的 wait_timeout，并留 1 分钟以上余量）
       max-lifetime: 1500000
       # 定期对空闲连接发保活，减少「服务端已关、池里还以为能用」
