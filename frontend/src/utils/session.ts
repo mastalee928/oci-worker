@@ -14,17 +14,21 @@ export function getPanelToken() {
   return localStorage.getItem(TOKEN_KEY) || ''
 }
 
+export function normalizePanelToken(token?: string) {
+  return (token || '').trim().replace(/^Bearer\s+/i, '')
+}
+
 export function setWebSshTokenCookie(token?: string) {
-  const value = token?.trim()
+  const value = normalizePanelToken(token)
   if (!value) {
     document.cookie = `${WEBSSH_TOKEN_COOKIE}=; Max-Age=0${cookieAttrs()}`
     return
   }
-  document.cookie = `${WEBSSH_TOKEN_COOKIE}=${value}${cookieAttrs()}`
+  document.cookie = `${WEBSSH_TOKEN_COOKIE}=${encodeURIComponent(value)}${cookieAttrs()}`
 }
 
 export function setPanelToken(token: string) {
-  const value = token.trim()
+  const value = normalizePanelToken(token)
   if (value) {
     localStorage.setItem(TOKEN_KEY, value)
     setWebSshTokenCookie(value)
@@ -36,11 +40,11 @@ export function setPanelToken(token: string) {
 
 /** 标记本次页面运行期间已经由登录接口签发或服务端验证过的 token。 */
 export function markPanelSessionValidated(token: string) {
-  runtimeValidatedToken = token.trim()
+  runtimeValidatedToken = normalizePanelToken(token)
 }
 
 export function isPanelSessionValidated(token: string) {
-  const value = token.trim()
+  const value = normalizePanelToken(token)
   return !!value && value === runtimeValidatedToken
 }
 

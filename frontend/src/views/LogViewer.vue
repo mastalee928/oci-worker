@@ -2,8 +2,11 @@
   <div>
     <div class="log-toolbar">
       <a-space wrap>
-        <a-badge :status="connected ? 'success' : 'error'" :text="connected ? '已连接' : '未连接'" />
-        <a-button @click="toggleConnection">{{ connected ? '断开' : '连接' }}</a-button>
+        <a-badge :status="connectionBadgeStatus" :text="connectionStatusText" />
+        <a-button :loading="connectionBusy" @click="toggleConnection">
+          {{ connected ? '断开' : connectionBusy ? '连接中' : '连接' }}
+        </a-button>
+        <a-tag v-if="connectionHint" color="orange">{{ connectionHint }}</a-tag>
         <a-button @click="clearLogs">清空</a-button>
         <a-switch v-model:checked="autoScroll" checked-children="自动滚动" un-checked-children="手动" />
         <a-divider type="vertical" />
@@ -30,7 +33,7 @@
            v-html="highlightText(row.line)"></div>
       <div v-else v-for="row in displayRows" :key="row.key" class="log-line" :class="getLogClass(row.line)">{{ row.line }}</div>
       <div v-if="!displayRows.length" class="log-empty">
-        {{ isSearchMode ? '未找到匹配日志' : '等待日志数据...' }}
+        {{ isSearchMode ? '未找到匹配日志' : emptyLogText }}
       </div>
     </div>
   </div>
@@ -40,7 +43,8 @@
 defineOptions({ name: 'LogViewer' })
 import { ref, computed, nextTick, onMounted, onActivated, onDeactivated, onUnmounted } from 'vue'
 import { message } from 'ant-design-vue'
-import request from '../utils/request'
+import request, { type OciRequestConfig } from '../utils/request'
+import { getPanelToken, normalizePanelToken } from '../utils/session'
 
 interface RealtimeLogLine {
   seq: number
@@ -54,6 +58,9 @@ interface LogDisplayRow {
 
 const logLines = ref<RealtimeLogLine[]>([])
 const connected = ref(false)
+type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'reconnecting' | 'failed' | 'auth-failed'
+const connectionState = ref<ConnectionState>('disconnected')
+const retryDelaySeconds = ref(0)
 const autoScroll = ref(true)
 const logContainer = ref<HTMLElement>()
 let ws: WebSocket | null = null
@@ -61,6 +68,7 @@ let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 let scrollRaf: number | null = null
 let manualDisconnect = false
 let viewActive = false
+let reconnectAttempts = 0
 const shouldAutoConnect = ref(true)
 
 const searchKeyword = ref('')
@@ -74,8 +82,45 @@ const isSearchMode = ref(false)
 const REALTIME_RENDER_LIMIT = 1500
 const SEARCH_RENDER_LIMIT = 1000
 const SEARCH_REQUEST_LIMIT = 1000
+const LOG_SUB_PROTOCOL = 'ociworker-log-v1'
+const TOKEN_PROTOCOL_PREFIX = 'ociworker-token-b64.'
 let logSeq = 0
 let searchRequestSeq = 0
+
+const connectionBusy = computed(() =>
+  connectionState.value === 'connecting' || connectionState.value === 'reconnecting')
+const connectionBadgeStatus = computed<'success' | 'processing' | 'error' | 'default'>(() => {
+  if (connectionState.value === 'connected') return 'success'
+  if (connectionBusy.value) return 'processing'
+  if (connectionState.value === 'failed' || connectionState.value === 'auth-failed') return 'error'
+  return 'default'
+})
+const connectionStatusText = computed(() => {
+  switch (connectionState.value) {
+    case 'connected': return '已连接'
+    case 'connecting': return '连接中'
+    case 'reconnecting': return '正在重连'
+    case 'auth-failed': return '登录状态无效'
+    case 'failed': return '连接失败'
+    default: return '已断开'
+  }
+})
+const connectionHint = computed(() => {
+  if (connectionState.value === 'reconnecting') return `${retryDelaySeconds.value} 秒后自动重试`
+  if (connectionState.value === 'auth-failed') return '请重新登录后再连接'
+  if (connectionState.value === 'failed') return '请检查服务状态或重新连接'
+  return ''
+})
+const emptyLogText = computed(() => {
+  switch (connectionState.value) {
+    case 'connecting': return '正在连接日志服务...'
+    case 'reconnecting': return '连接中断，正在等待自动重连...'
+    case 'auth-failed': return '登录状态已失效，无法读取日志'
+    case 'failed': return '日志服务连接失败'
+    case 'disconnected': return '日志连接已断开'
+    default: return '已连接，暂无日志数据'
+  }
+})
 
 const displayRows = computed<LogDisplayRow[]>(() => {
   if (isSearchMode.value) {
@@ -93,26 +138,68 @@ function getWsUrl() {
   return `${protocol}://${location.host}/ws/log`
 }
 
+function encodeTokenProtocol(token: string) {
+  const bytes = new TextEncoder().encode(token)
+  let binary = ''
+  for (const byte of bytes) binary += String.fromCharCode(byte)
+  const encoded = btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')
+  return `${TOKEN_PROTOCOL_PREFIX}${encoded}`
+}
+
 function connect() {
   if (!viewActive || !shouldAutoConnect.value) return
   if (ws && ws.readyState <= WebSocket.OPEN) return
   manualDisconnect = false
 
-  const socket = new WebSocket(getWsUrl())
+  const token = normalizePanelToken(getPanelToken())
+  if (!token) {
+    connected.value = false
+    connectionState.value = 'auth-failed'
+    shouldAutoConnect.value = false
+    return
+  }
+
+  connectionState.value = reconnectAttempts > 0 ? 'reconnecting' : 'connecting'
+  let socket: WebSocket
+  try {
+    socket = new WebSocket(getWsUrl(), [LOG_SUB_PROTOCOL, encodeTokenProtocol(token)])
+  } catch {
+    connected.value = false
+    connectionState.value = 'failed'
+    verifySessionAndReconnect()
+    return
+  }
   ws = socket
   socket.onopen = () => {
     if (ws !== socket) return
     connected.value = true
+    connectionState.value = 'connected'
+    reconnectAttempts = 0
+    retryDelaySeconds.value = 0
     stopReconnect()
   }
-  socket.onclose = () => {
+  socket.onclose = (event) => {
     if (ws !== socket) return
+    ws = null
     connected.value = false
-    if (!manualDisconnect && viewActive && shouldAutoConnect.value) scheduleReconnect()
+    if (manualDisconnect || !viewActive || !shouldAutoConnect.value) {
+      connectionState.value = 'disconnected'
+      return
+    }
+    // 1008 is the standard policy/authentication close status. A failed HTTP
+    // handshake is exposed by browsers as 1006, so it remains retryable.
+    if (event.code === 1008) {
+      connectionState.value = 'auth-failed'
+      shouldAutoConnect.value = false
+      return
+    }
+    connectionState.value = 'failed'
+    verifySessionAndReconnect()
   }
   socket.onerror = () => {
     if (ws !== socket) return
     connected.value = false
+    connectionState.value = 'failed'
   }
   socket.onmessage = (e) => {
     if (ws !== socket || !viewActive) return
@@ -131,13 +218,16 @@ function disconnect(manual = true) {
   ws?.close()
   ws = null
   connected.value = false
+  connectionState.value = 'disconnected'
+  retryDelaySeconds.value = 0
 }
 
 function toggleConnection() {
-  if (connected.value) {
+  if (connected.value || connectionBusy.value) {
     disconnect()
   } else {
     shouldAutoConnect.value = true
+    reconnectAttempts = 0
     connect()
   }
 }
@@ -145,7 +235,31 @@ function toggleConnection() {
 function scheduleReconnect() {
   if (!viewActive || !shouldAutoConnect.value) return
   stopReconnect()
-  reconnectTimer = setTimeout(() => connect(), 3000)
+  reconnectAttempts++
+  const delay = Math.min(3000 * reconnectAttempts, 15000)
+  retryDelaySeconds.value = Math.ceil(delay / 1000)
+  connectionState.value = 'reconnecting'
+  reconnectTimer = setTimeout(() => connect(), delay)
+}
+
+async function verifySessionAndReconnect() {
+  try {
+    await request.get('/auth/account', {
+      skipBusinessMessage: true,
+      skipErrorMessage: true,
+    } as OciRequestConfig)
+  } catch {
+    // The global request interceptor clears an expired token on 401. Network
+    // failures keep the token and continue through the normal reconnect path.
+    if (!normalizePanelToken(getPanelToken())) {
+      shouldAutoConnect.value = false
+      connectionState.value = 'auth-failed'
+      return
+    }
+  }
+  if (!manualDisconnect && viewActive && shouldAutoConnect.value && !ws) {
+    scheduleReconnect()
+  }
 }
 
 function stopReconnect() {

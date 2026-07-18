@@ -12,9 +12,11 @@ import org.springframework.test.util.ReflectionTestUtils;
 import org.springframework.web.socket.WebSocketHandler;
 
 import java.util.HashMap;
+import java.util.Base64;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class WebSshAuthHandshakeInterceptorTest {
@@ -52,6 +54,48 @@ class WebSshAuthHandshakeInterceptorTest {
                 mock(WebSocketHandler.class), new HashMap<>());
 
         assertThat(accepted).isTrue();
+    }
+
+    @Test
+    void acceptsTokenFromWebSocketSubProtocolWhenCookieIsUnavailable() {
+        PanelAuthService auth = mock(PanelAuthService.class);
+        LoginSecurityService security = mock(LoginSecurityService.class);
+        String token = "v2.test-token";
+        when(auth.validateToken(token)).thenReturn(true);
+        WebSshAuthHandshakeInterceptor interceptor = interceptor(auth, security);
+        MockHttpServletRequest rawRequest = new MockHttpServletRequest("GET", "/ws/log");
+        String encoded = Base64.getUrlEncoder().withoutPadding()
+                .encodeToString(token.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        rawRequest.addHeader("Sec-WebSocket-Protocol",
+                "ociworker-log-v1, ociworker-token-b64." + encoded);
+        MockHttpServletResponse rawResponse = new MockHttpServletResponse();
+
+        boolean accepted = interceptor.beforeHandshake(
+                new ServletServerHttpRequest(rawRequest),
+                new ServletServerHttpResponse(rawResponse),
+                mock(WebSocketHandler.class), new HashMap<>());
+
+        assertThat(accepted).isTrue();
+        verify(auth).validateToken(token);
+    }
+
+    @Test
+    void rejectsMalformedWebSocketSubProtocolToken() {
+        PanelAuthService auth = mock(PanelAuthService.class);
+        LoginSecurityService security = mock(LoginSecurityService.class);
+        WebSshAuthHandshakeInterceptor interceptor = interceptor(auth, security);
+        MockHttpServletRequest rawRequest = new MockHttpServletRequest("GET", "/ws/log");
+        rawRequest.addHeader("Sec-WebSocket-Protocol",
+                "ociworker-log-v1, ociworker-token-b64.not_base64!");
+        MockHttpServletResponse rawResponse = new MockHttpServletResponse();
+
+        boolean accepted = interceptor.beforeHandshake(
+                new ServletServerHttpRequest(rawRequest),
+                new ServletServerHttpResponse(rawResponse),
+                mock(WebSocketHandler.class), new HashMap<>());
+
+        assertThat(accepted).isFalse();
+        assertThat(rawResponse.getStatus()).isEqualTo(HttpStatus.UNAUTHORIZED.value());
     }
 
     private static WebSshAuthHandshakeInterceptor interceptor(

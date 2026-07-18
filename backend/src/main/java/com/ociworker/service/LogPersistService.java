@@ -5,6 +5,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.io.*;
+import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.*;
 import java.util.ArrayDeque;
@@ -23,7 +25,9 @@ public class LogPersistService {
     private static final String LOG_FILE = "logs/app-ws.log";
     private static final int MAX_SEARCH_RESULT_LIMIT = 3000;
 
-    private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock();
+    private static final int TAIL_SCAN_BUFFER_SIZE = 8192;
+
+    private final ReentrantReadWriteLock lock = new ReentrantReadWriteLock(true);
     private Path logPath;
 
     @PostConstruct
@@ -94,17 +98,62 @@ public class LogPersistService {
      * Returns the last N lines for initial WebSocket replay
      */
     public List<String> readLastLines(int maxLines) {
+        if (maxLines <= 0) return Collections.emptyList();
         lock.readLock().lock();
         try {
             if (!Files.exists(logPath)) return Collections.emptyList();
-            List<String> all = Files.readAllLines(logPath, StandardCharsets.UTF_8);
-            if (all.size() <= maxLines) return all;
-            return new ArrayList<>(all.subList(all.size() - maxLines, all.size()));
+            try (FileChannel channel = FileChannel.open(logPath, StandardOpenOption.READ)) {
+                long size = channel.size();
+                if (size == 0) return Collections.emptyList();
+
+                long start = findTailStart(channel, size, maxLines);
+                long length = size - start;
+                if (length > Integer.MAX_VALUE) {
+                    log.warn("Log tail is too large to replay: {} bytes", length);
+                    return Collections.emptyList();
+                }
+
+                ByteBuffer content = ByteBuffer.allocate((int) length);
+                channel.position(start);
+                while (content.hasRemaining() && channel.read(content) >= 0) {
+                    // FileChannel may perform a short read; keep reading until EOF or buffer is full.
+                }
+                content.flip();
+                return new ArrayList<>(StandardCharsets.UTF_8.decode(content).toString().lines().toList());
+            }
         } catch (IOException e) {
+            log.warn("Failed to read log tail: {}", e.getMessage());
             return Collections.emptyList();
         } finally {
             lock.readLock().unlock();
         }
+    }
+
+    private static long findTailStart(FileChannel channel, long size, int maxLines) throws IOException {
+        ByteBuffer buffer = ByteBuffer.allocate(TAIL_SCAN_BUFFER_SIZE);
+        long cursor = size;
+        int lineBreaks = 0;
+
+        while (cursor > 0) {
+            int blockLength = (int) Math.min(TAIL_SCAN_BUFFER_SIZE, cursor);
+            long blockStart = cursor - blockLength;
+            buffer.clear();
+            buffer.limit(blockLength);
+            channel.position(blockStart);
+            while (buffer.hasRemaining() && channel.read(buffer) >= 0) {
+                // Fill the block before scanning it backwards.
+            }
+            int bytesRead = buffer.position();
+            for (int i = bytesRead - 1; i >= 0; i--) {
+                if (buffer.get(i) != '\n') continue;
+                long absolutePosition = blockStart + i;
+                // A final newline terminates the last real line; it is not an extra empty line.
+                if (absolutePosition == size - 1) continue;
+                if (++lineBreaks >= maxLines) return absolutePosition + 1;
+            }
+            cursor = blockStart;
+        }
+        return 0;
     }
 
     private void trimFile() {
