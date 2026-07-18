@@ -263,7 +263,7 @@
                             <label class="checkbox-field" for="rememberProxy">
                                 <input type="checkbox" id="rememberProxy" onchange="saveProxyConfig()">
                                 <span class="checkbox-custom"></span>
-                                <span>记住代理配置</span>
+                                <span>记住代理地址（不保存密码）</span>
                             </label>
                         </div>
                         <button type="submit" class="btn-connect" id="connectBtn">
@@ -295,7 +295,7 @@
                 <div class="drawer-body glass-card">
                     <div class="drawer-hd"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M19 21l-7-5-7 5V5a2 2 0 012-2h10a2 2 0 012 2z"/></svg><span>连接书签</span></div>
                     <div class="drawer-list" id="connBookmarkList"></div>
-                    <button class="drawer-add" onclick="saveConnBookmark()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>保存当前</button>
+                    <button class="drawer-add" onclick="saveConnBookmark()" title="仅保存主机、端口和用户名，不保存密码"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="13" height="13"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>保存当前</button>
                 </div>
             </div>
         </div>

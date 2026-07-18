@@ -90,8 +90,7 @@ const displayRows = computed<LogDisplayRow[]>(() => {
 
 function getWsUrl() {
   const protocol = location.protocol === 'https:' ? 'wss' : 'ws'
-  const host = import.meta.env.DEV ? 'localhost:8818' : location.host
-  return `${protocol}://${host}/ws/log`
+  return `${protocol}://${location.host}/ws/log`
 }
 
 function connect() {

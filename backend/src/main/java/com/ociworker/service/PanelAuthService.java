@@ -7,6 +7,7 @@ import com.ociworker.mapper.OciKvMapper;
 import com.ociworker.model.entity.OciKv;
 import com.ociworker.util.CommonUtils;
 import com.ociworker.util.HttpRequestUtil;
+import com.ociworker.util.PanelPasswordHasher;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
@@ -64,10 +65,13 @@ public class PanelAuthService {
         return credentialSnapshot != null;
     }
 
-    public AuthenticatedSession authenticate(String account, String passwordHash) {
+    public AuthenticatedSession authenticate(String account, String rawPassword) {
         CredentialSnapshot snapshot = credentialSnapshot;
         if (snapshot == null || !snapshot.configured()) return null;
-        if (!snapshot.account().equals(account) || !secureEquals(snapshot.passwordHash(), passwordHash)) return null;
+        // 不可因账号先失败而跳过慢哈希，否则响应时间可用于枚举管理员账号。
+        boolean passwordMatches = PanelPasswordHasher.matches(rawPassword, snapshot.passwordHash());
+        boolean accountMatches = constantTimeEquals(snapshot.account(), account);
+        if (!(accountMatches & passwordMatches)) return null;
         return new AuthenticatedSession(snapshot.account(),
                 CommonUtils.generateToken(snapshot.account(), snapshot.passwordHash()));
     }
@@ -84,10 +88,16 @@ public class PanelAuthService {
         return snapshot != null && snapshot.configured() ? snapshot.account() : null;
     }
 
-    public boolean verifyPasswordHash(String passwordHash) {
+    public boolean verifyPassword(String rawPassword) {
         CredentialSnapshot snapshot = credentialSnapshot;
         return snapshot != null && snapshot.configured()
-                && secureEquals(snapshot.passwordHash(), passwordHash);
+                && PanelPasswordHasher.matches(rawPassword, snapshot.passwordHash());
+    }
+
+    public boolean needsPasswordHashUpgrade() {
+        CredentialSnapshot snapshot = credentialSnapshot;
+        return snapshot != null && snapshot.configured()
+                && PanelPasswordHasher.needsUpgrade(snapshot.passwordHash());
     }
 
     public String readToken(HttpServletRequest request) {
@@ -133,7 +143,8 @@ public class PanelAuthService {
         if (!hasAccount) {
             return CredentialSnapshot.unconfigured();
         }
-        String passwordHash = isHashedPassword(storedPassword)
+        String passwordHash = PanelPasswordHasher.isModernHash(storedPassword)
+                || PanelPasswordHasher.isLegacySha256(storedPassword)
                 ? storedPassword
                 : DigestUtil.sha256Hex(storedPassword);
         return new CredentialSnapshot(true, storedAccount, passwordHash);
@@ -162,17 +173,6 @@ public class PanelAuthService {
         credentialSnapshot = new CredentialSnapshot(true, account, passwordHash);
     }
 
-    private static boolean isHashedPassword(String pwd) {
-        return pwd != null && pwd.length() == 64 && pwd.matches("[0-9a-f]+");
-    }
-
-    private static boolean secureEquals(String expected, String actual) {
-        if (expected == null || actual == null) return false;
-        return MessageDigest.isEqual(
-                expected.getBytes(StandardCharsets.UTF_8),
-                actual.getBytes(StandardCharsets.UTF_8));
-    }
-
     private static String normalizeToken(String token) {
         if (token == null) {
             return null;
@@ -181,7 +181,15 @@ public class PanelAuthService {
         if (t.regionMatches(true, 0, "Bearer ", 0, 7)) {
             t = t.substring(7).trim();
         }
+        if (t.length() > 2048) return null;
         return t;
+    }
+
+    private static boolean constantTimeEquals(String expected, String actual) {
+        if (expected == null || actual == null) return false;
+        return MessageDigest.isEqual(
+                expected.getBytes(StandardCharsets.UTF_8),
+                actual.getBytes(StandardCharsets.UTF_8));
     }
 
     private static String readCookieHeader(HttpHeaders headers, String name) {

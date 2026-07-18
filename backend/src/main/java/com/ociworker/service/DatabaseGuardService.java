@@ -472,6 +472,7 @@ public class DatabaseGuardService {
             }
 
             migrateColumns(conn);
+            sanitizeLegacyLoginAuditSecrets(conn);
         } catch (Exception e) {
             log.error("【数据库守护】启动自检失败: {}", e.getMessage(), e);
             sendAlert("启动自检失败", "数据库连接异常: " + e.getMessage());
@@ -704,6 +705,47 @@ public class DatabaseGuardService {
                 "INT NOT NULL DEFAULT 0 AFTER bridge_type");
         addColumnIfMissing(conn, "oci_openai_lb_request_log", "tool_lifecycle_completed",
                 "TINYINT(1) NOT NULL DEFAULT 0 AFTER response_tool_call_count");
+    }
+
+    /**
+     * 旧版登录审计曾保存密码/验证码、Authorization、Cookie 与请求 Body 明文。
+     * 升级时只执行一次不可逆脱敏，防止历史凭据继续存在于在线数据库和后续备份中。
+     */
+    private void sanitizeLegacyLoginAuditSecrets(Connection conn) {
+        final String markerCode = "security_login_audit_redacted_v1";
+        final String markerType = "sys_migration";
+        try (PreparedStatement check = conn.prepareStatement(
+                "SELECT 1 FROM oci_kv WHERE code = ? AND type = ? LIMIT 1")) {
+            check.setString(1, markerCode);
+            check.setString(2, markerType);
+            try (ResultSet rs = check.executeQuery()) {
+                if (rs.next()) return;
+            }
+
+            int affected;
+            try (PreparedStatement redact = conn.prepareStatement(
+                    "UPDATE oci_login_audit "
+                            + "SET password_attempt = '(历史凭据已清理)', login_detail = NULL "
+                            + "WHERE password_attempt IS NOT NULL OR login_detail IS NOT NULL")) {
+                affected = redact.executeUpdate();
+            }
+
+            try (PreparedStatement marker = conn.prepareStatement(
+                    "INSERT INTO oci_kv (id, code, value, type, create_time) "
+                            + "VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)")) {
+                marker.setString(1, UUID.randomUUID().toString().replace("-", ""));
+                marker.setString(2, markerCode);
+                marker.setString(3, LocalDateTime.now().toString());
+                marker.setString(4, markerType);
+                marker.executeUpdate();
+            }
+            if (affected > 0) {
+                log.warn("【数据库守护】已永久清理 {} 条历史登录审计中的明文凭据", affected);
+            }
+        } catch (SQLException e) {
+            log.error("【数据库守护】清理历史登录审计敏感字段失败: {}", e.getMessage(), e);
+            throw new IllegalStateException("Failed to sanitize legacy login audit secrets", e);
+        }
     }
 
     private void addColumnIfMissing(Connection conn, String table, String column, String definition) {

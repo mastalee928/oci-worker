@@ -1,8 +1,8 @@
 package com.ociworker.webssh;
 
 import jakarta.servlet.http.HttpServletResponse;
-import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -32,7 +32,7 @@ public class WebSshApiController {
         return body;
     }
 
-    @GetMapping("/check")
+    @PostMapping("/check")
     public Map<String, Object> check(@RequestParam("sshInfo") String sshInfo) {
         long start = System.nanoTime();
         try {
@@ -40,14 +40,14 @@ public class WebSshApiController {
             com.jcraft.jsch.Session session = WebSshJschSupport.openSession(info);
             WebSshJschSupport.closeQuietly(session);
             Map<String, Object> data = new LinkedHashMap<>();
-            data.put("savePass", true);
+            data.put("savePass", false);
             return WebSshResponse.body("success", data, duration(start));
         } catch (Exception e) {
             return WebSshResponse.body(e.getMessage(), null, duration(start));
         }
     }
 
-    @GetMapping("/sysinfo")
+    @PostMapping("/sysinfo")
     public Map<String, Object> sysinfo(@RequestParam("sshInfo") String sshInfo) {
         long start = System.nanoTime();
         try {
@@ -57,7 +57,7 @@ public class WebSshApiController {
         }
     }
 
-    @GetMapping("/file/list")
+    @PostMapping("/file/list")
     public Map<String, Object> fileList(@RequestParam("sshInfo") String sshInfo,
                                         @RequestParam(value = "path", required = false) String path) {
         long start = System.nanoTime();
@@ -68,7 +68,7 @@ public class WebSshApiController {
         }
     }
 
-    @GetMapping("/file/download")
+    @PostMapping("/file/download")
     public void fileDownload(@RequestParam("sshInfo") String sshInfo,
                              @RequestParam(value = "path", required = false) String path,
                              HttpServletResponse response) throws Exception {

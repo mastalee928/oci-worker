@@ -102,13 +102,13 @@
           <template #extra><a-tag color="success">已通过安全验证</a-tag></template>
           <a-form :model="pwdForm" layout="vertical">
             <a-form-item label="原密码" required>
-              <a-input-password v-model:value="pwdForm.oldPassword" placeholder="输入当前密码" />
+              <a-input-password v-model:value="pwdForm.oldPassword" placeholder="输入当前密码" :maxlength="256" />
             </a-form-item>
             <a-form-item label="新密码" required>
-              <a-input-password v-model:value="pwdForm.newPassword" placeholder="至少6位" />
+              <a-input-password v-model:value="pwdForm.newPassword" placeholder="至少8位" :maxlength="256" />
             </a-form-item>
             <a-form-item label="确认新密码" required>
-              <a-input-password v-model:value="pwdForm.confirmPassword" placeholder="再次输入新密码" />
+              <a-input-password v-model:value="pwdForm.confirmPassword" placeholder="再次输入新密码" :maxlength="256" />
             </a-form-item>
             <a-button type="primary" @click="handleChangePassword" :loading="pwdLoading">修改密码</a-button>
           </a-form>
@@ -1250,8 +1250,8 @@ async function handleChangePassword() {
     message.warning('请填写密码')
     return
   }
-  if (pwdForm.newPassword.length < 6) {
-    message.warning('新密码不能少于 6 位')
+  if (pwdForm.newPassword.length < 8) {
+    message.warning('新密码不能少于 8 位')
     return
   }
   if (pwdForm.newPassword !== pwdForm.confirmPassword) {
@@ -1553,7 +1553,7 @@ function auditExpandIcon(p: {
 
 const auditColumns = [
   { title: '账号', dataIndex: 'account', key: 'account', ellipsis: true, width: 135 },
-  { title: '密码/验证码', dataIndex: 'passwordAttempt', key: 'passwordAttempt', ellipsis: true, width: 190 },
+  { title: '凭据结果', dataIndex: 'passwordAttempt', key: 'passwordAttempt', ellipsis: true, width: 190 },
   { title: 'IP', dataIndex: 'ip', key: 'ip', width: 205 },
   { title: '结果', key: 'success', width: 74 },
   { title: '设备码', dataIndex: 'deviceId', key: 'deviceId', width: 220 },
@@ -1633,8 +1633,8 @@ function auditDetailSections(record: Record<string, unknown>): AuditDetailSectio
       'Fetch 元数据',
       'Client Hints',
       '客户端与能力',
-      '全部请求头（明文）',
-      '请求原文（高敏感）',
+      '请求头（已脱敏）',
+      '敏感字段处理',
     ]
     const out: AuditDetailSection[] = []
     for (const title of order) {

@@ -1,7 +1,6 @@
 package com.ociworker.controller;
 
 import cn.hutool.core.util.StrUtil;
-import cn.hutool.crypto.digest.DigestUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.ociworker.mapper.OciKvMapper;
 import com.ociworker.model.entity.OciKv;
@@ -16,6 +15,7 @@ import com.ociworker.service.VerifyCodeService;
 import com.ociworker.service.WorkerInstanceSecretService;
 import com.ociworker.util.CommonUtils;
 import com.ociworker.util.HttpRequestUtil;
+import com.ociworker.util.PanelPasswordHasher;
 import com.ociworker.util.SecureRandomUtil;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
@@ -28,16 +28,19 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 import org.springframework.web.bind.annotation.*;
+import lombok.extern.slf4j.Slf4j;
 
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.Map;
+import java.util.concurrent.Semaphore;
 import java.util.concurrent.atomic.AtomicInteger;
 import static com.ociworker.config.VirtualThreadConfig.VIRTUAL_EXECUTOR;
 
 @RestController
 @RequestMapping("/api/auth")
+@Slf4j
 public class AuthController {
 
     @Resource
@@ -73,6 +76,9 @@ public class AuthController {
     private static final String CODE_PASSWORD = "web_password";
     private static final String TYPE = "sys_config";
     private static final String SECURITY_SETTINGS_SESSION_HEADER = "X-Oci-Security-Settings-Session";
+    private static final int PASSWORD_CHECK_CONCURRENCY = Math.max(2,
+            Math.min(4, Runtime.getRuntime().availableProcessors()));
+    private static final Semaphore PASSWORD_CHECK_SLOTS = new Semaphore(PASSWORD_CHECK_CONCURRENCY, true);
 
     private String getKv(String code) {
         OciKv kv = kvMapper.selectOne(new LambdaQueryWrapper<OciKv>()
@@ -128,17 +134,20 @@ public class AuthController {
         if (isSetupDone()) {
             return ResponseData.error("系统已初始化，无法重复设置");
         }
-        String account = params.get("account");
+        String account = StrUtil.trim(params.get("account"));
         String password = params.get("password");
-        if (account == null || account.length() < 3) {
-            return ResponseData.error("用户名至少3个字符");
+        if (account == null || account.length() < 3 || account.length() > 64) {
+            return ResponseData.error("用户名至少3个字符且不能超过64个字符");
         }
-        if (password == null || password.length() < 6) {
-            return ResponseData.error("密码至少6个字符");
+        if (account.chars().anyMatch(Character::isISOControl)) {
+            return ResponseData.error("用户名不能包含控制字符");
+        }
+        if (password == null || password.length() < 8 || password.length() > 256) {
+            return ResponseData.error("密码长度须为8至256个字符");
         }
 
         setKv(CODE_ACCOUNT, account);
-        String passwordHash = DigestUtil.sha256Hex(password);
+        String passwordHash = PanelPasswordHasher.hash(password);
         setKv(CODE_PASSWORD, passwordHash);
         publishCredentialSnapshotAfterCommit(account, passwordHash);
 
@@ -156,6 +165,8 @@ public class AuthController {
             String id = CommonUtils.generateId();
             ResponseCookie cookie = ResponseCookie.from("ow_did", id)
                     .httpOnly(true)
+                    .secure(request.isSecure()
+                            || "https".equalsIgnoreCase(request.getHeader("X-Forwarded-Proto")))
                     .path("/")
                     .maxAge(Duration.ofDays(365))
                     .sameSite("Lax")
@@ -176,35 +187,52 @@ public class AuthController {
 
         String ip = HttpRequestUtil.getClientIp(request);
         String deviceId = loginSecurityService.readDeviceIdFromRequest(request);
+        String loginAccount = StrUtil.trim(params.getAccount());
         if (loginSecurityService.isDeniedForLogin(ip, deviceId)) {
-            loginAuditService.recordPasswordLogin(params.getAccount(), params.getPassword(), ip, deviceId, false, request);
+            loginAuditService.recordPasswordLogin(loginAccount, ip, deviceId, false, request);
             return ResponseData.error(403, "访问被拒绝");
         }
 
-        String inputPwdHash = DigestUtil.sha256Hex(params.getPassword());
-        PanelAuthService.AuthenticatedSession session = panelAuthService.authenticate(params.getAccount(), inputPwdHash);
+        long retryAfter = loginSecurityService.passwordLoginRetryAfterSeconds(ip);
+        if (retryAfter > 0) {
+            return ResponseData.error(429, "登录失败次数过多，请 " + retryAfter + " 秒后重试");
+        }
+
+        if (!PASSWORD_CHECK_SLOTS.tryAcquire()) {
+            return ResponseData.error(429, "登录验证请求过多，请稍后重试");
+        }
+        PanelAuthService.AuthenticatedSession session;
+        try {
+            session = panelAuthService.authenticate(loginAccount, params.getPassword());
+        } finally {
+            PASSWORD_CHECK_SLOTS.release();
+        }
 
         if (session == null) {
-            loginAuditService.recordPasswordLogin(params.getAccount(), params.getPassword(), ip, deviceId, false, request);
-            loginSecurityService.onPasswordLoginFailed(params.getAccount(), ip, deviceId);
+            loginAuditService.recordPasswordLogin(loginAccount, ip, deviceId, false, request);
+            loginSecurityService.onPasswordLoginFailed(loginAccount, ip, deviceId);
             return ResponseData.error("账号或密码错误");
         }
 
+        session = upgradeLegacyPasswordHash(params.getPassword(), session);
+        loginSecurityService.onPasswordLoginSucceeded(ip);
+
         String effectiveAccount = session.account();
+        PanelAuthService.AuthenticatedSession finalSession = session;
         VIRTUAL_EXECUTOR.submit(() -> {
             try { loginAuditService.recordPasswordLogin(
-                    effectiveAccount, params.getPassword(), ip, deviceId, true,
+                    effectiveAccount, ip, deviceId, true,
                     (LoginAuditService.LoginRequestSnapshot) null); }
             catch (Exception ignored) { }
         });
         VIRTUAL_EXECUTOR.submit(() -> notificationService.sendMessage(NotificationService.TYPE_LOGIN,
                 String.format("【登录通知】✅ 登录成功\n账号: %s\nIP: %s\n时间: %s",
-                        params.getAccount(), ip, nowStr())));
-        return ResponseData.ok(Map.of("token", session.token(), "account", effectiveAccount, "expireHours", 24));
+                        effectiveAccount, ip, nowStr())));
+        return ResponseData.ok(Map.of("token", finalSession.token(), "account", effectiveAccount, "expireHours", 24));
     }
 
     @PostMapping("/tgLoginSendCode")
-    public ResponseData<?> tgLoginSendCode(HttpServletRequest request) {
+    public synchronized ResponseData<?> tgLoginSendCode(HttpServletRequest request) {
         if (!verifyCodeService.isTgConfigured()) {
             return ResponseData.error("未绑定 Telegram Bot，无法使用此登录方式");
         }
@@ -259,7 +287,7 @@ public class AuthController {
     }
 
     @PostMapping("/tgLogin")
-    public ResponseData<?> tgLogin(@RequestBody Map<String, String> params, HttpServletRequest request) {
+    public synchronized ResponseData<?> tgLogin(@RequestBody Map<String, String> params, HttpServletRequest request) {
         if (!verifyCodeService.isTgConfigured()) {
             return ResponseData.error("未绑定 Telegram Bot");
         }
@@ -282,7 +310,7 @@ public class AuthController {
         }
 
         String inputCode = params.get("code");
-        if (inputCode == null || inputCode.isBlank()) {
+        if (inputCode == null || inputCode.isBlank() || inputCode.length() > 64) {
             loginAuditService.recordTelegramLogin(tgAcct, ip, deviceId, false, request, "(未填验证码)");
             return ResponseData.error("请输入验证码");
         }
@@ -308,7 +336,7 @@ public class AuthController {
         }
 
         if (!tgLoginCode.equals(inputCode)) {
-            loginAuditService.recordTelegramLogin(tgAcct, ip, deviceId, false, request, inputCode.trim());
+            loginAuditService.recordTelegramLogin(tgAcct, ip, deviceId, false, request, "(验证码错误)");
             int fails = tgLoginFailCount.incrementAndGet();
             int remaining = TG_CODE_MAX_ATTEMPTS - fails;
             if (remaining <= 0) {
@@ -357,10 +385,10 @@ public class AuthController {
     @PostMapping("/verifyPassword")
     public ResponseData<?> verifyPassword(@RequestBody Map<String, String> params) {
         String pwd = params.get("password");
-        if (pwd == null || pwd.isBlank()) {
+        if (pwd == null || pwd.isBlank() || pwd.length() > 256) {
             return ResponseData.error("请输入密码");
         }
-        if (!panelAuthService.verifyPasswordHash(DigestUtil.sha256Hex(pwd))) {
+        if (!panelAuthService.verifyPassword(pwd)) {
             return ResponseData.error("密码错误");
         }
         return ResponseData.ok();
@@ -384,19 +412,20 @@ public class AuthController {
 
         String oldPwd = params.get("oldPassword");
         String newPwd = params.get("newPassword");
-        if (oldPwd == null || newPwd == null || newPwd.length() < 6) {
-            return ResponseData.error("新密码不能少于6位");
+        if (oldPwd == null || oldPwd.length() > 256 || newPwd == null
+                || newPwd.length() < 8 || newPwd.length() > 256) {
+            return ResponseData.error("新密码长度须为8至256个字符");
         }
 
         String account = panelAuthService.currentAccount();
         if (account == null) {
             return ResponseData.error(503, "安全配置正在加载，请稍后重试");
         }
-        if (!panelAuthService.verifyPasswordHash(DigestUtil.sha256Hex(oldPwd))) {
+        if (!panelAuthService.verifyPassword(oldPwd)) {
             return ResponseData.error("原密码错误");
         }
 
-        String newHash = DigestUtil.sha256Hex(newPwd);
+        String newHash = PanelPasswordHasher.hash(newPwd);
         setKv(CODE_PASSWORD, newHash);
 
         panelAuthService.updateCredentialSnapshot(account, newHash);
@@ -414,5 +443,21 @@ public class AuthController {
 
     private String nowStr() {
         return LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"));
+    }
+
+    /** 旧 SHA-256/明文配置仅在首次成功登录时写库迁移，正常请求仍只读内存快照。 */
+    private synchronized PanelAuthService.AuthenticatedSession upgradeLegacyPasswordHash(
+            String rawPassword, PanelAuthService.AuthenticatedSession currentSession) {
+        if (!panelAuthService.needsPasswordHashUpgrade()) return currentSession;
+        try {
+            String upgraded = PanelPasswordHasher.hash(rawPassword);
+            setKv(CODE_PASSWORD, upgraded);
+            panelAuthService.updateCredentialSnapshot(currentSession.account(), upgraded);
+            PanelAuthService.AuthenticatedSession upgradedSession = panelAuthService.issueCurrentSession();
+            return upgradedSession != null ? upgradedSession : currentSession;
+        } catch (Exception e) {
+            log.warn("Panel password hash upgrade failed; keeping legacy credential for this login: {}", e.getMessage());
+            return currentSession;
+        }
     }
 }

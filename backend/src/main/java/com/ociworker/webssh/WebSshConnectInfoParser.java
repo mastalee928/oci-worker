@@ -16,6 +16,9 @@ final class WebSshConnectInfoParser {
         if (sshInfoB64 == null || sshInfoB64.isBlank()) {
             throw new IllegalArgumentException("sshInfo is empty");
         }
+        if (sshInfoB64.length() > 512 * 1024) {
+            throw new IllegalArgumentException("sshInfo is too large");
+        }
         byte[] decoded = Base64.getDecoder().decode(sshInfoB64.trim());
         WebSshConnectInfo info = JSON.readValue(decoded, WebSshConnectInfo.class);
         info.normalizeHostname();

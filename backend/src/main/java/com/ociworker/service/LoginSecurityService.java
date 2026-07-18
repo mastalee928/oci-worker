@@ -34,6 +34,8 @@ public class LoginSecurityService {
     private static final long DENYLIST_UI_TTL_MS = 30 * 60 * 1000L;
     private static final long FAIL_WINDOW_MS = 15 * 60 * 1000L;
     private static final int PAUSE_OFFER_THRESHOLD = 5;
+    private static final int LOGIN_LOCK_THRESHOLD = 10;
+    private static final long LOGIN_LOCK_MS = 5 * 60 * 1000L;
 
     private enum PendingKind {
         BLOCK_IP, BLOCK_DEVICE, PAUSE_SITE, RESUME_SITE, IGNORE_FAILS, UNBLOCK_IP, UNBLOCK_DEVICE
@@ -44,6 +46,7 @@ public class LoginSecurityService {
     private static final class IpFailWindow {
         final AtomicInteger count = new AtomicInteger(0);
         volatile long windowStart = System.currentTimeMillis();
+        volatile long lockUntil;
         volatile boolean pauseOfferSent;
     }
 
@@ -141,11 +144,13 @@ public class LoginSecurityService {
     public void onPasswordLoginFailed(String account, String ip, String deviceId) {
         String ipN = normalizeIp(ip);
         String dev = StrUtil.isBlank(deviceId) ? null : deviceId.trim();
+        String safeAccount = safeNotificationText(account, 64);
+        int n = bumpFailureCount(ipN);
 
         if (!verifyCodeService.isTgConfigured()) {
             notificationService.sendMessage(NotificationService.TYPE_LOGIN,
                     String.format("【登录通知】⚠️ 登录失败\n账号: %s\nIP: %s\n时间: %s",
-                            account, ipN, nowStr()));
+                            safeAccount, ipN, nowStr()));
             return;
         }
 
@@ -169,13 +174,34 @@ public class LoginSecurityService {
 
         String text = String.format(
                 "【登录通知】⚠️ 登录失败\n账号: %s\nIP: %s\n设备: %s\n时间: %s\n\n（15 分钟内有效）点击下方按钮执行操作。",
-                account, ipN, dev != null ? dev : "未知", nowStr());
+                safeAccount, ipN, dev != null ? dev : "未知", nowStr());
         notificationService.sendSecurityTextWithInlineKeyboard(text, rows);
 
-        int n = bumpFailureCount(ipN);
         if (n == PAUSE_OFFER_THRESHOLD) {
             maybeSendPauseOffer(ipN, n);
         }
+    }
+
+    /** 密码登录失败过多时进行短时 IP 锁定；返回剩余秒数，0 表示可继续尝试。 */
+    public long passwordLoginRetryAfterSeconds(String ip) {
+        String ipN = normalizeIp(ip);
+        if (StrUtil.isBlank(ipN)) return 0;
+        IpFailWindow w = ipFailWindows.get(ipN);
+        if (w == null) return 0;
+        synchronized (w) {
+            long now = System.currentTimeMillis();
+            if (now - w.windowStart > FAIL_WINDOW_MS) {
+                ipFailWindows.remove(ipN, w);
+                return 0;
+            }
+            if (w.lockUntil <= now) return 0;
+            return Math.max(1L, (w.lockUntil - now + 999L) / 1000L);
+        }
+    }
+
+    public void onPasswordLoginSucceeded(String ip) {
+        String ipN = normalizeIp(ip);
+        if (StrUtil.isNotBlank(ipN)) ipFailWindows.remove(ipN);
     }
 
     private void maybeSendPauseOffer(String ipN, int n) {
@@ -350,10 +376,15 @@ public class LoginSecurityService {
             long now = System.currentTimeMillis();
             if (now - w.windowStart > FAIL_WINDOW_MS) {
                 w.count.set(0);
+                w.lockUntil = 0;
                 w.pauseOfferSent = false;
                 w.windowStart = now;
             }
-            return w.count.incrementAndGet();
+            int count = w.count.incrementAndGet();
+            if (count >= LOGIN_LOCK_THRESHOLD) {
+                w.lockUntil = Math.max(w.lockUntil, now + LOGIN_LOCK_MS);
+            }
+            return count;
         }
     }
 
@@ -361,6 +392,10 @@ public class LoginSecurityService {
     public void purgeExpiredPending() {
         long now = System.currentTimeMillis();
         pendingByToken.entrySet().removeIf(e -> e.getValue().expireAt < now);
+        ipFailWindows.entrySet().removeIf(e -> {
+            IpFailWindow w = e.getValue();
+            return now - w.windowStart > FAIL_WINDOW_MS && w.lockUntil <= now;
+        });
     }
 
     private String nowStr() {
@@ -494,6 +529,12 @@ public class LoginSecurityService {
         return true;
     }
 
+    private static String safeNotificationText(String value, int maxLen) {
+        if (value == null) return "";
+        String cleaned = value.replaceAll("[\\p{Cntrl}\\r\\n]", "?").trim();
+        return cleaned.length() <= maxLen ? cleaned : cleaned.substring(0, maxLen);
+    }
+
     /** 从设备禁止名单移除；返回是否确实移除了一条。 */
     public synchronized boolean removeDeviceFromDenylist(String deviceId) {
         if (StrUtil.isBlank(deviceId)) {
@@ -526,6 +567,7 @@ public class LoginSecurityService {
     }
 
     public String readDeviceIdFromRequest(HttpServletRequest request) {
-        return HttpRequestUtil.getCookie(request, "ow_did");
+        String value = HttpRequestUtil.getCookie(request, "ow_did");
+        return value != null && value.matches("[0-9a-fA-F]{32}") ? value.toLowerCase() : null;
     }
 }

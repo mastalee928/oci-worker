@@ -1,6 +1,12 @@
 import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-router'
 import { defineAppAsyncComponent, isStaleChunkError, reloadOnceForUpdatedAssets } from '../utils/asyncComponent'
-import { setWebSshTokenCookie } from '../utils/session'
+import {
+  clearPanelSession,
+  isPanelSessionValidated,
+  markPanelSessionValidated,
+  setPanelAccount,
+  setWebSshTokenCookie,
+} from '../utils/session'
 
 type RouteSkeletonVariant = 'panel' | 'cards' | 'table' | 'detail' | 'list' | 'compact'
 
@@ -116,14 +122,77 @@ const router = createRouter({
   routes,
 })
 
-router.beforeEach(async (to, _from, next) => {
-  const token = (localStorage.getItem('token') || '').trim()
-  if (!to.meta.public && !token) {
-    next('/login')
-  } else {
-    if (token) setWebSshTokenCookie(token)
-    next()
+type StoredSessionState = 'valid' | 'invalid' | 'unavailable'
+
+let validatingToken = ''
+let validationPromise: Promise<StoredSessionState> | null = null
+
+/**
+ * 首次打开面板时验证浏览器中残留的 token。不能依赖页面 API 的 401 再跳登录，
+ * 否则主布局和仪表盘会先被挂载，造成未登录用户短暂看到后台页面。
+ */
+async function validateStoredSession(token: string): Promise<StoredSessionState> {
+  if (isPanelSessionValidated(token)) return 'valid'
+  if (validationPromise && validatingToken === token) return validationPromise
+
+  validatingToken = token
+  validationPromise = (async () => {
+    const controller = new AbortController()
+    const timeout = window.setTimeout(() => controller.abort(), 8000)
+    try {
+      const authorization = token.startsWith('Bearer ') ? token : `Bearer ${token}`
+      const response = await fetch('/api/auth/account', {
+        method: 'GET',
+        headers: { Authorization: authorization },
+        credentials: 'include',
+        cache: 'no-store',
+        signal: controller.signal,
+      })
+      const body = await response.json().catch(() => null)
+      if (response.status === 401 || body?.code === 401) return 'invalid'
+      if (response.ok && body?.code === 0) {
+        const account = String(body?.data?.account || '').trim()
+        if (account) setPanelAccount(account)
+        markPanelSessionValidated(token)
+        return 'valid'
+      }
+      return 'unavailable'
+    } catch {
+      // 服务启动或网络短暂异常时保留现有会话，让后续 API 按原逻辑处理，避免误登出。
+      return 'unavailable'
+    } finally {
+      window.clearTimeout(timeout)
+    }
+  })()
+
+  try {
+    return await validationPromise
+  } finally {
+    if (validatingToken === token) {
+      validatingToken = ''
+      validationPromise = null
+    }
   }
+}
+
+router.beforeEach(async (to) => {
+  const token = (localStorage.getItem('token') || '').trim()
+  if (to.meta.public) return true
+  if (!token) return { path: '/login', replace: true }
+
+  setWebSshTokenCookie(token)
+
+  // 登录或初始化接口刚签发的 token 已由 setLoginSession 标记，避免重复串行验证。
+  if (isPanelSessionValidated(token)) return true
+
+  const state = await validateStoredSession(token)
+  if (state === 'invalid') {
+    clearPanelSession()
+    return { path: '/login', replace: true }
+  }
+  // 服务不可用或校验结果不明确时同样不挂载后台；保留 token，避免瞬时故障误清会话。
+  if (state === 'unavailable') return { path: '/login', replace: true }
+  return true
 })
 
 router.onError((error) => {

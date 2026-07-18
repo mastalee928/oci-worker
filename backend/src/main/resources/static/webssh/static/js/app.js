@@ -61,6 +61,9 @@ function getWebSshAuthHeaders(base) {
     if (token) headers['Authorization'] = 'Bearer ' + token;
     return headers;
 }
+function getWebSshFormHeaders() {
+    return getWebSshAuthHeaders({ 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' });
+}
 function withWebSshAuth(url) {
     return url;
 }
@@ -71,7 +74,7 @@ function showToast(msg, type) {
     var icons = { success: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><path d="M22 11.08V12a10 10 0 11-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>', error: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><circle cx="12" cy="12" r="10"/><line x1="15" y1="9" x2="9" y2="15"/><line x1="9" y1="9" x2="15" y2="15"/></svg>', info: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="14" height="14"><circle cx="12" cy="12" r="10"/><line x1="12" y1="16" x2="12" y2="12"/><line x1="12" y1="8" x2="12.01" y2="8"/></svg>' };
     var d = document.createElement('div');
     d.className = 'toast ' + type;
-    d.innerHTML = (icons[type] || icons.info) + '<span>' + msg + '</span>';
+    d.innerHTML = (icons[type] || icons.info) + '<span>' + esc(msg) + '</span>';
     c.appendChild(d);
     setTimeout(function () { d.classList.add('removing'); setTimeout(function () { d.remove(); }, 300); }, 3000);
 }
@@ -139,11 +142,10 @@ function saveProxyConfig() {
         var cfg = {
             host: document.getElementById('proxyHost').value,
             port: document.getElementById('proxyPort').value,
-            user: document.getElementById('proxyUser').value,
-            pass: document.getElementById('proxyPass').value
+            user: document.getElementById('proxyUser').value
         };
         localStorage.setItem(PROXY_KEY, JSON.stringify(cfg));
-        showToast('代理配置已保存', 'success');
+        showToast('代理地址已保存，密码不会保存在浏览器', 'success');
     } else {
         localStorage.removeItem(PROXY_KEY);
     }
@@ -153,10 +155,15 @@ function loadProxyConfig() {
     try {
         var cfg = JSON.parse(localStorage.getItem(PROXY_KEY));
         if (cfg) {
+            // 清除旧版本曾保存在 localStorage 中的代理密码。
+            if (Object.prototype.hasOwnProperty.call(cfg, 'pass')) {
+                delete cfg.pass;
+                localStorage.setItem(PROXY_KEY, JSON.stringify(cfg));
+            }
             document.getElementById('proxyHost').value = cfg.host || '';
             document.getElementById('proxyPort').value = cfg.port || '1080';
             document.getElementById('proxyUser').value = cfg.user || '';
-            document.getElementById('proxyPass').value = cfg.pass || '';
+            document.getElementById('proxyPass').value = '';
             document.getElementById('enableProxy').checked = true;
             document.getElementById('rememberProxy').checked = true;
         }
@@ -256,11 +263,23 @@ function renderTabs() {
     var bar = document.getElementById('tabBar');
     bar.innerHTML = sessions.map(function (s, i) {
         var cls = i === activeIdx ? 'ssh-tab active' : 'ssh-tab';
-        return '<div class="' + cls + '" onclick="switchTab(' + i + ')">' +
-            '<span class="tab-ip" onclick="event.stopPropagation();copyIP(\'' + esc(s.hostname) + '\')" title="点击复制IP">' + esc(s.hostname) + '</span>' +
-            '<button class="tab-close" onclick="event.stopPropagation();closeTab(' + i + ')">' +
+        return '<div class="' + cls + '" data-tab-index="' + i + '">' +
+            '<span class="tab-ip" title="点击复制IP">' + esc(s.hostname) + '</span>' +
+            '<button class="tab-close" type="button">' +
             '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>';
     }).join('');
+    bar.querySelectorAll('.ssh-tab').forEach(function (tab) {
+        var idx = parseInt(tab.dataset.tabIndex);
+        tab.addEventListener('click', function () { switchTab(idx); });
+        tab.querySelector('.tab-ip').addEventListener('click', function (e) {
+            e.stopPropagation();
+            if (sessions[idx]) copyIP(sessions[idx].hostname);
+        });
+        tab.querySelector('.tab-close').addEventListener('click', function (e) {
+            e.stopPropagation();
+            closeTab(idx);
+        });
+    });
 }
 
 function updateMetricsForActive() {
@@ -401,7 +420,11 @@ function addNewTab() {
 // ==================== System Info ====================
 function fetchSysInfoFor(session) {
     if (!session.sshInfo) return;
-    fetch('/webssh-api/sysinfo?sshInfo=' + encodeURIComponent(session.sshInfo), { headers: getWebSshAuthHeaders() })
+    fetch('/webssh-api/sysinfo', {
+        method: 'POST',
+        headers: getWebSshFormHeaders(),
+        body: new URLSearchParams({ sshInfo: session.sshInfo })
+    })
         .then(function (r) { return r.json(); })
         .then(function (d) {
             if (d.Msg === 'success' && d.Data) {
@@ -439,7 +462,8 @@ function renderMetrics(d) {
     var sv = { server: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="20" height="8" rx="2"/><rect x="2" y="14" width="20" height="8" rx="2"/></svg>', cpu: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="2"/><rect x="9" y="9" width="6" height="6"/></svg>', activity: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>', memory: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="6" width="20" height="12" rx="2"/></svg>', hdd: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5.45 5.11L2 12v6a2 2 0 002 2h16a2 2 0 002-2v-6l-3.45-6.89A2 2 0 0016.76 4H7.24a2 2 0 00-1.79 1.11z"/></svg>', zap: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>', down: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>', up: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M17 8l-5-5-5 5M12 3v12"/></svg>', clock: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>' };
     c.innerHTML = pills.map(function (p) {
         var cls = p.c ? ' ' + p.c : '';
-        return '<div class="metric-pill' + cls + '">' + (sv[p.i] || '') + p.l + (p.v ? ' <span class="metric-value">' + p.v + '</span>' : '') + '</div>';
+        return '<div class="metric-pill' + cls + '">' + (sv[p.i] || '') + esc(p.l)
+            + (p.v ? ' <span class="metric-value">' + esc(p.v) + '</span>' : '') + '</div>';
     }).join('');
 }
 
@@ -461,14 +485,29 @@ function toggleSftp() {
 var CBK = 'webssh_conn_bm';
 var SBK = 'webssh_script_bm';
 
-function loadBM(k) { try { return JSON.parse(localStorage.getItem(k)) || []; } catch (e) { return []; } }
+function loadBM(k) {
+    try {
+        var value = JSON.parse(localStorage.getItem(k)) || [];
+        if (k === CBK && Array.isArray(value)) {
+            var changed = false;
+            value.forEach(function (item) {
+                if (item && Object.prototype.hasOwnProperty.call(item, 'password')) {
+                    delete item.password;
+                    changed = true;
+                }
+            });
+            if (changed) localStorage.setItem(k, JSON.stringify(value));
+        }
+        return value;
+    } catch (e) { return []; }
+}
 function saveBM(k, v) { localStorage.setItem(k, JSON.stringify(v)); }
 
 function renderConnBookmarks() {
     var l = document.getElementById('connBookmarkList'), bms = loadBM(CBK);
     if (!bms.length) { l.innerHTML = '<div class="bm-empty">暂无书签</div>'; return; }
     l.innerHTML = bms.map(function (b, i) {
-        return '<div class="bm-item" onclick="applyConn(' + i + ')"><div class="bm-item-info"><div class="bm-item-name">' + esc(b.username + '@' + b.hostname) + '</div><div class="bm-item-host">:' + (b.port || 22) + '</div></div><button class="bm-item-del" onclick="event.stopPropagation();delConn(' + i + ')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="10" height="10"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>';
+        return '<div class="bm-item" onclick="applyConn(' + i + ')"><div class="bm-item-info"><div class="bm-item-name">' + esc(b.username + '@' + b.hostname) + '</div><div class="bm-item-host">:' + esc(b.port || 22) + '</div></div><button class="bm-item-del" onclick="event.stopPropagation();delConn(' + i + ')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="10" height="10"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>';
     }).join('');
 }
 
@@ -477,7 +516,6 @@ function saveConnBookmark() {
     if (!h) { showToast('请先填写主机', 'error'); return; }
     var at = document.querySelector('.auth-tab.active').dataset.tab;
     var bm = { hostname: h, port: p, username: u, authType: at };
-    if (at === 'password') bm.password = document.getElementById('password').value;
     var bms = loadBM(CBK), idx = bms.findIndex(function (b) { return b.hostname === h && b.port === p && b.username === u; });
     if (idx >= 0) bms[idx] = bm; else bms.push(bm);
     saveBM(CBK, bms); renderConnBookmarks(); showToast('已保存', 'success');
@@ -489,7 +527,7 @@ function applyConn(i) {
     document.getElementById('port').value = b.port || 22;
     document.getElementById('username').value = b.username || 'root';
     if (b.authType === 'key') switchAuthTab('key');
-    else { switchAuthTab('password'); if (b.password) document.getElementById('password').value = b.password; }
+    else { switchAuthTab('password'); document.getElementById('password').value = ''; }
     showToast('已填入', 'info');
 }
 
@@ -595,21 +633,35 @@ function sftpLoad(path) {
     sftpCurrentPath = path;
     document.getElementById('sftpPath').value = path;
     document.getElementById('sftpBody').innerHTML = '<div class="sftp-loading">加载中...</div>';
-    fetch('/webssh-api/file/list?sshInfo=' + encodeURIComponent(sshInfo) + '&path=' + encodeURIComponent(path), { headers: getWebSshAuthHeaders() })
+    fetch('/webssh-api/file/list', {
+        method: 'POST',
+        headers: getWebSshFormHeaders(),
+        body: new URLSearchParams({ sshInfo: sshInfo, path: path })
+    })
         .then(function (r) { return r.json(); })
         .then(function (d) {
             if (d.Msg !== 'success') { document.getElementById('sftpBody').innerHTML = '<div class="sftp-loading" style="color:var(--err)">' + esc(d.Msg) + '</div>'; return; }
             var list = (d.Data && d.Data.list) || [];
             if (!list.length) { document.getElementById('sftpBody').innerHTML = '<div class="sftp-loading">空目录</div>'; return; }
-            document.getElementById('sftpBody').innerHTML = list.map(function (f) {
+            var body = document.getElementById('sftpBody');
+            body.innerHTML = list.map(function (f) {
                 var isDir = f.IsDir;
                 var fp = (path === '/' ? '/' : path + '/') + f.Name;
-                var fpSafe = fp.replace(/'/g, "\\'");
                 var icon = isDir ? '<svg class="sftp-icon dir" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>' : '<svg class="sftp-icon file" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>';
-                var click = isDir ? 'onclick="sftpLoad(\'' + fpSafe + '\')"' : 'onclick="sftpDownload(\'' + fpSafe + '\')"';
-                var dl = isDir ? '' : '<button class="sftp-dl" onclick="event.stopPropagation();sftpDownload(\'' + fpSafe + '\')" title="下载"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg></button>';
-                return '<div class="sftp-row" ' + click + '>' + icon + '<span class="sftp-name">' + esc(f.Name) + '</span><span class="sftp-meta">' + f.Size + '</span>' + dl + '</div>';
+                var dl = isDir ? '' : '<button class="sftp-dl" type="button" title="下载"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg></button>';
+                return '<div class="sftp-row" data-path="' + esc(fp) + '" data-dir="' + (isDir ? '1' : '0') + '">' + icon + '<span class="sftp-name">' + esc(f.Name) + '</span><span class="sftp-meta">' + esc(f.Size) + '</span>' + dl + '</div>';
             }).join('');
+            body.querySelectorAll('.sftp-row').forEach(function (row) {
+                row.addEventListener('click', function () {
+                    if (row.dataset.dir === '1') sftpLoad(row.dataset.path);
+                    else sftpDownload(row.dataset.path);
+                });
+                var button = row.querySelector('.sftp-dl');
+                if (button) button.addEventListener('click', function (e) {
+                    e.stopPropagation();
+                    sftpDownload(row.dataset.path);
+                });
+            });
         })
         .catch(function () { document.getElementById('sftpBody').innerHTML = '<div class="sftp-loading" style="color:var(--err)">加载失败</div>'; });
 }
@@ -619,7 +671,23 @@ function sftpUp() { var p = sftpCurrentPath.replace(/\/$/, ''); var i = p.lastIn
 
 function sftpDownload(path) {
     if (activeIdx < 0 || !sessions[activeIdx]) return;
-    window.open(withWebSshAuth('/webssh-api/file/download?sshInfo=' + encodeURIComponent(sessions[activeIdx].sshInfo) + '&path=' + encodeURIComponent(path)), '_blank');
+    // POST 表单避免 SSH 凭据进入 URL；浏览器直接接收流，不把大文件整块读入内存。
+    var form = document.createElement('form');
+    form.method = 'POST';
+    form.action = '/webssh-api/file/download';
+    form.target = '_blank';
+    form.style.display = 'none';
+    [{ name: 'sshInfo', value: sessions[activeIdx].sshInfo }, { name: 'path', value: path }]
+        .forEach(function (field) {
+            var input = document.createElement('input');
+            input.type = 'hidden';
+            input.name = field.name;
+            input.value = field.value || '';
+            form.appendChild(input);
+        });
+    document.body.appendChild(form);
+    form.submit();
+    form.remove();
 }
 
 function sftpUpload() {
@@ -1289,81 +1357,6 @@ function initSettings() {
     }
 }
 
-// ==================== URL Auto-Login ====================
-function isPrivateKey(s) {
-    if (!s) return false;
-    var decoded = s;
-    try { decoded = decodeURIComponent(s); } catch (e) {}
-    // Private keys start with -----BEGIN or are very long (>200 chars)
-    return decoded.indexOf('-----BEGIN') === 0 || decoded.indexOf('-----BEGIN') !== -1 || decoded.length > 200;
-}
-
-function parseUrlLogin() {
-    var path = location.pathname;
-    if (!path || path === '/') return null;
-    path = path.replace(/^\/+/, '').replace(/\/+$/, '');
-    if (!path) return null;
-    // OCI Worker 挂在 /webssh/index.html，勿把 webssh 当成 SSH 主机
-    path = path.replace(/^webssh\/?/i, '');
-    if (!path || path === 'index.html') return null;
-
-    var parts = path.split('/');
-    var host, port, user, pass, authType;
-
-    // Supported formats:
-    // ip:port/password                 (2 parts)
-    // ip:port/user/password            (3 parts, host has colon)
-    // ip/port/password                 (3 parts, port is numeric)
-    // ip/user/password                 (3 parts, port is not numeric)
-    // ip/port/user/password            (4 parts)
-    // ip/port/user/privatekey          (4 parts, key detected)
-
-    if (parts.length === 2) {
-        // ip:port/password OR ip/password
-        var hp = parts[0].split(':');
-        host = hp[0];
-        port = hp[1] ? parseInt(hp[1]) : 22;
-        pass = decodeURIComponent(parts[1]);
-        user = 'root';
-    } else if (parts.length === 3) {
-        var hp = parts[0].split(':');
-        if (hp.length === 2) {
-            // ip:port/user/password
-            host = hp[0];
-            port = parseInt(hp[1]);
-            user = decodeURIComponent(parts[1]);
-            pass = decodeURIComponent(parts[2]);
-        } else if (/^\d+$/.test(parts[1])) {
-            // ip/port/password
-            host = parts[0];
-            port = parseInt(parts[1]);
-            pass = decodeURIComponent(parts[2]);
-            user = 'root';
-        } else {
-            // ip/user/password
-            host = parts[0];
-            port = 22;
-            user = decodeURIComponent(parts[1]);
-            pass = decodeURIComponent(parts[2]);
-        }
-    } else if (parts.length === 4) {
-        // ip/port/user/password  OR  ip/port/user/privatekey
-        host = parts[0];
-        port = parseInt(parts[1]);
-        user = decodeURIComponent(parts[2]);
-        pass = decodeURIComponent(parts[3]);
-    } else {
-        return null;
-    }
-
-    if (!host) return null;
-
-    // Detect if credential is a private key
-    authType = isPrivateKey(pass) ? 'key' : 'password';
-
-    return { host: host, port: port || 22, user: user || 'root', pass: pass || '', authType: authType };
-}
-
 function parseConsoleParams() {
     var hash = window.location.hash;
     if (!hash || hash.indexOf('console=') === -1) return null;
@@ -1624,32 +1617,6 @@ function bootConsoleConnect() {
     tryConsoleConnect();
 }
 
-function tryAutoLogin() {
-    var info = parseUrlLogin();
-    if (!info) return;
-
-    // Fill form
-    document.getElementById('hostname').value = info.host;
-    document.getElementById('port').value = info.port;
-    document.getElementById('username').value = info.user;
-
-    if (info.authType === 'key') {
-        switchAuthTab('key');
-        document.getElementById('privateKey').value = info.pass;
-    } else {
-        switchAuthTab('password');
-        document.getElementById('password').value = info.pass;
-    }
-
-    // Clean URL without reload
-    history.replaceState(null, '', '/');
-
-    // Auto connect after short delay
-    setTimeout(function () {
-        connectFromLogin();
-    }, 500);
-}
-
 // ==================== Init ====================
 initTheme();
 bootConsoleConnect();
@@ -1661,8 +1628,6 @@ try {
 } catch (e) {
     console.error('WebSSH init partial failure', e);
 }
-tryAutoLogin();
-
 // Fetch server config (footer visibility etc.)
 (function () {
     function applyServerConfig(cfg) {

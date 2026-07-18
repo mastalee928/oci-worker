@@ -67,4 +67,21 @@ class LoginSecurityServiceTest {
         assertThat(service.isDeniedForLogin("198.51.100.2", "device-1")).isTrue();
         verify(notificationService, times(0)).getKvValue(any(SysCfgEnum.class));
     }
+
+    @Test
+    void repeatedPasswordFailuresTemporarilyLockIpAndSuccessClearsIt() {
+        NotificationService notificationService = mock(NotificationService.class);
+        VerifyCodeService verifyCodeService = mock(VerifyCodeService.class);
+        LoginSecurityService service = new LoginSecurityService();
+        ReflectionTestUtils.setField(service, "notificationService", notificationService);
+        ReflectionTestUtils.setField(service, "verifyCodeService", verifyCodeService);
+
+        for (int i = 0; i < 10; i++) {
+            service.onPasswordLoginFailed("admin", "203.0.113.9", null);
+        }
+
+        assertThat(service.passwordLoginRetryAfterSeconds("203.0.113.9")).isPositive();
+        service.onPasswordLoginSucceeded("203.0.113.9");
+        assertThat(service.passwordLoginRetryAfterSeconds("203.0.113.9")).isZero();
+    }
 }

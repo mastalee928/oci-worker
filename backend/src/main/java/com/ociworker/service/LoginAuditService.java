@@ -15,10 +15,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 
-import org.springframework.web.util.ContentCachingRequestWrapper;
-
-import java.nio.charset.Charset;
-import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.Enumeration;
@@ -28,18 +24,16 @@ import java.util.Map;
 import java.util.TreeMap;
 
 /**
- * 登录审计：账号、尝试密码、IP、成败、设备、UA 解析、请求扩展详情 JSON；保留 7 天。
- * <p>login_detail 可按部署需求记录完整请求明文（含 Cookie、Authorization、Body），须严格限制库与备份访问权限。</p>
+ * 登录审计：账号、结果、IP、设备、UA 与经过脱敏的请求元数据；保留 7 天。
+ * 登录密码、TG 验证码、Authorization、Cookie 和请求 Body 永不落库。
  */
 @Slf4j
 @Service
 public class LoginAuditService {
 
-    private static final int PASSWORD_FIELD_MAX = 500;
-    /** 单条 login_detail JSON 最大长度（MEDIUMTEXT）；超出则整体截断 */
-    private static final int LOGIN_DETAIL_JSON_MAX = 15_500_000;
-    /** 遍历请求头时，单个 header 值过长则截断（防 OOM） */
-    private static final int SINGLE_HEADER_VALUE_MAX = 512 * 1024;
+    /** 单条脱敏详情上限；登录审计不应成为大对象或敏感数据存储。 */
+    private static final int LOGIN_DETAIL_JSON_MAX = 64 * 1024;
+    private static final int SINGLE_HEADER_VALUE_MAX = 2 * 1024;
 
     @Resource
     private OciLoginAuditMapper loginAuditMapper;
@@ -81,23 +75,22 @@ public class LoginAuditService {
 
     public void recordPasswordLogin(
             String account,
-            String passwordPlain,
             String ip,
             String deviceId,
             boolean success,
             HttpServletRequest request) {
-        recordPasswordLogin(account, passwordPlain, ip, deviceId, success,
+        recordPasswordLogin(account, ip, deviceId, success,
                 captureRequestSnapshot(request));
     }
 
     public void recordPasswordLogin(
             String account,
-            String passwordPlain,
             String ip,
             String deviceId,
             boolean success,
             LoginRequestSnapshot requestSnapshot) {
-        insertRow(account, passwordPlain, ip, deviceId, success, requestSnapshot, "password");
+        insertRow(account, success ? "密码登录成功" : "密码已隐藏",
+                ip, deviceId, success, requestSnapshot, "password");
     }
 
     public void recordTelegramLogin(
@@ -106,9 +99,9 @@ public class LoginAuditService {
             String deviceId,
             boolean success,
             HttpServletRequest request,
-            String passwordPlaceholder) {
+            String eventSummary) {
         recordTelegramLogin(account, ip, deviceId, success,
-                captureRequestSnapshot(request), passwordPlaceholder);
+                captureRequestSnapshot(request), eventSummary);
     }
 
     public LoginRequestSnapshot captureRequestSnapshot(HttpServletRequest request) {
@@ -123,13 +116,16 @@ public class LoginAuditService {
             String deviceId,
             boolean success,
             LoginRequestSnapshot requestSnapshot,
-            String passwordPlaceholder) {
-        insertRow(account, passwordPlaceholder, ip, deviceId, success, requestSnapshot, "telegram");
+            String eventSummary) {
+        String summary = StrUtil.isBlank(eventSummary)
+                ? (success ? "TG 验证成功" : "TG 验证失败")
+                : eventSummary.trim();
+        insertRow(account, summary, ip, deviceId, success, requestSnapshot, "telegram");
     }
 
     private void insertRow(
             String account,
-            String passwordPlain,
+            String credentialSummary,
             String ip,
             String deviceId,
             boolean success,
@@ -140,8 +136,8 @@ public class LoginAuditService {
             ParsedUa p = parseUserAgent(userAgent);
             OciLoginAudit row = new OciLoginAudit();
             row.setId(CommonUtils.generateId());
-            row.setAccount(StrUtil.trimToNull(account));
-            row.setPasswordAttempt(truncatePwd(passwordPlain));
+            row.setAccount(sanitizeAuditText(account, 64));
+            row.setPasswordAttempt(truncPlain(credentialSummary, 120));
             row.setIp(ip != null ? ip.trim() : null);
             row.setSuccess(success);
             row.setDeviceId(StrUtil.trimToNull(deviceId));
@@ -158,8 +154,8 @@ public class LoginAuditService {
     }
 
     /**
-     * 登录请求扩展详情 JSON（中文分组键便于前端展示）。按运维要求记录尽量完整的明文请求信息；
-     * 单 header / 整 JSON 仍有上限以防恶意超大请求导致 OOM。
+     * 登录请求扩展详情 JSON（中文分组键便于前端展示）。仅保留排障所需元数据，
+     * 所有认证头、Cookie、设备 Cookie 明文与请求 Body 均脱敏。
      */
     private static String buildLoginDetailJson(HttpServletRequest req) {
         if (req == null) {
@@ -237,7 +233,6 @@ public class LoginAuditService {
             client.put("User-Agent", nz(req.getHeader("User-Agent")));
             String did = HttpRequestUtil.getCookie(req, "ow_did");
             client.put("设备Cookie(ow_did)已携带", StrUtil.isNotBlank(did) ? "是" : "否");
-            client.put("ow_did(明文)", nz(did));
             root.put("客户端与能力", client);
 
             Map<String, Object> allHeaders = new TreeMap<>();
@@ -248,16 +243,16 @@ public class LoginAuditService {
                         continue;
                     }
                     String v = req.getHeader(hn);
-                    allHeaders.put(hn, truncPlain(v, SINGLE_HEADER_VALUE_MAX));
+                    allHeaders.put(hn, safeHeaderValue(hn, v));
                 }
             }
-            root.put("全部请求头（明文）", allHeaders);
+            root.put("请求头（已脱敏）", allHeaders);
 
             Map<String, Object> raw = new LinkedHashMap<>();
-            raw.put("Cookie", nz(req.getHeader("Cookie")));
-            raw.put("Authorization", nz(req.getHeader("Authorization")));
-            raw.put("RequestBody", readCachedRequestBody(req));
-            root.put("请求原文（高敏感）", raw);
+            raw.put("Cookie", redactionMarker(req.getHeader("Cookie")));
+            raw.put("Authorization", redactionMarker(req.getHeader("Authorization")));
+            raw.put("RequestBody", req.getContentLengthLong() == 0 ? "" : "[REDACTED]");
+            root.put("敏感字段处理", raw);
 
             String json = JSONUtil.toJsonStr(root);
             if (json.length() > LOGIN_DETAIL_JSON_MAX) {
@@ -268,26 +263,6 @@ public class LoginAuditService {
             log.warn("[LoginAudit] buildLoginDetailJson: {}", e.getMessage());
             return null;
         }
-    }
-
-    private static String readCachedRequestBody(HttpServletRequest req) {
-        if (!(req instanceof ContentCachingRequestWrapper w)) {
-            return "";
-        }
-        byte[] buf = w.getContentAsByteArray();
-        if (buf == null || buf.length == 0) {
-            return "";
-        }
-        Charset cs = StandardCharsets.UTF_8;
-        String enc = req.getCharacterEncoding();
-        if (enc != null && !enc.isBlank()) {
-            try {
-                cs = Charset.forName(enc.trim());
-            } catch (Exception ignored) {
-                // keep UTF-8
-            }
-        }
-        return new String(buf, cs);
     }
 
     private static String truncPlain(String s, int max) {
@@ -304,14 +279,28 @@ public class LoginAuditService {
         return s == null ? "" : s.trim();
     }
 
-    private static String truncatePwd(String p) {
-        if (p == null) {
-            return null;
+    private static String safeHeaderValue(String name, String value) {
+        if (name == null) return "";
+        String n = name.trim().toLowerCase(Locale.ROOT);
+        if (n.equals("authorization") || n.equals("proxy-authorization")
+                || n.equals("cookie") || n.equals("set-cookie")
+                || n.equals("x-api-key") || n.contains("token") || n.contains("secret")
+                || n.contains("session") || n.contains("credential") || n.contains("jwt")
+                || n.contains("csrf") || n.endsWith("-key")) {
+            return redactionMarker(value);
         }
-        if (p.length() <= PASSWORD_FIELD_MAX) {
-            return p;
-        }
-        return p.substring(0, PASSWORD_FIELD_MAX);
+        return truncPlain(value, SINGLE_HEADER_VALUE_MAX);
+    }
+
+    private static String redactionMarker(String value) {
+        return StrUtil.isBlank(value) ? "" : "[REDACTED]";
+    }
+
+    private static String sanitizeAuditText(String value, int maxLen) {
+        String cleaned = StrUtil.trimToNull(value);
+        if (cleaned == null) return null;
+        cleaned = cleaned.replaceAll("[\\p{Cntrl}\\r\\n]", "?");
+        return cleaned.length() <= maxLen ? cleaned : cleaned.substring(0, maxLen);
     }
 
     public IPage<OciLoginAudit> pageAudits(long current, long size) {

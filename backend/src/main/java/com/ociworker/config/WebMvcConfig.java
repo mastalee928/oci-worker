@@ -15,11 +15,13 @@ public class WebMvcConfig implements WebMvcConfigurer {
 
     @Override
     public void addCorsMappings(CorsRegistry registry) {
-        registry.addMapping("/**")
-                .allowedOriginPatterns("*")
-                .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
+        // 管理面板与 WebSSH 仅允许同源访问。仅 OpenAI 兼容接口允许浏览器跨域，
+        // 且不接收 Cookie 凭据，避免任意站点读取面板登录态。
+        registry.addMapping("/v1/**")
+                .allowedOrigins("*")
+                .allowedMethods("GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS")
                 .allowedHeaders("*")
-                .allowCredentials(true)
+                .allowCredentials(false)
                 .maxAge(3600);
     }
 

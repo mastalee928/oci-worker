@@ -29,15 +29,12 @@ public class WebSocketConfig implements WebSocketConfigurer {
     @Override
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
         registry.addHandler(logWebSocketHandler, "/ws/log")
-                .setAllowedOrigins("*");
+                .addInterceptors(webSshAuthHandshakeInterceptor);
         registry.addHandler(webSshTerminalWebSocketHandler, "/webssh-api/term")
-                .addInterceptors(webSshAuthHandshakeInterceptor)
-                .setAllowedOrigins("*");
+                .addInterceptors(webSshAuthHandshakeInterceptor);
         registry.addHandler(webSshConsoleTerminalWebSocketHandler, "/webssh-api/console-term")
-                .addInterceptors(webSshAuthHandshakeInterceptor)
-                .setAllowedOrigins("*");
+                .addInterceptors(webSshAuthHandshakeInterceptor);
         registry.addHandler(webSshUploadProgressWebSocketHandler, "/webssh-api/file/progress")
-                .addInterceptors(webSshAuthHandshakeInterceptor)
-                .setAllowedOrigins("*");
+                .addInterceptors(webSshAuthHandshakeInterceptor);
     }
 }

@@ -7,9 +7,11 @@ import './assets/global.css'
 import App from './App.vue'
 import router from './router'
 import { installOverlayEscBlock } from './utils/overlayClose'
+import { scrubLegacyWebSshStoredSecrets } from './utils/session'
 
 message.config({ maxCount: 3 })
 installOverlayEscBlock()
+scrubLegacyWebSshStoredSecrets()
 
 const app = createApp(App)
 app.use(createPinia())

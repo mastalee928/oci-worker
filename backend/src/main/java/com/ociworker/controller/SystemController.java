@@ -1,7 +1,6 @@
 package com.ociworker.controller;
 
 import cn.hutool.core.util.StrUtil;
-import cn.hutool.crypto.digest.DigestUtil;
 import com.google.common.net.InetAddresses;
 import com.ociworker.enums.SysCfgEnum;
 import com.ociworker.model.dto.OciProxySnapshot;
@@ -170,11 +169,10 @@ public class SystemController {
             verifyCodeService.verifyCode("notifyConfig", code);
         } else {
             String pwd = params.get("password");
-            if (StrUtil.isBlank(pwd)) {
+            if (StrUtil.isBlank(pwd) || pwd.length() > 256) {
                 return ResponseData.error("请输入登录密码进行验证");
             }
-            String inputHash = DigestUtil.sha256Hex(pwd);
-            if (!panelAuthService.verifyPasswordHash(inputHash)) {
+            if (!panelAuthService.verifyPassword(pwd)) {
                 return ResponseData.error("密码错误");
             }
         }

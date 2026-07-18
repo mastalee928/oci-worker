@@ -4,8 +4,11 @@ import cn.hutool.core.util.IdUtil;
 import cn.hutool.crypto.digest.DigestUtil;
 
 import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
 import java.security.MessageDigest;
 import java.util.Base64;
+import javax.crypto.Mac;
+import javax.crypto.spec.SecretKeySpec;
 
 public class CommonUtils {
 
@@ -25,19 +28,32 @@ public class CommonUtils {
             "root密码：%s";
 
     private static final long TOKEN_EXPIRE_HOURS = 24;
+    private static final long TOKEN_EXPIRE_MS = TOKEN_EXPIRE_HOURS * 60 * 60 * 1000L;
+    private static final long TOKEN_FUTURE_SKEW_MS = 5 * 60 * 1000L;
+    private static final SecureRandom TOKEN_RANDOM = new SecureRandom();
 
     public static String generateId() {
         return IdUtil.fastSimpleUUID();
     }
 
     public static String generateToken(String account, String password) {
-        long expireSlot = System.currentTimeMillis() / (1000 * 60 * 60 * TOKEN_EXPIRE_HOURS);
-        String raw = account + ":" + password + ":" + expireSlot;
-        return Base64.getEncoder().encodeToString(DigestUtil.sha256(raw));
+        if (account == null || password == null) return null;
+        long issuedAt = System.currentTimeMillis();
+        byte[] nonce = new byte[18];
+        TOKEN_RANDOM.nextBytes(nonce);
+        Base64.Encoder encoder = Base64.getUrlEncoder().withoutPadding();
+        String nonceText = encoder.encodeToString(nonce);
+        String payload = account + ":" + issuedAt + ":" + nonceText;
+        String signature = encoder.encodeToString(hmacSha256(password, payload));
+        return "v2." + issuedAt + "." + nonceText + "." + signature;
     }
 
     public static boolean validateToken(String token, String account, String password) {
         if (token == null || account == null || password == null) return false;
+        if (token.startsWith("v2.")) {
+            return validateV2Token(token, account, password, System.currentTimeMillis());
+        }
+        // 兼容升级前签发的时间片 Token，最长保留一个旧周期；新登录只签发 v2。
         long currentSlot = System.currentTimeMillis() / (1000 * 60 * 60 * TOKEN_EXPIRE_HOURS);
         byte[] tokenBytes = token.getBytes(StandardCharsets.UTF_8);
         for (int i = 0; i <= 1; i++) {
@@ -47,6 +63,32 @@ public class CommonUtils {
             if (MessageDigest.isEqual(tokenBytes, expectedBytes)) return true;
         }
         return false;
+    }
+
+    private static boolean validateV2Token(String token, String account, String password, long now) {
+        try {
+            String[] parts = token.split("\\.", -1);
+            if (parts.length != 4 || !"v2".equals(parts[0]) || parts[2].length() < 16) return false;
+            long issuedAt = Long.parseLong(parts[1]);
+            long age = now - issuedAt;
+            if (age < -TOKEN_FUTURE_SKEW_MS || age > TOKEN_EXPIRE_MS) return false;
+            String payload = account + ":" + issuedAt + ":" + parts[2];
+            byte[] expected = Base64.getUrlDecoder().decode(parts[3]);
+            byte[] actual = hmacSha256(password, payload);
+            return MessageDigest.isEqual(expected, actual);
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private static byte[] hmacSha256(String secret, String payload) {
+        try {
+            Mac mac = Mac.getInstance("HmacSHA256");
+            mac.init(new SecretKeySpec(secret.getBytes(StandardCharsets.UTF_8), "HmacSHA256"));
+            return mac.doFinal(payload.getBytes(StandardCharsets.UTF_8));
+        } catch (Exception e) {
+            throw new IllegalStateException("Token signing failed", e);
+        }
     }
 
     public static String getPwdShell(String password) {

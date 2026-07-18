@@ -4,6 +4,7 @@ import {
   clearPanelSession,
   getPanelAccount,
   getPanelToken,
+  markPanelSessionValidated,
   setPanelAccount,
   setPanelToken,
 } from '../utils/session'
@@ -38,6 +39,7 @@ export const useUserStore = defineStore('user', () => {
   /** 登录成功后写入 token 与用户名 */
   function setLoginSession(t: string, name?: string) {
     setToken(t)
+    markPanelSessionValidated(t)
     if (name?.trim()) setAccount(name.trim())
   }
 

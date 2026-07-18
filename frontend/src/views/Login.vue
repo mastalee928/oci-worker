@@ -11,12 +11,12 @@
       <template v-if="loginMode === 'password'">
         <a-form :model="form" @finish="handleLogin" layout="vertical" class="login-form">
           <a-form-item name="account" :rules="[{ required: true, message: '请输入账号' }]">
-            <a-input v-model:value="form.account" placeholder="管理员账号" size="large" class="login-input">
+            <a-input v-model:value="form.account" placeholder="管理员账号" :maxlength="64" size="large" class="login-input">
               <template #prefix><i class="ri-user-3-line input-prefix-icon"></i></template>
             </a-input>
           </a-form-item>
           <a-form-item name="password" :rules="[{ required: true, message: '请输入密码' }]">
-            <a-input-password v-model:value="form.password" placeholder="登录密码" size="large" class="login-input">
+            <a-input-password v-model:value="form.password" placeholder="登录密码" :maxlength="256" size="large" class="login-input">
               <template #prefix><i class="ri-lock-2-line input-prefix-icon"></i></template>
             </a-input-password>
           </a-form-item>

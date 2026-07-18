@@ -1,6 +1,5 @@
 package com.ociworker.controller;
 
-import cn.hutool.crypto.digest.DigestUtil;
 import com.ociworker.mapper.OciKvMapper;
 import com.ociworker.model.params.LoginParams;
 import com.ociworker.model.vo.ResponseData;
@@ -64,10 +63,9 @@ class AuthControllerTest {
         NotificationService notificationService = mock(NotificationService.class);
         OciKvMapper kvMapper = mock(OciKvMapper.class);
         HttpServletRequest request = mock(HttpServletRequest.class);
-        String passwordHash = DigestUtil.sha256Hex("safe-password");
         when(panelAuthService.isReady()).thenReturn(true);
         when(panelAuthService.isConfigured()).thenReturn(true);
-        when(panelAuthService.authenticate("safe-admin", passwordHash))
+        when(panelAuthService.authenticate("safe-admin", "safe-password"))
                 .thenReturn(new PanelAuthService.AuthenticatedSession("safe-admin", "session-token"));
 
         AuthController controller = new AuthController();

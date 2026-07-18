@@ -82,4 +82,16 @@ class PanelAuthServiceTest {
         assertThat(service.isReady()).isFalse();
         assertThat(service.validateToken("any-token")).isFalse();
     }
+
+    @Test
+    void modernPasswordHashAuthenticatesRawPassword() {
+        PanelAuthService service = new PanelAuthService();
+        String encoded = com.ociworker.util.PanelPasswordHasher.hash("modern-password");
+        service.updateCredentialSnapshot("admin", encoded);
+
+        assertThat(service.authenticate("admin", "modern-password")).isNotNull();
+        assertThat(service.authenticate("admin", "wrong")).isNull();
+        assertThat(service.verifyPassword("modern-password")).isTrue();
+        assertThat(service.needsPasswordHashUpgrade()).isFalse();
+    }
 }

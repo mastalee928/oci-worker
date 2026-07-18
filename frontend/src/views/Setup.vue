@@ -11,22 +11,22 @@
 
       <div class="security-notice">
         <i class="ri-shield-check-line" style="color: #818cf8; font-size: 18px; flex-shrink: 0"></i>
-        <span>请设置管理员账户，密码至少6位</span>
+        <span>请设置管理员账户，密码至少8位</span>
       </div>
 
       <a-form :model="form" @finish="handleSetup" layout="vertical" class="setup-form">
         <a-form-item name="account" :rules="[{ required: true, message: '请设置用户名' }]">
-          <a-input v-model:value="form.account" placeholder="设置用户名" size="large" class="setup-input">
+          <a-input v-model:value="form.account" placeholder="设置用户名" :maxlength="64" size="large" class="setup-input">
             <template #prefix><i class="ri-user-3-line input-prefix-icon"></i></template>
           </a-input>
         </a-form-item>
         <a-form-item name="password" :rules="passwordRules">
-          <a-input-password v-model:value="form.password" placeholder="设置密码" size="large" class="setup-input">
+          <a-input-password v-model:value="form.password" placeholder="设置密码" :maxlength="256" size="large" class="setup-input">
             <template #prefix><i class="ri-lock-2-line input-prefix-icon"></i></template>
           </a-input-password>
         </a-form-item>
         <a-form-item name="confirmPassword" :rules="confirmRules">
-          <a-input-password v-model:value="form.confirmPassword" placeholder="确认密码" size="large" class="setup-input">
+          <a-input-password v-model:value="form.confirmPassword" placeholder="确认密码" :maxlength="256" size="large" class="setup-input">
             <template #prefix><i class="ri-lock-2-line input-prefix-icon"></i></template>
           </a-input-password>
         </a-form-item>
@@ -76,7 +76,7 @@ onMounted(async () => {
 
 const passwordRules = [
   { required: true, message: '请设置密码' },
-  { min: 6, message: '密码至少6个字符' },
+  { min: 8, message: '密码至少8个字符' },
 ]
 
 const confirmRules = [
