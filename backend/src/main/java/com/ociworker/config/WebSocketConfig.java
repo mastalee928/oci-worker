@@ -29,7 +29,10 @@ public class WebSocketConfig implements WebSocketConfigurer {
     @Override
     public void registerWebSocketHandlers(WebSocketHandlerRegistry registry) {
         registry.addHandler(logWebSocketHandler, "/ws/log")
-                .addInterceptors(webSshAuthHandshakeInterceptor);
+                .addInterceptors(webSshAuthHandshakeInterceptor)
+                // Cloudflare / Nginx 常以 HTTPS 对外、HTTP 回源，Spring 的静态同源判断会
+                // 因协议不同误拒绝。日志端点已由 30 秒一次性票据严格保护，可安全兼容代理。
+                .setAllowedOriginPatterns("*");
         registry.addHandler(webSshTerminalWebSocketHandler, "/webssh-api/term")
                 .addInterceptors(webSshAuthHandshakeInterceptor);
         registry.addHandler(webSshConsoleTerminalWebSocketHandler, "/webssh-api/console-term")
