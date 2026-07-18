@@ -1,5 +1,7 @@
 import { createRouter, createWebHashHistory, type RouteRecordRaw } from 'vue-router'
 import { defineAppAsyncComponent, isStaleChunkError, reloadOnceForUpdatedAssets } from '../utils/asyncComponent'
+import Login from '../views/Login.vue'
+import Setup from '../views/Setup.vue'
 import {
   clearPanelSession,
   isPanelSessionValidated,
@@ -27,13 +29,15 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/login',
     name: 'Login',
-    component: appRoute(() => import('../views/Login.vue'), '登录页面', 'compact'),
+    // 登录页是未认证用户的首屏入口，直接打入主包，避免先闪出“登录页面加载中”。
+    component: Login,
     meta: { title: '登录', public: true },
   },
   {
     path: '/setup',
     name: 'Setup',
-    component: appRoute(() => import('../views/Setup.vue'), '初始化页面', 'compact'),
+    // 初始化页同样必须首屏可用，不经过异步组件骨架。
+    component: Setup,
     meta: { title: '初始化设置', public: true },
   },
   {
