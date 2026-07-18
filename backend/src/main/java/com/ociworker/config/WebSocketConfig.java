@@ -34,10 +34,15 @@ public class WebSocketConfig implements WebSocketConfigurer {
                 // 因协议不同误拒绝。日志端点已由 30 秒一次性票据严格保护，可安全兼容代理。
                 .setAllowedOriginPatterns("*");
         registry.addHandler(webSshTerminalWebSocketHandler, "/webssh-api/term")
-                .addInterceptors(webSshAuthHandshakeInterceptor);
+                .addInterceptors(webSshAuthHandshakeInterceptor)
+                // 与日志 WebSocket 相同：HTTPS 反代到 HTTP 后端时协议不同，Spring
+                // 的默认同源判断会误拒绝。端点仍由登录令牌和安全黑名单严格保护。
+                .setAllowedOriginPatterns("*");
         registry.addHandler(webSshConsoleTerminalWebSocketHandler, "/webssh-api/console-term")
-                .addInterceptors(webSshAuthHandshakeInterceptor);
+                .addInterceptors(webSshAuthHandshakeInterceptor)
+                .setAllowedOriginPatterns("*");
         registry.addHandler(webSshUploadProgressWebSocketHandler, "/webssh-api/file/progress")
-                .addInterceptors(webSshAuthHandshakeInterceptor);
+                .addInterceptors(webSshAuthHandshakeInterceptor)
+                .setAllowedOriginPatterns("*");
     }
 }
