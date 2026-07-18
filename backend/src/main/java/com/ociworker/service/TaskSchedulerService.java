@@ -194,11 +194,15 @@ public class TaskSchedulerService implements SmartLifecycle {
         wrapper.orderByDesc(OciCreateTask::getCreateTime);
         Page<OciCreateTask> result = taskMapper.selectPage(page, wrapper);
 
-        Map<String, OciUser> usersById = userMapper.selectBatchIds(result.getRecords().stream()
+        List<String> userIds = result.getRecords().stream()
                 .map(OciCreateTask::getUserId)
                 .filter(Objects::nonNull)
                 .distinct()
-                .toList()).stream().collect(java.util.stream.Collectors.toMap(OciUser::getId, u -> u, (a, b) -> a));
+                .toList();
+        Map<String, OciUser> usersById = userIds.isEmpty()
+                ? Map.of()
+                : userMapper.selectBatchIds(userIds).stream()
+                        .collect(java.util.stream.Collectors.toMap(OciUser::getId, u -> u, (a, b) -> a));
         Page<Map<String, Object>> enriched = new Page<>(result.getCurrent(), result.getSize(), result.getTotal());
         enriched.setRecords(result.getRecords().stream().map(task -> {
             Map<String, Object> map = new java.util.LinkedHashMap<>();
