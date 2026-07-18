@@ -4,7 +4,6 @@ import com.ociworker.service.LogPersistService;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.web.socket.CloseStatus;
-import org.springframework.web.socket.SubProtocolCapable;
 import org.springframework.web.socket.TextMessage;
 import org.springframework.web.socket.WebSocketSession;
 import org.springframework.web.socket.handler.ConcurrentWebSocketSessionDecorator;
@@ -17,9 +16,7 @@ import java.util.concurrent.ConcurrentHashMap;
 
 @Slf4j
 @Component
-public class LogWebSocketHandler extends TextWebSocketHandler implements SubProtocolCapable {
-
-    private static final List<String> SUB_PROTOCOLS = List.of("ociworker-log-v1");
+public class LogWebSocketHandler extends TextWebSocketHandler {
 
     /**
      * Maps raw session id -> wrapped (thread-safe) decorator to avoid concurrent sendMessage.
@@ -29,11 +26,6 @@ public class LogWebSocketHandler extends TextWebSocketHandler implements SubProt
 
     public LogWebSocketHandler(LogPersistService persistService) {
         logPersistService = persistService;
-    }
-
-    @Override
-    public List<String> getSubProtocols() {
-        return SUB_PROTOCOLS;
     }
 
     @Override

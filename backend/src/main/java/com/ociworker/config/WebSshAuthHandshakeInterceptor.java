@@ -2,6 +2,7 @@ package com.ociworker.config;
 
 import com.ociworker.service.LoginSecurityService;
 import com.ociworker.service.PanelAuthService;
+import com.ociworker.service.WebSocketTicketService;
 import com.ociworker.util.HttpRequestUtil;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
@@ -13,20 +14,17 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.socket.WebSocketHandler;
 import org.springframework.web.socket.server.HandshakeInterceptor;
 
-import java.nio.charset.StandardCharsets;
-import java.util.Base64;
 import java.util.Map;
 
 @Component
 public class WebSshAuthHandshakeInterceptor implements HandshakeInterceptor {
 
-    private static final String WEB_SOCKET_PROTOCOL_HEADER = "Sec-WebSocket-Protocol";
-    private static final String TOKEN_PROTOCOL_PREFIX = "ociworker-token-b64.";
-
     @Resource
     private PanelAuthService panelAuthService;
     @Resource
     private LoginSecurityService loginSecurityService;
+    @Resource
+    private WebSocketTicketService webSocketTicketService;
 
     @Override
     public boolean beforeHandshake(ServerHttpRequest request, ServerHttpResponse response,
@@ -39,11 +37,9 @@ public class WebSshAuthHandshakeInterceptor implements HandshakeInterceptor {
 
         if (request instanceof ServletServerHttpRequest servletRequest) {
             HttpServletRequest raw = servletRequest.getServletRequest();
-            boolean authenticated = panelAuthService.validateRequestToken(raw, false, true);
-            if (!authenticated) {
-                String protocolToken = readProtocolToken(raw.getHeader(WEB_SOCKET_PROTOCOL_HEADER));
-                authenticated = panelAuthService.validateToken(protocolToken);
-            }
+            boolean authenticated = "/ws/log".equals(uri)
+                    && webSocketTicketService.consume(raw.getParameter("ticket"));
+            if (!authenticated) authenticated = panelAuthService.validateRequestToken(raw, false, true);
             if (!authenticated) {
                 response.setStatusCode(HttpStatus.UNAUTHORIZED);
                 return false;
@@ -62,28 +58,6 @@ public class WebSshAuthHandshakeInterceptor implements HandshakeInterceptor {
             }
         }
         return true;
-    }
-
-    private static String readProtocolToken(String protocolHeader) {
-        if (protocolHeader == null || protocolHeader.isBlank()) {
-            return null;
-        }
-        for (String item : protocolHeader.split(",")) {
-            String protocol = item.trim();
-            if (!protocol.startsWith(TOKEN_PROTOCOL_PREFIX)) {
-                continue;
-            }
-            String encoded = protocol.substring(TOKEN_PROTOCOL_PREFIX.length());
-            if (encoded.isBlank() || encoded.length() > 4096) {
-                return null;
-            }
-            try {
-                return new String(Base64.getUrlDecoder().decode(encoded), StandardCharsets.UTF_8);
-            } catch (IllegalArgumentException ignored) {
-                return null;
-            }
-        }
-        return null;
     }
 
     @Override

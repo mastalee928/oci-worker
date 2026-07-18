@@ -69,6 +69,7 @@ let scrollRaf: number | null = null
 let manualDisconnect = false
 let viewActive = false
 let reconnectAttempts = 0
+let ticketRequestPending = false
 const shouldAutoConnect = ref(true)
 
 const searchKeyword = ref('')
@@ -82,8 +83,6 @@ const isSearchMode = ref(false)
 const REALTIME_RENDER_LIMIT = 1500
 const SEARCH_RENDER_LIMIT = 1000
 const SEARCH_REQUEST_LIMIT = 1000
-const LOG_SUB_PROTOCOL = 'ociworker-log-v1'
-const TOKEN_PROTOCOL_PREFIX = 'ociworker-token-b64.'
 let logSeq = 0
 let searchRequestSeq = 0
 
@@ -133,22 +132,19 @@ const displayRows = computed<LogDisplayRow[]>(() => {
   return source.slice(start).map((item) => ({ key: `r-${item.seq}`, line: item.text }))
 })
 
-function getWsUrl() {
+function getWsUrl(ticket: string) {
   const protocol = location.protocol === 'https:' ? 'wss' : 'ws'
-  return `${protocol}://${location.host}/ws/log`
-}
-
-function encodeTokenProtocol(token: string) {
-  const bytes = new TextEncoder().encode(token)
-  let binary = ''
-  for (const byte of bytes) binary += String.fromCharCode(byte)
-  const encoded = btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')
-  return `${TOKEN_PROTOCOL_PREFIX}${encoded}`
+  return `${protocol}://${location.host}/ws/log?ticket=${encodeURIComponent(ticket)}`
 }
 
 function connect() {
+  void connectWithTicket()
+}
+
+async function connectWithTicket() {
   if (!viewActive || !shouldAutoConnect.value) return
   if (ws && ws.readyState <= WebSocket.OPEN) return
+  if (ticketRequestPending) return
   manualDisconnect = false
 
   const token = normalizePanelToken(getPanelToken())
@@ -160,13 +156,41 @@ function connect() {
   }
 
   connectionState.value = reconnectAttempts > 0 ? 'reconnecting' : 'connecting'
+  ticketRequestPending = true
+  let ticket = ''
+  try {
+    const res = await request.post('/log/ws-ticket', null, {
+      skipBusinessMessage: true,
+      skipErrorMessage: true,
+    } as OciRequestConfig)
+    ticket = String(res?.data?.ticket || '')
+  } catch {
+    connected.value = false
+    if (!normalizePanelToken(getPanelToken())) {
+      shouldAutoConnect.value = false
+      connectionState.value = 'auth-failed'
+    } else {
+      connectionState.value = 'failed'
+      scheduleReconnect()
+    }
+    return
+  } finally {
+    ticketRequestPending = false
+  }
+  if (!ticket) {
+    connectionState.value = 'failed'
+    scheduleReconnect()
+    return
+  }
+  if (!viewActive || !shouldAutoConnect.value || manualDisconnect) return
+
   let socket: WebSocket
   try {
-    socket = new WebSocket(getWsUrl(), [LOG_SUB_PROTOCOL, encodeTokenProtocol(token)])
+    socket = new WebSocket(getWsUrl(ticket))
   } catch {
     connected.value = false
     connectionState.value = 'failed'
-    verifySessionAndReconnect()
+    scheduleReconnect()
     return
   }
   ws = socket
@@ -194,7 +218,7 @@ function connect() {
       return
     }
     connectionState.value = 'failed'
-    verifySessionAndReconnect()
+    scheduleReconnect()
   }
   socket.onerror = () => {
     if (ws !== socket) return
@@ -240,26 +264,6 @@ function scheduleReconnect() {
   retryDelaySeconds.value = Math.ceil(delay / 1000)
   connectionState.value = 'reconnecting'
   reconnectTimer = setTimeout(() => connect(), delay)
-}
-
-async function verifySessionAndReconnect() {
-  try {
-    await request.get('/auth/account', {
-      skipBusinessMessage: true,
-      skipErrorMessage: true,
-    } as OciRequestConfig)
-  } catch {
-    // The global request interceptor clears an expired token on 401. Network
-    // failures keep the token and continue through the normal reconnect path.
-    if (!normalizePanelToken(getPanelToken())) {
-      shouldAutoConnect.value = false
-      connectionState.value = 'auth-failed'
-      return
-    }
-  }
-  if (!manualDisconnect && viewActive && shouldAutoConnect.value && !ws) {
-    scheduleReconnect()
-  }
 }
 
 function stopReconnect() {
