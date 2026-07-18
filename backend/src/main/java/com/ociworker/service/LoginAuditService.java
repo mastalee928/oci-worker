@@ -19,133 +19,106 @@ import java.time.LocalDateTime;
 import java.util.Collections;
 import java.util.Enumeration;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
 
 /**
- * 登录审计：账号、结果、IP、设备、UA 与经过脱敏的请求元数据；保留 7 天。
- * 登录密码、TG 验证码、Authorization、Cookie 和请求 Body 永不落库。
+ * 登录审计：完整记录登录画像并保留 7 天。密码、验证码、Cookie、Authorization、
+ * 请求 Body 与完整请求详情使用 AES-256-GCM 加密后落库；TG 验证通过后才解密展示。
  */
 @Slf4j
 @Service
 public class LoginAuditService {
 
-    /** 单条脱敏详情上限；登录审计不应成为大对象或敏感数据存储。 */
-    private static final int LOGIN_DETAIL_JSON_MAX = 64 * 1024;
-    private static final int SINGLE_HEADER_VALUE_MAX = 2 * 1024;
+    private static final int LOGIN_DETAIL_JSON_MAX = 15_500_000;
+    private static final int SINGLE_HEADER_VALUE_MAX = 512 * 1024;
+    private static final int CREDENTIAL_FIELD_MAX = 256;
 
     @Resource
     private OciLoginAuditMapper loginAuditMapper;
+    @Resource
+    private LoginAuditCryptoService loginAuditCryptoService;
 
     public record ParsedUa(String os, String browser) {}
     public record LoginRequestSnapshot(String userAgent, String detailJson) {}
 
     public static ParsedUa parseUserAgent(String ua) {
-        if (ua == null || ua.isBlank()) {
-            return new ParsedUa("未知", "未知");
-        }
+        if (ua == null || ua.isBlank()) return new ParsedUa("未知", "未知");
         String u = ua.toLowerCase(Locale.ROOT);
         String os = "未知";
-        if (u.contains("windows")) {
-            os = "Windows";
-        } else if (u.contains("android")) {
-            os = "Android";
-        } else if (u.contains("iphone") || u.contains("ipad") || u.contains("ios")) {
-            os = "iOS";
-        } else if (u.contains("mac os") || u.contains("macintosh")) {
-            os = "macOS";
-        } else if (u.contains("linux")) {
-            os = "Linux";
-        }
+        if (u.contains("windows")) os = "Windows";
+        else if (u.contains("android")) os = "Android";
+        else if (u.contains("iphone") || u.contains("ipad") || u.contains("ios")) os = "iOS";
+        else if (u.contains("mac os") || u.contains("macintosh")) os = "macOS";
+        else if (u.contains("linux")) os = "Linux";
+
         String browser = "未知";
-        if (u.contains("edg/")) {
-            browser = "Edge";
-        } else if (u.contains("opr/") || u.contains("opera")) {
-            browser = "Opera";
-        } else if (u.contains("firefox/")) {
-            browser = "Firefox";
-        } else if (u.contains("chrome/") || u.contains("crios/")) {
-            browser = "Chrome";
-        } else if (u.contains("safari/") && !u.contains("chrome")) {
-            browser = "Safari";
-        }
+        if (u.contains("edg/")) browser = "Edge";
+        else if (u.contains("opr/") || u.contains("opera")) browser = "Opera";
+        else if (u.contains("firefox/")) browser = "Firefox";
+        else if (u.contains("chrome/") || u.contains("crios/")) browser = "Chrome";
+        else if (u.contains("safari/") && !u.contains("chrome")) browser = "Safari";
         return new ParsedUa(os, browser);
     }
 
-    public void recordPasswordLogin(
-            String account,
-            String ip,
-            String deviceId,
-            boolean success,
-            HttpServletRequest request) {
-        recordPasswordLogin(account, ip, deviceId, success,
-                captureRequestSnapshot(request));
+    public void recordPasswordLogin(String account, String passwordPlain, String ip, String deviceId,
+                                    boolean success, HttpServletRequest request, String resultMessage,
+                                    String requestBody) {
+        recordPasswordLogin(account, passwordPlain, ip, deviceId, success,
+                captureRequestSnapshot(request, requestBody), resultMessage);
     }
 
-    public void recordPasswordLogin(
-            String account,
-            String ip,
-            String deviceId,
-            boolean success,
-            LoginRequestSnapshot requestSnapshot) {
-        insertRow(account, success ? "密码登录成功" : "密码已隐藏",
-                ip, deviceId, success, requestSnapshot, "password");
+    public void recordPasswordLogin(String account, String passwordPlain, String ip, String deviceId,
+                                    boolean success, LoginRequestSnapshot requestSnapshot,
+                                    String resultMessage) {
+        insertRow(account, passwordPlain, ip, deviceId, success, requestSnapshot,
+                "password", resultMessage);
     }
 
-    public void recordTelegramLogin(
-            String account,
-            String ip,
-            String deviceId,
-            boolean success,
-            HttpServletRequest request,
-            String eventSummary) {
-        recordTelegramLogin(account, ip, deviceId, success,
-                captureRequestSnapshot(request), eventSummary);
+    public void recordTelegramLogin(String account, String inputCode, String ip, String deviceId,
+                                    boolean success, HttpServletRequest request, String resultMessage,
+                                    String requestBody) {
+        recordTelegramLogin(account, inputCode, ip, deviceId, success,
+                captureRequestSnapshot(request, requestBody), resultMessage);
     }
 
-    public LoginRequestSnapshot captureRequestSnapshot(HttpServletRequest request) {
+    public void recordTelegramLogin(String account, String inputCode, String ip, String deviceId,
+                                    boolean success, LoginRequestSnapshot requestSnapshot,
+                                    String resultMessage) {
+        insertRow(account, inputCode, ip, deviceId, success, requestSnapshot,
+                "telegram", resultMessage);
+    }
+
+    public LoginRequestSnapshot captureRequestSnapshot(HttpServletRequest request, String requestBody) {
         return new LoginRequestSnapshot(
                 request != null ? request.getHeader("User-Agent") : null,
-                buildLoginDetailJson(request));
+                buildLoginDetailJson(request, requestBody));
     }
 
-    public void recordTelegramLogin(
-            String account,
-            String ip,
-            String deviceId,
-            boolean success,
-            LoginRequestSnapshot requestSnapshot,
-            String eventSummary) {
-        String summary = StrUtil.isBlank(eventSummary)
-                ? (success ? "TG 验证成功" : "TG 验证失败")
-                : eventSummary.trim();
-        insertRow(account, summary, ip, deviceId, success, requestSnapshot, "telegram");
-    }
-
-    private void insertRow(
-            String account,
-            String credentialSummary,
-            String ip,
-            String deviceId,
-            boolean success,
-            LoginRequestSnapshot requestSnapshot,
-            String channel) {
+    private void insertRow(String account, String credentialPlain, String ip, String deviceId,
+                           boolean success, LoginRequestSnapshot requestSnapshot,
+                           String channel, String resultMessage) {
         try {
+            String id = CommonUtils.generateId();
             String userAgent = requestSnapshot != null ? requestSnapshot.userAgent() : null;
-            ParsedUa p = parseUserAgent(userAgent);
+            ParsedUa parsedUa = parseUserAgent(userAgent);
             OciLoginAudit row = new OciLoginAudit();
-            row.setId(CommonUtils.generateId());
+            row.setId(id);
             row.setAccount(sanitizeAuditText(account, 64));
-            row.setPasswordAttempt(truncPlain(credentialSummary, 120));
+            row.setPasswordAttempt(loginAuditCryptoService.encrypt(
+                    truncate(credentialPlain, CREDENTIAL_FIELD_MAX), id, "passwordAttempt"));
             row.setIp(ip != null ? ip.trim() : null);
             row.setSuccess(success);
             row.setDeviceId(StrUtil.trimToNull(deviceId));
-            row.setOsName(p.os());
-            row.setBrowserName(p.browser());
+            row.setOsName(parsedUa.os());
+            row.setBrowserName(parsedUa.browser());
             row.setLoginChannel(channel);
-            row.setUserAgent(userAgent != null && userAgent.length() > 2000 ? userAgent.substring(0, 2000) : userAgent);
-            row.setLoginDetail(requestSnapshot != null ? requestSnapshot.detailJson() : null);
+            row.setResultMessage(sanitizeAuditText(resultMessage, 128));
+            row.setUserAgent(truncate(userAgent, 2000));
+            String detail = requestSnapshot != null ? requestSnapshot.detailJson() : null;
+            row.setLoginDetail(loginAuditCryptoService.encrypt(detail, id, "loginDetail"));
             row.setCreateTime(LocalDateTime.now());
             loginAuditMapper.insert(row);
         } catch (Exception e) {
@@ -153,14 +126,9 @@ public class LoginAuditService {
         }
     }
 
-    /**
-     * 登录请求扩展详情 JSON（中文分组键便于前端展示）。仅保留排障所需元数据，
-     * 所有认证头、Cookie、设备 Cookie 明文与请求 Body 均脱敏。
-     */
-    private static String buildLoginDetailJson(HttpServletRequest req) {
-        if (req == null) {
-            return null;
-        }
+    /** 登录请求完整详情；整个 JSON 在写库前加密，因此可保留原始排障信息。 */
+    private static String buildLoginDetailJson(HttpServletRequest req, String requestBody) {
+        if (req == null) return null;
         try {
             Map<String, Object> root = new LinkedHashMap<>();
 
@@ -231,28 +199,27 @@ public class LoginAuditService {
             client.put("Accept-Encoding", nz(req.getHeader("Accept-Encoding")));
             client.put("Accept", nz(req.getHeader("Accept")));
             client.put("User-Agent", nz(req.getHeader("User-Agent")));
-            String did = HttpRequestUtil.getCookie(req, "ow_did");
-            client.put("设备Cookie(ow_did)已携带", StrUtil.isNotBlank(did) ? "是" : "否");
+            String deviceCookie = HttpRequestUtil.getCookie(req, "ow_did");
+            client.put("设备Cookie(ow_did)已携带", StrUtil.isNotBlank(deviceCookie) ? "是" : "否");
+            client.put("ow_did(明文)", nz(deviceCookie));
             root.put("客户端与能力", client);
 
             Map<String, Object> allHeaders = new TreeMap<>();
             Enumeration<String> names = req.getHeaderNames();
             if (names != null) {
-                for (String hn : Collections.list(names)) {
-                    if (hn == null) {
-                        continue;
+                for (String name : Collections.list(names)) {
+                    if (name != null) {
+                        allHeaders.put(name, truncate(req.getHeader(name), SINGLE_HEADER_VALUE_MAX));
                     }
-                    String v = req.getHeader(hn);
-                    allHeaders.put(hn, safeHeaderValue(hn, v));
                 }
             }
-            root.put("请求头（已脱敏）", allHeaders);
+            root.put("全部请求头（加密保存）", allHeaders);
 
             Map<String, Object> raw = new LinkedHashMap<>();
-            raw.put("Cookie", redactionMarker(req.getHeader("Cookie")));
-            raw.put("Authorization", redactionMarker(req.getHeader("Authorization")));
-            raw.put("RequestBody", req.getContentLengthLong() == 0 ? "" : "[REDACTED]");
-            root.put("敏感字段处理", raw);
+            raw.put("Cookie", nz(req.getHeader("Cookie")));
+            raw.put("Authorization", nz(req.getHeader("Authorization")));
+            raw.put("RequestBody", requestBody == null ? "" : requestBody);
+            root.put("请求原文（加密保存）", raw);
 
             String json = JSONUtil.toJsonStr(root);
             if (json.length() > LOGIN_DETAIL_JSON_MAX) {
@@ -265,35 +232,47 @@ public class LoginAuditService {
         }
     }
 
-    private static String truncPlain(String s, int max) {
-        if (s == null) {
-            return "";
+    public IPage<OciLoginAudit> pageAudits(long current, long size) {
+        IPage<OciLoginAudit> page = loginAuditMapper.selectPage(
+                new Page<>(current, size),
+                new LambdaQueryWrapper<OciLoginAudit>().orderByDesc(OciLoginAudit::getCreateTime));
+        List<OciLoginAudit> records = page.getRecords();
+        if (records == null) return page;
+        for (OciLoginAudit row : records) {
+            try {
+                row.setPasswordAttempt(loginAuditCryptoService.decryptIfEncrypted(
+                        row.getPasswordAttempt(), row.getId(), "passwordAttempt"));
+                row.setLoginDetail(loginAuditCryptoService.decryptIfEncrypted(
+                        row.getLoginDetail(), row.getId(), "loginDetail"));
+            } catch (Exception e) {
+                log.warn("[LoginAudit] decrypt failed for {}: {}", row.getId(), e.getMessage());
+                row.setPasswordAttempt("(凭据解密失败)");
+                row.setLoginDetail(null);
+            }
         }
-        if (s.length() <= max) {
-            return s;
-        }
-        return s.substring(0, max) + "…(超长已截断)";
+        return page;
     }
 
-    private static String nz(String s) {
-        return s == null ? "" : s.trim();
-    }
-
-    private static String safeHeaderValue(String name, String value) {
-        if (name == null) return "";
-        String n = name.trim().toLowerCase(Locale.ROOT);
-        if (n.equals("authorization") || n.equals("proxy-authorization")
-                || n.equals("cookie") || n.equals("set-cookie")
-                || n.equals("x-api-key") || n.contains("token") || n.contains("secret")
-                || n.contains("session") || n.contains("credential") || n.contains("jwt")
-                || n.contains("csrf") || n.endsWith("-key")) {
-            return redactionMarker(value);
+    /** 每天凌晨删除超过 7 天的记录。 */
+    @Scheduled(cron = "0 0 3 * * ?")
+    public void purgeOlderThanSevenDays() {
+        try {
+            LocalDateTime cutoff = LocalDateTime.now().minusDays(7);
+            int deleted = loginAuditMapper.delete(
+                    new LambdaQueryWrapper<OciLoginAudit>().lt(OciLoginAudit::getCreateTime, cutoff));
+            if (deleted > 0) log.info("[LoginAudit] purged {} rows older than 7 days", deleted);
+        } catch (Exception e) {
+            log.warn("[LoginAudit] purge failed (表可能尚未创建): {}", e.getMessage());
         }
-        return truncPlain(value, SINGLE_HEADER_VALUE_MAX);
     }
 
-    private static String redactionMarker(String value) {
-        return StrUtil.isBlank(value) ? "" : "[REDACTED]";
+    private static String truncate(String value, int max) {
+        if (value == null) return null;
+        return value.length() <= max ? value : value.substring(0, max) + "…(超长已截断)";
+    }
+
+    private static String nz(String value) {
+        return value == null ? "" : value.trim();
     }
 
     private static String sanitizeAuditText(String value, int maxLen) {
@@ -301,26 +280,5 @@ public class LoginAuditService {
         if (cleaned == null) return null;
         cleaned = cleaned.replaceAll("[\\p{Cntrl}\\r\\n]", "?");
         return cleaned.length() <= maxLen ? cleaned : cleaned.substring(0, maxLen);
-    }
-
-    public IPage<OciLoginAudit> pageAudits(long current, long size) {
-        return loginAuditMapper.selectPage(
-                new Page<>(current, size),
-                new LambdaQueryWrapper<OciLoginAudit>().orderByDesc(OciLoginAudit::getCreateTime));
-    }
-
-    /** 每天凌晨删除超过 7 天的记录 */
-    @Scheduled(cron = "0 0 3 * * ?")
-    public void purgeOlderThanSevenDays() {
-        try {
-            LocalDateTime cutoff = LocalDateTime.now().minusDays(7);
-            int n = loginAuditMapper.delete(
-                    new LambdaQueryWrapper<OciLoginAudit>().lt(OciLoginAudit::getCreateTime, cutoff));
-            if (n > 0) {
-                log.info("[LoginAudit] purged {} rows older than 7 days", n);
-            }
-        } catch (Exception e) {
-            log.warn("[LoginAudit] purge failed (表可能尚未创建): {}", e.getMessage());
-        }
     }
 }

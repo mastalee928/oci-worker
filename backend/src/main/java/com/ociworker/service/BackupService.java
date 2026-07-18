@@ -1,6 +1,7 @@
 package com.ociworker.service;
 
 import com.ociworker.exception.OciException;
+import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import net.lingala.zip4j.ZipFile;
 import net.lingala.zip4j.model.ZipParameters;
@@ -43,6 +44,11 @@ public class BackupService {
 
     private final DataSource dataSource;
 
+    @Resource
+    private LoginAuditCryptoService loginAuditCryptoService;
+    @Resource
+    private DatabaseGuardService databaseGuardService;
+
     public BackupService(DataSource dataSource) {
         this.dataSource = dataSource;
     }
@@ -74,6 +80,7 @@ public class BackupService {
 
     public byte[] createBackup(String password) {
         try {
+            loginAuditCryptoService.requireReady();
             String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
             Path tempDir = Files.createTempDirectory("oci-worker-backup-");
             Path sqlDumpFile = tempDir.resolve("oci-worker-dump.sql");
@@ -132,6 +139,9 @@ public class BackupService {
                 }
                 copyDirectory(keysSource, keysTarget.toPath());
             }
+
+            loginAuditCryptoService.reloadFromDisk();
+            databaseGuardService.secureLoginAuditAfterRestore();
 
             deleteDirectory(tempDir);
             log.info("Backup restored successfully");
@@ -459,6 +469,9 @@ public class BackupService {
                 "device_id", "os_name", "browser_name", "login_channel", "user_agent", "create_time");
         addLegacyColumns(map, "oci_login_audit", "id", "account", "password_attempt", "ip", "success",
                 "device_id", "os_name", "browser_name", "login_channel", "user_agent", "login_detail", "create_time");
+        addLegacyColumns(map, "oci_login_audit", "id", "account", "password_attempt", "ip", "success",
+                "device_id", "os_name", "browser_name", "login_channel", "result_message", "user_agent",
+                "login_detail", "create_time");
 
         addLegacyColumns(map, "oci_openai_key", "id", "oci_user_id", "key_hash", "key_prefix",
                 "name", "disabled", "create_time", "last_used");

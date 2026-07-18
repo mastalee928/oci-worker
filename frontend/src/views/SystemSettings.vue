@@ -465,7 +465,7 @@
               :columns="auditColumns"
               :data-source="auditRows"
               :pagination="auditPagination"
-              :scroll="{ x: 1312 }"
+              :scroll="{ x: 1470 }"
               :expand-column-width="46"
               :expand-icon="auditExpandIcon"
               @change="onAuditTableChange"
@@ -789,6 +789,7 @@ const securityUnlocking = ref(false)
 const securityCodeCountdown = ref(0)
 const securitySession = ref('')
 let securityCountdownTimer: ReturnType<typeof setInterval> | null = null
+let securityAccessExpiryTimer: ReturnType<typeof setTimeout> | null = null
 const pwdLoading = ref(false)
 const saveLoading = ref(false)
 const testLoading = ref(false)
@@ -1206,6 +1207,7 @@ async function unlockSecuritySettingsPanel() {
     }
     securityTgVerified.value = true
     securityUnlockCode.value = ''
+    armSecurityAccessExpiry()
     message.success('验证通过')
     selectSettingsSecondary('password')
   } catch {
@@ -1215,11 +1217,7 @@ async function unlockSecuritySettingsPanel() {
   }
 }
 
-function handleSecuritySessionLost(e: unknown): boolean {
-  const msg = e instanceof Error ? e.message : String(e ?? '')
-  if (!msg.includes('安全设置') && !msg.includes('Telegram 验证') && !msg.includes('登录统计') && !msg.includes('封禁列表')) {
-    return false
-  }
+function clearSecurityAccess() {
   securityTgVerified.value = false
   securitySession.value = ''
   auditSession.value = ''
@@ -1228,7 +1226,28 @@ function handleSecuritySessionLost(e: unknown): boolean {
   activeSettingsPrimary.value = 'security'
   activeTab.value = 'security'
   securitySection.value = 'password'
+  auditRows.value = []
   auditExpandedKeys.value = []
+  if (securityAccessExpiryTimer) {
+    clearTimeout(securityAccessExpiryTimer)
+    securityAccessExpiryTimer = null
+  }
+}
+
+function armSecurityAccessExpiry() {
+  if (securityAccessExpiryTimer) clearTimeout(securityAccessExpiryTimer)
+  securityAccessExpiryTimer = setTimeout(() => {
+    clearSecurityAccess()
+    message.warning('安全验证已过期，请重新完成 Telegram 验证')
+  }, 30 * 60 * 1000)
+}
+
+function handleSecuritySessionLost(e: unknown): boolean {
+  const msg = e instanceof Error ? e.message : String(e ?? '')
+  if (!msg.includes('安全设置') && !msg.includes('Telegram 验证') && !msg.includes('登录统计') && !msg.includes('封禁列表')) {
+    return false
+  }
+  clearSecurityAccess()
   return true
 }
 
@@ -1553,9 +1572,10 @@ function auditExpandIcon(p: {
 
 const auditColumns = [
   { title: '账号', dataIndex: 'account', key: 'account', ellipsis: true, width: 135 },
-  { title: '凭据结果', dataIndex: 'passwordAttempt', key: 'passwordAttempt', ellipsis: true, width: 190 },
+  { title: '密码/验证码', dataIndex: 'passwordAttempt', key: 'passwordAttempt', ellipsis: true, width: 190 },
   { title: 'IP', dataIndex: 'ip', key: 'ip', width: 205 },
   { title: '结果', key: 'success', width: 74 },
+  { title: '登录说明', dataIndex: 'resultMessage', key: 'resultMessage', ellipsis: true, width: 150 },
   { title: '设备码', dataIndex: 'deviceId', key: 'deviceId', width: 220 },
   { title: '操作系统', dataIndex: 'osName', key: 'osName', width: 90 },
   { title: '浏览器', dataIndex: 'browserName', key: 'browserName', width: 90 },
@@ -1633,6 +1653,10 @@ function auditDetailSections(record: Record<string, unknown>): AuditDetailSectio
       'Fetch 元数据',
       'Client Hints',
       '客户端与能力',
+      '全部请求头（加密保存）',
+      '请求原文（加密保存）',
+      '全部请求头（明文）',
+      '请求原文（高敏感）',
       '请求头（已脱敏）',
       '敏感字段处理',
     ]
@@ -1944,6 +1968,8 @@ function checkMobile() { isMobile.value = window.innerWidth < 768 }
 onUnmounted(() => {
   window.removeEventListener('resize', checkMobile)
   if (securityCountdownTimer) clearInterval(securityCountdownTimer)
+  if (securityAccessExpiryTimer) clearTimeout(securityAccessExpiryTimer)
+  auditRows.value = []
   clearUpdateTimers()
 })
 

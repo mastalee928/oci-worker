@@ -74,15 +74,16 @@ CREATE TABLE IF NOT EXISTS cf_cfg (
 CREATE TABLE IF NOT EXISTS oci_login_audit (
     id VARCHAR(64) PRIMARY KEY,
     account VARCHAR(128) DEFAULT NULL,
-    password_attempt VARCHAR(512) DEFAULT NULL,
+    password_attempt TEXT NULL,
     ip VARCHAR(255) DEFAULT NULL,
     success TINYINT(1) NOT NULL DEFAULT 0,
     device_id VARCHAR(128) DEFAULT NULL,
     os_name VARCHAR(128) DEFAULT NULL,
     browser_name VARCHAR(128) DEFAULT NULL,
     login_channel VARCHAR(32) DEFAULT 'password',
+    result_message VARCHAR(128) DEFAULT NULL,
     user_agent TEXT,
-    login_detail MEDIUMTEXT NULL COMMENT 'JSON: 访问入口、网络与链路、客户端与能力',
+    login_detail LONGTEXT NULL COMMENT 'AES-256-GCM: 登录请求完整详情',
     create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_oci_login_audit_time (create_time DESC)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

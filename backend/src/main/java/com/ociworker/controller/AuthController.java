@@ -1,6 +1,7 @@
 package com.ociworker.controller;
 
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.json.JSONUtil;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.ociworker.mapper.OciKvMapper;
 import com.ociworker.model.entity.OciKv;
@@ -188,17 +189,24 @@ public class AuthController {
         String ip = HttpRequestUtil.getClientIp(request);
         String deviceId = loginSecurityService.readDeviceIdFromRequest(request);
         String loginAccount = StrUtil.trim(params.getAccount());
+        String auditBody = JSONUtil.toJsonStr(Map.of(
+                "account", params.getAccount(), "password", params.getPassword()));
         if (loginSecurityService.isDeniedForLogin(ip, deviceId)) {
-            loginAuditService.recordPasswordLogin(loginAccount, ip, deviceId, false, request);
+            loginAuditService.recordPasswordLogin(loginAccount, params.getPassword(), ip, deviceId,
+                    false, request, "封禁拦截", auditBody);
             return ResponseData.error(403, "访问被拒绝");
         }
 
         long retryAfter = loginSecurityService.passwordLoginRetryAfterSeconds(ip);
         if (retryAfter > 0) {
+            loginAuditService.recordPasswordLogin(loginAccount, params.getPassword(), ip, deviceId,
+                    false, request, "频率限制（剩余 " + retryAfter + " 秒）", auditBody);
             return ResponseData.error(429, "登录失败次数过多，请 " + retryAfter + " 秒后重试");
         }
 
         if (!PASSWORD_CHECK_SLOTS.tryAcquire()) {
+            loginAuditService.recordPasswordLogin(loginAccount, params.getPassword(), ip, deviceId,
+                    false, request, "登录验证繁忙", auditBody);
             return ResponseData.error(429, "登录验证请求过多，请稍后重试");
         }
         PanelAuthService.AuthenticatedSession session;
@@ -209,7 +217,8 @@ public class AuthController {
         }
 
         if (session == null) {
-            loginAuditService.recordPasswordLogin(loginAccount, ip, deviceId, false, request);
+            loginAuditService.recordPasswordLogin(loginAccount, params.getPassword(), ip, deviceId,
+                    false, request, "账号或密码错误", auditBody);
             loginSecurityService.onPasswordLoginFailed(loginAccount, ip, deviceId);
             return ResponseData.error("账号或密码错误");
         }
@@ -219,10 +228,13 @@ public class AuthController {
 
         String effectiveAccount = session.account();
         PanelAuthService.AuthenticatedSession finalSession = session;
+        String successfulPassword = params.getPassword();
+        LoginAuditService.LoginRequestSnapshot auditSnapshot =
+                loginAuditService.captureRequestSnapshot(request, auditBody);
         VIRTUAL_EXECUTOR.submit(() -> {
             try { loginAuditService.recordPasswordLogin(
-                    effectiveAccount, ip, deviceId, true,
-                    (LoginAuditService.LoginRequestSnapshot) null); }
+                    effectiveAccount, successfulPassword, ip, deviceId, true,
+                    auditSnapshot, "登录成功"); }
             catch (Exception ignored) { }
         });
         VIRTUAL_EXECUTOR.submit(() -> notificationService.sendMessage(NotificationService.TYPE_LOGIN,
@@ -301,34 +313,40 @@ public class AuthController {
         String ip = HttpRequestUtil.getClientIp(request);
         String deviceId = loginSecurityService.readDeviceIdFromRequest(request);
         String tgAcct = panelAuthService.currentAccount();
+        String inputCode = params.get("code");
+        String auditBody = JSONUtil.toJsonStr(params);
         if (tgAcct == null) {
             return ResponseData.error(503, "安全配置正在加载，请稍后重试");
         }
         if (loginSecurityService.isDeniedForLogin(ip, deviceId)) {
-            loginAuditService.recordTelegramLogin(tgAcct, ip, deviceId, false, request, "(封禁拦截)");
+            loginAuditService.recordTelegramLogin(tgAcct, inputCode, ip, deviceId,
+                    false, request, "封禁拦截", auditBody);
             return ResponseData.error(403, "访问被拒绝");
         }
 
-        String inputCode = params.get("code");
         if (inputCode == null || inputCode.isBlank() || inputCode.length() > 64) {
-            loginAuditService.recordTelegramLogin(tgAcct, ip, deviceId, false, request, "(未填验证码)");
+            loginAuditService.recordTelegramLogin(tgAcct, inputCode, ip, deviceId,
+                    false, request, "未填验证码", auditBody);
             return ResponseData.error("请输入验证码");
         }
 
         if (tgLoginCode == null) {
-            loginAuditService.recordTelegramLogin(tgAcct, ip, deviceId, false, request, "(未获取验证码)");
+            loginAuditService.recordTelegramLogin(tgAcct, inputCode, ip, deviceId,
+                    false, request, "未获取验证码", auditBody);
             return ResponseData.error("请先获取验证码");
         }
 
         if (System.currentTimeMillis() > tgLoginCodeExpireAt) {
             tgLoginCode = null;
-            loginAuditService.recordTelegramLogin(tgAcct, ip, deviceId, false, request, "(验证码过期)");
+            loginAuditService.recordTelegramLogin(tgAcct, inputCode, ip, deviceId,
+                    false, request, "验证码过期", auditBody);
             return ResponseData.error("验证码已过期，请重新获取");
         }
 
         if (tgLoginFailCount.get() >= TG_CODE_MAX_ATTEMPTS) {
             tgLoginCode = null;
-            loginAuditService.recordTelegramLogin(tgAcct, ip, deviceId, false, request, "(验证锁定)");
+            loginAuditService.recordTelegramLogin(tgAcct, inputCode, ip, deviceId,
+                    false, request, "验证锁定", auditBody);
             notificationService.sendMessage(String.format(
                     "【登录通知】🚨 TG验证码登录被锁定\n连续错误 %d 次\nIP: %s\n时间: %s",
                     TG_CODE_MAX_ATTEMPTS, ip, nowStr()));
@@ -336,7 +354,8 @@ public class AuthController {
         }
 
         if (!tgLoginCode.equals(inputCode)) {
-            loginAuditService.recordTelegramLogin(tgAcct, ip, deviceId, false, request, "(验证码错误)");
+            loginAuditService.recordTelegramLogin(tgAcct, inputCode, ip, deviceId,
+                    false, request, "验证码错误", auditBody);
             int fails = tgLoginFailCount.incrementAndGet();
             int remaining = TG_CODE_MAX_ATTEMPTS - fails;
             if (remaining <= 0) {
@@ -359,9 +378,10 @@ public class AuthController {
         }
         String effectiveAccount = session.account();
 
-        LoginAuditService.LoginRequestSnapshot auditSnapshot = loginAuditService.captureRequestSnapshot(request);
+        LoginAuditService.LoginRequestSnapshot auditSnapshot =
+                loginAuditService.captureRequestSnapshot(request, auditBody);
         VIRTUAL_EXECUTOR.submit(() -> loginAuditService.recordTelegramLogin(
-                effectiveAccount, ip, deviceId, true, auditSnapshot, "(TG验证码)"));
+                effectiveAccount, inputCode, ip, deviceId, true, auditSnapshot, "TG 验证登录成功"));
         VIRTUAL_EXECUTOR.submit(() -> notificationService.sendMessage(NotificationService.TYPE_LOGIN,
                 String.format("【登录通知】✅ TG验证码登录成功\nIP: %s\n时间: %s", ip, nowStr())));
 

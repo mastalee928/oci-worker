@@ -20,8 +20,10 @@ public class OciLoginAudit {
     private String browserName;
     /** password | telegram */
     private String loginChannel;
+    /** 登录成功、密码错误、封禁拦截、频率限制等结果说明。 */
+    private String resultMessage;
     private String userAgent;
-    /** JSON：访问入口、网络、客户端与已脱敏请求头；不包含密码、验证码、Token 或 Cookie 明文。 */
+    /** AES-256-GCM 加密的 JSON：访问入口、网络、客户端、请求头与请求原文。 */
     private String loginDetail;
     private LocalDateTime createTime;
 }

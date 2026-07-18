@@ -23,6 +23,8 @@ public class DatabaseGuardService {
     private DataSource dataSource;
     @Resource
     private NotificationService notificationService;
+    @Resource
+    private LoginAuditCryptoService loginAuditCryptoService;
 
     private static final String BACKUP_DIR = "./db-backups";
     private static final int KEEP_DAYS = 7;
@@ -384,15 +386,16 @@ public class DatabaseGuardService {
             CREATE TABLE IF NOT EXISTS oci_login_audit (
                 id VARCHAR(64) PRIMARY KEY,
                 account VARCHAR(128) DEFAULT NULL,
-                password_attempt VARCHAR(512) DEFAULT NULL,
+                password_attempt TEXT NULL,
                 ip VARCHAR(255) DEFAULT NULL,
                 success TINYINT(1) NOT NULL DEFAULT 0,
                 device_id VARCHAR(128) DEFAULT NULL,
                 os_name VARCHAR(128) DEFAULT NULL,
                 browser_name VARCHAR(128) DEFAULT NULL,
                 login_channel VARCHAR(32) DEFAULT 'password',
+                result_message VARCHAR(128) DEFAULT NULL,
                 user_agent TEXT,
-                login_detail MEDIUMTEXT NULL,
+                login_detail LONGTEXT NULL,
                 create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 INDEX idx_oci_login_audit_time (create_time DESC)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
@@ -472,10 +475,10 @@ public class DatabaseGuardService {
             }
 
             migrateColumns(conn);
-            sanitizeLegacyLoginAuditSecrets(conn);
+            encryptLegacyLoginAuditSecrets(conn);
         } catch (Exception e) {
             log.error("【数据库守护】启动自检失败: {}", e.getMessage(), e);
-            sendAlert("启动自检失败", "数据库连接异常: " + e.getMessage());
+            sendAlert("启动自检失败", "数据库或安全密钥自检异常: " + e.getMessage());
             return;
         }
 
@@ -642,7 +645,13 @@ public class DatabaseGuardService {
         addColumnIfMissing(conn, "oci_tenant_traffic_protection", "collection_lock_until",
                 "DATETIME DEFAULT NULL AFTER collection_lock_owner");
         addColumnIfMissing(conn, "oci_login_audit", "login_detail",
-                "MEDIUMTEXT NULL COMMENT 'JSON: 访问入口、网络与链路、客户端与能力' AFTER user_agent");
+                "LONGTEXT NULL COMMENT 'AES-256-GCM: 登录请求完整详情' AFTER user_agent");
+        addColumnIfMissing(conn, "oci_login_audit", "result_message",
+                "VARCHAR(128) DEFAULT NULL AFTER login_channel");
+        modifyColumnTypeIfDifferent(conn, "oci_login_audit", "password_attempt", "TEXT",
+                "TEXT NULL");
+        modifyColumnTypeIfDifferent(conn, "oci_login_audit", "login_detail", "LONGTEXT",
+                "LONGTEXT NULL COMMENT 'AES-256-GCM: 登录请求完整详情'");
         addColumnIfMissing(conn, "oci_openai_key", "key_encrypted",
                 "TEXT NULL COMMENT 'AES 加密完整 sk，供面板查看' AFTER key_prefix");
         addColumnIfMissing(conn, "oci_openai_port_binding", "status",
@@ -708,43 +717,104 @@ public class DatabaseGuardService {
     }
 
     /**
-     * 旧版登录审计曾保存密码/验证码、Authorization、Cookie 与请求 Body 明文。
-     * 升级时只执行一次不可逆脱敏，防止历史凭据继续存在于在线数据库和后续备份中。
+     * 将升级前的登录审计明文原地转换为 AES-256-GCM 密文，并记录密钥指纹。
+     * 可安全重复执行；不会再清空仍有排障价值的历史请求详情。
      */
-    private void sanitizeLegacyLoginAuditSecrets(Connection conn) {
-        final String markerCode = "security_login_audit_redacted_v1";
+    private void encryptLegacyLoginAuditSecrets(Connection conn) {
+        final String markerCode = "security_login_audit_encrypted_v1";
         final String markerType = "sys_migration";
         try (PreparedStatement check = conn.prepareStatement(
-                "SELECT 1 FROM oci_kv WHERE code = ? AND type = ? LIMIT 1")) {
+                "SELECT value FROM oci_kv WHERE code = ? AND type = ? LIMIT 1")) {
             check.setString(1, markerCode);
             check.setString(2, markerType);
             try (ResultSet rs = check.executeQuery()) {
-                if (rs.next()) return;
-            }
-
-            int affected;
-            try (PreparedStatement redact = conn.prepareStatement(
-                    "UPDATE oci_login_audit "
-                            + "SET password_attempt = '(历史凭据已清理)', login_detail = NULL "
-                            + "WHERE password_attempt IS NOT NULL OR login_detail IS NOT NULL")) {
-                affected = redact.executeUpdate();
-            }
-
-            try (PreparedStatement marker = conn.prepareStatement(
-                    "INSERT INTO oci_kv (id, code, value, type, create_time) "
-                            + "VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)")) {
-                marker.setString(1, UUID.randomUUID().toString().replace("-", ""));
-                marker.setString(2, markerCode);
-                marker.setString(3, LocalDateTime.now().toString());
-                marker.setString(4, markerType);
-                marker.executeUpdate();
-            }
-            if (affected > 0) {
-                log.warn("【数据库守护】已永久清理 {} 条历史登录审计中的明文凭据", affected);
+                if (rs.next()) {
+                    loginAuditCryptoService.requireKeyFingerprint(rs.getString("value"));
+                    return;
+                }
             }
         } catch (SQLException e) {
-            log.error("【数据库守护】清理历史登录审计敏感字段失败: {}", e.getMessage(), e);
-            throw new IllegalStateException("Failed to sanitize legacy login audit secrets", e);
+            log.warn("【数据库守护】检查登录审计加密状态失败，将在下次启动重试: {}", e.getMessage());
+            return;
+        }
+
+        record LegacyAuditSecret(String id, String passwordAttempt, String loginDetail) {}
+        String selectSql = "SELECT id, password_attempt, login_detail FROM oci_login_audit "
+                + "WHERE id > ? ORDER BY id LIMIT 100";
+        String updateSql = "UPDATE oci_login_audit SET password_attempt = ?, login_detail = ? WHERE id = ?";
+        int total = 0;
+        String afterId = "";
+        while (true) {
+            List<LegacyAuditSecret> rows = new ArrayList<>(100);
+            try (PreparedStatement select = conn.prepareStatement(selectSql)) {
+                select.setString(1, afterId);
+                try (ResultSet rs = select.executeQuery()) {
+                    while (rs.next()) {
+                        rows.add(new LegacyAuditSecret(
+                                rs.getString("id"), rs.getString("password_attempt"), rs.getString("login_detail")));
+                    }
+                }
+            } catch (SQLException e) {
+                log.warn("【数据库守护】读取历史登录审计失败，将在下次启动重试: {}", e.getMessage());
+                return;
+            }
+            if (rows.isEmpty()) break;
+
+            try (PreparedStatement update = conn.prepareStatement(updateSql)) {
+                for (LegacyAuditSecret row : rows) {
+                    String password = encryptLegacyAuditValue(
+                            row.passwordAttempt(), row.id(), "passwordAttempt");
+                    String detail = encryptLegacyAuditValue(
+                            row.loginDetail(), row.id(), "loginDetail");
+                    update.setString(1, password);
+                    update.setString(2, detail);
+                    update.setString(3, row.id());
+                    update.addBatch();
+                }
+                update.executeBatch();
+                total += rows.size();
+                afterId = rows.getLast().id();
+            } catch (Exception e) {
+                log.warn("【数据库守护】历史登录审计加密失败，将在下次启动重试: {}", e.getMessage());
+                return;
+            }
+        }
+        if (total > 0) {
+            log.info("【数据库守护】已将 {} 条历史登录审计转换为 AES-256-GCM 加密存储", total);
+        }
+        try (PreparedStatement marker = conn.prepareStatement(
+                "INSERT INTO oci_kv (id, code, value, type, create_time) "
+                        + "VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)")) {
+            marker.setString(1, UUID.randomUUID().toString().replace("-", ""));
+            marker.setString(2, markerCode);
+            marker.setString(3, loginAuditCryptoService.currentKeyFingerprint());
+            marker.setString(4, markerType);
+            marker.executeUpdate();
+        } catch (SQLException e) {
+            log.warn("【数据库守护】记录登录审计加密状态失败，将在下次启动复核: {}", e.getMessage());
+        }
+    }
+
+    private String encryptLegacyAuditValue(String value, String recordId, String fieldName) {
+        if (value == null) return null;
+        if (loginAuditCryptoService.isEncrypted(value)) {
+            try {
+                loginAuditCryptoService.decryptIfEncrypted(value, recordId, fieldName);
+                return value;
+            } catch (Exception ignored) {
+                // 旧明文可能恰好以密文前缀开头，验证失败时仍按明文加密。
+            }
+        }
+        return loginAuditCryptoService.encrypt(value, recordId, fieldName);
+    }
+
+    /** 恢复旧备份后立即加密其中可能存在的历史审计明文。 */
+    public void secureLoginAuditAfterRestore() {
+        try (Connection conn = dataSource.getConnection()) {
+            migrateColumns(conn);
+            encryptLegacyLoginAuditSecrets(conn);
+        } catch (Exception e) {
+            throw new IllegalStateException("恢复后登录审计加密失败", e);
         }
     }
 
@@ -773,6 +843,21 @@ public class DatabaseGuardService {
             try (Statement stmt = conn.createStatement()) {
                 stmt.execute("ALTER TABLE `" + table + "` MODIFY COLUMN `" + column + "` " + definition);
                 log.info("【数据库守护】自动修正字段类型 {}.{}", table, column);
+            }
+        } catch (SQLException e) {
+            log.warn("【数据库守护】检查/修正字段 {}.{} 失败: {}", table, column, e.getMessage());
+        }
+    }
+
+    private void modifyColumnTypeIfDifferent(Connection conn, String table, String column,
+                                             String expectedType, String definition) {
+        try (ResultSet rs = conn.getMetaData().getColumns(conn.getCatalog(), null, table, column)) {
+            if (!rs.next()) return;
+            String typeName = rs.getString("TYPE_NAME");
+            if (typeName != null && typeName.equalsIgnoreCase(expectedType)) return;
+            try (Statement stmt = conn.createStatement()) {
+                stmt.execute("ALTER TABLE `" + table + "` MODIFY COLUMN `" + column + "` " + definition);
+                log.info("【数据库守护】自动修正字段类型 {}.{} -> {}", table, column, expectedType);
             }
         } catch (SQLException e) {
             log.warn("【数据库守护】检查/修正字段 {}.{} 失败: {}", table, column, e.getMessage());
