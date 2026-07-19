@@ -43,10 +43,13 @@ export function useInstanceDetailContext(options: UseInstanceDetailContextOption
   function openDetail(tenant: any, record: any) {
     if (!tenant || !record) return
     void callDetailDrawerShell('stopShapeSilently', [], 0)
+    // Reset an already-mounted drawer synchronously before changing the target.
+    // A delayed reset can race with the new info panel's immediate network load,
+    // cancel that request, and leave network information empty until a tab switch.
+    detailDrawerShellRef.value?.resetAllPanels?.()
     currentTenant.value = tenant
     currentInstance.value = record
     activeTab.value = 'info'
-    void callDetailDrawerShell('resetAllPanels')
     options.clearDetailOverlays()
     options.clearConsoleData()
     drawerVisible.value = true
