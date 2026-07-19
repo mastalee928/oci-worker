@@ -1,6 +1,7 @@
 package com.ociworker.service;
 
 import cn.hutool.core.util.StrUtil;
+import cn.hutool.http.HtmlUtil;
 import com.ociworker.enums.SysCfgEnum;
 import com.ociworker.exception.OciException;
 import com.ociworker.util.SecureRandomUtil;
@@ -93,9 +94,9 @@ public class VerifyCodeService {
             default -> action;
         };
         String targetLine = formatTargetLine(actionName, contextText);
-        String msg = String.format("【OCI Worker 安全验证】\n操作：%s%s\n验证码：%s\n有效期：5分钟\n\n如非本人操作，请检查账户安全。",
-                actionName, targetLine, code);
-        notificationService.sendMessage(msg);
+        String msg = String.format("【OCI Worker 安全验证】\n操作：%s%s\n验证码：<code>%s</code>\n有效期：5分钟\n\n如非本人操作，请检查账户安全。",
+                HtmlUtil.escape(actionName), HtmlUtil.escape(targetLine), code);
+        notificationService.sendTelegramHtml(msg, null);
         log.info("Verification code sent for action: {}", action);
     }
 
