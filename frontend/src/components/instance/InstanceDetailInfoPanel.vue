@@ -20,8 +20,16 @@
       <a-descriptions-item label="状态">
         <a-badge :status="stateColorMap[instance.state] || 'default'" :text="instance.state" />
       </a-descriptions-item>
-      <a-descriptions-item label="创建日期">
-        {{ formatInstanceCreatedDate(instance.timeCreated) }}
+      <a-descriptions-item label="创建时间">
+        <template v-if="hasValidInstanceCreatedTime(instance.timeCreated)">
+          {{ formatInstanceCreatedDate(instance.timeCreated) }}（<button
+            type="button"
+            class="time-zone-toggle"
+            :title="showUtcTime ? '点击切换为北京时间' : '点击切换为 UTC 时间'"
+            @click="showUtcTime = !showUtcTime"
+          >{{ showUtcTime ? 'UTC' : '北京时间' }}</button>）
+        </template>
+        <template v-else>—</template>
       </a-descriptions-item>
     </a-descriptions>
 
@@ -144,16 +152,30 @@ defineEmits<{
 }>()
 
 const networkDetailPanelRef = ref<any>(null)
+const showUtcTime = ref(false)
+
+function parseInstanceCreatedTime(v: unknown) {
+  if (v == null || v === '') return null
+  if (typeof v !== 'string' && typeof v !== 'number' && !(v instanceof Date)) return null
+  const d = dayjs.utc(v)
+  return d.isValid() ? d : null
+}
+
+function hasValidInstanceCreatedTime(v: unknown): boolean {
+  return parseInstanceCreatedTime(v) !== null
+}
 
 function formatInstanceCreatedDate(v: unknown): string {
-  if (v == null || v === '') return '—'
-  if (typeof v !== 'string' && typeof v !== 'number' && !(v instanceof Date)) return '—'
-  const d = dayjs.utc(v)
-  if (!d.isValid()) return '—'
+  const utcTime = parseInstanceCreatedTime(v)
+  if (!utcTime) return '—'
+  const d = showUtcTime.value ? utcTime : utcTime.add(8, 'hour')
   const y = d.year()
   const m = String(d.month() + 1).padStart(2, '0')
   const day = String(d.date()).padStart(2, '0')
-  return `${y}年${m}月${day}日`
+  const hour = String(d.hour()).padStart(2, '0')
+  const minute = String(d.minute()).padStart(2, '0')
+  const second = String(d.second()).padStart(2, '0')
+  return `${y}年${m}月${day}日 ${hour}:${minute}:${second}`
 }
 
 function loadNetworkDetail() {
@@ -169,3 +191,21 @@ defineExpose({
   reset,
 })
 </script>
+
+<style scoped>
+.time-zone-toggle {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  outline: 0;
+  color: var(--ant-color-primary, #1677ff);
+  background: transparent;
+  cursor: pointer;
+  font: inherit;
+}
+
+.time-zone-toggle:hover,
+.time-zone-toggle:focus-visible {
+  text-decoration: underline;
+}
+</style>
