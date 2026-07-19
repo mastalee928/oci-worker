@@ -79,6 +79,7 @@ declare module 'vue' {
     BlockStoragePanel: typeof import('./components/instance/BlockStoragePanel.vue')['default']
     BootVolumePanel: typeof import('./components/instance/BootVolumePanel.vue')['default']
     CompartmentManager: typeof import('./components/CompartmentManager.vue')['default']
+    FaultDomainEditModule: typeof import('./components/instance/FaultDomainEditModule.vue')['default']
     ForceA2ConfirmModal: typeof import('./components/instance/ForceA2ConfirmModal.vue')['default']
     InstanceDetailDrawerShell: typeof import('./components/instance/InstanceDetailDrawerShell.vue')['default']
     InstanceDetailInfoPanel: typeof import('./components/instance/InstanceDetailInfoPanel.vue')['default']

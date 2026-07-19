@@ -34,4 +34,19 @@ class TenantProtectionAccessServiceTest {
         service.release(token, "tenant-a", "quotaProtectionManage");
         assertDoesNotThrow(() -> service.claim(token, "tenant-a", "quotaProtectionManage"));
     }
+
+    @Test
+    void revokedTokenCannotBeUsed() {
+        String token = service.issue("tenant-a|instance-a", "updateFaultDomain");
+        service.revoke(token, "tenant-a|instance-a", "updateFaultDomain");
+        assertThrows(OciException.class,
+                () -> service.claim(token, "tenant-a|instance-a", "updateFaultDomain"));
+    }
+
+    @Test
+    void revokeCannotRemoveTokenForAnotherTarget() {
+        String token = service.issue("tenant-a|instance-a", "updateFaultDomain");
+        service.revoke(token, "tenant-a|instance-b", "updateFaultDomain");
+        assertDoesNotThrow(() -> service.claim(token, "tenant-a|instance-a", "updateFaultDomain"));
+    }
 }

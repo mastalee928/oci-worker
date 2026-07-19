@@ -21,6 +21,9 @@
       </a-descriptions-item>
       <a-descriptions-item label="故障域">
         <span :title="instance.faultDomain || ''">{{ formatFaultDomain(instance.faultDomain) }}</span>
+        <a-button type="link" size="small" class="fault-domain-edit" @click="$emit('edit-fault-domain')">
+          <template #icon><EditOutlined /></template>修改
+        </a-button>
       </a-descriptions-item>
       <a-descriptions-item label="区间">{{ instance.compartmentName || '—' }}</a-descriptions-item>
       <a-descriptions-item label="状态">
@@ -149,6 +152,7 @@ withDefaults(defineProps<{
 defineEmits<{
   (e: 'refresh-info'): void
   (e: 'edit-instance'): void
+  (e: 'edit-fault-domain'): void
   (e: 'instance-action', action: 'START' | 'STOP' | 'RESET'): void
   (e: 'change-ip'): void
   (e: 'terminate'): void
@@ -227,5 +231,10 @@ defineExpose({
 .time-zone-toggle:hover,
 .time-zone-toggle:focus-visible {
   text-decoration: underline;
+}
+
+.fault-domain-edit {
+  margin-left: 8px;
+  padding-inline: 0;
 }
 </style>

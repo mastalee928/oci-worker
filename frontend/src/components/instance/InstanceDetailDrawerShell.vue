@@ -23,6 +23,7 @@
           :instance-info-loading="instanceInfoLoading"
           @refresh-info="$emit('refresh-info')"
           @edit-instance="$emit('edit-instance')"
+          @edit-fault-domain="$emit('edit-fault-domain')"
           @instance-action="$emit('instance-action', $event)"
           @change-ip="$emit('change-ip')"
           @terminate="$emit('terminate')"
@@ -162,6 +163,7 @@ const emit = defineEmits<{
   (e: 'tab-change', key: string): void
   (e: 'refresh-info'): void
   (e: 'edit-instance'): void
+  (e: 'edit-fault-domain'): void
   (e: 'instance-action', action: 'START' | 'STOP' | 'RESET'): void
   (e: 'change-ip'): void
   (e: 'terminate'): void

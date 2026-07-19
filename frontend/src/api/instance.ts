@@ -68,6 +68,31 @@ export function updateInstance(data: {
   return request.post('/oci/instance/updateInstance', data)
 }
 
+export function unlockFaultDomainUpdate(data: {
+  id: string
+  instanceId: string
+  verifyCode: string
+}) {
+  return request.post('/oci/instance/faultDomain/unlock', data)
+}
+
+export function updateFaultDomain(data: {
+  id: string
+  instanceId: string
+  faultDomain: string
+  accessToken: string
+} & R) {
+  return request.post('/oci/instance/faultDomain/update', data)
+}
+
+export function revokeFaultDomainUpdate(data: {
+  id: string
+  instanceId: string
+  accessToken: string
+}) {
+  return request.post('/oci/instance/faultDomain/revoke', data)
+}
+
 export function getShapeEditTaskStatus(taskId: string) {
   return request.get<ShapeEditTaskStatus>(`/oci/instance/shapeEditTask/${taskId}`)
 }

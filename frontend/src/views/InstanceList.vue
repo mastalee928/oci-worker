@@ -134,6 +134,7 @@
       @tab-change="onTabChange"
       @refresh-info="refreshInstanceInfo"
       @edit-instance="openEditInstance"
+      @edit-fault-domain="openFaultDomainEditor"
       @instance-action="handleCurrentInstanceAction"
       @change-ip="handleChangeIp"
       @terminate="openCurrentTerminateVerify"
@@ -150,6 +151,17 @@
       @create-console="handleCreateConsole"
       @open-console="openConsoleWebSSH"
       @delete-console="handleDeleteConsole"
+    />
+
+    <FaultDomainEditModule
+      v-if="faultDomainFlowVisible"
+      :tenant="currentTenant"
+      :instance="currentInstance"
+      :region="currentDetailRegion"
+      :is-mobile="isMobile"
+      @hide-detail="hideDetailForFaultDomainEditor"
+      @updated="handleFaultDomainUpdated"
+      @finish="finishFaultDomainEditor"
     />
 
 
@@ -289,6 +301,7 @@ const ForceA2ConfirmModal = defineAppAsyncComponent(() => import('../components/
 const TerminateVerifyModal = defineAppAsyncComponent(() => import('../components/instance/TerminateVerifyModal.vue'), { loading: 'none' })
 const InstanceDetailDrawerShell = defineAppAsyncComponent(() => import('../components/instance/InstanceDetailDrawerShell.vue'), { loading: 'none' })
 const InstanceEditModal = defineAppAsyncComponent(() => import('../components/instance/InstanceEditModal.vue'), { loading: 'none' })
+const FaultDomainEditModule = defineAppAsyncComponent(() => import('../components/instance/FaultDomainEditModule.vue'), { loading: 'none' })
 const InstanceDrawerListPanel = defineAppAsyncComponent(() => import('../components/instance/InstanceDrawerListPanel.vue'), {
   loadingVariant: 'table',
   loadingText: '正在载入实例列表',
@@ -980,6 +993,40 @@ const {
 const editInstanceVisible = ref(false)
 const editInstanceLoading = ref(false)
 const editInstanceForm = reactive({ displayName: '' })
+const faultDomainFlowVisible = ref(false)
+let reopenDetailAfterFaultDomain = false
+
+function openFaultDomainEditor() {
+  if (!currentTenant.value?.id || !currentInstance.value?.instanceId || faultDomainFlowVisible.value) return
+  reopenDetailAfterFaultDomain = false
+  faultDomainFlowVisible.value = true
+}
+
+function hideDetailForFaultDomainEditor() {
+  reopenDetailAfterFaultDomain = drawerVisible.value
+  drawerVisible.value = false
+}
+
+function handleFaultDomainUpdated(result: Record<string, any>) {
+  if (!currentTenant.value || !currentInstance.value) return
+  const tenantId = String(currentTenant.value.id || '')
+  const instanceId = String(currentInstance.value.instanceId || '')
+  const region = String(currentDetailRegion.value || currentInstance.value.region || '').trim()
+  const faultDomain = result?.faultDomain
+  if (faultDomain) {
+    currentInstance.value = { ...currentInstance.value, faultDomain }
+    patchInstanceInListAndCache(tenantId, region, instanceId, { faultDomain })
+  }
+  const td = findTenantDataById(tenantId)
+  if (td) void loadTenantInstances(td, { force: true, region })
+}
+
+function finishFaultDomainEditor(reopenDetail: boolean) {
+  faultDomainFlowVisible.value = false
+  const shouldReopen = reopenDetail && reopenDetailAfterFaultDomain
+  reopenDetailAfterFaultDomain = false
+  if (shouldReopen) void nextTick(() => { drawerVisible.value = true })
+}
 
 function handleShapeEditInstanceUpdated(result?: Record<string, any>) {
   if (!result || !currentInstance.value || !currentTenant.value) return
@@ -1637,6 +1684,7 @@ const instanceManagerModalOverlayActive = computed(() =>
   bootVolumeOverlayActive.value ||
   blockStorageOverlayActive.value ||
   editInstanceVisible.value ||
+  faultDomainFlowVisible.value ||
   forceA2ModalVisible.value ||
   verifyModalVisible.value ||
   instanceManagerConfirmOverlayActive.value,

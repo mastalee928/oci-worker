@@ -32,6 +32,9 @@ public class InstanceService {
 
     private static final String SHAPE_A2_FLEX = "VM.Standard.A2.Flex";
     private static final String SHAPE_A1_FLEX = "VM.Standard.A1.Flex";
+    private static final String FAULT_DOMAIN_ACCESS_SCOPE = "updateFaultDomain";
+    private static final Set<String> EDITABLE_FAULT_DOMAINS = Set.of(
+            "FAULT-DOMAIN-1", "FAULT-DOMAIN-2", "FAULT-DOMAIN-3");
     private static final Duration SHAPE_LIST_CACHE_TTL = Duration.ofMinutes(15);
     private static final Duration INSTANCE_LIST_CACHE_TTL = Duration.ofSeconds(20);
     private static final Duration INSTANCE_DETAIL_CACHE_TTL = Duration.ofSeconds(45);
@@ -94,6 +97,8 @@ public class InstanceService {
     private ShapeEditTaskManager shapeEditTaskManager;
     @Resource
     private OciReadCacheService ociReadCacheService;
+    @Resource
+    private TenantProtectionAccessService tenantProtectionAccessService;
 
     private String tag(OciUser u) { return "[" + u.getUsername() + "] "; }
 
@@ -1032,6 +1037,60 @@ public class InstanceService {
             String prefix = ociUser == null ? "" : tag(ociUser);
             throw new OciException(prefix + "修改实例失败: " + e.getMessage());
         }
+    }
+
+    public Map<String, Object> updateFaultDomain(String userId, String instanceId,
+                                                  String faultDomain, String accessToken, String region) {
+        String targetKey = faultDomainTargetKey(userId, instanceId);
+        String normalizedFaultDomain = faultDomain == null ? "" : faultDomain.trim().toUpperCase(Locale.ROOT);
+        if (!EDITABLE_FAULT_DOMAINS.contains(normalizedFaultDomain)) {
+            throw new OciException("故障域仅支持 FAULT-DOMAIN-1、FAULT-DOMAIN-2 或 FAULT-DOMAIN-3");
+        }
+        tenantProtectionAccessService.claim(accessToken, targetKey, FAULT_DOMAIN_ACCESS_SCOPE);
+        OciUser ociUser = null;
+        try {
+            ociUser = userMapper.selectById(userId);
+            if (ociUser == null) throw new OciException("租户配置不存在");
+        } catch (Exception e) {
+            tenantProtectionAccessService.release(accessToken, targetKey, FAULT_DOMAIN_ACCESS_SCOPE);
+            if (e instanceof OciException ociException) throw ociException;
+            log.warn("读取故障域修改租户配置失败: userId={}, error={}", userId, e.getMessage());
+            throw new OciException("读取租户配置失败，请稍后重试");
+        }
+
+        try (OciClientService client = oci(ociUser, region)) {
+            Instance current = client.getComputeClient().getInstance(
+                    GetInstanceRequest.builder().instanceId(instanceId).build()).getInstance();
+            Instance updated = current;
+            if (!normalizedFaultDomain.equalsIgnoreCase(String.valueOf(current.getFaultDomain()))) {
+                updated = client.getComputeClient().updateInstance(
+                        UpdateInstanceRequest.builder()
+                                .instanceId(instanceId)
+                                .updateInstanceDetails(UpdateInstanceDetails.builder()
+                                        .faultDomain(normalizedFaultDomain)
+                                        .build())
+                                .build()).getInstance();
+            }
+            evictInstanceReadCaches(userId, region);
+            tenantProtectionAccessService.complete(accessToken, targetKey, FAULT_DOMAIN_ACCESS_SCOPE);
+            Map<String, Object> result = new LinkedHashMap<>();
+            result.put("instanceId", instanceId);
+            result.put("faultDomain", updated == null || updated.getFaultDomain() == null
+                    ? normalizedFaultDomain : updated.getFaultDomain());
+            return result;
+        } catch (Exception e) {
+            tenantProtectionAccessService.release(accessToken, targetKey, FAULT_DOMAIN_ACCESS_SCOPE);
+            if (e instanceof OciException ociException) throw ociException;
+            throw new OciException(tag(ociUser) + "修改故障域失败: "
+                    + OciBmcErrorTranslator.translateWithServiceDetail(e));
+        }
+    }
+
+    private static String faultDomainTargetKey(String userId, String instanceId) {
+        if (userId == null || userId.isBlank() || instanceId == null || instanceId.isBlank()) {
+            throw new OciException("缺少故障域修改目标信息");
+        }
+        return userId.trim() + '|' + instanceId.trim();
     }
 
     private void fillVnicNetworkResourceInfo(

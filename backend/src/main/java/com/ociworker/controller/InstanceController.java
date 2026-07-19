@@ -6,6 +6,7 @@ import com.ociworker.model.dto.InstancePublicIpRequest;
 import com.ociworker.service.ConsoleService;
 import com.ociworker.service.InstanceService;
 import com.ociworker.service.ShapeEditTaskManager;
+import com.ociworker.service.TenantProtectionAccessService;
 import com.ociworker.service.VerifyCodeService;
 import jakarta.annotation.Resource;
 import org.springframework.web.bind.annotation.*;
@@ -16,10 +17,14 @@ import java.util.Map;
 @RequestMapping("/api/oci/instance")
 public class InstanceController {
 
+    private static final String FAULT_DOMAIN_ACCESS_SCOPE = "updateFaultDomain";
+
     @Resource
     private InstanceService instanceService;
     @Resource
     private VerifyCodeService verifyCodeService;
+    @Resource
+    private TenantProtectionAccessService tenantProtectionAccessService;
     @Resource
     private ConsoleService consoleService;
     @Resource
@@ -71,6 +76,44 @@ public class InstanceController {
                 asFloat(params.get("ocpus")),
                 asFloat(params.get("memoryInGBs")),
                 regObj(params)));
+    }
+
+    @PostMapping("/faultDomain/unlock")
+    public ResponseData<?> unlockFaultDomainUpdate(@RequestBody Map<String, Object> params) {
+        String userId = asString(params.get("id"));
+        String instanceId = asString(params.get("instanceId"));
+        String targetKey = faultDomainTargetKey(userId, instanceId);
+        verifyCodeService.verifyCode(FAULT_DOMAIN_ACCESS_SCOPE, asString(params.get("verifyCode")), targetKey);
+        return ResponseData.ok(Map.of("accessToken",
+                tenantProtectionAccessService.issue(targetKey, FAULT_DOMAIN_ACCESS_SCOPE)));
+    }
+
+    @PostMapping("/faultDomain/update")
+    public ResponseData<?> updateFaultDomain(@RequestBody Map<String, Object> params) {
+        return ResponseData.ok(instanceService.updateFaultDomain(
+                asString(params.get("id")),
+                asString(params.get("instanceId")),
+                asString(params.get("faultDomain")),
+                asString(params.get("accessToken")),
+                regObj(params)));
+    }
+
+    @PostMapping("/faultDomain/revoke")
+    public ResponseData<?> revokeFaultDomainUpdate(@RequestBody Map<String, Object> params) {
+        String userId = asString(params.get("id"));
+        String instanceId = asString(params.get("instanceId"));
+        tenantProtectionAccessService.revoke(
+                asString(params.get("accessToken")),
+                faultDomainTargetKey(userId, instanceId),
+                FAULT_DOMAIN_ACCESS_SCOPE);
+        return ResponseData.ok();
+    }
+
+    private static String faultDomainTargetKey(String userId, String instanceId) {
+        if (userId == null || userId.isBlank() || instanceId == null || instanceId.isBlank()) {
+            throw new OciException("缺少故障域修改目标信息");
+        }
+        return userId.trim() + '|' + instanceId.trim();
     }
 
     @GetMapping("/shapeEditTask/{taskId}")

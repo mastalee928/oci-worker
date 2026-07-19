@@ -45,6 +45,7 @@ public class VerifyCodeService {
 
         String actionName = switch (action) {
             case "terminate" -> "终止实例";
+            case "updateFaultDomain" -> "修改实例故障域";
             case "backup" -> "备份数据";
             case "createUser" -> "新增用户";
             case "updateUser" -> "修改用户信息";

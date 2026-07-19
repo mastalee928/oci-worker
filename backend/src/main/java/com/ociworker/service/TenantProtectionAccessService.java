@@ -51,6 +51,11 @@ public class TenantProtectionAccessService {
         });
     }
 
+    public void revoke(String token, String tenantConfigId, String scope) {
+        if (token == null || token.isBlank()) return;
+        grants.computeIfPresent(token, (key, grant) -> matches(grant, tenantConfigId, scope) ? null : grant);
+    }
+
     private void requireValid(Grant grant, String tenantConfigId, String scope) {
         if (grant == null || grant.expiresAt() < System.currentTimeMillis()
                 || !matches(grant, tenantConfigId, scope)) {
