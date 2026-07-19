@@ -14,11 +14,14 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.stream.Collectors;
 
 @Slf4j
 @Service
 public class NetworkService {
+
+    private final Set<String> manualChangeIpLocks = ConcurrentHashMap.newKeySet();
 
     @Resource
     private OciUserMapper userMapper;
@@ -440,6 +443,22 @@ public class NetworkService {
     }
 
     public void changePublicIp(String userId, String instanceId, List<String> cidrFilters, String region, String compartmentId) {
+        if (userId == null || userId.isBlank() || instanceId == null || instanceId.isBlank()) {
+            throw new OciException("缺少更换 IP 的目标实例信息");
+        }
+        String lockKey = userId.trim() + '|' + instanceId.trim();
+        if (!manualChangeIpLocks.add(lockKey)) {
+            throw new OciException("该实例正在更换 IP，请勿重复提交");
+        }
+        try {
+            changePublicIpUnlocked(userId, instanceId, cidrFilters, region, compartmentId);
+        } finally {
+            manualChangeIpLocks.remove(lockKey);
+        }
+    }
+
+    private void changePublicIpUnlocked(String userId, String instanceId, List<String> cidrFilters,
+                                        String region, String compartmentId) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
 

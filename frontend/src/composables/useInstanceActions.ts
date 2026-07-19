@@ -52,6 +52,7 @@ export function useInstanceActions(options: UseInstanceActionsOptions) {
   let changeIpRequestGen = 0
   let refreshInfoRequestGen = 0
   const actionRequestByInstance: Record<string, number> = {}
+  const menuChangeIpLocks = new Set<string>()
 
   function isCurrentInstance(tenantId: string, instanceId: string) {
     const tenant = options.getCurrentTenant()
@@ -109,6 +110,12 @@ export function useInstanceActions(options: UseInstanceActionsOptions) {
       return
     }
     if (key === 'CHANGE_IP') {
+      const instanceId = String(record.instanceId || '')
+      if (!instanceId || menuChangeIpLocks.has(instanceId)) {
+        message.warning('该实例正在更换 IP，请勿重复操作')
+        return
+      }
+      menuChangeIpLocks.add(instanceId)
       options.setConfirmOverlayActive(true)
       Modal.confirm({
         title: '确定更换实例 IP？',
@@ -119,6 +126,7 @@ export function useInstanceActions(options: UseInstanceActionsOptions) {
         wrapClassName: INSTANCE_CONFIRM_MODAL_WRAP_CLASS,
         onOk: () => handleMenuChangeIp(tenant, record),
         afterClose: () => {
+          menuChangeIpLocks.delete(instanceId)
           options.setConfirmOverlayActive(false)
         },
       })
