@@ -853,9 +853,17 @@ public class OciClientService implements Closeable {
                 || (e.getStatusCode() == 400 && em.contains("LimitExceeded"));
     }
 
-    private static boolean isOciServiceLimitExceeded(com.oracle.bmc.model.BmcException e) {
-        String em = e.getMessage() == null ? "" : e.getMessage();
-        return e.getStatusCode() == 400 && em.contains("LimitExceeded");
+    static boolean isOciServiceLimitExceeded(com.oracle.bmc.model.BmcException e) {
+        if (e == null || e.getStatusCode() != 400) {
+            return false;
+        }
+        String em = e.getMessage() == null ? "" : e.getMessage().toLowerCase(Locale.ROOT);
+        // LaunchInstance 在 A1 主机容量不足时也可能返回 serviceCode=LimitExceeded，
+        // 不能仅根据 LimitExceeded 判定账户配额超限，否则会向用户发送误报。
+        return em.contains("service limits were exceeded")
+                || em.contains("service limit has been exceeded")
+                || em.contains("service limit is exceeded")
+                || em.contains("reached your service limit");
     }
 
     /** LaunchInstance 返回 bootVolumeQuota / 引导卷 QuotaExceeded */

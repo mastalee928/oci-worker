@@ -64,10 +64,18 @@ class OciClientServiceTest {
         BmcException rateLimited = new BmcException(429, "TooManyRequests", "slow down", "opc");
         BmcException genericServerError = new BmcException(500, "InternalError", "unexpected failure", "opc");
         BmcException capacity = new BmcException(500, "InternalError", "Out of host capacity.", "opc");
+        BmcException a1CapacityLimitCode = new BmcException(
+                400, "LimitExceeded", "Out of capacity for shape VM.Standard.A1.Flex.", "opc");
+        BmcException actualServiceLimit = new BmcException(
+                400, "LimitExceeded",
+                "The following service limits were exceeded: standard-a1-core-count.", "opc");
 
         assertThat(OciClientService.isRateLimited(new RuntimeException(rateLimited))).isTrue();
         assertThat(OciClientService.isOutOfHostCapacityError(rateLimited)).isFalse();
         assertThat(OciClientService.isOutOfHostCapacityError(genericServerError)).isFalse();
         assertThat(OciClientService.isOutOfHostCapacityError(capacity)).isTrue();
+        assertThat(OciClientService.isOutOfHostCapacityError(a1CapacityLimitCode)).isTrue();
+        assertThat(OciClientService.isOciServiceLimitExceeded(a1CapacityLimitCode)).isFalse();
+        assertThat(OciClientService.isOciServiceLimitExceeded(actualServiceLimit)).isTrue();
     }
 }
