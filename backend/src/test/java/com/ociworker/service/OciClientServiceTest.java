@@ -1,7 +1,11 @@
 package com.ociworker.service;
 
 import com.ociworker.model.dto.SysUserDTO;
+import com.oracle.bmc.core.model.CreateVnicDetails;
 import com.oracle.bmc.core.model.Instance;
+import com.oracle.bmc.core.model.InstanceSourceViaImageDetails;
+import com.oracle.bmc.core.model.LaunchInstanceDetails;
+import com.oracle.bmc.core.model.LaunchInstanceShapeConfigDetails;
 import com.oracle.bmc.core.requests.ListInstancesRequest;
 import com.oracle.bmc.model.BmcException;
 import org.junit.jupiter.api.Test;
@@ -30,6 +34,48 @@ class OciClientServiceTest {
         assertThat(OciClientService.resolveLaunchDisplayName(single)).isEqualTo("production");
         assertThat(OciClientService.resolveLaunchDisplayName(batch)).isEqualTo("worker-2");
         assertThat(OciClientService.resolveLaunchDisplayName(defaultBatch)).isEqualTo("oci-worker-B");
+    }
+
+    @Test
+    void launchRetryTokenIsStableForSameTaskOrdinalAndRequest() {
+        SysUserDTO first = SysUserDTO.builder().taskId("task-1").instanceDisplayOrdinal(1).build();
+        SysUserDTO second = SysUserDTO.builder().taskId("task-1").instanceDisplayOrdinal(2).build();
+        LaunchInstanceDetails details = launchDetails("AD-1", "VM.Standard.A1.Flex", "script-1");
+        LaunchInstanceDetails rebuiltDetails = launchDetails("AD-1", "VM.Standard.A1.Flex", "script-1");
+
+        String token = OciClientService.resolveLaunchRetryToken(first, details);
+
+        assertThat(OciClientService.resolveLaunchRetryToken(first, details)).isEqualTo(token);
+        assertThat(OciClientService.resolveLaunchRetryToken(first, rebuiltDetails)).isEqualTo(token);
+        assertThat(OciClientService.resolveLaunchRetryToken(second, details)).isNotEqualTo(token);
+        assertThat(OciClientService.resolveLaunchRetryToken(first,
+                launchDetails("AD-2", "VM.Standard.A1.Flex", "script-1"))).isNotEqualTo(token);
+        assertThat(OciClientService.resolveLaunchRetryToken(first,
+                launchDetails("AD-1", "VM.Standard.E4.Flex", "script-1"))).isNotEqualTo(token);
+        assertThat(OciClientService.resolveLaunchRetryToken(first,
+                launchDetails("AD-1", "VM.Standard.A1.Flex", "script-2"))).isNotEqualTo(token);
+    }
+
+    @Test
+    void launchRetryTokenIsRandomWithoutTaskId() {
+        LaunchInstanceDetails details = launchDetails("AD-1", "VM.Standard.A1.Flex", "script-1");
+        assertThat(OciClientService.resolveLaunchRetryToken(SysUserDTO.builder().build(), details))
+                .isNotEqualTo(OciClientService.resolveLaunchRetryToken(SysUserDTO.builder().build(), details));
+    }
+
+    private static LaunchInstanceDetails launchDetails(String availabilityDomain, String shape, String userData) {
+        return LaunchInstanceDetails.builder()
+                .compartmentId("compartment-1")
+                .availabilityDomain(availabilityDomain)
+                .displayName("oci-worker-A")
+                .shape(shape)
+                .shapeConfig(LaunchInstanceShapeConfigDetails.builder().ocpus(1f).memoryInGBs(6f).build())
+                .sourceDetails(InstanceSourceViaImageDetails.builder()
+                        .imageId("image-1").bootVolumeSizeInGBs(50L).bootVolumeVpusPerGB(10L).build())
+                .createVnicDetails(CreateVnicDetails.builder()
+                        .subnetId("subnet-1").assignPublicIp(true).build())
+                .metadata(java.util.Map.of("user_data", userData))
+                .build();
     }
 
     @Test

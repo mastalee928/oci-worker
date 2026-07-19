@@ -46,6 +46,8 @@ import org.apache.http.conn.HttpClientConnectionManager;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.*;
 import java.util.concurrent.CancellationException;
 import java.util.stream.Collectors;
@@ -1199,6 +1201,7 @@ public class OciClientService implements Closeable {
         LaunchInstanceResponse launchResponse = waiters
                 .forLaunchInstance(LaunchInstanceRequest.builder()
                         .launchInstanceDetails(details)
+                        .opcRetryToken(resolveLaunchRetryToken(user, details))
                         .build())
                 .execute();
 
@@ -1208,6 +1211,63 @@ public class OciClientService implements Closeable {
                         .build(),
                 Instance.LifecycleState.Running
         ).execute().getInstance();
+    }
+
+    static String resolveLaunchRetryToken(SysUserDTO user, LaunchInstanceDetails details) {
+        String taskId = user == null ? null : StrUtil.trimToNull(user.getTaskId());
+        if (taskId == null) {
+            return UUID.randomUUID().toString();
+        }
+        int ordinal = user.getInstanceDisplayOrdinal() != null && user.getInstanceDisplayOrdinal() > 0
+                ? user.getInstanceDisplayOrdinal() : 1;
+        StringBuilder identity = new StringBuilder(512);
+        appendRetryIdentity(identity, taskId);
+        appendRetryIdentity(identity, ordinal);
+        appendRetryIdentity(identity, details == null ? null : details.getCompartmentId());
+        appendRetryIdentity(identity, details == null ? null : details.getAvailabilityDomain());
+        appendRetryIdentity(identity, details == null ? null : details.getDisplayName());
+        appendRetryIdentity(identity, details == null ? null : details.getShape());
+
+        LaunchInstanceShapeConfigDetails shapeConfig = details == null ? null : details.getShapeConfig();
+        appendRetryIdentity(identity, shapeConfig == null ? null : shapeConfig.getOcpus());
+        appendRetryIdentity(identity, shapeConfig == null ? null : shapeConfig.getMemoryInGBs());
+
+        InstanceSourceDetails source = details == null ? null : details.getSourceDetails();
+        if (source instanceof InstanceSourceViaImageDetails imageSource) {
+            appendRetryIdentity(identity, imageSource.getImageId());
+            appendRetryIdentity(identity, imageSource.getBootVolumeSizeInGBs());
+            appendRetryIdentity(identity, imageSource.getBootVolumeVpusPerGB());
+        } else {
+            appendRetryIdentity(identity, source == null ? null : source.getClass().getName());
+        }
+
+        CreateVnicDetails vnic = details == null ? null : details.getCreateVnicDetails();
+        appendRetryIdentity(identity, vnic == null ? null : vnic.getSubnetId());
+        appendRetryIdentity(identity, vnic == null ? null : vnic.getAssignPublicIp());
+
+        Map<String, String> metadata = details == null ? null : details.getMetadata();
+        if (metadata == null) {
+            appendRetryIdentity(identity, null);
+        } else {
+            new TreeMap<>(metadata).forEach((key, value) -> {
+                appendRetryIdentity(identity, key);
+                appendRetryIdentity(identity, value);
+            });
+        }
+        return UUID.nameUUIDFromBytes(sha256(identity.toString())).toString();
+    }
+
+    private static void appendRetryIdentity(StringBuilder target, Object value) {
+        String text = value == null ? "" : String.valueOf(value);
+        target.append(text.length()).append(':').append(text);
+    }
+
+    private static byte[] sha256(String value) {
+        try {
+            return MessageDigest.getInstance("SHA-256").digest(value.getBytes(StandardCharsets.UTF_8));
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 is unavailable", e);
+        }
     }
 
     /** @return 分配成功时的 IPv6 地址，失败或未就绪则 {@code null} */
