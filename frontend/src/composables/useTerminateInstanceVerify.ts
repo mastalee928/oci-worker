@@ -43,7 +43,7 @@ export function useTerminateInstanceVerify(options: UseTerminateInstanceVerifyOp
     deleteBootVolume.value = true
     verifySending.value = true
     try {
-      await sendVerifyCode('terminate', terminateVerifyContext(tenant, record))
+      await sendVerifyCode('terminate', terminateVerifyContext(tenant, record), { quiet: true })
       message.success('验证码已发送至 Telegram')
       verifyModalVisible.value = true
     } catch (e: any) {
@@ -63,7 +63,7 @@ export function useTerminateInstanceVerify(options: UseTerminateInstanceVerifyOp
     }
     verifySending.value = true
     try {
-      await sendVerifyCode('terminate', terminateVerifyContext(tenant, instance))
+      await sendVerifyCode('terminate', terminateVerifyContext(tenant, instance), { quiet: true })
       message.success('验证码已重新发送')
     } catch (e: any) {
       message.error(e?.message || '发送失败')

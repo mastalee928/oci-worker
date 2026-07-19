@@ -24,7 +24,7 @@ interface UseInstanceActionsOptions {
   invalidateTenantInstanceCache?: (tenantId: string, region?: string) => void
   patchInstanceInListAndCache?: (tenantId: string, region: string | undefined, instanceId: string, fresh: Record<string, any>) => void
   loadNetworkDetail: () => Promise<unknown> | unknown
-  openTerminateVerify: (tenant: any, record: any) => void
+  openTerminateVerify: (tenant: any, record: any) => void | Promise<void>
   setConfirmOverlayActive: (active: boolean) => void
 }
 
@@ -92,7 +92,20 @@ export function useInstanceActions(options: UseInstanceActionsOptions) {
     if (!td?.tenant || !record) return
     const tenant = td.tenant
     if (key === 'TERMINATE') {
-      options.openTerminateVerify(tenant, record)
+      options.setConfirmOverlayActive(true)
+      Modal.confirm({
+        title: '确定终止实例？',
+        content: `目标实例：${record.name || record.instanceId}。确认后才会发送 Telegram 验证码。`,
+        okText: '继续验证',
+        okButtonProps: { danger: true },
+        cancelText: '取消',
+        zIndex: INSTANCE_CONFIRM_MODAL_Z_INDEX,
+        wrapClassName: INSTANCE_CONFIRM_MODAL_WRAP_CLASS,
+        onOk: () => options.openTerminateVerify(tenant, record),
+        afterClose: () => {
+          options.setConfirmOverlayActive(false)
+        },
+      })
       return
     }
     const label = INSTANCE_ACTION_LABELS[key] || key

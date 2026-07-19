@@ -1,11 +1,17 @@
-import request from '../utils/request'
+import request, { type OciRequestConfig } from '../utils/request'
 
 export function getGlance() {
   return request.get('/sys/glance')
 }
 
-export function sendVerifyCode(action: string, context?: { contextKey?: string; contextText?: string }) {
-  return request.post('/sys/sendVerifyCode', { action, ...(context || {}) })
+export function sendVerifyCode(
+  action: string,
+  context?: { contextKey?: string; contextText?: string },
+  options?: { quiet?: boolean },
+) {
+  return request.post('/sys/sendVerifyCode', { action, ...(context || {}) }, options?.quiet
+    ? { skipBusinessMessage: true, skipErrorMessage: true } as OciRequestConfig
+    : undefined)
 }
 
 export function sendSecuritySettingsVerifyCode() {
