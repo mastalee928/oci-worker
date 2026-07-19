@@ -78,6 +78,10 @@
                         <i class="ri-stop-fill" style="color: #8c8c8c; margin-right: 8px"></i>暂停
                       </a-menu-item>
                       <a-menu-divider />
+                      <a-menu-item key="CHANGE_IP">
+                        <i class="ri-global-line" style="color: #1677ff; margin-right: 8px"></i>更换IP
+                      </a-menu-item>
+                      <a-menu-divider />
                       <a-menu-item key="TERMINATE" danger>
                         <i class="ri-close-circle-line" style="color: #ff4d4f; margin-right: 8px"></i>终止
                       </a-menu-item>
@@ -139,6 +143,10 @@
                     </a-menu-item>
                     <a-menu-item key="SOFTSTOP" :disabled="record.state !== 'RUNNING'">
                       <i class="ri-stop-fill" style="color: #8c8c8c; margin-right: 8px"></i>暂停
+                    </a-menu-item>
+                    <a-menu-divider />
+                    <a-menu-item key="CHANGE_IP">
+                      <i class="ri-global-line" style="color: #1677ff; margin-right: 8px"></i>更换IP
                     </a-menu-item>
                     <a-menu-divider />
                     <a-menu-item key="TERMINATE" danger>
@@ -205,6 +213,10 @@
                     </a-menu-item>
                     <a-menu-item key="SOFTSTOP" :disabled="record.state !== 'RUNNING'">
                       <i class="ri-stop-fill" style="color: #8c8c8c; margin-right: 8px"></i>暂停
+                    </a-menu-item>
+                    <a-menu-divider />
+                    <a-menu-item key="CHANGE_IP">
+                      <i class="ri-global-line" style="color: #1677ff; margin-right: 8px"></i>更换IP
                     </a-menu-item>
                     <a-menu-divider />
                     <a-menu-item key="TERMINATE" danger>

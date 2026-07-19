@@ -108,6 +108,22 @@ export function useInstanceActions(options: UseInstanceActionsOptions) {
       })
       return
     }
+    if (key === 'CHANGE_IP') {
+      options.setConfirmOverlayActive(true)
+      Modal.confirm({
+        title: '确定更换实例 IP？',
+        content: `目标实例：${record.name || record.instanceId}`,
+        okText: '确定',
+        cancelText: '取消',
+        zIndex: INSTANCE_CONFIRM_MODAL_Z_INDEX,
+        wrapClassName: INSTANCE_CONFIRM_MODAL_WRAP_CLASS,
+        onOk: () => handleMenuChangeIp(tenant, record),
+        afterClose: () => {
+          options.setConfirmOverlayActive(false)
+        },
+      })
+      return
+    }
     const label = INSTANCE_ACTION_LABELS[key] || key
     const danger = key === 'RESET' || key === 'SOFTSTOP'
     options.setConfirmOverlayActive(true)
@@ -124,6 +140,38 @@ export function useInstanceActions(options: UseInstanceActionsOptions) {
         options.setConfirmOverlayActive(false)
       },
     })
+  }
+
+  async function handleMenuChangeIp(tenant: any, instance: any) {
+    const tenantId = String(tenant?.id || '')
+    const instanceId = String(instance?.instanceId || '')
+    if (!tenantId || !instanceId) return
+    actionLoading[instanceId] = true
+    try {
+      const region = String(
+        instance?.region || options.getInstancePanelRegion() || tenant?.ociRegion || '',
+      ).trim()
+      const compartmentId = String(instance?.compartmentId || '').trim()
+      await changeIp({
+        id: tenantId,
+        instanceId,
+        ...(region ? { region } : {}),
+        ...(compartmentId ? { compartmentId } : {}),
+      })
+      message.success('换 IP 请求已提交')
+      const td = options.findTenantDataById(tenantId)
+      if (td) {
+        options.invalidateTenantInstanceCache?.(tenantId, region)
+        options.scheduleReload(() => options.loadTenantInstances(td, { force: true, region }), 3000)
+      }
+      if (isCurrentInstance(tenantId, instanceId)) {
+        options.scheduleReload(() => { void options.loadNetworkDetail() }, 3000)
+      }
+    } catch (e: any) {
+      message.error(e?.message || '换 IP 失败')
+    } finally {
+      actionLoading[instanceId] = false
+    }
   }
 
   function handleCurrentInstanceAction(action: 'START' | 'STOP' | 'RESET') {
