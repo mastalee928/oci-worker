@@ -229,6 +229,7 @@ public class InstanceService {
                 map.put("state", inst.getLifecycleState().getValue());
                 map.put("timeCreated", inst.getTimeCreated() != null ? inst.getTimeCreated().toString() : null);
                 map.put("availabilityDomain", inst.getAvailabilityDomain());
+                map.put("faultDomain", inst.getFaultDomain());
                 map.put("compartmentId", inst.getCompartmentId());
                 map.put("compartmentName", compartmentNameMap.getOrDefault(inst.getCompartmentId(), "unknown"));
                 if (inst.getShapeConfig() != null) {

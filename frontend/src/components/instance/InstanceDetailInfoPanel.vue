@@ -16,7 +16,13 @@
       <a-descriptions-item label="Region">{{ instance.region }}</a-descriptions-item>
       <a-descriptions-item label="Shape">{{ instance.shape }}</a-descriptions-item>
       <a-descriptions-item label="配置">{{ instance.ocpus }} OCPU / {{ instance.memoryInGBs }} GB</a-descriptions-item>
-      <a-descriptions-item label="区间 (Compartment)">{{ instance.compartmentName || '—' }}</a-descriptions-item>
+      <a-descriptions-item label="可用性域">
+        <span :title="instance.availabilityDomain || ''">{{ formatAvailabilityDomain(instance.availabilityDomain) }}</span>
+      </a-descriptions-item>
+      <a-descriptions-item label="故障域">
+        <span :title="instance.faultDomain || ''">{{ formatFaultDomain(instance.faultDomain) }}</span>
+      </a-descriptions-item>
+      <a-descriptions-item label="区间">{{ instance.compartmentName || '—' }}</a-descriptions-item>
       <a-descriptions-item label="状态">
         <a-badge :status="stateColorMap[instance.state] || 'default'" :text="instance.state" />
       </a-descriptions-item>
@@ -176,6 +182,20 @@ function formatInstanceCreatedDate(v: unknown): string {
   const minute = String(d.minute()).padStart(2, '0')
   const second = String(d.second()).padStart(2, '0')
   return `${y}年${m}月${day}日 ${hour}:${minute}:${second}`
+}
+
+function formatAvailabilityDomain(value: unknown): string {
+  const text = typeof value === 'string' ? value.trim() : ''
+  if (!text) return '—'
+  const match = text.match(/(?:^|-)AD-(\d+)$/i)
+  return match ? `AD-${match[1]}` : text
+}
+
+function formatFaultDomain(value: unknown): string {
+  const text = typeof value === 'string' ? value.trim() : ''
+  if (!text) return '—'
+  const match = text.match(/(?:FAULT-DOMAIN|FD)-(\d+)$/i)
+  return match ? `FD-${match[1]}` : text
 }
 
 function loadNetworkDetail() {
