@@ -35,7 +35,7 @@
         :get-popup-container="popupContainer"
       />
       <a-row :gutter="12">
-        <a-col :xs="24" :sm="12">
+        <a-col :xs="24" :sm="10">
           <a-form-item label="操作系统">
             <a-select v-model:value="form.operationSystem" :get-popup-container="popupContainer">
               <a-select-option value="Ubuntu">Ubuntu（最新版）</a-select-option>
@@ -47,7 +47,7 @@
             </a-select>
           </a-form-item>
         </a-col>
-        <a-col :xs="24" :sm="12">
+        <a-col :xs="24" :sm="14">
           <a-form-item label="实例名称">
             <a-input v-model:value="form.instanceName" :maxlength="255" placeholder="留空则自动生成" />
           </a-form-item>
@@ -118,12 +118,12 @@
       <div class="quick-login-options-row">
         <div>
           <a-form-item label="数量">
-            <a-input-number v-model:value="form.createNumbers" :min="1" :max="5" style="width: 100%" />
+            <a-input-number v-model:value="form.createNumbers" :min="1" :max="500" style="width: 100%" />
           </a-form-item>
         </div>
         <div>
           <a-form-item label="间隔 (秒)">
-            <a-input-number v-model:value="form.interval" :min="10" :max="600" style="width: 100%" />
+            <a-input-number v-model:value="form.interval" :min="1" :max="600" style="width: 100%" />
           </a-form-item>
         </div>
         <div>

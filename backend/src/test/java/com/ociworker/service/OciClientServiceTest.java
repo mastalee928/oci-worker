@@ -1,5 +1,6 @@
 package com.ociworker.service;
 
+import com.ociworker.model.dto.SysUserDTO;
 import com.oracle.bmc.core.model.Instance;
 import com.oracle.bmc.core.requests.ListInstancesRequest;
 import com.oracle.bmc.model.BmcException;
@@ -8,6 +9,28 @@ import org.junit.jupiter.api.Test;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class OciClientServiceTest {
+
+    @Test
+    void resolvesCustomAndDefaultLaunchDisplayNames() {
+        SysUserDTO single = SysUserDTO.builder()
+                .instanceName("  production  ")
+                .createNumbers(1)
+                .instanceDisplayOrdinal(1)
+                .build();
+        SysUserDTO batch = SysUserDTO.builder()
+                .instanceName("worker")
+                .createNumbers(3)
+                .instanceDisplayOrdinal(2)
+                .build();
+        SysUserDTO defaultBatch = SysUserDTO.builder()
+                .createNumbers(3)
+                .instanceDisplayOrdinal(2)
+                .build();
+
+        assertThat(OciClientService.resolveLaunchDisplayName(single)).isEqualTo("production");
+        assertThat(OciClientService.resolveLaunchDisplayName(batch)).isEqualTo("worker-2");
+        assertThat(OciClientService.resolveLaunchDisplayName(defaultBatch)).isEqualTo("oci-worker-B");
+    }
 
     @Test
     void describesZeroFlexShapeQuotaInChinese() {

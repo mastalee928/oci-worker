@@ -1129,7 +1129,7 @@ public class OciClientService implements Closeable {
         return null;
     }
 
-    private String resolveLaunchDisplayName() {
+    static String resolveLaunchDisplayName(SysUserDTO user) {
         String customName = user.getInstanceName() == null ? null : user.getInstanceName().trim();
         int target = user.getCreateNumbers() != null && user.getCreateNumbers() > 0 ? user.getCreateNumbers() : 1;
         int ord = user.getInstanceDisplayOrdinal() != null && user.getInstanceDisplayOrdinal() > 0
@@ -1165,7 +1165,7 @@ public class OciClientService implements Closeable {
         LaunchInstanceDetails.Builder builder = LaunchInstanceDetails.builder()
                 .compartmentId(compartmentId)
                 .availabilityDomain(ad.getName())
-                .displayName(resolveLaunchDisplayName())
+                .displayName(resolveLaunchDisplayName(user))
                 .shape(shape.getShape())
                 .sourceDetails(buildBootVolumeSource(image.getId(), user))
                 .createVnicDetails(CreateVnicDetails.builder()

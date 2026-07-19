@@ -185,7 +185,8 @@ public class TaskSchedulerService implements SmartLifecycle {
             wrapper.and(w -> {
                 w.like(OciCreateTask::getOciRegion, kw)
                         .or().like(OciCreateTask::getArchitecture, kw)
-                        .or().like(OciCreateTask::getOperationSystem, kw);
+                        .or().like(OciCreateTask::getOperationSystem, kw)
+                        .or().like(OciCreateTask::getInstanceName, kw);
                 if (!matchedUserIds.isEmpty()) {
                     w.or().in(OciCreateTask::getUserId, matchedUserIds);
                 }
@@ -221,6 +222,7 @@ public class TaskSchedulerService implements SmartLifecycle {
             map.put("loginMode", normalizeLoginMode(task.getLoginMode()));
             map.put("sshPublicKey", task.getSshPublicKey());
             map.put("operationSystem", task.getOperationSystem());
+            map.put("instanceName", task.getInstanceName());
             map.put("customScript", task.getCustomScript());
             map.put("assignPublicIp", task.getAssignPublicIp() != null ? task.getAssignPublicIp() : true);
             map.put("assignIpv6", task.getAssignIpv6() != null ? task.getAssignIpv6() : false);
@@ -262,6 +264,8 @@ public class TaskSchedulerService implements SmartLifecycle {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
         String normalizedArchitecture = normalizeTaskArchitecture(architecture);
+        int normalizedCreateNumbers = normalizeCreateNumbers(createNumbers);
+        int normalizedInterval = normalizeTaskInterval(interval);
         TaskLoginModeEnum normalizedLoginMode = TaskLoginModeEnum.of(loginMode);
         String normalizedRootPassword = normalizedLoginMode == TaskLoginModeEnum.SSH_PUBLIC_KEY ? null : StrUtil.trimToNull(rootPassword);
         String dedupRootPassword = normalizedRootPassword;
@@ -285,10 +289,10 @@ public class TaskSchedulerService implements SmartLifecycle {
         int normalizedVpusPerGB = BootVolumeVpusUtil.normalize(vpusPerGB);
         boolean normalizedAssignPublicIp = assignPublicIp != null ? assignPublicIp : true;
         boolean normalizedAssignIpv6 = assignIpv6 != null ? assignIpv6 : false;
-        String normalizedInstanceName = normalizeInstanceName(instanceName, createNumbers);
+        String normalizedInstanceName = normalizeInstanceName(instanceName, normalizedCreateNumbers);
         LocalDateTime now = LocalDateTime.now();
         String dedupKey = createTaskDedupKey(userId, effectiveRegion, normalizedArchitecture, normalized[0], normalized[1],
-                disk, normalizedVpusPerGB, createNumbers, interval, dedupRootPassword,
+                disk, normalizedVpusPerGB, normalizedCreateNumbers, normalizedInterval, dedupRootPassword,
                 normalizedLoginMode.name(), normalizedSshPublicKey, operationSystem, normalizedInstanceName, customScript,
                 normalizedAssignPublicIp, normalizedAssignIpv6);
         if (!acquireRecentTaskCreateGuard(dedupKey, now)) {
@@ -300,7 +304,7 @@ public class TaskSchedulerService implements SmartLifecycle {
         boolean inserted = false;
         try {
             if (hasRecentDuplicateCreateTask(userId, effectiveRegion, normalizedArchitecture, normalized[0], normalized[1],
-                    disk, normalizedVpusPerGB, createNumbers, interval, normalizedRootPassword,
+                    disk, normalizedVpusPerGB, normalizedCreateNumbers, normalizedInterval, normalizedRootPassword,
                     normalizedLoginMode.name(), normalizedSshPublicKey, operationSystem, normalizedInstanceName, customScript,
                     normalizedAssignPublicIp, normalizedAssignIpv6, now.minusSeconds(CREATE_TASK_DEDUP_SECONDS))) {
                 log.info("忽略重复开机任务创建请求：userId={} region={} shape={}（数据库已有同参数任务）",
@@ -317,8 +321,8 @@ public class TaskSchedulerService implements SmartLifecycle {
             task.setMemory(normalized[1]);
             task.setDisk(disk);
             task.setVpusPerGB(normalizedVpusPerGB);
-            task.setCreateNumbers(createNumbers);
-            task.setIntervalSeconds(interval);
+            task.setCreateNumbers(normalizedCreateNumbers);
+            task.setIntervalSeconds(normalizedInterval);
             task.setRootPassword(normalizedRootPassword);
             task.setLoginMode(normalizedLoginMode.name());
             task.setSshPublicKey(normalizedSshPublicKey);
@@ -337,13 +341,13 @@ public class TaskSchedulerService implements SmartLifecycle {
 
             clearTaskExcludedAds(task.getId());
             SysUserDTO dto = buildSysUserDTO(ociUser, task);
-            scheduleTask(task.getId(), dto, interval);
+            scheduleTask(task.getId(), dto, normalizedInterval);
 
             String series = ShapeSeriesUtil.resolveSeries(normalizedArchitecture);
             String diskConfig = BootVolumeVpusUtil.formatDiskWithVpus(disk != null ? disk : 50, task.getVpusPerGB());
             String logMsg = String.format("【开机任务】用户:[%s],区域:[%s],架构:[%s]%s,配置:[%sC/%sGB/%s],数量:[%d] - 任务已创建",
                     ociUser.getUsername(), effectiveRegion, series, targetShapeForLog(normalizedArchitecture),
-                    normalized[0], normalized[1], diskConfig, createNumbers);
+                    normalized[0], normalized[1], diskConfig, normalizedCreateNumbers);
             broadcastLog(logMsg);
 
             String loginLine = buildNotifyLoginLine(task);
@@ -354,7 +358,7 @@ public class TaskSchedulerService implements SmartLifecycle {
                     + targetShapeLineForNotify(normalizedArchitecture)
                     + "📊 <b>配置：</b>" + normalized[0] + "C / " + normalized[1] + "GB / "
                     + diskConfig + "\n"
-                    + "🔢 <b>数量：</b>" + createNumbers + "\n"
+                    + "🔢 <b>数量：</b>" + normalizedCreateNumbers + "\n"
                     + loginLine;
             notificationService.sendHtmlWithType(NotificationService.TYPE_TASK_CREATE, html);
         } catch (RuntimeException e) {
@@ -470,6 +474,20 @@ public class TaskSchedulerService implements SmartLifecycle {
         return name;
     }
 
+    private static int normalizeCreateNumbers(Integer value) {
+        if (value == null || value < 1 || value > 500) {
+            throw new OciException("开机数量必须在 1～500 之间");
+        }
+        return value;
+    }
+
+    private static int normalizeTaskInterval(Integer value) {
+        if (value == null || value < 1 || value > 600) {
+            throw new OciException("重试间隔必须在 1～600 秒之间");
+        }
+        return value;
+    }
+
     private static String randomRootPassword() {
         final String chars = "ABCDEFGHJKMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789!@#$%";
         ThreadLocalRandom random = ThreadLocalRandom.current();
@@ -553,8 +571,8 @@ public class TaskSchedulerService implements SmartLifecycle {
         if (memory != null) task.setMemory(memory);
         if (disk != null) task.setDisk(disk);
         if (vpusPerGB != null) task.setVpusPerGB(BootVolumeVpusUtil.normalize(vpusPerGB));
-        if (createNumbers != null) task.setCreateNumbers(createNumbers);
-        if (interval != null) task.setIntervalSeconds(interval);
+        if (createNumbers != null) task.setCreateNumbers(normalizeCreateNumbers(createNumbers));
+        if (interval != null) task.setIntervalSeconds(normalizeTaskInterval(interval));
         if (loginMode != null) {
             TaskLoginModeEnum normalizedLoginMode = TaskLoginModeEnum.of(loginMode);
             task.setLoginMode(normalizedLoginMode.name());
