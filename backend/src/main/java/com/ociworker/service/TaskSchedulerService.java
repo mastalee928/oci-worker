@@ -257,7 +257,7 @@ public class TaskSchedulerService implements SmartLifecycle {
     public void createTask(String userId, String architecture, Double ocpus, Double memory,
                            Integer disk, Integer vpusPerGB, Integer createNumbers, Integer interval,
                            String rootPassword, String loginMode, String sshPublicKey,
-                           String operationSystem, String customScript,
+                           String operationSystem, String instanceName, String customScript,
                            Boolean assignPublicIp, Boolean assignIpv6, String ociRegionOverride) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
@@ -285,10 +285,11 @@ public class TaskSchedulerService implements SmartLifecycle {
         int normalizedVpusPerGB = BootVolumeVpusUtil.normalize(vpusPerGB);
         boolean normalizedAssignPublicIp = assignPublicIp != null ? assignPublicIp : true;
         boolean normalizedAssignIpv6 = assignIpv6 != null ? assignIpv6 : false;
+        String normalizedInstanceName = normalizeInstanceName(instanceName, createNumbers);
         LocalDateTime now = LocalDateTime.now();
         String dedupKey = createTaskDedupKey(userId, effectiveRegion, normalizedArchitecture, normalized[0], normalized[1],
                 disk, normalizedVpusPerGB, createNumbers, interval, dedupRootPassword,
-                normalizedLoginMode.name(), normalizedSshPublicKey, operationSystem, customScript,
+                normalizedLoginMode.name(), normalizedSshPublicKey, operationSystem, normalizedInstanceName, customScript,
                 normalizedAssignPublicIp, normalizedAssignIpv6);
         if (!acquireRecentTaskCreateGuard(dedupKey, now)) {
             log.info("忽略重复开机任务创建请求：userId={} region={} shape={}（{} 秒内同参数请求）",
@@ -300,7 +301,7 @@ public class TaskSchedulerService implements SmartLifecycle {
         try {
             if (hasRecentDuplicateCreateTask(userId, effectiveRegion, normalizedArchitecture, normalized[0], normalized[1],
                     disk, normalizedVpusPerGB, createNumbers, interval, normalizedRootPassword,
-                    normalizedLoginMode.name(), normalizedSshPublicKey, operationSystem, customScript,
+                    normalizedLoginMode.name(), normalizedSshPublicKey, operationSystem, normalizedInstanceName, customScript,
                     normalizedAssignPublicIp, normalizedAssignIpv6, now.minusSeconds(CREATE_TASK_DEDUP_SECONDS))) {
                 log.info("忽略重复开机任务创建请求：userId={} region={} shape={}（数据库已有同参数任务）",
                         userId, effectiveRegion, normalizedArchitecture);
@@ -322,6 +323,7 @@ public class TaskSchedulerService implements SmartLifecycle {
             task.setLoginMode(normalizedLoginMode.name());
             task.setSshPublicKey(normalizedSshPublicKey);
             task.setOperationSystem(operationSystem);
+            task.setInstanceName(normalizedInstanceName);
             task.setCustomScript(customScript);
             task.setAssignPublicIp(normalizedAssignPublicIp);
             task.setAssignIpv6(normalizedAssignIpv6);
@@ -384,7 +386,7 @@ public class TaskSchedulerService implements SmartLifecycle {
                                                  double ocpus, double memory, Integer disk, Integer vpusPerGB,
                                                  Integer createNumbers, Integer interval, String rootPassword,
                                                  String loginMode, String sshPublicKey,
-                                                 String operationSystem, String customScript,
+                                                 String operationSystem, String instanceName, String customScript,
                                                  boolean assignPublicIp, boolean assignIpv6,
                                                  LocalDateTime since) {
         LambdaQueryWrapper<OciCreateTask> wrapper = new LambdaQueryWrapper<OciCreateTask>()
@@ -411,6 +413,7 @@ public class TaskSchedulerService implements SmartLifecycle {
         }
         addNullableTextEquals(wrapper, OciCreateTask::getRootPassword, rootPassword);
         addNullableTextEquals(wrapper, OciCreateTask::getSshPublicKey, sshPublicKey);
+        addNullableTextEquals(wrapper, OciCreateTask::getInstanceName, instanceName);
         addNullableTextEquals(wrapper, OciCreateTask::getCustomScript, customScript);
         return taskMapper.selectCount(wrapper) > 0;
     }
@@ -429,7 +432,7 @@ public class TaskSchedulerService implements SmartLifecycle {
                                              double ocpus, double memory, Integer disk, Integer vpusPerGB,
                                              Integer createNumbers, Integer interval, String rootPassword,
                                              String loginMode, String sshPublicKey,
-                                             String operationSystem, String customScript,
+                                             String operationSystem, String instanceName, String customScript,
                                              boolean assignPublicIp, boolean assignIpv6) {
         return String.join("\u001F",
                 safeKeyPart(userId),
@@ -445,6 +448,7 @@ public class TaskSchedulerService implements SmartLifecycle {
                 safeKeyPart(normalizeLoginMode(loginMode)),
                 String.valueOf(Objects.hashCode(sshPublicKey)),
                 safeKeyPart(operationSystem),
+                safeKeyPart(instanceName),
                 String.valueOf(Objects.hashCode(customScript)),
                 String.valueOf(assignPublicIp),
                 String.valueOf(assignIpv6));
@@ -452,6 +456,18 @@ public class TaskSchedulerService implements SmartLifecycle {
 
     private static String safeKeyPart(String value) {
         return value == null ? "" : value.trim();
+    }
+
+    private static String normalizeInstanceName(String value, Integer createNumbers) {
+        String name = StrUtil.trimToNull(value);
+        int target = createNumbers != null && createNumbers > 0 ? createNumbers : 1;
+        int suffixLength = target > 1 ? 1 + String.valueOf(target).length() : 0;
+        if (name != null && name.length() + suffixLength > 255) {
+            throw new OciException(target > 1
+                    ? "批量创建时实例名称需预留序号后缀，最多 " + (255 - suffixLength) + " 个字符"
+                    : "实例名称不能超过 255 个字符");
+        }
+        return name;
     }
 
     private static String randomRootPassword() {
@@ -525,7 +541,7 @@ public class TaskSchedulerService implements SmartLifecycle {
     public void updateTask(String taskId, String architecture, Double ocpus, Double memory,
                            Integer disk, Integer vpusPerGB, Integer createNumbers, Integer interval,
                            String rootPassword, String loginMode, String sshPublicKey,
-                           String operationSystem, String customScript,
+                           String operationSystem, String instanceName, String customScript,
                            Boolean assignPublicIp, Boolean assignIpv6) {
         OciCreateTask task = taskMapper.selectById(taskId);
         if (task == null) throw new OciException("任务不存在");
@@ -559,9 +575,11 @@ public class TaskSchedulerService implements SmartLifecycle {
             task.setRootPassword(rootPassword);
         }
         if (operationSystem != null) task.setOperationSystem(operationSystem);
+        if (instanceName != null) task.setInstanceName(StrUtil.trimToNull(instanceName));
         if (customScript != null) task.setCustomScript(customScript);
         if (assignPublicIp != null) task.setAssignPublicIp(assignPublicIp);
         if (assignIpv6 != null) task.setAssignIpv6(assignIpv6);
+        task.setInstanceName(normalizeInstanceName(task.getInstanceName(), task.getCreateNumbers()));
         double[] normalized = ShapeFlexLimitsUtil.normalizeAndLogIfAdjusted(
                 task.getArchitecture(), task.getOcpus(), task.getMemory(), "更新开机任务");
         task.setOcpus(normalized[0]);
@@ -583,6 +601,7 @@ public class TaskSchedulerService implements SmartLifecycle {
                 .set("login_mode", task.getLoginMode())
                 .set("ssh_public_key", task.getSshPublicKey())
                 .set("operation_system", task.getOperationSystem())
+                .set("instance_name", task.getInstanceName())
                 .set("custom_script", task.getCustomScript())
                 .set("assign_public_ip", task.getAssignPublicIp())
                 .set("assign_ipv6", task.getAssignIpv6());
@@ -1404,6 +1423,7 @@ public class TaskSchedulerService implements SmartLifecycle {
                 .loginMode(normalizeLoginMode(task.getLoginMode()))
                 .sshPublicKey(task.getSshPublicKey())
                 .operationSystem(task.getOperationSystem())
+                .instanceName(task.getInstanceName())
                 .customScript(task.getCustomScript())
                 .assignPublicIp(task.getAssignPublicIp() != null ? task.getAssignPublicIp() : true)
                 .assignIpv6(task.getAssignIpv6() != null ? task.getAssignIpv6() : false)

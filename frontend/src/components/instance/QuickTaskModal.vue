@@ -34,16 +34,25 @@
         :is-mobile="isMobile"
         :get-popup-container="popupContainer"
       />
-      <a-form-item label="操作系统">
-        <a-select v-model:value="form.operationSystem" :get-popup-container="popupContainer">
-          <a-select-option value="Ubuntu">Ubuntu（最新版）</a-select-option>
-          <a-select-option value="Ubuntu 24.04">Ubuntu 24.04 LTS</a-select-option>
-          <a-select-option value="Ubuntu 22.04">Ubuntu 22.04 LTS</a-select-option>
-          <a-select-option value="Ubuntu 20.04">Ubuntu 20.04 LTS</a-select-option>
-          <a-select-option value="Oracle Linux">Oracle Linux</a-select-option>
-          <a-select-option value="CentOS">CentOS</a-select-option>
-        </a-select>
-      </a-form-item>
+      <a-row :gutter="12">
+        <a-col :xs="24" :sm="12">
+          <a-form-item label="操作系统">
+            <a-select v-model:value="form.operationSystem" :get-popup-container="popupContainer">
+              <a-select-option value="Ubuntu">Ubuntu（最新版）</a-select-option>
+              <a-select-option value="Ubuntu 24.04">Ubuntu 24.04 LTS</a-select-option>
+              <a-select-option value="Ubuntu 22.04">Ubuntu 22.04 LTS</a-select-option>
+              <a-select-option value="Ubuntu 20.04">Ubuntu 20.04 LTS</a-select-option>
+              <a-select-option value="Oracle Linux">Oracle Linux</a-select-option>
+              <a-select-option value="CentOS">CentOS</a-select-option>
+            </a-select>
+          </a-form-item>
+        </a-col>
+        <a-col :xs="24" :sm="12">
+          <a-form-item label="实例名称">
+            <a-input v-model:value="form.instanceName" :maxlength="255" placeholder="留空则自动生成" />
+          </a-form-item>
+        </a-col>
+      </a-row>
       <a-form-item v-if="denseIoTiers?.length" label="DenseIO 档位">
         <a-select
           :value="denseIoTierKey"
@@ -164,6 +173,7 @@ interface QuickTaskFormModel {
   ociRegion?: string
   architecture: string
   operationSystem: string
+  instanceName: string
   ocpus: number
   memory: number
   disk: number

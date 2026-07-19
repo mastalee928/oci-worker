@@ -78,6 +78,7 @@ public class DatabaseGuardService {
                 login_mode VARCHAR(32) DEFAULT 'PASSWORD',
                 ssh_public_key TEXT DEFAULT NULL,
                 operation_system VARCHAR(64) DEFAULT 'Ubuntu',
+                instance_name VARCHAR(255) DEFAULT NULL,
                 custom_script TEXT,
                 assign_public_ip TINYINT(1) DEFAULT 1,
                 assign_ipv6 TINYINT(1) DEFAULT 0,
@@ -630,6 +631,7 @@ public class DatabaseGuardService {
         addColumnIfMissing(conn, "oci_user", "generative_conversation_store_id", "VARCHAR(512) DEFAULT NULL AFTER generative_openai_project");
         addUniqueIndexIfMissing(conn, "oci_user", "uk_oci_user_tenant_id", "oci_tenant_id");
         addColumnIfMissing(conn, "oci_create_task", "custom_script", "TEXT DEFAULT NULL AFTER operation_system");
+        addColumnIfMissing(conn, "oci_create_task", "instance_name", "VARCHAR(255) DEFAULT NULL AFTER operation_system");
         addColumnIfMissing(conn, "oci_create_task", "vpus_per_gb", "INT DEFAULT 10 AFTER disk");
         addColumnIfMissing(conn, "oci_create_task", "login_mode", "VARCHAR(32) DEFAULT 'PASSWORD' AFTER root_password");
         addColumnIfMissing(conn, "oci_create_task", "ssh_public_key", "TEXT DEFAULT NULL AFTER login_mode");

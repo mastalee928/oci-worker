@@ -20,6 +20,8 @@ public class CreateTaskParams {
     private String loginMode = "PASSWORD";
     private String sshPublicKey;
     private String operationSystem = "Ubuntu";
+    /** 可选实例名称；批量创建时自动追加序号 */
+    private String instanceName;
     private String customScript;
     private Boolean assignPublicIp = true;
     private Boolean assignIpv6 = false;

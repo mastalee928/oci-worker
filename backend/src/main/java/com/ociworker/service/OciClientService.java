@@ -1130,9 +1130,13 @@ public class OciClientService implements Closeable {
     }
 
     private String resolveLaunchDisplayName() {
+        String customName = user.getInstanceName() == null ? null : user.getInstanceName().trim();
         int target = user.getCreateNumbers() != null && user.getCreateNumbers() > 0 ? user.getCreateNumbers() : 1;
         int ord = user.getInstanceDisplayOrdinal() != null && user.getInstanceDisplayOrdinal() > 0
                 ? user.getInstanceDisplayOrdinal() : 1;
+        if (customName != null && !customName.isEmpty()) {
+            return target == 1 ? customName : customName + "-" + ord;
+        }
         if (target == 1) {
             return "oci-worker-instance";
         }

@@ -26,6 +26,7 @@ public class SysUserDTO {
     private String loginMode;
     private String sshPublicKey;
     private String operationSystem;
+    private String instanceName;
     private String customScript;
     private Boolean assignPublicIp;
     private Boolean assignIpv6;

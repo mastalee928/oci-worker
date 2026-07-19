@@ -187,16 +187,25 @@
           :loading="shapesLoading"
           :hint="availableShapes.length ? `查询到 ${availableShapes.length} 个可用 Shape（随租户区域变化）` : ''"
         />
-        <a-form-item label="操作系统">
-          <a-select v-model:value="createForm.operationSystem">
-            <a-select-option value="Ubuntu">Ubuntu（最新版）</a-select-option>
-            <a-select-option value="Ubuntu 24.04">Ubuntu 24.04 LTS</a-select-option>
-            <a-select-option value="Ubuntu 22.04">Ubuntu 22.04 LTS</a-select-option>
-            <a-select-option value="Ubuntu 20.04">Ubuntu 20.04 LTS</a-select-option>
-            <a-select-option value="Oracle Linux">Oracle Linux</a-select-option>
-            <a-select-option value="CentOS">CentOS</a-select-option>
-          </a-select>
-        </a-form-item>
+        <a-row :gutter="12">
+          <a-col :xs="24" :sm="12">
+            <a-form-item label="操作系统">
+              <a-select v-model:value="createForm.operationSystem">
+                <a-select-option value="Ubuntu">Ubuntu（最新版）</a-select-option>
+                <a-select-option value="Ubuntu 24.04">Ubuntu 24.04 LTS</a-select-option>
+                <a-select-option value="Ubuntu 22.04">Ubuntu 22.04 LTS</a-select-option>
+                <a-select-option value="Ubuntu 20.04">Ubuntu 20.04 LTS</a-select-option>
+                <a-select-option value="Oracle Linux">Oracle Linux</a-select-option>
+                <a-select-option value="CentOS">CentOS</a-select-option>
+              </a-select>
+            </a-form-item>
+          </a-col>
+          <a-col :xs="24" :sm="12">
+            <a-form-item label="实例名称">
+              <a-input v-model:value="createForm.instanceName" :maxlength="255" placeholder="留空则自动生成" />
+            </a-form-item>
+          </a-col>
+        </a-row>
         <a-form-item v-if="createDenseIoTiers?.length" label="DenseIO 档位">
           <a-select v-model:value="createDenseIoTierKey" style="width: 100%">
             <a-select-option v-for="t in createDenseIoTiers" :key="denseIoFlexTierKey(t)" :value="denseIoFlexTierKey(t)">
@@ -311,16 +320,25 @@
           :loading="editShapesLoading"
           :hint="editAvailableShapes.length ? `查询到 ${editAvailableShapes.length} 个可用 Shape` : ''"
         />
-        <a-form-item label="操作系统">
-          <a-select v-model:value="editForm.operationSystem">
-            <a-select-option value="Ubuntu">Ubuntu（最新版）</a-select-option>
-            <a-select-option value="Ubuntu 24.04">Ubuntu 24.04 LTS</a-select-option>
-            <a-select-option value="Ubuntu 22.04">Ubuntu 22.04 LTS</a-select-option>
-            <a-select-option value="Ubuntu 20.04">Ubuntu 20.04 LTS</a-select-option>
-            <a-select-option value="Oracle Linux">Oracle Linux</a-select-option>
-            <a-select-option value="CentOS">CentOS</a-select-option>
-          </a-select>
-        </a-form-item>
+        <a-row :gutter="12">
+          <a-col :xs="24" :sm="12">
+            <a-form-item label="操作系统">
+              <a-select v-model:value="editForm.operationSystem">
+                <a-select-option value="Ubuntu">Ubuntu（最新版）</a-select-option>
+                <a-select-option value="Ubuntu 24.04">Ubuntu 24.04 LTS</a-select-option>
+                <a-select-option value="Ubuntu 22.04">Ubuntu 22.04 LTS</a-select-option>
+                <a-select-option value="Ubuntu 20.04">Ubuntu 20.04 LTS</a-select-option>
+                <a-select-option value="Oracle Linux">Oracle Linux</a-select-option>
+                <a-select-option value="CentOS">CentOS</a-select-option>
+              </a-select>
+            </a-form-item>
+          </a-col>
+          <a-col :xs="24" :sm="12">
+            <a-form-item label="实例名称">
+              <a-input v-model:value="editForm.instanceName" :maxlength="255" placeholder="留空则自动生成" />
+            </a-form-item>
+          </a-col>
+        </a-row>
         <a-form-item v-if="editDenseIoTiers?.length" label="DenseIO 档位">
           <a-select v-model:value="editDenseIoTierKey" style="width: 100%">
             <a-select-option v-for="t in editDenseIoTiers" :key="denseIoFlexTierKey(t)" :value="denseIoFlexTierKey(t)">
@@ -661,7 +679,7 @@ function selectedTaskIds() {
 }
 
 const createForm = reactive({
-  userId: '', architecture: TASK_ARM_SHAPE, operationSystem: 'Ubuntu',
+  userId: '', architecture: TASK_ARM_SHAPE, operationSystem: 'Ubuntu', instanceName: '',
   ocpus: 1, memory: 6, disk: 50, vpusPerGB: 10, createNumbers: 1, interval: 60, rootPassword: '',
   loginMode: 'PASSWORD', sshPublicKey: '',
   customScript: '', assignPublicIp: true, assignIpv6: false,
@@ -709,7 +727,7 @@ const editMemoryLabel = computed(() => taskMemoryFieldLabel(editForm.architectur
 const editForm = reactive({
   taskId: '',
   userId: '',
-  architecture: TASK_ARM_SHAPE, operationSystem: 'Ubuntu',
+  architecture: TASK_ARM_SHAPE, operationSystem: 'Ubuntu', instanceName: '',
   ocpus: 1, memory: 6, disk: 50, vpusPerGB: 10, createNumbers: 1, interval: 60, rootPassword: '',
   loginMode: 'PASSWORD', sshPublicKey: '',
   customScript: '', assignPublicIp: true, assignIpv6: false,
@@ -796,6 +814,7 @@ async function showEditModal(record: any) {
     userId: record.userId || '',
     architecture: normalizeTaskArchitecture(record.architecture),
     operationSystem: record.operationSystem || 'Ubuntu',
+    instanceName: record.instanceName || '',
     ocpus: record.ocpus,
     memory: record.memory,
     disk: record.disk,
@@ -934,7 +953,7 @@ function showCreateModal() {
   void loadTaskCredential()
   availableShapes.value = []
   Object.assign(createForm, {
-    userId: '', architecture: TASK_ARM_SHAPE, operationSystem: 'Ubuntu',
+    userId: '', architecture: TASK_ARM_SHAPE, operationSystem: 'Ubuntu', instanceName: '',
     ocpus: 1, memory: 6, disk: 50, vpusPerGB: 10, createNumbers: 1, interval: 60, rootPassword: '',
     loginMode: 'PASSWORD', sshPublicKey: '',
     customScript: '', assignPublicIp: true, assignIpv6: false,
