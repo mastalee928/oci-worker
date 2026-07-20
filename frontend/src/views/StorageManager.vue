@@ -585,11 +585,18 @@ const compartmentId = ref<string | undefined>(undefined)
 const regionOptions = ref<{ label: string; value: string }[]>([])
 const compartmentOptions = ref<CompartmentOption[]>([])
 
-/** 程序化选中 root 区间时跳过 watch(compartmentId)，避免重复 loadAll */
-let suppressCompartmentLoadAll = false
+/** 程序化写入 region / 区间（initDrawer、清理租户状态、默认选中 root）时跳过 scope watcher，避免重复加载 */
+let suppressScopeWatch = false
 
-/** initDrawer / 清理租户状态程序化写入 region 时跳过 watch(region)，避免与 initDrawer 主链重复加载 */
-let suppressRegionWatch = false
+/** 在 fn 内程序化写 region / compartmentId 时静默两个 scope watcher（配合 flush:'sync'，在同步栈内生效） */
+function withScopeWatchSuppressed(fn: () => void) {
+  suppressScopeWatch = true
+  try {
+    fn()
+  } finally {
+    suppressScopeWatch = false
+  }
+}
 
 const mainTab = ref('block')
 const objectSub = ref('buckets')
@@ -887,7 +894,7 @@ watch(
 watch(
   region,
   async (r) => {
-    if (suppressRegionWatch) return
+    if (suppressScopeWatch) return
     try {
       localStorage.setItem(`storage.region:${props.userId}`, r || '')
     } catch {}
@@ -912,9 +919,7 @@ function resetStorageUiTabs() {
 }
 
 function clearStorageTenantScopedState() {
-  suppressRegionWatch = true
-  suppressCompartmentLoadAll = true
-  try {
+  withScopeWatchSuppressed(() => {
     compartmentId.value = undefined
     compartmentOptions.value = []
     blockData.value = {}
@@ -923,10 +928,7 @@ function clearStorageTenantScopedState() {
     objectDataContextKey.value = ''
     region.value = ''
     regionOptions.value = []
-  } finally {
-    suppressRegionWatch = false
-    suppressCompartmentLoadAll = false
-  }
+  })
 }
 
 async function initDrawer() {
@@ -947,14 +949,11 @@ async function initDrawer() {
         return ''
       }
     })()
-    suppressRegionWatch = true
-    try {
+    withScopeWatchSuppressed(() => {
       region.value = (props.defaultRegion && ids.includes(props.defaultRegion) ? props.defaultRegion : null)
         || (cached && ids.includes(cached) ? cached : null)
         || (ids[0] || '')
-    } finally {
-      suppressRegionWatch = false
-    }
+    })
     if (region.value) {
       const raw = await loadCompartments()
       applyRootCompartmentDefaultIfNeeded(raw)
@@ -995,12 +994,9 @@ function applyRootCompartmentDefaultIfNeeded(rawList: any[]) {
   if (!rootId) return
   const cur = compartmentId.value
   if (cur && compartmentOptions.value.some((o) => o.value === cur)) return
-  suppressCompartmentLoadAll = true
-  try {
+  withScopeWatchSuppressed(() => {
     compartmentId.value = rootId
-  } finally {
-    suppressCompartmentLoadAll = false
-  }
+  })
 }
 
 function onMainTab() {
@@ -1153,7 +1149,7 @@ async function loadObjectIfNeeded() {
 watch(
   compartmentId,
   () => {
-    if (suppressCompartmentLoadAll) return
+    if (suppressScopeWatch) return
     if (props.open && region.value) void onCompartmentOrBlockScopeChanged()
   },
   // sync：同上，保证 applyRootCompartmentDefaultIfNeeded 的 suppress 真正生效
