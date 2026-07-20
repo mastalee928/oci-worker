@@ -588,6 +588,9 @@ const compartmentOptions = ref<CompartmentOption[]>([])
 /** 程序化选中 root 区间时跳过 watch(compartmentId)，避免重复 loadAll */
 let suppressCompartmentLoadAll = false
 
+/** initDrawer / 清理租户状态程序化写入 region 时跳过 watch(region)，避免与 initDrawer 主链重复加载 */
+let suppressRegionWatch = false
+
 const mainTab = ref('block')
 const objectSub = ref('buckets')
 const blockView = ref('bootVolumes')
@@ -868,6 +871,7 @@ watch(
   (v) => {
     if (v && props.userId) void initDrawer()
   },
+  { immediate: true },
 )
 
 watch(
@@ -880,20 +884,26 @@ watch(
   },
 )
 
-watch(region, async (r) => {
-  try {
-    localStorage.setItem(`storage.region:${props.userId}`, r || '')
-  } catch {}
-  if (props.open && r) {
-    const raw = await loadCompartments()
-    applyRootCompartmentDefaultIfNeeded(raw)
-    objectDataContextKey.value = ''
-    objectData.value = {}
-    await loadBlockQuick()
-    void prefetchRemainingBlockStorage()
-    if (mainTab.value === 'object') await loadObjectIfNeeded()
-  }
-})
+watch(
+  region,
+  async (r) => {
+    if (suppressRegionWatch) return
+    try {
+      localStorage.setItem(`storage.region:${props.userId}`, r || '')
+    } catch {}
+    if (props.open && r) {
+      const raw = await loadCompartments()
+      applyRootCompartmentDefaultIfNeeded(raw)
+      objectDataContextKey.value = ''
+      objectData.value = {}
+      await loadBlockQuick()
+      void prefetchRemainingBlockStorage()
+      if (mainTab.value === 'object') await loadObjectIfNeeded()
+    }
+  },
+  // sync：suppress 标志在赋值同步栈内 set/reset，pre 冲刷时回调执行时标志已复位、抑制会失效
+  { flush: 'sync' },
+)
 
 function resetStorageUiTabs() {
   mainTab.value = 'block'
@@ -902,14 +912,21 @@ function resetStorageUiTabs() {
 }
 
 function clearStorageTenantScopedState() {
-  compartmentId.value = undefined
-  compartmentOptions.value = []
-  blockData.value = {}
-  blockDataSectionsLoaded.value = new Set()
-  objectData.value = {}
-  objectDataContextKey.value = ''
-  region.value = ''
-  regionOptions.value = []
+  suppressRegionWatch = true
+  suppressCompartmentLoadAll = true
+  try {
+    compartmentId.value = undefined
+    compartmentOptions.value = []
+    blockData.value = {}
+    blockDataSectionsLoaded.value = new Set()
+    objectData.value = {}
+    objectDataContextKey.value = ''
+    region.value = ''
+    regionOptions.value = []
+  } finally {
+    suppressRegionWatch = false
+    suppressCompartmentLoadAll = false
+  }
 }
 
 async function initDrawer() {
@@ -930,9 +947,14 @@ async function initDrawer() {
         return ''
       }
     })()
-    region.value = (props.defaultRegion && ids.includes(props.defaultRegion) ? props.defaultRegion : null)
-      || (cached && ids.includes(cached) ? cached : null)
-      || (ids[0] || '')
+    suppressRegionWatch = true
+    try {
+      region.value = (props.defaultRegion && ids.includes(props.defaultRegion) ? props.defaultRegion : null)
+        || (cached && ids.includes(cached) ? cached : null)
+        || (ids[0] || '')
+    } finally {
+      suppressRegionWatch = false
+    }
     if (region.value) {
       const raw = await loadCompartments()
       applyRootCompartmentDefaultIfNeeded(raw)
@@ -1128,10 +1150,15 @@ async function loadObjectIfNeeded() {
   await loadObject()
 }
 
-watch(compartmentId, () => {
-  if (suppressCompartmentLoadAll) return
-  if (props.open && region.value) void onCompartmentOrBlockScopeChanged()
-})
+watch(
+  compartmentId,
+  () => {
+    if (suppressCompartmentLoadAll) return
+    if (props.open && region.value) void onCompartmentOrBlockScopeChanged()
+  },
+  // sync：同上，保证 applyRootCompartmentDefaultIfNeeded 的 suppress 真正生效
+  { flush: 'sync' },
+)
 
 async function onCompartmentOrBlockScopeChanged() {
   objectDataContextKey.value = ''
