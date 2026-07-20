@@ -851,7 +851,7 @@ public class OciClientService implements Closeable {
             return false;
         }
         String em = e.getMessage() == null ? "" : e.getMessage();
-        return em.contains("Out of host capacity")
+        return isCapacityShortageMessage(em)
                 || (e.getStatusCode() == 400 && em.contains("LimitExceeded"));
     }
 
@@ -862,10 +862,22 @@ public class OciClientService implements Closeable {
         String em = e.getMessage() == null ? "" : e.getMessage().toLowerCase(Locale.ROOT);
         // LaunchInstance 在 A1 主机容量不足时也可能返回 serviceCode=LimitExceeded，
         // 不能仅根据 LimitExceeded 判定账户配额超限，否则会向用户发送误报。
+        if (isCapacityShortageMessage(em)) {
+            return false;
+        }
         return em.contains("service limits were exceeded")
                 || em.contains("service limit has been exceeded")
                 || em.contains("service limit is exceeded")
                 || em.contains("reached your service limit");
+    }
+
+    private static boolean isCapacityShortageMessage(String message) {
+        String em = message == null ? "" : message.toLowerCase(Locale.ROOT);
+        return em.contains("out of host capacity")
+                || em.contains("out of capacity")
+                || em.contains("insufficient capacity")
+                || em.contains("capacity is not available")
+                || em.contains("no available host");
     }
 
     /** LaunchInstance 返回 bootVolumeQuota / 引导卷 QuotaExceeded */
@@ -937,7 +949,7 @@ public class OciClientService implements Closeable {
         if (em.contains("QuotaExceeded")) {
             return "OCI 服务配额已达上限，创建失败";
         }
-        if (em.contains("Out of host capacity")) {
+        if (isCapacityShortageMessage(em)) {
             return "主机容量不足";
         }
         if (em.contains("LimitExceeded")) {

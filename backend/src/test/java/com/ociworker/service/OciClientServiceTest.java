@@ -115,6 +115,11 @@ class OciClientServiceTest {
         BmcException actualServiceLimit = new BmcException(
                 400, "LimitExceeded",
                 "The following service limits were exceeded: standard-a1-core-count.", "opc");
+        BmcException capacityWithLimitWording = new BmcException(
+                400, "LimitExceeded",
+                "Out of capacity for shape VM.Standard.A1.Flex. The following service limits were exceeded.", "opc");
+        BmcException unavailableCapacity = new BmcException(
+                400, "LimitExceeded", "Capacity is not available for this shape.", "opc");
 
         assertThat(OciClientService.isRateLimited(new RuntimeException(rateLimited))).isTrue();
         assertThat(OciClientService.isOutOfHostCapacityError(rateLimited)).isFalse();
@@ -122,6 +127,10 @@ class OciClientServiceTest {
         assertThat(OciClientService.isOutOfHostCapacityError(capacity)).isTrue();
         assertThat(OciClientService.isOutOfHostCapacityError(a1CapacityLimitCode)).isTrue();
         assertThat(OciClientService.isOciServiceLimitExceeded(a1CapacityLimitCode)).isFalse();
+        assertThat(OciClientService.isOciServiceLimitExceeded(capacityWithLimitWording)).isFalse();
+        assertThat(OciClientService.isOciServiceLimitExceeded(unavailableCapacity)).isFalse();
         assertThat(OciClientService.isOciServiceLimitExceeded(actualServiceLimit)).isTrue();
+        assertThat(OciClientService.describeBmcFailure(a1CapacityLimitCode, "VM.Standard.A1.Flex"))
+                .isEqualTo("主机容量不足");
     }
 }
