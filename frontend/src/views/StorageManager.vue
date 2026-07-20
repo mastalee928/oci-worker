@@ -562,6 +562,9 @@ const emit = defineEmits<{
 }>()
 
 type CompartmentOption = { label: string; value: string; isRoot?: boolean }
+type StorageRegionScope = { userId: string; region: string }
+type StorageBlockScope = StorageRegionScope & { compartmentId?: string }
+type StorageApplyGuard = () => boolean
 
 const regionLoading = ref(false)
 const compartmentLoading = ref(false)
@@ -609,6 +612,11 @@ const objectData = ref<{ namespace?: string; buckets?: any[]; privateEndpoints?:
 const objectDataContextKey = ref('')
 /** 块存储全量后台预取代数；递增可丢弃过期的异步结果 */
 const blockPrefetchGeneration = ref(0)
+/** 存储抽屉初始化代数；重新打开或切换租户时丢弃旧初始化链的响应 */
+let storageInitGeneration = 0
+/** 区间/块存储请求代数；旧请求不能提前关闭新请求的 loading */
+let compartmentLoadGeneration = 0
+let blockLoadGeneration = 0
 
 const BLOCK_AGGREGATE_MERGE_KEYS = [
   'bootVolumes',
@@ -877,6 +885,10 @@ watch(
   () => props.open,
   (v) => {
     if (v && props.userId) void initDrawer()
+    else {
+      storageInitGeneration += 1
+      regionLoading.value = false
+    }
   },
   { immediate: true },
 )
@@ -932,47 +944,74 @@ function clearStorageTenantScopedState() {
 }
 
 async function initDrawer() {
+  const userId = props.userId
+  if (!props.open || !userId) return
+  const defaultRegion = props.defaultRegion
+  const initGeneration = ++storageInitGeneration
+  const canApply = () =>
+    initGeneration === storageInitGeneration && props.open && props.userId === userId
+
   resetStorageUiTabs()
-  if (props.userId !== storageContextUserId.value) {
+  if (userId !== storageContextUserId.value) {
     clearStorageTenantScopedState()
-    storageContextUserId.value = props.userId
+    storageContextUserId.value = userId
   }
   regionLoading.value = true
   try {
-    const res = await listStorageRegions({ id: props.userId })
+    const res = await listStorageRegions({ id: userId })
+    if (!canApply()) return
     const ids = (res.data || []) as string[]
     regionOptions.value = ids.map((x) => ({ label: x, value: x }))
     const cached = (() => {
       try {
-        return localStorage.getItem(`storage.region:${props.userId}`) || ''
+        return localStorage.getItem(`storage.region:${userId}`) || ''
       } catch {
         return ''
       }
     })()
+    const selectedRegion = (defaultRegion && ids.includes(defaultRegion) ? defaultRegion : null)
+      || (cached && ids.includes(cached) ? cached : null)
+      || (ids[0] || '')
     withScopeWatchSuppressed(() => {
-      region.value = (props.defaultRegion && ids.includes(props.defaultRegion) ? props.defaultRegion : null)
-        || (cached && ids.includes(cached) ? cached : null)
-        || (ids[0] || '')
+      region.value = selectedRegion
     })
-    if (region.value) {
-      const raw = await loadCompartments()
+    if (selectedRegion) {
+      const regionScope = { userId, region: selectedRegion }
+      const canApplyRegion = () => canApply() && region.value === selectedRegion
+      const raw = await loadCompartments(regionScope, canApplyRegion)
+      if (!canApplyRegion()) return
       applyRootCompartmentDefaultIfNeeded(raw)
-      await loadBlockQuick()
+      const blockScope = { userId, region: selectedRegion, compartmentId: compartmentId.value }
+      const canApplyBlock = () =>
+        canApplyRegion() && compartmentId.value === blockScope.compartmentId
+      await loadBlockQuick(blockScope, canApplyBlock)
+      if (!canApplyBlock()) return
       void prefetchRemainingBlockStorage()
     }
   } catch (e: any) {
-    message.error(e?.message || '加载 Region 失败')
+    if (canApply()) message.error(e?.message || '加载 Region 失败')
   } finally {
-    regionLoading.value = false
+    if (initGeneration === storageInitGeneration) regionLoading.value = false
   }
 }
 
 /** 拉取区间列表；返回原始行（含 isRoot）供默认选中 root */
-async function loadCompartments(): Promise<any[]> {
-  if (!props.userId || !region.value) return []
+async function loadCompartments(
+  scope: StorageRegionScope = { userId: props.userId, region: region.value },
+  guard?: StorageApplyGuard,
+): Promise<any[]> {
+  if (!scope.userId || !scope.region) return []
+  const loadGeneration = ++compartmentLoadGeneration
+  const canApply = () =>
+    loadGeneration === compartmentLoadGeneration
+    && props.open
+    && props.userId === scope.userId
+    && region.value === scope.region
+    && (guard?.() ?? true)
   compartmentLoading.value = true
   try {
-    const res = await listStorageCompartments({ id: props.userId, region: region.value })
+    const res = await listStorageCompartments({ id: scope.userId, region: scope.region })
+    if (!canApply()) return []
     const list = res.data || []
     compartmentOptions.value = list.map((c: any) => ({
       label: formatCompartmentOptionLabel(c),
@@ -981,10 +1020,10 @@ async function loadCompartments(): Promise<any[]> {
     }))
     return list
   } catch {
-    compartmentOptions.value = []
+    if (canApply()) compartmentOptions.value = []
     return []
   } finally {
-    compartmentLoading.value = false
+    if (loadGeneration === compartmentLoadGeneration) compartmentLoading.value = false
   }
 }
 
@@ -1051,22 +1090,38 @@ async function prefetchRemainingBlockStorage() {
 }
 
 /** 首屏 / 换区 / 换区间：只拉引导卷 */
-async function loadBlockQuick() {
-  if (!props.userId || !region.value) return
+async function loadBlockQuick(
+  scope: StorageBlockScope = {
+    userId: props.userId,
+    region: region.value,
+    compartmentId: compartmentId.value,
+  },
+  guard?: StorageApplyGuard,
+) {
+  if (!scope.userId || !scope.region) return
+  const loadGeneration = ++blockLoadGeneration
+  const canApply = () =>
+    loadGeneration === blockLoadGeneration
+    && props.open
+    && props.userId === scope.userId
+    && region.value === scope.region
+    && compartmentId.value === scope.compartmentId
+    && (guard?.() ?? true)
   loading.value = true
   try {
     const res = await blockStorageAggregate({
-      id: props.userId,
-      region: region.value,
-      compartmentId: compartmentId.value || undefined,
+      id: scope.userId,
+      region: scope.region,
+      compartmentId: scope.compartmentId || undefined,
       sections: 'bootVolumes',
     })
+    if (!canApply()) return
     mergeBlockAggregatePayload((res.data || {}) as Record<string, any>)
     blockDataSectionsLoaded.value = new Set(['bootVolumes'])
   } catch (e: any) {
-    message.error(e?.message || '加载块存储失败')
+    if (canApply()) message.error(e?.message || '加载块存储失败')
   } finally {
-    loading.value = false
+    if (loadGeneration === blockLoadGeneration) loading.value = false
   }
 }
 
