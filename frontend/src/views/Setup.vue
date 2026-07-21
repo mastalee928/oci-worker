@@ -252,6 +252,12 @@ async function handleSetup() {
   caret-color: #fff !important;
   overflow: visible !important;
 }
+/* 占位提示只是引导文案：浅灰、不加粗，不与用户输入的白字抢视觉 */
+.setup-input :deep(input::placeholder) {
+  color: #64748b !important;
+  -webkit-text-fill-color: #64748b !important;
+  font-weight: 400 !important;
+}
 /* Chrome 自动填充会强制白底黑字；用内阴影盖回深色底并保住白字 */
 .setup-input :deep(input:-webkit-autofill),
 .setup-input :deep(input:-webkit-autofill:hover),
