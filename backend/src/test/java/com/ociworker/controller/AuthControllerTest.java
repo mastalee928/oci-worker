@@ -29,7 +29,7 @@ class AuthControllerTest {
     @Test
     void unconfiguredCredentialSnapshotStillRequiresSetup() {
         PanelAuthService panelAuthService = mock(PanelAuthService.class);
-        when(panelAuthService.isReady()).thenReturn(true);
+        when(panelAuthService.ensureReady()).thenReturn(true);
         when(panelAuthService.isConfigured()).thenReturn(false);
         AuthController controller = new AuthController();
         ReflectionTestUtils.setField(controller, "panelAuthService", panelAuthService);
@@ -42,7 +42,7 @@ class AuthControllerTest {
     @Test
     void unavailableCredentialSnapshotReturnsServiceUnavailable() {
         PanelAuthService panelAuthService = mock(PanelAuthService.class);
-        when(panelAuthService.isReady()).thenReturn(false);
+        when(panelAuthService.ensureReady()).thenReturn(false);
         AuthController controller = new AuthController();
         ReflectionTestUtils.setField(controller, "panelAuthService", panelAuthService);
 

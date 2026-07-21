@@ -97,21 +97,40 @@ const tgCode = ref('')
 const tgCountdown = ref(0)
 let countdownTimer: any = null
 
+let setupCheckStopped = false
+
+/**
+ * 首次安装时后端可能仍在初始化（needSetup 短暂返回 503），
+ * 静默重试直至拿到明确结果，避免本该进入初始化页的用户停留在登录页。
+ */
+async function checkNeedSetup() {
+  const MAX_ATTEMPTS = 15
+  for (let i = 0; i < MAX_ATTEMPTS && !setupCheckStopped; i++) {
+    try {
+      const res = await needSetup()
+      if (res.data) router.replace('/setup')
+      return
+    } catch {
+      await new Promise((resolve) => setTimeout(resolve, 2000))
+    }
+  }
+}
+
 onMounted(async () => {
   try {
     await axios.get('/api/auth/device', { withCredentials: true, validateStatus: () => true })
   } catch { /* ignore */ }
-  try {
-    const res = await needSetup()
-    if (res.data) { router.replace('/setup'); return }
-  } catch {}
+  checkNeedSetup()
   try {
     const res = await tgLoginAvailable()
     tgAvailable.value = res.data === true
   } catch {}
 })
 
-onUnmounted(() => { if (countdownTimer) clearInterval(countdownTimer) })
+onUnmounted(() => {
+  setupCheckStopped = true
+  if (countdownTimer) clearInterval(countdownTimer)
+})
 
 async function handleLogin() {
   loading.value = true

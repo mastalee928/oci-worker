@@ -1,4 +1,5 @@
 import request from '../utils/request'
+import type { OciRequestConfig } from '../utils/request'
 
 export function login(data: { account: string; password: string; mfaCode?: string }) {
   return request.post('/auth/login', data)
@@ -9,7 +10,11 @@ export function getCurrentAccount() {
 }
 
 export function needSetup() {
-  return request.get('/auth/needSetup')
+  // 后端启动初期可能返回 503（安全配置加载中），由登录页自行重试，不弹全局错误。
+  return request.get('/auth/needSetup', {
+    skipBusinessMessage: true,
+    skipErrorMessage: true,
+  } as OciRequestConfig)
 }
 
 export function setupAccount(data: { account: string; password: string }) {

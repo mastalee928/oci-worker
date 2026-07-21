@@ -12,6 +12,7 @@ import jakarta.annotation.PostConstruct;
 import jakarta.annotation.Resource;
 import jakarta.servlet.http.HttpServletRequest;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.annotation.DependsOn;
 import org.springframework.http.HttpHeaders;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
@@ -22,6 +23,8 @@ import java.security.MessageDigest;
 
 @Slf4j
 @Service
+// 首次安装的空库由 DatabaseGuardService 建表；凭据快照必须在其后加载，否则查询 oci_kv 失败会让 isReady 长期为 false。
+@DependsOn("databaseGuardService")
 public class PanelAuthService {
 
     public static final String PANEL_TOKEN_COOKIE = "ow_panel_token";
@@ -62,6 +65,14 @@ public class PanelAuthService {
     }
 
     public boolean isReady() {
+        return credentialSnapshot != null;
+    }
+
+    /** 快照尚未加载成功时（如启动竞态导致首次加载失败）立即重试一次，让 needSetup 等入口尽快恢复。 */
+    public boolean ensureReady() {
+        if (credentialSnapshot == null) {
+            refreshCredentialSnapshot();
+        }
         return credentialSnapshot != null;
     }
 

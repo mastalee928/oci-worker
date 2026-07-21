@@ -123,7 +123,7 @@ public class AuthController {
 
     @GetMapping("/needSetup")
     public ResponseData<?> needSetup() {
-        if (!panelAuthService.isReady()) {
+        if (!panelAuthService.ensureReady()) {
             return ResponseData.error(503, "安全配置正在加载，请稍后重试");
         }
         return ResponseData.ok(!panelAuthService.isConfigured());
