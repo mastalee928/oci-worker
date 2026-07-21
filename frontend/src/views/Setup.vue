@@ -246,9 +246,26 @@ async function handleSetup() {
   border: none !important;
   box-shadow: none !important;
   color: #fff !important;
+  /* Chrome/Safari 用 -webkit-text-fill-color 渲染文字，仅设 color 时自动填充仍是黑字 */
+  -webkit-text-fill-color: #fff !important;
   font-size: 15px !important;
   caret-color: #fff !important;
   overflow: visible !important;
+}
+/* Chrome 自动填充会强制白底黑字；用内阴影盖回深色底并保住白字 */
+.setup-input :deep(input:-webkit-autofill),
+.setup-input :deep(input:-webkit-autofill:hover),
+.setup-input :deep(input:-webkit-autofill:focus) {
+  -webkit-text-fill-color: #fff !important;
+  caret-color: #fff !important;
+  box-shadow: 0 0 0 1000px #0f172a inset !important;
+  transition: background-color 600000s ease-in-out 0s;
+}
+.setup-input :deep(.ant-input-password-icon) {
+  color: #94a3b8 !important;
+}
+.setup-input :deep(.ant-input-password-icon:hover) {
+  color: #cbd5e1 !important;
 }
 .setup-input :deep(.ant-input-prefix) {
   margin-inline-end: 12px;
