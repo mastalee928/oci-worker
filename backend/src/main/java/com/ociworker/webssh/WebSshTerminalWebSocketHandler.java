@@ -3,6 +3,7 @@ package com.ociworker.webssh;
 import com.jcraft.jsch.ChannelShell;
 import com.jcraft.jsch.Session;
 import jakarta.annotation.PreDestroy;
+import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -49,12 +50,16 @@ public class WebSshTerminalWebSocketHandler implements WebSocketHandler {
     private static final String ATTR_SLOT_STATE = "websshSlotState";
     private static final String ATTR_CLOSING = "websshClosing";
     private static final String ATTR_READER = "reader";
+    private static final String ATTR_SSH_SESSION_ID = "sshSessionId";
 
     private final ExecutorService ioPool;
     private final ScheduledExecutorService firstMessageScheduler;
     private final AtomicInteger activeSessions = new AtomicInteger();
     private final Set<WebSocketSession> activeWebSockets = ConcurrentHashMap.newKeySet();
     private final AtomicBoolean shuttingDown = new AtomicBoolean(false);
+
+    @Resource
+    private WebSshSessionRegistry sessionRegistry = new WebSshSessionRegistry();
 
     @Value("${webssh.timeout-minutes:120}")
     private int timeoutMinutes = 120;
@@ -166,14 +171,23 @@ public class WebSshTerminalWebSocketHandler implements WebSocketHandler {
             Future<?> readerFuture = ioPool.submit(() -> {
                 Session session = null;
                 ChannelShell shell = null;
+                boolean sessionRegistered = false;
+                boolean shellPublished = false;
                 CloseStatus closeStatus = CloseStatus.NORMAL;
                 try {
                     WebSshConnectInfo info = WebSshConnectInfoParser.parse(sshInfoB64);
                     session = WebSshJschSupport.openSession(info);
+                    String sessionId = publishSession(ws, session, info.getUsername());
+                    if (sessionId == null) {
+                        return;
+                    }
+                    sessionRegistered = true;
                     shell = WebSshJschSupport.openShell(session, cols, rows);
-                    ws.getAttributes().put("shell", shell);
-                    ws.getAttributes().put("sshSession", session);
-                    ws.getAttributes().put("stdin", WebSshJschSupport.shellInput(shell));
+                    shellPublished = publishShell(ws, shell);
+                    if (!shellPublished) {
+                        return;
+                    }
+                    sendText(ws, WebSshSessionRegistry.controlMessage(sessionId));
 
                     Reader stdout = new InputStreamReader(
                             WebSshJschSupport.shellOutput(shell), StandardCharsets.UTF_8);
@@ -215,8 +229,12 @@ public class WebSshTerminalWebSocketHandler implements WebSocketHandler {
                     }
                 } finally {
                     markClosing(ws);
-                    WebSshJschSupport.closeQuietly(session, shell);
                     closeSsh(ws);
+                    if (!sessionRegistered) {
+                        WebSshJschSupport.closeQuietly(session, shell);
+                    } else if (!shellPublished) {
+                        WebSshJschSupport.closeQuietly(null, shell);
+                    }
                     releaseSessionSlot(ws);
                     closeWebSocket(ws, closeStatus);
                 }
@@ -419,12 +437,57 @@ public class WebSshTerminalWebSocketHandler implements WebSocketHandler {
     }
 
     private void closeSsh(WebSocketSession ws) {
-        Object shellObj = ws.getAttributes().remove("shell");
-        Object sessionObj = ws.getAttributes().remove("sshSession");
-        ws.getAttributes().remove("stdin");
+        Object shellObj;
+        Object sessionObj;
+        Object sessionIdObj;
+        synchronized (ws.getAttributes()) {
+            shellObj = ws.getAttributes().remove("shell");
+            sessionObj = ws.getAttributes().remove("sshSession");
+            sessionIdObj = ws.getAttributes().remove(ATTR_SSH_SESSION_ID);
+            ws.getAttributes().remove("stdin");
+        }
         ChannelShell shell = shellObj instanceof ChannelShell s ? s : null;
         Session session = sessionObj instanceof Session s ? s : null;
-        WebSshJschSupport.closeQuietly(session, shell);
+        WebSshJschSupport.closeQuietly(null, shell);
+        if (sessionIdObj instanceof String sessionId && !sessionId.isBlank()) {
+            sessionRegistry.close(sessionId);
+        } else {
+            WebSshJschSupport.closeQuietly(session);
+        }
+    }
+
+    private String publishSession(WebSocketSession ws, Session session, String username) {
+        synchronized (ws.getAttributes()) {
+            if (isClosing(ws)) {
+                return null;
+            }
+            String sessionId = sessionRegistry.register(session, username);
+            ws.getAttributes().put("sshSession", session);
+            ws.getAttributes().put(ATTR_SSH_SESSION_ID, sessionId);
+            if (isClosing(ws)) {
+                ws.getAttributes().remove("sshSession", session);
+                ws.getAttributes().remove(ATTR_SSH_SESSION_ID, sessionId);
+                sessionRegistry.close(sessionId);
+                return null;
+            }
+            return sessionId;
+        }
+    }
+
+    private static boolean publishShell(WebSocketSession ws, ChannelShell shell) throws Exception {
+        synchronized (ws.getAttributes()) {
+            if (isClosing(ws)) {
+                return false;
+            }
+            ws.getAttributes().put("shell", shell);
+            try {
+                ws.getAttributes().put("stdin", WebSshJschSupport.shellInput(shell));
+                return true;
+            } catch (Exception e) {
+                ws.getAttributes().remove("shell", shell);
+                throw e;
+            }
+        }
     }
 
     private static void sendText(WebSocketSession ws, String text) throws IOException {

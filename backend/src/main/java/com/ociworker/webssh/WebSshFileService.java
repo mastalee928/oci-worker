@@ -4,6 +4,7 @@ import com.jcraft.jsch.ChannelSftp;
 import com.jcraft.jsch.Session;
 import com.jcraft.jsch.SftpATTRS;
 import com.jcraft.jsch.SftpException;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
 
@@ -16,25 +17,80 @@ import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Vector;
 
 @Service
+@Slf4j
 public class WebSshFileService {
 
     private final WebSshUploadRegistry uploadRegistry;
+    private final WebSshSessionRegistry sessionRegistry;
+    private static final DateTimeFormatter FILE_TIME_FORMAT = DateTimeFormatter
+            .ofPattern("yyyy-MM-dd HH:mm:ss", Locale.ROOT)
+            .withZone(ZoneId.systemDefault());
 
-    public WebSshFileService(WebSshUploadRegistry uploadRegistry) {
+    public WebSshFileService(WebSshUploadRegistry uploadRegistry, WebSshSessionRegistry sessionRegistry) {
         this.uploadRegistry = uploadRegistry;
+        this.sessionRegistry = sessionRegistry;
     }
 
     public Map<String, Object> listFiles(String sshInfoB64, String path) throws Exception {
         WebSshConnectInfo info = WebSshConnectInfoParser.parse(sshInfoB64);
         Session session = WebSshJschSupport.openSession(info);
+        try {
+            return listFilesOnSession(session, info.getUsername(), path);
+        } finally {
+            WebSshJschSupport.closeQuietly(session);
+        }
+    }
+
+    public Map<String, Object> listFilesSession(String sessionId, String path) throws Exception {
+        return sessionRegistry.withSession(sessionId,
+                (session, username) -> listFilesOnSession(session, username, path));
+    }
+
+    public void streamDownload(String sshInfoB64, String path, OutputStream out) throws Exception {
+        WebSshConnectInfo info = WebSshConnectInfoParser.parse(sshInfoB64);
+        Session session = WebSshJschSupport.openSession(info);
+        try {
+            streamDownloadOnSession(session, info.getUsername(), path, out);
+        } finally {
+            WebSshJschSupport.closeQuietly(session);
+        }
+    }
+
+    public void streamDownloadSession(String sessionId, String path, OutputStream out) throws Exception {
+        sessionRegistry.withSession(sessionId,
+                (session, username) -> {
+                    streamDownloadOnSession(session, username, path, out);
+                    return null;
+                });
+    }
+
+    public String upload(String sshInfoB64, String path, String subDir, String uploadId, MultipartFile file) throws Exception {
+        WebSshConnectInfo info = WebSshConnectInfoParser.parse(sshInfoB64);
+        Session session = WebSshJschSupport.openSession(info);
+        try {
+            return uploadOnSession(session, info.getUsername(), path, subDir, uploadId, file);
+        } finally {
+            WebSshJschSupport.closeQuietly(session);
+        }
+    }
+
+    public String uploadSession(String sessionId, String path, String subDir, String uploadId,
+                                MultipartFile file) throws Exception {
+        return sessionRegistry.withSession(sessionId,
+                (session, username) -> uploadOnSession(session, username, path, subDir, uploadId, file));
+    }
+
+    private static Map<String, Object> listFilesOnSession(Session session, String username, String path)
+            throws Exception {
         ChannelSftp sftp = WebSshJschSupport.openSftp(session);
         try {
-            String home = detectHomeDir(sftp, info.getUsername());
-            String resolved = resolveListPath(path, home, info.getUsername());
+            String home = detectHomeDir(sftp, username);
+            String resolved = resolveListPath(path, home, username);
             @SuppressWarnings("unchecked")
             Vector<ChannelSftp.LsEntry> entries = sftp.ls(resolved);
             List<Map<String, Object>> list = new ArrayList<>();
@@ -64,39 +120,37 @@ public class WebSshFileService {
             }
             throw e;
         } finally {
-            WebSshJschSupport.closeQuietly(session, sftp);
+            WebSshJschSupport.closeQuietly(null, sftp);
         }
     }
 
-    public void streamDownload(String sshInfoB64, String path, OutputStream out) throws Exception {
-        WebSshConnectInfo info = WebSshConnectInfoParser.parse(sshInfoB64);
-        Session session = WebSshJschSupport.openSession(info);
+    private static void streamDownloadOnSession(Session session, String username, String path, OutputStream out)
+            throws Exception {
         ChannelSftp sftp = WebSshJschSupport.openSftp(session);
         try {
             String resolved = path;
             if (resolved == null || resolved.isBlank()) {
-                resolved = detectHomeDir(sftp, info.getUsername());
+                throw new IllegalArgumentException("Download path is required");
             }
             try (InputStream in = sftp.get(resolved)) {
                 in.transferTo(out);
             }
         } finally {
-            WebSshJschSupport.closeQuietly(session, sftp);
+            WebSshJschSupport.closeQuietly(null, sftp);
         }
     }
 
-    public String upload(String sshInfoB64, String path, String subDir, String uploadId, MultipartFile file) throws Exception {
-        WebSshConnectInfo info = WebSshConnectInfoParser.parse(sshInfoB64);
-        Session session = WebSshJschSupport.openSession(info);
+    private String uploadOnSession(Session session, String username, String path, String subDir,
+                                   String uploadId, MultipartFile file) throws Exception {
         ChannelSftp sftp = WebSshJschSupport.openSftp(session);
         try {
             String base = path;
             if (base == null || base.isBlank()) {
-                base = detectHomeDir(sftp, info.getUsername());
+                base = detectHomeDir(sftp, username);
             }
             base = base.replaceAll("/+$", "");
             if (subDir != null && !subDir.isBlank()) {
-                String dir = base + "/" + subDir.replaceAll("^/+|/+$", "");
+                String dir = base + "/" + normalizeSubDirectory(subDir);
                 mkdirsIfMissing(sftp, dir);
                 base = dir;
             }
@@ -119,7 +173,7 @@ public class WebSshFileService {
             }
             return dst;
         } finally {
-            WebSshJschSupport.closeQuietly(session, sftp);
+            WebSshJschSupport.closeQuietly(null, sftp);
         }
     }
 
@@ -136,7 +190,8 @@ public class WebSshFileService {
     private static String detectHomeDir(ChannelSftp sftp, String username) throws SftpException {
         try {
             return sftp.pwd();
-        } catch (SftpException ignored) {
+        } catch (SftpException e) {
+            log.trace("Unable to read SFTP working directory", e);
         }
         if ("root".equals(username)) {
             return "/root";
@@ -145,25 +200,61 @@ public class WebSshFileService {
         try {
             sftp.stat(u1);
             return u1;
-        } catch (SftpException ignored) {
+        } catch (SftpException e) {
+            log.trace("Unable to inspect candidate home directory {}", u1, e);
         }
         String u2 = "/home/" + username;
         try {
             sftp.stat(u2);
             return u2;
-        } catch (SftpException ignored) {
+        } catch (SftpException e) {
+            log.trace("Unable to inspect candidate home directory {}", u2, e);
         }
         return "/home";
     }
 
     private static void mkdirsIfMissing(ChannelSftp sftp, String path) throws SftpException {
         try {
-            sftp.stat(path);
+            SftpATTRS attrs = sftp.stat(path);
+            if (!attrs.isDir()) {
+                throw new IllegalArgumentException("Remote path is not a directory: " + path);
+            }
+            return;
         } catch (SftpException e) {
-            if (e.id == ChannelSftp.SSH_FX_NO_SUCH_FILE) {
-                sftp.mkdir(path);
+            if (e.id != ChannelSftp.SSH_FX_NO_SUCH_FILE) {
+                throw e;
             }
         }
+
+        int slash = path.lastIndexOf('/');
+        if (slash > 0) {
+            mkdirsIfMissing(sftp, path.substring(0, slash));
+        }
+        try {
+            sftp.mkdir(path);
+        } catch (SftpException e) {
+            try {
+                if (sftp.stat(path).isDir()) {
+                    return;
+                }
+            } catch (SftpException statError) {
+                e.addSuppressed(statError);
+            }
+            throw e;
+        }
+    }
+
+    private static String normalizeSubDirectory(String subDir) {
+        String normalized = subDir.replace('\\', '/').replaceAll("^/+|/+$", "");
+        if (normalized.isBlank()) {
+            throw new IllegalArgumentException("Upload directory is empty");
+        }
+        for (String part : normalized.split("/")) {
+            if (part.isBlank() || ".".equals(part) || "..".equals(part) || containsControlCharacter(part)) {
+                throw new IllegalArgumentException("Invalid upload directory");
+            }
+        }
+        return normalized;
     }
 
     private static String sanitizeFileName(String fileName) {
@@ -176,15 +267,14 @@ public class WebSshFileService {
             normalized = normalized.substring(slash + 1);
         }
         normalized = normalized.trim();
+        normalized = normalized.replaceAll("[\\x00-\\x1F\\x7F]", "_");
         return normalized.isBlank() || ".".equals(normalized) || "..".equals(normalized)
                 ? "upload.bin"
                 : normalized;
     }
 
     private static String formatTime(int mtime) {
-        return DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
-                .withZone(ZoneId.systemDefault())
-                .format(Instant.ofEpochSecond(mtime));
+        return FILE_TIME_FORMAT.format(Instant.ofEpochSecond(mtime));
     }
 
     static String byteFmt(long bytes) {
@@ -198,7 +288,11 @@ public class WebSshFileService {
             value /= 1024;
             unit++;
         }
-        String s = String.format("%.2f", value).replaceAll("\\.00$", "");
+        String s = String.format(Locale.ROOT, "%.2f", value).replaceAll("\\.00$", "");
         return s + units[unit];
+    }
+
+    private static boolean containsControlCharacter(String value) {
+        return value.chars().anyMatch(ch -> ch < 0x20 || ch == 0x7f);
     }
 }

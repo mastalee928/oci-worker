@@ -4,16 +4,16 @@ import org.springframework.stereotype.Component;
 
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 
 @Component
 public class WebSshUploadRegistry {
 
-    private final Map<String, AtomicInteger> counters = new ConcurrentHashMap<>();
+    private final Map<String, AtomicLong> counters = new ConcurrentHashMap<>();
 
     public void track(String id) {
         if (id != null && !id.isBlank()) {
-            counters.put(id, new AtomicInteger(0));
+            counters.put(id, new AtomicLong(0));
         }
     }
 
@@ -21,19 +21,19 @@ public class WebSshUploadRegistry {
         if (id == null) {
             return;
         }
-        AtomicInteger c = counters.get(id);
+        AtomicLong c = counters.get(id);
         if (c != null) {
             c.addAndGet(bytes);
         }
     }
 
-    public int getAndRemove(String id) {
-        AtomicInteger c = counters.remove(id);
+    public long getAndRemove(String id) {
+        AtomicLong c = counters.remove(id);
         return c != null ? c.get() : -1;
     }
 
-    public Integer peek(String id) {
-        AtomicInteger c = counters.get(id);
+    public Long peek(String id) {
+        AtomicLong c = counters.get(id);
         return c != null ? c.get() : null;
     }
 

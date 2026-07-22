@@ -4,6 +4,7 @@ import com.jcraft.jsch.Session;
 import org.springframework.stereotype.Service;
 
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -34,15 +35,30 @@ public class WebSshSysInfoService {
             "cat /proc/net/dev 2>/dev/null | awk 'NR>2 && $1!~\"lo:\" {gsub(/:$/,\"\",$1); rx+=$2; tx+=$10} END{print rx\" \"tx}' || echo \"0 0\"",
             "echo \"===END===\"");
 
+    private final WebSshSessionRegistry sessionRegistry;
+
+    public WebSshSysInfoService(WebSshSessionRegistry sessionRegistry) {
+        this.sessionRegistry = sessionRegistry;
+    }
+
     public Map<String, String> collect(String sshInfoB64) throws Exception {
         WebSshConnectInfo info = WebSshConnectInfoParser.parse(sshInfoB64);
         Session session = WebSshJschSupport.openSession(info);
         try {
-            String raw = WebSshJschSupport.execCombined(session, CMD);
-            return parse(raw);
+            return collectFromSession(session);
         } finally {
             WebSshJschSupport.closeQuietly(session);
         }
+    }
+
+    public Map<String, String> collectSession(String sessionId) throws Exception {
+        return sessionRegistry.withSession(sessionId,
+                (session, username) -> collectFromSession(session));
+    }
+
+    private static Map<String, String> collectFromSession(Session session) throws Exception {
+        String raw = WebSshJschSupport.execCombined(session, CMD);
+        return parse(raw);
     }
 
     static Map<String, String> parse(String raw) {
@@ -87,13 +103,15 @@ public class WebSshSysInfoService {
 
         Matcher cpu = Pattern.compile("===CPU_USAGE===\\s*([0-9]+)\\s+([0-9]+)\\s+([0-9]+)\\s+([0-9]+)", Pattern.DOTALL).matcher(raw);
         if (cpu.find()) {
-            long a1 = Long.parseLong(cpu.group(1));
-            long t1 = Long.parseLong(cpu.group(2));
-            long a2 = Long.parseLong(cpu.group(3));
-            long t2 = Long.parseLong(cpu.group(4));
-            if (t2 > t1 && t1 > 0) {
+            Long a1 = parseLong(cpu.group(1));
+            Long t1 = parseLong(cpu.group(2));
+            Long a2 = parseLong(cpu.group(3));
+            Long t2 = parseLong(cpu.group(4));
+            if (a1 != null && t1 != null && a2 != null && t2 != null
+                    && a2 >= a1 && t2 > t1 && t1 > 0) {
                 double usage = 100.0 * (a2 - a1) / (t2 - t1);
-                info.put("cpuUsage", String.format("%.1f", usage));
+                usage = Math.max(0.0, Math.min(100.0, usage));
+                info.put("cpuUsage", String.format(Locale.ROOT, "%.1f", usage));
             }
         }
         Matcher traffic = Pattern.compile("===TRAFFIC===\\s*([0-9]+)\\s+([0-9]+)").matcher(raw);
@@ -114,6 +132,14 @@ public class WebSshSysInfoService {
         String val = (e > s ? raw.substring(s, e) : raw.substring(s)).trim();
         if (!val.isEmpty()) {
             info.put(key, val);
+        }
+    }
+
+    private static Long parseLong(String value) {
+        try {
+            return Long.parseLong(value);
+        } catch (NumberFormatException e) {
+            return null;
         }
     }
 }

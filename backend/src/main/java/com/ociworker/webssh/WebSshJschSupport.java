@@ -8,13 +8,21 @@ import com.jcraft.jsch.JSch;
 import com.jcraft.jsch.JSchException;
 import com.jcraft.jsch.ProxySOCKS5;
 import com.jcraft.jsch.Session;
+import lombok.extern.slf4j.Slf4j;
 
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
+import java.util.Arrays;
 import java.util.Properties;
 
+@Slf4j
 final class WebSshJschSupport {
+
+    private static final Duration EXEC_TIMEOUT = Duration.ofSeconds(45);
 
     private WebSshJschSupport() {
     }
@@ -28,10 +36,14 @@ final class WebSshJschSupport {
             }
             byte[] keyBytes = key.getBytes(StandardCharsets.UTF_8);
             String pass = info.getPassphrase();
-            if (pass != null && !pass.isBlank()) {
-                jsch.addIdentity("key", keyBytes, null, pass.getBytes(StandardCharsets.UTF_8));
-            } else {
-                jsch.addIdentity("key", keyBytes, null, null);
+            byte[] passBytes = pass != null && !pass.isBlank() ? pass.getBytes(StandardCharsets.UTF_8) : null;
+            try {
+                jsch.addIdentity("key", keyBytes, null, passBytes);
+            } finally {
+                Arrays.fill(keyBytes, (byte) 0);
+                if (passBytes != null) {
+                    Arrays.fill(passBytes, (byte) 0);
+                }
             }
         }
 
@@ -58,16 +70,26 @@ final class WebSshJschSupport {
             session.setProxy(proxy);
         }
 
-        session.connect(10_000);
-        return session;
+        try {
+            session.connect(10_000);
+            return session;
+        } catch (JSchException | RuntimeException e) {
+            closeQuietly(session);
+            throw e;
+        }
     }
 
     static ChannelShell openShell(Session session, int cols, int rows) throws JSchException {
         ChannelShell shell = (ChannelShell) session.openChannel("shell");
-        shell.setPtyType("xterm", cols, rows, 0, 0);
-        shell.setPty(true);
-        shell.connect();
-        return shell;
+        try {
+            shell.setPtyType("xterm", cols, rows, 0, 0);
+            shell.setPty(true);
+            shell.connect(15_000);
+            return shell;
+        } catch (JSchException | RuntimeException e) {
+            closeQuietly(null, shell);
+            throw e;
+        }
     }
 
     static void resizeShell(Channel channel, int cols, int rows) throws JSchException {
@@ -78,24 +100,44 @@ final class WebSshJschSupport {
 
     static ChannelSftp openSftp(Session session) throws JSchException {
         ChannelSftp sftp = (ChannelSftp) session.openChannel("sftp");
-        sftp.connect(15_000);
-        return sftp;
+        try {
+            sftp.connect(15_000);
+            return sftp;
+        } catch (JSchException | RuntimeException e) {
+            closeQuietly(null, sftp);
+            throw e;
+        }
     }
 
     static String execCombined(Session session, String command) throws Exception {
         ChannelExec exec = (ChannelExec) session.openChannel("exec");
-        exec.setCommand(command);
-        exec.setInputStream(null);
-        InputStream in = exec.getInputStream();
-        InputStream err = exec.getErrStream();
-        exec.connect(30_000);
-        byte[] out = in.readAllBytes();
-        byte[] er = err.readAllBytes();
-        exec.disconnect();
-        if (out.length == 0 && er.length > 0) {
-            return new String(er, StandardCharsets.UTF_8);
+        ByteArrayOutputStream stdout = new ByteArrayOutputStream();
+        ByteArrayOutputStream stderr = new ByteArrayOutputStream();
+        try {
+            exec.setCommand(command);
+            exec.setInputStream(null);
+            exec.setOutputStream(stdout);
+            exec.setErrStream(stderr);
+            exec.connect(30_000);
+            long deadline = System.nanoTime() + EXEC_TIMEOUT.toNanos();
+            while (!exec.isClosed()) {
+                if (System.nanoTime() >= deadline) {
+                    throw new IOException("SSH command timed out");
+                }
+                Thread.sleep(20);
+            }
+            byte[] out = stdout.toByteArray();
+            byte[] err = stderr.toByteArray();
+            if (out.length == 0 && err.length > 0) {
+                return new String(err, StandardCharsets.UTF_8);
+            }
+            return new String(out, StandardCharsets.UTF_8);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw e;
+        } finally {
+            closeQuietly(null, exec);
         }
-        return new String(out, StandardCharsets.UTF_8);
     }
 
     static void closeQuietly(Session session, Channel... channels) {
@@ -105,6 +147,7 @@ final class WebSshJschSupport {
                     try {
                         ch.disconnect();
                     } catch (Exception ignored) {
+                        log.trace("SSH channel cleanup failed", ignored);
                     }
                 }
             }
@@ -113,6 +156,7 @@ final class WebSshJschSupport {
             try {
                 session.disconnect();
             } catch (Exception ignored) {
+                log.trace("SSH session cleanup failed", ignored);
             }
         }
     }

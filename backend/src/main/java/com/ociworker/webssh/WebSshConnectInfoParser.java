@@ -19,8 +19,19 @@ final class WebSshConnectInfoParser {
         if (sshInfoB64.length() > 512 * 1024) {
             throw new IllegalArgumentException("sshInfo is too large");
         }
-        byte[] decoded = Base64.getDecoder().decode(sshInfoB64.trim());
+        byte[] decoded;
+        try {
+            decoded = Base64.getDecoder().decode(sshInfoB64.trim());
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("SSH connection info is invalid", e);
+        }
+        if (decoded.length > 384 * 1024) {
+            throw new IllegalArgumentException("SSH connection info is too large");
+        }
         WebSshConnectInfo info = JSON.readValue(decoded, WebSshConnectInfo.class);
+        if (info == null) {
+            throw new IllegalArgumentException("SSH connection info is invalid");
+        }
         info.normalizeHostname();
         return info;
     }

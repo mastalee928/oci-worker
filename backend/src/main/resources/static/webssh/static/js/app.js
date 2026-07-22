@@ -3,8 +3,9 @@
 // ==================== State ====================
 var sessions = [];
 var activeIdx = -1;
-var sftpCurrentPath = '/';
 var consoleInstanceContext = null;
+var SSH_SESSION_CONTROL_PREFIX = '\u001b]777;ociworker-session=';
+var SSH_SESSION_CONTROL_SUFFIX = '\u0007';
 /** OCI serial / UEFI: fixed 80x24 avoids \\r prompt overlapping output (Cloud Shell uses similar). */
 var CONSOLE_COLS = 80;
 var CONSOLE_ROWS = 24;
@@ -33,6 +34,19 @@ var CONSOLE_ROWS = 24;
 
 // ==================== Utility ====================
 function esc(s) { var d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function escAttr(s) { return esc(s).replace(/"/g, '&quot;').replace(/'/g, '&#39;'); }
+
+function createUploadId() {
+    if (window.crypto && typeof window.crypto.randomUUID === 'function') {
+        return window.crypto.randomUUID().replace(/-/g, '');
+    }
+    if (window.crypto && typeof window.crypto.getRandomValues === 'function') {
+        var bytes = new Uint8Array(16);
+        window.crypto.getRandomValues(bytes);
+        return Array.from(bytes, function (b) { return b.toString(16).padStart(2, '0'); }).join('');
+    }
+    return Date.now().toString(36) + '_' + Math.random().toString(36).slice(2);
+}
 function fmtB(b) { b = parseInt(b) || 0; if (!b) return '0B'; var u = ['B', 'KB', 'MB', 'GB', 'TB'], i = Math.floor(Math.log(b) / Math.log(1024)); return (b / Math.pow(1024, i)).toFixed(i > 1 ? 1 : 0) + u[i]; }
 function pct(u, t) { return Math.round((parseInt(u) || 0) / (parseInt(t) || 1) * 100); }
 function pillCls(v) { return v >= 90 ? 'danger' : v >= 70 ? 'warn' : ''; }
@@ -66,6 +80,76 @@ function getWebSshFormHeaders() {
 }
 function withWebSshAuth(url) {
     return url;
+}
+
+function consumeSshSessionControl(session, data) {
+    if (!session || typeof data !== 'string' || data.indexOf(SSH_SESSION_CONTROL_PREFIX) !== 0) {
+        return data;
+    }
+    var end = data.indexOf(SSH_SESSION_CONTROL_SUFFIX, SSH_SESSION_CONTROL_PREFIX.length);
+    if (end < 0) return data;
+    var id = data.substring(SSH_SESSION_CONTROL_PREFIX.length, end);
+    if (!/^[A-Za-z0-9_-]{20,128}$/.test(id)) return data;
+    session.sshSessionId = id;
+    return data.substring(end + SSH_SESSION_CONTROL_SUFFIX.length);
+}
+
+function appendSshConnection(target, session) {
+    if (!target || !session) return;
+    if (session.sshSessionId) target.append('sessionId', session.sshSessionId);
+    else if (session.sshInfo) target.append('sshInfo', session.sshInfo);
+}
+
+// WebGL is a rendering enhancement for ordinary SSH only. Serial/UEFI sessions
+// deliberately keep the existing renderer and protocol unchanged.
+function enableWebglRenderer(session) {
+    if (!session || session.consoleMode || !session.term || session.webglAddon) return false;
+    if (!window.WebglAddon || typeof window.WebglAddon.WebglAddon !== 'function') {
+        session.webglState = 'unavailable';
+        return false;
+    }
+    var addon = null;
+    try {
+        addon = new window.WebglAddon.WebglAddon();
+        session.webglAddon = addon;
+        session.webglState = 'loading';
+        if (typeof addon.onContextLoss === 'function') {
+            session.webglContextLossDisposable = addon.onContextLoss(function () {
+                disableWebglRenderer(session, 'context-loss');
+            });
+        }
+        session.term.loadAddon(addon);
+        session.webglState = 'enabled';
+        return true;
+    } catch (e) {
+        session.webglState = 'fallback';
+        if (session.webglContextLossDisposable) {
+            try { session.webglContextLossDisposable.dispose(); } catch (ignored) { }
+            session.webglContextLossDisposable = null;
+        }
+        session.webglAddon = null;
+        if (addon) {
+            try { addon.dispose(); } catch (ignored) { }
+        }
+        return false;
+    }
+}
+
+function disableWebglRenderer(session, reason) {
+    if (!session) return;
+    var addon = session.webglAddon;
+    if (!addon) return;
+    session.webglAddon = null;
+    session.webglState = 'fallback';
+    if (session.webglContextLossDisposable) {
+        try { session.webglContextLossDisposable.dispose(); } catch (ignored) { }
+        session.webglContextLossDisposable = null;
+    }
+    try { addon.dispose(); } catch (ignored) { }
+    if (reason === 'context-loss' && !session.webglWarned) {
+        session.webglWarned = true;
+        showToast('WebGL 渲染不可用，已自动切换兼容模式', 'info');
+    }
 }
 
 function showToast(msg, type) {
@@ -229,8 +313,16 @@ function createSession(hostname, port, username, sshInfo) {
     var session = {
         id: id, hostname: hostname, port: port, username: username,
         sshInfo: sshInfo, ws: null, term: t, fitAddon: fa, termDiv: termDiv,
-        heartbeat: null, sysInfoTimer: null, resizeObs: null
+        heartbeat: null, sysInfoTimer: null, sysInfoInFlight: false,
+        sysInfoAbortController: null, sysInfoRequestToken: null,
+        connectionGeneration: 0, resizeObs: null, _dataDisposable: null,
+        _resizeHandler: null,
+        sshSessionId: null, webglAddon: null, webglContextLossDisposable: null,
+        webglState: 'pending', webglWarned: false,
+        sftpPath: '/', sftpRequestToken: 0, sftpAbortController: null
     };
+
+    enableWebglRenderer(session);
 
     session.resizeObs = new ResizeObserver(function () { try { fa.fit(); } catch (e) { } });
     session.resizeObs.observe(termDiv);
@@ -241,6 +333,8 @@ function createSession(hostname, port, username, sshInfo) {
 
 function switchTab(idx) {
     if (idx < 0 || idx >= sessions.length) return;
+    var previous = activeIdx >= 0 ? sessions[activeIdx] : null;
+    if (previous && previous !== sessions[idx]) cancelSftpRequest(previous);
     activeIdx = idx;
     sessions.forEach(function (s, i) {
         if (i === idx) { s.termDiv.classList.add('active'); }
@@ -257,6 +351,19 @@ function switchTab(idx) {
     }, 100);
     updateMetricsForActive();
     updateFontSizeLabel();
+    if (!document.hidden && !s.consoleMode && document.getElementById('enableSysInfo').checked) {
+        fetchSysInfoFor(s);
+    }
+    var sftpPanel = document.getElementById('sftpPanel');
+    if (sftpPanel.classList.contains('open')) {
+        if (s.consoleMode) {
+            sftpPanel.classList.remove('open');
+        } else {
+            var sftpPath = s.sftpPath || '/';
+            document.getElementById('sftpPath').value = sftpPath;
+            sftpLoad(sftpPath);
+        }
+    }
 }
 
 function renderTabs() {
@@ -291,17 +398,79 @@ function updateMetricsForActive() {
 }
 
 // ==================== Connect ====================
+function cancelSysInfoRequest(session) {
+    if (!session) return;
+    var controller = session.sysInfoAbortController;
+    session.sysInfoAbortController = null;
+    session.sysInfoRequestToken = null;
+    session.sysInfoInFlight = false;
+    if (controller) {
+        try { controller.abort(); } catch (e) { }
+    }
+}
+
+function stopSshBackgroundTasks(session) {
+    if (!session || session.consoleMode) return;
+    if (session.heartbeat) {
+        clearInterval(session.heartbeat);
+        session.heartbeat = null;
+    }
+    if (session.sysInfoTimer) {
+        clearInterval(session.sysInfoTimer);
+        session.sysInfoTimer = null;
+    }
+    cancelSysInfoRequest(session);
+}
+
+function cancelSftpRequest(session) {
+    if (!session || session.consoleMode) return;
+    session.sftpRequestToken = (session.sftpRequestToken || 0) + 1;
+    var controller = session.sftpAbortController;
+    session.sftpAbortController = null;
+    if (controller) {
+        try { controller.abort(); } catch (e) { console.debug('SFTP request abort failed', e); }
+    }
+}
+
 function connectSession(session) {
+    if (!session || session.consoleMode) return;
+    stopSshBackgroundTasks(session);
+    var previousWs = session.ws;
+    var generation = (session.connectionGeneration || 0) + 1;
+    session.connectionGeneration = generation;
+    if (previousWs && previousWs.readyState < 2) {
+        try { previousWs.close(); } catch (e) { }
+    }
+    session.sshSessionId = null;
+    if (session._resizeHandler) {
+        removeEventListener('resize', session._resizeHandler);
+        session._resizeHandler = null;
+    }
+    if (session._dataDisposable) {
+        try { session._dataDisposable.dispose(); } catch (e) { }
+        session._dataDisposable = null;
+    }
     var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     var cols = session.term.cols, rows = session.term.rows;
     var wsUrl = withWebSshAuth(proto + '//' + location.host + '/webssh-api/term?cols=' + cols + '&rows=' + rows);
     var ws = new WebSocket(wsUrl);
     session.ws = ws;
     var got = false;
+    function isCurrentConnection() {
+        return session.ws === ws && session.connectionGeneration === generation;
+    }
 
-    ws.onopen = function () { ws.send(session.sshInfo); };
+    ws.onopen = function () {
+        if (!isCurrentConnection()) {
+            try { ws.close(); } catch (e) { }
+            return;
+        }
+        ws.send(session.sshInfo);
+    };
 
     ws.onmessage = function (e) {
+        if (!isCurrentConnection()) return;
+        var data = consumeSshSessionControl(session, e.data);
         if (!got) {
             got = true;
             showToast(session.hostname + ' 连接成功', 'success');
@@ -313,21 +482,26 @@ function connectSession(session) {
                 session.sysInfoTimer = setInterval(function () { fetchSysInfoFor(session); }, intv);
             }
         }
-        session.term.write(e.data);
+        if (data) session.term.write(data);
     };
 
-    ws.onerror = function () { showToast(session.hostname + ' 连接失败', 'error'); };
+    ws.onerror = function () { if (isCurrentConnection()) showToast(session.hostname + ' 连接失败', 'error'); };
     ws.onclose = function () {
-        if (session.heartbeat) { clearInterval(session.heartbeat); session.heartbeat = null; }
-        if (session.sysInfoTimer) { clearInterval(session.sysInfoTimer); session.sysInfoTimer = null; }
+        if (!isCurrentConnection()) return;
+        session.sshSessionId = null;
+        stopSshBackgroundTasks(session);
         if (!got) showToast(session.hostname + ' 无法连接', 'error');
     };
 
-    session.term.onData(function (data) { if (ws.readyState === 1) ws.send(data); });
+    session._dataDisposable = session.term.onData(function (data) {
+        if (isCurrentConnection() && ws.readyState === 1) ws.send(data);
+    });
 
     var resizeHandler = function () {
         try { session.fitAddon.fit(); } catch (e) { }
-        if (ws.readyState === 1 && session.term) ws.send('resize:' + session.term.rows + ':' + session.term.cols);
+        if (isCurrentConnection() && ws.readyState === 1 && session.term) {
+            ws.send('resize:' + session.term.rows + ':' + session.term.cols);
+        }
     };
     addEventListener('resize', resizeHandler);
     session._resizeHandler = resizeHandler;
@@ -360,11 +534,24 @@ function connectFromLogin() {
 function closeTab(idx) {
     if (idx < 0 || idx >= sessions.length) return;
     var s = sessions[idx];
-    if (s.ws) s.ws.close();
-    if (s.heartbeat) clearInterval(s.heartbeat);
-    if (s.sysInfoTimer) clearInterval(s.sysInfoTimer);
+    if (s.consoleMode) {
+        if (s.ws) s.ws.close();
+        if (s.heartbeat) clearInterval(s.heartbeat);
+    } else {
+        s.connectionGeneration = (s.connectionGeneration || 0) + 1;
+        var sshWs = s.ws;
+        s.ws = null;
+        if (sshWs) sshWs.close();
+        stopSshBackgroundTasks(s);
+        cancelSftpRequest(s);
+    }
     if (s.resizeObs) s.resizeObs.disconnect();
     if (s._resizeHandler) removeEventListener('resize', s._resizeHandler);
+    if (s._dataDisposable) {
+        try { s._dataDisposable.dispose(); } catch (e) { }
+        s._dataDisposable = null;
+    }
+    disableWebglRenderer(s);
     if (s.term) s.term.dispose();
     if (s.termDiv) s.termDiv.remove();
     sessions.splice(idx, 1);
@@ -388,9 +575,18 @@ function closeActiveTab() { if (activeIdx >= 0) closeTab(activeIdx); }
 function reconnectTab() {
     if (activeIdx < 0 || !sessions[activeIdx]) return;
     var s = sessions[activeIdx];
-    if (s.ws) s.ws.close();
-    if (s.heartbeat) { clearInterval(s.heartbeat); s.heartbeat = null; }
-    if (s.sysInfoTimer) { clearInterval(s.sysInfoTimer); s.sysInfoTimer = null; }
+    s.sshSessionId = null;
+    if (s.consoleMode) {
+        if (s.ws) s.ws.close();
+        if (s.heartbeat) { clearInterval(s.heartbeat); s.heartbeat = null; }
+    } else {
+        s.connectionGeneration = (s.connectionGeneration || 0) + 1;
+        var sshWs = s.ws;
+        s.ws = null;
+        if (sshWs) sshWs.close();
+        stopSshBackgroundTasks(s);
+        cancelSftpRequest(s);
+    }
     showToast('重新连接 ' + s.hostname + '...', 'info');
     setTimeout(function () {
         if (s.consoleMode) connectConsoleSession(s);
@@ -419,11 +615,22 @@ function addNewTab() {
 
 // ==================== System Info ====================
 function fetchSysInfoFor(session) {
-    if (!session.sshInfo) return;
+    if (!session || session.consoleMode || session.sysInfoInFlight
+        || sessions[activeIdx] !== session || document.hidden
+        || !document.getElementById('enableSysInfo').checked
+        || (!session.sshInfo && !session.sshSessionId)) return;
+    var params = new URLSearchParams();
+    appendSshConnection(params, session);
+    session.sysInfoInFlight = true;
+    var controller = typeof AbortController === 'function' ? new AbortController() : null;
+    var requestToken = {};
+    session.sysInfoAbortController = controller;
+    session.sysInfoRequestToken = requestToken;
     fetch('/webssh-api/sysinfo', {
         method: 'POST',
         headers: getWebSshFormHeaders(),
-        body: new URLSearchParams({ sshInfo: session.sshInfo })
+        body: params,
+        signal: controller ? controller.signal : undefined
     })
         .then(function (r) { return r.json(); })
         .then(function (d) {
@@ -432,7 +639,14 @@ function fetchSysInfoFor(session) {
                 if (sessions[activeIdx] === session) renderMetrics(d.Data);
             }
         })
-        .catch(function () { });
+        .catch(function () { })
+        .finally(function () {
+            if (session.sysInfoRequestToken === requestToken) {
+                session.sysInfoAbortController = null;
+                session.sysInfoRequestToken = null;
+                session.sysInfoInFlight = false;
+            }
+        });
 }
 
 function fmtUptime(secs) {
@@ -475,9 +689,16 @@ function toggleScriptDrawer() {
 }
 function toggleSftp() {
     var p = document.getElementById('sftpPanel');
+    if (activeIdx < 0 || !sessions[activeIdx]) return;
+    var session = sessions[activeIdx];
+    if (session.consoleMode) {
+        showToast('串行控制台不支持 SFTP', 'info');
+        return;
+    }
     var wasOpen = p.classList.contains('open');
     p.classList.toggle('open');
-    if (!wasOpen && activeIdx >= 0) sftpLoad(document.getElementById('sftpPath').value || '/');
+    if (!wasOpen) sftpLoad(session.sftpPath || '/');
+    else cancelSftpRequest(session);
     setTimeout(function () { if (activeIdx >= 0 && sessions[activeIdx]) try { sessions[activeIdx].fitAddon.fit(); } catch (e) { } }, 350);
 }
 
@@ -584,7 +805,7 @@ function renderScriptBookmarks() {
     } else {
         html += '<div class="bm-item" onclick="event.stopPropagation();showPresets=false;renderScriptBookmarks()" style="border-color:rgba(0,212,255,.15)"><div class="bm-item-info"><div class="bm-item-name" style="color:var(--c1)">‹ 返回</div></div></div>';
         html += PRESET_SCRIPTS.map(function (p) {
-            return '<div class="bm-item" onclick="runPresetScript(\'' + p.cmd.replace(/'/g, "\\'").replace(/"/g, "&quot;") + '\')" title="' + esc(p.cmd) + '"><div class="bm-item-info"><div class="bm-item-name">' + esc(p.name) + '</div><div class="bm-item-host">' + esc(p.cmd.substring(0, 35)) + '</div></div><span class="bm-item-run">▶</span></div>';
+            return '<div class="bm-item" onclick="runPresetScript(\'' + p.cmd.replace(/'/g, "\\'").replace(/"/g, "&quot;") + '\')" title="' + escAttr(p.cmd) + '"><div class="bm-item-info"><div class="bm-item-name">' + esc(p.name) + '</div><div class="bm-item-host">' + esc(p.cmd.substring(0, 35)) + '</div></div><span class="bm-item-run">▶</span></div>';
         }).join('');
         l.innerHTML = html;
         return;
@@ -593,7 +814,7 @@ function renderScriptBookmarks() {
     // User scripts
     if (bms.length) {
         html += bms.map(function (b, i) {
-            return '<div class="bm-item" onclick="runScript(' + i + ')" title="' + esc(b.cmd) + '"><div class="bm-item-info"><div class="bm-item-name">' + esc(b.name) + '</div><div class="bm-item-host">' + esc(b.cmd.substring(0, 35)) + '</div></div><span class="bm-item-run">▶</span><button class="bm-item-del" onclick="event.stopPropagation();delScript(' + i + ')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="10" height="10"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>';
+            return '<div class="bm-item" onclick="runScript(' + i + ')" title="' + escAttr(b.cmd) + '"><div class="bm-item-info"><div class="bm-item-name">' + esc(b.name) + '</div><div class="bm-item-host">' + esc(b.cmd.substring(0, 35)) + '</div></div><span class="bm-item-run">▶</span><button class="bm-item-del" onclick="event.stopPropagation();delScript(' + i + ')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="10" height="10"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>';
         }).join('');
     } else {
         html += '<div class="bm-empty">暂无自定义脚本</div>';
@@ -627,29 +848,53 @@ function runScript(i) {
 function delScript(i) { var bms = loadBM(SBK); bms.splice(i, 1); saveBM(SBK, bms); renderScriptBookmarks(); showToast('已删除', 'info'); }
 
 // ==================== SFTP ====================
+function normalizeSftpPath(path) {
+    var value = String(path || '').trim() || '/';
+    return value.length > 1 ? value.replace(/\/+$/, '') : value;
+}
+
+function joinSftpPath(path, name) {
+    return path === '/' ? '/' + name : path + '/' + name;
+}
+
 function sftpLoad(path) {
     if (activeIdx < 0 || !sessions[activeIdx]) return;
-    var sshInfo = sessions[activeIdx].sshInfo;
-    sftpCurrentPath = path;
+    var session = sessions[activeIdx];
+    if (session.consoleMode) return;
+    path = normalizeSftpPath(path);
+    cancelSftpRequest(session);
+    var requestToken = (session.sftpRequestToken || 0) + 1;
+    session.sftpRequestToken = requestToken;
+    var controller = typeof AbortController === 'function' ? new AbortController() : null;
+    session.sftpAbortController = controller;
+    session.sftpPath = path;
     document.getElementById('sftpPath').value = path;
     document.getElementById('sftpBody').innerHTML = '<div class="sftp-loading">加载中...</div>';
+    var params = new URLSearchParams();
+    appendSshConnection(params, session);
+    params.append('path', path);
     fetch('/webssh-api/file/list', {
         method: 'POST',
         headers: getWebSshFormHeaders(),
-        body: new URLSearchParams({ sshInfo: sshInfo, path: path })
+        body: params,
+        signal: controller ? controller.signal : undefined
     })
-        .then(function (r) { return r.json(); })
+        .then(function (r) {
+            if (!r.ok) throw new Error('HTTP ' + r.status);
+            return r.json();
+        })
         .then(function (d) {
+            if (session.sftpRequestToken !== requestToken || sessions[activeIdx] !== session) return;
             if (d.Msg !== 'success') { document.getElementById('sftpBody').innerHTML = '<div class="sftp-loading" style="color:var(--err)">' + esc(d.Msg) + '</div>'; return; }
             var list = (d.Data && d.Data.list) || [];
             if (!list.length) { document.getElementById('sftpBody').innerHTML = '<div class="sftp-loading">空目录</div>'; return; }
             var body = document.getElementById('sftpBody');
             body.innerHTML = list.map(function (f) {
                 var isDir = f.IsDir;
-                var fp = (path === '/' ? '/' : path + '/') + f.Name;
+                var fp = joinSftpPath(path, f.Name);
                 var icon = isDir ? '<svg class="sftp-icon dir" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>' : '<svg class="sftp-icon file" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>';
                 var dl = isDir ? '' : '<button class="sftp-dl" type="button" title="下载"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg></button>';
-                return '<div class="sftp-row" data-path="' + esc(fp) + '" data-dir="' + (isDir ? '1' : '0') + '">' + icon + '<span class="sftp-name">' + esc(f.Name) + '</span><span class="sftp-meta">' + esc(f.Size) + '</span>' + dl + '</div>';
+                return '<div class="sftp-row" data-path="' + escAttr(fp) + '" data-dir="' + (isDir ? '1' : '0') + '">' + icon + '<span class="sftp-name">' + esc(f.Name) + '</span><span class="sftp-meta">' + esc(f.Size) + '</span>' + dl + '</div>';
             }).join('');
             body.querySelectorAll('.sftp-row').forEach(function (row) {
                 row.addEventListener('click', function (e) {
@@ -664,28 +909,44 @@ function sftpLoad(path) {
                 });
             });
         })
-        .catch(function () { document.getElementById('sftpBody').innerHTML = '<div class="sftp-loading" style="color:var(--err)">加载失败</div>'; });
+        .catch(function (e) {
+            if (e && e.name === 'AbortError') return;
+            if (session.sftpRequestToken === requestToken && sessions[activeIdx] === session) {
+                document.getElementById('sftpBody').innerHTML = '<div class="sftp-loading" style="color:var(--err)">加载失败</div>';
+            }
+        })
+        .finally(function () {
+            if (session.sftpRequestToken === requestToken) session.sftpAbortController = null;
+        });
 }
 
 function sftpGo() { sftpLoad(document.getElementById('sftpPath').value.trim() || '/'); }
-function sftpUp() { var p = sftpCurrentPath.replace(/\/$/, ''); var i = p.lastIndexOf('/'); sftpLoad(i <= 0 ? '/' : p.substring(0, i)); }
+function sftpUp() {
+    if (activeIdx < 0 || !sessions[activeIdx]) return;
+    var p = normalizeSftpPath(sessions[activeIdx].sftpPath || '/');
+    var i = p.lastIndexOf('/');
+    sftpLoad(i <= 0 ? '/' : p.substring(0, i));
+}
 
 function sftpDownload(path) {
     if (activeIdx < 0 || !sessions[activeIdx]) return;
+    var session = sessions[activeIdx];
     // POST 表单避免 SSH 凭据进入 URL；浏览器直接接收流，不把大文件整块读入内存。
     var form = document.createElement('form');
     form.method = 'POST';
     form.action = '/webssh-api/file/download';
     form.target = '_blank';
     form.style.display = 'none';
-    [{ name: 'sshInfo', value: sessions[activeIdx].sshInfo }, { name: 'path', value: path }]
-        .forEach(function (field) {
-            var input = document.createElement('input');
-            input.type = 'hidden';
-            input.name = field.name;
-            input.value = field.value || '';
-            form.appendChild(input);
-        });
+    var connectionField = document.createElement('input');
+    connectionField.type = 'hidden';
+    connectionField.name = session.sshSessionId ? 'sessionId' : 'sshInfo';
+    connectionField.value = (session.sshSessionId || session.sshInfo || '');
+    form.appendChild(connectionField);
+    var pathField = document.createElement('input');
+    pathField.type = 'hidden';
+    pathField.name = 'path';
+    pathField.value = path || '';
+    form.appendChild(pathField);
     document.body.appendChild(form);
     form.submit();
     form.remove();
@@ -694,16 +955,27 @@ function sftpDownload(path) {
 function sftpUpload() {
     var input = document.getElementById('sftpUploadInput');
     if (!input.files.length || activeIdx < 0) return;
-    var sshInfo = sessions[activeIdx].sshInfo;
-    Array.from(input.files).forEach(function (f) {
+    var session = sessions[activeIdx];
+    if (!session || session.consoleMode) return;
+    var uploadPath = session.sftpPath || '/';
+    var uploads = Array.from(input.files).map(function (f) {
         var fd = new FormData();
-        fd.append('file', f); fd.append('sshInfo', sshInfo); fd.append('path', sftpCurrentPath); fd.append('id', Date.now().toString());
-        fetch('/webssh-api/file/upload', { method: 'POST', body: fd, headers: getWebSshAuthHeaders() })
+        fd.append('file', f); appendSshConnection(fd, session); fd.append('path', uploadPath); fd.append('id', createUploadId());
+        return fetch('/webssh-api/file/upload', { method: 'POST', body: fd, headers: getWebSshAuthHeaders() })
             .then(function (r) { return r.json(); })
-            .then(function (d) { if (d.Msg === 'success') { showToast('上传成功: ' + f.name, 'success'); sftpLoad(sftpCurrentPath); } else showToast('上传失败', 'error'); })
-            .catch(function () { showToast('上传失败', 'error'); });
+            .then(function (d) {
+                if (d.Msg === 'success') { showToast('上传成功: ' + f.name, 'success'); return true; }
+                showToast('上传失败: ' + f.name, 'error');
+                return false;
+            })
+            .catch(function () { showToast('上传失败: ' + f.name, 'error'); return false; });
     });
     input.value = '';
+    Promise.all(uploads).then(function (results) {
+        if (results.some(Boolean) && sessions[activeIdx] === session && session.sftpPath === uploadPath) {
+            sftpLoad(uploadPath);
+        }
+    });
 }
 
 document.getElementById('sftpPath').addEventListener('keydown', function (e) { if (e.key === 'Enter') sftpGo(); });
@@ -1528,6 +1800,21 @@ function connectConsoleSession(session) {
 function getApiAuthHeaders() {
     return getWebSshAuthHeaders({ 'Content-Type': 'application/json' });
 }
+
+document.addEventListener('visibilitychange', function () {
+    if (!document.hidden && activeIdx >= 0 && sessions[activeIdx]) {
+        fetchSysInfoFor(sessions[activeIdx]);
+    }
+});
+
+document.getElementById('enableSysInfo').addEventListener('change', function (event) {
+    sessions.forEach(function (session) {
+        if (!event.target.checked) cancelSysInfoRequest(session);
+    });
+    if (event.target.checked && activeIdx >= 0 && sessions[activeIdx]) {
+        fetchSysInfoFor(sessions[activeIdx]);
+    }
+});
 
 var consoleActionLabels = { SOFTRESET: '重启', RESET: '断电重启' };
 
