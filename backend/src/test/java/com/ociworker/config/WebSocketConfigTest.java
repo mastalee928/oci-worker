@@ -41,6 +41,10 @@ class WebSocketConfigTest {
 
         config.registerWebSocketHandlers(registry);
 
+        verify(logRegistration).addInterceptors(authInterceptor);
+        verify(terminalRegistration).addInterceptors(authInterceptor);
+        verify(consoleRegistration).addInterceptors(authInterceptor);
+        verify(progressRegistration).addInterceptors(authInterceptor);
         verify(logRegistration).setAllowedOriginPatterns("*");
         verify(terminalRegistration).setAllowedOriginPatterns("*");
         verify(consoleRegistration).setAllowedOriginPatterns("*");

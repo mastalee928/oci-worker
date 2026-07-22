@@ -5,6 +5,12 @@ server:
 
 webssh:
   timeout-minutes: 120
+  # 普通 SSH 终端的资源边界；OCI 串行控制台 /console-term 不读取这些限制。
+  first-message-timeout-seconds: 20
+  max-concurrent-sessions: 64
+  max-input-message-size: 65536
+  send-time-limit-ms: 10000
+  send-buffer-bytes: 1048576
   max-upload-size: 200MB
 ociworker:
   openaiApi:
