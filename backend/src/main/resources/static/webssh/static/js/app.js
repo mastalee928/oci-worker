@@ -652,7 +652,8 @@ function sftpLoad(path) {
                 return '<div class="sftp-row" data-path="' + esc(fp) + '" data-dir="' + (isDir ? '1' : '0') + '">' + icon + '<span class="sftp-name">' + esc(f.Name) + '</span><span class="sftp-meta">' + esc(f.Size) + '</span>' + dl + '</div>';
             }).join('');
             body.querySelectorAll('.sftp-row').forEach(function (row) {
-                row.addEventListener('click', function () {
+                row.addEventListener('click', function (e) {
+                    e.stopPropagation();
                     if (row.dataset.dir === '1') sftpLoad(row.dataset.path);
                     else sftpDownload(row.dataset.path);
                 });
@@ -1087,7 +1088,11 @@ document.addEventListener('click', function (e) {
     // Close SFTP panel
     var sftpPanel = document.getElementById('sftpPanel');
     if (sftpPanel && sftpPanel.classList.contains('open')) {
-        if (!sftpPanel.contains(e.target) && !(termEdge && termEdge.contains(e.target)) && !e.target.closest('.tb-btn')) {
+        var sftpClickPath = typeof e.composedPath === 'function' ? e.composedPath() : null;
+        var clickedInsideSftp = sftpClickPath
+            ? sftpClickPath.indexOf(sftpPanel) >= 0
+            : sftpPanel.contains(e.target);
+        if (!clickedInsideSftp && !(termEdge && termEdge.contains(e.target)) && !e.target.closest('.tb-btn')) {
             sftpPanel.classList.remove('open');
             setTimeout(function () { if (activeIdx >= 0 && sessions[activeIdx]) try { sessions[activeIdx].fitAddon.fit(); } catch (ex) { } }, 350);
         }

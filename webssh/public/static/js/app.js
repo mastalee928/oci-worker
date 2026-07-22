@@ -578,7 +578,7 @@ function sftpLoad(path) {
                 var fp = (path === '/' ? '/' : path + '/') + f.Name;
                 var fpSafe = fp.replace(/'/g, "\\'");
                 var icon = isDir ? '<svg class="sftp-icon dir" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z"/></svg>' : '<svg class="sftp-icon file" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V9z"/><polyline points="13 2 13 9 20 9"/></svg>';
-                var click = isDir ? 'onclick="sftpLoad(\'' + fpSafe + '\')"' : 'onclick="sftpDownload(\'' + fpSafe + '\')"';
+                var click = isDir ? 'onclick="event.stopPropagation();sftpLoad(\'' + fpSafe + '\')"' : 'onclick="event.stopPropagation();sftpDownload(\'' + fpSafe + '\')"';
                 var dl = isDir ? '' : '<button class="sftp-dl" onclick="event.stopPropagation();sftpDownload(\'' + fpSafe + '\')" title="下载"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg></button>';
                 return '<div class="sftp-row" ' + click + '>' + icon + '<span class="sftp-name">' + esc(f.Name) + '</span><span class="sftp-meta">' + f.Size + '</span>' + dl + '</div>';
             }).join('');
@@ -922,7 +922,11 @@ document.addEventListener('click', function (e) {
     // Close SFTP panel
     var sftpPanel = document.getElementById('sftpPanel');
     if (sftpPanel && sftpPanel.classList.contains('open')) {
-        if (!sftpPanel.contains(e.target) && !(termEdge && termEdge.contains(e.target)) && !e.target.closest('.tb-btn')) {
+        var sftpClickPath = typeof e.composedPath === 'function' ? e.composedPath() : null;
+        var clickedInsideSftp = sftpClickPath
+            ? sftpClickPath.indexOf(sftpPanel) >= 0
+            : sftpPanel.contains(e.target);
+        if (!clickedInsideSftp && !(termEdge && termEdge.contains(e.target)) && !e.target.closest('.tb-btn')) {
             sftpPanel.classList.remove('open');
             setTimeout(function () { if (activeIdx >= 0 && sessions[activeIdx]) try { sessions[activeIdx].fitAddon.fit(); } catch (ex) { } }, 350);
         }
