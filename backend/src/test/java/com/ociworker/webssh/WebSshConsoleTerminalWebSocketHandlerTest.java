@@ -16,6 +16,8 @@ import org.springframework.web.socket.WebSocketSession;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.io.IOException;
+import java.io.ByteArrayInputStream;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
@@ -199,6 +201,29 @@ class WebSshConsoleTerminalWebSocketHandlerTest {
         sendOutput.setAccessible(true);
         sendOutput.invoke(null, ws, bytes, bytes.length);
 
+        ArgumentCaptor<TextMessage> message = ArgumentCaptor.forClass(TextMessage.class);
+        verify(ws).sendMessage(message.capture());
+        assertThat(message.getValue().getPayload().getBytes(StandardCharsets.ISO_8859_1))
+                .containsExactly(bytes);
+    }
+
+    @Test
+    void readsPtyOutputEvenWhenAvailableReportsZero() throws Exception {
+        PtyProcess process = mock(PtyProcess.class);
+        when(process.isAlive()).thenReturn(true);
+        WebSocketSession ws = session(Map.of());
+        when(ws.isOpen()).thenReturn(true);
+        byte[] bytes = new byte[]{0x1b, '[', '2', 'J'};
+        InputStream stdout = new ByteArrayInputStream(bytes) {
+            @Override
+            public int available() {
+                return 0;
+            }
+        };
+
+        CloseStatus status = handler.pumpConsoleOutput(ws, process, stdout, "timeout");
+
+        assertThat(status).isEqualTo(CloseStatus.NORMAL);
         ArgumentCaptor<TextMessage> message = ArgumentCaptor.forClass(TextMessage.class);
         verify(ws).sendMessage(message.capture());
         assertThat(message.getValue().getPayload().getBytes(StandardCharsets.ISO_8859_1))

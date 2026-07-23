@@ -177,30 +177,7 @@ public class WebSshConsoleTerminalWebSocketHandler implements WebSocketHandler {
             }
 
             try (InputStream stdout = localProcess.getInputStream()) {
-                byte[] buf = new byte[4096];
-                long deadline = System.nanoTime()
-                        + Duration.ofMinutes(Math.max(1, timeoutMinutes)).toNanos();
-                while (!isClosing(ws) && ws.isOpen()) {
-                    if (System.nanoTime() > deadline) {
-                        sendText(ws, "\033[33m" + closeTip + "\033[0m");
-                        closeStatus = CloseStatus.NORMAL.withReason("Serial console timed out");
-                        break;
-                    }
-                    int available = stdout.available();
-                    if (available <= 0) {
-                        if (!localProcess.isAlive()) {
-                            break;
-                        }
-                        Thread.sleep(25);
-                        continue;
-                    }
-                    int n = stdout.read(buf, 0, Math.min(buf.length, available));
-                    if (n > 0) {
-                        sendConsoleOutput(ws, buf, n);
-                    } else if (n < 0) {
-                        break;
-                    }
-                }
+                closeStatus = pumpConsoleOutput(ws, localProcess, stdout, closeTip);
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
@@ -221,6 +198,28 @@ public class WebSshConsoleTerminalWebSocketHandler implements WebSocketHandler {
             activeWebSockets.remove(ws);
             closeWebSocket(ws, closeStatus);
         }
+    }
+
+    CloseStatus pumpConsoleOutput(WebSocketSession ws, PtyProcess process,
+                                  InputStream stdout, String closeTip) throws Exception {
+        byte[] buf = new byte[4096];
+        long deadline = System.nanoTime()
+                + Duration.ofMinutes(Math.max(1, timeoutMinutes)).toNanos();
+        while (!isClosing(ws) && ws.isOpen() && process.isAlive()) {
+            if (System.nanoTime() > deadline) {
+                sendText(ws, "\033[33m" + closeTip + "\033[0m");
+                return CloseStatus.NORMAL.withReason("Serial console timed out");
+            }
+            // pty4j streams do not guarantee that available() reports pending PTY bytes.
+            // A blocking read is required or a live serial console can remain blank forever.
+            int n = stdout.read(buf);
+            if (n > 0) {
+                sendConsoleOutput(ws, buf, n);
+            } else if (n < 0) {
+                break;
+            }
+        }
+        return CloseStatus.NORMAL;
     }
 
     private void rejectStart(WebSocketSession ws, String message) {
