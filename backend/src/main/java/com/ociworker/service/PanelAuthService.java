@@ -46,17 +46,33 @@ public class PanelAuthService {
     }
 
     public boolean validateRequestToken(HttpServletRequest request, boolean allowQueryToken, boolean allowCookieToken) {
-        return validateToken(readToken(request, allowQueryToken, allowCookieToken));
+        return authenticatedAccount(request, allowQueryToken, allowCookieToken) != null;
     }
 
     public boolean validateToken(String token) {
+        return authenticatedAccount(token) != null;
+    }
+
+    public String authenticatedAccount(HttpServletRequest request,
+                                       boolean allowQueryToken,
+                                       boolean allowCookieToken) {
+        return authenticatedAccount(readToken(request, allowQueryToken, allowCookieToken));
+    }
+
+    public String authenticatedAccount(HttpHeaders headers, String rawQuery) {
+        return authenticatedAccount(readToken(headers, rawQuery));
+    }
+
+    private String authenticatedAccount(String token) {
         String normalized = normalizeToken(token);
         if (StrUtil.isBlank(normalized)) {
-            return false;
+            return null;
         }
         CredentialSnapshot snapshot = credentialSnapshot;
-        if (snapshot == null || !snapshot.configured()) return false;
-        return CommonUtils.validateToken(normalized, snapshot.account(), snapshot.passwordHash());
+        if (snapshot == null || !snapshot.configured()) return null;
+        return CommonUtils.validateToken(normalized, snapshot.account(), snapshot.passwordHash())
+                ? snapshot.account()
+                : null;
     }
 
     public boolean isConfigured() {

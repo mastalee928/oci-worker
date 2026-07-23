@@ -19,6 +19,8 @@ import java.util.Map;
 @Component
 public class WebSshAuthHandshakeInterceptor implements HandshakeInterceptor {
 
+    public static final String AUTHENTICATED_ACCOUNT_ATTRIBUTE = "websshAuthenticatedAccount";
+
     @Resource
     private PanelAuthService panelAuthService;
     @Resource
@@ -37,10 +39,12 @@ public class WebSshAuthHandshakeInterceptor implements HandshakeInterceptor {
 
         if (request instanceof ServletServerHttpRequest servletRequest) {
             HttpServletRequest raw = servletRequest.getServletRequest();
-            boolean authenticated = "/ws/log".equals(uri)
+            boolean ticketAuthenticated = "/ws/log".equals(uri)
                     && webSocketTicketService.consume(raw.getParameter("ticket"));
-            if (!authenticated) authenticated = panelAuthService.validateRequestToken(raw, false, true);
-            if (!authenticated) {
+            String account = ticketAuthenticated
+                    ? null
+                    : panelAuthService.authenticatedAccount(raw, false, true);
+            if (!ticketAuthenticated && account == null) {
                 response.setStatusCode(HttpStatus.UNAUTHORIZED);
                 return false;
             }
@@ -50,12 +54,17 @@ public class WebSshAuthHandshakeInterceptor implements HandshakeInterceptor {
                 response.setStatusCode(HttpStatus.FORBIDDEN);
                 return false;
             }
+            if (account != null) {
+                attributes.put(AUTHENTICATED_ACCOUNT_ATTRIBUTE, account);
+            }
         } else {
-            String token = panelAuthService.readToken(request.getHeaders(), request.getURI().getRawQuery());
-            if (!panelAuthService.validateToken(token)) {
+            String account = panelAuthService.authenticatedAccount(
+                    request.getHeaders(), request.getURI().getRawQuery());
+            if (account == null) {
                 response.setStatusCode(HttpStatus.UNAUTHORIZED);
                 return false;
             }
+            attributes.put(AUTHENTICATED_ACCOUNT_ATTRIBUTE, account);
         }
         return true;
     }
@@ -63,5 +72,6 @@ public class WebSshAuthHandshakeInterceptor implements HandshakeInterceptor {
     @Override
     public void afterHandshake(ServerHttpRequest request, ServerHttpResponse response,
                                WebSocketHandler wsHandler, Exception exception) {
+        // Authentication state is copied into WebSocket attributes before the handshake completes.
     }
 }

@@ -47,7 +47,7 @@ class WebSshAuthHandshakeInterceptorTest {
     void acceptsAuthenticatedNonDeniedWebSocket() {
         PanelAuthService auth = mock(PanelAuthService.class);
         LoginSecurityService security = mock(LoginSecurityService.class);
-        when(auth.validateRequestToken(any(), eq(false), eq(true))).thenReturn(true);
+        when(auth.authenticatedAccount(any(), eq(false), eq(true))).thenReturn("admin");
         WebSshAuthHandshakeInterceptor interceptor = interceptor(auth, security);
         MockHttpServletRequest rawRequest = new MockHttpServletRequest("GET", "/ws/log");
         MockHttpServletResponse rawResponse = new MockHttpServletResponse();
@@ -64,18 +64,21 @@ class WebSshAuthHandshakeInterceptorTest {
     void acceptsAuthenticatedSerialConsoleWebSocket() {
         PanelAuthService auth = mock(PanelAuthService.class);
         LoginSecurityService security = mock(LoginSecurityService.class);
-        when(auth.validateRequestToken(any(), eq(false), eq(true))).thenReturn(true);
+        when(auth.authenticatedAccount(any(), eq(false), eq(true))).thenReturn("admin");
         WebSshAuthHandshakeInterceptor interceptor = interceptor(auth, security);
         MockHttpServletRequest rawRequest = new MockHttpServletRequest("GET", "/webssh-api/console-term");
         MockHttpServletResponse rawResponse = new MockHttpServletResponse();
+        HashMap<String, Object> attributes = new HashMap<>();
 
         boolean accepted = interceptor.beforeHandshake(
                 new ServletServerHttpRequest(rawRequest),
                 new ServletServerHttpResponse(rawResponse),
-                mock(WebSocketHandler.class), new HashMap<>());
+                mock(WebSocketHandler.class), attributes);
 
         assertThat(accepted).isTrue();
-        verify(auth).validateRequestToken(any(), eq(false), eq(true));
+        assertThat(attributes).containsEntry(
+                WebSshAuthHandshakeInterceptor.AUTHENTICATED_ACCOUNT_ATTRIBUTE, "admin");
+        verify(auth).authenticatedAccount(any(), eq(false), eq(true));
     }
 
     @Test
@@ -112,14 +115,14 @@ class WebSshAuthHandshakeInterceptorTest {
 
         assertThat(accepted).isFalse();
         assertThat(rawResponse.getStatus()).isEqualTo(HttpStatus.SERVICE_UNAVAILABLE.value());
-        verify(auth, never()).validateRequestToken(any(), anyBoolean(), anyBoolean());
+        verify(auth, never()).authenticatedAccount(any(), anyBoolean(), anyBoolean());
     }
 
     @Test
     void rejectsSerialConsoleWebSocketForDeniedClient() {
         PanelAuthService auth = mock(PanelAuthService.class);
         LoginSecurityService security = mock(LoginSecurityService.class);
-        when(auth.validateRequestToken(any(), eq(false), eq(true))).thenReturn(true);
+        when(auth.authenticatedAccount(any(), eq(false), eq(true))).thenReturn("admin");
         when(security.readDeviceIdFromRequest(any())).thenReturn("blocked-device");
         when(security.isDeniedForLogin(nullable(String.class), eq("blocked-device"))).thenReturn(true);
         WebSshAuthHandshakeInterceptor interceptor = interceptor(auth, security);
@@ -153,7 +156,7 @@ class WebSshAuthHandshakeInterceptorTest {
 
         assertThat(accepted).isTrue();
         verify(tickets).consume("valid-ticket");
-        verify(auth, never()).validateRequestToken(org.mockito.ArgumentMatchers.any(),
+        verify(auth, never()).authenticatedAccount(org.mockito.ArgumentMatchers.any(),
                 org.mockito.ArgumentMatchers.anyBoolean(), org.mockito.ArgumentMatchers.anyBoolean());
     }
 

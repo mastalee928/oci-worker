@@ -5,6 +5,7 @@ import com.ociworker.mapper.OciKvMapper;
 import com.ociworker.model.entity.OciKv;
 import com.ociworker.util.CommonUtils;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpHeaders;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -24,6 +25,22 @@ class PanelAuthServiceTest {
 
         assertThat(service.validateToken(CommonUtils.generateToken(account, passwordHash))).isTrue();
         assertThat(service.validateToken(CommonUtils.generateToken(account, DigestUtil.sha256Hex("old-password")))).isFalse();
+    }
+
+    @Test
+    void returnsAccountFromTheSameCredentialSnapshotUsedForTokenValidation() {
+        PanelAuthService service = new PanelAuthService();
+        String account = "serial-admin";
+        String passwordHash = DigestUtil.sha256Hex("console-password");
+        String token = CommonUtils.generateToken(account, passwordHash);
+        service.updateCredentialSnapshot(account, passwordHash);
+        HttpHeaders headers = new HttpHeaders();
+        headers.set(HttpHeaders.AUTHORIZATION, token);
+
+        assertThat(service.authenticatedAccount(headers, null)).isEqualTo(account);
+
+        service.updateCredentialSnapshot("new-admin", DigestUtil.sha256Hex("new-password"));
+        assertThat(service.authenticatedAccount(headers, null)).isNull();
     }
 
     @Test

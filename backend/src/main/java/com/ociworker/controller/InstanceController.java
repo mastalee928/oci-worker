@@ -5,10 +5,12 @@ import com.ociworker.exception.OciException;
 import com.ociworker.model.dto.InstancePublicIpRequest;
 import com.ociworker.service.ConsoleService;
 import com.ociworker.service.InstanceService;
+import com.ociworker.service.PanelAuthService;
 import com.ociworker.service.ShapeEditTaskManager;
 import com.ociworker.service.TenantProtectionAccessService;
 import com.ociworker.service.VerifyCodeService;
 import jakarta.annotation.Resource;
+import jakarta.servlet.http.HttpServletRequest;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Map;
@@ -27,6 +29,8 @@ public class InstanceController {
     private TenantProtectionAccessService tenantProtectionAccessService;
     @Resource
     private ConsoleService consoleService;
+    @Resource
+    private PanelAuthService panelAuthService;
     @Resource
     private ShapeEditTaskManager shapeEditTaskManager;
 
@@ -330,14 +334,24 @@ public class InstanceController {
     }
 
     @PostMapping("/createConsole")
-    public ResponseData<?> createConsole(@RequestBody Map<String, String> params) {
-        return ResponseData.ok(consoleService.createConsoleConnection(params.get("id"), params.get("instanceId"), regStr(params)));
+    public ResponseData<?> createConsole(@RequestBody Map<String, String> params, HttpServletRequest request) {
+        return ResponseData.ok(consoleService.createConsoleConnection(
+                params.get("id"), params.get("instanceId"), regStr(params), authenticatedAccount(request)));
     }
 
     @PostMapping("/deleteConsole")
-    public ResponseData<?> deleteConsole(@RequestBody Map<String, String> params) {
-        consoleService.deleteConsoleConnection(params.get("id"), params.get("connectionId"), regStr(params));
+    public ResponseData<?> deleteConsole(@RequestBody Map<String, String> params, HttpServletRequest request) {
+        consoleService.deleteConsoleConnection(
+                params.get("id"), params.get("connectionId"), regStr(params), authenticatedAccount(request));
         return ResponseData.ok();
+    }
+
+    private String authenticatedAccount(HttpServletRequest request) {
+        String account = panelAuthService.authenticatedAccount(request, true, false);
+        if (account == null || account.isBlank()) {
+            throw new OciException("登录状态无效，请重新登录");
+        }
+        return account;
     }
 
     private static String regStr(Map<String, String> params) {
