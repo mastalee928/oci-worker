@@ -105,6 +105,34 @@ public class DatabaseGuardService {
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """);
 
+        TABLE_DDL.put("oci_webssh_connection_bookmark", """
+            CREATE TABLE IF NOT EXISTS oci_webssh_connection_bookmark (
+                id VARCHAR(64) PRIMARY KEY,
+                dedupe_key CHAR(64) CHARACTER SET ascii COLLATE ascii_bin NOT NULL,
+                hostname VARCHAR(255) NOT NULL,
+                port INT NOT NULL,
+                username VARCHAR(128) CHARACTER SET utf8mb4 COLLATE utf8mb4_bin NOT NULL,
+                auth_type VARCHAR(16) NOT NULL DEFAULT 'password',
+                sort_order BIGINT NOT NULL DEFAULT 0,
+                create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                UNIQUE KEY uk_webssh_connection_bookmark_dedupe (dedupe_key),
+                INDEX idx_webssh_connection_bookmark_order (sort_order, create_time)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            """);
+
+        TABLE_DDL.put("oci_webssh_script_bookmark", """
+            CREATE TABLE IF NOT EXISTS oci_webssh_script_bookmark (
+                id VARCHAR(64) PRIMARY KEY,
+                name VARCHAR(128) NOT NULL,
+                command_encrypted MEDIUMTEXT NOT NULL,
+                sort_order BIGINT NOT NULL DEFAULT 0,
+                create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                update_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                INDEX idx_webssh_script_bookmark_order (sort_order, create_time)
+            ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
+            """);
+
         TABLE_DDL.put("cf_cfg", """
             CREATE TABLE IF NOT EXISTS cf_cfg (
                 id VARCHAR(64) PRIMARY KEY,

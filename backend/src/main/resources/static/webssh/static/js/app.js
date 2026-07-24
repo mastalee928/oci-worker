@@ -682,9 +682,17 @@ function renderMetrics(d) {
 }
 
 // ==================== Drawers ====================
-function toggleConnDrawer() { document.getElementById('connDrawer').classList.toggle('open'); }
+function toggleConnDrawer() {
+    var drawer = document.getElementById('connDrawer');
+    drawer.classList.toggle('open');
+    renderConnBookmarks();
+    if (drawer.classList.contains('open') && !bookmarksServerReady) initBookmarks();
+}
 function toggleScriptDrawer() {
-    document.getElementById('scriptDrawer').classList.toggle('open');
+    var drawer = document.getElementById('scriptDrawer');
+    drawer.classList.toggle('open');
+    renderScriptBookmarks();
+    if (drawer.classList.contains('open') && !bookmarksServerReady) initBookmarks();
     setTimeout(function () { if (activeIdx >= 0 && sessions[activeIdx]) try { sessions[activeIdx].fitAddon.fit(); } catch (e) { } }, 350);
 }
 function toggleSftp() {
@@ -705,28 +713,165 @@ function toggleSftp() {
 // ==================== Connection Bookmarks ====================
 var CBK = 'webssh_conn_bm';
 var SBK = 'webssh_script_bm';
+var BM_MIGRATION_KEY = 'webssh_bookmarks_server_migrated_v1';
+var connBookmarks = [];
+var scriptBookmarks = [];
+var bookmarksLoading = false;
+var bookmarksServerReady = false;
+var bookmarksInitPromise = null;
+var bookmarksMutationQueue = Promise.resolve();
+var bookmarksLastError = '';
 
 function loadBM(k) {
     try {
-        var value = JSON.parse(localStorage.getItem(k)) || [];
-        if (k === CBK && Array.isArray(value)) {
-            var changed = false;
-            value.forEach(function (item) {
-                if (item && Object.prototype.hasOwnProperty.call(item, 'password')) {
-                    delete item.password;
-                    changed = true;
-                }
-            });
-            if (changed) localStorage.setItem(k, JSON.stringify(value));
-        }
+        var raw = JSON.parse(localStorage.getItem(k)) || [];
+        if (!Array.isArray(raw)) return [];
+        var changed = false;
+        var value = raw.map(function (item) {
+            var normalized = k === CBK ? normalizeLocalConnection(item) : normalizeLocalScript(item);
+            if (JSON.stringify(normalized) !== JSON.stringify(item)) changed = true;
+            return normalized;
+        }).filter(Boolean);
+        if (changed) localStorage.setItem(k, JSON.stringify(value));
         return value;
     } catch (e) { return []; }
 }
-function saveBM(k, v) { localStorage.setItem(k, JSON.stringify(v)); }
+function normalizeLocalConnection(item) {
+    if (!item || typeof item !== 'object') return null;
+    var hostname = String(item.hostname || '').trim();
+    var username = String(item.username || 'root').trim() || 'root';
+    var port = parseInt(item.port, 10) || 22;
+    if (!hostname || port < 1 || port > 65535 || hostname.length > 255 || username.length > 128) return null;
+    if (/\s|[\u0000-\u001f\u007f]/.test(hostname) || /\s|[\u0000-\u001f\u007f]/.test(username)) return null;
+    var authType = item.authType === 'key' ? 'key' : 'password';
+    var result = { hostname: hostname, port: port, username: username, authType: authType };
+    if (typeof item.id === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(item.id)) result.id = item.id;
+    return result;
+}
+
+function normalizeLocalScript(item) {
+    if (!item || typeof item !== 'object') return null;
+    var name = String(item.name || '').trim();
+    var cmd = String(item.cmd || '').trim();
+    if (!name || !cmd || name.length > 128 || cmd.length > 16384 || cmd.indexOf('\u0000') >= 0) return null;
+    var result = { name: name, cmd: cmd };
+    if (typeof item.id === 'string' && /^[A-Za-z0-9_-]{1,128}$/.test(item.id)) result.id = item.id;
+    return result;
+}
+
+function bookmarkApi(path, options) {
+    var opts = options || {};
+    var headers = opts.headers || {};
+    headers = getWebSshAuthHeaders(Object.assign({ 'Content-Type': 'application/json' }, headers));
+    opts.headers = headers;
+    var controller = typeof AbortController === 'function' ? new AbortController() : null;
+    if (controller) opts.signal = controller.signal;
+    var timer = controller ? setTimeout(function () { controller.abort(); }, 10000) : null;
+    return fetch(path, opts).then(function (response) {
+        return response.json().catch(function () { return {}; }).then(function (body) {
+            var success = response.ok && ((body && body.Msg === 'success') || (body && body.code === 0));
+            if (!success) {
+                var message = body && (body.message || body.Msg);
+                throw new Error(message && message !== 'success' ? message : '书签服务暂不可用');
+            }
+            return body.Data !== undefined ? body.Data : body.data;
+        });
+    }).finally(function () { if (timer) clearTimeout(timer); });
+}
+
+function applyBookmarkBundle(data) {
+    var connections = data && Array.isArray(data.connections) ? data.connections : [];
+    var scripts = data && Array.isArray(data.scripts) ? data.scripts : [];
+    connBookmarks = connections.map(normalizeLocalConnection).filter(Boolean);
+    scriptBookmarks = scripts.map(normalizeLocalScript).filter(Boolean);
+    try {
+        localStorage.removeItem(CBK);
+        localStorage.removeItem(SBK);
+    } catch (e) { }
+    bookmarksServerReady = true;
+    bookmarksLastError = '';
+    renderConnBookmarks();
+    renderScriptBookmarks();
+}
+
+function localBookmarkPayload() {
+    return {
+        connections: loadBM(CBK).map(function (b) {
+            return { hostname: b.hostname, port: b.port, username: b.username, authType: b.authType };
+        }),
+        scripts: loadBM(SBK).map(function (b) { return { name: b.name, cmd: b.cmd }; })
+    };
+}
+
+function initBookmarks() {
+    if (bookmarksInitPromise) return bookmarksInitPromise;
+    bookmarksLoading = true;
+    renderConnBookmarks();
+    renderScriptBookmarks();
+    bookmarksInitPromise = bookmarkApi('/webssh-api/bookmarks', { method: 'GET' })
+        .then(function (data) {
+            var migrated = false;
+            try { migrated = localStorage.getItem(BM_MIGRATION_KEY) === '1'; } catch (e) { }
+            if (migrated) return data;
+            var payload = localBookmarkPayload();
+            var hasLocal = payload.connections.length > 0 || payload.scripts.length > 0;
+            if (!hasLocal) {
+                try { localStorage.setItem(BM_MIGRATION_KEY, '1'); } catch (e) { }
+                return data;
+            }
+            return bookmarkApi('/webssh-api/bookmarks/migrate', {
+                method: 'POST', body: JSON.stringify(payload)
+            }).then(function (merged) {
+                try { localStorage.setItem(BM_MIGRATION_KEY, '1'); } catch (e) { }
+                return merged;
+            });
+        })
+        .then(function (data) { applyBookmarkBundle(data); return data; })
+        .catch(function (error) {
+            bookmarksServerReady = false;
+            bookmarksLastError = error && error.message ? error.message : '书签服务暂不可用';
+            renderConnBookmarks();
+            renderScriptBookmarks();
+            return null;
+        })
+        .finally(function () {
+            bookmarksLoading = false;
+            bookmarksInitPromise = null;
+            renderConnBookmarks();
+            renderScriptBookmarks();
+        });
+    return bookmarksInitPromise;
+}
+
+function ensureBookmarksServer() {
+    if (bookmarksServerReady) return Promise.resolve();
+    return initBookmarks().then(function () {
+        if (!bookmarksServerReady) throw new Error(bookmarksLastError || '书签服务暂不可用');
+    });
+}
+
+function queueBookmarkMutation(task) {
+    var run = bookmarksMutationQueue.catch(function () { }).then(task);
+    bookmarksMutationQueue = run.catch(function () { });
+    return run;
+}
+
+function connectionBookmarkKey(b) {
+    return String(b.hostname || '').trim().toLowerCase() + '\u0000'
+        + (parseInt(b.port, 10) || 22) + '\u0000' + String(b.username || 'root').trim();
+}
+
+function scriptBookmarkKey(b) {
+    return String(b.name || '').trim() + '\u0000' + String(b.cmd || '').trim();
+}
 
 function renderConnBookmarks() {
-    var l = document.getElementById('connBookmarkList'), bms = loadBM(CBK);
-    if (!bms.length) { l.innerHTML = '<div class="bm-empty">暂无书签</div>'; return; }
+    var l = document.getElementById('connBookmarkList'), bms = connBookmarks;
+    if (!bms.length) {
+        l.innerHTML = bookmarksLoading ? '<div class="bm-empty">加载中...</div>'
+            : (bookmarksLastError ? '<div class="bm-empty">暂无服务器书签</div>' : '<div class="bm-empty">暂无书签</div>');
+        return;
+    }
     l.innerHTML = bms.map(function (b, i) {
         return '<div class="bm-item" onclick="applyConn(' + i + ')"><div class="bm-item-info"><div class="bm-item-name">' + esc(b.username + '@' + b.hostname) + '</div><div class="bm-item-host">:' + esc(b.port || 22) + '</div></div><button class="bm-item-del" onclick="event.stopPropagation();delConn(' + i + ')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="10" height="10"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div>';
     }).join('');
@@ -736,14 +881,21 @@ function saveConnBookmark() {
     var h = document.getElementById('hostname').value.trim(), u = document.getElementById('username').value.trim() || 'root', p = parseInt(document.getElementById('port').value) || 22;
     if (!h) { showToast('请先填写主机', 'error'); return; }
     var at = document.querySelector('.auth-tab.active').dataset.tab;
-    var bm = { hostname: h, port: p, username: u, authType: at };
-    var bms = loadBM(CBK), idx = bms.findIndex(function (b) { return b.hostname === h && b.port === p && b.username === u; });
-    if (idx >= 0) bms[idx] = bm; else bms.push(bm);
-    saveBM(CBK, bms); renderConnBookmarks(); showToast('已保存', 'success');
+    var input = { hostname: h, port: p, username: u, authType: at };
+    queueBookmarkMutation(function () {
+        return ensureBookmarksServer().then(function () {
+            return bookmarkApi('/webssh-api/bookmarks/connections', {
+                method: 'POST', body: JSON.stringify(input)
+            }).then(function (data) {
+                applyBookmarkBundle(data);
+                showToast('已保存', 'success');
+            });
+        }).catch(function (error) { showToast(error.message || '保存失败', 'error'); });
+    });
 }
 
 function applyConn(i) {
-    var b = loadBM(CBK)[i]; if (!b) return;
+    var b = connBookmarks[i]; if (!b) return;
     document.getElementById('hostname').value = b.hostname || '';
     document.getElementById('port').value = b.port || 22;
     document.getElementById('username').value = b.username || 'root';
@@ -752,7 +904,22 @@ function applyConn(i) {
     showToast('已填入', 'info');
 }
 
-function delConn(i) { var bms = loadBM(CBK); bms.splice(i, 1); saveBM(CBK, bms); renderConnBookmarks(); showToast('已删除', 'info'); }
+function delConn(i) {
+    var candidate = connBookmarks[i]; if (!candidate) return;
+    var key = connectionBookmarkKey(candidate);
+    queueBookmarkMutation(function () {
+        return ensureBookmarksServer().then(function () {
+            var current = connBookmarks.find(function (b) { return connectionBookmarkKey(b) === key; });
+            if (!current || !current.id) throw new Error('书签已被其它页面删除');
+            return bookmarkApi('/webssh-api/bookmarks/connections/' + encodeURIComponent(current.id), {
+                method: 'DELETE'
+            }).then(function (data) {
+                applyBookmarkBundle(data);
+                showToast('已删除', 'info');
+            });
+        }).catch(function (error) { showToast(error.message || '删除失败', 'error'); });
+    });
+}
 
 // ==================== Preset Scripts ====================
 var PRESET_SCRIPTS = [
@@ -796,7 +963,7 @@ var PRESET_SCRIPTS = [
 var showPresets = false;
 
 function renderScriptBookmarks() {
-    var l = document.getElementById('scriptBookmarkList'), bms = loadBM(SBK);
+    var l = document.getElementById('scriptBookmarkList'), bms = scriptBookmarks;
     var html = '';
 
     // Preset entry
@@ -832,20 +999,48 @@ function runPresetScript(cmd) {
 function saveScriptBookmark() {
     var n = document.getElementById('scriptName').value.trim(), c = document.getElementById('scriptContent').value.trim();
     if (!n || !c) { showToast('名称和命令不能为空', 'error'); return; }
-    var bms = loadBM(SBK); bms.push({ name: n, cmd: c }); saveBM(SBK, bms);
-    document.getElementById('scriptName').value = ''; document.getElementById('scriptContent').value = '';
-    renderScriptBookmarks(); showToast('脚本已保存', 'success');
+    var input = { name: n, cmd: c };
+    queueBookmarkMutation(function () {
+        return ensureBookmarksServer().then(function () {
+            return bookmarkApi('/webssh-api/bookmarks/scripts', {
+                method: 'POST', body: JSON.stringify(input)
+            }).then(function (data) {
+                applyBookmarkBundle(data);
+                document.getElementById('scriptName').value = '';
+                document.getElementById('scriptContent').value = '';
+                showToast('脚本已保存', 'success');
+            });
+        }).catch(function (error) { showToast(error.message || '保存失败', 'error'); });
+    });
 }
 
 function runScript(i) {
-    var b = loadBM(SBK)[i]; if (!b) return;
+    var b = scriptBookmarks[i]; if (!b) return;
     if (activeIdx < 0 || !sessions[activeIdx] || !sessions[activeIdx].ws || sessions[activeIdx].ws.readyState !== 1) { showToast('无活动连接', 'error'); return; }
     sessions[activeIdx].ws.send(b.cmd + '\n');
     showToast('已执行: ' + b.name, 'success');
     sessions[activeIdx].term.focus();
 }
 
-function delScript(i) { var bms = loadBM(SBK); bms.splice(i, 1); saveBM(SBK, bms); renderScriptBookmarks(); showToast('已删除', 'info'); }
+function delScript(i) {
+    var candidate = scriptBookmarks[i]; if (!candidate) return;
+    var candidateId = candidate.id || '';
+    var candidateKey = scriptBookmarkKey(candidate);
+    queueBookmarkMutation(function () {
+        return ensureBookmarksServer().then(function () {
+            var current = candidateId
+                ? scriptBookmarks.find(function (b) { return b.id === candidateId; })
+                : scriptBookmarks.find(function (b) { return scriptBookmarkKey(b) === candidateKey; });
+            if (!current || !current.id) throw new Error('书签已被其它页面删除');
+            return bookmarkApi('/webssh-api/bookmarks/scripts/' + encodeURIComponent(current.id), {
+                method: 'DELETE'
+            }).then(function (data) {
+                applyBookmarkBundle(data);
+                showToast('已删除', 'info');
+            });
+        }).catch(function (error) { showToast(error.message || '删除失败', 'error'); });
+    });
+}
 
 // ==================== SFTP ====================
 function normalizeSftpPath(path) {
@@ -1915,7 +2110,11 @@ bootConsoleConnect();
 try {
     initSettings();
     initSysInterval();
+    connBookmarks = loadBM(CBK);
+    scriptBookmarks = loadBM(SBK);
     renderConnBookmarks();
+    renderScriptBookmarks();
+    initBookmarks();
     loadProxyConfig();
 } catch (e) {
     console.error('WebSSH init partial failure', e);

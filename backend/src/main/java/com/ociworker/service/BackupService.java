@@ -48,6 +48,10 @@ public class BackupService {
     private LoginAuditCryptoService loginAuditCryptoService;
     @Resource
     private DatabaseGuardService databaseGuardService;
+    @Resource
+    private WebSshBookmarkService webSshBookmarkService;
+    @Resource
+    private WebSshBookmarkCryptoService webSshBookmarkCryptoService;
 
     public BackupService(DataSource dataSource) {
         this.dataSource = dataSource;
@@ -60,6 +64,8 @@ public class BackupService {
             "oci_scheduled_ip_task",
             "oci_scheduled_ip_run_log",
             "oci_kv",
+            "oci_webssh_connection_bookmark",
+            "oci_webssh_script_bookmark",
             "cf_cfg",
             "ip_data",
             "oci_openai_key",
@@ -79,10 +85,12 @@ public class BackupService {
     private static final Map<String, Map<Integer, List<String>>> LEGACY_INSERT_COLUMNS = buildLegacyInsertColumns();
 
     public byte[] createBackup(String password) {
+        Path tempDir = null;
         try {
             loginAuditCryptoService.requireReady();
+            webSshBookmarkService.requireCryptoReady();
             String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss"));
-            Path tempDir = Files.createTempDirectory("oci-worker-backup-");
+            tempDir = Files.createTempDirectory("oci-worker-backup-");
             Path sqlDumpFile = tempDir.resolve("oci-worker-dump.sql");
 
             String sqlDump = exportDatabase();
@@ -105,19 +113,18 @@ public class BackupService {
             }
 
             byte[] data = Files.readAllBytes(Path.of(zipPath));
-
-            Files.deleteIfExists(sqlDumpFile);
-            Files.deleteIfExists(Path.of(zipPath));
-            Files.deleteIfExists(tempDir);
             return data;
         } catch (Exception e) {
             throw new OciException("创建备份失败: " + e.getMessage());
+        } finally {
+            cleanupTempDirectory(tempDir, "备份");
         }
     }
 
     public void restoreBackup(byte[] data, String password) {
+        Path tempDir = null;
         try {
-            Path tempDir = Files.createTempDirectory("oci-worker-restore-");
+            tempDir = Files.createTempDirectory("oci-worker-restore-");
             Path tempFile = tempDir.resolve("restore.zip");
             Files.write(tempFile, data);
 
@@ -141,12 +148,27 @@ public class BackupService {
             }
 
             loginAuditCryptoService.reloadFromDisk();
+            webSshBookmarkCryptoService.reloadFromDisk();
+            webSshBookmarkService.resetCryptoVerification();
+            webSshBookmarkService.requireCryptoReady();
             databaseGuardService.secureLoginAuditAfterRestore();
 
-            deleteDirectory(tempDir);
             log.info("Backup restored successfully");
         } catch (Exception e) {
             throw new OciException("恢复备份失败: " + e.getMessage());
+        } finally {
+            cleanupTempDirectory(tempDir, "恢复");
+        }
+    }
+
+    private void cleanupTempDirectory(Path tempDir, String operation) {
+        if (tempDir == null) {
+            return;
+        }
+        try {
+            deleteDirectory(tempDir);
+        } catch (Exception e) {
+            log.warn("{}临时目录清理失败: {}", operation, e.getMessage());
         }
     }
 
@@ -159,12 +181,12 @@ public class BackupService {
         try (Connection conn = dataSource.getConnection()) {
             for (String table : TABLES) {
                 sb.append("-- Table: ").append(table).append("\n");
-                sb.append("DELETE FROM `").append(table).append("`;\n");
 
                 if (!tableExists(conn, table)) {
                     sb.append("-- WARN: table ").append(table).append(" does not exist, skipped\n\n");
                     continue;
                 }
+                sb.append("DELETE FROM `").append(table).append("`;\n");
 
                 try (Statement stmt = conn.createStatement();
                      ResultSet rs = stmt.executeQuery("SELECT * FROM `" + table + "`")) {
@@ -255,27 +277,182 @@ public class BackupService {
             sb.append("true".equalsIgnoreCase(s) ? "1" : "0");
             return;
         }
-        sb.append('\'')
-                .append(s.replace("\\", "\\\\").replace("'", "\\'"))
-                .append('\'');
+        sb.append('\'');
+        appendEscapedSqlString(sb, s);
+        sb.append('\'');
     }
 
     private void importDatabase(String sql) throws SQLException {
         try (Connection conn = dataSource.getConnection();
              Statement stmt = conn.createStatement()) {
             conn.setAutoCommit(false);
-            for (String chunk : sql.split(";\n")) {
-                // 不能整段用 startsWith("--") 跳过：导出里「-- Table: x」与「DELETE」在同一段时，会把 DELETE 一并丢掉，导致只执行 INSERT → 主键重复
-                String executable = stripSqlComments(chunk);
-                if (executable.isEmpty()) {
+            try {
+                clearMissingBookmarkTables(conn, sql);
+                for (String executable : splitSqlStatements(sql)) {
+                    if (executable.isEmpty()) {
+                        continue;
+                    }
+                    executable = addColumnsToLegacyInsert(conn, executable);
+                    executable = fixLegacyBooleanStringLiterals(executable);
+                    stmt.execute(executable);
+                }
+                conn.commit();
+            } catch (SQLException | RuntimeException e) {
+                try {
+                    conn.rollback();
+                } catch (SQLException rollbackError) {
+                    e.addSuppressed(rollbackError);
+                }
+                throw e;
+            }
+        }
+    }
+
+    /**
+     * 旧备份没有新增书签表时，恢复应代表“功能尚未存在”，而不是保留当前版本的书签。
+     * 只处理本专项新增的两张表，不改变其它历史表的恢复语义。
+     */
+    private static void clearMissingBookmarkTables(Connection conn, String sql) throws SQLException {
+        for (String table : List.of("oci_webssh_connection_bookmark", "oci_webssh_script_bookmark")) {
+            if (tableExists(conn, table) && !containsTableMutation(sql, table)) {
+                try (Statement stmt = conn.createStatement()) {
+                    stmt.executeUpdate("DELETE FROM `" + table + "`");
+                }
+            }
+        }
+    }
+
+    static boolean containsTableMutation(String sql, String table) {
+        String quoted = "(?:`" + Pattern.quote(table) + "`|" + Pattern.quote(table) + ")";
+        Pattern pattern = Pattern.compile("(?is)(?:DELETE\\s+FROM|INSERT\\s+INTO)\\s+"
+                + quoted + "(?=\\s|\\(|;|$)");
+        return pattern.matcher(sql == null ? "" : sql).find();
+    }
+
+    /**
+     * 按 SQL 语句分割，但不会把引号、反引号或注释中的分号当成语句结束。
+     * 备份中的脚本字段可能包含多行 shell 命令，不能再使用简单的 {@code ;\\n} split。
+     */
+    static List<String> splitSqlStatements(String sql) {
+        if (sql == null || sql.isEmpty()) {
+            return List.of();
+        }
+        List<String> statements = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+        boolean singleQuote = false;
+        boolean doubleQuote = false;
+        boolean backtick = false;
+        boolean lineComment = false;
+        boolean blockComment = false;
+
+        for (int i = 0; i < sql.length(); i++) {
+            char ch = sql.charAt(i);
+            char next = i + 1 < sql.length() ? sql.charAt(i + 1) : '\0';
+
+            if (lineComment) {
+                if (ch == '\n' || ch == '\r') {
+                    lineComment = false;
+                    current.append(ch);
+                }
+                continue;
+            }
+            if (blockComment) {
+                if (ch == '*' && next == '/') {
+                    blockComment = false;
+                    i++;
+                }
+                continue;
+            }
+
+            if (!singleQuote && !doubleQuote && !backtick) {
+                if (ch == '#' || (ch == '-' && next == '-'
+                        && (i + 2 >= sql.length() || Character.isWhitespace(sql.charAt(i + 2))))) {
+                    lineComment = true;
+                    if (ch == '-') {
+                        i++;
+                    }
                     continue;
                 }
-                executable = addColumnsToLegacyInsert(conn, executable);
-                executable = fixLegacyBooleanStringLiterals(executable);
-                stmt.execute(executable);
+                if (ch == '/' && next == '*') {
+                    blockComment = true;
+                    i++;
+                    continue;
+                }
+                if (ch == ';') {
+                    String statement = current.toString().trim();
+                    if (!statement.isEmpty()) {
+                        statements.add(statement);
+                    }
+                    current.setLength(0);
+                    continue;
+                }
+                if (ch == '\'') {
+                    singleQuote = true;
+                } else if (ch == '"') {
+                    doubleQuote = true;
+                } else if (ch == '`') {
+                    backtick = true;
+                }
+                current.append(ch);
+                continue;
             }
-            conn.commit();
+
+            current.append(ch);
+            if (ch == '\\' && !backtick && i + 1 < sql.length()) {
+                current.append(sql.charAt(++i));
+                continue;
+            }
+            if (singleQuote && ch == '\'' && next == '\'') {
+                current.append(sql.charAt(++i));
+                continue;
+            }
+            if (doubleQuote && ch == '"' && next == '"') {
+                current.append(sql.charAt(++i));
+                continue;
+            }
+            if (backtick && ch == '`' && next == '`') {
+                current.append(sql.charAt(++i));
+                continue;
+            }
+            if (singleQuote && ch == '\'') {
+                singleQuote = false;
+            } else if (doubleQuote && ch == '"') {
+                doubleQuote = false;
+            } else if (backtick && ch == '`') {
+                backtick = false;
+            }
         }
+        String tail = current.toString().trim();
+        if (!tail.isEmpty()) {
+            statements.add(tail);
+        }
+        return statements;
+    }
+
+    private static void appendEscapedSqlString(StringBuilder sb, String value) {
+        sb.append(escapeSqlString(value));
+    }
+
+    static String escapeSqlString(String value) {
+        if (value == null) {
+            return "";
+        }
+        StringBuilder escaped = new StringBuilder(value.length() + 16);
+        for (int i = 0; i < value.length(); i++) {
+            char ch = value.charAt(i);
+            switch (ch) {
+                case '\\' -> escaped.append("\\\\");
+                case '\'' -> escaped.append("\\'");
+                case '\0' -> escaped.append("\\0");
+                case '\b' -> escaped.append("\\b");
+                case '\n' -> escaped.append("\\n");
+                case '\r' -> escaped.append("\\r");
+                case '\t' -> escaped.append("\\t");
+                case 0x1A -> escaped.append("\\Z");
+                default -> escaped.append(ch);
+            }
+        }
+        return escaped.toString();
     }
 
     /**
@@ -292,22 +469,6 @@ public class BackupService {
                 .replace(", 'false')", ", 0)")
                 .replace("('true',", "(1,")
                 .replace("('false',", "(0,");
-    }
-
-    /** 去掉块内以 -- 开头的注释行，保留 SET/DELETE/INSERT 等可执行语句 */
-    private static String stripSqlComments(String chunk) {
-        StringBuilder out = new StringBuilder();
-        for (String line : chunk.split("\n")) {
-            String t = line.trim();
-            if (t.isEmpty() || t.startsWith("--")) {
-                continue;
-            }
-            if (out.length() > 0) {
-                out.append('\n');
-            }
-            out.append(line.trim());
-        }
-        return out.toString().trim();
     }
 
     private static String buildColumnList(ResultSetMetaData meta) throws SQLException {
