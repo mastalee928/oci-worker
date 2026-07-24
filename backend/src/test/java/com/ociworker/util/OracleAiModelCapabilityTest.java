@@ -100,6 +100,16 @@ class OracleAiModelCapabilityTest {
     }
 
     @Test
+    void identifiesTextOnlyGptOssModelsWithoutMatchingOtherOpenAiNames() {
+        assertThat(OracleAiModelCapability.isGptOssModel("openai.gpt-oss-120b")).isTrue();
+        assertThat(OracleAiModelCapability.isGptOssModel("OPENAI.GPT-OSS-20B")).isTrue();
+        assertThat(OracleAiModelCapability.isGptOssModel("openai.gpt-4o")).isFalse();
+        assertThat(OracleAiModelCapability.isGptOssModel("xai.grok-4.3")).isFalse();
+        assertThat(OracleAiModelCapability.GPT_OSS_IMAGE_UNSUPPORTED_MESSAGE)
+                .isEqualTo("OCIWorker提示：该模型不支持图片，请切换视觉模型");
+    }
+
+    @Test
     void returnsDocumentedContextAndTpmLimitsForKnownOciChatModels() {
         assertThat(OracleAiModelCapability.documentedContextLimit("xai.grok-4.3")).isEqualTo(1_000_000L);
         assertThat(OracleAiModelCapability.documentedTpmLimit("xai.grok-4.3")).isEqualTo(200_000L);

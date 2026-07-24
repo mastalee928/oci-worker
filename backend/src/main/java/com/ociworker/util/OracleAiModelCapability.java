@@ -10,6 +10,10 @@ import java.util.Locale;
  */
 public final class OracleAiModelCapability {
 
+    /** Stable client-facing message for models that are documented as text-only. */
+    public static final String GPT_OSS_IMAGE_UNSUPPORTED_MESSAGE =
+            "OCIWorker提示：该模型不支持图片，请切换视觉模型";
+
     public static final String CHAT = "chat";
     public static final String MULTI_AGENT = "multi_agent";
     public static final String EMBEDDING = "embedding";
@@ -19,6 +23,20 @@ public final class OracleAiModelCapability {
     public static final String PENDING = "pending";
 
     private OracleAiModelCapability() {
+    }
+
+    /**
+     * Returns whether the model belongs to the OCI OpenAI gpt-oss family.
+     *
+     * <p>OCI documents this family as text-only, so image-bearing requests must be
+     * rejected before they reach the upstream model instead of allowing a
+     * misleading text-only answer.</p>
+     */
+    public static boolean isGptOssModel(String model) {
+        if (model == null || model.isBlank()) {
+            return false;
+        }
+        return model.trim().toLowerCase(Locale.ROOT).startsWith("openai.gpt-oss-");
     }
 
     public static String classify(String model) {

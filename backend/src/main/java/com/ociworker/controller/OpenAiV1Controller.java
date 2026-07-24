@@ -55,6 +55,33 @@ public class OpenAiV1Controller {
             "memberId",
             "port_binding_id",
             "portBindingId");
+    private static final Set<String> IMAGE_INPUT_CONTAINER_FIELDS = Set.of(
+            "messages",
+            "message",
+            "input",
+            "content",
+            "contents",
+            "parts",
+            "items",
+            "system",
+            "source",
+            "tool_result",
+            "tool_result_content");
+    private static final Set<String> IMAGE_INPUT_IGNORED_FIELDS = Set.of(
+            "tools",
+            "functions",
+            "tool_choice",
+            "tool_calls",
+            "function_call",
+            "function",
+            "arguments",
+            "parameters",
+            "properties",
+            "input_schema",
+            "json_schema",
+            "schema",
+            "response_format",
+            "metadata");
 
     @Resource
     private OciGenerativeOpenAiService generativeOpenAiService;
@@ -91,6 +118,9 @@ public class OpenAiV1Controller {
             }
             if (isMessagesPath(pathAfterV1) && shouldReadBody(request.getMethod())) {
                 byte[] originalBody = request.getInputStream().readAllBytes();
+                if (rejectUnsupportedImageModel(response, pathAfterV1, originalBody, request.getContentType())) {
+                    return;
+                }
                 String modelHint = extractAnthropicModelFromBody(originalBody, request.getContentType());
                 boolean anthropicStream = isStreamRequest(originalBody, request.getContentType());
                 byte[] chatBody = transformAnthropicMessagesToChatCompletionsJson(originalBody);
@@ -106,8 +136,19 @@ public class OpenAiV1Controller {
             }
             if (isResponsesPath(pathAfterV1) && shouldReadBody(request.getMethod())) {
                 byte[] originalBody = request.getInputStream().readAllBytes();
+                if (rejectUnsupportedImageModel(response, pathAfterV1, originalBody, request.getContentType())) {
+                    return;
+                }
                 byte[] responseBody = transformResponsesInputFilesToTextJson(originalBody);
                 generativeOpenAiService.proxy(u, new CachedBodyRequest(request, responseBody, null), response);
+                return;
+            }
+            if (isChatCompletionsPath(pathAfterV1) && shouldReadBody(request.getMethod())) {
+                byte[] originalBody = request.getInputStream().readAllBytes();
+                if (rejectUnsupportedImageModel(response, pathAfterV1, originalBody, request.getContentType())) {
+                    return;
+                }
+                generativeOpenAiService.proxy(u, new CachedBodyRequest(request, originalBody), response);
                 return;
             }
             generativeOpenAiService.proxy(u, request, response);
@@ -157,7 +198,6 @@ public class OpenAiV1Controller {
         }
         byte[] body = shouldReadBody(request.getMethod()) ? request.getInputStream().readAllBytes() : null;
         String requestedLbAccount = requestedLbAccount(request, body, request.getContentType());
-        body = stripLoadBalanceRoutingFields(body, request.getContentType());
         String requestLogPath = pathAfterV1;
         boolean anthropicMessages = isMessagesPath(pathAfterV1);
         boolean anthropicStream = anthropicMessages && isStreamRequest(body, request.getContentType());
@@ -165,6 +205,10 @@ public class OpenAiV1Controller {
             writeAnthropicCountTokensResponse(response, body, request.getContentType());
             return;
         }
+        if (rejectUnsupportedImageModel(response, pathAfterV1, body, request.getContentType())) {
+            return;
+        }
+        body = stripLoadBalanceRoutingFields(body, request.getContentType());
         if (anthropicMessages) {
             request.setAttribute("ociworker.lb.bridgeType", anthropicBridgeType(body, request.getContentType()));
             body = transformAnthropicMessagesToChatCompletionsJson(body);
@@ -479,6 +523,181 @@ public class OpenAiV1Controller {
         String safe = MAPPER.writeValueAsString(message == null ? "" : message);
         response.getOutputStream().write(
                 String.format("{\"error\":{\"type\":\"oci_error\",\"message\":%s}}", safe).getBytes(StandardCharsets.UTF_8));
+    }
+
+    private boolean rejectUnsupportedImageModel(
+            HttpServletResponse response,
+            String pathAfterV1,
+            byte[] body,
+            String contentType) throws IOException {
+        if (!isChatLikeGenerationPath(pathAfterV1) || isMessagesCountTokensPath(pathAfterV1)) {
+            return false;
+        }
+        JsonNode requestBody = parseJsonBody(body, contentType);
+        if (requestBody == null) {
+            return false;
+        }
+        return rejectUnsupportedImageModel(
+                response,
+                pathAfterV1,
+                extractModelFromJson(requestBody),
+                requestBody);
+    }
+
+    static boolean rejectUnsupportedImageModel(
+            HttpServletResponse response,
+            String pathAfterV1,
+            String model,
+            byte[] body,
+            String contentType) throws IOException {
+        JsonNode requestBody = parseJsonBody(body, contentType);
+        return requestBody != null && rejectUnsupportedImageModel(response, pathAfterV1, model, requestBody);
+    }
+
+    private static boolean rejectUnsupportedImageModel(
+            HttpServletResponse response,
+            String pathAfterV1,
+            String model,
+            JsonNode requestBody) throws IOException {
+        if (!OracleAiModelCapability.isGptOssModel(model) || !containsImageInput(requestBody, false)) {
+            return false;
+        }
+        String message = OracleAiModelCapability.GPT_OSS_IMAGE_UNSUPPORTED_MESSAGE;
+        if (isMessagesPath(pathAfterV1)) {
+            anthropicError(response, 400, "invalid_request_error", message);
+        } else {
+            openAiError(response, 400, "invalid_request_error", message, "unsupported_image_model");
+        }
+        return true;
+    }
+
+    static boolean isUnsupportedImageModelRequest(String model, byte[] body, String contentType) {
+        if (!OracleAiModelCapability.isGptOssModel(model)) {
+            return false;
+        }
+        JsonNode requestBody = parseJsonBody(body, contentType);
+        return requestBody != null && containsImageInput(requestBody, false);
+    }
+
+    static boolean containsImageInput(byte[] body, String contentType) {
+        JsonNode requestBody = parseJsonBody(body, contentType);
+        return requestBody != null && containsImageInput(requestBody, false);
+    }
+
+    private static JsonNode parseJsonBody(byte[] body, String contentType) {
+        if (!isJsonContent(contentType) || body == null || body.length == 0) {
+            return null;
+        }
+        try {
+            return MAPPER.readTree(body);
+        } catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private static boolean containsImageInput(JsonNode node, boolean contentContext) {
+        if (node == null || node.isNull() || node.isMissingNode()) {
+            return false;
+        }
+        if (node.isArray()) {
+            for (JsonNode child : node) {
+                if (containsImageInput(child, contentContext)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+        if (!(node instanceof ObjectNode object)) {
+            return false;
+        }
+
+        String type = firstNonBlank(text(object, "type"), text(object, "content_type"));
+        if (contentContext && isImageContentType(type)) {
+            return true;
+        }
+        if (contentContext && hasImageField(object)) {
+            return true;
+        }
+        if (contentContext && hasImageMediaType(object)) {
+            return true;
+        }
+        if (contentContext && hasImageSource(object)) {
+            return true;
+        }
+
+        boolean toolInvocation = isToolInvocationType(type);
+        var fields = object.fields();
+        while (fields.hasNext()) {
+            Map.Entry<String, JsonNode> entry = fields.next();
+            String field = entry.getKey() == null ? "" : entry.getKey().toLowerCase(java.util.Locale.ROOT);
+            if (IMAGE_INPUT_IGNORED_FIELDS.contains(field)
+                    || (toolInvocation && ("input".equals(field) || "arguments".equals(field)))) {
+                continue;
+            }
+            boolean childContentContext = contentContext || IMAGE_INPUT_CONTAINER_FIELDS.contains(field);
+            if (childContentContext && containsImageInput(entry.getValue(), childContentContext)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private static boolean isImageContentType(String type) {
+        if (type == null || type.isBlank()) {
+            return false;
+        }
+        String normalized = type.trim().toLowerCase(java.util.Locale.ROOT);
+        return normalized.equals("image")
+                || normalized.equals("image_url")
+                || normalized.equals("input_image")
+                || normalized.equals("input_image_url")
+                || normalized.equals("image_content")
+                || normalized.startsWith("image/");
+    }
+
+    private static boolean isToolInvocationType(String type) {
+        if (type == null || type.isBlank()) {
+            return false;
+        }
+        String normalized = type.trim().toLowerCase(java.util.Locale.ROOT);
+        return normalized.equals("tool_use")
+                || normalized.equals("tool_call")
+                || normalized.equals("function_call")
+                || normalized.equals("function");
+    }
+
+    private static boolean hasImageField(ObjectNode object) {
+        return hasNonNullField(object, "image_url")
+                || hasNonNullField(object, "imageUrl")
+                || hasNonNullField(object, "input_image")
+                || hasNonNullField(object, "image");
+    }
+
+    private static boolean hasNonNullField(ObjectNode object, String field) {
+        JsonNode value = object == null ? null : object.get(field);
+        return value != null && !value.isNull() && !value.isMissingNode();
+    }
+
+    private static boolean hasImageSource(ObjectNode object) {
+        JsonNode source = object == null ? null : object.get("source");
+        if (source instanceof ObjectNode sourceObject) {
+            return hasImageMediaType(sourceObject);
+        }
+        return source != null
+                && source.isTextual()
+                && source.asText().trim().toLowerCase(java.util.Locale.ROOT).startsWith("data:image/");
+    }
+
+    private static boolean hasImageMediaType(ObjectNode object) {
+        String mediaType = firstNonBlank(
+                text(object, "media_type"),
+                text(object, "mediaType"),
+                text(object, "mime_type"),
+                text(object, "mimeType"),
+                text(object, "content_type"),
+                text(object, "contentType"));
+        return mediaType != null
+                && mediaType.trim().toLowerCase(java.util.Locale.ROOT).startsWith("image/");
     }
 
     private static void openAiError(HttpServletResponse response, int status, String type, String message, String code) throws IOException {
@@ -1525,25 +1744,18 @@ public class OpenAiV1Controller {
     }
 
     private String extractModelFromBody(byte[] body, String contentType) {
-        if (body == null || body.length == 0) {
+        return extractModelFromJson(parseJsonBody(body, contentType));
+    }
+
+    private static String extractModelFromJson(JsonNode root) {
+        if (!(root instanceof ObjectNode object)) {
             return null;
         }
-        if (contentType != null && !contentType.isBlank() && !contentType.toLowerCase().contains("json")) {
-            return null;
-        }
-        try {
-            JsonNode root = MAPPER.readTree(body);
-            if (root instanceof ObjectNode object) {
-                return firstNonBlank(
-                        textOnly(object, "model"),
-                        textOnly(object, "modelId"),
-                        textOnly(object, "model_id"),
-                        root.path("servingMode").isObject() ? textOnly(root.path("servingMode"), "modelId") : null);
-            }
-            return null;
-        } catch (Exception ignored) {
-            return null;
-        }
+        return firstNonBlank(
+                textOnly(object, "model"),
+                textOnly(object, "modelId"),
+                textOnly(object, "model_id"),
+                root.path("servingMode").isObject() ? textOnly(root.path("servingMode"), "modelId") : null);
     }
 
     private static String extractAnthropicModelFromBody(byte[] body, String contentType) {

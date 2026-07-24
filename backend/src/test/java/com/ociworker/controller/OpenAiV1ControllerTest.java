@@ -2,8 +2,16 @@ package com.ociworker.controller;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.ociworker.config.OpenAiApiConstants;
+import com.ociworker.mapper.OciUserMapper;
+import com.ociworker.model.entity.OciUser;
+import com.ociworker.service.OciGenerativeOpenAiService;
+import com.ociworker.service.OciOpenaiLoadBalanceService;
+import jakarta.servlet.http.HttpServletRequest;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockHttpServletRequest;
+import org.springframework.mock.web.MockHttpServletResponse;
+import org.springframework.test.util.ReflectionTestUtils;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -20,6 +28,12 @@ import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.same;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.when;
 
 class OpenAiV1ControllerTest {
 
@@ -146,6 +160,195 @@ class OpenAiV1ControllerTest {
         assertThat(content.get(1).path("type").asText()).isEqualTo("image_url");
         assertThat(content.get(1).path("image_url").path("url").asText())
                 .isEqualTo("data:image/png;base64,abc");
+    }
+
+    @Test
+    void rejectsGptOssAnthropicImageWithExplicitClientMessage() throws Exception {
+        String payload = """
+                {
+                  "model":"openai.gpt-oss-120b",
+                  "messages":[{"role":"user","content":[
+                    {"type":"text","text":"inspect this"},
+                    {"type":"image","source":{"type":"base64","media_type":"image/png","data":"abc"}}
+                  ]}]}
+                }
+                """;
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        assertThat(OpenAiV1Controller.rejectUnsupportedImageModel(
+                response,
+                "/messages",
+                "openai.gpt-oss-120b",
+                payload.getBytes(StandardCharsets.UTF_8),
+                "application/json")).isTrue();
+
+        JsonNode root = MAPPER.readTree(response.getContentAsByteArray());
+        assertThat(response.getStatus()).isEqualTo(400);
+        assertThat(root.path("error").path("type").asText()).isEqualTo("invalid_request_error");
+        assertThat(root.path("error").path("message").asText())
+                .isEqualTo("OCIWorker提示：该模型不支持图片，请切换视觉模型");
+    }
+
+    @Test
+    void rejectsGptOssOpenAiImageWithOpenAiErrorCode() throws Exception {
+        String payload = """
+                {
+                  "model":"openai.gpt-oss-120b",
+                  "messages":[{"role":"user","content":[
+                    {"type":"text","text":"inspect this"},
+                    {"type":"image_url","image_url":{"url":"data:image/png;base64,abc"}}
+                  ]}]}
+                }
+                """;
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        assertThat(OpenAiV1Controller.rejectUnsupportedImageModel(
+                response,
+                "/chat/completions",
+                "openai.gpt-oss-120b",
+                payload.getBytes(StandardCharsets.UTF_8),
+                "application/json")).isTrue();
+
+        JsonNode root = MAPPER.readTree(response.getContentAsByteArray());
+        assertThat(response.getStatus()).isEqualTo(400);
+        assertThat(root.path("error").path("code").asText()).isEqualTo("unsupported_image_model");
+        assertThat(root.path("error").path("message").asText())
+                .isEqualTo("OCIWorker提示：该模型不支持图片，请切换视觉模型");
+    }
+
+    @Test
+    void directGptOssImageRequestStopsBeforeUpstreamProxy() throws Exception {
+        OpenAiV1Controller controller = new OpenAiV1Controller();
+        OciGenerativeOpenAiService proxyService = mock(OciGenerativeOpenAiService.class);
+        OciUserMapper userMapper = mock(OciUserMapper.class);
+        OciUser user = new OciUser();
+        user.setId("tenant-a");
+        when(userMapper.selectById("tenant-a")).thenReturn(user);
+        ReflectionTestUtils.setField(controller, "generativeOpenAiService", proxyService);
+        ReflectionTestUtils.setField(controller, "ociUserMapper", userMapper);
+
+        MockHttpServletRequest request = jsonRequest("/v1/chat/completions", """
+                {
+                  "model":"openai.gpt-oss-120b",
+                  "messages":[{"role":"user","content":[
+                    {"type":"image_url","image_url":{"url":"data:image/png;base64,abc"}}
+                  ]}]
+                }
+                """);
+        request.setAttribute(OpenAiApiConstants.ATTR_TENANT_USER_ID, "tenant-a");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        controller.v1Proxy(request, response);
+
+        assertUnsupportedImageResponse(response);
+        verifyNoInteractions(proxyService);
+    }
+
+    @Test
+    void loadBalancedGptOssImageRequestStopsBeforeMemberSelection() throws Exception {
+        OpenAiV1Controller controller = new OpenAiV1Controller();
+        OciGenerativeOpenAiService proxyService = mock(OciGenerativeOpenAiService.class);
+        OciOpenaiLoadBalanceService loadBalanceService = mock(OciOpenaiLoadBalanceService.class);
+        OciUserMapper userMapper = mock(OciUserMapper.class);
+        ReflectionTestUtils.setField(controller, "generativeOpenAiService", proxyService);
+        ReflectionTestUtils.setField(controller, "loadBalanceService", loadBalanceService);
+        ReflectionTestUtils.setField(controller, "ociUserMapper", userMapper);
+
+        MockHttpServletRequest request = jsonRequest("/v1/responses", """
+                {
+                  "model":"openai.gpt-oss-120b",
+                  "input":[{"role":"user","content":[
+                    {"type":"input_image","image_url":"data:image/png;base64,abc"}
+                  ]}]
+                }
+                """);
+        request.setAttribute(OpenAiApiConstants.ATTR_LB_REQUEST, Boolean.TRUE);
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        controller.v1Proxy(request, response);
+
+        assertUnsupportedImageResponse(response);
+        verifyNoInteractions(loadBalanceService, proxyService, userMapper);
+    }
+
+    @Test
+    void gptOssTextRequestRemainsUsableAndKeepsOriginalBody() throws Exception {
+        OpenAiV1Controller controller = new OpenAiV1Controller();
+        OciGenerativeOpenAiService proxyService = mock(OciGenerativeOpenAiService.class);
+        OciUserMapper userMapper = mock(OciUserMapper.class);
+        OciUser user = new OciUser();
+        user.setId("tenant-a");
+        when(userMapper.selectById("tenant-a")).thenReturn(user);
+        ReflectionTestUtils.setField(controller, "generativeOpenAiService", proxyService);
+        ReflectionTestUtils.setField(controller, "ociUserMapper", userMapper);
+
+        String payload = """
+                {
+                  "model":"openai.gpt-oss-120b",
+                  "messages":[{"role":"user","content":"hello"}],
+                  "stream":true
+                }
+                """;
+        MockHttpServletRequest request = jsonRequest("/v1/chat/completions", payload);
+        request.setAttribute(OpenAiApiConstants.ATTR_TENANT_USER_ID, "tenant-a");
+        MockHttpServletResponse response = new MockHttpServletResponse();
+
+        controller.v1Proxy(request, response);
+
+        var requestCaptor = org.mockito.ArgumentCaptor.forClass(HttpServletRequest.class);
+        verify(proxyService).proxy(eq(user), requestCaptor.capture(), same(response));
+        assertThat(requestCaptor.getValue().getInputStream().readAllBytes())
+                .isEqualTo(payload.getBytes(StandardCharsets.UTF_8));
+        assertThat(response.getStatus()).isEqualTo(200);
+    }
+
+    @Test
+    void detectsResponsesInputImageButIgnoresToolSchemaImageProperty() throws Exception {
+        String imagePayload = """
+                {
+                  "model":"openai.gpt-oss-120b",
+                  "input":[{"role":"user","content":[
+                    {"type":"input_image","image_url":"data:image/png;base64,abc"}
+                  ]}]}
+                }
+                """;
+        String toolOnlyPayload = """
+                {
+                  "model":"openai.gpt-oss-120b",
+                  "messages":[{"role":"user","content":"write a file"}],
+                  "tools":[{"type":"function","function":{"name":"write_file","parameters":{
+                    "type":"object","properties":{"image":{"type":"string"}}
+                  }}}]
+                }
+                """;
+        String toolHistoryPayload = """
+                {
+                  "model":"openai.gpt-oss-120b",
+                  "messages":[
+                    {"role":"assistant","content":[{
+                      "type":"tool_use","id":"toolu_a","name":"deploy",
+                      "input":{"image":"ubuntu:latest"}
+                    }]},
+                    {"role":"user","content":[{
+                      "type":"tool_result","tool_use_id":"toolu_a","content":"ok"
+                    }]}
+                  ]
+                }
+                """;
+
+        assertThat(OpenAiV1Controller.containsImageInput(
+                imagePayload.getBytes(StandardCharsets.UTF_8),
+                "application/json")).isTrue();
+        assertThat(OpenAiV1Controller.containsImageInput(
+                toolOnlyPayload.getBytes(StandardCharsets.UTF_8),
+                "application/json")).isFalse();
+        assertThat(OpenAiV1Controller.containsImageInput(
+                toolHistoryPayload.getBytes(StandardCharsets.UTF_8),
+                "application/json")).isFalse();
+        assertThat(OpenAiV1Controller.isUnsupportedImageModelRequest(
+                "openai.gpt-oss-120b",
+                toolOnlyPayload.getBytes(StandardCharsets.UTF_8),
+                "application/json")).isFalse();
     }
 
     @Test
@@ -516,6 +719,21 @@ class OpenAiV1ControllerTest {
         JsonNode root = OpenAiV1Controller.chatCompletionToAnthropicMessage(payload, "xai.grok-4.3");
 
         assertThat(root.path("stop_reason").asText()).isEqualTo("tool_use");
+    }
+
+    private static MockHttpServletRequest jsonRequest(String uri, String payload) {
+        MockHttpServletRequest request = new MockHttpServletRequest("POST", uri);
+        request.setContentType("application/json");
+        request.setContent(payload.getBytes(StandardCharsets.UTF_8));
+        return request;
+    }
+
+    private static void assertUnsupportedImageResponse(MockHttpServletResponse response) throws Exception {
+        JsonNode root = MAPPER.readTree(response.getContentAsByteArray());
+        assertThat(response.getStatus()).isEqualTo(400);
+        assertThat(root.path("error").path("code").asText()).isEqualTo("unsupported_image_model");
+        assertThat(root.path("error").path("message").asText())
+                .isEqualTo("OCIWorker提示：该模型不支持图片，请切换视觉模型");
     }
 
     private static String base64(String value) {
