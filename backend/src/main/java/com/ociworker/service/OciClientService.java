@@ -7,7 +7,6 @@ import com.oracle.bmc.Region;
 import com.oracle.bmc.auth.SimpleAuthenticationDetailsProvider;
 import com.oracle.bmc.core.BlockstorageClient;
 import com.oracle.bmc.core.ComputeClient;
-import com.oracle.bmc.core.ComputeWaiters;
 import com.oracle.bmc.core.VirtualNetworkClient;
 import com.oracle.bmc.core.model.*;
 import com.oracle.bmc.core.requests.*;
@@ -74,6 +73,14 @@ public class OciClientService implements Closeable {
 
     private static final String CIDR_BLOCK = "10.0.0.0/16";
     private static final String SUBNET_CIDR = "10.0.0.0/24";
+    /**
+     * OCI may return an instance from LaunchInstance before it reaches RUNNING.  The generated
+     * waiter can keep polling a TERMINATED instance for a long time, which used to leave a boot
+     * task stuck at attempt 1 forever.  Keep this bounded so the normal task loop can retry with
+     * the same idempotency token.
+     */
+    private static final long LAUNCH_STATE_WAIT_TIMEOUT_MILLIS = 120_000L;
+    private static final long LAUNCH_STATE_POLL_INTERVAL_MILLIS = 2_000L;
     private static final Set<Instance.LifecycleState> VISIBLE_INSTANCE_STATES = Collections.unmodifiableSet(EnumSet.of(
             Instance.LifecycleState.Running,
             Instance.LifecycleState.Stopped,
@@ -1209,20 +1216,73 @@ public class OciClientService implements Closeable {
     }
 
     private Instance launchInstance(LaunchInstanceDetails details) throws Exception {
-        ComputeWaiters waiters = computeClient.newWaiters(workRequestClient);
-        LaunchInstanceResponse launchResponse = waiters
-                .forLaunchInstance(LaunchInstanceRequest.builder()
+        LaunchInstanceResponse launchResponse = computeClient.launchInstance(
+                LaunchInstanceRequest.builder()
                         .launchInstanceDetails(details)
                         .opcRetryToken(resolveLaunchRetryToken(user, details))
-                        .build())
-                .execute();
+                        .retryConfiguration(RetryConfiguration.NO_RETRY_CONFIGURATION)
+                        .build());
+        Instance launched = launchResponse.getInstance();
+        if (launched == null || StrUtil.isBlank(launched.getId())) {
+            throw new OciException("OCI 创建请求未返回实例 ID，将在下一轮重试");
+        }
+        return waitForInstanceRunning(launched.getId());
+    }
 
-        return waiters.forInstance(
-                GetInstanceRequest.builder()
-                        .instanceId(launchResponse.getInstance().getId())
-                        .build(),
-                Instance.LifecycleState.Running
-        ).execute().getInstance();
+    private Instance waitForInstanceRunning(String instanceId) throws Exception {
+        long deadline = System.nanoTime()
+                + java.util.concurrent.TimeUnit.MILLISECONDS.toNanos(LAUNCH_STATE_WAIT_TIMEOUT_MILLIS);
+        Instance last = null;
+        while (!Thread.currentThread().isInterrupted()) {
+            try {
+                last = computeClient.getInstance(
+                        GetInstanceRequest.builder()
+                                .instanceId(instanceId)
+                                .retryConfiguration(RetryConfiguration.NO_RETRY_CONFIGURATION)
+                                .build())
+                        .getInstance();
+            } catch (com.oracle.bmc.model.BmcException e) {
+                // LaunchInstance and GetInstance are eventually consistent.  A short-lived 404
+                // is retryable; other OCI errors must go through the existing error classifier.
+                if (e.getStatusCode() != 404) {
+                    throw e;
+                }
+            }
+
+            if (last != null) {
+                Instance.LifecycleState state = last.getLifecycleState();
+                if (state == Instance.LifecycleState.Running) {
+                    return last;
+                }
+                if (isTerminalLaunchState(state)) {
+                    throw new OciException("OCI 实例在等待启动时进入终止状态：" + state
+                            + "（实例未计入成功，将按幂等令牌重试）");
+                }
+            }
+
+            long remaining = deadline - System.nanoTime();
+            if (remaining <= 0) {
+                String state = last == null || last.getLifecycleState() == null
+                        ? "未知" : last.getLifecycleState().getValue();
+                throw new OciException("等待 OCI 实例进入 RUNNING 超时（当前状态：" + state
+                        + "，将按幂等令牌重试）");
+            }
+            long sleepMillis = Math.min(LAUNCH_STATE_POLL_INTERVAL_MILLIS,
+                    Math.max(1L, java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(remaining)));
+            try {
+                Thread.sleep(sleepMillis);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw e;
+            }
+        }
+        throw new CancellationException("等待 OCI 实例状态时任务被中断");
+    }
+
+    static boolean isTerminalLaunchState(Instance.LifecycleState state) {
+        return state == Instance.LifecycleState.Terminating
+                || state == Instance.LifecycleState.Terminated
+                || state == Instance.LifecycleState.Stopped;
     }
 
     static String resolveLaunchRetryToken(SysUserDTO user, LaunchInstanceDetails details) {

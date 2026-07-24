@@ -106,6 +106,16 @@ class OciClientServiceTest {
     }
 
     @Test
+    void treatsTerminalLaunchStatesAsRetryableFailures() {
+        assertThat(OciClientService.isTerminalLaunchState(Instance.LifecycleState.Terminating)).isTrue();
+        assertThat(OciClientService.isTerminalLaunchState(Instance.LifecycleState.Terminated)).isTrue();
+        assertThat(OciClientService.isTerminalLaunchState(Instance.LifecycleState.Stopped)).isTrue();
+        assertThat(OciClientService.isTerminalLaunchState(Instance.LifecycleState.Provisioning)).isFalse();
+        assertThat(OciClientService.isTerminalLaunchState(Instance.LifecycleState.Starting)).isFalse();
+        assertThat(OciClientService.isTerminalLaunchState(Instance.LifecycleState.Running)).isFalse();
+    }
+
+    @Test
     void separatesRateLimitAndGenericServerErrorFromHostCapacity() {
         BmcException rateLimited = new BmcException(429, "TooManyRequests", "slow down", "opc");
         BmcException genericServerError = new BmcException(500, "InternalError", "unexpected failure", "opc");
