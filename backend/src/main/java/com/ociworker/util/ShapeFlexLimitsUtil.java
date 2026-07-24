@@ -17,6 +17,7 @@ public final class ShapeFlexLimitsUtil {
 
     public record FlexLimits(float defaultOcpus, float defaultMemoryGb, float maxOcpus, float maxMemoryGb) {}
 
+    private static final FlexLimits E2_MICRO_LIMITS = new FlexLimits(1, 1, 1, 1);
     private static final Map<String, FlexLimits> SPECS = buildSpecs();
 
     private ShapeFlexLimitsUtil() {}
@@ -57,8 +58,8 @@ public final class ShapeFlexLimitsUtil {
         if ("ARM".equalsIgnoreCase(arch)) {
             return SPECS.get(ARM_TASK_SHAPE.toUpperCase());
         }
-        if ("AMD".equalsIgnoreCase(arch)) {
-            return new FlexLimits(1, 1, 1, 1);
+        if ("AMD".equalsIgnoreCase(arch) || AMD_TASK_SHAPE.equalsIgnoreCase(arch)) {
+            return E2_MICRO_LIMITS;
         }
         return forShape(arch);
     }

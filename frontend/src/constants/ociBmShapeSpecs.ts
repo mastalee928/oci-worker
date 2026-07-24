@@ -205,6 +205,7 @@ export function resolveShapeEditFlexLimits(
 
 /** 固定规格 VM（非 Flex），OCPU/内存不可改 */
 export const OCI_FIXED_VM_SHAPE_SPECS: Record<string, { ocpus: number; memory: number }> = {
+  'VM.Standard.E2.1.Micro': { ocpus: 1, memory: 1 },
   'VM.Standard.E2.1': { ocpus: 1, memory: 8 },
   'VM.Standard.E2.2': { ocpus: 2, memory: 16 },
   'VM.Standard.E2.4': { ocpus: 4, memory: 32 },
