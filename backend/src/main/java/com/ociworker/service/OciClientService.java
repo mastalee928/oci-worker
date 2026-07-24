@@ -75,6 +75,7 @@ public class OciClientService implements Closeable {
 
     private static final String CIDR_BLOCK = "10.0.0.0/16";
     private static final String SUBNET_CIDR = "10.0.0.0/24";
+    private static final int AUTO_SUBNET_PREFIX_LENGTH = 24;
     /**
      * OCI may return an instance from LaunchInstance before it reaches RUNNING.  The generated
      * waiter can keep polling a TERMINATED instance for a long time, which used to leave a boot
@@ -521,19 +522,24 @@ public class OciClientService implements Closeable {
 
     public Subnet createSubnet(String availabilityDomain, String cidrBlock, Vcn vcn) {
         try {
+            CreateSubnetDetails.Builder details = CreateSubnetDetails.builder()
+                    .compartmentId(compartmentId)
+                    .vcnId(vcn.getId())
+                    .displayName("oci-worker-subnet")
+                    .ipv4CidrBlocks(List.of(cidrBlock));
+            // OCI: omit availabilityDomain to create a regional subnet. Regional subnets
+            // can host instances in every AD and avoid the AD/subnet mismatch seen in launch.
+            if (StrUtil.isNotBlank(availabilityDomain)) {
+                details.availabilityDomain(availabilityDomain.trim());
+            }
             CreateSubnetResponse response = virtualNetworkClient.createSubnet(
                     CreateSubnetRequest.builder()
-                            .createSubnetDetails(CreateSubnetDetails.builder()
-                                    .compartmentId(compartmentId)
-                                    .vcnId(vcn.getId())
-                                    .displayName("oci-worker-subnet")
-                                    .cidrBlock(cidrBlock)
-                                    .availabilityDomain(availabilityDomain)
-                                    .build())
+                            .createSubnetDetails(details.build())
                             .build());
             return response.getSubnet();
         } catch (Exception e) {
-            log.error("Failed to create subnet: {}", e.getMessage());
+            log.error("Failed to create subnet: availabilityDomain={}, cidr={}, error={}",
+                    availabilityDomain, cidrBlock, e.getMessage());
             return null;
         }
     }
@@ -1142,7 +1148,8 @@ public class OciClientService implements Closeable {
             Vcn vcn = createVcn(CIDR_BLOCK);
             InternetGateway igw = createInternetGateway(vcn);
             addInternetGatewayToDefaultRouteTable(vcn, igw);
-            return createSubnet(availabilityDomain, SUBNET_CIDR, vcn);
+            // A newly created VCN has no conflicting subnet, so use a regional subnet.
+            return createSubnet(null, SUBNET_CIDR, vcn);
         }
 
         for (Vcn vcn : vcnList) {
@@ -1158,16 +1165,211 @@ public class OciClientService implements Closeable {
             }
 
             List<Subnet> subnets = listSubnets(vcn.getId());
-            if (CollectionUtil.isEmpty(subnets)) {
-                return createSubnet(availabilityDomain, SUBNET_CIDR, vcn);
+            boolean requirePublicIp = user.getAssignPublicIp() == null
+                    || Boolean.TRUE.equals(user.getAssignPublicIp());
+            Subnet selected = selectSubnetForAvailabilityDomain(
+                    subnets, availabilityDomain, requirePublicIp);
+            if (selected != null) {
+                log.debug("【开机任务】用户:[{}],请求 AD:[{}] - 使用子网:[{}],子网 AD:[{}]",
+                        user.getUsername(), availabilityDomain, selected.getId(), selected.getAvailabilityDomain());
+                return selected;
             }
+
+            String cidr = nextAvailableSubnetCidr(vcn, subnets);
+            if (StrUtil.isBlank(cidr)) {
+                log.warn("【开机任务】用户:[{}], VCN:[{}] 没有可分配的不重叠 IPv4 子网，跳过该 VCN",
+                        user.getUsername(), vcn.getId());
+                continue;
+            }
+
+            // Create a regional subnet rather than guessing an AD-specific CIDR. This is
+            // recommended by OCI and lets the same subnet serve the requested AD safely.
+            Subnet created = createSubnet(null, cidr, vcn);
+            if (created != null) {
+                log.info("【开机任务】用户:[{}], VCN:[{}] - 已创建区域性子网:[{}], CIDR:[{}]，供请求 AD:[{}] 使用",
+                        user.getUsername(), vcn.getId(), created.getId(), cidr, availabilityDomain);
+                return created;
+            }
+
+            // Another task may have created a subnet between list and create. Re-read once
+            // before reporting no usable network, so a harmless race does not cause a retry.
+            List<Subnet> refreshed = listSubnets(vcn.getId());
+            selected = selectSubnetForAvailabilityDomain(
+                    refreshed, availabilityDomain, requirePublicIp);
+            if (selected != null) {
+                log.debug("【开机任务】用户:[{}],请求 AD:[{}] - 创建竞争后复用子网:[{}]",
+                        user.getUsername(), availabilityDomain, selected.getId());
+                return selected;
+            }
+        }
+        return null;
+    }
+
+    /**
+     * Select an internet-capable subnet that can host an instance in the requested AD.
+     * An AD-specific subnet must match exactly; a regional subnet (null AD) is valid for all ADs.
+     * Prefer an exact AD match so existing networks keep their original placement behavior.
+     */
+    static Subnet selectSubnetForAvailabilityDomain(List<Subnet> subnets, String availabilityDomain) {
+        return selectSubnetForAvailabilityDomain(subnets, availabilityDomain, false);
+    }
+
+    private static Subnet selectSubnetForAvailabilityDomain(List<Subnet> subnets,
+                                                              String availabilityDomain,
+                                                              boolean requirePublicIp) {
+        if (CollectionUtil.isEmpty(subnets)) {
+            return null;
+        }
+        String requestedAd = StrUtil.trimToNull(availabilityDomain);
+        Subnet regional = null;
+        for (Subnet subnet : subnets) {
+            if (!isUsableAutoSubnet(subnet, requirePublicIp)) {
+                continue;
+            }
+            String subnetAd = StrUtil.trimToNull(subnet.getAvailabilityDomain());
+            if (requestedAd != null && requestedAd.equals(subnetAd)) {
+                return subnet;
+            }
+            if (subnetAd == null && regional == null) {
+                regional = subnet;
+            }
+        }
+        return regional;
+    }
+
+    private static boolean isUsableAutoSubnet(Subnet subnet, boolean requirePublicIp) {
+        if (subnet == null || Boolean.TRUE.equals(subnet.getProhibitInternetIngress())) {
+            return false;
+        }
+        return !requirePublicIp || !Boolean.TRUE.equals(subnet.getProhibitPublicIpOnVnic());
+    }
+
+    /**
+     * Find the first free /24 (or the VCN's own prefix when it is narrower than /24) inside
+     * the VCN. OCI rejects overlapping subnet CIDRs, so never reuse the old fixed CIDR blindly.
+     */
+    static String nextAvailableSubnetCidr(Vcn vcn, List<Subnet> subnets) {
+        if (vcn == null) {
+            return null;
+        }
+        List<String> vcnCidrs = new ArrayList<>();
+        if (vcn.getCidrBlocks() != null) {
+            vcnCidrs.addAll(vcn.getCidrBlocks());
+        }
+        if (StrUtil.isNotBlank(vcn.getCidrBlock())) {
+            vcnCidrs.add(vcn.getCidrBlock());
+        }
+        if (vcnCidrs.isEmpty()) {
+            return null;
+        }
+        List<String> occupied = new ArrayList<>();
+        if (subnets != null) {
             for (Subnet subnet : subnets) {
-                if (!subnet.getProhibitInternetIngress()) {
-                    return subnet;
+                if (subnet == null) {
+                    continue;
+                }
+                if (subnet.getIpv4CidrBlocks() != null) {
+                    occupied.addAll(subnet.getIpv4CidrBlocks());
+                }
+                if (StrUtil.isNotBlank(subnet.getCidrBlock())) {
+                    occupied.add(subnet.getCidrBlock());
+                }
+            }
+        }
+        return nextAvailableSubnetCidr(vcnCidrs, occupied);
+    }
+
+    static String nextAvailableSubnetCidr(String vcnCidr, Collection<String> occupiedCidrs) {
+        if (StrUtil.isBlank(vcnCidr)) {
+            return null;
+        }
+        return nextAvailableSubnetCidr(List.of(vcnCidr), occupiedCidrs);
+    }
+
+    private static String nextAvailableSubnetCidr(Collection<String> vcnCidrs,
+                                                  Collection<String> occupiedCidrs) {
+        List<Ipv4Cidr> vcnRanges = new ArrayList<>();
+        if (vcnCidrs != null) {
+            for (String vcnCidr : vcnCidrs) {
+                parseIpv4Cidr(vcnCidr).ifPresent(vcnRanges::add);
+            }
+        }
+        if (vcnRanges.isEmpty()) {
+            return null;
+        }
+
+        List<Ipv4Cidr> occupied = new ArrayList<>();
+        if (occupiedCidrs != null) {
+            for (String occupiedCidr : occupiedCidrs) {
+                parseIpv4Cidr(occupiedCidr).ifPresent(occupied::add);
+            }
+        }
+
+        for (Ipv4Cidr vcn : vcnRanges) {
+            int subnetPrefix = Math.max(AUTO_SUBNET_PREFIX_LENGTH, vcn.prefix());
+            // OCI VCN/subnet IPv4 prefixes are at most /30 for a usable subnet.
+            if (subnetPrefix > 30) {
+                continue;
+            }
+            long blockSize = 1L << (32 - subnetPrefix);
+            long blockCount = 1L << (subnetPrefix - vcn.prefix());
+            for (long index = 0; index < blockCount; index++) {
+                long network = vcn.network() + index * blockSize;
+                Ipv4Cidr candidate = new Ipv4Cidr(network, network + blockSize - 1, subnetPrefix);
+                boolean overlaps = occupied.stream().anyMatch(candidate::overlaps);
+                if (!overlaps) {
+                    return formatIpv4(network) + "/" + subnetPrefix;
                 }
             }
         }
         return null;
+    }
+
+    private static Optional<Ipv4Cidr> parseIpv4Cidr(String raw) {
+        if (StrUtil.isBlank(raw)) {
+            return Optional.empty();
+        }
+        String[] parts = raw.trim().split("/", -1);
+        if (parts.length != 2) {
+            return Optional.empty();
+        }
+        try {
+            int prefix = Integer.parseInt(parts[1]);
+            if (prefix < 0 || prefix > 32) {
+                return Optional.empty();
+            }
+            String[] octets = parts[0].split("\\.", -1);
+            if (octets.length != 4) {
+                return Optional.empty();
+            }
+            long address = 0;
+            for (String octet : octets) {
+                int value = Integer.parseInt(octet);
+                if (value < 0 || value > 255) {
+                    return Optional.empty();
+                }
+                address = (address << 8) | value;
+            }
+            long mask = prefix == 0 ? 0L : (0xFFFFFFFFL << (32 - prefix)) & 0xFFFFFFFFL;
+            long network = address & mask;
+            long size = 1L << (32 - prefix);
+            return Optional.of(new Ipv4Cidr(network, network + size - 1, prefix));
+        } catch (NumberFormatException e) {
+            return Optional.empty();
+        }
+    }
+
+    private static String formatIpv4(long address) {
+        return ((address >>> 24) & 0xFF) + "."
+                + ((address >>> 16) & 0xFF) + "."
+                + ((address >>> 8) & 0xFF) + "."
+                + (address & 0xFF);
+    }
+
+    private record Ipv4Cidr(long network, long end, int prefix) {
+        private boolean overlaps(Ipv4Cidr other) {
+            return network <= other.end && other.network <= end;
+        }
     }
 
     static String resolveLaunchDisplayName(SysUserDTO user) {

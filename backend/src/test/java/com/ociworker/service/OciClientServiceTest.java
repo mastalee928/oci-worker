@@ -6,9 +6,13 @@ import com.oracle.bmc.core.model.Instance;
 import com.oracle.bmc.core.model.InstanceSourceViaImageDetails;
 import com.oracle.bmc.core.model.LaunchInstanceDetails;
 import com.oracle.bmc.core.model.LaunchInstanceShapeConfigDetails;
+import com.oracle.bmc.core.model.Subnet;
+import com.oracle.bmc.core.model.Vcn;
 import com.oracle.bmc.core.requests.ListInstancesRequest;
 import com.oracle.bmc.model.BmcException;
 import org.junit.jupiter.api.Test;
+
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -133,6 +137,55 @@ class OciClientServiceTest {
     }
 
     @Test
+    void selectsOnlyMatchingAdOrRegionalSubnet() {
+        Subnet ad2 = subnet("subnet-ad2", "eu-frankfurt-1-ad-2", "10.0.0.0/24", false);
+        Subnet ad3 = subnet("subnet-ad3", "eu-frankfurt-1-ad-3", "10.0.1.0/24", false);
+        Subnet regional = subnet("subnet-regional", null, "10.0.2.0/24", false);
+        Subnet prohibited = subnet("subnet-prohibited", "eu-frankfurt-1-ad-4", "10.0.3.0/24", true);
+
+        assertThat(OciClientService.selectSubnetForAvailabilityDomain(
+                List.of(ad2, ad3, regional, prohibited), "eu-frankfurt-1-ad-2")).isSameAs(ad2);
+        assertThat(OciClientService.selectSubnetForAvailabilityDomain(
+                List.of(ad2, ad3, regional, prohibited), "eu-frankfurt-1-ad-3")).isSameAs(ad3);
+        assertThat(OciClientService.selectSubnetForAvailabilityDomain(
+                List.of(ad2, ad3, regional, prohibited), "eu-frankfurt-1-ad-5")).isSameAs(regional);
+        assertThat(OciClientService.selectSubnetForAvailabilityDomain(
+                List.of(ad2, ad3, prohibited), "eu-frankfurt-1-ad-5")).isNull();
+    }
+
+    @Test
+    void allocatesFirstNonOverlappingSubnetCidrInsideVcn() {
+        Vcn vcn = Vcn.builder().cidrBlocks(List.of("10.0.0.0/16")).build();
+        List<Subnet> subnets = List.of(
+                subnet("subnet-1", "eu-frankfurt-1-ad-2", "10.0.0.0/24", false),
+                subnet("subnet-2", "eu-frankfurt-1-ad-3", "10.0.2.0/24", false));
+
+        assertThat(OciClientService.nextAvailableSubnetCidr(vcn, subnets))
+                .isEqualTo("10.0.1.0/24");
+    }
+
+    @Test
+    void skipsOverlappingSupernetAndReturnsNullWhenVcnIsFull() {
+        assertThat(OciClientService.nextAvailableSubnetCidr(
+                "10.0.0.0/16", List.of("10.0.0.0/23")))
+                .isEqualTo("10.0.2.0/24");
+        assertThat(OciClientService.nextAvailableSubnetCidr(
+                "10.0.0.0/24", List.of("10.0.0.0/24")))
+                .isNull();
+    }
+
+    @Test
+    void checksAllVcnIpv4CidrBlocksWhenAllocatingSubnet() {
+        Vcn vcn = Vcn.builder()
+                .cidrBlocks(List.of("10.0.0.0/30", "192.168.0.0/24"))
+                .build();
+
+        List<Subnet> occupied = List.of(subnet("subnet-full", null, "10.0.0.0/30", false));
+        assertThat(OciClientService.nextAvailableSubnetCidr(vcn, occupied))
+                .isEqualTo("192.168.0.0/24");
+    }
+
+    @Test
     void separatesRateLimitAndGenericServerErrorFromHostCapacity() {
         BmcException rateLimited = new BmcException(429, "TooManyRequests", "slow down", "opc");
         BmcException genericServerError = new BmcException(500, "InternalError", "unexpected failure", "opc");
@@ -159,5 +212,14 @@ class OciClientServiceTest {
         assertThat(OciClientService.isOciServiceLimitExceeded(actualServiceLimit)).isTrue();
         assertThat(OciClientService.describeBmcFailure(a1CapacityLimitCode, "VM.Standard.A1.Flex"))
                 .isEqualTo("主机容量不足");
+    }
+
+    private static Subnet subnet(String id, String availabilityDomain, String cidr, boolean prohibitIngress) {
+        return Subnet.builder()
+                .id(id)
+                .availabilityDomain(availabilityDomain)
+                .cidrBlock(cidr)
+                .prohibitInternetIngress(prohibitIngress)
+                .build();
     }
 }
