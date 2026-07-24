@@ -560,7 +560,7 @@
 
 <script setup lang="ts">
 defineOptions({ name: 'TaskManager' })
-import { ref, reactive, computed, onMounted, onUnmounted, watch, type CSSProperties } from 'vue'
+import { ref, reactive, computed, onActivated, onMounted, onUnmounted, watch, type CSSProperties } from 'vue'
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
 import { getTaskList, createTask, updateTask, stopTask, hasRunningTask, resumeTask, deleteTask, batchStopTask, batchResumeTask, getTaskDetail } from '../api/task'
@@ -1137,7 +1137,9 @@ function formatDateTime(v: any) {
   return s.length > 19 ? s.substring(0, 19) : s
 }
 
-onMounted(() => loadData())
+onActivated(() => {
+  void loadData()
+})
 </script>
 
 <style scoped>
