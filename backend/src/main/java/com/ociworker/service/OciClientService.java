@@ -49,6 +49,8 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.*;
 import java.util.concurrent.CancellationException;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Collectors;
 
 @Slf4j
@@ -81,6 +83,16 @@ public class OciClientService implements Closeable {
      */
     private static final long LAUNCH_STATE_WAIT_TIMEOUT_MILLIS = 120_000L;
     private static final long LAUNCH_STATE_POLL_INTERVAL_MILLIS = 2_000L;
+    /**
+     * A stable opc-retry-token is essential while the outcome is unknown, especially across a
+     * restart.  Once OCI definitively reports that the accepted instance is terminal, however,
+     * reusing that token only returns the same dead instance.  Remember the terminal instance ID
+     * and derive the next token from it; this remains deterministic for concurrent callers while
+     * allowing the next scheduled attempt to create a fresh instance.
+     */
+    private static final long TERMINAL_LAUNCH_SEED_TTL_MILLIS = TimeUnit.HOURS.toMillis(24);
+    private static final ConcurrentHashMap<String, TerminalLaunchRetrySeed> TERMINAL_LAUNCH_RETRY_SEEDS =
+            new ConcurrentHashMap<>();
     private static final Set<Instance.LifecycleState> VISIBLE_INSTANCE_STATES = Collections.unmodifiableSet(EnumSet.of(
             Instance.LifecycleState.Running,
             Instance.LifecycleState.Stopped,
@@ -1216,17 +1228,33 @@ public class OciClientService implements Closeable {
     }
 
     private Instance launchInstance(LaunchInstanceDetails details) throws Exception {
+        String baseRetryToken = resolveLaunchRetryToken(user, details);
+        TerminalLaunchRetrySeed retrySeed = currentTerminalLaunchRetrySeed(baseRetryToken);
+        String retryToken = retrySeed == null
+                ? baseRetryToken
+                : resolveLaunchRetryToken(user, details, retrySeed.instanceId());
+        if (retrySeed != null) {
+            log.info("【开机任务】用户:[{}], AD:[{}] - 上一实例已终止，本轮轮换 OCI 幂等令牌",
+                    user.getUsername(), details.getAvailabilityDomain());
+        }
         LaunchInstanceResponse launchResponse = computeClient.launchInstance(
                 LaunchInstanceRequest.builder()
                         .launchInstanceDetails(details)
-                        .opcRetryToken(resolveLaunchRetryToken(user, details))
+                        .opcRetryToken(retryToken)
                         .retryConfiguration(RetryConfiguration.NO_RETRY_CONFIGURATION)
                         .build());
         Instance launched = launchResponse.getInstance();
         if (launched == null || StrUtil.isBlank(launched.getId())) {
             throw new OciException("OCI 创建请求未返回实例 ID，将在下一轮重试");
         }
-        return waitForInstanceRunning(launched.getId());
+        try {
+            Instance running = waitForInstanceRunning(launched.getId());
+            TERMINAL_LAUNCH_RETRY_SEEDS.remove(baseRetryToken);
+            return running;
+        } catch (TerminalLaunchStateException e) {
+            rememberTerminalLaunchRetrySeed(baseRetryToken, e.getInstanceId());
+            throw e;
+        }
     }
 
     private Instance waitForInstanceRunning(String instanceId) throws Exception {
@@ -1255,8 +1283,8 @@ public class OciClientService implements Closeable {
                     return last;
                 }
                 if (isTerminalLaunchState(state)) {
-                    throw new OciException("OCI 实例在等待启动时进入终止状态：" + state
-                            + "（实例未计入成功，将按幂等令牌重试）");
+                    throw new TerminalLaunchStateException(
+                            StrUtil.isNotBlank(last.getId()) ? last.getId() : instanceId, state);
                 }
             }
 
@@ -1285,7 +1313,35 @@ public class OciClientService implements Closeable {
                 || state == Instance.LifecycleState.Stopped;
     }
 
+    private static TerminalLaunchRetrySeed currentTerminalLaunchRetrySeed(String baseRetryToken) {
+        TerminalLaunchRetrySeed seed = TERMINAL_LAUNCH_RETRY_SEEDS.get(baseRetryToken);
+        if (seed == null) {
+            return null;
+        }
+        if (System.currentTimeMillis() - seed.createdAtMillis() < TERMINAL_LAUNCH_SEED_TTL_MILLIS) {
+            return seed;
+        }
+        TERMINAL_LAUNCH_RETRY_SEEDS.remove(baseRetryToken, seed);
+        return null;
+    }
+
+    private static void rememberTerminalLaunchRetrySeed(String baseRetryToken, String instanceId) {
+        if (StrUtil.isBlank(baseRetryToken) || StrUtil.isBlank(instanceId)) {
+            return;
+        }
+        long now = System.currentTimeMillis();
+        TERMINAL_LAUNCH_RETRY_SEEDS.entrySet().removeIf(entry ->
+                now - entry.getValue().createdAtMillis() >= TERMINAL_LAUNCH_SEED_TTL_MILLIS);
+        TERMINAL_LAUNCH_RETRY_SEEDS.put(baseRetryToken,
+                new TerminalLaunchRetrySeed(instanceId, now));
+    }
+
     static String resolveLaunchRetryToken(SysUserDTO user, LaunchInstanceDetails details) {
+        return resolveLaunchRetryToken(user, details, null);
+    }
+
+    static String resolveLaunchRetryToken(SysUserDTO user, LaunchInstanceDetails details,
+                                          String terminalInstanceId) {
         String taskId = user == null ? null : StrUtil.trimToNull(user.getTaskId());
         if (taskId == null) {
             return UUID.randomUUID().toString();
@@ -1326,7 +1382,28 @@ public class OciClientService implements Closeable {
                 appendRetryIdentity(identity, value);
             });
         }
+        if (StrUtil.isNotBlank(terminalInstanceId)) {
+            appendRetryIdentity(identity, "retry-after-terminal-instance");
+            appendRetryIdentity(identity, terminalInstanceId.trim());
+        }
         return UUID.nameUUIDFromBytes(sha256(identity.toString())).toString();
+    }
+
+    private record TerminalLaunchRetrySeed(String instanceId, long createdAtMillis) {
+    }
+
+    private static final class TerminalLaunchStateException extends OciException {
+        private final String instanceId;
+
+        private TerminalLaunchStateException(String instanceId, Instance.LifecycleState state) {
+            super("OCI 实例在等待启动时进入终止状态：" + state
+                    + "（实例未计入成功，下轮将轮换幂等令牌重试）");
+            this.instanceId = instanceId;
+        }
+
+        private String getInstanceId() {
+            return instanceId;
+        }
     }
 
     private static void appendRetryIdentity(StringBuilder target, Object value) {

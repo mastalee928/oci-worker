@@ -57,6 +57,22 @@ class OciClientServiceTest {
     }
 
     @Test
+    void launchRetryTokenRotatesDeterministicallyAfterTerminalInstance() {
+        SysUserDTO user = SysUserDTO.builder().taskId("task-1").instanceDisplayOrdinal(1).build();
+        LaunchInstanceDetails details = launchDetails("AD-1", "VM.Standard.E2.1.Micro", "script-1");
+
+        String base = OciClientService.resolveLaunchRetryToken(user, details);
+        String afterFirstTerminal = OciClientService.resolveLaunchRetryToken(
+                user, details, "instance-terminated-1");
+
+        assertThat(afterFirstTerminal).isNotEqualTo(base);
+        assertThat(OciClientService.resolveLaunchRetryToken(
+                user, details, "instance-terminated-1")).isEqualTo(afterFirstTerminal);
+        assertThat(OciClientService.resolveLaunchRetryToken(
+                user, details, "instance-terminated-2")).isNotEqualTo(afterFirstTerminal);
+    }
+
+    @Test
     void launchRetryTokenIsRandomWithoutTaskId() {
         LaunchInstanceDetails details = launchDetails("AD-1", "VM.Standard.A1.Flex", "script-1");
         assertThat(OciClientService.resolveLaunchRetryToken(SysUserDTO.builder().build(), details))
@@ -113,6 +129,7 @@ class OciClientServiceTest {
         assertThat(OciClientService.isTerminalLaunchState(Instance.LifecycleState.Provisioning)).isFalse();
         assertThat(OciClientService.isTerminalLaunchState(Instance.LifecycleState.Starting)).isFalse();
         assertThat(OciClientService.isTerminalLaunchState(Instance.LifecycleState.Running)).isFalse();
+        assertThat(OciClientService.isTerminalLaunchState(null)).isFalse();
     }
 
     @Test
