@@ -1,6 +1,8 @@
 # WebSSH
 
 > OCI Worker 说明：本目录仅保留 WebSSH 内置终端的历史来源、静态资源和构建参考。
+> 生产静态资源唯一来源是项目内的 `backend/src/main/resources/static/webssh/`。
+> `webssh/public/` 是历史 Go 版本快照，不得直接复制或覆盖生产目录；上游变更必须人工适配后再进入内置资源。
 > 当前项目安装、更新与运行均以项目根目录的 `install.sh` / `ociworker` / 主程序 JAR 为准。
 > 不要把本目录作为 OCI Worker 的独立部署入口；下方原始部署说明仅用于回溯和维护参考。
 

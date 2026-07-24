@@ -30,6 +30,9 @@ jobs:
           npm ci
           npm run build
 
+      - name: Verify WebSSH static asset source
+        run: bash tools/verify-webssh-static-source.sh
+
       - name: Set up JDK 21
         uses: actions/setup-java@v4
         with:
