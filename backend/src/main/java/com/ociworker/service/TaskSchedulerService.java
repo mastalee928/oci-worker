@@ -45,6 +45,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -65,6 +66,8 @@ public class TaskSchedulerService implements SmartLifecycle {
     private OciKvMapper kvMapper;
     @Resource
     private AdaptiveLaunchConcurrency adaptiveLaunchConcurrency;
+    @Resource
+    private TaskSuccessAllocationService taskSuccessAllocationService;
 
     private final Map<String, TaskHandle> taskMap = new ConcurrentHashMap<>();
     private final Set<String> runningTasks = ConcurrentHashMap.newKeySet();
@@ -75,9 +78,14 @@ public class TaskSchedulerService implements SmartLifecycle {
     private final Set<String> serviceLimitNotifyMutedTasks = ConcurrentHashMap.newKeySet();
     private final AtomicBoolean maintenanceRunning = new AtomicBoolean();
     private final ConcurrentHashMap<String, RateLimitState> rateLimitStates = new ConcurrentHashMap<>();
+    /** 同一批量任务的成功通知按 1、2、… 序号发送，避免并发回调乱序或重复显示最终计数。 */
+    private final ConcurrentHashMap<String, OrderedSuccessNotificationQueue> successNotificationQueues =
+            new ConcurrentHashMap<>();
     private static final ObjectMapper JSON = new ObjectMapper();
     private static final int CREATE_TASK_DEDUP_SECONDS = 5;
     private static final int SERVICE_LIMIT_NOTIFY_COOLDOWN_MINUTES = 60;
+    /** 序号缺口的最大等待时间；正常并发回调会在此之前补齐，异常丢回调也不会永久堵住后续通知。 */
+    private static final long SUCCESS_NOTIFICATION_GAP_WAIT_MILLIS = 3_000L;
     private static final String SERVICE_LIMIT_MUTE_KV_TYPE = "task_service_limit_mute";
     private static final String CALLBACK_SERVICE_LIMIT_STOP_REQUEST = "ctsl_stop_req|";
     private static final String CALLBACK_SERVICE_LIMIT_STOP_CONFIRM = "ctsl_stop_ok|";
@@ -1030,14 +1038,15 @@ public class TaskSchedulerService implements SmartLifecycle {
                 }
 
                 if (result.isSuccess()) {
-                    int n = tryIncrementSuccessCount(taskId);
-                    OciCreateTask t = taskMapper.selectById(taskId);
-                    int targetCount = t != null && t.getCreateNumbers() != null && t.getCreateNumbers() > 0
-                            ? t.getCreateNumbers() : 1;
-                    int successCount = t != null && t.getSuccessCount() != null ? t.getSuccessCount() : 0;
-                    boolean taskStillRunning = t != null
-                            && TaskStatusEnum.RUNNING.getStatus().equals(t.getStatus());
-                    if (n > 0) {
+                    // 分配成功序号必须与读取当前计数在同一行锁事务内完成。
+                    // 不能再“自增后普通查询”，否则并发回调都会读到最后的 2/2。
+                    TaskSuccessAllocationService.Allocation allocation =
+                            taskSuccessAllocationService.allocate(taskId);
+                    OciCreateTask t = allocation.task();
+                    int targetCount = allocation.targetCount();
+                    int successCount = allocation.successCount();
+                    boolean taskStillRunning = allocation.taskStillRunning();
+                    if (allocation.allocated()) {
                         appendCreatedInstance(taskId, result);
                         String shapeName = StrUtil.isNotBlank(result.getShape()) ? result.getShape() : arch;
                         String successSeries = ShapeSeriesUtil.resolveSeries(shapeName);
@@ -1058,7 +1067,8 @@ public class TaskSchedulerService implements SmartLifecycle {
                                 + (StrUtil.isNotBlank(result.getIpv6Address())
                                 ? "🌐 <b>IPv6：</b><code>" + result.getIpv6Address() + "</code>\n" : "")
                                 + buildNotifyLoginLine(t != null ? t : head);
-                        sendTaskNotificationAsync(NotificationService.TYPE_TASK_RESULT, html);
+                        sendTaskSuccessNotificationAsync(taskId, allocation.ordinal(), targetCount,
+                                NotificationService.TYPE_TASK_RESULT, html);
                     } else {
                         // OCI 已建出实例，但行级更新因已达目标/并发被跳过
                         broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],架构:[%s] - 实例已创建(计次未增加) IP:%s（已达目标或并发争用，请在控制台核对实例）",
@@ -1185,15 +1195,6 @@ public class TaskSchedulerService implements SmartLifecycle {
         return task != null && task.getAttemptCount() != null ? task.getAttemptCount() : 0;
     }
 
-    /** 仅当计次未达 create_numbers 时 +1；用于多机并发时只涨一行，避免出现 2/1 */
-    private int tryIncrementSuccessCount(String taskId) {
-        UpdateWrapper<OciCreateTask> w = new UpdateWrapper<>();
-        w.eq("id", taskId);
-        w.apply("COALESCE(success_count, 0) < COALESCE(create_numbers, 1)");
-        w.setSql("success_count = COALESCE(success_count, 0) + 1");
-        return taskMapper.update(null, w);
-    }
-
     private synchronized void appendCreatedInstance(String taskId, InstanceDetailDTO result) {
         try {
             OciCreateTask task = taskMapper.selectById(taskId);
@@ -1298,6 +1299,21 @@ public class TaskSchedulerService implements SmartLifecycle {
         submitTaskNotification(() -> notificationService.sendHtmlWithType(type, html));
     }
 
+    /**
+     * 成功消息使用任务内的序号队列。OCI 回调完成顺序可能与数据库分配顺序不同，
+     * 因此不能直接把两个 send 操作提交给虚拟线程池。
+     */
+    private void sendTaskSuccessNotificationAsync(String taskId, int ordinal, int targetCount,
+                                                   String type, String html) {
+        if (StrUtil.isBlank(taskId) || ordinal <= 0) {
+            sendTaskNotificationAsync(type, html);
+            return;
+        }
+        OrderedSuccessNotificationQueue queue = successNotificationQueues.computeIfAbsent(
+                taskId, OrderedSuccessNotificationQueue::new);
+        queue.enqueue(ordinal, targetCount, () -> notificationService.sendHtmlWithType(type, html));
+    }
+
     private void scheduleOciServiceLimitNotification(
             String taskId, OciCreateTask task, String username, String region,
             String series, String architecture, InstanceDetailDTO result, int intervalSeconds) {
@@ -1316,6 +1332,141 @@ public class TaskSchedulerService implements SmartLifecycle {
             });
         } catch (RejectedExecutionException e) {
             log.debug("Task notification skipped during shutdown");
+        }
+    }
+
+    /**
+     * A small per-task ordered dispatcher.  It is intentionally in-memory: the
+     * authoritative ordinal is allocated in MySQL, while this queue only prevents
+     * same-process messages from overtaking one another or hammering Telegram in
+     * parallel.  A short gap watchdog handles a process/thread failure without
+     * blocking later messages forever.
+     */
+    private final class OrderedSuccessNotificationQueue {
+        private final String taskId;
+        private final Object monitor = new Object();
+        private final TreeMap<Integer, Runnable> pending = new TreeMap<>();
+        private int nextOrdinal = 1;
+        private int targetCount = 1;
+        private boolean inFlight;
+        private int inFlightOrdinal;
+        private boolean gapWatchdogScheduled;
+
+        private OrderedSuccessNotificationQueue(String taskId) {
+            this.taskId = taskId;
+        }
+
+        private void enqueue(int ordinal, int target, Runnable action) {
+            if (ordinal <= 0 || action == null) {
+                return;
+            }
+            synchronized (monitor) {
+                targetCount = Math.max(targetCount, Math.max(1, target));
+                // A duplicate callback must never send the same ordinal twice.
+                if (ordinal < nextOrdinal || ordinal == inFlightOrdinal || pending.containsKey(ordinal)) {
+                    return;
+                }
+                pending.put(ordinal, action);
+            }
+            dispatchNext();
+        }
+
+        private void dispatchNext() {
+            Runnable action;
+            int ordinal = 0;
+            boolean scheduleGapWatchdog = false;
+            synchronized (monitor) {
+                if (inFlight) {
+                    return;
+                }
+                action = pending.remove(nextOrdinal);
+                if (action == null) {
+                    if (!pending.isEmpty() && !gapWatchdogScheduled) {
+                        gapWatchdogScheduled = true;
+                        scheduleGapWatchdog = true;
+                    }
+                    // The missing ordinal may still be completing on another worker;
+                    // let the watchdog decide whether to advance the gap.
+                } else {
+                    ordinal = nextOrdinal;
+                    inFlight = true;
+                    inFlightOrdinal = ordinal;
+                }
+            }
+
+            if (scheduleGapWatchdog) {
+                scheduleGapWatchdog();
+                return;
+            }
+            if (action == null) {
+                return;
+            }
+            submit(ordinal, action);
+        }
+
+        private void scheduleGapWatchdog() {
+            try {
+                VIRTUAL_EXECUTOR.submit(() -> {
+                    try {
+                        Thread.sleep(SUCCESS_NOTIFICATION_GAP_WAIT_MILLIS);
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                    boolean advanced = false;
+                    synchronized (monitor) {
+                        gapWatchdogScheduled = false;
+                        if (!inFlight && !pending.isEmpty() && !pending.containsKey(nextOrdinal)) {
+                            int firstPending = pending.firstKey();
+                            log.warn("Task {} success notification ordinal {} did not arrive; "
+                                            + "sending pending ordinal {} after {} ms",
+                                    taskId, nextOrdinal, firstPending,
+                                    SUCCESS_NOTIFICATION_GAP_WAIT_MILLIS);
+                            nextOrdinal = firstPending;
+                            advanced = true;
+                        }
+                    }
+                    if (advanced) {
+                        dispatchNext();
+                    }
+                });
+            } catch (RejectedExecutionException e) {
+                synchronized (monitor) {
+                    gapWatchdogScheduled = false;
+                }
+                log.debug("Success notification gap watchdog skipped during shutdown");
+            }
+        }
+
+        private void submit(int ordinal, Runnable action) {
+            try {
+                VIRTUAL_EXECUTOR.submit(() -> {
+                    try {
+                        action.run();
+                    } catch (Exception e) {
+                        log.warn("Task {} success notification {} failed: {}", taskId, ordinal, e.getMessage());
+                    } finally {
+                        complete(ordinal);
+                    }
+                });
+            } catch (RejectedExecutionException e) {
+                log.debug("Task {} success notification {} skipped during shutdown", taskId, ordinal);
+                complete(ordinal);
+            }
+        }
+
+        private void complete(int ordinal) {
+            boolean remove;
+            synchronized (monitor) {
+                inFlight = false;
+                inFlightOrdinal = 0;
+                nextOrdinal = Math.max(nextOrdinal, ordinal + 1);
+                remove = ordinal >= targetCount && pending.isEmpty();
+            }
+            if (remove) {
+                successNotificationQueues.remove(taskId, this);
+            } else {
+                dispatchNext();
+            }
         }
     }
 

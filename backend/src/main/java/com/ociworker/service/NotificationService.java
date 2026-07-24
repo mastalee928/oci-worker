@@ -23,10 +23,16 @@ import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.locks.ReentrantLock;
 
 @Slf4j
 @Service
 public class NotificationService {
+
+    private static final int TELEGRAM_SEND_MAX_ATTEMPTS = 3;
+    /** Telegram recommends avoiding more than roughly one message per second to one chat. */
+    private static final long TELEGRAM_MIN_SEND_INTERVAL_NANOS = TimeUnit.MILLISECONDS.toNanos(1_100L);
 
     public static final String TYPE_LOGIN = "login";
     public static final String TYPE_TASK_CREATE = "task_create";
@@ -41,6 +47,14 @@ public class NotificationService {
     @Lazy
     @Resource
     private OciProxyConfigService ociProxyConfigService;
+
+    /**
+     * All outbound sendMessage calls share one fair lane.  Without it, unrelated
+     * virtual threads can exceed Telegram's per-chat rate and silently lose one of
+     * several notifications.
+     */
+    private final ReentrantLock telegramSendLock = new ReentrantLock(true);
+    private long nextTelegramSendNanos;
 
     public void sendMessage(String notifyType, String message) {
         if (!isTypeEnabled(notifyType)) return;
@@ -82,7 +96,7 @@ public class NotificationService {
                             JSONUtil.toJsonStr(Map.of("chat_id", chatId, "text", message))))
                     .timeout(Duration.ofSeconds(10))
                     .build();
-            c.send(req, HttpResponse.BodyHandlers.discarding());
+            sendTelegramMessageWithRetry(c, req, "sendMessage(plain)");
         } catch (Exception e) {
             log.warn("Failed to send Telegram message to explicit chat: {}", e.getMessage());
         }
@@ -119,7 +133,7 @@ public class NotificationService {
                     .POST(HttpRequest.BodyPublishers.ofString(JSONUtil.toJsonStr(body)))
                     .timeout(Duration.ofSeconds(10))
                     .build();
-            c.send(req, HttpResponse.BodyHandlers.discarding());
+            sendTelegramMessageWithRetry(c, req, "sendMessage(html-keyboard)");
         } catch (Exception e) {
             log.warn("Failed to send Telegram HTML keyboard message: {}", e.getMessage());
         }
@@ -149,10 +163,159 @@ public class NotificationService {
                     .POST(HttpRequest.BodyPublishers.ofString(JSONUtil.toJsonStr(body)))
                     .timeout(Duration.ofSeconds(10))
                     .build();
-            c.send(req, HttpResponse.BodyHandlers.discarding());
+            sendTelegramMessageWithRetry(c, req, "sendMessage(html)");
         } catch (Exception e) {
             log.warn("Failed to send Telegram HTML message: {}", e.getMessage());
         }
+    }
+
+    /**
+     * Send a Telegram message through one fair, rate-limited lane.  Telegram's
+     * response is part of delivery semantics: retry only transient failures and
+     * surface permanent failures clearly instead of pretending they succeeded.
+     */
+    private boolean sendTelegramMessageWithRetry(HttpClient client, HttpRequest request, String operation) {
+        boolean locked = false;
+        try {
+            telegramSendLock.lockInterruptibly();
+            locked = true;
+            for (int attempt = 1; attempt <= TELEGRAM_SEND_MAX_ATTEMPTS; attempt++) {
+                HttpResponse<String> response;
+                try {
+                    waitForTelegramSendSlot();
+                    response = client.send(request, HttpResponse.BodyHandlers.ofString());
+                    markTelegramSendAttempt();
+                } catch (InterruptedException e) {
+                    Thread.currentThread().interrupt();
+                    log.warn("[TG] {} interrupted before delivery", operation);
+                    return false;
+                } catch (Exception e) {
+                    markTelegramSendAttempt();
+                    if (attempt >= TELEGRAM_SEND_MAX_ATTEMPTS) {
+                        log.warn("[TG] {} failed after {} attempts: {}",
+                                operation, attempt, e.getMessage());
+                        return false;
+                    }
+                    long delay = retryDelayMillis(null, attempt);
+                    log.warn("[TG] {} network failure on attempt {}/{}, retrying in {} ms: {}",
+                            operation, attempt, TELEGRAM_SEND_MAX_ATTEMPTS, delay, e.getMessage());
+                    if (!sleepBeforeTelegramRetry(delay, operation)) {
+                        return false;
+                    }
+                    continue;
+                }
+
+                TelegramResponseDecision decision = inspectTelegramResponse(response, operation);
+                if (decision.success()) {
+                    return true;
+                }
+                if (!decision.retryable() || attempt >= TELEGRAM_SEND_MAX_ATTEMPTS) {
+                    return false;
+                }
+                long delay = retryDelayMillis(decision, attempt);
+                log.warn("[TG] {} transient failure on attempt {}/{}, retrying in {} ms",
+                        operation, attempt, TELEGRAM_SEND_MAX_ATTEMPTS, delay);
+                if (!sleepBeforeTelegramRetry(delay, operation)) {
+                    return false;
+                }
+            }
+            return false;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.warn("[TG] {} interrupted while waiting for delivery lane", operation);
+            return false;
+        } finally {
+            if (locked) {
+                telegramSendLock.unlock();
+            }
+        }
+    }
+
+    private void waitForTelegramSendSlot() throws InterruptedException {
+        long waitNanos = nextTelegramSendNanos - System.nanoTime();
+        if (waitNanos > 0) {
+            TimeUnit.NANOSECONDS.sleep(waitNanos);
+        }
+    }
+
+    private void markTelegramSendAttempt() {
+        nextTelegramSendNanos = System.nanoTime() + TELEGRAM_MIN_SEND_INTERVAL_NANOS;
+    }
+
+    private static boolean sleepBeforeTelegramRetry(long delayMillis, String operation) {
+        try {
+            Thread.sleep(delayMillis);
+            return true;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            log.warn("[TG] {} interrupted during retry backoff", operation);
+            return false;
+        }
+    }
+
+    private TelegramResponseDecision inspectTelegramResponse(HttpResponse<String> response, String operation) {
+        if (response == null) {
+            log.warn("[TG] {} returned no response", operation);
+            return new TelegramResponseDecision(false, true, 0L);
+        }
+
+        int status = response.statusCode();
+        JSONObject root = null;
+        try {
+            if (response.body() != null && !response.body().isBlank()) {
+                root = JSONUtil.parseObj(response.body());
+            }
+        } catch (Exception e) {
+            log.warn("[TG] {} returned invalid JSON (HTTP {}): {}", operation, status, e.getMessage());
+        }
+
+        boolean ok = status >= 200 && status < 300 && root != null && root.getBool("ok", false);
+        if (ok) {
+            return new TelegramResponseDecision(true, false, 0L);
+        }
+
+        int errorCode = root != null ? root.getInt("error_code", status) : status;
+        boolean retryable = root == null && status >= 200 && status < 300
+                || errorCode == 429 || errorCode >= 500 || status == 429 || status >= 500;
+        long retryAfterMillis = 0L;
+        if (root != null && root.getJSONObject("parameters") != null) {
+            Integer retryAfterSeconds = root.getJSONObject("parameters").getInt("retry_after", 0);
+            if (retryAfterSeconds != null && retryAfterSeconds > 0) {
+                retryAfterMillis = retryAfterSeconds * 1_000L;
+            }
+        }
+        String description = root != null ? root.getStr("description") : summarizeTelegramBody(response.body());
+        log.warn("[TG] {} failed HTTP {} error_code={} retryable={}: {}",
+                operation, status, errorCode, retryable, description);
+        return new TelegramResponseDecision(false, retryable, retryAfterMillis);
+    }
+
+    private static long retryDelayMillis(TelegramResponseDecision decision, int attempt) {
+        long requested = decision != null ? decision.retryAfterMillis() : 0L;
+        if (requested > 0) {
+            return Math.min(30_000L, Math.max(250L, requested));
+        }
+        return Math.min(5_000L, 500L * (1L << Math.min(3, Math.max(0, attempt - 1))));
+    }
+
+    private record TelegramResponseDecision(boolean success, boolean retryable, long retryAfterMillis) {
+    }
+
+    /**
+     * Telegram may return HTTP 200 with {@code ok:false}.  The previous code
+     * discarded the response body, so rate limits, invalid HTML, and bad chat IDs
+     * looked exactly like successful delivery.
+     */
+    private boolean telegramResponseOk(HttpResponse<String> response, String operation) {
+        return inspectTelegramResponse(response, operation).success();
+    }
+
+    private static String summarizeTelegramBody(String body) {
+        if (body == null || body.isBlank()) {
+            return "<empty>";
+        }
+        String compact = body.replaceAll("\\s+", " ");
+        return compact.length() > 240 ? compact.substring(0, 240) + "…" : compact;
     }
 
     public String getKvValue(SysCfgEnum cfg) {
@@ -215,7 +378,7 @@ public class NotificationService {
                     .POST(HttpRequest.BodyPublishers.ofString(JSONUtil.toJsonStr(body)))
                     .timeout(Duration.ofSeconds(15))
                     .build();
-            c.send(req, HttpResponse.BodyHandlers.discarding());
+            sendTelegramMessageWithRetry(c, req, "sendMessage(security-keyboard)");
         } catch (Exception e) {
             log.warn("Failed to send Telegram security keyboard message: {}", e.getMessage());
         }
@@ -245,7 +408,8 @@ public class NotificationService {
                     .POST(HttpRequest.BodyPublishers.ofString(JSONUtil.toJsonStr(body)))
                     .timeout(Duration.ofSeconds(10))
                     .build();
-            c.send(req, HttpResponse.BodyHandlers.discarding());
+            HttpResponse<String> response = c.send(req, HttpResponse.BodyHandlers.ofString());
+            telegramResponseOk(response, "answerCallbackQuery");
         } catch (Exception e) {
             log.warn("Failed to answer Telegram callback: {}", e.getMessage());
         }
@@ -271,8 +435,10 @@ public class NotificationService {
                     .POST(HttpRequest.BodyPublishers.ofString(JSONUtil.toJsonStr(body)))
                     .timeout(Duration.ofSeconds(15))
                     .build();
-            c.send(req, HttpResponse.BodyHandlers.discarding());
-            log.info("Telegram setMyCommands registered (start/stop/logs/state/bans/checkaccs)");
+            HttpResponse<String> response = c.send(req, HttpResponse.BodyHandlers.ofString());
+            if (telegramResponseOk(response, "setMyCommands")) {
+                log.info("Telegram setMyCommands registered (start/stop/logs/state/bans/checkaccs)");
+            }
         } catch (Exception e) {
             log.warn("Failed to register Telegram bot commands: {}", e.getMessage());
         }

@@ -11,6 +11,13 @@ import java.util.Map;
 
 @Mapper
 public interface OciCreateTaskMapper extends BaseMapper<OciCreateTask> {
+    /**
+     * Lock a task row while allocating a success ordinal.  The caller must invoke this
+     * inside a database transaction; otherwise the lock would be released immediately.
+     */
+    @Select("SELECT * FROM oci_create_task WHERE id = #{taskId} FOR UPDATE")
+    OciCreateTask selectByIdForUpdate(@Param("taskId") String taskId);
+
     @Select("""
             <script>
             SELECT user_id, COUNT(*) AS running_count
