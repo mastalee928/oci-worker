@@ -79,14 +79,20 @@ final class WebSshJschSupport {
         }
     }
 
-    static ChannelShell openShell(Session session, int cols, int rows) throws JSchException {
+    record ShellChannel(ChannelShell shell, InputStream stdout) {
+    }
+
+    static ShellChannel openShell(Session session, int cols, int rows) throws JSchException, IOException {
         ChannelShell shell = (ChannelShell) session.openChannel("shell");
         try {
             shell.setPtyType("xterm", cols, rows, 0, 0);
             shell.setPty(true);
+            // JSch 在 getInputStream() 时才挂上接收缓冲，必须先于 connect()；
+            // 否则首批输出可能在缓冲就绪前到达，通道会被 JSch 静默断开（终端空白）。
+            InputStream stdout = shell.getInputStream();
             shell.connect(15_000);
-            return shell;
-        } catch (JSchException | RuntimeException e) {
+            return new ShellChannel(shell, stdout);
+        } catch (JSchException | IOException | RuntimeException e) {
             closeQuietly(null, shell);
             throw e;
         }
@@ -163,9 +169,5 @@ final class WebSshJschSupport {
 
     static OutputStream shellInput(ChannelShell shell) throws Exception {
         return shell.getOutputStream();
-    }
-
-    static InputStream shellOutput(ChannelShell shell) throws Exception {
-        return shell.getInputStream();
     }
 }

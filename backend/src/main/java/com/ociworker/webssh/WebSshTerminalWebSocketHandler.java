@@ -182,15 +182,15 @@ public class WebSshTerminalWebSocketHandler implements WebSocketHandler {
                         return;
                     }
                     sessionRegistered = true;
-                    shell = WebSshJschSupport.openShell(session, cols, rows);
+                    WebSshJschSupport.ShellChannel shellChannel = WebSshJschSupport.openShell(session, cols, rows);
+                    shell = shellChannel.shell();
                     shellPublished = publishShell(ws, shell);
                     if (!shellPublished) {
                         return;
                     }
                     sendText(ws, WebSshSessionRegistry.controlMessage(sessionId));
 
-                    Reader stdout = new InputStreamReader(
-                            WebSshJschSupport.shellOutput(shell), StandardCharsets.UTF_8);
+                    Reader stdout = new InputStreamReader(shellChannel.stdout(), StandardCharsets.UTF_8);
                     char[] buf = new char[4096];
                     long deadline = System.nanoTime() + Duration.ofMinutes(Math.max(1, timeoutMinutes)).toNanos();
                     while (ws.isOpen() && shell.isConnected()) {
