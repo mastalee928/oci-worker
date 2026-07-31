@@ -1748,10 +1748,26 @@ async function handleEditInstance() {
   }
 }
 
+// 浮动卡片与抽屉面板为懒加载 chunk；冷缓存下首次点击时下载会晚于
+// 动画时间线（rAF→rolling→760ms docked），导致滚动动画被跳过。挂载后
+// 空闲预热一次，保证首次点击时组件可立即挂载。
+function preloadTenantWorkspaceChunks() {
+  const preload = () => {
+    void import('../components/instance/InstanceFloatingTenantCard.vue').catch(() => {})
+    void import('../components/instance/InstanceDrawerListPanel.vue').catch(() => {})
+  }
+  if (typeof window.requestIdleCallback === 'function') {
+    window.requestIdleCallback(preload, { timeout: 3000 })
+  } else {
+    window.setTimeout(preload, 1200)
+  }
+}
+
 onMounted(() => {
   void loadGroups()
   void loadAllTenants()
   window.addEventListener('resize', checkMobile)
+  preloadTenantWorkspaceChunks()
 })
 onActivated(() => {
   if (!instanceListActivatedOnce) {

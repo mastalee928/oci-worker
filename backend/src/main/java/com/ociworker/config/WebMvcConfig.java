@@ -2,10 +2,13 @@ package com.ociworker.config;
 
 import jakarta.annotation.Resource;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.CacheControl;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.InterceptorRegistry;
 import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
+
+import java.time.Duration;
 
 @Configuration
 public class WebMvcConfig implements WebMvcConfigurer {
@@ -36,7 +39,13 @@ public class WebMvcConfig implements WebMvcConfigurer {
     public void addResourceHandlers(ResourceHandlerRegistry registry) {
         registry.addResourceHandler("/webssh/**")
                 .addResourceLocations("classpath:/static/webssh/");
+        // 带内容 hash 的构建产物可长期缓存；index.html 等入口文件必须每次协商，
+        // 否则更新后浏览器仍用旧页面引用已不存在的 chunk（懒加载 404）。
+        registry.addResourceHandler("/assets/**")
+                .addResourceLocations("classpath:/dist/assets/")
+                .setCacheControl(CacheControl.maxAge(Duration.ofDays(365)).cachePublic().immutable());
         registry.addResourceHandler("/**")
-                .addResourceLocations("classpath:/dist/");
+                .addResourceLocations("classpath:/dist/")
+                .setCacheControl(CacheControl.noCache());
     }
 }
