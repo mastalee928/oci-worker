@@ -26,6 +26,10 @@
           type="primary" @click="handleBatchResume">
           批量启动
         </a-button>
+        <a-button :disabled="!selectedRowKeys.length" :loading="batchLoading"
+          @click="handleBatchDelete" danger>
+          批量删除
+        </a-button>
       </a-space>
       <div v-else class="mobile-task-toolbar">
         <div class="mobile-task-toolbar-row">
@@ -56,6 +60,10 @@
             <a-button size="small" :disabled="!selectedRowKeys.length" :loading="batchLoading"
               type="primary" @click="handleBatchResume">
               批量启动
+            </a-button>
+            <a-button size="small" :disabled="!selectedRowKeys.length" :loading="batchLoading"
+              @click="handleBatchDelete" danger>
+              批量删除
             </a-button>
             <a-button v-if="selectedRowKeys.length" size="small" type="link" @click="clearSelectedTasks">
               清空
@@ -563,7 +571,7 @@ defineOptions({ name: 'TaskManager' })
 import { ref, reactive, computed, onActivated, onMounted, onUnmounted, watch, type CSSProperties } from 'vue'
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
-import { getTaskList, createTask, updateTask, stopTask, hasRunningTask, resumeTask, deleteTask, batchStopTask, batchResumeTask, getTaskDetail } from '../api/task'
+import { getTaskList, createTask, updateTask, stopTask, hasRunningTask, resumeTask, deleteTask, batchStopTask, batchResumeTask, batchDeleteTask, batchRunningCount, getTaskDetail } from '../api/task'
 import { getTenantList } from '../api/tenant'
 import { getAvailableShapes } from '../api/instance'
 import { getTaskCredential } from '../api/system'
@@ -1089,6 +1097,41 @@ async function handleBatchResume() {
         loadData()
       } catch (e: any) {
         message.error(e?.message || '批量启动失败')
+      } finally {
+        batchLoading.value = false
+      }
+    }
+  })
+}
+
+async function handleBatchDelete() {
+  if (!selectedRowKeys.value.length) return
+  const total = selectedRowKeys.value.length
+  let runningCount = 0
+  batchLoading.value = true
+  try {
+    const res = await batchRunningCount({ taskIds: selectedTaskIds() })
+    runningCount = Number(res.data) || 0
+  } catch (e: any) {
+    message.error(e?.message || '查询任务状态失败')
+    return
+  } finally {
+    batchLoading.value = false
+  }
+  Modal.confirm({
+    title: '批量删除',
+    content: runningCount > 0
+      ? `选中 ${total} 个任务，其中 ${runningCount} 个正在开机，删除将会终止开机任务。确定继续？`
+      : `确定删除选中的 ${total} 个任务？`,
+    async onOk() {
+      batchLoading.value = true
+      try {
+        const res = await batchDeleteTask({ taskIds: selectedTaskIds() })
+        message.success(`已删除 ${res.data} 个任务`)
+        selectedRowKeys.value = []
+        loadData()
+      } catch (e: any) {
+        message.error(e?.message || '批量删除失败')
       } finally {
         batchLoading.value = false
       }

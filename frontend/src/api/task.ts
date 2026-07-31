@@ -43,3 +43,11 @@ export function batchStopTask(data: { taskIds: string[] }) {
 export function batchResumeTask(data: { taskIds: string[] }) {
   return request.post('/oci/task/batchResume', data)
 }
+
+export function batchDeleteTask(data: { taskIds: string[] }) {
+  return request.post('/oci/task/batchDelete', data)
+}
+
+export function batchRunningCount(data: { taskIds: string[] }) {
+  return request.post('/oci/task/batchRunningCount', data)
+}

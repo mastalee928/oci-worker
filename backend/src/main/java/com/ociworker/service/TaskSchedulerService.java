@@ -179,6 +179,17 @@ public class TaskSchedulerService implements SmartLifecycle {
         ) > 0;
     }
 
+    public long countRunningTasks(List<String> taskIds) {
+        if (taskIds == null || taskIds.isEmpty()) {
+            return 0;
+        }
+        return taskMapper.selectCount(
+                new LambdaQueryWrapper<OciCreateTask>()
+                        .in(OciCreateTask::getId, taskIds)
+                        .eq(OciCreateTask::getStatus, TaskStatusEnum.RUNNING.getStatus())
+        );
+    }
+
     public Page<Map<String, Object>> listTasks(PageParams params) {
         Page<OciCreateTask> page = new Page<>(params.getCurrent(), params.getSize());
         LambdaQueryWrapper<OciCreateTask> wrapper = new LambdaQueryWrapper<>();

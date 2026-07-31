@@ -111,6 +111,27 @@ public class TaskController {
         return ResponseData.ok(count);
     }
 
+    @PostMapping("/batchDelete")
+    public ResponseData<?> batchDelete(@RequestBody Map<String, Object> params) {
+        List<String> ids = extractStringList(params, "taskIds");
+        int count = 0;
+        for (String id : ids) {
+            try {
+                taskSchedulerService.deleteTask(id);
+                count++;
+            } catch (Exception e) {
+                log.warn("batchDelete failed for taskId={}: {}", id, e.getMessage());
+            }
+        }
+        return ResponseData.ok(count);
+    }
+
+    @PostMapping("/batchRunningCount")
+    public ResponseData<?> batchRunningCount(@RequestBody Map<String, Object> params) {
+        List<String> ids = extractStringList(params, "taskIds");
+        return ResponseData.ok(taskSchedulerService.countRunningTasks(ids));
+    }
+
     private List<String> extractStringList(Map<String, Object> params, String key) {
         Object raw = params == null ? null : params.get(key);
         if (!(raw instanceof List<?> list) || list.isEmpty()) return Collections.emptyList();
