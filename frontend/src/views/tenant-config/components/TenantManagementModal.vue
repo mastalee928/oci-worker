@@ -929,8 +929,21 @@
                   <span v-else>—</span>
                 </a-descriptions-item>
                 <a-descriptions-item label="环境">{{ announcementDetail.environmentName || '—' }}</a-descriptions-item>
-                <a-descriptions-item label="创建时间">{{ formatUtcCnDate(announcementDetail.timeCreated) }}</a-descriptions-item>
-                <a-descriptions-item label="更新时间">{{ formatUtcCnDate(announcementDetail.timeUpdated) }}</a-descriptions-item>
+                <a-descriptions-item
+                  v-if="announcementDetail.timeOneValue && announcementDetail.timeOneType === 'ACTION_REQUIRED_BY'"
+                  label="需要采取行动时间"
+                >
+                  {{ formatAnnouncementDateTime(announcementDetail.timeOneValue) }}
+                  <a class="announcement-tz-toggle" title="点击切换 UTC / 北京时间" @click="toggleAnnouncementTz">（{{ announcementTzLabel }}）</a>
+                </a-descriptions-item>
+                <a-descriptions-item label="创建时间">
+                  {{ formatAnnouncementDateTime(announcementDetail.timeCreated) }}
+                  <a class="announcement-tz-toggle" title="点击切换 UTC / 北京时间" @click="toggleAnnouncementTz">（{{ announcementTzLabel }}）</a>
+                </a-descriptions-item>
+                <a-descriptions-item label="更新时间">
+                  {{ formatAnnouncementDateTime(announcementDetail.timeUpdated) }}
+                  <a class="announcement-tz-toggle" title="点击切换 UTC / 北京时间" @click="toggleAnnouncementTz">（{{ announcementTzLabel }}）</a>
+                </a-descriptions-item>
                 <a-descriptions-item v-if="announcementDetail.chainId" label="链 ID">
                   <span style="word-break: break-all; font-size: 12px">{{ announcementDetail.chainId }}</span>
                 </a-descriptions-item>
@@ -998,14 +1011,32 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { PlusOutlined, ReloadOutlined } from '@ant-design/icons-vue'
+import dayjs from 'dayjs'
+import utc from 'dayjs/plugin/utc'
 import { defineAppAsyncComponent } from '../../../utils/asyncComponent'
+
+dayjs.extend(utc)
 
 defineOptions({ name: 'TenantManagementModal' })
 
 const CompartmentManager = defineAppAsyncComponent(() => import('../../../components/CompartmentManager.vue'), { loading: 'none' })
 const TenantGovernancePanel = defineAppAsyncComponent(() => import('./TenantGovernancePanel.vue'), { loadingText: '正在载入管理功能', loadingDescription: '准备租户级管理模块' })
+
+// 公告详情时间显示时区：false=UTC（与 OCI 控制台一致），true=北京时间（UTC+8）
+const announcementTimesInCn = ref(false)
+const announcementTzLabel = computed(() => (announcementTimesInCn.value ? '北京时间' : 'UTC'))
+function toggleAnnouncementTz() {
+  announcementTimesInCn.value = !announcementTimesInCn.value
+}
+function formatAnnouncementDateTime(v: any): string {
+  if (!v) return '—'
+  const d = dayjs.utc(v)
+  if (!d.isValid()) return '—'
+  const t = announcementTimesInCn.value ? d.utcOffset(8 * 60) : d
+  return `${t.year()}年${t.month() + 1}月${t.date()}日 ${t.format('HH:mm:ss')}`
+}
 
 type Fn = (...args: any[]) => any
 
@@ -1574,5 +1605,10 @@ function handleTenantTabChange(key: string | number) {
 }
 .announcement-description :deep(.announcement-link:hover) {
   color: var(--primary-hover);
-}
+}
+.announcement-tz-toggle {
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
 </style>
