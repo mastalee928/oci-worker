@@ -728,14 +728,18 @@ public class TenantService {
                     for (Object inv : summaries) {
                         Map<String, Object> row = new LinkedHashMap<>();
                         row.put("invoiceId", tryInvoke(inv, "getInternalInvoiceId"));
-                        row.put("invoiceNo", tryInvoke(inv, "getInvoiceNo"));
-                        row.put("refNo", tryInvoke(inv, "getRefNo"));
-                        row.put("status", tryEnumValue(tryInvoke(inv, "getStatus")));
-                        row.put("type", tryEnumValue(tryInvoke(inv, "getType")));
-                        row.put("invoiceDate", tryToString(tryInvoke(inv, "getInvoiceDate")));
-                        row.put("dueDate", tryToString(tryInvoke(inv, "getDueDate")));
-                        row.put("totalAmount", tryInvoke(inv, "getTotalAmount"));
-                        row.put("currencyCode", tryInvoke(inv, "getCurrencyCode"));
+                        row.put("invoiceNo", tryInvokeAny(inv, "getInvoiceNo", "getInvoiceNumber"));
+                        row.put("refNo", tryInvokeAny(inv, "getRefNo", "getInvoiceRefNumber"));
+                        row.put("status", tryEnumValue(tryInvokeAny(inv, "getStatus", "getInvoiceStatus")));
+                        row.put("type", tryEnumValue(tryInvokeAny(inv, "getType", "getInvoiceType")));
+                        row.put("invoiceDate", tryIsoTime(tryInvokeAny(inv, "getInvoiceDate", "getTimeInvoice")));
+                        row.put("dueDate", tryIsoTime(tryInvokeAny(inv, "getDueDate", "getTimeInvoiceDue")));
+                        row.put("totalAmount", tryInvokeAny(inv, "getTotalAmount", "getInvoiceAmount"));
+                        Object currencyCode = tryInvoke(inv, "getCurrencyCode");
+                        if (currencyCode == null) {
+                            currencyCode = tryInvoke(tryInvoke(inv, "getCurrency"), "getCurrencyCode");
+                        }
+                        row.put("currencyCode", currencyCode);
                         items.add(row);
                     }
                 }
@@ -1011,6 +1015,23 @@ public class TenantService {
         } catch (Exception ignored) {
             return null;
         }
+    }
+
+    // 按顺序尝试多个 getter 名，取第一个非 null 结果（兼容不同 SDK 版本的命名差异）
+    private static Object tryInvokeAny(Object target, String... methods) {
+        for (String method : methods) {
+            Object v = tryInvoke(target, method);
+            if (v != null) return v;
+        }
+        return null;
+    }
+
+    // Date 统一转 ISO-8601（UTC）字符串，保证前端可读且按字符串排序正确
+    private static String tryIsoTime(Object v) {
+        if (v instanceof java.util.Date d) {
+            return java.time.format.DateTimeFormatter.ISO_INSTANT.format(d.toInstant());
+        }
+        return tryToString(v);
     }
 
     private static String tryToString(Object v) {
