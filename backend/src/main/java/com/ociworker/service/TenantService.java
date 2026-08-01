@@ -732,8 +732,8 @@ public class TenantService {
                         row.put("refNo", tryInvokeAny(inv, "getRefNo", "getInvoiceRefNumber"));
                         row.put("status", tryEnumValue(tryInvokeAny(inv, "getStatus", "getInvoiceStatus")));
                         row.put("type", tryEnumValue(tryInvokeAny(inv, "getType", "getInvoiceType")));
-                        row.put("invoiceDate", tryIsoTime(tryInvokeAny(inv, "getInvoiceDate", "getTimeInvoice")));
-                        row.put("dueDate", tryIsoTime(tryInvokeAny(inv, "getDueDate", "getTimeInvoiceDue")));
+                        row.put("invoiceDate", tryFormatTime(tryInvokeAny(inv, "getInvoiceDate", "getTimeInvoice")));
+                        row.put("dueDate", tryFormatTime(tryInvokeAny(inv, "getDueDate", "getTimeInvoiceDue")));
                         row.put("totalAmount", tryInvokeAny(inv, "getTotalAmount", "getInvoiceAmount"));
                         Object currencyCode = tryInvoke(inv, "getCurrencyCode");
                         if (currencyCode == null) {
@@ -1026,10 +1026,14 @@ public class TenantService {
         return null;
     }
 
-    // Date 统一转 ISO-8601（UTC）字符串，保证前端可读且按字符串排序正确
-    private static String tryIsoTime(Object v) {
+    // Date 统一转 "yyyy-MM-dd HH:mm:ss"（UTC）字符串，保证前端可读且按字符串排序正确
+    private static final java.time.format.DateTimeFormatter INVOICE_TIME_FORMAT =
+            java.time.format.DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss")
+                    .withZone(java.time.ZoneOffset.UTC);
+
+    private static String tryFormatTime(Object v) {
         if (v instanceof java.util.Date d) {
-            return java.time.format.DateTimeFormatter.ISO_INSTANT.format(d.toInstant());
+            return INVOICE_TIME_FORMAT.format(d.toInstant());
         }
         return tryToString(v);
     }
