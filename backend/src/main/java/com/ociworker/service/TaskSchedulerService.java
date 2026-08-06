@@ -902,19 +902,24 @@ public class TaskSchedulerService implements SmartLifecycle {
         String region = "";
         String arch = "";
         try {
+            // head 是调用时的快照，可能被 updateTask/stopTask 修改；重新从 DB 读取确保使用最新配置
+            OciCreateTask fresh = taskMapper.selectById(taskId);
+            if (fresh == null || !TaskStatusEnum.RUNNING.getStatus().equals(fresh.getStatus())) {
+                return AttemptOutcome.TERMINAL;
+            }
             // 多进程/多实例、或本机并发时，以库里的 success_count 为准，达目标则不再开新实例
-            int headTarget = head.getCreateNumbers() != null && head.getCreateNumbers() > 0
-                    ? head.getCreateNumbers() : 1;
-            int headSc = head.getSuccessCount() != null ? head.getSuccessCount() : 0;
+            int headTarget = fresh.getCreateNumbers() != null && fresh.getCreateNumbers() > 0
+                    ? fresh.getCreateNumbers() : 1;
+            int headSc = fresh.getSuccessCount() != null ? fresh.getSuccessCount() : 0;
             if (headSc >= headTarget) {
                 if (!isSuperseded(taskId, handle)
-                        && TaskStatusEnum.RUNNING.getStatus().equals(head.getStatus())) {
+                        && TaskStatusEnum.RUNNING.getStatus().equals(fresh.getStatus())) {
                     completeTask(taskId, TaskStatusEnum.COMPLETED);
                 }
                 return AttemptOutcome.TERMINAL;
             }
-            Double storedOcpus = head.getOcpus();
-            Double storedMemory = head.getMemory();
+            Double storedOcpus = fresh.getOcpus();
+            Double storedMemory = fresh.getMemory();
             double[] launchNorm = ShapeFlexLimitsUtil.normalizeAndLogIfAdjusted(
                     head.getArchitecture(), storedOcpus, storedMemory, "执行开机任务");
             if (!Objects.equals(storedOcpus, launchNorm[0])
@@ -934,8 +939,8 @@ public class TaskSchedulerService implements SmartLifecycle {
             }
             dto.setOcpus(launchNorm[0]);
             dto.setMemory(launchNorm[1]);
-            dto.setDisk(head.getDisk());
-            dto.setVpusPerGB(BootVolumeVpusUtil.normalize(head.getVpusPerGB()));
+            dto.setDisk(fresh.getDisk());
+            dto.setVpusPerGB(BootVolumeVpusUtil.normalize(fresh.getVpusPerGB()));
             user = dto.getUsername();
             region = dto.getOciCfg().getRegion();
             arch = dto.getArchitecture();
@@ -957,7 +962,8 @@ public class TaskSchedulerService implements SmartLifecycle {
                 result = client.createInstanceData();
             }
 
-            if (isSuperseded(taskId, handle) && !result.isSuccess()) {
+            // 任务已被替换/取消时，无论成功与否都应立即终止，防止修改规格后重复创建
+            if (isSuperseded(taskId, handle)) {
                 return AttemptOutcome.TERMINAL;
             }
 
