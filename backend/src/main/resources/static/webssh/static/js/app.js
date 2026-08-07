@@ -103,7 +103,7 @@ function appendSshConnection(target, session) {
 // WebGL is a rendering enhancement for ordinary SSH only. Serial/UEFI sessions
 // deliberately keep the existing renderer and protocol unchanged.
 function enableWebglRenderer(session) {
-    if (!session || session.consoleMode || !session.term || session.webglAddon) return false;
+    if (!session || session.consoleMode || session.bastionMode || !session.term || session.webglAddon) return false;
     if (!window.WebglAddon || typeof window.WebglAddon.WebglAddon !== 'function') {
         session.webglState = 'unavailable';
         return false;
@@ -356,7 +356,7 @@ function switchTab(idx) {
     }
     var sftpPanel = document.getElementById('sftpPanel');
     if (sftpPanel.classList.contains('open')) {
-        if (s.consoleMode) {
+        if (s.consoleMode || s.bastionMode) {
             sftpPanel.classList.remove('open');
         } else {
             var sftpPath = s.sftpPath || '/';
@@ -410,7 +410,7 @@ function cancelSysInfoRequest(session) {
 }
 
 function stopSshBackgroundTasks(session) {
-    if (!session || session.consoleMode) return;
+    if (!session || session.consoleMode || session.bastionMode) return;
     if (session.heartbeat) {
         clearInterval(session.heartbeat);
         session.heartbeat = null;
@@ -423,7 +423,7 @@ function stopSshBackgroundTasks(session) {
 }
 
 function cancelSftpRequest(session) {
-    if (!session || session.consoleMode) return;
+    if (!session || session.consoleMode || session.bastionMode) return;
     session.sftpRequestToken = (session.sftpRequestToken || 0) + 1;
     var controller = session.sftpAbortController;
     session.sftpAbortController = null;
@@ -433,7 +433,7 @@ function cancelSftpRequest(session) {
 }
 
 function connectSession(session) {
-    if (!session || session.consoleMode) return;
+    if (!session || session.consoleMode || session.bastionMode) return;
     stopSshBackgroundTasks(session);
     var previousWs = session.ws;
     var generation = (session.connectionGeneration || 0) + 1;
@@ -537,6 +537,10 @@ function closeTab(idx) {
     if (s.consoleMode) {
         if (s.ws) s.ws.close();
         if (s.heartbeat) clearInterval(s.heartbeat);
+    } else if (s.bastionMode) {
+        s.connectionGeneration = (s.connectionGeneration || 0) + 1;
+        if (s.ws) s.ws.close();
+        if (s.heartbeat) { clearInterval(s.heartbeat); s.heartbeat = null; }
     } else {
         s.connectionGeneration = (s.connectionGeneration || 0) + 1;
         var sshWs = s.ws;
@@ -575,6 +579,10 @@ function closeActiveTab() { if (activeIdx >= 0) closeTab(activeIdx); }
 function reconnectTab() {
     if (activeIdx < 0 || !sessions[activeIdx]) return;
     var s = sessions[activeIdx];
+    if (s.bastionMode) {
+        showToast('堡垒机会话为一次性连接，请从实例菜单重新发起', 'info');
+        return;
+    }
     s.sshSessionId = null;
     if (s.consoleMode) {
         if (s.ws) s.ws.close();
@@ -615,7 +623,7 @@ function addNewTab() {
 
 // ==================== System Info ====================
 function fetchSysInfoFor(session) {
-    if (!session || session.consoleMode || session.sysInfoInFlight
+    if (!session || session.consoleMode || session.bastionMode || session.sysInfoInFlight
         || sessions[activeIdx] !== session || document.hidden
         || !document.getElementById('enableSysInfo').checked
         || (!session.sshInfo && !session.sshSessionId)) return;
@@ -701,6 +709,10 @@ function toggleSftp() {
     var session = sessions[activeIdx];
     if (session.consoleMode) {
         showToast('串行控制台不支持 SFTP', 'info');
+        return;
+    }
+    if (session.bastionMode) {
+        showToast('堡垒机 SSH 暂不支持 SFTP', 'info');
         return;
     }
     var wasOpen = p.classList.contains('open');
@@ -1055,7 +1067,7 @@ function joinSftpPath(path, name) {
 function sftpLoad(path) {
     if (activeIdx < 0 || !sessions[activeIdx]) return;
     var session = sessions[activeIdx];
-    if (session.consoleMode) return;
+    if (session.consoleMode || session.bastionMode) return;
     path = normalizeSftpPath(path);
     cancelSftpRequest(session);
     var requestToken = (session.sftpRequestToken || 0) + 1;
@@ -1151,7 +1163,7 @@ function sftpUpload() {
     var input = document.getElementById('sftpUploadInput');
     if (!input.files.length || activeIdx < 0) return;
     var session = sessions[activeIdx];
-    if (!session || session.consoleMode) return;
+    if (!session || session.consoleMode || session.bastionMode) return;
     var uploadPath = session.sftpPath || '/';
     var uploads = Array.from(input.files).map(function (f) {
         var fd = new FormData();
@@ -1829,6 +1841,155 @@ function initSettings() {
     }
 }
 
+function parseBastionParams() {
+    var hash = window.location.hash;
+    if (!hash || hash.indexOf('bastion=') === -1) return null;
+    try {
+        var params = new URLSearchParams(hash.replace(/^#/, ''));
+        if (params.get('bastion') !== '1') return null;
+        var token = (params.get('token') || '').trim();
+        if (!/^[A-Za-z0-9_-]{20,128}$/.test(token)) return null;
+        return {
+            mode: 'bastion',
+            token: token,
+            label: params.get('label') || 'OCI Bastion SSH',
+            targetPrivateIp: params.get('targetPrivateIp') || '',
+            targetUsername: params.get('targetUsername') || 'root',
+            region: params.get('region') || ''
+        };
+    } catch (e) {
+        return null;
+    }
+}
+
+function createBastionSession(label, username, token) {
+    var session = createSession(label, 22, username || 'root', '');
+    session.bastionMode = true;
+    session.bastionToken = token;
+    disableWebglRenderer(session);
+    return session;
+}
+
+var BASTION_CONTROL_PREFIX = '\u001eociworker-bastion:';
+
+function bastionControl(type, fields) {
+    var payload = fields || {};
+    payload.type = type;
+    return BASTION_CONTROL_PREFIX + JSON.stringify(payload);
+}
+
+function parseBastionControl(value) {
+    if (typeof value !== 'string' || value.indexOf(BASTION_CONTROL_PREFIX) !== 0) return null;
+    try {
+        var parsed = JSON.parse(value.slice(BASTION_CONTROL_PREFIX.length));
+        return parsed && typeof parsed === 'object' ? parsed : null;
+    } catch (e) {
+        return null;
+    }
+}
+
+function connectBastionSession(session) {
+    if (!session || !session.bastionMode) return;
+    var previousWs = session.ws;
+    var generation = (session.connectionGeneration || 0) + 1;
+    session.connectionGeneration = generation;
+    if (previousWs && previousWs.readyState < 2) {
+        try { previousWs.close(); } catch (e) { }
+    }
+    if (session._resizeHandler) {
+        removeEventListener('resize', session._resizeHandler);
+        session._resizeHandler = null;
+    }
+    if (session._dataDisposable) {
+        try { session._dataDisposable.dispose(); } catch (e) { }
+        session._dataDisposable = null;
+    }
+    var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+    var wsUrl = withWebSshAuth(proto + '//' + location.host
+        + '/webssh-api/bastion-term?cols=' + session.term.cols + '&rows=' + session.term.rows);
+    var ws = new WebSocket(wsUrl);
+    session.ws = ws;
+    var got = false;
+    function isCurrentConnection() {
+        return session.ws === ws && session.connectionGeneration === generation;
+    }
+
+    ws.onopen = function () {
+        if (!isCurrentConnection()) {
+            try { ws.close(); } catch (e) { }
+            return;
+        }
+        ws.send(session.bastionToken || '');
+    };
+    ws.onmessage = function (event) {
+        if (!isCurrentConnection()) return;
+        var control = parseBastionControl(event.data);
+        if (control) {
+            if (control.type !== 'ready' || got) return;
+            got = true;
+            showToast(session.hostname + ' 已连接', 'success');
+            setupAutoCopy(session);
+            session.heartbeat = setInterval(function () {
+                if (ws.readyState === 1) ws.send(bastionControl('ping'));
+            }, 30000);
+            return;
+        }
+        if (!got) {
+            session.term.write(event.data);
+            return;
+        }
+        if (event.data) session.term.write(event.data);
+    };
+    ws.onerror = function () {
+        if (isCurrentConnection()) showToast(session.hostname + ' 连接失败', 'error');
+    };
+    ws.onclose = function () {
+        if (!isCurrentConnection()) return;
+        if (session.heartbeat) {
+            clearInterval(session.heartbeat);
+            session.heartbeat = null;
+        }
+        if (!got) showToast(session.hostname + ' 堡垒机连接失败', 'error');
+    };
+
+    session._dataDisposable = session.term.onData(function (data) {
+        if (got && isCurrentConnection() && ws.readyState === 1) ws.send(data);
+    });
+    var resizeHandler = function () {
+        try { session.fitAddon.fit(); } catch (e) { }
+        if (isCurrentConnection() && ws.readyState === 1 && session.term) {
+            ws.send(bastionControl('resize', {
+                rows: session.term.rows,
+                cols: session.term.cols
+            }));
+        }
+    };
+    addEventListener('resize', resizeHandler);
+    session._resizeHandler = resizeHandler;
+}
+
+function tryBastionConnect() {
+    var info = parseBastionParams();
+    if (!info || info.mode !== 'bastion') return false;
+    showConsoleInstanceActions(null);
+    try {
+        var session = createBastionSession(info.label, info.targetUsername, info.token);
+        showView('terminalView');
+        switchTab(sessions.length - 1);
+        history.replaceState(null, '', window.location.pathname + window.location.search);
+        setTimeout(function () {
+            try { session.fitAddon.fit(); } catch (e) { }
+            connectBastionSession(session);
+            setStatus('', '');
+        }, 300);
+        return true;
+    } catch (e) {
+        console.error('tryBastionConnect failed', e);
+        showToast('堡垒机连接初始化失败: ' + (e && e.message ? e.message : e), 'error');
+        return false;
+    }
+}
+
 function parseConsoleParams() {
     var hash = window.location.hash;
     if (!hash || hash.indexOf('console=') === -1) return null;
@@ -2106,7 +2267,7 @@ function bootConsoleConnect() {
 
 // ==================== Init ====================
 initTheme();
-bootConsoleConnect();
+if (!tryBastionConnect()) bootConsoleConnect();
 try {
     initSettings();
     initSysInterval();

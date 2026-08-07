@@ -175,6 +175,18 @@
       :on-confirm="handleEditInstance"
     />
 
+    <BastionSshConnectModal
+      v-if="bastionModalMounted"
+      v-model:open="bastionVisible"
+      :tenant="bastionTenant"
+      :instance="bastionInstance"
+      :region="bastionRegion"
+      :credentials="bastionCredentials"
+      :credential-loading="bastionCredentialLoading"
+      :connecting="bastionConnecting"
+      @connect="connectBastion"
+    />
+
     <ForceA2ConfirmModal
       v-if="forceA2ModalVisible"
       v-model:open="forceA2ModalVisible"
@@ -301,6 +313,7 @@ const ForceA2ConfirmModal = defineAppAsyncComponent(() => import('../components/
 const TerminateVerifyModal = defineAppAsyncComponent(() => import('../components/instance/TerminateVerifyModal.vue'), { loading: 'none' })
 const InstanceDetailDrawerShell = defineAppAsyncComponent(() => import('../components/instance/InstanceDetailDrawerShell.vue'), { loading: 'none' })
 const InstanceEditModal = defineAppAsyncComponent(() => import('../components/instance/InstanceEditModal.vue'), { loading: 'none' })
+const BastionSshConnectModal = defineAppAsyncComponent(() => import('../components/instance/BastionSshConnectModal.vue'), { loading: 'none' })
 const FaultDomainEditModule = defineAppAsyncComponent(() => import('../components/instance/FaultDomainEditModule.vue'), { loading: 'none' })
 const InstanceDrawerListPanel = defineAppAsyncComponent(() => import('../components/instance/InstanceDrawerListPanel.vue'), {
   loadingVariant: 'table',
@@ -324,6 +337,7 @@ import { useQuickTask } from '../composables/useQuickTask'
 import { useForceA2ToA1 } from '../composables/useForceA2ToA1'
 import { useInstanceActions } from '../composables/useInstanceActions'
 import { useInstanceConsole } from '../composables/useInstanceConsole'
+import { useBastionSshConnect } from '../composables/useBastionSshConnect'
 import { useInstanceDetailContext } from '../composables/useInstanceDetailContext'
 import { useTerminateInstanceVerify } from '../composables/useTerminateInstanceVerify'
 import {
@@ -1195,6 +1209,19 @@ const {
   resolveRegionParam: instanceDetailRegionParam,
 })
 
+const {
+  visible: bastionVisible,
+  tenant: bastionTenant,
+  instance: bastionInstance,
+  region: bastionRegion,
+  credentials: bastionCredentials,
+  credentialLoading: bastionCredentialLoading,
+  connecting: bastionConnecting,
+  open: openBastionSsh,
+  close: closeBastionSsh,
+  connect: connectBastion,
+} = useBastionSshConnect()
+
 const tenantVcnPanelRef = ref<any>(null)
 
 const vcnManagerOpen = ref(false)
@@ -1206,6 +1233,7 @@ const vcnManagerTargetResourceId = ref('')
 
 // 仅在浮层进入打开流程后加载对应异步代码块；组件自身的 open watcher 会负责首次打开时初始化。
 const detailDrawerMounted = useLazyOverlayMount(drawerVisible)
+const bastionModalMounted = useLazyOverlayMount(bastionVisible)
 const quickTaskMounted = useLazyOverlayMount(quickTaskVisible)
 const tenantVcnPanelMounted = useLazyOverlayMount(vcnVisible)
 const vcnManagerMounted = useLazyOverlayMount(vcnManagerOpen)
@@ -1603,6 +1631,13 @@ async function handleAddInstancePublicIp(record: any) {
 }
 
 function handleInstanceListMenuClick(payload: { record: any; key: string }) {
+  if (payload.key === 'SSH_CONNECT') {
+    const td = activeTenantData.value
+    if (td?.tenant && payload.record) {
+      openBastionSsh(td.tenant, payload.record, instancePanelRegion.value)
+    }
+    return
+  }
   onInstanceMenuClick(payload.record, payload.key)
 }
 
@@ -1687,6 +1722,7 @@ const instanceManagerModalOverlayActive = computed(() =>
   faultDomainFlowVisible.value ||
   forceA2ModalVisible.value ||
   verifyModalVisible.value ||
+  bastionVisible.value ||
   instanceManagerConfirmOverlayActive.value,
 )
 
@@ -1784,6 +1820,7 @@ onUnmounted(() => {
   void callDetailDrawerShell('stopShapeSilently', [], 0)
   pendingTimers.forEach((t: any) => clearTimeout(t))
   pendingTimers.clear()
+  closeBastionSsh(true)
 })
 </script>
 

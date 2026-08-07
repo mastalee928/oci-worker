@@ -23,6 +23,18 @@
 - **加密备份恢复**：数据迁移
 - **登录安全**：首次使用自定义管理员账户，Token 24 小时过期，支持在线修改密码，Telegram 验证码保护
 
+## OCI Bastion SSH
+
+实例操作菜单中的「SSH 连接」使用独立的 `com.ociworker.bastion` 模块，不会复用串行控制台通道。
+
+首次使用前必须为运行 OCI Worker 的出口地址配置 Bastion 客户端 CIDR，建议在环境变量中设置：
+
+```bash
+OCI_BASTION_CLIENT_CIDR_ALLOW_LIST=203.0.113.10/32
+```
+
+不要配置 `0.0.0.0/0`。公钥登录会创建 OCI Managed SSH 会话，并使用同一把私钥完成两跳认证；密码登录会自动使用 Port Forwarding 会话，再以实例密码登录目标机。目标实例必须处于 `RUNNING`，并允许 TCP 22 入站；Managed SSH 还要求 Oracle Cloud Agent 的 Bastion 插件已启用。相关并发、超时和安全校验均可在 `application.yml` 的 `oci.bastion` 下调整。
+
 ## 技术栈
 
 - **后端**：Spring Boot 3.5 + JDK 21 (虚拟线程) + MyBatis-Plus + MySQL 8.0

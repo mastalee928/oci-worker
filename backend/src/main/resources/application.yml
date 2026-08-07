@@ -12,6 +12,30 @@ webssh:
   send-time-limit-ms: 10000
   send-buffer-bytes: 1048576
   max-upload-size: 200MB
+
+# OCI Bastion is an independent SSH module. The CIDR allow-list is deliberately
+# empty by default: set it to the public egress CIDR of this worker (never 0.0.0.0/0).
+oci:
+  bastion:
+    client-cidr-block-allow-list: ${OCI_BASTION_CLIENT_CIDR_ALLOW_LIST:}
+    session-ttl-seconds: ${OCI_BASTION_SESSION_TTL_SECONDS:10800}
+    prepare-lease-seconds: ${OCI_BASTION_PREPARE_LEASE_SECONDS:300}
+    operation-timeout-seconds: ${OCI_BASTION_OPERATION_TIMEOUT_SECONDS:45}
+    prepare-timeout-seconds: ${OCI_BASTION_PREPARE_TIMEOUT_SECONDS:150}
+    max-concurrent-prepares: ${OCI_BASTION_MAX_CONCURRENT_PREPARES:8}
+    max-concurrent-prepares-per-account: ${OCI_BASTION_MAX_CONCURRENT_PREPARES_PER_ACCOUNT:2}
+    max-pending-leases: ${OCI_BASTION_MAX_PENDING_LEASES:64}
+    max-pending-leases-per-account: ${OCI_BASTION_MAX_PENDING_LEASES_PER_ACCOUNT:4}
+    require-cloud-agent: ${OCI_BASTION_REQUIRE_CLOUD_AGENT:true}
+    cloud-agent-plugin-name: ${OCI_BASTION_CLOUD_AGENT_PLUGIN_NAME:Bastion}
+    validate-target-ingress: ${OCI_BASTION_VALIDATE_TARGET_INGRESS:true}
+    websocket-timeout-minutes: ${OCI_BASTION_WEBSOCKET_TIMEOUT_MINUTES:120}
+    first-message-timeout-seconds: ${OCI_BASTION_FIRST_MESSAGE_TIMEOUT_SECONDS:20}
+    max-concurrent-sessions: ${OCI_BASTION_MAX_CONCURRENT_SESSIONS:32}
+    max-input-message-size: ${OCI_BASTION_MAX_INPUT_MESSAGE_SIZE:65536}
+    send-time-limit-ms: ${OCI_BASTION_SEND_TIME_LIMIT_MS:10000}
+    send-buffer-bytes: ${OCI_BASTION_SEND_BUFFER_BYTES:1048576}
+
 ociworker:
   openaiApi:
     # 0 = 不启用第二端口；>0 且与 server.port 不同时，Tomcat 额外监听该口供 /v1 等 OpenAI 路由
