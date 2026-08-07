@@ -109,6 +109,7 @@ declare module 'vue' {
     RouterView: typeof import('vue-router')['RouterView']
     RouteTableRulesManager: typeof import('./components/vcn/RouteTableRulesManager.vue')['default']
     ShapeSeriesPicker: typeof import('./components/ShapeSeriesPicker.vue')['default']
+    SshConnectionMethodModal: typeof import('./components/instance/SshConnectionMethodModal.vue')['default']
     SystemSettingsTabsFrame: typeof import('./components/settings/SystemSettingsTabsFrame.vue')['default']
     TaskLoginSelector: typeof import('./components/TaskLoginSelector.vue')['default']
     TenantVcnPanel: typeof import('./components/instance/TenantVcnPanel.vue')['default']

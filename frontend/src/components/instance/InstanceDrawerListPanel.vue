@@ -65,10 +65,6 @@
                   </a-button>
                   <template #overlay>
                     <a-menu class="instance-action-menu" @click="(info: any) => emitMenuClick(record, info.key)">
-                      <a-menu-item key="SSH_CONNECT">
-                        <i class="ri-terminal-box-line" style="color: #13c2c2; margin-right: 8px"></i>SSH 连接
-                      </a-menu-item>
-                      <a-menu-divider />
                       <a-menu-item key="START">
                         <i class="ri-play-fill" style="color: #52c41a; margin-right: 8px"></i>启动
                       </a-menu-item>
@@ -84,6 +80,9 @@
                       <a-menu-divider />
                       <a-menu-item key="CHANGE_IP">
                         <i class="ri-global-line" style="color: #1677ff; margin-right: 8px"></i>更换IP
+                      </a-menu-item>
+                      <a-menu-item key="SSH_CONNECT">
+                        <i class="ri-terminal-box-line" style="color: #13c2c2; margin-right: 8px"></i>SSH 连接
                       </a-menu-item>
                       <a-menu-divider />
                       <a-menu-item key="TERMINATE" danger>
@@ -136,10 +135,6 @@
                 </a-button>
                 <template #overlay>
                   <a-menu class="instance-action-menu" @click="(info: any) => emitMenuClick(record, info.key)">
-                    <a-menu-item key="SSH_CONNECT">
-                      <i class="ri-terminal-box-line" style="color: #13c2c2; margin-right: 8px"></i>SSH 连接
-                    </a-menu-item>
-                    <a-menu-divider />
                     <a-menu-item key="START">
                       <i class="ri-play-fill" style="color: #52c41a; margin-right: 8px"></i>启动
                     </a-menu-item>
@@ -155,6 +150,9 @@
                     <a-menu-divider />
                     <a-menu-item key="CHANGE_IP">
                       <i class="ri-global-line" style="color: #1677ff; margin-right: 8px"></i>更换IP
+                    </a-menu-item>
+                    <a-menu-item key="SSH_CONNECT">
+                      <i class="ri-terminal-box-line" style="color: #13c2c2; margin-right: 8px"></i>SSH 连接
                     </a-menu-item>
                     <a-menu-divider />
                     <a-menu-item key="TERMINATE" danger>
@@ -210,10 +208,6 @@
                 </a-button>
                 <template #overlay>
                   <a-menu class="instance-action-menu" @click="(info: any) => emitMenuClick(record, info.key)">
-                    <a-menu-item key="SSH_CONNECT">
-                      <i class="ri-terminal-box-line" style="color: #13c2c2; margin-right: 8px"></i>SSH 连接
-                    </a-menu-item>
-                    <a-menu-divider />
                     <a-menu-item key="START">
                       <i class="ri-play-fill" style="color: #52c41a; margin-right: 8px"></i>启动
                     </a-menu-item>
@@ -229,6 +223,9 @@
                     <a-menu-divider />
                     <a-menu-item key="CHANGE_IP">
                       <i class="ri-global-line" style="color: #1677ff; margin-right: 8px"></i>更换IP
+                    </a-menu-item>
+                    <a-menu-item key="SSH_CONNECT">
+                      <i class="ri-terminal-box-line" style="color: #13c2c2; margin-right: 8px"></i>SSH 连接
                     </a-menu-item>
                     <a-menu-divider />
                     <a-menu-item key="TERMINATE" danger>

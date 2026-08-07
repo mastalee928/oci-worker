@@ -1,4 +1,5 @@
 import request from '../utils/request'
+import type { OciRequestConfig } from '../utils/request'
 
 export type BastionLoginMode = 'PASSWORD' | 'SSH_PUBLIC_KEY'
 
@@ -41,5 +42,8 @@ export function getBastionCredentialAvailability(data: { id: string; instanceId:
 export function prepareBastionSession(data: BastionPrepareRequest) {
   return request.post<BastionPrepareResponse>('/oci/bastion/prepare', data, {
     timeout: BASTION_PREPARE_TIMEOUT_MS,
-  })
+    // The composable renders one actionable error, including configuration guidance.
+    skipBusinessMessage: true,
+    skipErrorMessage: true,
+  } as OciRequestConfig)
 }

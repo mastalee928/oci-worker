@@ -981,7 +981,9 @@ public class BastionService {
     private static List<String> parseAllowList(String raw) {
         if (!hasText(raw)) {
             throw new OciException(422,
-                    "oci.bastion.client-cidr-block-allow-list must be configured explicitly");
+                    "OCI Bastion client CIDR allow-list is not configured; set "
+                            + "OCI_BASTION_CLIENT_CIDR_ALLOW_LIST to this worker's public egress CIDR "
+                            + "(for example 203.0.113.10/32), never 0.0.0.0/0");
         }
         List<String> values = new ArrayList<>();
         for (String part : raw.split(",")) {
@@ -995,7 +997,8 @@ public class BastionService {
         }
         if (values.isEmpty()) {
             throw new OciException(422,
-                    "oci.bastion.client-cidr-block-allow-list must contain at least one CIDR");
+                    "OCI Bastion client CIDR allow-list must contain at least one CIDR; set "
+                            + "OCI_BASTION_CLIENT_CIDR_ALLOW_LIST explicitly");
         }
         return List.copyOf(values);
     }

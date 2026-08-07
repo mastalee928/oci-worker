@@ -1990,6 +1990,42 @@ function tryBastionConnect() {
     }
 }
 
+// Direct SSH entry points only pre-fill the normal WebSSH form. Credentials
+// stay in the existing login form and are never placed in the URL fragment.
+function parseDirectParams() {
+    var hash = window.location.hash;
+    if (!hash || hash.indexOf('direct=') === -1) return null;
+    try {
+        var params = new URLSearchParams(hash.replace(/^#/, ''));
+        if (params.get('direct') !== '1') return null;
+        var hostname = (params.get('hostname') || '').trim();
+        var username = (params.get('username') || 'root').trim() || 'root';
+        if (!hostname || hostname.length > 253 || /[\s\u0000-\u001f\u007f]/.test(hostname)
+            || !/^[A-Za-z0-9.:-]+$/.test(hostname)) return null;
+        if (!username || username.length > 64 || /[\s\u0000-\u001f\u007f]/.test(username)) return null;
+        return {
+            hostname: hostname,
+            username: username,
+            label: params.get('label') || 'SSH 直连'
+        };
+    } catch (e) {
+        return null;
+    }
+}
+
+function tryDirectPrefill() {
+    var info = parseDirectParams();
+    if (!info) return false;
+    var hostname = document.getElementById('hostname');
+    var username = document.getElementById('username');
+    if (!hostname || !username) return false;
+    hostname.value = info.hostname;
+    username.value = info.username;
+    history.replaceState(null, '', window.location.pathname + window.location.search);
+    setStatus('', '请输入 SSH 凭据后连接');
+    return true;
+}
+
 function parseConsoleParams() {
     var hash = window.location.hash;
     if (!hash || hash.indexOf('console=') === -1) return null;
@@ -2267,7 +2303,9 @@ function bootConsoleConnect() {
 
 // ==================== Init ====================
 initTheme();
-if (!tryBastionConnect()) bootConsoleConnect();
+var bootstrapped = tryBastionConnect();
+if (!bootstrapped) bootstrapped = tryConsoleConnect();
+if (!bootstrapped) tryDirectPrefill();
 try {
     initSettings();
     initSysInterval();

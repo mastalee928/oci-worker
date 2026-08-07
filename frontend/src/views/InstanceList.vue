@@ -175,6 +175,14 @@
       :on-confirm="handleEditInstance"
     />
 
+    <SshConnectionMethodModal
+      v-if="sshMethodModalMounted"
+      v-model:open="sshMethodVisible"
+      :instance="sshMethodInstance"
+      :region="sshMethodRegion"
+      @select="handleSshMethodSelect"
+    />
+
     <BastionSshConnectModal
       v-if="bastionModalMounted"
       v-model:open="bastionVisible"
@@ -313,6 +321,7 @@ const ForceA2ConfirmModal = defineAppAsyncComponent(() => import('../components/
 const TerminateVerifyModal = defineAppAsyncComponent(() => import('../components/instance/TerminateVerifyModal.vue'), { loading: 'none' })
 const InstanceDetailDrawerShell = defineAppAsyncComponent(() => import('../components/instance/InstanceDetailDrawerShell.vue'), { loading: 'none' })
 const InstanceEditModal = defineAppAsyncComponent(() => import('../components/instance/InstanceEditModal.vue'), { loading: 'none' })
+const SshConnectionMethodModal = defineAppAsyncComponent(() => import('../components/instance/SshConnectionMethodModal.vue'), { loading: 'none' })
 const BastionSshConnectModal = defineAppAsyncComponent(() => import('../components/instance/BastionSshConnectModal.vue'), { loading: 'none' })
 const FaultDomainEditModule = defineAppAsyncComponent(() => import('../components/instance/FaultDomainEditModule.vue'), { loading: 'none' })
 const InstanceDrawerListPanel = defineAppAsyncComponent(() => import('../components/instance/InstanceDrawerListPanel.vue'), {
@@ -352,6 +361,7 @@ import {
   tenantPlanTagColor,
 } from '../utils/tenantPlan'
 import { appQueryCache, createListSignature } from '../utils/queryCache'
+import { getPanelToken, setWebSshTokenCookie } from '../utils/session'
 
 const OVERLAY_UNMOUNT_DELAY_MS = 350
 
@@ -1222,6 +1232,61 @@ const {
   connect: connectBastion,
 } = useBastionSshConnect()
 
+const sshMethodVisible = ref(false)
+const sshMethodTenant = ref<any | null>(null)
+const sshMethodInstance = ref<any | null>(null)
+const sshMethodRegion = ref('')
+
+function openSshConnectionPicker(recordTenant: any, recordInstance: any, regionValue?: string) {
+  const tenantId = String(recordTenant?.id || '').trim()
+  const instanceId = String(recordInstance?.instanceId || '').trim()
+  if (!tenantId || !instanceId) {
+    message.error('实例信息不完整')
+    return
+  }
+  sshMethodTenant.value = recordTenant
+  sshMethodInstance.value = recordInstance
+  sshMethodRegion.value = String(
+    regionValue || recordInstance?.region || recordTenant?.ociRegion || '',
+  ).trim()
+  sshMethodVisible.value = true
+}
+
+function openDirectWebSsh() {
+  const instance = sshMethodInstance.value
+  const publicIp = String(instance?.publicIp || '').trim()
+  if (!publicIp) {
+    message.error('该实例没有公网 IP，无法使用 WebSSH 直连')
+    return
+  }
+  const popup = window.open('', '_blank')
+  if (!popup) {
+    message.error('浏览器阻止了终端窗口，请允许本站打开新窗口后重试')
+    return
+  }
+  try { popup.opener = null } catch { /* browser may make opener read-only */ }
+  const params = new URLSearchParams({
+    direct: '1',
+    hostname: publicIp,
+    username: 'root',
+    label: String(instance?.displayName || instance?.name || instance?.instanceId || 'SSH 直连'),
+  })
+  setWebSshTokenCookie(getPanelToken())
+  popup.location.replace(`/webssh/index.html#${params.toString()}`)
+}
+
+function handleSshMethodSelect(mode: 'DIRECT' | 'BASTION') {
+  const tenant = sshMethodTenant.value
+  const instance = sshMethodInstance.value
+  const region = sshMethodRegion.value
+  if (!tenant || !instance) return
+  if (mode === 'DIRECT') {
+    openDirectWebSsh()
+    return
+  }
+  openBastionSsh(tenant, instance, region)
+}
+
 const tenantVcnPanelRef = ref<any>(null)
 
 const vcnManagerOpen = ref(false)
@@ -1233,6 +1298,7 @@ const vcnManagerTargetResourceId = ref('')
 
 // 仅在浮层进入打开流程后加载对应异步代码块；组件自身的 open watcher 会负责首次打开时初始化。
 const detailDrawerMounted = useLazyOverlayMount(drawerVisible)
+const sshMethodModalMounted = useLazyOverlayMount(sshMethodVisible)
 const bastionModalMounted = useLazyOverlayMount(bastionVisible)
 const quickTaskMounted = useLazyOverlayMount(quickTaskVisible)
 const tenantVcnPanelMounted = useLazyOverlayMount(vcnVisible)
@@ -1634,7 +1700,7 @@ function handleInstanceListMenuClick(payload: { record: any; key: string }) {
   if (payload.key === 'SSH_CONNECT') {
     const td = activeTenantData.value
     if (td?.tenant && payload.record) {
-      openBastionSsh(td.tenant, payload.record, instancePanelRegion.value)
+      openSshConnectionPicker(td.tenant, payload.record, instancePanelRegion.value)
     }
     return
   }
@@ -1722,6 +1788,7 @@ const instanceManagerModalOverlayActive = computed(() =>
   faultDomainFlowVisible.value ||
   forceA2ModalVisible.value ||
   verifyModalVisible.value ||
+  sshMethodVisible.value ||
   bastionVisible.value ||
   instanceManagerConfirmOverlayActive.value,
 )
@@ -1820,6 +1887,7 @@ onUnmounted(() => {
   void callDetailDrawerShell('stopShapeSilently', [], 0)
   pendingTimers.forEach((t: any) => clearTimeout(t))
   pendingTimers.clear()
+  sshMethodVisible.value = false
   closeBastionSsh(true)
 })
 </script>
