@@ -189,6 +189,17 @@
           </template>
         </a-table>
       </a-tab-pane>
+
+      <a-tab-pane key="nlb" tab="负载均衡器">
+        <NetworkLoadBalancerPanel
+          :open="open"
+          :user-id="props.userId"
+          :region="props.ociRegion"
+          :compartment-id="String(props.vcn?.compartmentId || '')"
+          :vcn="props.vcn"
+          @changed="emit('changed')"
+        />
+      </a-tab-pane>
     </a-tabs>
 
     <!-- Create Subnet -->
@@ -435,6 +446,7 @@
 import { ref, reactive, watch, computed, onUnmounted } from 'vue'
 import { message, Modal } from 'ant-design-vue'
 import RouteTableRulesManager from '../components/vcn/RouteTableRulesManager.vue'
+import NetworkLoadBalancerPanel from '../modules/nlb/NetworkLoadBalancerPanel.vue'
 import {
   listSubnets, createSubnet, deleteSubnet, updateSubnet,
   listInternetGateways, createInternetGateway, deleteInternetGateway, updateInternetGateway, setupIgwDefaultRoutes,
@@ -582,9 +594,11 @@ function onTab(k: string, force = false) {
   else if (k === 'lpg') loadLpg(force)
   else if (k === 'rt') loadRt(force)
   else if (k === 'sl') loadSl(force)
+  // NLB is an independent module and owns its own loading/context lifecycle.
 }
 
 function normalizeInitialTab(tab: string | undefined) {
+  if (tab === 'nlb') return 'nlb'
   return dataKeys.includes(tab as any) ? tab as typeof dataKeys[number] : 'subnet'
 }
 

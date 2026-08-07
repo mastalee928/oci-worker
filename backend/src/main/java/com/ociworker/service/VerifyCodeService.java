@@ -67,6 +67,11 @@ public class VerifyCodeService {
             case "deleteVcnRt" -> "删除路由表";
             case "deleteVcnSl" -> "删除安全列表";
             case "deleteVcnDrg" -> "删除 DRG";
+            case "deleteNlb" -> "删除网络负载均衡器";
+            case "changeNlbCompartment" -> "迁移网络负载均衡器 Compartment";
+            case "deleteNlbListener" -> "删除网络负载均衡器 Listener";
+            case "deleteNlbBackendSet" -> "删除网络负载均衡器 Backend Set";
+            case "deleteNlbBackend" -> "删除网络负载均衡器 Backend";
             case "authFactors" -> "修改域验证因素设置";
             case "domainNotifications" -> "修改域通知";
             case "identityDomainCreate" -> "创建身份域";

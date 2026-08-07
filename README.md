@@ -16,6 +16,7 @@
 - **WebSSH 内置终端**：随主程序提供 SSH 终端、文件管理和常用脚本入口，不需要额外部署
 - **串行控制台**：通过 OCI 内部通道连接实例串口，一键打开终端，用于网络异常时紧急救援
 - **虚拟云网络**：VCN / 子网查看，预留 IP 管理（创建、绑定、解绑、删除）
+- **网络负载均衡器（NLB）**：在租户 VCN 内管理 NLB、Listener、Backend Set、Health Checker、Backend、健康状态和 Work Request
 - **实时日志查看**：WebSocket 实时推送全量后端日志
 - **消息通知**：Telegram Bot 通知（登录、任务、每日播报）
 - **系统更新**：Web 页面一键检查更新 + 自动从 GitHub Releases 拉取最新版本
@@ -27,6 +28,14 @@
 - **后端**：Spring Boot 3.5 + JDK 21 (虚拟线程) + MyBatis-Plus + MySQL 8.0
 - **前端**：Vue 3 + Vite + Ant Design Vue 4 + Pinia + Vue Router 4
 - **OCI SDK**：oci-java-sdk 3.83+
+
+## OCI 网络负载均衡器（NLB）
+
+入口：`实例管理 → 某租户 → 虚拟云网络 → 某个 VCN → 负载均衡器`。
+
+该功能是独立业务模块，不新增左侧菜单或路由，也不影响 Oracle AI 的应用内负载均衡。支持 NLB 及其 Listener、Backend Set、Health Checker、Backend 的完整管理，并显示健康状态、异步 Work Request 进度、错误和日志。创建公有 NLB、修改 Listener/Backend 或删除资源会直接影响真实 OCI 流量，生产环境操作前请先检查 IAM、NSG、安全列表、路由和后端端口。
+
+详细的权限基线、操作顺序、风险和验收记录见 [NLB_INTEGRATION_PLAN.md](./NLB_INTEGRATION_PLAN.md)。
 
 ---
 
