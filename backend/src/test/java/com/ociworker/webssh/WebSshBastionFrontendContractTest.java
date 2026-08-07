@@ -21,6 +21,7 @@ class WebSshBastionFrontendContractTest {
                     "var BASTION_CONTROL_PREFIX = '\\u001eociworker-bastion:';",
                     "ws.send(bastionControl('ping'))",
                     "if (got && isCurrentConnection() && ws.readyState === 1) ws.send(data);",
+                    "if (got && isCurrentConnection() && ws.readyState === 1 && session.term)",
                     "function parseConsoleParams()",
                     "'/webssh-api/console-term?cols='",
                     "var CONSOLE_COLS = 80;",

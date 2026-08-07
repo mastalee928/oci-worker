@@ -1957,7 +1957,7 @@ function connectBastionSession(session) {
     });
     var resizeHandler = function () {
         try { session.fitAddon.fit(); } catch (e) { }
-        if (isCurrentConnection() && ws.readyState === 1 && session.term) {
+        if (got && isCurrentConnection() && ws.readyState === 1 && session.term) {
             ws.send(bastionControl('resize', {
                 rows: session.term.rows,
                 cols: session.term.cols
