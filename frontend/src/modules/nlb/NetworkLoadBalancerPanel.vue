@@ -79,7 +79,7 @@
         <span>最近 Work Request</span>
         <a-button type="link" size="small" @click="clearFinishedWorkRequests">清理已结束</a-button>
       </div>
-      <a-table size="small" row-key="id" :data-source="workRequests" :columns="workColumns" :pagination="false">
+      <a-table size="small" row-key="id" :data-source="workRequests" :columns="workColumns" :pagination="false" :scroll="{ x: 620 }">
         <template #bodyCell="{ column, record }">
           <template v-if="column.key === 'status'">
             <a-badge :status="workBadge(record.status)" :text="workRequestStatusText(record.status)" />
@@ -95,7 +95,7 @@
     </div>
 
     <!-- NLB detail -->
-    <a-modal v-model:open="detailOpen" width="1120px" :z-index="1300" :footer="null" :destroy-on-close="false" title="网络负载均衡器管理">
+    <a-modal v-model:open="detailOpen" width="1120px" wrap-class-name="nlb-responsive-modal" :z-index="1300" :footer="null" :destroy-on-close="false" title="网络负载均衡器管理">
       <a-spin :spinning="detailLoading">
         <template v-if="detail">
           <div class="detail-header">
@@ -115,11 +115,11 @@
             </a-space>
           </div>
           <a-alert v-if="detail.healthError" type="warning" show-icon :message="detail.healthError" class="detail-alert" />
-          <a-descriptions bordered size="small" :column="3" class="detail-descriptions">
+          <a-descriptions bordered size="small" :column="{ xs: 1, sm: 2, lg: 3 }" class="detail-descriptions">
             <a-descriptions-item label="OCID"><span class="mono">{{ detail.id }}</span></a-descriptions-item>
             <a-descriptions-item label="子网">{{ detail.subnet?.displayName || detail.subnetId || '—' }}</a-descriptions-item>
             <a-descriptions-item label="生命周期">{{ detail.lifecycleState || '—' }}</a-descriptions-item>
-            <a-descriptions-item label="IP 地址" :span="2">{{ (detail.ipAddresses || []).map((item: any) => item.ipAddress).filter(Boolean).join(', ') || '—' }}</a-descriptions-item>
+            <a-descriptions-item label="IP 地址">{{ (detail.ipAddresses || []).map((item: any) => item.ipAddress).filter(Boolean).join(', ') || '—' }}</a-descriptions-item>
             <a-descriptions-item label="ETag"><span class="mono">{{ detail.etag || '—' }}</span></a-descriptions-item>
             <a-descriptions-item label="Listener 数量">{{ detail.listenerCount || 0 }}</a-descriptions-item>
             <a-descriptions-item label="Backend Set 数量">{{ detail.backendSetCount || 0 }}</a-descriptions-item>
@@ -166,7 +166,7 @@
             </a-tab-pane>
             <a-tab-pane key="workRequests" tab="Work Request">
               <div class="op-row"><a-button size="small" @click="refreshWorkRequests">刷新</a-button></div>
-              <a-table size="small" row-key="id" :data-source="workRequests" :columns="workColumns" :pagination="false">
+              <a-table size="small" row-key="id" :data-source="workRequests" :columns="workColumns" :pagination="false" :scroll="{ x: 620 }">
                 <template #bodyCell="{ column, record }">
                   <template v-if="column.key === 'status'"><a-badge :status="workBadge(record.status)" :text="workRequestStatusText(record.status)" /></template>
                   <template v-else-if="column.key === 'progress'"><a-progress :percent="Number(record.percentComplete || 0)" size="small" /></template>
@@ -181,7 +181,7 @@
     </a-modal>
 
     <!-- Create/Edit NLB -->
-    <a-modal v-model:open="nlbFormOpen" :z-index="1400" :title="nlbFormMode === 'create' ? '创建网络负载均衡器' : '编辑网络负载均衡器'" :confirm-loading="formLoading" @ok="submitNlbForm">
+    <a-modal v-model:open="nlbFormOpen" wrap-class-name="nlb-responsive-modal" :z-index="1400" :title="nlbFormMode === 'create' ? '创建网络负载均衡器' : '编辑网络负载均衡器'" :confirm-loading="formLoading" @ok="submitNlbForm">
       <a-alert v-if="nlbFormMode === 'create' && !nlbForm.isPrivate" type="warning" show-icon message="公有 NLB 会暴露到 Internet，请确认子网与安全策略。" class="form-alert" />
       <a-form layout="vertical">
         <a-form-item label="名称" required><a-input v-model:value="nlbForm.displayName" maxlength="255" /></a-form-item>
@@ -198,14 +198,14 @@
     </a-modal>
 
     <!-- NSG -->
-    <a-modal v-model:open="nsgOpen" :z-index="1400" title="网络安全组" :confirm-loading="formLoading" @ok="submitNsg">
+    <a-modal v-model:open="nsgOpen" wrap-class-name="nlb-responsive-modal" :z-index="1400" title="网络安全组" :confirm-loading="formLoading" @ok="submitNsg">
       <a-form layout="vertical"><a-form-item label="网络安全组"><a-select v-model:value="nsgForm.networkSecurityGroupIds" mode="multiple" allow-clear :get-popup-container="popupContainer">
         <a-select-option v-for="item in options.networkSecurityGroups || []" :key="item.id" :value="item.id">{{ item.displayName || item.id }}</a-select-option>
       </a-select></a-form-item></a-form>
     </a-modal>
 
     <!-- Change compartment -->
-    <a-modal v-model:open="moveCompartmentOpen" :z-index="1450" title="迁移负载均衡器区间" :confirm-loading="moveCompartmentLoading" ok-text="继续安全验证" @ok="submitMoveCompartment">
+    <a-modal v-model:open="moveCompartmentOpen" wrap-class-name="nlb-responsive-modal" :z-index="1450" title="迁移负载均衡器区间" :confirm-loading="moveCompartmentLoading" ok-text="继续安全验证" @ok="submitMoveCompartment">
       <a-alert type="warning" show-icon message="迁移会改变资源所属区间和 IAM 权限边界；网络转发关系保持不变，但当前账号必须同时具备源、目标区间权限。" class="form-alert" />
       <a-form layout="vertical">
         <a-form-item label="负载均衡器"><a-input :value="moveCompartmentTarget?.displayName || moveCompartmentTarget?.id" disabled /></a-form-item>
@@ -225,7 +225,7 @@
     </a-modal>
 
     <!-- Listener -->
-    <a-modal v-model:open="listenerOpen" :z-index="1400" :title="listenerMode === 'create' ? '创建 Listener' : '编辑 Listener'" :confirm-loading="formLoading" width="720px" @ok="submitListener">
+    <a-modal v-model:open="listenerOpen" wrap-class-name="nlb-responsive-modal" :z-index="1400" :title="listenerMode === 'create' ? '创建 Listener' : '编辑 Listener'" :confirm-loading="formLoading" width="720px" @ok="submitListener">
       <a-form layout="vertical">
         <a-form-item v-if="listenerMode === 'create'" label="名称" required><a-input v-model:value="listenerForm.name" /></a-form-item>
         <a-form-item label="默认 Backend Set" required><a-select v-model:value="listenerForm.defaultBackendSetName" :get-popup-container="popupContainer"><a-select-option v-for="item in backendSets" :key="item.name" :value="item.name">{{ item.name }}</a-select-option></a-select></a-form-item>
@@ -233,28 +233,28 @@
         <a-form-item label="协议"><a-select v-model:value="listenerForm.protocol"><a-select-option v-for="item in (options.protocols || ['TCP'])" :key="item" :value="item">{{ item }}</a-select-option></a-select></a-form-item>
         <a-form-item label="IP 版本"><a-select v-model:value="listenerForm.ipVersion"><a-select-option v-for="item in (options.ipVersions || ['IPV4'])" :key="item" :value="item">{{ item }}</a-select-option></a-select></a-form-item>
         <a-form-item label="PPv2"><a-switch v-model:checked="listenerForm.isPpv2Enabled" /></a-form-item>
-        <a-space style="width: 100%" wrap>
-          <a-form-item label="TCP 空闲超时" style="width: 31%"><a-input-number v-model:value="listenerForm.tcpIdleTimeout" :min="0" style="width: 100%" /></a-form-item>
-          <a-form-item label="UDP 空闲超时" style="width: 31%"><a-input-number v-model:value="listenerForm.udpIdleTimeout" :min="0" style="width: 100%" /></a-form-item>
-          <a-form-item label="L3 IP 空闲超时" style="width: 31%"><a-input-number v-model:value="listenerForm.l3IpIdleTimeout" :min="0" style="width: 100%" /></a-form-item>
-        </a-space>
+        <div class="form-grid form-grid--three">
+          <a-form-item label="TCP 空闲超时"><a-input-number v-model:value="listenerForm.tcpIdleTimeout" :min="0" /></a-form-item>
+          <a-form-item label="UDP 空闲超时"><a-input-number v-model:value="listenerForm.udpIdleTimeout" :min="0" /></a-form-item>
+          <a-form-item label="L3 IP 空闲超时"><a-input-number v-model:value="listenerForm.l3IpIdleTimeout" :min="0" /></a-form-item>
+        </div>
       </a-form>
     </a-modal>
 
     <!-- Backend set -->
-    <a-modal v-model:open="backendSetOpen" :z-index="1400" :title="backendSetMode === 'create' ? '创建 Backend Set' : '编辑 Backend Set'" :confirm-loading="formLoading" width="780px" @ok="submitBackendSet">
+    <a-modal v-model:open="backendSetOpen" wrap-class-name="nlb-responsive-modal" :z-index="1400" :title="backendSetMode === 'create' ? '创建 Backend Set' : '编辑 Backend Set'" :confirm-loading="formLoading" width="780px" @ok="submitBackendSet">
       <a-form layout="vertical">
         <a-form-item v-if="backendSetMode === 'create'" label="名称" required><a-input v-model:value="backendSetForm.name" /></a-form-item>
         <a-form-item label="负载均衡策略"><a-select v-model:value="backendSetForm.policy"><a-select-option v-for="item in (options.policies || ['FIVE_TUPLE'])" :key="item" :value="item">{{ item }}</a-select-option></a-select></a-form-item>
         <a-form-item label="IP 版本"><a-select v-model:value="backendSetForm.ipVersion"><a-select-option v-for="item in (options.ipVersions || ['IPV4'])" :key="item" :value="item">{{ item }}</a-select-option></a-select></a-form-item>
-        <a-space wrap><a-checkbox v-model:checked="backendSetForm.isPreserveSource" :disabled="!!detail?.isPreserveSourceDestination">保留源地址</a-checkbox><a-checkbox v-model:checked="backendSetForm.isFailOpen">故障开放</a-checkbox><a-checkbox v-model:checked="backendSetForm.isInstantFailoverEnabled">快速故障转移</a-checkbox><a-checkbox v-model:checked="backendSetForm.isInstantFailoverTcpResetEnabled" :disabled="!backendSetForm.isInstantFailoverEnabled">故障转移 TCP Reset</a-checkbox><a-checkbox v-model:checked="backendSetForm.areOperationallyActiveBackendsPreferred">优先活跃 Backend</a-checkbox></a-space>
+        <div class="checkbox-grid"><a-checkbox v-model:checked="backendSetForm.isPreserveSource" :disabled="!!detail?.isPreserveSourceDestination">保留源地址</a-checkbox><a-checkbox v-model:checked="backendSetForm.isFailOpen">故障开放</a-checkbox><a-checkbox v-model:checked="backendSetForm.isInstantFailoverEnabled">快速故障转移</a-checkbox><a-checkbox v-model:checked="backendSetForm.isInstantFailoverTcpResetEnabled" :disabled="!backendSetForm.isInstantFailoverEnabled">故障转移 TCP Reset</a-checkbox><a-checkbox v-model:checked="backendSetForm.areOperationallyActiveBackendsPreferred">优先活跃 Backend</a-checkbox></div>
         <a-divider>健康检查器</a-divider>
         <a-form-item label="协议"><a-select v-model:value="backendSetForm.healthChecker.protocol"><a-select-option v-for="item in (options.healthCheckProtocols || ['TCP'])" :key="item" :value="item">{{ item }}</a-select-option></a-select></a-form-item>
-        <a-space style="width: 100%" wrap><a-form-item label="端口" style="width: 23%"><a-input-number v-model:value="backendSetForm.healthChecker.port" :min="1" :max="65535" style="width: 100%" /></a-form-item><a-form-item label="重试次数" style="width: 23%"><a-input-number v-model:value="backendSetForm.healthChecker.retries" :min="0" style="width: 100%" /></a-form-item><a-form-item label="间隔(ms)" style="width: 23%"><a-input-number v-model:value="backendSetForm.healthChecker.intervalInMillis" :min="100" style="width: 100%" /></a-form-item><a-form-item label="超时(ms)" style="width: 23%"><a-input-number v-model:value="backendSetForm.healthChecker.timeoutInMillis" :min="100" style="width: 100%" /></a-form-item></a-space>
+        <div class="form-grid form-grid--four"><a-form-item label="端口"><a-input-number v-model:value="backendSetForm.healthChecker.port" :min="1" :max="65535" /></a-form-item><a-form-item label="重试次数"><a-input-number v-model:value="backendSetForm.healthChecker.retries" :min="0" /></a-form-item><a-form-item label="间隔 (ms)"><a-input-number v-model:value="backendSetForm.healthChecker.intervalInMillis" :min="100" /></a-form-item><a-form-item label="超时 (ms)"><a-input-number v-model:value="backendSetForm.healthChecker.timeoutInMillis" :min="100" /></a-form-item></div>
         <template v-if="['HTTP', 'HTTPS'].includes(String(backendSetForm.healthChecker.protocol).toUpperCase())">
           <a-form-item label="URL Path"><a-input v-model:value="backendSetForm.healthChecker.urlPath" placeholder="/health" /></a-form-item>
           <a-form-item label="响应正文正则"><a-input v-model:value="backendSetForm.healthChecker.responseBodyRegex" /></a-form-item>
-          <a-form-item label="预期响应码"><a-input-number v-model:value="backendSetForm.healthChecker.returnCode" :min="100" :max="599" /></a-form-item>
+          <a-form-item label="预期响应码"><a-input-number v-model:value="backendSetForm.healthChecker.returnCode" :min="100" :max="599" style="width: 100%" /></a-form-item>
         </template>
         <template v-if="['TCP', 'UDP'].includes(String(backendSetForm.healthChecker.protocol).toUpperCase())">
           <a-form-item label="请求数据"><a-textarea v-model:value="backendSetForm.healthChecker.requestData" :rows="2" placeholder="文本，或 base64:..." /></a-form-item>
@@ -264,21 +264,21 @@
           <a-divider>DNS 查询</a-divider>
           <a-form-item label="传输协议"><a-select v-model:value="backendSetForm.healthChecker.dns.transportProtocol"><a-select-option v-for="item in (options.dnsTransportProtocols || ['UDP'])" :key="item" :value="item">{{ item }}</a-select-option></a-select></a-form-item>
           <a-form-item label="域名" required><a-input v-model:value="backendSetForm.healthChecker.dns.domainName" placeholder="example.com" /></a-form-item>
-          <a-space style="width: 100%" wrap><a-form-item label="Query Class" style="width: 48%"><a-select v-model:value="backendSetForm.healthChecker.dns.queryClass"><a-select-option v-for="item in (options.dnsQueryClasses || ['IN'])" :key="item" :value="item">{{ item }}</a-select-option></a-select></a-form-item><a-form-item label="Query Type" style="width: 48%"><a-select v-model:value="backendSetForm.healthChecker.dns.queryType"><a-select-option v-for="item in (options.dnsQueryTypes || ['A'])" :key="item" :value="item">{{ item }}</a-select-option></a-select></a-form-item></a-space>
+          <div class="form-grid form-grid--two"><a-form-item label="Query Class"><a-select v-model:value="backendSetForm.healthChecker.dns.queryClass"><a-select-option v-for="item in (options.dnsQueryClasses || ['IN'])" :key="item" :value="item">{{ item }}</a-select-option></a-select></a-form-item><a-form-item label="Query Type"><a-select v-model:value="backendSetForm.healthChecker.dns.queryType"><a-select-option v-for="item in (options.dnsQueryTypes || ['A'])" :key="item" :value="item">{{ item }}</a-select-option></a-select></a-form-item></div>
           <a-form-item label="允许的 RCODE"><a-select v-model:value="backendSetForm.healthChecker.dns.rcodes" mode="multiple"><a-select-option v-for="item in (options.dnsRcodes || ['NOERROR'])" :key="item" :value="item">{{ item }}</a-select-option></a-select></a-form-item>
         </template>
       </a-form>
     </a-modal>
 
     <!-- Health checker -->
-    <a-modal v-model:open="healthOpen" :z-index="1400" title="更新健康检查器" :confirm-loading="formLoading" width="780px" @ok="submitHealthChecker">
+    <a-modal v-model:open="healthOpen" wrap-class-name="nlb-responsive-modal" :z-index="1400" title="更新健康检查器" :confirm-loading="formLoading" width="780px" @ok="submitHealthChecker">
       <a-form layout="vertical">
         <a-form-item label="协议"><a-select v-model:value="healthForm.protocol"><a-select-option v-for="item in (options.healthCheckProtocols || ['TCP'])" :key="item" :value="item">{{ item }}</a-select-option></a-select></a-form-item>
-        <a-space style="width: 100%" wrap><a-form-item label="端口" style="width: 23%"><a-input-number v-model:value="healthForm.port" :min="1" :max="65535" style="width: 100%" /></a-form-item><a-form-item label="重试次数" style="width: 23%"><a-input-number v-model:value="healthForm.retries" :min="0" style="width: 100%" /></a-form-item><a-form-item label="间隔(ms)" style="width: 23%"><a-input-number v-model:value="healthForm.intervalInMillis" :min="100" style="width: 100%" /></a-form-item><a-form-item label="超时(ms)" style="width: 23%"><a-input-number v-model:value="healthForm.timeoutInMillis" :min="100" style="width: 100%" /></a-form-item></a-space>
+        <div class="form-grid form-grid--four"><a-form-item label="端口"><a-input-number v-model:value="healthForm.port" :min="1" :max="65535" /></a-form-item><a-form-item label="重试次数"><a-input-number v-model:value="healthForm.retries" :min="0" /></a-form-item><a-form-item label="间隔 (ms)"><a-input-number v-model:value="healthForm.intervalInMillis" :min="100" /></a-form-item><a-form-item label="超时 (ms)"><a-input-number v-model:value="healthForm.timeoutInMillis" :min="100" /></a-form-item></div>
         <template v-if="['HTTP', 'HTTPS'].includes(String(healthForm.protocol).toUpperCase())">
           <a-form-item label="URL Path"><a-input v-model:value="healthForm.urlPath" /></a-form-item>
           <a-form-item label="响应正文正则"><a-input v-model:value="healthForm.responseBodyRegex" /></a-form-item>
-          <a-form-item label="预期响应码"><a-input-number v-model:value="healthForm.returnCode" :min="100" :max="599" /></a-form-item>
+          <a-form-item label="预期响应码"><a-input-number v-model:value="healthForm.returnCode" :min="100" :max="599" style="width: 100%" /></a-form-item>
         </template>
         <template v-if="['TCP', 'UDP'].includes(String(healthForm.protocol).toUpperCase())">
           <a-form-item label="请求数据"><a-textarea v-model:value="healthForm.requestData" :rows="2" placeholder="文本，或 base64:..." /></a-form-item>
@@ -288,14 +288,14 @@
           <a-divider>DNS 查询</a-divider>
           <a-form-item label="传输协议"><a-select v-model:value="healthForm.dns.transportProtocol"><a-select-option v-for="item in (options.dnsTransportProtocols || ['UDP'])" :key="item" :value="item">{{ item }}</a-select-option></a-select></a-form-item>
           <a-form-item label="域名" required><a-input v-model:value="healthForm.dns.domainName" placeholder="example.com" /></a-form-item>
-          <a-space style="width: 100%" wrap><a-form-item label="Query Class" style="width: 48%"><a-select v-model:value="healthForm.dns.queryClass"><a-select-option v-for="item in (options.dnsQueryClasses || ['IN'])" :key="item" :value="item">{{ item }}</a-select-option></a-select></a-form-item><a-form-item label="Query Type" style="width: 48%"><a-select v-model:value="healthForm.dns.queryType"><a-select-option v-for="item in (options.dnsQueryTypes || ['A'])" :key="item" :value="item">{{ item }}</a-select-option></a-select></a-form-item></a-space>
+          <div class="form-grid form-grid--two"><a-form-item label="Query Class"><a-select v-model:value="healthForm.dns.queryClass"><a-select-option v-for="item in (options.dnsQueryClasses || ['IN'])" :key="item" :value="item">{{ item }}</a-select-option></a-select></a-form-item><a-form-item label="Query Type"><a-select v-model:value="healthForm.dns.queryType"><a-select-option v-for="item in (options.dnsQueryTypes || ['A'])" :key="item" :value="item">{{ item }}</a-select-option></a-select></a-form-item></div>
           <a-form-item label="允许的 RCODE"><a-select v-model:value="healthForm.dns.rcodes" mode="multiple"><a-select-option v-for="item in (options.dnsRcodes || ['NOERROR'])" :key="item" :value="item">{{ item }}</a-select-option></a-select></a-form-item>
         </template>
       </a-form>
     </a-modal>
 
     <!-- Backend detail -->
-    <a-modal v-model:open="backendDetailOpen" :z-index="1400" width="900px" title="Backend 管理" :footer="null">
+    <a-modal v-model:open="backendDetailOpen" wrap-class-name="nlb-responsive-modal" :z-index="1400" width="900px" title="Backend 管理" :footer="null">
       <div class="op-row"><a-button type="primary" size="small" @click="openCreateBackend">添加 Backend</a-button><a-button size="small" @click="loadBackends(true)">刷新</a-button></div>
       <a-table size="small" row-key="name" :loading="childLoading.backends" :data-source="backends" :columns="backendColumns" :pagination="false" :scroll="{ x: 760 }">
         <template #bodyCell="{ column, record }">
@@ -307,7 +307,7 @@
     </a-modal>
 
     <!-- Backend form -->
-    <a-modal v-model:open="backendOpen" :z-index="1500" :title="backendMode === 'create' ? '添加 Backend' : '编辑 Backend'" :confirm-loading="formLoading" @ok="submitBackend">
+    <a-modal v-model:open="backendOpen" wrap-class-name="nlb-responsive-modal" :z-index="1500" :title="backendMode === 'create' ? '添加 Backend' : '编辑 Backend'" :confirm-loading="formLoading" @ok="submitBackend">
       <a-form layout="vertical">
         <template v-if="backendMode === 'create'">
           <a-form-item label="名称" required><a-input v-model:value="backendForm.name" /></a-form-item>
@@ -321,7 +321,7 @@
     </a-modal>
 
     <!-- Verification -->
-    <a-modal v-model:open="verifyOpen" :z-index="1600" title="危险操作安全验证" :confirm-loading="verifyLoading" @ok="submitVerification" ok-text="确认执行" :ok-button-props="{ danger: true }">
+    <a-modal v-model:open="verifyOpen" wrap-class-name="nlb-responsive-modal" :z-index="1600" title="危险操作安全验证" :confirm-loading="verifyLoading" @ok="submitVerification" ok-text="确认执行" :ok-button-props="{ danger: true }">
       <a-alert type="warning" show-icon message="该操作会改变真实 OCI 网络流量或删除资源，请确认目标后输入 Telegram 验证码。" />
       <div class="verify-target">{{ verifyText }}</div>
       <a-input v-model:value="verifyCode" size="large" maxlength="6" inputmode="numeric" placeholder="请输入 6 位验证码" @pressEnter="submitVerification" />
@@ -329,10 +329,10 @@
     </a-modal>
 
     <!-- Work Request detail -->
-    <a-modal v-model:open="workDetailOpen" :z-index="1600" title="Work Request 详情" :footer="null" width="820px">
+    <a-modal v-model:open="workDetailOpen" wrap-class-name="nlb-responsive-modal" :z-index="1600" title="Work Request 详情" :footer="null" width="820px">
       <a-spin :spinning="workDetailLoading">
         <div class="op-row work-detail-toolbar"><span class="muted">失败时自动读取 OCI 错误和日志</span><a-button size="small" @click="refreshActiveWorkRequest">刷新诊断</a-button></div>
-        <a-descriptions v-if="activeWorkRequest" bordered size="small" :column="2">
+        <a-descriptions v-if="activeWorkRequest" bordered size="small" :column="{ xs: 1, sm: 2 }">
           <a-descriptions-item label="ID"><span class="mono">{{ activeWorkRequest.id }}</span></a-descriptions-item>
           <a-descriptions-item label="状态"><a-badge :status="workBadge(activeWorkRequest.status)" :text="workRequestStatusText(activeWorkRequest.status)" /></a-descriptions-item>
           <a-descriptions-item label="进度"><a-progress :percent="Number(activeWorkRequest.percentComplete || 0)" /></a-descriptions-item>
@@ -1063,4 +1063,33 @@ onUnmounted(() => { workTimers.forEach(timer => clearTimeout(timer)); workTimers
 .verify-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; color: rgba(0, 0, 0, .45); font-size: 12px; }
 .work-detail-toolbar { margin-bottom: 10px; }
 .work-empty { margin-top: 12px; }
+.form-grid { display: grid; width: 100%; column-gap: 16px; }
+.form-grid--four { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.form-grid--three { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.form-grid--two { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.form-grid :deep(.ant-form-item) { min-width: 0; }
+.form-grid :deep(.ant-input-number), .form-grid :deep(.ant-select) { width: 100%; }
+.checkbox-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 18px; margin-bottom: 24px; }
+.checkbox-grid :deep(.ant-checkbox-wrapper) { margin-inline-start: 0; }
+
+:global(.nlb-responsive-modal .ant-modal) { max-width: calc(100vw - 24px); }
+:global(.nlb-responsive-modal .ant-modal-body) { max-height: calc(100vh - 190px); max-height: calc(100dvh - 190px); overflow-y: auto; overscroll-behavior: contain; }
+
+@media (max-width: 899px) {
+  .form-grid--four, .form-grid--three { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 575px) {
+  .form-grid--four, .form-grid--three, .form-grid--two, .checkbox-grid { grid-template-columns: minmax(0, 1fr); }
+  .nlb-toolbar, .detail-header { align-items: stretch; }
+  .nlb-toolbar > *, .detail-header > * { width: 100%; }
+  .nlb-toolbar :deep(.ant-space), .detail-header :deep(.ant-space) { width: 100%; }
+  .nlb-toolbar :deep(.ant-space-item), .detail-header :deep(.ant-space-item) { flex: 1 1 auto; }
+  .nlb-toolbar :deep(.ant-btn) { width: 100%; }
+  .resource-link { max-width: 140px; }
+  .verify-footer { align-items: flex-start; gap: 8px; }
+  :global(.nlb-responsive-modal .ant-modal) { top: 12px; margin: 0 auto; padding-bottom: 12px; }
+  :global(.nlb-responsive-modal .ant-modal-body) { max-height: calc(100vh - 160px); max-height: calc(100dvh - 160px); padding-inline: 16px; }
+  :global(.nlb-responsive-modal .ant-modal-header), :global(.nlb-responsive-modal .ant-modal-footer) { padding-inline: 16px; }
+}
 </style>
