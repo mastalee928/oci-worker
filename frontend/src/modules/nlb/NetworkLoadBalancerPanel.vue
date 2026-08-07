@@ -192,8 +192,8 @@
         </a-form-item>
         <a-form-item v-if="nlbFormMode === 'create'" label="类型"><a-switch v-model:checked="nlbForm.isPrivate" checked-children="私有" un-checked-children="公有" /></a-form-item>
         <a-form-item label="NLB IP 版本"><a-select v-model:value="nlbForm.nlbIpVersion"><a-select-option v-for="item in (options.nlbIpVersions || ['IPV4'])" :key="item" :value="item">{{ item }}</a-select-option></a-select></a-form-item>
-        <a-form-item label="保留源/目标地址"><a-switch v-model:checked="nlbForm.isPreserveSourceDestination" /></a-form-item>
-        <a-form-item label="对称哈希"><a-switch v-model:checked="nlbForm.isSymmetricHashEnabled" /></a-form-item>
+        <a-form-item label="保留源/目标地址"><a-switch v-model:checked="nlbForm.isPreserveSourceDestination" @change="onPreserveSourceDestinationChange" /></a-form-item>
+        <a-form-item label="对称哈希"><a-switch v-model:checked="nlbForm.isSymmetricHashEnabled" :disabled="!nlbForm.isPreserveSourceDestination" /></a-form-item>
       </a-form>
     </a-modal>
 
@@ -247,7 +247,7 @@
         <a-form-item v-if="backendSetMode === 'create'" label="名称" required><a-input v-model:value="backendSetForm.name" /></a-form-item>
         <a-form-item label="负载均衡策略"><a-select v-model:value="backendSetForm.policy"><a-select-option v-for="item in (options.policies || ['FIVE_TUPLE'])" :key="item" :value="item">{{ item }}</a-select-option></a-select></a-form-item>
         <a-form-item label="IP 版本"><a-select v-model:value="backendSetForm.ipVersion"><a-select-option v-for="item in (options.ipVersions || ['IPV4'])" :key="item" :value="item">{{ item }}</a-select-option></a-select></a-form-item>
-        <a-space wrap><a-checkbox v-model:checked="backendSetForm.isPreserveSource">保留源地址</a-checkbox><a-checkbox v-model:checked="backendSetForm.isFailOpen">故障开放</a-checkbox><a-checkbox v-model:checked="backendSetForm.isInstantFailoverEnabled">快速故障转移</a-checkbox><a-checkbox v-model:checked="backendSetForm.isInstantFailoverTcpResetEnabled">故障转移 TCP Reset</a-checkbox><a-checkbox v-model:checked="backendSetForm.areOperationallyActiveBackendsPreferred">优先活跃 Backend</a-checkbox></a-space>
+        <a-space wrap><a-checkbox v-model:checked="backendSetForm.isPreserveSource" :disabled="!!detail?.isPreserveSourceDestination">保留源地址</a-checkbox><a-checkbox v-model:checked="backendSetForm.isFailOpen">故障开放</a-checkbox><a-checkbox v-model:checked="backendSetForm.isInstantFailoverEnabled">快速故障转移</a-checkbox><a-checkbox v-model:checked="backendSetForm.isInstantFailoverTcpResetEnabled" :disabled="!backendSetForm.isInstantFailoverEnabled">故障转移 TCP Reset</a-checkbox><a-checkbox v-model:checked="backendSetForm.areOperationallyActiveBackendsPreferred">优先活跃 Backend</a-checkbox></a-space>
         <a-divider>健康检查器</a-divider>
         <a-form-item label="协议"><a-select v-model:value="backendSetForm.healthChecker.protocol"><a-select-option v-for="item in (options.healthCheckProtocols || ['TCP'])" :key="item" :value="item">{{ item }}</a-select-option></a-select></a-form-item>
         <a-space style="width: 100%" wrap><a-form-item label="端口" style="width: 23%"><a-input-number v-model:value="backendSetForm.healthChecker.port" :min="1" :max="65535" style="width: 100%" /></a-form-item><a-form-item label="重试次数" style="width: 23%"><a-input-number v-model:value="backendSetForm.healthChecker.retries" :min="0" style="width: 100%" /></a-form-item><a-form-item label="间隔(ms)" style="width: 23%"><a-input-number v-model:value="backendSetForm.healthChecker.intervalInMillis" :min="100" style="width: 100%" /></a-form-item><a-form-item label="超时(ms)" style="width: 23%"><a-input-number v-model:value="backendSetForm.healthChecker.timeoutInMillis" :min="100" style="width: 100%" /></a-form-item></a-space>
@@ -368,10 +368,7 @@ import {
   deleteNlbListener,
   getNetworkLoadBalancer,
   getNlbBackend,
-  getNlbBackendHealth,
   getNlbBackendSet,
-  getNlbBackendSetHealth,
-  getNlbHealth,
   getNlbHealthChecker,
   getNlbListener,
   getNlbWorkRequest,
@@ -521,10 +518,14 @@ function defaultHealthForm() {
   return { protocol: 'TCP', port: 80, retries: 3, timeoutInMillis: 3000, intervalInMillis: 10000, urlPath: '/', responseBodyRegex: '', returnCode: 200, requestData: '', responseData: '', dns: defaultDnsHealthForm() }
 }
 function defaultBackendSetForm() {
-  return { name: '', policy: 'FIVE_TUPLE', ipVersion: 'IPV4', isPreserveSource: false, isFailOpen: false, isInstantFailoverEnabled: false, isInstantFailoverTcpResetEnabled: false, areOperationallyActiveBackendsPreferred: false, ifMatch: '', healthChecker: defaultHealthForm() }
+  return { name: '', policy: 'FIVE_TUPLE', ipVersion: 'IPV4', isPreserveSource: true, isFailOpen: false, isInstantFailoverEnabled: false, isInstantFailoverTcpResetEnabled: true, areOperationallyActiveBackendsPreferred: false, ifMatch: '', healthChecker: defaultHealthForm() }
 }
 function defaultBackendForm() {
   return { name: '', ipAddress: '', targetId: '', port: 80, weight: 1, isDrain: false, isBackup: false, isOffline: false, ifMatch: '' }
+}
+
+function onPreserveSourceDestinationChange(checked: boolean) {
+  if (!checked) nlbForm.isSymmetricHashEnabled = false
 }
 
 function normalizedHealthForm(source?: any) {
@@ -732,6 +733,19 @@ async function loadFreshNlb(row: any, action: string) {
   }
 }
 
+async function loadFreshChild(fetcher: () => Promise<any>, fallback: any, action: string) {
+  const generation = contextGeneration.value
+  try {
+    const response: any = await fetcher()
+    if (generation !== contextGeneration.value) return null
+    return response?.data || fallback
+  } catch (error: any) {
+    if (generation !== contextGeneration.value) return null
+    message.error(error?.message || `${action}前刷新资源详情失败`)
+    return null
+  }
+}
+
 async function openNsgEditor(row: any) {
   const target = await loadFreshNlb(row, '更新 NSG')
   if (!target) return
@@ -773,7 +787,8 @@ async function submitMoveCompartment() {
   const targetCompartmentId = String(moveCompartmentForm.targetCompartmentId || '').trim()
   if (!target?.id) return message.warning('负载均衡器 OCID 不能为空')
   if (!targetCompartmentId) return message.warning('请选择目标区间')
-  await openVerification('changeNlbCompartment', `${base.value.id}|${target.id}`, `迁移 NLB：${target.displayName || target.id}`, async () => {
+  const targetLabel = compartmentOptions.value.find(item => item.value === targetCompartmentId)?.label || targetCompartmentId
+  await openVerification('changeNlbCompartment', `${base.value.id}|${target.id}|${targetCompartmentId}`, `迁移 NLB：${target.displayName || target.id} → ${targetLabel}`, async () => {
     const fresh = await loadFreshNlb(target, '迁移区间')
     if (!fresh) throw new Error('迁移前刷新 NLB 详情失败')
     moveCompartmentLoading.value = true
@@ -792,7 +807,13 @@ async function submitMoveCompartment() {
 }
 
 function openCreateListener() { Object.assign(listenerForm, defaultListenerForm(), { defaultBackendSetName: backendSets.value[0]?.name || '' }); listenerMode.value = 'create'; listenerOpen.value = true; if (!backendSets.value.length) void loadBackendSets() }
-async function openEditListener(row: any) { try { const response: any = await getNlbListener({ ...nlbContext(), listenerName: row.name, force: true }); Object.assign(listenerForm, defaultListenerForm(), response?.data || row); } catch { Object.assign(listenerForm, defaultListenerForm(), row) } listenerMode.value = 'edit'; listenerOpen.value = true }
+async function openEditListener(row: any) {
+  let source = row
+  try { const response: any = await getNlbListener({ ...nlbContext(), listenerName: row.name, force: true }); source = response?.data || row } catch { source = row }
+  Object.assign(listenerForm, defaultListenerForm(), source)
+  listenerForm.ifMatch = source?.etag || row?.etag || ''
+  listenerMode.value = 'edit'; listenerOpen.value = true
+}
 async function submitListener() {
   if (!listenerForm.defaultBackendSetName || !listenerForm.port) return message.warning('请填写默认 Backend Set 和端口')
   formLoading.value = true
@@ -810,6 +831,7 @@ async function openEditBackendSet(row: any) {
   let source = row
   try { const response: any = await getNlbBackendSet({ ...nlbContext(), backendSetName: row.name, force: true }); source = response?.data || row } catch { source = row }
   Object.assign(backendSetForm, defaultBackendSetForm(), source)
+  backendSetForm.ifMatch = source?.etag || row?.etag || ''
   backendSetForm.healthChecker = normalizedHealthForm(source?.healthChecker || row.healthChecker)
   backendSetMode.value = 'edit'; backendSetOpen.value = true
 }
@@ -818,6 +840,7 @@ async function submitBackendSet() {
   if (String(backendSetForm.healthChecker?.protocol || '').toUpperCase() === 'DNS' && !backendSetForm.healthChecker?.dns?.domainName?.trim()) return message.warning('请输入 DNS 健康检查域名')
   formLoading.value = true
   try {
+    if (detail.value?.isPreserveSourceDestination) backendSetForm.isPreserveSource = true
     const payload = { ...backendSetForm, backends: backendSetMode.value === 'create' ? [] : undefined, healthChecker: healthCheckerPayload(backendSetForm.healthChecker) }
     const response: any = backendSetMode.value === 'create'
       ? await createNlbBackendSet({ ...base.value, networkLoadBalancerId: selectedNlbId.value, ...payload })
@@ -844,7 +867,13 @@ async function submitHealthChecker() {
 
 async function openBackendSetDetail(row: any) { activeBackendSetName.value = row.name; backendDetailOpen.value = true; await loadBackends() }
 function openCreateBackend() { Object.assign(backendForm, defaultBackendForm()); backendMode.value = 'create'; backendOpen.value = true }
-async function openEditBackend(row: any) { try { const response: any = await getNlbBackend({ ...nlbContext(), backendSetName: activeBackendSetName.value, backendName: row.name, force: true }); Object.assign(backendForm, defaultBackendForm(), response?.data || row); } catch { Object.assign(backendForm, defaultBackendForm(), row) } backendMode.value = 'edit'; backendOpen.value = true }
+async function openEditBackend(row: any) {
+  let source = row
+  try { const response: any = await getNlbBackend({ ...nlbContext(), backendSetName: activeBackendSetName.value, backendName: row.name, force: true }); source = response?.data || row } catch { source = row }
+  Object.assign(backendForm, defaultBackendForm(), source)
+  backendForm.ifMatch = source?.etag || row?.etag || ''
+  backendMode.value = 'edit'; backendOpen.value = true
+}
 async function submitBackend() {
   if (backendMode.value === 'create' && (!backendForm.name?.trim() || !backendForm.port)) return message.warning('请填写 Backend 名称与端口')
   if (backendMode.value === 'create' && !backendForm.ipAddress?.trim() && !backendForm.targetId?.trim()) return message.warning('Backend 的 IP 地址和目标实例 OCID 至少填写一项')
@@ -860,9 +889,37 @@ async function submitBackend() {
 }
 
 function askDeleteNlb(row: any) { openVerification('deleteNlb', `${base.value.id}|${row.id}`, `删除 NLB：${row.displayName || row.id}`, async () => { const fresh = await loadFreshNlb(row, '删除'); if (!fresh) throw new Error('删除前刷新 NLB 详情失败'); const response: any = await deleteNetworkLoadBalancer({ ...base.value, networkLoadBalancerId: row.id, ifMatch: fresh.etag, verifyCode: verifyCode.value }); trackMutation(response?.data); await loadNlbs(true); detailOpen.value = false; emit('changed') }) }
-function askDeleteListener(row: any) { openVerification('deleteNlbListener', `${base.value.id}|${selectedNlbId.value}|${row.name}`, `删除 Listener：${row.name}`, async () => { const response: any = await deleteNlbListener({ ...base.value, networkLoadBalancerId: selectedNlbId.value, listenerName: row.name, ifMatch: row.etag, verifyCode: verifyCode.value }); trackMutation(response?.data); await loadListeners(true) }) }
-function askDeleteBackendSet(row: any) { openVerification('deleteNlbBackendSet', `${base.value.id}|${selectedNlbId.value}|${row.name}`, `删除 Backend Set：${row.name}（可能被 Listener 引用）`, async () => { const response: any = await deleteNlbBackendSet({ ...base.value, networkLoadBalancerId: selectedNlbId.value, backendSetName: row.name, ifMatch: row.etag, verifyCode: verifyCode.value }); trackMutation(response?.data); await loadBackendSets(true) }) }
-function askDeleteBackend(row: any) { openVerification('deleteNlbBackend', `${base.value.id}|${selectedNlbId.value}|${activeBackendSetName.value}|${row.name}`, `删除 Backend：${row.name}`, async () => { const response: any = await deleteNlbBackend({ ...base.value, networkLoadBalancerId: selectedNlbId.value, backendSetName: activeBackendSetName.value, backendName: row.name, ifMatch: row.etag, verifyCode: verifyCode.value }); trackMutation(response?.data); await loadBackends(true) }) }
+function askDeleteListener(row: any) {
+  const nlbId = selectedNlbId.value
+  const listenerName = String(row?.name || '')
+  openVerification('deleteNlbListener', `${base.value.id}|${nlbId}|${listenerName}`, `删除 Listener：${listenerName}`, async () => {
+    const fresh = await loadFreshChild(() => getNlbListener({ ...base.value, networkLoadBalancerId: nlbId, listenerName, force: true }), row, '删除 Listener')
+    if (!fresh) throw new Error('删除前刷新 Listener 详情失败')
+    const response: any = await deleteNlbListener({ ...base.value, networkLoadBalancerId: nlbId, listenerName, ifMatch: fresh.etag, verifyCode: verifyCode.value })
+    trackMutation(response?.data); await loadListeners(true)
+  })
+}
+function askDeleteBackendSet(row: any) {
+  const nlbId = selectedNlbId.value
+  const backendSetName = String(row?.name || '')
+  openVerification('deleteNlbBackendSet', `${base.value.id}|${nlbId}|${backendSetName}`, `删除 Backend Set：${backendSetName}（可能被 Listener 引用）`, async () => {
+    const fresh = await loadFreshChild(() => getNlbBackendSet({ ...base.value, networkLoadBalancerId: nlbId, backendSetName, force: true }), row, '删除 Backend Set')
+    if (!fresh) throw new Error('删除前刷新 Backend Set 详情失败')
+    const response: any = await deleteNlbBackendSet({ ...base.value, networkLoadBalancerId: nlbId, backendSetName, ifMatch: fresh.etag, verifyCode: verifyCode.value })
+    trackMutation(response?.data); await loadBackendSets(true)
+  })
+}
+function askDeleteBackend(row: any) {
+  const nlbId = selectedNlbId.value
+  const backendSetName = activeBackendSetName.value
+  const backendName = String(row?.name || '')
+  openVerification('deleteNlbBackend', `${base.value.id}|${nlbId}|${backendSetName}|${backendName}`, `删除 Backend：${backendName}`, async () => {
+    const fresh = await loadFreshChild(() => getNlbBackend({ ...base.value, networkLoadBalancerId: nlbId, backendSetName, backendName, force: true }), row, '删除 Backend')
+    if (!fresh) throw new Error('删除前刷新 Backend 详情失败')
+    const response: any = await deleteNlbBackend({ ...base.value, networkLoadBalancerId: nlbId, backendSetName, backendName, ifMatch: fresh.etag, verifyCode: verifyCode.value })
+    trackMutation(response?.data); await loadBackends(true)
+  })
+}
 
 async function openVerification(action: string, contextKey: string, text: string, callback: () => Promise<void>) {
   verifyAction.value = action; verifyContextKey.value = contextKey; verifyText.value = text; verifyCode.value = ''; verifyCallback = callback; verifySending.value = true
@@ -875,7 +932,7 @@ async function submitVerification() { if (!/^\d{6}$/.test(verifyCode.value)) ret
 function trackMutation(result: any) {
   const id = String(result?.workRequestId || '').trim()
   if (!id) { void loadNlbs(true); return }
-  const item: WorkRequestState = { id, status: 'ACCEPTED', percentComplete: 0, terminal: false, successful: false, operation: result.operation, resourceId: result.resourceId }
+  const item: WorkRequestState = { id, compartmentId: base.value.compartmentId, status: 'ACCEPTED', percentComplete: 0, terminal: false, successful: false, operation: result.operation, resourceId: result.resourceId }
   const existing = workRequests.value.findIndex(row => row.id === id)
   if (existing >= 0) workRequests.value.splice(existing, 1, item); else workRequests.value.unshift(item)
   pollWorkRequest(item)
@@ -887,11 +944,19 @@ function replaceWorkRequest(next: WorkRequestState) {
   if (activeWorkRequest.value?.id === next.id) activeWorkRequest.value = next
   return next
 }
+function workRequestContext(item: WorkRequestState) {
+  return {
+    id: base.value.id,
+    region: base.value.region,
+    compartmentId: String(item.compartmentId || base.value.compartmentId || '').trim(),
+    workRequestId: item.id,
+  }
+}
 async function loadWorkRequestDiagnostics(item: WorkRequestState, showLoading = false) {
   if (showLoading) workDetailLoading.value = true
   const generation = contextGeneration.value
   try {
-    const request = { id: base.value.id, region: base.value.region, workRequestId: item.id }
+    const request = workRequestContext(item)
     const [errorsResult, logsResult] = await Promise.allSettled([
       listNlbWorkRequestErrors(request),
       listNlbWorkRequestLogs(request),
@@ -913,7 +978,7 @@ function pollWorkRequest(item: WorkRequestState) {
   cancelWorkTimer(item.id)
   const startedAt = Date.now()
   const generation = contextGeneration.value
-  const requestContext = { id: base.value.id, region: base.value.region, workRequestId: item.id }
+  const requestContext = workRequestContext(item)
   const poll = async () => {
     if (generation !== contextGeneration.value) return
     try {
@@ -951,7 +1016,7 @@ async function refreshActiveWorkRequest() {
   const generation = contextGeneration.value
   workDetailLoading.value = true
   try {
-    const response: any = await getNlbWorkRequest({ id: base.value.id, region: base.value.region, workRequestId: item.id })
+    const response: any = await getNlbWorkRequest(workRequestContext(item))
     if (generation !== contextGeneration.value) return
     const next = replaceWorkRequest({ ...item, ...(response?.data || {}) })
     await loadWorkRequestDiagnostics(next, false)

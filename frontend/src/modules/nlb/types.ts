@@ -21,6 +21,7 @@ export interface NlbOptions {
 
 export interface WorkRequestState {
   id: string
+  compartmentId?: string
   status?: string
   percentComplete?: number
   terminal?: boolean

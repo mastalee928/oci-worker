@@ -75,12 +75,14 @@ public final class NlbRequests {
     public record WorkRequestResourceRequest(
             String id,
             String region,
+            String compartmentId,
             String workRequestId) {
     }
 
     public record WaitWorkRequestRequest(
             String id,
             String region,
+            String compartmentId,
             String workRequestId,
             Integer timeoutSeconds,
             Integer pollIntervalMillis) {

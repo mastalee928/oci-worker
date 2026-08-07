@@ -114,7 +114,7 @@ public class NetworkLoadBalancerController {
     @PostMapping("/change-compartment")
     public ResponseData<?> changeCompartment(@RequestBody NlbRequests.ChangeCompartmentRequest request) {
         verifyCodeService.verifyCode("changeNlbCompartment", request.verifyCode(),
-                contextKey(request.id(), request.networkLoadBalancerId()));
+                contextKey(request.id(), request.networkLoadBalancerId(), request.targetCompartmentId()));
         return ResponseData.ok(service.changeCompartment(request));
     }
 

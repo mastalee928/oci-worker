@@ -42,13 +42,18 @@ public final class NlbSdkDetailsFactory {
         require(request, "创建参数不能为空");
         String displayName = required(request.displayName(), "名称不能为空");
         String subnetId = required(request.subnetId(), "子网不能为空");
+        boolean preserveSourceDestination = Boolean.TRUE.equals(request.isPreserveSourceDestination());
+        boolean symmetricHashEnabled = Boolean.TRUE.equals(request.isSymmetricHashEnabled());
+        if (symmetricHashEnabled && !preserveSourceDestination) {
+            throw new OciException("启用对称哈希前必须先启用保留源/目标地址");
+        }
         CreateNetworkLoadBalancerDetails.Builder builder = CreateNetworkLoadBalancerDetails.builder()
                 .compartmentId(required(compartmentId, "Compartment 不能为空"))
                 .displayName(displayName)
                 .subnetId(subnetId)
-                .isPrivate(Boolean.TRUE.equals(request.isPrivate()))
-                .isPreserveSourceDestination(Boolean.TRUE.equals(request.isPreserveSourceDestination()))
-                .isSymmetricHashEnabled(Boolean.TRUE.equals(request.isSymmetricHashEnabled()))
+                .isPrivate(!Boolean.FALSE.equals(request.isPrivate()))
+                .isPreserveSourceDestination(preserveSourceDestination)
+                .isSymmetricHashEnabled(symmetricHashEnabled)
                 .nlbIpVersion(nlbIpVersion(request.nlbIpVersion(), NlbIpVersion.Ipv4));
         if (request.networkSecurityGroupIds() != null) {
             builder.networkSecurityGroupIds(cleanStrings(request.networkSecurityGroupIds()));
@@ -69,6 +74,10 @@ public final class NlbSdkDetailsFactory {
     public static UpdateNetworkLoadBalancerDetails updateNetworkLoadBalancer(
             NlbRequests.UpdateNetworkLoadBalancerRequest request) {
         require(request, "更新参数不能为空");
+        if (Boolean.TRUE.equals(request.isSymmetricHashEnabled())
+                && Boolean.FALSE.equals(request.isPreserveSourceDestination())) {
+            throw new OciException("启用对称哈希前必须先启用保留源/目标地址");
+        }
         UpdateNetworkLoadBalancerDetails.Builder builder = UpdateNetworkLoadBalancerDetails.builder();
         if (notBlank(request.displayName())) builder.displayName(request.displayName().trim());
         if (request.isPreserveSourceDestination() != null) {
@@ -123,10 +132,11 @@ public final class NlbSdkDetailsFactory {
         return CreateBackendSetDetails.builder()
                 .name(required(request.name(), "Backend Set 名称不能为空"))
                 .policy(policy(request.policy(), NetworkLoadBalancingPolicy.FiveTuple))
-                .isPreserveSource(Boolean.TRUE.equals(request.isPreserveSource()))
+                .isPreserveSource(!Boolean.FALSE.equals(request.isPreserveSource()))
                 .isFailOpen(Boolean.TRUE.equals(request.isFailOpen()))
                 .isInstantFailoverEnabled(Boolean.TRUE.equals(request.isInstantFailoverEnabled()))
-                .isInstantFailoverTcpResetEnabled(Boolean.TRUE.equals(request.isInstantFailoverTcpResetEnabled()))
+                .isInstantFailoverTcpResetEnabled(
+                        !Boolean.FALSE.equals(request.isInstantFailoverTcpResetEnabled()))
                 .areOperationallyActiveBackendsPreferred(
                         Boolean.TRUE.equals(request.areOperationallyActiveBackendsPreferred()))
                 .ipVersion(ipVersion(request.ipVersion(), IpVersion.Ipv4))

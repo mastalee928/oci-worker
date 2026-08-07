@@ -22,17 +22,23 @@ import com.oracle.bmc.networkloadbalancer.model.NetworkLoadBalancer;
 import com.oracle.bmc.networkloadbalancer.model.NetworkLoadBalancerCollection;
 import com.oracle.bmc.networkloadbalancer.model.NetworkLoadBalancerSummary;
 import com.oracle.bmc.networkloadbalancer.requests.ListNetworkLoadBalancersRequest;
+import com.oracle.bmc.networkloadbalancer.requests.ListWorkRequestErrorsRequest;
+import com.oracle.bmc.networkloadbalancer.requests.ListWorkRequestLogsRequest;
 import com.oracle.bmc.networkloadbalancer.responses.DeleteNetworkLoadBalancerResponse;
 import com.oracle.bmc.networkloadbalancer.responses.GetNetworkLoadBalancerHealthResponse;
 import com.oracle.bmc.networkloadbalancer.responses.GetNetworkLoadBalancerResponse;
 import com.oracle.bmc.networkloadbalancer.responses.ListNetworkLoadBalancersResponse;
+import com.oracle.bmc.networkloadbalancer.responses.ListWorkRequestErrorsResponse;
+import com.oracle.bmc.networkloadbalancer.responses.ListWorkRequestLogsResponse;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -84,6 +90,54 @@ class NetworkLoadBalancerServiceTest {
         assertThat(first).isEqualTo(repeated);
         assertThat(first).isNotEqualTo(changed);
         assertThat(first).hasSize(36);
+    }
+
+    @Test
+    void workRequestDiagnosticsPassCompartmentIdRequiredByOci() {
+        when(nlbClient.listWorkRequestErrors(any(ListWorkRequestErrorsRequest.class)))
+                .thenReturn(mock(ListWorkRequestErrorsResponse.class));
+        when(nlbClient.listWorkRequestLogs(any(ListWorkRequestLogsRequest.class)))
+                .thenReturn(mock(ListWorkRequestLogsResponse.class));
+        var request = new NlbRequests.WorkRequestResourceRequest(
+                "tenant-1", "region-1", "compartment-1", "work-request-1");
+
+        service.workRequestErrors(request);
+        service.workRequestLogs(request);
+
+        verify(nlbClient).listWorkRequestErrors(argThat(actual ->
+                "work-request-1".equals(actual.getWorkRequestId())
+                        && "compartment-1".equals(actual.getCompartmentId())));
+        verify(nlbClient).listWorkRequestLogs(argThat(actual ->
+                "work-request-1".equals(actual.getWorkRequestId())
+                        && "compartment-1".equals(actual.getCompartmentId())));
+    }
+
+    @Test
+    void rejectsSettingsThatConflictWithTransparentNlbMode() {
+        NetworkLoadBalancer existing = mock(NetworkLoadBalancer.class);
+        when(existing.getSubnetId()).thenReturn("subnet-1");
+        when(existing.getIsPreserveSourceDestination()).thenReturn(true);
+        when(existing.getIsSymmetricHashEnabled()).thenReturn(true);
+        GetNetworkLoadBalancerResponse detailResponse = mock(GetNetworkLoadBalancerResponse.class);
+        when(detailResponse.getNetworkLoadBalancer()).thenReturn(existing);
+        when(nlbClient.getNetworkLoadBalancer(any())).thenReturn(detailResponse);
+
+        GetSubnetResponse subnetResponse = mock(GetSubnetResponse.class);
+        when(subnetResponse.getSubnet()).thenReturn(subnet("subnet-1", "vcn-1", "frontend", "10.0.1.0/24"));
+        when(virtualNetworkClient.getSubnet(any(GetSubnetRequest.class))).thenReturn(subnetResponse);
+
+        assertThatThrownBy(() -> service.update(new NlbRequests.UpdateNetworkLoadBalancerRequest(
+                "tenant-1", "region-1", "compartment-1", "vcn-1", "nlb-1",
+                null, null, false, null, null, null, null, null, null, null, null)))
+                .isInstanceOf(com.ociworker.exception.OciException.class)
+                .hasMessageContaining("对称哈希");
+
+        assertThatThrownBy(() -> service.createBackendSet(new NlbRequests.CreateBackendSetRequest(
+                "tenant-1", "region-1", "compartment-1", "vcn-1", "nlb-1", null,
+                "set-1", "FIVE_TUPLE", false, false, false, false, false,
+                "IPV4", List.of(), null)))
+                .isInstanceOf(com.ociworker.exception.OciException.class)
+                .hasMessageContaining("不能关闭保留源 IP");
     }
 
     @Test

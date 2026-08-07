@@ -8,6 +8,13 @@ export interface NlbContext {
   force?: boolean
 }
 
+export interface NlbWorkRequestContext {
+  id: string
+  region?: string
+  compartmentId: string
+  workRequestId: string
+}
+
 export function listNetworkLoadBalancers(data: NlbContext) {
   return request.post('/oci/nlb/list', data)
 }
@@ -120,18 +127,18 @@ export function deleteNlbBackend(data: NlbContext & { networkLoadBalancerId: str
   return request.post('/oci/nlb/backend/delete', data)
 }
 
-export function getNlbWorkRequest(data: { id: string; region?: string; workRequestId: string }) {
+export function getNlbWorkRequest(data: NlbWorkRequestContext) {
   return request.post('/oci/nlb/work-request', data)
 }
 
-export function listNlbWorkRequestErrors(data: { id: string; region?: string; workRequestId: string }) {
+export function listNlbWorkRequestErrors(data: NlbWorkRequestContext) {
   return request.post('/oci/nlb/work-request/errors', data)
 }
 
-export function listNlbWorkRequestLogs(data: { id: string; region?: string; workRequestId: string }) {
+export function listNlbWorkRequestLogs(data: NlbWorkRequestContext) {
   return request.post('/oci/nlb/work-request/logs', data)
 }
 
-export function waitNlbWorkRequest(data: { id: string; region?: string; workRequestId: string; timeoutSeconds?: number; pollIntervalMillis?: number }) {
+export function waitNlbWorkRequest(data: NlbWorkRequestContext & { timeoutSeconds?: number; pollIntervalMillis?: number }) {
   return request.post('/oci/nlb/work-request/wait', data)
 }

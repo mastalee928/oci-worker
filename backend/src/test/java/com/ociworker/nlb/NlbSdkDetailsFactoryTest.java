@@ -17,7 +17,7 @@ class NlbSdkDetailsFactoryTest {
     void buildsNetworkLoadBalancerWithExplicitVcnScopedSubnetAndDefaults() {
         var request = new NlbRequests.CreateNetworkLoadBalancerRequest(
                 "tenant-1", "ap-singapore-1", "compartment-1", "vcn-1",
-                "edge-nlb", true, "subnet-1", List.of("nsg-1", "nsg-1"),
+                "edge-nlb", null, "subnet-1", List.of("nsg-1", "nsg-1"),
                 null, null, null, null, null, null, null,
                 Map.of("owner", "platform"), null, null);
 
@@ -30,6 +30,27 @@ class NlbSdkDetailsFactoryTest {
         assertThat(details.getNlbIpVersion().getValue()).isEqualTo("IPV4");
         assertThat(details.getNetworkSecurityGroupIds()).containsExactly("nsg-1");
         assertThat(details.getFreeformTags()).containsEntry("owner", "platform");
+    }
+
+    @Test
+    void appliesBackendSetSourcePreservationDefaultAndRejectsInvalidSymmetricHash() {
+        var backendSetRequest = new NlbRequests.CreateBackendSetRequest(
+                "tenant-1", "region-1", "compartment-1", "vcn-1", "nlb-1", null,
+                "set-1", "FIVE_TUPLE", null, false, false, null, false,
+                "IPV4", List.of(), null);
+
+        var backendSet = NlbSdkDetailsFactory.createBackendSet(backendSetRequest);
+
+        assertThat(backendSet.getIsPreserveSource()).isTrue();
+        assertThat(backendSet.getIsInstantFailoverTcpResetEnabled()).isTrue();
+        assertThatThrownBy(() -> NlbSdkDetailsFactory.createNetworkLoadBalancer(
+                new NlbRequests.CreateNetworkLoadBalancerRequest(
+                        "tenant-1", "region-1", "compartment-1", "vcn-1",
+                        "invalid", true, "subnet-1", null, "IPV4",
+                        false, true, null, null, null, null, null, null, null),
+                "compartment-1"))
+                .isInstanceOf(OciException.class)
+                .hasMessageContaining("对称哈希");
     }
 
     @Test

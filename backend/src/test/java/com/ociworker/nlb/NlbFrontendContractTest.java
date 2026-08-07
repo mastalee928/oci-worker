@@ -37,6 +37,7 @@ class NlbFrontendContractTest {
     void independentModuleContainsFullManagementAndNoOracleAiDependency() throws Exception {
         String panel = Files.readString(Path.of("..", "frontend", "src", "modules", "nlb", "NetworkLoadBalancerPanel.vue"));
         String api = Files.readString(Path.of("..", "frontend", "src", "api", "nlb.ts"));
+        String editorConfig = Files.readString(Path.of("..", ".editorconfig"));
 
         assertThat(panel).contains(
                 "创建负载均衡器", "创建 Listener", "创建 Backend Set", "更新健康检查器",
@@ -45,6 +46,17 @@ class NlbFrontendContractTest {
         assertThat(api).contains(
                 "/oci/nlb/create", "/oci/nlb/listener/create", "/oci/nlb/backend-set/create",
                 "/oci/nlb/health-checker/update", "/oci/nlb/backend/create", "/oci/nlb/work-request/errors");
+        assertThat(panel).contains(
+                "compartmentId: String(item.compartmentId || base.value.compartmentId || '').trim()");
+        assertThat(api).contains("interface NlbWorkRequestContext", "compartmentId: string");
+        assertThat(panel).contains(
+                "`${base.value.id}|${target.id}|${targetCompartmentId}`",
+                ":disabled=\"!nlbForm.isPreserveSourceDestination\"",
+                "isPreserveSource: true",
+                "listenerForm.ifMatch = source?.etag",
+                "backendSetForm.ifMatch = source?.etag",
+                "backendForm.ifMatch = source?.etag");
+        assertThat(editorConfig).contains("charset = utf-8");
         assertThat(panel).doesNotContain("OracleAI", "oracleAi", "loadBalanceService");
     }
 }

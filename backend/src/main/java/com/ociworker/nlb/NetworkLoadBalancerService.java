@@ -81,6 +81,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+import java.util.function.BiFunction;
 import java.util.function.Function;
 
 /** Independent OCI Network Load Balancer business module. */
@@ -428,8 +429,9 @@ public class NetworkLoadBalancerService {
     public Map<String, Object> update(NlbRequests.UpdateNetworkLoadBalancerRequest request) {
         NlbRequests.UpdateNetworkLoadBalancerRequest input = require(request, "更新参数不能为空");
         OciUser user = requireUser(input.id());
-        return withExistingNlb(user, input.region(), input.vcnId(), input.networkLoadBalancerId(),
-                "更新负载均衡器", client -> {
+        return withExistingNlbContext(user, input.region(), input.vcnId(), input.networkLoadBalancerId(),
+                "更新负载均衡器", (client, context) -> {
+                    validateNlbUpdateCompatibility(context, input);
                     var response = client.getNetworkLoadBalancerClient().updateNetworkLoadBalancer(
                             UpdateNetworkLoadBalancerRequest.builder()
                                     .networkLoadBalancerId(input.networkLoadBalancerId())
@@ -557,8 +559,9 @@ public class NetworkLoadBalancerService {
     public Map<String, Object> createBackendSet(NlbRequests.CreateBackendSetRequest request) {
         NlbRequests.CreateBackendSetRequest input = require(request, "Backend Set 创建参数不能为空");
         OciUser user = requireUser(input.id());
-        return withExistingNlb(user, input.region(), input.vcnId(), input.networkLoadBalancerId(),
-                "创建 Backend Set", client -> {
+        return withExistingNlbContext(user, input.region(), input.vcnId(), input.networkLoadBalancerId(),
+                "创建 Backend Set", (client, context) -> {
+                    validateBackendSetPreserveSource(context, input.isPreserveSource());
                     var response = client.getNetworkLoadBalancerClient().createBackendSet(CreateBackendSetRequest.builder()
                             .networkLoadBalancerId(input.networkLoadBalancerId())
                             .createBackendSetDetails(NlbSdkDetailsFactory.createBackendSet(input))
@@ -575,8 +578,9 @@ public class NetworkLoadBalancerService {
         NlbRequests.UpdateBackendSetRequest input = require(request, "Backend Set 更新参数不能为空");
         OciUser user = requireUser(input.id());
         String backendSetName = required(input.backendSetName(), "Backend Set 名称不能为空");
-        return withExistingNlb(user, input.region(), input.vcnId(), input.networkLoadBalancerId(),
-                "更新 Backend Set", client -> {
+        return withExistingNlbContext(user, input.region(), input.vcnId(), input.networkLoadBalancerId(),
+                "更新 Backend Set", (client, context) -> {
+                    validateBackendSetPreserveSource(context, input.isPreserveSource());
                     var response = client.getNetworkLoadBalancerClient().updateBackendSet(UpdateBackendSetRequest.builder()
                             .networkLoadBalancerId(input.networkLoadBalancerId()).backendSetName(backendSetName)
                             .updateBackendSetDetails(NlbSdkDetailsFactory.updateBackendSet(input))
@@ -691,22 +695,25 @@ public class NetworkLoadBalancerService {
     public List<Map<String, Object>> workRequestErrors(NlbRequests.WorkRequestResourceRequest request) {
         NlbRequests.WorkRequestResourceRequest input = require(request, "Work Request 查询参数不能为空");
         OciUser user = requireUser(input.id());
+        String compartmentId = required(input.compartmentId(), "Compartment 不能为空");
         String workRequestId = required(input.workRequestId(), "Work Request OCID 不能为空");
         return withClient(user, input.region(), "查询 Work Request 错误", client ->
-                fetchWorkRequestErrors(client.getNetworkLoadBalancerClient(), workRequestId));
+                fetchWorkRequestErrors(client.getNetworkLoadBalancerClient(), workRequestId, compartmentId));
     }
 
     public List<Map<String, Object>> workRequestLogs(NlbRequests.WorkRequestResourceRequest request) {
         NlbRequests.WorkRequestResourceRequest input = require(request, "Work Request 查询参数不能为空");
         OciUser user = requireUser(input.id());
+        String compartmentId = required(input.compartmentId(), "Compartment 不能为空");
         String workRequestId = required(input.workRequestId(), "Work Request OCID 不能为空");
         return withClient(user, input.region(), "查询 Work Request 日志", client ->
-                fetchWorkRequestLogs(client.getNetworkLoadBalancerClient(), workRequestId));
+                fetchWorkRequestLogs(client.getNetworkLoadBalancerClient(), workRequestId, compartmentId));
     }
 
     public Map<String, Object> waitWorkRequest(NlbRequests.WaitWorkRequestRequest request) {
         NlbRequests.WaitWorkRequestRequest input = require(request, "Work Request 等待参数不能为空");
         OciUser user = requireUser(input.id());
+        String compartmentId = required(input.compartmentId(), "Compartment 不能为空");
         String workRequestId = required(input.workRequestId(), "Work Request OCID 不能为空");
         int timeoutSeconds = clamp(input.timeoutSeconds(), DEFAULT_WAIT_SECONDS, 1, MAX_WAIT_SECONDS);
         int pollMillis = clamp(input.pollIntervalMillis(), DEFAULT_POLL_MILLIS, 500, 5000);
@@ -717,10 +724,15 @@ public class NetworkLoadBalancerService {
                 current = fetchWorkRequest(client.getNetworkLoadBalancerClient(), workRequestId);
                 if (Boolean.TRUE.equals(current.get("terminal"))) {
                     current.put("timedOut", false);
+                    String diagnosticsCompartmentId = notBlank((String) current.get("compartmentId"))
+                            ? ((String) current.get("compartmentId")).trim()
+                            : compartmentId;
                     if (!Boolean.TRUE.equals(current.get("successful"))) {
-                        current.put("errors", fetchWorkRequestErrors(client.getNetworkLoadBalancerClient(), workRequestId));
+                        current.put("errors", fetchWorkRequestErrors(
+                                client.getNetworkLoadBalancerClient(), workRequestId, diagnosticsCompartmentId));
                     }
-                    current.put("logs", fetchWorkRequestLogs(client.getNetworkLoadBalancerClient(), workRequestId));
+                    current.put("logs", fetchWorkRequestLogs(
+                            client.getNetworkLoadBalancerClient(), workRequestId, diagnosticsCompartmentId));
                     return current;
                 }
                 if (System.nanoTime() >= deadline) break;
@@ -751,12 +763,41 @@ public class NetworkLoadBalancerService {
 
     private <T> T withExistingNlb(OciUser user, String region, String vcnId, String nlbId,
                                   String action, Function<OciClientService, T> operation) {
+        return withExistingNlbContext(user, region, vcnId, nlbId, action,
+                (client, context) -> operation.apply(client));
+    }
+
+    private <T> T withExistingNlbContext(
+            OciUser user, String region, String vcnId, String nlbId, String action,
+            BiFunction<OciClientService, NlbContext, T> operation) {
         String resolvedVcnId = required(vcnId, "VCN 不能为空");
         String resolvedNlbId = required(nlbId, "负载均衡器 OCID 不能为空");
         return withClient(user, region, action, client -> {
-            requireNlbInVcn(client, resolvedNlbId, resolvedVcnId);
-            return operation.apply(client);
+            NlbContext context = requireNlbInVcn(client, resolvedNlbId, resolvedVcnId);
+            return operation.apply(client, context);
         });
+    }
+
+    private static void validateNlbUpdateCompatibility(
+            NlbContext context, NlbRequests.UpdateNetworkLoadBalancerRequest input) {
+        var current = context.response().getNetworkLoadBalancer();
+        boolean preserveSourceDestination = input.isPreserveSourceDestination() != null
+                ? input.isPreserveSourceDestination()
+                : Boolean.TRUE.equals(current.getIsPreserveSourceDestination());
+        boolean symmetricHashEnabled = input.isSymmetricHashEnabled() != null
+                ? input.isSymmetricHashEnabled()
+                : Boolean.TRUE.equals(current.getIsSymmetricHashEnabled());
+        if (symmetricHashEnabled && !preserveSourceDestination) {
+            throw new OciException("启用对称哈希前必须先启用保留源/目标地址");
+        }
+    }
+
+    private static void validateBackendSetPreserveSource(NlbContext context, Boolean preserveSource) {
+        var current = context.response().getNetworkLoadBalancer();
+        if (Boolean.TRUE.equals(current.getIsPreserveSourceDestination())
+                && Boolean.FALSE.equals(preserveSource)) {
+            throw new OciException("当前 NLB 已启用保留源/目标地址，Backend Set 不能关闭保留源 IP");
+        }
     }
 
     private <T> T withClient(OciUser user, String region, String action, Function<OciClientService, T> operation) {
@@ -986,12 +1027,13 @@ public class NetworkLoadBalancerService {
     }
 
     private static List<Map<String, Object>> fetchWorkRequestErrors(
-            NetworkLoadBalancerClient client, String workRequestId) {
+            NetworkLoadBalancerClient client, String workRequestId, String compartmentId) {
         List<Map<String, Object>> result = new ArrayList<>();
         String page = null;
         do {
             var response = client.listWorkRequestErrors(ListWorkRequestErrorsRequest.builder()
-                    .workRequestId(workRequestId).limit(PAGE_LIMIT).page(page).build());
+                    .workRequestId(workRequestId).compartmentId(compartmentId)
+                    .limit(PAGE_LIMIT).page(page).build());
             if (response.getWorkRequestErrorCollection() != null
                     && response.getWorkRequestErrorCollection().getItems() != null) {
                 response.getWorkRequestErrorCollection().getItems()
@@ -1003,12 +1045,13 @@ public class NetworkLoadBalancerService {
     }
 
     private static List<Map<String, Object>> fetchWorkRequestLogs(
-            NetworkLoadBalancerClient client, String workRequestId) {
+            NetworkLoadBalancerClient client, String workRequestId, String compartmentId) {
         List<Map<String, Object>> result = new ArrayList<>();
         String page = null;
         do {
             var response = client.listWorkRequestLogs(ListWorkRequestLogsRequest.builder()
-                    .workRequestId(workRequestId).limit(PAGE_LIMIT).page(page).build());
+                    .workRequestId(workRequestId).compartmentId(compartmentId)
+                    .limit(PAGE_LIMIT).page(page).build());
             if (response.getWorkRequestLogEntryCollection() != null
                     && response.getWorkRequestLogEntryCollection().getItems() != null) {
                 response.getWorkRequestLogEntryCollection().getItems()

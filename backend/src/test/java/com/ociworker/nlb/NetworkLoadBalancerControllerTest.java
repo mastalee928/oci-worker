@@ -46,4 +46,21 @@ class NetworkLoadBalancerControllerTest {
                 "deleteNlbBackend", "654321", "tenant-1|nlb-1|set-a|backend-a");
         verify(service).deleteBackend(request);
     }
+
+    @Test
+    void bindsCompartmentMoveCodeToTheSelectedTargetCompartment() {
+        NetworkLoadBalancerService service = mock(NetworkLoadBalancerService.class);
+        VerifyCodeService verifyCodeService = mock(VerifyCodeService.class);
+        NetworkLoadBalancerController controller = new NetworkLoadBalancerController(service, verifyCodeService);
+        var request = new NlbRequests.ChangeCompartmentRequest(
+                "tenant-1", "region-1", "compartment-1", "vcn-1",
+                "nlb-1", "etag-1", "compartment-2", "123456");
+        when(service.changeCompartment(request)).thenReturn(Map.of("submitted", true));
+
+        controller.changeCompartment(request);
+
+        verify(verifyCodeService).verifyCode(
+                "changeNlbCompartment", "123456", "tenant-1|nlb-1|compartment-2");
+        verify(service).changeCompartment(request);
+    }
 }
