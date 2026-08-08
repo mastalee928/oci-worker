@@ -47,6 +47,67 @@ export function downloadInvoicePdf(data: { id: string; invoiceId: string; fileNa
   return request.post('/oci/user/invoicePdf', data, { responseType: 'blob' as any })
 }
 
+export function getTenantBillingWorkspace(data: { id: string }) {
+  return request.post('/oci/user/billingWorkspace', data)
+}
+
+export function getTenantInvoiceDetails(data: { id: string; invoiceId: string; limit?: number }) {
+  return request.post('/oci/user/invoiceDetails', data)
+}
+
+export function startTenantInvoicePayment(data: {
+  id: string
+  invoiceId: string
+  returnUrl?: string
+  email?: string
+}) {
+  return request.post('/oci/user/invoicePayment', data)
+}
+
+export function startTenantSubscriptionPayment(data: {
+  id: string
+  subscriptionId?: string
+  email?: string
+}) {
+  return request.post('/oci/user/subscriptionPayment', data)
+}
+
+export interface BillingAddressPayload {
+  id: string
+  subscriptionId?: string
+  addressKey?: string
+  line1: string
+  line2?: string
+  line3?: string
+  line4?: string
+  streetName?: string
+  streetNumber?: string
+  city: string
+  county?: string
+  country: string
+  province?: string
+  postalCode: string
+  state?: string
+  emailAddress?: string
+  companyName?: string
+  firstName?: string
+  middleName?: string
+  lastName?: string
+  phoneCountryCode?: string
+  phoneNumber?: string
+  jobTitle?: string
+  departmentName?: string
+  ifMatch?: string
+}
+
+export function verifyTenantBillingAddress(data: BillingAddressPayload) {
+  return request.post('/oci/user/billingAddress/verify', data)
+}
+
+export function updateTenantBillingAddress(data: BillingAddressPayload) {
+  return request.post('/oci/user/billingAddress/update', data)
+}
+
 export type BudgetTargetType = 'COMPARTMENT' | 'TAG'
 export type BudgetProcessingPeriodType = 'MONTH' | 'INVOICE' | 'SINGLE_USE'
 export type BudgetAlertType = 'ACTUAL' | 'FORECAST'

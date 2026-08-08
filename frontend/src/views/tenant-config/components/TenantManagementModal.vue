@@ -230,160 +230,19 @@
           </a-spin>
         </a-tab-pane>
         <a-tab-pane key="billing" tab="账务信息">
-        <a-spin :spinning="billingLoading">
-          <a-space v-if="!billingData && !billingLoading" style="margin-bottom: 12px">
-            <a-button type="primary" @click="loadTenantBilling">加载账务信息</a-button>
-          </a-space>
-          <template v-if="billingData">
-            <a-row :gutter="12">
-              <a-col :xs="24" :sm="12">
-                <a-card size="small" :bordered="true">
-                  <div style="font-size: 12px; color: var(--text-sub)">最近发票</div>
-                  <div style="font-weight: 700; font-size: 16px; margin-top: 4px">
-                    <span v-if="billingData.summary?.latestInvoice?.totalAmount !== undefined && billingData.summary?.latestInvoice?.totalAmount !== null">
-                      {{ billingData.summary.latestInvoice.totalAmount }} {{ billingData.summary.latestInvoice.currencyCode || '' }}
-                    </span>
-                    <span v-else>—</span>
-                  </div>
-                  <div style="margin-top: 6px; font-size: 12px; color: var(--text-sub)">
-                    <span v-if="billingData.summary?.latestInvoice?.invoiceNo">No: {{ billingData.summary.latestInvoice.invoiceNo }}</span>
-                    <span v-else>暂无发票数据</span>
-                  </div>
-                </a-card>
-              </a-col>
-              <a-col :xs="24" :sm="12">
-                <a-card size="small" :bordered="true">
-                  <div style="font-size: 12px; color: var(--text-sub)">期间成本（Usage API）</div>
-                  <div style="font-weight: 700; font-size: 16px; margin-top: 4px">
-                    <template v-if="billingData.usage?.available && billingData.usage?.summary">
-                      {{ billingData.usage.summary.totalCost ?? '—' }} {{ billingData.usage.summary.currency || '' }}
-                    </template>
-                    <span v-else>—</span>
-                  </div>
-                  <div style="margin-top: 6px; font-size: 12px; color: var(--text-sub)">
-                    <span v-if="billingData.usage?.available">近 {{ billingData.usage.periodDays || billingCostDays }} 天</span>
-                    <span v-else>成本数据未加载</span>
-                  </div>
-                </a-card>
-              </a-col>
-            </a-row>
-
-            <div style="margin-top: 12px">
-              <a-space wrap style="margin-bottom: 8px">
-                <a-button size="small" :loading="billingLoading" @click="loadTenantBilling">
-                  <template #icon><ReloadOutlined /></template>刷新账务
-                </a-button>
-                <span style="font-weight: 600">成本分析</span>
-                <a-select v-model:value="billingCostDaysModel" style="width: 110px" :options="billingCostDayOptions" />
-                <a-button size="small" type="primary" :loading="billingLoading" @click="reloadBillingCost">查询成本</a-button>
-                <a v-if="billingData.links?.costAnalysis" :href="billingData.links.costAnalysis" target="_blank" rel="noopener noreferrer" style="font-size: 12px">控制台</a>
-              </a-space>
-              <a-alert v-if="billingData.usage && !billingData.usage.available" type="warning" show-icon
-                :message="billingData.usage.reason || '成本分析不可用'" style="margin-bottom: 8px" />
-              <template v-else-if="billingData.usage?.available">
-                <div style="font-size: 12px; color: var(--text-sub); margin-bottom: 8px">
-                  {{ formatBillingPeriod(billingData.usage.timeUsageStarted, billingData.usage.timeUsageEnded) }}
-                </div>
-                <div style="font-weight: 600; margin-bottom: 6px">按服务</div>
-                <a-table
-                  v-if="!isMobile"
-                  size="small"
-                  :data-source="billingData.usage.byService || []"
-                  :pagination="{ pageSize: 10 }"
-                  row-key="service"
-                >
-                  <a-table-column title="服务" data-index="service" key="service" :ellipsis="true" />
-                  <a-table-column title="成本" key="cost" :width="140">
-                    <template #default="{ record }">
-                      {{ record.cost ?? '—' }} {{ record.currency || '' }}
-                    </template>
-                  </a-table-column>
-                </a-table>
-                <a-spin v-else :spinning="false">
-                  <a-empty v-if="!(billingData.usage.byService || []).length" description="无服务分项" />
-                  <div v-for="(row, i) in (billingData.usage.byService || [])" :key="row.service || i" class="mobile-card">
-                    <div class="mobile-card-body">
-                      <div class="mobile-card-row"><span class="label">服务</span><span class="value">{{ row.service }}</span></div>
-                      <div class="mobile-card-row"><span class="label">成本</span><span class="value">{{ row.cost }} {{ row.currency || '' }}</span></div>
-                    </div>
-                  </div>
-                </a-spin>
-                <div style="font-weight: 600; margin: 12px 0 6px">按日趋势</div>
-                <a-table
-                  v-if="!isMobile"
-                  size="small"
-                  :data-source="billingData.usage.byDay || []"
-                  :pagination="{ pageSize: 10 }"
-                  row-key="date"
-                >
-                  <a-table-column title="日期" data-index="date" key="date" :width="120" />
-                  <a-table-column title="成本" key="cost" :width="140">
-                    <template #default="{ record }">
-                      {{ record.cost ?? '—' }} {{ record.currency || '' }}
-                    </template>
-                  </a-table-column>
-                </a-table>
-                <a-spin v-else :spinning="false">
-                  <a-empty v-if="!(billingData.usage.byDay || []).length" description="无按日数据" />
-                  <div v-for="(row, i) in (billingData.usage.byDay || [])" :key="row.date || i" class="mobile-card">
-                    <div class="mobile-card-body">
-                      <div class="mobile-card-row"><span class="label">日期</span><span class="value">{{ row.date }}</span></div>
-                      <div class="mobile-card-row"><span class="label">成本</span><span class="value">{{ row.cost }} {{ row.currency || '' }}</span></div>
-                    </div>
-                  </div>
-                </a-spin>
-              </template>
-            </div>
-
-            <a-alert v-if="billingData.invoices && billingData.invoices.available === false"
-              type="warning" show-icon style="margin-top: 10px"
-              :message="billingData.invoices.reason || '发票接口不可用'" />
-
-            <div style="margin-top: 10px">
-              <div style="font-weight: 600; margin-bottom: 6px">最近发票</div>
-              <a-table
-                v-if="!isMobile"
-                size="small"
-                :data-source="billingData.invoices?.items || []"
-                :pagination="false"
-                row-key="invoiceId"
-              >
-                <a-table-column title="发票号" data-index="invoiceNo" key="invoiceNo" :width="140" />
-                <a-table-column title="状态" data-index="status" key="status" :width="120" />
-                <a-table-column title="开票日期" data-index="invoiceDate" key="invoiceDate" :width="180" />
-                <a-table-column title="到期日" data-index="dueDate" key="dueDate" :width="180" />
-                <a-table-column title="金额" key="amount" :width="140">
-                  <template #default="{ record }">
-                    <span>{{ record.totalAmount ?? '—' }} {{ record.currencyCode || '' }}</span>
-                  </template>
-                </a-table-column>
-                <a-table-column title="操作" key="action" :width="120">
-                  <template #default="{ record }">
-                    <a-button type="link" size="small" @click="handleDownloadInvoice(record)" :disabled="!record.invoiceId">下载PDF</a-button>
-                  </template>
-                </a-table-column>
-              </a-table>
-              <a-spin v-else :spinning="false">
-                <a-empty v-if="(billingData.invoices?.items || []).length === 0" description="暂无发票" />
-                <div v-for="(inv, ii) in (billingData.invoices?.items || [])" :key="inv.invoiceId || ii" class="mobile-card">
-                  <div class="mobile-card-header">
-                    <span class="mobile-card-title">{{ inv.invoiceNo || '—' }}</span>
-                    <a-tag style="margin:0">{{ inv.status || '—' }}</a-tag>
-                  </div>
-                  <div class="mobile-card-body">
-                    <div class="mobile-card-row"><span class="label">金额</span><span class="value">{{ inv.totalAmount ?? '—' }} {{ inv.currencyCode || '' }}</span></div>
-                    <div class="mobile-card-row"><span class="label">开票</span><span class="value">{{ inv.invoiceDate || '—' }}</span></div>
-                    <div class="mobile-card-row"><span class="label">到期</span><span class="value">{{ inv.dueDate || '—' }}</span></div>
-                  </div>
-                  <div class="mobile-card-actions">
-                    <a-button type="link" size="small" @click="handleDownloadInvoice(inv)" :disabled="!inv.invoiceId">下载PDF</a-button>
-                  </div>
-                </div>
-              </a-spin>
-            </div>
-          </template>
-          <a-empty v-else :description="billingLoading ? '正在加载账务数据' : '暂无账务数据'" />
-        </a-spin>
+          <TenantBillingPanel
+            v-if="tenant?.id"
+            :tenant-id="tenant.id"
+            :tenant-info="tenantInfoData"
+            :is-mobile="isMobile"
+            :billing-loading="billingLoading"
+            :billing-data="billingData"
+            :billing-cost-days="billingCostDays"
+            :billing-cost-day-options="billingCostDayOptions"
+            :load-tenant-billing="loadTenantBilling"
+            :reload-billing-cost="reloadBillingCost"
+            :handle-download-invoice="handleDownloadInvoice"
+          />
         </a-tab-pane>
         <a-tab-pane key="budgets" tab="成本预算">
           <a-spin :spinning="budgetsLoading">
@@ -1016,6 +875,7 @@ import { PlusOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc'
 import { defineAppAsyncComponent } from '../../../utils/asyncComponent'
+import TenantBillingPanel from '../../../modules/billing/TenantBillingPanel.vue'
 
 dayjs.extend(utc)
 

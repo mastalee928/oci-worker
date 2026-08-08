@@ -594,9 +594,12 @@ export function useTenantManagement(options: UseTenantManagementOptions) {
     }
   }
 
-  async function reloadBillingCost() {
+  async function reloadBillingCost(days?: number) {
     const tenantId = tenantInfoData.value?.id || tenantMgmtTenant.value?.id
     if (!tenantId) return
+    if (typeof days === 'number' && Number.isFinite(days)) {
+      billingCostDays.value = Math.max(7, Math.min(90, Math.trunc(days)))
+    }
     const requestSeq = ++billingRequestSeq
     billingLoading.value = true
     try {
