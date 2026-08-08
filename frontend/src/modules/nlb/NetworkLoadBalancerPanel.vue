@@ -1144,8 +1144,8 @@ onUnmounted(() => {
 .nlb-mobile-actions :deep(.ant-btn) { width: 100%; }
 .muted { color: rgba(0, 0, 0, .45); }
 .mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; word-break: break-all; }
-.verify-target { margin: 14px 0; padding: 10px 12px; background: #fff7e6; border: 1px solid #ffd591; border-radius: 4px; font-weight: 600; }
-.verify-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; color: rgba(0, 0, 0, .45); font-size: 12px; }
+.verify-target { margin: 14px 0; padding: 10px 12px; background: var(--input-bg); border: 1px solid var(--border); border-radius: 4px; color: var(--text-main); font-weight: 600; }
+.verify-footer { display: flex; justify-content: space-between; align-items: center; margin-top: 8px; color: var(--text-sub); font-size: 12px; }
 .work-detail-toolbar { margin-bottom: 10px; }
 .work-empty { margin-top: 12px; }
 .form-grid { display: grid; width: 100%; column-gap: 16px; }
