@@ -1,10 +1,6 @@
 <template>
   <section class="nlb-panel">
-    <div class="nlb-toolbar">
-      <div>
-        <a-typography-title :level="5" class="nlb-title">OCI Network Load Balancer</a-typography-title>
-        <a-typography-text type="secondary">仅显示当前 VCN（{{ props.vcn?.displayName || props.vcn?.id || '—' }}）下的 NLB</a-typography-text>
-      </div>
+    <div class="nlb-toolbar nlb-toolbar-actions">
       <a-space wrap>
         <a-button type="primary" size="small" @click="openCreateNlb">创建负载均衡器</a-button>
         <a-button size="small" :loading="listLoading" @click="loadNlbs(true)">刷新</a-button>
@@ -29,49 +25,93 @@
 
     <a-spin :spinning="listLoading">
       <a-empty v-if="!listLoading && !rows.length" description="当前 VCN 暂无网络负载均衡器" />
-      <a-table
-        v-else
-        size="small"
-        row-key="id"
-        :data-source="rows"
-        :columns="nlbColumns"
-        :pagination="false"
-        :scroll="{ x: 980 }"
-      >
-        <template #bodyCell="{ column, record }">
-          <template v-if="column.key === 'displayName'">
-            <a-button type="link" size="small" class="resource-link" @click="openDetail(record)">
-              {{ record.displayName || record.id }}
-            </a-button>
-          </template>
-          <template v-else-if="column.key === 'exposure'">
-            <a-tag :color="record.isPrivate ? 'blue' : 'orange'">{{ record.isPrivate ? '私有' : '公有' }}</a-tag>
-          </template>
-          <template v-else-if="column.key === 'ipAddresses'">
-            <div v-for="ip in (record.ipAddresses || []).slice(0, 2)" :key="ip.ipAddress || ip.reservedIpId">
-              {{ ip.ipAddress || '—' }}
+      <template v-else>
+        <div class="nlb-desktop-list">
+          <a-table
+            size="small"
+            row-key="id"
+            table-layout="fixed"
+            :data-source="rows"
+            :columns="nlbColumns"
+            :pagination="false"
+          >
+            <template #bodyCell="{ column, record }">
+              <template v-if="column.key === 'displayName'">
+                <a-button type="link" size="small" class="resource-link" :title="record.displayName || record.id" @click="openDetail(record)">
+                  {{ record.displayName || record.id }}
+                </a-button>
+              </template>
+              <template v-else-if="column.key === 'exposure'">
+                <a-tag :color="record.isPrivate ? 'blue' : 'orange'">{{ record.isPrivate ? '私有' : '公有' }}</a-tag>
+              </template>
+              <template v-else-if="column.key === 'ipAddresses'">
+                <div v-for="ip in (record.ipAddresses || []).slice(0, 2)" :key="ip.ipAddress || ip.reservedIpId">
+                  {{ ip.ipAddress || '—' }}
+                </div>
+                <span v-if="!(record.ipAddresses || []).length" class="muted">—</span>
+              </template>
+              <template v-else-if="column.key === 'lifecycleState'">
+                <a-badge :status="lifecycleBadge(record.lifecycleState)" :text="record.lifecycleState || 'UNKNOWN'" />
+              </template>
+              <template v-else-if="column.key === 'healthStatus'">
+                <a-badge :status="healthTagStatus(record.healthStatus)" :text="healthStatusText(record.healthStatus)" />
+              </template>
+              <template v-else-if="column.key === 'counts'">
+                {{ record.listenerCount || 0 }} / {{ record.backendSetCount || 0 }} / {{ record.backendCount || 0 }}
+              </template>
+              <template v-else-if="column.key === 'action'">
+                <a-space :size="2" wrap>
+                  <a-button size="small" type="link" @click="openDetail(record)">管理</a-button>
+                  <a-button size="small" type="link" @click="openEditNlb(record)">编辑</a-button>
+                  <a-button size="small" type="link" @click="openNsgEditor(record)">NSG</a-button>
+                  <a-button size="small" type="link" danger @click="askDeleteNlb(record)">删除</a-button>
+                </a-space>
+              </template>
+            </template>
+          </a-table>
+        </div>
+
+        <div class="nlb-mobile-list">
+          <a-card v-for="record in rows" :key="record.id" size="small" class="nlb-mobile-card">
+            <div class="nlb-mobile-header">
+              <a-button type="link" size="small" class="resource-link nlb-mobile-name" :title="record.displayName || record.id" @click="openDetail(record)">
+                {{ record.displayName || record.id }}
+              </a-button>
+              <a-tag :color="record.isPrivate ? 'blue' : 'orange'">{{ record.isPrivate ? '私有' : '公有' }}</a-tag>
             </div>
-            <span v-if="!(record.ipAddresses || []).length" class="muted">—</span>
-          </template>
-          <template v-else-if="column.key === 'lifecycleState'">
-            <a-badge :status="lifecycleBadge(record.lifecycleState)" :text="record.lifecycleState || 'UNKNOWN'" />
-          </template>
-          <template v-else-if="column.key === 'healthStatus'">
-            <a-badge :status="healthTagStatus(record.healthStatus)" :text="healthStatusText(record.healthStatus)" />
-          </template>
-          <template v-else-if="column.key === 'counts'">
-            {{ record.listenerCount || 0 }} / {{ record.backendSetCount || 0 }} / {{ record.backendCount || 0 }}
-          </template>
-          <template v-else-if="column.key === 'action'">
-            <a-space :size="2" wrap>
-              <a-button size="small" type="link" @click="openDetail(record)">管理</a-button>
-              <a-button size="small" type="link" @click="openEditNlb(record)">编辑</a-button>
-              <a-button size="small" type="link" @click="openNsgEditor(record)">NSG</a-button>
-              <a-button size="small" type="link" danger @click="askDeleteNlb(record)">删除</a-button>
-            </a-space>
-          </template>
-        </template>
-      </a-table>
+            <div class="nlb-mobile-info">
+              <div class="nlb-mobile-row">
+                <span class="nlb-mobile-label">IP 地址</span>
+                <span class="nlb-mobile-value">
+                  {{ (record.ipAddresses || []).map((ip: any) => ip.ipAddress).filter(Boolean).join(', ') || '—' }}
+                </span>
+              </div>
+              <div class="nlb-mobile-row">
+                <span class="nlb-mobile-label">子网</span>
+                <span class="nlb-mobile-value">{{ record.subnetName || record.subnetId || '—' }}</span>
+              </div>
+              <div class="nlb-mobile-row">
+                <span class="nlb-mobile-label">生命周期</span>
+                <a-badge :status="lifecycleBadge(record.lifecycleState)" :text="record.lifecycleState || 'UNKNOWN'" />
+              </div>
+              <div class="nlb-mobile-row">
+                <span class="nlb-mobile-label">健康</span>
+                <a-badge :status="healthTagStatus(record.healthStatus)" :text="healthStatusText(record.healthStatus)" />
+              </div>
+              <div class="nlb-mobile-row">
+                <span class="nlb-mobile-label">资源数量</span>
+                <span class="nlb-mobile-value">Listener {{ record.listenerCount || 0 }} / Set {{ record.backendSetCount || 0 }} / Backend {{ record.backendCount || 0 }}</span>
+              </div>
+            </div>
+            <div class="nlb-mobile-actions">
+              <a-button size="small" @click="openDetail(record)">管理</a-button>
+              <a-button size="small" @click="openEditNlb(record)">编辑</a-button>
+              <a-button size="small" @click="openNsgEditor(record)">NSG</a-button>
+              <a-button size="small" danger @click="askDeleteNlb(record)">删除</a-button>
+            </div>
+          </a-card>
+        </div>
+      </template>
     </a-spin>
 
     <div v-if="workRequests.length" class="nlb-work-summary">
@@ -184,7 +224,7 @@
     <a-modal v-model:open="nlbFormOpen" wrap-class-name="nlb-responsive-modal" :z-index="1400" :title="nlbFormMode === 'create' ? '创建网络负载均衡器' : '编辑网络负载均衡器'" :confirm-loading="formLoading" @ok="submitNlbForm">
       <a-alert v-if="nlbFormMode === 'create' && !nlbForm.isPrivate" type="warning" show-icon message="公有 NLB 会暴露到 Internet，请确认子网与安全策略。" class="form-alert" />
       <a-form layout="vertical">
-        <a-form-item label="名称" required><a-input v-model:value="nlbForm.displayName" maxlength="255" /></a-form-item>
+        <a-form-item label="名称" required><a-input v-model:value="nlbForm.displayName" :maxlength="255" /></a-form-item>
         <a-form-item v-if="nlbFormMode === 'create'" label="子网" required>
           <a-select v-model:value="nlbForm.subnetId" show-search option-filter-prop="label" placeholder="仅显示当前 VCN 子网" :get-popup-container="popupContainer">
             <a-select-option v-for="item in options.subnets || []" :key="item.id" :value="item.id" :label="item.displayName || item.id">{{ item.displayName || item.id }}（{{ item.cidrBlock || '—' }}）</a-select-option>
@@ -396,7 +436,10 @@ const props = defineProps<{
   compartmentId?: string
   vcn: any
 }>()
-const emit = defineEmits<{ (e: 'changed'): void }>()
+const emit = defineEmits<{
+  (e: 'changed'): void
+  (e: 'editing-overlay-change', v: boolean): void
+}>()
 
 const base = computed(() => ({
   id: props.userId,
@@ -423,14 +466,14 @@ const childLoading = reactive({ listeners: false, backendSets: false, backends: 
 const contextGeneration = ref(0)
 
 const nlbColumns = [
-  { title: '名称', key: 'displayName', width: 190 },
-  { title: '类型', key: 'exposure', width: 75 },
-  { title: 'IP 地址', key: 'ipAddresses', width: 160 },
-  { title: '子网', dataIndex: 'subnetName', key: 'subnetName', width: 150 },
-  { title: '生命周期', key: 'lifecycleState', width: 110 },
-  { title: '健康', key: 'healthStatus', width: 90 },
-  { title: 'Listener / Set / Backend', key: 'counts', width: 150 },
-  { title: '操作', key: 'action', width: 220 },
+  { title: '名称', key: 'displayName', width: '16%', ellipsis: true },
+  { title: '类型', key: 'exposure', width: '7%' },
+  { title: 'IP 地址', key: 'ipAddresses', width: '14%' },
+  { title: '子网', dataIndex: 'subnetName', key: 'subnetName', width: '13%', ellipsis: true },
+  { title: '生命周期', key: 'lifecycleState', width: '10%' },
+  { title: '健康', key: 'healthStatus', width: '9%' },
+  { title: 'Listener / Set / Backend', key: 'counts', width: '13%' },
+  { title: '操作', key: 'action', width: '18%' },
 ]
 const listenerColumns = [
   { title: '名称', dataIndex: 'name', key: 'name' },
@@ -504,6 +547,28 @@ const activeWorkRequest = ref<WorkRequestState | null>(null)
 const workDetailOpen = ref(false)
 const workDetailLoading = ref(false)
 const workTimers = new Map<string, ReturnType<typeof setTimeout>>()
+
+const editingOverlayOpen = computed(() => (
+  detailOpen.value ||
+  nlbFormOpen.value ||
+  nsgOpen.value ||
+  moveCompartmentOpen.value ||
+  listenerOpen.value ||
+  backendSetOpen.value ||
+  healthOpen.value ||
+  backendDetailOpen.value ||
+  backendOpen.value ||
+  verifyOpen.value ||
+  workDetailOpen.value
+))
+
+watch(
+  [() => props.open, editingOverlayOpen],
+  ([open, overlayOpen]) => {
+    emit('editing-overlay-change', Boolean(open && overlayOpen))
+  },
+  { immediate: true },
+)
 
 function defaultNlbForm() {
   return { displayName: '', subnetId: '', isPrivate: true, nlbIpVersion: 'IPV4', isPreserveSourceDestination: false, isSymmetricHashEnabled: false, ifMatch: '' }
@@ -1043,12 +1108,17 @@ function workBadge(status?: string): 'success' | 'processing' | 'error' | 'warni
   return 'default'
 }
 
-onUnmounted(() => { workTimers.forEach(timer => clearTimeout(timer)); workTimers.clear() })
+onUnmounted(() => {
+  workTimers.forEach(timer => clearTimeout(timer))
+  workTimers.clear()
+  emit('editing-overlay-change', false)
+})
 </script>
 
 <style scoped>
 .nlb-panel { min-height: 220px; }
 .nlb-toolbar, .detail-header, .op-row, .section-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.nlb-toolbar-actions { justify-content: flex-end; margin-bottom: 10px; }
 .nlb-title { margin: 0 0 2px; }
 .nlb-context-alert, .detail-alert, .form-alert { margin: 10px 0; }
 .nlb-work-summary { margin-top: 18px; }
@@ -1056,7 +1126,22 @@ onUnmounted(() => { workTimers.forEach(timer => clearTimeout(timer)); workTimers
 .detail-header { margin-bottom: 12px; }
 .detail-header h5 { margin: 0 0 5px; }
 .detail-descriptions { margin-bottom: 12px; }
-.resource-link { padding: 0; max-width: 180px; overflow: hidden; text-overflow: ellipsis; }
+.resource-link { padding: 0; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: middle; }
+.resource-link :deep(span) { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.nlb-desktop-list { width: 100%; min-width: 0; }
+.nlb-desktop-list .resource-link { display: block; max-width: 100%; text-align: left; }
+.nlb-desktop-list :deep(.ant-table-cell) { min-width: 0; overflow-wrap: anywhere; }
+.nlb-desktop-list :deep(.ant-badge-status-text) { margin-inline-start: 4px; white-space: normal; }
+.nlb-mobile-list { display: none; }
+.nlb-mobile-card + .nlb-mobile-card { margin-top: 12px; }
+.nlb-mobile-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-width: 0; }
+.nlb-mobile-name { display: block; flex: 1 1 auto; min-width: 0; max-width: none; text-align: left; }
+.nlb-mobile-info { display: grid; gap: 8px; margin-top: 10px; }
+.nlb-mobile-row { display: grid; grid-template-columns: 76px minmax(0, 1fr); align-items: start; gap: 8px; }
+.nlb-mobile-label { color: rgba(0, 0, 0, .45); }
+.nlb-mobile-value { min-width: 0; overflow-wrap: anywhere; }
+.nlb-mobile-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+.nlb-mobile-actions :deep(.ant-btn) { width: 100%; }
 .muted { color: rgba(0, 0, 0, .45); }
 .mono { font-family: ui-monospace, SFMono-Regular, Consolas, monospace; font-size: 12px; word-break: break-all; }
 .verify-target { margin: 14px 0; padding: 10px 12px; background: #fff7e6; border: 1px solid #ffd591; border-radius: 4px; font-weight: 600; }
@@ -1077,6 +1162,11 @@ onUnmounted(() => { workTimers.forEach(timer => clearTimeout(timer)); workTimers
 
 @media (max-width: 899px) {
   .form-grid--four, .form-grid--three { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 899px) {
+  .nlb-desktop-list { display: none; }
+  .nlb-mobile-list { display: block; }
 }
 
 @media (max-width: 575px) {

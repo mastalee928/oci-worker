@@ -198,6 +198,7 @@
           :compartment-id="String(props.vcn?.compartmentId || '')"
           :vcn="props.vcn"
           @changed="emit('changed')"
+          @editing-overlay-change="nlbEditingOverlayOpen = $event"
         />
       </a-tab-pane>
     </a-tabs>
@@ -1116,6 +1117,8 @@ async function doDeleteVcn() {
   })
 }
 
+const nlbEditingOverlayOpen = ref(false)
+
 const editingOverlayOpen = computed(() => (
   showCreateSubnet.value ||
   showCreateIgw.value ||
@@ -1131,7 +1134,8 @@ const editingOverlayOpen = computed(() => (
   showAddSlRule.value ||
   showEditIgw.value ||
   showDelete.value ||
-  showDeleteVcn.value
+  showDeleteVcn.value ||
+  nlbEditingOverlayOpen.value
 ))
 
 watch(
