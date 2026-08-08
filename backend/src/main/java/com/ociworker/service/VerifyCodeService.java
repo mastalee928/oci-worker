@@ -53,6 +53,7 @@ public class VerifyCodeService {
             case "removeFromAdmin" -> "移出管理员组";
             case "clearMfa" -> "清理 MFA";
             case "disableUser" -> "禁用用户";
+            case "deleteUser" -> "删除用户";
             case "changePassword" -> "修改登录密码";
             case "deleteVolume" -> "删除卷";
             case "deleteStorage" -> "删除存储资源";

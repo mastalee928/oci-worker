@@ -70,6 +70,10 @@ export function updateUserState(data: UserOperationPayload & { blocked: boolean;
   return request.post('/oci/identity/updateUserState', data)
 }
 
+export function deleteUser(data: UserOperationPayload & { verifyCode: string }) {
+  return request.post('/oci/identity/deleteUser', data)
+}
+
 export function listMfaDevices(data: UserOperationPayload) {
   return request.post('/oci/identity/listMfaDevices', data)
 }

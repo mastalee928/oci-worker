@@ -161,6 +161,13 @@ public class UserController {
         return ResponseData.ok();
     }
 
+    @PostMapping("/deleteUser")
+    public ResponseData<?> deleteUser(@RequestBody Map<String, String> params) {
+        verifyCodeService.verifyCode("deleteUser", params.get("verifyCode"));
+        userManagementService.deleteUser(buildUserParams(params));
+        return ResponseData.ok("用户已删除");
+    }
+
     @PostMapping("/listMfaDevices")
     public ResponseData<?> listMfaDevices(@RequestBody Map<String, String> params) {
         return ResponseData.ok(userManagementService.listMfaDevices(buildUserParams(params)));

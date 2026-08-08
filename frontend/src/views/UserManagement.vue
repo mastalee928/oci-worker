@@ -86,6 +86,9 @@
                 <a-menu-item v-else key="enableUser">
                   <i class="ri-checkbox-circle-line menu-icon"></i>启用用户
                 </a-menu-item>
+                <a-menu-item key="deleteUser" class="danger-item">
+                  <i class="ri-delete-bin-line menu-icon"></i>删除用户
+                </a-menu-item>
               </a-menu>
             </template>
           </a-dropdown>
@@ -117,6 +120,7 @@
                 <a-menu-divider />
                 <a-menu-item v-if="u.state === 'ACTIVE'" key="disableUser" class="danger-item"><i class="ri-forbid-line menu-icon"></i>禁用用户</a-menu-item>
                 <a-menu-item v-else key="enableUser"><i class="ri-checkbox-circle-line menu-icon"></i>启用用户</a-menu-item>
+                <a-menu-item key="deleteUser" class="danger-item"><i class="ri-delete-bin-line menu-icon"></i>删除用户</a-menu-item>
               </a-menu>
             </template>
           </a-dropdown>
@@ -321,7 +325,7 @@ import { message, Modal } from 'ant-design-vue'
 import dayjs from 'dayjs'
 import {
   listUsers, listIdentityDomains, createUser, resetPassword, clearMfa,
-  addToAdmin, removeFromAdmin, updateUser, updateUserState, listMfaDevices,
+  addToAdmin, removeFromAdmin, updateUser, updateUserState, deleteUser, listMfaDevices,
   getUserCapabilities, updateUserCapabilities, listGroups, getUserGroups, listDomainGroups,
 } from '../api/user'
 import { getTenantList } from '../api/tenant'
@@ -520,6 +524,7 @@ const ACTION_LABELS: Record<string, string> = {
   removeFromAdmin: '移出管理员组',
   clearMfa: '清理 MFA',
   disableUser: '禁用用户',
+  deleteUser: '删除用户',
 }
 
 const NEEDS_VERIFY = new Set(Object.keys(ACTION_LABELS))
@@ -713,6 +718,16 @@ function handleMenuAction(key: string, record: any) {
     case 'clearMfa': openVerifyAction('clearMfa', record, (code) => handleClearMfaWithCode(record, code)); break
     case 'disableUser': openVerifyAction('disableUser', record, (code) => handleDisableWithCode(record, code)); break
     case 'enableUser': confirmAction('确定启用该用户？', () => handleToggleState(record, false)); break
+    case 'deleteUser':
+      Modal.confirm({
+        content: '删除用户是高风险操作，容易导致账号被封禁！！',
+        okText: '确定',
+        cancelText: '取消',
+        onOk: () => {
+          void openVerifyAction('deleteUser', record, (code) => handleDeleteUserWithCode(record, code))
+        },
+      })
+      break
   }
 }
 
@@ -939,6 +954,19 @@ async function handleDisableWithCode(record: any, code: string) {
     loadUsers()
   } catch (e: any) {
     message.error(e?.message || '操作失败')
+  } finally {
+    currentActionLoading[record.id] = false
+  }
+}
+
+async function handleDeleteUserWithCode(record: any, code: string) {
+  currentActionLoading[record.id] = true
+  try {
+    await deleteUser({ ...userOperationPayload(record), verifyCode: code })
+    message.success('用户已删除')
+    loadUsers()
+  } catch (e: any) {
+    message.error(e?.message || '删除用户失败')
   } finally {
     currentActionLoading[record.id] = false
   }

@@ -1567,6 +1567,36 @@ public class UserManagementService {
         }
     }
 
+    public void deleteUser(UserParams params) {
+        OciUser tenant = getTenant(params.getTenantId());
+        try (OciClientService oci = domainManagementService.openOciClient(tenant.getId())) {
+            Map<String, Object> domain = findSelectedDomain(oci, params.getDomainId());
+            if (domain != null && !isDefaultDomainForClassicIam(domain)) {
+                deleteUserIdentityDomain(oci, domain, params);
+                return;
+            }
+        }
+        try (IdentityClient client = buildClient(tenant)) {
+            client.deleteUser(DeleteUserRequest.builder()
+                    .userId(params.getUserId())
+                    .build());
+            log.info("Deleted classic IAM user {}", params.getUserId());
+        }
+    }
+
+    private void deleteUserIdentityDomain(
+            OciClientService oci,
+            Map<String, Object> domain,
+            UserParams params) {
+        try (IdentityDomainsClient dc = buildIdentityDomainsClient(oci, domain)) {
+            String scimUserId = resolveScimUserId(dc, params);
+            dc.deleteUser(com.oracle.bmc.identitydomains.requests.DeleteUserRequest.builder()
+                    .userId(scimUserId)
+                    .build());
+            log.info("Deleted identity domain user {} in {}", scimUserId, domainLabel(domain));
+        }
+    }
+
     public List<Map<String, Object>> listMfaDevices(String tenantId, String userId) {
         UserParams params = new UserParams();
         params.setTenantId(tenantId);
