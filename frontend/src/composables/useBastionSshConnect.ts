@@ -25,8 +25,19 @@ function bastionErrorMessage(error: any) {
       || '',
   ).trim()
   const normalized = raw.toLowerCase()
+  if (normalized.includes('timed out waiting for oci bastion ssh session')
+      || normalized.includes('bastion ssh session failed')) {
+    return 'OCI Bastion SSH 会话未在官方等待窗口内变为 ACTIVE。请检查实例 SSH 22 入站规则、Cloud Agent Bastion 插件和目标私网路由后重试。'
+  }
+  if (normalized.includes('timed out waiting for oci bastion')
+      || normalized.includes('timed out waiting for bastion work request')
+      || normalized.includes('bastion work request failed')
+      || normalized.includes('create or reuse bastion failed')) {
+    return 'OCI Bastion 创建或工作请求超时。请稍后重试；若持续失败，请检查 Bastion 所在子网、VCN 路由和 IAM，并使用错误中的 opc-request-id 查询 OCI 日志。'
+  }
   if (normalized.includes('client-cidr-block-allow-list')
-      || normalized.includes('client cidr allow-list')) {
+      || normalized.includes('client cidr allow-list')
+      || normalized.includes('client cidr could not be determined')) {
     return [
       'OCI Bastion 尚未配置客户端 CIDR 白名单。',
       '请在 OCI Worker 配置中设置 OCI_BASTION_CLIENT_CIDR_ALLOW_LIST=<Worker 公网出口 IP>/32，设置后重启服务。',
@@ -54,6 +65,14 @@ function bastionErrorMessage(error: any) {
 
 function bastionFailureStep(error: any) {
   const raw = String(error?.response?.data?.message || error?.message || '').toLowerCase()
+  if (raw.includes('timed out waiting for oci bastion ssh session')
+      || raw.includes('bastion ssh session failed')
+      || raw.includes('create bastion ssh session')) return 2
+  if (raw.includes('timed out waiting for oci bastion')
+      || raw.includes('timed out waiting for bastion work request')
+      || raw.includes('bastion work request failed')
+      || raw.includes('create or reuse bastion')
+      || raw.includes('bastion creation failed')) return 1
   if (raw.includes('private subnet')
       || raw.includes('available subnet')
       || raw.includes('service gateway')
@@ -74,7 +93,7 @@ function bastionFailureStep(error: any) {
   if (raw.includes('bastion session')
       || raw.includes('ssh session')
       || raw.includes('work request')) return 2
-  return 3
+  return 0
 }
 
 export function useBastionSshConnect() {

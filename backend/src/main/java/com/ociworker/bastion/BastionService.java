@@ -135,6 +135,10 @@ public class BastionService {
     private static final int MIN_SESSION_TTL_SECONDS = 1_800;
     private static final int MAX_SESSION_TTL_SECONDS = 10_800;
     private static final long POLL_INTERVAL_MILLIS = 2_000L;
+    private static final int DEFAULT_OPERATION_TIMEOUT_SECONDS = 1_200;
+    private static final int MAX_OPERATION_TIMEOUT_SECONDS = 1_200;
+    private static final int MAX_PREPARE_TIMEOUT_SECONDS = 1_800;
+    static final String STANDARD_BASTION_TYPE = "standard";
     private static final long CLIENT_CIDR_CACHE_MILLIS = 600_000L;
     private static final Pattern IPV4_PATTERN = Pattern.compile(
             "^(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)"
@@ -177,11 +181,11 @@ public class BastionService {
     @Value("${oci.bastion.prepare-lease-seconds:300}")
     private int prepareLeaseSeconds = 300;
 
-    @Value("${oci.bastion.operation-timeout-seconds:120}")
-    private int operationTimeoutSeconds = 120;
+    @Value("${oci.bastion.operation-timeout-seconds:1200}")
+    private int operationTimeoutSeconds = DEFAULT_OPERATION_TIMEOUT_SECONDS;
 
-    @Value("${oci.bastion.prepare-timeout-seconds:150}")
-    private int prepareTimeoutSeconds = 150;
+    @Value("${oci.bastion.prepare-timeout-seconds:1500}")
+    private int prepareTimeoutSeconds = 1_500;
 
     @Value("${oci.bastion.max-concurrent-prepares:8}")
     private int maxConcurrentPrepares = 8;
@@ -265,6 +269,7 @@ public class BastionService {
         PrepareDeadline deadline = PrepareDeadline.start(prepareTimeoutSeconds);
 
         String createdSessionId = null;
+        String operation = "resolve target network";
         try (OciClientService client = new OciClientService(toSysUser(ociUser, region), region);
              BastionClient bastionClient = buildBastionClient(client, region)) {
             deadline.ensureRemaining();
@@ -272,21 +277,26 @@ public class BastionService {
                     client, instanceId, request.compartmentId(), region);
             boolean managedSsh = credentials.loginType() == 1;
             if (managedSsh) {
+                operation = "validate managed SSH prerequisites";
                 validateManagedSshPrerequisites(client, target, region, deadline);
             }
 
+            operation = "resolve Bastion subnet";
             Subnet bastionSubnet = resolveBastionSubnet(client, target, deadline);
 
+            operation = "create or reuse Bastion";
             Bastion bastion = getOrCreateBastion(
                     bastionClient,
                     target.compartmentId(),
                     bastionSubnet.getId(),
                     target.vcnId(),
                     deadline);
+            operation = "validate target SSH ingress";
             validateTargetIngress(client, target, bastion, deadline);
             KeyMaterial key = managedSsh
                     ? loadKeyMaterial(credentials.privateKey(), credentials.passphrase())
                     : generateKeyMaterial();
+            operation = "create Bastion SSH session";
             PreparedSession prepared = createBastionSession(
                     bastionClient,
                     bastion,
@@ -329,6 +339,11 @@ public class BastionService {
             data.put("sessionTtlInSeconds", effectiveSessionTtlSeconds());
             data.put("sessionType", managedSsh ? "MANAGED_SSH" : "PORT_FORWARDING");
             return data;
+        } catch (BmcException e) {
+            if (createdSessionId != null) {
+                deleteRemoteSession(tenantId, region, createdSessionId);
+            }
+            throw bastionApiFailure(operation, e);
         } catch (RuntimeException e) {
             if (createdSessionId != null) {
                 deleteRemoteSession(tenantId, region, createdSessionId);
@@ -341,6 +356,18 @@ public class BastionService {
             log.warn("Bastion prepare failed for instance {}: {}", instanceId, e.getMessage());
             throw new OciException("OCI Bastion session could not be prepared");
         }
+    }
+
+    private OciException bastionApiFailure(String operation, BmcException error) {
+        int status = error.getStatusCode();
+        int code = status >= 400 && status <= 599 ? status : 502;
+        String requestId = firstNonBlank(error.getOpcRequestId(), "unavailable");
+        String detail = OciBmcErrorTranslator.translateWithServiceDetail(error);
+        log.error("OCI Bastion operation failed: operation={} status={} serviceCode={} opcRequestId={} detail={}",
+                operation, status, firstNonBlank(error.getServiceCode(), "unknown"), requestId, detail, error);
+        return new OciException(code,
+                "OCI Bastion " + operation + " failed: " + detail
+                        + " (opc-request-id: " + requestId + ")");
     }
 
     /** Claim a token exactly once when the dedicated Bastion WebSocket starts. */
@@ -479,27 +506,57 @@ public class BastionService {
         }
         if (!requireCloudAgent) return;
 
-        deadline.ensureRemaining();
+        waitForBastionPlugin(client, target, region, deadline);
+    }
+
+    /**
+     * The official Bastion walkthrough allows several minutes for Cloud Agent to
+     * download and start the Bastion plugin after an instance is created. Do not
+     * turn that normal transition into an immediate connection failure.
+     */
+    private void waitForBastionPlugin(OciClientService client, TargetNetwork target,
+                                      String region, PrepareDeadline deadline) {
+        long waitDeadline = deadline.operationDeadlineNanos(300);
+        String status = "UNKNOWN";
+        String detail = null;
+        GetInstanceAgentPluginRequest request = GetInstanceAgentPluginRequest.builder()
+                .compartmentId(target.compartmentId())
+                .instanceagentId(target.instanceId())
+                .pluginName(firstNonBlank(cloudAgentPluginName, "Bastion"))
+                .build();
         try (PluginClient pluginClient = buildPluginClient(client, region)) {
-            InstanceAgentPlugin plugin = pluginClient.getInstanceAgentPlugin(
-                    GetInstanceAgentPluginRequest.builder()
-                            .compartmentId(target.compartmentId())
-                            .instanceagentId(target.instanceId())
-                            .pluginName(firstNonBlank(cloudAgentPluginName, "Bastion"))
-                            .build()).getInstanceAgentPlugin();
-            if (plugin == null || plugin.getStatus() != InstanceAgentPlugin.Status.Running) {
-                String status = plugin == null || plugin.getStatus() == null
-                        ? "UNKNOWN" : plugin.getStatus().getValue();
-                String detail = plugin == null ? null : trimToNull(plugin.getMessage());
-                throw new OciException(422,
-                        "Oracle Cloud Agent Bastion plugin must be RUNNING; current status is "
-                                + status + (detail == null ? "" : ": " + detail));
+            while (System.nanoTime() < waitDeadline) {
+                deadline.ensureRemaining();
+                try {
+                    var response = pluginClient.getInstanceAgentPlugin(request);
+                    InstanceAgentPlugin plugin = response == null
+                            ? null : response.getInstanceAgentPlugin();
+                    status = plugin == null || plugin.getStatus() == null
+                            ? "NOT_PRESENT" : plugin.getStatus().getValue();
+                    detail = plugin == null ? null : trimToNull(plugin.getMessage());
+                    if (plugin != null && plugin.getStatus() == InstanceAgentPlugin.Status.Running) {
+                        return;
+                    }
+                    if ("DISABLED".equalsIgnoreCase(status)) {
+                        throw new OciException(422,
+                                "Oracle Cloud Agent Bastion plugin is disabled on the target instance");
+                    }
+                } catch (BmcException e) {
+                    if (e.getStatusCode() != 404) {
+                        throw new OciException(422,
+                                "Unable to verify the Oracle Cloud Agent Bastion plugin. Ensure OCI IAM grants "
+                                        + "read instance-agent-plugins: "
+                                        + OciBmcErrorTranslator.translateWithServiceDetail(e));
+                    }
+                    status = "NOT_PRESENT";
+                    detail = null;
+                }
+                sleepPoll();
             }
-        } catch (BmcException e) {
-            throw new OciException(422,
-                    "Unable to verify the Oracle Cloud Agent Bastion plugin. Ensure OCI IAM grants "
-                            + "read instance-agent-plugins: " + OciBmcErrorTranslator.translate(e));
         }
+        throw new OciException(422,
+                "Oracle Cloud Agent Bastion plugin did not become RUNNING within 300 seconds; current status is "
+                        + status + (detail == null ? "" : ": " + detail));
     }
 
     private void validateManagedOperatingSystem(OciClientService client, TargetNetwork target,
@@ -1068,7 +1125,8 @@ public class BastionService {
             }
 
             CreateBastionDetails details = CreateBastionDetails.builder()
-                    .bastionType("STANDARD")
+                    // OCI Bastion API requires the lowercase value "standard".
+                    .bastionType(STANDARD_BASTION_TYPE)
                     .name(newBastionName())
                     .compartmentId(compartmentId)
                     .targetSubnetId(subnetId)
@@ -1835,7 +1893,7 @@ public class BastionService {
 
     private record PrepareDeadline(long deadlineNanos) {
         static PrepareDeadline start(int timeoutSeconds) {
-            int boundedSeconds = Math.max(30, Math.min(600, timeoutSeconds));
+            int boundedSeconds = Math.max(30, Math.min(MAX_PREPARE_TIMEOUT_SECONDS, timeoutSeconds));
             return new PrepareDeadline(System.nanoTime() + TimeUnit.SECONDS.toNanos(boundedSeconds));
         }
 
@@ -1847,7 +1905,8 @@ public class BastionService {
 
         long operationDeadlineNanos(int timeoutSeconds) {
             long local = System.nanoTime()
-                    + TimeUnit.SECONDS.toNanos(Math.max(1, Math.min(300, timeoutSeconds)));
+                    + TimeUnit.SECONDS.toNanos(
+                            Math.max(1, Math.min(MAX_OPERATION_TIMEOUT_SECONDS, timeoutSeconds)));
             return Math.min(deadlineNanos, local);
         }
     }

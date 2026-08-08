@@ -33,7 +33,8 @@ export interface BastionPrepareResponse {
   sessionType?: 'MANAGED_SSH' | 'PORT_FORWARDING'
 }
 
-const BASTION_PREPARE_TIMEOUT_MS = 165_000
+// The backend waits for OCI work requests; Axios must not abort that wait first.
+const BASTION_PREPARE_TIMEOUT_MS = 1_650_000
 
 export function getBastionCredentialAvailability(data: { id: string; instanceId: string }) {
   return request.post<BastionCredentialAvailability>('/oci/bastion/credentials', data)

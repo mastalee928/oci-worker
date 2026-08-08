@@ -21,8 +21,10 @@ oci:
     client-cidr-auto-discovery: ${OCI_BASTION_CLIENT_CIDR_AUTO_DISCOVERY:true}
     session-ttl-seconds: ${OCI_BASTION_SESSION_TTL_SECONDS:10800}
     prepare-lease-seconds: ${OCI_BASTION_PREPARE_LEASE_SECONDS:300}
-    operation-timeout-seconds: ${OCI_BASTION_OPERATION_TIMEOUT_SECONDS:45}
-    prepare-timeout-seconds: ${OCI_BASTION_PREPARE_TIMEOUT_SECONDS:150}
+    # OCI Bastion create/session work requests can legitimately take several minutes.
+    # Keep these aligned with the SDK/CLI waiter window instead of failing locally first.
+    operation-timeout-seconds: ${OCI_BASTION_OPERATION_TIMEOUT_SECONDS:1200}
+    prepare-timeout-seconds: ${OCI_BASTION_PREPARE_TIMEOUT_SECONDS:1500}
     max-concurrent-prepares: ${OCI_BASTION_MAX_CONCURRENT_PREPARES:8}
     max-concurrent-prepares-per-account: ${OCI_BASTION_MAX_CONCURRENT_PREPARES_PER_ACCOUNT:2}
     max-pending-leases: ${OCI_BASTION_MAX_PENDING_LEASES:64}

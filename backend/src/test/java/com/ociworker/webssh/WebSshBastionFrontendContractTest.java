@@ -35,14 +35,16 @@ class WebSshBastionFrontendContractTest {
     }
 
     @Test
-    void mapsNetworkFailuresToTheNetworkStepWithoutFakeCompletion() throws Exception {
+    void mapsNetworkAndWaitFailuresToTheRelevantStepWithoutFakeCompletion() throws Exception {
         String composable = Files.readString(Path.of(
                 "..", "frontend", "src", "composables", "useBastionSshConnect.ts"));
 
         assertThat(composable).contains(
-                "raw.includes('目标 vcn')",
-                "raw.includes('可用子网')",
-                "raw.includes('路由')",
+                "raw.includes('private subnet')",
+                "raw.includes('service gateway')",
+                "raw.includes('timed out waiting for oci bastion')",
+                "raw.includes('create or reuse bastion')",
+                "return 0",
                 "connectionStep.value >= 2");
         assertThat(composable).doesNotContain("connectionStep.value >= 3");
     }

@@ -185,6 +185,11 @@ class BastionServiceTest {
     }
 
     @Test
+    void usesTheOfficialLowercaseStandardBastionType() {
+        assertThat(BastionService.STANDARD_BASTION_TYPE).isEqualTo("standard");
+    }
+
+    @Test
     void onlyAcceptsAvailablePrivateSubnetsAsBastionTargets() {
         Subnet privateSubnet = Subnet.builder()
                 .id("subnet-private")
