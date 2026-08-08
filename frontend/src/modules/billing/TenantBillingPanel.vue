@@ -86,6 +86,10 @@
               <a-alert v-if="billingData.invoices?.available === false" type="warning" show-icon
                 :message="billingData.invoices?.reason || '发票接口不可用'" style="margin-bottom: 10px" />
               <div class="billing-table-wrap">
+                <div v-if="invoiceDetailLoading" class="billing-inline-loading" role="status" aria-live="polite">
+                  <a-spin size="small" />
+                  <span>正在读取发票明细，请稍候…</span>
+                </div>
                 <a-table v-if="!isMobile" size="small" :data-source="invoiceItems" :pagination="{ pageSize: 10 }"
                   row-key="invoiceId">
                   <a-table-column title="发票号" data-index="invoiceNo" key="invoiceNo" :width="150" />
@@ -104,7 +108,8 @@
                   <a-table-column title="操作" key="actions" :width="250">
                     <template #default="{ record }">
                       <a-space size="small">
-                        <a-button type="link" size="small" @click="openInvoiceDetail(record)">查看明细</a-button>
+                        <a-button type="link" size="small" :loading="invoiceDetailLoading"
+                          :disabled="invoiceDetailLoading || !record.invoiceId" @click="openInvoiceDetail(record)">查看明细</a-button>
                         <a-button type="link" size="small" :disabled="!record.invoiceId" @click="handleDownloadInvoice(record)">下载 PDF</a-button>
                         <a-button v-if="isInvoicePayable(record)" type="link" size="small" @click="openPayment('invoice', record)">支付账单</a-button>
                       </a-space>
@@ -124,7 +129,8 @@
                       <div class="mobile-card-row"><span class="label">到期</span><span class="value">{{ formatDate(invoice.dueDate) }}</span></div>
                     </div>
                     <div class="mobile-card-actions">
-                      <a-button type="link" size="small" @click="openInvoiceDetail(invoice)">查看明细</a-button>
+                      <a-button type="link" size="small" :loading="invoiceDetailLoading"
+                        :disabled="invoiceDetailLoading || !invoice.invoiceId" @click="openInvoiceDetail(invoice)">查看明细</a-button>
                       <a-button type="link" size="small" :disabled="!invoice.invoiceId" @click="handleDownloadInvoice(invoice)">下载 PDF</a-button>
                       <a-button v-if="isInvoicePayable(invoice)" type="link" size="small" @click="openPayment('invoice', invoice)">支付账单</a-button>
                     </div>
@@ -585,6 +591,7 @@ async function saveAddress() {
 .billing-mini-right { flex: 0 0 auto; text-align: right; }
 .billing-mini-right span { color: var(--text); font-size: 12px; }
 .billing-table-wrap { min-width: 0; overflow-x: auto; }
+.billing-inline-loading { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; color: var(--text-sub); font-size: 12px; }
 .billing-detail-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 10px; }
 .billing-line-mobile { margin-top: 12px; }
 .billing-subscription-grid h4 { margin: 6px 0 4px; font-size: 20px; }
