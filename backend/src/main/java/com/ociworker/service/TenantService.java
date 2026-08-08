@@ -60,6 +60,7 @@ import java.util.regex.Pattern;
 public class TenantService {
 
     private static final long TENANT_PRIVATE_KEY_MAX_BYTES = 64 * 1024;
+    private static final String ORACLE_PAYMENT_URL = "https://shop.oracle.com";
     private static final Pattern PEM_PRIVATE_KEY_PATTERN = Pattern.compile(
             "-----BEGIN (PRIVATE KEY|RSA PRIVATE KEY|EC PRIVATE KEY)-----([A-Za-z0-9+/=\\r\\n\\s]+)-----END \\1-----");
 
@@ -650,7 +651,7 @@ public class TenantService {
         links.put("costAnalysis", "https://cloud.oracle.com/billing/cost-analysis?region=" + user.getOciRegion());
         links.put("invoices", "https://cloud.oracle.com/billing/invoices?region=" + user.getOciRegion());
         links.put("paymentHistory", "https://cloud.oracle.com/billing/payments?region=" + user.getOciRegion());
-        links.put("upgradeAndPayment", "https://cloud.oracle.com/billing/account?region=" + user.getOciRegion());
+        links.put("upgradeAndPayment", ORACLE_PAYMENT_URL);
         result.put("links", links);
 
         Map<String, Object> invoices = new LinkedHashMap<>();

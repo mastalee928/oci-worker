@@ -55,6 +55,8 @@ import java.util.UUID;
 @Service
 public class BillingService {
 
+    private static final String ORACLE_PAYMENT_URL = "https://shop.oracle.com";
+
     private static final ClientConfiguration OSP_CLIENT_CONFIGURATION = ClientConfiguration.builder()
             .connectionTimeoutMillis(5_000)
             .readTimeoutMillis(20_000)
@@ -559,7 +561,7 @@ public class BillingService {
     private static Map<String, Object> officialLinks(OciUser user) {
         String region = user.getOciRegion() == null ? "" : user.getOciRegion();
         Map<String, Object> links = new LinkedHashMap<>();
-        links.put("billingAccount", "https://cloud.oracle.com/billing/account?region=" + region);
+        links.put("billingAccount", ORACLE_PAYMENT_URL);
         links.put("invoices", "https://cloud.oracle.com/billing/invoices?region=" + region);
         links.put("payments", "https://cloud.oracle.com/billing/payments?region=" + region);
         return links;
