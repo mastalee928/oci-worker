@@ -38,9 +38,30 @@ function bastionErrorMessage(error: any) {
   }
   if (normalized.includes('private subnet route')
       || normalized.includes('target subnet route table')) {
-    return 'OCI Bastion 所用私有子网缺少通往 Service Gateway、NAT Gateway 或 Internet Gateway 的路由。请按 Oracle 官方要求补齐网关和路由规则后重试。'
+    return 'OCI Bastion 所用私有子网缺少指向 Service Gateway 的 Service CIDR 路由。请按 Oracle 官方要求补齐 Service Gateway 和对应路由后重试。'
+  }
+  if (normalized.includes('available private subnet')
+      || raw.includes('没有可用的私有子网')) {
+    return '目标 VCN 中没有可用的私有子网。OCI 官方要求 Bastion 与目标实例位于同一 VCN，并使用一个能够访问目标子网的私有子网。请先创建或配置该私有子网、Service Gateway 及对应路由。'
   }
   return raw || '堡垒机连接准备失败'
+}
+
+function bastionFailureStep(error: any) {
+  const raw = String(error?.response?.data?.message || error?.message || '').toLowerCase()
+  if (raw.includes('private subnet')
+      || raw.includes('service gateway')
+      || raw.includes('route table')
+      || raw.includes('cloud agent')
+      || raw.includes('target instance')) return 0
+  if (raw.includes('client cidr')
+      || raw.includes('client-cidr')
+      || raw.includes('private endpoint')
+      || raw.includes('bastion creation')) return 1
+  if (raw.includes('bastion session')
+      || raw.includes('ssh session')
+      || raw.includes('work request')) return 2
+  return 3
 }
 
 export function useBastionSshConnect() {
@@ -193,7 +214,7 @@ export function useBastionSshConnect() {
     } catch (error: any) {
       if (generation === requestGeneration && attempt === connectAttempt) {
         connectionError.value = bastionErrorMessage(error)
-        if (connectionStep.value < 0) connectionStep.value = 0
+        connectionStep.value = bastionFailureStep(error)
       }
     } finally {
       if (generation === requestGeneration && attempt === connectAttempt) {

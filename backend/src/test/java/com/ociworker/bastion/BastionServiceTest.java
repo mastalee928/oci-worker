@@ -104,6 +104,20 @@ class BastionServiceTest {
     }
 
     @Test
+    void commandUserOverridesTargetUserMetadata() {
+        Session session = Session.builder()
+                .id("session-3")
+                .sshMetadata(Map.of(
+                        "user", "root",
+                        "command", "ssh -p 22 ocid1.session@host.bastion.us-phoenix-1.oci.oraclecloud.com -W %h:%p"))
+                .build();
+
+        BastionService.Endpoint endpoint = BastionService.resolveEndpoint(session, "us-phoenix-1");
+
+        assertThat(endpoint.user()).isEqualTo("ocid1.session");
+    }
+
+    @Test
     void treatsUnspecifiedCloudAgentPluginAsEnabledByDefault() {
         InstanceAgentConfig agent = InstanceAgentConfig.builder()
                 .areAllPluginsDisabled(false)
@@ -145,6 +159,18 @@ class BastionServiceTest {
                         .build()))
                 .build();
         assertThat(BastionService.hasUsableGatewayRoute(routeTable)).isTrue();
+        assertThat(BastionService.hasBastionServiceGatewayRoute(routeTable)).isTrue();
+
+        RouteTable natOnly = RouteTable.builder()
+                .lifecycleState(RouteTable.LifecycleState.Available)
+                .routeRules(List.of(RouteRule.builder()
+                        .destinationType(RouteRule.DestinationType.CidrBlock)
+                        .destination("0.0.0.0/0")
+                        .networkEntityId("ocid1.natgateway.oc1..example")
+                        .build()))
+                .build();
+        assertThat(BastionService.hasUsableGatewayRoute(natOnly)).isTrue();
+        assertThat(BastionService.hasBastionServiceGatewayRoute(natOnly)).isFalse();
     }
 
     @Test
@@ -160,6 +186,13 @@ class BastionServiceTest {
 
         assertThat(BastionService.isPrivateSubnet(privateSubnet)).isTrue();
         assertThat(BastionService.isPrivateSubnet(publicSubnet)).isFalse();
+    }
+
+    @Test
+    void matchesInstanceAndBastionSubnetAvailabilityDomains() {
+        assertThat(BastionService.availabilityDomainCompatible("AD-1", "AD-1")).isTrue();
+        assertThat(BastionService.availabilityDomainCompatible("AD-1", null)).isTrue();
+        assertThat(BastionService.availabilityDomainCompatible("AD-1", "AD-2")).isFalse();
     }
 
     private static BastionConnectionSpec spec(long expiresAt) {

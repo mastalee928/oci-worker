@@ -318,11 +318,9 @@ function createSession(hostname, port, username, sshInfo) {
         connectionGeneration: 0, resizeObs: null, _dataDisposable: null,
         _resizeHandler: null,
         sshSessionId: null, webglAddon: null, webglContextLossDisposable: null,
-        webglState: 'pending', webglWarned: false,
+        webglState: 'canvas', webglWarned: false,
         sftpPath: '/', sftpRequestToken: 0, sftpAbortController: null
     };
-
-    enableWebglRenderer(session);
 
     session.resizeObs = new ResizeObserver(function () { try { fa.fit(); } catch (e) { } });
     session.resizeObs.observe(termDiv);

@@ -10,22 +10,20 @@ import static org.assertj.core.api.Assertions.assertThat;
 class WebSshWebglFrontendContractTest {
 
     @Test
-    void servesPinnedLocalWebglAddonWithoutExternalCdn() throws Exception {
+    void usesBuiltInCanvasRendererWithoutLoadingWebglAddon() throws Exception {
         String html = resource("/static/webssh/index.html");
-        String addon = resource("/static/webssh/static/vendor/xterm-addon-webgl.js");
 
         assertThat(html)
-                .contains("/webssh/static/vendor/xterm-addon-webgl.js?v=0.15.0")
+                .contains("/webssh/static/js/app.js?v=54")
+                .doesNotContain("xterm-addon-webgl")
                 .doesNotContain("jsdelivr", "unpkg", "cdnjs");
-        assertThat(addon).contains("WebglAddon").hasSizeGreaterThan(90_000);
     }
 
     @Test
-    void keepsWebglAndSessionReuseOnOrdinarySshOnly() throws Exception {
+    void keepsCanvasRenderingAndSessionReuseOnOrdinarySsh() throws Exception {
         String script = resource("/static/webssh/static/js/app.js");
         assertThat(script).contains(
-                "enableWebglRenderer(session)",
-                "disableWebglRenderer(session, 'context-loss')",
+                "webglState: 'canvas'",
                 "consumeSshSessionControl",
                 "appendSshConnection",
                 "sessionId",
@@ -33,7 +31,7 @@ class WebSshWebglFrontendContractTest {
                 "/webssh-api/file/list",
                 "/webssh-api/file/download",
                 "/webssh-api/file/upload"
-        );
+        ).doesNotContain("enableWebglRenderer(session);");
 
         int consoleStart = script.indexOf("function createConsoleSession");
         int consoleEnd = script.indexOf("function writeConsoleOutput", consoleStart);

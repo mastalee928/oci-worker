@@ -46,6 +46,7 @@ import com.oracle.bmc.core.model.RouteRule;
 import com.oracle.bmc.core.model.RouteTable;
 import com.oracle.bmc.core.model.SecurityList;
 import com.oracle.bmc.core.model.SecurityRule;
+import com.oracle.bmc.core.model.ServiceGateway;
 import com.oracle.bmc.core.model.Subnet;
 import com.oracle.bmc.core.model.TcpOptions;
 import com.oracle.bmc.core.model.Vnic;
@@ -54,6 +55,7 @@ import com.oracle.bmc.core.requests.GetInstanceRequest;
 import com.oracle.bmc.core.requests.GetImageRequest;
 import com.oracle.bmc.core.requests.GetRouteTableRequest;
 import com.oracle.bmc.core.requests.GetSecurityListRequest;
+import com.oracle.bmc.core.requests.GetServiceGatewayRequest;
 import com.oracle.bmc.core.requests.GetVnicRequest;
 import com.oracle.bmc.core.requests.ListNetworkSecurityGroupSecurityRulesRequest;
 import com.oracle.bmc.core.requests.ListSubnetsRequest;
@@ -406,6 +408,14 @@ public class BastionService {
         if (subnet == null || subnet.getLifecycleState() != Subnet.LifecycleState.Available) {
             throw new OciException("Target subnet is not available");
         }
+        String instanceAvailabilityDomain = trimToNull(instance.getAvailabilityDomain());
+        String subnetAvailabilityDomain = trimToNull(subnet.getAvailabilityDomain());
+        if (!availabilityDomainCompatible(instanceAvailabilityDomain, subnetAvailabilityDomain)) {
+            throw new OciException(422,
+                    "Target instance availability domain " + instanceAvailabilityDomain
+                            + " does not match target subnet availability domain "
+                            + subnetAvailabilityDomain);
+        }
         return new TargetNetwork(
                 instanceId,
                 region,
@@ -507,48 +517,103 @@ public class BastionService {
 
     private Subnet resolveBastionSubnet(OciClientService client, TargetNetwork target,
                                         PrepareDeadline deadline) {
-        Map<String, Subnet> candidatesById = new LinkedHashMap<>();
+        Map<String, Subnet> privateCandidatesById = new LinkedHashMap<>();
         if (isPrivateSubnet(target.subnet())) {
-            candidatesById.put(target.subnet().getId(), target.subnet());
+            privateCandidatesById.put(target.subnet().getId(), target.subnet());
         }
 
-        String page = null;
-        do {
-            deadline.ensureRemaining();
-            var response = client.getVirtualNetworkClient().listSubnets(ListSubnetsRequest.builder()
-                    .compartmentId(firstNonBlank(target.subnet().getCompartmentId(), target.compartmentId()))
-                    .vcnId(target.vcnId())
-                    .lifecycleState(Subnet.LifecycleState.Available)
-                    .limit(1000)
-                    .page(page)
-                    .build());
-            for (Subnet subnet : response.getItems() == null ? List.<Subnet>of() : response.getItems()) {
-                if (subnet != null && hasText(subnet.getId()) && isPrivateSubnet(subnet)) {
-                    candidatesById.putIfAbsent(subnet.getId(), subnet);
+        for (String compartmentId : bastionSubnetSearchCompartments(client, target, deadline)) {
+            String page = null;
+            do {
+                deadline.ensureRemaining();
+                try {
+                    var response = client.getVirtualNetworkClient().listSubnets(ListSubnetsRequest.builder()
+                            .compartmentId(compartmentId)
+                            .vcnId(target.vcnId())
+                            .lifecycleState(Subnet.LifecycleState.Available)
+                            .limit(1000)
+                            .page(page)
+                            .build());
+                    for (Subnet subnet : response.getItems() == null ? List.<Subnet>of() : response.getItems()) {
+                        if (subnet != null && hasText(subnet.getId()) && isPrivateSubnet(subnet)) {
+                            privateCandidatesById.putIfAbsent(subnet.getId(), subnet);
+                        }
+                    }
+                    page = response.getOpcNextPage();
+                } catch (BmcException e) {
+                    log.debug("Skipping inaccessible compartment {} while locating Bastion subnet: {}",
+                            compartmentId, OciBmcErrorTranslator.translate(e));
+                    page = null;
                 }
-            }
-            page = response.getOpcNextPage();
-        } while (hasText(page));
+            } while (hasText(page));
+        }
 
-        List<Subnet> candidates = new ArrayList<>(candidatesById.values());
+        List<Subnet> privateCandidates = new ArrayList<>(privateCandidatesById.values());
+        String instanceAvailabilityDomain = trimToNull(target.instance().getAvailabilityDomain());
+        List<Subnet> candidates = new ArrayList<>(privateCandidates.stream()
+                .filter(subnet -> availabilityDomainCompatible(
+                        instanceAvailabilityDomain, subnet.getAvailabilityDomain()))
+                .toList());
         candidates.sort(Comparator
                 .comparing((Subnet subnet) -> !target.subnetId().equals(subnet.getId()))
                 .thenComparing(subnet -> firstNonBlank(subnet.getDisplayName(), subnet.getId())));
         if (candidates.isEmpty()) {
+            if (!privateCandidates.isEmpty()) {
+                throw new OciException(422,
+                        "No private subnet in VCN " + target.vcnId()
+                                + " is compatible with target instance availability domain "
+                                + firstNonBlank(instanceAvailabilityDomain, "unspecified")
+                                + ". Regional subnets are compatible; an AD-specific subnet must use the same AD.");
+            }
             throw new OciException(422,
-                    "OCI Bastion requires an available private subnet in the target VCN");
+                    "目标 VCN 中没有可用的私有子网。OCI 官方要求 Bastion 与目标资源位于同一 VCN，"
+                            + "并选择一个可访问目标子网的私有子网。VCN: " + target.vcnId());
         }
         for (Subnet candidate : candidates) {
-            if (subnetHasGatewayRoute(client, candidate, deadline)) return candidate;
+            if (subnetHasBastionServiceGatewayRoute(client, candidate, deadline)) return candidate;
         }
         throw new OciException(422,
-                "OCI Bastion requires a private subnet route to a service, NAT, or internet gateway");
+                "已找到同一 VCN 的私有子网，但其路由表没有指向可用 Service Gateway 的 "
+                        + "Service CIDR 路由。OCI 官方要求创建 Bastion 前配置 Service Gateway 及对应路由。");
+    }
+
+    private List<String> bastionSubnetSearchCompartments(OciClientService client,
+                                                           TargetNetwork target,
+                                                           PrepareDeadline deadline) {
+        LinkedHashSet<String> compartmentIds = new LinkedHashSet<>();
+        addIfPresent(compartmentIds, target.subnet().getCompartmentId());
+        addIfPresent(compartmentIds, target.compartmentId());
+        if (client.getProvider() != null) {
+            addIfPresent(compartmentIds, client.getProvider().getTenantId());
+        }
+        try {
+            for (var compartment : client.listAllCompartmentsStrict(deadline.deadlineNanos())) {
+                if (compartment != null) addIfPresent(compartmentIds, compartment.getId());
+            }
+        } catch (RuntimeException e) {
+            deadline.ensureRemaining();
+            log.debug("Unable to enumerate every compartment while locating a Bastion subnet: {}",
+                    e.getMessage());
+        }
+        return List.copyOf(compartmentIds);
+    }
+
+    private static void addIfPresent(Set<String> values, String value) {
+        String normalized = trimToNull(value);
+        if (normalized != null) values.add(normalized);
     }
 
     static boolean isPrivateSubnet(Subnet subnet) {
         return subnet != null
                 && subnet.getLifecycleState() == Subnet.LifecycleState.Available
                 && Boolean.TRUE.equals(subnet.getProhibitPublicIpOnVnic());
+    }
+
+    static boolean availabilityDomainCompatible(String instanceAvailabilityDomain,
+                                                 String subnetAvailabilityDomain) {
+        String instanceAd = trimToNull(instanceAvailabilityDomain);
+        String subnetAd = trimToNull(subnetAvailabilityDomain);
+        return instanceAd == null || subnetAd == null || instanceAd.equals(subnetAd);
     }
 
     private boolean subnetHasGatewayRoute(OciClientService client, Subnet subnet,
@@ -558,6 +623,43 @@ public class BastionService {
         RouteTable routeTable = client.getVirtualNetworkClient().getRouteTable(
                 GetRouteTableRequest.builder().rtId(subnet.getRouteTableId()).build()).getRouteTable();
         return hasUsableGatewayRoute(routeTable);
+    }
+
+    private boolean subnetHasBastionServiceGatewayRoute(OciClientService client, Subnet subnet,
+                                                         PrepareDeadline deadline) {
+        if (subnet == null || !hasText(subnet.getRouteTableId())) return false;
+        try {
+            deadline.ensureRemaining();
+            RouteTable routeTable = client.getVirtualNetworkClient().getRouteTable(
+                    GetRouteTableRequest.builder().rtId(subnet.getRouteTableId()).build()).getRouteTable();
+            if (!hasBastionServiceGatewayRoute(routeTable)) return false;
+            for (RouteRule rule : routeTable.getRouteRules()) {
+                if (!isServiceGatewayRoute(rule)) continue;
+                deadline.ensureRemaining();
+                ServiceGateway gateway = client.getVirtualNetworkClient().getServiceGateway(
+                        GetServiceGatewayRequest.builder()
+                                .serviceGatewayId(rule.getNetworkEntityId())
+                                .build()).getServiceGateway();
+                if (gateway != null
+                        && gateway.getLifecycleState() == ServiceGateway.LifecycleState.Available
+                        && Objects.equals(subnet.getVcnId(), gateway.getVcnId())) {
+                    return true;
+                }
+            }
+            return false;
+        } catch (BmcException e) {
+            log.debug("Skipping Bastion subnet {} because its route table is not readable: {}",
+                    subnet.getId(), OciBmcErrorTranslator.translate(e));
+            return false;
+        }
+    }
+
+    static boolean hasBastionServiceGatewayRoute(RouteTable routeTable) {
+        if (routeTable == null || routeTable.getLifecycleState() != RouteTable.LifecycleState.Available
+                || routeTable.getRouteRules() == null) {
+            return false;
+        }
+        return routeTable.getRouteRules().stream().anyMatch(BastionService::isServiceGatewayRoute);
     }
 
     static boolean hasUsableGatewayRoute(RouteTable routeTable) {
@@ -570,15 +672,21 @@ public class BastionService {
 
     private static boolean isUsableGatewayRoute(RouteRule rule) {
         if (rule == null || !hasText(rule.getNetworkEntityId())) return false;
+        if (isServiceGatewayRoute(rule)) return true;
         String entity = rule.getNetworkEntityId().toLowerCase(Locale.ROOT);
-        if (entity.startsWith("ocid1.servicegateway.")) {
-            return rule.getDestinationType() == RouteRule.DestinationType.ServiceCidrBlock;
-        }
         if (entity.startsWith("ocid1.natgateway.") || entity.startsWith("ocid1.internetgateway.")) {
             return rule.getDestinationType() == RouteRule.DestinationType.CidrBlock
                     && "0.0.0.0/0".equals(rule.getDestination());
         }
         return false;
+    }
+
+    private static boolean isServiceGatewayRoute(RouteRule rule) {
+        return rule != null
+                && hasText(rule.getNetworkEntityId())
+                && rule.getNetworkEntityId().toLowerCase(Locale.ROOT)
+                        .startsWith("ocid1.servicegateway.")
+                && rule.getDestinationType() == RouteRule.DestinationType.ServiceCidrBlock;
     }
 
     private void validateTargetIngress(OciClientService client, TargetNetwork target,
@@ -903,14 +1011,12 @@ public class BastionService {
                     break;
                 }
             }
-            if (!hasText(user)) {
-                Matcher userMatcher = COMMAND_USER.matcher(command);
-                if (userMatcher.find()) user = trimEndpoint(userMatcher.group(1));
-            }
-            if (port == 22) {
-                Matcher portMatcher = COMMAND_PORT.matcher(command);
-                if (portMatcher.find()) port = parsePort(portMatcher.group(1), 22);
-            }
+            // OCI's command is authoritative: metadata can expose the target OS
+            // user instead of the temporary Bastion session user.
+            Matcher userMatcher = COMMAND_USER.matcher(command);
+            if (userMatcher.find()) user = trimEndpoint(userMatcher.group(1));
+            Matcher portMatcher = COMMAND_PORT.matcher(command);
+            if (portMatcher.find()) port = parsePort(portMatcher.group(1), port);
         }
         if (!hasText(host)) {
             host = "host.bastion." + region + ".oci.oraclecloud.com";
@@ -975,16 +1081,21 @@ public class BastionService {
             if (tasks == null) return new SavedCredentials("root", "PASSWORD", null, null);
             for (OciCreateTask task : tasks) {
                 for (Map<String, Object> item : parseCreatedInstances(task.getCreatedInstances())) {
-                    if (!instanceId.equals(asText(item.get("instanceId")))) continue;
+                    if (!instanceId.equals(firstNonBlank(
+                            asText(item.get("instanceId")), asText(item.get("instance_id"))))) continue;
                     String mode = normalizeLoginMode(firstNonBlank(
-                            asText(item.get("loginMode")), task.getLoginMode()));
-                    String username = firstNonBlank(asText(item.get("loginUser")), "root");
+                            asText(item.get("loginMode")), asText(item.get("login_mode")),
+                            task.getLoginMode()));
+                    String username = firstNonBlank(
+                            asText(item.get("loginUser")), asText(item.get("login_user")), "root");
                     String password = firstSecret(
                             asSecret(item.get("rootPassword")),
                             asSecret(item.get("password")),
+                            asSecret(item.get("root_password")),
                             task.getRootPassword());
                     String publicKey = firstNonBlank(
-                            asText(item.get("sshPublicKey")), task.getSshPublicKey());
+                            asText(item.get("sshPublicKey")), asText(item.get("ssh_public_key")),
+                            task.getSshPublicKey());
                     return new SavedCredentials(username, mode, password, publicKey);
                 }
             }
