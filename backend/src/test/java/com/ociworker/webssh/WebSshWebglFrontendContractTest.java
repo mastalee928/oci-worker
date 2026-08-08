@@ -10,12 +10,12 @@ import static org.assertj.core.api.Assertions.assertThat;
 class WebSshWebglFrontendContractTest {
 
     @Test
-    void usesBuiltInCanvasRendererWithoutLoadingWebglAddon() throws Exception {
+    void servesPinnedLocalWebglAddonWithoutEnablingItAutomatically() throws Exception {
         String html = resource("/static/webssh/index.html");
 
         assertThat(html)
+                .contains("/webssh/static/vendor/xterm-addon-webgl.js?v=0.15.0")
                 .contains("/webssh/static/js/app.js?v=54")
-                .doesNotContain("xterm-addon-webgl")
                 .doesNotContain("jsdelivr", "unpkg", "cdnjs");
     }
 
