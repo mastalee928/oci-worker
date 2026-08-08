@@ -18,6 +18,7 @@ webssh:
 oci:
   bastion:
     client-cidr-block-allow-list: ${OCI_BASTION_CLIENT_CIDR_ALLOW_LIST:}
+    client-cidr-auto-discovery: ${OCI_BASTION_CLIENT_CIDR_AUTO_DISCOVERY:true}
     session-ttl-seconds: ${OCI_BASTION_SESSION_TTL_SECONDS:10800}
     prepare-lease-seconds: ${OCI_BASTION_PREPARE_LEASE_SECONDS:300}
     operation-timeout-seconds: ${OCI_BASTION_OPERATION_TIMEOUT_SECONDS:45}

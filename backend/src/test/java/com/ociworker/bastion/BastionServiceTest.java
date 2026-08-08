@@ -214,6 +214,15 @@ class BastionServiceTest {
         assertThat(BastionService.availabilityDomainCompatible("AD-1", "AD-2")).isFalse();
     }
 
+    @Test
+    void normalizesOnlyPublicIpv4ForBastionClientCidr() {
+        assertThat(BastionService.normalizeDiscoveredIpv4("198.51.100.7\n"))
+                .isEqualTo("198.51.100.7");
+        assertThat(BastionService.normalizeDiscoveredIpv4("10.0.0.7")).isNull();
+        assertThat(BastionService.normalizeDiscoveredIpv4("2001:db8::7")).isNull();
+        assertThat(BastionService.normalizeDiscoveredIpv4("not-an-ip")).isNull();
+    }
+
     private static BastionConnectionSpec spec(long expiresAt) {
         return new BastionConnectionSpec(
                 "tenant-1", "us-phoenix-1", "session-1",

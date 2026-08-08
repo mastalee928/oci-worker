@@ -89,9 +89,14 @@ import org.springframework.stereotype.Service;
 
 import java.io.ByteArrayOutputStream;
 import java.net.InetAddress;
+import java.net.URI;
 import java.net.UnknownHostException;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.security.SecureRandom;
+import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
@@ -130,6 +135,14 @@ public class BastionService {
     private static final int MIN_SESSION_TTL_SECONDS = 1_800;
     private static final int MAX_SESSION_TTL_SECONDS = 10_800;
     private static final long POLL_INTERVAL_MILLIS = 2_000L;
+    private static final long CLIENT_CIDR_CACHE_MILLIS = 600_000L;
+    private static final Pattern IPV4_PATTERN = Pattern.compile(
+            "^(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)"
+                    + "(\\.(25[0-5]|2[0-4]\\d|1\\d\\d|[1-9]?\\d)){3}$");
+    private static final List<String> PUBLIC_IPV4_ENDPOINTS = List.of(
+            "https://ipv4.icanhazip.com",
+            "https://v4.ident.me",
+            "https://api.ipify.org");
     private static final String MANAGED_BY_TAG = "ociworker";
     private static final String SSH_PROTOCOL = "6";
 
@@ -151,6 +164,12 @@ public class BastionService {
 
     @Value("${oci.bastion.client-cidr-block-allow-list:}")
     private String clientCidrBlockAllowList = "";
+
+    @Value("${oci.bastion.client-cidr-auto-discovery:true}")
+    private boolean clientCidrAutoDiscovery = true;
+
+    private volatile String discoveredClientCidr;
+    private volatile long discoveredClientCidrAt;
 
     @Value("${oci.bastion.session-ttl-seconds:10800}")
     private int configuredSessionTtlSeconds = MAX_SESSION_TTL_SECONDS;
@@ -1526,12 +1545,16 @@ public class BastionService {
                 Math.min(MAX_SESSION_TTL_SECONDS, configuredSeconds));
     }
 
-    private static List<String> parseAllowList(String raw) {
+    private List<String> parseAllowList(String raw) {
+        if (!hasText(raw) && clientCidrAutoDiscovery) {
+            raw = discoverClientCidr();
+        }
         if (!hasText(raw)) {
             throw new OciException(422,
-                    "OCI Bastion client CIDR allow-list is not configured; set "
+                    "OCI Bastion client CIDR allow-list could not be determined; set "
                             + "OCI_BASTION_CLIENT_CIDR_ALLOW_LIST to this worker's public egress CIDR "
-                            + "(for example 203.0.113.10/32), never 0.0.0.0/0");
+                            + "(for example 203.0.113.10/32), never 0.0.0.0/0. "
+                            + "Automatic public IPv4 discovery failed.");
         }
         List<String> values = new ArrayList<>();
         for (String part : raw.split(",")) {
@@ -1553,6 +1576,55 @@ public class BastionService {
                     "OCI Bastion client CIDR allow-list cannot contain more than 20 entries");
         }
         return List.copyOf(values);
+    }
+
+    private String discoverClientCidr() {
+        long now = System.currentTimeMillis();
+        String cached = discoveredClientCidr;
+        if (hasText(cached) && now - discoveredClientCidrAt < CLIENT_CIDR_CACHE_MILLIS) {
+            return cached;
+        }
+        for (String endpoint : PUBLIC_IPV4_ENDPOINTS) {
+            try {
+                HttpRequest request = HttpRequest.newBuilder(URI.create(endpoint))
+                        .timeout(Duration.ofSeconds(2))
+                        .header("Accept", "text/plain")
+                        .header("User-Agent", "ociworker-bastion/1.0")
+                        .GET()
+                        .build();
+                HttpResponse<String> response = HttpClient.newHttpClient()
+                        .send(request, HttpResponse.BodyHandlers.ofString());
+                if (response.statusCode() < 200 || response.statusCode() >= 300) continue;
+                String ip = normalizeDiscoveredIpv4(response.body());
+                if (ip == null) continue;
+                String cidr = ip + "/32";
+                discoveredClientCidr = cidr;
+                discoveredClientCidrAt = System.currentTimeMillis();
+                log.info("Detected OCI Bastion client egress CIDR {}", cidr);
+                return cidr;
+            } catch (Exception e) {
+                log.debug("Failed to detect public IPv4 from {}: {}", endpoint, e.getMessage());
+            }
+        }
+        return null;
+    }
+
+    static String normalizeDiscoveredIpv4(String raw) {
+        if (!hasText(raw)) return null;
+        String value = raw.trim().split("\\s+", 2)[0];
+        if (!IPV4_PATTERN.matcher(value).matches()) return null;
+        try {
+            InetAddress address = InetAddress.getByName(value);
+            byte[] bytes = address.getAddress();
+            if (bytes.length != 4 || address.isAnyLocalAddress() || address.isLoopbackAddress()
+                    || address.isLinkLocalAddress() || address.isSiteLocalAddress()
+                    || address.isMulticastAddress()) {
+                return null;
+            }
+            return value;
+        } catch (UnknownHostException e) {
+            return null;
+        }
     }
 
     static boolean cidrContains(String containerValue, String memberValue) {
