@@ -6,6 +6,7 @@ import com.ociworker.model.params.PageParams;
 import com.ociworker.model.params.TenantBatchMoveGroupParams;
 import com.ociworker.model.params.TenantParams;
 import com.ociworker.service.BudgetService;
+import com.ociworker.service.BillingService;
 import com.ociworker.model.vo.ResponseData;
 import com.ociworker.service.DomainManagementService;
 import com.ociworker.service.AnnouncementService;
@@ -34,6 +35,8 @@ public class TenantController {
 
     @Resource
     private TenantService tenantService;
+    @Resource
+    private BillingService billingService;
     @Resource
     private DomainManagementService domainManagementService;
     @Resource
@@ -191,6 +194,41 @@ public class TenantController {
         return ResponseData.ok(tenantService.getTenantBillingSummary(id, limits));
     }
 
+    @PostMapping("/billingWorkspace")
+    public ResponseData<?> billingWorkspace(@RequestBody java.util.Map<String, Object> params) {
+        return ResponseData.ok(billingService.workspace(str(params, "id")));
+    }
+
+    @PostMapping("/invoiceDetails")
+    public ResponseData<?> invoiceDetails(@RequestBody java.util.Map<String, Object> params) {
+        int limit = number(params, "limit", 200);
+        return ResponseData.ok(billingService.invoiceDetails(
+                str(params, "id"), str(params, "invoiceId"), limit));
+    }
+
+    @PostMapping("/invoicePayment")
+    public ResponseData<?> invoicePayment(@RequestBody java.util.Map<String, Object> params) {
+        return ResponseData.ok(billingService.startInvoicePayment(
+                str(params, "id"), str(params, "invoiceId"),
+                str(params, "returnUrl"), str(params, "email")));
+    }
+
+    @PostMapping("/subscriptionPayment")
+    public ResponseData<?> subscriptionPayment(@RequestBody java.util.Map<String, Object> params) {
+        return ResponseData.ok(billingService.startSubscriptionPayment(
+                str(params, "id"), str(params, "subscriptionId"), str(params, "email")));
+    }
+
+    @PostMapping("/billingAddress/verify")
+    public ResponseData<?> verifyBillingAddress(@RequestBody java.util.Map<String, Object> params) {
+        return ResponseData.ok(billingService.verifyAddress(str(params, "id"), params));
+    }
+
+    @PostMapping("/billingAddress/update")
+    public ResponseData<?> updateBillingAddress(@RequestBody java.util.Map<String, Object> params) {
+        return ResponseData.ok(billingService.updateAddress(str(params, "id"), params));
+    }
+
     @PostMapping("/invoicePdf")
     public ResponseEntity<byte[]> invoicePdf(@RequestBody java.util.Map<String, String> params) {
         String id = params == null ? null : params.get("id");
@@ -261,6 +299,17 @@ public class TenantController {
     private static String str(java.util.Map<String, Object> params, String key) {
         if (params == null || params.get(key) == null) return null;
         return String.valueOf(params.get(key));
+    }
+
+    private static int number(java.util.Map<String, Object> params, String key, int fallback) {
+        if (params == null || params.get(key) == null) return fallback;
+        Object value = params.get(key);
+        if (value instanceof Number n) return n.intValue();
+        try {
+            return Integer.parseInt(String.valueOf(value));
+        } catch (NumberFormatException ignored) {
+            return fallback;
+        }
     }
 
     @PostMapping("/uploadKey")

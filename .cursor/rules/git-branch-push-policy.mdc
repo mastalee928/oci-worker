@@ -1,0 +1,29 @@
+---
+description: Git 分支与推送目标硬性规则：禁止未经授权新增分支或推送到非 master
+alwaysApply: true
+---
+
+# Git 分支与推送目标硬性规则
+
+本项目的默认发布分支是 `master`。任何 Git 分支、提交和推送操作都必须先核对目标，不得把当前 worktree 分支名当成发布目标。
+
+## 硬性要求
+
+1. 用户只说“推送”“push”或“发布”而没有明确指定分支时，目标固定为 `origin/master`。只有用户在同一条消息中明确点名其他分支时，才允许推送到该分支。
+2. 每次 commit 或 push 前，必须读取并核对：
+   - 当前分支：`git branch --show-current`
+   - 远程默认分支：`git symbolic-ref refs/remotes/origin/HEAD` 或等价的远程检查
+   - 工作区状态：`git status --short`
+   - 即将推送的提交和文件范围
+3. 禁止擅自创建命名分支，包括 `git branch`、`git checkout -b`、`git switch -c` 和带分支名的 `git worktree add`。临时集成只允许使用 detached worktree，完成后必须清理。
+4. 推送必须显式指定目标：默认使用 `git push origin HEAD:master` 或 `git push origin master`。禁止仅依据当前分支执行 `git push origin <当前分支>`。
+5. 禁止 force push、rebase 改写远程历史、merge 到非用户指定分支。删除远程或本地分支也必须得到用户明确指令，并先核对精确分支名。
+6. 如果当前 worktree 不是 `master`，不得直接把它推送到远程。先在干净 detached worktree 基于最新 `origin/master` 集成并检查，或向用户说明并等待明确目标。
+7. 推送前必须向用户报告目标分支、提交哈希、提交文件范围和验证结果；推送后必须用远程 ref 检查确认目标已更新。
+8. 一旦发现误建或误推分支，立即停止后续 Git 操作，报告产生原因和影响；只有用户明确要求删除时，才删除该分支。
+
+## 本项目固定目标
+
+- 默认远程：`origin`
+- 默认发布分支：`master`
+- 开发 worktree 的临时分支名不具有发布授权，不得自动推送。
