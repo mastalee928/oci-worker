@@ -94,7 +94,7 @@
       </a-descriptions>
     </template>
 
-    <template v-else>
+    <template v-else-if="viewMode === 'created'">
       <a-button class="back-button" @click="backToList">返回 API Key 列表</a-button>
       <a-alert
         type="warning"
@@ -108,9 +108,17 @@
         <a-descriptions-item label="创建时间">{{ formatTime(createdKey?.timeCreated) }}</a-descriptions-item>
       </a-descriptions>
       <div class="download-actions">
-        <a-button type="primary" block @click="downloadPrivateKey">下载私钥</a-button>
-        <a-button block @click="downloadPublicKey">下载公钥</a-button>
-        <a-button block @click="downloadConfig">下载 OCI 配置</a-button>
+        <a-button type="primary" block @click="downloadPrivateKey">下载密钥</a-button>
+        <a-button block @click="showConfig">查看配置</a-button>
+        <a-button block @click="downloadConfig">下载配置</a-button>
+      </div>
+    </template>
+
+    <template v-else>
+      <a-button class="back-button" @click="backToCreated">返回新增结果</a-button>
+      <pre class="key-content">{{ configContent || '—' }}</pre>
+      <div class="config-actions">
+        <a-button type="primary" block @click="downloadConfig">下载配置</a-button>
       </div>
     </template>
   </a-modal>
@@ -157,12 +165,17 @@ const currentUser = ref<any>(null)
 const apiKeys = ref<ApiKeyItem[]>([])
 const detailKey = ref<ApiKeyItem | null>(null)
 const createdKey = ref<CreatedApiKey | null>(null)
-const viewMode = ref<'list' | 'detail' | 'created'>('list')
+const viewMode = ref<'list' | 'detail' | 'created' | 'config'>('list')
 
 const modalTitle = computed(() => {
   const name = currentUser.value?.name || currentUser.value?.id
   return name ? `API Key 管理 — ${name}` : 'API Key 管理'
 })
+
+const configContent = computed(() => createdKey.value?.config?.replace(
+  /^key_file=.*$/m,
+  `key_file=./${privateKeyFilename()}`,
+) || '')
 
 const columns = [
   { title: 'Fingerprint', key: 'fingerprint', width: 330, ellipsis: true },
@@ -299,16 +312,20 @@ function downloadPrivateKey() {
   downloadText(privateKeyFilename(), createdKey.value?.privateKeyPem)
 }
 
-function downloadPublicKey() {
-  downloadText(`${filenamePrefix()}_oci_api_key_public.pem`, createdKey.value?.publicKeyPem)
+function showConfig() {
+  if (!configContent.value) {
+    message.warning('没有可查看的配置')
+    return
+  }
+  viewMode.value = 'config'
+}
+
+function backToCreated() {
+  viewMode.value = 'created'
 }
 
 function downloadConfig() {
-  const config = createdKey.value?.config?.replace(
-    /^key_file=.*$/m,
-    `key_file=./${privateKeyFilename()}`,
-  )
-  downloadText(`${filenamePrefix()}_oci_config`, config)
+  downloadText(`${filenamePrefix()}_oci_config`, configContent.value)
 }
 
 function privateKeyFilename() {
@@ -446,6 +463,10 @@ defineExpose({ open })
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 8px;
+  margin-top: 16px;
+}
+
+.config-actions {
   margin-top: 16px;
 }
 
