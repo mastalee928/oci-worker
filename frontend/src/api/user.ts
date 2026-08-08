@@ -1,4 +1,4 @@
-import request from '../utils/request'
+import request, { type OciRequestConfig } from '../utils/request'
 
 type UserOperationPayload = {
   tenantId: string
@@ -91,4 +91,27 @@ export function updateUserCapabilities(data: {
   capabilities: Record<string, boolean>
 }) {
   return request.post('/oci/identity/updateUserCapabilities', data)
+}
+
+export function openUserApiKeySession(data: UserOperationPayload & { verifyCode: string }) {
+  return request.post('/oci/identity/apiKeys/session', data)
+}
+
+export function listUserApiKeys(data: UserOperationPayload & { sessionToken: string }) {
+  return request.post('/oci/identity/apiKeys/list', data)
+}
+
+export function createUserApiKey(data: UserOperationPayload & { sessionToken: string }) {
+  return request.post('/oci/identity/apiKeys/create', data)
+}
+
+export function deleteUserApiKey(data: UserOperationPayload & { sessionToken: string; fingerprint: string }) {
+  return request.post('/oci/identity/apiKeys/delete', data)
+}
+
+export function closeUserApiKeySession(data: { sessionToken: string }) {
+  return request.post('/oci/identity/apiKeys/session/close', data, {
+    skipBusinessMessage: true,
+    skipErrorMessage: true,
+  } as OciRequestConfig)
 }

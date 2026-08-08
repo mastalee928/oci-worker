@@ -73,6 +73,7 @@
                 <a-menu-item key="resetPassword"><i class="ri-lock-password-line menu-icon"></i>重置密码</a-menu-item>
                 <a-menu-item key="editUser"><i class="ri-edit-line menu-icon"></i>修改信息</a-menu-item>
                 <a-menu-item key="editCapabilities"><i class="ri-user-settings-line menu-icon"></i>编辑用户权限</a-menu-item>
+                <a-menu-item key="apiKeys"><i class="ri-key-2-line menu-icon"></i>API KEY</a-menu-item>
                 <a-menu-divider />
                 <a-menu-item key="addToAdmin"><i class="ri-shield-user-line menu-icon"></i>加入管理员组</a-menu-item>
                 <a-menu-item key="removeFromAdmin"><i class="ri-shield-cross-line menu-icon"></i>移出管理员组</a-menu-item>
@@ -111,6 +112,7 @@
                 <a-menu-item key="resetPassword"><i class="ri-lock-password-line menu-icon"></i>重置密码</a-menu-item>
                 <a-menu-item key="editUser"><i class="ri-edit-line menu-icon"></i>修改信息</a-menu-item>
                 <a-menu-item key="editCapabilities"><i class="ri-user-settings-line menu-icon"></i>编辑用户权限</a-menu-item>
+                <a-menu-item key="apiKeys"><i class="ri-key-2-line menu-icon"></i>API KEY</a-menu-item>
                 <a-menu-divider />
                 <a-menu-item key="addToAdmin"><i class="ri-shield-user-line menu-icon"></i>加入管理员组</a-menu-item>
                 <a-menu-item key="removeFromAdmin"><i class="ri-shield-cross-line menu-icon"></i>移出管理员组</a-menu-item>
@@ -163,6 +165,8 @@
         <a-button type="link" size="small" :loading="verifySending" @click="resendVerifyCode">重新发送</a-button>
       </div>
     </a-modal>
+
+    <UserApiKeyModal ref="userApiKeyModalRef" :tenant-id="tenantId" :is-mobile="isMobile" />
 
     <!-- 新增用户弹窗 -->
     <a-modal :keyboard="false" v-model:open="createVisible" title="新增用户" :width="isMobile ? '100%' : 520" @ok="handleCreate" :confirm-loading="createLoading" :mask-closable="false">
@@ -323,10 +327,12 @@ import { useRoute } from 'vue-router'
 import { ArrowLeftOutlined, PlusOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
 import dayjs from 'dayjs'
+import UserApiKeyModal from '../modules/iam/UserApiKeyModal.vue'
 import {
   listUsers, listIdentityDomains, createUser, resetPassword, clearMfa,
   addToAdmin, removeFromAdmin, updateUser, updateUserState, deleteUser, listMfaDevices,
   getUserCapabilities, updateUserCapabilities, listGroups, getUserGroups, listDomainGroups,
+  openUserApiKeySession,
 } from '../api/user'
 import { getTenantList } from '../api/tenant'
 import { sendVerifyCode, getTgStatus } from '../api/system'
@@ -506,6 +512,7 @@ const verifyActionKey = ref('')
 const verifyActionLabel = ref('')
 const verifyTargetRecord = ref<any>(null)
 const verifyCallback = ref<((code: string) => Promise<void>) | null>(null)
+const userApiKeyModalRef = ref<any>(null)
 
 const CAPABILITY_ITEMS = [
   { key: 'canUseConsolePassword', label: '控制台本地密码 (Local password)' },
@@ -521,6 +528,7 @@ const ACTION_LABELS: Record<string, string> = {
   createUser: '新增用户',
   updateUser: '修改信息',
   updateUserCapabilities: '编辑用户权限',
+  manageUserApiKeys: '管理用户 API Key',
   removeFromAdmin: '移出管理员组',
   clearMfa: '清理 MFA',
   disableUser: '禁用用户',
@@ -649,7 +657,7 @@ async function openVerifyAction(actionKey: string, record: any, callback: (code:
 
   verifySending.value = true
   try {
-    await sendVerifyCode(actionKey)
+    await sendVerifyCode(actionKey, verifyContext(actionKey, record))
     message.success('验证码已发送至 Telegram')
   } catch (e: any) {
     message.error(e?.message || '发送验证码失败')
@@ -669,7 +677,7 @@ async function openVerifyAction(actionKey: string, record: any, callback: (code:
 async function resendVerifyCode() {
   verifySending.value = true
   try {
-    await sendVerifyCode(verifyActionKey.value)
+    await sendVerifyCode(verifyActionKey.value, verifyContext(verifyActionKey.value, verifyTargetRecord.value))
     message.success('验证码已重新发送')
   } catch (e: any) {
     message.error(e?.message || '发送失败')
@@ -712,6 +720,7 @@ function handleMenuAction(key: string, record: any) {
     case 'resetPassword': confirmAction('确定重置该用户密码？', () => handleResetPassword(record)); break
     case 'editUser': openVerifyAction('updateUser', record, (code) => openEditUserWithCode(record, code)); break
     case 'editCapabilities': openVerifyAction('updateUserCapabilities', record, (code) => openCapabilitiesWithCode(record, code)); break
+    case 'apiKeys': openApiKeyManagement(record); break
     case 'addToAdmin': confirmAction('确定加入管理员组？', () => handleAddToAdmin(record)); break
     case 'removeFromAdmin': openVerifyAction('removeFromAdmin', record, (code) => handleRemoveFromAdminWithCode(record, code)); break
     case 'listMfa': handleListMfa(record); break
@@ -954,6 +963,46 @@ async function handleDisableWithCode(record: any, code: string) {
     loadUsers()
   } catch (e: any) {
     message.error(e?.message || '操作失败')
+  } finally {
+    currentActionLoading[record.id] = false
+  }
+}
+
+function verifyContext(actionKey: string, record: any) {
+  if (actionKey !== 'manageUserApiKeys' || !record?.id) return undefined
+  return {
+    contextKey: `${tenantId}:${record.id}`,
+    contextText: `${record.name || record.id}（${formatUserDomain(record)}）`,
+  }
+}
+
+function openApiKeyManagement(record: any) {
+  const userId = String(record?.id || '')
+  if (!userId.startsWith('ocid1.user.')) {
+    message.error('该用户未返回 OCI 用户 OCID，无法管理 API Key')
+    return
+  }
+  void openVerifyAction(
+    'manageUserApiKeys',
+    record,
+    (code) => openApiKeysWithCode(record, code),
+  )
+}
+
+async function openApiKeysWithCode(record: any, code: string) {
+  currentActionLoading[record.id] = true
+  try {
+    const res = await openUserApiKeySession({
+      ...userOperationPayload(record),
+      verifyCode: code,
+    })
+    const token = String(res.data?.sessionToken || '')
+    if (!token) {
+      throw new Error('未取得 API Key 管理会话')
+    }
+    window.setTimeout(() => {
+      void userApiKeyModalRef.value?.open(record, token)
+    }, 0)
   } finally {
     currentActionLoading[record.id] = false
   }

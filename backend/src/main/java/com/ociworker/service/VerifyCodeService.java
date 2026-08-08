@@ -50,6 +50,7 @@ public class VerifyCodeService {
             case "createUser" -> "新增用户";
             case "updateUser" -> "修改用户信息";
             case "updateUserCapabilities" -> "编辑用户权限";
+            case "manageUserApiKeys" -> "管理用户 API Key";
             case "removeFromAdmin" -> "移出管理员组";
             case "clearMfa" -> "清理 MFA";
             case "disableUser" -> "禁用用户";

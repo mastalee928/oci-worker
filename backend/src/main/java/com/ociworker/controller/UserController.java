@@ -3,6 +3,7 @@ package com.ociworker.controller;
 import com.ociworker.model.params.UserParams;
 import com.ociworker.model.vo.ResponseData;
 import com.ociworker.service.DomainManagementService;
+import com.ociworker.service.UserApiKeyService;
 import com.ociworker.service.UserManagementService;
 import com.ociworker.service.VerifyCodeService;
 import jakarta.annotation.Resource;
@@ -23,6 +24,9 @@ public class UserController {
 
     @Resource
     private VerifyCodeService verifyCodeService;
+
+    @Resource
+    private UserApiKeyService userApiKeyService;
 
     @PostMapping("/list")
     public ResponseData<?> listUsers(@RequestBody Map<String, Object> params) {
@@ -191,6 +195,52 @@ public class UserController {
         return ResponseData.ok();
     }
 
+    @PostMapping("/apiKeys/session")
+    public ResponseData<?> openApiKeySession(@RequestBody Map<String, String> params) {
+        String tenantId = trim(params.get("tenantId"));
+        String userId = trim(params.get("userId"));
+        userApiKeyService.assertManageableUser(tenantId, userId);
+        verifyCodeService.verifyCode(
+                "manageUserApiKeys",
+                params.get("verifyCode"),
+                apiKeyContextKey(tenantId, userId));
+        return ResponseData.ok(Map.of(
+                "sessionToken",
+                userApiKeyService.openSession(tenantId, userId)));
+    }
+
+    @PostMapping("/apiKeys/list")
+    public ResponseData<?> listApiKeys(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(userApiKeyService.listApiKeys(
+                params.get("sessionToken"),
+                params.get("tenantId"),
+                params.get("userId")));
+    }
+
+    @PostMapping("/apiKeys/create")
+    public ResponseData<?> createApiKey(@RequestBody Map<String, String> params) {
+        return ResponseData.ok(userApiKeyService.createApiKey(
+                params.get("sessionToken"),
+                params.get("tenantId"),
+                params.get("userId")));
+    }
+
+    @PostMapping("/apiKeys/delete")
+    public ResponseData<?> deleteApiKey(@RequestBody Map<String, String> params) {
+        userApiKeyService.deleteApiKey(
+                params.get("sessionToken"),
+                params.get("tenantId"),
+                params.get("userId"),
+                params.get("fingerprint"));
+        return ResponseData.ok("API Key 已删除");
+    }
+
+    @PostMapping("/apiKeys/session/close")
+    public ResponseData<?> closeApiKeySession(@RequestBody Map<String, String> params) {
+        userApiKeyService.closeSession(params.get("sessionToken"));
+        return ResponseData.ok();
+    }
+
     private static UserParams buildUserParams(Map<String, String> params) {
         UserParams up = new UserParams();
         up.setTenantId(params.get("tenantId"));
@@ -198,5 +248,13 @@ public class UserController {
         up.setDomainId(params.get("domainId"));
         up.setScimId(params.get("scimId"));
         return up;
+    }
+
+    private static String apiKeyContextKey(String tenantId, String userId) {
+        return tenantId + ":" + userId;
+    }
+
+    private static String trim(String value) {
+        return value == null ? null : value.trim();
     }
 }
