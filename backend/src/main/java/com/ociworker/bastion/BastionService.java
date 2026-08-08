@@ -31,11 +31,19 @@ import com.oracle.bmc.bastion.responses.CreateBastionResponse;
 import com.oracle.bmc.bastion.responses.CreateSessionResponse;
 import com.oracle.bmc.bastion.responses.GetWorkRequestResponse;
 import com.oracle.bmc.bastion.model.Session;
+import com.oracle.bmc.computeinstanceagent.PluginClient;
+import com.oracle.bmc.computeinstanceagent.model.InstanceAgentPlugin;
+import com.oracle.bmc.computeinstanceagent.requests.GetInstanceAgentPluginRequest;
 import com.oracle.bmc.core.model.Instance;
 import com.oracle.bmc.core.model.InstanceAgentConfig;
 import com.oracle.bmc.core.model.InstanceAgentPluginConfigDetails;
 import com.oracle.bmc.core.model.IngressSecurityRule;
+import com.oracle.bmc.core.model.Image;
+import com.oracle.bmc.core.model.InstanceSourceDetails;
+import com.oracle.bmc.core.model.InstanceSourceViaImageDetails;
 import com.oracle.bmc.core.model.PortRange;
+import com.oracle.bmc.core.model.RouteRule;
+import com.oracle.bmc.core.model.RouteTable;
 import com.oracle.bmc.core.model.SecurityList;
 import com.oracle.bmc.core.model.SecurityRule;
 import com.oracle.bmc.core.model.Subnet;
@@ -43,11 +51,15 @@ import com.oracle.bmc.core.model.TcpOptions;
 import com.oracle.bmc.core.model.Vnic;
 import com.oracle.bmc.core.model.VnicAttachment;
 import com.oracle.bmc.core.requests.GetInstanceRequest;
+import com.oracle.bmc.core.requests.GetImageRequest;
+import com.oracle.bmc.core.requests.GetRouteTableRequest;
 import com.oracle.bmc.core.requests.GetSecurityListRequest;
 import com.oracle.bmc.core.requests.GetVnicRequest;
 import com.oracle.bmc.core.requests.ListNetworkSecurityGroupSecurityRulesRequest;
+import com.oracle.bmc.core.requests.ListSubnetsRequest;
 import com.oracle.bmc.core.requests.ListVnicAttachmentsRequest;
 import com.oracle.bmc.core.requests.GetSubnetRequest;
+import com.oracle.bmc.model.BmcException;
 import com.ociworker.exception.OciException;
 import com.ociworker.mapper.OciCreateTaskMapper;
 import com.ociworker.mapper.OciUserMapper;
@@ -55,6 +67,7 @@ import com.ociworker.model.dto.SysUserDTO;
 import com.ociworker.model.entity.OciCreateTask;
 import com.ociworker.model.entity.OciUser;
 import com.ociworker.service.OciClientService;
+import com.ociworker.util.OciBmcErrorTranslator;
 import com.ociworker.util.OciRegionCatalog;
 import jakarta.annotation.PostConstruct;
 import jakarta.annotation.PreDestroy;
@@ -70,6 +83,7 @@ import java.security.SecureRandom;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Collections;
+import java.util.Comparator;
 import java.util.LinkedHashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -101,7 +115,7 @@ public class BastionService {
     private static final Pattern COMMAND_USER = Pattern.compile("(?:^|\\s)([^\\s\\\"']+)@(?:host\\.)?bastion\\.");
     private static final Pattern COMMAND_PORT = Pattern.compile("(?:-p|--port)\\s+(\\d{1,5})");
     private static final int MAX_SECRET_LENGTH = 512 * 1024;
-    private static final int MIN_SESSION_TTL_SECONDS = 300;
+    private static final int MIN_SESSION_TTL_SECONDS = 1_800;
     private static final int MAX_SESSION_TTL_SECONDS = 10_800;
     private static final long POLL_INTERVAL_MILLIS = 2_000L;
     private static final String MANAGED_BY_TAG = "ociworker";
@@ -223,16 +237,18 @@ public class BastionService {
                     client, instanceId, request.compartmentId(), region);
             boolean managedSsh = credentials.loginType() == 1;
             if (managedSsh) {
-                validateManagedSshPrerequisites(target);
+                validateManagedSshPrerequisites(client, target, region, deadline);
             }
-            validateTargetIngress(client, target, deadline);
+
+            Subnet bastionSubnet = resolveBastionSubnet(client, target, deadline);
 
             Bastion bastion = getOrCreateBastion(
                     bastionClient,
                     target.compartmentId(),
-                    target.subnetId(),
+                    bastionSubnet.getId(),
                     target.vcnId(),
                     deadline);
+            validateTargetIngress(client, target, bastion, deadline);
             KeyMaterial key = managedSsh
                     ? loadKeyMaterial(credentials.privateKey(), credentials.passphrase())
                     : generateKeyMaterial();
@@ -399,17 +415,77 @@ public class BastionService {
                 privateIp,
                 22,
                 instance,
+                subnet,
                 subnet.getCidrBlock(),
                 subnet.getSecurityListIds() == null ? List.of() : List.copyOf(subnet.getSecurityListIds()),
                 primary.getNsgIds() == null ? List.of() : List.copyOf(primary.getNsgIds()));
     }
 
-    private void validateManagedSshPrerequisites(TargetNetwork target) {
+    private void validateManagedSshPrerequisites(OciClientService client, TargetNetwork target,
+                                                 String region, PrepareDeadline deadline) {
+        validateManagedOperatingSystem(client, target, deadline);
         if (requireCloudAgent && !isBastionPluginEnabled(
                 target.instance().getAgentConfig(), cloudAgentPluginName)) {
             throw new OciException(422,
                     "Oracle Cloud Agent Bastion plugin is not enabled on the target instance");
         }
+        if (!subnetHasGatewayRoute(client, target.subnet(), deadline)) {
+            throw new OciException(422,
+                    "Managed SSH requires the target subnet route table to use a service, NAT, "
+                            + "or internet gateway, as required by OCI Bastion");
+        }
+        if (!requireCloudAgent) return;
+
+        deadline.ensureRemaining();
+        try (PluginClient pluginClient = buildPluginClient(client, region)) {
+            InstanceAgentPlugin plugin = pluginClient.getInstanceAgentPlugin(
+                    GetInstanceAgentPluginRequest.builder()
+                            .compartmentId(target.compartmentId())
+                            .instanceagentId(target.instanceId())
+                            .pluginName(firstNonBlank(cloudAgentPluginName, "Bastion"))
+                            .build()).getInstanceAgentPlugin();
+            if (plugin == null || plugin.getStatus() != InstanceAgentPlugin.Status.Running) {
+                String status = plugin == null || plugin.getStatus() == null
+                        ? "UNKNOWN" : plugin.getStatus().getValue();
+                String detail = plugin == null ? null : trimToNull(plugin.getMessage());
+                throw new OciException(422,
+                        "Oracle Cloud Agent Bastion plugin must be RUNNING; current status is "
+                                + status + (detail == null ? "" : ": " + detail));
+            }
+        } catch (BmcException e) {
+            throw new OciException(422,
+                    "Unable to verify the Oracle Cloud Agent Bastion plugin. Ensure OCI IAM grants "
+                            + "read instance-agent-plugins: " + OciBmcErrorTranslator.translate(e));
+        }
+    }
+
+    private void validateManagedOperatingSystem(OciClientService client, TargetNetwork target,
+                                               PrepareDeadline deadline) {
+        InstanceSourceDetails source = target.instance().getSourceDetails();
+        if (!(source instanceof InstanceSourceViaImageDetails imageSource)
+                || !hasText(imageSource.getImageId())) {
+            return;
+        }
+        deadline.ensureRemaining();
+        Image image = client.getComputeClient().getImage(
+                GetImageRequest.builder().imageId(imageSource.getImageId()).build()).getImage();
+        String operatingSystem = image == null ? null : trimToNull(image.getOperatingSystem());
+        if (operatingSystem != null && !operatingSystem.toLowerCase(Locale.ROOT).contains("linux")) {
+            throw new OciException(422,
+                    "OCI Managed SSH sessions require a Linux target instance; detected "
+                            + operatingSystem);
+        }
+    }
+
+    private PluginClient buildPluginClient(OciClientService client, String region) {
+        PluginClient.Builder builder = PluginClient.builder()
+                .configuration(client.getClientConfiguration());
+        if (client.getOciClientConfigurator() != null) {
+            builder.additionalClientConfigurator(client.getOciClientConfigurator());
+        }
+        PluginClient pluginClient = builder.build(client.getProvider());
+        pluginClient.setRegion(region);
+        return pluginClient;
     }
 
     static boolean isBastionPluginEnabled(InstanceAgentConfig agent, String pluginName) {
@@ -429,12 +505,86 @@ public class BastionService {
         return true;
     }
 
-    private void validateTargetIngress(OciClientService client, TargetNetwork target,
-                                       PrepareDeadline deadline) {
-        if (!validateTargetIngress) return;
-        if (!hasText(target.subnetCidr())) {
-            throw new OciException(422, "Target subnet CIDR could not be resolved");
+    private Subnet resolveBastionSubnet(OciClientService client, TargetNetwork target,
+                                        PrepareDeadline deadline) {
+        Map<String, Subnet> candidatesById = new LinkedHashMap<>();
+        if (isPrivateSubnet(target.subnet())) {
+            candidatesById.put(target.subnet().getId(), target.subnet());
         }
+
+        String page = null;
+        do {
+            deadline.ensureRemaining();
+            var response = client.getVirtualNetworkClient().listSubnets(ListSubnetsRequest.builder()
+                    .compartmentId(firstNonBlank(target.subnet().getCompartmentId(), target.compartmentId()))
+                    .vcnId(target.vcnId())
+                    .lifecycleState(Subnet.LifecycleState.Available)
+                    .limit(1000)
+                    .page(page)
+                    .build());
+            for (Subnet subnet : response.getItems() == null ? List.<Subnet>of() : response.getItems()) {
+                if (subnet != null && hasText(subnet.getId()) && isPrivateSubnet(subnet)) {
+                    candidatesById.putIfAbsent(subnet.getId(), subnet);
+                }
+            }
+            page = response.getOpcNextPage();
+        } while (hasText(page));
+
+        List<Subnet> candidates = new ArrayList<>(candidatesById.values());
+        candidates.sort(Comparator
+                .comparing((Subnet subnet) -> !target.subnetId().equals(subnet.getId()))
+                .thenComparing(subnet -> firstNonBlank(subnet.getDisplayName(), subnet.getId())));
+        if (candidates.isEmpty()) {
+            throw new OciException(422,
+                    "OCI Bastion requires an available private subnet in the target VCN");
+        }
+        for (Subnet candidate : candidates) {
+            if (subnetHasGatewayRoute(client, candidate, deadline)) return candidate;
+        }
+        throw new OciException(422,
+                "OCI Bastion requires a private subnet route to a service, NAT, or internet gateway");
+    }
+
+    static boolean isPrivateSubnet(Subnet subnet) {
+        return subnet != null
+                && subnet.getLifecycleState() == Subnet.LifecycleState.Available
+                && Boolean.TRUE.equals(subnet.getProhibitPublicIpOnVnic());
+    }
+
+    private boolean subnetHasGatewayRoute(OciClientService client, Subnet subnet,
+                                          PrepareDeadline deadline) {
+        if (subnet == null || !hasText(subnet.getRouteTableId())) return false;
+        deadline.ensureRemaining();
+        RouteTable routeTable = client.getVirtualNetworkClient().getRouteTable(
+                GetRouteTableRequest.builder().rtId(subnet.getRouteTableId()).build()).getRouteTable();
+        return hasUsableGatewayRoute(routeTable);
+    }
+
+    static boolean hasUsableGatewayRoute(RouteTable routeTable) {
+        if (routeTable == null || routeTable.getLifecycleState() != RouteTable.LifecycleState.Available
+                || routeTable.getRouteRules() == null) {
+            return false;
+        }
+        return routeTable.getRouteRules().stream().anyMatch(BastionService::isUsableGatewayRoute);
+    }
+
+    private static boolean isUsableGatewayRoute(RouteRule rule) {
+        if (rule == null || !hasText(rule.getNetworkEntityId())) return false;
+        String entity = rule.getNetworkEntityId().toLowerCase(Locale.ROOT);
+        if (entity.startsWith("ocid1.servicegateway.")) {
+            return rule.getDestinationType() == RouteRule.DestinationType.ServiceCidrBlock;
+        }
+        if (entity.startsWith("ocid1.natgateway.") || entity.startsWith("ocid1.internetgateway.")) {
+            return rule.getDestinationType() == RouteRule.DestinationType.CidrBlock
+                    && "0.0.0.0/0".equals(rule.getDestination());
+        }
+        return false;
+    }
+
+    private void validateTargetIngress(OciClientService client, TargetNetwork target,
+                                       Bastion bastion, PrepareDeadline deadline) {
+        if (!validateTargetIngress) return;
+        String sourceCidr = bastionSourceCidr(bastion);
         for (String securityListId : target.securityListIds()) {
             if (!hasText(securityListId)) continue;
             deadline.ensureRemaining();
@@ -443,7 +593,7 @@ public class BastionService {
                     .getSecurityList();
             if (securityList != null && securityList.getIngressSecurityRules() != null
                     && securityList.getIngressSecurityRules().stream()
-                    .anyMatch(rule -> allowsTargetPort(rule, target.subnetCidr(), target.port()))) {
+                    .anyMatch(rule -> allowsTargetPort(rule, sourceCidr, target.port()))) {
                 return;
             }
         }
@@ -460,7 +610,7 @@ public class BastionService {
                                 .page(page)
                                 .build());
                 if (response.getItems() != null && response.getItems().stream()
-                        .anyMatch(rule -> allowsTargetPort(rule, target.subnetCidr(), target.port()))) {
+                        .anyMatch(rule -> allowsTargetPort(rule, sourceCidr, target.port()))) {
                     return;
                 }
                 page = response.getOpcNextPage();
@@ -468,7 +618,19 @@ public class BastionService {
         }
         throw new OciException(422,
                 "Target subnet or NSG does not allow TCP " + target.port()
-                        + " from the Bastion target subnet CIDR " + target.subnetCidr());
+                        + " from the OCI Bastion private endpoint " + sourceCidr);
+    }
+
+    static String bastionSourceCidr(Bastion bastion) {
+        String address = bastion == null ? null : trimToNull(bastion.getPrivateEndpointIpAddress());
+        if (address == null || address.contains("/")) {
+            throw new OciException(422, "OCI Bastion did not return a valid private endpoint IP");
+        }
+        String sourceCidr = address + (address.contains(":") ? "/128" : "/32");
+        if (parseCidr(sourceCidr) == null) {
+            throw new OciException(422, "OCI Bastion returned an invalid private endpoint IP");
+        }
+        return sourceCidr;
     }
 
     static boolean allowsTargetPort(IngressSecurityRule rule, String sourceCidr, int targetPort) {
@@ -514,7 +676,7 @@ public class BastionService {
 
             CreateBastionDetails details = CreateBastionDetails.builder()
                     .bastionType("STANDARD")
-                    .name("ociworker-bastion-" + UUID.randomUUID().toString().substring(0, 8))
+                    .name(newBastionName())
                     .compartmentId(compartmentId)
                     .targetSubnetId(subnetId)
                     .clientCidrBlockAllowList(allowList)
@@ -597,6 +759,11 @@ public class BastionService {
             if (hasText(value)) normalized.add(value.trim());
         }
         return Set.copyOf(normalized);
+    }
+
+    static String newBastionName() {
+        return "ociworkerbastion"
+                + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
     }
 
     private Bastion waitForBastion(BastionClient client, String id, PrepareDeadline deadline) {
@@ -974,8 +1141,12 @@ public class BastionService {
     }
 
     private int effectiveSessionTtlSeconds() {
+        return normalizeSessionTtlSeconds(configuredSessionTtlSeconds);
+    }
+
+    static int normalizeSessionTtlSeconds(int configuredSeconds) {
         return Math.max(MIN_SESSION_TTL_SECONDS,
-                Math.min(MAX_SESSION_TTL_SECONDS, configuredSessionTtlSeconds));
+                Math.min(MAX_SESSION_TTL_SECONDS, configuredSeconds));
     }
 
     private static List<String> parseAllowList(String raw) {
@@ -990,7 +1161,7 @@ public class BastionService {
             String value = part.trim();
             if (value.isBlank()) continue;
             Cidr cidr = parseCidr(value);
-            if (cidr == null || cidr.prefixLength() == 0) {
+            if (cidr == null || cidr.address().length != 4 || cidr.prefixLength() == 0) {
                 throw new OciException(422, "OCI Bastion client CIDR is invalid or too broad: " + value);
             }
             if (!values.contains(value)) values.add(value);
@@ -999,6 +1170,10 @@ public class BastionService {
             throw new OciException(422,
                     "OCI Bastion client CIDR allow-list must contain at least one CIDR; set "
                             + "OCI_BASTION_CLIENT_CIDR_ALLOW_LIST explicitly");
+        }
+        if (values.size() > 20) {
+            throw new OciException(422,
+                    "OCI Bastion client CIDR allow-list cannot contain more than 20 entries");
         }
         return List.copyOf(values);
     }
@@ -1185,7 +1360,7 @@ public class BastionService {
 
     private record TargetNetwork(String instanceId, String region, String compartmentId,
                                  String subnetId, String vcnId, String privateIp, int port,
-                                 Instance instance, String subnetCidr,
+                                 Instance instance, Subnet subnet, String subnetCidr,
                                  List<String> securityListIds, List<String> nsgIds) {
     }
 

@@ -28,6 +28,11 @@ final class BastionJschSupport {
 
     private static final int CONNECT_TIMEOUT_MILLIS = 15_000;
     private static final int MAX_TOFU_KEYS = 2_048;
+    /** OCI's Bastion troubleshooting guide still requires ssh-rsa fallback for some keys. */
+    private static final String SERVER_HOST_KEY_ALGORITHMS =
+            "ssh-ed25519,ecdsa-sha2-nistp256,ecdsa-sha2-nistp384,ecdsa-sha2-nistp521,"
+                    + "rsa-sha2-512,rsa-sha2-256,ssh-rsa";
+    private static final String PUBKEY_ACCEPTED_ALGORITHMS = SERVER_HOST_KEY_ALGORITHMS;
     private static final Map<String, byte[]> TARGET_HOST_KEYS = new ConcurrentHashMap<>();
 
     private BastionJschSupport() {
@@ -94,6 +99,8 @@ final class BastionJschSupport {
         Properties config = new Properties();
         config.put("StrictHostKeyChecking", "yes");
         config.put("HashKnownHosts", "no");
+        config.put("server_host_key", SERVER_HOST_KEY_ALGORITHMS);
+        config.put("PubkeyAcceptedAlgorithms", PUBKEY_ACCEPTED_ALGORITHMS);
         session.setConfig(config);
         session.setHostKeyRepository(new PinnedHostKeyRepository(hostKeyInfo));
         session.setServerAliveInterval(15_000);
@@ -111,6 +118,8 @@ final class BastionJschSupport {
         Properties config = new Properties();
         config.put("StrictHostKeyChecking", "yes");
         config.put("HashKnownHosts", "no");
+        config.put("server_host_key", SERVER_HOST_KEY_ALGORITHMS);
+        config.put("PubkeyAcceptedAlgorithms", PUBKEY_ACCEPTED_ALGORITHMS);
         session.setConfig(config);
         session.setHostKeyRepository(new TofuHostKeyRepository(cacheKey));
         session.setServerAliveInterval(15_000);

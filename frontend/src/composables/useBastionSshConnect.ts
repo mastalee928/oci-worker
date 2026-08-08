@@ -33,6 +33,13 @@ function bastionErrorMessage(error: any) {
       '不要使用 0.0.0.0/0。',
     ].join('\n')
   }
+  if (normalized.includes('private endpoint') && normalized.includes('does not allow tcp')) {
+    return '目标实例的安全列表或 NSG 未允许 OCI Bastion 私有端点访问 SSH 22 端口。请按错误中的 Bastion IP/32 添加入站规则后重试。'
+  }
+  if (normalized.includes('private subnet route')
+      || normalized.includes('target subnet route table')) {
+    return 'OCI Bastion 所用私有子网缺少通往 Service Gateway、NAT Gateway 或 Internet Gateway 的路由。请按 Oracle 官方要求补齐网关和路由规则后重试。'
+  }
   return raw || '堡垒机连接准备失败'
 }
 
@@ -176,20 +183,13 @@ export function useBastionSshConnect() {
       connectionStep.value = 4
       const url = buildUrl(response.data.token, response.data)
       setWebSshTokenCookie(getPanelToken())
-      const popup = window.open(url, '_blank')
-      if (!popup) {
-        connectionStep.value = 3
-        connectionError.value = '浏览器阻止了 WebSSH 新窗口，请允许本站弹出窗口后重试。'
-        return
-      }
-      try { popup.opener = null } catch { /* browser may make opener read-only */ }
-
       connecting.value = false
       visible.value = false
       const sessionLabel = response.data.sessionType === 'PORT_FORWARDING'
         ? '端口转发会话'
         : 'Managed SSH 会话'
       message.success(`${sessionLabel}已准备`)
+      window.location.assign(url)
     } catch (error: any) {
       if (generation === requestGeneration && attempt === connectAttempt) {
         connectionError.value = bastionErrorMessage(error)

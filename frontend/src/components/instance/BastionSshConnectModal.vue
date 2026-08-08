@@ -32,14 +32,14 @@
         </div>
 
         <a-alert
-          v-if="credentials && !credentials.passwordAvailable && credentials.loginMode === 'PASSWORD'"
+          v-if="!connecting && credentials && !credentials.passwordAvailable && credentials.loginMode === 'PASSWORD'"
           type="warning"
           show-icon
           message="任务中没有保存密码，请输入本次连接密码"
           class="bastion-alert"
         />
         <a-alert
-          v-if="credentials && credentials.loginMode === 'SSH_PUBLIC_KEY'"
+          v-if="!connecting && credentials && credentials.loginMode === 'SSH_PUBLIC_KEY'"
           type="info"
           show-icon
           message="该实例使用 SSH 公钥登录，请提供对应私钥"
@@ -47,7 +47,7 @@
         />
 
         <a-alert
-          v-if="form.loginMode === 'PASSWORD'"
+          v-if="!connecting && form.loginMode === 'PASSWORD'"
           type="info"
           show-icon
           message="密码登录将使用 OCI Port Forwarding 会话"
@@ -95,6 +95,7 @@
           </div>
         </div>
 
+        <div v-if="!connecting" class="bastion-credentials">
         <div class="bastion-field">
           <label>登录方式</label>
           <a-segmented
@@ -182,6 +183,7 @@
         <div v-if="credentials === null && !credentialLoading" class="bastion-empty">
           无法读取任务凭据，请填写登录信息后重试。
         </div>
+        </div>
       </div>
     </a-spin>
   </a-modal>
@@ -236,10 +238,10 @@ const loginModeOptions = [
 ]
 
 const connectionSteps = [
-  { title: '校验目标' },
-  { title: '准备 Bastion' },
+  { title: '查询 Bastion 状态' },
+  { title: '创建 / 复用堡垒机' },
   { title: '创建 SSH 会话' },
-  { title: '打开终端' },
+  { title: '建立 SSH 通道' },
 ]
 
 const instanceLabel = computed(() =>
@@ -247,10 +249,10 @@ const instanceLabel = computed(() =>
 )
 
 const connectionStepDescriptions = [
-  '查询目标实例网络与 Cloud Agent 状态',
-  '创建或复用 OCI Bastion',
-  '创建 Bastion SSH 会话',
-  '准备 WebSSH 并建立终端连接',
+  '查询目标实例网络、私有子网与 Cloud Agent 状态',
+  '按 OCI 官方要求选择私有子网并创建或复用 Bastion',
+  '创建 Managed SSH 或 Port Forwarding 会话并等待 ACTIVE',
+  '使用会话密钥建立 Bastion 通道并进入 WebSSH',
 ]
 
 const showProgress = computed(() => props.connecting || !!props.connectionError)
@@ -491,6 +493,11 @@ function updateOpen(value: boolean) {
 .bastion-step.is-failed .bastion-step-copy strong,
 .bastion-step.is-failed .bastion-step-copy small {
   color: var(--danger-text, #f87171);
+}
+.bastion-credentials {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
 }
 .bastion-field {
   display: flex;

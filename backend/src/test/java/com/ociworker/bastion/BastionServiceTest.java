@@ -1,8 +1,12 @@
 package com.ociworker.bastion;
 
 import com.oracle.bmc.bastion.model.Session;
+import com.oracle.bmc.bastion.model.Bastion;
 import com.oracle.bmc.core.model.InstanceAgentConfig;
 import com.oracle.bmc.core.model.InstanceAgentPluginConfigDetails;
+import com.oracle.bmc.core.model.RouteRule;
+import com.oracle.bmc.core.model.RouteTable;
+import com.oracle.bmc.core.model.Subnet;
 import com.ociworker.mapper.OciCreateTaskMapper;
 import com.ociworker.mapper.OciUserMapper;
 import org.junit.jupiter.api.AfterEach;
@@ -120,6 +124,42 @@ class BastionServiceTest {
                 .build();
 
         assertThat(BastionService.isBastionPluginEnabled(agent, "Bastion")).isFalse();
+    }
+
+    @Test
+    void validatesOfficialBastionNetworkInputs() {
+        Bastion bastion = Bastion.builder()
+                .privateEndpointIpAddress("10.0.0.99")
+                .build();
+
+        assertThat(BastionService.bastionSourceCidr(bastion)).isEqualTo("10.0.0.99/32");
+        assertThat(BastionService.newBastionName()).matches("[A-Za-z0-9]+");
+        assertThat(BastionService.normalizeSessionTtlSeconds(300)).isEqualTo(1800);
+        assertThat(BastionService.normalizeSessionTtlSeconds(18_000)).isEqualTo(10_800);
+
+        RouteTable routeTable = RouteTable.builder()
+                .lifecycleState(RouteTable.LifecycleState.Available)
+                .routeRules(List.of(RouteRule.builder()
+                        .destinationType(RouteRule.DestinationType.ServiceCidrBlock)
+                        .networkEntityId("ocid1.servicegateway.oc1..example")
+                        .build()))
+                .build();
+        assertThat(BastionService.hasUsableGatewayRoute(routeTable)).isTrue();
+    }
+
+    @Test
+    void onlyTreatsPrivateAvailableSubnetsAsBastionCandidates() {
+        Subnet privateSubnet = Subnet.builder()
+                .lifecycleState(Subnet.LifecycleState.Available)
+                .prohibitPublicIpOnVnic(true)
+                .build();
+        Subnet publicSubnet = Subnet.builder()
+                .lifecycleState(Subnet.LifecycleState.Available)
+                .prohibitPublicIpOnVnic(false)
+                .build();
+
+        assertThat(BastionService.isPrivateSubnet(privateSubnet)).isTrue();
+        assertThat(BastionService.isPrivateSubnet(publicSubnet)).isFalse();
     }
 
     private static BastionConnectionSpec spec(long expiresAt) {
