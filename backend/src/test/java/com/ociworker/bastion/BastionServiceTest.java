@@ -171,21 +171,40 @@ class BastionServiceTest {
                 .build();
         assertThat(BastionService.hasUsableGatewayRoute(natOnly)).isTrue();
         assertThat(BastionService.hasBastionServiceGatewayRoute(natOnly)).isFalse();
+
+        RouteTable internetOnly = RouteTable.builder()
+                .lifecycleState(RouteTable.LifecycleState.Available)
+                .routeRules(List.of(RouteRule.builder()
+                        .destinationType(RouteRule.DestinationType.CidrBlock)
+                        .destination("0.0.0.0/0")
+                        .networkEntityId("ocid1.internetgateway.oc1..example")
+                        .build()))
+                .build();
+        assertThat(BastionService.hasUsableGatewayRoute(internetOnly)).isTrue();
+        assertThat(BastionService.hasBastionServiceGatewayRoute(internetOnly)).isFalse();
     }
 
     @Test
-    void onlyTreatsPrivateAvailableSubnetsAsBastionCandidates() {
+    void onlyAcceptsAvailablePrivateSubnetsAsBastionTargets() {
         Subnet privateSubnet = Subnet.builder()
+                .id("subnet-private")
                 .lifecycleState(Subnet.LifecycleState.Available)
                 .prohibitPublicIpOnVnic(true)
                 .build();
         Subnet publicSubnet = Subnet.builder()
+                .id("subnet-public")
                 .lifecycleState(Subnet.LifecycleState.Available)
                 .prohibitPublicIpOnVnic(false)
+                .build();
+        Subnet unavailableSubnet = Subnet.builder()
+                .id("subnet-unavailable")
+                .lifecycleState(Subnet.LifecycleState.Terminated)
+                .prohibitPublicIpOnVnic(true)
                 .build();
 
         assertThat(BastionService.isPrivateSubnet(privateSubnet)).isTrue();
         assertThat(BastionService.isPrivateSubnet(publicSubnet)).isFalse();
+        assertThat(BastionService.isPrivateSubnet(unavailableSubnet)).isFalse();
     }
 
     @Test

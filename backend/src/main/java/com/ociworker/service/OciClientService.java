@@ -1248,7 +1248,7 @@ public class OciClientService implements Closeable {
      * Find the first free /24 (or the VCN's own prefix when it is narrower than /24) inside
      * the VCN. OCI rejects overlapping subnet CIDRs, so never reuse the old fixed CIDR blindly.
      */
-    static String nextAvailableSubnetCidr(Vcn vcn, List<Subnet> subnets) {
+    public static String nextAvailableSubnetCidr(Vcn vcn, List<Subnet> subnets) {
         if (vcn == null) {
             return null;
         }

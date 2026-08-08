@@ -4,6 +4,8 @@ import org.junit.jupiter.api.Test;
 
 import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -30,5 +32,18 @@ class WebSshBastionFrontendContractTest {
                     "var CONSOLE_COLS = 80;",
                     "var CONSOLE_ROWS = 24;");
         }
+    }
+
+    @Test
+    void mapsNetworkFailuresToTheNetworkStepWithoutFakeCompletion() throws Exception {
+        String composable = Files.readString(Path.of(
+                "..", "frontend", "src", "composables", "useBastionSshConnect.ts"));
+
+        assertThat(composable).contains(
+                "raw.includes('目标 vcn')",
+                "raw.includes('可用子网')",
+                "raw.includes('路由')",
+                "connectionStep.value >= 2");
+        assertThat(composable).doesNotContain("connectionStep.value >= 3");
     }
 }

@@ -37,12 +37,17 @@ function bastionErrorMessage(error: any) {
     return '目标实例的安全列表或 NSG 未允许 OCI Bastion 私有端点访问 SSH 22 端口。请按错误中的 Bastion IP/32 添加入站规则后重试。'
   }
   if (normalized.includes('private subnet route')
-      || normalized.includes('target subnet route table')) {
-    return 'OCI Bastion 所用私有子网缺少指向 Service Gateway 的 Service CIDR 路由。请按 Oracle 官方要求补齐 Service Gateway 和对应路由后重试。'
+      || normalized.includes('target subnet route table')
+      || normalized.includes('usable route to a service')
+      || normalized.includes('internet gateway')
+      || normalized.includes('nat gateway')) {
+    return 'OCI Bastion 找不到可用的网关路由。请为目标 VCN 配置 Service Gateway、NAT Gateway 或 Internet Gateway 及对应路由后重试。'
   }
   if (normalized.includes('available private subnet')
-      || raw.includes('没有可用的私有子网')) {
-    return '目标 VCN 中没有可用的私有子网。OCI 官方要求 Bastion 与目标实例位于同一 VCN，并使用一个能够访问目标子网的私有子网。请先创建或配置该私有子网、Service Gateway 及对应路由。'
+      || normalized.includes('no available subnet')
+      || raw.includes('没有可用的私有子网')
+      || raw.includes('没有可用子网')) {
+    return '目标 VCN 中没有可用于 OCI Bastion 的子网。系统会优先使用实例所在子网，并兼容同 AD 或区域子网；请检查子网状态和网关路由。'
   }
   return raw || '堡垒机连接准备失败'
 }
@@ -50,10 +55,18 @@ function bastionErrorMessage(error: any) {
 function bastionFailureStep(error: any) {
   const raw = String(error?.response?.data?.message || error?.message || '').toLowerCase()
   if (raw.includes('private subnet')
+      || raw.includes('available subnet')
       || raw.includes('service gateway')
       || raw.includes('route table')
+      || raw.includes('internet gateway')
+      || raw.includes('nat gateway')
       || raw.includes('cloud agent')
-      || raw.includes('target instance')) return 0
+      || raw.includes('target instance')
+      || raw.includes('私有子网')
+      || raw.includes('可用子网')
+      || raw.includes('目标 vcn')
+      || raw.includes('路由')
+      || raw.includes('可用域')) return 0
   if (raw.includes('client cidr')
       || raw.includes('client-cidr')
       || raw.includes('private endpoint')
@@ -95,7 +108,7 @@ export function useBastionSshConnect() {
     clearProgressTimer()
     connectionStep.value = 0
     const advance = () => {
-      if (!connecting.value || connectionStep.value >= 3) return
+      if (!connecting.value || connectionStep.value >= 2) return
       connectionStep.value += 1
       progressTimer = setTimeout(advance, 1600)
     }
