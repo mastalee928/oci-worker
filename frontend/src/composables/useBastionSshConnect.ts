@@ -36,23 +36,6 @@ function bastionErrorMessage(error: any) {
   return raw || '堡垒机连接准备失败'
 }
 
-function showPopupError(popup: Window, errorText: string) {
-  try {
-    const doc = popup.document
-    doc.open()
-    doc.write(`<!doctype html>
-      <html lang="zh-CN"><head><meta charset="utf-8"><title>SSH 连接失败</title>
-      <style>body{margin:0;background:#0b1020;color:#e5e7eb;font:14px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI","Microsoft YaHei",sans-serif;display:grid;min-height:100vh;place-items:center}.box{box-sizing:border-box;width:min(620px,calc(100vw - 32px));border:1px solid #263252;border-radius:10px;background:#121a2f;padding:24px;box-shadow:0 18px 60px #0008}h1{font-size:18px;margin:0 0 14px;color:#f8fafc}.error{white-space:pre-wrap;color:#fda4af;background:#3b1420;border:1px solid #7f1d35;border-radius:8px;padding:13px}.hint{color:#94a3b8;font-size:12px;margin-top:14px}button{margin-top:18px;border:1px solid #475569;border-radius:6px;background:#1e293b;color:#e2e8f0;padding:7px 16px;cursor:pointer}</style></head>
-      <body><main class="box"><h1>SSH 连接失败</h1><div id="error" class="error"></div><div class="hint">请处理上面的配置后，从实例菜单重新发起连接。</div><button type="button" onclick="window.close()">关闭窗口</button></main></body></html>`)
-    doc.close()
-    const node = doc.getElementById('error')
-    if (node) node.textContent = errorText
-    popup.focus()
-  } catch {
-    // A browser can revoke access if the popup was already navigated or closed.
-  }
-}
-
 export function useBastionSshConnect() {
   const visible = ref(false)
   const tenant = ref<any | null>(null)
@@ -61,10 +44,38 @@ export function useBastionSshConnect() {
   const credentials = ref<BastionCredentialAvailability | null>(null)
   const credentialLoading = ref(false)
   const connecting = ref(false)
+  const connectionStep = ref(-1)
+  const connectionError = ref('')
   let requestGeneration = 0
   let connectAttempt = 0
+  let progressTimer: ReturnType<typeof setTimeout> | undefined
+
+  function clearProgressTimer() {
+    if (progressTimer !== undefined) {
+      clearTimeout(progressTimer)
+      progressTimer = undefined
+    }
+  }
+
+  function resetConnectionState() {
+    clearProgressTimer()
+    connectionStep.value = -1
+    connectionError.value = ''
+  }
+
+  function startProgress() {
+    clearProgressTimer()
+    connectionStep.value = 0
+    const advance = () => {
+      if (!connecting.value || connectionStep.value >= 3) return
+      connectionStep.value += 1
+      progressTimer = setTimeout(advance, 1600)
+    }
+    progressTimer = setTimeout(advance, 850)
+  }
 
   function resetSelection() {
+    resetConnectionState()
     credentials.value = null
     tenant.value = null
     instance.value = null
@@ -108,6 +119,7 @@ export function useBastionSshConnect() {
     ).trim()
     credentials.value = null
     credentialLoading.value = false
+    resetConnectionState()
     visible.value = true
     void loadCredentials(generation, tenantId, instanceId)
   }
@@ -136,16 +148,12 @@ export function useBastionSshConnect() {
     const instanceId = String(currentInstance?.instanceId || '').trim()
     if (!tenantId || !instanceId || connecting.value) return
 
-    const popup = window.open('', '_blank')
-    if (!popup) {
-      message.error('浏览器阻止了终端窗口，请允许本站打开新窗口后重试')
-      return
-    }
-    try { popup.opener = null } catch { /* browser may make opener read-only */ }
-
     const generation = requestGeneration
     const attempt = ++connectAttempt
+    connectionError.value = ''
     connecting.value = true
+    startProgress()
+
     try {
       const payload: BastionPrepareRequest = {
         id: tenantId,
@@ -163,18 +171,18 @@ export function useBastionSshConnect() {
       }
 
       const response = await prepareBastionSession(payload)
-      if (generation !== requestGeneration || attempt !== connectAttempt) {
-        if (!popup.closed) popup.close()
-        return
-      }
-      if (popup.closed) {
-        message.error('终端窗口已关闭，请重新发起连接')
-        return
-      }
+      if (generation !== requestGeneration || attempt !== connectAttempt) return
 
+      connectionStep.value = 4
       const url = buildUrl(response.data.token, response.data)
       setWebSshTokenCookie(getPanelToken())
-      popup.location.replace(url)
+      const popup = window.open(url, '_blank')
+      if (!popup) {
+        connectionStep.value = 3
+        connectionError.value = '浏览器阻止了 WebSSH 新窗口，请允许本站弹出窗口后重试。'
+        return
+      }
+      try { popup.opener = null } catch { /* browser may make opener read-only */ }
 
       connecting.value = false
       visible.value = false
@@ -184,14 +192,12 @@ export function useBastionSshConnect() {
       message.success(`${sessionLabel}已准备`)
     } catch (error: any) {
       if (generation === requestGeneration && attempt === connectAttempt) {
-        const errorText = bastionErrorMessage(error)
-        if (!popup.closed) showPopupError(popup, errorText)
-        message.error(errorText.split('\n')[0])
-      } else if (!popup.closed) {
-        popup.close()
+        connectionError.value = bastionErrorMessage(error)
+        if (connectionStep.value < 0) connectionStep.value = 0
       }
     } finally {
       if (generation === requestGeneration && attempt === connectAttempt) {
+        clearProgressTimer()
         connecting.value = false
       }
     }
@@ -213,6 +219,8 @@ export function useBastionSshConnect() {
     credentials,
     credentialLoading,
     connecting,
+    connectionStep,
+    connectionError,
     open,
     close,
     connect,

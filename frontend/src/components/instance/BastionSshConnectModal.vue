@@ -54,14 +54,46 @@
           class="bastion-alert"
         />
 
-        <a-steps
-          v-if="connecting"
+        <a-alert
+          v-if="connectionError"
+          type="error"
+          show-icon
+          class="bastion-alert bastion-connection-error"
+        >
+          <template #message>
+            <div class="bastion-error-message">{{ connectionError }}</div>
+          </template>
+        </a-alert>
+
+        <div
+          v-if="showProgress"
           class="bastion-progress"
-          size="small"
-          progress-dot
-          :current="1"
-          :items="connectionSteps"
-        />
+          role="status"
+          aria-live="polite"
+        >
+          <div class="bastion-progress-heading">正在建立 Bastion SSH 连接</div>
+          <div
+            v-for="(step, index) in connectionSteps"
+            :key="step.title"
+            class="bastion-step"
+            :class="{
+              'is-doing': stepState(index) === 'doing',
+              'is-done': stepState(index) === 'done',
+              'is-failed': stepState(index) === 'failed',
+            }"
+          >
+            <span class="bastion-step-icon">
+              <LoadingOutlined v-if="stepState(index) === 'doing'" />
+              <CheckOutlined v-else-if="stepState(index) === 'done'" />
+              <CloseCircleOutlined v-else-if="stepState(index) === 'failed'" />
+              <span v-else>{{ index + 1 }}</span>
+            </span>
+            <span class="bastion-step-copy">
+              <strong>{{ step.title }}</strong>
+              <small>{{ connectionStepDescriptions[index] }}</small>
+            </span>
+          </div>
+        </div>
 
         <div class="bastion-field">
           <label>登录方式</label>
@@ -100,24 +132,41 @@
         <template v-else>
           <div class="bastion-field">
             <label>私钥</label>
-            <div class="bastion-key-actions">
-              <a-upload
-                accept=".key,.pem,.txt"
-                :show-upload-list="false"
-                :before-upload="readPrivateKey"
-              >
-                <a-button>
-                  <template #icon><UploadOutlined /></template>
-                  选择私钥文件
-                </a-button>
-              </a-upload>
-              <span v-if="privateKeySource" class="bastion-key-source">{{ privateKeySource }}</span>
+            <input
+              ref="privateKeyInput"
+              class="bastion-key-input"
+              type="file"
+              accept=".key,.pem,.txt"
+              @change="handlePrivateKeyChange"
+            />
+            <div
+              class="bastion-key-dropzone"
+              :class="{ dragging: privateKeyDragging, loaded: !!privateKeySource }"
+              role="button"
+              tabindex="0"
+              @click="openPrivateKeyPicker"
+              @keydown.enter.prevent="openPrivateKeyPicker"
+              @keydown.space.prevent="openPrivateKeyPicker"
+              @dragenter.prevent="privateKeyDragging = true"
+              @dragover.prevent="privateKeyDragging = true"
+              @dragleave.prevent="privateKeyDragging = false"
+              @drop.prevent="handlePrivateKeyDrop"
+            >
+              <UploadOutlined />
+              <span class="bastion-key-drop-copy">
+                <strong v-if="privateKeyDragging">松开以加载私钥</strong>
+                <strong v-else-if="privateKeySource">已加载 {{ privateKeySource }}</strong>
+                <strong v-else>选择私钥文件</strong>
+                <small v-if="privateKeySource">拖入其他文件可替换</small>
+                <small v-else>支持将 .key / .pem / .txt 文件从桌面拖入</small>
+              </span>
             </div>
             <a-textarea
               v-model:value="form.privateKey"
               :auto-size="{ minRows: 5, maxRows: 10 }"
               autocomplete="off"
               placeholder="-----BEGIN OPENSSH PRIVATE KEY-----"
+              @input="handlePrivateKeyInput"
             />
             <div class="bastion-secret-note">
               <KeyOutlined />
@@ -140,7 +189,14 @@
 
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
-import { KeyOutlined, SafetyCertificateOutlined, UploadOutlined } from '@ant-design/icons-vue'
+import {
+  CheckOutlined,
+  CloseCircleOutlined,
+  KeyOutlined,
+  LoadingOutlined,
+  SafetyCertificateOutlined,
+  UploadOutlined,
+} from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
 import type { BastionCredentialAvailability, BastionLoginMode } from '../../api/bastion'
 import type { BastionConnectForm } from '../../composables/useBastionSshConnect'
@@ -153,6 +209,8 @@ const props = defineProps<{
   credentials: BastionCredentialAvailability | null
   credentialLoading: boolean
   connecting: boolean
+  connectionStep: number
+  connectionError: string
 }>()
 
 const emit = defineEmits<{
@@ -169,6 +227,8 @@ const form = reactive<BastionConnectForm>({
   passphrase: '',
 })
 const privateKeySource = ref('')
+const privateKeyInput = ref<HTMLInputElement | null>(null)
+const privateKeyDragging = ref(false)
 
 const loginModeOptions = [
   { label: '密码', value: 'PASSWORD' as BastionLoginMode },
@@ -186,6 +246,15 @@ const instanceLabel = computed(() =>
   String(props.instance?.displayName || props.instance?.name || props.instance?.instanceId || '实例'),
 )
 
+const connectionStepDescriptions = [
+  '查询目标实例网络与 Cloud Agent 状态',
+  '创建或复用 OCI Bastion',
+  '创建 Bastion SSH 会话',
+  '准备 WebSSH 并建立终端连接',
+]
+
+const showProgress = computed(() => props.connecting || !!props.connectionError)
+
 const canSubmit = computed(() => {
   if (props.credentialLoading || props.connecting || !form.username.trim()) return false
   if (form.loginMode === 'PASSWORD') {
@@ -193,7 +262,7 @@ const canSubmit = computed(() => {
       ? !!props.credentials?.passwordAvailable
       : form.password.length > 0
   }
-  return form.privateKey.trim().length > 0
+  return looksLikePrivateKey(form.privateKey)
 })
 
 watch(() => props.open, (open) => {
@@ -213,6 +282,8 @@ function resetForm() {
   form.privateKey = ''
   form.passphrase = ''
   privateKeySource.value = ''
+  privateKeyDragging.value = false
+  if (privateKeyInput.value) privateKeyInput.value.value = ''
 }
 
 function applyAvailability(availability: BastionCredentialAvailability | null) {
@@ -222,21 +293,66 @@ function applyAvailability(availability: BastionCredentialAvailability | null) {
   form.passwordSource = availability.passwordAvailable ? 'saved' : 'manual'
 }
 
-function readPrivateKey(file: File) {
+function looksLikePrivateKey(value: string) {
+  const normalized = value.trim()
+  return normalized.length > 80 && normalized.includes('PRIVATE KEY')
+}
+
+function openPrivateKeyPicker() {
+  if (!props.connecting) privateKeyInput.value?.click()
+}
+
+function handlePrivateKeyChange(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (file) void loadPrivateKey(file)
+}
+
+function handlePrivateKeyDrop(event: DragEvent) {
+  privateKeyDragging.value = false
+  const file = event.dataTransfer?.files?.[0]
+  if (file) void loadPrivateKey(file)
+}
+
+function handlePrivateKeyInput() {
+  if (privateKeySource.value) privateKeySource.value = ''
+}
+
+async function loadPrivateKey(file: File) {
+  const filename = file.name.toLowerCase()
+  if (!/\.(key|pem|txt)$/.test(filename)) {
+    message.error('请选择 .key、.pem 或 .txt 私钥文件')
+    return
+  }
   if (file.size > 512 * 1024) {
     message.error('私钥文件不能超过 512 KB')
-    return false
+    return
   }
-  const reader = new FileReader()
-  reader.onload = () => {
-    form.privateKey = String(reader.result || '')
+  try {
+    const text = (await file.text()).trim()
+    if (!looksLikePrivateKey(text)) {
+      message.error('文件内容不是可识别的 SSH 私钥')
+      return
+    }
+    form.privateKey = text
     privateKeySource.value = file.name
-  }
-  reader.onerror = () => {
+  } catch {
     privateKeySource.value = ''
+    message.error('读取私钥文件失败')
   }
-  reader.readAsText(file)
-  return false
+}
+
+type StepState = 'pending' | 'doing' | 'done' | 'failed'
+
+function stepState(index: number): StepState {
+  const current = Math.max(0, Math.min(4, props.connectionStep))
+  if (props.connectionError && index === Math.min(current, connectionSteps.length - 1)) {
+    return 'failed'
+  }
+  if (index < current) return 'done'
+  if (props.connecting && index === current) return 'doing'
+  return 'pending'
 }
 
 function submit() {
@@ -289,8 +405,92 @@ function updateOpen(value: boolean) {
   word-break: break-word;
 }
 .bastion-alert { margin: 0; }
+.bastion-error-message {
+  white-space: pre-line;
+}
 .bastion-progress {
-  padding: 4px 0 2px;
+  background: var(--input-bg, rgba(15, 23, 42, 0.6));
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  border-radius: 10px;
+  padding: 12px 14px;
+}
+.bastion-progress-heading {
+  color: var(--text-main, #f1f5f9);
+  font-size: 13px;
+  font-weight: 650;
+  margin-bottom: 8px;
+}
+.bastion-step {
+  align-items: flex-start;
+  display: flex;
+  gap: 10px;
+  min-height: 42px;
+  position: relative;
+}
+.bastion-step:not(:last-child)::after {
+  background: var(--border, rgba(255, 255, 255, 0.08));
+  content: '';
+  left: 10px;
+  position: absolute;
+  top: 24px;
+  bottom: -4px;
+  width: 1px;
+}
+.bastion-step-icon {
+  align-items: center;
+  background: var(--input-bg, rgba(15, 23, 42, 0.6));
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.12));
+  border-radius: 50%;
+  color: var(--text-sub, #94a3b8);
+  display: inline-flex;
+  flex: 0 0 20px;
+  font-size: 11px;
+  height: 20px;
+  justify-content: center;
+  position: relative;
+  width: 20px;
+  z-index: 1;
+}
+.bastion-step-copy {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+  padding-bottom: 7px;
+}
+.bastion-step-copy strong {
+  color: var(--text-sub, #94a3b8);
+  font-size: 12.5px;
+  font-weight: 600;
+}
+.bastion-step-copy small {
+  color: var(--text-sub, #94a3b8);
+  font-size: 11.5px;
+  line-height: 1.4;
+}
+.bastion-step.is-doing .bastion-step-icon {
+  border-color: var(--primary, #818cf8);
+  color: var(--primary, #818cf8);
+}
+.bastion-step.is-doing .bastion-step-copy strong,
+.bastion-step.is-doing .bastion-step-copy small {
+  color: var(--text-main, #f1f5f9);
+}
+.bastion-step.is-done .bastion-step-icon {
+  border-color: var(--success, #10b981);
+  color: var(--success-text, #34d399);
+}
+.bastion-step.is-done .bastion-step-copy strong {
+  color: var(--text-main, #f1f5f9);
+}
+.bastion-step.is-failed .bastion-step-icon {
+  border-color: var(--danger, #ef4444);
+  color: var(--danger-text, #f87171);
+}
+.bastion-step.is-failed .bastion-step-copy strong,
+.bastion-step.is-failed .bastion-step-copy small {
+  color: var(--danger-text, #f87171);
 }
 .bastion-field {
   display: flex;
@@ -302,19 +502,49 @@ function updateOpen(value: boolean) {
   font-size: 13px;
   font-weight: 600;
 }
-.bastion-key-actions {
-  align-items: center;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 10px;
+.bastion-key-input {
+  display: none;
 }
-.bastion-key-source {
-  color: var(--text-sub, #6b7280);
-  font-size: 12px;
-  max-width: 100%;
+.bastion-key-dropzone {
+  align-items: center;
+  background: var(--input-bg, rgba(15, 23, 42, 0.6));
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  border-radius: 8px;
+  color: var(--text-main, #f1f5f9);
+  cursor: pointer;
+  display: flex;
+  gap: 9px;
+  min-height: 40px;
+  padding: 8px 12px;
+  transition: border-color 0.15s ease, background 0.15s ease;
+  width: 100%;
+}
+.bastion-key-dropzone:hover,
+.bastion-key-dropzone.dragging {
+  background: var(--primary-light, rgba(129, 140, 248, 0.15));
+  border-color: var(--primary, #818cf8);
+}
+.bastion-key-dropzone.dragging {
+  color: var(--primary, #818cf8);
+}
+.bastion-key-dropzone.loaded {
+  background: var(--success-bg, rgba(16, 185, 129, 0.15));
+  border-color: var(--success, #10b981);
+}
+.bastion-key-drop-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.bastion-key-drop-copy strong {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.bastion-key-drop-copy small {
+  color: var(--text-sub, #94a3b8);
+  font-size: 11px;
 }
 .bastion-secret-note {
   align-items: center;

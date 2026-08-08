@@ -192,6 +192,8 @@
       :credentials="bastionCredentials"
       :credential-loading="bastionCredentialLoading"
       :connecting="bastionConnecting"
+      :connection-step="bastionConnectionStep"
+      :connection-error="bastionConnectionError"
       @connect="connectBastion"
     />
 
@@ -1227,6 +1229,8 @@ const {
   credentials: bastionCredentials,
   credentialLoading: bastionCredentialLoading,
   connecting: bastionConnecting,
+  connectionStep: bastionConnectionStep,
+  connectionError: bastionConnectionError,
   open: openBastionSsh,
   close: closeBastionSsh,
   connect: connectBastion,

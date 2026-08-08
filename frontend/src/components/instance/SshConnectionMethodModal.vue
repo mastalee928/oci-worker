@@ -122,12 +122,14 @@ function select(mode: 'DIRECT' | 'BASTION') {
 
 .ssh-method-option {
   align-items: center;
-  background: var(--panel, #fff);
+  appearance: none;
+  background: var(--bg-card, #0f172a);
   border: 1px solid var(--border, #e5e7eb);
   border-radius: 8px;
-  color: inherit;
+  color: var(--text-main, #f1f5f9);
   cursor: pointer;
   display: flex;
+  font: inherit;
   gap: 11px;
   min-height: 70px;
   padding: 12px 13px;
@@ -137,12 +139,13 @@ function select(mode: 'DIRECT' | 'BASTION') {
 }
 
 .ssh-method-option:hover:not(:disabled) {
-  background: var(--panel-hover, rgba(99, 102, 241, 0.06));
+  background: var(--input-bg, rgba(15, 23, 42, 0.6));
   border-color: var(--primary, #6366f1);
 }
 
 .ssh-method-option.disabled,
 .ssh-method-option:disabled {
+  color: var(--text-sub, #94a3b8);
   cursor: not-allowed;
   opacity: 0.48;
 }
