@@ -25,40 +25,42 @@ function bastionErrorMessage(error: any) {
       || '',
   ).trim()
   const normalized = raw.toLowerCase()
+  // 永远保留服务端原始错误（含 OCI 详情与 opc-request-id），提示语只作补充。
+  const withDetail = (hint: string) => (raw ? `${hint}\n服务端详情：${raw}` : hint)
   if (normalized.includes('timed out waiting for oci bastion ssh session')
       || normalized.includes('bastion ssh session failed')) {
-    return 'OCI Bastion SSH 会话未在官方等待窗口内变为 ACTIVE。请检查实例 SSH 22 入站规则、Cloud Agent Bastion 插件和目标私网路由后重试。'
+    return withDetail('OCI Bastion SSH 会话未在官方等待窗口内变为 ACTIVE。请检查实例 SSH 22 入站规则、Cloud Agent Bastion 插件和目标私网路由后重试。')
   }
   if (normalized.includes('timed out waiting for oci bastion')
       || normalized.includes('timed out waiting for bastion work request')
       || normalized.includes('bastion work request failed')
       || normalized.includes('create or reuse bastion failed')) {
-    return 'OCI Bastion 创建或工作请求超时。请稍后重试；若持续失败，请检查 Bastion 所在子网、VCN 路由和 IAM，并使用错误中的 opc-request-id 查询 OCI 日志。'
+    return withDetail('OCI Bastion 创建或工作请求超时。请稍后重试；若持续失败，请检查 Bastion 所在子网、VCN 路由和 IAM，并使用错误中的 opc-request-id 查询 OCI 日志。')
   }
   if (normalized.includes('client-cidr-block-allow-list')
       || normalized.includes('client cidr allow-list')
       || normalized.includes('client cidr could not be determined')) {
-    return [
+    return withDetail([
       'OCI Bastion 尚未配置客户端 CIDR 白名单。',
       '请在 OCI Worker 配置中设置 OCI_BASTION_CLIENT_CIDR_ALLOW_LIST=<Worker 公网出口 IP>/32，设置后重启服务。',
       '不要使用 0.0.0.0/0。',
-    ].join('\n')
+    ].join('\n'))
   }
   if (normalized.includes('private endpoint') && normalized.includes('does not allow tcp')) {
-    return '目标实例的安全列表或 NSG 未允许 OCI Bastion 私有端点访问 SSH 22 端口。请按错误中的 Bastion IP/32 添加入站规则后重试。'
+    return withDetail('目标实例的安全列表或 NSG 未允许 OCI Bastion 私有端点访问 SSH 22 端口。请按错误中的 Bastion IP/32 添加入站规则后重试。')
   }
   if (normalized.includes('private subnet route')
       || normalized.includes('target subnet route table')
       || normalized.includes('usable route to a service')
       || normalized.includes('internet gateway')
       || normalized.includes('nat gateway')) {
-    return 'OCI Bastion 找不到可用的网关路由。请为目标 VCN 配置 Service Gateway、NAT Gateway 或 Internet Gateway 及对应路由后重试。'
+    return withDetail('OCI Bastion 找不到可用的网关路由。请为目标 VCN 配置 Service Gateway、NAT Gateway 或 Internet Gateway 及对应路由后重试。')
   }
   if (normalized.includes('available private subnet')
       || normalized.includes('no available subnet')
       || raw.includes('没有可用的私有子网')
       || raw.includes('没有可用子网')) {
-    return '目标 VCN 中没有可用于 OCI Bastion 的子网。系统会优先使用实例所在子网，并兼容同 AD 或区域子网；请检查子网状态和网关路由。'
+    return withDetail('目标 VCN 中没有可用于 OCI Bastion 的子网。系统会优先使用实例所在子网，并兼容同 AD 或区域子网；请检查子网状态和网关路由。')
   }
   return raw || '堡垒机连接准备失败'
 }

@@ -607,6 +607,13 @@ public class BastionService {
 
     private Subnet resolveBastionSubnet(OciClientService client, TargetNetwork target,
                                         PrepareDeadline deadline) {
+        // Fast path: the target's own subnet already satisfies every Bastion requirement.
+        // Skipping the tenancy-wide compartment sweep keeps most of the prepare budget
+        // for the session ACTIVE wait instead of burning it on enumeration.
+        if (isPrivateSubnet(target.subnet())
+                && subnetHasBastionServiceGatewayRoute(client, target.subnet(), deadline)) {
+            return target.subnet();
+        }
         Map<String, Subnet> privateCandidatesById = new LinkedHashMap<>();
         if (isPrivateSubnet(target.subnet())) {
             privateCandidatesById.put(target.subnet().getId(), target.subnet());
@@ -1291,19 +1298,40 @@ public class BastionService {
     }
 
     private Session waitForSession(BastionClient client, String id, PrepareDeadline deadline) {
+        long start = System.nanoTime();
         long waitDeadline = deadline.operationDeadlineNanos(operationTimeoutSeconds);
+        String lastState = "UNKNOWN";
         while (System.nanoTime() < waitDeadline) {
             deadline.ensureRemaining();
-            Session current = client.getSession(GetSessionRequest.builder().sessionId(id).build()).getSession();
+            Session current;
+            try {
+                current = client.getSession(GetSessionRequest.builder().sessionId(id).build()).getSession();
+            } catch (BmcException e) {
+                // Bastion sessions can be briefly invisible right after creation; tolerate that.
+                if (e.getStatusCode() == 404
+                        && System.nanoTime() - start < TimeUnit.SECONDS.toNanos(30)) {
+                    sleepPoll();
+                    continue;
+                }
+                throw e;
+            }
+            if (current != null && current.getLifecycleState() != null
+                    && !current.getLifecycleState().getValue().equals(lastState)) {
+                lastState = current.getLifecycleState().getValue();
+                log.info("OCI Bastion session {} is {}", id, lastState);
+            }
             if (current != null && current.getLifecycleState() == SessionLifecycleState.Active) {
                 return current;
             }
             if (current != null && current.getLifecycleState() == SessionLifecycleState.Failed) {
-                throw new OciException("OCI Bastion SSH session failed: " + current.getLifecycleDetails());
+                throw new OciException("OCI Bastion SSH session failed: session " + id
+                        + ": " + firstNonBlank(current.getLifecycleDetails(), "no lifecycle details"));
             }
             sleepPoll();
         }
-        throw new OciException("Timed out waiting for OCI Bastion SSH session");
+        long waitedSeconds = TimeUnit.NANOSECONDS.toSeconds(System.nanoTime() - start);
+        throw new OciException("Timed out waiting for OCI Bastion SSH session " + id
+                + " after " + waitedSeconds + "s; last state was " + lastState);
     }
 
     private String waitForWorkRequestResource(BastionClient client, String workRequestId,
@@ -1381,7 +1409,7 @@ public class BastionService {
                 bastion.deleteSession(DeleteSessionRequest.builder().sessionId(sessionId).build());
             }
         } catch (Exception e) {
-            log.debug("Bastion session cleanup failed for {}: {}", sessionId, e.getMessage());
+            log.warn("Bastion session cleanup failed for {}: {}", sessionId, e.getMessage());
         }
     }
 
@@ -1390,7 +1418,7 @@ public class BastionService {
         try {
             client.deleteSession(DeleteSessionRequest.builder().sessionId(sessionId).build());
         } catch (Exception e) {
-            log.debug("Bastion session cleanup failed for {}: {}", sessionId, e.getMessage());
+            log.warn("Bastion session cleanup failed for {}: {}", sessionId, e.getMessage());
         }
     }
 
