@@ -117,8 +117,24 @@
               <a-radio-button value="saved" :disabled="!credentials?.passwordAvailable">
                 使用任务密码
               </a-radio-button>
+              <a-radio-button
+                value="profile"
+                :disabled="profileLoading || !profilePassword"
+              >
+                我的密码
+              </a-radio-button>
               <a-radio-button value="manual">手动输入</a-radio-button>
             </a-radio-group>
+            <div v-if="form.passwordSource === 'profile'" class="bastion-secret-note">
+              <KeyOutlined />
+              使用系统设置 - 安全设置 - 开机凭据中保存的「我的密码」。
+            </div>
+            <div
+              v-else-if="!profileLoading && !profilePassword"
+              class="bastion-secret-note"
+            >
+              「我的密码」未配置，可到系统设置 - 安全设置 - 开机凭据中保存。
+            </div>
           </div>
           <div v-if="form.passwordSource === 'manual'" class="bastion-field">
             <label>本次密码</label>
@@ -202,6 +218,7 @@ import {
 import { message } from 'ant-design-vue'
 import type { BastionCredentialAvailability, BastionLoginMode } from '../../api/bastion'
 import type { BastionConnectForm } from '../../composables/useBastionSshConnect'
+import { getTaskCredential } from '../../api/system'
 
 const props = defineProps<{
   open: boolean
@@ -231,6 +248,9 @@ const form = reactive<BastionConnectForm>({
 const privateKeySource = ref('')
 const privateKeyInput = ref<HTMLInputElement | null>(null)
 const privateKeyDragging = ref(false)
+const profilePassword = ref('')
+const profileLoading = ref(false)
+let profileLoadGen = 0
 
 const loginModeOptions = [
   { label: '密码', value: 'PASSWORD' as BastionLoginMode },
@@ -260,16 +280,19 @@ const showProgress = computed(() => props.connecting || !!props.connectionError)
 const canSubmit = computed(() => {
   if (props.credentialLoading || props.connecting || !form.username.trim()) return false
   if (form.loginMode === 'PASSWORD') {
-    return form.passwordSource === 'saved'
-      ? !!props.credentials?.passwordAvailable
-      : form.password.length > 0
+    if (form.passwordSource === 'saved') return !!props.credentials?.passwordAvailable
+    if (form.passwordSource === 'profile') return !!profilePassword.value
+    return form.password.length > 0
   }
   return looksLikePrivateKey(form.privateKey)
 })
 
 watch(() => props.open, (open) => {
   resetForm()
-  if (open) applyAvailability(props.credentials)
+  if (open) {
+    applyAvailability(props.credentials)
+    void loadProfilePassword()
+  }
 }, { immediate: true })
 
 watch(() => props.credentials, (availability) => {
@@ -292,7 +315,34 @@ function applyAvailability(availability: BastionCredentialAvailability | null) {
   if (!availability) return
   form.loginMode = availability.loginMode
   form.username = availability.username || 'root'
-  form.passwordSource = availability.passwordAvailable ? 'saved' : 'manual'
+  form.passwordSource = defaultPasswordSource(availability.passwordAvailable)
+}
+
+function defaultPasswordSource(taskPasswordAvailable: boolean | undefined) {
+  if (taskPasswordAvailable) return 'saved' as const
+  if (profilePassword.value) return 'profile' as const
+  return 'manual' as const
+}
+
+async function loadProfilePassword() {
+  const gen = ++profileLoadGen
+  profileLoading.value = true
+  try {
+    const res = await getTaskCredential()
+    if (gen !== profileLoadGen) return
+    profilePassword.value = String(res.data?.rootPassword || '').trim()
+  } catch {
+    if (gen !== profileLoadGen) return
+    profilePassword.value = ''
+  } finally {
+    if (gen === profileLoadGen) profileLoading.value = false
+  }
+  // 任务密码不可用且用户尚未手动输入时，自动切到刚加载好的「我的密码」。
+  if (props.open && profilePassword.value && form.loginMode === 'PASSWORD'
+      && form.passwordSource === 'manual' && !form.password
+      && !props.credentials?.passwordAvailable) {
+    form.passwordSource = 'profile'
+  }
 }
 
 function looksLikePrivateKey(value: string) {
@@ -363,7 +413,7 @@ function submit() {
     loginMode: form.loginMode,
     username: form.username.trim(),
     passwordSource: form.passwordSource,
-    password: form.password,
+    password: form.passwordSource === 'profile' ? profilePassword.value : form.password,
     privateKey: form.privateKey,
     passphrase: form.passphrase,
   })

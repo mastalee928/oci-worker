@@ -12,7 +12,7 @@ import { getPanelToken, setWebSshTokenCookie } from '../utils/session'
 export interface BastionConnectForm {
   loginMode: BastionLoginMode
   username: string
-  passwordSource: 'saved' | 'manual'
+  passwordSource: 'saved' | 'profile' | 'manual'
   password: string
   privateKey: string
   passphrase: string
@@ -249,7 +249,8 @@ export function useBastionSshConnect() {
         username: form.username.trim() || undefined,
       }
       if (form.loginMode === 'PASSWORD') {
-        if (form.passwordSource === 'manual') payload.password = form.password
+        // 「使用任务密码」由后端按实例任务解析；「我的密码」和「手动输入」都随请求提交。
+        if (form.passwordSource !== 'saved') payload.password = form.password
       } else {
         payload.privateKey = form.privateKey
         payload.passphrase = form.passphrase || undefined
