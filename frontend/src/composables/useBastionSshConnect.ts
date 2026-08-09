@@ -18,6 +18,18 @@ export interface BastionConnectForm {
   passphrase: string
 }
 
+const PLACEHOLDER_STEPS = [
+  '查询 Bastion 状态',
+  '创建 / 复用堡垒机',
+  '创建 SSH 会话',
+  '建立 SSH 通道',
+]
+const PLACEHOLDER_BADGE_BASE = 'display:inline-flex;align-items:center;justify-content:center;'
+  + 'width:22px;height:22px;border-radius:50%;font-size:12px;flex:none;'
+const PLACEHOLDER_BADGE_PENDING = `${PLACEHOLDER_BADGE_BASE}background:#1e293b;color:#64748b;`
+const PLACEHOLDER_BADGE_CURRENT = `${PLACEHOLDER_BADGE_BASE}background:#1d4ed8;color:#dbeafe;`
+const PLACEHOLDER_BADGE_DONE = `${PLACEHOLDER_BADGE_BASE}background:#14532d;color:#4ade80;`
+
 function bastionErrorMessage(error: any) {
   const raw = String(
     error?.response?.data?.message
@@ -114,6 +126,7 @@ export function useBastionSshConnect() {
   let requestGeneration = 0
   let connectAttempt = 0
   let progressTimer: ReturnType<typeof setTimeout> | undefined
+  let activePlaceholder: Window | null = null
 
   function clearProgressTimer() {
     if (progressTimer !== undefined) {
@@ -220,7 +233,11 @@ export function useBastionSshConnect() {
     startProgress()
 
     // 必须在用户点击手势内同步打开新标签页，异步等待后再 window.open 会被浏览器拦截。
-    const sshWindow = openPlaceholderTab()
+    const sshWindow = openPlaceholderTab(String(
+      currentInstance?.displayName || currentInstance?.name || currentInstance?.instanceId || '',
+    ))
+    activePlaceholder = sshWindow
+    paintPlaceholderStep(sshWindow, 0)
 
     try {
       const payload: BastionPrepareRequest = {
@@ -254,6 +271,7 @@ export function useBastionSshConnect() {
         : 'Managed SSH 会话'
       message.success(`${sessionLabel}已准备`)
       const absoluteUrl = new URL(url, window.location.href).href
+      activePlaceholder = null
       if (sshWindow && !sshWindow.closed) {
         sshWindow.location.href = absoluteUrl
         sshWindow.focus()
@@ -274,23 +292,78 @@ export function useBastionSshConnect() {
     }
   }
 
-  function openPlaceholderTab(): Window | null {
+  function openPlaceholderTab(instanceLabel: string): Window | null {
     if (typeof window === 'undefined' || typeof window.open !== 'function') return null
     const opened = window.open('', '_blank')
     if (!opened) return null
     try {
-      opened.document.title = 'Bastion WebSSH'
-      opened.document.body.style.cssText = 'background:#0b1220;color:#94a3b8;'
-        + 'font:14px/1.6 system-ui,sans-serif;display:flex;align-items:center;'
-        + 'justify-content:center;height:100vh;margin:0;'
-      opened.document.body.textContent = '正在准备 OCI Bastion SSH 会话，请保持此页面打开…'
+      const doc = opened.document
+      doc.title = 'Bastion WebSSH'
+      doc.body.style.cssText = 'background:#0b1220;color:#e2e8f0;'
+        + 'font:14px/1.7 system-ui,sans-serif;display:flex;align-items:center;'
+        + 'justify-content:center;min-height:100vh;margin:0;'
+      const card = doc.createElement('div')
+      card.style.cssText = 'min-width:320px;max-width:460px;padding:26px 30px;'
+        + 'background:#111a2c;border:1px solid #1e293b;border-radius:12px;'
+      const title = doc.createElement('div')
+      title.textContent = '正在建立 Bastion SSH 连接'
+      title.style.cssText = 'font-size:16px;font-weight:600;margin-bottom:2px;'
+      card.appendChild(title)
+      if (instanceLabel) {
+        const subtitle = doc.createElement('div')
+        subtitle.textContent = instanceLabel
+        subtitle.style.cssText = 'color:#64748b;font-size:12px;margin-bottom:14px;'
+        card.appendChild(subtitle)
+      }
+      PLACEHOLDER_STEPS.forEach((label, index) => {
+        const row = doc.createElement('div')
+        row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:7px 0;'
+        const badge = doc.createElement('span')
+        badge.id = `bastion-step-${index}`
+        badge.textContent = String(index + 1)
+        badge.style.cssText = PLACEHOLDER_BADGE_PENDING
+        const text = doc.createElement('span')
+        text.textContent = label
+        row.appendChild(badge)
+        row.appendChild(text)
+        card.appendChild(row)
+      })
+      const hint = doc.createElement('div')
+      hint.textContent = '请保持此页面打开，连接就绪后将自动进入终端。'
+      hint.style.cssText = 'color:#64748b;font-size:12px;margin-top:14px;'
+      card.appendChild(hint)
+      doc.body.appendChild(card)
     } catch {
       // 占位内容写入失败不影响后续导航。
     }
     return opened
   }
 
+  function paintPlaceholderStep(placeholder: Window | null, step: number) {
+    if (!placeholder || placeholder.closed) return
+    try {
+      const doc = placeholder.document
+      PLACEHOLDER_STEPS.forEach((_, index) => {
+        const badge = doc.getElementById(`bastion-step-${index}`)
+        if (!badge) return
+        if (step > index || step >= PLACEHOLDER_STEPS.length) {
+          badge.textContent = '✓'
+          badge.style.cssText = PLACEHOLDER_BADGE_DONE
+        } else if (step === index) {
+          badge.textContent = '●'
+          badge.style.cssText = PLACEHOLDER_BADGE_CURRENT
+        } else {
+          badge.textContent = String(index + 1)
+          badge.style.cssText = PLACEHOLDER_BADGE_PENDING
+        }
+      })
+    } catch {
+      // 页面可能已被用户关闭或导航走，忽略。
+    }
+  }
+
   function closePlaceholderTab(placeholder: Window | null) {
+    if (placeholder === activePlaceholder) activePlaceholder = null
     if (!placeholder || placeholder.closed) return
     try {
       placeholder.close()
@@ -298,6 +371,10 @@ export function useBastionSshConnect() {
       // 无法关闭时留给用户手动处理。
     }
   }
+
+  watch(connectionStep, (step) => {
+    if (step >= 0) paintPlaceholderStep(activePlaceholder, step)
+  })
 
   watch(visible, (openValue) => {
     if (openValue) return
