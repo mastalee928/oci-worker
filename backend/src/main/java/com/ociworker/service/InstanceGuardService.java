@@ -33,6 +33,8 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class InstanceGuardService {
 
     private static final int NOTIFY_AFTER_FAILURES = 3;
+    /** START 之后的内部验收延迟：仅影响排期，不对用户暴露。 */
+    private static final long VERIFY_DELAY_MILLIS = 30_000L;
     static final int DEFAULT_INTERVAL_MINUTES = 2;
     static final int MIN_INTERVAL_MINUTES = 1;
     static final int MAX_INTERVAL_MINUTES = 1440;
@@ -203,9 +205,7 @@ public class InstanceGuardService {
 
     private void checkOne(OciClientService client, OciUser user, OciInstanceGuard guard) {
         // 先按本条守护自己的间隔排期下一次检测，任何持久化路径都会带上它。
-        int interval = guard.getIntervalMinutes() == null
-                ? DEFAULT_INTERVAL_MINUTES : clampInterval(guard.getIntervalMinutes());
-        guard.setNextCheckTime(new Date(System.currentTimeMillis() + interval * 60_000L));
+        guard.setNextCheckTime(new Date(System.currentTimeMillis() + intervalMillis(guard)));
         Instance instance;
         try {
             instance = client.getComputeClient().getInstance(GetInstanceRequest.builder()
@@ -231,12 +231,19 @@ public class InstanceGuardService {
         }
         if (state != Instance.LifecycleState.Stopped) {
             guard.setConsecutiveFailures(0);
-            guard.setLastMessage("实例状态 " + stateValue + "，无需处理");
+            if (recentlyStarted(guard)
+                    && (state == Instance.LifecycleState.Running
+                        || state == Instance.LifecycleState.Starting)) {
+                guard.setLastMessage("自动启动成功，当前状态 " + stateValue);
+            } else {
+                guard.setLastMessage("实例状态 " + stateValue + "，无需处理");
+            }
             guard.setUpdateTime(new Date());
             guardMapper.updateById(guard);
             return;
         }
 
+        boolean restartLoop = recentlyStarted(guard);
         try {
             instanceService.updateInstanceState(
                     guard.getTenantConfigId(), guard.getInstanceId(), "START", guard.getRegion());
@@ -244,15 +251,35 @@ public class InstanceGuardService {
             guard.setLastStartTime(now);
             guard.setStartCount((guard.getStartCount() == null ? 0 : guard.getStartCount()) + 1);
             guard.setConsecutiveFailures(0);
-            guard.setLastMessage("检测到 STOPPED，已自动启动");
+            guard.setLastMessage(restartLoop ? "再次检测到 STOPPED，已重新启动" : "检测到 STOPPED，已自动启动");
+            // 内部验收：稍后确认一次启动结果；若刚刚才启动过（疑似反复停机），回到用户设置的间隔，避免刷屏。
+            guard.setNextCheckTime(restartLoop
+                    ? new Date(now.getTime() + intervalMillis(guard))
+                    : new Date(now.getTime() + VERIFY_DELAY_MILLIS));
             guard.setUpdateTime(now);
             guardMapper.updateById(guard);
             log.info("实例守护自动启动: tenant={} instance={} region={}",
                     user.getUsername(), guard.getInstanceId(), guard.getRegion());
-            notify(user, guard, "检测到实例处于 STOPPED，已自动执行启动。");
+            if (!restartLoop) {
+                notify(user, guard, "检测到实例处于 STOPPED，已自动执行启动。");
+            } else {
+                notify(user, guard, "实例启动后再次停止，已重新启动。若持续发生请检查实例系统日志。");
+            }
         } catch (Exception e) {
             recordFailure(user, guard, "自动启动失败: " + describe(e));
         }
+    }
+
+    private boolean recentlyStarted(OciInstanceGuard guard) {
+        return guard.getLastStartTime() != null
+                && System.currentTimeMillis() - guard.getLastStartTime().getTime()
+                        < Math.max(VERIFY_DELAY_MILLIS * 4, 120_000L);
+    }
+
+    private long intervalMillis(OciInstanceGuard guard) {
+        int interval = guard.getIntervalMinutes() == null
+                ? DEFAULT_INTERVAL_MINUTES : clampInterval(guard.getIntervalMinutes());
+        return interval * 60_000L;
     }
 
     private void recordFailure(OciUser user, OciInstanceGuard guard, String message) {
