@@ -83,6 +83,7 @@
       :open="editorVisible"
       title="新建实例守护"
       :width="560"
+      :mask-closable="false"
       ok-text="开启守护"
       cancel-text="取消"
       :confirm-loading="saving"
@@ -114,15 +115,15 @@
           />
         </div>
         <div class="editor-field">
-          <label>实例</label>
+          <label>实例（可多选）</label>
           <a-select
-            v-model:value="editor.instanceId"
-            show-search
-            option-filter-prop="label"
+            v-model:value="editor.instanceIds"
+            mode="multiple"
+            :show-search="false"
             placeholder="请先选择租户与区域"
             :options="instanceOptions"
             :loading="instancesLoading"
-            @change="onInstanceChange"
+            :max-tag-count="6"
           />
         </div>
         <div class="editor-field">
@@ -171,8 +172,7 @@ let instanceLoadSeq = 0
 const editor = reactive({
   tenantId: undefined as string | undefined,
   region: undefined as string | undefined,
-  instanceId: undefined as string | undefined,
-  instanceName: '',
+  instanceIds: [] as string[],
   intervalMinutes: 2,
 })
 
@@ -198,7 +198,7 @@ const instanceOptions = computed(() => editorInstances.value.map(row => ({
   label: `${row.name || '未命名'}${row.shape ? ' · ' + row.shape : ''}${row.state ? ' · ' + row.state : ''}`,
 })))
 const canSubmit = computed(() =>
-  !!editor.tenantId && !!editor.region && !!editor.instanceId
+  !!editor.tenantId && !!editor.region && editor.instanceIds.length > 0
   && Number(editor.intervalMinutes) >= 1)
 
 onMounted(() => {
@@ -282,8 +282,7 @@ async function removeRecord(record: InstanceGuardRecord) {
 function openEditor() {
   editor.tenantId = undefined
   editor.region = undefined
-  editor.instanceId = undefined
-  editor.instanceName = ''
+  editor.instanceIds = []
   editor.intervalMinutes = 2
   editorRegions.value = []
   editorInstances.value = []
@@ -301,7 +300,7 @@ function closeEditor() {
 async function onTenantChange(value: unknown) {
   const tenantId = String(value || '')
   editor.region = undefined
-  editor.instanceId = undefined
+  editor.instanceIds = []
   editorInstances.value = []
   if (!tenantId) return
   const seq = ++regionLoadSeq
@@ -334,14 +333,9 @@ async function onTenantChange(value: unknown) {
 }
 
 function onRegionChange() {
-  editor.instanceId = undefined
+  editor.instanceIds = []
   editorInstances.value = []
   void loadEditorInstances()
-}
-
-function onInstanceChange(value: unknown) {
-  const row = editorInstances.value.find(item => item.instanceId === String(value || ''))
-  editor.instanceName = row?.name || ''
 }
 
 async function loadEditorInstances() {
@@ -371,20 +365,34 @@ async function loadEditorInstances() {
 async function submitEditor() {
   if (!canSubmit.value || saving.value) return
   saving.value = true
+  const interval = Number(editor.intervalMinutes) || 2
+  let succeeded = 0
+  const failed: string[] = []
   try {
-    await saveInstanceGuard({
-      id: editor.tenantId!,
-      instanceId: editor.instanceId!,
-      region: editor.region,
-      instanceName: editor.instanceName || undefined,
-      enabled: true,
-      intervalMinutes: Number(editor.intervalMinutes) || 2,
-    })
-    message.success('守护已开启')
-    editorVisible.value = false
+    for (const instanceId of editor.instanceIds) {
+      const row = editorInstances.value.find(item => item.instanceId === instanceId)
+      try {
+        await saveInstanceGuard({
+          id: editor.tenantId!,
+          instanceId,
+          region: editor.region,
+          instanceName: row?.name || undefined,
+          enabled: true,
+          intervalMinutes: interval,
+        })
+        succeeded += 1
+      } catch (error: any) {
+        failed.push(`${row?.name || instanceId}：${error?.message || '未知错误'}`)
+      }
+    }
+    if (failed.length === 0) {
+      message.success(`已为 ${succeeded} 台实例开启守护`)
+      editorVisible.value = false
+    } else {
+      if (succeeded > 0) message.warning(`${succeeded} 台成功，${failed.length} 台失败`)
+      message.error(failed.join('\n'))
+    }
     void loadRecords(true)
-  } catch (error: any) {
-    message.error(error?.message || '开启守护失败')
   } finally {
     saving.value = false
   }
