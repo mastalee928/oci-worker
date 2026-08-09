@@ -194,7 +194,7 @@ public class InstanceGuardService {
                 try {
                     checkOne(client, user, guard);
                 } catch (Exception e) {
-                    recordFailure(user, guard, "检测失败: " + describe(e));
+                    recordFailure(user, guard, "检测失败: " + describe(e), false);
                 }
             }
         } catch (Exception e) {
@@ -231,15 +231,24 @@ public class InstanceGuardService {
         }
         if (state != Instance.LifecycleState.Stopped) {
             guard.setConsecutiveFailures(0);
+            // 自动启动后的确认：确认到已在启动/运行才补发成功通知。
+            boolean pendingStartNotify = guard.getLastMessage() != null
+                    && guard.getLastMessage().startsWith("检测到 STOPPED，已自动启动");
             if (recentlyStarted(guard)
                     && (state == Instance.LifecycleState.Running
                         || state == Instance.LifecycleState.Starting)) {
                 guard.setLastMessage("自动启动成功，当前状态 " + stateValue);
+                guard.setUpdateTime(new Date());
+                guardMapper.updateById(guard);
+                if (pendingStartNotify) {
+                    notify(user, guard, "检测到实例处于 STOPPED，已自动执行启动，当前状态 "
+                            + stateValue + "。");
+                }
             } else {
                 guard.setLastMessage("实例状态 " + stateValue + "，无需处理");
+                guard.setUpdateTime(new Date());
+                guardMapper.updateById(guard);
             }
-            guard.setUpdateTime(new Date());
-            guardMapper.updateById(guard);
             return;
         }
 
@@ -252,7 +261,8 @@ public class InstanceGuardService {
             guard.setStartCount((guard.getStartCount() == null ? 0 : guard.getStartCount()) + 1);
             guard.setConsecutiveFailures(0);
             guard.setLastMessage(restartLoop ? "再次检测到 STOPPED，已重新启动" : "检测到 STOPPED，已自动启动");
-            // 内部验收：稍后确认一次启动结果；若刚刚才启动过（疑似反复停机），回到用户设置的间隔，避免刷屏。
+            // 内部确认排期：正常场景稍后确认启动结果并补发成功通知；
+            // 刚启动过又停的（疑似反复停机）回到用户设置的间隔，避免刷屏。
             guard.setNextCheckTime(restartLoop
                     ? new Date(now.getTime() + intervalMillis(guard))
                     : new Date(now.getTime() + VERIFY_DELAY_MILLIS));
@@ -260,13 +270,11 @@ public class InstanceGuardService {
             guardMapper.updateById(guard);
             log.info("实例守护自动启动: tenant={} instance={} region={}",
                     user.getUsername(), guard.getInstanceId(), guard.getRegion());
-            if (!restartLoop) {
-                notify(user, guard, "检测到实例处于 STOPPED，已自动执行启动。");
-            } else {
+            if (restartLoop) {
                 notify(user, guard, "实例启动后再次停止，已重新启动。若持续发生请检查实例系统日志。");
             }
         } catch (Exception e) {
-            recordFailure(user, guard, "自动启动失败: " + describe(e));
+            recordFailure(user, guard, "自动启动失败: " + describe(e), true);
         }
     }
 
@@ -282,7 +290,8 @@ public class InstanceGuardService {
         return interval * 60_000L;
     }
 
-    private void recordFailure(OciUser user, OciInstanceGuard guard, String message) {
+    private void recordFailure(OciUser user, OciInstanceGuard guard, String message,
+                               boolean notifyImmediately) {
         int failures = (guard.getConsecutiveFailures() == null ? 0 : guard.getConsecutiveFailures()) + 1;
         guard.setConsecutiveFailures(failures);
         guard.setLastMessage(truncate(message));
@@ -290,9 +299,13 @@ public class InstanceGuardService {
         guardMapper.updateById(guard);
         log.warn("实例守护处理失败({}次): tenant={} instance={} {}",
                 failures, user.getUsername(), guard.getInstanceId(), message);
-        if (failures == NOTIFY_AFTER_FAILURES) {
-            notify(user, guard, "连续 " + failures + " 次处理失败，最近错误：" + message
-                    + "\n守护仍会继续重试。");
+        // 启动失败第一次就通知（用户需要马上知道具体错误）；之后每 3 次提醒一次防刷屏。
+        boolean shouldNotify = notifyImmediately
+                ? failures == 1 || failures % NOTIFY_AFTER_FAILURES == 0
+                : failures == NOTIFY_AFTER_FAILURES;
+        if (shouldNotify) {
+            notify(user, guard, "自动处理失败（连续第 " + failures + " 次）：" + message
+                    + "\n守护会按设定间隔继续重试。");
         }
     }
 
