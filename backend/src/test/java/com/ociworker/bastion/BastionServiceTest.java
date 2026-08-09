@@ -148,6 +148,11 @@ class BastionServiceTest {
 
         assertThat(BastionService.bastionSourceCidr(bastion)).isEqualTo("10.0.0.99/32");
         assertThat(BastionService.newBastionName()).matches("[A-Za-z0-9]+");
+        assertThat(BastionService.sessionDisplayName(false, "10.0.0.23"))
+                .isEqualTo("ociworker-forward-10-0-0-23")
+                .matches("[A-Za-z0-9-]+");
+        assertThat(BastionService.sessionDisplayName(true, null))
+                .isEqualTo("ociworker-managed");
         assertThat(BastionService.normalizeSessionTtlSeconds(300)).isEqualTo(1800);
         assertThat(BastionService.normalizeSessionTtlSeconds(18_000)).isEqualTo(10_800);
 

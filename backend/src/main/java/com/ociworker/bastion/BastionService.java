@@ -1224,6 +1224,18 @@ public class BastionService {
                 + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
     }
 
+    /**
+     * OCI Bastion rejects session display names containing dots even though the
+     * generic InvalidParameter message claims they are allowed. Keep the name to
+     * strictly alphanumeric plus single hyphens.
+     */
+    static String sessionDisplayName(boolean managedSsh, String privateIp) {
+        String suffix = privateIp == null ? "" : privateIp.replaceAll("[^A-Za-z0-9]", "-");
+        String name = (managedSsh ? "ociworker-managed-" : "ociworker-forward-") + suffix;
+        name = name.replaceAll("-{2,}", "-").replaceAll("^-+|-+$", "");
+        return name.length() > 255 ? name.substring(0, 255) : name;
+    }
+
     private Bastion waitForBastion(BastionClient client, String id, PrepareDeadline deadline) {
         long waitDeadline = deadline.operationDeadlineNanos(operationTimeoutSeconds);
         while (System.nanoTime() < waitDeadline) {
@@ -1257,8 +1269,7 @@ public class BastionService {
                     .targetResourcePort(target.port())
                     .build();
         CreateSessionDetails details = CreateSessionDetails.builder()
-                .displayName((managedSsh ? "ociworker-managed-" : "ociworker-forward-")
-                        + target.privateIp())
+                .displayName(sessionDisplayName(managedSsh, target.privateIp()))
                 .bastionId(bastion.getId())
                 .targetResourceDetails(targetDetails)
                 .keyType(CreateSessionDetails.KeyType.Pub)

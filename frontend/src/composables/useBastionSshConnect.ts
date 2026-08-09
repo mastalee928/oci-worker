@@ -27,6 +27,9 @@ function bastionErrorMessage(error: any) {
   const normalized = raw.toLowerCase()
   // 永远保留服务端原始错误（含 OCI 详情与 opc-request-id），提示语只作补充。
   const withDetail = (hint: string) => (raw ? `${hint}\n服务端详情：${raw}` : hint)
+  if (normalized.includes('create bastion ssh session failed')) {
+    return withDetail('OCI 拒绝了创建 Bastion SSH 会话的请求。请根据下方服务端详情处理后重试。')
+  }
   if (normalized.includes('timed out waiting for oci bastion ssh session')
       || normalized.includes('bastion ssh session failed')) {
     return withDetail('OCI Bastion SSH 会话未在官方等待窗口内变为 ACTIVE。请检查实例 SSH 22 入站规则、Cloud Agent Bastion 插件和目标私网路由后重试。')
