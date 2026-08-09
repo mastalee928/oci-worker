@@ -37,8 +37,6 @@ import com.oracle.bmc.computeinstanceagent.requests.GetInstanceAgentPluginReques
 import com.oracle.bmc.core.model.Instance;
 import com.oracle.bmc.core.model.InstanceAgentConfig;
 import com.oracle.bmc.core.model.InstanceAgentPluginConfigDetails;
-import com.oracle.bmc.core.model.CreateRouteTableDetails;
-import com.oracle.bmc.core.model.CreateServiceGatewayDetails;
 import com.oracle.bmc.core.model.CreateSubnetDetails;
 import com.oracle.bmc.core.model.IngressSecurityRule;
 import com.oracle.bmc.core.model.Image;
@@ -49,25 +47,18 @@ import com.oracle.bmc.core.model.RouteRule;
 import com.oracle.bmc.core.model.RouteTable;
 import com.oracle.bmc.core.model.SecurityList;
 import com.oracle.bmc.core.model.SecurityRule;
-import com.oracle.bmc.core.model.ServiceIdRequestDetails;
-import com.oracle.bmc.core.model.ServiceGateway;
 import com.oracle.bmc.core.model.Subnet;
 import com.oracle.bmc.core.model.TcpOptions;
 import com.oracle.bmc.core.model.Vnic;
 import com.oracle.bmc.core.model.VnicAttachment;
 import com.oracle.bmc.core.model.Vcn;
-import com.oracle.bmc.core.requests.CreateRouteTableRequest;
-import com.oracle.bmc.core.requests.CreateServiceGatewayRequest;
 import com.oracle.bmc.core.requests.CreateSubnetRequest;
 import com.oracle.bmc.core.requests.GetInstanceRequest;
 import com.oracle.bmc.core.requests.GetImageRequest;
 import com.oracle.bmc.core.requests.GetRouteTableRequest;
 import com.oracle.bmc.core.requests.GetSecurityListRequest;
-import com.oracle.bmc.core.requests.GetServiceGatewayRequest;
 import com.oracle.bmc.core.requests.GetVnicRequest;
 import com.oracle.bmc.core.requests.ListNetworkSecurityGroupSecurityRulesRequest;
-import com.oracle.bmc.core.requests.ListServicesRequest;
-import com.oracle.bmc.core.requests.ListServiceGatewaysRequest;
 import com.oracle.bmc.core.requests.ListSubnetsRequest;
 import com.oracle.bmc.core.requests.ListVnicAttachmentsRequest;
 import com.oracle.bmc.core.requests.GetSubnetRequest;
@@ -607,17 +598,15 @@ public class BastionService {
 
     private Subnet resolveBastionSubnet(OciClientService client, TargetNetwork target,
                                         PrepareDeadline deadline) {
-        // Fast path: the target's own subnet already satisfies every Bastion requirement.
-        // Skipping the tenancy-wide compartment sweep keeps most of the prepare budget
-        // for the session ACTIVE wait instead of burning it on enumeration.
-        if (isPrivateSubnet(target.subnet())
-                && subnetHasBastionServiceGatewayRoute(client, target.subnet(), deadline)) {
+        // OCI Bastion does not require any gateway route on the bastion's own subnet:
+        // a private subnet in the target VCN is enough for both session types. The
+        // Managed SSH gateway requirement applies to the *target* subnet and is
+        // validated separately in validateManagedSshPrerequisites. Requiring a
+        // Service Gateway here breaks Always Free tenancies whose SGW limit is 0.
+        if (isPrivateSubnet(target.subnet())) {
             return target.subnet();
         }
         Map<String, Subnet> privateCandidatesById = new LinkedHashMap<>();
-        if (isPrivateSubnet(target.subnet())) {
-            privateCandidatesById.put(target.subnet().getId(), target.subnet());
-        }
 
         for (String compartmentId : bastionSubnetSearchCompartments(client, target, deadline)) {
             String page = null;
@@ -654,41 +643,36 @@ public class BastionService {
         candidates.sort(Comparator
                 .comparing((Subnet subnet) -> !target.subnetId().equals(subnet.getId()))
                 .thenComparing(subnet -> firstNonBlank(subnet.getDisplayName(), subnet.getId())));
-        for (Subnet candidate : candidates) {
-            if (subnetHasBastionServiceGatewayRoute(client, candidate, deadline)) {
-                return candidate;
-            }
+        if (!candidates.isEmpty()) {
+            return candidates.get(0);
         }
 
-        // A private subnet without the required Service Gateway route is not usable for
-        // Bastion either. Provision a dedicated regional subnet in that case.
+        // No compatible private subnet exists anywhere in the VCN. Provision a plain
+        // dedicated regional private subnet (no gateway resources are required).
         if (autoProvisionNetwork) {
             Subnet provisioned = ensureBastionPrivateSubnet(client, target, deadline);
-            if (provisioned != null && subnetHasBastionServiceGatewayRoute(client, provisioned, deadline)) {
+            if (provisioned != null) {
                 return provisioned;
             }
         }
 
-        if (candidates.isEmpty()) {
-            if (!privateCandidates.isEmpty()) {
-                throw new OciException(422,
-                        "No private subnet in VCN " + target.vcnId()
-                                + " is compatible with target instance availability domain "
-                                + firstNonBlank(instanceAvailabilityDomain, "unspecified")
-                                + ". Regional subnets are compatible; an AD-specific subnet must use the same AD.");
-            }
+        if (!privateCandidates.isEmpty()) {
             throw new OciException(422,
-                    "Target VCN has no available private subnet. OCI Bastion requires a private subnet "
-                            + "in the same VCN, plus a Service Gateway route. VCN: " + target.vcnId());
+                    "No private subnet in VCN " + target.vcnId()
+                            + " is compatible with target instance availability domain "
+                            + firstNonBlank(instanceAvailabilityDomain, "unspecified")
+                            + ". Regional subnets are compatible; an AD-specific subnet must use the same AD.");
         }
         throw new OciException(422,
-                "The compatible private subnet has no Service Gateway route. OCI Bastion requires "
-                        + "a Service Gateway and Service CIDR route in the selected subnet route table.");
+                "Target VCN has no available private subnet for OCI Bastion and automatic "
+                        + "provisioning is disabled or failed. VCN: " + target.vcnId());
     }
 
     /**
      * OCIworker's bootstrap network historically contains only a public subnet. Keep that
-     * instance network untouched and provision a dedicated regional private subnet for Bastion.
+     * instance network untouched and provision a dedicated regional private subnet for
+     * Bastion. No gateway resources are created: OCI Bastion needs no route on its own
+     * subnet, and Always Free tenancies commonly have a Service Gateway limit of 0.
      */
     private Subnet ensureBastionPrivateSubnet(OciClientService client, TargetNetwork target,
                                               PrepareDeadline deadline) {
@@ -709,69 +693,15 @@ public class BastionService {
             for (Subnet subnet : allSubnets) {
                 if (isPrivateSubnet(subnet)
                         && availabilityDomainCompatible(instanceAvailabilityDomain,
-                        subnet.getAvailabilityDomain())
-                        && subnetHasBastionServiceGatewayRoute(client, subnet, deadline)) {
+                        subnet.getAvailabilityDomain())) {
                     return subnet;
                 }
             }
 
-            com.oracle.bmc.core.model.Service service = findAllOracleServicesService(client, deadline);
-            if (service == null || !hasText(service.getId()) || !hasText(service.getCidrBlock())) {
-                throw new OciException(422,
-                        "OCI did not expose the regional Oracle Services Network CIDR; "
-                                + "a Service Gateway route cannot be created automatically");
-            }
-            // Compute the CIDR before creating cloud resources so an exhausted VCN does
-            // not leave an orphan Service Gateway or Route Table behind.
             String cidr = OciClientService.nextAvailableSubnetCidr(vcn, allSubnets);
             if (!hasText(cidr)) {
                 throw new OciException(422,
                         "The target VCN has no free IPv4 CIDR for a dedicated Bastion private subnet");
-            }
-
-            ServiceGateway gateway = findReusableServiceGateway(client, networkCompartmentId,
-                    target.vcnId(), service.getId(), deadline);
-            if (gateway == null) {
-                deadline.ensureRemaining();
-                gateway = client.getVirtualNetworkClient().createServiceGateway(
-                        CreateServiceGatewayRequest.builder()
-                                .createServiceGatewayDetails(CreateServiceGatewayDetails.builder()
-                                        .compartmentId(networkCompartmentId)
-                                        .vcnId(target.vcnId())
-                                        .displayName("ociworker-bastion-service-gateway")
-                                        .services(List.of(ServiceIdRequestDetails.builder()
-                                                .serviceId(service.getId()).build()))
-                                        .freeformTags(Map.of(
-                                                "managed-by", MANAGED_BY_TAG,
-                                                "purpose", "bastion-network"))
-                                        .build())
-                                .opcRetryToken(newToken())
-                                .build()).getServiceGateway();
-                gateway = waitForServiceGateway(client, gateway, deadline);
-            }
-
-            RouteRule serviceRoute = RouteRule.builder()
-                    .destination(service.getCidrBlock())
-                    .destinationType(RouteRule.DestinationType.ServiceCidrBlock)
-                    .networkEntityId(gateway.getId())
-                    .description("ociworker Bastion access to Oracle Services Network")
-                    .build();
-            deadline.ensureRemaining();
-            RouteTable routeTable = client.getVirtualNetworkClient().createRouteTable(
-                    CreateRouteTableRequest.builder()
-                            .createRouteTableDetails(CreateRouteTableDetails.builder()
-                                    .compartmentId(networkCompartmentId)
-                                    .vcnId(target.vcnId())
-                                    .displayName("ociworker-bastion-route-table")
-                                    .routeRules(List.of(serviceRoute))
-                                    .freeformTags(Map.of(
-                                            "managed-by", MANAGED_BY_TAG,
-                                            "purpose", "bastion-network"))
-                                    .build())
-                            .opcRetryToken(newToken())
-                            .build()).getRouteTable();
-            if (routeTable == null || !hasText(routeTable.getId())) {
-                throw new OciException(422, "OCI did not return the Bastion route table id");
             }
 
             deadline.ensureRemaining();
@@ -783,7 +713,8 @@ public class BastionService {
                                     .displayName("ociworker-bastion-subnet")
                                     .ipv4CidrBlocks(List.of(cidr))
                                     // Omit availabilityDomain: a regional subnet works in every AD.
-                                    .routeTableId(routeTable.getId())
+                                    // Omit routeTableId: the VCN default route table suffices because
+                                    // the bastion only needs intra-VCN reachability to the target.
                                     .prohibitPublicIpOnVnic(true)
                                     .freeformTags(Map.of(
                                             "managed-by", MANAGED_BY_TAG,
@@ -826,78 +757,6 @@ public class BastionService {
             } while (hasText(page));
         }
         return new ArrayList<>(result.values());
-    }
-
-    private com.oracle.bmc.core.model.Service findAllOracleServicesService(
-            OciClientService client, PrepareDeadline deadline) {
-        String page = null;
-        do {
-            deadline.ensureRemaining();
-            var response = client.getVirtualNetworkClient().listServices(
-                    ListServicesRequest.builder().limit(1000).page(page).build());
-            for (com.oracle.bmc.core.model.Service service : response.getItems() == null
-                    ? List.<com.oracle.bmc.core.model.Service>of() : response.getItems()) {
-                if (service == null || !hasText(service.getId()) || !hasText(service.getCidrBlock())) continue;
-                String name = firstNonBlank(service.getName(), "").toLowerCase(Locale.ROOT);
-                if (name.contains("all") && name.contains("services")
-                        && name.contains("oracle services network")) {
-                    return service;
-                }
-            }
-            page = response.getOpcNextPage();
-        } while (hasText(page));
-        return null;
-    }
-
-    private ServiceGateway findReusableServiceGateway(OciClientService client, String compartmentId,
-                                                      String vcnId, String serviceId,
-                                                      PrepareDeadline deadline) {
-        String page = null;
-        do {
-            deadline.ensureRemaining();
-            var response = client.getVirtualNetworkClient().listServiceGateways(
-                    ListServiceGatewaysRequest.builder()
-                            .compartmentId(compartmentId)
-                            .vcnId(vcnId)
-                            .lifecycleState(ServiceGateway.LifecycleState.Available)
-                            .limit(1000)
-                            .page(page)
-                            .build());
-            for (ServiceGateway gateway : response.getItems() == null
-                    ? List.<ServiceGateway>of() : response.getItems()) {
-                if (gateway != null && gateway.getLifecycleState() == ServiceGateway.LifecycleState.Available
-                        && !Boolean.TRUE.equals(gateway.getBlockTraffic())
-                        && gateway.getServices() != null
-                        && gateway.getServices().stream().anyMatch(service ->
-                                service != null && Objects.equals(serviceId, service.getServiceId()))) {
-                    return gateway;
-                }
-            }
-            page = response.getOpcNextPage();
-        } while (hasText(page));
-        return null;
-    }
-
-    private ServiceGateway waitForServiceGateway(OciClientService client, ServiceGateway gateway,
-                                                  PrepareDeadline deadline) {
-        if (gateway == null || !hasText(gateway.getId())) {
-            throw new OciException(422, "OCI did not return the Bastion Service Gateway id");
-        }
-        long waitDeadline = deadline.operationDeadlineNanos(operationTimeoutSeconds);
-        while (System.nanoTime() < waitDeadline) {
-            deadline.ensureRemaining();
-            ServiceGateway current = client.getVirtualNetworkClient().getServiceGateway(
-                    GetServiceGatewayRequest.builder().serviceGatewayId(gateway.getId()).build())
-                    .getServiceGateway();
-            if (current != null && current.getLifecycleState() == ServiceGateway.LifecycleState.Available) {
-                return current;
-            }
-            if (current != null && current.getLifecycleState() == ServiceGateway.LifecycleState.Terminated) {
-                throw new OciException(422, "OCI Bastion Service Gateway creation failed");
-            }
-            sleepPoll();
-        }
-        throw new OciException("Timed out waiting for Bastion Service Gateway");
     }
 
     private Subnet waitForSubnet(OciClientService client, Subnet subnet, PrepareDeadline deadline) {
@@ -969,35 +828,6 @@ public class BastionService {
             return hasUsableGatewayRoute(routeTable);
         } catch (BmcException e) {
             log.debug("Skipping Bastion target subnet {} because its route table is not readable: {}",
-                    subnet.getId(), OciBmcErrorTranslator.translate(e));
-            return false;
-        }
-    }
-
-    private boolean subnetHasBastionServiceGatewayRoute(OciClientService client, Subnet subnet,
-                                                         PrepareDeadline deadline) {
-        if (subnet == null || !hasText(subnet.getRouteTableId())) return false;
-        try {
-            deadline.ensureRemaining();
-            RouteTable routeTable = client.getVirtualNetworkClient().getRouteTable(
-                    GetRouteTableRequest.builder().rtId(subnet.getRouteTableId()).build()).getRouteTable();
-            if (!hasBastionServiceGatewayRoute(routeTable)) return false;
-            for (RouteRule rule : routeTable.getRouteRules()) {
-                if (!isServiceGatewayRoute(rule)) continue;
-                deadline.ensureRemaining();
-                ServiceGateway gateway = client.getVirtualNetworkClient().getServiceGateway(
-                        GetServiceGatewayRequest.builder()
-                                .serviceGatewayId(rule.getNetworkEntityId())
-                                .build()).getServiceGateway();
-                if (gateway != null
-                        && gateway.getLifecycleState() == ServiceGateway.LifecycleState.Available
-                        && Objects.equals(subnet.getVcnId(), gateway.getVcnId())) {
-                    return true;
-                }
-            }
-            return false;
-        } catch (BmcException e) {
-            log.debug("Skipping Bastion subnet {} because its route table is not readable: {}",
                     subnet.getId(), OciBmcErrorTranslator.translate(e));
             return false;
         }
