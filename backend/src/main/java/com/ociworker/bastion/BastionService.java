@@ -1298,7 +1298,10 @@ public class BastionService {
             Endpoint endpoint = resolveEndpoint(activeSession, target.region());
             String hostKeyInfo = trimToNull(activeSession.getBastionPublicHostKeyInfo());
             if (hostKeyInfo == null) {
-                throw new OciException("OCI Bastion session did not return its host key");
+                // OCI frequently leaves bastionPublicHostKeyInfo empty. Fall back to
+                // first-use pinning of the regional bastion endpoint instead of failing.
+                log.info("OCI Bastion session {} returned no host key; endpoint {} will be pinned on first use",
+                        id, endpoint.host());
             }
             return new PreparedSession(
                     activeSession, endpoint.host(), endpoint.port(), endpoint.user(), hostKeyInfo);

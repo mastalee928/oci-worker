@@ -49,7 +49,7 @@ final class BastionJschSupport {
         try {
             addIdentity(bastionJsch, "ociworker-bastion", spec.bastionPrivateKey(), null);
             bastion = bastionJsch.getSession(spec.bastionUser(), spec.bastionHost(), spec.bastionPort());
-            configureBastion(bastion, spec.bastionHostKeyInfo());
+            configureBastion(bastion, spec);
             bastion.connect(CONNECT_TIMEOUT_MILLIS);
 
             forwardedPort = bastion.setPortForwardingL(0, spec.targetHost(), spec.targetPort());
@@ -92,19 +92,27 @@ final class BastionJschSupport {
         }
     }
 
-    private static void configureBastion(Session session, String hostKeyInfo) throws JSchException {
-        if (hostKeyInfo == null || hostKeyInfo.isBlank()) {
-            throw new JSchException("OCI Bastion did not return a host key");
-        }
+    private static void configureBastion(Session session, BastionConnectionSpec spec) throws JSchException {
+        String hostKeyInfo = spec.bastionHostKeyInfo();
         Properties config = new Properties();
         config.put("StrictHostKeyChecking", "yes");
         config.put("HashKnownHosts", "no");
         config.put("server_host_key", SERVER_HOST_KEY_ALGORITHMS);
         config.put("PubkeyAcceptedAlgorithms", PUBKEY_ACCEPTED_ALGORITHMS);
         session.setConfig(config);
-        session.setHostKeyRepository(new PinnedHostKeyRepository(hostKeyInfo));
+        if (hostKeyInfo == null || hostKeyInfo.isBlank()) {
+            // OCI often omits bastionPublicHostKeyInfo. Pin the regional bastion
+            // endpoint on first use and fail on any later key change.
+            session.setHostKeyRepository(new TofuHostKeyRepository(bastionHostKeyCacheKey(spec)));
+        } else {
+            session.setHostKeyRepository(new PinnedHostKeyRepository(hostKeyInfo));
+        }
         session.setServerAliveInterval(15_000);
         session.setServerAliveCountMax(3);
+    }
+
+    static String bastionHostKeyCacheKey(BastionConnectionSpec spec) {
+        return "bastion|" + spec.bastionHost() + ':' + spec.bastionPort();
     }
 
     /**
