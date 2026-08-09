@@ -76,6 +76,12 @@ const routes: RouteRecordRaw[] = [
         meta: { title: '定时换 IP', icon: 'ClockCircleOutlined' },
       },
       {
+        path: 'instance-guard',
+        name: 'InstanceGuard',
+        component: appRoute(() => import('../views/InstanceGuard.vue'), '实例守护', 'table'),
+        meta: { title: '实例守护', icon: 'SafetyCertificateOutlined' },
+      },
+      {
         path: 'task',
         name: 'TaskManager',
         component: appRoute(() => import('../views/TaskManager.vue'), '开机任务', 'table'),

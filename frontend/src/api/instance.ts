@@ -51,6 +51,7 @@ export function updateInstanceState(data: { id: string; instanceId: string; acti
 
 export interface InstanceGuardStatus {
   enabled: boolean
+  intervalMinutes: number
   lastState?: string | null
   lastCheckTime?: string | null
   lastStartTime?: string | null
@@ -58,14 +59,56 @@ export interface InstanceGuardStatus {
   lastMessage?: string | null
 }
 
+export interface InstanceGuardRecord {
+  id: string
+  tenantConfigId: string
+  tenantName?: string | null
+  region: string
+  instanceId: string
+  instanceName?: string | null
+  enabled: boolean
+  intervalMinutes?: number | null
+  nextCheckTime?: string | null
+  lastState?: string | null
+  lastCheckTime?: string | null
+  lastStartTime?: string | null
+  startCount?: number | null
+  consecutiveFailures?: number | null
+  lastMessage?: string | null
+  createTime?: string | null
+  updateTime?: string | null
+}
+
 export function getInstanceGuardStatus(data: { id: string; instanceId: string } & R) {
   return request.post<InstanceGuardStatus>('/oci/instanceGuard/status', data)
 }
 
 export function saveInstanceGuard(
-  data: { id: string; instanceId: string; instanceName?: string; enabled: boolean } & R,
+  data: {
+    id: string
+    instanceId: string
+    instanceName?: string
+    enabled: boolean
+    intervalMinutes?: number
+  } & R,
 ) {
   return request.post<InstanceGuardStatus>('/oci/instanceGuard/save', data)
+}
+
+export function listInstanceGuards() {
+  return request.post<InstanceGuardRecord[]>('/oci/instanceGuard/list', {})
+}
+
+export function toggleInstanceGuard(data: { guardId: string; enabled: boolean }) {
+  return request.post<InstanceGuardStatus>('/oci/instanceGuard/toggle', data)
+}
+
+export function setInstanceGuardInterval(data: { guardId: string; intervalMinutes: number }) {
+  return request.post<InstanceGuardStatus>('/oci/instanceGuard/interval', data)
+}
+
+export function deleteInstanceGuard(data: { guardId: string }) {
+  return request.post('/oci/instanceGuard/delete', data)
 }
 
 export function terminateInstance(data: { id: string; instanceId: string; verifyCode: string; preserveBootVolume?: boolean } & R) {

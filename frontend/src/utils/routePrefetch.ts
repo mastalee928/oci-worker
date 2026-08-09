@@ -5,6 +5,7 @@ const routeImporters: Record<string, () => Promise<unknown>> = {
   tenant: () => import('../views/TenantConfig.vue'),
   instance: () => import('../views/InstanceList.vue'),
   'scheduled-ip': () => import('../views/ScheduledIp.vue'),
+  'instance-guard': () => import('../views/InstanceGuard.vue'),
   task: () => import('../views/TaskManager.vue'),
   log: () => import('../views/LogViewer.vue'),
   'oracle-ai': () => import('../views/OracleAI.vue'),

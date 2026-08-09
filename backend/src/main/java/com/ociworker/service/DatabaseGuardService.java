@@ -489,6 +489,8 @@ public class DatabaseGuardService {
                 instance_id VARCHAR(255) NOT NULL,
                 instance_name VARCHAR(255) DEFAULT NULL,
                 enabled TINYINT(1) NOT NULL DEFAULT 1,
+                interval_minutes INT NOT NULL DEFAULT 2,
+                next_check_time DATETIME DEFAULT NULL,
                 last_state VARCHAR(32) DEFAULT NULL,
                 last_check_time DATETIME DEFAULT NULL,
                 last_start_time DATETIME DEFAULT NULL,
@@ -498,7 +500,7 @@ public class DatabaseGuardService {
                 create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 update_time DATETIME DEFAULT NULL,
                 UNIQUE KEY uk_instance_guard (tenant_config_id, region, instance_id),
-                INDEX idx_instance_guard_enabled (enabled)
+                INDEX idx_instance_guard_due (enabled, next_check_time)
             ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci
             """);
     }
@@ -667,6 +669,8 @@ public class DatabaseGuardService {
     }
 
     private void migrateColumns(Connection conn) {
+        addColumnIfMissing(conn, "oci_instance_guard", "interval_minutes", "INT NOT NULL DEFAULT 2 AFTER enabled");
+        addColumnIfMissing(conn, "oci_instance_guard", "next_check_time", "DATETIME DEFAULT NULL AFTER interval_minutes");
         addColumnIfMissing(conn, "oci_user", "tenant_name_status", "VARCHAR(32) DEFAULT 'PENDING' AFTER tenant_create_time");
         addColumnIfMissing(conn, "oci_user", "tenant_name_error", "VARCHAR(512) DEFAULT NULL AFTER tenant_name_status");
         addColumnIfMissing(conn, "oci_user", "tenant_name_updated_at", "DATETIME DEFAULT NULL AFTER tenant_name_error");

@@ -18,6 +18,8 @@ public class OciInstanceGuard {
     private String instanceId;
     private String instanceName;
     private Boolean enabled;
+    private Integer intervalMinutes;
+    private Date nextCheckTime;
     private String lastState;
     private Date lastCheckTime;
     private Date lastStartTime;

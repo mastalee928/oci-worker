@@ -17,8 +17,9 @@ webssh:
 # empty by default: set it to the public egress CIDR of this worker (never 0.0.0.0/0).
 oci:
   instance-guard:
-    # 实例守护轮询间隔（毫秒）：检测已开启守护的实例，STOPPED 自动 START。
-    check-interval-millis: ${OCI_INSTANCE_GUARD_CHECK_INTERVAL_MILLIS:120000}
+    # 实例守护调度节拍（毫秒）：每个节拍挑出到期的守护实例检测；
+    # 每台实例的检测间隔在页面上单独设置（默认 2 分钟）。
+    check-interval-millis: ${OCI_INSTANCE_GUARD_CHECK_INTERVAL_MILLIS:30000}
   bastion:
     client-cidr-block-allow-list: ${OCI_BASTION_CLIENT_CIDR_ALLOW_LIST:}
     client-cidr-auto-discovery: ${OCI_BASTION_CLIENT_CIDR_AUTO_DISCOVERY:true}

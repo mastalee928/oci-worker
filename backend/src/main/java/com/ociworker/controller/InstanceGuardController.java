@@ -32,7 +32,27 @@ public class InstanceGuardController {
                 text(params.get("region")),
                 text(params.get("instanceId")),
                 text(params.get("instanceName")),
-                enabled));
+                enabled,
+                intValue(params.get("intervalMinutes"))));
+    }
+
+    @PostMapping("/toggle")
+    public ResponseData<?> toggle(@RequestBody Map<String, Object> params) {
+        boolean enabled = Boolean.TRUE.equals(params.get("enabled"))
+                || "true".equalsIgnoreCase(String.valueOf(params.get("enabled")));
+        return ResponseData.ok(instanceGuardService.setEnabledById(text(params.get("guardId")), enabled));
+    }
+
+    @PostMapping("/interval")
+    public ResponseData<?> interval(@RequestBody Map<String, Object> params) {
+        return ResponseData.ok(instanceGuardService.setIntervalById(
+                text(params.get("guardId")), intValue(params.get("intervalMinutes"))));
+    }
+
+    @PostMapping("/delete")
+    public ResponseData<?> delete(@RequestBody Map<String, Object> params) {
+        instanceGuardService.deleteById(text(params.get("guardId")));
+        return ResponseData.ok();
     }
 
     @PostMapping("/list")
@@ -42,5 +62,14 @@ public class InstanceGuardController {
 
     private static String text(Object value) {
         return value == null ? null : String.valueOf(value);
+    }
+
+    private static Integer intValue(Object value) {
+        if (value == null) return null;
+        try {
+            return (int) Double.parseDouble(String.valueOf(value));
+        } catch (NumberFormatException e) {
+            return null;
+        }
     }
 }

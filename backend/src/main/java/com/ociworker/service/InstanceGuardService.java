@@ -33,6 +33,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public class InstanceGuardService {
 
     private static final int NOTIFY_AFTER_FAILURES = 3;
+    static final int DEFAULT_INTERVAL_MINUTES = 2;
+    static final int MIN_INTERVAL_MINUTES = 1;
+    static final int MAX_INTERVAL_MINUTES = 1440;
     private final AtomicBoolean checking = new AtomicBoolean(false);
 
     @Resource
@@ -47,8 +50,14 @@ public class InstanceGuardService {
     public Map<String, Object> status(String tenantId, String region, String instanceId) {
         OciInstanceGuard guard = find(requireText(tenantId, "租户配置 ID"),
                 normalizeRegion(tenantId, region), requireText(instanceId, "实例 ID"));
+        return toStatus(guard);
+    }
+
+    private Map<String, Object> toStatus(OciInstanceGuard guard) {
         Map<String, Object> data = new LinkedHashMap<>();
         data.put("enabled", guard != null && Boolean.TRUE.equals(guard.getEnabled()));
+        data.put("intervalMinutes", guard == null || guard.getIntervalMinutes() == null
+                ? DEFAULT_INTERVAL_MINUTES : guard.getIntervalMinutes());
         data.put("lastState", guard == null ? null : guard.getLastState());
         data.put("lastCheckTime", guard == null ? null : guard.getLastCheckTime());
         data.put("lastStartTime", guard == null ? null : guard.getLastStartTime());
@@ -58,7 +67,7 @@ public class InstanceGuardService {
     }
 
     public Map<String, Object> save(String tenantId, String region, String instanceId,
-                                    String instanceName, boolean enabled) {
+                                    String instanceName, boolean enabled, Integer intervalMinutes) {
         tenantId = requireText(tenantId, "租户配置 ID");
         instanceId = requireText(instanceId, "实例 ID");
         OciUser user = userMapper.selectById(tenantId);
@@ -81,7 +90,14 @@ public class InstanceGuardService {
         if (instanceName != null && !instanceName.isBlank()) {
             guard.setInstanceName(instanceName.trim());
         }
+        if (intervalMinutes != null) {
+            guard.setIntervalMinutes(clampInterval(intervalMinutes));
+        } else if (guard.getIntervalMinutes() == null) {
+            guard.setIntervalMinutes(DEFAULT_INTERVAL_MINUTES);
+        }
         guard.setEnabled(enabled);
+        // 开启后立刻进入下一个调度节拍检测一次。
+        guard.setNextCheckTime(enabled ? now : null);
         guard.setConsecutiveFailures(0);
         guard.setLastMessage(enabled ? "守护已开启，等待下一轮检测" : "守护已关闭");
         guard.setUpdateTime(now);
@@ -98,13 +114,53 @@ public class InstanceGuardService {
                 .orderByDesc(OciInstanceGuard::getCreateTime));
     }
 
-    @Scheduled(fixedDelayString = "${oci.instance-guard.check-interval-millis:120000}",
+    public Map<String, Object> setEnabledById(String guardId, boolean enabled) {
+        OciInstanceGuard guard = requireGuard(guardId);
+        guard.setEnabled(enabled);
+        guard.setNextCheckTime(enabled ? new Date() : null);
+        guard.setConsecutiveFailures(0);
+        guard.setLastMessage(enabled ? "守护已开启，等待下一轮检测" : "守护已关闭");
+        guard.setUpdateTime(new Date());
+        guardMapper.updateById(guard);
+        return toStatus(guard);
+    }
+
+    public Map<String, Object> setIntervalById(String guardId, Integer intervalMinutes) {
+        if (intervalMinutes == null) throw new OciException("检测间隔不能为空");
+        OciInstanceGuard guard = requireGuard(guardId);
+        guard.setIntervalMinutes(clampInterval(intervalMinutes));
+        // 间隔变化立即生效：下一节拍按新间隔重新排期。
+        if (Boolean.TRUE.equals(guard.getEnabled())) guard.setNextCheckTime(new Date());
+        guard.setUpdateTime(new Date());
+        guardMapper.updateById(guard);
+        return toStatus(guard);
+    }
+
+    public void deleteById(String guardId) {
+        guardMapper.deleteById(requireText(guardId, "守护记录 ID"));
+    }
+
+    private OciInstanceGuard requireGuard(String guardId) {
+        OciInstanceGuard guard = guardMapper.selectById(requireText(guardId, "守护记录 ID"));
+        if (guard == null) throw new OciException("守护记录不存在");
+        return guard;
+    }
+
+    static int clampInterval(int minutes) {
+        return Math.max(MIN_INTERVAL_MINUTES, Math.min(MAX_INTERVAL_MINUTES, minutes));
+    }
+
+    @Scheduled(fixedDelayString = "${oci.instance-guard.check-interval-millis:30000}",
             initialDelay = 45_000)
     public void checkGuards() {
         if (!checking.compareAndSet(false, true)) return;
         try {
+            Date now = new Date();
             List<OciInstanceGuard> guards = guardMapper.selectList(
-                    new LambdaQueryWrapper<OciInstanceGuard>().eq(OciInstanceGuard::getEnabled, true));
+                    new LambdaQueryWrapper<OciInstanceGuard>()
+                            .eq(OciInstanceGuard::getEnabled, true)
+                            .and(w -> w.isNull(OciInstanceGuard::getNextCheckTime)
+                                    .or().le(OciInstanceGuard::getNextCheckTime, now)));
             if (guards == null || guards.isEmpty()) return;
 
             Map<String, List<OciInstanceGuard>> byTenantRegion = new LinkedHashMap<>();
@@ -146,6 +202,10 @@ public class InstanceGuardService {
     }
 
     private void checkOne(OciClientService client, OciUser user, OciInstanceGuard guard) {
+        // 先按本条守护自己的间隔排期下一次检测，任何持久化路径都会带上它。
+        int interval = guard.getIntervalMinutes() == null
+                ? DEFAULT_INTERVAL_MINUTES : clampInterval(guard.getIntervalMinutes());
+        guard.setNextCheckTime(new Date(System.currentTimeMillis() + interval * 60_000L));
         Instance instance;
         try {
             instance = client.getComputeClient().getInstance(GetInstanceRequest.builder()

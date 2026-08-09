@@ -425,6 +425,8 @@ CREATE TABLE IF NOT EXISTS oci_instance_guard (
     instance_id VARCHAR(255) NOT NULL,
     instance_name VARCHAR(255) DEFAULT NULL,
     enabled TINYINT(1) NOT NULL DEFAULT 1,
+    interval_minutes INT NOT NULL DEFAULT 2,
+    next_check_time DATETIME DEFAULT NULL,
     last_state VARCHAR(32) DEFAULT NULL,
     last_check_time DATETIME DEFAULT NULL,
     last_start_time DATETIME DEFAULT NULL,
@@ -434,5 +436,5 @@ CREATE TABLE IF NOT EXISTS oci_instance_guard (
     create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     update_time DATETIME DEFAULT NULL,
     UNIQUE KEY uk_instance_guard (tenant_config_id, region, instance_id),
-    INDEX idx_instance_guard_enabled (enabled)
+    INDEX idx_instance_guard_due (enabled, next_check_time)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

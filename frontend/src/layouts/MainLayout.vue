@@ -157,6 +157,7 @@ const navItems = [
   { key: 'instance', label: '实例管理', icon: 'ri-server-line', prefetch: true },
   { key: 'task', label: '开机任务', icon: 'ri-flashlight-line', prefetch: true },
   { key: 'scheduled-ip', label: '定时换 IP', icon: 'ri-timer-flash-line', prefetch: true },
+  { key: 'instance-guard', label: '实例守护', icon: 'ri-shield-check-line', prefetch: true },
   { key: 'oracle-ai', label: 'Oracle AI', icon: 'ri-magic-line', prefetch: true },
   { key: 'cloudflare', label: 'Cloudflare', icon: 'ri-cloud-line', prefetch: true },
   { key: 'alidns', label: '阿里云DNS', icon: 'ri-global-line', prefetch: true },
