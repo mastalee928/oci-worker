@@ -49,6 +49,25 @@ export function updateInstanceState(data: { id: string; instanceId: string; acti
   return request.post('/oci/instance/updateState', data)
 }
 
+export interface InstanceGuardStatus {
+  enabled: boolean
+  lastState?: string | null
+  lastCheckTime?: string | null
+  lastStartTime?: string | null
+  startCount: number
+  lastMessage?: string | null
+}
+
+export function getInstanceGuardStatus(data: { id: string; instanceId: string } & R) {
+  return request.post<InstanceGuardStatus>('/oci/instanceGuard/status', data)
+}
+
+export function saveInstanceGuard(
+  data: { id: string; instanceId: string; instanceName?: string; enabled: boolean } & R,
+) {
+  return request.post<InstanceGuardStatus>('/oci/instanceGuard/save', data)
+}
+
 export function terminateInstance(data: { id: string; instanceId: string; verifyCode: string; preserveBootVolume?: boolean } & R) {
   return request.post('/oci/instance/terminate', data)
 }

@@ -68,6 +68,24 @@
       </a-popconfirm>
       <a-button danger @click="$emit('terminate')">终止</a-button>
     </a-space>
+
+    <div class="instance-guard-row">
+      <a-switch
+        size="small"
+        :checked="guardEnabled"
+        :loading="guardSaving"
+        @change="toggleGuard"
+      />
+      <span class="instance-guard-copy">
+        <strong>自动开机守护</strong>
+        <small v-if="guardEnabled && guardInfo">
+          检测到停止会自动启动 · 已自动启动 {{ guardInfo.startCount || 0 }} 次<template
+            v-if="guardInfo.lastMessage"
+          > · {{ guardInfo.lastMessage }}</template>
+        </small>
+        <small v-else>开启后定时检测该实例，发现 STOPPED 自动执行启动</small>
+      </span>
+    </div>
   </template>
 
   <template v-else>
@@ -116,8 +134,14 @@
 import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc'
 import { EditOutlined } from '@ant-design/icons-vue'
-import { ref } from 'vue'
+import { message } from 'ant-design-vue'
+import { ref, watch } from 'vue'
 import { defineAppAsyncComponent } from '../../utils/asyncComponent'
+import {
+  getInstanceGuardStatus,
+  saveInstanceGuard,
+  type InstanceGuardStatus,
+} from '../../api/instance'
 
 dayjs.extend(utc)
 
@@ -125,7 +149,7 @@ defineOptions({ name: 'InstanceDetailInfoPanel' })
 
 const InstanceNetworkDetailPanel = defineAppAsyncComponent(() => import('./InstanceNetworkDetailPanel.vue'), { loadingVariant: 'detail' })
 
-withDefaults(defineProps<{
+const props = withDefaults(defineProps<{
   mode: 'info' | 'console'
   tenant?: any | null
   instance?: any | null
@@ -163,6 +187,64 @@ defineEmits<{
 
 const networkDetailPanelRef = ref<any>(null)
 const showUtcTime = ref(false)
+
+const guardEnabled = ref(false)
+const guardSaving = ref(false)
+const guardInfo = ref<InstanceGuardStatus | null>(null)
+let guardLoadGen = 0
+
+async function loadGuardStatus() {
+  const tenantId = String(props.tenant?.id || '').trim()
+  const instanceId = String(props.instance?.instanceId || '').trim()
+  if (!tenantId || !instanceId) {
+    guardEnabled.value = false
+    guardInfo.value = null
+    return
+  }
+  const gen = ++guardLoadGen
+  try {
+    const res = await getInstanceGuardStatus({ id: tenantId, instanceId, region: props.region })
+    if (gen !== guardLoadGen) return
+    guardInfo.value = res.data
+    guardEnabled.value = !!res.data?.enabled
+  } catch {
+    if (gen !== guardLoadGen) return
+    guardInfo.value = null
+    guardEnabled.value = false
+  }
+}
+
+watch(
+  () => [props.active, props.mode, String(props.instance?.instanceId || '')],
+  () => {
+    if (props.active && props.mode === 'info') void loadGuardStatus()
+  },
+  { immediate: true },
+)
+
+async function toggleGuard(checked: boolean | string | number) {
+  const enabled = checked === true
+  const tenantId = String(props.tenant?.id || '').trim()
+  const instanceId = String(props.instance?.instanceId || '').trim()
+  if (!tenantId || !instanceId || guardSaving.value) return
+  guardSaving.value = true
+  try {
+    const res = await saveInstanceGuard({
+      id: tenantId,
+      instanceId,
+      region: props.region,
+      instanceName: String(props.instance?.displayName || props.instance?.name || ''),
+      enabled,
+    })
+    guardInfo.value = res.data
+    guardEnabled.value = !!res.data?.enabled
+    message.success(enabled ? '已开启自动开机守护' : '已关闭自动开机守护')
+  } catch (error: any) {
+    message.error(error?.message || '自动开机守护设置失败')
+  } finally {
+    guardSaving.value = false
+  }
+}
 
 function parseInstanceCreatedTime(v: unknown) {
   if (v == null || v === '') return null
@@ -236,5 +318,36 @@ defineExpose({
 .fault-domain-edit {
   margin-left: 8px;
   padding-inline: 0;
+}
+
+.instance-guard-row {
+  align-items: flex-start;
+  display: flex;
+  gap: 10px;
+  margin-top: 14px;
+}
+
+.instance-guard-row .ant-switch {
+  margin-top: 2px;
+}
+
+.instance-guard-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.instance-guard-copy strong {
+  color: var(--text-main, #111827);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.instance-guard-copy small {
+  color: var(--text-sub, #6b7280);
+  font-size: 12px;
+  line-height: 1.5;
+  word-break: break-word;
 }
 </style>

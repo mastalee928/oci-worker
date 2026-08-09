@@ -416,3 +416,23 @@ CREATE TABLE IF NOT EXISTS oci_openai_lb_member_model_state (
     INDEX idx_oci_openai_lb_member_model_status (status),
     INDEX idx_oci_openai_lb_member_model_unavailable (unavailable_until)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS oci_instance_guard (
+    id VARCHAR(64) PRIMARY KEY,
+    tenant_config_id VARCHAR(64) NOT NULL,
+    tenant_name VARCHAR(128) DEFAULT NULL,
+    region VARCHAR(64) NOT NULL,
+    instance_id VARCHAR(255) NOT NULL,
+    instance_name VARCHAR(255) DEFAULT NULL,
+    enabled TINYINT(1) NOT NULL DEFAULT 1,
+    last_state VARCHAR(32) DEFAULT NULL,
+    last_check_time DATETIME DEFAULT NULL,
+    last_start_time DATETIME DEFAULT NULL,
+    start_count INT NOT NULL DEFAULT 0,
+    consecutive_failures INT NOT NULL DEFAULT 0,
+    last_message VARCHAR(512) DEFAULT NULL,
+    create_time DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    update_time DATETIME DEFAULT NULL,
+    UNIQUE KEY uk_instance_guard (tenant_config_id, region, instance_id),
+    INDEX idx_instance_guard_enabled (enabled)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;

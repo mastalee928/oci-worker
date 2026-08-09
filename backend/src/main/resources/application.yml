@@ -16,6 +16,9 @@ webssh:
 # OCI Bastion is an independent SSH module. The CIDR allow-list is deliberately
 # empty by default: set it to the public egress CIDR of this worker (never 0.0.0.0/0).
 oci:
+  instance-guard:
+    # 实例守护轮询间隔（毫秒）：检测已开启守护的实例，STOPPED 自动 START。
+    check-interval-millis: ${OCI_INSTANCE_GUARD_CHECK_INTERVAL_MILLIS:120000}
   bastion:
     client-cidr-block-allow-list: ${OCI_BASTION_CLIENT_CIDR_ALLOW_LIST:}
     client-cidr-auto-discovery: ${OCI_BASTION_CLIENT_CIDR_AUTO_DISCOVERY:true}
