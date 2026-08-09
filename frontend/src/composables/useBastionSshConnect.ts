@@ -219,6 +219,9 @@ export function useBastionSshConnect() {
     connecting.value = true
     startProgress()
 
+    // 必须在用户点击手势内同步打开新标签页，异步等待后再 window.open 会被浏览器拦截。
+    const sshWindow = openPlaceholderTab()
+
     try {
       const payload: BastionPrepareRequest = {
         id: tenantId,
@@ -236,7 +239,10 @@ export function useBastionSshConnect() {
       }
 
       const response = await prepareBastionSession(payload)
-      if (generation !== requestGeneration || attempt !== connectAttempt) return
+      if (generation !== requestGeneration || attempt !== connectAttempt) {
+        closePlaceholderTab(sshWindow)
+        return
+      }
 
       connectionStep.value = 4
       const url = buildUrl(response.data.token, response.data)
@@ -247,8 +253,15 @@ export function useBastionSshConnect() {
         ? '端口转发会话'
         : 'Managed SSH 会话'
       message.success(`${sessionLabel}已准备`)
-      window.location.assign(url)
+      const absoluteUrl = new URL(url, window.location.href).href
+      if (sshWindow && !sshWindow.closed) {
+        sshWindow.location.href = absoluteUrl
+        sshWindow.focus()
+      } else {
+        window.location.assign(absoluteUrl)
+      }
     } catch (error: any) {
+      closePlaceholderTab(sshWindow)
       if (generation === requestGeneration && attempt === connectAttempt) {
         connectionError.value = bastionErrorMessage(error)
         connectionStep.value = bastionFailureStep(error)
@@ -258,6 +271,31 @@ export function useBastionSshConnect() {
         clearProgressTimer()
         connecting.value = false
       }
+    }
+  }
+
+  function openPlaceholderTab(): Window | null {
+    if (typeof window === 'undefined' || typeof window.open !== 'function') return null
+    const opened = window.open('', '_blank')
+    if (!opened) return null
+    try {
+      opened.document.title = 'Bastion WebSSH'
+      opened.document.body.style.cssText = 'background:#0b1220;color:#94a3b8;'
+        + 'font:14px/1.6 system-ui,sans-serif;display:flex;align-items:center;'
+        + 'justify-content:center;height:100vh;margin:0;'
+      opened.document.body.textContent = '正在准备 OCI Bastion SSH 会话，请保持此页面打开…'
+    } catch {
+      // 占位内容写入失败不影响后续导航。
+    }
+    return opened
+  }
+
+  function closePlaceholderTab(placeholder: Window | null) {
+    if (!placeholder || placeholder.closed) return
+    try {
+      placeholder.close()
+    } catch {
+      // 无法关闭时留给用户手动处理。
     }
   }
 
