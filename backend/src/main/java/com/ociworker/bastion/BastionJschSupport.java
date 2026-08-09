@@ -21,12 +21,20 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
 /** JSch support dedicated to the OCI Bastion two-hop channel. */
 @Slf4j
 final class BastionJschSupport {
 
     private static final int CONNECT_TIMEOUT_MILLIS = 15_000;
+    /**
+     * OCI propagates the session public key to the bastion fleet asynchronously
+     * after the session turns ACTIVE, so first connects can hit transient
+     * "Auth fail" until the key lands.
+     */
+    private static final long BASTION_AUTH_RETRY_WINDOW_MILLIS = 45_000;
+    private static final long BASTION_AUTH_RETRY_SLEEP_MILLIS = 3_000;
     private static final int MAX_TOFU_KEYS = 2_048;
     /** OCI's Bastion troubleshooting guide still requires ssh-rsa fallback for some keys. */
     private static final String SERVER_HOST_KEY_ALGORITHMS =
@@ -48,9 +56,25 @@ final class BastionJschSupport {
         int forwardedPort = -1;
         try {
             addIdentity(bastionJsch, "ociworker-bastion", spec.bastionPrivateKey(), null);
-            bastion = bastionJsch.getSession(spec.bastionUser(), spec.bastionHost(), spec.bastionPort());
-            configureBastion(bastion, spec);
-            bastion.connect(CONNECT_TIMEOUT_MILLIS);
+            long authDeadline = System.nanoTime()
+                    + TimeUnit.MILLISECONDS.toNanos(BASTION_AUTH_RETRY_WINDOW_MILLIS);
+            while (true) {
+                bastion = bastionJsch.getSession(spec.bastionUser(), spec.bastionHost(), spec.bastionPort());
+                configureBastion(bastion, spec);
+                try {
+                    bastion.connect(CONNECT_TIMEOUT_MILLIS);
+                    break;
+                } catch (JSchException e) {
+                    closeQuietly(bastion);
+                    bastion = null;
+                    if (!isAuthFailure(e) || System.nanoTime() >= authDeadline) {
+                        throw e;
+                    }
+                    log.info("OCI Bastion auth not ready yet for {}; retrying: {}",
+                            spec.bastionHost(), e.getMessage());
+                    Thread.sleep(BASTION_AUTH_RETRY_SLEEP_MILLIS);
+                }
+            }
 
             forwardedPort = bastion.setPortForwardingL(0, spec.targetHost(), spec.targetPort());
 
@@ -113,6 +137,11 @@ final class BastionJschSupport {
 
     static String bastionHostKeyCacheKey(BastionConnectionSpec spec) {
         return "bastion|" + spec.bastionHost() + ':' + spec.bastionPort();
+    }
+
+    private static boolean isAuthFailure(JSchException e) {
+        String message = e.getMessage();
+        return message != null && message.toLowerCase(Locale.ROOT).contains("auth fail");
     }
 
     /**
