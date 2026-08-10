@@ -19,11 +19,13 @@
 
     <a-card :bordered="false">
       <a-table
+        v-if="!isNarrow"
         :data-source="records"
         :columns="columns"
         :loading="loading"
         row-key="id"
         size="middle"
+        :scroll="{ x: 960 }"
         :pagination="{ pageSize: 20, showSizeChanger: false }"
       >
         <template #bodyCell="{ column, record }">
@@ -83,6 +85,62 @@
           </template>
         </template>
       </a-table>
+
+      <div v-else>
+        <a-spin :spinning="loading">
+          <div class="guard-cards">
+            <div v-for="record in records" :key="record.id" class="guard-card">
+              <div class="guard-card-head">
+                <div class="guard-card-title">
+                  <div class="cell-main">{{ record.instanceName || '未命名实例' }}</div>
+                  <div class="cell-sub">
+                    {{ record.tenantName || record.tenantConfigId }} · {{ record.region }}
+                  </div>
+                </div>
+                <a-tag :color="stateColor(record.lastState)">{{ record.lastState || '未检测' }}</a-tag>
+              </div>
+              <div class="guard-card-row">
+                <span class="guard-card-label">守护</span>
+                <a-switch
+                  :checked="!!record.enabled"
+                  :loading="busyIds.has(record.id)"
+                  size="small"
+                  @change="(checked: any) => toggleRecord(record, checked === true)"
+                />
+                <span class="guard-card-label guard-card-gap">间隔</span>
+                <a-input-number
+                  :value="record.intervalMinutes || 2"
+                  :min="1"
+                  :max="1440"
+                  size="small"
+                  style="width: 74px"
+                  :disabled="busyIds.has(record.id)"
+                  @change="(value: any) => changeInterval(record, value)"
+                />
+                <span class="cell-sub">分钟</span>
+              </div>
+              <div class="guard-card-row">
+                <span class="guard-card-label">自动启动</span>
+                <span>{{ record.startCount || 0 }} 次</span>
+                <span class="guard-card-label guard-card-gap">最近检测</span>
+                <span>{{ formatTime(record.lastCheckTime) }}</span>
+              </div>
+              <div v-if="record.lastMessage" class="guard-card-message">{{ record.lastMessage }}</div>
+              <div class="guard-card-actions">
+                <a-button
+                  size="small"
+                  :disabled="busyIds.has(record.id)"
+                  @click="toggleNotify(record)"
+                >{{ record.notifyMuted ? '恢复通知' : '静音' }}</a-button>
+                <a-popconfirm title="确定删除该守护？不会影响实例本身。" @confirm="removeRecord(record)">
+                  <a-button size="small" danger>删除</a-button>
+                </a-popconfirm>
+              </div>
+            </div>
+            <div v-if="!records.length && !loading" class="guard-empty">暂无守护实例</div>
+          </div>
+        </a-spin>
+      </div>
     </a-card>
 
     <a-modal
@@ -165,6 +223,11 @@ const tenantCatalog = useTenantCatalogStore()
 const records = ref<InstanceGuardRecord[]>([])
 const loading = ref(false)
 const busyIds = reactive(new Set<string>())
+const isNarrow = ref(false)
+let narrowQuery: MediaQueryList | undefined
+const onNarrowChange = (event: MediaQueryListEvent | MediaQueryList) => {
+  isNarrow.value = event.matches
+}
 let loadSeq = 0
 let pollTimer: number | undefined
 
@@ -209,6 +272,9 @@ const canSubmit = computed(() =>
   && Number(editor.intervalMinutes) >= 1)
 
 onMounted(() => {
+  narrowQuery = window.matchMedia('(max-width: 768px)')
+  onNarrowChange(narrowQuery)
+  narrowQuery.addEventListener('change', onNarrowChange)
   void loadRecords()
   startPolling()
 })
@@ -217,7 +283,10 @@ onActivated(() => {
   startPolling()
 })
 onDeactivated(stopPolling)
-onUnmounted(stopPolling)
+onUnmounted(() => {
+  narrowQuery?.removeEventListener('change', onNarrowChange)
+  stopPolling()
+})
 
 function startPolling() {
   if (pollTimer !== undefined) return
@@ -513,5 +582,88 @@ function formatTime(value?: string | null) {
 .editor-hint {
   color: var(--text-sub, #6b7280);
   font-size: 12px;
+}
+.guard-cards {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.guard-card {
+  background: var(--input-bg, rgba(15, 23, 42, 0.45));
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 14px;
+}
+.guard-card-head {
+  align-items: flex-start;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+}
+.guard-card-title {
+  min-width: 0;
+}
+.guard-card-row {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 12.5px;
+  gap: 8px;
+}
+.guard-card-label {
+  color: var(--text-sub, #6b7280);
+  font-size: 11.5px;
+}
+.guard-card-gap {
+  margin-left: auto;
+}
+.guard-card-message {
+  color: var(--text-sub, #6b7280);
+  font-size: 12px;
+  line-height: 1.5;
+  word-break: break-word;
+}
+.guard-card-actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+.guard-empty {
+  color: var(--text-sub, #6b7280);
+  font-size: 12.5px;
+  padding: 24px 0;
+  text-align: center;
+}
+@media (max-width: 768px) {
+  .guard-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+  .guard-head > .ant-space {
+    flex-wrap: wrap;
+    row-gap: 10px;
+  }
+  .guard-stat {
+    min-width: 64px;
+  }
+  .cell-message {
+    max-width: none;
+    white-space: normal;
+  }
+}
+@media (max-width: 520px) {
+  .guard-title {
+    font-size: 16px;
+  }
+  .guard-card-gap {
+    margin-left: 0;
+    width: 100%;
+  }
+  .guard-card-row {
+    row-gap: 6px;
+  }
 }
 </style>
