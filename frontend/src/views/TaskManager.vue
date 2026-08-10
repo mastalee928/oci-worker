@@ -313,7 +313,10 @@
         <div class="capacity-probe-box">
           <span class="capacity-probe-label">
             容量探测
-            <a-tooltip placement="top">
+            <a-tooltip
+              placement="top"
+              :get-popup-container="(trigger: HTMLElement) => trigger.parentElement || document.body"
+            >
               <template #title>
                 <div>关闭：不探测，按设定间隔直接尝试开机</div>
                 <div>仅参考：每轮查询 Oracle 容量报告，结果仅展示，不影响开机节奏</div>
@@ -461,7 +464,10 @@
         <div class="capacity-probe-box">
           <span class="capacity-probe-label">
             容量探测
-            <a-tooltip placement="top">
+            <a-tooltip
+              placement="top"
+              :get-popup-container="(trigger: HTMLElement) => trigger.parentElement || document.body"
+            >
               <template #title>
                 <div>关闭：不探测，按设定间隔直接尝试开机</div>
                 <div>仅参考：每轮查询 Oracle 容量报告，结果仅展示，不影响开机节奏</div>
