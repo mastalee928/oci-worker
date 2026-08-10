@@ -300,7 +300,7 @@
             />
           </div>
         </div>
-        <div style="display: flex; align-items: center; gap: 24px; row-gap: 12px; flex-wrap: wrap; margin-bottom: 16px">
+        <div style="display: flex; align-items: center; gap: 32px; margin-bottom: 16px">
           <span style="display: inline-flex; align-items: center; gap: 8px">
             <a-switch v-model:checked="createForm.assignPublicIp" />
             <span>公网IP</span>
@@ -309,21 +309,21 @@
             <a-switch v-model:checked="createForm.assignIpv6" />
             <span>IPv6</span>
           </span>
-          <span style="display: inline-flex; align-items: center; gap: 8px">
-            <span style="display: inline-flex; align-items: center; gap: 4px">
-              容量探测
-              <a-tooltip placement="top">
-                <template #title>
-                  <div>关闭：不探测，按设定间隔直接尝试开机</div>
-                  <div>仅参考：每轮查询 Oracle 容量报告，结果仅展示，不影响开机节奏</div>
-                  <div>智能节流：报告无货时降低尝试频率（每 5 轮仍真实尝试 1 次），探测到有货立刻恢复全速</div>
-                  <div style="margin-top: 4px; opacity: 0.75">容量报告由 Oracle 提供，仅供参考，不保证与实际开机结果一致</div>
-                </template>
-                <InfoCircleOutlined style="color: var(--text-sub)" />
-              </a-tooltip>
-            </span>
-            <a-segmented v-model:value="createForm.capacityProbeMode" :options="capacityProbeOptions" size="small" />
+        </div>
+        <div class="capacity-probe-box">
+          <span class="capacity-probe-label">
+            容量探测
+            <a-tooltip placement="top">
+              <template #title>
+                <div>关闭：不探测，按设定间隔直接尝试开机</div>
+                <div>仅参考：每轮查询 Oracle 容量报告，结果仅展示，不影响开机节奏</div>
+                <div>智能节流：报告无货时降低尝试频率（每 5 轮仍真实尝试 1 次），探测到有货立刻恢复全速</div>
+                <div style="margin-top: 4px; opacity: 0.75">容量报告由 Oracle 提供，仅供参考，不保证与实际开机结果一致</div>
+              </template>
+              <InfoCircleOutlined style="color: var(--text-sub)" />
+            </a-tooltip>
           </span>
+          <a-segmented v-model:value="createForm.capacityProbeMode" :options="capacityProbeOptions" size="small" />
         </div>
         <a-form-item label="自定义开机脚本（cloud-init）">
           <a-textarea v-model:value="createForm.customScript" placeholder="开机后自动执行的 Shell 脚本，留空则不执行&#10;&#10;示例：&#10;apt update && apt install -y docker.io&#10;ufw disable" :auto-size="{ minRows: 3, maxRows: 8 }" />
@@ -448,7 +448,7 @@
             />
           </div>
         </div>
-        <div style="display: flex; align-items: center; gap: 24px; row-gap: 12px; flex-wrap: wrap; margin-bottom: 16px">
+        <div style="display: flex; align-items: center; gap: 32px; margin-bottom: 16px">
           <span style="display: inline-flex; align-items: center; gap: 8px">
             <a-switch v-model:checked="editForm.assignPublicIp" />
             <span>公网IP</span>
@@ -457,21 +457,21 @@
             <a-switch v-model:checked="editForm.assignIpv6" />
             <span>IPv6</span>
           </span>
-          <span style="display: inline-flex; align-items: center; gap: 8px">
-            <span style="display: inline-flex; align-items: center; gap: 4px">
-              容量探测
-              <a-tooltip placement="top">
-                <template #title>
-                  <div>关闭：不探测，按设定间隔直接尝试开机</div>
-                  <div>仅参考：每轮查询 Oracle 容量报告，结果仅展示，不影响开机节奏</div>
-                  <div>智能节流：报告无货时降低尝试频率（每 5 轮仍真实尝试 1 次），探测到有货立刻恢复全速</div>
-                  <div style="margin-top: 4px; opacity: 0.75">容量报告由 Oracle 提供，仅供参考，不保证与实际开机结果一致</div>
-                </template>
-                <InfoCircleOutlined style="color: var(--text-sub)" />
-              </a-tooltip>
-            </span>
-            <a-segmented v-model:value="editForm.capacityProbeMode" :options="capacityProbeOptions" size="small" />
+        </div>
+        <div class="capacity-probe-box">
+          <span class="capacity-probe-label">
+            容量探测
+            <a-tooltip placement="top">
+              <template #title>
+                <div>关闭：不探测，按设定间隔直接尝试开机</div>
+                <div>仅参考：每轮查询 Oracle 容量报告，结果仅展示，不影响开机节奏</div>
+                <div>智能节流：报告无货时降低尝试频率（每 5 轮仍真实尝试 1 次），探测到有货立刻恢复全速</div>
+                <div style="margin-top: 4px; opacity: 0.75">容量报告由 Oracle 提供，仅供参考，不保证与实际开机结果一致</div>
+              </template>
+              <InfoCircleOutlined style="color: var(--text-sub)" />
+            </a-tooltip>
           </span>
+          <a-segmented v-model:value="editForm.capacityProbeMode" :options="capacityProbeOptions" size="small" />
         </div>
         <a-form-item label="自定义开机脚本（cloud-init）">
           <a-textarea v-model:value="editForm.customScript" placeholder="开机后自动执行的 Shell 脚本，留空则不执行" :auto-size="{ minRows: 3, maxRows: 8 }" />
@@ -1287,6 +1287,24 @@ onActivated(() => {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: 8px;
+}
+.capacity-probe-box {
+  align-items: center;
+  background: var(--input-bg, rgba(15, 23, 42, 0.35));
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
+  border-radius: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  padding: 10px 12px;
+}
+.capacity-probe-label {
+  align-items: center;
+  display: inline-flex;
+  font-weight: 500;
+  gap: 6px;
 }
 .mobile-task-toolbar :deep(.ant-input-search),
 .mobile-task-toolbar :deep(.ant-select) {

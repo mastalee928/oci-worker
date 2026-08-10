@@ -247,6 +247,7 @@ public class TaskSchedulerService implements SmartLifecycle {
             map.put("customScript", task.getCustomScript());
             map.put("assignPublicIp", task.getAssignPublicIp() != null ? task.getAssignPublicIp() : true);
             map.put("assignIpv6", task.getAssignIpv6() != null ? task.getAssignIpv6() : false);
+            map.put("capacityProbeMode", CapacityProbeService.normalizeMode(task.getCapacityProbeMode()));
             map.put("status", task.getStatus());
             map.put("statusTime", task.getStatusTime());
             map.put("attemptCount", task.getAttemptCount());
@@ -1312,6 +1313,7 @@ public class TaskSchedulerService implements SmartLifecycle {
         data.put("customScript", task.getCustomScript());
         data.put("assignPublicIp", task.getAssignPublicIp() != null ? task.getAssignPublicIp() : true);
         data.put("assignIpv6", task.getAssignIpv6() != null ? task.getAssignIpv6() : false);
+        data.put("capacityProbeMode", CapacityProbeService.normalizeMode(task.getCapacityProbeMode()));
         data.put("loginMode", normalizeLoginMode(task.getLoginMode()));
         data.put("sshPublicKey", task.getSshPublicKey());
         data.put("status", task.getStatus());

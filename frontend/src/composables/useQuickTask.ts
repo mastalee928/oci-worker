@@ -50,6 +50,7 @@ export function useQuickTask(options: UseQuickTaskOptions = {}) {
     customScript: '',
     assignPublicIp: true,
     assignIpv6: false,
+    capacityProbeMode: 'OFF',
   })
 
   const quickTaskBmLocked = ref(false)
@@ -173,6 +174,7 @@ export function useQuickTask(options: UseQuickTaskOptions = {}) {
       customScript: '',
       assignPublicIp: true,
       assignIpv6: false,
+      capacityProbeMode: 'OFF',
     })
     quickTaskBmLocked.value = false
     quickTaskVisible.value = true

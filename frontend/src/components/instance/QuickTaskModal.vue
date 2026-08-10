@@ -149,6 +149,21 @@
           <span>IPv6</span>
         </span>
       </div>
+      <div class="capacity-probe-box">
+        <span class="capacity-probe-label">
+          容量探测
+          <a-tooltip placement="top">
+            <template #title>
+              <div>关闭：不探测，按设定间隔直接尝试开机</div>
+              <div>仅参考：每轮查询 Oracle 容量报告，结果仅展示，不影响开机节奏</div>
+              <div>智能节流：报告无货时降低尝试频率（每 5 轮仍真实尝试 1 次），探测到有货立刻恢复全速</div>
+              <div style="margin-top: 4px; opacity: 0.75">容量报告由 Oracle 提供，仅供参考，不保证与实际开机结果一致</div>
+            </template>
+            <InfoCircleOutlined style="color: var(--text-sub)" />
+          </a-tooltip>
+        </span>
+        <a-segmented v-model:value="form.capacityProbeMode" :options="capacityProbeOptions" size="small" />
+      </div>
       <a-form-item label="自定义开机脚本">
         <a-textarea v-model:value="form.customScript" placeholder="可选，留空不执行" :auto-size="{ minRows: 2, maxRows: 5 }" />
       </a-form-item>
@@ -159,6 +174,7 @@
 <script setup lang="ts">
 import ShapeSeriesPicker from '../ShapeSeriesPicker.vue'
 import TaskLoginSelector from '../TaskLoginSelector.vue'
+import { InfoCircleOutlined } from '@ant-design/icons-vue'
 import {
   BOOT_VOLUME_VPUS_MAX,
   BOOT_VOLUME_VPUS_MIN,
@@ -168,6 +184,12 @@ import { ociRegionSelectOptions } from '../../utils/ociRegionCatalog'
 import { QUICK_TASK_MODAL_Z_INDEX } from '../../utils/overlayZIndex'
 
 defineOptions({ name: 'QuickTaskModal' })
+
+const capacityProbeOptions = [
+  { label: '关闭', value: 'OFF' },
+  { label: '仅参考', value: 'REFERENCE' },
+  { label: '智能节流', value: 'THROTTLE' },
+]
 
 interface QuickTaskFormModel {
   ociRegion?: string
@@ -186,6 +208,7 @@ interface QuickTaskFormModel {
   customScript: string
   assignPublicIp: boolean
   assignIpv6: boolean
+  capacityProbeMode: string
 }
 
 interface QuickTaskTenant {
@@ -235,6 +258,24 @@ defineEmits<{
 </script>
 
 <style scoped>
+.capacity-probe-box {
+  align-items: center;
+  background: var(--input-bg, rgba(15, 23, 42, 0.35));
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.1));
+  border-radius: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  padding: 10px 12px;
+}
+.capacity-probe-label {
+  align-items: center;
+  display: inline-flex;
+  font-weight: 500;
+  gap: 6px;
+}
 .quick-login-options-row {
   display: grid;
   grid-template-columns: 1fr 1fr 1.15fr;
