@@ -663,6 +663,21 @@ public class TaskSchedulerService implements SmartLifecycle {
         String name = user != null ? user.getUsername() : "unknown";
         broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s] - 任务已编辑%s",
                 name, task.getOciRegion(), wasRunning ? "（自动重启调度）" : ""));
+
+        String series = ShapeSeriesUtil.resolveSeries(task.getArchitecture());
+        String diskConfig = BootVolumeVpusUtil.formatDiskWithVpus(
+                task.getDisk() != null ? task.getDisk() : 50, task.getVpusPerGB());
+        String html = "📋 <b>开机任务已修改</b>\n\n"
+                + "👤 <b>租户：</b>" + name + "\n"
+                + "🌍 <b>区域：</b>" + task.getOciRegion() + "\n"
+                + "⚙️ <b>架构：</b>" + series + "\n"
+                + targetShapeLineForNotify(task.getArchitecture())
+                + "📊 <b>配置：</b>" + task.getOcpus() + "C / " + task.getMemory() + "GB / "
+                + diskConfig + "\n"
+                + "🔢 <b>数量：</b>" + task.getCreateNumbers() + "\n"
+                + buildNotifyLoginLine(task)
+                + (wasRunning ? "\n♻️ 任务运行中，已按新配置重新调度" : "");
+        notificationService.sendHtmlWithType(NotificationService.TYPE_TASK_CREATE, html);
     }
 
     public void deleteTask(String taskId) {
