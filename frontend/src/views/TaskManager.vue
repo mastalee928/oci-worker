@@ -315,7 +315,7 @@
             容量探测
             <a-tooltip
               placement="top"
-              :get-popup-container="(trigger: HTMLElement) => trigger.parentElement || document.body"
+              :get-popup-container="(trigger: HTMLElement) => trigger.parentElement ?? trigger"
             >
               <template #title>
                 <div>关闭：不探测，按设定间隔直接尝试开机</div>
@@ -466,7 +466,7 @@
             容量探测
             <a-tooltip
               placement="top"
-              :get-popup-container="(trigger: HTMLElement) => trigger.parentElement || document.body"
+              :get-popup-container="(trigger: HTMLElement) => trigger.parentElement ?? trigger"
             >
               <template #title>
                 <div>关闭：不探测，按设定间隔直接尝试开机</div>
@@ -614,7 +614,7 @@ defineOptions({ name: 'TaskManager' })
 import { ref, reactive, computed, onActivated, onMounted, onUnmounted, watch, type CSSProperties } from 'vue'
 import { PlusOutlined, ReloadOutlined, InfoCircleOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
-import { getTaskList, createTask, updateTask, stopTask, hasRunningTask, resumeTask, deleteTask, batchStopTask, batchResumeTask, batchDeleteTask, batchRunningCount, getTaskDetail, getTaskProbeStatus } from '../api/task'
+import { getTaskList, createTask, updateTask, stopTask, hasRunningTask, resumeTask, deleteTask, batchStopTask, batchResumeTask, batchDeleteTask, batchRunningCount, getTaskDetail } from '../api/task'
 import { getTenantList } from '../api/tenant'
 import { getAvailableShapes } from '../api/instance'
 import { getTaskCredential } from '../api/system'
@@ -696,32 +696,9 @@ const capacityProbeOptions = [
   { label: '智能节流', value: 'THROTTLE' },
 ]
 
-const probeStatusMap = ref<Record<string, any>>({})
-
 function probeText(record: any) {
   const mode = String(record?.capacityProbeMode || 'OFF')
-  if (mode === 'OFF') return '—'
-  const snapshot = probeStatusMap.value[String(record?.id || '')]
-  if (!snapshot) return record?.status === 'RUNNING' ? '待探测' : '—'
-  const age = Math.max(0, Math.round((Date.now() - Number(snapshot.time || 0)) / 1000))
-  const ageText = age < 60 ? `${age} 秒前` : `${Math.round(age / 60)} 分钟前`
-  return `${snapshot.summary || '探测中'} · ${ageText}`
-}
-
-async function loadProbeStatus() {
-  const ids = tableData.value
-    .filter(row => row?.status === 'RUNNING' && row?.capacityProbeMode && row.capacityProbeMode !== 'OFF')
-    .map(row => String(row.id))
-  if (!ids.length) {
-    probeStatusMap.value = {}
-    return
-  }
-  try {
-    const res = await getTaskProbeStatus({ taskIds: ids })
-    probeStatusMap.value = res.data || {}
-  } catch {
-    // 探测状态是辅助信息，拉取失败不打扰用户。
-  }
+  return mode === 'THROTTLE' ? '智能节流' : mode === 'REFERENCE' ? '仅参考' : '关闭'
 }
 
 type TaskRowKey = string | number
@@ -1015,7 +992,6 @@ async function loadData() {
     })
     tableData.value = res.data.records || []
     pagination.total = res.data.total || 0
-    void loadProbeStatus()
   } catch (e: any) {
     message.error(e?.message || '加载任务列表失败')
   } finally {

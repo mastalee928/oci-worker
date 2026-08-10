@@ -154,7 +154,7 @@
           容量探测
           <a-tooltip
             placement="top"
-            :get-popup-container="(trigger: HTMLElement) => trigger.parentElement || document.body"
+            :get-popup-container="(trigger: HTMLElement) => trigger.parentElement ?? trigger"
           >
             <template #title>
               <div>关闭：不探测，按设定间隔直接尝试开机</div>
