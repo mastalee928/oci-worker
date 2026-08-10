@@ -63,6 +63,14 @@ public class InstanceGuardController {
         return ResponseData.ok();
     }
 
+    @PostMapping("/stopCause")
+    public ResponseData<?> stopCause(@RequestBody Map<String, Object> params) {
+        return ResponseData.ok(instanceGuardService.stopCause(
+                text(params.get("id")),
+                text(params.get("region")),
+                text(params.get("instanceId"))));
+    }
+
     @PostMapping("/list")
     public ResponseData<?> list() {
         return ResponseData.ok(instanceGuardService.listAll());

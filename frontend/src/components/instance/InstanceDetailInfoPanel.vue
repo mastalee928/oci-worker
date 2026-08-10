@@ -86,6 +86,15 @@
         <small v-else>开启后定时检测该实例，发现 STOPPED 自动执行启动</small>
       </span>
     </div>
+
+    <div v-if="instance?.state === 'STOPPED'" class="instance-guard-row">
+      <a-button size="small" :loading="stopCauseLoading" @click="loadStopCause">
+        查询停机原因
+      </a-button>
+      <span v-if="stopCauseText" class="instance-guard-copy">
+        <small>{{ stopCauseText }}</small>
+      </span>
+    </div>
   </template>
 
   <template v-else>
@@ -139,6 +148,7 @@ import { ref, watch } from 'vue'
 import { defineAppAsyncComponent } from '../../utils/asyncComponent'
 import {
   getInstanceGuardStatus,
+  getInstanceStopCause,
   saveInstanceGuard,
   type InstanceGuardStatus,
 } from '../../api/instance'
@@ -192,6 +202,24 @@ const guardEnabled = ref(false)
 const guardSaving = ref(false)
 const guardInfo = ref<InstanceGuardStatus | null>(null)
 let guardLoadGen = 0
+const stopCauseLoading = ref(false)
+const stopCauseText = ref('')
+
+async function loadStopCause() {
+  const tenantId = String(props.tenant?.id || '').trim()
+  const instanceId = String(props.instance?.instanceId || '').trim()
+  if (!tenantId || !instanceId || stopCauseLoading.value) return
+  stopCauseLoading.value = true
+  stopCauseText.value = ''
+  try {
+    const res = await getInstanceStopCause({ id: tenantId, instanceId, region: props.region })
+    stopCauseText.value = res.data?.cause || '未查询到停机原因'
+  } catch (error: any) {
+    message.error(error?.message || '查询停机原因失败')
+  } finally {
+    stopCauseLoading.value = false
+  }
+}
 
 async function loadGuardStatus() {
   const tenantId = String(props.tenant?.id || '').trim()
@@ -217,6 +245,7 @@ async function loadGuardStatus() {
 watch(
   () => [props.active, props.mode, String(props.instance?.instanceId || '')],
   () => {
+    stopCauseText.value = ''
     if (props.active && props.mode === 'info') void loadGuardStatus()
   },
   { immediate: true },

@@ -112,6 +112,17 @@ export function setInstanceGuardNotify(data: { guardId: string; muted: boolean }
   return request.post<InstanceGuardStatus>('/oci/instanceGuard/notify', data)
 }
 
+export interface InstanceStopCause {
+  instanceId: string
+  state: string
+  found: boolean
+  cause: string
+}
+
+export function getInstanceStopCause(data: { id: string; instanceId: string } & R) {
+  return request.post<InstanceStopCause>('/oci/instanceGuard/stopCause', data, { timeout: 60_000 })
+}
+
 export function deleteInstanceGuard(data: { guardId: string }) {
   return request.post('/oci/instanceGuard/delete', data)
 }

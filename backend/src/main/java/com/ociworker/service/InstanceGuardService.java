@@ -1,6 +1,9 @@
 package com.ociworker.service;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
+import com.oracle.bmc.audit.AuditClient;
+import com.oracle.bmc.audit.model.AuditEvent;
+import com.oracle.bmc.audit.requests.ListEventsRequest;
 import com.oracle.bmc.core.model.Instance;
 import com.oracle.bmc.core.requests.GetInstanceRequest;
 import com.oracle.bmc.model.BmcException;
@@ -154,6 +157,139 @@ public class InstanceGuardService {
         guardMapper.deleteById(requireText(guardId, "守护记录 ID"));
     }
 
+    /** 独立的停机原因查询：任何实例可用，不要求存在守护记录。 */
+    public Map<String, Object> stopCause(String tenantId, String region, String instanceId) {
+        tenantId = requireText(tenantId, "租户配置 ID");
+        instanceId = requireText(instanceId, "实例 ID");
+        OciUser user = userMapper.selectById(tenantId);
+        if (user == null) throw new OciException("租户配置不存在");
+        String normalizedRegion = normalizeRegion(tenantId, region);
+        try (OciClientService client = new OciClientService(toSysUser(user, normalizedRegion),
+                normalizedRegion)) {
+            Instance instance = client.getComputeClient().getInstance(GetInstanceRequest.builder()
+                    .instanceId(instanceId).build()).getInstance();
+            if (instance == null) throw new OciException("实例不存在或无权访问");
+            String cause = queryStopCause(client, instance.getCompartmentId(),
+                    instanceId, normalizedRegion, 7, 20);
+            Map<String, Object> out = new LinkedHashMap<>();
+            out.put("instanceId", instanceId);
+            out.put("state", instance.getLifecycleState() == null
+                    ? "UNKNOWN" : instance.getLifecycleState().getValue());
+            out.put("found", cause != null);
+            out.put("cause", cause != null ? cause
+                    : "近 7 天审计日志中未找到停机操作记录（可能超出查询窗口，或为更早之前停止）");
+            return out;
+        } catch (BmcException e) {
+            throw new OciException("查询停机原因失败: " + OciBmcErrorTranslator.translate(e));
+        }
+    }
+
+    /**
+     * 从 OCI Audit 日志定位最近一次针对该实例的停止/终止操作并给出可读描述。
+     * 找不到明确记录时返回 null。
+     */
+    private String queryStopCause(OciClientService client, String compartmentId,
+                                  String instanceId, String region, int days, int maxPages) {
+        try (AuditClient audit = buildAuditClient(client, region)) {
+            Date end = new Date();
+            Date start = new Date(end.getTime() - days * 86_400_000L);
+            AuditEvent best = null;
+            String page = null;
+            int pages = 0;
+            do {
+                var response = audit.listEvents(ListEventsRequest.builder()
+                        .compartmentId(compartmentId)
+                        .startTime(start)
+                        .endTime(end)
+                        .page(page)
+                        .build());
+                for (AuditEvent event : response.getItems() == null
+                        ? List.<AuditEvent>of() : response.getItems()) {
+                    if (!isStopAuditEvent(event, instanceId)) continue;
+                    if (best == null || (event.getEventTime() != null && best.getEventTime() != null
+                            && event.getEventTime().after(best.getEventTime()))) {
+                        best = event;
+                    }
+                }
+                page = response.getOpcNextPage();
+                pages++;
+            } while (page != null && pages < maxPages);
+            return best == null ? null : describeStopEvent(best);
+        } catch (Exception e) {
+            log.debug("停机原因查询失败 instance={}: {}", instanceId, e.getMessage());
+            return null;
+        }
+    }
+
+    private static boolean isStopAuditEvent(AuditEvent event, String instanceId) {
+        if (event == null || event.getData() == null) return false;
+        var data = event.getData();
+        if (!instanceId.equals(data.getResourceId())) return false;
+        String eventName = data.getEventName() == null ? "" : data.getEventName();
+        if ("TerminateInstance".equalsIgnoreCase(eventName)) return true;
+        if (!"InstanceAction".equalsIgnoreCase(eventName)) return false;
+        try {
+            var request = data.getRequest();
+            Map<String, List<String>> parameters = request == null ? null : request.getParameters();
+            if (parameters != null) {
+                for (Map.Entry<String, List<String>> entry : parameters.entrySet()) {
+                    if (!"action".equalsIgnoreCase(entry.getKey())) continue;
+                    for (String value : entry.getValue() == null ? List.<String>of() : entry.getValue()) {
+                        if (value != null && value.toUpperCase(Locale.ROOT).contains("STOP")) {
+                            return true;
+                        }
+                    }
+                    return false;
+                }
+            }
+        } catch (Exception ignored) {
+            // 参数结构异常时不误报为停机事件。
+        }
+        return false;
+    }
+
+    private static String describeStopEvent(AuditEvent event) {
+        var data = event.getData();
+        String eventName = data.getEventName() == null ? "" : data.getEventName();
+        String principal = data.getIdentity() == null ? null
+                : trimToNullStatic(data.getIdentity().getPrincipalName());
+        String ip = data.getIdentity() == null ? null
+                : trimToNullStatic(data.getIdentity().getIpAddress());
+        String when = event.getEventTime() == null ? "未知时间"
+                : new java.text.SimpleDateFormat("MM-dd HH:mm").format(event.getEventTime());
+        String verb = "TerminateInstance".equalsIgnoreCase(eventName) ? "终止" : "停止";
+        if (principal == null) {
+            return "Oracle 系统于 " + when + " " + verb + "（疑似 Always Free 闲置回收或平台维护）";
+        }
+        return "用户 " + principal + (ip == null ? "" : "（IP " + ip + "）")
+                + " 于 " + when + " 手动" + verb;
+    }
+
+    private static String trimToNullStatic(String value) {
+        if (value == null) return null;
+        String normalized = value.trim();
+        return normalized.isBlank() ? null : normalized;
+    }
+
+    private static String extractStopCause(String message) {
+        if (message == null) return null;
+        int index = message.indexOf("｜原因：");
+        if (index < 0) return null;
+        String cause = message.substring(index + "｜原因：".length()).trim();
+        return cause.isBlank() ? null : cause;
+    }
+
+    private AuditClient buildAuditClient(OciClientService client, String region) {
+        AuditClient.Builder builder = AuditClient.builder()
+                .configuration(client.getClientConfiguration());
+        if (client.getOciClientConfigurator() != null) {
+            builder.additionalClientConfigurator(client.getOciClientConfigurator());
+        }
+        AuditClient audit = builder.build(client.getProvider());
+        audit.setRegion(region);
+        return audit;
+    }
+
     private OciInstanceGuard requireGuard(String guardId) {
         OciInstanceGuard guard = guardMapper.selectById(requireText(guardId, "守护记录 ID"));
         if (guard == null) throw new OciException("守护记录不存在");
@@ -244,8 +380,9 @@ public class InstanceGuardService {
         if (state != Instance.LifecycleState.Stopped) {
             guard.setConsecutiveFailures(0);
             // 自动启动后的确认：确认到已在启动/运行才补发成功通知。
-            boolean pendingStartNotify = guard.getLastMessage() != null
-                    && guard.getLastMessage().startsWith("检测到 STOPPED，已自动启动");
+            String previousMessage = guard.getLastMessage();
+            boolean pendingStartNotify = previousMessage != null
+                    && previousMessage.startsWith("检测到 STOPPED，已自动启动");
             if (recentlyStarted(guard)
                     && (state == Instance.LifecycleState.Running
                         || state == Instance.LifecycleState.Starting)) {
@@ -253,8 +390,10 @@ public class InstanceGuardService {
                 guard.setUpdateTime(new Date());
                 guardMapper.updateById(guard);
                 if (pendingStartNotify) {
-                    notify(user, guard, "检测到实例处于 STOPPED，已自动执行启动，当前状态 "
-                            + stateValue + "。");
+                    String cause = extractStopCause(previousMessage);
+                    notify(user, guard, "检测到实例处于 STOPPED"
+                            + (cause == null ? "" : "（" + cause + "）")
+                            + "，已自动执行启动，当前状态 " + stateValue + "。");
                 }
             } else {
                 guard.setLastMessage("实例状态 " + stateValue + "，无需处理");
@@ -265,6 +404,9 @@ public class InstanceGuardService {
         }
 
         boolean restartLoop = recentlyStarted(guard);
+        // 停机原因来自 Audit 日志（免费）；反复停机场景原因已知，不重复查询。
+        String stopCause = restartLoop ? null : queryStopCause(client, instance.getCompartmentId(),
+                guard.getInstanceId(), guard.getRegion(), 3, 10);
         try {
             instanceService.updateInstanceState(
                     guard.getTenantConfigId(), guard.getInstanceId(), "START", guard.getRegion());
@@ -272,7 +414,9 @@ public class InstanceGuardService {
             guard.setLastStartTime(now);
             guard.setStartCount((guard.getStartCount() == null ? 0 : guard.getStartCount()) + 1);
             guard.setConsecutiveFailures(0);
-            guard.setLastMessage(restartLoop ? "再次检测到 STOPPED，已重新启动" : "检测到 STOPPED，已自动启动");
+            guard.setLastMessage(restartLoop ? "再次检测到 STOPPED，已重新启动"
+                    : "检测到 STOPPED，已自动启动"
+                            + (stopCause == null ? "" : "｜原因：" + stopCause));
             // 内部确认排期：正常场景稍后确认启动结果并补发成功通知；
             // 刚启动过又停的（疑似反复停机）回到用户设置的间隔，避免刷屏。
             guard.setNextCheckTime(restartLoop
