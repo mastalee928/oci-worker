@@ -383,6 +383,7 @@ public class TaskSchedulerService implements SmartLifecycle {
                     + "📊 <b>配置：</b>" + normalized[0] + "C / " + normalized[1] + "GB / "
                     + diskConfig + "\n"
                     + "🔢 <b>数量：</b>" + normalizedCreateNumbers + "\n"
+                    + "📡 <b>容量探测：</b>" + capacityProbeLabel(task.getCapacityProbeMode()) + "\n"
                     + loginLine;
             notificationService.sendHtmlWithType(NotificationService.TYPE_TASK_CREATE, html);
         } catch (RuntimeException e) {
@@ -684,6 +685,7 @@ public class TaskSchedulerService implements SmartLifecycle {
                 + "📊 <b>配置：</b>" + task.getOcpus() + "C / " + task.getMemory() + "GB / "
                 + diskConfig + "\n"
                 + "🔢 <b>数量：</b>" + task.getCreateNumbers() + "\n"
+                + "📡 <b>容量探测：</b>" + capacityProbeLabel(task.getCapacityProbeMode()) + "\n"
                 + buildNotifyLoginLine(task)
                 + (wasRunning ? "\n♻️ 任务运行中，已按新配置重新调度" : "");
         notificationService.sendHtmlWithType(NotificationService.TYPE_TASK_CREATE, html);
@@ -1742,6 +1744,14 @@ public class TaskSchedulerService implements SmartLifecycle {
             return ",Shape:[" + shapeOrArchitecture.trim() + "]";
         }
         return "";
+    }
+
+    private static String capacityProbeLabel(String mode) {
+        return switch (CapacityProbeService.normalizeMode(mode)) {
+            case CapacityProbeService.MODE_REFERENCE -> "仅参考";
+            case CapacityProbeService.MODE_THROTTLE -> "智能节流";
+            default -> "关闭";
+        };
     }
 
     private static final class TaskHandle {
