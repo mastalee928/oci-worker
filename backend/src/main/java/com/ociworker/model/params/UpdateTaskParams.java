@@ -23,4 +23,6 @@ public class UpdateTaskParams {
     private String customScript;
     private Boolean assignPublicIp;
     private Boolean assignIpv6;
+    /** 容量探测：OFF / REFERENCE / THROTTLE；null 表示不修改 */
+    private String capacityProbeMode;
 }

@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS oci_create_task (
     operation_system VARCHAR(64) DEFAULT 'Ubuntu',
     instance_name VARCHAR(255) DEFAULT NULL,
     custom_script TEXT,
+    capacity_probe_mode VARCHAR(16) DEFAULT 'OFF',
     status VARCHAR(16) DEFAULT 'RUNNING',
     status_time DATETIME DEFAULT NULL,
     attempt_count INT DEFAULT 0,

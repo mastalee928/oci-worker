@@ -51,3 +51,7 @@ export function batchDeleteTask(data: { taskIds: string[] }) {
 export function batchRunningCount(data: { taskIds: string[] }) {
   return request.post('/oci/task/batchRunningCount', data)
 }
+
+export function getTaskProbeStatus(data: { taskIds: string[] }) {
+  return request.post('/oci/task/probeStatus', data)
+}

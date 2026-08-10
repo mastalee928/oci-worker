@@ -4,6 +4,7 @@ import com.ociworker.model.params.CreateTaskParams;
 import com.ociworker.model.params.PageParams;
 import com.ociworker.model.params.UpdateTaskParams;
 import com.ociworker.model.vo.ResponseData;
+import com.ociworker.service.CapacityProbeService;
 import com.ociworker.service.TaskSchedulerService;
 import jakarta.annotation.Resource;
 import jakarta.validation.Valid;
@@ -22,6 +23,8 @@ public class TaskController {
 
     @Resource
     private TaskSchedulerService taskSchedulerService;
+    @Resource
+    private CapacityProbeService capacityProbeService;
 
     @PostMapping("/list")
     public ResponseData<?> list(@RequestBody PageParams params) {
@@ -42,6 +45,7 @@ public class TaskController {
                 params.getRootPassword(), params.getLoginMode(), params.getSshPublicKey(), params.getOperationSystem(), params.getInstanceName(),
                 params.getCustomScript(),
                 params.getAssignPublicIp(), params.getAssignIpv6(),
+                params.getCapacityProbeMode(),
                 params.getOciRegion());
         return ResponseData.ok();
     }
@@ -54,8 +58,14 @@ public class TaskController {
                 params.getCreateNumbers(), params.getInterval(),
                 params.getRootPassword(), params.getLoginMode(), params.getSshPublicKey(), params.getOperationSystem(), params.getInstanceName(),
                 params.getCustomScript(),
-                params.getAssignPublicIp(), params.getAssignIpv6());
+                params.getAssignPublicIp(), params.getAssignIpv6(),
+                params.getCapacityProbeMode());
         return ResponseData.ok();
+    }
+
+    @PostMapping("/probeStatus")
+    public ResponseData<?> probeStatus(@RequestBody Map<String, Object> params) {
+        return ResponseData.ok(capacityProbeService.probeStatus(extractStringList(params, "taskIds")));
     }
 
     @PostMapping("/stop")

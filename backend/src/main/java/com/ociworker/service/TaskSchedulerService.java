@@ -63,6 +63,8 @@ public class TaskSchedulerService implements SmartLifecycle {
     @Resource
     private NotificationService notificationService;
     @Resource
+    private CapacityProbeService capacityProbeService;
+    @Resource
     private OciKvMapper kvMapper;
     @Resource
     private AdaptiveLaunchConcurrency adaptiveLaunchConcurrency;
@@ -279,7 +281,8 @@ public class TaskSchedulerService implements SmartLifecycle {
                            Integer disk, Integer vpusPerGB, Integer createNumbers, Integer interval,
                            String rootPassword, String loginMode, String sshPublicKey,
                            String operationSystem, String instanceName, String customScript,
-                           Boolean assignPublicIp, Boolean assignIpv6, String ociRegionOverride) {
+                           Boolean assignPublicIp, Boolean assignIpv6, String capacityProbeMode,
+                           String ociRegionOverride) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
         String normalizedArchitecture = normalizeTaskArchitecture(architecture);
@@ -350,6 +353,7 @@ public class TaskSchedulerService implements SmartLifecycle {
             task.setCustomScript(customScript);
             task.setAssignPublicIp(normalizedAssignPublicIp);
             task.setAssignIpv6(normalizedAssignIpv6);
+            task.setCapacityProbeMode(CapacityProbeService.normalizeMode(capacityProbeMode));
             task.setStatus(TaskStatusEnum.RUNNING.getStatus());
             task.setAttemptCount(0);
             task.setSuccessCount(0);
@@ -579,7 +583,7 @@ public class TaskSchedulerService implements SmartLifecycle {
                            Integer disk, Integer vpusPerGB, Integer createNumbers, Integer interval,
                            String rootPassword, String loginMode, String sshPublicKey,
                            String operationSystem, String instanceName, String customScript,
-                           Boolean assignPublicIp, Boolean assignIpv6) {
+                           Boolean assignPublicIp, Boolean assignIpv6, String capacityProbeMode) {
         OciCreateTask task = taskMapper.selectById(taskId);
         if (task == null) throw new OciException("任务不存在");
 
@@ -616,6 +620,9 @@ public class TaskSchedulerService implements SmartLifecycle {
         if (customScript != null) task.setCustomScript(customScript);
         if (assignPublicIp != null) task.setAssignPublicIp(assignPublicIp);
         if (assignIpv6 != null) task.setAssignIpv6(assignIpv6);
+        if (capacityProbeMode != null) {
+            task.setCapacityProbeMode(CapacityProbeService.normalizeMode(capacityProbeMode));
+        }
         task.setInstanceName(normalizeInstanceName(task.getInstanceName(), task.getCreateNumbers()));
         double[] normalized = ShapeFlexLimitsUtil.normalizeAndLogIfAdjusted(
                 task.getArchitecture(), task.getOcpus(), task.getMemory(), "更新开机任务");
@@ -641,7 +648,8 @@ public class TaskSchedulerService implements SmartLifecycle {
                 .set("instance_name", task.getInstanceName())
                 .set("custom_script", task.getCustomScript())
                 .set("assign_public_ip", task.getAssignPublicIp())
-                .set("assign_ipv6", task.getAssignIpv6());
+                .set("assign_ipv6", task.getAssignIpv6())
+                .set("capacity_probe_mode", task.getCapacityProbeMode());
         if (wasRunning) {
             update.set("failure_reason", null);
         }
@@ -685,6 +693,7 @@ public class TaskSchedulerService implements SmartLifecycle {
         cancelTaskSchedule(taskId);
         clearTaskExcludedAds(taskId);
         clearServiceLimitNotifyState(taskId);
+        capacityProbeService.clearTask(taskId);
     }
 
     public void stopTask(String taskId) {
@@ -961,6 +970,18 @@ public class TaskSchedulerService implements SmartLifecycle {
             arch = dto.getArchitecture();
             String series = ShapeSeriesUtil.resolveSeries(arch);
             if (isSuperseded(taskId, handle)) return AttemptOutcome.TERMINAL;
+            if (capacityProbeService.isActive(fresh.getCapacityProbeMode())) {
+                CapacityProbeService.ProbeOutcome probe = capacityProbeService.evaluate(
+                        taskId, dto, fresh.getCapacityProbeMode(),
+                        fresh.getArchitecture(), launchNorm[0], launchNorm[1]);
+                if (probe.summary() != null) {
+                    broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s] - 容量探测：%s",
+                            user, region, probe.summary()));
+                }
+                if (probe.skip()) {
+                    return AttemptOutcome.NORMAL;
+                }
+            }
             int attempt = incrementAttempt(taskId);
             if (attempt < 0) return AttemptOutcome.TERMINAL;
             broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],系统架构:[%s],开机数量:[%d],开始执行第 [%d] 次创建实例操作...",

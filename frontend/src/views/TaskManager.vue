@@ -138,6 +138,9 @@
           </div>
           <div class="mobile-card-row"><span class="label">间隔</span><span class="value">{{ task.intervalSeconds }}s</span></div>
           <div class="mobile-card-row"><span class="label">尝试</span><span class="value">{{ task.attemptCount }} 次</span></div>
+          <div v-if="task.capacityProbeMode && task.capacityProbeMode !== 'OFF'" class="mobile-card-row">
+            <span class="label">容量探测</span><span class="value">{{ probeText(task) }}</span>
+          </div>
           <div class="mobile-card-row"><span class="label">创建</span><span class="value">{{ task.createTime }}</span></div>
         </div>
         <div class="mobile-card-actions">
@@ -297,7 +300,7 @@
             />
           </div>
         </div>
-        <div style="display: flex; align-items: center; gap: 32px; margin-bottom: 16px">
+        <div style="display: flex; align-items: center; gap: 24px; row-gap: 12px; flex-wrap: wrap; margin-bottom: 16px">
           <span style="display: inline-flex; align-items: center; gap: 8px">
             <a-switch v-model:checked="createForm.assignPublicIp" />
             <span>公网IP</span>
@@ -305,6 +308,21 @@
           <span style="display: inline-flex; align-items: center; gap: 8px">
             <a-switch v-model:checked="createForm.assignIpv6" />
             <span>IPv6</span>
+          </span>
+          <span style="display: inline-flex; align-items: center; gap: 8px">
+            <span style="display: inline-flex; align-items: center; gap: 4px">
+              容量探测
+              <a-tooltip placement="top">
+                <template #title>
+                  <div>关闭：不探测，按设定间隔直接尝试开机</div>
+                  <div>仅参考：每轮查询 Oracle 容量报告，结果仅展示，不影响开机节奏</div>
+                  <div>智能节流：报告无货时降低尝试频率（每 5 轮仍真实尝试 1 次），探测到有货立刻恢复全速</div>
+                  <div style="margin-top: 4px; opacity: 0.75">容量报告由 Oracle 提供，仅供参考，不保证与实际开机结果一致</div>
+                </template>
+                <InfoCircleOutlined style="color: var(--text-sub)" />
+              </a-tooltip>
+            </span>
+            <a-segmented v-model:value="createForm.capacityProbeMode" :options="capacityProbeOptions" size="small" />
           </span>
         </div>
         <a-form-item label="自定义开机脚本（cloud-init）">
@@ -430,7 +448,7 @@
             />
           </div>
         </div>
-        <div style="display: flex; align-items: center; gap: 32px; margin-bottom: 16px">
+        <div style="display: flex; align-items: center; gap: 24px; row-gap: 12px; flex-wrap: wrap; margin-bottom: 16px">
           <span style="display: inline-flex; align-items: center; gap: 8px">
             <a-switch v-model:checked="editForm.assignPublicIp" />
             <span>公网IP</span>
@@ -438,6 +456,21 @@
           <span style="display: inline-flex; align-items: center; gap: 8px">
             <a-switch v-model:checked="editForm.assignIpv6" />
             <span>IPv6</span>
+          </span>
+          <span style="display: inline-flex; align-items: center; gap: 8px">
+            <span style="display: inline-flex; align-items: center; gap: 4px">
+              容量探测
+              <a-tooltip placement="top">
+                <template #title>
+                  <div>关闭：不探测，按设定间隔直接尝试开机</div>
+                  <div>仅参考：每轮查询 Oracle 容量报告，结果仅展示，不影响开机节奏</div>
+                  <div>智能节流：报告无货时降低尝试频率（每 5 轮仍真实尝试 1 次），探测到有货立刻恢复全速</div>
+                  <div style="margin-top: 4px; opacity: 0.75">容量报告由 Oracle 提供，仅供参考，不保证与实际开机结果一致</div>
+                </template>
+                <InfoCircleOutlined style="color: var(--text-sub)" />
+              </a-tooltip>
+            </span>
+            <a-segmented v-model:value="editForm.capacityProbeMode" :options="capacityProbeOptions" size="small" />
           </span>
         </div>
         <a-form-item label="自定义开机脚本（cloud-init）">
@@ -471,6 +504,10 @@
               </a-descriptions-item>
               <a-descriptions-item label="公网IP">{{ detailData.assignPublicIp ? '启用' : '禁用' }}</a-descriptions-item>
               <a-descriptions-item label="IPv6">{{ detailData.assignIpv6 ? '启用' : '禁用' }}</a-descriptions-item>
+              <a-descriptions-item label="容量探测">{{
+                detailData.capacityProbeMode === 'THROTTLE' ? '智能节流'
+                  : detailData.capacityProbeMode === 'REFERENCE' ? '仅参考' : '关闭'
+              }}</a-descriptions-item>
               <a-descriptions-item label="状态">
                 <a-badge :status="badgeStatusMap[detailData.status] || 'default'" :text="statusMap[detailData.status] || detailData.status" />
               </a-descriptions-item>
@@ -569,9 +606,9 @@
 <script setup lang="ts">
 defineOptions({ name: 'TaskManager' })
 import { ref, reactive, computed, onActivated, onMounted, onUnmounted, watch, type CSSProperties } from 'vue'
-import { PlusOutlined, ReloadOutlined } from '@ant-design/icons-vue'
+import { PlusOutlined, ReloadOutlined, InfoCircleOutlined } from '@ant-design/icons-vue'
 import { message, Modal } from 'ant-design-vue'
-import { getTaskList, createTask, updateTask, stopTask, hasRunningTask, resumeTask, deleteTask, batchStopTask, batchResumeTask, batchDeleteTask, batchRunningCount, getTaskDetail } from '../api/task'
+import { getTaskList, createTask, updateTask, stopTask, hasRunningTask, resumeTask, deleteTask, batchStopTask, batchResumeTask, batchDeleteTask, batchRunningCount, getTaskDetail, getTaskProbeStatus } from '../api/task'
 import { getTenantList } from '../api/tenant'
 import { getAvailableShapes } from '../api/instance'
 import { getTaskCredential } from '../api/system'
@@ -637,9 +674,49 @@ const columns = [
   { title: '间隔(s)', dataIndex: 'intervalSeconds', key: 'intervalSeconds', width: 80 },
   { title: '状态', dataIndex: 'status', key: 'status', width: 100 },
   { title: '尝试次数', dataIndex: 'attemptCount', key: 'attemptCount', width: 90 },
+  {
+    title: '容量探测',
+    key: 'capacityProbe',
+    width: 170,
+    customRender: ({ record }: any) => probeText(record),
+  },
   { title: '创建时间', dataIndex: 'createTime', key: 'createTime', width: 180 },
   { title: '操作', key: 'action', width: 200 },
 ]
+
+const capacityProbeOptions = [
+  { label: '关闭', value: 'OFF' },
+  { label: '仅参考', value: 'REFERENCE' },
+  { label: '智能节流', value: 'THROTTLE' },
+]
+
+const probeStatusMap = ref<Record<string, any>>({})
+
+function probeText(record: any) {
+  const mode = String(record?.capacityProbeMode || 'OFF')
+  if (mode === 'OFF') return '—'
+  const snapshot = probeStatusMap.value[String(record?.id || '')]
+  if (!snapshot) return record?.status === 'RUNNING' ? '待探测' : '—'
+  const age = Math.max(0, Math.round((Date.now() - Number(snapshot.time || 0)) / 1000))
+  const ageText = age < 60 ? `${age} 秒前` : `${Math.round(age / 60)} 分钟前`
+  return `${snapshot.summary || '探测中'} · ${ageText}`
+}
+
+async function loadProbeStatus() {
+  const ids = tableData.value
+    .filter(row => row?.status === 'RUNNING' && row?.capacityProbeMode && row.capacityProbeMode !== 'OFF')
+    .map(row => String(row.id))
+  if (!ids.length) {
+    probeStatusMap.value = {}
+    return
+  }
+  try {
+    const res = await getTaskProbeStatus({ taskIds: ids })
+    probeStatusMap.value = res.data || {}
+  } catch {
+    // 探测状态是辅助信息，拉取失败不打扰用户。
+  }
+}
 
 type TaskRowKey = string | number
 
@@ -691,6 +768,7 @@ const createForm = reactive({
   ocpus: 1, memory: 6, disk: 50, vpusPerGB: 10, createNumbers: 1, interval: 60, rootPassword: '',
   loginMode: 'PASSWORD', sshPublicKey: '',
   customScript: '', assignPublicIp: true, assignIpv6: false,
+  capacityProbeMode: 'OFF',
 })
 
 const createBmLocked = ref(false)
@@ -739,6 +817,7 @@ const editForm = reactive({
   ocpus: 1, memory: 6, disk: 50, vpusPerGB: 10, createNumbers: 1, interval: 60, rootPassword: '',
   loginMode: 'PASSWORD', sshPublicKey: '',
   customScript: '', assignPublicIp: true, assignIpv6: false,
+  capacityProbeMode: 'OFF',
 })
 const {
   tiers: editDenseIoTiers,
@@ -835,6 +914,7 @@ async function showEditModal(record: any) {
     customScript: record.customScript || '',
     assignPublicIp: record.assignPublicIp ?? true,
     assignIpv6: record.assignIpv6 ?? false,
+    capacityProbeMode: record.capacityProbeMode || 'OFF',
   })
   editBmLocked.value = applyTaskShapeDefaults(editForm, editAvailableShapes.value)
   editVisible.value = true
@@ -929,6 +1009,7 @@ async function loadData() {
     })
     tableData.value = res.data.records || []
     pagination.total = res.data.total || 0
+    void loadProbeStatus()
   } catch (e: any) {
     message.error(e?.message || '加载任务列表失败')
   } finally {

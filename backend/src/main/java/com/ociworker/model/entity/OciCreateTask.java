@@ -31,6 +31,8 @@ public class OciCreateTask {
     private String customScript;
     private Boolean assignPublicIp;
     private Boolean assignIpv6;
+    /** 容量探测档位：OFF / REFERENCE / THROTTLE，空视为 OFF */
+    private String capacityProbeMode;
     private String status;
     private LocalDateTime statusTime;
     private Integer attemptCount;
