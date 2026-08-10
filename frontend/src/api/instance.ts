@@ -69,6 +69,7 @@ export interface InstanceGuardRecord {
   enabled: boolean
   intervalMinutes?: number | null
   nextCheckTime?: string | null
+  notifyMuted?: boolean | null
   lastState?: string | null
   lastCheckTime?: string | null
   lastStartTime?: string | null
@@ -105,6 +106,10 @@ export function toggleInstanceGuard(data: { guardId: string; enabled: boolean })
 
 export function setInstanceGuardInterval(data: { guardId: string; intervalMinutes: number }) {
   return request.post<InstanceGuardStatus>('/oci/instanceGuard/interval', data)
+}
+
+export function setInstanceGuardNotify(data: { guardId: string; muted: boolean }) {
+  return request.post<InstanceGuardStatus>('/oci/instanceGuard/notify', data)
 }
 
 export function deleteInstanceGuard(data: { guardId: string }) {

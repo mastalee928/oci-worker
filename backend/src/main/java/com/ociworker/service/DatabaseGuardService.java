@@ -491,6 +491,7 @@ public class DatabaseGuardService {
                 enabled TINYINT(1) NOT NULL DEFAULT 1,
                 interval_minutes INT NOT NULL DEFAULT 2,
                 next_check_time DATETIME DEFAULT NULL,
+                notify_muted TINYINT(1) NOT NULL DEFAULT 0,
                 last_state VARCHAR(32) DEFAULT NULL,
                 last_check_time DATETIME DEFAULT NULL,
                 last_start_time DATETIME DEFAULT NULL,
@@ -671,6 +672,7 @@ public class DatabaseGuardService {
     private void migrateColumns(Connection conn) {
         addColumnIfMissing(conn, "oci_instance_guard", "interval_minutes", "INT NOT NULL DEFAULT 2 AFTER enabled");
         addColumnIfMissing(conn, "oci_instance_guard", "next_check_time", "DATETIME DEFAULT NULL AFTER interval_minutes");
+        addColumnIfMissing(conn, "oci_instance_guard", "notify_muted", "TINYINT(1) NOT NULL DEFAULT 0 AFTER next_check_time");
         addColumnIfMissing(conn, "oci_user", "tenant_name_status", "VARCHAR(32) DEFAULT 'PENDING' AFTER tenant_create_time");
         addColumnIfMissing(conn, "oci_user", "tenant_name_error", "VARCHAR(512) DEFAULT NULL AFTER tenant_name_status");
         addColumnIfMissing(conn, "oci_user", "tenant_name_updated_at", "DATETIME DEFAULT NULL AFTER tenant_name_error");

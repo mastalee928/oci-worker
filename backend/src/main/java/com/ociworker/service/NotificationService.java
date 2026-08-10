@@ -106,6 +106,33 @@ public class NotificationService {
         sendTelegramPlain(getKvValue(SysCfgEnum.TG_BOT_TOKEN), getKvValue(SysCfgEnum.TG_CHAT_ID), message);
     }
 
+    /** 纯文本 + 内联按钮，不经通知类型开关（调用方自行控制是否发送）。 */
+    public void sendMessageWithInlineKeyboard(
+            String message, java.util.List<java.util.List<Map<String, String>>> inlineKeyboard) {
+        try {
+            String botToken = getKvValue(SysCfgEnum.TG_BOT_TOKEN);
+            String chatId = getKvValue(SysCfgEnum.TG_CHAT_ID);
+            if (StrUtil.isBlank(botToken) || StrUtil.isBlank(chatId) || StrUtil.isBlank(message)) return;
+
+            String url = String.format("https://api.telegram.org/bot%s/sendMessage", botToken);
+            Map<String, Object> body = new java.util.LinkedHashMap<>();
+            body.put("chat_id", chatId);
+            body.put("text", message);
+            if (inlineKeyboard != null && !inlineKeyboard.isEmpty()) {
+                body.put("reply_markup", Map.of("inline_keyboard", inlineKeyboard));
+            }
+            HttpClient c = ociProxyConfigService.newOutboundHttpClient();
+            HttpRequest req = HttpRequest.newBuilder(URI.create(url))
+                    .header("Content-Type", "application/json")
+                    .POST(HttpRequest.BodyPublishers.ofString(JSONUtil.toJsonStr(body)))
+                    .timeout(Duration.ofSeconds(10))
+                    .build();
+            sendTelegramMessageWithRetry(c, req, "sendMessage(text-keyboard)");
+        } catch (Exception e) {
+            log.warn("Failed to send Telegram keyboard message: {}", e.getMessage());
+        }
+    }
+
     public void sendHtmlWithType(String notifyType, String html) {
         if (!isTypeEnabled(notifyType)) return;
         sendTelegramHtml(html, null);

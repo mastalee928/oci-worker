@@ -20,6 +20,7 @@ public class OciInstanceGuard {
     private Boolean enabled;
     private Integer intervalMinutes;
     private Date nextCheckTime;
+    private Boolean notifyMuted;
     private String lastState;
     private Date lastCheckTime;
     private Date lastStartTime;

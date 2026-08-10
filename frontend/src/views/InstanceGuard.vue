@@ -71,6 +71,12 @@
             </a-tooltip>
           </template>
           <template v-else-if="column.key === 'actions'">
+            <a-button
+              type="text"
+              size="small"
+              :disabled="busyIds.has(record.id)"
+              @click="toggleNotify(record)"
+            >{{ record.notifyMuted ? '恢复通知' : '静音' }}</a-button>
             <a-popconfirm title="确定删除该守护？不会影响实例本身。" @confirm="removeRecord(record)">
               <a-button type="text" danger size="small">删除</a-button>
             </a-popconfirm>
@@ -146,6 +152,7 @@ import {
   listInstanceGuards,
   saveInstanceGuard,
   setInstanceGuardInterval,
+  setInstanceGuardNotify,
   toggleInstanceGuard,
   type InstanceGuardRecord,
 } from '../api/instance'
@@ -185,7 +192,7 @@ const columns = [
   { title: '自动启动', key: 'startCount', width: 90 },
   { title: '最近检测', key: 'lastCheck', width: 170 },
   { title: '最近消息', key: 'message' },
-  { title: '操作', key: 'actions', width: 80 },
+  { title: '操作', key: 'actions', width: 140 },
 ]
 
 const enabledCount = computed(() => records.value.filter(record => record.enabled).length)
@@ -264,6 +271,21 @@ async function changeInterval(record: InstanceGuardRecord, value: unknown) {
   } catch (error: any) {
     message.error(error?.message || '修改间隔失败')
     void loadRecords(true)
+  } finally {
+    busyIds.delete(record.id)
+  }
+}
+
+async function toggleNotify(record: InstanceGuardRecord) {
+  if (busyIds.has(record.id)) return
+  const muted = !record.notifyMuted
+  busyIds.add(record.id)
+  try {
+    await setInstanceGuardNotify({ guardId: record.id, muted })
+    record.notifyMuted = muted
+    message.success(muted ? '已停止该实例的守护通知' : '已恢复该实例的守护通知')
+  } catch (error: any) {
+    message.error(error?.message || '操作失败')
   } finally {
     busyIds.delete(record.id)
   }

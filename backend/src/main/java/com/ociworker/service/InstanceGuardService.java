@@ -35,6 +35,8 @@ public class InstanceGuardService {
     private static final int NOTIFY_AFTER_FAILURES = 3;
     /** START 之后的内部验收延迟：仅影响排期，不对用户暴露。 */
     private static final long VERIFY_DELAY_MILLIS = 30_000L;
+    private static final String CALLBACK_MUTE = "iguard_mute:";
+    private static final String CALLBACK_OFF = "iguard_off:";
     static final int DEFAULT_INTERVAL_MINUTES = 2;
     static final int MIN_INTERVAL_MINUTES = 1;
     static final int MAX_INTERVAL_MINUTES = 1440;
@@ -101,6 +103,7 @@ public class InstanceGuardService {
         // 开启后立刻进入下一个调度节拍检测一次。
         guard.setNextCheckTime(enabled ? now : null);
         guard.setConsecutiveFailures(0);
+        guard.setNotifyMuted(false);
         guard.setLastMessage(enabled ? "守护已开启，等待下一轮检测" : "守护已关闭");
         guard.setUpdateTime(now);
         if (isNew) {
@@ -121,7 +124,16 @@ public class InstanceGuardService {
         guard.setEnabled(enabled);
         guard.setNextCheckTime(enabled ? new Date() : null);
         guard.setConsecutiveFailures(0);
+        if (enabled) guard.setNotifyMuted(false);
         guard.setLastMessage(enabled ? "守护已开启，等待下一轮检测" : "守护已关闭");
+        guard.setUpdateTime(new Date());
+        guardMapper.updateById(guard);
+        return toStatus(guard);
+    }
+
+    public Map<String, Object> setNotifyMutedById(String guardId, boolean muted) {
+        OciInstanceGuard guard = requireGuard(guardId);
+        guard.setNotifyMuted(muted);
         guard.setUpdateTime(new Date());
         guardMapper.updateById(guard);
         return toStatus(guard);
@@ -271,7 +283,8 @@ public class InstanceGuardService {
             log.info("实例守护自动启动: tenant={} instance={} region={}",
                     user.getUsername(), guard.getInstanceId(), guard.getRegion());
             if (restartLoop) {
-                notify(user, guard, "实例启动后再次停止，已重新启动。若持续发生请检查实例系统日志。");
+                notifyWithGuardButtons(user, guard,
+                        "实例启动后再次停止，已重新启动。若持续发生请检查实例系统日志。");
             }
         } catch (Exception e) {
             recordFailure(user, guard, "自动启动失败: " + describe(e), true);
@@ -304,7 +317,7 @@ public class InstanceGuardService {
                 ? failures == 1 || failures % NOTIFY_AFTER_FAILURES == 0
                 : failures == NOTIFY_AFTER_FAILURES;
         if (shouldNotify) {
-            notify(user, guard, "自动处理失败（连续第 " + failures + " 次）：" + message
+            notifyWithGuardButtons(user, guard, "自动处理失败（连续第 " + failures + " 次）：" + message
                     + "\n守护会按设定间隔继续重试。");
         }
     }
@@ -317,15 +330,92 @@ public class InstanceGuardService {
     }
 
     private void notify(OciUser user, OciInstanceGuard guard, String body) {
+        if (Boolean.TRUE.equals(guard.getNotifyMuted())) return;
         try {
-            String name = guard.getInstanceName() == null || guard.getInstanceName().isBlank()
-                    ? guard.getInstanceId() : guard.getInstanceName();
-            notificationService.sendMessage("【OCIWorker 实例守护】\n\n租户：" + user.getUsername()
-                    + "\n实例：" + name
-                    + "\n区域：" + guard.getRegion()
-                    + "\n" + body);
+            notificationService.sendMessage(buildNotifyText(user, guard, body));
         } catch (Exception e) {
             log.debug("实例守护通知发送失败: {}", e.getMessage());
+        }
+    }
+
+    /** 失败类通知：附带「停止通知 / 停止检测」按钮，均只作用于该实例。 */
+    private void notifyWithGuardButtons(OciUser user, OciInstanceGuard guard, String body) {
+        if (Boolean.TRUE.equals(guard.getNotifyMuted())) return;
+        try {
+            notificationService.sendMessageWithInlineKeyboard(
+                    buildNotifyText(user, guard, body),
+                    List.of(List.of(
+                            Map.of("text", "🔕 停止通知", "callback_data", CALLBACK_MUTE + guard.getId()),
+                            Map.of("text", "⏹ 停止检测", "callback_data", CALLBACK_OFF + guard.getId()))));
+        } catch (Exception e) {
+            log.debug("实例守护通知发送失败: {}", e.getMessage());
+        }
+    }
+
+    private static String buildNotifyText(OciUser user, OciInstanceGuard guard, String body) {
+        return "【OCIWorker 实例守护】\n\n租户：" + user.getUsername()
+                + "\n实例：" + guardDisplayName(guard)
+                + "\n区域：" + guard.getRegion()
+                + "\n" + body;
+    }
+
+    private static String guardDisplayName(OciInstanceGuard guard) {
+        return guard.getInstanceName() == null || guard.getInstanceName().isBlank()
+                ? guard.getInstanceId() : guard.getInstanceName();
+    }
+
+    public boolean tryHandleTelegramCallback(String rawData, String callbackQueryId,
+                                             String answeringBotToken) {
+        if (rawData == null || !rawData.startsWith("iguard_")) return false;
+        try {
+            if (rawData.startsWith(CALLBACK_MUTE)) {
+                OciInstanceGuard guard = guardMapper.selectById(
+                        rawData.substring(CALLBACK_MUTE.length()));
+                if (guard == null) {
+                    answerCallback(callbackQueryId, "守护记录不存在或已删除", answeringBotToken);
+                    return true;
+                }
+                guard.setNotifyMuted(true);
+                guard.setUpdateTime(new Date());
+                guardMapper.updateById(guard);
+                answerCallback(callbackQueryId, "已停止该实例的守护通知", answeringBotToken);
+                notificationService.sendMessage("【OCIWorker 实例守护】\n\n已停止实例 "
+                        + guardDisplayName(guard) + " 的守护通知，检测和自动启动仍在继续。"
+                        + "\n可在「实例守护」页面恢复通知。");
+                return true;
+            }
+            if (rawData.startsWith(CALLBACK_OFF)) {
+                OciInstanceGuard guard = guardMapper.selectById(
+                        rawData.substring(CALLBACK_OFF.length()));
+                if (guard == null) {
+                    answerCallback(callbackQueryId, "守护记录不存在或已删除", answeringBotToken);
+                    return true;
+                }
+                guard.setEnabled(false);
+                guard.setNextCheckTime(null);
+                guard.setLastMessage("已通过 Telegram 停止检测");
+                guard.setUpdateTime(new Date());
+                guardMapper.updateById(guard);
+                answerCallback(callbackQueryId, "已停止检测该实例", answeringBotToken);
+                notificationService.sendMessage("【OCIWorker 实例守护】\n\n已停止实例 "
+                        + guardDisplayName(guard) + " 的守护检测。"
+                        + "\n可在「实例守护」页面重新开启。");
+                return true;
+            }
+            answerCallback(callbackQueryId, "无效操作", answeringBotToken);
+            return true;
+        } catch (Exception e) {
+            log.warn("实例守护 TG 回调处理失败: {}", e.getMessage());
+            answerCallback(callbackQueryId, "处理失败，请稍后重试", answeringBotToken);
+            return true;
+        }
+    }
+
+    private void answerCallback(String callbackQueryId, String text, String botToken) {
+        try {
+            notificationService.answerTelegramCallbackQuery(callbackQueryId, text, false, botToken);
+        } catch (Exception e) {
+            log.debug("实例守护回调应答失败: {}", e.getMessage());
         }
     }
 

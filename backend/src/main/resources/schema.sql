@@ -427,6 +427,7 @@ CREATE TABLE IF NOT EXISTS oci_instance_guard (
     enabled TINYINT(1) NOT NULL DEFAULT 1,
     interval_minutes INT NOT NULL DEFAULT 2,
     next_check_time DATETIME DEFAULT NULL,
+    notify_muted TINYINT(1) NOT NULL DEFAULT 0,
     last_state VARCHAR(32) DEFAULT NULL,
     last_check_time DATETIME DEFAULT NULL,
     last_start_time DATETIME DEFAULT NULL,

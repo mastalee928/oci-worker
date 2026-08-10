@@ -49,6 +49,14 @@ public class InstanceGuardController {
                 text(params.get("guardId")), intValue(params.get("intervalMinutes"))));
     }
 
+    @PostMapping("/notify")
+    public ResponseData<?> notifyMuted(@RequestBody Map<String, Object> params) {
+        boolean muted = Boolean.TRUE.equals(params.get("muted"))
+                || "true".equalsIgnoreCase(String.valueOf(params.get("muted")));
+        return ResponseData.ok(instanceGuardService.setNotifyMutedById(
+                text(params.get("guardId")), muted));
+    }
+
     @PostMapping("/delete")
     public ResponseData<?> delete(@RequestBody Map<String, Object> params) {
         instanceGuardService.deleteById(text(params.get("guardId")));
