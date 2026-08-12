@@ -1404,7 +1404,8 @@ function buildTerminalTheme() {
         foreground: savedColors.fg === '#e8e8f0' || savedColors.fg === '#1a1a2e' ? defaultFg : savedColors.fg,
         cursor: savedColors.cursor === '#00d4ff' || savedColors.cursor === '#0088cc' ? defaultCursor : savedColors.cursor,
         cursorAccent: isLight ? '#e8eaf0' : '#0a0a1a',
-        selectionBackground: 'rgba(0,136,204,.25)',
+        // WebGL 渲染器在透明背景下合成带 alpha 的选区色会画成黑块，选区必须用实色。
+        selectionBackground: isLight ? '#a9d3f5' : '#2b5d84',
         black: isLight ? '#e8e8f0' : '#1a1a2e',
         red: '#ff006e',
         green: isLight ? '#008844' : '#00ff88',
