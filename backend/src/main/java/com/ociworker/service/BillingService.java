@@ -529,34 +529,42 @@ public class BillingService {
 
     private static Address addressFromParams(Map<String, Object> params, Address current) {
         Address.Builder builder = current == null ? Address.builder() : current.toBuilder();
-        builder
-                .addressKey(firstNonBlank(text(params, "addressKey"), current == null ? null : current.getAddressKey()))
-                .line1(firstNonBlank(text(params, "line1"), current == null ? null : current.getLine1()))
-                .line2(firstNonBlank(text(params, "line2"), current == null ? null : current.getLine2()))
-                .line3(firstNonBlank(text(params, "line3"), current == null ? null : current.getLine3()))
-                .line4(firstNonBlank(text(params, "line4"), current == null ? null : current.getLine4()))
-                .streetName(firstNonBlank(text(params, "streetName"), current == null ? null : current.getStreetName()))
-                .streetNumber(firstNonBlank(text(params, "streetNumber"), current == null ? null : current.getStreetNumber()))
-                .city(firstNonBlank(text(params, "city"), current == null ? null : current.getCity()))
-                .county(firstNonBlank(text(params, "county"), current == null ? null : current.getCounty()))
-                .country(firstNonBlank(text(params, "country"), current == null ? null : current.getCountry()))
-                .province(firstNonBlank(text(params, "province"), current == null ? null : current.getProvince()))
-                .postalCode(firstNonBlank(text(params, "postalCode"), current == null ? null : current.getPostalCode()))
-                .state(firstNonBlank(text(params, "state"), current == null ? null : current.getState()))
-                .emailAddress(firstNonBlank(text(params, "emailAddress"), current == null ? null : current.getEmailAddress()))
-                .companyName(firstNonBlank(text(params, "companyName"), current == null ? null : current.getCompanyName()))
-                .firstName(firstNonBlank(text(params, "firstName"), current == null ? null : current.getFirstName()))
-                .middleName(firstNonBlank(text(params, "middleName"), current == null ? null : current.getMiddleName()))
-                .lastName(firstNonBlank(text(params, "lastName"), current == null ? null : current.getLastName()))
-                .phoneCountryCode(firstNonBlank(text(params, "phoneCountryCode"), current == null ? null : current.getPhoneCountryCode()))
-                .phoneNumber(firstNonBlank(text(params, "phoneNumber"), current == null ? null : current.getPhoneNumber()))
-                .jobTitle(firstNonBlank(text(params, "jobTitle"), current == null ? null : current.getJobTitle()))
-                .departmentName(firstNonBlank(text(params, "departmentName"), current == null ? null : current.getDepartmentName()))
-                .internalNumber(firstNonBlank(text(params, "internalNumber"), current == null ? null : current.getInternalNumber()))
-                .contributorClass(firstNonBlank(text(params, "contributorClass"), current == null ? null : current.getContributorClass()))
-                .stateInscription(firstNonBlank(text(params, "stateInscription"), current == null ? null : current.getStateInscription()))
-                .municipalInscription(firstNonBlank(text(params, "municipalInscription"), current == null ? null : current.getMunicipalInscription()));
+        setIfProvided(builder::addressKey, text(params, "addressKey"));
+        setIfProvided(builder::line1, text(params, "line1"));
+        setIfProvided(builder::line2, text(params, "line2"));
+        setIfProvided(builder::line3, text(params, "line3"));
+        setIfProvided(builder::line4, text(params, "line4"));
+        setIfProvided(builder::streetName, text(params, "streetName"));
+        setIfProvided(builder::streetNumber, text(params, "streetNumber"));
+        setIfProvided(builder::city, text(params, "city"));
+        setIfProvided(builder::county, text(params, "county"));
+        setIfProvided(builder::country, text(params, "country"));
+        setIfProvided(builder::province, text(params, "province"));
+        setIfProvided(builder::postalCode, text(params, "postalCode"));
+        setIfProvided(builder::state, text(params, "state"));
+        setIfProvided(builder::emailAddress, text(params, "emailAddress"));
+        setIfProvided(builder::companyName, text(params, "companyName"));
+        setIfProvided(builder::firstName, text(params, "firstName"));
+        setIfProvided(builder::middleName, text(params, "middleName"));
+        setIfProvided(builder::lastName, text(params, "lastName"));
+        setIfProvided(builder::phoneCountryCode, text(params, "phoneCountryCode"));
+        setIfProvided(builder::phoneNumber, text(params, "phoneNumber"));
+        setIfProvided(builder::jobTitle, text(params, "jobTitle"));
+        setIfProvided(builder::departmentName, text(params, "departmentName"));
+        setIfProvided(builder::internalNumber, text(params, "internalNumber"));
+        setIfProvided(builder::contributorClass, text(params, "contributorClass"));
+        setIfProvided(builder::stateInscription, text(params, "stateInscription"));
+        setIfProvided(builder::municipalInscription, text(params, "municipalInscription"));
         return builder.build();
+    }
+
+    /**
+     * OSP 模型是 ExplicitlySetBmcModel：setter 一旦被调用，即使传 null 也会被序列化成
+     * 显式 "field": null 提交给 Oracle，与控制台请求形态不同且可能触发 400。
+     * 因此只对确实传入的非空字段调用 setter，其余保持 GET 返回的原样。
+     */
+    private static void setIfProvided(java.util.function.Consumer<String> setter, String value) {
+        if (StrUtil.isNotBlank(value)) setter.accept(value);
     }
 
     private static Map<String, Object> officialLinks(OciUser user) {
