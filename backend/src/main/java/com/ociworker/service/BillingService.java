@@ -584,12 +584,28 @@ public class BillingService {
             if (first.getStatusCode() != 400 || !message.contains("paymentOption")) {
                 throw first;
             }
-            log.warn("UpdateSubscription 完整回传被拒（{}），载荷: {}；改用最小订阅载荷重试",
+            log.warn("UpdateSubscription 完整回传被拒（{}），载荷: {}；改用身份子集载荷重试",
                     message, details);
-            Subscription minimal = withNonNullPaymentOptions(Subscription.builder()
-                    .subscriptionPlanNumber(current.getSubscriptionPlanNumber())
-                    .planType(current.getPlanType())
-                    .billingAddress(address));
+            // 保留账户身份字段、剔除 paymentGateway/taxInfo/升级状态等触发校验或 500 的回显字段。
+            // 仅对非空值调 setter，避免 ExplicitlySet 序列化出显式 null。
+            Subscription.Builder subsetBuilder = Subscription.builder();
+            if (current.getId() != null) subsetBuilder.id(current.getId());
+            if (current.getSubscriptionPlanNumber() != null) {
+                subsetBuilder.subscriptionPlanNumber(current.getSubscriptionPlanNumber());
+            }
+            if (current.getPlanType() != null) subsetBuilder.planType(current.getPlanType());
+            if (current.getTimeStart() != null) subsetBuilder.timeStart(current.getTimeStart());
+            if (current.getBillToCustAccountId() != null) {
+                subsetBuilder.billToCustAccountId(current.getBillToCustAccountId());
+            }
+            if (current.getIsIntentToPay() != null) subsetBuilder.isIntentToPay(current.getIsIntentToPay());
+            if (current.getCurrencyCode() != null) subsetBuilder.currencyCode(current.getCurrencyCode());
+            if (current.getGsiOrgCode() != null) subsetBuilder.gsiOrgCode(current.getGsiOrgCode());
+            if (current.getLanguageCode() != null) subsetBuilder.languageCode(current.getLanguageCode());
+            if (current.getOrganizationId() != null) subsetBuilder.organizationId(current.getOrganizationId());
+            if (current.getAccountType() != null) subsetBuilder.accountType(current.getAccountType());
+            subsetBuilder.billingAddress(address);
+            Subscription minimal = withNonNullPaymentOptions(subsetBuilder);
             UpdateSubscriptionDetails.Builder minimalDetails = UpdateSubscriptionDetails.builder()
                     .subscription(minimal);
             if (isEmail(email)) minimalDetails.email(email);
@@ -603,7 +619,7 @@ public class BillingService {
             try {
                 return client.updateSubscription(retry.build());
             } catch (BmcException second) {
-                log.warn("UpdateSubscription 最小载荷仍被拒（{}），载荷: {}",
+                log.warn("UpdateSubscription 身份子集载荷仍被拒（{}），载荷: {}",
                         second.getMessage(), minimalDetails.build());
                 throw second;
             }
