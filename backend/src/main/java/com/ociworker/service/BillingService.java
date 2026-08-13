@@ -214,6 +214,7 @@ public class BillingService {
             if (StrUtil.isBlank(resolvedId)) throw new OciException("没有可支付的 OSP 订阅");
             Subscription subscription = getSubscription(subscriptionClient, homeRegion, compartmentId, resolvedId);
             if (subscription == null) throw new OciException("订阅不存在或无权访问");
+            subscription = withNonNullPaymentOptions(subscription.toBuilder());
             String payerEmail = firstValidEmail(email,
                     subscription.getBillingAddress() == null ? null : subscription.getBillingAddress().getEmailAddress(),
                     user.getUsername());
@@ -287,7 +288,8 @@ public class BillingService {
             Subscription current = currentResponse == null ? null : currentResponse.getSubscription();
             if (current == null) throw new OciException("订阅不存在或无权访问");
             Address address = addressFromParams(params, current.getBillingAddress());
-            Subscription updated = current.toBuilder().billingAddress(address).build();
+            Subscription updated = withNonNullPaymentOptions(
+                    current.toBuilder().billingAddress(address));
             UpdateSubscriptionDetails.Builder detailsBuilder = UpdateSubscriptionDetails.builder()
                     .subscription(updated);
             String email = firstValidEmail(text(params, "email"), text(params, "emailAddress"),
@@ -563,6 +565,18 @@ public class BillingService {
      * 显式 "field": null 提交给 Oracle，与控制台请求形态不同且可能触发 400。
      * 因此只对确实传入的非空字段调用 setter，其余保持 GET 返回的原样。
      */
+    /**
+     * OSP UpdateSubscription/PaySubscription 会校验 "paymentOption is null!"：
+     * 无保存支付方式的账户 GET 到的 paymentOptions 为 null，回传前须显式置为空数组。
+     */
+    private static Subscription withNonNullPaymentOptions(Subscription.Builder builder) {
+        Subscription built = builder.build();
+        if (built.getPaymentOptions() == null) {
+            return builder.paymentOptions(java.util.Collections.emptyList()).build();
+        }
+        return built;
+    }
+
     private static void setIfProvided(java.util.function.Consumer<String> setter, String value) {
         if (StrUtil.isNotBlank(value)) setter.accept(value);
     }
