@@ -305,7 +305,8 @@ public class BillingService {
                     .retryConfiguration(RetryConfiguration.NO_RETRY_CONFIGURATION);
             String etag = firstNonBlank(text(params, "ifMatch"), currentResponse.getEtag());
             if (StrUtil.isNotBlank(etag)) request.ifMatch(etag);
-            var response = subscriptionClient.updateSubscription(request.build());
+            var response = updateSubscriptionWithFallback(subscriptionClient, request, details,
+                    homeRegion, compartmentId, subscriptionId, etag, current, address, email);
             Map<String, Object> out = new LinkedHashMap<>();
             out.put("subscriptionId", subscriptionId);
             out.put("etag", response == null ? null : response.getEtag());
@@ -565,6 +566,50 @@ public class BillingService {
      * 显式 "field": null 提交给 Oracle，与控制台请求形态不同且可能触发 400。
      * 因此只对确实传入的非空字段调用 setter，其余保持 GET 返回的原样。
      */
+    /**
+     * OSP UpdateSubscription 存在 "paymentOption is null!" 校验。完整回传订阅被拒时，
+     * 改用只带必要字段的最小订阅载荷重试一次，并把两次载荷写进日志便于定位。
+     */
+    private static com.oracle.bmc.ospgateway.responses.UpdateSubscriptionResponse
+            updateSubscriptionWithFallback(SubscriptionServiceClient client,
+                                           UpdateSubscriptionRequest.Builder request,
+                                           UpdateSubscriptionDetails details,
+                                           String homeRegion, String compartmentId,
+                                           String subscriptionId, String etag,
+                                           Subscription current, Address address, String email) {
+        try {
+            return client.updateSubscription(request.build());
+        } catch (BmcException first) {
+            String message = StrUtil.nullToEmpty(first.getMessage());
+            if (first.getStatusCode() != 400 || !message.contains("paymentOption")) {
+                throw first;
+            }
+            log.warn("UpdateSubscription 完整回传被拒（{}），载荷: {}；改用最小订阅载荷重试",
+                    message, details);
+            Subscription minimal = withNonNullPaymentOptions(Subscription.builder()
+                    .subscriptionPlanNumber(current.getSubscriptionPlanNumber())
+                    .planType(current.getPlanType())
+                    .billingAddress(address));
+            UpdateSubscriptionDetails.Builder minimalDetails = UpdateSubscriptionDetails.builder()
+                    .subscription(minimal);
+            if (isEmail(email)) minimalDetails.email(email);
+            UpdateSubscriptionRequest.Builder retry = UpdateSubscriptionRequest.builder()
+                    .ospHomeRegion(homeRegion)
+                    .compartmentId(compartmentId)
+                    .subscriptionId(subscriptionId)
+                    .updateSubscriptionDetails(minimalDetails.build())
+                    .retryConfiguration(RetryConfiguration.NO_RETRY_CONFIGURATION);
+            if (StrUtil.isNotBlank(etag)) retry.ifMatch(etag);
+            try {
+                return client.updateSubscription(retry.build());
+            } catch (BmcException second) {
+                log.warn("UpdateSubscription 最小载荷仍被拒（{}），载荷: {}",
+                        second.getMessage(), minimalDetails.build());
+                throw second;
+            }
+        }
+    }
+
     /**
      * OSP UpdateSubscription/PaySubscription 会校验 "paymentOption is null!"：
      * 无保存支付方式的账户 GET 到的 paymentOptions 为 null，回传前须显式置为空数组。

@@ -516,6 +516,14 @@ function setAddressForm(value: any) {
   for (const key of Object.keys(addressForm)) addressForm[key] = value?.[key] == null ? '' : String(value[key])
 }
 
+/** 验证接口只返回标准化后的地址组件，合并时不能用空值覆盖用户已填内容。 */
+function mergeAddressForm(value: any) {
+  for (const key of Object.keys(addressForm)) {
+    const next = value?.[key]
+    if (next != null && String(next).trim() !== '') addressForm[key] = String(next)
+  }
+}
+
 function contactName(value: any) {
   return [value?.firstName, value?.middleName, value?.lastName].filter(Boolean).join(' ') || '—'
 }
@@ -539,7 +547,7 @@ async function verifyAddress() {
   try {
     const response: any = await verifyTenantBillingAddress(addressPayload())
     addressVerification.value = response?.data || null
-    if (addressVerification.value?.address) setAddressForm(addressVerification.value.address)
+    if (addressVerification.value?.address) mergeAddressForm(addressVerification.value.address)
   } catch (error: any) {
     message.error(error?.message || '验证账单地址失败')
   } finally {
