@@ -314,6 +314,7 @@ public class BillingService {
         } catch (OciException e) {
             throw e;
         } catch (Exception e) {
+            log.warn("保存账单地址失败 tenant={}: {}", user.getUsername(), e.getMessage(), e);
             throw new OciException(errorMessage("保存账单地址失败", e));
         }
     }
@@ -655,8 +656,12 @@ public class BillingService {
 
     private static String errorMessage(String prefix, Exception error) {
         if (error instanceof BmcException bmc) {
-            String translated = OciBmcErrorTranslator.translate(bmc);
-            if (StrUtil.isNotBlank(translated)) return prefix + "：" + translated;
+            // OSP 的 400 常是具体字段校验失败，必须透出 Oracle 原始 detail 才能定位。
+            String translated = OciBmcErrorTranslator.translateWithServiceDetail(bmc);
+            if (StrUtil.isNotBlank(translated)) {
+                return prefix + "：" + translated
+                        + " (opc-request-id: " + StrUtil.blankToDefault(bmc.getOpcRequestId(), "unavailable") + ")";
+            }
         }
         return prefix + "：" + (error == null || StrUtil.isBlank(error.getMessage())
                 ? "未知错误" : error.getMessage());
