@@ -621,6 +621,18 @@ public class BillingService {
             } catch (BmcException second) {
                 log.warn("UpdateSubscription 身份子集载荷仍被拒（{}），载荷: {}",
                         second.getMessage(), minimalDetails.build());
+                if (second.getStatusCode() >= 500) {
+                    // 实测结论：带 paymentGateway 时校验要求存在支付方式（400），
+                    // 不带时 OSP 后端内部报错（500）。未绑卡的 Free Tier 账户无解。
+                    throw new OciException(422,
+                            "Oracle OSP 暂不支持修改该账户的账单地址：当前订阅为 "
+                                    + (current.getPlanType() == null ? "未知计划"
+                                            : current.getPlanType().getValue())
+                                    + " 且未绑定支付方式，Oracle 服务端处理此类订阅的地址更新会内部出错。"
+                                    + "升级账户或绑定支付方式后即可正常修改；也可联系 Oracle 支持并提供 "
+                                    + "opc-request-id: "
+                                    + StrUtil.blankToDefault(second.getOpcRequestId(), "unavailable"));
+                }
                 throw second;
             }
         }
