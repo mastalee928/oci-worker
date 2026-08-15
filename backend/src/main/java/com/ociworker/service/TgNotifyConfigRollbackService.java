@@ -85,7 +85,15 @@ public class TgNotifyConfigRollbackService {
         List<List<Map<String, String>>> rows = buildAlertKeyboard(offenderIp, sessionId);
         notificationService.sendSecurityTextWithInlineKeyboard(oldBotToken, oldChatId, alertText, rows);
 
-        startOldBotPoller(oldBotToken.trim(), sessionId);
+        // 仅当 Bot Token 真的变了才需要单独轮询旧 Bot。若只改 Chat ID（新旧 token 相同），
+        // 再起一条 getUpdates 会和主轮询同 token 冲突，导致持续 HTTP 409；
+        // 回滚按钮的回调由主轮询接收，分发链中已有本服务的处理入口。
+        if (!oldBotToken.trim().equals(newBotToken == null ? "" : newBotToken.trim())) {
+            startOldBotPoller(oldBotToken.trim(), sessionId);
+        } else {
+            stopOldBotPoller();
+            log.info("[TG rollback] bot token unchanged; skip old-bot poller to avoid getUpdates conflict");
+        }
         log.info("[TG rollback] identity change applied; session={} expireAt={}", sessionId, expireAt);
     }
 
