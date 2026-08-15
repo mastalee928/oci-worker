@@ -137,50 +137,108 @@
       </div>
     </template>
 
-    <a-divider orientation="left">本地连接（VNC / 串口）</a-divider>
+    <a-divider orientation="left">本机直连（VNC / 串口）</a-divider>
     <template v-if="!localConsole">
-      <div style="color: var(--text-sub); font-size: 12px; margin-bottom: 8px">
-        使用你自己的 SSH 公钥创建控制台连接，在本地终端建立隧道后，用 RealVNC 等客户端连接
-        localhost:5900 进入图形界面。私钥不经过面板。注意：与上方面板串口连接互斥，创建任意一种会替换另一种。
+      <div class="local-console-tip">
+        在<strong>你自己的电脑</strong>（Windows / macOS）上直连实例控制台：面板只负责在 OCI
+        创建连接对象，生成的命令需要复制到<strong>你电脑的终端</strong>里运行，隧道由你的电脑直连
+        Oracle，与面板所在服务器无关。与上方面板串口连接互斥，创建任意一种会替换另一种。
       </div>
+      <a-radio-group v-model:value="localKeyMode" button-style="solid" size="small" class="local-console-mode">
+        <a-radio-button value="generate">自动生成密钥</a-radio-button>
+        <a-radio-button value="upload">上传公钥文件</a-radio-button>
+        <a-radio-button value="paste">粘贴公钥</a-radio-button>
+      </a-radio-group>
+
+      <div v-if="localKeyMode === 'generate'" class="local-console-tip">
+        面板会生成一次性密钥对并用公钥创建连接；创建成功后私钥<strong>仅显示一次</strong>，
+        请立即下载保存到你的电脑。
+      </div>
+      <template v-else-if="localKeyMode === 'upload'">
+        <input
+          ref="localKeyFileInput"
+          class="local-console-file"
+          type="file"
+          accept=".pub,.txt,.key,.pem"
+          @change="handleLocalKeyFileChange"
+        />
+        <div
+          class="local-console-dropzone"
+          :class="{ dragging: localKeyDragging, loaded: !!localKeySource }"
+          role="button"
+          tabindex="0"
+          @click="localKeyFileInput?.click()"
+          @keydown.enter.prevent="localKeyFileInput?.click()"
+          @dragenter.prevent="localKeyDragging = true"
+          @dragover.prevent="localKeyDragging = true"
+          @dragleave.prevent="localKeyDragging = false"
+          @drop.prevent="handleLocalKeyDrop"
+        >
+          <i class="ri-upload-2-line"></i>
+          <span v-if="localKeyDragging">松开以加载公钥</span>
+          <span v-else-if="localKeySource">已加载 {{ localKeySource }}，拖入其他文件可替换</span>
+          <span v-else>点击选择公钥文件（.pub / .txt），或从桌面拖入</span>
+        </div>
+      </template>
       <a-textarea
+        v-else
         v-model:value="localConsoleKey"
         :auto-size="{ minRows: 2, maxRows: 4 }"
-        placeholder="粘贴 OpenSSH 公钥（ssh-ed25519 / ssh-rsa 开头），对应私钥保存在你本地"
+        placeholder="粘贴 OpenSSH 公钥（ssh-ed25519 / ssh-rsa 开头）。没有密钥？本机终端运行 ssh-keygen -t ed25519 后粘贴 ~/.ssh/id_ed25519.pub 内容"
       />
       <a-button
         type="primary"
-        style="margin-top: 8px"
+        style="margin-top: 10px"
         :loading="localConsoleCreating"
-        :disabled="!localConsoleKey.trim()"
+        :disabled="localKeyMode !== 'generate' && !localConsoleKey.trim()"
         @click="createLocalConsole"
       >
-        <i class="ri-computer-line" style="margin-right: 6px"></i>创建本地连接
+        <i class="ri-computer-line" style="margin-right: 6px"></i>创建本机直连
       </a-button>
-      <div v-if="localConsoleCreating" style="margin-top: 6px; color: var(--text-sub); font-size: 12px">
+      <div v-if="localConsoleCreating" class="local-console-tip" style="margin-top: 6px">
         正在创建，需清理旧连接并等待 OCI 生效，约 30~60 秒…
       </div>
     </template>
     <template v-else>
+      <a-alert v-if="localConsole.privateKey" type="warning" show-icon class="local-console-alert">
+        <template #message>
+          私钥仅显示这一次，请立即下载保存到你的电脑；丢失后需重新创建连接。
+          <a-button size="small" type="primary" style="margin-left: 8px" @click="downloadLocalKey">
+            下载私钥（{{ localConsole.keyFileName }}）
+          </a-button>
+        </template>
+      </a-alert>
+      <a-radio-group v-model:value="localOsMode" button-style="solid" size="small" class="local-console-mode">
+        <a-radio-button value="win">Windows（PowerShell）</a-radio-button>
+        <a-radio-button value="mac">macOS / Linux</a-radio-button>
+      </a-radio-group>
       <a-descriptions :column="1" bordered size="small">
         <a-descriptions-item label="VNC 隧道命令">
-          <a-typography-text copyable :content="localConsole.vncCommand || ''" style="font-size: 11px; word-break: break-all">
-            {{ (localConsole.vncCommand || '').substring(0, 80) }}...
+          <a-typography-text copyable :content="displayVncCommand" style="font-size: 11px; word-break: break-all">
+            {{ displayVncCommand.substring(0, 80) }}...
           </a-typography-text>
         </a-descriptions-item>
         <a-descriptions-item label="串口 SSH 命令">
-          <a-typography-text copyable :content="localConsole.serialCommand || ''" style="font-size: 11px; word-break: break-all">
-            {{ (localConsole.serialCommand || '').substring(0, 80) }}...
+          <a-typography-text copyable :content="displaySerialCommand" style="font-size: 11px; word-break: break-all">
+            {{ displaySerialCommand.substring(0, 80) }}...
           </a-typography-text>
         </a-descriptions-item>
       </a-descriptions>
-      <div style="margin-top: 8px; color: var(--text-sub); font-size: 12px; line-height: 1.7">
-        使用方法：① 在本地终端运行 VNC 隧道命令（默认用 ~/.ssh 下的私钥，其他路径给两处 ssh 各加
-        -i 私钥路径）；② 保持终端窗口运行；③ 打开 RealVNC 连接 localhost:5900。
-        串口命令则直接在本地终端运行即可交互。
+      <div class="local-console-tip" style="margin-top: 8px">
+        使用步骤（全部在<strong>你自己的电脑</strong>上操作）：<br />
+        ① 打开{{ localOsMode === 'win' ? ' PowerShell' : '终端' }}，cd 到私钥所在目录<template
+          v-if="localConsole.keyFileName"
+        >（即你下载 {{ localConsole.keyFileName }} 的目录）</template>；<template
+          v-if="localOsMode === 'mac'"
+        >先执行 chmod 600 私钥文件；</template><br />
+        ② 运行「VNC 隧道命令」，保持窗口不关闭；<br />
+        ③ 打开 RealVNC 等客户端，连接 <strong>localhost:5900</strong>——这里的 localhost
+        指你自己的电脑，隧道已把实例画面转发到了你本机的 5900 端口。<template
+          v-if="!localConsole.keyFileName"
+        ><br />若你的私钥不在默认 ~/.ssh 路径，请给命令中两处 ssh 各加 -i 私钥路径。</template>
       </div>
-      <a-popconfirm title="确定断开本地连接？" @confirm="removeLocalConsole">
-        <a-button danger style="margin-top: 10px" :loading="localConsoleDeleting">断开本地连接</a-button>
+      <a-popconfirm title="确定断开本机直连？" @confirm="removeLocalConsole">
+        <a-button danger style="margin-top: 10px" :loading="localConsoleDeleting">断开本机直连</a-button>
       </a-popconfirm>
     </template>
   </template>
@@ -191,7 +249,7 @@ import dayjs from 'dayjs'
 import utc from 'dayjs/plugin/utc'
 import { EditOutlined } from '@ant-design/icons-vue'
 import { message } from 'ant-design-vue'
-import { ref, watch } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { defineAppAsyncComponent } from '../../utils/asyncComponent'
 import {
   createLocalConsoleConnection,
@@ -259,12 +317,91 @@ const localConsole = ref<LocalConsoleConnection | null>(null)
 const localConsoleKey = ref('')
 const localConsoleCreating = ref(false)
 const localConsoleDeleting = ref(false)
+const localKeyMode = ref<'generate' | 'upload' | 'paste'>('generate')
+const localOsMode = ref<'win' | 'mac'>(
+  typeof navigator !== 'undefined' && /Mac/i.test(navigator.platform || '') ? 'mac' : 'win',
+)
+const localKeyFileInput = ref<HTMLInputElement | null>(null)
+const localKeyDragging = ref(false)
+const localKeySource = ref('')
+
+const localKeyPath = computed(() =>
+  localConsole.value?.keyFileName ? `./${localConsole.value.keyFileName}` : '')
+
+const displayVncCommand = computed(() =>
+  buildLocalCommand(localConsole.value?.vncCommand || ''))
+const displaySerialCommand = computed(() =>
+  buildLocalCommand(localConsole.value?.serialCommand || ''))
+
+function buildLocalCommand(raw: string) {
+  let cmd = raw
+  if (cmd && localKeyPath.value) cmd = injectKeyPath(cmd, localKeyPath.value)
+  return localOsMode.value === 'win' ? toPowershellQuoting(cmd) : cmd
+}
+
+function injectKeyPath(cmd: string, keyPath: string) {
+  return cmd
+    .replace(/^ssh /, `ssh -i ${keyPath} `)
+    .replace("ProxyCommand='ssh ", `ProxyCommand='ssh -i ${keyPath} `)
+}
+
+/** OCI 返回的是 bash 单引号写法，PowerShell 需要把 ProxyCommand 的引号换成双引号。 */
+function toPowershellQuoting(cmd: string) {
+  const start = cmd.indexOf("ProxyCommand='")
+  const end = cmd.lastIndexOf("'")
+  if (start < 0 || end <= start + 13) return cmd
+  return `${cmd.slice(0, start)}ProxyCommand="${cmd.slice(start + 14, end)}"${cmd.slice(end + 1)}`
+}
+
+function handleLocalKeyFileChange(event: Event) {
+  const input = event.target as HTMLInputElement
+  const file = input.files?.[0]
+  input.value = ''
+  if (file) void loadLocalKeyFile(file)
+}
+
+function handleLocalKeyDrop(event: DragEvent) {
+  localKeyDragging.value = false
+  const file = event.dataTransfer?.files?.[0]
+  if (file) void loadLocalKeyFile(file)
+}
+
+async function loadLocalKeyFile(file: File) {
+  if (file.size > 64 * 1024) {
+    message.error('公钥文件不应超过 64 KB')
+    return
+  }
+  try {
+    const text = (await file.text()).trim()
+    if (!/^(ssh-(rsa|ed25519|dss)|ecdsa-sha2-nistp(256|384|521))\s/.test(text)) {
+      message.error('文件内容不是 OpenSSH 公钥（应以 ssh-ed25519 / ssh-rsa 等开头）')
+      return
+    }
+    localConsoleKey.value = text
+    localKeySource.value = file.name
+  } catch {
+    message.error('读取公钥文件失败')
+  }
+}
+
+function downloadLocalKey() {
+  const key = localConsole.value?.privateKey
+  if (!key) return
+  const blob = new Blob([key], { type: 'application/x-pem-file' })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement('a')
+  link.href = url
+  link.download = localConsole.value?.keyFileName || 'oci-console.key'
+  link.click()
+  URL.revokeObjectURL(url)
+}
 
 async function createLocalConsole() {
   const tenantId = String(props.tenant?.id || '').trim()
   const instanceId = String(props.instance?.instanceId || '').trim()
-  const publicKey = localConsoleKey.value.trim()
-  if (!tenantId || !instanceId || !publicKey || localConsoleCreating.value) return
+  const generate = localKeyMode.value === 'generate'
+  const publicKey = generate ? '' : localConsoleKey.value.trim()
+  if (!tenantId || !instanceId || (!generate && !publicKey) || localConsoleCreating.value) return
   localConsoleCreating.value = true
   try {
     const res = await createLocalConsoleConnection({
@@ -272,12 +409,16 @@ async function createLocalConsole() {
       instanceId,
       region: props.region,
       publicKey,
+      generateKey: generate,
     })
     localConsole.value = res.data
     localConsoleKey.value = ''
-    message.success('本地连接已创建，请复制命令在本地终端使用')
+    localKeySource.value = ''
+    message.success(generate
+      ? '本机直连已创建，请立即下载私钥并复制命令到你的电脑运行'
+      : '本机直连已创建，请复制命令到你的电脑运行')
   } catch (error: any) {
-    message.error(error?.message || '创建本地连接失败')
+    message.error(error?.message || '创建本机直连失败')
   } finally {
     localConsoleCreating.value = false
   }
@@ -343,6 +484,7 @@ watch(
     if (String(value?.[2] || '') !== String(previous?.[2] || '')) {
       localConsole.value = null
       localConsoleKey.value = ''
+      localKeySource.value = ''
     }
     if (props.active && props.mode === 'info') void loadGuardStatus()
   },
@@ -476,5 +618,45 @@ defineExpose({
   font-size: 12px;
   line-height: 1.5;
   word-break: break-word;
+}
+
+.local-console-tip {
+  color: var(--text-sub, #6b7280);
+  font-size: 12px;
+  line-height: 1.7;
+  margin-bottom: 8px;
+}
+.local-console-mode {
+  margin-bottom: 10px;
+}
+.local-console-file {
+  display: none;
+}
+.local-console-dropzone {
+  align-items: center;
+  border: 1px dashed var(--border, rgba(148, 163, 184, 0.4));
+  border-radius: 8px;
+  color: var(--text-sub, #6b7280);
+  cursor: pointer;
+  display: flex;
+  font-size: 12.5px;
+  gap: 8px;
+  justify-content: center;
+  min-height: 52px;
+  padding: 10px 12px;
+  transition: border-color 0.15s ease, color 0.15s ease;
+}
+.local-console-dropzone:hover,
+.local-console-dropzone.dragging {
+  border-color: var(--ant-color-primary, #1677ff);
+  color: var(--ant-color-primary, #1677ff);
+}
+.local-console-dropzone.loaded {
+  border-color: var(--success, #10b981);
+  border-style: solid;
+  color: var(--success-text, #34d399);
+}
+.local-console-alert {
+  margin-bottom: 10px;
 }
 </style>

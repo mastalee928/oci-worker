@@ -343,7 +343,9 @@ public class InstanceController {
     public ResponseData<?> createLocalConsole(@RequestBody Map<String, String> params, HttpServletRequest request) {
         return ResponseData.ok(consoleService.createLocalConsoleConnection(
                 params.get("id"), params.get("instanceId"), regStr(params),
-                params.get("publicKey"), authenticatedAccount(request)));
+                params.get("publicKey"),
+                "true".equalsIgnoreCase(params.get("generateKey")),
+                authenticatedAccount(request)));
     }
 
     @PostMapping("/deleteConsole")

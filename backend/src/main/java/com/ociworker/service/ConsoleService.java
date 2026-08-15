@@ -275,16 +275,26 @@ public class ConsoleService {
     }
 
     /**
-     * 本地连接：使用用户自己的公钥创建控制台连接，返回串口 SSH 与 VNC 隧道命令，
-     * 由用户在本地终端建立隧道后用 VNC 客户端连接 localhost:5900。私钥全程不经过面板。
+     * 本机直连：创建控制台连接并返回串口/VNC 命令，命令在用户自己的电脑上运行。
+     * publicKey 为空且 generateKey=true 时由面板生成一次性密钥对，私钥随响应返回
+     * 供用户下载，服务端不落盘、不保存。
      */
     public Map<String, String> createLocalConsoleConnection(String userId, String instanceId,
                                                             String region, String publicKey,
-                                                            String ownerAccount) {
+                                                            boolean generateKey, String ownerAccount) {
         userId = requireIdentifier(userId, "租户配置");
         instanceId = requireIdentifier(instanceId, "实例");
         requireOwner(ownerAccount);
-        String normalizedKey = normalizeLocalPublicKey(publicKey);
+
+        String generatedPrivateKey = null;
+        String effectivePublicKey;
+        if (generateKey && (publicKey == null || publicKey.isBlank())) {
+            String[] pair = generateDisposableKeyPair();
+            generatedPrivateKey = pair[0];
+            effectivePublicKey = pair[1];
+        } else {
+            effectivePublicKey = normalizeLocalPublicKey(publicKey);
+        }
 
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
@@ -293,7 +303,7 @@ public class ConsoleService {
             ComputeClient computeClient = env.getComputeClient();
             removeLocalSessionsForInstance(userId, instanceId);
             InstanceConsoleConnection active = provisionConnection(
-                    computeClient, instanceId, normalizedKey);
+                    computeClient, instanceId, effectivePublicKey);
 
             Map<String, String> result = new LinkedHashMap<>();
             result.put("connectionId", active.getId());
@@ -302,15 +312,40 @@ public class ConsoleService {
             result.put("vncCommand", active.getVncConnectionString() == null
                     ? "" : active.getVncConnectionString());
             result.put("state", active.getLifecycleState().getValue());
-            log.info("【串行控制台】本地连接已创建: {}", active.getId());
+            if (generatedPrivateKey != null) {
+                result.put("privateKey", generatedPrivateKey);
+                result.put("keyFileName", "oci-console-"
+                        + instanceId.substring(Math.max(0, instanceId.length() - 8)) + ".key");
+            }
+            log.info("【串行控制台】本机直连已创建: {}", active.getId());
             return result;
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            throw new OciException("创建本地控制台连接已取消");
+            throw new OciException("创建本机直连已取消");
         } catch (OciException e) {
             throw e;
         } catch (Exception e) {
-            throw new OciException("创建本地控制台连接失败: " + e.getMessage());
+            throw new OciException("创建本机直连失败: " + e.getMessage());
+        }
+    }
+
+    /** 生成一次性 RSA 密钥对，返回 [私钥PEM, OpenSSH公钥]，仅存在于本次响应。 */
+    private static String[] generateDisposableKeyPair() {
+        com.jcraft.jsch.KeyPair pair = null;
+        try {
+            pair = com.jcraft.jsch.KeyPair.genKeyPair(
+                    new com.jcraft.jsch.JSch(), com.jcraft.jsch.KeyPair.RSA, 2048);
+            java.io.ByteArrayOutputStream privateOut = new java.io.ByteArrayOutputStream();
+            pair.writePrivateKey(privateOut);
+            java.io.ByteArrayOutputStream publicOut = new java.io.ByteArrayOutputStream();
+            pair.writePublicKey(publicOut, "ociworker-console");
+            return new String[]{
+                    privateOut.toString(java.nio.charset.StandardCharsets.UTF_8),
+                    publicOut.toString(java.nio.charset.StandardCharsets.UTF_8).trim()};
+        } catch (Exception e) {
+            throw new OciException("生成密钥对失败: " + e.getMessage());
+        } finally {
+            if (pair != null) pair.dispose();
         }
     }
 

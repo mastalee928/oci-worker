@@ -345,10 +345,12 @@ export interface LocalConsoleConnection {
   serialCommand?: string
   vncCommand?: string
   state?: string
+  privateKey?: string
+  keyFileName?: string
 }
 
 export function createLocalConsoleConnection(
-  data: { id: string; instanceId: string; publicKey: string } & R,
+  data: { id: string; instanceId: string; publicKey?: string; generateKey?: boolean } & R,
 ) {
   return request.post<LocalConsoleConnection>('/oci/instance/createLocalConsole', data, {
     timeout: 150_000,
