@@ -48,6 +48,7 @@ import java.util.Set;
 import java.util.TreeMap;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import static com.ociworker.config.VirtualThreadConfig.VIRTUAL_EXECUTOR;
 
@@ -76,6 +77,9 @@ public class TaskSchedulerService implements SmartLifecycle {
     private final ConcurrentHashMap<String, LocalDateTime> recentTaskCreateKeys = new ConcurrentHashMap<>();
     /** 本任务周期内不再尝试的可用域（停/改/恢复/完成/删除任务或服务重启后清空） */
     private final ConcurrentHashMap<String, Set<String>> taskExcludedAds = new ConcurrentHashMap<>();
+    /** 连续认证失败计数：偶发 401 抖动不应立即杀任务，连续多次才终止。 */
+    private static final int AUTH_FAILURE_TERMINAL_STRIKES = 3;
+    private final ConcurrentHashMap<String, AtomicInteger> taskAuthFailureStrikes = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<String, LocalDateTime> serviceLimitNotifyTimes = new ConcurrentHashMap<>();
     private final Set<String> serviceLimitNotifyMutedTasks = ConcurrentHashMap.newKeySet();
     private final AtomicBoolean maintenanceRunning = new AtomicBoolean();
@@ -813,7 +817,16 @@ public class TaskSchedulerService implements SmartLifecycle {
     private void clearTaskExcludedAds(String taskId) {
         if (taskId != null) {
             taskExcludedAds.remove(taskId);
+            taskAuthFailureStrikes.remove(taskId);
         }
+    }
+
+    private int recordAuthFailure(String taskId) {
+        return taskAuthFailureStrikes.computeIfAbsent(taskId, k -> new AtomicInteger()).incrementAndGet();
+    }
+
+    private void clearAuthFailureStrikes(String taskId) {
+        if (taskId != null) taskAuthFailureStrikes.remove(taskId);
     }
 
     private void clearServiceLimitNotifyState(String taskId) {
@@ -1010,6 +1023,14 @@ public class TaskSchedulerService implements SmartLifecycle {
                 applyAdExcludedNoShapeBroadcast(taskId, user, region, arch, result, excludedAds);
 
                 if (result.isDie()) {
+                    int strikes = recordAuthFailure(taskId);
+                    if (strikes < AUTH_FAILURE_TERMINAL_STRIKES) {
+                        broadcastLog(String.format(
+                                "【开机任务】用户:[%s],区域:[%s],架构:[%s] - 认证失败(401)，连续第 %d 次，按间隔重试（连续 %d 次将停止任务）",
+                                user, region, series, strikes, AUTH_FAILURE_TERMINAL_STRIKES));
+                        return AttemptOutcome.NORMAL;
+                    }
+                    clearAuthFailureStrikes(taskId);
                     String failureReason = "❌ 认证失败 (401)，任务已停止。请检查该租户 API Key、Fingerprint、私钥和权限是否仍有效。";
                     completeTask(taskId, TaskStatusEnum.FAILED, failureReason);
                     broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],架构:[%s] - 认证失败(401)，任务已停止", user, region, series));
@@ -1022,6 +1043,8 @@ public class TaskSchedulerService implements SmartLifecycle {
                     sendTaskNotificationAsync(NotificationService.TYPE_TASK_RESULT, html);
                     return AttemptOutcome.TERMINAL;
                 }
+                // 本轮不是认证失败，连续计数归零。
+                clearAuthFailureStrikes(taskId);
 
                 if (result.isRateLimited()) {
                     broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],架构:[%s] - OCI 请求被限流(429)，将按租户/区域独立退避",
@@ -1172,6 +1195,14 @@ public class TaskSchedulerService implements SmartLifecycle {
             }
             if (OciBmcErrorTranslator.isAuthenticationFailure(e)) {
                 String series = ShapeSeriesUtil.resolveSeries(arch);
+                int strikes = recordAuthFailure(taskId);
+                if (strikes < AUTH_FAILURE_TERMINAL_STRIKES) {
+                    broadcastLog(String.format(
+                            "【开机任务】用户:[%s],区域:[%s],架构:[%s] - 认证失败(401)，连续第 %d 次，按间隔重试（连续 %d 次将停止任务）",
+                            user, region, series, strikes, AUTH_FAILURE_TERMINAL_STRIKES));
+                    return AttemptOutcome.NORMAL;
+                }
+                clearAuthFailureStrikes(taskId);
                 String failureReason = "❌ 认证失败 (401)，任务已停止。请检查该租户 API Key、Fingerprint、私钥和权限是否仍有效。";
                 completeTask(taskId, TaskStatusEnum.FAILED, failureReason);
                 broadcastLog(String.format("【开机任务】用户:[%s],区域:[%s],架构:[%s] - 认证失败(401)，任务已停止",
