@@ -122,7 +122,7 @@
           </a-button>
         </a-descriptions-item>
         <a-descriptions-item label="SSH 命令">
-          <a-typography-text copyable :content="consoleData.sshCommand" style="font-size: 11px; word-break: break-all">
+          <a-typography-text :copyable="{ text: consoleData.sshCommand || '' }" style="font-size: 11px; word-break: break-all">
             {{ consoleData.sshCommand?.substring(0, 80) }}...
           </a-typography-text>
         </a-descriptions-item>
@@ -214,12 +214,12 @@
       </a-radio-group>
       <a-descriptions :column="1" bordered size="small">
         <a-descriptions-item label="VNC 隧道命令">
-          <a-typography-text copyable :content="displayVncCommand" style="font-size: 11px; word-break: break-all">
+          <a-typography-text :copyable="{ text: displayVncCommand }" style="font-size: 11px; word-break: break-all">
             {{ displayVncCommand.substring(0, 80) }}...
           </a-typography-text>
         </a-descriptions-item>
         <a-descriptions-item label="串口 SSH 命令">
-          <a-typography-text copyable :content="displaySerialCommand" style="font-size: 11px; word-break: break-all">
+          <a-typography-text :copyable="{ text: displaySerialCommand }" style="font-size: 11px; word-break: break-all">
             {{ displaySerialCommand.substring(0, 80) }}...
           </a-typography-text>
         </a-descriptions-item>
