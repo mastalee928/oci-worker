@@ -99,50 +99,71 @@
 
   <template v-else>
     <a-alert type="info" show-icon style="margin-bottom: 16px">
-      <template #message>用于实例网络异常时的紧急救援，通过 OCI 内部通道连接实例串口</template>
+      <template #message>
+        用于实例网络异常时的紧急救援。提供两种连法：面板串口（浏览器直接用）与本机直连（你自己的电脑 +
+        RealVNC）。两者互斥，创建任意一种会替换另一种。
+      </template>
     </a-alert>
 
-    <template v-if="!consoleData">
-      <a-button type="primary" @click="$emit('create-console')" :loading="consoleLoading">
-        <i class="ri-terminal-line" style="margin-right: 6px"></i>创建控制台连接
-      </a-button>
-      <div style="margin-top: 8px; color: var(--text-sub); font-size: 12px">
-        创建后会生成一个一键连接链接，可直接进入串口终端
+    <div class="console-method-card">
+      <div class="console-method-head">
+        <i class="ri-terminal-box-line"></i>
+        <div class="console-method-title">
+          <strong>面板串口连接</strong>
+          <small>由面板服务器建立隧道，浏览器一键进入串口终端，零配置</small>
+        </div>
       </div>
-    </template>
 
-    <template v-else>
-      <a-descriptions :column="1" bordered size="small">
-        <a-descriptions-item label="连接状态">
-          <a-badge status="success" text="已就绪" />
-        </a-descriptions-item>
-        <a-descriptions-item label="一键连接">
-          <a-button type="primary" @click="$emit('open-console')">
-            <i class="ri-external-link-line" style="margin-right: 6px"></i>打开串行控制台
-          </a-button>
-        </a-descriptions-item>
-        <a-descriptions-item label="SSH 命令">
-          <a-typography-text :copyable="{ text: consoleData.sshCommand || '' }" style="font-size: 11px; word-break: break-all">
-            {{ consoleData.sshCommand?.substring(0, 80) }}...
-          </a-typography-text>
-        </a-descriptions-item>
-      </a-descriptions>
-      <div style="margin-top: 12px">
-        <a-popconfirm title="确定断开控制台连接？" @confirm="$emit('delete-console')">
-          <a-button danger :loading="consoleLoading">断开连接</a-button>
-        </a-popconfirm>
-      </div>
-      <div style="margin-top: 8px; color: var(--text-sub); font-size: 12px">
-        提示：断开后临时用户将自动清理。进入控制台后按 Ctrl+] 或 ~. 退出。
-      </div>
-    </template>
+      <template v-if="!consoleData">
+        <a-button type="primary" @click="$emit('create-console')" :loading="consoleLoading">
+          <i class="ri-terminal-line" style="margin-right: 6px"></i>创建控制台连接
+        </a-button>
+        <div style="margin-top: 8px; color: var(--text-sub); font-size: 12px">
+          创建后会生成一个一键连接链接，可直接进入串口终端
+        </div>
+      </template>
 
-    <a-divider orientation="left">本机直连（VNC / 串口）</a-divider>
-    <template v-if="!localConsole">
+      <template v-else>
+        <a-descriptions :column="1" bordered size="small">
+          <a-descriptions-item label="连接状态">
+            <a-badge status="success" text="已就绪" />
+          </a-descriptions-item>
+          <a-descriptions-item label="一键连接">
+            <a-button type="primary" @click="$emit('open-console')">
+              <i class="ri-external-link-line" style="margin-right: 6px"></i>打开串行控制台
+            </a-button>
+          </a-descriptions-item>
+          <a-descriptions-item label="SSH 命令">
+            <a-typography-text :copyable="{ text: consoleData.sshCommand || '' }" style="font-size: 11px; word-break: break-all">
+              {{ consoleData.sshCommand?.substring(0, 80) }}...
+            </a-typography-text>
+          </a-descriptions-item>
+        </a-descriptions>
+        <div style="margin-top: 12px">
+          <a-popconfirm title="确定断开控制台连接？" @confirm="$emit('delete-console')">
+            <a-button danger :loading="consoleLoading">断开连接</a-button>
+          </a-popconfirm>
+        </div>
+        <div style="margin-top: 8px; color: var(--text-sub); font-size: 12px">
+          提示：断开后临时用户将自动清理。进入控制台后按 Ctrl+] 或 ~. 退出。
+        </div>
+      </template>
+    </div>
+
+    <div class="console-method-card">
+      <div class="console-method-head">
+        <i class="ri-computer-line"></i>
+        <div class="console-method-title">
+          <strong>本机直连（VNC / 串口）</strong>
+          <small>命令复制到你自己的电脑运行，直连 Oracle 网关，可用 RealVNC 看图形界面</small>
+        </div>
+      </div>
+
+      <template v-if="!localConsole">
       <div class="local-console-tip">
         在<strong>你自己的电脑</strong>（Windows / macOS）上直连实例控制台：面板只负责在 OCI
         创建连接对象，生成的命令需要复制到<strong>你电脑的终端</strong>里运行，隧道由你的电脑直连
-        Oracle，与面板所在服务器无关。与上方面板串口连接互斥，创建任意一种会替换另一种。
+        Oracle，与面板所在服务器无关。
       </div>
       <a-radio-group v-model:value="localKeyMode" button-style="solid" size="small" class="local-console-mode">
         <a-radio-button value="generate">自动生成密钥</a-radio-button>
@@ -241,6 +262,7 @@
         <a-button danger style="margin-top: 10px" :loading="localConsoleDeleting">断开本机直连</a-button>
       </a-popconfirm>
     </template>
+    </div>
   </template>
 </template>
 
@@ -629,6 +651,39 @@ defineExpose({
   font-size: 12px;
   line-height: 1.7;
   margin-bottom: 8px;
+}
+.console-method-card {
+  border: 1px solid var(--border, rgba(148, 163, 184, 0.25));
+  border-radius: 10px;
+  margin-bottom: 16px;
+  padding: 14px 16px;
+}
+.console-method-head {
+  align-items: flex-start;
+  border-bottom: 1px dashed var(--border, rgba(148, 163, 184, 0.25));
+  display: flex;
+  gap: 10px;
+  margin-bottom: 12px;
+  padding-bottom: 10px;
+}
+.console-method-head > i {
+  color: var(--ant-color-primary, #1677ff);
+  font-size: 18px;
+  line-height: 1.3;
+}
+.console-method-title {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.console-method-title strong {
+  color: var(--text-main, #e2e8f0);
+  font-size: 14px;
+}
+.console-method-title small {
+  color: var(--text-sub, #6b7280);
+  font-size: 12px;
 }
 .local-console-mode {
   margin-bottom: 10px;
