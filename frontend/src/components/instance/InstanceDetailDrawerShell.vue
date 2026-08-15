@@ -110,6 +110,10 @@
       <a-tab-pane key="console" tab="串行控制台">
         <InstanceDetailInfoPanel
           mode="console"
+          :tenant="tenant"
+          :instance="instance"
+          :active="activeTab === 'console'"
+          :region="currentDetailRegion"
           :console-loading="consoleLoading"
           :console-data="consoleData"
           @create-console="$emit('create-console')"

@@ -401,7 +401,11 @@ async function createLocalConsole() {
   const instanceId = String(props.instance?.instanceId || '').trim()
   const generate = localKeyMode.value === 'generate'
   const publicKey = generate ? '' : localConsoleKey.value.trim()
-  if (!tenantId || !instanceId || (!generate && !publicKey) || localConsoleCreating.value) return
+  if (!tenantId || !instanceId) {
+    message.error('缺少租户或实例信息，请关闭抽屉后重新打开')
+    return
+  }
+  if ((!generate && !publicKey) || localConsoleCreating.value) return
   localConsoleCreating.value = true
   try {
     const res = await createLocalConsoleConnection({
