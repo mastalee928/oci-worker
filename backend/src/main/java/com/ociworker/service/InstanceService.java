@@ -465,28 +465,12 @@ public class InstanceService {
                 String compartmentId = normalizeBlank(target.get("compartmentId"));
                 if (instanceId == null || availabilityDomain == null || compartmentId == null) continue;
                 try {
-                    var attachments = client.getComputeClient().listBootVolumeAttachments(
-                            com.oracle.bmc.core.requests.ListBootVolumeAttachmentsRequest.builder()
-                                    .availabilityDomain(availabilityDomain)
-                                    .compartmentId(compartmentId)
-                                    .instanceId(instanceId)
-                                    .build()).getItems();
-                    String bootVolumeId = attachments == null ? null : attachments.stream()
-                            .filter(a -> a != null && a.getBootVolumeId() != null
-                                    && a.getLifecycleState() == BootVolumeAttachment.LifecycleState.Attached)
-                            .map(BootVolumeAttachment::getBootVolumeId)
-                            .findFirst().orElse(null);
-                    if (bootVolumeId == null) {
-                        volumes.put(instanceId, null);
-                        continue;
-                    }
-                    BootVolume vol = client.getBlockstorageClient().getBootVolume(
-                            GetBootVolumeRequest.builder().bootVolumeId(bootVolumeId).build()
-                    ).getBootVolume();
-                    Map<String, Object> info = new java.util.LinkedHashMap<>();
-                    info.put("sizeGB", vol == null ? null : vol.getSizeInGBs());
-                    info.put("vpusPerGB", vol == null ? null : vol.getVpusPerGB());
-                    volumes.put(instanceId, info);
+                    // 与实例详情共用 45 秒读缓存：复开面板/刷新时秒出，且减少 OCI 调用。
+                    Map<String, Object> info = ociReadCacheService.get(
+                            instanceCacheKey("bootVolumeSummary", ociUser, region, instanceId),
+                            INSTANCE_DETAIL_CACHE_TTL, false,
+                            () -> fetchBootVolumeSummary(client, instanceId, availabilityDomain, compartmentId));
+                    volumes.put(instanceId, info == null || info.isEmpty() ? null : info);
                 } catch (Exception e) {
                     log.debug("Boot volume summary failed for {}: {}", instanceId, e.getMessage());
                 }
@@ -495,6 +479,31 @@ public class InstanceService {
             log.debug("Boot volume summary batch stopped: tenant={} {}", ociUser.getUsername(), e.getMessage());
         }
         return Map.of("volumes", volumes);
+    }
+
+    /** 空 Map 表示该实例当前没有已挂载引导卷（作为缓存哨兵，输出时转为 null）。 */
+    private Map<String, Object> fetchBootVolumeSummary(OciClientService client, String instanceId,
+                                                       String availabilityDomain, String compartmentId) {
+        var attachments = client.getComputeClient().listBootVolumeAttachments(
+                com.oracle.bmc.core.requests.ListBootVolumeAttachmentsRequest.builder()
+                        .availabilityDomain(availabilityDomain)
+                        .compartmentId(compartmentId)
+                        .instanceId(instanceId)
+                        .build()).getItems();
+        String bootVolumeId = attachments == null ? null : attachments.stream()
+                .filter(a -> a != null && a.getBootVolumeId() != null
+                        && a.getLifecycleState() == BootVolumeAttachment.LifecycleState.Attached)
+                .map(BootVolumeAttachment::getBootVolumeId)
+                .findFirst().orElse(null);
+        if (bootVolumeId == null) return Map.of();
+        BootVolume vol = client.getBlockstorageClient().getBootVolume(
+                GetBootVolumeRequest.builder().bootVolumeId(bootVolumeId).build()
+        ).getBootVolume();
+        if (vol == null) return Map.of();
+        Map<String, Object> info = new java.util.LinkedHashMap<>();
+        info.put("sizeGB", vol.getSizeInGBs());
+        info.put("vpusPerGB", vol.getVpusPerGB());
+        return info;
     }
 
     public List<Map<String, Object>> listBootVolumesByInstance(String userId, String instanceId, String region, boolean force) {
