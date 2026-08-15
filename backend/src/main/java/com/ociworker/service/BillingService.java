@@ -317,7 +317,11 @@ public class BillingService {
         } catch (OciException e) {
             throw e;
         } catch (Exception e) {
-            log.warn("保存账单地址失败 tenant={}: {}", user.getUsername(), e.getMessage(), e);
+            log.warn("保存账单地址失败 tenant={}: {}", user.getUsername(),
+                    e instanceof BmcException bmc
+                            ? bmc.getStatusCode() + " " + StrUtil.blankToDefault(bmc.getServiceCode(), "")
+                            : e.getMessage());
+            log.debug("保存账单地址失败详情", e);
             throw new OciException(errorMessage("保存账单地址失败", e));
         }
     }
@@ -584,8 +588,8 @@ public class BillingService {
             if (first.getStatusCode() != 400 || !message.contains("paymentOption")) {
                 throw first;
             }
-            log.warn("UpdateSubscription 完整回传被拒（{}），载荷: {}；改用身份子集载荷重试",
-                    message, details);
+            log.warn("UpdateSubscription 完整回传被拒（paymentOption 校验），改用身份子集载荷重试");
+            log.debug("UpdateSubscription 完整回传错误: {}；载荷: {}", message, details);
             // 保留账户身份字段、剔除 paymentGateway/taxInfo/升级状态等触发校验或 500 的回显字段。
             // 仅对非空值调 setter，避免 ExplicitlySet 序列化出显式 null。
             Subscription.Builder subsetBuilder = Subscription.builder();
@@ -619,7 +623,9 @@ public class BillingService {
             try {
                 return client.updateSubscription(retry.build());
             } catch (BmcException second) {
-                log.warn("UpdateSubscription 身份子集载荷仍被拒（{}），载荷: {}",
+                log.warn("UpdateSubscription 身份子集载荷仍被拒（{} {}）",
+                        second.getStatusCode(), StrUtil.blankToDefault(second.getServiceCode(), ""));
+                log.debug("UpdateSubscription 身份子集错误: {}；载荷: {}",
                         second.getMessage(), minimalDetails.build());
                 if (second.getStatusCode() >= 500) {
                     // 实测结论：带 paymentGateway 时校验要求存在支付方式（400），
