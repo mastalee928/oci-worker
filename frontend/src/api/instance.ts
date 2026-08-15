@@ -340,6 +340,21 @@ export function createConsoleConnection(data: { id: string; instanceId: string }
   return request.post('/oci/instance/createConsole', data)
 }
 
+export interface LocalConsoleConnection {
+  connectionId: string
+  serialCommand?: string
+  vncCommand?: string
+  state?: string
+}
+
+export function createLocalConsoleConnection(
+  data: { id: string; instanceId: string; publicKey: string } & R,
+) {
+  return request.post<LocalConsoleConnection>('/oci/instance/createLocalConsole', data, {
+    timeout: 150_000,
+  })
+}
+
 export function deleteConsoleConnection(data: { id: string; connectionId: string } & R) {
   return request.post('/oci/instance/deleteConsole', data)
 }

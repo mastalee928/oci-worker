@@ -136,6 +136,53 @@
         提示：断开后临时用户将自动清理。进入控制台后按 Ctrl+] 或 ~. 退出。
       </div>
     </template>
+
+    <a-divider orientation="left">本地连接（VNC / 串口）</a-divider>
+    <template v-if="!localConsole">
+      <div style="color: var(--text-sub); font-size: 12px; margin-bottom: 8px">
+        使用你自己的 SSH 公钥创建控制台连接，在本地终端建立隧道后，用 RealVNC 等客户端连接
+        localhost:5900 进入图形界面。私钥不经过面板。注意：与上方面板串口连接互斥，创建任意一种会替换另一种。
+      </div>
+      <a-textarea
+        v-model:value="localConsoleKey"
+        :auto-size="{ minRows: 2, maxRows: 4 }"
+        placeholder="粘贴 OpenSSH 公钥（ssh-ed25519 / ssh-rsa 开头），对应私钥保存在你本地"
+      />
+      <a-button
+        type="primary"
+        style="margin-top: 8px"
+        :loading="localConsoleCreating"
+        :disabled="!localConsoleKey.trim()"
+        @click="createLocalConsole"
+      >
+        <i class="ri-computer-line" style="margin-right: 6px"></i>创建本地连接
+      </a-button>
+      <div v-if="localConsoleCreating" style="margin-top: 6px; color: var(--text-sub); font-size: 12px">
+        正在创建，需清理旧连接并等待 OCI 生效，约 30~60 秒…
+      </div>
+    </template>
+    <template v-else>
+      <a-descriptions :column="1" bordered size="small">
+        <a-descriptions-item label="VNC 隧道命令">
+          <a-typography-text copyable :content="localConsole.vncCommand || ''" style="font-size: 11px; word-break: break-all">
+            {{ (localConsole.vncCommand || '').substring(0, 80) }}...
+          </a-typography-text>
+        </a-descriptions-item>
+        <a-descriptions-item label="串口 SSH 命令">
+          <a-typography-text copyable :content="localConsole.serialCommand || ''" style="font-size: 11px; word-break: break-all">
+            {{ (localConsole.serialCommand || '').substring(0, 80) }}...
+          </a-typography-text>
+        </a-descriptions-item>
+      </a-descriptions>
+      <div style="margin-top: 8px; color: var(--text-sub); font-size: 12px; line-height: 1.7">
+        使用方法：① 在本地终端运行 VNC 隧道命令（默认用 ~/.ssh 下的私钥，其他路径给两处 ssh 各加
+        -i 私钥路径）；② 保持终端窗口运行；③ 打开 RealVNC 连接 localhost:5900。
+        串口命令则直接在本地终端运行即可交互。
+      </div>
+      <a-popconfirm title="确定断开本地连接？" @confirm="removeLocalConsole">
+        <a-button danger style="margin-top: 10px" :loading="localConsoleDeleting">断开本地连接</a-button>
+      </a-popconfirm>
+    </template>
   </template>
 </template>
 
@@ -147,10 +194,13 @@ import { message } from 'ant-design-vue'
 import { ref, watch } from 'vue'
 import { defineAppAsyncComponent } from '../../utils/asyncComponent'
 import {
+  createLocalConsoleConnection,
+  deleteConsoleConnection,
   getInstanceGuardStatus,
   getInstanceStopCause,
   saveInstanceGuard,
   type InstanceGuardStatus,
+  type LocalConsoleConnection,
 } from '../../api/instance'
 
 dayjs.extend(utc)
@@ -205,6 +255,50 @@ let guardLoadGen = 0
 const stopCauseLoading = ref(false)
 const stopCauseText = ref('')
 
+const localConsole = ref<LocalConsoleConnection | null>(null)
+const localConsoleKey = ref('')
+const localConsoleCreating = ref(false)
+const localConsoleDeleting = ref(false)
+
+async function createLocalConsole() {
+  const tenantId = String(props.tenant?.id || '').trim()
+  const instanceId = String(props.instance?.instanceId || '').trim()
+  const publicKey = localConsoleKey.value.trim()
+  if (!tenantId || !instanceId || !publicKey || localConsoleCreating.value) return
+  localConsoleCreating.value = true
+  try {
+    const res = await createLocalConsoleConnection({
+      id: tenantId,
+      instanceId,
+      region: props.region,
+      publicKey,
+    })
+    localConsole.value = res.data
+    localConsoleKey.value = ''
+    message.success('本地连接已创建，请复制命令在本地终端使用')
+  } catch (error: any) {
+    message.error(error?.message || '创建本地连接失败')
+  } finally {
+    localConsoleCreating.value = false
+  }
+}
+
+async function removeLocalConsole() {
+  const tenantId = String(props.tenant?.id || '').trim()
+  const connectionId = String(localConsole.value?.connectionId || '').trim()
+  if (!tenantId || !connectionId || localConsoleDeleting.value) return
+  localConsoleDeleting.value = true
+  try {
+    await deleteConsoleConnection({ id: tenantId, connectionId, region: props.region })
+    localConsole.value = null
+    message.success('本地连接已断开')
+  } catch (error: any) {
+    message.error(error?.message || '断开本地连接失败')
+  } finally {
+    localConsoleDeleting.value = false
+  }
+}
+
 async function loadStopCause() {
   const tenantId = String(props.tenant?.id || '').trim()
   const instanceId = String(props.instance?.instanceId || '').trim()
@@ -244,8 +338,12 @@ async function loadGuardStatus() {
 
 watch(
   () => [props.active, props.mode, String(props.instance?.instanceId || '')],
-  () => {
+  (value, previous) => {
     stopCauseText.value = ''
+    if (String(value?.[2] || '') !== String(previous?.[2] || '')) {
+      localConsole.value = null
+      localConsoleKey.value = ''
+    }
     if (props.active && props.mode === 'info') void loadGuardStatus()
   },
   { immediate: true },

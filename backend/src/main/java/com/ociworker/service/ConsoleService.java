@@ -152,85 +152,9 @@ public class ConsoleService {
 
         try (OciClientService env = oci(ociUser, region)) {
             ComputeClient computeClient = env.getComputeClient();
-            var instance = computeClient.getInstance(
-                    GetInstanceRequest.builder().instanceId(instanceId).build()
-            ).getInstance();
-            String compartmentId = instance.getCompartmentId();
-
-            var existing = computeClient.listInstanceConsoleConnections(
-                    ListInstanceConsoleConnectionsRequest.builder()
-                            .compartmentId(compartmentId)
-                            .instanceId(instanceId)
-                            .build()
-            ).getItems();
-
-            for (var conn : existing) {
-                var state = conn.getLifecycleState();
-                if (state == InstanceConsoleConnection.LifecycleState.Active
-                        || state == InstanceConsoleConnection.LifecycleState.Creating) {
-                    computeClient.deleteInstanceConsoleConnection(
-                            DeleteInstanceConsoleConnectionRequest.builder()
-                                    .instanceConsoleConnectionId(conn.getId()).build());
-                    log.info("【串行控制台】删除旧连接: {} (状态: {})", conn.getId(), state);
-                }
-            }
-
-            if (!existing.isEmpty()) {
-                boolean cleared = false;
-                for (int i = 0; i < 15; i++) {
-                    Thread.sleep(2000);
-                    var check = computeClient.listInstanceConsoleConnections(
-                            ListInstanceConsoleConnectionsRequest.builder()
-                                    .compartmentId(compartmentId)
-                                    .instanceId(instanceId)
-                                    .build()
-                    ).getItems();
-                    boolean allGone = check.stream().allMatch(c ->
-                            c.getLifecycleState() == InstanceConsoleConnection.LifecycleState.Deleted);
-                    if (allGone || check.isEmpty()) {
-                        cleared = true;
-                        break;
-                    }
-                }
-                if (!cleared) {
-                    throw new OciException("旧连接尚未完全删除，请稍后再试");
-                }
-            }
-
             removeLocalSessionsForInstance(userId, instanceId);
-
-            InstanceConsoleConnection connection = computeClient
-                    .createInstanceConsoleConnection(
-                            CreateInstanceConsoleConnectionRequest.builder()
-                                    .createInstanceConsoleConnectionDetails(
-                                            com.oracle.bmc.core.model.CreateInstanceConsoleConnectionDetails.builder()
-                                                    .instanceId(instanceId)
-                                                    .publicKey(publicKeyContent)
-                                                    .build())
-                                    .build()
-                    ).getInstanceConsoleConnection();
-
-            int maxWait = 15;
-            InstanceConsoleConnection active = connection;
-            while (maxWait-- > 0 && active.getLifecycleState() != InstanceConsoleConnection.LifecycleState.Active) {
-                Thread.sleep(2000);
-                active = computeClient.getInstanceConsoleConnection(
-                        GetInstanceConsoleConnectionRequest.builder()
-                                .instanceConsoleConnectionId(connection.getId()).build()
-                ).getInstanceConsoleConnection();
-            }
-
-            if (active.getLifecycleState() != InstanceConsoleConnection.LifecycleState.Active) {
-                try {
-                    computeClient.deleteInstanceConsoleConnection(
-                            DeleteInstanceConsoleConnectionRequest.builder()
-                                    .instanceConsoleConnectionId(connection.getId())
-                                    .build());
-                } catch (Exception cleanupError) {
-                    log.warn("【串行控制台】回收创建超时的 OCI 连接失败: {}", cleanupError.getMessage());
-                }
-                throw new OciException("控制台连接创建超时，请稍后重试");
-            }
+            InstanceConsoleConnection active = provisionConnection(
+                    computeClient, instanceId, publicKeyContent);
 
             String sshCommand = active.getConnectionString();
 
@@ -264,6 +188,142 @@ public class ConsoleService {
         } catch (Exception e) {
             throw new OciException("创建控制台连接失败: " + e.getMessage());
         }
+    }
+
+    /** 清理实例上的旧控制台连接，用给定公钥新建一个并等待 ACTIVE。 */
+    private InstanceConsoleConnection provisionConnection(ComputeClient computeClient,
+                                                          String instanceId, String publicKey)
+            throws InterruptedException {
+        var instance = computeClient.getInstance(
+                GetInstanceRequest.builder().instanceId(instanceId).build()
+        ).getInstance();
+        String compartmentId = instance.getCompartmentId();
+
+        var existing = computeClient.listInstanceConsoleConnections(
+                ListInstanceConsoleConnectionsRequest.builder()
+                        .compartmentId(compartmentId)
+                        .instanceId(instanceId)
+                        .build()
+        ).getItems();
+
+        for (var conn : existing) {
+            var state = conn.getLifecycleState();
+            if (state == InstanceConsoleConnection.LifecycleState.Active
+                    || state == InstanceConsoleConnection.LifecycleState.Creating) {
+                computeClient.deleteInstanceConsoleConnection(
+                        DeleteInstanceConsoleConnectionRequest.builder()
+                                .instanceConsoleConnectionId(conn.getId()).build());
+                log.info("【串行控制台】删除旧连接: {} (状态: {})", conn.getId(), state);
+            }
+        }
+
+        if (!existing.isEmpty()) {
+            boolean cleared = false;
+            for (int i = 0; i < 15; i++) {
+                Thread.sleep(2000);
+                var check = computeClient.listInstanceConsoleConnections(
+                        ListInstanceConsoleConnectionsRequest.builder()
+                                .compartmentId(compartmentId)
+                                .instanceId(instanceId)
+                                .build()
+                ).getItems();
+                boolean allGone = check.stream().allMatch(c ->
+                        c.getLifecycleState() == InstanceConsoleConnection.LifecycleState.Deleted);
+                if (allGone || check.isEmpty()) {
+                    cleared = true;
+                    break;
+                }
+            }
+            if (!cleared) {
+                throw new OciException("旧连接尚未完全删除，请稍后再试");
+            }
+        }
+
+        InstanceConsoleConnection connection = computeClient
+                .createInstanceConsoleConnection(
+                        CreateInstanceConsoleConnectionRequest.builder()
+                                .createInstanceConsoleConnectionDetails(
+                                        com.oracle.bmc.core.model.CreateInstanceConsoleConnectionDetails.builder()
+                                                .instanceId(instanceId)
+                                                .publicKey(publicKey)
+                                                .build())
+                                .build()
+                ).getInstanceConsoleConnection();
+
+        int maxWait = 15;
+        InstanceConsoleConnection active = connection;
+        while (maxWait-- > 0 && active.getLifecycleState() != InstanceConsoleConnection.LifecycleState.Active) {
+            Thread.sleep(2000);
+            active = computeClient.getInstanceConsoleConnection(
+                    GetInstanceConsoleConnectionRequest.builder()
+                            .instanceConsoleConnectionId(connection.getId()).build()
+            ).getInstanceConsoleConnection();
+        }
+
+        if (active.getLifecycleState() != InstanceConsoleConnection.LifecycleState.Active) {
+            try {
+                computeClient.deleteInstanceConsoleConnection(
+                        DeleteInstanceConsoleConnectionRequest.builder()
+                                .instanceConsoleConnectionId(connection.getId())
+                                .build());
+            } catch (Exception cleanupError) {
+                log.warn("【串行控制台】回收创建超时的 OCI 连接失败: {}", cleanupError.getMessage());
+            }
+            throw new OciException("控制台连接创建超时，请稍后重试");
+        }
+        return active;
+    }
+
+    /**
+     * 本地连接：使用用户自己的公钥创建控制台连接，返回串口 SSH 与 VNC 隧道命令，
+     * 由用户在本地终端建立隧道后用 VNC 客户端连接 localhost:5900。私钥全程不经过面板。
+     */
+    public Map<String, String> createLocalConsoleConnection(String userId, String instanceId,
+                                                            String region, String publicKey,
+                                                            String ownerAccount) {
+        userId = requireIdentifier(userId, "租户配置");
+        instanceId = requireIdentifier(instanceId, "实例");
+        requireOwner(ownerAccount);
+        String normalizedKey = normalizeLocalPublicKey(publicKey);
+
+        OciUser ociUser = userMapper.selectById(userId);
+        if (ociUser == null) throw new OciException("租户配置不存在");
+
+        try (OciClientService env = oci(ociUser, region)) {
+            ComputeClient computeClient = env.getComputeClient();
+            removeLocalSessionsForInstance(userId, instanceId);
+            InstanceConsoleConnection active = provisionConnection(
+                    computeClient, instanceId, normalizedKey);
+
+            Map<String, String> result = new LinkedHashMap<>();
+            result.put("connectionId", active.getId());
+            result.put("serialCommand", active.getConnectionString() == null
+                    ? "" : active.getConnectionString());
+            result.put("vncCommand", active.getVncConnectionString() == null
+                    ? "" : active.getVncConnectionString());
+            result.put("state", active.getLifecycleState().getValue());
+            log.info("【串行控制台】本地连接已创建: {}", active.getId());
+            return result;
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new OciException("创建本地控制台连接已取消");
+        } catch (OciException e) {
+            throw e;
+        } catch (Exception e) {
+            throw new OciException("创建本地控制台连接失败: " + e.getMessage());
+        }
+    }
+
+    private static String normalizeLocalPublicKey(String publicKey) {
+        String normalized = publicKey == null ? "" : publicKey.trim().replaceAll("[\\r\\n]+", " ");
+        if (normalized.isEmpty()) {
+            throw new OciException("请粘贴 OpenSSH 公钥（对应私钥保存在你本地）");
+        }
+        if (!normalized.matches(
+                "(ssh-(rsa|ed25519|dss)|ecdsa-sha2-nistp(256|384|521))\\s+[A-Za-z0-9+/=]+(\\s+\\S{0,256})?")) {
+            throw new OciException("SSH 公钥格式不正确，请提供 OpenSSH 格式公钥（如 ssh-ed25519 / ssh-rsa 开头）");
+        }
+        return normalized;
     }
 
     public void deleteConsoleConnection(String userId, String connectionId,

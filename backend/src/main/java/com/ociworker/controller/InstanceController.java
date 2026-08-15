@@ -339,6 +339,13 @@ public class InstanceController {
                 params.get("id"), params.get("instanceId"), regStr(params), authenticatedAccount(request)));
     }
 
+    @PostMapping("/createLocalConsole")
+    public ResponseData<?> createLocalConsole(@RequestBody Map<String, String> params, HttpServletRequest request) {
+        return ResponseData.ok(consoleService.createLocalConsoleConnection(
+                params.get("id"), params.get("instanceId"), regStr(params),
+                params.get("publicKey"), authenticatedAccount(request)));
+    }
+
     @PostMapping("/deleteConsole")
     public ResponseData<?> deleteConsole(@RequestBody Map<String, String> params, HttpServletRequest request) {
         consoleService.deleteConsoleConnection(
