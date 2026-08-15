@@ -123,6 +123,10 @@
                 </span>
                 <span v-else class="imc-value-sub">—</span>
               </div>
+              <div class="imc-row">
+                <span class="imc-label">引导卷</span>
+                <span class="imc-value-main">{{ bootVolumeText(record) }}</span>
+              </div>
             </div>
             <div class="imc-footer">
               <a-button type="link" size="small" @click="emit('open-detail', record)">
@@ -198,6 +202,11 @@
             </span>
             <span v-else style="color: var(--text-sub)">—</span>
           </template>
+          <template v-if="column.key === 'bootVolume'">
+            <span :style="{ color: bootVolumeText(record) === '…' ? 'var(--text-sub)' : undefined }">
+              {{ bootVolumeText(record) }}
+            </span>
+          </template>
           <template v-if="column.key === 'action'">
             <a-space :size="2">
               <a-button type="link" size="small" @click="emit('open-detail', record)">详情</a-button>
@@ -243,9 +252,10 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref, watch } from 'vue'
 import { DownOutlined, ReloadOutlined } from '@ant-design/icons-vue'
 import VirtualTenantCardList from '../tenant/VirtualTenantCardList.vue'
+import { getInstanceBootVolumeSummaries } from '../../api/instance'
 
 type TenantDataLike = {
   tenant: any
@@ -286,9 +296,58 @@ const columns = [
   { title: '名称', dataIndex: 'name', key: 'name', width: 180, ellipsis: true },
   { title: '规格', key: 'shape', width: 180 },
   { title: '公网 IP', dataIndex: 'publicIp', key: 'publicIp', width: 150 },
+  { title: '引导卷', key: 'bootVolume', width: 130 },
   { title: '状态', dataIndex: 'state', key: 'state', width: 110 },
   { title: '操作', key: 'action', width: 180 },
 ]
+
+const bootVolumes = ref<Record<string, { sizeGB?: number | null; vpusPerGB?: number | null } | null>>({})
+let bootVolumeSeq = 0
+
+function bootVolumeText(record: any) {
+  const key = String(record?.instanceId || '')
+  if (!(key in bootVolumes.value)) return '…'
+  const info = bootVolumes.value[key]
+  if (!info || (info.sizeGB == null && info.vpusPerGB == null)) return '—'
+  return `${info.sizeGB ?? '?'}GB/${info.vpusPerGB ?? '?'}VPUs`
+}
+
+watch(
+  () => [
+    String(props.tenantData?.tenant?.id || ''),
+    props.region,
+    (props.tenantData?.instances || []).map((row: any) => String(row?.instanceId || '')).join(','),
+  ],
+  () => void loadBootVolumes(),
+  { immediate: true },
+)
+
+async function loadBootVolumes() {
+  const tenantId = String(props.tenantData?.tenant?.id || '').trim()
+  const rows = props.tenantData?.instances || []
+  const targets = rows
+    .filter((row: any) => row?.instanceId && row?.availabilityDomain && row?.compartmentId)
+    .map((row: any) => ({
+      instanceId: String(row.instanceId),
+      availabilityDomain: String(row.availabilityDomain),
+      compartmentId: String(row.compartmentId),
+    }))
+  if (!tenantId || !targets.length) {
+    bootVolumes.value = {}
+    return
+  }
+  const seq = ++bootVolumeSeq
+  try {
+    const res = await getInstanceBootVolumeSummaries(
+      { id: tenantId, region: props.region || undefined, instances: targets },
+      { skipBusinessMessage: true, skipErrorMessage: true } as any,
+    )
+    if (seq !== bootVolumeSeq) return
+    bootVolumes.value = res.data?.volumes || {}
+  } catch {
+    if (seq === bootVolumeSeq) bootVolumes.value = {}
+  }
+}
 
 function emitMenuClick(record: any, key: unknown) {
   emit('menu-click', { record, key: String(key) })

@@ -45,6 +45,25 @@ export function getInstancePublicIps(
   return request.post<InstancePublicIpResponse>('/oci/instance/publicIps', data, { timeout: 35_000, ...config })
 }
 
+export interface InstanceBootVolumeSummary {
+  sizeGB?: number | null
+  vpusPerGB?: number | null
+}
+
+export function getInstanceBootVolumeSummaries(
+  data: {
+    id: string
+    instances: Array<{ instanceId: string; availabilityDomain?: string; compartmentId?: string }>
+  } & R,
+  config?: OciRequestConfig,
+) {
+  return request.post<{ volumes: Record<string, InstanceBootVolumeSummary | null> }>(
+    '/oci/instance/bootVolumeSummaries',
+    data,
+    { timeout: 60_000, ...config },
+  )
+}
+
 export function updateInstanceState(data: { id: string; instanceId: string; action: string } & R) {
   return request.post('/oci/instance/updateState', data)
 }

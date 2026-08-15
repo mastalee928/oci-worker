@@ -339,6 +339,26 @@ public class InstanceController {
                 params.get("id"), params.get("instanceId"), regStr(params), authenticatedAccount(request)));
     }
 
+    @PostMapping("/bootVolumeSummaries")
+    public ResponseData<?> bootVolumeSummaries(@RequestBody Map<String, Object> params) {
+        java.util.List<Map<String, String>> targets = new java.util.ArrayList<>();
+        if (params != null && params.get("instances") instanceof java.util.List<?> list) {
+            for (Object item : list) {
+                if (item instanceof Map<?, ?> raw) {
+                    Map<String, String> target = new java.util.LinkedHashMap<>();
+                    for (Map.Entry<?, ?> entry : raw.entrySet()) {
+                        target.put(String.valueOf(entry.getKey()),
+                                entry.getValue() == null ? null : String.valueOf(entry.getValue()));
+                    }
+                    targets.add(target);
+                }
+            }
+        }
+        String id = params == null || params.get("id") == null ? null : String.valueOf(params.get("id"));
+        String region = params == null || params.get("region") == null ? null : String.valueOf(params.get("region"));
+        return ResponseData.ok(instanceService.listInstanceBootVolumeSummaries(id, region, targets));
+    }
+
     @PostMapping("/createLocalConsole")
     public ResponseData<?> createLocalConsole(@RequestBody Map<String, String> params, HttpServletRequest request) {
         return ResponseData.ok(consoleService.createLocalConsoleConnection(

@@ -446,6 +446,57 @@ public class InstanceService {
         return listBootVolumesByInstance(userId, instanceId, region, false);
     }
 
+    /** 实例列表「引导卷」列的批量补查：每台实例返回 {sizeGB, vpusPerGB}，失败的实例跳过。 */
+    public Map<String, Object> listInstanceBootVolumeSummaries(String userId, String region,
+                                                               List<Map<String, String>> targets) {
+        OciUser ociUser = userMapper.selectById(userId);
+        if (ociUser == null) throw new OciException("租户配置不存在");
+        Map<String, Object> volumes = new java.util.LinkedHashMap<>();
+        if (targets == null || targets.isEmpty()) {
+            return Map.of("volumes", volumes);
+        }
+        int limit = Math.min(targets.size(), 100);
+        try (OciClientService client = ociForInstanceRead(ociUser, region)) {
+            for (int i = 0; i < limit; i++) {
+                Map<String, String> target = targets.get(i);
+                if (target == null) continue;
+                String instanceId = normalizeBlank(target.get("instanceId"));
+                String availabilityDomain = normalizeBlank(target.get("availabilityDomain"));
+                String compartmentId = normalizeBlank(target.get("compartmentId"));
+                if (instanceId == null || availabilityDomain == null || compartmentId == null) continue;
+                try {
+                    var attachments = client.getComputeClient().listBootVolumeAttachments(
+                            com.oracle.bmc.core.requests.ListBootVolumeAttachmentsRequest.builder()
+                                    .availabilityDomain(availabilityDomain)
+                                    .compartmentId(compartmentId)
+                                    .instanceId(instanceId)
+                                    .build()).getItems();
+                    String bootVolumeId = attachments == null ? null : attachments.stream()
+                            .filter(a -> a != null && a.getBootVolumeId() != null
+                                    && a.getLifecycleState() == BootVolumeAttachment.LifecycleState.Attached)
+                            .map(BootVolumeAttachment::getBootVolumeId)
+                            .findFirst().orElse(null);
+                    if (bootVolumeId == null) {
+                        volumes.put(instanceId, null);
+                        continue;
+                    }
+                    BootVolume vol = client.getBlockstorageClient().getBootVolume(
+                            GetBootVolumeRequest.builder().bootVolumeId(bootVolumeId).build()
+                    ).getBootVolume();
+                    Map<String, Object> info = new java.util.LinkedHashMap<>();
+                    info.put("sizeGB", vol == null ? null : vol.getSizeInGBs());
+                    info.put("vpusPerGB", vol == null ? null : vol.getVpusPerGB());
+                    volumes.put(instanceId, info);
+                } catch (Exception e) {
+                    log.debug("Boot volume summary failed for {}: {}", instanceId, e.getMessage());
+                }
+            }
+        } catch (Exception e) {
+            log.debug("Boot volume summary batch stopped: tenant={} {}", ociUser.getUsername(), e.getMessage());
+        }
+        return Map.of("volumes", volumes);
+    }
+
     public List<Map<String, Object>> listBootVolumesByInstance(String userId, String instanceId, String region, boolean force) {
         OciUser ociUser = userMapper.selectById(userId);
         if (ociUser == null) throw new OciException("租户配置不存在");
