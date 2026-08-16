@@ -155,11 +155,8 @@ public class VcnFlowLogService {
             }
             return Map.of("records", records, "flowLogConfigured", true, "privateIp", ip);
         } catch (BmcException e) {
-            log.warn("流日志查询失败 tenant={}: {} {}", user.getUsername(),
-                    e.getStatusCode(), e.getServiceCode());
             log.debug("流日志查询失败详情", e);
-            throw new OciException("查询流日志失败: "
-                    + OciBmcErrorTranslator.translateWithServiceDetail(e));
+            throw new OciException("查询流日志失败: " + OciBmcErrorTranslator.translate(e));
         }
     }
 

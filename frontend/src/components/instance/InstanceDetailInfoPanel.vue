@@ -69,46 +69,43 @@
       <a-button danger @click="$emit('terminate')">终止</a-button>
     </a-space>
 
-    <div class="instance-guard-row">
-      <a-switch
-        size="small"
-        :checked="guardEnabled"
-        :loading="guardSaving"
-        @change="toggleGuard"
-      />
-      <span class="instance-guard-copy">
-        <strong>自动开机守护</strong>
-        <small v-if="guardEnabled && guardInfo">
-          检测到停止会自动启动 · 已自动启动 {{ guardInfo.startCount || 0 }} 次<template
-            v-if="guardInfo.lastMessage"
-          > · {{ guardInfo.lastMessage }}</template>
-        </small>
-        <small v-else>开启后定时检测该实例，发现 STOPPED 自动执行启动</small>
-      </span>
-    </div>
+    <div class="instance-extras">
+      <div class="instance-extra-row">
+        <div class="instance-extra-copy">
+          <strong><i class="ri-shield-check-line"></i>自动开机守护</strong>
+          <small v-if="guardEnabled && guardInfo">
+            已自动启动 {{ guardInfo.startCount || 0 }} 次<template
+              v-if="guardInfo.lastMessage"
+            > · {{ guardInfo.lastMessage }}</template>
+          </small>
+          <small v-else>开启后定时检测该实例，发现 STOPPED 自动执行启动</small>
+        </div>
+        <a-switch :checked="guardEnabled" :loading="guardSaving" @change="toggleGuard" />
+      </div>
 
-    <div v-if="instance?.state === 'STOPPED'" class="instance-guard-row">
-      <a-button size="small" :loading="stopCauseLoading" @click="loadStopCause">
-        查询停机原因
-      </a-button>
-      <span v-if="stopCauseText" class="instance-guard-copy">
-        <small>{{ stopCauseText }}</small>
-      </span>
-    </div>
+      <div class="instance-extra-row">
+        <div class="instance-extra-copy">
+          <strong><i class="ri-exchange-line"></i>流量日志</strong>
+          <small>查看该实例的 VCN 流日志（需先在虚拟云网络页为其子网开启流日志）</small>
+        </div>
+        <a-button size="small" @click="openFlowLog">查看</a-button>
+      </div>
 
-    <div class="instance-guard-row">
-      <a-button size="small" @click="openFlowLog">
-        <i class="ri-exchange-line" style="margin-right: 4px"></i>流量日志
-      </a-button>
-      <span class="instance-guard-copy">
-        <small>查看该实例的 VCN 流日志（需先在虚拟云网络页为其子网开启流日志）</small>
-      </span>
+      <div v-if="instance?.state === 'STOPPED'" class="instance-extra-row">
+        <div class="instance-extra-copy">
+          <strong><i class="ri-question-line"></i>停机原因</strong>
+          <small v-if="stopCauseText">{{ stopCauseText }}</small>
+          <small v-else>从 OCI 审计日志查询最近一次停机操作的来源</small>
+        </div>
+        <a-button size="small" :loading="stopCauseLoading" @click="loadStopCause">查询</a-button>
+      </div>
     </div>
 
     <a-modal
       :open="flowLogVisible"
       :width="860"
       :footer="null"
+      :z-index="FLOW_LOG_MODAL_Z_INDEX"
       title="流量日志"
       @update:open="(v: boolean) => (flowLogVisible = v)"
     >
@@ -336,6 +333,7 @@ import {
   type LocalConsoleConnection,
 } from '../../api/instance'
 import { searchFlowLog } from '../../api/flowlog'
+import { FLOW_LOG_MODAL_Z_INDEX } from '../../utils/overlayZIndex'
 
 dayjs.extend(utc)
 
@@ -835,5 +833,46 @@ defineExpose({
   flex-wrap: wrap;
   gap: 10px;
   margin-bottom: 10px;
+}
+
+.instance-extras {
+  border: 1px solid var(--border, rgba(148, 163, 184, 0.25));
+  border-radius: 10px;
+  margin-top: 16px;
+  padding: 2px 14px;
+}
+.instance-extra-row {
+  align-items: center;
+  display: flex;
+  gap: 14px;
+  justify-content: space-between;
+  padding: 11px 0;
+}
+.instance-extra-row + .instance-extra-row {
+  border-top: 1px dashed var(--border, rgba(148, 163, 184, 0.2));
+}
+.instance-extra-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.instance-extra-copy strong {
+  align-items: center;
+  color: var(--text-main, #e2e8f0);
+  display: inline-flex;
+  font-size: 13px;
+  font-weight: 600;
+  gap: 6px;
+}
+.instance-extra-copy strong i {
+  color: var(--primary, #818cf8);
+  font-size: 15px;
+}
+.instance-extra-copy small {
+  color: var(--text-sub, #6b7280);
+  font-size: 12px;
+  line-height: 1.55;
+  word-break: break-word;
 }
 </style>

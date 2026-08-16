@@ -3,6 +3,8 @@ export const TENANT_FLOATING_CARD_ROLLING_Z_INDEX = 1200
 
 export const QUICK_TASK_MODAL_Z_INDEX = 1320
 
+export const FLOW_LOG_MODAL_Z_INDEX = 1330
+
 export const VCN_MANAGER_DRAWER_Z_INDEX = 1460
 export const VCN_MANAGER_DRAWER_WRAP_CLASS = 'vcn-manager-drawer-wrap'
 
