@@ -115,11 +115,13 @@ public class VcnFlowLogService {
     public Map<String, Object> search(String userId, String region, String privateIp,
                                       String instanceId, int minutes, boolean rejectOnly) {
         OciUser user = requireUser(userId);
+        String effectiveRegion = region == null || region.isBlank() ? user.getOciRegion() : region.trim();
         String ip = privateIp == null ? "" : privateIp.trim();
         int boundedMinutes = Math.max(5, Math.min(minutes <= 0 ? 60 : minutes, 14 * 24 * 60));
-        try (OciClientService client = new OciClientService(toSysUser(user, region), region);
-             LoggingManagementClient logging = buildLoggingClient(client, region);
-             LogSearchClient searchClient = buildSearchClient(client, region)) {
+        String query = null;
+        try (OciClientService client = new OciClientService(toSysUser(user, effectiveRegion), effectiveRegion);
+             LoggingManagementClient logging = buildLoggingClient(client, effectiveRegion);
+             LogSearchClient searchClient = buildSearchClient(client, effectiveRegion)) {
             if (ip.isEmpty() && instanceId != null && !instanceId.isBlank()) {
                 ip = resolvePrimaryPrivateIp(client, instanceId.trim());
             }
@@ -129,7 +131,7 @@ public class VcnFlowLogService {
                 return Map.of("records", List.of(), "flowLogConfigured", false, "privateIp", ip);
             }
             String scope = "\"" + user.getOciTenantId() + "/" + logGroupId + "\"";
-            String query = "search " + scope
+            query = "search " + scope
                     + " | where (data.sourceAddress = '" + ip + "' or data.destinationAddress = '" + ip + "')"
                     + (rejectOnly ? " and data.action = 'REJECT'" : "")
                     + " | sort by datetime desc";
@@ -155,7 +157,15 @@ public class VcnFlowLogService {
             }
             return Map.of("records", records, "flowLogConfigured", true, "privateIp", ip);
         } catch (BmcException e) {
-            log.debug("流日志查询失败详情", e);
+            // 详情只进服务端日志，面板保持简洁报错。
+            log.warn("流日志查询被拒 tenant={} region={} minutes={} rejectOnly={} query={} 错误: {}",
+                    user.getUsername(), effectiveRegion, boundedMinutes, rejectOnly, query,
+                    OciBmcErrorTranslator.translateWithServiceDetail(e));
+            if (e.getStatusCode() == 400) {
+                // 新建的日志组/日志在 Logging Search 索引就绪前会被 400 拒绝，属瞬态。
+                throw new OciException("查询流日志失败：若流日志刚开启，"
+                        + "Oracle 搜索索引可能尚未就绪，请等待几分钟后重试。");
+            }
             throw new OciException("查询流日志失败: " + OciBmcErrorTranslator.translate(e));
         }
     }
