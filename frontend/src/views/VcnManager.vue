@@ -42,6 +42,21 @@
                 <i class="ri-edit-line"></i>
               </a-button>
             </template>
+            <template v-else-if="column.key === 'flowlog'">
+              <a-tooltip placement="top">
+                <template #title>
+                  记录该子网进出流量（含被安全列表拒绝的连接）。Logging 免费额度每月 10GB
+                  （全租户共享）：免费账户超额后日志停止写入，付费账户超额将计费；
+                  开启会发 TG 通知并附一键关闭按钮。
+                </template>
+                <a-switch
+                  size="small"
+                  :checked="!!flowLogStates[record.id]"
+                  :loading="flowLogBusy.has(record.id)"
+                  @change="(checked: any) => toggleSubnetFlowLog(record, checked === true)"
+                />
+              </a-tooltip>
+            </template>
             <template v-else-if="column.key === 'action'">
               <a-space>
                 <a-button size="small" @click="openEditSubnet(record)">编辑</a-button>
@@ -446,6 +461,7 @@
 <script setup lang="ts">
 import { ref, reactive, watch, computed, onUnmounted } from 'vue'
 import { message, Modal } from 'ant-design-vue'
+import { getFlowLogStatus, toggleFlowLog } from '../api/flowlog'
 import RouteTableRulesManager from '../components/vcn/RouteTableRulesManager.vue'
 import NetworkLoadBalancerPanel from '../modules/nlb/NetworkLoadBalancerPanel.vue'
 import {
@@ -511,6 +527,7 @@ const cols = {
     { title: '可用域', dataIndex: 'availabilityDomain', key: 'availabilityDomain', ellipsis: true },
     { title: '禁公网', dataIndex: 'prohibitPublicIpOnVnic', key: 'ppip', width: 80,
       customRender: ({ text }: any) => text ? '是' : '否' },
+    { title: '流日志', key: 'flowlog', width: 80 },
     { title: '状态', dataIndex: 'lifecycleState', key: 'lifecycleState', width: 100 },
     { title: '操作', key: 'action', width: 150 },
   ],
@@ -636,6 +653,55 @@ async function loadSubnets(force = false) {
   if (r && isCurrentVcnContext(vcnId, contextKey, seq)) {
     data.subnet = r.data || []
     maybeOpenTargetResource('subnet')
+    void loadFlowLogStates()
+  }
+}
+
+const flowLogStates = ref<Record<string, boolean>>({})
+const flowLogBusy = reactive(new Set<string>())
+let flowLogLoadSeq = 0
+
+async function loadFlowLogStates() {
+  const subnetIds = (data.subnet || [])
+    .map((row: any) => String(row?.id || ''))
+    .filter(Boolean)
+  if (!subnetIds.length) {
+    flowLogStates.value = {}
+    return
+  }
+  const seq = ++flowLogLoadSeq
+  try {
+    const res = await getFlowLogStatus({ ...ociBase.value, subnetIds })
+    if (seq !== flowLogLoadSeq) return
+    const next: Record<string, boolean> = {}
+    for (const [subnetId, info] of Object.entries(res.data?.subnets || {})) {
+      next[subnetId] = !!(info as any)?.enabled
+    }
+    flowLogStates.value = next
+  } catch {
+    // 流日志状态是辅助信息，读取失败不打扰主流程。
+  }
+}
+
+async function toggleSubnetFlowLog(record: any, enabled: boolean) {
+  const subnetId = String(record?.id || '')
+  if (!subnetId || flowLogBusy.has(subnetId)) return
+  flowLogBusy.add(subnetId)
+  try {
+    await toggleFlowLog({
+      ...ociBase.value,
+      subnetId,
+      subnetName: String(record?.displayName || ''),
+      enabled,
+    })
+    flowLogStates.value = { ...flowLogStates.value, [subnetId]: enabled }
+    message.success(enabled
+      ? '流日志已开启，TG 已发送带一键关闭按钮的提醒'
+      : '流日志已关闭')
+  } catch (e: any) {
+    message.error(e?.message || '流日志操作失败')
+  } finally {
+    flowLogBusy.delete(subnetId)
   }
 }
 async function loadIgw(force = false) {
