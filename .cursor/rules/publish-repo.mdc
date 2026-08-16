@@ -1,0 +1,84 @@
+---
+description: OCIworker/OCIworker 公开仓发布规则（重建版）；仅在用户明确要求发布公开仓时适用
+alwaysApply: false
+---
+
+# 公开仓发布规则（publish-repo.mdc 重建版）
+
+> 原版随 H 盘损坏丢失（2026-07），本版由幸存的 `ociworker-publish-dist.mdc` +
+> `webssh-integrated-publish.mdc` + 记忆要点重建，缺失细节待用户补充。
+
+## 仓库与账号
+
+| 项 | 值 |
+|----|----|
+| 本地发布仓 | `C:\OCIWorker-dist` |
+| 远程 | `OCIworker/OCIworker`（分支 `main`） |
+| 操作账号 | **OCIworker**（`gh auth status` 确认后再推；开发仓恢复用 `gh auth switch -u mastalee928`） |
+
+## 硬性禁令
+
+1. **禁止暴露开发仓**：任何脚本、文档、JAR、Release 说明中不得出现
+   `mastalee928/oci-worker`、`ui-latest`、`feature/ui-polish`、`OCI_WORKER_UI`、
+   动效/Orbis 渠道、开发仓 curl 示例等字眼。
+2. **不发布动效版与 Docker 整包版**：仅 `latest` 单 JAR + `installer-latest` 安装脚本。
+3. **禁止提交源码** 到公开仓（仓内只有 README.md / INSTALLER.md / install.sh / ociworker / .gitignore）。
+4. **禁止删除 tag**；更新 Release 资产一律 `gh release upload --clobber`。
+5. **署名只允许 OCIWorker**：commit author、Release、Contributors 任何地方禁止出现 Claude。
+6. Commit 信息固定为：`增加以及优化功能。`
+
+## Release 结构
+
+- **`latest`**：仅 `oci-worker-1.0.0.jar`（资产名固定，`SystemService.UPDATE_ASSET_NAME` 依赖它）。
+- **`installer-latest`**：仅 `install.sh`、`ociworker`、`SHA256SUMS`；
+  不得附 `oci-webssh-linux-*`、`oci-webssh.service` 等旧 sidecar 文件。
+
+## JAR 构建（在发布仓目录内进行，开发仓不留痕）
+
+1. 把开发仓源码复制到 **`C:\OCIWorker-dist\.build\src`**（已被 dist 的 .gitignore 忽略，
+   连同 `release-assets/`、`*.jar` 均不入库）。
+2. 在该副本内打补丁：`SystemService.UPDATE_REPO` 改为 `"OCIworker/OCIworker"`
+   （代码在 UPDATE_REPO == PUBLIC_UPDATE_REPO 时自动走公开仓更新逻辑）。
+3. 副本内前端 `npm run build`（产物进 jar 的 static/dist）→ `mvn package`
+   得 `oci-worker-1.0.0.jar`，移入 `C:\OCIWorker-dist\release-assets\`。
+4. 构建后全文扫描 jar 内字符串确认无「禁令一」字眼。
+
+## 脚本维护（重要：不得从开发仓整体覆盖！）
+
+- dist 根目录的 `install.sh` / `ociworker` 是**独立维护的公开净化版**
+  （仅 latest、main 分支、无 ui-latest/动效/OCI_WORKER_UI 内容）。
+- 开发仓根目录的同名脚本是开发版，**含禁令一字眼，禁止整体复制到 dist**；
+  只能按需移植具体功能修复，移植后逐词复查禁令。
+- `SHA256SUMS`：`cd C:\OCIWorker-dist && sha256sum install.sh ociworker > release-assets/SHA256SUMS`。
+
+## Release 说明格式（实测自现网 latest）
+
+```
+增加以及优化功能。
+commit <构建时嵌入 build-commit.txt 的完整 hash>
+```
+
+面板更新检查用正则 `commit\s+[0-9a-f]{7,40}` 从说明里解析 commit，
+该行缺失会导致所有用户面板报「无法解析构建 commit」。
+
+## Git 身份
+
+`OCIworker <ociworker@users.noreply.github.com>`（dist 仓已 `git config` 固定，与历史提交一致）。
+
+## 终端 UI 复查
+
+- 不得出现原 webssh2「棍之勇者」页脚，不得链接 `a06342637/webssh2`。
+
+## 发布步骤清单
+
+1. `gh auth status` 确认 Active = OCIworker。
+2. dist 仓：更新公开文件 → 逐文件 grep 禁令字眼 →
+   commit（`增加以及优化功能。`）→ push origin main。
+3. `gh release upload latest release-assets/oci-worker-1.0.0.jar --clobber -R OCIworker/OCIworker`
+4. `gh release edit latest -R OCIworker/OCIworker --notes "增加以及优化功能。<换行>commit <本次构建 hash>"`
+5. `gh release upload installer-latest install.sh ociworker release-assets/SHA256SUMS --clobber -R OCIworker/OCIworker`
+
+## 已确认的口径（2026-08-15 用户裁定）
+
+- 公开 README 功能清单：开发仓新增功能**只字不提**，除非用户当次指明。
+- Release 说明固定为上述两行格式，无其他内容。

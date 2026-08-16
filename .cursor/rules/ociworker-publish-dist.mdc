@@ -7,8 +7,8 @@ alwaysApply: true
 
 | 仓库 | 本地 | 远程 | 发布规则 |
 |------|------|------|----------|
-| **开发仓** | `H:\cursor\oci-worker` | `mastalee928/oci-worker` | **本仓自己的 CI / Release**（`.github/workflows` 等），**不**适用 `OCIWorker-dist` 规则 |
-| **对外发布仓** | `H:\cursor\OCIWorker-dist` | `OCIworker/OCIworker` | 仅适用 `H:\cursor\OCIWorker-dist\.cursor\rules\publish-repo.mdc` |
+| **开发仓** | `C:\ociworker` | `mastalee928/oci-worker` | **本仓自己的 CI / Release**（`.github/workflows` 等），**不**适用 `OCIWorker-dist` 规则 |
+| **对外发布仓** | `C:\OCIWorker-dist` | `OCIworker/OCIworker` | 仅适用发布规则 `publish-repo.mdc`（现存于开发仓 `.cursor/rules/`） |
 
 ## 在开发仓工作时
 
@@ -19,7 +19,7 @@ alwaysApply: true
 
 **公开仓日常不更新。** 只有用户 **特别说明** 要给 `OCIworker/OCIworker` 做更新/发布时（例如「可以发布」「更新公开仓」「在 OCIworker 发一版」），才：
 
-1. 遵守 `H:\cursor\OCIWorker-dist\.cursor\rules\publish-repo.mdc`
+1. 遵守发布规则 `publish-repo.mdc`（开发仓 `.cursor/rules/publish-repo.mdc`，H 盘原版丢失后重建）
 2. 使用 **OCIworker** 账号操作该仓
 
 其余一切（日常开发、开发仓 push/Release、打开 `OCIWorker-dist` 目录、检查更新逻辑讨论等）**默认不碰公开仓**，也 **不适用** `publish-repo.mdc`。

@@ -95,6 +95,59 @@
         <small>{{ stopCauseText }}</small>
       </span>
     </div>
+
+    <div v-if="instance?.privateIp" class="instance-guard-row">
+      <a-button size="small" @click="openFlowLog">
+        <i class="ri-exchange-line" style="margin-right: 4px"></i>流量日志
+      </a-button>
+      <span class="instance-guard-copy">
+        <small>查看该实例的 VCN 流日志（需先在虚拟云网络页为其子网开启流日志）</small>
+      </span>
+    </div>
+
+    <a-modal
+      :open="flowLogVisible"
+      :width="860"
+      :footer="null"
+      title="流量日志"
+      @update:open="(v: boolean) => (flowLogVisible = v)"
+    >
+      <div class="flowlog-toolbar">
+        <span>{{ instance?.displayName || instance?.name }} · {{ instance?.privateIp }}</span>
+        <a-select v-model:value="flowLogMinutes" size="small" style="width: 110px" :options="[
+          { value: 60, label: '近 1 小时' },
+          { value: 360, label: '近 6 小时' },
+          { value: 1440, label: '近 24 小时' },
+        ]" />
+        <a-checkbox v-model:checked="flowLogRejectOnly">只看 REJECT</a-checkbox>
+        <a-button size="small" type="primary" :loading="flowLogLoading" @click="loadFlowLog">查询</a-button>
+      </div>
+      <a-alert
+        v-if="flowLogQueried && !flowLogConfigured"
+        type="warning"
+        show-icon
+        message="该租户尚未开启流日志：请到「虚拟云网络」页面为目标子网打开流日志开关，等几分钟后再查。"
+        style="margin-bottom: 10px"
+      />
+      <a-table
+        :data-source="flowLogRecords"
+        :columns="flowLogColumns"
+        :loading="flowLogLoading"
+        size="small"
+        row-key="__idx"
+        :scroll="{ x: 780, y: 420 }"
+        :pagination="{ pageSize: 50, showSizeChanger: false }"
+      >
+        <template #bodyCell="{ column, record }">
+          <template v-if="column.key === 'action'">
+            <a-tag :color="record.action === 'REJECT' ? 'red' : 'green'">{{ record.action }}</a-tag>
+          </template>
+        </template>
+      </a-table>
+      <div class="instance-guard-copy" style="margin-top: 8px">
+        <small>记录有数分钟延迟；免费额度每月 10GB（Logging 共享），排查完请及时关闭流日志。</small>
+      </div>
+    </a-modal>
   </template>
 
   <template v-else>
@@ -282,6 +335,7 @@ import {
   type InstanceGuardStatus,
   type LocalConsoleConnection,
 } from '../../api/instance'
+import { searchFlowLog } from '../../api/flowlog'
 
 dayjs.extend(utc)
 
@@ -334,6 +388,55 @@ const guardInfo = ref<InstanceGuardStatus | null>(null)
 let guardLoadGen = 0
 const stopCauseLoading = ref(false)
 const stopCauseText = ref('')
+
+const flowLogVisible = ref(false)
+const flowLogLoading = ref(false)
+const flowLogQueried = ref(false)
+const flowLogConfigured = ref(true)
+const flowLogMinutes = ref(60)
+const flowLogRejectOnly = ref(false)
+const flowLogRecords = ref<any[]>([])
+
+const flowLogColumns = [
+  { title: '时间', dataIndex: 'time', key: 'time', width: 165 },
+  { title: '方向', dataIndex: 'direction', key: 'direction', width: 60 },
+  { title: '源', key: 'src', width: 170, customRender: ({ record }: any) => `${record.sourceAddress || ''}:${record.sourcePort ?? ''}` },
+  { title: '目的', key: 'dst', width: 170, customRender: ({ record }: any) => `${record.destinationAddress || ''}:${record.destinationPort ?? ''}` },
+  { title: '协议', dataIndex: 'protocol', key: 'protocol', width: 70 },
+  { title: '动作', key: 'action', width: 90 },
+  { title: '字节', dataIndex: 'bytes', key: 'bytes', width: 90 },
+]
+
+function openFlowLog() {
+  flowLogVisible.value = true
+  if (!flowLogQueried.value) void loadFlowLog()
+}
+
+async function loadFlowLog() {
+  const tenantId = String(props.tenant?.id || '').trim()
+  const privateIp = String(props.instance?.privateIp || '').trim()
+  if (!tenantId || !privateIp || flowLogLoading.value) return
+  flowLogLoading.value = true
+  try {
+    const res = await searchFlowLog({
+      id: tenantId,
+      region: props.region,
+      privateIp,
+      minutes: Number(flowLogMinutes.value) || 60,
+      rejectOnly: flowLogRejectOnly.value,
+    })
+    flowLogConfigured.value = res.data?.flowLogConfigured !== false
+    flowLogRecords.value = (res.data?.records || []).map((row: any, index: number) => ({
+      ...row,
+      __idx: index,
+    }))
+    flowLogQueried.value = true
+  } catch (error: any) {
+    message.error(error?.message || '查询流日志失败')
+  } finally {
+    flowLogLoading.value = false
+  }
+}
 
 const localConsole = ref<LocalConsoleConnection | null>(null)
 const localConsoleKey = ref('')
@@ -511,6 +614,10 @@ watch(
       localConsole.value = null
       localConsoleKey.value = ''
       localKeySource.value = ''
+      flowLogVisible.value = false
+      flowLogQueried.value = false
+      flowLogRecords.value = []
+      flowLogConfigured.value = true
     }
     if (props.active && props.mode === 'info') void loadGuardStatus()
   },
@@ -716,6 +823,13 @@ defineExpose({
   color: var(--success-text, #34d399);
 }
 .local-console-alert {
+  margin-bottom: 10px;
+}
+.flowlog-toolbar {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
   margin-bottom: 10px;
 }
 </style>

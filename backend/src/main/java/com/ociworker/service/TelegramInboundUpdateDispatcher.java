@@ -29,6 +29,8 @@ public class TelegramInboundUpdateDispatcher {
     private TaskSchedulerService taskSchedulerService;
     @Resource
     private InstanceGuardService instanceGuardService;
+    @Resource
+    private VcnFlowLogService vcnFlowLogService;
 
     public void dispatchUpdateJson(String updateJson) {
         dispatchUpdateJson(updateJson, null);
@@ -59,9 +61,11 @@ public class TelegramInboundUpdateDispatcher {
                     notificationService.answerTelegramCallbackQuery(id, "", false, receivingBotToken);
                 } else if (!tgNotifyConfigRollbackService.tryHandleTelegramCallback(data, id, receivingBotToken)) {
                     if (!instanceGuardService.tryHandleTelegramCallback(data, id, receivingBotToken)) {
-                        if (!shapeEditTaskManager.tryHandleTelegramCallback(data, id, receivingBotToken)) {
-                            if (!taskSchedulerService.tryHandleTelegramCallback(data, id, receivingBotToken)) {
-                                loginSecurityService.handleTelegramCallback(data, id, receivingBotToken);
+                        if (!vcnFlowLogService.tryHandleTelegramCallback(data, id, receivingBotToken)) {
+                            if (!shapeEditTaskManager.tryHandleTelegramCallback(data, id, receivingBotToken)) {
+                                if (!taskSchedulerService.tryHandleTelegramCallback(data, id, receivingBotToken)) {
+                                    loginSecurityService.handleTelegramCallback(data, id, receivingBotToken);
+                                }
                             }
                         }
                     }

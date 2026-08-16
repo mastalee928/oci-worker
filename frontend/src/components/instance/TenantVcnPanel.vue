@@ -70,6 +70,22 @@
               <span>{{ sub.displayName }}</span>
               <a-tag size="small">{{ sub.cidrBlock }}</a-tag>
               <a-tag :color="sub.isPublic ? 'green' : 'default'" size="small">{{ sub.isPublic ? '公有' : '私有' }}</a-tag>
+              <span class="vcn-flowlog-toggle">
+                <span class="vcn-flowlog-label">流日志</span>
+                <a-tooltip placement="top">
+                  <template #title>
+                    记录该子网进出流量（含被安全列表拒绝的连接），用于排查端口不通。
+                    Logging 免费额度每月 10GB（全租户共享）：免费账户超额后日志停止写入，
+                    付费账户超额将计费；开启会发 TG 通知并附一键关闭按钮。
+                  </template>
+                  <a-switch
+                    size="small"
+                    :checked="!!flowLogStates[sub.id]"
+                    :loading="flowLogBusy.has(sub.id)"
+                    @change="(checked: any) => toggleSubnetFlowLog(sub, checked === true)"
+                  />
+                </a-tooltip>
+              </span>
             </div>
           </div>
         </div>
@@ -113,8 +129,9 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { message } from 'ant-design-vue'
+import { getFlowLogStatus, toggleFlowLog } from '../../api/flowlog'
 import {
   createReservedIp,
   deleteReservedIp,
@@ -272,6 +289,66 @@ async function prefetchSubscribedRegions() {
   }
 }
 
+const flowLogStates = ref<Record<string, boolean>>({})
+const flowLogBusy = reactive(new Set<string>())
+let flowLogLoadSeq = 0
+
+function allSubnetIds() {
+  const ids: string[] = []
+  for (const vcn of vcnList.value || []) {
+    for (const sub of vcn?.subnets || []) {
+      if (sub?.id) ids.push(String(sub.id))
+    }
+  }
+  return ids
+}
+
+async function loadFlowLogStates() {
+  const tenantId = String(props.tenant?.id || '')
+  const subnetIds = allSubnetIds()
+  if (!tenantId || !subnetIds.length) {
+    flowLogStates.value = {}
+    return
+  }
+  const seq = ++flowLogLoadSeq
+  try {
+    const res = await getFlowLogStatus({ id: tenantId, ...regionParam(), subnetIds })
+    if (seq !== flowLogLoadSeq) return
+    const next: Record<string, boolean> = {}
+    const map = res.data?.subnets || {}
+    for (const [subnetId, info] of Object.entries(map)) {
+      next[subnetId] = !!(info as any)?.enabled
+    }
+    flowLogStates.value = next
+  } catch {
+    // 流日志状态是辅助信息，读取失败不打扰主流程。
+  }
+}
+
+async function toggleSubnetFlowLog(sub: any, enabled: boolean) {
+  const tenantId = String(props.tenant?.id || '')
+  const subnetId = String(sub?.id || '')
+  if (!tenantId || !subnetId || flowLogBusy.has(subnetId)) return
+  flowLogBusy.add(subnetId)
+  try {
+    await toggleFlowLog({
+      id: tenantId,
+      ...regionParam(),
+      subnetId,
+      subnetName: String(sub?.displayName || ''),
+      enabled,
+    })
+    flowLogStates.value = { ...flowLogStates.value, [subnetId]: enabled }
+    message.success(enabled
+      ? '流日志已开启，TG 已发送带一键关闭按钮的提醒'
+      : '流日志已关闭')
+  } catch (e: any) {
+    message.error(e?.message || '流日志操作失败')
+  } finally {
+    flowLogBusy.delete(subnetId)
+  }
+}
+
 async function loadVcns(force = false) {
   if (!props.tenant) return
   if (vcnListLoading.value && !force) return
@@ -289,6 +366,7 @@ async function loadVcns(force = false) {
     if (requestId !== vcnLoadSeq || !sameTarget(targetKey)) return
     vcnList.value = res.data || []
     vcnLoadedTargetKey = targetKey
+    void loadFlowLogStates()
   } catch (e: any) {
     if (requestId === vcnLoadSeq && sameTarget(targetKey)) {
       vcnLoadedTargetKey = ''
@@ -506,11 +584,22 @@ defineExpose({
   gap: 8px;
 }
 .vcn-subnet-row {
-  display: flex;
   align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 12px;
   gap: 6px;
   padding: 4px 0;
-  font-size: 12px;
+}
+.vcn-flowlog-toggle {
+  align-items: center;
+  display: inline-flex;
+  gap: 5px;
+  margin-left: auto;
+}
+.vcn-flowlog-label {
+  color: var(--text-sub);
+  font-size: 11.5px;
 }
 .vcn-ip-row {
   display: flex;

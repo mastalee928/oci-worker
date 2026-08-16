@@ -48,6 +48,16 @@
         </dependency>
         <dependency>
             <groupId>com.oracle.oci.sdk</groupId>
+            <artifactId>oci-java-sdk-logging</artifactId>
+            <version>${oci-sdk.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.oracle.oci.sdk</groupId>
+            <artifactId>oci-java-sdk-loggingsearch</artifactId>
+            <version>${oci-sdk.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>com.oracle.oci.sdk</groupId>
             <artifactId>oci-java-sdk-objectstorage</artifactId>
             <version>${oci-sdk.version}</version>
         </dependency>
