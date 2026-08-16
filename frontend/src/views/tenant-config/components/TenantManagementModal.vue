@@ -497,15 +497,21 @@
               <template #icon><ReloadOutlined /></template>加载公告
             </a-button>
             <a-input-search v-model:value="announcementSearchModel" placeholder="搜索摘要/工单号/类型" allow-clear style="width: 240px" />
+            <a-segmented v-model:value="announcementStateFilter" :options="[{ label: '全部', value: 'all' }, { label: '活动中', value: 'active' }]" size="small" />
           </a-space>
           <div v-if="announcementsRetentionNote" style="font-size: 12px; color: var(--text-sub); margin-bottom: 8px">
             {{ announcementsRetentionNote }}
           </div>
-          <a-table v-if="!isMobile" :data-source="filteredAnnouncements" :loading="announcementsLoading" size="small"
+          <a-table v-if="!isMobile" :data-source="displayedAnnouncements" :loading="announcementsLoading" size="small"
             :pagination="{ pageSize: 15 }" row-key="id"
             :custom-row="announcementCustomRow">
             <a-table-column title="摘要" data-index="summary" key="summary" :ellipsis="true" />
             <a-table-column title="类型" data-index="announcementType" key="announcementType" :width="120" />
+            <a-table-column title="状态" data-index="lifecycleState" key="lifecycleStateCol" :width="84">
+              <template #default="{ text }">
+                <a-tag :color="announcementLifecycleColor(text)">{{ announcementLifecycleLabel(text) }}</a-tag>
+              </template>
+            </a-table-column>
             <a-table-column title="发布时间" data-index="timeCreated" key="timeCreated" :width="168">
               <template #default="{ text }">{{ formatUtcCnDate(text) }}</template>
             </a-table-column>
@@ -540,14 +546,15 @@
             </a-table-column>
           </a-table>
           <a-spin v-else :spinning="announcementsLoading">
-            <a-empty v-if="!announcementsLoading && filteredAnnouncements.length === 0" description="请点击「加载公告」" />
-            <div v-for="a in filteredAnnouncements" :key="a.id" class="mobile-card" @click="openAnnouncementDetail(a)">
+            <a-empty v-if="!announcementsLoading && displayedAnnouncements.length === 0" description="请点击「加载公告」" />
+            <div v-for="a in displayedAnnouncements" :key="a.id" class="mobile-card" @click="openAnnouncementDetail(a)">
               <div class="mobile-card-header">
                 <span class="mobile-card-title">{{ a.summary || '—' }}</span>
                 <a-tag :color="announcementStatusColor(a.userStatus)" style="margin:0">{{ formatAnnouncementUserStatus(a.userStatus) }}</a-tag>
               </div>
               <div class="mobile-card-body">
                 <div class="mobile-card-row"><span class="label">类型</span><span class="value">{{ a.announcementType || '—' }}</span></div>
+                <div class="mobile-card-row"><span class="label">状态</span><span class="value"><a-tag :color="announcementLifecycleColor(a.lifecycleState)" style="margin:0">{{ announcementLifecycleLabel(a.lifecycleState) }}</a-tag></span></div>
                 <div class="mobile-card-row"><span class="label">时间</span><span class="value">{{ formatUtcCnDate(a.timeCreated) }}</span></div>
               </div>
               <div v-if="isAnnouncementUnread(a)" class="mobile-card-actions" @click.stop>
@@ -1065,6 +1072,12 @@ const regionSubscribeCodeModel = computed({ get: () => props.regionSubscribeCode
 const budgetFormVisibleModel = computed({ get: () => props.budgetFormVisible, set: (value) => emit('update:budgetFormVisible', value) })
 const budgetAlertFormVisibleModel = computed({ get: () => props.budgetAlertFormVisible, set: (value) => emit('update:budgetAlertFormVisible', value) })
 const announcementSearchModel = computed({ get: () => props.announcementSearch, set: (value) => emit('update:announcementSearch', value) })
+const announcementStateFilter = ref<'all' | 'active'>('all')
+const displayedAnnouncements = computed(() => announcementStateFilter.value === 'all'
+  ? props.filteredAnnouncements
+  : (props.filteredAnnouncements || []).filter((a: any) => String(a?.lifecycleState || '').toUpperCase() === 'ACTIVE'))
+function announcementLifecycleLabel(state: any) { return String(state || '').toUpperCase() === 'ACTIVE' ? '活动中' : '已结束' }
+function announcementLifecycleColor(state: any) { return String(state || '').toUpperCase() === 'ACTIVE' ? 'green' : 'default' }
 const announcementDrawerVisibleModel = computed({ get: () => props.announcementDrawerVisible, set: (value) => emit('update:announcementDrawerVisible', value) })
 const announcementDetailTabModel = computed({ get: () => props.announcementDetailTab, set: (value) => emit('update:announcementDetailTab', String(value)) })
 

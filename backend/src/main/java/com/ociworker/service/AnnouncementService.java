@@ -86,7 +86,8 @@ public class AnnouncementService {
             do {
                 ListAnnouncementsRequest.Builder req = ListAnnouncementsRequest.builder()
                         .compartmentId(compartmentId)
-                        .lifecycleState(ListAnnouncementsRequest.LifecycleState.Active)
+                        // 面板列表不过滤 lifecycleState：INACTIVE（已结束）公告也有查阅价值；
+                        // TG 推送扫描仍只看 Active（listLatestActiveAnnouncements）。
                         .sortBy(ListAnnouncementsRequest.SortBy.TimeCreated)
                         .sortOrder(ListAnnouncementsRequest.SortOrder.Desc)
                         .limit(100);
