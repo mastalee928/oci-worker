@@ -130,9 +130,10 @@ public class VcnFlowLogService {
             }
             String scope = "\"" + user.getOciTenantId() + "/" + logGroupId + "\"";
             String query = "search " + scope
-                    + " | where data.sourceAddress = '" + ip + "' or data.destinationAddress = '" + ip + "'"
-                    + (rejectOnly ? " | where data.action = 'REJECT'" : "")
+                    + " | where (data.sourceAddress = '" + ip + "' or data.destinationAddress = '" + ip + "')"
+                    + (rejectOnly ? " and data.action = 'REJECT'" : "")
                     + " | sort by datetime desc";
+            log.debug("流日志查询语句: {}", query);
             Date end = new Date();
             Date start = new Date(end.getTime() - boundedMinutes * 60_000L);
             var response = searchClient.searchLogs(SearchLogsRequest.builder()
@@ -154,7 +155,11 @@ public class VcnFlowLogService {
             }
             return Map.of("records", records, "flowLogConfigured", true, "privateIp", ip);
         } catch (BmcException e) {
-            throw new OciException("查询流日志失败: " + OciBmcErrorTranslator.translate(e));
+            log.warn("流日志查询失败 tenant={}: {} {}", user.getUsername(),
+                    e.getStatusCode(), e.getServiceCode());
+            log.debug("流日志查询失败详情", e);
+            throw new OciException("查询流日志失败: "
+                    + OciBmcErrorTranslator.translateWithServiceDetail(e));
         }
     }
 
