@@ -40,6 +40,12 @@ public class VcnFlowLogController {
                 text(params.get("subnetId")), text(params.get("subnetName")), enabled));
     }
 
+    @PostMapping("/instanceStatus")
+    public ResponseData<?> instanceStatus(@RequestBody Map<String, Object> params) {
+        return ResponseData.ok(vcnFlowLogService.instanceStatus(
+                text(params.get("id")), text(params.get("region")), text(params.get("instanceId"))));
+    }
+
     @PostMapping("/search")
     public ResponseData<?> search(@RequestBody Map<String, Object> params) {
         int minutes = 60;

@@ -86,9 +86,20 @@
       <div class="instance-extra-row">
         <div class="instance-extra-copy">
           <strong><i class="ri-exchange-line"></i>流量日志</strong>
-          <small>查看该实例的 VCN 流日志（需先在虚拟云网络页为其子网开启流日志）</small>
+          <small>
+            查看该实例的 VCN 流日志（开关作用于其所在子网<template
+              v-if="flowLogSubnet?.subnetName"
+            >：{{ flowLogSubnet.subnetName }}</template>，同子网实例共享）
+          </small>
         </div>
-        <a-button size="small" @click="openFlowLog">查看</a-button>
+        <span class="instance-extra-controls">
+          <a-button size="small" @click="openFlowLog">查看</a-button>
+          <a-switch
+            :checked="!!flowLogSubnet?.enabled"
+            :loading="flowLogSubnetLoading || flowLogToggling"
+            @change="(checked: any) => toggleInstanceFlowLog(checked === true)"
+          />
+        </span>
       </div>
 
       <div v-if="instance?.state === 'STOPPED'" class="instance-extra-row">
@@ -120,10 +131,10 @@
         <a-button size="small" type="primary" :loading="flowLogLoading" @click="loadFlowLog">查询</a-button>
       </div>
       <a-alert
-        v-if="flowLogQueried && !flowLogConfigured"
+        v-if="flowLogQueried && (!flowLogConfigured || flowLogSubnet?.enabled === false)"
         type="warning"
         show-icon
-        message="该租户尚未开启流日志：请到「虚拟云网络」页面为目标子网打开流日志开关，等几分钟后再查。"
+        message="该实例所在子网未开启流日志：可用「流量日志」行右侧的开关开启，开启后记录有数分钟延迟。"
         style="margin-bottom: 10px"
       />
       <a-table
@@ -332,7 +343,7 @@ import {
   type InstanceGuardStatus,
   type LocalConsoleConnection,
 } from '../../api/instance'
-import { searchFlowLog } from '../../api/flowlog'
+import { searchFlowLog, getFlowLogInstanceStatus, toggleFlowLog, type FlowLogInstanceStatus } from '../../api/flowlog'
 import { FLOW_LOG_MODAL_Z_INDEX } from '../../utils/overlayZIndex'
 
 dayjs.extend(utc)
@@ -395,6 +406,57 @@ const flowLogMinutes = ref(60)
 const flowLogRejectOnly = ref(false)
 const flowLogRecords = ref<any[]>([])
 const flowLogIp = ref('')
+const flowLogSubnet = ref<FlowLogInstanceStatus | null>(null)
+const flowLogSubnetLoading = ref(false)
+const flowLogToggling = ref(false)
+let flowLogSubnetSeq = 0
+
+async function loadFlowLogSubnetStatus() {
+  const tenantId = String(props.tenant?.id || '').trim()
+  const instanceId = String(props.instance?.instanceId || '').trim()
+  if (!tenantId || !instanceId) {
+    flowLogSubnet.value = null
+    return
+  }
+  const seq = ++flowLogSubnetSeq
+  flowLogSubnetLoading.value = true
+  try {
+    const res = await getFlowLogInstanceStatus({ id: tenantId, region: props.region, instanceId })
+    if (seq !== flowLogSubnetSeq) return
+    flowLogSubnet.value = res.data || null
+  } catch {
+    if (seq === flowLogSubnetSeq) flowLogSubnet.value = null
+  } finally {
+    if (seq === flowLogSubnetSeq) flowLogSubnetLoading.value = false
+  }
+}
+
+async function toggleInstanceFlowLog(enabled: boolean) {
+  const tenantId = String(props.tenant?.id || '').trim()
+  const subnetId = String(flowLogSubnet.value?.subnetId || '').trim()
+  if (!tenantId || flowLogToggling.value) return
+  if (!subnetId) {
+    message.warning('尚未解析到实例所在子网，请稍后重试')
+    void loadFlowLogSubnetStatus()
+    return
+  }
+  flowLogToggling.value = true
+  try {
+    await toggleFlowLog({
+      id: tenantId,
+      region: props.region,
+      subnetId,
+      subnetName: String(flowLogSubnet.value?.subnetName || ''),
+      enabled,
+    })
+    flowLogSubnet.value = { ...(flowLogSubnet.value as FlowLogInstanceStatus), enabled }
+    message.success(enabled ? '流日志已开启，记录有数分钟延迟' : '流日志已关闭')
+  } catch (error: any) {
+    message.error(error?.message || '流日志操作失败')
+  } finally {
+    flowLogToggling.value = false
+  }
+}
 
 const flowLogColumns = [
   { title: '时间', dataIndex: 'time', key: 'time', width: 165 },
@@ -620,8 +682,12 @@ watch(
       flowLogRecords.value = []
       flowLogConfigured.value = true
       flowLogIp.value = ''
+      flowLogSubnet.value = null
     }
-    if (props.active && props.mode === 'info') void loadGuardStatus()
+    if (props.active && props.mode === 'info') {
+      void loadGuardStatus()
+      void loadFlowLogSubnetStatus()
+    }
   },
   { immediate: true },
 )
@@ -874,5 +940,11 @@ defineExpose({
   font-size: 12px;
   line-height: 1.55;
   word-break: break-word;
+}
+.instance-extra-controls {
+  align-items: center;
+  display: inline-flex;
+  flex-shrink: 0;
+  gap: 10px;
 }
 </style>

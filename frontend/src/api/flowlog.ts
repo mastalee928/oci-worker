@@ -29,6 +29,23 @@ export function toggleFlowLog(data: {
   return request.post('/oci/flowlog/toggle', data, { timeout: 120_000 })
 }
 
+export interface FlowLogInstanceStatus {
+  subnetId: string
+  subnetName?: string | null
+  enabled: boolean
+  privateIp?: string | null
+}
+
+export function getFlowLogInstanceStatus(data: {
+  id: string
+  region?: string
+  instanceId: string
+}) {
+  return request.post<FlowLogInstanceStatus>('/oci/flowlog/instanceStatus', data, {
+    timeout: 60_000,
+  })
+}
+
 export function searchFlowLog(data: {
   id: string
   region?: string

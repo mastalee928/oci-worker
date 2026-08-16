@@ -170,7 +170,45 @@ public class VcnFlowLogService {
         }
     }
 
+    /** 查询实例所在子网（主 VNIC）的流日志状态，供实例详情页开关使用。 */
+    public Map<String, Object> instanceStatus(String userId, String region, String instanceId) {
+        OciUser user = requireUser(userId);
+        if (instanceId == null || instanceId.isBlank()) throw new OciException("实例 ID 不能为空");
+        String effectiveRegion = region == null || region.isBlank() ? user.getOciRegion() : region.trim();
+        try (OciClientService client = new OciClientService(toSysUser(user, effectiveRegion), effectiveRegion);
+             LoggingManagementClient logging = buildLoggingClient(client, effectiveRegion)) {
+            var vnic = resolvePrimaryVnic(client, instanceId.trim());
+            String subnetId = vnic.getSubnetId();
+            String subnetName = null;
+            try {
+                var subnet = client.getVirtualNetworkClient().getSubnet(
+                        com.oracle.bmc.core.requests.GetSubnetRequest.builder()
+                                .subnetId(subnetId).build()).getSubnet();
+                subnetName = subnet == null ? null : subnet.getDisplayName();
+            } catch (Exception e) {
+                log.debug("读取子网名称失败: {}", e.getMessage());
+            }
+            String logGroupId = findLogGroupId(logging, user.getOciTenantId());
+            boolean enabled = logGroupId != null
+                    && listActiveFlowLogsBySubnet(logging, logGroupId).containsKey(subnetId);
+            Map<String, Object> out = new LinkedHashMap<>();
+            out.put("subnetId", subnetId);
+            out.put("subnetName", subnetName);
+            out.put("enabled", enabled);
+            out.put("privateIp", vnic.getPrivateIp());
+            return out;
+        } catch (BmcException e) {
+            throw new OciException("读取流日志状态失败: " + OciBmcErrorTranslator.translate(e));
+        }
+    }
+
     private String resolvePrimaryPrivateIp(OciClientService client, String instanceId) {
+        var vnic = resolvePrimaryVnic(client, instanceId);
+        if (vnic.getPrivateIp() == null) throw new OciException("无法解析实例私网 IP");
+        return vnic.getPrivateIp();
+    }
+
+    private com.oracle.bmc.core.model.Vnic resolvePrimaryVnic(OciClientService client, String instanceId) {
         var instance = client.getComputeClient().getInstance(
                 com.oracle.bmc.core.requests.GetInstanceRequest.builder()
                         .instanceId(instanceId).build()).getInstance();
@@ -180,19 +218,19 @@ public class VcnFlowLogService {
                         .compartmentId(instance.getCompartmentId())
                         .instanceId(instanceId)
                         .build()).getItems();
-        String fallback = null;
+        com.oracle.bmc.core.model.Vnic fallback = null;
         for (var attachment : attachments == null
                 ? List.<com.oracle.bmc.core.model.VnicAttachment>of() : attachments) {
             if (attachment == null || attachment.getVnicId() == null) continue;
             var vnic = client.getVirtualNetworkClient().getVnic(
                     com.oracle.bmc.core.requests.GetVnicRequest.builder()
                             .vnicId(attachment.getVnicId()).build()).getVnic();
-            if (vnic == null || vnic.getPrivateIp() == null) continue;
-            if (Boolean.TRUE.equals(vnic.getIsPrimary())) return vnic.getPrivateIp();
-            if (fallback == null) fallback = vnic.getPrivateIp();
+            if (vnic == null) continue;
+            if (Boolean.TRUE.equals(vnic.getIsPrimary())) return vnic;
+            if (fallback == null) fallback = vnic;
         }
         if (fallback != null) return fallback;
-        throw new OciException("无法解析实例私网 IP");
+        throw new OciException("无法解析实例网卡");
     }
 
     public boolean tryHandleTelegramCallback(String rawData, String callbackQueryId,
