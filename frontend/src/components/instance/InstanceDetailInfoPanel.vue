@@ -96,7 +96,7 @@
       </span>
     </div>
 
-    <div v-if="instance?.privateIp" class="instance-guard-row">
+    <div class="instance-guard-row">
       <a-button size="small" @click="openFlowLog">
         <i class="ri-exchange-line" style="margin-right: 4px"></i>流量日志
       </a-button>
@@ -113,7 +113,7 @@
       @update:open="(v: boolean) => (flowLogVisible = v)"
     >
       <div class="flowlog-toolbar">
-        <span>{{ instance?.displayName || instance?.name }} · {{ instance?.privateIp }}</span>
+        <span>{{ instance?.displayName || instance?.name }} · {{ flowLogIp || instance?.privateIp || '自动解析私网 IP' }}</span>
         <a-select v-model:value="flowLogMinutes" size="small" style="width: 110px" :options="[
           { value: 60, label: '近 1 小时' },
           { value: 360, label: '近 6 小时' },
@@ -396,6 +396,7 @@ const flowLogConfigured = ref(true)
 const flowLogMinutes = ref(60)
 const flowLogRejectOnly = ref(false)
 const flowLogRecords = ref<any[]>([])
+const flowLogIp = ref('')
 
 const flowLogColumns = [
   { title: '时间', dataIndex: 'time', key: 'time', width: 165 },
@@ -414,18 +415,20 @@ function openFlowLog() {
 
 async function loadFlowLog() {
   const tenantId = String(props.tenant?.id || '').trim()
-  const privateIp = String(props.instance?.privateIp || '').trim()
-  if (!tenantId || !privateIp || flowLogLoading.value) return
+  const instanceId = String(props.instance?.instanceId || '').trim()
+  if (!tenantId || !instanceId || flowLogLoading.value) return
   flowLogLoading.value = true
   try {
     const res = await searchFlowLog({
       id: tenantId,
       region: props.region,
-      privateIp,
+      privateIp: String(props.instance?.privateIp || ''),
+      instanceId,
       minutes: Number(flowLogMinutes.value) || 60,
       rejectOnly: flowLogRejectOnly.value,
     })
     flowLogConfigured.value = res.data?.flowLogConfigured !== false
+    flowLogIp.value = String((res.data as any)?.privateIp || '')
     flowLogRecords.value = (res.data?.records || []).map((row: any, index: number) => ({
       ...row,
       __idx: index,
@@ -618,6 +621,7 @@ watch(
       flowLogQueried.value = false
       flowLogRecords.value = []
       flowLogConfigured.value = true
+      flowLogIp.value = ''
     }
     if (props.active && props.mode === 'info') void loadGuardStatus()
   },

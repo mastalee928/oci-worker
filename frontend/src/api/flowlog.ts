@@ -32,11 +32,12 @@ export function toggleFlowLog(data: {
 export function searchFlowLog(data: {
   id: string
   region?: string
-  privateIp: string
+  privateIp?: string
+  instanceId?: string
   minutes: number
   rejectOnly: boolean
 }) {
-  return request.post<{ records: FlowLogRecord[]; flowLogConfigured: boolean }>(
+  return request.post<{ records: FlowLogRecord[]; flowLogConfigured: boolean; privateIp?: string }>(
     '/oci/flowlog/search',
     data,
     { timeout: 90_000 },

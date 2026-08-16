@@ -340,7 +340,7 @@ async function toggleSubnetFlowLog(sub: any, enabled: boolean) {
     })
     flowLogStates.value = { ...flowLogStates.value, [subnetId]: enabled }
     message.success(enabled
-      ? '流日志已开启，TG 已发送带一键关闭按钮的提醒'
+      ? '流日志已开启'
       : '流日志已关闭')
   } catch (e: any) {
     message.error(e?.message || '流日志操作失败')

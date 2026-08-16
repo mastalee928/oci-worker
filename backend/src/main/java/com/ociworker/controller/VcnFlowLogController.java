@@ -52,7 +52,8 @@ public class VcnFlowLogController {
                 || "true".equalsIgnoreCase(String.valueOf(params.get("rejectOnly")));
         return ResponseData.ok(vcnFlowLogService.search(
                 text(params.get("id")), text(params.get("region")),
-                text(params.get("privateIp")), minutes, rejectOnly));
+                text(params.get("privateIp")), text(params.get("instanceId")),
+                minutes, rejectOnly));
     }
 
     private static String text(Object value) {

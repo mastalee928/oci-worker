@@ -111,19 +111,22 @@ public class VcnFlowLogService {
         }
     }
 
-    /** 按实例私网 IP 查询流量记录（时间范围分钟数，支持只看 REJECT）。 */
+    /** 按实例私网 IP 查询流量记录（IP 为空时按 instanceId 自动解析主 VNIC 私网 IP）。 */
     public Map<String, Object> search(String userId, String region, String privateIp,
-                                      int minutes, boolean rejectOnly) {
+                                      String instanceId, int minutes, boolean rejectOnly) {
         OciUser user = requireUser(userId);
         String ip = privateIp == null ? "" : privateIp.trim();
-        if (!ip.matches("[0-9a-fA-F:.]{3,45}")) throw new OciException("私网 IP 无效");
         int boundedMinutes = Math.max(5, Math.min(minutes <= 0 ? 60 : minutes, 14 * 24 * 60));
         try (OciClientService client = new OciClientService(toSysUser(user, region), region);
              LoggingManagementClient logging = buildLoggingClient(client, region);
              LogSearchClient searchClient = buildSearchClient(client, region)) {
+            if (ip.isEmpty() && instanceId != null && !instanceId.isBlank()) {
+                ip = resolvePrimaryPrivateIp(client, instanceId.trim());
+            }
+            if (!ip.matches("[0-9a-fA-F:.]{3,45}")) throw new OciException("无法确定实例私网 IP");
             String logGroupId = findLogGroupId(logging, user.getOciTenantId());
             if (logGroupId == null) {
-                return Map.of("records", List.of(), "flowLogConfigured", false);
+                return Map.of("records", List.of(), "flowLogConfigured", false, "privateIp", ip);
             }
             String scope = "\"" + user.getOciTenantId() + "/" + logGroupId + "\"";
             String query = "search " + scope
@@ -149,10 +152,35 @@ public class VcnFlowLogService {
                 Map<String, Object> row = flattenFlowRecord(result, ip);
                 if (row != null) records.add(row);
             }
-            return Map.of("records", records, "flowLogConfigured", true);
+            return Map.of("records", records, "flowLogConfigured", true, "privateIp", ip);
         } catch (BmcException e) {
             throw new OciException("查询流日志失败: " + OciBmcErrorTranslator.translate(e));
         }
+    }
+
+    private String resolvePrimaryPrivateIp(OciClientService client, String instanceId) {
+        var instance = client.getComputeClient().getInstance(
+                com.oracle.bmc.core.requests.GetInstanceRequest.builder()
+                        .instanceId(instanceId).build()).getInstance();
+        if (instance == null) throw new OciException("实例不存在或无权访问");
+        var attachments = client.getComputeClient().listVnicAttachments(
+                com.oracle.bmc.core.requests.ListVnicAttachmentsRequest.builder()
+                        .compartmentId(instance.getCompartmentId())
+                        .instanceId(instanceId)
+                        .build()).getItems();
+        String fallback = null;
+        for (var attachment : attachments == null
+                ? List.<com.oracle.bmc.core.model.VnicAttachment>of() : attachments) {
+            if (attachment == null || attachment.getVnicId() == null) continue;
+            var vnic = client.getVirtualNetworkClient().getVnic(
+                    com.oracle.bmc.core.requests.GetVnicRequest.builder()
+                            .vnicId(attachment.getVnicId()).build()).getVnic();
+            if (vnic == null || vnic.getPrivateIp() == null) continue;
+            if (Boolean.TRUE.equals(vnic.getIsPrimary())) return vnic.getPrivateIp();
+            if (fallback == null) fallback = vnic.getPrivateIp();
+        }
+        if (fallback != null) return fallback;
+        throw new OciException("无法解析实例私网 IP");
     }
 
     public boolean tryHandleTelegramCallback(String rawData, String callbackQueryId,
