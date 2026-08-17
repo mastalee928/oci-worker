@@ -1,4 +1,5 @@
 import request from '../utils/request'
+import type { OciRequestConfig } from '../utils/request'
 
 export interface FlowLogRecord {
   time?: string
@@ -41,9 +42,12 @@ export function getFlowLogInstanceStatus(data: {
   region?: string
   instanceId: string
 }) {
+  // 辅助性状态查询：失败静默（开关显示未开启即可），不弹全局错误提示。
   return request.post<FlowLogInstanceStatus>('/oci/flowlog/instanceStatus', data, {
     timeout: 60_000,
-  })
+    skipBusinessMessage: true,
+    skipErrorMessage: true,
+  } as OciRequestConfig)
 }
 
 export function searchFlowLog(data: {
