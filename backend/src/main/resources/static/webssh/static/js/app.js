@@ -2119,10 +2119,12 @@ function fitConsoleToContainer(session) {
     if (!xtermEl) return;
 
     var baseFont = 14;
-    term.options.fontSize = baseFont;
-    term.resize(CONSOLE_COLS, CONSOLE_ROWS);
+    // CSS transform 缩放会让 xterm 的鼠标坐标与单元格错位（选区“漂移”跳行），
+    // 因此只用字号缩放填满容器：渲染尺寸与坐标映射始终一致。
     xtermEl.style.transform = '';
     xtermEl.style.transformOrigin = '';
+    term.options.fontSize = baseFont;
+    term.resize(CONSOLE_COLS, CONSOLE_ROWS);
 
     function applyFit() {
         try { term.refresh(0, CONSOLE_ROWS - 1); } catch (e) { }
@@ -2135,15 +2137,15 @@ function fitConsoleToContainer(session) {
         var zoom = Math.pow(1.08, session.consoleFontDelta || 0);
         var scale = Math.min(availW / bw, availH / bh, 8) * zoom;
         scale = Math.max(0.4, scale);
-        if (scale > 1.02 || scale < 0.98) {
-            xtermEl.style.transformOrigin = 'center center';
-            xtermEl.style.transform = 'scale(' + scale + ')';
-        } else {
-            xtermEl.style.transform = '';
+        // 向下取 0.5 步进，保证 80×24 不超出容器。
+        var fitFont = Math.max(6, Math.min(72, Math.floor(baseFont * scale * 2) / 2));
+        if (Math.abs(fitFont - term.options.fontSize) >= 0.25) {
+            term.options.fontSize = fitFont;
+            try { term.refresh(0, CONSOLE_ROWS - 1); } catch (e) { }
         }
         if (sessions[activeIdx] === session) {
             var label = document.getElementById('fontSizeLabel');
-            if (label) label.textContent = Math.round(baseFont * scale);
+            if (label) label.textContent = Math.round(fitFont);
         }
         syncConsolePtySize(session);
     }
