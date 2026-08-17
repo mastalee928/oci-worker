@@ -433,15 +433,18 @@ async function loadFlowLogSubnetStatus() {
 
 async function toggleInstanceFlowLog(enabled: boolean) {
   const tenantId = String(props.tenant?.id || '').trim()
-  const subnetId = String(flowLogSubnet.value?.subnetId || '').trim()
-  if (!tenantId || flowLogToggling.value) return
-  if (!subnetId) {
-    message.warning('尚未解析到实例所在子网，请稍后重试')
-    void loadFlowLogSubnetStatus()
-    return
-  }
+  if (!tenantId || flowLogToggling.value || flowLogSubnetLoading.value) return
   flowLogToggling.value = true
   try {
+    // 懒加载：首次操作时才解析实例所在子网与当前状态。
+    if (!flowLogSubnet.value?.subnetId) {
+      await loadFlowLogSubnetStatus()
+    }
+    const subnetId = String(flowLogSubnet.value?.subnetId || '').trim()
+    if (!subnetId) {
+      message.error('无法解析实例所在子网，请稍后重试')
+      return
+    }
     await toggleFlowLog({
       id: tenantId,
       region: props.region,
@@ -470,6 +473,8 @@ const flowLogColumns = [
 
 function openFlowLog() {
   flowLogVisible.value = true
+  // 懒加载：打开弹窗时才查子网状态（用于「未开启」提示）与日志。
+  if (!flowLogSubnet.value) void loadFlowLogSubnetStatus()
   if (!flowLogQueried.value) void loadFlowLog()
 }
 
@@ -686,7 +691,6 @@ watch(
     }
     if (props.active && props.mode === 'info') {
       void loadGuardStatus()
-      void loadFlowLogSubnetStatus()
     }
   },
   { immediate: true },
